@@ -41,6 +41,32 @@
       (is (str/includes? url "variant="))
       (is (str/includes? url "overrides=")))))
 
+(deftest variant-share-url-replaces-stale-owned-keys-cljs
+  (testing "rf2-b7je1 — the REAL URLSearchParams (the API the url-state
+            hydrator reads with) sees the values THIS call generated, not
+            stale ones already on the base-url. get is first-value, so an
+            append-only merge would return the old variant here."
+    (let [url    (share/variant-share-url
+                   :story.new/b
+                   "https://example.test/?variant=story.old%2Fa&modes=Mode.app%2Fstale&from=index&embed=1#/stories"
+                   {:active-modes [:Mode.app/dark]})
+          search (second (str/split (first (str/split url #"#" 2)) #"\?" 2))
+          usp    (js/URLSearchParams. search)]
+      (is (= "story.new/b" (.get usp "variant"))
+          "URLSearchParams.get returns the requested variant")
+      (is (= "Mode.app/dark" (.get usp "modes"))
+          "URLSearchParams.get returns the requested modes")
+      (is (= 1 (count (.getAll usp "variant")))
+          "exactly one variant value")
+      (is (= 1 (count (.getAll usp "modes")))
+          "exactly one modes value")
+      (is (= "index" (.get usp "from"))
+          "unrelated from= survives")
+      (is (= "1" (.get usp "embed"))
+          "unrelated embed= survives")
+      (is (str/ends-with? url "#/stories")
+          "the hash route survives, after the query"))))
+
 (deftest parse-share-url-params-cljs
   (testing "CLJS parser reconstructs the share URL tokens used by the shell hydrator"
     (is (= :story.counter/loaded

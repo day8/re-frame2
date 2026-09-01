@@ -354,17 +354,40 @@
     [(subs url 0 idx) (subs url (inc idx))]
     [(or url "") nil]))
 
+(defn- ^:no-doc query-param-key
+  "Key half of an already-encoded `k=v` query fragment — the text
+  before the first `=`, or the whole fragment when it carries none.
+  Compared in encoded form: every Story-owned key is plain ASCII, so
+  its encoded spelling is its literal name."
+  [fragment]
+  (if-let [idx (str/index-of fragment "=")]
+    (subs fragment 0 idx)
+    fragment))
+
 (defn- ^:no-doc append-query-params
-  "Append already-encoded query `params` to `base-url`, inserting them
-  before any hash fragment."
+  "Merge already-encoded query `params` into `base-url`, inserting them
+  before any hash fragment.
+
+  Key-aware (rf2-b7je1): every existing occurrence of a key emitted by
+  THIS call is removed before the generated value is appended, so the
+  result carries exactly one value per Story-owned key. The browser
+  hydrator (`re-frame.story.ui.url-state/params->getter`) reads each
+  key with `URLSearchParams.get`, whose first-value semantics would
+  otherwise select a stale value already on `base-url` — opening a
+  different cell than the one shared. Unrelated existing entries
+  (e.g. `from=index`, `embed=1`) are preserved verbatim, in order,
+  ahead of the generated params."
   [base-url params]
   (let [[path fragment] (split-fragment base-url)
-        query           (str/join "&" params)
-        sep             (cond
-                          (str/blank? path)        ""
-                          (str/includes? path "?") "&"
-                          :else                    "?")
-        with-query      (str path sep query)]
+        qidx            (str/index-of path "?")
+        bare            (if qidx (subs path 0 qidx) path)
+        owned           (into #{} (map query-param-key) params)
+        kept            (when qidx
+                          (->> (str/split (subs path (inc qidx)) #"&" -1)
+                               (remove #(contains? owned (query-param-key %)))))
+        query           (str/join "&" (concat kept params))
+        sep             (if (and (nil? qidx) (str/blank? path)) "" "?")
+        with-query      (str bare sep query)]
     (if (some? fragment)
       (str with-query "#" fragment)
       with-query)))

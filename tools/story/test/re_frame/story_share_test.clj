@@ -89,6 +89,77 @@
                 nil)]
       (is (re-find #"\?from=index&variant=" url)))))
 
+;; ---- rf2-b7je1: owned keys REPLACE stale base-url values -----------------
+;;
+;; The browser hydrator (`re-frame.story.ui.url-state/params->getter`)
+;; reads each Story key with `URLSearchParams.get`, whose FIRST-value
+;; semantics select the oldest occurrence in the query string. An
+;; append-only merge over a base-url that already carries `variant=` /
+;; `modes=` therefore hydrates the STALE cell — violating the share
+;; invariant that a pasted URL lands on the exact same cell. The builder
+;; must emit exactly one effective value per key it owns, while leaving
+;; unrelated query entries and the hash route untouched.
+
+(defn- query-part
+  "The query-string portion of `url` — between `?` and any `#`."
+  [url]
+  (second (str/split (first (str/split url #"#" 2)) #"\?" 2)))
+
+(defn- query-key-count
+  "How many query fragments of `url` carry key `k`."
+  [url k]
+  (->> (str/split (or (query-part url) "") #"&")
+       (filter #(= k (first (str/split % #"=" 2))))
+       count))
+
+(defn- first-value-getter
+  "Standards-faithful emulation of the browser hydrator's
+  `URLSearchParams.get` reads over `url`'s query string: FIRST
+  occurrence per key wins, values form-urlencoded-decoded (`+` → space,
+  `%XX` → byte) — the same getter map
+  `re-frame.story.ui.url-state/params->getter` hands to
+  `share/parse-params`."
+  [url]
+  (let [decode #(java.net.URLDecoder/decode (str %) "UTF-8")]
+    (reduce (fn [m fragment]
+              (let [[k v] (str/split fragment #"=" 2)
+                    k     (decode k)]
+                (if (contains? m k) m (assoc m k (decode (or v ""))))))
+            {}
+            (str/split (or (query-part url) "") #"&"))))
+
+(deftest variant-share-url-replaces-stale-owned-keys
+  (testing "rf2-b7je1 — a base-url already carrying variant= and modes=
+            gets those values REPLACED, not appended after; browser
+            first-value reads and parse-params both recover the newly
+            requested cell, and unrelated params + hash route survive"
+    (let [url    (share/variant-share-url
+                   :story.new/b
+                   "https://example.test/?variant=story.old%2Fa&modes=Mode.app%2Fstale&from=index&embed=1#/stories"
+                   {:active-modes [:Mode.app/dark]})
+          getter (first-value-getter url)
+          parsed (share/parse-params getter)]
+      (is (= 1 (query-key-count url "variant"))
+          "exactly one variant= in the query string")
+      (is (= 1 (query-key-count url "modes"))
+          "exactly one modes= in the query string")
+      (is (= "story.new/b" (get getter "variant"))
+          "URLSearchParams.get-faithful read sees the requested variant")
+      (is (= "Mode.app/dark" (get getter "modes"))
+          "URLSearchParams.get-faithful read sees the requested modes")
+      (is (= :story.new/b (:variant-id parsed))
+          "parse-params reconstructs the requested variant")
+      (is (= [:Mode.app/dark] (:active-modes parsed))
+          "parse-params reconstructs the requested modes")
+      (is (= "index" (get getter "from"))
+          "unrelated from= survives with its value")
+      (is (= "1" (get getter "embed"))
+          "unrelated embed= survives with its value")
+      (is (re-find #"\?from=index&embed=1&" url)
+          "unrelated entries keep their order ahead of generated params")
+      (is (str/ends-with? url "#/stories")
+          "the hash route survives, after the query"))))
+
 (deftest variant-share-url-inserts-query-before-hash-route
   (testing "hash-routed Story links keep query params in location.search"
     (let [url (share/variant-share-url
