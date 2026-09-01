@@ -5698,6 +5698,31 @@ jobs:
             bb "$test_file"
           done
 
+      # re-frame2-pair-retro command-contract fixture (rf2-2jeh5 / rf2-qad4l).
+      # `tests/duplicate_search_test.clj` pins the all-state duplicate-search
+      # contract the skill prescribes: the exact argv is EXTRACTED FROM SKILL.md
+      # and checked against a gh state-filter model over a closed-owner /
+      # no-match / query-error fixture set. So the test fails when the prose
+      # drifts from the contract — which is the drift class that matters here,
+      # a retro skill that tells an agent to search only open issues and thereby
+      # re-files a bead somebody already closed. PR #8848 added it with
+      # `.github/workflows/**` fenced out, leaving it local-only. Loop every
+      # *_test.clj, as the setup step above does, so a future pair-retro test is
+      # gated automatically rather than waiting on another wiring PR.
+      #
+      # Same `skills_structural` caveat as reagent-migration-fixture-cold-start
+      # below: the classifier has no arm for `skills/re-frame2-pair-retro/**`
+      # and no default arm, so a diff confined to that tree classifies to
+      # nothing and this step does not run. rf2-g1m2q owns widening it.
+      - name: Run re-frame2-pair-retro structural tests
+        working-directory: skills/re-frame2-pair-retro
+        run: |
+          set -euo pipefail
+          for test_file in tests/*_test.clj; do
+            echo "== $test_file =="
+            bb "$test_file"
+          done
+
   # ---------------------------------------------------------------------------
   # re-frame2-pair SHIPPED-preload pure-core node-test (rf2-etsj8p / rf2-pxxbjk).
   #
