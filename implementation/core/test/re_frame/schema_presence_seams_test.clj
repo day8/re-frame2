@@ -129,7 +129,12 @@
 ;; Sub return outer gate (memo) — the consult itself is presence-gated
 ;; ===========================================================================
 
-(deftest memo-gate-consults-the-validator-for-present-falsey-tokens
+;; ^:requires-debug — the consult delegates to the schemas artefact's
+;; `validate-sub!`, whose body is Spec 010 dev-only (elided under
+;; `-Dre-frame.debug=false`, where it returns true by design). The
+;; production-side presence enforcement is pinned by the boundary /
+;; recordable-cofx tests, which run under the gate untagged.
+(deftest ^:requires-debug memo-gate-consults-the-validator-for-present-falsey-tokens
   (doseq [token [nil false]]
     (testing (str "maybe-validate-sub! consults the :schemas/validate-sub! "
                   "seam for a present " (pr-str token) " :schema; the false "
@@ -153,7 +158,10 @@
 ;; Fx-args outer gate — through the real effect walk
 ;; ===========================================================================
 
-(deftest fx-gate-delegates-a-present-false-token-through-the-real-walk
+;; ^:requires-debug — the fx walk's consult delegates to the schemas
+;; artefact's `validate-fx!`, whose body is Spec 010 dev-only (elided
+;; under `-Dre-frame.debug=false`, where the fx runs unchecked by design).
+(deftest ^:requires-debug fx-gate-delegates-a-present-false-token-through-the-real-walk
   (testing "a reg-fx registration declaring {:schema false} is validated
             during the :fx walk (spy sees the exact false token once) and
             the offending fx is SKIPPED (recovery :skipped); siblings and
