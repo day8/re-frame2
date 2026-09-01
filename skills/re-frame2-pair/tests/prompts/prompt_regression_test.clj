@@ -699,6 +699,88 @@
         "SKILL.md still routes to the deleted references/variant-as-frame.md.")))
 
 ;; ---------------------------------------------------------------------------
+;; Published call ARITY, read against the defining facade
+;; ---------------------------------------------------------------------------
+;;
+;; Every guard above proves a recipe still NAMES an op. None of them says
+;; whether the published call would RUN. references/stories.md shipped
+;; `(re-frame.story/start-recording!)` and `(re-frame.story/gen-play-snippet)`
+;; with zero args against a facade requiring `[variant-id]` and
+;; `[events opts]` — an arity error before capture or codegen happens at all —
+;; and every structural check stayed green through the merge (rf2-p1keh,
+;; audit of PR #8951). These guards read the defining `defn` and the
+;; published call, and relate the two.
+
+(def ^:private story-facade
+  ;; The public Story facade, two levels up from skill-root (repo `tools/story/`).
+  ;; Newlines are normalised: the repo stores LF but a Windows checkout under
+  ;; `core.autocrlf=true` hands back CRLF, and an anchor ending in "\n" then
+  ;; matches nothing — silently, with the guards below reading as vacuous.
+  (delay (-> (io/file skill-root ".." ".." "tools" "story" "src"
+                      "re_frame" "story.cljc")
+             slurp
+             (str/replace "\r\n" "\n"))))
+
+(defn- defn-form
+  "Source text of the top-level `(defn <sym> …)` form, from its opening
+  paren to the blank line before the next top-level form. nil when the
+  facade does not declare `sym` on its own line."
+  [src sym]
+  (when-let [start (str/index-of src (str "(defn " sym "\n"))]
+    (let [tail (subs src start)
+          end  (str/index-of tail "\n\n(")]
+      (if end (subs tail 0 end) tail))))
+
+(defn- zero-arity?
+  "True iff `defn-src` declares a zero-arity — a bare `[]` arg vector alone
+  on its line, or an `([] …)` multi-arity clause."
+  [defn-src]
+  (boolean (re-find #"(?m)^\s*\[\]\s*$|^\s*\(\[\]" defn-src)))
+
+(deftest recorder-recipe-calls-match-the-facade-arity
+  (testing "the facade declares the arities the leaf must satisfy (rf2-p1keh)"
+    (let [src @story-facade]
+      ;; Control. `zero-arity?` answering "false" for every input would clear
+      ;; the two assertions below in the same voice as a correct facade, so
+      ;; exercise it against the one recorder entry point that IS zero-arity.
+      (is (some? (defn-form src "stop-recording!"))
+          (str "could not locate `(defn stop-recording!` in the Story facade "
+               "— the arity guards below are vacuous, not satisfied "
+               "(rf2-p1keh)."))
+      (is (zero-arity? (defn-form src "stop-recording!"))
+          (str "`re-frame.story/stop-recording!` no longer reads as zero-arity, "
+               "so `zero-arity?` is not measuring what it claims and the "
+               "guards below prove nothing (rf2-p1keh)."))
+      (doseq [sym ["start-recording!" "gen-play-snippet"]]
+        (let [form (defn-form src sym)]
+          (is (some? form)
+              (str "could not locate `(defn " sym "` in the Story facade — "
+                   "references/stories.md publishes a call to it, so either "
+                   "the fn moved or this guard is reading the wrong file "
+                   "(rf2-p1keh)."))
+          (is (not (zero-arity? form))
+              (str "`re-frame.story/" sym "` now declares a zero-arity. If that "
+                   "is deliberate, references/stories.md may simplify its "
+                   "recorder sequence; until then the leaf must keep passing "
+                   "arguments (rf2-p1keh)."))))))
+
+  (testing "references/stories.md publishes no zero-arg recorder call (rf2-p1keh)"
+    (let [md @stories-md]
+      (doseq [sym ["start-recording!" "gen-play-snippet"]]
+        (is (not (str/includes? md (str "(re-frame.story/" sym ")")))
+            (str "references/stories.md publishes `(re-frame.story/" sym ")` "
+                 "with zero args. The facade requires arguments, so following "
+                 "the recipe throws before it captures anything (rf2-p1keh).")))
+      (is (str/includes? md "(re-frame.story/start-recording! :story.")
+          (str "references/stories.md no longer passes a variant id to "
+               "`start-recording!` — the recording's address IS the variant "
+               "frame (rf2-p1keh)."))
+      (is (str/includes? md ":variant-id :story.")
+          (str "references/stories.md no longer supplies `gen-play-snippet`'s "
+               "required `:variant-id` opt — the snippet has no id to render "
+               "the `reg-variant` form against (rf2-p1keh).")))))
+
+;; ---------------------------------------------------------------------------
 ;; Catalogue-cardinality drift
 ;; ---------------------------------------------------------------------------
 ;;
