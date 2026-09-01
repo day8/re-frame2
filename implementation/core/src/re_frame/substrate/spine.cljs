@@ -3311,8 +3311,12 @@
                         element-macro dependency, mirroring how
                         `make-ratom-adapter` takes the Reagent-component
                         `register-context-provider` in.
-      :componentize-view — the substrate's registered-view head factory
-                        (rf2-oz7wr), shape `(id metadata wrapped) -> head`.
+      :componentize-view — OPTIONAL. The substrate's registered-view head
+                        factory (rf2-oz7wr), shape
+                        `(id metadata wrapped) -> head`. Omit it and the hook
+                        stays unpublished, so `reg-view*` keeps the composed
+                        wrapper as the head — the right answer for a
+                        React-shaped substrate that owns its own view path.
                         Passed in for the SAME reason as `:frame-provider`:
                         the shell must carry that substrate's own component
                         marker, and stamping it is the one substrate-native
@@ -3369,8 +3373,18 @@
     ;; rf2-oz7wr — the registered-view component head. Routed (not chained by
     ;; identity) like every other `:adapter/*` hook, so a loaded-but-inactive
     ;; React-hook adapter cannot claim a Reagent registration.
-    (substrate-adapter/route-hook! adapter :adapter/componentize-view
-      componentize-view)
+    ;;
+    ;; OPTIONAL, and the `when` is load-bearing: `route-hook!` stores whatever
+    ;; it is handed and calls it once its adapter is the installed one, so
+    ;; routing a nil impl publishes a hook that throws on the first
+    ;; registration rather than one that declines. Every React-shaped caller
+    ;; that does NOT need componentization — hicasso, which owns its own view
+    ;; path, and the spine's own bench/test adapters — passes nothing here, and
+    ;; must be left with the hook UNPUBLISHED so `reg-view*`'s absent-hook
+    ;; fallback returns the wrapper unchanged, exactly as on Reagent.
+    (when componentize-view
+      (substrate-adapter/route-hook! adapter :adapter/componentize-view
+        componentize-view))
     (substrate-adapter/route-hook! adapter :adapter/after-render
       (:after-render-hook spine-fns))
     ;; Chained warn-once clear (rf2-4edk): chained (NOT routed by installed-
