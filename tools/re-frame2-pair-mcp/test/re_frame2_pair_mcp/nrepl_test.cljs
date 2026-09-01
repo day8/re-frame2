@@ -12,6 +12,7 @@
             ["bencode" :as bencode]
             ["fs" :as fs]
             ["net" :as net]
+            ["path" :as node-path]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.shadow-discovery :as shadow-discovery]))
 
@@ -675,6 +676,8 @@
                      (is (= 7777 (:port r)))
                      (is (false? @probed?) "env override is sync — no HTTP probe needed")
                      (is (false? @rooted?) "env override is sync — no roots probe needed")
+                     (is (nil? (:port-file r))
+                         "env discovery is a fixed endpoint — no file identity is invented for it")
                      (restore!)
                      (done))))))))
 
@@ -824,21 +827,38 @@
                      (restore!)
                      (done))))))))
 
-;; The cwd-scan last resort (step 5) supplies NO :port-file: there is no
-;; project-home anchor for a stable absolute path, so the server must fall
-;; back to its derivation (or skip the per-call re-read).
-(deftest discover-port-cwd-scan-surfaces-no-port-file
-  (testing "step 5 (cwd scan) → :port-file is nil (no project-home anchor)"
+;; The cwd-scan last resort (step 5) retains the WINNING candidate's file
+;; identity (rf2-q774o). A relative candidate read against Node's process CWD
+;; has a stable absolute identity via path-join, so the result carries
+;; `:port-file` exactly like steps 1/3/4 — the server caches it and the
+;; per-tool-call re-read observes an ephemeral-port restart on this branch
+;; too. `:project-home` stays nil: no root is inferred, and none is needed.
+(deftest discover-port-cwd-scan-surfaces-winning-port-file
+  (testing "step 5 (cwd scan) → the exact winning candidate is surfaced as an absolute :port-file"
     (async done
       ;; roots unsupported + shadow probe returns nil ⇒ fall to cwd scan.
-      ;; The cwd candidate reads, but no project-home is known.
-      (let [stub-fn (read-returning "\\.nrepl-port" "5599")
-            restore! (install-fs-stub! nil stub-fn)]
+      ;; Only the LAST candidate (.nrepl-port) reads; the earlier missing
+      ;; candidates must not be reported as the winner. Count reads of the
+      ;; winning path — its identity must come from the read that already
+      ;; happened, never from a second read to reconstruct it.
+      (let [win-reads (atom 0)
+            stub-fn   (fn [^js path]
+                        (if (re-find #"\.nrepl-port" (str path))
+                          (do (swap! win-reads inc) "5599")
+                          (throw (js/Error. "ENOENT"))))
+            restore!  (install-fs-stub! nil stub-fn)]
         (-> (nrepl/discover-port* nil nil shadow-fails roots-unsupported)
             (.then (fn [r]
                      (is (= 5599 (:port r)) "cwd scan caught the port")
-                     (is (nil? (:port-file r))
-                         "cwd scan surfaces no port-file — server derivation is the backstop here")
+                     (is (= (node-path/join (js/process.cwd) ".nrepl-port")
+                            (:port-file r))
+                         "the winning candidate resolves against process.cwd() to an absolute :port-file")
+                     (is (not (re-find #"target[\\/]shadow-cljs" (str (:port-file r))))
+                         "an earlier MISSING candidate must not be reported as the winner")
+                     (is (nil? (:project-home r))
+                         "no project-home is invented for the cwd branch")
+                     (is (= 1 @win-reads)
+                         "the winning candidate is read exactly once — identity comes from that read")
                      (restore!)
                      (done))))))))
 
@@ -846,11 +866,15 @@
   (testing "step 4 → 5 — shadow probe fails; cascade falls through to cwd scan"
     (async done
       (let [restore! (install-fs-stub!
-                       nil (read-returning "target/shadow-cljs/nrepl.port" "3030"))]
+                       nil (read-returning "target[\\\\/]shadow-cljs[\\\\/]nrepl\\.port" "3030"))]
         (-> (nrepl/discover-port* nil nil shadow-fails roots-unsupported)
             (.then (fn [r]
                      (is (= 3030 (:port r))
                          "shadow down → cwd-relative scan resolves the port")
+                     (is (= (node-path/join (js/process.cwd)
+                                            "target/shadow-cljs/nrepl.port")
+                            (:port-file r))
+                         "the first candidate wins and its cwd-resolved absolute path is surfaced")
                      (restore!)
                      (done))))))))
 
@@ -875,9 +899,10 @@
                           (re-find #"abs[\\\\/]proj[\\\\/]root" p)
                           (throw (js/Error. "ENOENT"))
                           ;; But a cwd-relative one does exist (manual nREPL boot
-                          ;; outside shadow's purview, say). With no node-path/join
-                          ;; prefix the candidate is the bare relative string.
-                          (= "target/shadow-cljs/nrepl.port" p) "4040"
+                          ;; outside shadow's purview, say). The cwd scan joins
+                          ;; the candidate against process.cwd(), so it arrives
+                          ;; as an absolute path (platform separators).
+                          (re-find #"target[\\\\/]shadow-cljs[\\\\/]nrepl\.port$" p) "4040"
                           :else (throw (js/Error. "ENOENT")))))
             restore! (install-fs-stub! nil stub-fn)]
         (-> (nrepl/discover-port* nil nil (shadow-returns "/abs/proj/root") roots-unsupported)
@@ -921,7 +946,7 @@
   (testing "passing nil roots-discovery-fn (boot-time, pre-MCP-init) acts as :workspace-discovery-unsupported"
     (async done
       (let [restore! (install-fs-stub!
-                       nil (read-returning "target/shadow-cljs/nrepl.port" "5050"))]
+                       nil (read-returning "target[\\\\/]shadow-cljs[\\\\/]nrepl\\.port" "5050"))]
         (-> (nrepl/discover-port* nil nil shadow-fails nil)
             (.then (fn [r]
                      (is (= 5050 (:port r))

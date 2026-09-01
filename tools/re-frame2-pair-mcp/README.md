@@ -128,6 +128,10 @@ The server auto-discovers the nREPL port from (highest precedence first):
 5. CWD-relative scan of `target/shadow-cljs/nrepl.port`,
    `.shadow-cljs/nrepl.port`, `.nrepl-port` — legacy fallback for
    setups without shadow's web server (older shadow, manual nREPL boot).
+   The winning candidate is cached by its cwd-resolved absolute path, so
+   this fallback is file-backed and restart-aware too: a shadow restart
+   on a fresh ephemeral port is picked up by the same per-tool-call
+   re-read as the other file-backed steps.
 
 > The cwd caveat step 3 solves (rf2-3grub). Step 5 is bare
 > relative paths resolved against `process.cwd()`. The MCP server

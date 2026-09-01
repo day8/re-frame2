@@ -87,10 +87,12 @@ five-step cascade.
 **Per-tool-call port-file re-read.** After the initial discovery, each
 subsequent tool call re-reads **the exact port-file discovery resolved**
 before using the cached socket. Discovery surfaces that file path: the
-explicit `--port-file` returns its own path verbatim;
-the roots walk (step 3) and the shadow HTTP probe (step 4) each surface
-the WINNING candidate (`target/shadow-cljs/nrepl.port`,
-`.shadow-cljs/nrepl.port`, or `.nrepl-port`). The server caches that
+explicit `--port-file` returns its own path verbatim; the roots walk
+(step 3), the shadow HTTP probe (step 4) and the cwd scan (step 5) each
+surface the WINNING candidate (`target/shadow-cljs/nrepl.port`,
+`.shadow-cljs/nrepl.port`, or `.nrepl-port`) — step 5's resolved against
+the process CWD, which gives the relative candidate a stable absolute
+identity without inferring a project root. The server caches that
 exact path rather than deriving a fixed `<project-home>/.shadow-cljs/
 nrepl.port` — the pre-fix derivation produced a wrong path for an
 explicit `target/shadow-cljs/nrepl.port` (it became
@@ -99,9 +101,11 @@ forced a needless reconnect + per-connection cache reset on every call.
 If the port has changed (shadow was restarted; the dev server picks a
 fresh ephemeral port on each `watch` start), the cached socket is closed
 and a new one opened transparently. If the port file genuinely vanished,
-discovery re-runs from step 1. The cwd-scan last resort (step 5) has no
-`:project-home` anchor and so surfaces no cached file path; that mode
-alone retains the derivation as a defensive backstop.
+discovery re-runs from step 1. Every file-backed discovery mode is
+therefore **restart-aware**, the cwd fallback included; only the env-var
+override (step 2) has no file to re-read. The derived
+`<project-home>/.shadow-cljs/nrepl.port` remains a purely defensive
+backstop no current discovery mode reaches.
 
 ### Why `roots/list` is the primary path
 

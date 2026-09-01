@@ -170,9 +170,15 @@
                               fallback for clients without
                               `roots/list`.
     5. CWD-relative scan of `port-file-candidates` — final fallback for
-                              environments without the shadow HTTP API. No
-                              `:port-file` is surfaced (no project-home
-                              anchor for a stable absolute path).
+                              environments without the shadow HTTP API.
+                              Candidates resolve against Node's process CWD
+                              (an absolute base), so the WINNING candidate is
+                              surfaced as an absolute `:port-file` just like
+                              steps 1/3/4 — the per-tool-call re-read then
+                              observes an ephemeral-port restart on this
+                              branch too. `:project-home` stays nil (no root
+                              is inferred; none is needed for restart
+                              recovery).
 
   ## Why steps 3, 4, and 5 share the same candidate list
 
@@ -253,11 +259,17 @@
                              ;; .shadow-cljs/nrepl.port vs .nrepl-port), not
                              ;; a derived one.
                              {:port port :project-home project-home :port-file port-file}
-                             ;; Step 5 — cwd-relative scan, last resort. No
-                             ;; project-home to anchor a stable port-file, so
-                             ;; none is surfaced (the cwd path can't supply an
-                             ;; absolute, restart-stable file path).
-                             {:port (some read-port-file port-file-candidates)}))))))))))
+                             ;; Step 5 — cwd-relative scan, last resort.
+                             ;; Node's process CWD is an absolute base, so the
+                             ;; winning candidate resolves to a stable absolute
+                             ;; :port-file exactly like steps 1/3/4 — the server
+                             ;; caches it and the per-tool-call re-read observes
+                             ;; an ephemeral-port restart (or a shutdown) through
+                             ;; the same replacement/rediscovery branches. No
+                             ;; :project-home is surfaced (none is known, and
+                             ;; none is needed for restart recovery).
+                             (or (read-port-at-base (js/process.cwd))
+                                 {:port nil})))))))))))
 
 (defn discover-port
   "Production entry-point for the port-discovery cascade — see
