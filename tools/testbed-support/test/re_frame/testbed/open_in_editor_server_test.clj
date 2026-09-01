@@ -706,6 +706,119 @@
         (is (nil? (nth (first @calls) 3))
             "no editor param → nil hint")))))
 
+;; rf2-1i1ec — endpoint success must mean the COORDINATE arrived.
+;;
+;; `launch-editor`'s `get-args.js` switches on the command basename: `code`,
+;; `code-insiders`, `cursor`, `zed` and the JetBrains binaries get a position
+;; argument, everything else falls through to a bare-file launch that exits 0.
+;; Windsurf is in this endpoint's vocabulary and NOT in that switch, so before
+;; this decline the endpoint answered 200 to a `line=27&column=9` request that
+;; had opened the file at an arbitrary prior cursor position — and that 200
+;; suppressed the client's `windsurf://…:27:9` fallback, which does carry it.
+;;
+;; The complementary client-side half (a declined answer runs the
+;; coordinate-preserving fallback exactly once; a 200 suppresses it) is
+;; `re-frame.testbed.open-in-editor-client-cljs-test`.
+
+(deftest position-blind-commands-are-declared-not-guessed
+  (testing "the position-blind set names exactly the vocabulary commands
+            launch-editor has no get-args case for"
+    (is (= #{"windsurf"} oies/commands-without-position-support))
+    (is (every? (set (vals oies/editor-command-by-keyword))
+                oies/commands-without-position-support)
+        "every declared position-blind command is a command this endpoint can
+         actually be asked for — the set cannot drift onto a phantom binary"))
+  (testing "position-would-be-dropped? fires only for a coordinate-BEARING
+            request to a position-blind command"
+    (is (true?  (oies/position-would-be-dropped? "windsurf" 27 9)))
+    (is (true?  (oies/position-would-be-dropped? "windsurf" 27 nil))
+        "a line alone is a coordinate")
+    (is (true?  (oies/position-would-be-dropped? "windsurf" nil 9))
+        "a column alone is a coordinate (build-file-spec supplies line 1)")
+    (is (false? (oies/position-would-be-dropped? "windsurf" nil nil))
+        "no coordinate → nothing to lose; the endpoint's classpath resolution
+         is still worth having")
+    (is (false? (oies/position-would-be-dropped? "code" 27 9)))
+    (is (false? (oies/position-would-be-dropped? "cursor" 27 9)))
+    (is (false? (oies/position-would-be-dropped? "zed" 27 9)))
+    (is (false? (oies/position-would-be-dropped? "idea" 27 9)))
+    (is (false? (oies/position-would-be-dropped? "code-insiders" 27 9)))
+    (is (false? (oies/position-would-be-dropped? nil 27 9))
+        "auto-detect is not declined — launch-editor picks the binary and we
+         have made no claim about which")))
+
+(deftest endpoint-declines-coordinate-bearing-windsurf-request
+  (testing "editor=windsurf with line+column is DECLINED before Node is
+            spawned: a bare-file launch is not success for a
+            coordinate-bearing request"
+    (let [calls (atom [])]
+      (with-launch-spy calls
+        (let [resp (oies/handle
+                     {:uri            oies/endpoint-path
+                      :request-method :post
+                      :query-string   "file=fake_ns/core.cljs&line=27&column=9&editor=windsurf"
+                      :headers        {"host" "localhost:8031"}})]
+          (is (= 422 (:status resp))
+              "a 200 here would be a false claim that 27:9 reached the editor")
+          (is (not (<= 200 (:status resp) 299))
+              "non-2xx is the whole contract with the client: `fetch-launcher!`
+               runs the coordinate-preserving URI fallback on any non-2xx")
+          (is (re-find #"\"ok\":false" (:body resp)))
+          (is (re-find #"\"error\":\"editor-position-unsupported\"" (:body resp))
+              "the client-visible error names the capability, not launch-failed")
+          (is (zero? (count @calls))
+              "launch! was never called — no editor opens at the wrong place")))))
+  (testing "a coordinate-FREE windsurf request still uses the endpoint: it
+            loses nothing, and classpath resolution is what the URI fallback
+            cannot do"
+    (let [calls (atom [])]
+      (with-launch-spy calls
+        (let [resp (oies/handle
+                     {:uri            oies/endpoint-path
+                      :request-method :post
+                      :query-string   "file=fake_ns/core.cljs&editor=windsurf"
+                      :headers        {"host" "localhost:8031"}})]
+          (is (= 200 (:status resp)))
+          (is (= 1 (count @calls)))
+          (is (= "windsurf" (nth (first @calls) 3))
+              "the windsurf hint still reaches launch! when no coordinate is
+               at stake — the vocabulary is unchanged"))))))
+
+(deftest endpoint-still-serves-every-position-carrying-editor
+  (testing "rf2-1i1ec must not make every editor fall back: each vocabulary
+            entry launch-editor CAN encode a position for still reaches
+            launch! with 27:9 and returns 2xx"
+    (doseq [[editor expected-cmd] [["vscode"          "code"]
+                                   ["vscode-insiders" "code-insiders"]
+                                   ["cursor"          "cursor"]
+                                   ["zed"             "zed"]
+                                   ["idea"            "idea"]]]
+      (testing (str "editor=" editor)
+        (let [calls (atom [])]
+          (with-launch-spy calls
+            (let [resp (oies/handle
+                         {:uri            oies/endpoint-path
+                          :request-method :post
+                          :query-string   (str "file=fake_ns/core.cljs&line=27&column=9&editor=" editor)
+                          :headers        {"host" "localhost:8031"}})]
+              (is (<= 200 (:status resp) 299)
+                  "the endpoint is still preferred for this editor")
+              (is (= 1 (count @calls)) "launch! was invoked")
+              (let [[_abs line column cmd] (first @calls)]
+                (is (= expected-cmd cmd))
+                (is (= 27 line)   "the line survived to the launcher")
+                (is (= 9 column)  "the column survived to the launcher")))))))))
+
+(deftest declined-windsurf-launch-would-have-lost-the-coordinate
+  (testing "the file spec the endpoint WOULD have handed launch-editor still
+            carries 27:9 — the loss happens inside the dependency's argv
+            mapping, which is why the decline sits at the endpoint boundary
+            and not in build-file-spec"
+    (is (= "/abs/src/app.cljs:27:9"
+           (#'oies/build-file-spec "/abs/src/app.cljs" 27 9))
+        "the endpoint's own encoding is correct; launch-editor 2.14.1's
+         get-args.js drops it for a command it has no case for")))
+
 ;; Windows paths exercise the JSON backslash and quote rules.
 
 (deftest escape-json-string-escapes-backslash-and-doublequote
