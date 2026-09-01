@@ -81,8 +81,8 @@ The normative contracts this example leans on: [`spec/014-HTTPRequests.md`](../.
 From `implementation/`:
 
 ```bash
-shadow-cljs watch examples/realworld
-# then open the example's index.html (served however you prefer).
+npm run dev:example -- examples/realworld
+# then open the URL it prints.
 ```
 
 No backend ships. By default the demo entry (`core.cljs`) installs an in-process `:rf.http/managed` override (`:realworld.demo/http-stub`) that wires the shared Conduit demo backend (`realworld-shared.demo-backend`) — a multi-page article corpus sliced by `limit`/`offset`, plus tags, profiles, auth, and the write routes (create / update / delete / favorite / follow / settings) — so everything runs offline. To point at a real backend instead — the official hosted API (<https://api.realworld.show/api>) or the upstream Node/Postgres reference backend (`http://localhost:3000/api`) — set `realworld-http.http/api-base` and remove the demo-stub `:fx-overrides` line from the frame in `core.cljs`. The Bearer token is injected by the frame-wide `:realworld/bearer-auth` HTTP interceptor, so authenticated calls carry the header automatically.

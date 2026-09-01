@@ -198,13 +198,13 @@ The token is a real secret, so it is classified once rather than redacted by han
 
 ## How to run
 
-Build it under shadow-cljs id `examples/realworld-resources` from `implementation/`:
+Run it under shadow-cljs build id `examples/realworld-resources` from `implementation/`:
 
 ```bash
-shadow-cljs watch examples/realworld-resources
+npm run dev:example -- examples/realworld-resources
 ```
 
-Then open the served page in a browser. No backend ships. The demo entry (`core.cljs`) installs an in-process `:rf.http/managed` stub that returns canned Conduit responses for both the reads (resources) and the writes (mutations), so it runs standalone with no network.
+Then open the URL it prints. No backend ships. The demo entry (`core.cljs`) installs an in-process `:rf.http/managed` stub that returns canned Conduit responses for both the reads (resources) and the writes (mutations), so it runs standalone with no network.
 
 To run against a real backend instead: point `realworld-resources.http/api-base` at the official hosted Conduit API (<https://api.realworld.show/api>) or a local reference backend on `http://localhost:3000/api`, and remove the demo-stub `:fx-overrides` line in `core.cljs`. The frame-wide `:realworld/bearer-auth` interceptor then attaches the JWT to every authenticated call.
 

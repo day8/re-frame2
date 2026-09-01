@@ -171,21 +171,22 @@ makes the shape easier to take in at one sitting.
 
 ## How to run
 
-From `implementation/`, watch the build and open it:
+From `implementation/`, run it and open the URL it prints:
 
 ```bash
-shadow-cljs watch examples/nine-states
+# From implementation/:
+npm run dev:example -- examples/nine-states
 ```
 
-To run the Story showcase instead, watch its build and open the Story
-shell:
+To run the Story showcase instead:
 
 ```bash
-shadow-cljs watch :examples/nine-states-with-stories   # then open http://localhost:8040/#/stories
+# From implementation/:
+npm run dev:example -- examples/nine-states-with-stories
 ```
 
-`#/` renders the live demo; `#/stories` mounts the Story shell with each
-canonical render state as a variant. Press <kbd>Ctrl+Shift+C</kbd> on
+Open the printed URL for the live demo, or append `#/stories` to it for the
+Story shell with each canonical render state as a variant. Press <kbd>Ctrl+Shift+C</kbd> on
 either surface to open Xray over the load cascade — pick the `:some` or
 `:error` variant and watch the fetch light up the Epoch, Trace, and Side
 Effects panels end to end.

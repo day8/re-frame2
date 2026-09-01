@@ -165,10 +165,11 @@ Production swap-out: replace `mock-socket-for-actor` with a real `(js/WebSocket.
 ## How to run
 
 ```bash
-shadow-cljs watch examples/websocket
+# From implementation/:
+npm run dev:example -- examples/websocket
 ```
 
-Once it's up: click **Connect** and watch the status pill cascade
+Open the URL it prints, then click **Connect** and watch the status pill cascade
 `CONNECTING → AUTHENTICATING → CONNECTED`. Type a message before connecting and
 it queues, then drains the instant you connect. Hit **Drop connection** and watch
 the pill walk back through `RECONNECTING → CONNECTING → AUTHENTICATING →
