@@ -377,20 +377,72 @@
        :extra    {:head    (first el)
                   :element el}})))
 
+#?(:clj
+   (defn- accepts-arity?
+     "Does the compiled fn `f` accept an invocation of EXACTLY `k` arguments?
+
+     Read off the class, not discovered by calling: a Clojure fn compiles to
+     a class declaring one `invoke` method per FIXED arity, and a variadic fn
+     additionally extends `clojure.lang.RestFn`, whose `getRequiredArity`
+     gives the number of params before the `&`. Both halves are needed —
+     `(fn [& xs] …)` declares NO `invoke` method, and `(fn [a & xs] …)`
+     accepts any arity from ONE up, so \"variadic\" must never be read as
+     \"accepts zero\".
+
+     Only ever called on a `fn?` value (`resolve-component-head` guards),
+     which matters: a Var is `ifn?` but not `fn?`, and `clojure.lang.Var`
+     declares `invoke` for arities 0–21 regardless of what it holds, so
+     inspecting one would answer yes to everything."
+     [f k]
+     (boolean
+       (or (some (fn [^java.lang.reflect.Method m]
+                   (and (= "invoke" (.getName m))
+                        (= k (alength (.getParameterTypes m)))))
+                 (.getDeclaredMethods (class f)))
+           (and (instance? clojure.lang.RestFn f)
+                (>= k (.getRequiredArity ^clojure.lang.RestFn f)))))))
+
+#?(:clj
+   (defn- form-2-invocation-arity
+     "How many of the component's `n` args to pass `inner`: `n` itself when
+     `inner` accepts them all, else the LONGEST accepted prefix (zero
+     included), else `nil` when `inner` declares no arity at or below `n`."
+     [inner n]
+     (first (filter #(accepts-arity? inner %) (range n -1 -1)))))
+
 (defn- invoke-form-2-render-fn
   "Invoke a Form-2 inner render fn with `args`, tolerating an inner that
   declares FEWER params than the component was passed. The idiomatic
   Reagent/UIx Form-2 inner either takes the SAME args as the outer
-  (`(fn [x] …)`) or ignores them and closes over the outer's (`(fn [] …)`).
-  On CLJS these are equivalent — JS arity leniency drops extra args — so
-  `(apply inner args)` renders both. The JVM is strict: `(apply inner args)`
-  throws `ArityException` for a lower-arity inner, so emulate CLJS leniency
-  by falling back to a no-arg call (the `(fn [] …)` shape)."
+  (`(fn [x] …)`), ignores them and closes over the outer's (`(fn [] …)`), or
+  — just as validly — takes a non-zero PREFIX of them (`(fn [kept] …)` under
+  an `(fn [kept ignored] …)` outer). On CLJS all three are equivalent, since
+  JS arity leniency drops extra args, so `(apply inner args)` renders them
+  all. The JVM is strict, so this helper emulates that leniency by CHOOSING
+  the call shape.
+
+  rf2-mocn3 — it used to DISCOVER the shape instead, with
+  `(try (apply inner args) (catch ArityException _ (inner)))`, and that is
+  wrong twice over. The catch enclosed execution of programmer code, so an
+  `ArityException` raised INSIDE a correctly-invoked render (an ordinary
+  wrong-arity bug in a helper it calls) was indistinguishable from an
+  invocation mismatch: the render body ran a SECOND time, duplicating the
+  effects of a non-pure render and reporting the retry's outcome instead of
+  the original failure — or, for a variadic inner, succeeding at arity zero
+  and silently shipping different HTML. And the retry tried only arity ZERO,
+  so a prefix-taking inner was rejected on the server while rendering fine in
+  the browser.
+
+  So: select from the inner's DECLARED arities (`accepts-arity?`), then
+  invoke exactly once. No user code runs inside a catch here, and anything
+  the render throws propagates unchanged. When the inner declares no
+  compatible arity at all there is no shape to choose — CLJS has no
+  equivalent of supplying missing args, so widening is not on the table —
+  and `(apply inner args)` lets the inner's own `ArityException` report the
+  real call rather than a fabricated zero-arity retry."
   [inner args]
-  #?(:clj  (try
-             (apply inner args)
-             (catch clojure.lang.ArityException _
-               (inner)))
+  #?(:clj  (let [k (form-2-invocation-arity inner (count args))]
+             (apply inner (if k (take k args) args)))
      :cljs (apply inner args)))
 
 (defn resolve-component-head
