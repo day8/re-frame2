@@ -939,13 +939,17 @@ same-commit materialization: per
 flow transform rewrites the pending `:db` effect before the event's single
 atomic install, so a flow's inputs and its materialized output move together
 in one commit — there is no general one-event staleness for registered flows.
-The one sequencing exception is a flow registered mid-event via
-`:rf.fx/reg-flow`, whose initial output appears one drain later
-([Spec 013 §Sequencing — the one-event lag](../../spec/013-Flows.md#sequencing--the-one-event-lag)).
-Whether to close that registration lag (a same-commit re-walk has fixpoint
-character but conflicts with the one-install-per-event invariant) is Spec 013's
-open question, not this EP's; the algebra only requires that the evaluation
-policy and its documented sequencing be declared honestly.
+A flow registered mid-event via `:rf.fx/reg-flow` is materialized at its own
+dispatch boundary rather than the next one
+([Spec 013 §Sequencing](../../spec/013-Flows.md#sequencing--settling-on-the-dispatching-frame)):
+the `:fx` walk enqueues one framework-private settling event, so the initial
+output is present when that dispatch settles. This EP's earlier text recorded
+the opposite (an initial output one drain later) and treated closing that lag as
+Spec 013's open question. Spec 013 has since resolved it — a second *event*
+closes the lag where a second *install* could not, leaving the
+one-install-per-event invariant intact. The algebra only requires that the
+evaluation policy and its sequencing be declared honestly, which the resolved
+form does.
 
 ### Resource Declaration
 

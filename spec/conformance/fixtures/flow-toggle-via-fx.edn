@@ -5,13 +5,16 @@
 ;;   :rf.fx/reg-flow   — args are a flow map; registers the flow
 ;;   :rf.fx/clear-flow — args are a flow id;  clears the flow
 ;;
-;; A flow registered mid-event first runs on the NEXT event drain
-;; (per Spec 013 §Sequencing). Clearing a flow dissoc's its :output-path.
+;; Both settle on the DISPATCHING frame (per Spec 013 §Sequencing): the
+;; `:fx` walk enqueues one framework-private settling drain, so a flow
+;; registered mid-event has its initial output by the time that dispatch
+;; returns, and a cleared flow's :output-path is vacated by the same
+;; boundary. No app-authored follow-up event is involved.
 
 {:fixture/id           :flow/toggle-via-fx
  :fixture/spec-version "1.0"
  :fixture/capabilities #{:core/event-handler :core/fx :flow/basic :flow/toggle}
- :fixture/doc          "Round-trip the dynamic toggle: an event handler emits :rf.fx/reg-flow which registers the flow; a later event emits :rf.fx/clear-flow which deregisters and dissoc-in's the output path. The flow's first run lands on the event AFTER registration; clearing immediately vacates the slot."
+ :fixture/doc          "Round-trip the dynamic toggle: an event handler emits :rf.fx/reg-flow which registers the flow; a later event emits :rf.fx/clear-flow which deregisters and dissoc-in's the output path. Both settle on their own dispatch — the flow's first run lands on the REGISTERING event, and the clear vacates the slot on the clearing event."
 
  :fixture/registry
  {:event {:wizard/init       {:doc "Seed :step-2 inputs."}
@@ -41,13 +44,16 @@
  {:initial-events [[:wizard/init]]}
 
  ;; Sequence:
- ;;   :wizard/enter    — registers the flow. First evaluation fires on
- ;;                      the NEXT drain (per Spec 013 §Sequencing); inputs
- ;;                      are 3 + 4 → flow has not yet written.
- ;;   :wizard/bump-foo — mutates :step-2 :foo to 5; flow runs on this drain
- ;;                      (registered before the drain) → 5 + 4 = 9 at
- ;;                      [:step-2 :result].
- ;;   :wizard/leave    — clears the flow. The output path is dissoc-in'd.
+ ;;   :wizard/enter    — registers the flow. It settles on THIS dispatch
+ ;;                      (per Spec 013 §Sequencing); inputs are 3 + 4, so
+ ;;                      [:step-2 :result] is 7 by the time it returns.
+ ;;                      Recompute #1.
+ ;;   :wizard/bump-foo — mutates :step-2 :foo to 5; the flow recomputes on
+ ;;                      this drain → 5 + 4 = 9 at [:step-2 :result].
+ ;;                      Recompute #2.
+ ;;   :wizard/leave    — clears the flow. The output path is dissoc-in'd on
+ ;;                      this same dispatch, so the registry row and the
+ ;;                      value it owned go together.
  :fixture/dispatches
  [[:wizard/enter]
   [:wizard/bump-foo 5]
@@ -67,4 +73,14 @@
   ;; The harness checks that the flow registry no longer contains
   ;; :step-2/computed after :wizard/leave fires.
   :flow-registry-after
-  #{}}}
+  #{}
+
+  ;; This count is what pins the settle contract, and `:final-app-db`
+  ;; cannot: it is a SUBMAP matcher, so it is blind to a stale `:result`
+  ;; the clear failed to vacate, and blind to whether the registering
+  ;; dispatch computed anything at all. Two recomputes says both — one on
+  ;; :wizard/enter (the settle) and one on :wizard/bump-foo. Under the
+  ;; superseded next-drain behaviour :wizard/enter computed nothing and
+  ;; this read 1.
+  :flow-recompute-counts
+  {:step-2/computed 2}}}

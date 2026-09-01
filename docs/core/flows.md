@@ -310,22 +310,17 @@ Here's what a materialised view in a database can't do: you can switch a flow on
     {:fx [[:rf.fx/reg-flow [:cart/discount-rate
                             {:inputs [[:cart :subtotal]]
                              :output-path [:cart :discount-rate]}
-                            (fn [_subtotal] 0.10)]]
-          [:dispatch [:cart/touch]]]}))             ;; see the lag note below
+                            (fn [_subtotal] 0.10)]]]}))
 
 (rf/reg-event :cart/remove-discount
   (fn [_cofx _event]
-    {:fx [[:rf.fx/clear-flow :cart/discount-rate]
-          [:dispatch [:cart/touch]]]}))
-
-(rf/reg-event :cart/touch
-  (fn [{:keys [db]} _event] {:db db}))              ;; no-op; exists only to trigger a recompute pass
+    {:fx [[:rf.fx/clear-flow :cart/discount-rate]]}))
 ```
 
 Notes:
 
 1. `:rf.fx/clear-flow` removes the registration **and vacates the value at `:output-path`**, so no stale derived state is left behind for downstream readers to trust by mistake. The framework put the value there; the framework takes it away. (If you need the last value, copy it somewhere else before clearing.)
-2. The lag note the code promised: a flow registered mid-event does **not** compute during *that* event. Effects run after the event's flow pass has already happened, so the new flow's first output appears on the **next** event. Usually that's invisible — register on page entry and the user's first interaction materialises it (the editor above starts invalid-and-clean, so the lag carries no wrong value). When you need the initial value *now*, dispatch a follow-up no-op event, as `:cart/touch` does above: by the time it drains, the flow is registered and computes.
+2. Both effects **settle on the dispatch that emits them**. A flow registered by `:cart/apply-discount` has its initial output — and so does everything downstream of it, `[:cart :total]` included — by the time that dispatch returns; a flow cleared by `:cart/remove-discount` has its output path vacated by the same boundary. You do not write a follow-up event, and you do not have to think about when the value appears. The framework runs one settling pass of its own after the effects, inside the same run-to-completion drain.
 
 The fx variant is the common one because most toggling happens *inside* event handling, where the dispatching frame is carried automatically. But the same two operations also exist as plain functions — the registration macro `rf/reg-flow`, and `re-frame.flows/clear-flow` — for use outside a handler (boot code, a test, a per-tenant setup):
 
@@ -369,7 +364,7 @@ A flow splits into the two layers you'd expect, and each tests like everything e
     (is (= :odd (get-in (rf/app-db-value f) [:parity])))))
 ```
 
-`with-new-frame` pins the frame for the body, so `reg-flow` seats the flow there without an explicit `{:frame …}` — and tears the frame down on exit, so nothing leaks into the next test. Note the one-event lag doesn't bite here: it applies to a flow registered *mid-event* via the fx; a flow registered before the dispatch (as above) computes with that first event's commit.
+`with-new-frame` pins the frame for the body, so `reg-flow` seats the flow there without an explicit `{:frame …}` — and tears the frame down on exit, so nothing leaks into the next test. A flow registered before the dispatch, as above, computes with that first event's commit; one registered *mid-event* via `:rf.fx/reg-flow` settles on its own dispatch. Either way there is nothing to wait for.
 
 ## When the framework refuses: the registration-time errors
 

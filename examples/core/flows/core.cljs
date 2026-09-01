@@ -31,8 +31,8 @@
       clear the `:cart/discount-rate` flow from a handler, mid-flight, while
       the app is running.
 
-   The guide has the full registration map, the topological sort, the
-   one-event lag, and the failure semantics."
+   The guide has the full registration map, the topological sort, and the
+   failure semantics."
   (:require [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             ;; Flows live in their own artefact, so you opt in. Requiring
@@ -150,18 +150,15 @@
 ;; cleared while the app runs, through the two reserved effects — and both
 ;; carry the dispatching frame along for you.
 ;;
-;; There's one wrinkle worth knowing: the one-event lag. A flow registered
-;; via `:rf.fx/reg-flow` doesn't run during the event that registers it; it
-;; first runs on the *next* event. Its opening output is always one event
-;; behind. So right after registering the discount-rate flow, we dispatch a
-;; do-nothing `:cart/touch`. By the time it runs the new flow is in the
-;; registry, so that walk finally materialises `[:cart :discount-rate]` (and
-;; the `[:cart :total]` that depends on it) at the discounted figure.
-;; `:cart/touch` writes nothing — the walk it triggers does all the work.
+;; Both effects settle on the dispatch that emits them. Registering the
+;; discount-rate flow materialises `[:cart :discount-rate]` — and the
+;; `[:cart :total]` that depends on it — before `:cart/apply-discount`
+;; returns; clearing it vacates both by the same boundary. There is no
+;; follow-up event to write and none to remember.
 ;; Guide: docs/core/flows.md#toggling-a-derivation-at-runtime.
 (rf/reg-event :cart/apply-discount
   {:doc "Engage the 10%-off feature gate: register a flow that writes the
-         discount rate, then nudge a re-walk so :cart/total recomputes."}
+         discount rate. :cart/total recomputes on this same dispatch."}
   (fn handler-cart-apply-discount [_ _]
     {:fx [[:rf.fx/reg-flow
            [:cart/discount-rate
@@ -171,28 +168,15 @@
                       flat 10% off."
              :inputs [[:cart :subtotal]]
              :output-path [:cart :discount-rate]}
-            (fn [_subtotal] 0.10)]]
-          [:dispatch [:cart/touch]]]}))
+            (fn [_subtotal] 0.10)]]]}))
 
 (rf/reg-event :cart/remove-discount
   {:doc "Disengage the feature gate. `:rf.fx/clear-flow` removes the flow and
          `dissoc-in`s its [:cart :discount-rate] output path (per spec 013 —
          the key is removed, not set to nil), so :cart/total climbs back to
-         full price on the next walk."}
+         full price on this same dispatch."}
   (fn handler-cart-remove-discount [_ _]
-    {:fx [[:rf.fx/clear-flow :cart/discount-rate]
-          [:dispatch [:cart/touch]]]}))
-
-;; The humble no-op. It hands the db straight back, unchanged; its entire
-;; purpose in life is to make one more walk happen on this frame. On that
-;; walk the flows re-run with the just-(de)registered discount flow now in
-;; the registry, and the one-event-lagged output finally surfaces. The real
-;; work is the `:rf.fx/reg-flow` / `:rf.fx/clear-flow`; this event is just
-;; the walk that makes it show up.
-(rf/reg-event :cart/touch
-  {:doc "No-op. Exists only to trigger the walk that surfaces the
-         one-event-lagged discount flow output."}
-  (fn handler-cart-touch [{:keys [db]} _] {:db db}))
+    {:fx [[:rf.fx/clear-flow :cart/discount-rate]]}))
 
 ;; And here's the payoff — a handler reading a flow's output. This one reads
 ;; [:cart :total] as plain app-db data, and that is the whole reason the

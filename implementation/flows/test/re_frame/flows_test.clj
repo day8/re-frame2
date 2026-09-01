@@ -1153,71 +1153,67 @@
     (rf/reg-event :foo!  (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:wizard :foo] v)}))
     (rf/reg-event :leave (fn [_ _]
                               {:fx [[:rf.fx/clear-flow :step-2/computed]]}))
-    (rf/reg-event :touch (fn [{:keys [db]} _] {:db db}))   ;; no-op; exists only to drain
     (rf/dispatch-sync [:init])
     (is (nil? (get-in (rf/app-db-value :rf/default) [:wizard :result]))
         "no flow yet — :result is unset")
-    ;; Register the flow during :enter. Per Spec 013 §Sequencing the flow
-    ;; first runs on the NEXT event drain.
+    ;; Register the flow during :enter. Per Spec 013 §Sequencing the `:fx`
+    ;; walk settles the frame's flows before this dispatch returns, so the
+    ;; initial output is present immediately.
     (rf/dispatch-sync [:enter])
     (is (contains? (get (flows/flows-snapshot) :rf/default) :step-2/computed)
         "registry now carries :step-2/computed")
-    ;; Drive a drain with a benign event; the flow first-fires here.
+    (is (= 7 (get-in (rf/app-db-value :rf/default) [:wizard :result]))
+        "and its initial output 3 + 4 = 7 settled on the registering dispatch")
+    ;; An ordinary input mutation recomputes on its own drain, as always.
     (rf/dispatch-sync [:foo! 5])
     (is (= 9 (get-in (rf/app-db-value :rf/default) [:wizard :result]))
         "flow ran on this drain with 5 + 4 = 9")
-    ;; Now clear via fx. The registry removal is immediate (never deferred),
-    ;; but `:fx` walks AFTER :leave's own flow transform / `:db` install
-    ;; (rf2-2qd9wp / Spec 013 §Sequencing — the same one-event lag
-    ;; `:rf.fx/reg-flow` already documents in
-    ;; `fx-reg-flow-mid-event-lag-and-followup-dispatch-workaround`): the
-    ;; app-db vacate is recorded as an abandoned path and dissoc'd from the
-    ;; pending `:db` on the NEXT drain, not this one.
+    ;; Now clear via fx. The registry removal was always immediate; per
+    ;; Spec 013 §Sequencing the app-db vacate now lands on the SAME
+    ;; dispatch, so the registry row and the value it owned disappear
+    ;; together rather than one drain apart.
     (rf/dispatch-sync [:leave])
     (is (not (contains? (get (flows/flows-snapshot) :rf/default) :step-2/computed))
-        "registry slot removed immediately")
-    (is (= 9 (get-in (rf/app-db-value :rf/default) [:wizard :result]))
-        ":result is UNCHANGED on :leave's own drain — the vacate lags one event, mirroring :rf.fx/reg-flow's lag")
-    ;; Drive one more drain to apply the deferred vacate.
-    (rf/dispatch-sync [:touch])
+        "registry slot removed")
     (is (not (contains? (get (rf/app-db-value :rf/default) :wizard) :result))
-        ":rf.fx/clear-flow's dissoc-in lands on the NEXT drain")))
+        "and :rf.fx/clear-flow's dissoc-in landed on the same dispatch")))
 
-(deftest fx-reg-flow-mid-event-lag-and-followup-dispatch-workaround
-  ;; Pin the LEAST-OBVIOUS flow behaviour as an explicit contract: a flow
-  ;; registered mid-event via `:rf.fx/reg-flow` does NOT
-  ;; compute on THAT event's drain (the `:fx` walk runs after the flow
-  ;; transform — Spec 013 §Sequencing / §Drain integration), and the
-  ;; documented workaround (a follow-up no-op `:dispatch` from the SAME
-  ;; handler) materialises the initial value on the dispatched event's
-  ;; drain. Locks the lag so a future "synchronous re-walk" change can't
-  ;; silently alter it without flipping this test.
+(deftest fx-reg-flow-settles-with-or-without-a-followup-dispatch
+  ;; Spec 013 §Sequencing: a flow registered mid-event via `:rf.fx/reg-flow`
+  ;; materialises its initial output on the REGISTERING dispatch. The
+  ;; framework enqueues the settling drain itself, so no app-authored no-op
+  ;; event is required.
+  ;;
+  ;; Both arms matter. The first is the contract. The second is the
+  ;; compatibility half: an app that still hand-writes the old follow-up
+  ;; `:dispatch` gets the same answer, because settling is idempotent — the
+  ;; dirty check makes the second pass recompute nothing.
   (rf/reg-event :init (fn [{:keys [db]} _] {:db {:wizard {:foo 3 :bar 4}}}))
-  ;; Bare register — NO follow-up dispatch. Demonstrates the lag.
+  ;; Bare register — no follow-up dispatch of any kind.
   (rf/reg-event :enter-bare
     (fn [_ _]
       {:fx [[:rf.fx/reg-flow [:step-2/computed {:inputs [[:wizard :foo] [:wizard :bar]] :output-path [:wizard :result]} (fn [foo bar] (+ foo bar))]]]}))
-  ;; Register + a follow-up no-op `:dispatch` on the same handler — the
-  ;; documented "I need the value now" workaround.
-  (rf/reg-event :enter-with-settle
+  ;; Register + the follow-up `:dispatch` the old contract required. Now
+  ;; redundant rather than required.
+  (rf/reg-event :enter-with-legacy-nudge
     (fn [_ _]
       {:fx [[:rf.fx/reg-flow [:step-2/computed {:inputs [[:wizard :foo] [:wizard :bar]] :output-path [:wizard :result]} (fn [foo bar] (+ foo bar))]]
-            [:dispatch [:wizard/settle]]]}))
-  (rf/reg-event :wizard/settle (fn [{:keys [db]} _] {:db db}))   ;; no-op; exists only to drain
+            [:dispatch [:wizard/nudge]]]}))
+  (rf/reg-event :wizard/nudge (fn [{:keys [db]} _] {:db db}))
 
-  (testing "the lag — a mid-event reg-flow does NOT compute on its own drain"
+  (testing "a bare mid-event reg-flow settles on its own dispatch"
     (rf/dispatch-sync [:init])
     (rf/dispatch-sync [:enter-bare])
     (is (contains? (get (flows/flows-snapshot) :rf/default) :step-2/computed)
         "flow IS registered after :enter-bare")
-    (is (nil? (get-in (rf/app-db-value :rf/default) [:wizard :result]))
-        "but :result is STILL unset — the flow did not run on the registering event's drain"))
-
-  (testing "the workaround — a follow-up :dispatch materialises the value on the next drain"
-    (rf/dispatch-sync [:init])
-    (rf/dispatch-sync [:enter-with-settle])
     (is (= 7 (get-in (rf/app-db-value :rf/default) [:wizard :result]))
-        "the :dispatch [:wizard/settle] re-triggered the drain, so the flow computed 3 + 4 = 7")))
+        "and :result carries 3 + 4 = 7 with no follow-up event"))
+
+  (testing "an app still dispatching the old no-op nudge gets the same result"
+    (rf/dispatch-sync [:init])
+    (rf/dispatch-sync [:enter-with-legacy-nudge])
+    (is (= 7 (get-in (rf/app-db-value :rf/default) [:wizard :result]))
+        "the redundant nudge is harmless — settling is idempotent")))
 
 ;; ---------------------------------------------------------------------------
 ;; 6. clean-state interaction: the per-frame store is the single source of

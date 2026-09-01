@@ -122,14 +122,17 @@ Two reserved fx-ids register / clear a flow mid-event. They route to the **dispa
     {:fx [[:rf.fx/reg-flow [:cart/discount-rate
                             {:inputs [[:cart :discount-engaged?]]
                              :output-path [:cart :discount-rate]}
-                            (fn [_] 0.10)]]     ;; same 3-slot triple reg-flow takes
-          [:dispatch [:cart/touch true]]]}))   ;; nudge a re-walk (see Sequencing)
+                            (fn [_] 0.10)]]]}))  ;; same 3-slot triple reg-flow takes
 
 (rf/reg-event :cart/remove-discount
   (fn [_ _]
-    {:fx [[:rf.fx/clear-flow :cart/discount-rate]   ;; dissoc-in's [:cart :discount-rate]
-          [:dispatch [:cart/touch false]]]}))
+    {:fx [[:rf.fx/clear-flow :cart/discount-rate]]}))   ;; dissoc-in's [:cart :discount-rate]
 ```
+
+Both settle on the dispatch that emits them: the registered flow's initial
+output (and everything downstream of it) is present when `:cart/apply-discount`
+returns, and the cleared flow's output path is vacated when
+`:cart/remove-discount` returns. No follow-up event to write.
 
 ## How flows run (drain integration)
 
@@ -144,7 +147,7 @@ Flow evaluation happens **right after the event handler's interceptor chain — 
 
 - **Default to a sub.** Most derived values are subs. Reach for a flow only when the four conditions above all hold — flows pay an `app-db` write per recompute.
 - **Flows publish ZERO framework subs.** A flow's `:output-path` IS the contract surface; consumers read it via any sub they register over the path (`(rf/reg-sub :cart/total (fn [db _] (get-in db [:cart :total])))`) or read it straight off `app-db` in a handler. There is no `:rf.flow/<id>` sub.
-- **One-drain registration lag.** A flow registered via `:rf.fx/reg-flow` first runs on the *next* drain — its initial output appears one event after registration. Dispatch a synthetic nudge event if you need the value immediately (the cart example dispatches `:cart/touch`).
+- **Lifecycle effects settle on their own dispatch.** A flow registered via `:rf.fx/reg-flow` has its initial output, and a flow cleared via `:rf.fx/clear-flow` has its output path vacated, by the time that dispatch settles. The framework enqueues one private settling drain after the `:fx` walk; you do not write a nudge event, and code that still does is doing redundant work rather than something required.
 - **Cycles throw at registration.** If A depends on B and B on A, `reg-flow` throws `:rf.error/flow-cycle` with `:cycle` (an ordered vector with a closing repeat, e.g. `[:a :b :a]`).
 - **Overlap uses the one shared path relation.** Dependency and conflict are both `rf.path/overlap?` (EP-0012): two paths overlap **exactly when either is a prefix of the other** (`[:cart]` and `[:cart :items 42]` overlap; the root `[]` overlaps *everything*; siblings `[:cart :items 42]` / `[:cart :items 43]` do not). Flow B depends on flow A when A's output overlaps one of B's inputs. A flow whose **output `:output-path` is `[]` is invalid** (it would claim the whole partition), and **two flows in one frame whose outputs overlap are a registration error** (`:rf.error/flow-path-overlap`, carrying both `:flow-ids` and `:paths`) — not a silent last-write-wins. Flows use this one shared relation, not a private one. See [`../cross-cutting/path-and-identity.md`](../cross-cutting/path-and-identity.md).
 - **`clear-flow` vacates the path.** It `dissoc-in`s the `:output-path` (no opt-out). Copy the value elsewhere first if you need to keep it.
