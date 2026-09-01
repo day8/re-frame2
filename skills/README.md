@@ -275,14 +275,18 @@ rather than theoretical attacks.
   rules, carried as a local worked recipe by every skill that files
   (`scripts/check_skill_mcp_drift.py` pins the clauses per consumer):
   - bodies: never interpolate transcript-derived text inline
-    (where `$`, `` ` ``, or `\` would expand). `Write` the body to a
-    fresh, per-filing temp file in the host OS's temp directory
-    (nonce-carrying `${TMPDIR:-/tmp}/…` on POSIX, `$env:TEMP\…` on
-    Windows — never a fixed, predictable name) and pass that exact
-    path via `gh issue create --body-file` — one bare `gh issue
-    create` invocation, runnable under the restricted
-    `Bash(gh issue *)` permission (a `cat > file` here-doc or a
-    `--body "$(cat …)"` subshell is not).
+    (where `$`, `` ` ``, or `\` would expand). Settle one **concrete
+    absolute path** in the host OS's temp directory first — the temp
+    directory resolved to a literal, plus a per-filing nonce the
+    agent picks itself, both substituted before any tool call
+    (`/tmp/re-frame2-issue-7f3a9c.md`; never a fixed, predictable
+    name, and never a `${TMPDIR:-/tmp}` / `$RANDOM` / `$env:TEMP` /
+    `NewGuid` expression, which `Write` stores literally and a
+    second shell evaluation resolves to a different file). `Write`
+    the body to that path, then pass the same string via `gh issue
+    create --body-file` — one bare `gh issue create` invocation,
+    runnable under the restricted `Bash(gh issue *)` permission (a
+    `cat > file` here-doc or a `--body "$(cat …)"` subshell is not).
   - titles, search keywords, labels, repos — every other
     user-influenced argv has no `--*-file` equivalent, so it is safe
     only because the agent authors it: from the restricted safe

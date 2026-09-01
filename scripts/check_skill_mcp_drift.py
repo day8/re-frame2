@@ -767,6 +767,192 @@ def check_title_safety_rules(
 
 
 # ---------------------------------------------------------------------------
+# Body-path-identity axis (rf2-2zkrz).
+#
+# The title-safety axis above proves a filing recipe SAYS `--body-file`. It
+# says nothing about whether the path handed to `--body-file` can ever name
+# the file `Write` created — and for a year it could not. Both recipes gave
+# the temp path only as a shell expression
+# (`${TMPDIR:-/tmp}/re-frame2-issue-$$-$RANDOM.md` on POSIX,
+# `$env:TEMP\re-frame2-issue-$([guid]::NewGuid()).md` on Windows), and:
+#
+#   - `Write` is not a shell. It stores `file_path` literally, so the
+#     expression became part of the FILENAME rather than being replaced.
+#   - Even in a shell, `$$`/`$RANDOM`/`NewGuid` re-roll on every evaluation,
+#     so the `gh` step named a DIFFERENT file than the `Write` step. Measured
+#     on the fixing branch: three evaluations of the one POSIX expression
+#     produced three distinct paths, and the Windows expression is not even
+#     parseable by the `Bash(gh issue *)` shell the skills grant (syntax
+#     error near `)`).
+#
+# So the invariant is path IDENTITY as concrete strings, and it is
+# structural, not prose: every `--body-file` ARGUMENT in a filing recipe must
+# be one concrete absolute path carrying no expansion syntax, and that exact
+# string must also appear elsewhere in the recipe — the `Write` example it is
+# supposed to reuse. Prose that merely NAMES `${TMPDIR:-/tmp}` or `$RANDOM`
+# is untouched: warning the agent off those tokens is the fix, not the defect,
+# so the ban is scoped to the argument position alone.
+#
+# The `--body-file` mentions that carry no value (a bare `` `--body-file` ``
+# in running prose) are not argument usages and do not match. A recipe with
+# NO argument usage at all fails as `missing-body-path`: a zero-match census
+# is not a check that passed.
+# ---------------------------------------------------------------------------
+
+# `--body-file <value>`, value optionally quoted. Matched against a
+# whitespace-flattened copy of the recipe, because these docs hard-wrap and a
+# command can carry a newline between the flag and its value — or inside a
+# quoted placeholder. A bare `` `--body-file` `` in prose is followed by a
+# backtick, not whitespace, so it never matches.
+_BODY_FILE_ARG_RE = re.compile(
+    r"--body-file +(?:'([^']*)'|\"([^\"]*)\"|([^\s`]+))"
+)
+
+# Expansion syntax that must never survive into a `--body-file` argument.
+_EXPANSION_TOKENS: tuple[str, ...] = (
+    "${", "$$", "$RANDOM", "$env:", "$(", "NewGuid", "`", "%TEMP%",
+)
+
+# Concrete worked path examples the recipe must show for BOTH host shapes,
+# so an agent on either host has an already-substituted model to copy.
+_POSIX_EXAMPLE_RE = re.compile(r"(?<![\w\\])/(?:[\w.\-]+/)*re-frame2-issue-[\w.\-]+\.md")
+_WINDOWS_EXAMPLE_RE = re.compile(r"[A-Za-z]:\\(?:[\w.\-<>]+\\)*re-frame2-issue-[\w.\-]+\.md")
+
+
+def _is_concrete_absolute_path(value: str) -> bool:
+    """True for a POSIX `/...` or Windows `X:\\...` / `X:/...` literal."""
+    if value.startswith("/"):
+        return True
+    return len(value) > 2 and value[0].isalpha() and value[1] == ":" and value[2] in "\\/"
+
+
+def check_body_path_identity(
+    rules: Iterable[TitleSafetyRule],
+) -> tuple[list[Drift], list[str]]:
+    """Every filing recipe hands `--body-file` one concrete, reused path.
+
+    Returns (drift, info). Drift directions:
+      `missing-body-path`   — no `--body-file` argument usage at all.
+      `expression-body-path`— the argument still carries expansion syntax,
+                              or is not an absolute path.
+      `unpaired-body-path`  — the argument is concrete but appears nowhere
+                              else in the recipe, so nothing shows `Write`
+                              being given that same string.
+      `missing-path-example`— the recipe lacks a concrete POSIX or Windows
+                              worked path.
+    """
+    drift: list[Drift] = []
+    info: list[str] = []
+
+    for rule in rules:
+        for doc in rule.docs:
+            if not doc.exists():
+                raise FileNotFoundError(
+                    f"body-path-identity: {rule.consumer} names a doc that "
+                    f"does not exist: {doc}"
+                )
+        raw = "\n".join(d.read_text(encoding="utf-8") for d in rule.docs)
+        # Flatten every whitespace run to one space so a hard-wrapped command
+        # reads as one line. Concrete paths carry no whitespace, so neither
+        # the argument values nor the worked examples are disturbed.
+        text = re.sub(r"\s+", " ", raw)
+        name = f"body-path-identity:{rule.consumer}"
+
+        args = [
+            (m.group(1) or m.group(2) or m.group(3) or "").strip()
+            for m in _BODY_FILE_ARG_RE.finditer(text)
+        ]
+        args = [a for a in args if a]
+
+        if not args:
+            drift.append(Drift(name, "missing-body-path", rule.consumer))
+            info.append(
+                f"body-path-identity: {rule.consumer} shows no `--body-file` "
+                f"argument at all -- DRIFT."
+            )
+            continue
+
+        bad = [a for a in args if any(t in a for t in _EXPANSION_TOKENS)
+               or not _is_concrete_absolute_path(a)]
+        if bad:
+            drift.append(Drift(name, "expression-body-path", bad[0]))
+            info.append(
+                f"body-path-identity: {rule.consumer} passes a non-concrete "
+                f"`--body-file` argument ({bad[0]!r}) -- DRIFT."
+            )
+            continue
+
+        unpaired = [a for a in args if text.count(a) < 2]
+        if unpaired:
+            drift.append(Drift(name, "unpaired-body-path", unpaired[0]))
+            info.append(
+                f"body-path-identity: {rule.consumer} passes "
+                f"{unpaired[0]!r} to `--body-file` but shows it nowhere "
+                f"else -- DRIFT."
+            )
+            continue
+
+        missing_shapes = [
+            shape for shape, rx in (("POSIX", _POSIX_EXAMPLE_RE),
+                                    ("Windows", _WINDOWS_EXAMPLE_RE))
+            if not rx.search(text)
+        ]
+        if missing_shapes:
+            drift.append(Drift(name, "missing-path-example",
+                               "/".join(missing_shapes)))
+            info.append(
+                f"body-path-identity: {rule.consumer} shows no concrete "
+                f"{'/'.join(missing_shapes)} worked path -- DRIFT."
+            )
+            continue
+
+        info.append(
+            f"body-path-identity: {rule.consumer} reuses "
+            f"{len(args)} concrete `--body-file` path(s), both host shapes "
+            f"shown -- OK."
+        )
+
+    return drift, info
+
+
+# A body carrying every character class the `--body-file` boundary exists to
+# keep out of argv: command substitution, a backtick, a backslash, both quote
+# kinds, a bare `$`, and a newline.
+_NASTY_BODY = (
+    "## spec-gap(EP-042): reproduction\n"
+    "command substitution: $(rm -rf /)\n"
+    "backtick: `whoami`\n"
+    "backslash: C:\\Users\\nobody\\AppData\n"
+    "quotes: \"double\" and 'single'\n"
+    "bare dollar: $HOME and ${TMPDIR:-/tmp} and $RANDOM\n"
+)
+
+
+class _LiteralPathHost:
+    """A `Write` with literal-path semantics and a `gh` that reads --body-file.
+
+    The filesystem is a dict keyed by the EXACT string handed to `Write`.
+    That is the whole point: a real `Write` tool is not a shell, so whatever
+    expression is in `file_path` becomes part of the key rather than being
+    expanded. `gh_issue_create` then looks up the exact `--body-file` string,
+    and the two only meet when they are the same string.
+    """
+
+    def __init__(self) -> None:
+        self.files: dict[str, str] = {}
+        self.written_paths: list[str] = []
+
+    def write(self, file_path: str, content: str) -> None:
+        self.written_paths.append(file_path)
+        self.files[file_path] = content
+
+    def gh_issue_create(self, body_file: str) -> str:
+        if body_file not in self.files:
+            raise FileNotFoundError(body_file)
+        return self.files[body_file]
+
+
+# ---------------------------------------------------------------------------
 # Doc-coverage axis — every server tool must have a documented semantic home
 # (rf2-l2y4n).
 #
@@ -900,6 +1086,47 @@ class Drift:
                 f"(no `--title-file`, restricted safe alphabet, never paste "
                 f"evidence into `--title`). Add the clauses to the consumer's "
                 f"local recipe. (rf2-4kyg6)"
+            )
+        if self.direction == "missing-body-path":
+            return (
+                f"{self.mapping_name}: gh-issue-writing consumer "
+                f"'{self.tool}' shows no `--body-file` ARGUMENT anywhere in "
+                f"its filing recipe. A recipe that never demonstrates the "
+                f"flag with a value cannot demonstrate path identity — and a "
+                f"zero-match census is not a check that passed. Show the "
+                f"`gh issue create ... --body-file '<concrete path>'` call. "
+                f"(rf2-2zkrz)"
+            )
+        if self.direction == "expression-body-path":
+            return (
+                f"{self.mapping_name}: the filing recipe passes "
+                f"{self.tool!r} to `--body-file`. That is not a concrete "
+                f"absolute path: it is either shell/PowerShell expansion "
+                f"syntax or a placeholder. `Write` is not a shell and stores "
+                f"`file_path` literally, and a nonce expression re-rolls on "
+                f"every evaluation, so the `Write` step and the `gh` step "
+                f"would address two different files and filing would die on "
+                f"a missing body. Substitute the temp directory and the "
+                f"nonce BEFORE either tool call and show the resulting "
+                f"string. (rf2-2zkrz)"
+            )
+        if self.direction == "unpaired-body-path":
+            return (
+                f"{self.mapping_name}: the filing recipe passes "
+                f"{self.tool!r} to `--body-file`, but that exact string "
+                f"appears nowhere else in the recipe — so nothing shows "
+                f"`Write` being given the same path. Path identity is the "
+                f"invariant: `Write.file_path` and `--body-file` must be one "
+                f"string used twice. (rf2-2zkrz)"
+            )
+        if self.direction == "missing-path-example":
+            return (
+                f"{self.mapping_name}: the filing recipe shows no concrete "
+                f"{self.tool} worked temp path. Both host shapes need an "
+                f"already-substituted example (a POSIX `/tmp/...` and a "
+                f"Windows `C:\\...\\Temp\\...`), because an agent cannot "
+                f"derive one from an expression it has no shell to run. "
+                f"(rf2-2zkrz)"
             )
         if self.direction == "missing-doc-row":
             return (
@@ -1354,6 +1581,153 @@ def _run_self_test(ci: bool) -> int:
                 "tool (rf2-l2y4n)."
             )
 
+    # -----------------------------------------------------------------
+    # (5) Body-path-identity axis (rf2-2zkrz).
+    # -----------------------------------------------------------------
+
+    # (5a) Shipped recipes: no path-identity drift.
+    bp_drift, _ = check_body_path_identity(TITLE_SAFETY_RULES)
+    if bp_drift:
+        failures.append(
+            "shipped filing recipes produced body-path-identity drift "
+            f"({[d.direction for d in bp_drift]}) -- every consumer must hand "
+            "`--body-file` one concrete path it also shows `Write` receiving."
+        )
+
+    # (5b) BEHAVIOURAL: the concrete paths the SHIPPED recipes actually print
+    #      must survive a literal-path `Write` -> `gh --body-file` handoff
+    #      byte-for-byte, on both host shapes. This is what a token-presence
+    #      assertion could never say: that the recipe as written RUNS.
+    for rule in TITLE_SAFETY_RULES:
+        text = "\n".join(d.read_text(encoding="utf-8") for d in rule.docs)
+        shapes = {
+            "POSIX": _POSIX_EXAMPLE_RE.findall(text),
+            "Windows": _WINDOWS_EXAMPLE_RE.findall(text),
+        }
+        for shape, paths in shapes.items():
+            if not paths:
+                failures.append(
+                    f"{rule.consumer}: no concrete {shape} worked path to "
+                    f"exercise -- the behavioural arm would pass vacuously."
+                )
+                continue
+            path = paths[0]
+            host = _LiteralPathHost()
+            host.write(path, _NASTY_BODY)
+            try:
+                delivered = host.gh_issue_create(path)
+            except FileNotFoundError:
+                failures.append(
+                    f"{rule.consumer}/{shape}: `gh --body-file {path}` could "
+                    f"not find the file `Write` created at the same string."
+                )
+                continue
+            if delivered != _NASTY_BODY:
+                failures.append(
+                    f"{rule.consumer}/{shape}: body did not reach `gh` "
+                    f"byte-for-byte through --body-file."
+                )
+            if host.written_paths[-1] != path:
+                failures.append(
+                    f"{rule.consumer}/{shape}: captured Write.file_path "
+                    f"({host.written_paths[-1]!r}) != captured --body-file "
+                    f"argument ({path!r})."
+                )
+
+    # (5c) BEHAVIOURAL CONTROL: the pre-fix recipe must FAIL this harness, or
+    #      the harness proves nothing. Two ways the old text broke, both real:
+    #      the expression reached `Write` literally, and the nonce re-rolled
+    #      before the `gh` step.
+    ctrl = _LiteralPathHost()
+    ctrl.write("${TMPDIR:-/tmp}/re-frame2-issue-$$-$RANDOM.md", _NASTY_BODY)
+    try:
+        ctrl.gh_issue_create("/tmp/re-frame2-issue-2984-24950.md")
+        failures.append(
+            "CONTROL DID NOT BITE: the pre-fix expression passed literally to "
+            "`Write` was still found by an expanded `--body-file` path. The "
+            "literal-path harness is not modelling `Write` correctly."
+        )
+    except FileNotFoundError:
+        pass
+
+    ctrl2 = _LiteralPathHost()
+    ctrl2.write("/tmp/re-frame2-issue-7f3a9c.md", _NASTY_BODY)
+    try:
+        ctrl2.gh_issue_create("/tmp/re-frame2-issue-b1d420.md")
+        failures.append(
+            "CONTROL DID NOT BITE: a nonce regenerated for the `gh` step "
+            "still found the body `Write` created under the first nonce."
+        )
+    except FileNotFoundError:
+        pass
+
+    # (5d) STRUCTURAL CONTROL: synthetic recipes that reintroduce the defect
+    #      must each fire, and a correct one must stay green.
+    with tempfile.TemporaryDirectory() as td:
+        td_path = Path(td)
+        _TITLE_TAIL = (
+            "\ngh issue create has no `--title-file` flag; author the title "
+            "from a restricted safe alphabet and never paste evidence into "
+            "`--title`.\nNever interpolate transcript text inline.\n"
+        )
+
+        def _bp(label: str, recipe: str) -> list[Drift]:
+            f = td_path / f"{label}.md"
+            f.write_text(recipe + _TITLE_TAIL, encoding="utf-8")
+            d, _ = check_body_path_identity(
+                [TitleSafetyRule(consumer=label, docs=(f,))]
+            )
+            return d
+
+        good = (
+            "Write the body to /tmp/re-frame2-issue-7f3a9c.md (Windows: "
+            "C:\\Users\\you\\AppData\\Local\\Temp\\re-frame2-issue-7f3a9c.md), "
+            "then run: gh issue create --body-file "
+            "'/tmp/re-frame2-issue-7f3a9c.md'\n"
+        )
+        for label, recipe, want in (
+            # The exact pre-fix text this bead was filed against.
+            ("synthetic-expression-path",
+             good.replace("'/tmp/re-frame2-issue-7f3a9c.md'",
+                          "\"${TMPDIR:-/tmp}/re-frame2-issue-$$-$RANDOM.md\""),
+             "expression-body-path"),
+            # The other pre-fix half: a prose placeholder, not a value.
+            ("synthetic-placeholder-path",
+             good.replace("'/tmp/re-frame2-issue-7f3a9c.md'",
+                          "\"<the exact path from step 2>\""),
+             "expression-body-path"),
+            # A concrete path the recipe never shows `Write` receiving.
+            ("synthetic-unpaired-path",
+             "Write the body to the temp file you chose (Windows: "
+             "C:\\Users\\you\\AppData\\Local\\Temp\\re-frame2-issue-7f3a9c.md), "
+             "then run: gh issue create --body-file "
+             "'/tmp/re-frame2-issue-0000ff.md'\n",
+             "unpaired-body-path"),
+            # A recipe with no `--body-file` argument at all.
+            ("synthetic-no-body-path",
+             "Write the body to /tmp/re-frame2-issue-7f3a9c.md and file it "
+             "with `--body-file`.\n",
+             "missing-body-path"),
+            # POSIX-only: the Windows agent has nothing to copy.
+            ("synthetic-posix-only",
+             "Write the body to /tmp/re-frame2-issue-7f3a9c.md, then run: "
+             "gh issue create --body-file '/tmp/re-frame2-issue-7f3a9c.md'\n",
+             "missing-path-example"),
+        ):
+            if not [d for d in _bp(label, recipe) if d.direction == want]:
+                failures.append(
+                    f"a synthetic recipe that should fire {want} did NOT -- "
+                    f"the body-path-identity axis is a no-op for {label} "
+                    f"(rf2-2zkrz)."
+                )
+
+        if _bp("synthetic-concrete-path", good):
+            failures.append(
+                "a synthetic recipe handing `--body-file` one concrete, "
+                "reused path with both host shapes shown was flagged -- the "
+                "body-path-identity green path is broken (rf2-2zkrz)."
+            )
+
     if failures:
         for f in failures:
             _emit_error(f"self-test: {f}", ci)
@@ -1365,7 +1739,11 @@ def _run_self_test(ci: bool) -> int:
           "search-clause negative fires + positive stays green; implementor "
           "enforced via its local body+title+search clauses. doc-coverage: "
           "shipped rules green; synthetic covered stays green; missing row and "
-          "phantom row both fire).")
+          "phantom row both fire. body-path-identity: shipped recipes green; "
+          "both host shapes survive a literal-path Write -> gh --body-file "
+          "handoff byte-for-byte; the pre-fix expression and a regenerated "
+          "nonce both fail that handoff; expression / placeholder / unpaired / "
+          "absent / POSIX-only recipes all fire).")
     return 0
 
 
@@ -1438,6 +1816,19 @@ def main(argv: Iterable[str]) -> int:
         title_drift, title_info = [], []
     all_info.extend(title_info)
     for d in title_drift:
+        all_drift.append((None, d))
+
+    # Body-path-identity axis (rf2-2zkrz) — the `--body-file` argument must be
+    # ONE concrete path the recipe also shows `Write` being handed. Same
+    # consumers as the title-safety axis, same accumulator, mapping=None.
+    try:
+        path_drift, path_info = check_body_path_identity(TITLE_SAFETY_RULES)
+    except FileNotFoundError as e:
+        _emit_error(str(e), ci)
+        saw_setup_error = True
+        path_drift, path_info = [], []
+    all_info.extend(path_info)
+    for d in path_drift:
         all_drift.append((None, d))
 
     # Doc-coverage axis (rf2-l2y4n) — every server tool must have a table row
