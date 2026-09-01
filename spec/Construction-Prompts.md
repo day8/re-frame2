@@ -361,7 +361,7 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
 **Pre-flight checks:**
 
 1. **Choose a machine id.** Convention: `:feature.flow/machine` or `:feature/flow`. Examples: `:auth.login/flow`, `:checkout/flow`, `:video-player/flow`.
-2. **Verify the id is unused.** `(rf/registrations :event)` — the machine reuses the `:event` registry kind. (No matching `:sub` registration is needed: machines are read through the framework-registered parametric sub `:rf/machine`; see "Where state lives" below.) `(rf/machines)` enumerates already-registered machines specifically.
+2. **Verify the id is unused.** `(rf/registrations :event)` — the machine reuses the `:event` registry kind. (No matching `:sub` registration is needed: machines are read through the framework-registered parametric sub `:rf/machine`; see "Where state lives" below.) `(rf.machines/machines)` enumerates already-registered machines specifically.
 3. **List the states.** Discrete, named (`:idle`, `:submitting`, `:authed`, `:error-shown`).
 4. **List the inputs (sub-events) that move between states.** Each input triggers exactly one transition.
 5. **Identify guards and actions; default to naming them in `:guards` / `:actions`.** Each guard `(fn [{:keys [data event]}] boolean)` and each action `(fn [{:keys [data event]}] {:data {...} :fx [...]})` is a key in the machine's `:guards` / `:actions` map (referenced from transitions by keyword). Per every machine callback receives a single context-map argument with `:data`, `:event`, `:state`, `:meta`. **Inline only when the body is a single non-branching expression.**
@@ -382,7 +382,7 @@ The override seam is **id-valued at the pattern level**. The CLJS reference also
 
 (rf/reg-event :auth.login/flow
   {:doc "Login flow: idle → submitting → authed / error-shown / locked-out."}
-  (rf/make-machine-handler
+  (rf.machines/make-machine-handler
     {:initial :idle
      :data    {:attempts 0 :error nil}
 
@@ -552,7 +552,7 @@ After this action, `(:pending-request data)` is the new actor's id; subsequent t
 ;; the handler reads the snapshot from the :rf.db/runtime cofx and writes it back
 ;; as a :rf.db/runtime effect — NOT app-db's :db.
 (deftest auth-login-happy-path-l2
-  (let [handler (rf/make-machine-handler {:initial :idle ...})
+  (let [handler (rf.machines/make-machine-handler {:initial :idle ...})
         cofx    {:rf.db/runtime {:rf.runtime/machines {:snapshots {:auth.login/flow {:state :idle :data {}}}}}}
         effects (handler cofx [:auth.login/flow [:submit {:email "..."}]])
         runtime (:rf.db/runtime effects)]
@@ -615,7 +615,7 @@ For projections, compose against `:rf/machine` via `:<-`:
 - Level-1 headless test passes via `machine-transition` (no event dispatch needed).
 - If the machine has terminal states, they're marked `:meta {:terminal? true}`.
 - Trace events on `:rf.machine/transition` are visible in 10x / re-frame-pair.
-- `(rf/machines)` includes the new id; `(rf/machine-meta <id>)` returns its registration metadata (which includes the spec's `:guards` / `:actions` maps).
+- `(rf.machines/machines)` includes the new id; `(rf.machines/machine-meta <id>)` returns its registration metadata (which includes the spec's `:guards` / `:actions` maps).
 
 ### CP-6. Scaffold a feature
 

@@ -99,7 +99,7 @@ What does the host pass to `MachineChart` to render a chart?
 ### Options considered
 
 - **Pass an id + a frame.** The chart resolves the registration
-  via `(rf/machine-meta machine-id)` and subscribes to the runtime-db slot
+  via `(rf.machines/machine-meta machine-id)` and subscribes to the runtime-db slot
   `[:rf.runtime/machines :snapshots machine-id]` within a `:frame-id`
   prop; the host stays thin and the chart owns its data plane. This
   was the original 2026-05-13 pick lifted from Xray 003. **Reversed
@@ -124,7 +124,7 @@ What does the host pass to `MachineChart` to render a chart?
 **Pass an id + the definition + the live state, plus two callbacks —
 the chart is presentation-only.**
 
-The host pulls the registration via `(rf/machine-meta machine-id)` and
+The host pulls the registration via `(rf.machines/machine-meta machine-id)` and
 passes the `:definition` (topology) and `:current-state` (the live
 snapshot `:state` value) straight in. The chart does **not** subscribe
 to any framework registry and takes **no `:frame-id`** — it renders
@@ -132,7 +132,7 @@ exactly what it is handed.
 
 ```clojure
 [viz/MachineChart {:machine-id          :auth/login-flow
-                   :definition          (rf/machine-meta :auth/login-flow)
+                   :definition          (rf.machines/machine-meta :auth/login-flow)
                    :current-state       :authing
                    :on-state-click      (fn [path] ...)
                    :on-edge-click       (fn [{:keys [event-id from-path to-path]}] ...)
@@ -146,7 +146,7 @@ exactly what it is handed.
   registered machine to render; a unit test passes a literal
   definition map. Owning a frame-scoped subscription would have made
   every chart test stand up a runtime.
-- **Thin host interface** — the host pulls `(rf/machine-meta id)` once
+- **Thin host interface** — the host pulls `(rf.machines/machine-meta id)` once
   and threads `:definition` + `:current-state`. Xray's panel is a
   one-liner; Story's per-variant panel is the same. Hosts that want
   hot-reload re-pull on registry-change traces (host plumbing, not a
@@ -275,7 +275,7 @@ DOM-side wrappers).**
   larger than the code footprint. The "duplication with the
   framework-level `(rf/machine->mermaid)`" worry from the original
   2026-05-13 pick is misplaced — Machines-Viz consumes a
-  `definition` map (from `(rf/machine-meta id)`), the framework
+  `definition` map (from `(rf.machines/machine-meta id)`), the framework
   consumes the same `definition` map; the two are the same
   function on the same input, and either one being absent leaves
   a gap. Per [Principles §Observation only](./Principles.md),
@@ -731,7 +731,7 @@ from regressing into a full graph recompute?
 
 - **Topology / layout plane** — node positions, edge routes, compound
   nesting, the chart's measured viewbox. Owned by
-  `(rf/machine-meta machine-id)` + the user's expand/collapse state +
+  `(rf.machines/machine-meta machine-id)` + the user's expand/collapse state +
   the `:show-*` props that affect topology presence.
 - **Runtime-highlight plane** — static active-state affordance
   (tint + bolder stroke; the pulse was retired 2026-05-20 per

@@ -324,7 +324,7 @@ Post-Lock additions accumulated as follows:
   for `list-<things>` conformance) is the discovery peer that
   enumerates every registered id under a kind. Both route through the
   existing
-  `re-frame2-pair.runtime` registrar primitives (and `(rf/machines)`
+  `re-frame2-pair.runtime` registrar primitives (and `(rf.machines/machines)`
   for the `:machine` kind per Spec 005 §Querying machines); both are
   `:cacheable? true` since the registrar is stable across a session.
 - **rf2-zo4b9** added the **signal recorder** triplet — `record`,

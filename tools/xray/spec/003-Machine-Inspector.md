@@ -1619,7 +1619,7 @@ Xray surfaces this in:
 ## Selection and switching
 
 The panel header carries a machine picker — a dropdown over
-`(rf/machines frame-id)`. The dropdown shows machine-id, current
+`(rf.machines/machines)`. The dropdown shows machine-id, current
 state, and a tiny activity indicator (filled green if transitioned in
 the last 5s; grey otherwise).
 
@@ -1655,7 +1655,7 @@ Per Spec 005 and Spec 009:
 
 | Surface | Used for |
 |---|---|
-| `(rf/machines frame-id)` | Enumerate registered machines (drop-down in panel header). |
+| `(rf.machines/machines)` | Enumerate registered machines (drop-down in panel header). 0-ary. |
 | `[:rf.runtime/machines :snapshots <id>]` slot in the **runtime-db partition** (EP-0001 rf2-vzld77) | Read current snapshot; deref drives the live-highlight. The host passes the snapshot's `:state` straight through as the chart's `:current-state`; for a **parallel** machine that `:state` is a region-map and the chart highlights **every** active region leaf simultaneously (parity gap G1; resolution via `chart.layout/highlight-ids` — see [machines-viz API §Parallel multi-active highlight](../../machines-viz/spec/API.md#parallel-multi-active-highlight-rf2-yoe6e-rf2-g2svr)). |
 | `:rf.machine/transition` traces | Build the transition-history ribbon. |
 | `:rf.machine.microstep/transition` traces | Microstep replay within an `:always`-driven cascade. |

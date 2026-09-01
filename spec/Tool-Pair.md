@@ -397,13 +397,13 @@ Per [Spec 005 §Source-coord stamping](005-StateMachines.md#source-coord-stampin
 
 ```clojure
 ;; Per-element definition coord + source — co-located on the entry:
-(get-in (rf/machine-meta :auth/login) [:guards :form-valid?])
+(get-in (rf.machines/machine-meta :auth/login) [:guards :form-valid?])
 ;; {:fn <fn> :source-coords {:ns ... :line ... :column ... :file ...} :source-code "(fn ...)"}
 
 ;; Reference-site coords — read directly off the map node:
-(get-in (rf/machine-meta :auth/login) [:states :form :source-coords])
+(get-in (rf.machines/machine-meta :auth/login) [:states :form :source-coords])
 ;; {:ns ... :line ... :column ... :file ...}
-(get-in (rf/machine-meta :auth/login) [:states :form :on :submit :source-coords])
+(get-in (rf.machines/machine-meta :auth/login) [:states :form :on :submit :source-coords])
 ;; {:ns ... :line ... :column ... :file ...}
 ```
 
@@ -499,7 +499,7 @@ When resolution yields nil, the pair tool refuses the op rather than guessing. T
 |---|---|---|
 | **Mutating** (writes that drive a pipeline run or replace a frame partition) | `pair-dispatch!`, `pair-dispatch-sync!`, `replace-frame-state!`, `restore-epoch!` | **Refuse**. Return `{:ok? false :reason :ambiguous-frame :hint <message>}` (or raise `(ex-info "ambiguous frame" {:reason :ambiguous-frame})` for callers that want exceptions). The op MUST NOT silently default to `:rf/default` — a write that lands in the wrong frame is unrecoverable without `restore-epoch!`, and the cascade may have already fired effects. |
 | **Reading** (snapshot reads, sub samples, epoch reads, sub-cache reads, per-frame trace-ring reads) | `app-db-value`, `subs-sample`, `epoch-history`, `sub-cache`, `app-schemas`, `trace-buffer`, `clear-trace-buffer!` | **Refuse**. Same shape as mutating refusal — return `{:ok? false :reason :ambiguous-frame :hint <message>}`. A silent default to `:rf/default` would read from the wrong frame, and a multi-frame user is unlikely to want the default frame's data. The `:hint` SHOULD direct the user at `select-frame!` or the explicit-override path. Per-frame trace-ring reads (`(rf/trace-buffer frame-id)` for event bundles, `(rf/trace-buffer frame-id {:flat true})` for raw events) take the frame-id as a required first argument — cross-frame consumers iterate `(rf/frame-ids)` and merge by `:dispatch-id` per [009 §Per-frame trace rings](009-Instrumentation.md#per-frame-trace-rings-event-keyed-dev-only). |
-| **Registry-wide** (no frame-id needed) | `(rf/frame-ids)`, `(rf/registrations kind)`, `(rf/machines)`, `(rf/handler-meta kind id)` | **Proceed**. These ops query global registry / global registrar state and have no operating-frame concept; they bypass the resolver entirely. |
+| **Registry-wide** (no frame-id needed) | `(rf/frame-ids)`, `(rf/registrations kind)`, `(rf.machines/machines)`, `(rf/handler-meta kind id)` | **Proceed**. These ops query global registry / global registrar state and have no operating-frame concept; they bypass the resolver entirely. |
 
 The **uniform refusal shape across reads and writes** is the resolution committed here (the shipped impl in `re-frame2-pair.runtime`, landed in [PR #190](https://github.com/day8/re-frame2/pull/190), already follows this stricter posture). A tool MAY relax read-side refusal for ops that take an explicit override at the call site — tier 1 *is* the disambiguation, so a `(app-db-value :stories)` call with the explicit `frame-id` argument MUST NOT refuse even when no session pin is set. The refusal applies to the *zero-arg-defaults-to-operating-frame* form, where the resolver would have to invent a frame.
 
@@ -599,7 +599,7 @@ The full attachment surface, from the tool's point of view:
 | Enumerate frames | `(rf/frame-ids)`, `(rf/frame-meta id)` — the public frame-id space is the whole public address ([EP-0023](../docs/EP/EP-0023-image-loaded-frames.md) §Public API) | [002 §Public registrar query API](002-Frames.md#the-public-registrar-query-api) |
 | Read a frame's app-db | `(rf/app-db-value frame-id)` / `(get-in (rf/app-db-value frame-id) path)` | [002 §Public registrar query API](002-Frames.md#the-public-registrar-query-api) |
 | Inspect the registry | `(rf/registrations kind)`, `(rf/handler-meta kind id)` | [001](001-Registration.md), [002](002-Frames.md) |
-| Enumerate machines | `(rf/machines)`, `(rf/machine-meta id)` | [005 §Querying machines](005-StateMachines.md#querying-machines) |
+| Enumerate machines | `(rf.machines/machines)`, `(rf.machines/machine-meta id)` | [005 §Querying machines](005-StateMachines.md#querying-machines) |
 | Inspect the sub-cache (CLJS-only) | `(rf/sub-cache frame-id)` | [002 §Public registrar query API](002-Frames.md#the-public-registrar-query-api) |
 | Source coords for any registration | `:ns`/`:line`/`:column`/`:file` keys on `(handler-meta ...)` return; shape `:rf/source-coord-meta` per [Spec-Schemas](Spec-Schemas.md#rfsource-coord-meta) | [001 §Source-coordinate capture](001-Registration.md#source-coordinate-capture-cljs-reference) |
 | Dispatch | `(rf/dispatch event opts)` / `(rf/dispatch-sync event opts)` | [002 §Routing](002-Frames.md#routing-the-dispatch-envelope) |

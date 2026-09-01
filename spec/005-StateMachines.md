@@ -128,7 +128,7 @@ The shim is keyed off the sentinel `:rf/transition-pure` parent-id stamp on the 
 
 Every machine snapshot lives at a fixed reserved path: **`[:rf.runtime/machines :snapshots <machine-id>]`** in the frame's **runtime-db** partition (per [002 §The two-partition frame contract](002-Frames.md#the-two-partition-frame-contract)). The runtime owns this path; users do not pick a path per machine and `make-machine-handler` does not accept a `:path` key.
 
-For the registration `(rf/reg-event :drawer/editor (rf/make-machine-handler {...}))`:
+For the registration `(rf/reg-event :drawer/editor (rf.machines/make-machine-handler {...}))`:
 
 ```clojure
 ;; in the frame's runtime-db, after initialisation:
@@ -378,7 +378,7 @@ A guard is **`(fn [{:keys [data event state meta] cofx :rf.cofx}] boolean)`** �
          (and (active? data event) (under-quota? data event)))
 
 ;; even better — declare a named compound in the machine's :guards map
-(rf/make-machine-handler
+(rf.machines/make-machine-handler
   {:guards {:active-and-under-quota?
             (fn [{:keys [data event]}]
               (and (active? data event) (under-quota? data event)))}
@@ -466,7 +466,7 @@ An action is **`(fn [{:keys [data event state meta] cofx :rf.cofx}] effects)`** 
 :action :clear-form
 
 ;; the body lives in the machine's :actions map:
-(rf/make-machine-handler
+(rf.machines/make-machine-handler
   {:actions {:clear-form
              (fn [_]
                {:data {:circle-id nil :initial-radius nil :preview-radius nil}})}
@@ -486,7 +486,7 @@ Multiple steps in one action are **fn composition**, not a vector:
 If the composition is reused, name it in the machine's `:actions` map:
 
 ```clojure
-(rf/make-machine-handler
+(rf.machines/make-machine-handler
   {:actions {:clear-and-record (fn [{:keys [data event]}] ...)}
    :states {... :on {... {:action :clear-and-record}}}})
 ```
@@ -835,7 +835,7 @@ A machine is registered as **one event handler** via `reg-event` whose body come
 (rf/reg-event :drawer/editor
   {:doc          "Modal-edit flow."
    :interceptors [:drawer/undoable]}                       ;; interceptor chains carry refs by id, in the metadata map
-  (rf/make-machine-handler
+  (rf.machines/make-machine-handler
     {:initial :idle                                       ;; initial FSM-keyword
      :data    {:circle-id nil :initial-radius nil :preview-radius nil}
      :guards  {:circle-exists? (fn [{data :data}] (some? (:circle-id data)))}
@@ -862,12 +862,12 @@ Reference resolution:
   (some? (:user-id data)))
 
 (rf/reg-event :auth/login {}
-  (rf/make-machine-handler
+  (rf.machines/make-machine-handler
     {:guards {:authenticated? user-authenticated?}
      ...}))
 
 (rf/reg-event :settings/page {}
-  (rf/make-machine-handler
+  (rf.machines/make-machine-handler
     {:guards {:authenticated? user-authenticated?}
      ...}))
 ```
@@ -943,7 +943,7 @@ Alongside the underlying `reg-event + make-machine-handler` form (per [§Registr
 **Surface signature.** Two forms, each with a bare arity and an **event-`:schema` arity**:
 
 - `(rf/reg-machine machine-id machine)` / `(rf/reg-machine machine-id opts machine)` — **macro**. Walks the literal spec form at expansion time and CO-LOCATES per-element source onto each guard / action / on-spawn-action entry, plus a reference-site `:source-coords` co-located onto each map node (state-node / transition map) inside the `:states` tree (per [§Source-coord stamping](#source-coord-stamping)). The macro emits `(reg-machine* …)` after stamping; the runtime call site is the plain-fn surface. The optional `opts` precedes the spec.
-- `(rf/reg-machine* machine-id machine)` / `(rf/reg-machine* machine-id opts machine)` — **plain fn**. Routes through the single registration home (below) — the `:rf/machine?` / `:rf/machine` registration-metadata stamp that makes the `[:schemas :data]` validation live. No source-coord walking — the spec is opaque data at the call site. The optional `opts` is the canonical Spec 001 MIDDLE slot — it precedes the spec, exactly as the `reg-machine` macro's `(reg-machine machine-id opts machine)` surface does.
+- `(rf.machines/reg-machine* machine-id machine)` / `(rf.machines/reg-machine* machine-id opts machine)` — **plain fn**. Routes through the single registration home (below) — the `:rf/machine?` / `:rf/machine` registration-metadata stamp that makes the `[:schemas :data]` validation live. No source-coord walking — the spec is opaque data at the call site. The optional `opts` is the canonical Spec 001 MIDDLE slot — it precedes the spec, exactly as the `reg-machine` macro's `(reg-machine machine-id opts machine)` surface does.
 - `(rf/defmachine name [doc] spec)` — **macro** (`def`-shape). Defines a Var holding the spec value with per-element source stamped at the definition site, for the `def`-then-register shape `(defmachine m {…})` / `(reg-machine :id m)`. Does not register. See [§Value-registered machines](#value-registered-machines--defmachine).
 
 **The event-`:schema` arity — machine + event-vector schema.** `opts` is an optional registration-metadata map. Its `:schema` key is the validator for the dispatched **outer event vector** — the `:where :event` boundary (per [010 §Validation order](010-Schemas.md)) that runs *before* the machine handler. This is the **machine + event-vector-schema shape** (login / realworld auth): a machine that validates BOTH its `:data` (via the spec's `[:schemas :data]` schema, the `:where :machine-data` boundary) AND its inbound event vector (via the opts `:schema`, the `:where :event` boundary). Any other `opts` keys (`:doc`, `:rf.http/decode-schemas`, …) ride onto the registration metadata verbatim. The framework-owned `:rf/machine?` / `:rf/machine` keys are stamped by the home and MUST NOT appear in `opts` (supplying them raises `:rf.error/machine-reserved-meta-in-opts`).
@@ -971,8 +971,8 @@ Both forms return `machine-id` per the family-wide [`reg-*` return-value convent
 
 **Registration-metadata stamp.** Both forms record two keys on the registry slot's metadata map (per [001 §Metadata-map shape](001-Registration.md)):
 
-- `:rf/machine? true` — the discriminator. `(rf/machines)` filters `(registrations :event)` by this flag (per [§Querying machines](#querying-machines)). User-written event handlers do not set this key.
-- `:rf/machine <spec>` — the spec map passed to `reg-machine`. `(rf/machine-meta id)` reads this back; tools that walk the transition table (visualisers, conformance harnesses, CP-5-time scaffolders) consume the spec via this key. When the macro path stamps source, each `:guards` / `:actions` / `:on-spawn-actions` entry carries its co-located `:source-coords` / `:source-code`, and each `:states`-tree map node (state-node / transition map) carries its own reference-site `:source-coords` directly inside this spec map.
+- `:rf/machine? true` — the discriminator. `(rf.machines/machines)` filters `(registrations :event)` by this flag (per [§Querying machines](#querying-machines)). User-written event handlers do not set this key.
+- `:rf/machine <spec>` — the spec map passed to `reg-machine`. `(rf.machines/machine-meta id)` reads this back; tools that walk the transition table (visualisers, conformance harnesses, CP-5-time scaffolders) consume the spec via this key. When the macro path stamps source, each `:guards` / `:actions` / `:on-spawn-actions` entry carries its co-located `:source-coords` / `:source-code`, and each `:states`-tree map node (state-node / transition map) carries its own reference-site `:source-coords` directly inside this spec map.
 
 Source-coord stamping on the call site (`:ns` / `:line` / `:column` / `:file`) follows the standard rules from [001 §Source-coord stamping](001-Registration.md): the macro stamps; programmatic registration via `reg-machine*` does not. See [§Source-coord stamping](#source-coord-stamping) for the per-element index.
 
@@ -986,15 +986,15 @@ The `reg-machine` convenience surface splits along Clojure's `let` / `let*`, `fn
 |---|---|---|---|
 | `(rf/reg-machine machine-id machine-spec)` | **macro** | Yes when `machine-spec` is an inline literal — call-site coords on the registry slot, AND co-located per-element source on each guard / action / on-spawn-action entry + reference-site `:source-coords` co-located onto each `:states`-tree map node, walked from the literal spec form (per [§Source-coord stamping](#source-coord-stamping)). When `machine-spec` is a symbol / non-literal, only the call-site coords are stamped (per-element source comes from `defmachine` instead). | Standard form. Inline literal → full capture; value-registered (symbol) → pair with `defmachine` ([§Value-registered machines](#value-registered-machines--defmachine)). |
 | `(rf/reg-machine machine-id opts machine-spec)` | **macro** | Same as the bare macro arity — `opts` is a runtime metadata expression (not walked) carrying the event-vector `:schema`. | The **machine + event-vector-schema shape** (login / realworld auth): a machine that ALSO validates its inbound event vector. |
-| `(rf/reg-machine* machine-id machine-spec)` | plain fn | None — the call-site predates the registration; the spec is opaque data | Code-gen pipelines that produce specs at runtime, REPL exploration, conformance harnesses that synthesise machines from EDN fixtures. |
-| `(rf/reg-machine* machine-id opts machine-spec)` | plain fn | None — `opts` is the canonical MIDDLE slot, mirroring the opts macro arity | Programmatic registration of the machine + event-vector-schema shape (the plain-fn counterpart of the opts macro arity). |
+| `(rf.machines/reg-machine* machine-id machine-spec)` | plain fn | None — the call-site predates the registration; the spec is opaque data | Code-gen pipelines that produce specs at runtime, REPL exploration, conformance harnesses that synthesise machines from EDN fixtures. |
+| `(rf.machines/reg-machine* machine-id opts machine-spec)` | plain fn | None — `opts` is the canonical MIDDLE slot, mirroring the opts macro arity | Programmatic registration of the machine + event-vector-schema shape (the plain-fn counterpart of the opts macro arity). |
 | `(rf/defmachine name [doc] spec)` | **macro** (`def`-shape) | Yes — walks the inline literal `spec` at the **definition site** and co-locates per-element source + the reference-site `:source-coords` on each `:states`-tree map node onto the def'd value (per [§Value-registered machines](#value-registered-machines--defmachine)). Does not register — pair with `(reg-machine id name)`. | The `def`-then-register shape: `(defmachine m {…})` then `(reg-machine :id m)` so a value-registered machine carries per-element source. |
 
 The `reg-machine` / `defmachine` macros are re-exported on the `re-frame.core` façade; the plain-fn surface lives in `re-frame.machines/reg-machine*` and is reached through that namespace directly (it is **not** a `re-frame.core` façade export) for both JVM and CLJS programmatic callers. The inline `reg-machine` macro emits `(reg-machine* …)` after stamping; the runtime never reaches both surfaces independently.
 
 ### Source-coord stamping
 
-When the `reg-machine` macro receives a literal-map spec form, it walks the form at expansion time and CO-LOCATES per-element source onto each guard / action / on-spawn-action entry, plus a reference-site `:source-coords` onto each map node (state-node / transition map) inside the `:states` tree. Tools (re-frame-pair, re-frame-10x, IDE jump-to-source) read one place per element — `(get-in (rf/machine-meta machine-id) [:guards <id> :source-coords])` for a named guard's coord, `(get-in (rf/machine-meta machine-id) [:states <id> :source-coords])` for a state-node's coord, `(get-in (rf/machine-meta machine-id) [:states <id> :on <event> :source-coords])` for a transition's coord.
+When the `reg-machine` macro receives a literal-map spec form, it walks the form at expansion time and CO-LOCATES per-element source onto each guard / action / on-spawn-action entry, plus a reference-site `:source-coords` onto each map node (state-node / transition map) inside the `:states` tree. Tools (re-frame-pair, re-frame-10x, IDE jump-to-source) read one place per element — `(get-in (rf.machines/machine-meta machine-id) [:guards <id> :source-coords])` for a named guard's coord, `(get-in (rf.machines/machine-meta machine-id) [:states <id> :source-coords])` for a state-node's coord, `(get-in (rf.machines/machine-meta machine-id) [:states <id> :on <event> :source-coords])` for a transition's coord.
 
 > **Co-located source payloads.** Each guard / action carries its per-element payloads — the `:fn`, the coord, and the `pr-str` source — co-located on each `:guards` / `:actions` / `:on-spawn-actions` entry, so a consumer assembles one element from one place. There are no `:rf.machine/source-coords` / `:rf.machine/handler-source` side-indexes. For STATES: each `:states`-tree map node carries its own `:source-coords` directly (there is no flat `:rf.machine/state-coords` side-index paralleling the `:states` tree), so a tool that has navigated to a state-node already has its coord in hand.
 
@@ -1053,19 +1053,19 @@ Tools resolving a slot walk UP from its spec-path to the nearest enclosing map c
 
 ```clojure
 ;; Per-element definition coord + source — ONE lookup per element:
-(get-in (rf/machine-meta :auth/login) [:guards :form-valid? :source-coords])
+(get-in (rf.machines/machine-meta :auth/login) [:guards :form-valid? :source-coords])
 ;; => {:ns ... :line ... :column ... :file ...}
-(get-in (rf/machine-meta :auth/login) [:actions :commit :source-code])
+(get-in (rf.machines/machine-meta :auth/login) [:actions :commit :source-code])
 ;; => "(fn [{data :data}] {:fx ...})"
 
 ;; Reference-site coords — read directly off the map node:
-(get-in (rf/machine-meta :auth/login) [:states :form :source-coords])
+(get-in (rf.machines/machine-meta :auth/login) [:states :form :source-coords])
 ;; => {:ns ... :line ... :column ... :file ...}
-(get-in (rf/machine-meta :auth/login) [:states :form :on :submit :source-coords])
+(get-in (rf.machines/machine-meta :auth/login) [:states :form :on :submit :source-coords])
 ;; => {:ns ... :line ... :column ... :file ...}
 
 ;; Inline-fn source — read off the enclosing node's :source-code map by slot:
-(get-in (rf/machine-meta :auth/login) [:states :form :on :submit :source-code :action])
+(get-in (rf.machines/machine-meta :auth/login) [:states :form :on :submit :source-code :action])
 ;; => "(fn [{data :data}] {:fx ...})"   (nil for a keyword-reference :action)
 ```
 
@@ -1104,7 +1104,7 @@ Here the `reg-machine` macro sees only the symbol `door-machine` at its call sit
    :states  {…}})
 
 (rf/reg-machine :door/main door-machine)
-;; (get-in (rf/machine-meta :door/main) [:actions :clear-hold :source-coords]) is now populated,
+;; (get-in (rf.machines/machine-meta :door/main) [:actions :clear-hold :source-coords]) is now populated,
 ;; and (rf/handler-meta :machine-action [:door/main :clear-hold]) carries the fn source.
 ```
 
@@ -2648,7 +2648,7 @@ The same skeleton applies to `:spawn-all`'s N children (per [§Spawn-and-join vi
 Trace of a `[:submit]` event landing on the parent in `:idle`:
 
 1. Parent transitions `:idle → :authenticating`. Entry cascade reaches `:authenticating`.
-2. Allocator picks `:auth-flow#0` and writes the spawn-registry slot `[:rf.runtime/machines :spawned :login [:authenticating]]` ⇒ `:auth-flow#0`; the `:system-id :auth-actor` binding resolves to it via `(rf/machine-by-system-id :auth-actor)`. The `:on-spawn` hook then fires for observation (its return is dropped).
+2. Allocator picks `:auth-flow#0` and writes the spawn-registry slot `[:rf.runtime/machines :spawned :login [:authenticating]]` ⇒ `:auth-flow#0`; the `:system-id :auth-actor` binding resolves to it via `(rf.machines/machine-by-system-id :auth-actor)`. The `:on-spawn` hook then fires for observation (its return is dropped).
 3. Parent's `:fx` accumulates `[:rf.machine/spawn {:machine-id :auth-flow :rf/parent-id :login :rf/invoke-id [:authenticating] …}]`.
 4. Parent commits — `[:rf.runtime/machines :snapshots :login]` updated; the spawn fx drains.
 5. Spawn fx synthesises `:auth-flow#0`'s initial snapshot at `[:rf.runtime/machines :snapshots :auth-flow#0]` with `:state :running`, `:data {:rf/self-id :auth-flow#0 :rf/parent-id :login :rf/invoke-id [:authenticating] :credentials …}`, `:rf/bootstrap-pending? true`; the spawn-registry slot at `[:rf.runtime/machines :spawned :login [:authenticating]]` is written to `:auth-flow#0`.
@@ -2687,7 +2687,7 @@ The ordering is what lets two patterns compose without surprises:
                                     :start      [:begin]}]]})
 ```
 
-After this action the actor is reachable by its `:system-id`. Subsequent transitions can `[:fx [[:rf.machine/dispatch-to-system [:pending-request [:retry]]]]]` (or `[:dispatch [(rf/machine-by-system-id :pending-request) [:retry]]]`). The `:on-spawn` callback is **not** the place to capture the id — its return is dropped (see [§Recording the spawned id user-side](#recording-the-spawned-id-user-side)).
+After this action the actor is reachable by its `:system-id`. Subsequent transitions can `[:fx [[:rf.machine/dispatch-to-system [:pending-request [:retry]]]]]` (or `[:dispatch [(rf.machines/machine-by-system-id :pending-request) [:retry]]]`). The `:on-spawn` callback is **not** the place to capture the id — its return is dropped (see [§Recording the spawned id user-side](#recording-the-spawned-id-user-side)).
 
 ### Spawn-spec keys
 
@@ -2698,7 +2698,7 @@ After this action the actor is reachable by its `:system-id`. Subsequent transit
 | `:data` | initial data for the new machine (overrides definition's default) | optional |
 | `:on-spawn` | `(fn [{:keys [data id]}] _)` — advisory callback fired with the spawned id; return is ignored (runtime tracks the id at `[:rf.runtime/machines :spawned <parent> <invoke-id>]`). | optional for any spawn; ignored for top-level boot-time spawns |
 | `:start` | event vector dispatched to the new actor immediately after spawn | optional |
-| `:system-id` | bind the spawned actor to a per-frame name in the `[:rf.runtime/machines :system-ids]` reverse index; lookup with `(rf/machine-by-system-id sid)`. See [§Named addressing via `:system-id`](#named-addressing-via-system-id). | optional |
+| `:system-id` | bind the spawned actor to a per-frame name in the `[:rf.runtime/machines :system-ids]` reverse index; lookup with `(rf.machines/machine-by-system-id sid)`. See [§Named addressing via `:system-id`](#named-addressing-via-system-id). | optional |
 
 The spawned actor's snapshot lives at `[:rf.runtime/machines :snapshots <gensym'd-id>]` — the runtime owns the location, the spawn-spec only declares the id-prefix. See [§Where snapshots live](#where-snapshots-live) and [Spec-Schemas §`:rf.fx/spawn-args`](Spec-Schemas.md#standard-fx-args-schemas).
 
@@ -2861,13 +2861,13 @@ A spawn whose `:system-id` key is supplied **also** binds a name in the per-fram
            :data       (fn [{snap :snapshot}] {:url (-> snap :data :endpoint)})}}}
 
 ;; Anywhere in the same frame:
-(rf/machine-by-system-id :primary-request)
+(rf.machines/machine-by-system-id :primary-request)
 ;; → :request/protocol#42 (the gensym'd id)
 ```
 
 The mapping lives at `[:rf.runtime/machines :system-ids <name>]` in the spawning frame's **runtime-db** — same place the snapshot lives, so the reverse index inherits frame revertibility for free (the index walks back along with the rest of the frame-state).
 
-The 1-arity `(rf/machine-by-system-id sid)` resolves the frame through the ambient scope/hold chain (a lookup under no scope raises `:rf.error/no-frame-context`, never a `:rf/default` floor). To look up a named frame from outside any scope (async callbacks / tools / cross-frame lookups), pass the trailing `{:frame …}` opts form `(rf/machine-by-system-id sid {:frame target})` — the same public-frame-targeting shape `subscribe` takes and the family's frame-arg law prescribes (public frame targeting is a trailing opts map, never positional — per the family frame-arg law in [Conventions](Conventions.md)). The 2-arity is shape-discriminated on the second arg: an opts map (a non-frame-value map) is the public `(sid {:frame …})` form; a bare frame target (a frame-id keyword or frame value) is the *internal* frame-last plumbing, retained for implementation / test / tooling reach.
+The 1-arity `(rf.machines/machine-by-system-id sid)` resolves the frame through the ambient scope/hold chain (a lookup under no scope raises `:rf.error/no-frame-context`, never a `:rf/default` floor). To look up a named frame from outside any scope (async callbacks / tools / cross-frame lookups), pass the trailing `{:frame …}` opts form `(rf.machines/machine-by-system-id sid {:frame target})` — the same public-frame-targeting shape `subscribe` takes and the family's frame-arg law prescribes (public frame targeting is a trailing opts map, never positional — per the family frame-arg law in [Conventions](Conventions.md)). The 2-arity is shape-discriminated on the second arg: an opts map (a non-frame-value map) is the public `(sid {:frame …})` form; a bare frame target (a frame-id keyword or frame value) is the *internal* frame-last plumbing, retained for implementation / test / tooling reach.
 
 **Lifecycle.**
 
@@ -2889,7 +2889,7 @@ The standard cross-machine pattern remains `[:fx [[:dispatch [<other-id> [:event
 ```clojure
 ;; Inside a machine action's :fx — dispatch by name
 :action (fn [_]
-          {:fx [[:dispatch [(rf/machine-by-system-id :primary-request)
+          {:fx [[:dispatch [(rf.machines/machine-by-system-id :primary-request)
                             [:cancel]]]]})
 
 ;; Canonical — dispatches via the lookup, no-ops when the name is unbound:
@@ -2897,7 +2897,7 @@ The standard cross-machine pattern remains `[:fx [[:dispatch [<other-id> [:event
           {:fx [[:rf.machine/dispatch-to-system [:primary-request [:cancel]]]]})
 ```
 
-The `:rf.machine/dispatch-to-system` fx tuple is the **canonical** cross-machine-by-name surface — the action-side address a machine emits from `:fx`. (It performs the same name-resolve-then-dispatch as the explicit `[:dispatch [(rf/machine-by-system-id ...) ...]]` form above, with no-op-when-unbound semantics folded in.) Its args are the single 2-element pair `[<system-id> <event-vector>]` — the framework fx contract is a `[fx-id args]` pair (the `do-fx` walk drops arity-≥3 entries with `:rf.error/effect-map-shape`), so the system-id and event ride together in the one `args` slot, exactly as `:dispatch`'s args is a single event vector and `:rf.machine/spawn`'s is a single spec map. The fx-id is namespaced under `:rf.machine/*` per [Conventions §Fx-id namespacing rule](Conventions.md#fx-id-namespacing-rule--three-reserved-fx-id-sub-namespaces) (surface-specific machine fx).
+The `:rf.machine/dispatch-to-system` fx tuple is the **canonical** cross-machine-by-name surface — the action-side address a machine emits from `:fx`. (It performs the same name-resolve-then-dispatch as the explicit `[:dispatch [(rf.machines/machine-by-system-id ...) ...]]` form above, with no-op-when-unbound semantics folded in.) Its args are the single 2-element pair `[<system-id> <event-vector>]` — the framework fx contract is a `[fx-id args]` pair (the `do-fx` walk drops arity-≥3 entries with `:rf.error/effect-map-shape`), so the system-id and event ride together in the one `args` slot, exactly as `:dispatch`'s args is a single event vector and `:rf.machine/spawn`'s is a single spec map. The fx-id is namespaced under `:rf.machine/*` per [Conventions §Fx-id namespacing rule](Conventions.md#fx-id-namespacing-rule--three-reserved-fx-id-sub-namespaces) (surface-specific machine fx).
 
 The sender doesn't have to capture the gensym'd id at the spawn site, doesn't have to carry it through `:data`, doesn't even have to be the spawning machine — anything in the frame that knows the name can address the actor.
 
@@ -2921,7 +2921,7 @@ The pattern composes naturally with the standard reply convention ([§Reply patt
            :failed    {:target :error}}}}
 ```
 
-While in `:loading`, an actor of `:request/protocol` exists at `[:rf.runtime/machines :snapshots <gensym'd-id>]`, addressable through the runtime-owned registry at `[:rf.runtime/machines :spawned <parent-machine-id> [:loading]]` and, with the `:system-id :loader` binding above, by name via `(rf/machine-by-system-id :loader)`. On any transition out of `:loading`, the actor is destroyed and its snapshot disappears — the runtime locates it via the registry slot, never requiring the user to have written the id under any specific `:data` key (an `:on-spawn` callback could not do so anyway — its return is dropped).
+While in `:loading`, an actor of `:request/protocol` exists at `[:rf.runtime/machines :snapshots <gensym'd-id>]`, addressable through the runtime-owned registry at `[:rf.runtime/machines :spawned <parent-machine-id> [:loading]]` and, with the `:system-id :loader` binding above, by name via `(rf.machines/machine-by-system-id :loader)`. On any transition out of `:loading`, the actor is destroyed and its snapshot disappears — the runtime locates it via the registry slot, never requiring the user to have written the id under any specific `:data` key (an `:on-spawn` callback could not do so anyway — its return is dropped).
 
 ### Spec-spec keys
 
@@ -2966,7 +2966,7 @@ The keys mirror [§Spawn-spec keys](#spawn-spec-keys), with two additions:
    ```
 
    This is the re-frame2 spelling of XState v5's `const ref = spawn(child)` captured into `context` — except the id rides the (revertible, SSR-survivable) snapshot rather than a live object. No atom, no runtime-db path coupling. It is the REVERSE direction of the child-lineage stamps (`:rf/self-id` / `:rf/parent-id` / `:rf/invoke-id`) the runtime writes onto the CHILD's `:data`: here the PARENT captures the CHILD's id, keyed by the SAME `<invoke-id>` the child records under `:rf/invoke-id`. See [§Reserved snapshot-internal keys](#reserved-snapshot-internal-keys) for the `:rf/spawned` row.
-2. **`:system-id`.** Declare `:system-id :my-name` on the `:spawn` / `:rf.machine/spawn` spec; from a machine action's `:fx` emit the canonical effect tuple `[:rf.machine/dispatch-to-system [:my-name [...]]]` to message the bound actor by name, or — from a direct call site outside an action context — resolve the id with `(rf/machine-by-system-id :my-name)` and `(rf/dispatch [(rf/machine-by-system-id :my-name) [...]])`. Best when you want a stable *name* rather than the gensym'd id. See [§Named addressing via `:system-id`](#named-addressing-via-system-id).
+2. **`:system-id`.** Declare `:system-id :my-name` on the `:spawn` / `:rf.machine/spawn` spec; from a machine action's `:fx` emit the canonical effect tuple `[:rf.machine/dispatch-to-system [:my-name [...]]]` to message the bound actor by name, or — from a direct call site outside an action context — resolve the id with `(rf.machines/machine-by-system-id :my-name)` and `(rf/dispatch [(rf.machines/machine-by-system-id :my-name) [...]])`. Best when you want a stable *name* rather than the gensym'd id. See [§Named addressing via `:system-id`](#named-addressing-via-system-id).
 3. **Read the runtime registry slot.** The id is also always at `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` (`<invoke-id>` is the absolute prefix-path of the `:spawn`-bearing state) — read it directly when you have the parent-id and state path but are *outside* the machine's own action context (where mechanism 1 is unavailable). The `:rf/spawned` `:data` slot (mechanism 1) mirrors this registry slot exactly, in-snapshot.
 4. **`:rf.machine/update-snapshot`.** From a regular `:action`'s `:fx` vector, emit `[:rf.machine/update-snapshot {:rf/machine-id <id> :rf/patch {:data {...}}}]` to write a *user-domain* copy of the id into the parent's `:data` under your own key — only when you need it under a domain-specific name distinct from the framework's `:rf/spawned` slot. See the snapshot-level escape hatch in [§Path conventions in machine bodies](#path-conventions-in-machine-bodies).
 
@@ -3092,7 +3092,7 @@ Each omission is consistent with the spec's broader bias: **prefer one explicit 
 The walk-through:
 
 1. User submits → state moves `:idle` → `:authenticating`.
-2. Entering `:authenticating` triggers the desugared entry: spawn an `:http/post` actor with the credentials from `:data`; the runtime binds the spawned id at `[:rf.runtime/machines :spawned :login [:authenticating]]` in the frame's runtime-db and registers the `:system-id :auth-actor` name, so other transitions in the parent can address the child via `(rf/machine-by-system-id :auth-actor)`.
+2. Entering `:authenticating` triggers the desugared entry: spawn an `:http/post` actor with the credentials from `:data`; the runtime binds the spawned id at `[:rf.runtime/machines :spawned :login [:authenticating]]` in the frame's runtime-db and registers the `:system-id :auth-actor` name, so other transitions in the parent can address the child via `(rf.machines/machine-by-system-id :auth-actor)`.
 3. The HTTP child runs; on success, it dispatches `[:login [:auth/succeeded ...]]` (where `:login` is the parent machine's id).
 4. The login machine handles `:auth/succeeded`; transitions to `:authenticated`.
 5. Leaving `:authenticating` triggers the desugared exit: the runtime reads the actor id back from `[:rf.runtime/machines :spawned :login [:authenticating]]`, destroys it, clears the slot, and releases the `:auth-actor` `:system-id` binding. The HTTP child's snapshot is removed from `[:rf.runtime/machines :snapshots]` automatically — no stale id lingers in the parent's `:data`.
@@ -3929,8 +3929,10 @@ A machine *is* an event handler — that's the architectural commitment. But cal
 
 The framework therefore ships two thin lookup fns — **derived views over the existing event registry**, not a new registry kind:
 
+These are **owned by `re-frame.machines`, not re-exported onto the `re-frame.core` façade** — the front-porch boundary keeps only the `reg-machine` / `defmachine` registration macros on `rf/`, and routes every non-registration query / introspection helper through its owning namespace ([API.md](API.md)). Require it under the conventional dotted alias, `[re-frame.machines :as rf.machines]`, per [Conventions §Require-alias dialect](Conventions.md#require-alias-dialect--a-framework-subsystem-namespace-is-aliased-rf); the `rf.machines/` spellings below assume exactly that alias.
+
 ```clojure
-(rf/machines)
+(rf.machines/machines)
 ;; → seq of registered machine TYPE-ids (singletons + spawnable types)
 ;; Implementation: every event handler whose registration metadata
 ;; carries :rf/machine? true.
@@ -3943,13 +3945,13 @@ The framework therefore ships two thin lookup fns — **derived views over the e
 ;;   (keys (get-in (:rf.db/runtime (rf/frame-state-value frame-id))
 ;;                 [:rf.runtime/machines :snapshots]))
 
-(rf/machine-meta :drawer/editor)
+(rf.machines/machine-meta :drawer/editor)
 ;; → registration-metadata map (transition table, doc, schemas, ...)
 ;; Implementation: (handler-meta :event :drawer/editor), with the
 ;; standard metadata-map shape; machine-specific keys (e.g.
 ;; :rf/transition-table) are present iff :rf/machine? is true.
 
-(rf/machine-by-system-id :primary-request)
+(rf.machines/machine-by-system-id :primary-request)
 ;; → :request/protocol#42 (the gensym'd id), or nil if no spawn
 ;;   under the active frame is currently bound to that :system-id.
 ;;   Implementation: (get-in runtime-db [:rf.runtime/machines :system-ids :primary-request])
@@ -3961,21 +3963,21 @@ Both are pure functions over the registry. Both are JVM-runnable (they touch onl
 
 Why a lens, not a registry kind:
 
-- **Architectural commitment preserved.** Machines remain *event handlers*. There is no `:machine` registry kind, no parallel substrate, no per-machine auto-registration. `(rf/machines)` is a `filter` call, not a separate index.
+- **Architectural commitment preserved.** Machines remain *event handlers*. There is no `:machine` registry kind, no parallel substrate, no per-machine auto-registration. `(rf.machines/machines)` is a `filter` call, not a separate index.
 - **`:rf/machine? true` metadata is the discriminator.** `make-machine-handler` carries this metadata onto the registration; `reg-event` records it as part of the standard metadata map (per [001 §Metadata-map shape](001-Registration.md)). User-written event handlers do not set this key.
-- **One-line implementation.** `(rf/machines)` is `(registrations :event #(:rf/machine? %))`-shaped; `(rf/machine-meta id)` is `(handler-meta :event id)`. Both reuse the public registrar query API ([API.md §Public registrar query API](API.md#public-registrar-query-api)).
+- **One-line implementation.** `(rf.machines/machines)` is `(registrations :event #(:rf/machine? %))`-shaped; `(rf.machines/machine-meta id)` is `(handler-meta :event id)`. Both reuse the public registrar query API ([API.md §Public registrar query API](API.md#public-registrar-query-api)).
 - **Discovery is a first-class operation.** Visualisers can iterate every live machine without knowing where else to look; conformance harnesses can enumerate the suite under test; AI agents can answer "show me the machines in this app."
 
 User-facing call sites:
 
 ```clojure
-(rf/machines)
+(rf.machines/machines)
 ;; → (:auth.login/flow :checkout/flow :request/protocol ...)
 ;;   registered TYPES (incl. spawnable types like :request/protocol),
 ;;   NOT live instances like :request/protocol#42.
 
-(for [id (rf/machines)]
-  [id (-> (rf/machine-meta id) :doc)])
+(for [id (rf.machines/machines)]
+  [id (-> (rf.machines/machine-meta id) :doc)])
 ;; → ([:auth.login/flow "Login flow: idle → submitting → ..."]
 ;;    [:checkout/flow "Checkout wizard."]
 ;;    ...)
@@ -4106,7 +4108,7 @@ No `:db`, no `[:rf.runtime/machines :snapshots]` plumbing, no fx interpretation 
 ### Level 2 — unregistered handler fn
 
 ```clojure
-(def handler (rf/make-machine-handler {:initial :idle :states {...}}))
+(def handler (rf.machines/make-machine-handler {:initial :idle :states {...}}))
 
 ;; The runtime stores snapshots at [:rf.runtime/machines :snapshots <id>], where <id> is the
 ;; surrounding registration's id (in the runtime-db partition). A Level-2 test calls the
@@ -4124,7 +4126,7 @@ The handler resolves its id from the inbound event vector's first element (`:dra
 
 ```clojure
 (rf/with-new-frame [f (rf/make-frame {})]
-  (rf/reg-event :my/editor {} (rf/make-machine-handler {...}))
+  (rf/reg-event :my/editor {} (rf.machines/make-machine-handler {...}))
   (rf/dispatch-sync [:my/init] {:frame f})   ;; seed via a setup dispatch
   (rf/dispatch-sync [:my/editor [:event]] {:frame f})
   (assert ...))
@@ -4206,7 +4208,7 @@ The 7GUIs circle-drawer in this style. The modal-edit flow is a registered machi
 
 (rf/reg-event :drawer/editor
   {:doc "Modal-edit flow."}
-  (rf/make-machine-handler
+  (rf.machines/make-machine-handler
     {:initial :idle
      :data    {:circle-id nil :initial-radius nil :preview-radius nil}
      :actions
@@ -4384,7 +4386,7 @@ Per [000-Vision §Hierarchical FSM substrate](000-Vision.md#hierarchical-fsm-sub
 | **Cross-actor send via `:fx`** — `[:dispatch [other-actor-id [:event]]]` | Prose: §Spawning §What spawning gives for free; Fixtures: cross-actor-send | ✓ claimed | Falls out of standard `:dispatch` fx; no new mechanism. |
 | **Declarative `:spawn`** (sugar over spawn) — a state's `:spawn` translates to entry/exit actions that spawn / destroy a child actor | Prose: [§Declarative `:spawn`](#declarative-spawn); Schema: `:rf/state-node` extended for `:spawn` (per [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table)); Fixtures: `spawn-on-entry-destroy-on-exit`, `spawn-tracked-without-data-pending` | ✓ claimed (specified) | No new mechanics; pure sugar. `make-machine-handler` translates `:spawn` to entry/exit `:rf.machine/spawn` / `:rf.machine/destroy` at registration time. Composes with user-supplied `:entry` / `:exit` (user runs first). Per (Option A revised): the runtime tracks spawned ids at `[:rf.runtime/machines :spawned <parent-id> <invoke-id>]` so `:on-spawn` is purely advisory user-side bookkeeping — the destroy cascade does not read the user's `:data`. |
 | **Spawn-and-join via `:spawn-all`** — first-class parallel-region state-machines: a state node declares N child actors and a join condition (a closed two-member enum: `:all` / `:any`), the runtime fires one of three parent events when the join resolves and unconditionally cancels surviving siblings | Prose: [§Spawn-and-join via `:spawn-all`](#spawn-and-join-via-spawn-all); Schema: `:rf/state-node` extended for `:spawn-all` (per [Spec-Schemas §`:rf/transition-table`](Spec-Schemas.md#rftransition-table)); Fixtures: `spawn-all-join-all-completes`, `spawn-all-join-any-fails-cancels` | ✓ claimed (specified) | Sugar over N parallel `:spawn`s plus a runtime-owned join-state at `[:rf.runtime/machines :spawned <parent> <invoke-id>]` (the direct map shape — `:children` / `:done` / `:failed` / `:cancelled` / `:resolved?` / `:spec` co-mingle at the root). Sibling cancellation on the join decision is unconditional (matches Dash8/rf8 boot-page-reload semantics). |
-| **`:system-id` named-machine addressing** — a `:rf.machine/spawn` whose args carry `:system-id` binds the actor in the per-frame `[:rf.runtime/machines :system-ids]` reverse index; `(rf/machine-by-system-id sid)` resolves the binding | Prose: [§Named addressing via `:system-id`](#named-addressing-via-system-id), [§Cross-machine messaging by name](#cross-machine-messaging-by-name); Schema: `:rf.fx/spawn-args` extended for `:system-id`; Fixtures: `spawn-with-system-id-then-lookup-resolves`, `spawn-without-system-id-leaves-index-empty`, `destroy-machine-clears-system-id-index`, `system-id-collision-warns-and-rebinds` | ✓ claimed (specified) | Opt-in. The reverse index lives in runtime-db so it inherits frame revertibility. Collisions emit `:rf.error/system-id-collision` and rebind (last-write-wins). |
+| **`:system-id` named-machine addressing** — a `:rf.machine/spawn` whose args carry `:system-id` binds the actor in the per-frame `[:rf.runtime/machines :system-ids]` reverse index; `(rf.machines/machine-by-system-id sid)` resolves the binding | Prose: [§Named addressing via `:system-id`](#named-addressing-via-system-id), [§Cross-machine messaging by name](#cross-machine-messaging-by-name); Schema: `:rf.fx/spawn-args` extended for `:system-id`; Fixtures: `spawn-with-system-id-then-lookup-resolves`, `spawn-without-system-id-leaves-index-empty`, `destroy-machine-clears-system-id-index`, `system-id-collision-warns-and-rebinds` | ✓ claimed (specified) | Opt-in. The reverse index lives in runtime-db so it inherits frame revertibility. Collisions emit `:rf.error/system-id-collision` and rebind (last-write-wins). |
 | ~~**Wall-clock `:timeout-ms` on `:spawn` / `:spawn-all`**~~ | DROPPED in favour of state-level `:after`. See [§Wall-clock timeouts on `:spawn` — use parent state's `:after`](#wall-clock-timeouts-on-spawn--use-parent-states-after) and [MIGRATION §M-44](../migration/from-re-frame-v1/README.md#m-44-timeout-ms-removed-from-spawn--spawn-all--use-parent-states-after). | n/a | The `:after` capability subsumes this; one canonical primitive, not two. The `:fsm/delayed-after` capability above covers wall-clock-on-state semantics for both pure timed-transition states and `:spawn`-bearing states. |
 | **SCXML / Stately / XState JSON interop** — bidirectional schema parity or paste-and-render compatibility | SCXML: shipped tool-side; XState JSON / Stately: deferred | ◑ partial (tool-side) | The **SCXML** half shipped as a pure-data round-trip in the machines-viz tool (`day8.re-frame2-machines-viz.scxml` — `spec->scxml` / `scxml->spec`, exact round-trip over the supported topology subset, rf2-6urjd), not in the runtime `machines` artefact. The **XState-JSON** (`machine->xstate-json`) and **Stately Inspector wire-format** halves remain deferred to v1.1+; tracked alongside as the interop family. |
 
@@ -4582,7 +4584,7 @@ The v1 ship-list and the post-v1 follow-up are itemised below.
 - The `[:rf.machine/spawn ...]` and `[:rf.machine/destroy ...]` fx for dynamic actor lifecycle (canonical surface; the v1 public fns `spawn-machine` / `destroy-machine` are dropped per [MIGRATION.md §M-26](../migration/from-re-frame-v1/README.md#m-26-drift-sweep-drops--v1-surfaces-with-no-v2-equivalent-or-absorbed-by-canonical-surfaces)).
 - The `:raise` reserved fx-id inside `:fx` (machine-internal); the `:rf.machine/spawn` and `:rf.machine/destroy` fx-ids registered globally for actor lifecycle.
 - `[:rf.runtime/machines :snapshots <id>]` as the reserved runtime-db storage scheme; `:rf/machine?` registration-metadata flag.
-- `(rf/machines)` and `(rf/machine-meta id)` — discovery lens over the event registry per [§Querying machines](#querying-machines).
+- `(rf.machines/machines)` and `(rf.machines/machine-meta id)` — discovery lens over the event registry per [§Querying machines](#querying-machines).
 - The framework-registered `:rf/machine` parametric sub — the canonical `[:rf/machine <id>]` read surface.
 - Four-level drain semantics per [§Drain semantics](#drain-semantics) — including the gotchas listed in [§Drain semantics gotchas](#drain-semantics-gotchas).
 - The v1 transition-table grammar subset per [§Capability matrix](#capability-matrix) and [§Transition table grammar](#transition-table-grammar).

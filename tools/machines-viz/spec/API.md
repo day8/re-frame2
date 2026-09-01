@@ -51,7 +51,7 @@ registry).
 | Prop | Required | Default | Meaning |
 |---|---|---|---|
 | `:machine-id` | no | `nil` | Identifies the machine. Surfaces as the chart's aria-label and on every per-node `:data` payload (read by tests + hosts). |
-| `:definition` | no | `nil` | The machine definition map. When `nil` the chart renders an empty-state placeholder. A **structurally-invalid** definition (rf2-j538f7.18) is REJECTED by the canonical recursive grammar gate INSIDE `chart.layout/project-definition` BEFORE graph construction — nothing reaches ELK and no orphan edges to absent nodes are created; the chart renders a distinct **invalid-definition** placeholder (`data-testid "…-invalid-definition"`, `data-invalid-definition "<:rf.error/machine-* category>"`) carrying the value-free defect category + the DEPTH the defect sits at (never the state-id path — see [The value-free definition summary](#the-value-free-definition-summary)). The component does NOT subscribe to a framework registry directly — hosts pull the definition via `(rf/machine-meta machine-id)` and pass it in. |
+| `:definition` | no | `nil` | The machine definition map. When `nil` the chart renders an empty-state placeholder. A **structurally-invalid** definition (rf2-j538f7.18) is REJECTED by the canonical recursive grammar gate INSIDE `chart.layout/project-definition` BEFORE graph construction — nothing reaches ELK and no orphan edges to absent nodes are created; the chart renders a distinct **invalid-definition** placeholder (`data-testid "…-invalid-definition"`, `data-invalid-definition "<:rf.error/machine-* category>"`) carrying the value-free defect category + the DEPTH the defect sits at (never the state-id path — see [The value-free definition summary](#the-value-free-definition-summary)). The component does NOT subscribe to a framework registry directly — hosts pull the definition via `(rf.machines/machine-meta machine-id)` and pass it in. |
 | `:current-state` | no | `nil` | The live snapshot `:state` value for the active-state highlight. Accepts all three Spec 005 `:state` arms: a flat keyword (`:authing`), a hierarchical path (`[:auth :authing]`), **or a parallel region-map** (`{:data :loading :form :neutral}`). For a region-map the chart lights up **every** active region leaf simultaneously (the multi-active highlight — see [§Parallel multi-active highlight](#parallel-multi-active-highlight-rf2-yoe6e-rf2-g2svr)). `nil` renders no highlight. |
 | `:from-highlight` | no | `nil` | Focused-event lens origin (a `:state` value). |
 | `:to-highlight` | no | `nil` | Focused-event lens landing (a `:state` value). |
@@ -890,7 +890,7 @@ rf2-d6epb, 2026-07-22.)
 
 The chart's click surface is `:on-state-click`, invoked with the
 clicked node's `path`; the host resolves source coords for that path
-against `(rf/machine-meta machine-id)` and opens the editor (per
+against `(rf.machines/machine-meta machine-id)` and opens the editor (per
 [Xray 003 §Source-coord integration](../../xray/spec/003-Machine-Inspector.md#source-coord-integration)).
 The overlay callbacks — the `:on-child-click` on the `:spawn-all-join`
 descriptor and the `:on-hover` / `:on-leave` on the `:after-rings`
@@ -1008,7 +1008,7 @@ surface to the prop a host derives from it.
 
 | Framework surface (host reads) | Chart prop the host derives |
 |---|---|
-| `(rf/machine-meta machine-id)` | `:definition` — the registered topology (states, transitions, guards, actions). |
+| `(rf.machines/machine-meta machine-id)` | `:definition` — the registered topology (states, transitions, guards, actions). |
 | `[:rf.runtime/machines :snapshots <id>]` slot in the frame's runtime-db | `:current-state` — the live `:state` driving the active highlight. |
 | `:rf.machine/transition` trace events | `:from-highlight` / `:to-highlight` — the focused-event lens. |
 | `:rf.machine.timer/scheduled` / `-fired` / `-stale-after` | an `{:id :after-rings :specs … :tick …}` descriptor in `:overlays` — the countdown-ring overlay. |
@@ -1342,7 +1342,7 @@ prop groups:
 - **Topology / layout plane.** The node positions, edge routes, and
   compound-state nesting. Derived solely from the structural props
   `:definition`, `:direction`, `:layout-options`, and `:density` (the
-  host pulls `:definition` from `(rf/machine-meta machine-id)`;
+  host pulls `:definition` from `(rf.machines/machine-meta machine-id)`;
   `:density` sizes ELK container padding per rf2-8q5pt — see the
   [layout-invalidation boundary](#layout-invalidation-boundary-is-load-bearing)).
   This plane is **structural**: changing it requires re-laying out the
@@ -1411,7 +1411,7 @@ plane are:
 
 1. **A new `:definition`.** A changed definition map — including a
    `reg-machine` hot-reload re-registration the host re-pulls via
-   `(rf/machine-meta machine-id)` and re-passes — re-runs layout.
+   `(rf.machines/machine-meta machine-id)` and re-passes — re-runs layout.
 2. **A `:direction` change** (`:tb` ⇄ `:lr`).
 3. **A `:layout-options` change** — host-side elkjs `layoutOptions`
    overrides.
@@ -1929,7 +1929,7 @@ handed to a v1 decoder is refused with `:unknown-version` rather than
 silently mis-decoded — CI-enforced per the encoding-version contract.)
 
 `:source-coords` is **not a top-level key** of `ChartState`. Source
-coords live only in the operator-side `(rf/machine-meta machine-id)`
+coords live only in the operator-side `(rf.machines/machine-meta machine-id)`
 return value and never traverse the share pipeline. The viewer page
 renders with `:read-only?` true so `:on-state-click` is no-op'd (per
 [§Read-only viewer](#read-only-viewer)), so the absence of source
@@ -2096,7 +2096,7 @@ viewer someone actually serves is a dead link (rf2-8m344).
 ```
 
 `mermaid/emit` is the load-bearing pure function; it takes the same
-normalised machine definition `(rf/machine-meta machine-id)` returns
+normalised machine definition `(rf.machines/machine-meta machine-id)` returns
 (per [Spec 005 §Transition table grammar](../../../spec/005-StateMachines.md#transition-table-grammar))
 and emits a string suitable for paste. It is substrate-independent
 and DOM-independent — callable from JVM tests, from the JS bundle,
@@ -2378,7 +2378,7 @@ outcome does not silently complete as a success.
 ### Contract
 
 - `(generate-machine user-prompt opts)` returns the validated spec
-  the same shape `reg-machine` accepts and `(rf/machine-meta id)`
+  the same shape `reg-machine` accepts and `(rf.machines/machine-meta id)`
   returns.
 - `opts` recognises:
   - `:resolver` — `(fn [prompt-string] llm-response-string)`. Required.
