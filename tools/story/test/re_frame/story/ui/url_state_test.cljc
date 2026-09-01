@@ -6,11 +6,14 @@
   Playwright browser scenario. This ns pins the pure pieces:
 
   - `params-from-state`     — project shell-state slots onto build-params shape.
-  - `query-string-from-state` — round-trip ?key=val&... composition.
-  - `url-from-state`        — full path + query + hash composition.
+  - `url-from-state`        — full path + query + hash composition, and the
+                              ownership boundary it shares with the share
+                              builder (rf2-gee8n).
   - `url-relevant-slots-changed?` — diff for the state watcher.
   - `apply-parsed-to-state` — fold parsed slots back into shell-state."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing]]
+            [re-frame.story.share :as share]
             [re-frame.story.ui.url-state :as us]))
 
 ;; ---- params-from-state ---------------------------------------------------
@@ -70,30 +73,6 @@
       (is (= {:n 5}         (:cell-overrides out)))
       (is (= :uix           (:substrate out))))))
 
-;; ---- query-string-from-state --------------------------------------------
-
-(deftest query-string-from-empty-state-is-blank
-  (is (= "" (us/query-string-from-state {}))))
-
-(deftest query-string-from-state-prepends-question-mark
-  (let [qs (us/query-string-from-state {:selected-variant :foo/bar})]
-    (is (re-find #"^\?variant=" qs))))
-
-(deftest query-string-from-state-includes-all-slots
-  (let [qs (us/query-string-from-state
-             {:selected-variant   :foo/bar
-              :active-mode-tab    {:foo/bar :docs}
-              :active-modes       [:m/dark]
-              :viewport           :tablet
-              :background         :dark
-              :tag-filter         #{:tag/a}})]
-    (is (re-find #"variant="    qs))
-    (is (re-find #"mode-tab="   qs))
-    (is (re-find #"modes="      qs))
-    (is (re-find #"viewport="   qs))
-    (is (re-find #"background=" qs))
-    (is (re-find #"tag-filter=" qs))))
-
 ;; ---- url-from-state ------------------------------------------------------
 
 (deftest url-from-state-composes-pathname-query-hash
@@ -106,6 +85,112 @@
 (deftest url-from-state-no-query-when-empty
   (let [url (us/url-from-state {} {:pathname "/foo/" :hash "#/stories"})]
     (is (= "/foo/#/stories" url))))
+
+(deftest url-from-state-includes-every-populated-slot
+  (testing "every URL-relevant shell slot reaches the composed query"
+    (let [url (us/url-from-state
+                {:selected-variant   :foo/bar
+                 :active-mode-tab    {:foo/bar :docs}
+                 :active-modes       [:m/dark]
+                 :viewport           :tablet
+                 :background         :dark
+                 :tag-filter         #{:tag/a}
+                 :substrate          :uix}
+                {:pathname "/foo/" :hash "#/stories"})]
+      (is (re-find #"\?variant=" url))
+      (is (re-find #"mode-tab="   url))
+      (is (re-find #"modes="      url))
+      (is (re-find #"viewport="   url))
+      (is (re-find #"background=" url))
+      (is (re-find #"tag-filter=" url))
+      (is (re-find #"substrate="  url)))))
+
+;; ---- rf2-gee8n: the address-bar writer owns the Story vocabulary only ----
+;;
+;; `url-from-state` is the SECOND writer of the address-bar URL — the
+;; state-watcher pushes its output on every URL-relevant change. It used to
+;; compose from `{:pathname :hash}` alone, rebuilding the query from shell
+;; state and discarding `location.search` wholesale, so the first state
+;; change after mount erased every param Story does not own: `embed=1`
+;; (rf2-pucku chrome state, read once at mount and never round-tripped),
+;; a referrer `from=`, a host page's analytics params.
+;;
+;; The share builder had already settled the boundary (rf2-b7je1): Story
+;; owns exactly `share/story-query-keys` and preserves everything else.
+;; These pin that this writer applies the SAME boundary — it calls the same
+;; merge — so the two cannot drift about who owns what.
+
+(def ^:private third-party-search
+  "A `location.search` of the shape a host page hands the shell: two
+  params Story does not own, plus a stale Story key left by an earlier
+  push. `embed=1` is the concrete casualty rf2-gee8n was filed for."
+  "?from=index&embed=1&variant=story.old%2Fa")
+
+(deftest url-from-state-preserves-unowned-query-params
+  (testing "rf2-gee8n — unrelated params survive verbatim and in order,
+            ahead of the generated ones, while the stale Story key is
+            replaced by this state's value"
+    (is (= "/counter-with-stories/?from=index&embed=1&variant=story.new%2Fb#/stories"
+           (us/url-from-state
+             {:selected-variant :story.new/b}
+             {:pathname "/counter-with-stories/"
+              :search   third-party-search
+              :hash     "#/stories"})))))
+
+(deftest url-from-state-clears-every-stale-story-key
+  (testing "rf2-gee8n — the clear set is the whole vocabulary, not the
+            subset this state emits: a slot the shell leaves empty must
+            not leave a stale value standing for the hydrator to restore
+            (the omission hole rf2-b7je1 closed on the share builder)"
+    (let [stale {"variant"    "story.old%2Fa"
+                 "workspace"  "story.old%2Fws"
+                 "mode-tab"   "docs"
+                 "modes"      "Mode.app%2Fstale"
+                 "viewport"   "tablet"
+                 "background" "dark"
+                 "tag-filter" "stale"
+                 "overrides"  "%7B%3Afoo%201%7D"
+                 "substrate"  "uix"}
+          search (str "?"
+                      (str/join "&" (map #(str (name %) "=" (get stale (name %)))
+                                         share/story-query-keys))
+                      "&from=index&embed=1")
+          url    (us/url-from-state
+                   ;; Only `:selected-variant` populated — every other slot
+                   ;; is omitted by `share/build-params`.
+                   {:selected-variant :story.new/b}
+                   {:pathname "/p/" :search search :hash "#/stories"})]
+      (is (= (set (map name share/story-query-keys)) (set (keys stale)))
+          "the fixture carries a stale value for every key in the vocabulary")
+      (is (= "/p/?from=index&embed=1&variant=story.new%2Fb#/stories" url)
+          "every stale Story key is gone; both unowned params survive"))))
+
+(deftest url-from-state-no-bare-question-mark-when-query-empties
+  (testing "rf2-gee8n — clearing the last Story key off a search that held
+            nothing else leaves no dangling `?`; a bare `?` differs from
+            `location.search`'s empty string, so the watcher would push a
+            cosmetic history entry the shell can never match again"
+    (is (= "/p/#/stories"
+           (us/url-from-state {} {:pathname "/p/"
+                                  :search   "?variant=story.old%2Fa"
+                                  :hash     "#/stories"})))))
+
+(deftest url-from-state-and-share-builder-agree-on-ownership
+  (testing "rf2-gee8n — the two writers of this URL apply one boundary
+            because they call one merge: given the same base and the same
+            cell, the address-bar composer and the share-URL builder
+            produce the same string"
+    (let [pathname "/counter-with-stories/"
+          search   "?from=index&embed=1&substrate=uix"
+          hash     "#/stories"]
+      (is (= (share/variant-share-url
+               :story.new/b
+               (str pathname search hash)
+               {:substrate :reagent})
+             (us/url-from-state
+               {:selected-variant :story.new/b :substrate :reagent}
+               {:pathname pathname :search search :hash hash}))
+          "same base + same cell ⇒ same URL from either writer"))))
 
 ;; ---- url-relevant-slots-changed? ----------------------------------------
 

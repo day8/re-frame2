@@ -62,7 +62,7 @@
   `build-params` emits them — the §URL scheme list in the ns docstring
   above, written down once so the three places that need it agree:
   `build-params` emits a SUBSET of it, `parse-params` reads ALL of it,
-  and `append-query-params` CLEARS all of it before appending.
+  and `apply-story-params` CLEARS all of it before appending.
 
   All of it, not merely the subset a given call emits (rf2-b7je1 audit).
   `build-params` deliberately omits empty / nil / default slots so the
@@ -391,16 +391,26 @@
     (subs fragment 0 idx)
     fragment))
 
-(defn- ^:no-doc append-query-params
-  "Merge already-encoded query `params` into `base-url`, inserting them
-  before any hash fragment.
+(defn apply-story-params
+  "Rewrite `base-url`'s query so the Story vocabulary reads exactly the
+  already-encoded `params`, inserting them before any hash fragment.
+
+  This is THE ownership boundary, and it is public because the address
+  bar has TWO writers that must not disagree about it: the share builder
+  `variant-share-url` below, and `re-frame.story.ui.url-state/
+  url-from-state`, which the state-watcher pushes on every URL-relevant
+  shell change. They call this one function rather than each keeping
+  their own notion of who owns what (rf2-gee8n — `url-from-state` used
+  to compose from `{:pathname :hash}` alone and discard
+  `location.search` wholesale, so the first state change after mount
+  erased the very params this fn takes care to preserve).
 
   Key-aware (rf2-b7je1): every existing occurrence of a key in
   `story-query-keys` is removed before the generated params are
-  appended, so the result carries exactly one value for each key the
-  builder owns and NO value for the ones this call chose to omit. The
-  browser hydrator (`re-frame.story.ui.url-state/params->getter`) reads
-  each key with `URLSearchParams.get`, whose first-value semantics would
+  appended, so the result carries exactly one value for each key Story
+  owns and NO value for the ones this call chose to omit. The browser
+  hydrator (`re-frame.story.ui.url-state/params->getter`) reads each key
+  with `URLSearchParams.get`, whose first-value semantics would
   otherwise select a stale value already on `base-url` — opening a
   different cell than the one shared. Unrelated existing entries
   (e.g. `from=index`, `embed=1`) are preserved verbatim, in order,
@@ -409,7 +419,9 @@
   The clear set is `story-query-keys` rather than the keys of `params`
   precisely because `build-params` omits empty / default slots: clearing
   only what is emitted leaves a stale `modes=` standing when the caller
-  requests no modes at all."
+  requests no modes at all.
+
+  Pure data → data; JVM + CLJS-portable."
   [base-url params]
   (let [[path fragment] (split-fragment base-url)
         qidx            (str/index-of path "?")
@@ -419,7 +431,17 @@
                           (->> (str/split (subs path (inc qidx)) #"&" -1)
                                (remove #(contains? owned (query-param-key %)))))
         query           (str/join "&" (concat kept params))
-        sep             (if (and (nil? qidx) (str/blank? path)) "" "?")
+        ;; No `?` for an empty query — clearing the last Story key off a
+        ;; base that carried nothing else must not leave a dangling `?`
+        ;; (rf2-gee8n: a bare `?` differs from `location.search`'s empty
+        ;; string, so the state-watcher would push a cosmetic history
+        ;; entry it can never match again). No `?` either for the bare
+        ;; `variant-share-url` 1-arity, whose empty base-url asks for a
+        ;; query FRAGMENT the caller glues onto a base of its own.
+        sep             (if (or (str/blank? query)
+                                (and (nil? qidx) (str/blank? path)))
+                          ""
+                          "?")
         with-query      (str bare sep query)]
     (if (some? fragment)
       (str with-query "#" fragment)
@@ -563,11 +585,14 @@
   this call's value, or REMOVED when this call omits that slot, so the
   reader lands on the requested cell and nothing else. Unrelated query
   params (`from=`, `embed=`, …) and the hash route survive untouched.
+  That boundary is `apply-story-params`, shared with the address-bar
+  writer `re-frame.story.ui.url-state/url-from-state` so the two writers
+  of this URL cannot drift apart (rf2-gee8n).
   Pure data → data; JVM + CLJS-portable."
   ([variant-id]                (variant-share-url variant-id "" nil))
   ([variant-id opts]           (variant-share-url variant-id "" opts))
   ([variant-id base-url opts]
-   (append-query-params
+   (apply-story-params
      (or base-url "")
      (build-params (assoc opts :variant-id variant-id)))))
 
