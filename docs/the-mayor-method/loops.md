@@ -1068,38 +1068,33 @@ and both readings went wrong in a single day here, in opposite directions.
    the probe read *running* five minutes in; all six were resumed on that reading, none
    redispatched, and every one kept its context.
 
-**A finished change is not a strand, and publishing it is not salvage.** Everything above prices one
-action — redispatch — and prices it to favour waiting, correctly, because acting on a wrong *no task*
-destroys a live run. A second action sits beside it and is priced the other way. Where a change is
-already green at the band and its published head matches its branch tip, the only step left is the
-publish flag its author sets last, and taking that step costs nothing if the author was alive after
-all: it wakes to find its work landed, which is what it was trying to do. Verify the change against
-§1 yourself, publish it, retire the agent — and do **not** reopen its items or redispatch, which are
-the moves that carry the cost step 3 is written around. **Read the whole of §1 for it**: the case
-looks finished, which is exactly when a clause gets waived.
+**A finished change is not a strand — but publishing it is still not yours to infer.** Everything
+above prices redispatch, and prices it to favour waiting because acting on a wrong *no task* destroys
+a live run. A second case sits beside it: a change already green at the band, its published head
+matching its branch tip, needing only the publish flag its author sets last. The pull is to set that
+flag yourself. **Do not reach for a new signal to justify it** — the flag is the interlock precisely
+because a merge command refuses a draft, and an interlock you can talk yourself past is not one.
 
-**What makes that reading available is a signal none of the four clocks carries: the tracker's own
-record that the worker CLOSED its items.** It is the mirror of the claim signal above — a positive
-act by the agent, landing outside the tree where no file clock can see it — and it is the one thing
-separating this case from the false signature above, because a worker on its third local gate attempt
-has not reached its close step. **It proves the worker REACHED that step, not that nothing remains**,
-so it does not convert green-and-draft into *finished*; the four parts still observe no agent, and the
-warning above stands unchanged. It only makes the finished reading *available* where those four leave
-it ambiguous, and it is checkable in one call.
+**Use the authorisation the [dispatch template](dispatch-prompt-template.md#publishing-the-change)
+already names: the operator's decision to STOP that agent, which settles liveness by making it false.**
+Stop it, then merge. That is an act with a definite outcome where every clock above is an inference
+with none, and it needs no new discriminator — a stopped agent cannot be working, so the question the
+four clocks could not answer stops being asked. Verify the change against §1 in full, exactly as for
+any other change, and do not reopen the stopped worker's items or redispatch them.
 
-**The residual risk is one thing and worth naming: an author who had found a further problem and not
-yet pushed the fix.** A closed item says the work was declared done, not that nothing was learned
-after — the third-gate-attempt worker above would present this way too. What bounds it is that you
-merge the PUBLISHED head, which CI graded, so the loss is a fix that was never pushed rather than a
-regression you introduced; the remedy is an ordinary follow-up change, not a destroyed run. That is
-the whole of the asymmetry with step 3, and it is why the pricing inverts.
+**The ORDER is the whole rule, and reversing it looks identical afterwards.** Merging first and
+stopping second reaches the same end state by the forbidden route: the merge rests on an inference and
+the act that would have settled it arrives too late to have authorised anything. Both orders leave a
+merged change and a stopped agent, so the record cannot tell them apart later — which is why this says
+*stop, then merge* rather than *make sure the agent ends up stopped*. Written the day it was got wrong
+twice.
 
-Measured twice in one day, on two unrelated workers: each had closed every item it held, each had a
-change green at the band with its published head matching, and each had sat two hours and one hour
-past its last write. Both were genuinely past their work — their final lines were *"cleaning up my
-gate artefacts"* and *"now opening the draft PR"*, the second re-attempting a step it had already
-completed. Waiting had bought nothing on either, and one of them was fencing an unrelated item that
-could not dispatch until it merged.
+**The residual risk is real and belongs to stopping, not to merging: you may be killing work you
+cannot see.** An author who closed its items and then discovered something further presents exactly
+like one that is finished. What bounds it is that you merge the PUBLISHED head, which CI graded, so the
+loss is an unpushed fix rather than a regression introduced, and the remedy is a follow-up change. That
+is a cost to weigh before stopping — it is not a reason to merge without stopping, which trades a
+bounded loss for an unbounded one.
 
 **Never build a commit from someone else's uncommitted work.** Only that worker knows whether it forms
 a coherent change.

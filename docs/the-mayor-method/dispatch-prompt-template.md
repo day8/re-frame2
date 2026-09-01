@@ -610,6 +610,13 @@ it false. Until one of those arrives the change waits, and the honest report say
 stranded and why. That rule is unchanged by the above — what changes is how often you should expect to
 reach for it, which is rarely.
 
+**Where that second one is taken, it is taken FIRST.** Stopping the agent and then merging is
+authorised; merging and then stopping is the same inference with the act appended afterwards, and it
+leaves an identical record — a merged change beside a stopped agent — so nothing later can tell the two
+apart. The coordinator's side of this rule, and the cost of stopping an author who had found further
+work, are under *The stranded sweep* in [`loops.md`](loops.md#the-stranded-sweep); the rule itself is
+one rule and this page states it.
+
 ---
 
 ## Pasting a block
