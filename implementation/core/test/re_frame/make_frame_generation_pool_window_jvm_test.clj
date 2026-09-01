@@ -27,18 +27,23 @@
   genuine two-thread race. This one is a plain ordering wart, reachable by a
   single synchronous call:
 
-    1. `:pool-window/target` is created against explicit pool V1 and destroyed —
-       the provenance row survives the destroy (documented residue: there is no
-       destroy-time cleanup hook, and a REUSED id's row is supposed to be
-       overwritten by the next `make-frame`).
+    1. `:pool-window/target` is created against explicit pool V1 and destroyed.
+       Teardown RELEASES the row (rf2-cq0yi — it used to survive, on the
+       reasoning that a REUSED id's row would be overwritten by the next
+       `make-frame` anyway; what that reasoning missed was retention, not
+       correctness), so the id is left with NO row, which is the other half of
+       the same out-of-step window: an absent row reads as nil, and nil means
+       the LIVE SOURCE STORE — a pool this frame's explicit-`:include-ns`
+       composition matches nothing in.
     2. A `reg-*` arms `pending-reprojection?` (an image-loaded decoy frame is
        standing, so the hook does not take its no-image-loaded-frame skip; on the
        JVM `mark-dirty-and-schedule!` schedules no tick, so the flag simply
        waits for the next resolution).
     3. `:pool-window/target` is re-created against explicit pool V2, carrying
        `:initial-events`. The setup cascade flushes → the sweep reaches the
-       just-published frame → reads the row, which still says V1 → re-resolves
-       against V1 and swaps THAT over the V2 generation.
+       just-published frame → reads the row, which does not yet say V2 →
+       re-resolves against the WRONG pool and swaps THAT over the V2
+       generation the constructor had just installed.
 
   PRE-FIX the constructor returns a frame running the V1 descriptors it was
   never asked for. POST-FIX the row is written BEFORE the engine commit (and
@@ -93,9 +98,10 @@
     ;; reason and reporting a result that proves nothing. Clear either side.
     (reset! @dirty-flag false)
     ;; The provenance table is process-local `defonce` bookkeeping that no
-    ;; fixture resets (a destroyed id's row deliberately survives). Clear this
-    ;; namespace's own ids so a re-run inside one JVM starts from the documented
-    ;; "no row" state.
+    ;; fixture resets. Since rf2-cq0yi a destroyed id's row is released by
+    ;; teardown, so the cases clean up after themselves — but a case that throws
+    ;; part-way can still leave one, so clear this namespace's own ids
+    ;; explicitly and keep a re-run inside one JVM starting from "no row".
     (swap! @provenance dissoc :pool-window/target :pool-window/decoy :pool-window/rollback)
     (t)
     (reset! @dirty-flag false)))
@@ -150,15 +156,23 @@
     ;; take `mark-dirty-and-schedule!`'s no-image-loaded-frame skip (rf2-h4q6cy).
     (rf/make-frame {:id :pool-window/decoy})
 
-    ;; The id's FIRST incarnation, against pool V1. Destroying it leaves the
-    ;; provenance row behind — the documented residue the next `make-frame`
-    ;; against this id is supposed to overwrite.
+    ;; The id's FIRST incarnation, against pool V1. Destroying it now RELEASES
+    ;; the row (rf2-cq0yi) — see the control below for what that does to the
+    ;; window under test.
     (lf/make-frame {:id :pool-window/target :images [img]} pool-v1)
     (is (= ::inc-v1 (inc-impl :pool-window/target))
         "control: the first incarnation resolved against pool V1")
     (rf/destroy-frame! :pool-window/target)
-    (is (= pool-v1 (pool-row :pool-window/target))
-        "control: the destroyed id's provenance row still names pool V1")
+    (is (not (contains? (deref @provenance) :pool-window/target))
+        (str "control: teardown RELEASED the destroyed incarnation's provenance "
+             "row (rf2-cq0yi). The wart this namespace reproduces is the row "
+             "being OUT OF STEP with the record, and the row does that in TWO "
+             "ways — naming a previous incarnation's pool, or naming NOTHING. "
+             "Since the release it is the second here, and that is the sharper "
+             "half: an absent row reads as nil, nil means the LIVE SOURCE "
+             "STORE, and this frame's explicit-pool composition matches nothing "
+             "in it. So a reverted ordering reddens the assertions below just "
+             "as hard as it did against a stale V1 row."))
 
     ;; ARM the coalesced reprojection. On the JVM this schedules no tick — the
     ;; flag waits for the next resolution, which will be the setup cascade's.
