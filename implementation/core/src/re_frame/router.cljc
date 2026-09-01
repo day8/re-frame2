@@ -1870,11 +1870,22 @@
   previously the failing flow id lived ONLY inside the thrown ex-data
   (`:rf.flow/failed-id`), unreachable once `:exception` is stripped. The id is
   read back off that ex-data (nil-safe: absent for a non-per-flow throw, in
-  which case only `:where` is stamped)."
+  which case only `:where` is stamped).
+
+  The record also carries the failing `:phase` (rf2-gpj9r) — `:derive` when the
+  application's callback threw, `:output-write` when it RETURNED and the
+  framework's install of that value at the flow's declared `:output-path`
+  threw. `evaluate-flow!` discriminates the two structurally (separate `try`
+  forms, not exception-message inspection) and stamps the phase into the thrown
+  ex-data; without it on axis 1 a production monitor reads an output-write
+  failure as the programmer's `:derive` fn throwing and sends them to code that
+  did not fail. Nil-safe on the same terms as `:flow-id`."
   [e event event-id frame start-ms]
   (let [end-ms     (interop/now-ms)
         elapsed-ms (elapsed-ms-from start-ms end-ms)
-        failed-id  (:rf.flow/failed-id (ex-data e))]
+        data       (ex-data e)
+        failed-id  (:rf.flow/failed-id data)
+        phase      (:rf.flow/failed-phase data)]
     ;; Fan out along BOTH channels (shared helper). Axis 1 — the
     ;; always-on corpus-wide listener fires in CLJS production where
     ;; the trace surface (axis 2) is compile-time elided.
@@ -1884,7 +1895,8 @@
       {:frame frame :event event :exception e}
       ;; axis-1 attribution that survives an `:exception`-dropping egress
       (cond-> {:where :flow-eval}
-        (some? failed-id) (assoc :flow-id failed-id)))))
+        (some? failed-id) (assoc :flow-id failed-id)
+        (some? phase)     (assoc :phase phase)))))
 
 (defn- emit-legacy-runtime-root!
   "Surface `:rf.error/legacy-runtime-root` through BOTH the always-on

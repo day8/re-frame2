@@ -145,12 +145,80 @@
                       (live?))))))))
         true))))
 
+(defn- flow-eval-failure!
+  "Report one flow-evaluation failure, attributed to the phase that actually
+  threw, and re-raise it for the router.
+
+  `phase` is `:derive` when the authored `:derive` callback threw, and
+  `:output-write` when `:derive` RETURNED and the framework's own installation
+  of that value at the flow's declared `:output-path` threw — most often
+  because the pending app-db holds a container at that path which cannot accept
+  the path's final segment (a keyword segment over a vector, say).
+
+  The two are discriminated STRUCTURALLY, by which `try` in `evaluate-flow!`
+  caught the throw — never by reading the exception's message. The callback and
+  the install sit in separate `try` forms, so an install failure cannot reach
+  the derive handler and be reported as authored code failing.
+
+  Returns `stale-incarnation` when the owning incarnation died during the
+  callback: a callback may destroy A and then throw, and terminal loss wins —
+  the old callback's exception produces no B-attributed failure. Otherwise
+  emits the per-flow `:rf.flow/failed` trace and throws the aggregate
+  `:rf.error/flow-eval-exception`, carrying the phase on BOTH the dev trace and
+  the thrown ex-data so the router can lift it onto the always-on production
+  error record."
+  [frame-id owner-token exact-owner? flow new-inputs phase e]
+  (if-not (owner-live? frame-id owner-token exact-owner?)
+    stale-incarnation
+    (let [flow-id     (:id flow)
+          output-path (:output-path flow)]
+      (when interop/debug-enabled?
+        (trace/emit! :flow :rf.flow/failed
+                     {:flow-id           flow-id
+                      :phase             phase
+                      :path              output-path
+                      :exception-message #?(:clj (.getMessage ^Throwable e)
+                                            :cljs (.-message e))
+                      :exception-data    (ex-data e)
+                      :inputs            (elide-inputs frame-id flow new-inputs)
+                      :frame             frame-id}))
+      (if-not (owner-live? frame-id owner-token exact-owner?)
+        stale-incarnation
+        (error/throw-error!
+          :rf.error/flow-eval-exception
+          'rf/run-flows-on-db
+          (if (= :derive phase)
+            (str "a flow's :derive fn threw while recomputing flow "
+                 (pr-str flow-id)
+                 " during the drain; the event aborts before the :db install "
+                 "(no partial commit, app-db unchanged) and the flow "
+                 "re-attempts on the next drain. Fix the :derive fn so it "
+                 "does not throw on the inputs it is given.")
+            (str "flow " (pr-str flow-id)
+                 "'s :derive fn RETURNED normally, but re-frame could not "
+                 "install that value at the flow's declared :output-path "
+                 (pr-str output-path)
+                 " — the pending app-db holds a container at that path which "
+                 "cannot accept it. The :derive fn did not throw; the failure "
+                 "is the framework's output write. The event aborts before the "
+                 ":db install (no partial commit, app-db unchanged) and the "
+                 "flow re-attempts on the next drain. Fix the :output-path, or "
+                 "the shape the app-db holds at its parent path — do not go "
+                 "looking in the :derive fn."))
+          {:recovery :no-recovery
+           :extra    {:rf.flow/failed-id    flow-id
+                      :rf.flow/failed-phase phase
+                      :rf.flow/output-path  output-path
+                      :cause                e}})))))
+
 (defn- evaluate-flow!
   "Evaluate one flow against the pending frame-state.
 
-  Returns `[db dirty?]`. A thrown derivation is rethrown with the failing flow
-  id for router attribution; `run-flows-on-db` restores dirty-check state and
-  the router discards the pending db, so no partial output is committed.
+  Returns `[db dirty?]`. A failure is rethrown with the failing flow id AND the
+  failing PHASE for router attribution — `:derive` for the authored callback,
+  `:output-write` for the framework's install of its returned value (see
+  [[flow-eval-failure!]]); `run-flows-on-db` restores dirty-check state and the
+  router discards the pending db, so no partial output is committed either way.
 
   Trace payloads and their elision walks stay inside `debug-enabled?` branches
   so Closure removes them from production CLJS builds."
@@ -173,71 +241,59 @@
           (if (owner-live? frame-id owner-token exact-owner?)
             [db false]
             stale-incarnation))
-        (try
-          (let [t0         (when interop/debug-enabled? (interop/now-ms))
-                new-output (apply (:derive flow) new-inputs)]
+        ;; The authored `:derive` callback and the framework's own output
+        ;; installation are caught by SEPARATE `try` forms.  The split is the
+        ;; whole attribution mechanism: an `assoc-in` that cannot write the
+        ;; declared `:output-path` into the pending app-db is structurally
+        ;; unreachable from the derive handler, so it can never be reported as
+        ;; the programmer's `:derive` fn throwing (rf2-gpj9r).
+        (let [t0      (when interop/debug-enabled? (interop/now-ms))
+              derived (try
+                        {::output (apply (:derive flow) new-inputs)}
+                        (catch #?(:clj Throwable :cljs :default) e
+                          {::thrown e}))]
+          (if (contains? derived ::thrown)
+            (flow-eval-failure! frame-id owner-token exact-owner?
+                                flow new-inputs :derive (::thrown derived))
             ;; `:derive` is the principal authored callback boundary.  Its
             ;; value is inert once A loses ownership; no cache write, trace,
             ;; validation or later flow may be attributed to B.
             (if-not (owner-live? frame-id owner-token exact-owner?)
               stale-incarnation
-              (let [flow-elapsed-ms (when interop/debug-enabled?
-                                      (- (interop/now-ms) t0))
-                    old-output (when interop/debug-enabled?
-                                 (get-in db (:output-path flow)))
-                    new-db     (assoc-in db (:output-path flow) new-output)]
-                (registry/pass-set-flow-last-inputs!
-                  pass flow-id new-inputs)
-                (when interop/debug-enabled?
-                  (trace/emit! :flow :rf.flow/computed
-                               {:flow-id      flow-id
-                                :input-values (elide-inputs frame-id flow new-inputs)
-                                :before       (elision/elide-wire-value
-                                                old-output
-                                                {:frame frame-id
-                                                 :path (:output-path flow)})
-                                :result       (elision/elide-wire-value
-                                                new-output
-                                                {:frame frame-id
-                                                 :path (:output-path flow)})
-                                :path         (:output-path flow)
-                                :elapsed-ms   flow-elapsed-ms
-                                :frame        frame-id}))
-                (if-not (owner-live? frame-id owner-token exact-owner?)
-                  stale-incarnation
-                  (if (or (not interop/debug-enabled?)
-                          (validate-output! frame-id owner-token exact-owner?
-                                            flow new-output))
-                    [new-db true]
-                    stale-incarnation)))))
-          (catch #?(:clj Throwable :cljs :default) e
-            ;; A callback may destroy A and then throw.  Terminal loss wins:
-            ;; the old callback's exception produces no B-attributed failure.
-            (if-not (owner-live? frame-id owner-token exact-owner?)
-              stale-incarnation
-              (do
-                (when interop/debug-enabled?
-                  (trace/emit! :flow :rf.flow/failed
-                               {:flow-id           flow-id
-                                :exception-message #?(:clj (.getMessage ^Throwable e)
-                                                      :cljs (.-message e))
-                                :exception-data    (ex-data e)
-                                :inputs            (elide-inputs frame-id flow new-inputs)
-                                :frame             frame-id}))
-                (if-not (owner-live? frame-id owner-token exact-owner?)
-                  stale-incarnation
-                  (error/throw-error!
-                    :rf.error/flow-eval-exception
-                    'rf/run-flows-on-db
-                    (str "a flow's :derive fn threw while recomputing flow "
-                         (pr-str flow-id)
-                         " during the drain; the event aborts before the :db install "
-                         "(no partial commit, app-db unchanged) and the flow "
-                         "re-attempts on the next drain. Fix the :derive fn so it "
-                         "does not throw on the inputs it is given.")
-                    {:recovery :no-recovery
-                     :extra    {:rf.flow/failed-id flow-id
-                                :cause             e}}))))))))))
+              (try
+                (let [new-output      (::output derived)
+                      flow-elapsed-ms (when interop/debug-enabled?
+                                        (- (interop/now-ms) t0))
+                      old-output (when interop/debug-enabled?
+                                   (get-in db (:output-path flow)))
+                      new-db     (assoc-in db (:output-path flow) new-output)]
+                  (registry/pass-set-flow-last-inputs!
+                    pass flow-id new-inputs)
+                  (when interop/debug-enabled?
+                    (trace/emit! :flow :rf.flow/computed
+                                 {:flow-id      flow-id
+                                  :input-values (elide-inputs frame-id flow new-inputs)
+                                  :before       (elision/elide-wire-value
+                                                  old-output
+                                                  {:frame frame-id
+                                                   :path (:output-path flow)})
+                                  :result       (elision/elide-wire-value
+                                                  new-output
+                                                  {:frame frame-id
+                                                   :path (:output-path flow)})
+                                  :path         (:output-path flow)
+                                  :elapsed-ms   flow-elapsed-ms
+                                  :frame        frame-id}))
+                  (if-not (owner-live? frame-id owner-token exact-owner?)
+                    stale-incarnation
+                    (if (or (not interop/debug-enabled?)
+                            (validate-output! frame-id owner-token exact-owner?
+                                              flow new-output))
+                      [new-db true]
+                      stale-incarnation)))
+                (catch #?(:clj Throwable :cljs :default) e
+                  (flow-eval-failure! frame-id owner-token exact-owner?
+                                      flow new-inputs :output-write e))))))))))
 
 (defn- run-flows-on-db*
   [frame-id db runtime-db owner-token exact-owner?]

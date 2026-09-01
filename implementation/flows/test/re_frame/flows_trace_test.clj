@@ -537,12 +537,20 @@
         (is (= :boom (:flow-id r))
             ":flow-id is the failing flow's id — the prod-surviving attribution
              (Spec 013:234), lifted out of the thrown ex-data")
+        ;; rf2-gpj9r: and the PHASE that actually threw. Here the authored
+        ;; `:derive` really did throw, so the honest phase is `:derive`; an
+        ;; output-path write failure after a successful derive reports
+        ;; `:output-write` instead (see
+        ;; `re-frame.flows-output-write-attribution-cljs-test`).
+        (is (= :derive (:phase r))
+            ":phase names the failing flow-eval phase — :derive here, because
+             the authored callback is what threw")
         (is (= #{:error :event :event-id :frame :time :exception :elapsed-ms
-                 :source-coord :where :flow-id}
+                 :source-coord :where :flow-id :phase}
                (set (keys r)))
             "record carries the tight rf2-bacs4 keys plus rf2-3un2g
              :source-coord plus the rf2-z1332c flow attribution
-             (:where / :flow-id)")
+             (:where / :flow-id) plus the rf2-gpj9r :phase")
         ;; The attribution must survive an egress profile that strips
         ;; :exception (015 public-error): the failing flow is still
         ;; identifiable WITHOUT reaching into (ex-data (:exception r)).
