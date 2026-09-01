@@ -145,10 +145,11 @@ linearlite/
 
 ```bash
 # From implementation/:
-shadow-cljs watch examples/linearlite
+npm run dev:example -- examples/linearlite
 ```
 
-Then open [http://localhost:8044](http://localhost:8044) and the board loads.
+Then open the URL it prints and the board loads. (The runner picks a free port
+and tells you which — this example needs no special port knowledge.)
 
 Try the rollback: tick **"Fail the next write"**, then create / retitle /
 move an issue. The change paints immediately, the request fails, and the

@@ -123,10 +123,11 @@ state_machine_walkthrough/
 
 ```bash
 # From implementation/:
-shadow-cljs watch examples/state-machine-walkthrough
+npm run dev:example -- examples/state-machine-walkthrough
 ```
 
-Then open the served [`index.html`](index.html) and watch the lockout path:
+Then open the URL it prints — the runner stages this folder's
+[`index.html`](index.html) beside the bundle — and watch the lockout path:
 2 rejected attempts, then a third that parks the machine in `:locked-out`.
 
 ## Cross-references

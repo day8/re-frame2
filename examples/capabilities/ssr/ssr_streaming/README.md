@@ -164,11 +164,11 @@ ssr_streaming/
 
 ```bash
 # From implementation/:
-shadow-cljs watch examples/ssr-streaming
+npm run dev:example -- examples/ssr-streaming
 ```
 
-Then serve the built folder over HTTP alongside this folder's
-hand-written [`index.html`](index.html) and open it.
+Then open the URL it prints — the runner stages this folder's hand-written
+[`index.html`](index.html) alongside the built bundle for you.
 
 New to SSR here? Read the non-streaming
 [`examples/capabilities/ssr/ssr/`](../ssr/) counterpart first. The normative

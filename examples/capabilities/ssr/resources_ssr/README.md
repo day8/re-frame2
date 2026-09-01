@@ -168,12 +168,12 @@ resources_ssr/
 
 ```bash
 # From implementation/:
-shadow-cljs watch examples/resources-ssr
+npm run dev:example -- examples/resources-ssr
 ```
 
-Then serve this folder's [`index.html`](index.html) alongside the build
-output and open it. Its pre-baked payload lets the page hydrate without a
-Clojure server in the box.
+Then open the URL it prints. The runner stages this folder's
+[`index.html`](index.html) alongside the build output for you; its pre-baked
+payload lets the page hydrate without a Clojure server in the box.
 
 ## Cross-references
 

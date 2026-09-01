@@ -154,9 +154,9 @@ by a static file tree.
 
 ```bash
 # From implementation/:
-shadow-cljs watch examples/resources
+npm run dev:example -- examples/resources
 ```
 
-Then serve `out/examples/resources/` over HTTP and open it. Click **Preview**,
+Then open the URL it prints. Click **Preview**,
 **Refresh**, or **Open in reader** and watch the loading states flash before each
 reply lands — all served by the in-page stub.

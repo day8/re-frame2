@@ -86,10 +86,10 @@ routing/
 
 ```bash
 # From implementation/:
-shadow-cljs watch examples/routing
+npm run dev:example -- examples/routing
 ```
 
-Then serve the build over HTTP and open it.
+Then open the URL it prints.
 
 ## Cross-references
 
