@@ -22,7 +22,7 @@ SSE (`EventSource`) and WebRTC peer connections share the same lifecycle shape �
 | `:spawn` (declarative spawn) | `:active` invokes a `:websocket/socket` child owning the JS `WebSocket`. Exiting `:active` destroys it; re-entering spawns a fresh one. |
 | `:after` (fn-form delay) | Exponential backoff timer in `:reconnecting`, computed at entry from `:retries` and `:base-ms`. |
 | `:always` | Max-retries guard on `:reconnecting` entry; queue-flush guard on `:connected` entry. |
-| Parent-level `:on` | `:ws/closed`, `:ws/fatal`, `:ws/send`, `:ws/rotate-cred` declared once on `:active`, inherited by every leaf. |
+| Parent-level `:on` | `:ws/closed`, `:ws/fatal`, `:ws/disconnect`, `:ws/send`, `:ws/rotate-cred` declared once on `:active`, inherited by every leaf. The first three are the doors *out*: each destroys the socket actor, so each settles `:in-flight` on the way out. |
 | Connection-epoch staleness check | Live socket-actor's `:rf/self-id` is the epoch. Replies carry `:source-socket-id`; `:current-socket?` guard rejects events from a torn-down prior socket. |
 
 ## Credential discipline (load-bearing — read before the snippet)
@@ -48,6 +48,22 @@ The pattern below uses `:cred-ref` as the placeholder; substitute whatever opaqu
 ;; own (which is what makes :current-socket? a safe connection clock).
 (def socket-invoke-id [:active])
 (defn socket-id [data] (get-in data [:rf/spawned socket-invoke-id]))
+
+;; The in-flight half of losing the wire, shared by EVERY door out of :active
+;; (the :ws/closed drop, the clean :ws/disconnect, the :ws/fatal escape hatch).
+;; Each exit destroys the socket actor, so each must settle :in-flight on the
+;; way out: a slot left behind leaks forever, because its timeout carries the
+;; dead socket-id and :current-socket? drops it after teardown. FAIL, never
+;; replay — the server may already have processed the request. Returns an
+;; action result the calling action builds on.
+(defn fail-in-flight [data]
+  {:data (assoc data :in-flight {})
+   :fx   (into [] (keep (fn [[rid {:keys [reply-event]}]]
+                          (when reply-event
+                            [:dispatch (conj reply-event
+                                             {:origin :ws/local :request-id rid
+                                              :ok false :error :ws/connection-lost})])))
+               (:in-flight data))})
 
 (rf/reg-machine :ws/connection
   {:initial :disconnected
@@ -81,7 +97,15 @@ The pattern below uses `:cred-ref` as the placeholder; substitute whatever opaqu
                               {:data (assoc data :url url :cred-ref cred-ref)})
     :rotate-cred     (fn [{data :data [_ new-cred-ref] :event}]
                        {:data (assoc data :cred-ref new-cred-ref)})
-    :bump-retry      (fn [{data :data}] {:data (update data :retries inc)})
+    ;; Three doors out of :active, one shared in-flight settlement. The drop
+    ;; also bumps the retry counter; the fatal door also records the error; the
+    ;; clean door does neither — the app asked for it, so it is not a failure.
+    :on-socket-lost  (fn [{data :data}] (-> (fail-in-flight data)
+                                            (update :data update :retries inc)))
+    :fail-in-flight  (fn [{data :data}] (fail-in-flight data))
+    :on-fatal-error  (fn [{data :data [_ {:keys [error]}] :event}]
+                       (-> (fail-in-flight data)
+                           (update :data assoc :error error)))
     :on-connected
     ;; :entry takes one fn / id, never a vector — consolidate.
     (fn [{data :data}]
@@ -110,8 +134,11 @@ The pattern below uses `:cred-ref` as the placeholder; substitute whatever opaqu
                ;; :data fn takes ONE context-map arg {:keys [snapshot event]}.
                :data       (fn [{snap :snapshot}] {:url      (-> snap :data :url)
                                                    :cred-ref (-> snap :data :cred-ref)})}
-     :on      {:ws/closed      {:target :reconnecting :action :bump-retry}
-               :ws/fatal       {:target :failed}
+     ;; Every door OUT of :active kills the wire, so every one settles
+     ;; :in-flight exactly once on the way out — see the three actions above.
+     :on      {:ws/closed      {:target :reconnecting  :action :on-socket-lost}
+               :ws/fatal       {:target :failed        :action :on-fatal-error}
+               :ws/disconnect  {:target :disconnected  :action :fail-in-flight}
                :ws/send        {:action :enqueue-message}
                :ws/rotate-cred {:action :rotate-cred}}
      :initial :connecting
@@ -190,6 +217,7 @@ The `:connected` `:ws/received` transition vets the frame first — connection e
 - **Routing a refresh bearer through dispatch without classifying its path at its owner.** If a credential genuinely must move via dispatch (e.g. an out-of-band rotation), classify the path where it lands — a durable app-db secret via the writing event's `:sensitive` commit-plane effect, or the transient dispatch payload key in the dispatching handler's registration `:sensitive` metadata — per the privacy seam in [`../references/cross-cutting/privacy-and-elision.md`](../references/cross-cutting/privacy-and-elision.md). (There is **no** handler-meta `{:sensitive? true}` privacy switch; classification is fail-open and does not propagate.)
 - **Reconnect via `setTimeout` from inside fx-handler.** Bypasses the machine, tracing, stale-detection. Use `:after`.
 - **Skipping `:current-socket?` on `:ws/received`.** A slow `:message` from a torn-down socket lands in the new connection's `:in-flight` — wrong-reply at best.
+- **Settling `:in-flight` on only one door out of `:active`.** The `:ws/closed` drop is the door everyone remembers. A clean `:ws/disconnect` and an app-level `:ws/fatal` destroy the socket just as surely, and a slot stranded by `:ws/fatal` survives even a later manual `:ws/connect` out of `:failed` — its timeout carries the dead socket-id, so `:current-socket?` drops it and nothing else ever clears the slot. Route every exit through one shared fail-and-clear rather than repeating the logic per door.
 - **Treating WebSocket as Pattern-AsyncEffect.** A connection that retries, reconnects, and survives across messages is state-machine-shaped.
 - **Skipping schema validation on `:ws/received` payloads.** Inbound socket frames are an untrusted boundary. Validate against the agreed wire schema at the route-message seam before mutating app-db or branching downstream dispatches. See [`../references/fundamentals/schemas.md`](../references/fundamentals/schemas.md) §`validate-at-boundary-interceptor`.
 - **Validating at the app-db ingress only, when the machine mutates on the frame first.** "Before mutating app-db" is not the whole rule if the connection machine clears an `:in-flight` slot the frame names: the ingress refuses the body, app-db is untouched, and the correlation is already spent — the caller waits forever, and nothing on the rejection counter says so. Put the wire contract in the transition guard as well, ahead of the branch.

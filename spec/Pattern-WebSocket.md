@@ -47,12 +47,13 @@ The canonical states form a hierarchical machine. `:connecting`, `:authenticatin
 :active / :authenticating --:ws/auth-failed-->   :failed
 :active / *             --:ws/closed-->          :reconnecting
 :active / *             --:ws/fatal-->           :failed
+:active / *             --:ws/disconnect-->      :disconnected
 :reconnecting           --:after backoff-->      :active / :connecting
 :reconnecting           --:always max-retries--> :failed
 :failed                 --:ws/connect-->         :active / :connecting
 ```
 
-Per [005 §Transition resolution — deepest-wins with parent fallthrough](005-StateMachines.md#transition-resolution--deepest-wins-with-parent-fallthrough), `:ws/closed` and `:ws/fatal` are declared on `:active` once and inherited by every leaf — every `:connecting`-error, `:authenticating`-error, and `:connected`-error path routes through the same parent-level transition.
+Per [005 §Transition resolution — deepest-wins with parent fallthrough](005-StateMachines.md#transition-resolution--deepest-wins-with-parent-fallthrough), the doors *out* of `:active` — the `:ws/closed` drop, the `:ws/fatal` escape hatch, and the clean `:ws/disconnect` — are declared on `:active` once and inherited by every leaf, so every `:connecting`, `:authenticating`, and `:connected` exit path routes through the same parent-level transition. Each of those doors destroys the socket actor, so **each of them also settles the `:in-flight` request set on the way out** — see §Message correlation for request-reply, item 5.
 
 The connection machine composes the locked substrate:
 
@@ -76,6 +77,31 @@ The connection machine composes the locked substrate:
 ;; idiom (005 §Recording the spawned id user-side), preferred over an :on-spawn
 ;; self-dispatch.
 (defn- socket-id [data] (get-in data [:rf/spawned [:active]]))
+
+;; The in-flight half of losing the wire, shared by EVERY door out of `:active`
+;; that destroys the socket — the guarded `:ws/closed` drop, the clean
+;; `:ws/disconnect`, and the app-level `:ws/fatal` escape hatch. Clear every
+;; `:in-flight` slot and fire each waiting `:reply-event` with the documented
+;; local-failure body. Each of those requests was already on the wire that is
+;; going away, so its reply can never arrive on this connection; left in
+;; `:in-flight` the slot leaks forever — its timeout is stamped with the dead
+;; socket-id, so `:current-socket?` drops that timeout after teardown and
+;; nothing else ever clears the slot. Semantics are FAIL, not replay: the
+;; server may already have processed the request, so a blind re-send risks
+;; double execution. Returns an action result (`:data` + `:fx`) for the calling
+;; action to build on — factoring it out is what keeps the three doors from
+;; drifting apart.
+(defn- fail-in-flight [data]
+  {:data (assoc data :in-flight {})
+   :fx   (into []
+               (keep (fn [[rid {:keys [reply-event]}]]
+                       (when reply-event
+                         [:dispatch (conj reply-event
+                                          {:origin     :ws/local
+                                           :request-id rid
+                                           :ok         false
+                                           :error      :ws/connection-lost})])))
+               (:in-flight data))})
 
 (rf/reg-event :ws/connection
   {:doc "WebSocket connection lifecycle: disconnected → active{:connecting →
@@ -149,25 +175,41 @@ The connection machine composes the locked substrate:
       ;; Heading for :reconnecting, two things happen:
       ;;   1. Bump the retry counter — it drives the :after backoff and the
       ;;      :max-retries-exceeded? guard.
-      ;;   2. FAIL every in-flight request. Each was already on the wire that
-      ;;      just died, so its reply can never arrive on THIS connection; left
-      ;;      in :in-flight it would leak forever (its timeout is stamped with
-      ;;      the now-dead socket-id, so :current-socket? drops that timeout
-      ;;      after we reconnect and the slot never clears). Loss semantics are
-      ;;      FAIL, not replay — the server may already have processed the
-      ;;      request, so a blind re-send risks double execution. Each waiting
-      ;;      :reply-event fires with {:ok false :error :ws/connection-lost} so
-      ;;      the caller learns the outcome instead of hanging forever.
+      ;;   2. FAIL every in-flight request, through the shared `fail-in-flight`
+      ;;      helper above — the same half of the job the clean-disconnect and
+      ;;      fatal doors do. Each waiting :reply-event fires with
+      ;;      {:origin :ws/local :ok false :error :ws/connection-lost} so the
+      ;;      caller learns the outcome instead of hanging forever. See the
+      ;;      helper for the full leak/replay story.
       (fn [{:keys [data]}]
-        {:data (-> data (update :retries inc) (assoc :in-flight {}))
-         :fx   (into []
-                     (keep (fn [[rid {:keys [reply-event]}]]
-                             (when reply-event
-                               [:dispatch (conj reply-event
-                                                {:request-id rid
-                                                 :ok         false
-                                                 :error      :ws/connection-lost})])))
-                     (:in-flight data))})
+        (-> (fail-in-flight data)
+            (update :data update :retries inc)))
+
+      :fail-in-flight
+      ;; The clean door. A :ws/disconnect out of :active destroys the socket
+      ;; just as surely as a drop does, so the SAME invariant applies: every
+      ;; request accepted into :in-flight settles exactly once on the way out.
+      ;; Unlike :on-socket-lost there is no retry bump — the app asked for this
+      ;; disconnect, so it is not a connection failure; only the requests still
+      ;; riding the wire fail, with the same documented body.
+      (fn [{:keys [data]}]
+        (fail-in-flight data))
+
+      :on-fatal-error
+      ;; :ws/fatal is the app-level escape hatch out of :active — the app
+      ;; itself declaring the connection unrecoverable (a protocol violation, a
+      ;; server telling us not to come back) and going straight to :failed
+      ;; without retrying. It leaves :active, so the runtime destroys the
+      ;; socket just as surely as a drop or a clean disconnect does, and
+      ;; recording the error is only HALF the job: without the fail-in-flight
+      ;; half the slot and its waiting :reply-event survive teardown forever,
+      ;; because the scheduled timeout carries the destroyed socket's id and
+      ;; :current-socket? rejects it once the socket is gone. That leak
+      ;; outlives a later manual :ws/connect out of :failed too, so the caller
+      ;; never learns anything. No retry bump: we are giving up, not retrying.
+      (fn [{:keys [data] [_ {:keys [error]}] :event}]
+        (-> (fail-in-flight data)
+            (update :data assoc :error error)))
 
       :send-auth
       ;; Route an :auth message into the live socket actor. NO token in
@@ -295,8 +337,18 @@ The connection machine composes the locked substrate:
        :on    {:ws/closed   {:guard  :current-socket?
                              :target :reconnecting
                              :action :on-socket-lost}
+               ;; The app-level escape hatch. It leaves :active, so it kills
+               ;; the wire — and therefore settles the in-flight set on the way
+               ;; out as well as recording the error (see :on-fatal-error).
                :ws/fatal    {:target :failed
-                             :action :record-error}
+                             :action :on-fatal-error}
+               ;; The clean door out. It kills the wire too, so it settles the
+               ;; in-flight set on the way out (see :fail-in-flight). Every
+               ;; door out of :active reachable from :connected — this one, the
+               ;; guarded :ws/closed drop and :ws/fatal — settles :in-flight
+               ;; exactly once.
+               :ws/disconnect {:target :disconnected
+                               :action :fail-in-flight}
                :ws/send     {:action :enqueue-message}
                :ws/rotate-cred {:action :rotate-cred}
                ;; A request issued before the connection is :connected is
@@ -322,6 +374,11 @@ The connection machine composes the locked substrate:
          ;; straggler :ws/auth-failed must not tear a fresh attempt to :failed.
          :on    {:ws/auth-ok     {:guard  :current-socket?
                                   :target :connected}
+                 ;; This door leaves :active too, but it needs no in-flight
+                 ;; settlement — plain :record-error is correct here, not an
+                 ;; oversight. :register-request is the only writer into
+                 ;; :in-flight and it is bound only on :connected, so reaching
+                 ;; :authenticating means :in-flight is provably empty.
                  :ws/auth-failed {:guard  :current-socket?
                                   :target [:failed]
                                   :action :record-error}}}
@@ -445,7 +502,7 @@ Request-reply protocols carry a correlation id on every request and matching rep
 2. **`:register-request` action** records the in-flight entry — `(:in-flight data)` gains `{request-id {:reply-event ... :timeout-ms ...}}` — forwards the body (with `:request-id` stamped) to the socket actor, and schedules a `:dispatch-later` for the timeout.
 3. **`:ws/received` arrives with `{:body {:type :reply :request-id ... :ok ...}}`.** The `:connected` state's `:trusted-frame?` guard checks the connection epoch **and** the closed wire contract; only then does the handler branch on the vetted `:type`. A `:reply` looks up the in-flight entry, clears the slot, and dispatches the registered reply event with the machine's `:origin :ws/server` stamp added; a `:push` only routes to `[:ws/handle-message body]`. Branch on `:type`, not on the presence of a `:request-id` — the frame's declared kind is part of the contract you just checked, whereas presence-of-a-key is a shape test a widened arm re-opens.
 4. **`:ws/request-timeout` fires** if no reply arrives within the timeout window. The `:clear-request` action removes the in-flight entry; the caller's reply event never fires. (Apps that want to surface "request timed out" to the caller can do so by dispatching a per-feature error event from `:clear-request` instead.)
-5. **Connection loss fails the slot.** When the live socket drops (`:ws/closed` → `:reconnecting`), `:on-socket-lost` fails every still-in-flight request — each `:reply-event` fires with `{:origin :ws/local :ok false :error :ws/connection-lost}` and `:in-flight` is cleared — so no correlation slot leaks across the reconnect and no caller hangs. Loss semantics are FAIL, not silent replay: the server may already have processed the request, so blind re-send risks double execution.
+5. **Losing the wire fails the slot — by every door, not only the drop.** A request accepted into `:in-flight` settles exactly once, and it settles whenever the socket goes away rather than only when it is lost underneath us. Every transition that exits `:active` destroys the socket actor, so all three doors run the shared `fail-in-flight` helper: the guarded `:ws/closed` drop (`:on-socket-lost`, which also bumps the retry counter), the clean `:ws/disconnect` (`:fail-in-flight`), and the app-level `:ws/fatal` escape hatch (`:on-fatal-error`, which also records the error). Each still-in-flight `:reply-event` fires with `{:origin :ws/local :ok false :error :ws/connection-lost}` and `:in-flight` is cleared, so no correlation slot leaks and no caller hangs. Semantics are FAIL, not silent replay: the server may already have processed the request, so blind re-send risks double execution. (`:ws/auth-failed` is the exception that proves the rule — `:register-request` is bound only on `:connected`, so `:in-flight` is provably empty by the time that door can be taken, and plain `:record-error` is correct there.)
 
 **Two producers reach the reply event, so say which is which — with a key the sender cannot set.** A correlated wire reply and a locally minted loss/timeout failure both arrive at the caller's `:reply-event`, and they are different facts: one is the server's claim, the other is the machine's own truth about the connection. Discriminating between them by *shape* hands the choice to the sender, because a hostile server that has seen the wire request id can send back whatever shape the "local failure" arm describes and have its frame recorded as a connection fact the app minted itself. So the machine **stamps** `:origin` — `:ws/server` on the wire body as it hands it on, `:ws/local` on the bodies it mints — and the outcome schema is a closed union dispatching on that stamp. Stamped after receipt, `:origin` is not forgeable from the wire.
 
@@ -515,7 +572,7 @@ This mirrors the rule for any client-only fx: the `:platforms` metadata gates ex
 - **Per-message machine-spawn-and-destroy.** The connection machine is long-lived. Spawning a new machine per outgoing message is structural overkill — use a single connection machine with `:in-flight` correlation tracking instead.
 - **Treating WebSocket as Pattern-AsyncEffect.** A connection that retries, reconnects, and survives across message boundaries is state-machine-shaped. Use this pattern.
 - **Storing the `WebSocket` object in `app-db`.** The JS `WebSocket` is not a value; it cannot serialise; it cannot survive Tool-Pair epoch replay. The `:websocket/socket` actor owns it via a host-side reference; only its id appears in `:data` — under the runtime-maintained `:rf/spawned` slot.
-- **Leaking in-flight requests when the socket drops.** A request already on the wire when the connection is lost can never be answered on that socket; left in `:in-flight` it dangles forever (its timeout is stamped with the dead socket-id, so `:current-socket?` drops the timeout after reconnect and the slot never clears). Fail each on loss — fire its `:reply-event` with `{:origin :ws/local :ok false :error :ws/connection-lost}` and clear `:in-flight` (the worked example's `:on-socket-lost`) — so callers learn the outcome. FAIL, not blind replay: the server may already have processed the request, so re-sending risks double execution.
+- **Leaking in-flight requests on a door out of `:active` — and fixing only the drop.** A request already on the wire when the socket goes away can never be answered on that socket; left in `:in-flight` it dangles forever (its timeout is stamped with the dead socket-id, so `:current-socket?` drops the timeout after teardown and the slot never clears). The obvious version of the bug is missing it on the `:ws/closed` drop. The version that survives review is repairing that one door and leaving the others: a clean `:ws/disconnect` and an app-level `:ws/fatal` destroy the socket just as surely, and a `:ws/fatal` leak outlives even a later manual `:ws/connect` out of `:failed`, so the caller never learns anything. Route **every** exit from `:active` through one shared fail-and-clear — the worked example's `fail-in-flight`, composed by `:on-socket-lost`, `:fail-in-flight` and `:on-fatal-error` — firing each `:reply-event` with `{:origin :ws/local :ok false :error :ws/connection-lost}` and clearing `:in-flight`, so callers learn the outcome. FAIL, not blind replay: the server may already have processed the request, so re-sending risks double execution.
 - **Anchoring the `:spawn` on `:connecting` instead of the `:active` parent.** A socket actor scoped to `:connecting` is destroyed the moment the leaf transitions to `:authenticating` — every dispatch from `:authenticating` and `:connected` then addresses a dead actor. The actor's lifetime must outlive every leaf that dispatches through it; the hierarchical parent is the natural anchor.
 - **Storing a raw bearer / cookie / refresh token in machine `:data`, or dispatching one through the machine.** `:data` is framework-inspectable — app-db snapshots, trace emissions, recorder fixtures, pair tooling — so a credential held there is liable to be serialised somewhere nobody inspects character-by-character. Carry an opaque `:cred-ref` and resolve it to the real bearer inside the socket actor's host closure at authentication time (see §Parameters).
 - **Forgetting to re-thread connection opts on reconnect.** Recording `:url` and `:cred-ref` only in `:disconnected`'s `:ws/connect` handler — and never refreshing them on the `:reconnecting` → `:active` path — means a credential expiry mid-session can never recover. Either store opts in `:data` (where the `:spawn` `:data` fn re-reads them on every `:active` entry — the worked example's approach) or provide an explicit `:ws/rotate-cred` slot at the parent level.
