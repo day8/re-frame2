@@ -59,8 +59,8 @@ in-tree as observation targets. Build and view this one by hand.
 From `implementation/`:
 
 ```bash
-# Watch-compile (the dev launcher seeds the on-disk checkout root so
-# 'open in editor' resolves):
+# Watch-compile (the dev launcher also prints the served URL for any
+# build that has one; this build has no `:dev-http` entry):
 npm run dev -- :testbeds/ssr-basic
 # …or a one-shot compile:
 npx shadow-cljs compile :testbeds/ssr-basic

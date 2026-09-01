@@ -228,8 +228,8 @@ tools/                         CLJS dev/inspection tools that consume re-frame2'
   machines-viz/                day8/re-frame2-machines-viz — substrate-agnostic MachineChart
                                component + read-only viewer surfaces (the chart extracted out of
                                Xray; also hosts the pure Mermaid emitter)
-  testbed-support/             Shared testbed helpers (re-frame.testbed.config project-root resolver
-                               + re-frame.testbed.story-host hash-toggle host); consumed by the
+  testbed-support/             Shared testbed helpers (re-frame.testbed.story-host hash-toggle host
+                               + the JVM open-in-editor dev-server endpoint); consumed by the
                                framework testbed builds
   mcp-base/                    day8/re-frame2-mcp-base — shared CLJC library for the MCP servers
                                (arg parsing, redaction, cap, overflow); bundle-isolated boundary

@@ -79,23 +79,22 @@ token, or state derived from the machine that built it. The
 open-in-editor project-root is the one dev-time affordance that could
 otherwise leak such a path:
 
-- The dev testbeds resolve their open-in-editor project-root from the
-  build environment (`re-frame.testbed.config/resolve-source-root`,
-  seeded by the `RF2_TESTBED_PROJECT_ROOT` env var via a
-  `re-frame.testbed.config/checkout-root` goog-define). That root is an
-  absolute checkout path — frequently a `C:/Users/<name>/…` home path.
+- `:rf.story/project-root` takes an absolute on-disk checkout path —
+  frequently a `C:/Users/<name>/…` home path — which is exactly the kind
+  of value a published bundle must not carry.
 - A `vscode://`/`cursor://`/`idea://` URI does **not** resolve from a
   published HTML page anyway, so the affordance is dev-only on a static
   site.
 
 So the static export is fail-closed on this slot, at two layers:
 
-1. **Build:** the `:story-static/*` build does **not** seed
-   `re-frame.testbed.config/checkout-root` from `RF2_TESTBED_PROJECT_ROOT`.
-   Its only `:closure-define` is `static-mode? true`. The `:advanced`
-   compiler inlines goog-define string constants, so omitting the seed
-   keeps the build-machine checkout path out of the bundle string-table
-   entirely. The static entry-point ns
+1. **Build:** the `:story-static/*` build's only `:closure-define` is
+   `static-mode? true`, and no build in this repository derives a
+   checkout path from its environment — the dev testbeds get their
+   open-in-editor resolution from the dev server's
+   `POST /__rf-open-in-editor` endpoint at request time, so there is no
+   ambient absolute path for an `:advanced` compile to inline into the
+   bundle string-table. The static entry-point ns
    (`counter_with_stories/story_static.cljs`) correspondingly passes no
    `:rf.story/project-root` to `configure!`.
 2. **Runtime:** `re-frame.story.config/set-project-root!` is fail-closed
@@ -115,13 +114,9 @@ is acceptable) flips the opt-in deliberately:
 (story/configure! {:rf.story/project-root "/abs/checkout/root"})
 ```
 
-The opt-in is **distinct** from the dev testbed root helper — passing
-`resolve-source-root`'s result into a static export is exactly the
-accidental-leak case the guard closes.
-
-The sanity test (`npm run test:story-static`, below) builds with a
-sentinel `RF2_TESTBED_PROJECT_ROOT` and asserts the sentinel appears in
-neither `main.js`, `manifest.json`, nor `index.html`.
+The opt-in is deliberate by construction: nothing in this repository
+derives a checkout path for a Story host to pass in, so a static export
+can only acquire one from a host that typed it.
 
 ## Build target
 
@@ -221,11 +216,8 @@ npm run test:story-static
 Driven by [`implementation/scripts/check-story-static.cjs`](../../../implementation/scripts/check-story-static.cjs).
 The script:
 
-1. Runs `story-build.cjs` (compile + stage + manifest) **with a sentinel
-   `RF2_TESTBED_PROJECT_ROOT`** in the build environment.
-2. Asserts `index.html`, `main.js`, `manifest.json` are all present, and
-   that the sentinel checkout path leaked into **none** of them
-   (static-export self-containment — see §Self-containment above).
+1. Runs `story-build.cjs` (compile + stage + manifest).
+2. Asserts `index.html`, `main.js`, `manifest.json` are all present.
 3. Spawns `http-server` over the output directory on port 8040.
 4. Drives headless Chromium against `http://127.0.0.1:8040/` and
    verifies:
