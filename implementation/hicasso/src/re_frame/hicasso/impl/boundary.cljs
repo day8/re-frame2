@@ -44,7 +44,7 @@
   |---|---|---|
   | `:fallback` | hiccup, or `(fn [error] hiccup)` | what renders instead of the children once something below has thrown |
   | `:reset-key` | any value, compared with `=` | a change clears the caught failure and re-mounts the children, so the retry is the CALLER's to schedule and never the boundary's to guess |
-  | `:on-error` | an intent vector, or a plain function | fired **once per caught failure**. A vector is dispatched with the error appended, through the frame the boundary is mounted under; a function is called with the error |
+  | `:on-error` | an intent vector, or a plain function | fired **once per caught failure**. A vector is dispatched with the error appended, through the frame the boundary is mounted under — and is refused at the declaration where there is no such frame, rather than dropped when it fires; a function is called with the error, and needs no frame |
 
   Nothing else. No error classification, no retry policy, no logging
   surface, no telemetry: each of those is an application's decision, and
@@ -70,7 +70,16 @@
   intents are vectors here — would swallow every caught error and return
   nil.
 
-  ### Why the shape is refused HERE and not in `report!`
+  **And a THIRD door, which is the one that stayed open longest** because
+  what comes through it is not malformed at all (`rf2-wdvlp`). A vector
+  `:on-error` is dispatched *into the frame the boundary is mounted
+  under*, so under no frame there is nothing to dispatch it into: the
+  declaration is well-spelled, well-shaped, and still cannot fire. The
+  guard therefore checks the frame beside the roster and the shape rather
+  than leaving [[report!]] to find the absence at `componentDidCatch`,
+  where finding it costs the very error the boundary exists to report.
+
+  ### Why the shape — and the frame — are refused HERE and not in `report!`
 
   The obvious place for a shape check is the arm that consumes the
   shape, and it is the wrong one. [[report!]] runs from
@@ -83,9 +92,12 @@
   ever run its `componentDidCatch`, so refusing here is strictly
   earlier: a bad `:on-error` is reported on the first paint, in the
   ordinary course of loading the page, rather than on the first failure.
-  By the time [[report!]] runs, `:on-error` is nil, a vector or a
-  function, and its last arm means *no `:on-error` was declared* — which
-  is what it says.
+  By the time [[report!]] runs, `:on-error` is nil, a function, or a
+  vector with a frame to dispatch it into, and its last arm means *no
+  `:on-error` was declared* — which is what it says. The frame check
+  belongs here for the same reason and one sharper: a missing frame is
+  the case where refusing late is not merely worse but indistinguishable
+  from working, since the fallback renders either way.
 
   ### Why a throw from `render` is acceptable when one from `report!` is not
 
@@ -157,6 +169,15 @@
   no-frame-context throw from the boundary. The binding is therefore
   unconditional and simply carries `nil` when there is no provider.
 
+  **An `:on-error` VECTOR is one of those intents, and it is the one this
+  lowering cannot reach** (`rf2-wdvlp`). The fallback and the children
+  pass through the codec, so an intent written at either is caught by the
+  binding above and named; `:on-error` is read straight off the props map
+  by `report!` and passes through no lowering at all, so for a long while
+  it was the one intent position a frameless boundary accepted and then
+  dropped. It is refused instead, in this same render — see
+  `check-props!`, whose third arm is exactly that.
+
   ## What it does NOT catch, stated because a boundary that quietly does
   ## not catch is worse than none
 
@@ -194,9 +215,16 @@
   #{:on-error :reset-key :fallback :children})
 
 (defn- check-props!
-  "Refuse a props map outside [[prop-roster]], and an `:on-error` outside
-  the two shapes that can fire. Returns `props`, so the one call site
-  reads as the read it already was.
+  "Refuse a props map outside [[prop-roster]], an `:on-error` outside the
+  two shapes that can fire, and an `:on-error` INTENT with no frame to
+  fire it into. Returns `props`, so the one call site reads as the read
+  it already was.
+
+  `frame-kw` is the caller's [[frame-of]], `nil` where no provider is
+  above the boundary — the deliberately supported frameless case. It is
+  a parameter rather than a second read because all three refusals are
+  one class and belong at one site: a declaration the boundary would
+  otherwise wear while nothing consults it.
 
   The doseq is `mint-host!`'s, deliberately — the same refusal class one
   surface over, kept in the same shape so the two surfaces refuse
@@ -204,7 +232,7 @@
   four, on a component that renders when its own props or its caught
   error change; the walk of `:children` in the same render is orders of
   magnitude more work."
-  [props]
+  [props frame-kw]
   (doseq [k (keys props)]
     (when-not (contains? prop-roster k)
       (fail! :rf.error/hicasso-boundary-unknown-prop
@@ -226,7 +254,28 @@
                   "boundary is mounted under, or a FUNCTION called with the "
                   "error. A bare keyword is not an intent here — wrap it: "
                   "[:app/failed].")
-             {:value on-error})))
+             {:value on-error}))
+    ;; AND AN INTENT NEEDS SOMEWHERE TO GO. A vector is dispatched into
+    ;; the frame the boundary is mounted under, so declaring one under no
+    ;; frame at all is an `:on-error` nothing can fire — the same class as
+    ;; the shape above, one step further in. Refused rather than degraded,
+    ;; because the degradation is invisible: `report!`'s vector arm would
+    ;; simply find no frame, the fallback would still replace the failed
+    ;; subtree, and the application would lose its error record at the one
+    ;; moment it needed it, wearing every sign of having handled the
+    ;; failure. `impl.overlay/dismissal-handler` refuses an `:on-dismiss`
+    ;; the same way and under this same id.
+    (when (and (vector? on-error) (nil? frame-kw))
+      (fail! :rf.error/hicasso-intent-outside-boundary
+             're-frame.hicasso.impl.boundary/check-props!
+             (str "h/error-boundary carries the intent " (pr-str on-error)
+                  " at :on-error, but no frame is in scope, so nothing could "
+                  "dispatch it when the boundary caught — the region would "
+                  "show its fallback and report nowhere. Mount the boundary "
+                  "under a frame — h/mount!, rf/frame-provider or frame-root "
+                  "— or hand :on-error a FUNCTION, which is called with the "
+                  "error and needs no frame.")
+             {:position :on-error :intent on-error})))
   props)
 
 (defn- frame-of
@@ -247,12 +296,18 @@
   always runs before it can run `componentDidCatch` — so every other
   shape was refused there, where the refusal does not cost the
   application its error path — see the namespace docstring's argument for
-  the placement."
+  the placement.
+
+  **The vector arm needs no frame guard, and must not have one.** The
+  same render refused a vector `:on-error` with no frame, so reaching
+  here with one means a frame resolved a moment ago; and a guard that
+  merely *skipped* the dispatch is precisely the silent drop `rf2-wdvlp`
+  records — the caught error replaced by a fallback and reported nowhere,
+  looking for all the world like error handling that worked."
   [^js this error]
   (let [on-error (:on-error (props-of this))]
     (cond
-      (vector? on-error) (when-some [frame-kw (frame-of this)]
-                           (collector/dispatch! frame-kw (conj on-error error)))
+      (vector? on-error) (collector/dispatch! (frame-of this) (conj on-error error))
       (fn? on-error)     (on-error error)
       :else              nil))
   nil)
@@ -306,9 +361,12 @@
               ;; run `componentDidCatch`, so a bad declaration is
               ;; refused on the first paint instead of being discovered
               ;; by — and then destroying — the first real failure.
-              (let [{:keys [fallback children]} (check-props! (props-of this))
-                    error    (unchecked-get (.-state this) "error")
-                    frame-kw (frame-of this)]
+              ;; `frame-kw` is bound FIRST because the check below reads
+              ;; it: an `:on-error` intent with no frame to fire it into
+              ;; is refused here, beside the roster and the shape.
+              (let [frame-kw (frame-of this)
+                    {:keys [fallback children]} (check-props! (props-of this) frame-kw)
+                    error    (unchecked-get (.-state this) "error")]
                 ;; THE LOWERING, inside the frame. The fallback
                 ;; and the children were both written in the parent's body
                 ;; and are both walked HERE, so the ambient frame the codec's
