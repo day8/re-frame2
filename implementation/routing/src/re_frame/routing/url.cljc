@@ -33,6 +33,61 @@
 ;; literal '/' between captured segments, so the splat encoder runs
 ;; per-segment.
 
+#?(:clj
+   (defn- reject-unpaired-surrogates!
+     "Throw when `s` contains an UNPAIRED surrogate code unit; return `s`
+     otherwise. This is `encodeURIComponent`'s own validity rule,
+     transplanted to the JVM.
+
+     A code point above U+FFFF is carried in a Java/JavaScript string as a
+     SURROGATE PAIR — a high unit in U+D800–U+DBFF followed by a low unit
+     in U+DC00–U+DFFF. Either half standing alone spells no code point at
+     all, so it has no UTF-8 encoding. The two hosts disagreed about what
+     to do with one:
+
+     - `encodeURIComponent` throws `URIError: URI malformed`.
+     - Java's UTF-8 encoder SUBSTITUTES, and `URLEncoder` runs it under
+       the default (REPLACE) malformed-input action, so a lone surrogate
+       silently became the byte `0x3F` — a literal `?` — and came back as
+       `%3F`. A lone high surrogate, a lone low surrogate and `a`+U+D800+`b`
+       encoded as `%3F`, `%3F` and `a%3Fb` (rf2-j3tud).
+
+     `%3F` is exactly what a legitimate literal `?` encodes to, so the
+     substitution is not merely lossy — it ALIASES malformed route data
+     onto a valid component that decodes back to a different string.
+     Under SSR the href/canonical-link/cache-key carried that alias while
+     the browser refused the same address outright, which is the
+     host-dependent emission this namespace exists to rule out.
+
+     WHAT THIS DOES NOT REJECT. The scan looks only at the surrogate
+     range, so every input that is already valid on both hosts stays
+     valid: ASCII, every non-surrogate BMP character (`é`, `日`), and a
+     well-formed surrogate PAIR, which still encodes to its astral code
+     point's UTF-8 bytes (U+1F600 → `%F0%9F%98%80`). Over-rejecting
+     legitimate input would trade this bug for a worse one — the JVM
+     would then refuse addresses the browser happily emits."
+     ^String [^String s]
+     (let [n (.length s)]
+       (loop [i 0]
+         (if (<= n i)
+           s
+           (let [c (.charAt s i)]
+             (cond
+               (Character/isHighSurrogate c)
+               (if (and (< (inc i) n)
+                        (Character/isLowSurrogate (.charAt s (inc i))))
+                 (recur (+ i 2))
+                 (throw (IllegalArgumentException.
+                          (format "URI malformed: unpaired high surrogate U+%04X at index %d"
+                                  (int c) i))))
+
+               (Character/isLowSurrogate c)
+               (throw (IllegalArgumentException.
+                        (format "URI malformed: unpaired low surrogate U+%04X at index %d"
+                                (int c) i)))
+
+               :else (recur (inc i)))))))))
+
 (defn url-encode
   "Encode a single component (named param or query value) with
   `encodeURIComponent` semantics on BOTH hosts.
@@ -40,7 +95,7 @@
   HOST-SYMMETRIC: identical route data produces one canonical URL byte
   string on JVM (SSR) and CLJS (browser). CLJS calls
   `encodeURIComponent` directly; the JVM arm emulates it on top of
-  `java.net.URLEncoder`, which needs TWO corrections rather than one:
+  `java.net.URLEncoder`, which needs THREE corrections rather than one:
 
   1. `URLEncoder` is the `application/x-www-form-urlencoded` encoder, so
      it emits `+` for a space where `encodeURIComponent` emits `%20`.
@@ -51,6 +106,11 @@
      divergent, so a legitimate slug like `draft~1` emitted
      `/articles/draft%7E1` from SSR and `/articles/draft~1` from the
      hydrated client (rf2-j3tud).
+  3. `URLEncoder` encodes an UNPAIRED SURROGATE rather than refusing it,
+     substituting `%3F` where `encodeURIComponent` throws `URIError`.
+     `reject-unpaired-surrogates!` above supplies the missing refusal;
+     its docstring carries the reasoning, including why `%3F` is the
+     worst possible substitution here.
 
   Both spellings decode to the same route, but that is weaker than the
   invariant Spec 012 §Bidirectional URL ↔ params actually promises:
@@ -67,9 +127,16 @@
   The five unescapes are unambiguous: every `%XX` in `URLEncoder` output
   is one it generated, so a `%21` in that output can only have come from
   a literal `!`. A literal `%` in the input is already `%25`, and no
-  `%25`-prefixed run can spell one of these escapes."
+  `%25`-prefixed run can spell one of these escapes.
+
+  The surrogate check runs BEFORE `URLEncoder`, not after: once the
+  substitution has happened its `%3F` is indistinguishable from the one
+  a real `?` produces, so the only place the two can still be told apart
+  is the input string."
   [s]
-  #?(:clj  (-> (java.net.URLEncoder/encode (str s) "UTF-8")
+  #?(:clj  (-> (str s)
+               (reject-unpaired-surrogates!)
+               (java.net.URLEncoder/encode "UTF-8")
                (.replace "+" "%20")
                (.replace "%21" "!")
                (.replace "%27" "'")
@@ -80,7 +147,13 @@
 
 (defn url-encode-splat
   "Encode a splat value — multi-segment, preserves literal '/'.
-  Each segment is encoded individually."
+  Each segment is encoded individually.
+
+  Composing `url-encode` per chunk is what makes the boundary inherit:
+  the mark set, the escaped controls and the unpaired-surrogate refusal
+  all arrive per segment. Splitting on `/` cannot manufacture a fresh
+  unpaired surrogate either — U+002F is outside the surrogate range, so
+  no split point ever falls between the halves of a pair."
   [s]
   (clojure.string/join "/" (map url-encode (clojure.string/split (str s) #"/"))))
 
