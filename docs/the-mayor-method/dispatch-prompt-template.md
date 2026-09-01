@@ -85,6 +85,17 @@ The order is what makes it accurate. Each step is a check the next depends on.
    the work or, as measured here, costs the worker a justification round it should not have had to
    write. Both shapes went out in real briefs, and the worker caught both.
 
+   **Read the INVERSE with more care than either, because it is the one that fails open.** A note
+   lifting a fence names *the fence it lifts*, not the item — so an item can carry a second sequencing
+   the lift says nothing about, and its newest layer then reads *released* while a live precondition
+   sits underneath. The two above merely re-block work that was already clear; this one dispatches into
+   a surface somebody else holds, or into one gated by a decision nobody has made. Measured: an item
+   whose fence had been lifted on the holder's own explicit words still sat behind an older note
+   sequencing it behind an unruled operator call — and the *other* half of that same older note had
+   genuinely cleared, which is exactly what made the whole of it look discharged. **Where the tracker
+   can express a precondition, encode it there rather than leaving it in prose**: a fence that exists
+   only in a note is re-derived every pass, and a fence re-derived every pass is eventually missed.
+
    **And where you sweep a whole board for hold markers, that sweep is a candidate filter and never a
    verdict.** It narrows the open items to a handful; the hold is then established by READING each
    candidate, which is affordable at that size and is the only thing that separates a live banner from
