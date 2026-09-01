@@ -103,7 +103,25 @@ Every Story read worth having in a live session is a public `re-frame.story/*` f
 | The variant the user is looking at right now | `(:selected-variant (re-frame.story.ui.state/get-state))` — the shell tracks the active variant there; there is no `:story/active?` frame-metadata flag. Pair has no DOM bridge that locates the canvas iframe specifically; use `dom/source-at` on something inside it. |
 | Tear down or re-run one variant | `(re-frame.story/destroy-variant! id)` / `(re-frame.story/reset-variant id)`. |
 
-**Capture a live interaction back into a `:script`.** The recorder is browser-side too: `(re-frame.story/start-recording!)` → let the user interact → `(re-frame.story/stop-recording!)` → `(re-frame.story/gen-play-snippet)`, all through `eval-cljs`. The user lands the snippet back in source. Filtering is fixed by `re-frame.story.recorder/recordable-event?` — operation `:rf.event/dispatched`, frame-scope match against the target, internal-namespace skip (`:rf.assert/*`, `:rf.story/*`, `:re-frame.story.*`) — it is not free-form.
+**Capture a live interaction back into a `:script`.** The recorder is browser-side too, so it drives from `eval-cljs` like everything else — but it is not a zero-arity trio. `start-recording!` takes the variant it records against, and `gen-play-snippet` takes the captured events plus an opts map whose `:variant-id` is required. Only `stop-recording!` is zero-arity, so bind what it returns and feed that in:
+
+```
+mcp__re-frame2-pair__eval-cljs {form: "(:recording? (re-frame.story/start-recording! :story.counter/loaded))"}
+;; => true          … now let the user interact with the canvas …
+
+mcp__re-frame2-pair__eval-cljs {
+  form: "(let [{:keys [events cofx]} (re-frame.story/stop-recording!)]
+           (re-frame.story/gen-play-snippet
+             events
+             {:variant-id :story.counter/recorded-flow, :cofx cofx}))"
+}
+;; => "(story/reg-variant :story.counter/recorded-flow
+;;        {:script {:auto-run? true :script [[:dispatch-sync [:counter/inc]] …]}})"
+```
+
+`stop-recording!` returns the recorder state — `:recording?` false, `:events` the captured event vectors in declared order, `:cofx` index-aligned with them, `:variant-id` naming the source. Stopping preserves that capture, so `(re-frame.story/recorder-state)` re-reads the same `:events` if you split the two round-trips. Passing `:cofx` is optional; without it the pasted snippet restamps coeffects on replay instead of re-presenting the recorded ones. The user lands the returned string back in source.
+
+`gen-play-snippet` renders the bare `:events` stream — **dispatched events only**. Canvas clicks, typed input and form submits are captured too, but into `:entries`, and this snippet is blind to them: for those, `(re-frame.story/recording->script-body entries opts)` returns the live `{:script [...] :auto-run? …}` body, and the shell's own REC save dialog renders the rich pasteable form. What is captured at all is not free-form either: the trace-bus listener only offers `:rf.event/dispatched` events whose `:frame` matches the recording target, and `re-frame.story.recorder/recordable-event?` then drops Story's internal namespaces (`:rf.assert/*`, `:rf.story/*`, `re-frame.story.*`).
 
 ## What is per-variant, and what is not
 
