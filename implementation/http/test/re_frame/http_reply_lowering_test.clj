@@ -29,6 +29,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.http.managed :as http-managed]
+            [re-frame.http.registry :as registry]
             [re-frame.http.reply :as http-reply]
             [re-frame.http.test-support]
             [re-frame.late-bind :as late-bind]
@@ -530,12 +531,51 @@
 ;; Group 3 — supersession suppresses the prior request's app target.
 ;; ===========================================================================
 
+;; WHY THESE TESTS CARRY NO TIMED WAIT (rf2-o9e15, and its PR #8889 audit).
+;;
+;; Both server responses are byte-identical, so "one reply, :status :ok" is
+;; satisfied just as well by a broken path that delivers the SUPERSEDED
+;; issuance and loses the superseding one. The three devices below make the
+;; claim these tests advertise — *the one delivered reply is request #2's, and
+;; there is never a second* — provable rather than merely probable, and none of
+;; them is a clock:
+;;
+;;   (1) ISSUANCE IDENTITY. `:rf.reply/work-id` is
+;;       `[:rf.work/http logical-id issuance attempt]` (reply.cljc `work-id`),
+;;       and `registry/next-issuance!` bumps `issuance` on each fresh request
+;;       under one `:request-id`. So issuance 1 vs 2 is exactly what the two
+;;       otherwise-identical replies differ by, and asserting the delivered
+;;       reply's work-id is `[:rf.work/http :search 2 1]` is what pins WHICH
+;;       one arrived. `reset-issuance-counters-for-test!` makes those literals
+;;       independent of what else ran first in this JVM.
+;;
+;;   (2) THE SUPERSEDE IS AN ORDERING, NOT A RACE. Asserted while both
+;;       exchanges are still HELD: the `:search` in-flight slot already holds
+;;       issuance 2. `registry/supersede!` cleared #1 out of it and fired #1's
+;;       abort-fn INLINE, during the second `dispatch-sync`'s fx phase. That
+;;       abort-fn wins #1's once-only `:finalised?` CAS and routes through
+;;       `dispatch-aborted!`, where `:request-id-superseded` is a
+;;       reply-SUPPRESSING reason (transport.cljc `reply-suppressing-abort-
+;;       reasons`) — no app dispatch, and the won CAS makes #1's later
+;;       transport completion bail at `already-replied?`. There is therefore no
+;;       later moment at which a second reply could originate; a timed window
+;;       was allowing for one that cannot exist.
+;;
+;;   (3) A QUEUE BARRIER, NOT A SLEEP. `dispatch-sync` seeds at the FRONT of
+;;       the frame's FIFO queue and then runs the drain loop to fixed point
+;;       (router.cljc `drain-block!`), so every envelope enqueued before it has
+;;       been PROCESSED by the time it returns. Dispatching `:search/quiesce`
+;;       after the surviving reply lands therefore observes any wrongly
+;;       dispatched #1 reply, where the previous `Thread/sleep 200` only
+;;       established that none had arrived within 200 ms.
+
 (deftest supersede-suppresses-prior-app-reply
   (testing "a same-:request-id supersede suppresses the FIRST request's :on-failure app target"
     ;; A held server keeps request #1 in flight; issuing request #2 with the
     ;; same :request-id supersedes #1. Per Spec 014 §`:request-id` (internal)
     ;; the superseded request's reply is trace-only — its app target MUST NOT
     ;; fire. #2 completes normally and IS delivered.
+    (registry/reset-issuance-counters-for-test!)
     (let [release (java.util.concurrent.CountDownLatch. 1)
           replied (java.util.concurrent.CountDownLatch. 1)
           srv     (start-held-server! release)
@@ -548,6 +588,7 @@
             ;; here rather than sampling a clock for it (rf2-o9e15).
             (.countDown replied)
             {:db db}))
+        (rf/reg-event :search/quiesce (fn [{:keys [db]} _] {:db db}))
         (rf/reg-event :search/go
           (fn [_ _]
             {:fx [[:rf.http/managed
@@ -561,23 +602,39 @@
         ;; supersede — see `start-held-server!`.
         (rf/dispatch-sync [:search/go])
         (rf/dispatch-sync [:search/go])
+        ;; Device (2) — read while BOTH exchanges are still held, so this is an
+        ;; ordering fact, not a sampled one: #1 has already been cleared out of
+        ;; the `:search` slot and issuance 2 owns it.
+        (let [live (registry/lookup-in-flight :search)]
+          (is (some? live) "the superseding request #2 is the live in-flight request")
+          (is (= [:rf.work/http :search 2 1] (http-reply/work-id live))
+              "the surviving in-flight request is issuance 2; issuance 1 was superseded out of the slot during the second dispatch-sync"))
         ;; Release both exchanges, then wait on the reply handler's own latch.
         (.countDown release)
         (is (.await replied 30 java.util.concurrent.TimeUnit/SECONDS)
             "the surviving request's app reply was delivered")
-        (Thread/sleep 200) ;; quiescence window for any (wrongly) delivered #1 reply
+        ;; Device (3) — a FIFO drain barrier in place of a timed quiescence
+        ;; window: everything enqueued before this call has been processed by
+        ;; the time it returns.
+        (rf/dispatch-sync [:search/quiesce])
         ;; The superseded request #1's app target is NOT dispatched: exactly
         ;; one delivered reply (request #2's), never the supersede of #1.
         (is (= 1 (count @replies))
             "only the surviving request's reply is delivered; the superseded one is suppressed")
         (is (= :ok (:status (first @replies)))
             "the surviving reply is request #2's canonical :status :ok success")
+        ;; Device (1) — the two server responses are identical, so the work-id
+        ;; is the ONLY thing distinguishing "delivered #2" from "delivered #1
+        ;; and lost #2". Both satisfy the two assertions above.
+        (is (= [:rf.work/http :search 2 1] (:rf.reply/work-id (first @replies)))
+            "the delivered reply belongs to the SUPERSEDING issuance (2), not the superseded issuance 1")
         (finally
           (.countDown release)
           (stop-server! srv))))))
 
 (deftest supersede-distinct-work-ids-and-canonical-stale-trace
   (testing "rf2-azcmd3 — superseded + superseding attempts have DISTINCT :work/id, and the superseded one records a canonical :status :stale / :rf.reply/work-status :suppressed reply-envelope trace with carried/current correlation; only the new app reply fires"
+    (registry/reset-issuance-counters-for-test!)
     (let [release (java.util.concurrent.CountDownLatch. 1)
           replied (java.util.concurrent.CountDownLatch. 1)
           srv     (start-held-server! release)
@@ -591,6 +648,7 @@
             (swap! replies conj payload)
             (.countDown replied)
             {:db db}))
+        (rf/reg-event :search/quiesce (fn [{:keys [db]} _] {:db db}))
         (rf/reg-event :search/go
           (fn [_ _]
             {:fx [[:rf.http/managed
@@ -642,6 +700,13 @@
                       (:work/id (:rf.reply/current tags))))
             ;; The canonical join key reads the carried (superseded) work-id.
             (is (= [:rf.work/http :search 1 1] (:rf.reply/work-id tags)))))
+        ;; Device (2) — read while BOTH exchanges are still held: the supersede
+        ;; already cleared issuance 1 out of the `:search` slot and issuance 2
+        ;; owns it, so #1's suppression is settled BEFORE anything is released.
+        (let [live (registry/lookup-in-flight :search)]
+          (is (some? live) "the superseding request #2 is the live in-flight request")
+          (is (= [:rf.work/http :search 2 1] (http-reply/work-id live))
+              "the surviving in-flight request is issuance 2; issuance 1 was superseded out of the slot during the second dispatch-sync"))
         ;; The surviving request's APP REPLY is the one genuinely async step
         ;; (transport reply → reply lowering → app dispatch), and it publishes
         ;; its own completion: the reply handler counts the latch down. So this
@@ -652,10 +717,22 @@
         (.countDown release)
         (is (.await replied 30 java.util.concurrent.TimeUnit/SECONDS)
             "the surviving request's app reply was delivered")
-        (Thread/sleep 200) ;; quiescence window for any (wrongly) delivered #1 reply
+        ;; Device (3) — a FIFO drain barrier in place of a timed quiescence
+        ;; window: everything enqueued before this call has been processed by
+        ;; the time it returns, so a wrongly delivered #1 reply is OBSERVED
+        ;; rather than merely not-yet-arrived.
+        (rf/dispatch-sync [:search/quiesce])
         ;; Exactly one DELIVERED app reply — request #2's; #1 suppressed.
         (is (= 1 (count @replies))
             "only the surviving request's app reply is delivered")
+        (is (= :ok (:status (first @replies)))
+            "the surviving reply is request #2's canonical :status :ok success")
+        ;; Device (1) — both server responses are identical, so the work-id is
+        ;; the only fact distinguishing "delivered issuance 2" from "delivered
+        ;; issuance 1 and lost issuance 2"; the count and :status assertions
+        ;; above are satisfied by both.
+        (is (= [:rf.work/http :search 2 1] (:rf.reply/work-id (first @replies)))
+            "the delivered reply belongs to the SUPERSEDING issuance (2), not the superseded issuance 1")
         (finally
           (.countDown release)
           (trace/unregister-listener! lid)
