@@ -91,30 +91,37 @@
       (seq overrides) (assoc :cell-overrides overrides)
       substrate (assoc :substrate      substrate))))
 
-(defn query-string-from-state
-  "Build the canonical `?<query>` string (no path / hash) for `shell`.
-  Returns an empty string when no URL-relevant slots are populated.
-  Pure data → data; JVM-testable."
-  [shell]
-  (let [params (share/build-params (params-from-state shell))]
-    (if (seq params)
-      (str "?" (str/join "&" params))
-      "")))
-
 (defn url-from-state
   "Compose the full URL (path + query + fragment) for `shell` against
-  `location-shape`, a `{:pathname :hash}` map describing the current
-  browser location. Returns a string. Pure data → data; JVM-testable.
+  `location-shape`, a `{:pathname :search :hash}` map describing the
+  current browser location. Returns a string. Pure data → data;
+  JVM-testable.
+
+  Story owns exactly `share/story-query-keys` in that query and nothing
+  else. This call writes the keys `shell` populates, CLEARS the ones it
+  does not, and PRESERVES every unrelated param already on `:search` —
+  `embed=1` (rf2-pucku chrome state, read at mount and deliberately
+  never round-tripped through `share/parse-params`), a referrer `from=`,
+  whatever a host page appended — verbatim and in order, ahead of the
+  generated params.
+
+  That boundary is not restated here: the merge IS
+  `share/apply-story-params`, the same function `share/variant-share-url`
+  builds on. The two writers of this URL therefore cannot disagree about
+  who owns an unrelated param, which is the defect rf2-gee8n recorded —
+  this fn used to compose from `{:pathname :hash}` alone and rebuild the
+  query from shell state, discarding `location.search` wholesale, so the
+  first state change after mount dropped exactly the params rf2-b7je1
+  had just taught the share builder to keep. The loss showed on
+  copy/paste and reload, not in the live session.
 
   The encoder writes the query BEFORE the hash route (Story uses
-  hash-based routing under `#/stories`); same convention
-  `share/variant-share-url` honours so a hash-routed Story page keeps
-  its query in `location.search`."
-  [shell {:keys [pathname hash]}]
-  (let [qs (query-string-from-state shell)
-        path (or pathname "")
-        hash (or hash "")]
-    (str path qs hash)))
+  hash-based routing under `#/stories`), which `apply-story-params`
+  handles by splitting the fragment off first."
+  [shell {:keys [pathname search hash]}]
+  (share/apply-story-params
+    (str (or pathname "") (or search "") (or hash ""))
+    (share/build-params (params-from-state shell))))
 
 ;; ---- diff predicate -----------------------------------------------------
 
@@ -338,12 +345,18 @@
        (when (exists? js/window) js/window))
 
      (defn- ^:no-doc current-location-shape
-       "Snapshot `window.location` into the pure `{:pathname :hash}`
-       shape `url-from-state` consumes."
+       "Snapshot `window.location` into the pure
+       `{:pathname :search :hash}` shape `url-from-state` consumes.
+
+       `:search` is what makes the composed URL preserve the params
+       Story does not own (rf2-gee8n); without it `url-from-state` has
+       nothing to preserve FROM and the next push silently canonicalises
+       the address bar down to the shell's own vocabulary."
        []
        (when-let [w (safe-window)]
          (let [loc (.-location w)]
            {:pathname (.-pathname loc)
+            :search   (.-search loc)
             :hash     (.-hash loc)})))
 
      (defn- ^:no-doc current-url-search+hash

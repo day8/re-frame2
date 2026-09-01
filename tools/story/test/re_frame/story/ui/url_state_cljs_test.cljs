@@ -48,6 +48,88 @@
       (is (re-find #"#/stories$"  url)
           "hash route survives at the tail"))))
 
+;; ---- rf2-gee8n: unowned params survive a state-driven address-bar write --
+;;
+;; The JVM half of this pin asserts the composed STRING. Only the real
+;; `URLSearchParams` can answer what the shell will actually READ back off
+;; that string: `params->getter` and `embed-flag-from-current-url` both go
+;; through `.get`, whose first-value semantics are the reason rf2-b7je1
+;; had to clear rather than append. So read the composed URL back through
+;; the same API the hydrator uses.
+
+(deftest url-from-state-preserves-unowned-params-through-urlsearchparams
+  (testing "rf2-gee8n — url-from-state used to rebuild the query from shell
+            state alone and drop location.search wholesale, erasing every
+            param Story does not own on the first state change after mount.
+            Read back through the REAL URLSearchParams: the unowned params
+            are still there with their values, the embed flag still reads
+            truthy for embed-flag-from-current-url, every stale Story key is
+            absent (not merely later in the string — .get would return it),
+            and parse-params restores the requested cell and nothing else."
+    (let [stale  {"variant"    "story.old%2Fa"
+                  "workspace"  "story.old%2Fws"
+                  "mode-tab"   "docs"
+                  "modes"      "Mode.app%2Fstale"
+                  "viewport"   "tablet"
+                  "background" "dark"
+                  "tag-filter" "stale"
+                  "overrides"  "%7B%3Afoo%201%7D"
+                  "substrate"  "uix"}
+          search (str "?"
+                      (str/join "&" (map #(str (name %) "=" (get stale (name %)))
+                                         share/story-query-keys))
+                      "&from=index&embed=1")
+          url    (us/url-from-state
+                   {:selected-variant :story.new/b}
+                   {:pathname "/counter-with-stories/"
+                    :search   search
+                    :hash     "#/stories"})
+          usp    (js/URLSearchParams.
+                   (second (str/split (first (str/split url #"#" 2)) #"\?" 2)))]
+      (is (= (set (map name share/story-query-keys)) (set (keys stale)))
+          "the fixture carries a stale value for every key in the vocabulary")
+      (is (= "index" (.get usp "from"))
+          "the referrer param survives with its value")
+      (is (= "1" (.get usp "embed"))
+          "embed=1 survives — chrome state the shell reads at every mount")
+      (is (= "story.new/b" (.get usp "variant"))
+          "URLSearchParams.get returns the variant this state asked for")
+      (is (= 1 (count (.getAll usp "variant")))
+          "exactly one variant value")
+      (doseq [k (map name share/story-query-keys)
+              :when (not= k "variant")]
+        (is (zero? (count (.getAll usp k)))
+            (str "URLSearchParams sees no stale " k "= at all")))
+      (let [parsed (share/parse-params
+                     (into {} (map (fn [k] [k (.get usp k)]))
+                           (map name share/story-query-keys)))]
+        (is (= :story.new/b (:variant-id parsed))
+            "the hydrator's own read path recovers the requested variant")
+        (doseq [slot [:workspace-id :mode-tab :active-modes :viewport
+                      :background :tag-filter :cell-overrides :substrate]]
+          (is (nil? (get parsed slot))
+              (str "parse-params restores no stale " slot))))
+      (is (str/ends-with? url "#/stories")
+          "the hash route survives, after the query"))))
+
+(deftest url-from-state-consumes-a-browser-shaped-location
+  (testing "rf2-gee8n — `current-location-shape` snapshots the browser's own
+            {pathname, search, hash} triple off `window.location`. Drive the
+            composer from a real `js/URL`'s three properties — the same
+            accessors, with the same `?`/`#` prefix conventions — so the
+            merge is exercised against browser-produced values rather than
+            hand-written strings."
+    (let [loc (js/URL. (str "https://example.test/counter-with-stories/"
+                            "?from=index&embed=1&variant=story.old%2Fa"
+                            "#/stories"))
+          url (us/url-from-state
+                {:selected-variant :story.new/b}
+                {:pathname (.-pathname loc)
+                 :search   (.-search loc)
+                 :hash     (.-hash loc)})]
+      (is (= "/counter-with-stories/?from=index&embed=1&variant=story.new%2Fb#/stories"
+             url)))))
+
 ;; ---- params-from-state via the public share encoder ---------------------
 
 (deftest params-from-state-feeds-share-build-params
