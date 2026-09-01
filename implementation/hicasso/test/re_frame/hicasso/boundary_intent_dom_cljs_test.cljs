@@ -61,7 +61,9 @@
      proved against a second live frame rather than against an absence;
   6. a boundary with no frame above it is still legal until something
      below it writes an intent, and that intent is still the loud error,
-     **named**;
+     **named** — and the boundary's OWN `:on-error` vector is one of
+     those intents, refused at its first render rather than accepted and
+     dropped when it catches;
   7. the class still spends **no hook** — in its error state as well as
      its healthy one, so the repair did not buy the fence what
      `impl.presence-react` had to buy it.
@@ -446,6 +448,66 @@
                    (:rf.error/id (ex-data @!caught)))
                 (str "and it named the intent: " (pr-str (ex-data @!caught))))
             (is (= [:hicasso.bdy/dismissed 1] (:intent (ex-data @!caught))))
+            (finally (mount/release! handle))))))))
+
+;; ---------------------------------------------------------------------------
+;; 6b — and the boundary's OWN `:on-error` vector is one of those intents
+;; ---------------------------------------------------------------------------
+
+(deftest a-frameless-boundarys-own-on-error-vector-is-refused-at-first-render
+  (if-not (mount/browser?)
+    (skip! ":node-test has no DOM")
+    (do
+      (support/leave-act-environment!)
+      (testing "a vector `:on-error` is an INTENT, and a boundary with no frame
+                above it has nothing that could dispatch it. Accepting the
+                declaration and finding that out in `componentDidCatch` costs
+                the application its error record at the exact moment the error
+                path is exercised — and the loss LOOKS like successful error
+                handling, because the fallback still renders over the failed
+                subtree. So the declaration is refused at the boundary's own
+                first render, on a HEALTHY child, which is what makes the proof
+                independent of when a descendant happens to fail"
+        (let [handle (frameless-root!
+                       [boundary {:fallback [:p.fb "unused"]
+                                  :on-error [:hicasso.bdy/noted "unroutable"]}
+                        [:p.body "quiet"]])]
+          (try
+            (is (some? (query handle ".escaped"))
+                "the subject refused rather than rendering under an :on-error
+                 nothing could ever fire")
+            (is (nil? (query handle ".body"))
+                "and nothing below it reached the screen — a refusal that let
+                 the page up anyway would be a warning wearing a throw's
+                 clothes")
+            (is (= {:rf.error/id :rf.error/hicasso-intent-outside-boundary
+                    :intent      [:hicasso.bdy/noted "unroutable"]
+                    :position    :on-error}
+                   (escaped))
+                (str "the same stable id an intent written UNDER a frameless
+                      boundary already raises, named at the position and
+                      carrying the intent, so the recovery is readable off the
+                      refusal itself. Escaped: " (pr-str (ex-data @!caught))))
+            (finally (mount/release! handle)))))
+      (testing "THE NEAR MISS, on the axis this guard was one step from
+                over-reaching: a FUNCTION `:on-error` needs no frame, so the
+                same frameless boundary takes one, catches a deliberate
+                descendant failure and renders its fallback. It is the
+                instrument the rows above already lean on — `frameless-root!`'s
+                own watcher — asserted here as the subject rather than assumed"
+        (let [!fired (atom [])
+              handle (frameless-root!
+                       [boundary {:fallback [:p.fb "caught"]
+                                  :on-error (fn [e] (swap! !fired conj (ex-message e)))}
+                        [:> (fn [] (throw (ex-info "the foreign child threw" {})))]])]
+          (try
+            (is (some? (query handle ".fb"))
+                "the frameless boundary caught and its fallback is on screen")
+            (is (nil? @!caught)
+                (str "nothing escaped to the watcher. Escaped: " (pr-str (escaped))))
+            (is (= ["the foreign child threw"] @!fired)
+                (str "and the function fired ONCE, with the error. Got: "
+                     (pr-str @!fired)))
             (finally (mount/release! handle))))))))
 
 ;; ---------------------------------------------------------------------------
