@@ -108,13 +108,17 @@ Code did set:
             "args": ["-c", "cd \"$CLAUDE_PROJECT_DIR\" && exec clojure -M:story-mcp"]}}}
 ```
 
-On Windows, `cmd` reads the same variable, and `%VAR%` is outside that
-grammar for the same reason (`cd /d` so the drive changes too):
+On Windows `sh` is usually absent; `cmd` reads the same variable, and
+`%VAR%` is outside that grammar for the same reason. Leave
+`%CLAUDE_PROJECT_DIR%` unquoted — hosts spawn the server through Node,
+which escapes an embedded `"` as `\"`, and `cmd` takes that literally
+and fails. `cd` reads to the `&&`, so a project path containing spaces
+is fine without them; use `cd /d` so the drive changes too.
 
 ```json
 {"mcpServers":
  {"story": {"command": "cmd",
-            "args": ["/c", "cd /d \"%CLAUDE_PROJECT_DIR%\" && clojure -M:story-mcp"]}}}
+            "args": ["/c", "cd /d %CLAUDE_PROJECT_DIR% && clojure -M:story-mcp"]}}}
 ```
 
 Cursor puts no project root in the server's environment, but its config
