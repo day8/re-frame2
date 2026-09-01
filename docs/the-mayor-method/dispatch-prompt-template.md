@@ -1100,6 +1100,15 @@ moved most. In the dominant toolchain that is the three-dot form, `<TRUNK>...HEA
 * Which numbers are captured, and which are reported by the harness?
 * What did it decline to do, and why? A report with no refusals, on a task that had a plausible one, is worth a second
   look.
+* **Where it CONTRADICTS the brief, that is evidence about the brief.** Read it as such before defending or
+  re-explaining: verify the worker's claim at source, and if it holds, the brief was wrong. This is not a courtesy.
+  Measured across one session: seven briefs carried a defect — a hold the item recorded and the brief did not, work the
+  item had already split, a sequencing precondition the item had discharged and the brief re-fenced, and a ruling made
+  from a page's confident prose without checking the spec that owned it. **A worker surfaced every one. The coordinator
+  caught none.** The clause that makes this work is the preamble's *these premises are claims, not findings*, which
+  reads like a guard for the WORKER and functions as error-correction for the COORDINATOR — so never trim it to save
+  room, and never treat the pushback it produces as friction. A dispatch that comes back saying *the premise does not
+  hold* has done its job.
 * Are you about to quote a figure or a phrase OUT of this report and into the next brief? Then it is a claim like
   any other and the question is what produced it. A sequence of measurements and a correction to one measurement
   read identically once compressed to a line: one mayor turned four per-window figures into “the number moved”

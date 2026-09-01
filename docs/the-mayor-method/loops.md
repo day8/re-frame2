@@ -1528,6 +1528,23 @@ terms, beside the question you are asking.** The gap is invisible in the answer 
 moment both sentences are on the page. This is the harder half to catch, because a wrong answer
 gives you something to be suspicious of and a right one does not.
 
+**Take the marker scan in that list further, because it fails in BOTH directions and the remedy follows
+from that rather than from either half.** It over-reports: an item that QUOTES a marker — recounting
+another item's hold, or listing the very strings the scan searches for — matches, and so does one whose
+marker has been struck and whose text says so. It also under-reports: a hold written in ordinary prose
+carries no marker at all, and one item reached the ready list reading free on a probe of **six** distinct
+marker phrases while its own text said *"what remains is one decision"*. **And a second scan built to
+discriminate the two fails the same way**, because the standing marker text itself instructs whoever
+rules to strike it, so the word *struck* appears inside every live marker.
+
+**So a marker scan is a CANDIDATE FILTER and never a verdict.** It narrows a board to a handful; the
+hold is then established by READING each candidate, which is affordable at that size and is the only
+thing that separates a live marker from one quoted, discussed, or already struck. Report the number you
+read, never the number you scanned. **Where a project wants this machine-checkable, the durable answer
+is a structured field on the item rather than a marker in prose** — that is a tracker change and an
+operator's decision, but every failure above is a consequence of encoding state in text that also
+discusses state.
+
 **A dependency can outlive what it was enforcing.** An item blocked "until X lands" stays blocked if X
 is later reopened by an audit for an unrelated residual — even though the thing it was waiting for
 shipped. Force the close and **write the reasoning on the item**: what the dependency was enforcing,
