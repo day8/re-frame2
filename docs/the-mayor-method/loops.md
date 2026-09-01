@@ -1435,6 +1435,26 @@ Watch specifically for:
 Report one or two lines unless you find real drift. If you find drift, fix the document or the command
 file — do not just note it.
 
+**But the repair is the step most likely to need repairing, and it fails in one particular way: a
+correction tends to overshoot into the INVERSE of the claim it replaces.** A wrong sentence is
+usually wrong by asserting too much, and the evidence that exposes it feels like evidence for the
+opposite — so the fix arrives with the confidence the original had, pointing the other way, and
+reads as *more* reliable because it was written in response to being caught. Two in one session,
+both in this loop's own output: *"those workers are dormant"*, refuted, became *"frozen clocks are
+the signature of a run about to report"* when the supported claim was that the reading is ambiguous;
+and a containment scan demoted from a verdict to triage kept a clause saying it *"settles the common
+case"*, two sentences from the words *"triage, not a verdict"*. Both were caught by an outside
+reader, not by the loop that wrote them.
+
+**The discharging test is one question, and it costs nothing: would the evidence that falsified the
+old claim also falsify the new one?** If it would, the new claim is not established — it is the old
+error re-pointed. Workers completing alive falsifies *dormant*; it does not establish *about to
+report*, because a stopped worker produces the same reading. Where the honest answer is that the
+observation supports neither side, **say so plainly and let the guidance rest on the asymmetric cost
+of the two errors instead** — that is a real reason to wait, and it survives the next counterexample,
+which a re-pointed claim does not. Being wrong twice about the same sentence is the ordinary case
+here, and this loop is where the second round is supposed to be caught.
+
 **Where the project arms a mayor-side commit guard, the mayor's own repair goes through a
 mayor-occupied worktree** — the guard refuses the mayor checkout for every non-tracker surface,
 these documents included, and that refusal is the guard working, not an exemption to negotiate.
