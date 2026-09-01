@@ -74,8 +74,20 @@ A build *may* carry two adapters on its classpath, but `init!` installs exactly 
 | Substrate | Coordinate | View library |
 |---|---|---|
 | Reagent | `day8/re-frame2-reagent` | `reagent` (hiccup) |
-| UIx | `day8/re-frame2-uix` | `com.pitch/uix.core` (UIx 2 publishes as Maven 1.x) |
+| UIx | `day8/re-frame2-uix` | `com.pitch/uix.core` **and** `com.pitch/uix.dom` (UIx 2 publishes as Maven 1.x) |
 | reagent-slim | `day8/reagent-slim` | `reagent2` (ships inside it) |
+
+UIx is the one row that needs two view-library coordinates, and it is worth a sentence because the adapter will not supply the second for you. `day8/re-frame2-uix` depends on `com.pitch/uix.core` — the adapter's own source needs it — but it deliberately does *not* depend on `com.pitch/uix.dom`, because mounting a React root is the application's call, not the adapter's, and a headless or server-side UIx consumer should not pay for it. Every mount you will write from Step 4 on calls `uix.dom/create-root`, so name both, at the same version:
+
+```clojure
+;; deps.edn for a UIx app — the complete recipe.
+{:deps {day8/re-frame2     {:mvn/version "<latest>"}   ; core
+        day8/re-frame2-uix {:mvn/version "<latest>"}   ; the UIx adapter
+        com.pitch/uix.core {:mvn/version "1.4.4"}      ; defui / $ / hooks
+        com.pitch/uix.dom  {:mvn/version "1.4.4"}}}    ; create-root / render-root
+```
+
+`<latest>` is the released `day8/re-frame2` version (every re-frame2 artefact ships in lockstep at that one version); the two `com.pitch` coordinates are third-party and carry their own version, which must match each other. Drop `com.pitch/uix.dom` and everything still *reads* fine right up until the compiler cannot resolve `uix.dom` at your mount.
 
 !!! note "Coordinates are not published yet"
 
