@@ -48,7 +48,7 @@ changed](#names-that-changed).
 
 ## `re-frame.hicasso` — the door
 
-The one namespace an ordinary application requires. Fifteen names, and every
+The one namespace an ordinary application requires. Fourteen names, and every
 optional module is reached separately so that an application which never asks
 for one carries none of it.
 
