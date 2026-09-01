@@ -132,7 +132,11 @@
   [:map {:closed true}
    [:type  [:= :push]]
    [:topic {:optional true} :keyword]
-   [:note  {:optional true} :string]])
+   [:note  {:optional true} :string]
+   ;; The manual 'Trigger server push' button stamps a send time. A closed
+   ;; arm means the demo's OWN frames have to satisfy the contract the demo
+   ;; publishes, which is the right way round.
+   [:at    {:optional true} :string]])
 
 (def InboundMessage
   "Every frame the server is allowed to deliver to the app: a correlated
