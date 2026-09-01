@@ -18,6 +18,18 @@ Capability absence is represented separately from an answer: `[]`/`#{}`
 is reserved for a REACHED provider that genuinely holds nothing
 (rf2-3fc89f.21).
 
+A second host prerequisite applies to the two LIFECYCLE tools only.
+`run-variant` and `preview-variant` allocate a variant frame, which takes
+its state substrate from an installed re-frame adapter; the server
+installs none (per spec/006 the substrate choice belongs to the app). With
+none installed both REFUSE before any lifecycle work — `isError true`,
+`:rf.error :rf.error/no-adapter-installed`, plus `:tool` and `:recovery`,
+and no `:status` — rather than settling the success-shaped non-run an
+un-substrated lifecycle would otherwise produce. Catalogue reads need no
+adapter. See
+[`002-Tool-Registry.md`](002-Tool-Registry.md) §Running a variant needs an
+installed adapter.
+
 All tools dispatch through `re-frame.story-mcp.server`'s `tools/call`
 handler; their definitions live in
 `re-frame.story-mcp.tools.registry/tool-registry`.
@@ -103,7 +115,10 @@ form disallows it.
 `:status` is the verdict; `:lifecycle` is the loader-lifecycle STATE,
 not the verdict (the retired `:passing?` boolean is gone).
 
-**Errors.** `isError: true` when `:variant-id` is not registered.
+**Errors.** `isError: true` when `:variant-id` is not registered, and on
+the same no-adapter-installed host prerequisite `run-variant` carries
+(`:rf.error :rf.error/no-adapter-installed` — see §Host boundary):
+preview runs the SAME lifecycle, so it refuses in the same state.
 
 **Spec.** [`002-Tool-Registry.md`](002-Tool-Registry.md) §Dev.
 
@@ -379,8 +394,11 @@ the refusals when present. On an unrecoverable exception / timeout the
 tool mints the SAME unified shape with `:status :error` rather than a
 special-case payload.
 
-**Errors.** `isError: true` on unknown variant id (the four-verdict
-`:status :error` covers in-run failures within a successful envelope).
+**Errors.** `isError: true` on unknown variant id, and on the
+no-adapter-installed host prerequisite (`:rf.error
+:rf.error/no-adapter-installed` — see §Host boundary), which refuses
+before the lifecycle runs and carries no `:status`. The four-verdict
+`:status :error` covers in-run failures within a successful envelope.
 
 **Spec.** [`002-Tool-Registry.md`](002-Tool-Registry.md) §Testing.
 

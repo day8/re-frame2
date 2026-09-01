@@ -172,7 +172,7 @@ When the loop terminates, optionally capture the now-passing interaction as a fr
 
 - **`run-variant` calls `reset-frame!`.** Each invocation wipes the variant's `app-db` back to `{}` then re-runs loaders + setup + play. REPL-only state you'd injected via re-frame2-pair `dispatch` between iterations is gone. Bake setup into `:loaders` / `:setup` if you need it to survive (`variant-as-frame.md §Common gotchas`).
 - **`read-failures` does not re-run.** It reads the *last* `run-variant`'s `:rf.story/assertions` accumulator. After a manual re-frame2-pair dispatch, the accumulator is stale — re-run before reading.
-- **`read-a11y-violations` needs the in-browser panel.** JVM-standalone story hosts return an empty list + a documented hint that axe-core requires the browser. If your session is browser-attached this works; if it's JVM-only, expect the no-op.
+- **`read-a11y-violations` needs the in-browser panel.** JVM-standalone story hosts return `isError true` / `:rf.error/story-mcp-capability-unavailable` — never an empty list, which would read as "no accessibility findings" when in fact nothing looked. If your session is browser-attached this works; if it's JVM-only, expect the explicit refusal.
 - **The browser recorder's filter layers are not free-form.** Filtering is fixed by `re-frame.story.recorder/recordable-event?` — operation `:rf.event/dispatched`, frame scope match against the target, internal-namespace skip (`:rf.assert/*`, `:rf.story/*`, `:re-frame.story.*`).
 
 ## Cross-references

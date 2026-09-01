@@ -21,8 +21,9 @@
 ;; channel and expose `tools/story/`'s public surface over JSON-RPC. Tool
 ;; handlers call Story in this JVM; there is no JVM-to-browser or nREPL
 ;; bridge in this artefact. Consequently CLJS-only registries and panel
-;; state are unavailable to the stdio server and degrade explicitly to
-;; empty results.
+;; state are unavailable to the stdio server and degrade explicitly to a
+;; machine-readable capability-unavailable error — never a false-empty
+;; success, which would read as "the provider looked and found nothing".
 ;;
 ;; ## Release
 ;;

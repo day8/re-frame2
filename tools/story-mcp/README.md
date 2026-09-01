@@ -17,7 +17,11 @@ artefact does not attach to an app through nREPL and cannot dereference
 state in a browser heap. A JVM launch therefore sees the Story
 registrations loaded into that JVM; CLJS-only surfaces such as registered
 render substrates and the browser a11y-panel atom return an explicit
-empty result.
+machine-readable capability-unavailable error (`isError true`,
+`:rf.error/story-mcp-capability-unavailable`), never a false-empty
+success. The distinction is operationally material: an empty collection
+means a REACHED provider genuinely observed nothing, while capability
+absence means this host could not look at all.
 
 ## What it isn't
 
@@ -66,7 +70,7 @@ over to the server:
 {:aliases
  {:story-mcp
   {:extra-deps {day8/re-frame2-story-mcp {:mvn/version "..."}}
-   :main-opts  ["-e" "(require 'app.stories)"   ; your registrations load here,
+   :main-opts  ["-e" "(require 'app.stories)"   ; registrations (+ adapter boot) here,
                 "-m" "re-frame.story-mcp.server"]}}} ; then the server takes stdio
 ```
 
@@ -157,6 +161,39 @@ Two rules the required namespaces must obey:
 - **stdout is the wire.** The stdio loop owns stdout for JSON-RPC
   frames, so keep load-time printing off stdout (use `*err*`); a stray
   `println` in a required namespace corrupts the handshake.
+
+### To RUN variants here, also install an adapter
+
+Loading those namespaces is the whole prerequisite for the CATALOGUE —
+`list-stories`, `get-story`, `get-variant`, `variant->edn` and their
+siblings read the registry and need nothing else. RUNNING a variant is
+different. `run-variant` and `preview-variant` allocate a variant frame,
+and a frame takes its state substrate from an installed re-frame
+adapter. The server deliberately does not pick one for you: per
+[`spec/006-ReactiveSubstrate.md`](../../spec/006-ReactiveSubstrate.md)
+that choice belongs to the app, and a browser app has already made it
+(Reagent / UIx) long before any story runs. This headless JVM has had no
+such boot, so make the choice in the same namespace the alias preloads:
+
+```clojure
+;; src/app/stories.cljc — the namespace your alias requires
+(ns app.stories
+  (:require [re-frame.core                 :as rf]
+            [re-frame.story                :as story]
+            [re-frame.substrate.plain-atom :as plain-atom]))
+
+(rf/init! plain-atom/adapter)   ; renderer-free substrate; idempotent
+
+;; … your reg-story / reg-variant forms follow …
+```
+
+`plain-atom` is the renderer-free substrate for exactly this case — no
+DOM, no React, nothing to mount. Omit it and the two lifecycle tools
+refuse up front with `isError true` and
+`:rf.error/no-adapter-installed`, rather than reporting a run that never
+happened: without a substrate the setup dispatches reach nothing and the
+script plays nothing, yet the run would otherwise settle the ordinary
+`:status :pass` over an empty app-db and zero assertions.
 
 The end-to-end witness for this path is
 [`tools/mcp-conformance/test/end-to-end-project-stories.cjs`](../mcp-conformance/test/end-to-end-project-stories.cjs),

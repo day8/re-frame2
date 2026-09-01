@@ -166,8 +166,13 @@ Per the
 directive, Story preserves re-frame2's interop layer so tests run on
 the JVM. The CLJC files in Story's runtime cover the JVM-side
 registrar slice; the MCP server's JVM-standalone host reads only
-that slice (CLJS-only state like substrates / a11y violations returns
-empty + a documented hint).
+that slice. CLJS-only state — registered substrates, the a11y-violations
+atom — is UNREACHABLE from that host, and a read of one returns the
+machine-readable capability-unavailable error (`isError true`,
+`:rf.error/story-mcp-capability-unavailable`), never a false-empty
+success. An empty collection is reserved for a REACHED provider that
+genuinely holds nothing: empty means nothing was observed, unavailable
+means the host could not look.
 
 ## File spec beads, don't silently work around
 
