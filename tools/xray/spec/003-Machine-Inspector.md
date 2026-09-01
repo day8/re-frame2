@@ -1858,9 +1858,19 @@ This is **not** a session export. Lock #4 holds: Xray never
 serialises the running trace stream, the epoch buffer, the app-db
 history, or the conversation — those are session-local by design.
 
-PNG / SVG / Mermaid serialise a **static machine definition** only —
-topology + current-state hint (purely visual). The serialised form is
-reproducible from the registry alone.
+Every copy-as format serialises a **static machine definition** only,
+and each serialised form is reproducible from the registry alone:
+
+- **Mermaid (built — rf2-sxw06)** is **definition/topology-only**. The
+  shipped Static Machines action passes the registered definition
+  straight to `mermaid/emit`, which is value-free by contract: the
+  emitted block carries state / event / guard / action *names* and
+  **no current-state hint**, no live-snapshot state, no trace history,
+  and no runtime or definition `:data` values. It has no dependency on
+  a live instance at all (see §Static Machines surface → Copy Mermaid).
+- **PNG / SVG (not built)** would rasterise or vectorise the rendered
+  chart, so their sketches above include the current-state highlight as
+  a purely visual overlay on the same static topology.
 
 ### Performance
 
