@@ -949,16 +949,30 @@
                        (always-ids microsteps)
                        (mapcat
                          (fn [{r-from :from r-to :to r-event :event r-steps :steps}]
-                           (let [ev-id (if (vector? r-event) (first r-event) r-event)]
+                           (let [ev-id  (if (vector? r-event) (first r-event) r-event)
+                                 nested (microstep-cascade-steps r-steps)
+                                 ;; The wrapper's `:to` is where the raise's
+                                 ;; WHOLE sub-macrostep ended — the nested
+                                 ;; `machine-transition-single` settles the
+                                 ;; raised target's own `:always` before
+                                 ;; returning. So the raised event's OWN edge
+                                 ;; is matched against its DIRECT target, the
+                                 ;; first nested microstep's `:from`, exactly
+                                 ;; as `direct-event-target` does one level up;
+                                 ;; with no nested `:always` the wrapper's
+                                 ;; `:to` already IS that target.
+                                 r-to*  (if (seq nested)
+                                          (:from (first nested))
+                                          r-to)]
                              (concat
                                (single-transition-fired-ids
                                  edges
                                  (normalise-path r-from)
-                                 (normalise-path r-to)
+                                 (normalise-path r-to*)
                                  ev-id)
                                ;; an `:always` the raise ENABLED settles
                                ;; inside the wrapper — light its edge too.
-                               (always-ids (microstep-cascade-steps r-steps)))))
+                               (always-ids nested))))
                          raised))))))))
          set)))
 

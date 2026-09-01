@@ -970,12 +970,22 @@ became `(before, settled, event)` — the aggregate edge that does not exist.
 `direct-event-target` now takes the first of the `:microstep` **and**
 `:raised-transition` boundaries (`macrostep-boundary-steps`), which is the
 state the dispatched event committed either way. Each raised hop then lights
-its **own** edge under its **own** internal event id, and an `:always`
-transition the raise **enabled** settles inside that wrapper's `:steps`, so
-its edge is matched from there rather than at top level. The dispatched event
+its **own** edge under its **own** internal event id. The dispatched event
 and the internal event therefore appear as **distinct causal steps**. With no
 raised events the derivation is a no-op, exactly as the `:microsteps 0` case
 is.
+
+The direct-target rule then applies **once more, one level down**, because a
+wrapper's `:to` is where the raise's whole sub-macrostep ended: the nested
+`machine-transition-single` settles the raised target's own `:always` before
+returning, so an `:always` transition the raise **enabled** rides the
+wrapper's `:steps` rather than the top level. A raised hop's own edge is
+therefore matched against the first **nested** microstep's `:from` — its
+direct target — falling back to the wrapper's `:to` when the raise enabled no
+`:always`; the nested microsteps then light their own `:always` edges. Without
+that second application a raise whose target settles onward matches
+`(dequeue-state, settled-state, raised-event)`, which is the same phantom
+aggregate one level down.
 
 **Parallel — a raise-only region was counted as event-handled.** This one was
 worse than a miss, because it lit an edge that never fired. A raise is
