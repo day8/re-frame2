@@ -117,6 +117,10 @@ runWithWatchdog(
       // alias carries the require + server main; nothing here re-states
       // the namespace. Deliberately NO --allow-writes.
       args: ['-M:story-mcp'],
+      // `cwd` pins the fixture project root — the explicit
+      // working-directory property the README's host entries establish
+      // (a `cwd` field, or a command-established directory): the alias
+      // and the fixture's `:paths` resolve from the deps.edn HERE.
       cwd: FIXTURE_PROJECT,
       env: { ...process.env },
     },

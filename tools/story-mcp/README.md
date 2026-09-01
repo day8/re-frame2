@@ -70,12 +70,40 @@ over to the server:
                 "-m" "re-frame.story-mcp.server"]}}} ; then the server takes stdio
 ```
 
-and an MCP-host entry that launches it from the project root:
+and an MCP-host entry. The property the entry must establish: **the
+server starts with your project root as its working directory** — that
+is where `clojure -M:story-mcp` finds the deps.edn carrying the alias
+and your `:paths`. Agent hosts frequently launch MCP subprocesses from
+somewhere else, even when the config file itself lives in the project
+root, so pin the directory explicitly (the SDK witness below pins it
+the same way, through its transport's `cwd`). Where the host entry has
+a working-directory field, use it — VS Code's project-scoped
+`.vscode/mcp.json` documents `cwd` and the `${workspaceFolder}`
+variable:
+
+```json
+{"servers":
+ {"story": {"type": "stdio", "command": "clojure",
+            "args": ["-M:story-mcp"], "cwd": "${workspaceFolder}"}}}
+```
+
+Claude Code's project-scoped `.mcp.json` and Cursor's
+`.cursor/mcp.json` document no `cwd` field, so there the command itself
+must establish the directory (swap `sh -c` for your shell on Windows).
+Claude Code sets `CLAUDE_PROJECT_DIR` (the project root) in the
+server's environment and expands `${VAR}` in `command`/`args`:
 
 ```json
 {"mcpServers":
- {"story": {"command": "clojure", "args": ["-M:story-mcp"]}}}
+ {"story": {"command": "sh",
+            "args": ["-c", "cd \"${CLAUDE_PROJECT_DIR}\" && exec clojure -M:story-mcp"]}}}
 ```
+
+Cursor documents no equivalent project-root variable (entries carry
+only `command`/`args`/`env`/`envFile`), so write the absolute project
+path into that `cd` yourself. From any other working directory
+`clojure` cannot see your project's deps.edn — neither the alias nor
+your stories are reachable.
 
 Repeat the `-e` form (or require several namespaces in one) as needed;
 init-opts run in command order. Add `--allow-writes` to the host's
