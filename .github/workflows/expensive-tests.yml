@@ -368,6 +368,23 @@ jobs:
         with:
           node-version: '24'
 
+      # This job's hermetic step (`test:re-frame2-pair-live-hermetic-suite`,
+      # below) boots shadow-cljs against `skills/re-frame2-pair/tests/fixture/`,
+      # so this cache covers the fixture's classpath as well as the two MCP
+      # servers'. That fixture resolves FIVE in-repo artefacts as `:local/root`
+      # entries — core, reagent, epoch, schemas and machines (the last two
+      # because the shipped preload `:require`s `re-frame.schemas` and
+      # `re-frame.machines` directly, per the fixture's own deps.edn).
+      #
+      # THE KEY MUST NAME ALL FIVE (rf2-cd0zz). It named NONE of them, so any
+      # artefact dependency bump left the key unchanged: the pre-bump entry
+      # kept being restored and — because an exact key hit suppresses the
+      # save — never refreshed, returning the cold-resolve cost this key
+      # exists to amortise, against an orchestrator that fails the job when
+      # its `SHADOW_BOOT_TIMEOUT_MS` watchdog beats the nREPL port file.
+      # Same roster as `mcp-conformance-re-frame2-pair` and
+      # `re-frame2-pair-fixture-pure` in test.yml (rf2-nsb3e widened the
+      # latter). The tools/* entries stay — they key the server bundles.
       - name: Cache Maven / gitlibs
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
@@ -375,7 +392,7 @@ jobs:
             ~/.m2/repository
             ~/.gitlibs
             ~/.deps.clj
-          key: ${{ runner.os }}-expensive-mcp-live-${{ hashFiles('tools/re-frame2-pair-mcp/shadow-cljs.edn', 'tools/re-frame2-pair-mcp/package.json', 'tools/mcp-conformance/package.json', 'tools/story-mcp/deps.edn', 'skills/re-frame2-pair/tests/fixture/deps.edn', 'skills/re-frame2-pair/tests/fixture/shadow-cljs.edn') }}
+          key: ${{ runner.os }}-expensive-mcp-live-${{ hashFiles('tools/re-frame2-pair-mcp/shadow-cljs.edn', 'tools/re-frame2-pair-mcp/package.json', 'tools/mcp-conformance/package.json', 'tools/story-mcp/deps.edn', 'skills/re-frame2-pair/tests/fixture/deps.edn', 'skills/re-frame2-pair/tests/fixture/shadow-cljs.edn', 'implementation/core/deps.edn', 'implementation/adapters/reagent/deps.edn', 'implementation/epoch/deps.edn', 'implementation/schemas/deps.edn', 'implementation/machines/deps.edn') }}
           restore-keys: |
             ${{ runner.os }}-expensive-mcp-live-
             ${{ runner.os }}-cljs-tools-re-frame2-pair-mcp-
