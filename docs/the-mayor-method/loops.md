@@ -339,6 +339,18 @@ familiar fix:
   pass until it lands. **That intermediate state is expected, not a second failure.**
   Both obvious reflexes are wrong — repeating the pull stays ahead, and forcing equality
   discards the very checkpoint the drill exists to protect.
+
+  **Rebase onto the remote-tracking REF, not with a pull.** *Rebase* names an outcome, and
+  the command that first comes to hand for it is a pull carrying a rebase flag — which reads
+  the same shared scratch file this drill just retired for the fast-forward. The argument two
+  paragraphs up applies here unchanged and is easy to miss, because it was made about the
+  step rather than about the remedy for that step's own failure: retiring the reading command
+  in one place and readmitting it in the next is no protection at all. Measured under a
+  saturated fleet: with remote and branch both named, the pull form aborted a second time
+  wearing the contamination message — peers adding worktrees had left several refs in that
+  file — while rebasing onto the ref succeeded immediately on the same tree. **A remedy
+  inherits the hazards of whatever it reads**, so choose it by what it reads, not by what it
+  is called.
 * **A truncated abort, or a ref-level race** — re-fetch and re-read. Do not reach for
   any remedy above.
 
@@ -539,6 +551,27 @@ which would trade a recoverable failure for a permanently slower one; it is that
 continuously* is what makes a fleet-wide kill survivable. Read a worker that has not pushed for
 a long stretch as the exposure it is, and expect the salvage under *The stranded sweep* to be
 wanted for the whole fleet at once rather than for one worker.
+
+**And the fourth shape is the one where YOU are the competitor: the tracker itself.** The
+three above degrade the workers. This one degrades the mayor, because a fleet at the ceiling
+is a fleet reading and writing the item store continuously — every brief's history walk, every
+verdict, every close — and the mayor's own queries queue behind them. Measured at six workers:
+four consecutive coordinator commands exceeded a two-minute ceiling in one cycle, including a
+plain listing and, with some irony, the note recording this observation; all are second-scale
+on an idle fleet.
+
+**What makes it worth writing down is not the slowness but the misreading.** A timeout on the
+item store presents exactly as a corrupt or wedged store, and the reflex remedies are both
+wrong: re-running adds load to the thing that is overloaded, and *restoring the store's export
+from version-control history* — which looks like recovery — silently reverts every item recorded
+since that revision. **Treat a coordinator timeout as contention until something else proves
+corruption.** The one export observed apparently hung here had in fact completed.
+
+**Verify it without touching the store at all**: compare the committed export against the working
+copy by size or line count, and check the working tree is clean. Equal and clean means consistent
+and nothing is owed, at zero cost to the resource under load — it answered in a second what
+re-running could not answer in three minutes. And ask the store for one thing per command while
+saturated: two queries chained in one invocation time out where each alone returns.
 
 **A queued measurement window makes an otherwise-free slot not free.** The drain clause in
 the filter list does not reach this case — it lifts only once the exclusive items are all
