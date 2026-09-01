@@ -1824,9 +1824,14 @@ A consumer picks their substrate by adding the matching adapter alongside the co
 {:deps {day8/re-frame2         {:mvn/version "<latest>"}
         day8/re-frame2-reagent {:mvn/version "<latest>"}}}
 
-;; deps.edn for a UIx app
+;; deps.edn for a UIx app. UIx is third-party, so its two coordinates carry
+;; their own literal version rather than <latest>, and both are named
+;; directly: the adapter ships uix.core, but mounting a React root is the
+;; app's own call, so uix.dom is never transitive.
 {:deps {day8/re-frame2     {:mvn/version "<latest>"}
-        day8/re-frame2-uix {:mvn/version "<latest>"}}}
+        day8/re-frame2-uix {:mvn/version "<latest>"}
+        com.pitch/uix.core {:mvn/version "1.4.4"}
+        com.pitch/uix.dom  {:mvn/version "1.4.4"}}}
 
 ;; deps.edn for a Reagent app that uses Spec 010 schemas
 {:deps {day8/re-frame2         {:mvn/version "<latest>"}

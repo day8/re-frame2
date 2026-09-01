@@ -131,6 +131,28 @@ npm run dev:example -- examples/dashboard-uix
 Edits recompile live, and the command prints a local URL to open. Add
 `--no-watch` for a one-shot compile-and-serve.
 
+## Copying this into your own app
+
+The mount at the bottom of [`core.cljs`](core.cljs) calls
+`uix.dom/create-root`, so a standalone consumer needs **both** UIx
+coordinates. `day8/re-frame2-uix` brings `com.pitch/uix.core` with it, but
+never `com.pitch/uix.dom` — mounting a React root is your app's call, not the
+adapter's. The complete recipe:
+
+```clojure
+;; deps.edn
+{:deps {day8/re-frame2     {:mvn/version "<latest>"}
+        day8/re-frame2-uix {:mvn/version "<latest>"}
+        com.pitch/uix.core {:mvn/version "1.4.4"}
+        com.pitch/uix.dom  {:mvn/version "1.4.4"}}}
+```
+
+In this repo the file compiles against the aggregate build, which already
+carries both — which is exactly why the second coordinate is easy to miss on
+the way out. See
+[Use UIx or reagent-slim](../../../../docs/core/how-to/use-uix-or-slim.md#one-adapter-per-build-the-coordinate-table)
+for the recipe in context.
+
 ## Accessibility + responsive — what to copy
 
 This is the UIx example meant to model a polished multi-pane app, so
