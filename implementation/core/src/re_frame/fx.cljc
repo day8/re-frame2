@@ -752,6 +752,12 @@
                    `:dispatch` never does.
     :source-detail optional; rides onto the `:rf.event/dispatched` trace (e.g.
                    `{:ms n}` for the delayed path — rf2-5qp4g).
+    :rf.flow/settle?
+                   optional; `true` marks the child as the framework-private
+                   flow settle, which the router head-inserts ahead of the
+                   continuations the same handler queued (Spec 013
+                   §Sequencing). Set by `settle-flows-if-requested!` and by
+                   nothing else — it is not a general priority lever.
     :rf.cofx       optional recordable causal-envelope coeffect map merged
                    verbatim onto the child dispatch. `build-envelope` preserves
                    a supplied `:rf.cofx` (extra owner-qualified keys kept) and
@@ -763,10 +769,12 @@
   child's completion carrier through the SAME seam that preserves every
   reserved-dispatch guarantee, adding ONLY its `:rf.cofx` exact-attempt
   coordinate fact — never a second effect duplicating the semantics."
-  [frame-id parent-envelope event {:keys [source ms source-detail] rf-cofx :rf.cofx}]
+  [frame-id parent-envelope event
+   {:keys [source ms source-detail] rf-cofx :rf.cofx flow-settle? :rf.flow/settle?}]
   (let [opts (cond-> (assoc (child-dispatch-opts frame-id parent-envelope) :source source)
                (some? source-detail) (assoc :source-detail source-detail)
-               (some? rf-cofx)       (assoc :rf.cofx rf-cofx))]
+               (some? rf-cofx)       (assoc :rf.cofx rf-cofx)
+               (true? flow-settle?)  (assoc :rf.flow/settle? true))]
     (if (number? ms)
       (arm-dispatch-later! frame-id ms event opts)
       ;; Sticky hook (rf2-f72pd) — `:router/dispatch!` is published once at
@@ -822,11 +830,27 @@
   queued it, and `:source` is a CLOSED enum (Spec 002 §Routing) — a new member
   would be a Spec 002 change this does not need.
 
-  Back of the queue, not front. Run-to-completion means the whole queue drains
-  before the originating dispatch returns either way, so both placements settle
-  within the boundary the contract promises; the back is the one that settles
-  ONCE over everything the cascade did, rather than settling early and leaving
-  the cascade's own later writes to the next event.
+  HEAD of the queue, not back — it carries `:rf.flow/settle? true`, which
+  `router/insert-envelope` reads to place it ahead of everything already
+  queued. Run-to-completion drains the whole queue before the originating
+  dispatch returns either way, so both placements satisfy the settle BOUNDARY
+  Spec 013 §Sequencing states; what the back placement does not satisfy is
+  composition with ordinary follow-up work. A `:dispatch` effect from the same
+  handler is appended DURING the walk, so a back-inserted settle sits behind it
+  in FIFO order: the continuation then runs against the pre-registration /
+  pre-clear `app-db`, cannot read a newly registered flow's output, reads a
+  cleared flow's stale one, and can persist that wrong decision into `app-db`
+  where the later settle — which repairs only the derived slot — will not undo
+  it.
+
+  Settling early costs nothing, which is the half worth stating because the
+  earlier back-of-queue rationale assumed otherwise: the flow transform runs on
+  EVERY event, so each continuation settles its OWN writes on its OWN drain.
+  There was never a need for one late settle to cover the whole cascade.
+
+  At most one settle per walk, enqueued here at the very end of it, so a plain
+  head-push has no siblings to reverse (unlike the machine-internal splice,
+  which is called once per sibling and therefore preserves a boundary).
 
   The event id is written here as a LITERAL rather than read from
   `re-frame.events/settle-flows-event-id`, which defines it: `re-frame.events`
@@ -840,7 +864,8 @@
   (when (some-> *flow-settle-requested* deref)
     (child-dispatch! frame-id parent-envelope
                      [:rf/settle-flows]
-                     {:source :fx-dispatch}))
+                     {:source            :fx-dispatch
+                      :rf.flow/settle?  true}))
   nil)
 
 (def ^:private reserved-fx-handlers
@@ -948,7 +973,11 @@
    ;; walk enqueues ONE `[:rf/settle-flows]` on this frame
    ;; (`settle-flows-if-requested!`). Run-to-completion drains it inside
    ;; the same pass, so both arms have settled by the time the dispatch
-   ;; returns.
+   ;; returns — and it goes to the HEAD of the queue, so it settles ahead
+   ;; of any continuation this same handler queued with a `:dispatch`
+   ;; effect rather than behind it. Otherwise those continuations read the
+   ;; pre-registration / pre-clear `app-db` and can persist a decision the
+   ;; later settle would not undo.
    ;;
    ;; Note what this does NOT do, because it is what the ordering was
    ;; protecting. It does NOT re-run the flow transform after `:fx`, and

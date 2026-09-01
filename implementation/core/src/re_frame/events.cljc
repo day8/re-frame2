@@ -1281,7 +1281,11 @@
 ;; `request-flow-settle!` / `do-fx`). It drains inside the same
 ;; run-to-completion pass, runs the ordinary chain — so the framework's
 ;; `flows-after-interceptor` transforms the pending `:db` exactly as it does for
-;; any other event — and settles both arms before the dispatch returns.
+;; any other event — and settles both arms before the dispatch returns. It is
+;; enqueued at the HEAD of the frame's queue (`router/insert-envelope`, keyed on
+;; the `:rf.flow/settle?` envelope flag), so it drains ahead of the
+;; continuations the registering/clearing handler queued with its own
+;; `:dispatch` effects and they read the settled `app-db`.
 ;;
 ;; This is the framework performing, once, the follow-up no-op dispatch the
 ;; contract used to make every application hand-write.
