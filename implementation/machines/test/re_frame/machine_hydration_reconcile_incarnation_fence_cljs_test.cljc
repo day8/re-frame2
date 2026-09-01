@@ -32,6 +32,19 @@
       That arm aborts correctly on its own captured owner — and the NEXT
       iteration captures B and arms another A-derived declaration into it.
 
+    - INSIDE ONE ARM (audit of PR #8942). `/cancelled` is not the only
+      callback-bearing trace the reconcile emits. A hydration arm passes
+      `:emit-scheduled-trace? true`, so `schedule-after-timer!` emits
+      `:rf.machine.timer/scheduled` ITSELF — synchronously, after its
+      post-supersede recheck and BEFORE it reserves the timer-table slot. A
+      listener on THAT row could destroy A and publish B, and the arm went on
+      to reserve the A-derived slot under the bare frame id (which now denotes
+      B), arm the host clock and attach the change-watcher. This is the one
+      boundary a `/cancelled` tooth cannot reach: on a frame holding no prior
+      timer there is no cancellation anywhere in the reconcile, and the
+      `/scheduled` row is the FIRST callback-bearing trace of the whole
+      operation.
+
   The failure is silent by construction: every step is right about the owner it
   captured, and B is a live frame under the right id, so it accepts the timer,
   the watcher, the subscription ref-count and the `/scheduled` trace without
@@ -39,13 +52,18 @@
 
   ## Shape of the controls
 
-  Two mutation teeth, one per direction, each publishing same-id B from the
-  FIRST callback-bearing trace of its phase — then four readings of B: its
-  timer table, the `/scheduled` trace stream, the subscription ref-count, and
+  Three mutation teeth — cancel→arm, arm→arm, and within one arm — each
+  publishing same-id B from the FIRST callback-bearing trace of its phase, then
+  reading B's timer table, the host-clock arm, the subscription calls, and
   whether a change in the delay's value reaches a surviving watcher. A table
   check alone would miss the last two.
 
-  The third test is the control the fence must not break: with no successor
+  The `/scheduled` tooth runs twice, once per delay source, because the abort it
+  pins releases nothing for a LITERAL delay and must still fire: a fence written
+  around the sub-vec resources alone would leave the literal arm installing a
+  host handle into B.
+
+  The last test is the control the fence must not break: with no successor
   published, a multi-live reconcile arms every declaration, so the loop that
   replaced the `doseq` still runs to completion.
 
@@ -282,6 +300,130 @@
             (is (not (identical? token-a @token-b))
                 "and B is a DISTINCT incarnation from A")
             (assert-successor-took-no-a-work! cfid reaction subscribes)))))))
+
+;; ---------------------------------------------------------------------------
+;; Tooth 3 — WITHIN ONE ARM: the arm's own `/scheduled` republishes the frame
+;; ---------------------------------------------------------------------------
+
+(defn- republish-on-scheduled-once!
+  "As `republish-frame-once!`, but triggered by the arm's OWN
+  `:rf.machine.timer/scheduled` row rather than by a cancellation — the boundary
+  a `/cancelled` tooth cannot reach.
+
+  `zero!` runs immediately after B is published, so every host-work counter the
+  caller passes it records only what happened AFTER the swap. The subscription
+  hold and the delay resolution both precede the trace and belong to A; what is
+  under test is what the arm does with them once A is gone."
+  [listener-id frame-id fired? token-b zero!]
+  (trace-tooling/register-listener!
+    listener-id
+    (fn [ev]
+      (when (and (= :rf.machine.timer/scheduled (:operation ev))
+                 (compare-and-set! fired? false true))
+        (frame/destroy-frame! frame-id)
+        (rf/make-frame {:id frame-id :platform :client})
+        (reset! token-b (frame/frame-incarnation-token frame-id))
+        (zero!)))))
+
+(deftest a-scheduled-trace-callback-that-republishes-the-frame-arms-nothing-into-b
+  (testing "SUB-VEC delay: the arm's own `/scheduled` destroys frame A and
+            publishes same-id B before the timer-table slot is reserved. The
+            A-derived slot, its host handle and its change-watcher must not
+            land in B"
+    (rf/reg-machine :hydfence/sched dyn-machine)
+    (let [reaction     (atom 2500)
+          subscribes   (atom 0)
+          unsubscribes (atom 0)
+          arms         (atom 0)
+          fired?       (atom false)
+          token-b      (atom nil)]
+      (with-redefs [subs/subscribe            (fn ([_q] (swap! subscribes inc) reaction)
+                                                ([_q _o] (swap! subscribes inc) reaction))
+                    subs/unsubscribe          (fn ([_q] (swap! unsubscribes inc) nil)
+                                                ([_f _q] (swap! unsubscribes inc) nil))
+                    interop/schedule-after!   (fn [_thunk _ms] (swap! arms inc) ::handle)
+                    interop/cancel-scheduled! (fn [_h] nil)]
+        (let [rt      (server-runtime-db [[:hydfence/sched [[:go]]]])
+              cfid    (fresh-frame! :client)
+              token-a (frame/frame-incarnation-token cfid)]
+          (is (empty? (inner cfid))
+              (str "precondition: a FRESH client frame holds no `:after` timer, "
+                   "so phase 1 cancels nothing and the single arm supersedes an "
+                   "empty slot — the `/scheduled` row is therefore the FIRST "
+                   "callback-bearing trace of the whole reconcile"))
+          (mtest/reset-captured!)
+          (republish-on-scheduled-once!
+            ::sched-phase cfid fired? token-b
+            #(do (reset! subscribes 0) (reset! unsubscribes 0) (reset! arms 0)))
+          (try
+            (install! cfid rt)
+            (finally (trace-tooling/unregister-listener! ::sched-phase)))
+
+          (is (true? @fired?)
+              "the `/scheduled` listener ran (the seam is exercised)")
+          (is (some? @token-b) "same-id successor B is live after the swap")
+          (is (not (identical? token-a @token-b))
+              "and B is a DISTINCT incarnation from A")
+
+          (is (empty? (inner cfid))
+              (str "successor B holds NO timer-table entry. The slot is keyed by "
+                   "the BARE frame id, so a reservation taken after the swap "
+                   "lands in B — a timer B never enumerated, whose eventual fire "
+                   "dispatches an A-derived `:rf.machine.timer/after-elapsed` "
+                   "into it"))
+          (is (zero? @arms)
+              (str "and no host clock was armed in B's name — the arm sits "
+                   "between the reserve and the publish, so a table check alone "
+                   "would not see it"))
+          (is (zero? @unsubscribes)
+              (str "and the abort issued NO `(frame, query-v)` decrement: A's "
+                   "hold was taken against A's own sub-cache, which "
+                   "`destroy-frame!` disposed wholesale on this very stack, "
+                   "while `subs/unsubscribe` addresses the frame by bare id — "
+                   "which now denotes B. There is nothing of A's left to "
+                   "release, and releasing would drop a count B holds "
+                   "(rf2-i4aj9c)"))
+
+          (mtest/reset-captured!)
+          (reset! reaction 9000)
+          (is (empty? (mtest/events-of :rf.machine.timer/scheduled))
+              "a change in the delay's value re-resolves nothing in B")
+          (is (empty? (mtest/events-of :rf.machine.timer/cancelled))
+              (str "and reaches NOTHING at all — an arm that ran past the "
+                   "`/scheduled` callback attaches its re-resolution watcher to "
+                   "the reaction here, and the watcher re-enters the timer "
+                   "machinery under B")))))))
+
+(deftest a-scheduled-trace-callback-aborts-a-literal-delays-arm-too
+  (testing "LITERAL delay: the same boundary, with no subscription, reaction or
+            watcher in play. The abort must be driven by the owner check alone —
+            a fence built around the dynamic-delay resources would let this one
+            through"
+    (rf/reg-machine :hydfence/sched-lit literal-machine)
+    (let [arms    (atom 0)
+          fired?  (atom false)
+          token-b (atom nil)]
+      (with-redefs [interop/schedule-after!   (fn [_thunk _ms] (swap! arms inc) ::handle)
+                    interop/cancel-scheduled! (fn [_h] nil)]
+        (let [rt      (server-runtime-db [[:hydfence/sched-lit [[:go]]]])
+              cfid    (fresh-frame! :client)
+              token-a (frame/frame-incarnation-token cfid)]
+          (is (empty? (inner cfid))
+              "precondition: the client frame holds no prior timer")
+          (mtest/reset-captured!)
+          (republish-on-scheduled-once!
+            ::sched-phase-lit cfid fired? token-b #(reset! arms 0))
+          (try
+            (install! cfid rt)
+            (finally (trace-tooling/unregister-listener! ::sched-phase-lit)))
+
+          (is (true? @fired?) "the `/scheduled` listener ran")
+          (is (not (identical? token-a @token-b))
+              "B is a distinct incarnation from A")
+          (is (empty? (inner cfid))
+              "successor B holds no timer-table entry")
+          (is (zero? @arms)
+              "and no host clock was armed in B's name"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Control — the fence is scoped strictly to owner LOSS
