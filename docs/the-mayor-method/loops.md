@@ -567,11 +567,22 @@ from version-control history* — which looks like recovery — silently reverts
 since that revision. **Treat a coordinator timeout as contention until something else proves
 corruption.** The one export observed apparently hung here had in fact completed.
 
-**Verify it without touching the store at all**: compare the committed export against the working
-copy by size or line count, and check the working tree is clean. Equal and clean means consistent
-and nothing is owed, at zero cost to the resource under load — it answered in a second what
-re-running could not answer in three minutes. And ask the store for one thing per command while
-saturated: two queries chained in one invocation time out where each alone returns.
+**Take a first look that does not touch the store at all**: compare the committed export against the
+working copy by size or line count, and check the working tree is clean. That costs the resource
+under load nothing, and it answered in a second what re-running could not answer in three minutes.
+And ask the store for one thing per command while saturated: two queries chained in one invocation
+time out where each alone returns.
+
+**But be exact about what that look establishes, because it is easy to promote and the promotion is
+this document's own measured fault.** It reads the EXPORT and the working tree — never the database.
+So it cannot tell you that a mutation which timed out committed, that the store holds nothing newer
+than the file, or that the store is healthy. A clean tree proves only that the tracked export matches
+the revision. **And equal counts are not equality**: one project's checkpoint passed its row-count
+floor at 1,938 against 1,938 and silently dropped three items and reverted two newer statuses,
+because the two sides had substituted one-for-one. Size is a smoke test against truncation, which is
+what it was built for. Once the contention clears, verify the store against the export the way the
+project's own checkpoint does — by stable id, modification time and status — before saying anything
+is consistent or that nothing is owed.
 
 **A queued measurement window makes an otherwise-free slot not free.** The drain clause in
 the filter list does not reach this case — it lifts only once the exclusive items are all
