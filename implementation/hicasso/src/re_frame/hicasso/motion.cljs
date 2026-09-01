@@ -97,5 +97,5 @@
   renders is the author's own node with the author's own attributes
   merged. `:timeout-ms` is mandatory — it is the retention length and
   the hard terminal bound at once, so a child leaves on time whether or
-  not any CSS ran. [[re-frame.hicasso.impl.presence-react/presence]]."}
+  not any CSS ran. `re-frame.hicasso.impl.presence-react/presence`."}
   presence impl-presence-react/presence)

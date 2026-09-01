@@ -7,7 +7,7 @@
   around each `hydrateRoot` and hands it to that root's closer, which
   shuts it on that root's hydration commit;
   `re-frame.hicasso.impl.presence-react` is the one reader, and it reads
-  it during a RENDER, through the context [[with-adoption]] installs.
+  it during a RENDER, through the context `with-adoption` installs.
 
   It is its own namespace because the window is the whole mechanism and
   it is worth being able to see all of it at once: the ref, the three
@@ -48,7 +48,7 @@
 
   TWO MINTERS, and each hands the window to the same consumer —
   `impl.mount/tree`, which scopes it over the subtree with
-  [[with-adoption]] when the handle carries an `:adoption`:
+  `with-adoption` when the handle carries an `:adoption`:
 
   - `impl.mount/hydrate-root!`, once per hydrating client root; and
   - `re-frame.hicasso.server/render`, once per REQUEST, closed in that
@@ -57,13 +57,13 @@
 
   A render that neither door took — a hand-rolled `renderToString` over
   the app element — still finds no provider above it, reads the adoption
-  context's `nil` default, and [[adopting?]] calls that closed. Both
+  context's `nil` default, and `adopting?` calls that closed. Both
   paths are measured in
   `re-frame.hicasso.presence-ssr-seam-dom-cljs-test`: §1 the windowless
   one, §5 the product door.
 
   Born open: the renders that follow it are adopting server-rendered
-  DOM until something calls [[close-adoption-window!]] on this very
+  DOM until something calls `close-adoption-window!` on this very
   object.
 
   A bare mutable ref rather than a registry entry, and deliberately.
@@ -83,7 +83,7 @@
 
   **Nil is closed**, and that is the load-bearing default rather than
   defensiveness: an ordinary client mount has no window at all, and a
-  subtree with no [[adoption-context]] provider above it reads `nil` and
+  subtree with no `adoption-context` provider above it reads `nil` and
   answers false. So the absence of an adoption is spelled the same way
   everywhere and there is no third state to reason about."
   [^js window]
@@ -91,7 +91,7 @@
 
 (defn close-adoption-window!
   "Shut `window`. Idempotent, and nil-tolerant for the same reason
-  [[adopting?]] is.
+  `adopting?` is.
 
   Called by that root's closer component from a passive effect on the
   hydration commit, and again by `impl.mount/unmount!` — a root torn down
@@ -105,7 +105,7 @@
 
 (defonce ^:private adoption-context
   ;; The window, carried down ONE root's subtree. The default is `nil`,
-  ;; which [[adopting?]] reads as closed — so every tree with no provider
+  ;; which `adopting?` reads as closed — so every tree with no provider
   ;; above it (every ordinary mount, every Hicasso boundary anywhere) gets
   ;; the right answer with no provider, no object and no branch. Only a
   ;; hydrating root installs one — the same absence-means-closed discipline

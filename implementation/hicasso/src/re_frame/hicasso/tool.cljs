@@ -113,17 +113,17 @@
 
 (defn- boundary-key
   "The tool-tier identity of a boundary: its read-key set PROJECTED, in
-  [[ordered]]'s order.
+  `ordered`'s order.
 
   Derived identically from a registration's `.-reads` and from a read-set
-  entry's `.-set`, which is what makes [[read-mounted-boundaries]] and
-  [[read-read-attribution]] join. See the namespace docstring for why the
+  entry's `.-set`, which is what makes `read-mounted-boundaries` and
+  `read-read-attribution` join. See the namespace docstring for why the
   edge set is the identity the runtime actually retains.
 
-  **Every element is a [[read-identity]], never a raw sub-key.** The raw
+  **Every element is a `read-identity`, never a raw sub-key.** The raw
   sub-key carries the application's own query VECTOR, arguments and all,
   so a key built from it would be an egress path for exactly the data
-  [[projected-query]] exists to project — and a worse one, because a key
+  `projected-query` exists to project — and a worse one, because a key
   is also what a panel prints in a label and hashes into a DOM id. The
   join survives because both sides derive the key by this one function:
   identical raw sets project to identical keys, and the projection is a
@@ -340,10 +340,10 @@
   where a reader knows they are looking at application data.
 
   `:sub-ids` is what that run recomputed, which is the axis an
-  [[explain-render]] candidate is matched on.
+  `explain-render` candidate is matched on.
 
   `:frames` is a SET rather than the one frame whose ring this bundle was
-  drawn from — see [[intent-rows]] for why one dispatch can surface in
+  drawn from — see `intent-rows` for why one dispatch can surface in
   more than one ring, and why answering per ring would print one event
   twice."
   [frame-id bundle]

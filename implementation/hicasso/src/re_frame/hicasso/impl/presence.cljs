@@ -67,7 +67,7 @@
   ## The machine
 
   A state value is `{:order [key …] :entries {key {:child … :phase …
-  :deadline …}}}`. [[step]] is the whole transition and is **idempotent**
+  :deadline …}}}`. `step` is the whole transition and is **idempotent**
   — `(step (step s cs t1 ms) cs t2 ms)` equals `(step s cs t1 ms)` — which
   is what lets the React half adjust its state during render rather than
   spend an effect on it. Deadlines are absolute instants stored when a

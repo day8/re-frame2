@@ -3,7 +3,7 @@
 
   A hiccup prop key is written in one of four spellings — a keyword, a
   string, a symbol or a namespaced keyword — in kebab or in camel, and
-  every one of them is emitted under ONE React name. [[prop-name]]
+  every one of them is emitted under ONE React name. `prop-name`
   decides which: the three React renames (`class`, `for`, `charset`) in
   every spelling; kebab → camel with an existing hump preserved;
   `aria-*`, `data-*` and `--custom-property` passed through; a string
@@ -56,7 +56,7 @@
   above.
 
   **A pure function of the key**, which is what
-  [[re-frame.hicasso.impl.codec/canonical-slot]] rests on. A slot
+  `re-frame.hicasso.impl.codec/canonical-slot` rests on. A slot
   that depended on what the build happened to have converted earlier
   would make the owned-literal law depend on render order.
 
