@@ -21,8 +21,7 @@
             [login-form.views :as views]
             [login-form.stories]
             ;; Shared Story-host helper: owns the live-app↔Story-shell
-            ;; hash router + React-root handle, and the open-in-editor
-            ;; project-root config via the `:source-subdir` opt.
+            ;; hash router + React-root handle.
             [re-frame.testbed.story-host :as story-host])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
@@ -105,9 +104,8 @@
   ;; root is frame-scoped via `live-app-root` (the
   ;; `frame-provider` wrapper — scope-only into the already-
   ;; registered `:rf/default` frame).
-  ;; The `:source-subdir` opt hands the host this testbed's
-  ;; tool-relative source subdir; the host resolves the on-disk
-  ;; open-in-editor project-root (build-env define or `?checkout-root=`
-  ;; override, cross-platform) and calls `story/configure!` itself — which
-  ;; also bridges the root into Xray's slot.
-  (story-host/mount-with-hash-routing! live-app-root {:source-subdir "tools/story/testbeds"}))
+  ;; No open-in-editor root is configured: the dev server's
+  ;; `POST /__rf-open-in-editor` endpoint resolves this testbed's
+  ;; classpath-relative source coordinates against the live JVM source paths
+  ;; at request time.
+  (story-host/mount-with-hash-routing! live-app-root))

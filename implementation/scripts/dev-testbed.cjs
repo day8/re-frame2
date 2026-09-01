@@ -2,20 +2,16 @@
 /*
  * `dev` — cross-platform testbed dev launcher (rf2-5dphw).
  *
- * Resolves the repo root from THIS script's own location (via node's
- * `path` module, which behaves identically on Windows / macOS / Linux),
- * exports it as the `RF2_TESTBED_PROJECT_ROOT` environment variable, and
- * spawns `shadow-cljs watch <build...>` with the remaining CLI args.
+ * Spawns `shadow-cljs watch <build...>` with the CLI args you name, and
+ * prints each watched build's served URL on start.
  *
- * Why: the Xray / Story dev testbeds turn a source-coord into an editor
- * URI by prepending an on-disk project-root. The shared helper
- * `re-frame.testbed.config` reads that root from a `goog-define`
- * (`re-frame.testbed.config/checkout-root`) that the affected shadow-cljs
- * builds seed from this env var via `#shadow/env`. So the on-disk root
- * baked into a testbed build is the ACTUAL repo root of whatever clone
- * ran the build — never a hardcoded personal path. 'Open in editor'
- * therefore works on a fresh clone at any path, on any OS, with no
- * `?checkout-root=` override needed.
+ * 'Open in editor' needs nothing from this launcher. Every testbed
+ * `:dev-http` entry runs the JVM `re-frame.testbed.open-in-editor-server`
+ * handler, which resolves a classpath-relative source coordinate against
+ * the live source paths at request time — so the chips land on the real
+ * file of whatever clone is running the watch, at any path, on any OS,
+ * with nothing to configure (rf2-3xq1v; the launcher used to export an
+ * absolute repo root for a browser-side resolver that no longer exists).
  *
  * EXPLICIT BUILD-IDS ONLY (rf2-trlj7). The launcher takes one or more
  * explicit shadow-cljs build-ids — name the build(s) you actually want to
@@ -41,9 +37,8 @@
  * Non-build flags (anything not starting with `:`) pass through in place
  * and are never treated as builds for URL printing.
  *
- * Launching `npx shadow-cljs watch ...` directly still works — the env
- * var is just unset, so the helper falls back to the `?checkout-root=`
- * query string (or a graceful open-in-editor no-op).
+ * Launching `npx shadow-cljs watch ...` directly still works, and behaves
+ * identically apart from the URL printing.
  *
  * SPAWN FORM (rf2-1ggkn). We resolve shadow-cljs's own JS entry-point
  * (`shadow-cljs/cli/runner.js`) and spawn it under THIS `node` binary
@@ -73,7 +68,7 @@
 'use strict';
 
 const { spawn } = require('child_process');
-const { REPO_ROOT, IMPL_ROOT } = require('./_path-policy.cjs');
+const { IMPL_ROOT } = require('./_path-policy.cjs');
 
 // ===========================================================================
 // OWNED-RANGE PORT MAP (rf2-ot0lv). Single source of truth for who-owns-
@@ -257,11 +252,6 @@ if (require.main === module) {
   const cmd = process.execPath;
   const args = [shadowRunner, 'watch', ...builds];
 
-  // Normalise to forward slashes so the value reads identically across
-  // platforms when it becomes a string prefix in `re-frame.testbed.config`.
-  const repoRoot = REPO_ROOT.split('\\').join('/');
-
-  console.log(`> RF2_TESTBED_PROJECT_ROOT=${repoRoot}`);
   console.log(`> shadow-cljs watch ${builds.join(' ')}`);
 
   // Print the served URL(s) for every watched build that has a dev-http
@@ -280,7 +270,6 @@ if (require.main === module) {
   const child = spawn(cmd, args, {
     cwd: IMPL_ROOT,
     stdio: 'inherit',
-    env: { ...process.env, RF2_TESTBED_PROJECT_ROOT: repoRoot },
   });
 
   child.on('exit', (code, signal) => {

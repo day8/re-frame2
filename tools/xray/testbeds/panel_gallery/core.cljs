@@ -97,14 +97,6 @@
   (:require [re-frame.core :as rf]
             [re-frame.story :as story]
             [re-frame.adapter.reagent :as reagent-adapter]
-            ;; Story is the SINGLE owner of the source-coord project-root
-            ;; (`:rf.story/project-root`, seeded via `story/configure!` in
-            ;; `run`). Story synchronously bridges that value into Xray's
-            ;; `:rf.xray/project-root` slot via
-            ;; `re-frame.story.xray-preset/propagate-project-root!`, so the
-            ;; Xray-as-RHS source-coord chips resolve against the same
-            ;; on-disk root without a separate `xray-config/configure!` call
-            ;; here (rf2-dy02qs).
             [day8.re-frame2-xray.registry :as xray-registry]
             ;; Xray's `:root` CSS-variable installer. Required
             ;; here because the panel-gallery embeds bare Xray widgets
@@ -148,9 +140,6 @@
             ;; variants pass `:full-with-diff? true` to opt into
             ;; the mode-3 chrome (R3 chip + R4 rail).
             [panel-gallery.gallery-diff-mode-3]
-            ;; Shared testbed-config helper: derives the
-            ;; open-in-editor project-root from the build env.
-            [re-frame.testbed.config :as testbed-config]
             ;; Shared live-app↔Story-shell hash-router host. The
             ;; panel-gallery uses this helper so
             ;; its `hashchange` listener is installed via the helper's
@@ -200,47 +189,32 @@
 ;; ============================================================================
 
 ;; ----------------------------------------------------------------------------
-;; Project-root resolution
+;; Source-file resolution
 ;; ----------------------------------------------------------------------------
 ;;
-;; Source-coord `:file` slots captured at registration time are classpath-
+;; Source-coord `:file` slots captured at registration time may be classpath-
 ;; relative — the panel-gallery's source root is
 ;; `tools/xray/testbeds/panel_gallery/`, so a coord on a panel-gallery handler
-;; carries `:file "panel_gallery/foo.cljs"`. Xray's open-in-editor URI builder
-;; (`re-frame.source-coords.editor-uri/editor-uri`) requires an on-disk root
-;; to prepend — without it, the URI ships the bare relative path and the
-;; OS-side editor handler rejects it ("Path does not exist").
+;; can carry `:file "panel_gallery/foo.cljs"`.
 ;;
-;; The root is configured through Story (`:rf.story/project-root`), which
-;; synchronously bridges it into Xray's `:rf.xray/project-root` slot — so
-;; there is one resolution and one owner-level configure! call. The
-;; panel-gallery boots with its known on-disk repo position by default; a
-;; `?checkout-root=<path>` query string overrides for cross-machine portability
-;; (mirroring the `standard_epochs` testbed's resolver).
+;; No project-root is configured here, and none is needed. The dev server
+;; answers `POST /__rf-open-in-editor`
+;; (`re-frame.testbed.open-in-editor-server`, wired on this build's
+;; `:dev-http` entry) and resolves that relative coordinate against the live
+;; JVM source paths at request time — the same `getResource` resolution
+;; `re-frame.source-coords/absolutise-file` performs at macro-expansion, but
+;; late enough to reach the cases the compile-time bake cannot. The client
+;; ships the coordinate verbatim, so nothing here needs to know where the
+;; checkout lives.
 ;;
-;; The URI build is invariant to the host page URL — `resolve-uri` reads the
-;; configured root, not `window.location`. The query-param branch only
-;; influences which root we PASS to the configure! call; the resolver itself
-;; never reaches into the document. Two real tests pin this contract: the
-;; URI-build invariance to host URL is pinned by
-;; `re-frame2-xray.open-in-editor-cljs-test/resolve-uri-invariant-to-host-url`,
-;; and the `?checkout-root=` override branch (parse / URL-decode / trim and
-;; its precedence over the build-time repo-root) is pinned by
-;; `re-frame.testbed.config-cljs-test` in tools/testbed-support.
-
-;; Open-in-editor project-root derived from the build
-;; environment (the build-time `re-frame.testbed.config/checkout-root`
-;; goog-define joined with this testbed's tool-relative subdir), not a
-;; hardcoded personal path. `?checkout-root=<path>` still overrides per
-;; session. The URI build stays invariant to the host page URL — the
-;; resolver reads the configured root, not `window.location`; the
-;; query-param branch only influences which root we PASS to `configure!`.
-;; The host-URL invariance is pinned by
-;; `re-frame2-xray.open-in-editor-cljs-test/resolve-uri-invariant-to-host-url`;
-;; the `?checkout-root=` override parse + precedence is pinned by
-;; `re-frame.testbed.config-cljs-test` in tools/testbed-support.
-(defn- resolve-source-root []
-  (testbed-config/resolve-source-root "tools/xray/testbeds"))
+;; `:rf.story/project-root` / `:rf.xray/project-root` remain available to
+;; hosts running WITHOUT a re-frame2 dev server, where the client falls back
+;; to an `editor://` URI that does need an absolute path. A repository
+;; testbed is not such a host.
+;;
+;; The URI build stays invariant to the host page URL — `resolve-uri` reads
+;; the configured root, not `window.location`. That is pinned by
+;; `re-frame2-xray.open-in-editor-cljs-test/resolve-uri-invariant-to-host-url`.
 
 ;; -- Routing between landing and Story shell ------------------------------
 ;;
@@ -252,21 +226,6 @@
 ;; hot-reload re-`run` never stacks a duplicate.
 
 (defn ^:export run []
-  ;; Resolve the on-disk project root ONCE and hand it to Story — the
-  ;; single owner of the source-coord project-root. Story's `configure!`
-  ;; synchronously bridges the value into Xray's `:rf.xray/project-root`
-  ;; slot via `re-frame.story.xray-preset/propagate-project-root!`, so
-  ;; BOTH Story's own variant-toolbar 'Open' chips and the Xray-as-RHS
-  ;; source-coord chips resolve against the same root — one resolution,
-  ;; one owner-level configure! call, no duplicate `xray-config/configure!`
-  ;; write (rf2-dy02qs). Seeded BEFORE the Xray handlers register (below)
-  ;; so the first chip render reads the configured root. The resolver reads
-  ;; only the configured atom; the URI build is independent of
-  ;; `window.location`, so the panel-gallery's source links resolve to the
-  ;; same on-disk paths regardless of which port shadow-cljs serves the
-  ;; testbed from.
-  (let [project-root (resolve-source-root)]
-    (story/configure! {:rf.story/project-root project-root}))
   (rf/init! reagent-adapter/adapter)
   ;; Xray's :rf.xray/* events / subs / fxs land on the registry once.
   ;; The handlers operate on the current frame's app-db, so each

@@ -56,8 +56,7 @@
             [hicasso-counter.views :as views]
             [hicasso-counter.stories]
             ;; Shared Story-host helper: owns the live-app↔Story-shell hash
-            ;; router + React-root handle, and the open-in-editor project-root
-            ;; config via the `:source-subdir` opt.
+            ;; router + React-root handle.
             [re-frame.testbed.story-host :as story-host])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
@@ -139,5 +138,4 @@
   ;; Story being enabled — and BEFORE the router mounts, so the global is
   ;; present by the time the page has finished loading.
   (story-ci/install-ci-hooks!)
-  (story-host/mount-with-hash-routing! live-app-root
-                                       {:source-subdir "tools/story/testbeds"}))
+  (story-host/mount-with-hash-routing! live-app-root))

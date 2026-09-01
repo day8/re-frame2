@@ -113,7 +113,6 @@
             [re-frame.machines.paths :as machine-paths]
             [re-frame.views]
             [re-frame.adapter.reagent :as reagent-adapter]
-            [day8.re-frame2-xray.config :as xray-config]
             ;; The host-facing Xray focus channel — the SAME surface the
             ;; shared runner uses to pin focus. We use its `:frame` field to
             ;; re-point Xray at the selected machine's frame
@@ -130,7 +129,6 @@
             ;; prod build), and this is a TEST surface, so the extra weight
             ;; here is inert. Drop this require to opt out of SVG capture.
             [day8.re-frame2-machines-viz.export]
-            [re-frame.testbed.config :as testbed-config]
             [machine-epochs.machines :as machines])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
@@ -978,11 +976,12 @@
 (defonce react-root
   (rdc/create-root (js/document.getElementById "app")))
 
-(defn- resolve-source-root []
-  (testbed-config/resolve-source-root "tools/xray/testbeds"))
-
+;; No open-in-editor project-root is configured here. The dev server answers
+;; `POST /__rf-open-in-editor` (`re-frame.testbed.open-in-editor-server`,
+;; wired on this build's `:dev-http` entry) and resolves a classpath-relative
+;; source coordinate against the live JVM source paths at request time, so a
+;; repository testbed needs no root of its own.
 (defn ^:export run []
-  (xray-config/configure! {:rf.xray/project-root (resolve-source-root)})
   (rf/init! reagent-adapter/adapter)
   ;; EP-0002: the runtime never synthesises a frame from
   ;; absence — register the SHELL frame explicitly and scope the boot

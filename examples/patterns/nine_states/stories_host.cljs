@@ -115,13 +115,10 @@
   (install-live-frame!)
   ;; Wire up the live-app↔Story-shell hash router (the shared helper), so
   ;; reloading `#/stories` lands back on the shell with no manual click.
-  ;; The `:source-subdir` opt is the important bit: it tells the host that
-  ;; this showcase's Story source-coords are classpath-relative to
-  ;; `examples/patterns`, so it can find the on-disk project root, call
-  ;; `story/configure!` itself, and bridge that root into Xray's slot.
-  ;; Leave it off and the Story 'open in editor' chips would try to resolve
-  ;; `nine_states/stories.cljs` against a nil root — and quietly fail. The
-  ;; live-app root is already frame-scoped by `live-app-root` (the
-  ;; `frame-provider` wrapper), so the bare `#/` surface mounts under the
-  ;; app frame.
-  (story-host/mount-with-hash-routing! live-app-root {:source-subdir "examples/patterns"}))
+  ;; No project-root is configured: the dev server's
+  ;; `POST /__rf-open-in-editor` endpoint resolves this showcase's
+  ;; classpath-relative `nine_states/stories.cljs` against the live JVM
+  ;; source paths at request time. The live-app root is already frame-scoped
+  ;; by `live-app-root` (the `frame-provider` wrapper), so the bare `#/`
+  ;; surface mounts under the app frame.
+  (story-host/mount-with-hash-routing! live-app-root))

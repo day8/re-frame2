@@ -31,8 +31,7 @@
             [counter-with-stories.elision-demo :as elision]
             [counter-with-stories.stories]
             ;; Shared Story-host helper: owns the live-app↔Story-shell
-            ;; hash router + React-root handle, and the open-in-editor
-            ;; project-root config via the `:source-subdir` opt.
+            ;; hash router + React-root handle.
             [re-frame.testbed.story-host :as story-host])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
@@ -79,10 +78,10 @@
   ;; per spec/001 §Boot. Canonical testbeds carry no explicit boot call.
   ;; Configure the global args layer (Layer 1 of the args-precedence
   ;; chain; see `002-Runtime.md` §Args resolution precedence). The stories layer their own args on
-  ;; top via reg-story / reg-variant. The open-in-editor project-root is
-  ;; host-owned via the `:source-subdir` opt on
-  ;; `mount-with-hash-routing!` below, so this call carries
-  ;; only the global-args layer.
+  ;; top via reg-story / reg-variant. No `:rf.story/project-root` rides
+  ;; here: the dev server's open-in-editor endpoint resolves source
+  ;; coordinates at request time, so this call carries only the
+  ;; global-args layer.
   (story/configure! {:rf.story/global-args {:locale :en}})
   ;; EP-0002: `init!` installs the adapter only — register the
   ;; testbed's `:rf/default` app frame explicitly, then run the frame-local
@@ -115,10 +114,9 @@
   ;; on Story being enabled (the ns itself is Story-tooling).
   (story-ci/install-ci-hooks!)
   ;; Wire the live-app↔Story-shell hash router (shared helper) so reloading
-  ;; `#/stories` lands on the shell without a manual click-through. The
-  ;; `:source-subdir` opt hands the host this testbed's
-  ;; tool-relative source subdir; the host resolves the on-disk
-  ;; open-in-editor project-root (build-env define or `?checkout-root=`
-  ;; override, cross-platform) and calls `story/configure!` itself — which
-  ;; also bridges the root into Xray's slot.
-  (story-host/mount-with-hash-routing! live-app-root {:source-subdir "tools/story/testbeds"}))
+  ;; `#/stories` lands on the shell without a manual click-through. No
+  ;; open-in-editor root is configured: the dev server's
+  ;; `POST /__rf-open-in-editor` endpoint resolves this testbed's
+  ;; classpath-relative source coordinates against the live JVM source paths
+  ;; at request time.
+  (story-host/mount-with-hash-routing! live-app-root))
