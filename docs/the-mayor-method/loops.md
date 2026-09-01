@@ -1564,6 +1564,22 @@ rollback to an earlier snapshot, a re-import over the top — and nothing in the
 session's "closed" count quietly overstates. Verifying at the moment you close is not enough. Each cycle,
 re-check everything closed this session and re-close what genuinely reverted, with evidence.
 
+**That rule records the hazard but leaves its discriminating test open — WHEN in the cycle — and the
+answer is: across the sequence that exports the tracker, restores it from version control and publishes
+it.** *Each cycle* puts the re-read at the next loop, so a revert stays live for as long as a loop is
+long; one caught that way had been standing over an hour and surfaced by accident during an unrelated
+read rather than by the rule. That publish sequence is the one disturbance every cycle reliably
+contains, and it sits between the close and the next re-read, so it is where to look rather than
+somewhere to look eventually.
+
+**Read BOTH sides of it, not just after.** Measured in one session: two closes verified only at close
+time were both gone by the next read, while a third — re-read immediately before *and* after that
+sequence, then confirmed by parsing the published export for that item's own status field — held. A
+single check afterwards tells you a close is missing but not which side of the sequence lost it, and
+the two have different remedies. **Do not infer the mechanism from the coincidence**: a sequence
+containing several steps is not evidence about which step moved the state, and naming a culprit you
+have not isolated converts a reliable check into a wrong explanation that will be repeated.
+
 **But a status change made by a LIVE worker is that worker speaking, not corruption.** The rule
 above trains you to read an unexpected status as a bad write, and it supplies no competing
 reading, so the wrong one arrives with nothing to check it. A worker that un-claims an item is
