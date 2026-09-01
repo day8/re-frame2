@@ -276,6 +276,130 @@
     (is (= "de-dupe.cache/cache-1" (:s back)))
     (is (= "de-dupe.cache/not-a-ref" (:plain back)))))
 
+;; ---------------------------------------------------------------------------
+;; rf2-kjv05, second cut — the KEYWORD arm.
+;;
+;; The first cut escaped symbols and strings, and stopped there. That left the
+;; Clojure round-trip exact and the JSON projection still corrupt, which is the
+;; hardest version of this bug to see: a keyword is not a symbol, so
+;; `cache-element?` never aliased it and every JVM/CLJS assertion passed — but
+;; Cheshire renders `:de-dupe.cache/cache-1` as the string
+;; "de-dupe.cache/cache-1", the identical spelling a real reference arrives
+;; under, so the Node decoder read the payload keyword as a slot reference and
+;; handed the agent the cached subtree instead. A keyword is the ORDINARY
+;; spelling of both a value and a map key in re-frame app-db data, so this was
+;; the likeliest of the three collisions to be hit in practice.
+;;
+;; These tests pin the wire spelling, because that is the seam: the JVM/CLJS
+;; round-trip alone cannot see the defect. Their Node counterparts consume the
+;; very fixtures pinned here — see `tools/mcp-conformance/test/
+;; dedup-envelope.test.cjs`.
+;; ---------------------------------------------------------------------------
+
+(deftest payload-keywords-in-the-reference-namespace-round-trip-as-keywords
+  (let [shared  {:big [:repeat :me]}
+        payload {:literal    :de-dupe.cache/not-a-ref
+                 :look-alike :de-dupe.cache/cache-1
+                 :a          shared
+                 :b          shared}
+        out     (dedup/dedup-value payload true)
+        cache   (get out vocab/dedup-table-key)
+        back    (dedup/expand cache)]
+    (testing "non-vacuity — the unrelated repeated subtree really did wrap"
+      (is (contains? out vocab/dedup-table-key)))
+    (testing "expand is the exact inverse, and TYPE-preserving"
+      (is (= payload back))
+      (is (keyword? (:look-alike back))
+          "an escaped keyword comes back a keyword, never a symbol or a string")
+      (is (= :de-dupe.cache/cache-1 (:look-alike back)))
+      (is (keyword? (:literal back)))
+      (is (= :de-dupe.cache/not-a-ref (:literal back))))))
+
+(deftest colliding-payload-keywords-are-escaped-on-the-wire
+  ;; The spelling the JSON projection depends on. Pinned as its own assertion
+  ;; rather than inferred from the round-trip above, because the round-trip
+  ;; passed for keywords BEFORE this was fixed — the Clojure decoder never
+  ;; aliased a keyword. Only the wire spelling distinguishes the two states.
+  (let [shared  {:big [:repeat :me]}
+        payload {:look-alike :de-dupe.cache/cache-1
+                 :literal    :de-dupe.cache/not-a-ref
+                 :a          shared
+                 :b          shared}
+        cache   (dedup/de-dupe-eq payload)
+        root    (get cache 'de-dupe.cache/cache-0)]
+    (is (= :de-dupe.cache/!cache-1 (:look-alike root))
+        "a look-alike keyword carries one escape marker, as a symbol would")
+    (is (= :de-dupe.cache/not-a-ref (:literal root))
+        "an ordinary keyword in the namespace already reads as data")
+    (is (= (dedup/make-cache-element 1) (:a root))
+        "and the genuine reference beside it is untouched")))
+
+(deftest colliding-payload-keywords-are-escaped-in-map-KEY-position-too
+  ;; A keyword's commonest position in re-frame data is as a map key, and both
+  ;; decoders route keys through the same value walk — so an unescaped
+  ;; look-alike KEY resolved to a cached subtree and the entry became
+  ;; unreachable under its own name.
+  (let [shared  {:big [:repeat :me]}
+        payload {:de-dupe.cache/cache-1 "keyed"
+                 :a                     shared
+                 :b                     shared}
+        out     (dedup/dedup-value payload true)
+        cache   (get out vocab/dedup-table-key)
+        root    (get cache 'de-dupe.cache/cache-0)]
+    (is (contains? out vocab/dedup-table-key) "non-vacuity: a real wrap")
+    (is (contains? root :de-dupe.cache/!cache-1)
+        "the colliding KEY is escaped on the wire")
+    (is (= "keyed" (get root :de-dupe.cache/!cache-1)))
+    (is (= payload (dedup/expand cache))
+        "and the key comes back under its original spelling")))
+
+(deftest keyword-escaping-is-reversible-under-repetition
+  ;; Same reversibility the symbol arm has: a payload keyword already spelled
+  ;; like an escape gains a marker and sheds exactly one. Without it the
+  ;; keyword arm would trade the aliasing bug for a mangling one.
+  (let [shared  {:big [:repeat :me]}
+        payload {:once   :de-dupe.cache/!cache-1
+                 :twice  :de-dupe.cache/!!cache-1
+                 :other  :de-dupe.cache/!not-a-ref
+                 :a      shared
+                 :b      shared}
+        out     (dedup/dedup-value payload true)
+        cache   (get out vocab/dedup-table-key)]
+    (is (contains? out vocab/dedup-table-key) "non-vacuity: a real wrap")
+    (is (= :de-dupe.cache/!!cache-1 (:once (get cache 'de-dupe.cache/cache-0)))
+        "one marker added on the way out")
+    (is (= payload (dedup/expand cache))
+        "and exactly one shed on the way back")))
+
+(deftest all-three-json-flattened-types-collide-and-all-three-are-escaped
+  ;; The set closure, in ONE cache. Symbol, keyword and string spelled
+  ;; `de-dupe.cache/cache-1` are three distinct Clojure values that a JSON
+  ;; encoder renders as one string — the same string a real reference arrives
+  ;; under. All three must be escaped, and each must come back its own type.
+  (let [shared  {:big [:repeat :me]}
+        payload {:sym 'de-dupe.cache/cache-1
+                 :kw  :de-dupe.cache/cache-1
+                 :str "de-dupe.cache/cache-1"
+                 :a   shared
+                 :b   shared}
+        cache   (dedup/de-dupe-eq payload)
+        root    (get cache 'de-dupe.cache/cache-0)
+        back    (dedup/expand cache)]
+    (testing "every one of the three is escaped on the wire, in its own type"
+      (is (= 'de-dupe.cache/!cache-1 (:sym root)))
+      (is (= :de-dupe.cache/!cache-1 (:kw root)))
+      (is (= "de-dupe.cache/!cache-1" (:str root))))
+    (testing "the genuine reference is not escaped and still names a real slot"
+      (is (= (dedup/make-cache-element 1) (:a root)))
+      (is (= shared (get cache (:a root)))))
+    (testing "and all three come back distinct, as themselves"
+      (is (= payload back))
+      (is (symbol? (:sym back)))
+      (is (keyword? (:kw back)))
+      (is (string? (:str back)))
+      (is (= 3 (count (distinct [(:sym back) (:kw back) (:str back)])))
+          "three types, one spelling — the codec must not have merged them"))))
+
 (deftest colliding-literals-survive-inside-a-pooled-subtree
   ;; The collision need not sit at the root. A look-alike token nested inside
   ;; the very subtree that gets pooled must still round-trip — the escape runs
