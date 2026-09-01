@@ -65,28 +65,43 @@
 (def ^:private parity-cases
   "One row per supported strategy shape: the frame id the row seats its
   strategy on, the strategy, and the href BOTH hosts must render for
-  `/active` and for `/articles/x?tab=comments`. The expected strings are the
-  contract — literal on purpose, never derived from `:encode`, so a door
-  that stopped consulting the strategy cannot also rewrite the expectation."
+  `/active`, for `/articles/x?tab=comments`, and for the
+  punctuation-bearing `/articles/draft~1?tab=it's(new)!`. The expected
+  strings are the contract — literal on purpose, never derived from
+  `:encode`, so a door that stopped consulting the strategy cannot also
+  rewrite the expectation.
+
+  The `:punct` column is rf2-j3tud's teeth at the LINK door. `url-encode`'s
+  JVM arm escaped `! ' ( ) ~` where `encodeURIComponent` leaves them
+  literal, so a `~`-bearing slug rendered `:href` `/articles/draft%7E1` on
+  the server and `/articles/draft~1` on the hydrated client — a Spec 011
+  hydration mismatch at the attribute the first client render compares.
+  The `x` / `comments` rows above could not see it: neither string carries
+  a character the two encoders disagree about."
   [{:frame    :parity/history
     :strategy strategy/history-url-strategy
     :active   "/active"
-    :article  "/articles/x?tab=comments"}
+    :article  "/articles/x?tab=comments"
+    :punct    "/articles/draft~1?tab=it's(new)!"}
    {:frame    :parity/history-base
     :strategy (strategy/with-base-path strategy/history-url-strategy "/demos")
     :active   "/demos/active"
-    :article  "/demos/articles/x?tab=comments"}
+    :article  "/demos/articles/x?tab=comments"
+    :punct    "/demos/articles/draft~1?tab=it's(new)!"}
    {:frame    :parity/hash
     :strategy strategy/hash-url-strategy
     :active   "#/active"
-    :article  "#/articles/x?tab=comments"}
+    :article  "#/articles/x?tab=comments"
+    :punct    "#/articles/draft~1?tab=it's(new)!"}
    {:frame    :parity/hash-base
     :strategy (strategy/with-base-path strategy/hash-url-strategy "/demos")
     :active   "/demos#/active"
-    :article  "/demos#/articles/x?tab=comments"}])
+    :article  "/demos#/articles/x?tab=comments"
+    :punct    "/demos#/articles/draft~1?tab=it's(new)!"}])
 
 (def ^:private active-props  {:to :parity/active})
 (def ^:private article-props {:to :parity/article :params {:slug "x"} :query {:tab "comments"}})
+(def ^:private punct-props   {:to :parity/article :params {:slug "draft~1"} :query {:tab "it's(new)!"}})
 
 (defn- seat-frame!
   "Construct the row's frame with its strategy declared. The registration-time
@@ -108,17 +123,21 @@
 
 (deftest route-link-href-agrees-across-hosts-for-every-strategy-shape
   (register-routes!)
-  (doseq [{:keys [frame active article] :as row} parity-cases]
+  (doseq [{:keys [frame active article punct] :as row} parity-cases]
     (seat-frame! row)
     (testing (str "rf/route-link render inside frame " frame)
       (is (= active (rendered-href frame active-props))
           (str frame ": the rendered :href for /active is the strategy-encoded form on this host"))
       (is (= article (rendered-href frame article-props))
-          (str frame ": params + query ride inside the encoded form on this host")))))
+          (str frame ": params + query ride inside the encoded form on this host"))
+      (is (= punct (rendered-href frame punct-props))
+          (str frame ": punctuation in the slug and query value stays LITERAL on"
+               " this host — the JVM SSR render and the first CLJS render emit"
+               " the same :href (rf2-j3tud)")))))
 
 (deftest link-model-href-agrees-across-hosts-for-every-strategy-shape
   (register-routes!)
-  (doseq [{:keys [frame active article] :as row} parity-cases]
+  (doseq [{:keys [frame active article punct] :as row} parity-cases]
     (seat-frame! row)
     (testing (str ":routing/link-model seam for frame " frame)
       (let [model (link/link-model active-props frame)]
@@ -129,7 +148,10 @@
             (str frame ": the navigation payload stays PATH-FORM — only the href is encoded"))
         (is (false? (:native? model)) "a plain link is not a native anchor"))
       (is (= article (:href (link/link-model article-props frame)))
-          (str frame ": params + query ride inside link-model's encoded href")))))
+          (str frame ": params + query ride inside link-model's encoded href"))
+      (is (= punct (:href (link/link-model punct-props frame)))
+          (str frame ": punctuation stays literal through link-model's href too"
+               " — the second door reads the same canonical bytes (rf2-j3tud)")))))
 
 (deftest no-frame-and-default-frame-keep-the-path-form-href
   (testing "a frame that declares no strategy renders path-form on both hosts"
