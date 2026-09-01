@@ -667,8 +667,41 @@ else
     # exactly that trade ("when in doubt, over-classify"), and the alternative
     # — a 29th output existing only to split two fixture jobs apart — buys a
     # few runner-minutes for a permanent widening of the matrix.
+    #
+    # rf2-f9f3p — THE ROSTER IS THE UNION OF BOTH FIXTURES' CLASSPATHS, and
+    # completing the second half is this bead. rf2-bbe91 armed the Pair fixture
+    # for core and the Reagent adapter INCIDENTALLY, because the two fixtures
+    # share those two roots and share this one output. But
+    # `skills/re-frame2-pair/tests/fixture/deps.edn` resolves FIVE in-repo
+    # artefacts, not two — the shipped preload `:require`s `re-frame.epoch`,
+    # `re-frame.schemas` and `re-frame.machines` directly for its
+    # epoch-history/`get-path`/`orient`/list-machines surfaces, which the
+    # wad2fl front-porch shrink demoted off the `re-frame.core` facade — so
+    # three fifths of that job's own in-repo classpath still classified
+    # `skills_structural=false` (measured at rf2-bbe91's tip, for `src/*` and
+    # `deps.edn` alike, against `implementation/core/src/*` and
+    # `implementation/core/deps.edn` as passing controls). An owned-namespace
+    # API or behaviour change in any of the three could therefore break
+    # `re_frame2_pair.pure` or the runtime preload while the only job that
+    # compiles and tests that shipped source was skipped — and a skipped
+    # required job is an accepted result, so nothing went red.
+    #
+    # ONE DISPATCH FOR BOTH FIXTURES rather than a second `case` beside this
+    # one, because they gate the identical output: two rosters setting one
+    # variable is a distinction with no behavioural difference, and the union
+    # is what `skills_structural=true` actually means here. The three added
+    # roots also each already have an arm in the big `case` below (the
+    # per-feature fan-out), so the shadowing argument above applies to them
+    # unchanged — epoch keeps `mcp_conformance`/`mcp_live`, schemas keeps
+    # `template_expensive`, machines keeps the machines-viz and `playground`
+    # lanes. This dispatch only ever SETS the flag; it cannot narrow them.
+    #
+    # The over-fire trade is the same one, and no larger: ssr and hicasso
+    # over-fire `re-frame2-pair-fixture-pure`, epoch/schemas/machines over-fire
+    # `reagent-migration-fixture-cold-start`, and all seven over-fire the cheap
+    # Babashka `skills-structural` job. Still no 29th output.
     case "$file" in
-      implementation/core/src/*|implementation/core/deps.edn|implementation/ssr/src/*|implementation/ssr/deps.edn|implementation/hicasso/src/*|implementation/hicasso/deps.edn|implementation/adapters/reagent/src/*|implementation/adapters/reagent/deps.edn)
+      implementation/core/src/*|implementation/core/deps.edn|implementation/ssr/src/*|implementation/ssr/deps.edn|implementation/hicasso/src/*|implementation/hicasso/deps.edn|implementation/adapters/reagent/src/*|implementation/adapters/reagent/deps.edn|implementation/epoch/src/*|implementation/epoch/deps.edn|implementation/schemas/src/*|implementation/schemas/deps.edn|implementation/machines/src/*|implementation/machines/deps.edn)
         skills_structural=true
         ;;
     esac
