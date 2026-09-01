@@ -679,10 +679,12 @@ allowlist). What verbs do they take?
   `trace-window` / `watch-epochs`; `watch-` becomes a locked prefix
   for blocking-on-a-predicate.
 - **`record-as-recording` + `watch-epochs`-style bare `watch`.** The
-  `record-as-` prefix means *capture as a persisted artefact* (story-
-  mcp's `record-as-variant`) — a live change-log observer is a
-  different semantic, so reusing the prefix would conflate two ideas
-  the agent must keep distinct.
+  `record-as-` prefix means *capture as a persisted artefact* — at
+  this lock's date story-mcp's `record-as-variant`, retired since
+  under rf2-5saz7, which leaves the prefix catalogued but borne by no
+  shipped tool. A live change-log observer is a different semantic,
+  so reusing the prefix would conflate two ideas the agent must keep
+  distinct.
 - **Fold both into `eval-cljs`.** The escape hatch can express either,
   but that's exactly the per-session boilerplate + timing footgun the
   bead exists to kill — a first-class op is the whole point.
