@@ -54,20 +54,31 @@ gh issue list --repo day8/re-frame2 --search "<agent-authored safe keywords>"
 
 **Shell safety for `gh issue create`.** Even the public-evidence-only body above — quoted `spec/` text, a fixture id, a sanitized minimal-reproduction shape — can carry shell metacharacters the user never inspects character by character (a `$`, a backtick, a `\` inside a quoted spec snippet). Never interpolate that text inline into the shell command (where `$`, `` ` ``, and `\` would expand). Instead, **write the body to a file with the `Write` tool**, then pass it with `gh`'s native `--body-file` flag — a single `gh issue create` invocation with no `cat` subshell, so it runs under the skill's `Bash(gh issue *)` permission. The `--body-file` path is a shell-safety mechanism only; it does **not** widen what the body may contain — the public-evidence-only boundary above still holds. This local recipe is the skill's own shell-safety core (each filing skill owns its recipe; `scripts/check_skill_mcp_drift.py` pins the load-bearing clauses):
 
-1. Use the `Write` tool to compose the body into a **fresh, per-filing temp file in the host OS's temp directory** — never a fixed, shared, predictable name (a hard-coded `/tmp/spec-gap.md` fails on hosts without a POSIX `/tmp`, and a predictable name lets two rapid filings overwrite each other's redacted body). Pick the path for the OS and add a per-filing nonce, then **carry that exact path into `--body-file` below**:
+1. **Settle the path first — as a value, not a template.** Before either tool call, decide one **concrete absolute path** and write it down. That single string is what you use twice, unchanged. Build it from two things you resolve yourself:
 
-   - **POSIX:** `${TMPDIR:-/tmp}/re-frame2-issue-$$-$RANDOM.md`
-   - **Windows (PowerShell):** `$env:TEMP\re-frame2-issue-$([guid]::NewGuid()).md`
+   - **The host's temp directory, as the concrete literal your session already shows you** — `/tmp` on a typical POSIX host, or whatever `TMPDIR` actually holds; `C:\Users\<you>\AppData\Local\Temp` on Windows. Never a fixed, shared name like `/tmp/spec-gap.md`: it fails on hosts without a POSIX `/tmp`, and a predictable name lets two rapid filings overwrite each other's redacted body.
+   - **A per-filing nonce you pick yourself** — a few random characters, chosen once, before you call anything.
 
-2. File it with one `gh issue create` command (`--body-file` is the exact per-filing path you wrote in step 1, never a re-typed fixed name):
+   **Neither tool below expands shell syntax, so an expression left in this path is a bug, not a placeholder.** `Write` takes `file_path` literally — it is not a shell, so `${TMPDIR:-/tmp}`, `$$`, `$RANDOM`, `$env:TEMP` or `$([guid]::NewGuid())` would land in the *filename* rather than being replaced. And a nonce expression re-evaluated at step 3 produces a **different** name, so the two steps would address two different files and `gh` would fail on a missing body. Substitute everything before the first tool call.
+
+   So, having picked the nonce `7f3a9c`, the path is one concrete string:
+
+   - **POSIX:** `/tmp/re-frame2-issue-7f3a9c.md`
+   - **Windows:** `C:\Users\you\AppData\Local\Temp\re-frame2-issue-7f3a9c.md`
+
+2. Use the `Write` tool to compose the body into that file. Its `file_path` is the concrete string from step 1, character for character — nothing left to expand.
+
+3. File it with one `gh issue create` command, giving `--body-file` **that same string again** — never a re-typed fixed name, and never a freshly chosen nonce:
 
    ```bash
    gh issue create \
      --repo day8/re-frame2 \
      --title "spec-gap(EP-NNN): <one-line>" \
-     --body-file "<the per-filing temp path you wrote in step 1>" \
+     --body-file '/tmp/re-frame2-issue-7f3a9c.md' \
      --label spec-gap,from-implementor
    ```
+
+   Single-quote the path. It is agent-authored, so nothing in it needs expanding, and single quotes keep a Windows path's backslashes literal.
 
 `--body-file` reads the body verbatim from disk, so no shell expansion ever touches the transcript-derived text, and the only `Bash` call is a bare `gh issue create` — exactly what the skill's `allowed-tools` grants.
 
