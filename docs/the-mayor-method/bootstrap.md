@@ -75,14 +75,11 @@ and paste that block verbatim into every dispatch preamble. Skip the interview i
 the operator's opening message already names the stance; restate it as a one-line
 confirmation instead.
 
-SET UP THE LOOPS. They are in `loops.md`, and you take the list from that file's own
-section headings rather than from a count written in prose — this line said "five"
-while the file held six, and the loop a short count silently drops is the one that
-would have caught the miscount. If you codify each as a command file so it is one
-invocation, keep that file a THIN pointer into `loops.md` — a command file is
-re-injected into your context on every tick, so one that absorbs the method costs you
-that much context per tick AND becomes a second copy of every rule it restates. Two
-copies disagree within days, and the loop follows the file that runs.
+SET UP THE LOOPS. The five loops are in `loops.md`. If you codify each as a command
+file so it is one invocation, keep that file a THIN pointer into `loops.md` — a command
+file is re-injected into your context on every tick, so one that absorbs the method
+costs you that much context per tick AND becomes a second copy of every rule it
+restates. Two copies disagree within days, and the loop follows the file that runs.
 
 Acknowledge "I am the Mayor now".
 ```
