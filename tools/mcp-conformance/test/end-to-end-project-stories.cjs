@@ -31,7 +31,8 @@
 //   2. list-stories — the fixture project's story is discoverable
 //   3. get-story — its body reads back (doc round-trips)
 //   4. get-variant — the pre-authored variant reads back
-//   5. run-variant — the variant executes (vacuous pass, unified shape)
+//   5. run-variant — the variant's LIFECYCLE EXECUTES, witnessed by the
+//      assertion record only a real run can mint (see phase 5 below)
 //   6. clean disconnect
 //
 // Run with: `node test/end-to-end-project-stories.cjs` from this
@@ -58,6 +59,15 @@ const CLOJURE = process.env.STORY_MCP_CMD
 // (Cheshire keyword projection): no leading colon.
 const FIXTURE_STORY = 'story.fixture-app';
 const FIXTURE_VARIANT = 'story.fixture-app/default';
+
+// The EXECUTION WITNESS — the assertion record phase 5 requires, restated
+// here independently of the fixture (a witness that reads its own subject
+// cannot fail). The fixture variant's `:setup` seeds SEEDED_PATH with
+// SEEDED_VALUE and its `:script` asserts that value back out, so a record
+// with these slots exists ONLY if both lifecycle phases ran.
+const WITNESS_ASSERTION = 'rf.assert/path-equals';
+const SEEDED_PATH = ['fixture-app/article', 'headline'];
+const SEEDED_VALUE = 'Seeded by app.stories/setup';
 
 // ---------------------------------------------------------------------------
 // Phase 0 — a missing required namespace ABORTS the launch loudly.
@@ -194,10 +204,25 @@ runWithWatchdog(
     }
     console.log('OK   get-variant -> pre-authored variant body reads back');
 
-    // 5. run-variant — execute it. No :setup / :script, so the run is a
-    // vacuous pass in the unified result shape; what matters here is that
-    // a PROJECT-AUTHORED variant is runnable on first connect, with no
-    // write surface open.
+    // 5. run-variant — the variant's LIFECYCLE EXECUTES.
+    //
+    // The claim this phase makes is EXECUTION, so it must assert evidence
+    // that cannot exist without it. A success-shaped envelope is not such
+    // evidence: Story grades an assertion-free variant with a clean tape
+    // `:pass` on purpose (tools/story/src/re_frame/story/result.cljc
+    // §Status), so `isError` false plus `:status "pass"` is precisely what
+    // a variant that did NOTHING returns. Until rf2-3n3dk this phase
+    // checked only those two, and a regression that stopped playing
+    // launch-preloaded variants altogether would have left it green — as
+    // one measurably did: with no reactive substrate installed, run-variant
+    // dispatched nothing, played nothing, and still answered `:status
+    // "pass"` over an empty app-db.
+    //
+    // So the check is the ASSERTION RECORD, which the `:rf.assert/*`
+    // handler mints DURING play and the runner folds into `:assertions`:
+    //   - absent entirely if the script never played
+    //   - `:passed? false` with `:actual` nil if `:setup` never seeded
+    // Neither degradation can wear a passing witness.
     const runResp = await client.callTool({
       name: 'run-variant',
       arguments: { 'variant-id': FIXTURE_VARIANT },
@@ -206,12 +231,65 @@ runWithWatchdog(
       throw new Error('run-variant on the fixture variant failed: ' + JSON.stringify(runResp));
     }
     const runStruct = structured(runResp);
-    if (runStruct.status !== 'pass') {
+    const records = Array.isArray(runStruct.assertions) ? runStruct.assertions : [];
+    if (records.length !== 1) {
       throw new Error(
-        'run-variant :status expected "pass"; got: ' + JSON.stringify(runResp),
+        'run-variant returned ' + records.length + ' assertion records; the ' +
+          'project-authored variant plays exactly one, and an EMPTY vector is ' +
+          'the no-execution shape this phase exists to reject (a variant that ' +
+          'ran nothing also answers :status "pass"). Got: ' +
+          JSON.stringify(runStruct),
       );
     }
-    console.log('OK   run-variant -> :status="pass" on the project-authored variant');
+    const witness = records[0];
+    if (witness.assertion !== WITNESS_ASSERTION) {
+      throw new Error(
+        'the execution witness must be a ' + WITNESS_ASSERTION + ' record; got: ' +
+          JSON.stringify(witness),
+      );
+    }
+    if (JSON.stringify(witness.path) !== JSON.stringify(SEEDED_PATH)) {
+      throw new Error(
+        'the execution witness must name the app-db path the fixture :setup ' +
+          'seeds (' + JSON.stringify(SEEDED_PATH) + '); got: ' + JSON.stringify(witness),
+      );
+    }
+    if (witness.expected !== SEEDED_VALUE) {
+      throw new Error(
+        'the execution witness must expect the seeded value ' +
+          JSON.stringify(SEEDED_VALUE) + '; got: ' + JSON.stringify(witness),
+      );
+    }
+    // The `:actual` slot is read out of the LIVE frame app-db at assertion
+    // time — the one slot in the record that no amount of author data can
+    // supply. It carrying the seeded value is the proof that `:setup` ran.
+    if (witness.actual !== SEEDED_VALUE) {
+      throw new Error(
+        'the execution witness read ' + JSON.stringify(witness.actual) + ' at ' +
+          JSON.stringify(SEEDED_PATH) + ', not the seeded ' +
+          JSON.stringify(SEEDED_VALUE) + ' — the variant\'s :setup phase did ' +
+          'not run (or did not reach app-db). Got: ' + JSON.stringify(witness),
+      );
+    }
+    if (witness['passed?'] !== true || witness.status !== 'pass') {
+      throw new Error(
+        'the execution witness must be a PASSING record (:passed? true, ' +
+          ':status "pass"); got: ' + JSON.stringify(witness),
+      );
+    }
+    // Only now is the aggregate verdict worth reading: it is the agreement
+    // floor over evidence we have already established is non-empty.
+    if (runStruct.status !== 'pass') {
+      throw new Error(
+        'run-variant :status expected "pass" over the passing witness; got: ' +
+          JSON.stringify(runResp),
+      );
+    }
+    console.log(
+      'OK   run-variant -> lifecycle EXECUTED: ' + WITNESS_ASSERTION +
+        ' read ' + JSON.stringify(witness.actual) + ' at ' +
+        JSON.stringify(SEEDED_PATH) + ' (:passed? true), aggregate :status="pass"',
+    );
 
     // 6. Clean disconnect — runner handles client.close() on success.
     console.log('\nSTORY-MCP PROJECT-STORIES GOLDEN PATH GREEN');
