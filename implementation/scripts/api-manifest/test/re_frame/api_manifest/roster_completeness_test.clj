@@ -190,3 +190,94 @@
       (is (contains? present 're-frame.ssr.ring))
       (is (contains? present 're-frame.ssr.ring.node))
       (is (contains? present 're-frame.ssr.render-state)))))
+
+;; ---------------------------------------------------------------------------
+;; The CALL SITE — the test that fails if `build-manifest` stops asserting.
+;;
+;; WHY THIS EXISTS SEPARATELY FROM EVERYTHING ABOVE (the #9040 audit). Every
+;; test above exercises `roster-drift` / `assert-roster-complete!` DIRECTLY, so
+;; all of them stay green if `build-manifest`'s single call to
+;; `assert-roster-complete!` is deleted — which is precisely the orphaning this
+;; whole file was written about. The helpers surviving with no caller is the
+;; original defect (rf2-o8xev's gate, orphaned by the freehand retirement), and
+;; a suite that only tests the helpers cannot tell a live gate from an orphan.
+;; #9040 proved the restored call worked by PLANTING a namespace on disk and
+;; watching `--check` go red; that was a demonstration performed once by hand,
+;; not a regression test that runs every time.
+;;
+;; So this drives the PRODUCTION entry point. It redefines the live tree scan to
+;; report one synthetic unaccounted namespace and requires `build-manifest` to
+;; refuse BY NAME. Delete the `(assert-roster-complete! ...)` line from
+;; `build-manifest` and this test fails — not by erroring, but because manifest
+;; generation SUCCEEDS where it must have thrown.
+;; ---------------------------------------------------------------------------
+
+(def ^:private synthetic-unaccounted
+  "A namespace named by none of the three rosters. Deliberately under the
+   `re-frame.ssr` prefix a covered root really uses, so it is the shape a
+   newly-shipped namespace would have; nothing on disk answers to it."
+  're-frame.ssr.synthetic-unaccounted-probe)
+
+(deftest build-manifest-asserts-roster-completeness
+  (testing "`build-manifest` itself refuses an unaccounted namespace, naming
+            it. This drives the production call site rather than the helper, so
+            it is what goes red if that call is ever removed and the gate is
+            orphaned a second time."
+    (let [live    (gen/covered-source-namespaces)
+          sidecar (gen/read-sidecar)]
+      ;; CONTROL FIRST: the live tree is fully accounted for, so `build-manifest`
+      ;; succeeds on it. Without this, a `build-manifest` that threw for some
+      ;; unrelated reason (a missing classification, a duplicate row) would make
+      ;; the assertion below pass for the wrong reason.
+      (is (map? (gen/build-manifest sidecar))
+          "control: the live tree builds a manifest")
+      (with-redefs [gen/covered-source-namespaces
+                    (constantly (conj live synthetic-unaccounted))]
+        (is (thrown-with-msg?
+              clojure.lang.ExceptionInfo
+              #"re-frame\.ssr\.synthetic-unaccounted-probe"
+              (gen/build-manifest sidecar))
+            "build-manifest must refuse, naming the unaccounted namespace")))))
+
+(deftest build-manifest-roster-refusal-carries-ex-data
+  (testing "the refusal `build-manifest` raises is the ROSTER one — carrying
+            `:unaccounted` — and not some later reconciliation failing to
+            resemble it. Pinning the ex-data key is what distinguishes the
+            roster assertion from the missing/stale/duplicate throws that
+            follow it in the same fn."
+    (let [live    (gen/covered-source-namespaces)
+          sidecar (gen/read-sidecar)]
+      (with-redefs [gen/covered-source-namespaces
+                    (constantly (conj live synthetic-unaccounted))]
+        (try
+          (gen/build-manifest sidecar)
+          (is false "expected build-manifest to throw on the unaccounted namespace")
+          (catch clojure.lang.ExceptionInfo e
+            (is (= [synthetic-unaccounted] (:unaccounted (ex-data e)))
+                "ex-data must name the unaccounted namespace")))))))
+
+(deftest build-manifest-asserts-before-it-reconciles
+  (testing "the roster assertion runs BEFORE the sidecar reconciliations, which
+            is the ordering `build-manifest`'s own comment states. Driven with a
+            sidecar that would ALSO fail the duplicate-row check: the roster
+            refusal must be the one that surfaces, because a later check firing
+            first would mean an unaccounted namespace could be masked by any
+            other drift in the tree."
+    (let [live    (gen/covered-source-namespaces)
+          sidecar (gen/read-sidecar)
+          cljs    (vec (:cljs-only sidecar))
+          _       (assert (seq cljs) "precondition: sidecar carries :cljs-only rows")
+          ;; A sidecar that is ALSO duplicate-broken, so both checks would fire.
+          broken  (update sidecar :cljs-only conj (assoc (first cljs) :tier :tooling))]
+      ;; Control: with the rosters clean, this sidecar fails on the DUPLICATE.
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                            #"Duplicate manifest rows"
+                            (gen/build-manifest broken))
+          "control: the duplicate check fires when the rosters are clean")
+      (with-redefs [gen/covered-source-namespaces
+                    (constantly (conj live synthetic-unaccounted))]
+        (is (thrown-with-msg?
+              clojure.lang.ExceptionInfo
+              #"Unaccounted public-API source namespace"
+              (gen/build-manifest broken))
+            "the roster refusal precedes the duplicate refusal")))))
