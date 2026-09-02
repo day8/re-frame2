@@ -26,6 +26,7 @@ It is intentionally diagnosis-first: the default outcome is a better understandi
 - `references/known-frictions.md` — recurring classes of product friction to pattern-match against, loaded on demand when a session smells like a known class
 - `spec/` — skill-internal meta-docs (`design.md`, `inputs.md`, `authoring-prompt.md`) for re-authoring the skill; not loaded during normal operation, and — like `evals/` — excluded from the npm `files` array by design (repo-maintenance artifacts that run from a full clone, not material a packaged consumer re-runs)
 - `evals/evals.json` — trigger-accuracy fixtures (which prompts should and should not activate the skill); a repo-maintenance artifact, also excluded from the npm package `files` array
+- `tests/duplicate_search_test.clj` — the skill's only test: a command-contract pin over the duplicate-search `gh issue list` argv `SKILL.md` prescribes, run by CI when this skill's paths change. Also a repo-maintenance artifact, excluded from the npm `files` array
 - `.claude-plugin/plugin.json` — plugin packaging metadata
 - `agents/openai.yaml` — UI metadata for skill lists and invocation
 - `package.json`, `LICENSE` — npm packaging metadata and the MIT licence

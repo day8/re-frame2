@@ -29,7 +29,7 @@ Per the parent `re-frame2-pair` skill's L2: re-frame2's pair tooling does not de
 
 ### L2 — Read-only: the skill drafts, the user files
 
-The skill never mutates external state. No `Write`, no `Edit`, no `gh issue create`, no `gh label list`, no MCP tool grant, no live-runtime probe. The issue draft is plain, copy-pasteable text in the retro output; the user files it (or edits, combines, or discards it). The only shell surface is optional read-only duplicate search — `Bash(gh issue list *)` and `Bash(gh issue view *)` — with **agent-authored plain-word keywords**, never transcript- or error-derived strings in a shell argument. (History note: the skill previously granted `Write` + `gh issue create` + `gh label list` behind an approval gate, plus an opt-in `discover-app` probe. Eleven hardening commits around that filing surface — temp-file mechanics, title/body shell safety, label degrade — were retired with the surface itself; a programmer files a draft in seconds, so the machinery bought nothing the draft doesn't.)
+The skill never mutates external state. No `Write`, no `Edit`, no `gh issue create`, no `gh label list`, no MCP tool grant, no live-runtime probe. The issue draft is plain, copy-pasteable text in the retro output; the user files it (or edits, combines, or discards it). The only shell surface is optional read-only duplicate search — `Bash(gh issue list *)` and `Bash(gh issue view *)` — with **agent-authored plain-word keywords**, never transcript- or error-derived strings in a shell argument. (History note: the skill previously granted `Write` + `gh issue create` + `gh label list` behind an approval gate, plus an opt-in `discover-app` probe. Eleven hardening commits around that filing surface — temp-file mechanics, title/body shell safety, label degrade — were retired with the surface itself; a programmer files a draft in seconds, so the machinery bought nothing the draft doesn't.) What survives of that surface is pinned by `tests/duplicate_search_test.clj`, which asserts the prescribed `gh issue list` argv keeps its `day8/re-frame2` narrowing and `--state all`. That pin is the skill's sole test and stays so: no session-evidence scorer is to be added (`evals/README.md` records why the previous one was removed rather than repaired).
 
 **Tracker boundary.** Drafts target **`day8/re-frame2`'s GitHub issues** — both tool-side and framework friction, distinguished in the title + body. `bd` (beads) is the re-frame2 monorepo's internal tracker and is never invoked from a published skill.
 
@@ -93,6 +93,8 @@ skills/re-frame2-pair-retro/
 │ └── evals.json (trigger-accuracy fixtures — which prompts should / should not activate)
 ├── references/
 │ └── known-frictions.md (recurring re-frame2-pair pain patterns; the one on-demand leaf)
+├── tests/                          # repo-maintenance artifact; excluded from the npm `files` array
+│ └── duplicate_search_test.clj (command-contract pin on the duplicate-search argv; the skill's only test)
 └── spec/
  ├── design.md (this file)
  ├── inputs.md (canonical inputs)
