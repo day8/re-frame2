@@ -2,7 +2,7 @@
 
 The twelve files the default route writes: a counter SPA on the Reagent substrate, byte for byte what the generator template emits for its reference project `acme/my-app`. Write every file below at the path its heading names, then carry on from `SKILL.md` step 2 (point the two `day8/re-frame2*` coordinates at a checkout while the framework is unpublished, `npm install`, the terminating compile, the watch). Nothing here is a placeholder: the pins are the template's reviewed baseline, the name is the generator's reference identity. An author who names the project gets the same files with `acme` / `my-app` renamed consistently — the `acme.my-app.*` namespace forms, the `src/acme/my_app/` + `test/acme/my_app/` paths, `package.json`'s `name`, the README heading, the `<h1>`.
 
-> **Reagent only.** `views.cljs` uses `rf/reg-view` (auto-injected `dispatch` / `subscribe`) and `core.cljs` mounts through `reagent.dom.client`. **UIx has no auto-injection** — an ordinary `defui` reads subs through the adapter's `use-subscribe` hook and carries the frame for `dispatch` through the `use-frame` hook. An explicit UIx request swaps exactly three of these files — `deps.edn`, `core.cljs`, `views.cljs` — for the trio in [`entry-namespace.md` §UIx greenfield](entry-namespace.md#uix-greenfield); the other nine are the same, bar the label `Reagent` → `UIx` in `package.json` and the README.
+> **Reagent only.** `views.cljs` uses `rf/reg-view` (auto-injected `dispatch` / `subscribe`) and `core.cljs` mounts through the adapter's client root (`reagent-adapter/client-root` + `render!`). **UIx has no auto-injection** — an ordinary `defui` reads subs through the adapter's `use-subscribe` hook and carries the frame for `dispatch` through the `use-frame` hook. An explicit UIx request swaps exactly three of these files — `deps.edn`, `core.cljs`, `views.cljs` — for the trio in [`entry-namespace.md` §UIx greenfield](entry-namespace.md#uix-greenfield); the other nine are the same, bar the label `Reagent` → `UIx` in `package.json` and the README.
 
 The file bodies between the markers are **derived, not hand-written**: `tests/first_counter_derivation.clj` renders them from `tools/template/` through the template's own hooks, and two drift locks (the skill's structural suite; the template's JVM tier) fail when they diverge from what the generator emits. To change a file, change the template and run `bb tests/first_counter_derivation.clj` from `skills/re-frame2-setup/`.
 
@@ -142,18 +142,19 @@ h1 { margin: 0 0 1em; }
 ```clojure
 (ns acme.my-app.core
   "Entry point: installs the Reagent adapter and mounts the app."
-  (:require [reagent.dom.client       :as rdc]
-            [re-frame.core            :as rf]
+  (:require [re-frame.core            :as rf]
             [re-frame.adapter.reagent :as reagent-adapter]
             ;; Requiring these installs their registrations.
             [acme.my-app.events]
             [acme.my-app.subs]
             [acme.my-app.views :as views]))
 
-;; One React root for the life of the page: React must not get a second
-;; `create-root` for a live DOM node, and a hot reload has to render into
-;; the root that already owns #app.
-(defonce ^:private react-root (atom nil))
+;; One React root for the life of the page, owned by the adapter: the first
+;; `render!` through this handle creates it, every later one renders into
+;; it. React must not get a second `create-root` for a live DOM node, and a
+;; hot reload has to render into the root that already owns #app — the
+;; handle keeps both true, and allocating it touches no DOM.
+(defonce ^:private app-root (reagent-adapter/client-root))
 
 (def app-frame :rf/default)
 
@@ -166,12 +167,11 @@ h1 { margin: 0 0 1em; }
 (defn ^:dev/after-load mount! []
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
-    (when-not @react-root
-      (reset! react-root (rdc/create-root el)))
-    (rdc/render @react-root
-                [rf/frame-root {:id             app-frame
-                                :initial-events [[:counter/initialise]]}
-                 [views/counter-app]])))
+    (reagent-adapter/render! app-root
+      [rf/frame-root {:id             app-frame
+                      :initial-events [[:counter/initialise]]}
+       [views/counter-app]]
+      el)))
 
 ;; Called ONCE by shadow-cljs (:init-fn in shadow-cljs.edn) when the bundle
 ;; loads. `init!` installs the adapter; it does not create a frame — the
@@ -379,6 +379,7 @@ first feature.
 ````
 
 <!-- END generated -->
+
 
 
 ## Verifying it works

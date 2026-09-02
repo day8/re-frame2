@@ -291,7 +291,10 @@
 ;; called once, at bundle load. So every emitted entry namespace carries a
 ;; `^:dev/after-load` hook that renders, `init` delegates to it, and the React
 ;; root is created exactly once and retained across reloads. These are the
-;; facts pinned here, on the emitted `core.cljs` itself.
+;; facts pinned here, on the emitted `core.cljs` itself. On Reagent the
+;; retained root is the adapter-owned client root (rf2-k5r9t): one
+;; `reagent-adapter/client-root` allocation, rendered through with
+;; `reagent-adapter/render!`; UIx holds a `uix-dom` root itself.
 
 (defn- hook-body
   "The source text of the `^:dev/after-load <hook>` form: from its metadata
@@ -308,8 +311,8 @@
             renders, an init that delegates to it, and exactly one retained
             React root (rf2-r0kk7)"
     (doseq [[substrate renders create-root]
-            [[:reagent "rdc/render"          "rdc/create-root"]
-             [:uix     "uix-dom/render-root" "uix-dom/create-root"]]]
+            [[:reagent "reagent-adapter/render!" "reagent-adapter/client-root"]
+             [:uix     "uix-dom/render-root"     "uix-dom/create-root"]]]
       (let [tmp (tmp-dir "rf2-emission-after-load-")]
         (try
           (let [core (slurp (io/file (run-template! tmp "acme/my-app" substrate)
@@ -325,7 +328,7 @@
             (is (re-find #"(?s)\^:export\s+init[\s\S]*?\(mount!\)" core)
                 (str substrate ": init calls (mount!) so boot and reload share one render path"))
             (is (= 1 (count (re-seq (re-pattern (java.util.regex.Pattern/quote create-root)) core)))
-                (str substrate ": exactly one " create-root " call"))
+                (str substrate ": exactly one " create-root " call — one retained root"))
             (is (string/includes? core "defonce")
                 (str substrate ": the React root is held in a defonce cell"))
             (is (re-find #"frame-root\s+\{:id\s+app-frame\s+:initial-events\s+\[\[:counter/initialise\]\]\}" core)

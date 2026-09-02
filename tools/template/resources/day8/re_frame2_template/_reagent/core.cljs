@@ -1,17 +1,18 @@
 (ns {{namespace}}.core
   "Entry point: installs the Reagent adapter and mounts the app."
-  (:require [reagent.dom.client       :as rdc]
-            [re-frame.core            :as rf]
+  (:require [re-frame.core            :as rf]
             [re-frame.adapter.reagent :as reagent-adapter]
             ;; Requiring these installs their registrations.
             [{{namespace}}.events]
             [{{namespace}}.subs]
             [{{namespace}}.views :as views]))
 
-;; One React root for the life of the page: React must not get a second
-;; `create-root` for a live DOM node, and a hot reload has to render into
-;; the root that already owns #app.
-(defonce ^:private react-root (atom nil))
+;; One React root for the life of the page, owned by the adapter: the first
+;; `render!` through this handle creates it, every later one renders into
+;; it. React must not get a second `create-root` for a live DOM node, and a
+;; hot reload has to render into the root that already owns #app — the
+;; handle keeps both true, and allocating it touches no DOM.
+(defonce ^:private app-root (reagent-adapter/client-root))
 
 (def app-frame :rf/default)
 
@@ -24,12 +25,11 @@
 (defn ^:dev/after-load mount! []
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
-    (when-not @react-root
-      (reset! react-root (rdc/create-root el)))
-    (rdc/render @react-root
-                [rf/frame-root {:id             app-frame
-                                :initial-events [[:counter/initialise]]}
-                 [views/counter-app]])))
+    (reagent-adapter/render! app-root
+      [rf/frame-root {:id             app-frame
+                      :initial-events [[:counter/initialise]]}
+       [views/counter-app]]
+      el)))
 
 ;; Called ONCE by shadow-cljs (:init-fn in shadow-cljs.edn) when the bundle
 ;; loads. `init!` installs the adapter; it does not create a frame — the
