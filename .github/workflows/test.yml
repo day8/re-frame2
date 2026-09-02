@@ -5003,10 +5003,13 @@ jobs:
       # PR-time CI surface for this artefact.
       #
       # `emitted_test_run_test.clj` compiles + runs the emitted
-      # `events_test.cljs` per substrate (and the `:include-story? true`
-      # with-story scaffold's `:app` build) against the in-repo source
+      # `events_test.cljs` per substrate against the in-repo source
       # tree, with deps rewritten to :local/root (closes rf2-owbpr /
-      # rf2-ir6a0; with-story tier rf2-5v619). Gated behind
+      # rf2-ir6a0). The with-story `:app` tier this comment once also
+      # named (rf2-5v619) is RETIRED: the rf2-zq34m collapse deleted
+      # `:include-story?` along with the with-story scaffold, `:substrate`
+      # is now the only accepted flag, and `template_test.clj` pins the
+      # retired key as an unknown-flag error. Gated behind
       # RF2_TEMPLATE_RUN_EMITTED_TESTS=1 — opt-in because the local
       # fast loop may lack Node and the smoke costs ~30–60 s per
       # substrate cold-cache. The `npm ci` step above primes
@@ -5820,13 +5823,19 @@ jobs:
       # re-frame2-setup structural drift guard (rf2-agi57x). Previously a
       # local-only check (`bb tests/setup_drift_test.clj` from
       # skills/re-frame2-setup/), so fixes it guards — the build-discipline
-      # lockstep framing, the UIx template-pin parity, the right-side
-      # Xray host shape, the CSP dev/prod split, the npx-qualified commands,
-      # the substrate-views path, the publication-state coordinate branch, the
-      # loud schema-missing contract, the day-one Xray preload in the canonical
-      # shadow-cljs.edn block, and the user-run-generator framing — could
-      # regress without CI noticing. Loop every *_test.clj so a future
-      # setup-skill test is gated automatically.
+      # lockstep framing, the UIx template-pin parity, the CSP dev/prod
+      # split, the npx-qualified commands, the substrate-views path, the
+      # publication-state coordinate branch, and the pay-as-you-go schema
+      # contract — could regress without CI noticing. Two clauses this
+      # comment used to name are RETIRED, and both now pin the OPPOSITE:
+      # the day-one Xray preload and right-side Xray host shape gave way to
+      # `xray-is-a-next-step-not-day-one` /
+      # `default-shadow-build-carries-no-devtools-preload` /
+      # `skill-carries-no-xray-host-wiring`, and the user-run-generator
+      # framing gave way to `pin-default-is-zero-interview` +
+      # `skill-executes-the-scaffold-and-reports-the-url` (rf2-rc0yh).
+      # Loop every *_test.clj so a future setup-skill test is gated
+      # automatically.
       - name: Run re-frame2-setup structural tests
         working-directory: skills/re-frame2-setup
         run: |
