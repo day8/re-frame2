@@ -83,11 +83,11 @@
   (testing "rf2-8arzr.1 Acceptance 2: a :renderer returning a fixed body and
             a nil hash — the body is inserted verbatim; no data-rf-render-hash
             marker; no payload :rf/render-hash; head, __rf_payload, shell,
-            status and headers are JVM-built"
+            status and headers are JVM-built; :root-view omitted without error"
     (register-app!)
     (let [handler (ssr-ring/ssr-handler
+                    ;; No :root-view: with a custom renderer nothing reads it.
                     (assoc base-opts
-                           :root-view  [(rf/view :seam/root)]
                            :emit-hash? true
                            :renderer   fixed-renderer))
           {:keys [status headers body]} (handler request)]
@@ -96,7 +96,7 @@
           "headers are the JVM's")
       (is (str/includes? body fixed-body) "the renderer's body, verbatim")
       (is (not (str/includes? body "jvm body"))
-          "the JVM :root-view did NOT render — the seam replaced it")
+          "no JVM :root-view rendered — the seam is the only body source")
       (is (str/includes? body "<!DOCTYPE html>") "shell: a JVM-built document")
       (is (str/includes? body "<div id=\"app\"")
           "shell: the #app root wraps the body")
@@ -117,9 +117,7 @@
             the whole document are JVM-built around the renderer's body"
     (register-app!)
     (let [handler (ssr-ring/ssr-handler
-                    (assoc base-opts
-                           :root-view [(rf/view :seam/root)]
-                           :renderer  fixed-renderer))
+                    (assoc base-opts :renderer fixed-renderer))
           client  (ts/new-http-client)]
       (ts/with-jetty [port handler]
         (let [{:keys [status headers body]}
@@ -132,6 +130,39 @@
           (is (some? (payload-edn-of body)))
           (is (nil? (wire-render-hash body)))
           (is (not (str/includes? body "render-hash"))))))))
+
+;; ===========================================================================
+;; :root-view is required iff the renderer is the default
+;; ===========================================================================
+
+(deftest root-view-is-required-exactly-when-renderer-is-absent
+  (testing "rf2-8arzr S1: with a custom :renderer, :root-view is optional and
+            ignored — a supplied one is simply never read"
+    (register-app!)
+    (let [without ((ssr-ring/ssr-handler
+                     (assoc base-opts :renderer fixed-renderer))
+                   request)
+          with    ((ssr-ring/ssr-handler
+                     (assoc base-opts
+                            :root-view [(rf/view :seam/root)]
+                            :renderer  fixed-renderer))
+                   request)]
+      (is (= 200 (:status without)) "constructs and serves with no :root-view")
+      (is (= (:body without) (:body with))
+          "a supplied :root-view changes nothing under a custom renderer")
+      (is (not (str/includes? (:body with) "jvm body")))))
+  (testing "…and without a :renderer the requirement is unchanged: omitting
+            :root-view still fails closed at construction"
+    (is (thrown-with-msg?
+          clojure.lang.ExceptionInfo
+          #":rf\.error/ssr-ring-missing-root-view"
+          (ssr-ring/ssr-handler base-opts))))
+  (testing "…an explicit-nil :renderer is absent, not custom: the default
+            renderer will read :root-view, so it is still required"
+    (is (thrown-with-msg?
+          clojure.lang.ExceptionInfo
+          #":rf\.error/ssr-ring-missing-root-view"
+          (ssr-ring/ssr-handler (assoc base-opts :renderer nil))))))
 
 ;; ===========================================================================
 ;; S1 — what the renderer is handed, and where it runs

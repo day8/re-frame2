@@ -347,23 +347,27 @@
 
 (defn validate-required-opts!
   "Throw a structured `:rf.error/ssr-ring-missing-*` ex-info when a
-  caller omits a required handler opt (`:initial-events` / `:root-view`).
+  caller omits a required handler opt. `:initial-events` is always
+  required; `:root-view` is required iff no `:renderer` is supplied —
+  only the default JVM-local renderer reads it, so with a custom renderer
+  it is optional and ignored (rf2-8arzr.1).
 
   Both handlers fail at construction rather than on the first request or,
   worse, inside an already-committed writer. Returns `opts` unchanged."
-  [{:keys [initial-events root-view] :as opts}]
+  [{:keys [initial-events root-view renderer] :as opts}]
   (when-not initial-events
     (error/throw-error!
       :rf.error/ssr-ring-missing-initial-events
       'rf.ssr/ssr-handler
       "ssr-handler requires :initial-events (a vector of events); supply :initial-events in the handler opts."
       {:recovery :supply-the-initial-events-opt}))
-  (when-not root-view
+  (when-not (or root-view renderer)
     (error/throw-error!
       :rf.error/ssr-ring-missing-root-view
       'rf.ssr/ssr-handler
-      (str "ssr-handler requires :root-view (a hiccup vector or 0-arity fn); "
-           "supply :root-view in the handler opts.")
+      (str "ssr-handler requires :root-view (a hiccup vector or 0-arity fn) "
+           "unless a custom :renderer is supplied; supply :root-view in the "
+           "handler opts.")
       {:recovery :supply-the-root-view-opt}))
   opts)
 
