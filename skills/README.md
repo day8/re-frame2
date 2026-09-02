@@ -308,7 +308,7 @@ conventions (leaf size discipline, single-source routing, one-level
 routing) are the test — a `tests/` dir there would test prose, not
 behaviour. Future skill-authors: do not add one on cargo-cult grounds.
 
-2 skills qualify today:
+3 skills qualify today:
 
 - [`re-frame2-pair/tests/`](re-frame2-pair/tests) (`e2e/`, `fixture/`,
   `prompts/`, `runtime/`, `shim/`) — clause (a): the one skill driving a
@@ -318,3 +318,9 @@ behaviour. Future skill-authors: do not add one on cargo-cult grounds.
   boundary with the generator template; the drift guard pins the
   load-bearing coordinates so drift fails a test instead of shipping
   misinformation.
+- [`reagent-migration/tests/`](reagent-migration/tests) (`fixture/`) —
+  clause (b): MIG-23's boot precondition (one `rf/init!` per cold process,
+  before the first frame) is a contract boundary against core's adapter
+  lifecycle, and the fixture is the drift guard that reds if a
+  default-adapter registry ever appears — the same shape as setup's. Wired
+  as the `reagent-migration-fixture-cold-start` job.

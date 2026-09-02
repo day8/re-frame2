@@ -214,10 +214,9 @@ frame without replaying the seed. So the Reagent pair `(rdom/render [app] el)` +
 before it, because frame construction raises
 `:rf.error/no-adapter-installed` until a reactive adapter is installed.
 
-An explicit `rf/make-frame` before the mount is still legal, and is what you
-want when several roots share one frame, or when the frame needs options the
-mount config does not carry (`:images`, `:fx-overrides`). The mount then finds
-the frame live and joins it without re-seeding.
+An explicit `rf/make-frame` before the mount is still legal, and is what several
+roots sharing one frame — or a frame needing `:images` / `:fx-overrides` — want.
+The mount then finds it live and joins without re-seeding.
 
 The app's existing `rf/init!` stays — do not delete it as Reagent scaffolding.
 re-frame2 installs no adapter for you and has no default-adapter registry, so
@@ -235,16 +234,17 @@ A key-map branch whose value is neither a vector nor a function becomes `nil`
 and never fires — no error, no warning. A keyword or a map written there is
 simply dead.
 
-## The draft guide is not the API
+## The guide is not the API — read the door
 
-Several things the Hicasso draft guide teaches do not exist in shipped code, and
-writing them produces a view that will not load:
+Two of the three spellings this skill used to flag have since been fixed at the
+source; one is still live, and the standing rule outlives all three:
 
-| Taught in the guide | Reality |
+| Claim you may still meet | Reality at the door |
 |---|---|
-| an `h/fn` spelling | shipped is `h/event`; `hfn` was swept to it |
-| "key maps are valid only at `:on-key-down` / `:on-key-up`" | shipped accepts a map at any event position |
+| an `h/fn` spelling | shipped is `h/event`. Swept through code and guide alike on 2026-08-15, so no page teaches it now — but older notes and design records still do |
+| "key maps are valid only at `:on-key-down` / `:on-key-up`" | **still stated in the shipped guide, and still wrong**: the intent lowering accepts a map at *any* event position |
 | the reserved vocabulary as four keywords | stale twice over — its `::h/navigate` is now an internal head `h/route-link` mints (an author never writes it), it omits `::h/clear`, and the presence overrides are the motion module's `::motion/mounting` / `::motion/unmounting` |
 
-**Read the door** — `implementation/hicasso/src/re_frame/hicasso.cljc` — not a
-design page (cardinal rule 6).
+The former `draft-guide/` corpus **shipped** as `docs/core/hicasso/`, so *"it was
+only the draft guide"* no longer sorts true from false. What survives is
+unconditional: **read the door** (`re_frame/hicasso.cljc`), not any page — rule 6.

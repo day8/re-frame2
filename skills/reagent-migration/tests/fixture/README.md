@@ -35,6 +35,15 @@ npm install
 npm run test:cold-start
 ```
 
-Exit 0 with `0 failures, 0 errors` is the pass. On-demand for now — not yet
-wired into a CI job (the `skills-structural` job enumerates specific skill
-test trees).
+Exit 0 with `0 failures, 0 errors` is the pass.
+
+It also runs in CI, as the `reagent-migration-fixture-cold-start` job in
+`.github/workflows/test.yml`. That job is gated on the `skills_structural`
+changed surface, which **two** directions arm: the skill tree itself
+(`skills/reagent-migration/*`), covering a change to the RECIPE; and the
+fixture's four `:local/root` artefacts — core, ssr, hicasso and the stock
+Reagent adapter — covering a change to the SUBSTRATE the recipe is pinned
+against. Both edges are pinned in
+`implementation/scripts/_changed-surfaces.test.cjs`; without the second, the
+job would skip on exactly the adapter-lifecycle, SSR or server-render change it
+exists to witness.

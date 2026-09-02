@@ -68,20 +68,25 @@ L2 is the skill's most load-bearing claim, so its sources are named:
 
 ## 4. Where the design corpus is a HAZARD, not an input
 
-`docs/design/hicasso/**`, including **`draft-guide/`**, describes the design and
-teaches forms that do not exist. Measured examples, each verified absent from
-`src/`:
+`docs/design/hicasso/**` describes the design and states forms that do not
+exist. Four measured examples, **re-measured 2026-09-02** — and the two verdicts
+that moved are the argument for re-measuring rather than quoting:
 
-| Taught | Reality |
+| Stated | Reality at tip |
 |---|---|
-| an `h/fn` spelling | shipped is `h/event` |
-| a Maven coordinate on the installation page | does not resolve |
-| key maps "valid only at `:on-key-down`/`:on-key-up`" | accepted at any event position |
-| "binding `:value` to a contenteditable throws at the source" | not implemented |
+| an `h/fn` spelling | **fixed.** Swept to `h/event` on 2026-08-15; `docs/core/hicasso/api-reference.md` carries the ledger row and no page teaches it |
+| a Maven coordinate on the installation page | **fixed, and by removal.** `00-installation.md` now states `day8/re-frame2-hicasso` is not published with no date at which it will be, and resolves it by `:local/root`. There is no coordinate printed to fail — an answer saying so is CORRECT |
+| key maps "valid only at `:on-key-down`/`:on-key-up`" | **stands.** `impl/intent.cljs`'s `lower-prop` reaches `key-map-handler` at every `event-prop?` position; `docs/core/hicasso/03-events-as-data.md` still states the restriction |
+| "binding `:value` to a contenteditable throws at the source" | **stands.** No contenteditable guard exists under `implementation/hicasso/src/`, and the id `troubleshooting.md` names for it is in no source or spec row |
 
-The hazard is the whole `docs/design/**` tree — `mkdocs.yml` excludes it from the
-published site precisely because it is a working RECORD — so naming
-subdirectories only invites the list to go stale.
+Two structural notes. **`draft-guide/` is no longer the guide**: under rf2-0yp7w
+that corpus shipped to `docs/core/hicasso/`, leaving one rewrite-audit note in
+the design tree — so a hazard here can now be in the *published* guide, as two
+of the four rows are, and "it was only the draft" no longer sorts true from
+false. And the hazard is the whole `docs/design/**` tree — `mkdocs.yml` excludes
+it from the published site precisely because it is a working RECORD — so naming
+subdirectories only invites the list to go stale, which is what happened to the
+`draft-guide/` naming above.
 
 The guide is still worth **reading**: it is the best available account of intent,
 and its migration chapter and its census/fixer description are accurate because
