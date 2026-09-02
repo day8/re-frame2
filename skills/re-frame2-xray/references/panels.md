@@ -12,8 +12,10 @@ list is
 [`018-Event-Spine.md` §5](../../../tools/xray/spec/018-Event-Spine.md) +
 [`021-Dynamic-Panel-Designs.md` §9.1](../../../tools/xray/spec/021-Dynamic-Panel-Designs.md)
 (Dynamic) + [`007-UX-IA.md` §Static mode](../../../tools/xray/spec/007-UX-IA.md)
-(Static). The executable drift gate + re-verification order live in
-[`../evals/README.md` §Keeping the tab inventory in sync](../evals/README.md).
+(Static). The executable drift gate is
+`scripts/check_skill_xray_tab_inventory_drift.py`, which fails CI if this
+inventory's ids, labels, tooltip letters or order diverge from the shipped
+registry.
 
 ## Dynamic mode — 10 tabs
 
@@ -76,7 +78,7 @@ letters, not keys: pressing one selects nothing, and the palette entry is
 |---|---|---|
 | **Machines** *(default)* | `m` | "What machines are registered, and what do they look like?" Registry browse + full topology (picker + zoom/pan/fit) + a 4-mode sub-strip incl. the Sim engine. |
 | **Routes** | `r` | "Which route would `/orders/42` match?" Every registered route + a Simulate-URL input. |
-| **Schemas** | `c` | "Show me the shape of `:order/schema`." Every registered schema + sample data + jump-to-source. |
+| **Schemas** | `c` | "Show me the shape of `:order/schema`." Every registered app-db / event / sub schema as its Malli EDN, with `:doc`, searchable, + jump-to-source. |
 | **Flows** | `f` | "What flows are registered?" The flows catalogue. |
 | **Interceptors** | `i` | "What runs, and in what order?" Pure-browse over the registered interceptor chains. |
 
