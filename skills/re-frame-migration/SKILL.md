@@ -145,7 +145,7 @@ For delegating the migration to a fresh Claude session: [`references/kickoff-pro
 - [ ] Migration report (per `MIGRATION.md` Part 2 / `references/output-format.md`) produced and shared.
 - [ ] Items flagged for human review are explicitly listed in the report.
 
-Hand off: *"Migration complete. Switch to **`re-frame2`** for new application code, or **`re-frame2-pair`** for live inspection. The opt-in modernisations (`O-N` rules) are available whenever you want them — not required to be on v2."*
+Hand off: *"Migration complete. Switch to **`re-frame2`** for new application code, or **`re-frame2-pair`** for live inspection. If you want Hicasso views, **`reagent-migration`** is the optional second step — staying on Reagent is a first-class, fully-supported choice. The opt-in modernisations (`O-N` rules) are available whenever you want them — not required to be on v2."*
 
 ## Anti-patterns
 

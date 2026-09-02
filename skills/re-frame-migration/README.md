@@ -29,6 +29,7 @@ This is the migration companion to the main [`re-frame2`](../re-frame2) skill (w
 - greenfield setup — that's `re-frame2-setup`
 - live-runtime inspection of the running v2 app — that's `re-frame2-pair`
 - substrate migration (Reagent → UIx) — never part of a v1→v2 migration; opt-in via O-13
+- migrating Reagent **views** to Hicasso — that is the optional, second step after this one, [`reagent-migration`](../reagent-migration/SKILL.md); staying on Reagent views is a first-class, fully-supported choice
 - stylistic refactoring, naming changes, or any rewriting the author didn't ask for
 - interactive / visual confirmation when no drivable runtime is connected — the skill hands over one checklist and reports the smoke as pending rather than claiming completion
 
