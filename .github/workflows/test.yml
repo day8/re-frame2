@@ -2254,6 +2254,74 @@ jobs:
       - name: Run JVM tests (ssr-ring artefact)
         run: clojure -M:test
 
+  jvm-node-crossing:
+    name: JVM->Node->JVM crossing (ssr-ring clojure -M:crossing-test)
+    needs: detect_changed_surfaces
+    # Fires on either half of the crossing: the JVM adapter and its witness
+    # live in implementation/ssr-ring (implementation_jvm), the sidecar it
+    # spawns lives in implementation/ssr-node (ssr_node). A change to either
+    # can break the crossing, so either re-proves it.
+    if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true' || needs.detect_changed_surfaces.outputs.ssr_node == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: implementation/ssr-ring
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Clojure CLI
+        run: "$GITHUB_WORKSPACE/.github/scripts/install-clojure-cli.sh"
+
+      # The sidecar is a Node process — slice B's launcher
+      # (implementation/ssr-node/bin/serve.cjs) on `node:` builtins alone, so
+      # there is no `npm ci` here for the same reason node-ssr-node has none.
+      # Node 24 is the version that lane pins and the manifest's `engines`.
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+        with:
+          node-version: '24'
+
+      - name: Cache Maven / gitlibs
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.deps.clj
+          # Deliberately the SAME key as jvm-ssr-ring: the same artefact's
+          # classpath, one alias over.
+          key: ${{ runner.os }}-clj-ssr-ring-${{ hashFiles('implementation/ssr-ring/deps.edn', 'implementation/ssr/deps.edn', 'implementation/core/deps.edn', 'implementation/schemas/deps.edn', 'implementation/flows/deps.edn', 'implementation/routing/deps.edn', 'implementation/machines/deps.edn') }}
+          restore-keys: |
+            ${{ runner.os }}-clj-ssr-ring-
+            ${{ runner.os }}-clj-
+
+      # rf2-8arzr.4 — the JVM -> Node -> JVM crossing, named for what it is.
+      # `re-frame.ssr.ring.node/renderer` is the one non-local implementation
+      # of ssr-handler's :renderer seam (slice A): it projects the settled
+      # request frame under :render-state (slice C), POSTs it to the bounded
+      # sidecar, and takes back body markup and nothing else. The witness
+      # (implementation/ssr-ring/test/re_frame/ssr/ring/node_crossing_test.clj,
+      # tagged :crossing) spawns slice B's launcher on a plain fixture render
+      # module on port 0, parses its ready line, and proves the drain-first
+      # state crossing, the JVM-owned document around Node's bytes, render-
+      # state != payload, the deadline / refusal / unreachable / build-skew
+      # arms as distinct projected 5xx codes, frame + sidecar cleanup on
+      # success and failure, and prints one observational crossing timing —
+      # a number in this log, not a threshold.
+      #
+      # It is its OWN alias and its OWN job so the ssr-ring `:test` lane one
+      # job up stays Node-free: `:test` excludes the tag, `:crossing-test`
+      # includes only it, and a JVM developer without Node never runs this.
+      - name: Run the JVM->Node->JVM crossing witness (ssr-ring :crossing-test)
+        run: clojure -M:crossing-test
+
   jvm-epoch:
     name: JVM epoch (clojure -M:test)
     needs: detect_changed_surfaces
@@ -5120,7 +5188,10 @@ jobs:
         with:
           node-version: '24'
 
-      # rf2-n8vp — the ssr-node package's 73 rows across 7 suites, and the FIRST
+      # rf2-n8vp — the ssr-node package's suite (73 rows across 7 files when
+      # this lane landed; 104 rows across 9 files at rf2-8arzr.4, after
+      # rf2-hic-056's follow-ups and slice B's serve.test.cjs — test/run.cjs
+      # lists them, and these counts are a record, not a pin), and the FIRST
       # lane this artefact has ever had. It landed (PR #8028) with no npm script
       # and no job: `ssr-node` appeared in neither implementation/package.json
       # nor .github/workflows/, so the five bounded guarantees the package was
@@ -6219,6 +6290,12 @@ jobs:
       - jvm-ssr-prod-gate
       - jvm-security
       - jvm-ssr-ring
+      # rf2-8arzr.4 — required. The crossing witness is the ONLY gate on the
+      # JVM->Node adapter (the ssr-ring `:test` lane deliberately excludes it,
+      # and node-ssr-node never dials it), so a job absent from this list would
+      # leave the adapter advisory — one `if:` from the nowhere the ssr-node
+      # suite ran until rf2-n8vp.
+      - jvm-node-crossing
       - jvm-epoch
       # rf2-bo8lq — required for the same reason `jvm-core-prod-gate` is, and
       # with a sharper motive than any of its four siblings. Epoch's ring is the
