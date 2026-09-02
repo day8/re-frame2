@@ -433,6 +433,43 @@
                         (assoc (source-coords/merge-coords {})
                                :handler-fn link/route-link-render-ssr)))
 
+#?(:cljs
+   (defn ^:no-doc route-link-element
+     "The value published to the `:routing/route-link` hook — what
+     `rf/route-link` becomes at a call site (rf2-nvcp).
+
+     Returns the HICCUP ELEMENT `[<component-head> props & children]` rather
+     than calling the render fn. That distinction is the whole of this fn, and
+     it is a correctness requirement, not a style choice.
+
+     `rf/route-link` is a `defwrapper` (`re-frame.core-routing`), so its body
+     is `(apply <hook-fn> args)` — an ordinary function call. A user writes
+     `[rf/route-link {:to …} \"Articles\"]`, and the component the substrate
+     mounts is therefore `rf/route-link` ITSELF: a plain fn, carrying no
+     `{:contextType frame-context}` meta. Publishing the registered view head
+     directly made that head run INSIDE that plain-fn component instead of
+     becoming a component of its own, so the React-context tier had nothing to
+     read it from: `re-frame.views.provider/current-frame` saw React's empty
+     default on `(.-context cmp)`, resolved nil, and `route-link-render`'s
+     render-time `require-current-frame!` (rf2-o3nam4) raised
+     `:rf.error/no-frame-context` on FIRST RENDER — blanking every routed
+     application, however correctly it mounted its `frame-root`.
+
+     Emitting the element instead hands the head to the substrate as an
+     element TYPE, so it is componentized exactly as a `reg-view` view is
+     (`[home-page]` and `[rf/route-link …]` now take the same path) and the
+     enclosing `frame-root` / `frame-provider` context reaches it.
+
+     The head is resolved through `views/view-head` per render rather than
+     closed over: the head is a property of (registration × installed
+     substrate), and `view-head` re-derives it against the adapter installed
+     NOW and memoizes (rf2-8mkmb). Closing over the `reg-view*` return value
+     would pin the SEED head — derived at ns-load, before `rf/init!` seats any
+     adapter — which is right for Reagent and wrong for any substrate that
+     publishes `:adapter/componentize-view`."
+     [& args]
+     (into [(views/view-head :route/link)] args)))
+
 ;; ---- late-bind hook registration ------------------------------------------
 ;; Core must not require this optional artefact. Late-bound hooks publish the
 ;; integration points without reversing that dependency.
@@ -507,8 +544,13 @@
 #?(:cljs (late-bind/set-fn! :routing/reset-url-listener!  history/remove-url-listener!))
 
 ;; route-link is exposed on both platforms so .cljc render trees
-;; resolve identically server- and client-side.
-#?(:cljs (late-bind/set-fn! :routing/route-link route-link)
+;; resolve identically server- and client-side. On CLJS the hook carries the
+;; ELEMENT-emitting `route-link-element`, not the registered head itself — see
+;; its docstring (rf2-nvcp): `rf/route-link` is a `defwrapper`, so whatever
+;; this hook holds is CALLED rather than mounted, and a head that is called
+;; never becomes a component that can read the frame context. SSR has no React
+;; context to read, so the JVM side keeps rendering the anchor directly.
+#?(:cljs (late-bind/set-fn! :routing/route-link route-link-element)
    :clj  (late-bind/set-fn! :routing/route-link route-link-render-ssr))
 
 ;; The substrate-neutral link seam consumed by an optional view artefact's own
