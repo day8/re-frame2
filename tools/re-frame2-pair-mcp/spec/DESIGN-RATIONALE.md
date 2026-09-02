@@ -402,8 +402,25 @@ Post-Lock additions accumulated as follows:
   vectors + per-frame top-keys, NOT the full app-db; drill via the
   finer-grained ops. `orient` is a bare-verb mega-op (multi-registry
   derived projection — see Lock #9); `read-sub` needs no new verb.
+- **rf2-ov144** added `replay-epoch`: strict replay of a retained epoch
+  in ONE call. The `dispatch {replay true …}` recipe needed the caller to
+  read the record's event / cofx / override slots and re-supply them by
+  hand — a route the projected epoch pages close to an off-box agent,
+  because event args egress only as `:rf/redacted`. `replay-epoch` sends
+  the id alone; the runtime resolves the raw record in-process and
+  re-drives it under `:strict` ([Tool-Pair §Replay][tp-replay]). A
+  dedicated tool rather than an epoch-id mode on `dispatch`: `dispatch`'s
+  schema requires `event`, and an id mode would have left ten of its
+  arguments conditionally meaningless — a second grammar inside one
+  descriptor. It takes `dispatch`'s authority posture (not
+  `--allow-writes`-gated: it drives the app's own handlers rather than
+  rewriting a partition out of band). Introduces the `replay-<thing>`
+  verb — the recorded run is the input, never a caller payload — which no
+  existing shape expressed (`restore-` rewinds state; `run-` executes a
+  definition and reports pass/fail).
 
 [tp-tsobl]: ../../../spec/Tool-Pair.md#tool-surface-obligations
+[tp-replay]: ../../../spec/Tool-Pair.md#replay-mint-policy
 
 ---
 

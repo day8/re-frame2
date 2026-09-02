@@ -14,6 +14,7 @@
             [re-frame2-pair-mcp.tools.dispatch :as dispatch]
             [re-frame2-pair-mcp.tools.dispatch-dry-run :as dispatch-dry-run]
             [re-frame2-pair-mcp.tools.restore-epoch :as restore-epoch]
+            [re-frame2-pair-mcp.tools.replay-epoch :as replay-epoch]
             [re-frame2-pair-mcp.tools.replace-app-db :as replace-app-db]
             [re-frame2-pair-mcp.tools.trace-window :as trace-window]
             [re-frame2-pair-mcp.tools.watch-epochs :as watch-epochs]
@@ -70,6 +71,11 @@
     :handler    (ignoring-extra #(restore-epoch/restore-epoch-tool %1 %2))
     :cacheable? false
     :descriptor data/restore-epoch}
+   {:name       "replay-epoch"
+    :handler    (ignoring-extra #(replay-epoch/replay-epoch-tool %1 %2))
+    ;; An action tool — it re-drives a cascade. Not cacheable, like dispatch.
+    :cacheable? false
+    :descriptor data/replay-epoch}
    {:name       "replace-app-db"
     :handler    (ignoring-extra #(replace-app-db/replace-app-db-tool %1 %2))
     :cacheable? false

@@ -290,7 +290,7 @@
   "Inline conformance corpus for re-frame2-pair-mcp's tool catalogue.
 
   Coverage matrix. Every advertised tool (see
-  `test/fixtures/tool-names.json` — 29 today) appears below: either with a
+  `test/fixtures/tool-names.json` — 30 today) appears below: either with a
   fixture in THIS inline corpus, or in the `Not exercised here` note that
   follows — so a tool cannot silently drop out of the map by omission:
 
@@ -301,6 +301,7 @@
     | dispatch               | yes   | yes         | yes               |
     | dispatch-dry-run       | yes   | yes         | n/a (+gate/elision variants) |
     | restore-epoch          | yes   | yes         | gated-default     |
+    | replay-epoch           | yes   | yes         | refused-pre-dispatch |
     | replace-app-db         | yes   | yes         | gated-default     |
     | trace-window           | yes   | n/a         | n/a               |
     | watch-epochs           | yes   | n/a         | n/a               |
@@ -1005,6 +1006,57 @@
     :fixture/expect
     {:isError? true
      :edn-submap {:ok? false :restored? false :reason :restore-rejected :epoch-id 999}}}
+
+   ;; ---------- replay-epoch (dispatch authority; NOT writes-gated) --------
+   ;; rf2-ov144 — strict replay of a retained epoch in ONE call. The tool
+   ;; sends only the id; the runtime resolves the raw record in-process.
+   ;; NOT behind --allow-writes (it drives the app's own handlers, exactly
+   ;; like dispatch), so the happy fixture leaves the gate at its default
+   ;; OFF and still reaches the runtime.
+   {:fixture/id    :replay-epoch/happy
+    :fixture/doc   "replay-epoch with the writes gate at its default OFF reaches the runtime and passes the dispatch-shaped consequence through (rf2-ov144)."
+    :fixture/tool  "replay-epoch"
+    :fixture/args  {:epoch-id "7"}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  true]
+     ["configure-raw-state!"      nil]
+     ["replay-epoch"              {:ok? true :replayed? true :source-epoch-id 7 :epoch-id 12
+                                   :event-id :cart/checkout :frame :rf/default
+                                   :db-changed? true :changed-paths [[:cart]]
+                                   :effects-fired [:http] :no-op? false}]
+     [:default                    nil]]
+    :fixture/eval-form-must-contain
+    ["replay-epoch 7"]
+    :fixture/expect
+    {:isError? false
+     :edn-submap {:ok? true :replayed? true :source-epoch-id 7 :epoch-id 12}}}
+
+   {:fixture/id    :replay-epoch/missing-id
+    :fixture/doc   "replay-epoch with no :epoch-id surfaces :missing-epoch-id without a runtime round-trip."
+    :fixture/tool  "replay-epoch"
+    :fixture/args  {}
+    :fixture/eval-script
+    [[:default nil]]
+    :fixture/expect
+    {:isError? true
+     :reason :missing-epoch-id}}
+
+   ;; A refusal decided BEFORE dispatch (unknown / aged-out id) means the
+   ;; replay did not land. It MUST ride as isError carrying the framework's
+   ;; own reason, never a success-shaped envelope.
+   {:fixture/id    :replay-epoch/refused-unknown-epoch
+    :fixture/doc   "replay-epoch whose runtime refuses BEFORE dispatch (unknown / aged-out id) rides as isError carrying the framework reason (rf2-ov144)."
+    :fixture/tool  "replay-epoch"
+    :fixture/args  {:epoch-id "999"}
+    :fixture/eval-script
+    [["__re_frame2_pair_runtime"  true]
+     ["configure-raw-state!"      nil]
+     ["replay-epoch"              {:ok? false :reason :rf.epoch/replay-unknown-epoch
+                                   :frame :rf/default :epoch-id 999 :history-size 50}]
+     [:default                    nil]]
+    :fixture/expect
+    {:isError? true
+     :edn-submap {:ok? false :reason :rf.epoch/replay-unknown-epoch :epoch-id 999}}}
 
    ;; ---------- replace-app-db (gated write) ------------------------------
    {:fixture/id    :replace-app-db/disabled-default

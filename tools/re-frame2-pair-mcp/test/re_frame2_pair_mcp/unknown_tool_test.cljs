@@ -70,7 +70,7 @@
 (deftest refuse-unknown-tool-passes-registered-names-through
   (doseq [tool ["snapshot" "get-path" "dispatch" "eval-cljs"
                 "trace-window" "discover-app" "restore-epoch" "replace-app-db"
-                "list-handlers"]]
+                "replay-epoch" "list-handlers"]]
     (is (nil? (tools/refuse-unknown-tool tool))
         (str tool " is a registered tool — must proceed to dispatch"))))
 

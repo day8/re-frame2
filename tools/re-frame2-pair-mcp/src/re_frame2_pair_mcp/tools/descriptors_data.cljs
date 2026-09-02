@@ -653,6 +653,54 @@
                  :additionalProperties false}})
 
 ;; ---------------------------------------------------------------------------
+;; replay-epoch
+;; ---------------------------------------------------------------------------
+
+(def replay-epoch
+  {:name "replay-epoch"
+   :description (str "Strict replay of a retained epoch in ONE call (rf2-ov144 / Tool-Pair §Replay): re-drive the "
+                     "named epoch's recorded event through the app's own handlers with its RAW argument-bearing "
+                     "`:trigger-event`, its recorded post-generation `:rf.cofx` token under `:rf.cofx/mint-policy "
+                     ":strict`, and BOTH recorded override maps (`:fx-overrides` / `:interceptor-overrides`) — all "
+                     "resolved IN-PROCESS from the ring. Only the id crosses the wire: you never read, copy or "
+                     "re-supply event / cofx / override payloads (which `trace-window` / `watch-epochs` only ever "
+                     "show with `:rf/redacted` args). Faithful or fail-loud: a recorded fact is re-presented verbatim "
+                     "and the generator / host is NOT consulted; a declared fact ABSENT from the record fails with "
+                     "`:rf.error/missing-required-cofx` (no live mint). "
+                     "STATE SEMANTICS: same frame in and out; replay runs against the frame's CURRENT state and code — "
+                     "it does NOT restore first (compose with `restore-epoch` to rewind, then replay), external effects "
+                     "the handler emits fire AGAIN, the frame's live config applies, and the replayed dispatch records a "
+                     "NEW ordinary epoch (`:epoch-id`; `:source-epoch-id` is the one replayed). "
+                     "Returns the same CONSEQUENCE shape as `dispatch` (`:db-changed?` / `:changed-paths` / "
+                     "`:effects-fired` / `:no-op?` / `:cascade-summary`) projected from the NEW epoch, plus "
+                     "`:replayed? true`. REFUSED BEFORE ANYTHING DISPATCHES (isError, `:reason`): an unknown / aged-out "
+                     "id (`:rf.epoch/replay-unknown-epoch`), a drain in flight (`:rf.epoch/replay-during-drain`), a "
+                     "halted / synthetic / incomplete record (`:rf.epoch/replay-non-replayable-record` + `:cause`), a "
+                     "recorded fn-valued override (`:rf.epoch/replay-unreplayable-fx-override` + `:fx-ids`), an unknown "
+                     "frame (`:rf.error/no-such-handler`). "
+                     "NOT `--allow-writes`-gated: like `dispatch`, it drives the app's own handlers (dispatch authority, "
+                     "`:origin :pair`) rather than rewriting a partition out of band. The `epoch-id` is parsed as EDN — "
+                     "epoch-ids are `:any` (the reference runtime emits INTEGERS), so pass \"7\" and it reads as the "
+                     "number 7. Find ids with `trace-window` / `watch-epochs` / `snapshot` (`:epochs` slice). "
+                     "Examples: "
+                     "1. Replay epoch 7: {:epoch-id \"7\"} -> {:ok? true :replayed? true :source-epoch-id 7 :epoch-id 12 :event-id :cart/checkout :frame :rf/default :db-changed? true :changed-paths [[:cart]] :effects-fired [:http] :no-op? false :cascade-summary {:event-id :cart/checkout :db-diff {...} :fx-fired [:http] :outcome :ok}}. "
+                     "2. Named frame: {:epoch-id \"12\" :frame \":stories\"} -> {:ok? true :replayed? true :source-epoch-id 12 :epoch-id 13 :frame :stories ...}. "
+                     "3. Aged-out id: {:epoch-id \"999\"} -> {:ok? false :reason :rf.epoch/replay-unknown-epoch :epoch-id 999 :history-size 50}. "
+                     "4. Recorded fn override: {:epoch-id \"8\"} -> {:ok? false :reason :rf.epoch/replay-unreplayable-fx-override :fx-ids [:http]}. "
+                     "5. Record incomplete for the CURRENT code: {:epoch-id \"9\"} -> {:ok? false :reason :rf.error/missing-required-cofx ...} — the strict dispatch failed loud; nothing was minted.")
+   :typicalTokens 200
+   :annotations destructive-annotations
+   :outputSchema envelope-or-marker
+   :inputSchema {:type "object"
+                 :properties {:epoch-id {:type "string"
+                                         :description "The retained epoch to replay, as EDN — e.g. \"7\" (integer id) or \":my/epoch\". Required."}
+                              :frame    {:type "string"
+                                         :description "Operating frame (e.g. \":stories\"). Defaults to the operating frame. The record is read from, and the event dispatched into, this SAME frame."}
+                              :build    {:type "string"}}
+                 :required ["epoch-id"]
+                 :additionalProperties false}})
+
+;; ---------------------------------------------------------------------------
 ;; replace-app-db
 ;; ---------------------------------------------------------------------------
 

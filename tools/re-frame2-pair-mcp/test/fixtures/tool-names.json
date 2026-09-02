@@ -22,6 +22,7 @@
     "read-ui",
     "record",
     "replace-app-db",
+    "replay-epoch",
     "reset-operating-frame",
     "restore-epoch",
     "set-operating-frame",

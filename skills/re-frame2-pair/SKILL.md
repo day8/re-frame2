@@ -4,8 +4,8 @@ description: >
   Pair-program against a **running** re-frame2 application via its
   Tool-Pair contract — attach to a live shadow-cljs nREPL, inspect a
   frame's app-db, dispatch events, hot-swap handlers, read the trace
-  stream and per-frame epoch history, and time-travel with
-  `restore-epoch`. Use when the user is operating on (or wants to
+  stream and per-frame epoch history, time-travel with `restore-epoch`,
+  and replay a retained epoch strictly with `replay-epoch`. Use when the user is operating on (or wants to
   operate on) a live runtime they have running locally. **Do not use**
   for static spec reading, architecture questions, design discussion,
   or ordinary source edits when no runtime is involved — those belong
@@ -15,11 +15,13 @@ description: >
 allowed-tools:
   # Pair-MCP — single persistent nREPL connection per session
   # (not yet on npm — build/run from a re-frame2 clone; see docs/LOCAL_DEV.md).
-  # All 29 server tools are reachable; the body + references explain each surface.
+  # All 30 server tools are reachable; the body + references explain each surface.
   - mcp__re-frame2-pair__discover-app
   - mcp__re-frame2-pair__eval-cljs
   - mcp__re-frame2-pair__dispatch
   - mcp__re-frame2-pair__dispatch-dry-run
+  # replay-epoch: one-call strict replay of a retained epoch — dispatch authority, NOT --allow-writes-gated
+  - mcp__re-frame2-pair__replay-epoch
   - mcp__re-frame2-pair__trace-window
   - mcp__re-frame2-pair__watch-epochs
   - mcp__re-frame2-pair__tail-build
@@ -217,6 +219,7 @@ Load at most two references for a single task. Wanting three means the request s
 - **One trace listener per skill.** This skill registers one listener (`:re-frame2-pair`) and one epoch listener (`:re-frame2-pair-epoch`). Multi-tool coexistence is the default — don't worry about other listeners; per Spec 009 §Listener ordering, ordering is not contract.
 - **Structured MCP reads elide by default; raw `eval-cljs` does NOT.** Per [Spec 009 §Privacy](../../spec/009-Instrumentation.md), the structured read tools (`snapshot`, `get-path`, `read-sub`, `trace-window`, `watch-epochs`, `dispatch-dry-run`, and the recorders) force wire-boundary elision server-side under the `--allow-sensitive-reads` gate (**OFF by default**) — sensitive → `:rf/redacted`, large → `:rf.size/large-elided`, epoch records additionally route through `projected-record`. So structured reads are safe to fire by default. But `eval-cljs` is **default-ON** (governed only by `--no-eval`) and **NOT governed by this gate** — it returns the form's value **without running the elision walker**, so a raw `(re-frame2-pair.runtime/snapshot)` / `(rf/epoch-history …)` can ship verbatim app-db / trace / epoch state — secrets included. This is the **raw-eval carve-out**: don't reach for raw eval to read a sensitive path / sub / trace / epoch when a structured tool fits — reserve it for forensics, cross-referencing, and recovery. Full mechanism in [references/vocabulary.md §Privacy posture](references/vocabulary.md#privacy-posture--sensitive-and-the-raw-eval-carve-out).
 - **Route named writes through the dedicated, gated tools.** Time-travel undo and state injection have dedicated tools — `restore-epoch` and `replace-app-db` — both allow-listed and the **canonical path** (validate, append a synthetic undoable epoch, `tap>`, return a `:cascade-summary`). Both are gated by the server's `--allow-writes` flag (default **OFF**); the **server's gate, not the allow-list, is the write boundary**. Raw eval of a write form (`(rf/restore-epoch! …)` / `app-db-reset!`) is the **backstop, not the default** — reach for the dedicated tool first. Full detail: [references/ops.md §Time-travel](references/ops.md#time-travel-epoch-restore).
+- **Replay a retained epoch through `replay-epoch`, never by re-typing its payload.** To re-drive a recorded event faithfully, pass the epoch id alone: the runtime resolves the raw record in-process and re-dispatches it under `:strict` with the recorded `:rf.cofx` and both recorded override maps, so the generator is never consulted and a fact the record lacks fails loud (`:rf.error/missing-required-cofx`). The `dispatch {replay: true, cofx: …}` recipe needs payloads the projected epoch pages only ever show as `:rf/redacted`. Replay does **not** restore first (rewind with `restore-epoch` when the start state matters), fires effects again, and records a new epoch. It carries `dispatch`'s authority — not `--allow-writes`-gated. Full detail: [references/ops.md §Time-travel](references/ops.md#time-travel-epoch-restore).
 
 ---
 

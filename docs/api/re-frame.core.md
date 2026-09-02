@@ -1186,6 +1186,22 @@ There is deliberately **no** facade `clear-listeners!` verb. Dropping every list
     (rf/restore-epoch! :app/main (:epoch-id target)))
   ```
 
+### `replay-epoch!`
+
+- **Kind**: function (dev-only; also `re-frame.epoch/replay-epoch!`)
+- **Signature**:
+  ```clojure
+  (replay-epoch! frame-id epoch-id)      → envelope map (false when elided / artefact absent)
+  (replay-epoch! frame-id epoch-id opts) → envelope map (false when elided / artefact absent)
+  ```
+- **Description**: Re-drive the named retained epoch's recorded event through the frame's own handlers in one call, as a strict replay: the raw `:trigger-event`, the recorded post-generation `:rf.cofx` under `:rf.cofx/mint-policy :strict`, and the record's own `:fx-overrides` / `:interceptor-overrides` are resolved in-process — nothing is copied by hand. Same frame in and out; no implicit restore (compose with `restore-epoch!`); effects fire again; a new ordinary epoch is recorded. Returns a structured `{:ok? …}` envelope — refusals (unknown frame, drain in flight, unknown / aged-out id, halted / synthetic / incomplete record, recorded `:rf/fn-override`) are decided before anything dispatches; a declared fact absent from the token is the canonical `:rf.error/missing-required-cofx` hard error, never a mint. See [re-frame.epoch.md](re-frame.epoch.md#replay-epoch).
+- **Example**:
+  ```clojure
+  ;; Strict replay of the latest epoch — the generator is never consulted.
+  (let [source (last (rf/epoch-history :app/main))]
+    (rf/replay-epoch! :app/main (:epoch-id source)))
+  ```
+
 ### `replace-frame-state!`
 
 - **Kind**: function (dev-only; also `re-frame.epoch/replace-frame-state!`)

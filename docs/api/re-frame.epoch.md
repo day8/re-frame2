@@ -67,6 +67,32 @@ Per-frame epoch snapshots, recorded on each handled event's run-to-completion in
   (rf/restore-epoch! :app/main (:epoch-id target)))
 ```
 
+### `replay-epoch!`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (replay-epoch! frame-id epoch-id)      → envelope map (false when elided)
+  (replay-epoch! frame-id epoch-id opts) → envelope map (false when elided)
+  ```
+- **Description**: Re-drives the named retained epoch's recorded event through the frame's own handlers in one call, as a strict replay. The record is resolved in-process and its replay material is folded into the dispatch: the raw argument-bearing `:trigger-event`, the recorded post-generation `:rf.cofx` under `:rf.cofx/mint-policy :strict`, and the record's own `:fx-overrides` / `:interceptor-overrides`. Nothing is exported or copied by hand — which is what makes replay available to an off-box tool, since the projected record only ever shows event arguments as `:rf/redacted`. Same frame in and out. Replay runs against the frame's current state and code, so it does not restore first (compose with `restore-epoch!` when the start state matters), any effect the handler emits fires again, and the replayed dispatch records a new ordinary epoch; re-presenting the recorded `:rf/time-ms` makes that epoch's `:committed-at` equal the original's.
+  - Returns `{:ok? true :frame … :source-epoch-id … :event-id … :epoch-id <the new epoch>}` on success.
+  - Returns `{:ok? false :reason … :frame … :epoch-id … <tags>}`, decided before anything dispatches and without a trace emit, for:
+    - `:rf.error/no-such-handler` (kind `:frame`) — frame not registered / destroyed
+    - `:rf.epoch/replay-during-drain` — called while a drain is in flight
+    - `:rf.epoch/replay-unknown-epoch` (`:history-size`) — epoch-id not in the frame's current history
+    - `:rf.epoch/replay-non-replayable-record` (`:cause` — `:halted`, `:synthetic`, `:missing-trigger-event` or `:missing-replay-token`)
+    - `:rf.epoch/replay-unreplayable-fx-override` (`:fx-ids`) — a recorded `:fx-overrides` entry is the `:rf/fn-override` sentinel
+  - A declared recordable fact absent from the recorded token is not a refusal: the dispatch fails loud with the canonical `:rf.error/missing-required-cofx`, exactly as any `:strict` dispatch does. Nothing is minted.
+  - `opts` carries only the slots replay does not own (`:origin`, `:source`, `:trace-id`); a value under `:frame`, `:rf.cofx`, `:rf.cofx/mint-policy`, `:fx-overrides` or `:interceptor-overrides` is discarded.
+
+```clojure
+;; Replay the most recent epoch through the app's own handlers, strictly.
+(let [source (last (rf/epoch-history :app/main))]
+  (rf/replay-epoch! :app/main (:epoch-id source)))
+;; => {:ok? true :frame :app/main :source-epoch-id 41 :event-id :cart/add :epoch-id 42}
+```
+
 ## Pair-tool writes
 
 `replace-frame-state!` is the ONE state-injection surface. It replaces a frame's partitions directly, bypassing the dispatch loop. It records a synthetic `:rf/epoch-record`, so `restore-epoch!` can rewind past the injection, and emits `:rf.epoch/db-replaced` on success. Dev-only; production builds elide it.

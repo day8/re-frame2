@@ -19,6 +19,7 @@ repeat either full catalogue.
 | `read-<thing>` | Re-read already computed or rendered diagnostic state; do not imply a fresh run. | `read-sub`, `read-dom`, `read-failures` |
 | `discover-<surface>` | Bootstrap health and connection discovery. | `discover-app` |
 | `restore-<thing>` | Restore a prior state. | `restore-epoch` |
+| `replay-<thing>` | Re-drive a recorded thing through the live system, faithfully or fail-loud; the recorded run is the input, never a caller payload. | `replay-epoch` |
 | `replace-<thing>` | Replace a named state partition outside the normal cascade. | `replace-app-db` |
 | `reset-<thing>` | Clear a named state or session partition. | `reset-operating-frame` |
 | `set-<thing>` | Pin one named session setting. This prefix is reserved for the operating-frame contract. | `set-operating-frame` |
