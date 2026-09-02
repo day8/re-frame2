@@ -1307,7 +1307,7 @@ rf/trace-api-version                             ;; version slot, never wired
 | `reg-event-error-handler` | `(rf/register-error-listener! key cb)` for observability; framework-owned per-category recovery (no app policy) | The single-slot global error-handler is gone (per M-13's note this was already a fragile policy). v2 has **no app-steering error-recovery policy** — recovery is framework-owned. Error observability is the always-on `register-error-listener!` surface; for cross-frame dev observation use `register-listener!` filtering on `:rf.error/*`. **Type B** — drop any recovery-steering half (no v2 equivalent); move observability to a listener. |
 | `spawn-machine` | `[:rf.machine/spawn spec]` (fx, inside an event handler's `:fx`) | The fx-id is canonical; the public fn `spawn-machine` is dropped. From outside a handler (e.g. boot-time), wrap in `(rf/dispatch-sync [:my-bootstrap-event])` whose handler returns `{:fx [[:rf.machine/spawn spec]]}`. |
 | `destroy-machine` | `[:rf.machine/destroy actor-id]` (fx, inside an event handler's `:fx`) | Same — fx-id is canonical; the public fn is dropped. |
-| `make-restore-fn` | `epoch/restore-epoch!` (epoch-id-keyed; refuses halted-cascade records) + `epoch/replace-app-db!` (value-shape replace). For the v1 snapshot+closure pattern, write it inline: `(let [snapshot (rf/app-db-value frame-id)] (fn [] (rf/replace-app-db! frame-id snapshot)))`. | The epoch surface is the v2 mechanism for state capture and restore. Pre-alpha posture rejects v1 helpers that have a v2 replacement. |
+| `make-restore-fn` | `epoch/restore-epoch!` (epoch-id-keyed; refuses halted-cascade records) + `epoch/replace-frame-state!` (partition-keyed replace). For the v1 snapshot+closure pattern, write it inline: `(let [snapshot (rf/app-db-value frame-id)] (fn [] (rf/replace-frame-state! frame-id {:rf.db/app snapshot})))`. Name the partition by its key: `{:rf.db/app v}` replaces app-db and preserves the runtime partition. (API-shrink #3 folded the former `replace-app-db!` / `reset-app-db!` / `replace-runtime-db!` into this one fn — none of the three is a `rf/` surface.) | The epoch surface is the v2 mechanism for state capture and restore. Pre-alpha posture rejects v1 helpers that have a v2 replacement. |
 
 **Why:** each of these v1 surfaces had a v2-canonical equivalent that subsumed the use case (trace listeners, point-event tracing, fx-shaped lifecycle, run-to-completion drain, frame-level error policy, epoch-based capture/restore). Carrying the v1 names as separate documented entries created drift between the API table and the actual v2 surfaces.
 
@@ -1369,7 +1369,7 @@ As the third per-feature artefact split (Strategy B), Spec 012's routing surface
 
 **What to look for** in the codebase:
 
-- Any call to `re-frame.core/reg-route`, `re-frame.core/match-url`, or `re-frame.core/route-url`.
+- Any call to `re-frame.core/reg-route`, or to `match-url` / `route-url` under any spelling — the pre-split `re-frame.core/match-url` included. `reg-route` stays on the façade, but the two URL helpers do **not** (see **Public API** below), so a `re-frame.core/`-spelled helper call site is both a detection hit *and* a site to re-point at `re-frame.routing`.
 - Any dispatch of `:rf.route/navigate`, `:rf.route/transitioned`, `:rf.route/url-requested`, `:rf.route/handle-url-change`, `:rf.route/continue`, or `:rf.route/cancel`.
 - Any subscription to `:rf/route` or `:rf.route/{id,params,query,transition,error}`.
 - A direct `(:require [re-frame.routing])` clause.
