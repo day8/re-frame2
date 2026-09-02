@@ -84,8 +84,8 @@ Commits and PR title/body read as Mike Thompson's work. No `Co-Authored-By` / ge
 | Leaf | Anti-pattern | Canonical idiom |
 |------|--------------|-----------------|
 | `manual-retry-loops.md` | Hand-rolled HTTP retry (`setTimeout` + counters + back-off in handlers) | Managed HTTP (`:rf.http/managed` + `:retry`), Spec 014 |
-| `boolean-discriminator-subs.md` | 3+ boolean subs on one path acting as a hand-rolled FSM | Tags query layer, Spec 005 |
-| `manual-loading-flags.md` | `assoc :loading? true` / `dissoc` scattered across terminators | Nine States, `spec/Pattern-NineStates.md` |
+| `boolean-discriminator-subs.md` | 3+ boolean subs on one path acting as a hand-rolled FSM | One selector sub over the existing `:status` slice, `spec/Pattern-RemoteData.md`; the tags query layer and Spec 005 once a `slice-or-machine.md` tell fires |
+| `manual-loading-flags.md` | `assoc :loading? true` / `dissoc` scattered across terminators | Clear the flag on every terminator (the one-line repair), then a `:status` keyword, `spec/Pattern-RemoteData.md`; Nine States and `spec/Pattern-NineStates.md` once the lifecycle passes one axis |
 | `schemaless-events.md` | Boundary handler ingests untrusted payload with no production boundary validation — no always-on gate (the `:rf.schema/at-boundary` interceptor ref in metadata `:interceptors`, Managed HTTP `:decode`, or equivalent always-on Malli validator); dev-only `:schema` / `reg-app-schema` are not sufficient | Schemas at boundaries, Spec 010 |
 | `imperative-effects.md` | Direct JS / DOM interop inside a `reg-event` handler — effectful *writes* (storage/DOM/dispatch/timers) AND impure *reads* (`Date.now`, `Math.random`, storage reads, sub reads) | Writes → data-only fx (`reg-fx`, `spec/Conventions.md`); impure reads fork on durability — durable writes fold a recorded fact (declared `:rf/time-ms` / event payload / recordable cofx), diagnostics may use an ambient value-returning `reg-cofx` declared via `:rf.cofx/requires` (`cofx.md`; `inject-cofx` removed) |
 | `view-side-hook-state.md` | `reagent/atom` / `useState` holding non-render-local state | Move to `app-db` + `reg-sub`, `spec/Principles.md` |
