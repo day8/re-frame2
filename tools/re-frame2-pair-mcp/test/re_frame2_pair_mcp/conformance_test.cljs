@@ -96,9 +96,6 @@
 (defn- extract-edn [^js result]
   (some-> (extract-text result) edn/read-string))
 
-(defn- error? [^js result]
-  (true? (j/get result :isError)))
-
 ;; ---------------------------------------------------------------------------
 ;; Stub installation — `set!` the `nrepl/cljs-eval-value` var with an
 ;; async-friendly Promise-returning fn, restore in `.finally` once the
