@@ -38,9 +38,9 @@ the situation they cover:
 - [`re-frame2/`](re-frame2) — author re-frame2 ClojureScript
   application code. Events, subscriptions, effects, frames, state machines,
   schemas, stories, routing, and the 14 canonical patterns (RemoteData,
-  Resources, Forms, Boot, WebSocket, NineStates, ManagedHTTP, AsyncEffect,
-  LongRunningWork, StaleDetection, ReusableComponents, StatefulComponents,
-  FormAction, SSR-Loaders), with leaf content under `references/`,
+  Resources, ResourcesMutations, Forms, Boot, WebSocket, NineStates,
+  ManagedHTTP, AsyncEffect, LongRunningWork, StaleDetection,
+  ReusableComponents, StatefulComponents, FormAction), with leaf content under `references/`,
   `patterns/`, and `decision-trees/`.
 
 - [`re-frame2-setup/`](re-frame2-setup) — scaffold a fresh
