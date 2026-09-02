@@ -2,13 +2,21 @@
 
 ## When to load
 
-Reach for this leaf when a `:spawn`d child issues `:rf.http/managed` requests, holds a websocket, or owns any in-flight side effect — and the parent might decide to leave the `:spawn`-bearing state. The cleanup is automatic; this leaf tells you what is guaranteed and what to add by hand for non-HTTP side effects.
+Reach for this leaf when a `:spawn`d child issues `:rf.http/managed` requests, arms `:after` timers, holds `:rf.resource/*` entries, owns a websocket, or owns any in-flight side effect — and the parent might decide to leave the `:spawn`-bearing state. The cleanup is automatic for exactly **three** framework-managed resource kinds; this leaf tells you which three, and what to wire by hand for everything else.
 
-> **Mental model — think in xstate, map onto re-frame2.** In xstate, leaving an `invoke`-bearing state stops the invoked actor; re-frame2 keeps that intuition — leaving a `:spawn`-bearing state destroys the child — but the **abort cascade is richer and the mechanism differs**. There is no `ActorRef` to `.stop()` and no per-actor mailbox: the snapshot lives in the runtime-db partition (at `[:rf.runtime/machines :snapshots <id>]`), and a single destroy hook fires across every trigger (state exit, `:after` timeout, `:spawn-all` join resolution, frame teardown, imperative destroy), automatically aborting the actor's in-flight `:rf.http/managed` requests. re-frame2 uses **no `core.async`** in the cancellation path — for non-HTTP resources (websocket, timer, external stream) you wire cleanup into the child's `:exit` action, not a channel close. Sketch the lifecycle the xstate way, then lean on the exit cascade rather than an explicit teardown call.
+> **Mental model — think in xstate, map onto re-frame2.** In xstate, leaving an `invoke`-bearing state stops the invoked actor; re-frame2 keeps that intuition — leaving a `:spawn`-bearing state destroys the child — but the **abort cascade is richer and the mechanism differs**. There is no `ActorRef` to `.stop()` and no per-actor mailbox: the snapshot lives in the runtime-db partition (at `[:rf.runtime/machines :snapshots <id>]`), and a single destroy path fires across every trigger (state exit, `:after` timeout, `:spawn-all` join resolution, frame teardown, imperative destroy), automatically releasing the actor's in-flight `:rf.http/managed` requests, its armed `:after` timers, and its `:rf.resource/*` owners. But the binding is **narrower than xstate's**, which is substrate-agnostic and stops *whatever* the actor was doing: re-frame2 auto-releases exactly the three kinds the framework itself manages. re-frame2 uses **no `core.async`** in the cancellation path — for anything outside those three (a websocket, a raw `setInterval`, an external stream) you wire cleanup into the child's `:exit` action, not a channel close. Sketch the lifecycle the xstate way, then lean on the exit cascade rather than an explicit teardown call.
 
 ## The guarantee
 
-When the runtime destroys a spawned actor by **any** trigger, every in-flight `:rf.http/managed` request the actor had issued is aborted. The trigger list (Spec 005 §Cancellation cascade §The contract):
+When the runtime destroys a spawned actor by **any** trigger, it releases **exactly three framework-managed resource kinds** (Spec 005 §What auto-cancels on destroy):
+
+1. **In-flight `:rf.http/managed` requests** the actor issued — aborted via the abort hook below.
+2. **Armed `:after` timers** the actor scheduled — cancelled by `cancel-actor-timers!` on the same destroy path (`lifecycle-fx.destroy` / `lifecycle-fx.finalize`).
+3. **`:rf.resource/*` owners** the actor holds under its `[:machine <actor-id>]` owner — released by dispatching the existing `:rf.resource/release-owner` effect on the same destroy path, so the entry becomes owner-free (GC-eligible, polling stops) instead of refetching past the actor's death.
+
+All three fire on **every** destroy trigger. This is deliberately **narrower than xstate**, whose lifetime binding is substrate-agnostic — the framework releases what it manages and does not pretend to cancel an arbitrary fx. Everything else is yours, via the `:exit`-action substitute below.
+
+The trigger list (Spec 005 §Cancellation cascade §The contract):
 
 1. **Parent state exit** — any transition out of the `:spawn`-bearing state.
 2. **Parent's `:after` firing** — wall-clock timeout exits the state; same cascade as (1).
@@ -16,8 +24,12 @@ When the runtime destroys a spawned actor by **any** trigger, every in-flight `:
 4. **`:spawn-all` parent state exit** — symmetric to (1) but iterates every child the `:children` map tracks.
 5. **Imperative `[:rf.machine/destroy <actor-id>]`** from a user-authored action.
 6. **Frame destroy** — `frame.cljc`'s frame-exit walk destroys each surviving machine, firing the same hook per actor.
+7. **`:final?`-state auto-destroy** — a root-level `:final?` leaf tears its own actor down ("final means final"), through the same path.
 
-The hook is at `:http/abort-on-actor-destroy` (`re-frame.machines.lifecycle-fx.finalize` / `frame-destroy`); the http artefact registers the abort fn at ns-load time. When `re-frame.http.managed` is not on the classpath the hook resolves to nil and the destroy proceeds without HTTP-abort — apps that don't issue managed-HTTP requests pay nothing.
+Both the HTTP leg and the resources leg are **late-bound and pay-nothing-when-absent**, and each is guarded independently:
+
+- The HTTP hook is at `:http/abort-on-actor-destroy` (`re-frame.machines.lifecycle-fx.finalize` / `frame-destroy`); the http artefact registers the abort fn at ns-load time. When `re-frame.http.managed` is not on the classpath the hook resolves to nil and the destroy proceeds without HTTP-abort.
+- The resources leg dispatches `:rf.resource/release-owner` **by keyword** — `re-frame.machines` never `:require`s `re-frame.resources` — behind a `release-owner-registered?` guard (`lifecycle-fx.resource-release`). An app running machines **without** the resources artefact has no such handler, so the release is a **silent no-op** rather than an `:rf.error/no-such-handler` on every destroy. Kind 3 is therefore a guarantee *conditional on the resources artefact being loaded*, not an unconditional one.
 
 ## The abort surfaces
 
@@ -52,9 +64,11 @@ Three independent triggers all cause the same cleanup:
 
 The parent code never named the request-id, never threaded an abort handle. The child's lifetime IS the lifetime of the in-flight HTTP, and the standard exit cascade enforces it on every code path out of the state.
 
-## Cooperative cleanup for non-HTTP side effects
+## Cooperative cleanup for resources the framework does not manage
 
-The framework's automatic abort hook covers `:rf.http/managed`. For anything else a child holds — a websocket, a timer, a subscription on an external stream — wire your own cleanup into the child's `:exit` action. Two shapes:
+The three kinds above are released for you. **Any other resource a child actor holds is NOT auto-released** — a raw `setInterval` / `setTimeout` issued through a custom fx, a WebSocket subscription, an IndexedDB or streaming read, a Web Worker, a third-party SDK subscription. The framework cannot know how to cancel an arbitrary fx, so it does not pretend to. For those, wire your own cleanup into the child's `:exit` action. Two shapes:
+
+> **A declarative `:after` is NOT in this list — it is kind 2 and already cancelled for you.** Only a *raw* `setInterval` / `setTimeout` you issued yourself through a custom fx needs an `:exit`. Wiring an `:exit` to clear an `:after` is redundant work against something the runtime has already cancelled.
 
 ### `:exit` action on the leaf
 
@@ -90,6 +104,7 @@ If the value lives only in the child's `:data` and the child never reported it u
 
 ## Common gotchas
 
+- **Only the two-part `[:machine <actor-id>]` owner is auto-released.** A resource `ensure`d under `:owner [:machine <actor-id>]` — the runtime-derivable key, the registered machine-id for a singleton or the `<type>#<n>` for a spawned actor — is released on destroy. A **three-part** `[:machine <id> <instance>]` owner that folds a domain instance-id into the key is **app-authoritative**: the framework does not auto-release it, so it needs its own `:rf.resource/release-owner` (`lifecycle-fx.resource-release` docstring; Spec 016 §Release authority is per owner kind). Minting machine-owned owners under the two-part key is the whole reason the kind exists — see [`../../patterns/resources.md`](../../patterns/resources.md).
 - **Direct HTTP from a `reg-event` handler is not cancelled.** No actor → no actor-id → no abort. If lifecycle-bound abort matters, push the HTTP into a child machine via `:spawn`. The `:rf.http/managed` machine-shape wrapper exists for exactly this case (Spec 005 §Worked example — declarative login flow).
 - **Cleanup runs even when the child hasn't finished setup.** The auto-destroy hook fires on every exit cascade, including ones that fire before any HTTP succeeded. Your child's `:exit` action must tolerate the "we never made it past `:idle`" case.
 - **No `core.async` channels.** The framework does not use, depend on, or accept core.async in the cancellation path. If your child wraps a stream-shaped external API (a websocket, a Server-Sent Events feed), close the host handle directly from an `:exit` action — don't reach for `core.async/close!`.
@@ -99,7 +114,7 @@ If the value lives only in the child's `:data` and the child never reported it u
 
 ## Why one mechanism, not two
 
-The same hook fires across every destroy trigger — `:spawn` exit, `:spawn-all` exit, join-resolution sibling teardown, `:after` cascade, frame destroy, imperative destroy. There is no per-trigger HTTP-abort code path. Authors writing a `:spawn`-based child whose body fires `:rf.http/managed` get cleanup automatically, with no `:exit` action threading `:rf.http/managed-abort` calls per known `:request-id` (Spec 005 §Why one mechanism, not two).
+The same **destroy path** fires across every trigger — `:spawn` exit, `:spawn-all` exit, join-resolution sibling teardown, `:after` cascade, frame destroy, imperative destroy, `:final?` auto-destroy — and all three managed kinds (HTTP aborts, `:after`-timer cancellation, `:rf.resource/*` owner release) ride it. There is no per-trigger code path for any of them. Authors writing a `:spawn`-based child whose body fires `:rf.http/managed`, arms an `:after`, or `ensure`s a resource under `[:machine <actor-id>]` get cleanup automatically, with no `:exit` action threading `:rf.http/managed-abort` calls per known `:request-id` (Spec 005 §Why one mechanism, not two).
 
 ## Deeper material
 
