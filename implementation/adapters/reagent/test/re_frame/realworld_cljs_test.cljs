@@ -2,7 +2,9 @@
   "Integration test: drives the realworld (Conduit) example (rf2-4v73)
    feature by feature. Each helper spins a fresh frame via `make-frame`,
    drives a feature flow with a canned :rf.http/managed stub, and asserts
-   the resulting app-db / sub state.
+   the resulting app-db / sub state. The one row that uses NO canned stub is
+   the production-seam receipt at the bottom (rf2-k5lbd): managed HTTP wired
+   to the app's own demo backend, replies awaited rather than injected.
 
    The fixture fns + the canned-stub helpers live HERE (the adapter test
    tree), not under examples/real-apps/realworld_http/ — the example source stays
@@ -22,7 +24,7 @@
    load), and the restore on the way out leaves them intact for any
    subsequent test ns."
   (:require [clojure.string :as str]
-            [cljs.test :refer-macros [deftest testing use-fixtures is]]
+            [cljs.test :refer-macros [deftest testing use-fixtures is async]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
@@ -61,7 +63,12 @@
             ;; The `home-context` pure flattener (tags.cljs) exercised directly by
             ;; home-context-test (rf2-rq65wv).
             [realworld-http.tags :as tags]
-            [realworld-http.ssr :as ssr])
+            [realworld-http.ssr :as ssr]
+            ;; The shared demo backend the app's production `:rf.http/managed`
+            ;; override (`:realworld.demo/http-stub`, realworld-http.http) steps —
+            ;; for the pure "server truth" read the production-seam receipt at
+            ;; the bottom compares the settled slice against.
+            [realworld-shared.demo-backend :as demo])
   (:require-macros [re-frame.core :refer [with-new-frame]]
                    [re-frame.test-support :refer [with-trace-recorder!]]))
 
@@ -147,6 +154,11 @@
     ;; carry explicit `{:frame f}` or run inside the `with-new-frame` scope.
     {:adapter       reagent-adapter/adapter
      :ambient-frame nil
+     ;; Map-form (rf2-k5lbd): the production-seam receipt at the bottom is an
+     ;; `(async done …)` row — it awaits the demo backend's deferred replies —
+     ;; and cljs.test runs one only under a map fixture. Sync rows are served
+     ;; identically (re-frame.async-reset-fixture-cljs-test pins that).
+     :async?        true
      ;; rf2-h1vqa4: reinstate the sequestered per-app not-found route for
      ;; this suite's own tests (see the sequester def above).
      :init-fn       (fn []
@@ -2923,3 +2935,117 @@
 ;; duplicated per app. This app retains only the integration assertion above
 ;; (`paginate-path-integration-test`) proving its request builder threads that
 ;; shared contract through.
+
+;; ============================================================================
+;; THE PRODUCTION-SEAM RECEIPT — write, then load, against the demo backend the
+;; served app runs on (rf2-9n43e part B, rf2-k5lbd)
+;; ============================================================================
+;;
+;; Every stub above is a canned reply the test chose, which is the right tool
+;; for pinning what a handler does with a given reply and the wrong one for the
+;; claim the README makes: that a comment you post is still there when the page
+;; re-reads. rf2-9n43e found the shipped backend answering every later GET out
+;; of a frozen seed, and no test here could see it, because no test here let
+;; the backend answer.
+;;
+;; This receipt chooses nothing. The frame is wired the way `realworld.core/
+;; mount!` wires the served app (`:fx-overrides {:rf.http/managed
+;; :realworld.demo/http-stub}`), so the article page's own public events — the
+;; route's `:comments/load`, `:comment-form/submit`, and a later `:comments/load`
+;; — all go to the app's own `demo-state` world through the shared demo backend,
+;; and each reply comes back through the backend's own deferred path
+;; (`:after-ms` → `:dispatch-later`, a real 20 ms later). The test WAITS for the
+;; slice to settle rather than settling it.
+;;
+;; Async, and the fixture above is `:async? true` for this row: `cljs.test` runs
+;; an `(async done …)` body only under a map fixture, and the deferred reply is
+;; unreachable from a synchronous body (its first hop is an async router
+;; dispatch). `with-new-frame` is deliberately NOT used — it destroys the frame
+;; when the body RETURNS, before anything has settled — so the frame is a plain
+;; anon record and every dispatch names it.
+
+(def ^:private demo-user
+  "The demo world's one user, as `POST /users/login` issues them — the identity
+   the backend stamps on every write."
+  {:email "demo@conduit.dev" :token "stub.demo.jwt" :username "demo"
+   :bio "Canned demo user." :image ""})
+
+(defn- backend-comments
+  "What the demo backend would answer `GET /articles/<slug>/comments` with RIGHT
+   NOW — a pure read of the app's own world, no frame involved. This is the
+   server truth the receipt compares the settled slice against."
+  [slug]
+  (:comments
+    (:ok (second (demo/transition @rh/demo-state
+                                  {:request {:method :get
+                                             :url    (rh/full-url
+                                                       (str "/articles/" slug "/comments"))}})))))
+
+(deftest realworld-production-seam-receipt-a-comment-survives-a-later-load
+  (testing "examples/real-apps/realworld_http — against the app's PRODUCTION demo
+            backend, with no canned reply anywhere: the article route's own
+            :comments/load settles from the backend; :comment-form/submit POSTs
+            through the same seam and the saved comment replaces the optimistic
+            card; a LATER :comments/load through the normal public event still
+            has it — the write survived a later normal read"
+    (async done
+      ;; The documented reset boundary: this receipt's world, and nobody else's.
+      (reset! rh/demo-state (demo/fresh-state))
+      (let [f        (frame/make-anon-frame-record!
+                       {:initial-events [[:app/initialise]]
+                        :fx-overrides   {:rf.http/managed :realworld.demo/http-stub}})
+            slug     "hello-conduit"
+            comments #(rf/compute-sub [:comments/data] (rf/frame-state-value f))
+            status   #(rf/compute-sub [:comments/status] (rf/frame-state-value f))]
+        (rf/dispatch-sync [:article/initialise] {:frame f})
+        (rf/dispatch-sync [:comments/initialise] {:frame f})
+        (rf/dispatch-sync [:comment-form/initialise] {:frame f})
+        (rf/dispatch-sync [:auth/store-session demo-user] {:frame f})
+        ;; The article route's `:on-match` fires `:article/load` + `:comments/load`.
+        (rf/dispatch-sync [:rf.route/handle-url-change (str "/article/" slug)] {:frame f})
+        (is (= :loading (status))
+            "the route's own :comments/load is in flight against the demo backend")
+        (-> (test-support/poll-until
+              #(= :loaded (status))
+              {:label "the route's comments load settles from the demo backend"})
+            (.then (fn [_]
+                     (is (= [1] (mapv :id (comments)))
+                         "the first load is the backend's one seeded comment — nothing canned")
+                     (is (= (backend-comments slug) (comments))
+                         "…and equal to what the backend answers that GET with right now")
+                     ;; The page's own form: optimistic card now, POST through the seam.
+                     (rf/dispatch-sync [:comment-form/edit-field :body "great read"] {:frame f})
+                     (rf/dispatch-sync [:comment-form/submit] {:frame f})
+                     (is (= 2 (count (comments)))
+                         "the optimistic temp card is on screen before the backend answers")
+                     (is (str/starts-with? (str (:id (second (comments)))) "temp-")
+                         "…under its recordable temp-id")
+                     (test-support/poll-until
+                       #(= 1000 (:id (second (comments))))
+                       {:label "the POST settles from the demo backend and the saved comment replaces the temp card"})))
+            (.then (fn [_]
+                     (is (= "" (:body (rf/compute-sub [:comment-form/draft] (rf/frame-state-value f))))
+                         "the form reset on save")
+                     ;; A LATER LOAD through the normal public event — the page re-reading.
+                     (rf/dispatch-sync [:comments/load] {:frame f})
+                     (is (= :fetching (status))
+                         "a same-slug re-load keeps the list up while it refreshes")
+                     (test-support/poll-until
+                       #(= :loaded (status))
+                       {:label "the later load settles from the demo backend"})))
+            (.then (fn [_]
+                     (is (= [1 1000] (mapv :id (comments)))
+                         "the later load still has the comment just written — the write survived a later normal read, and the id is the backend's deterministic one")
+                     (is (= "great read" (:body (second (comments))))
+                         "the body is the one the form submitted")
+                     (is (= "demo" (-> (comments) second :author :username))
+                         "the backend stamped the world's one user as the author")
+                     (is (= (backend-comments slug) (comments))
+                         "the slice is at the backend's CURRENT truth — the later read consulted the state the write landed in, not a seed")
+                     (is (= 2 (count (get-in @rh/demo-state [:comments slug])))
+                         "the write landed in this app's own world")))
+            ;; Report and release; `done` runs once, in the one trailing step.
+            (.catch (fn [e]
+                      (is false (str "production-seam receipt did not settle: " (.-message e)))
+                      nil))
+            (.then (fn [_] (done))))))))
