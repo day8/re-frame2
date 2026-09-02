@@ -507,8 +507,9 @@ post-split; the monorepo carries a pointer at most.
 
 ## §7 Cross-references
 
-- [003-DepsNew-Rebuild-Plan.md](003-DepsNew-Rebuild-Plan.md) §4 —
-  the parent migration plan; this doc owns §4.3.
+- The deps-new rebuild plan (the former `003-DepsNew-Rebuild-Plan.md`,
+  a completed migration record now kept in git history) §4 — the
+  parent migration plan; this doc owns §4.3.
 - [`tools/template/README.md`](../README.md) — the template's
   user-facing README, updated to reference the future external
   location.
