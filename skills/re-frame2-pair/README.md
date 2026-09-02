@@ -97,7 +97,7 @@ Here's the kinds of conversations you can have with Claude.
 
 > **You**: Tell me about every `:checkout/*` event as I click through.
 >
-> **Claude**: *(starts a recorder, then reads it back between your clicks — every observation arrives as a completed tool result)* — I'll `record` now; after each step I'll `read-recording` and pull the matching epochs with `watch-epochs` (pred `:event-id-prefix ":checkout"`, `since-id` from the last pull), narrating each one with its effect cascade.
+> **Claude**: *(polls between your clicks — every observation arrives as a completed tool result)* — after each step I'll call `watch-epochs` with pred `:event-id-prefix ":checkout/"`, passing the previous response's `:head-id` as `since-id` so each poll returns only what's new, and narrate each epoch with its effect cascade. (If what you want watched is a *value* rather than events — an app-db path, a sub, a DOM node's text, the focus slot — that's `record` + `read-recording`, which take those signals by name.)
 
 ### Hot-swap a handler mid-session
 
