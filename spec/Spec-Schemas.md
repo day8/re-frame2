@@ -4576,14 +4576,25 @@ The host-agnostic conformance fixture format. Per [conformance/README.md](confor
    ;; that ordering). Each op carries EXACTLY ONE of the four
    ;; commit-plane effect keys; each value is a vector of `:rf/path`
    ;; vectors. The harness applies them in order.
+   ;;
+   ;; EXACTLY ONE is ENFORCED, as a closed four-way `:or` of
+   ;; single-required-key maps rather than one open map of optional
+   ;; entries. The open form admitted `{}`, admitted several axes at once,
+   ;; and admitted arbitrary unknown keys — and the harness applies these
+   ;; ops through a PRIORITY-ORDERED `cond`, so a multi-axis op would have
+   ;; silently applied only its first arm while an empty or unknown-key op
+   ;; applied nothing at all. A fixture author writing two axes got one,
+   ;; with no error. Each arm is `{:closed true}`, which is what refuses
+   ;; the second axis and the unknown key; requiring the arm's own key is
+   ;; what refuses the empty map.
    [:fixture/classification-effects
     {:optional true}
     [:vector
-     [:map
-      [:sensitive       {:optional true} [:vector [:vector :any]]]
-      [:large           {:optional true} [:vector [:vector :any]]]
-      [:clear-sensitive {:optional true} [:vector [:vector :any]]]
-      [:clear-large     {:optional true} [:vector [:vector :any]]]]]]
+     [:or
+      [:map {:closed true} [:sensitive       [:vector [:vector :any]]]]
+      [:map {:closed true} [:large           [:vector [:vector :any]]]]
+      [:map {:closed true} [:clear-sensitive [:vector [:vector :any]]]]
+      [:map {:closed true} [:clear-large     [:vector [:vector :any]]]]]]]
 
    ;; `true` marks a fixture asserting a RUNTIME validation trace that a
    ;; statically-typed host claiming schemas through its type system

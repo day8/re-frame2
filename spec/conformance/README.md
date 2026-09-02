@@ -602,7 +602,7 @@ Each op-map carries exactly one of the four commit-plane effect keys — `:sensi
 
 The corpus is host-agnostic pure-data event/sub/fx semantics. Render-time observables — React-context propagation through `frame-provider`, Reagent reactivity, component lifecycle, and the like — are not currently expressible as fixtures because the corpus has no render capability and no harness side that mounts a component tree to capture what happens during render. These behaviours are verified by host-side unit tests instead (for example `runtime_cljs_test.cljs` covers `frame-provider`'s establish-context and nested-override behaviour for the CLJS reference).
 
-If a port (CLJS, JVM SSR, future hosts) needs to claim conformance for render-time behaviour, this README will grow a `:reagent/render` (or equivalent) capability tag and a host-side fixture runner that mounts the fixture's tree and captures the observable. Tracked as future work — see bead `` for context.
+If a port (CLJS, JVM SSR, future hosts) needs to claim conformance for render-time behaviour, this README will grow a `:reagent/render` (or equivalent) capability tag and a host-side fixture runner that mounts the fixture's tree and captures the observable. That is future work; no fixture in the corpus claims a render capability today.
 
 ## Cross-references
 
