@@ -7,8 +7,8 @@ Phase 2 is one repeatable loop over the EP index below, driven by the **pinned o
 Before, or alongside, the first foundation slice, build the smallest harness seam that can run one fixture end to end. The corpus contract is [`spec/conformance/README.md`](https://day8.github.io/re-frame2/spec/conformance/); the operational walk is [`conformance.md`](conformance.md).
 
 - **Read the corpus at the pin.** An EDN reader is ~200 lines in any host with maps and vectors, or translate the corpus locally as part of bootstrap.
-- **Enumerate, don't transcribe.** Fixture ids, capability tags, handler-DSL ops, and Mode-B `:call` ops are all facts of the corpus at the pin — the greps are in [`conformance.md`](conformance.md).
-- **Fail loud on the unknown.** An unrecognised `:fixture/spec-version`, a capability in neither the claim nor the `known-skipped` allowlist, an unknown handler-DSL op, an unknown Mode-B `:call` op — each fails the run with a diagnostic naming it, never a silent skip.
+- **Enumerate, don't transcribe.** Fixture ids, capability tags, handler-DSL ops, Mode-B `:call` ops, and the top-level `:fixture/*` key set are all facts of the corpus at the pin — the greps are in [`conformance.md`](conformance.md).
+- **Fail loud on the unknown.** An unrecognised `:fixture/spec-version`, a capability in neither the claim nor the `known-skipped` allowlist, an unknown handler-DSL op, an unknown Mode-B `:call` op, a top-level `:fixture/*` key the harness does not implement — each fails the run with a diagnostic naming it, never a silent skip.
 - **Grow op-by-op.** Implement handler-DSL and Mode-B operators as live fixtures require them. Do not invent a generated fixture-translation layer or a cross-host compatibility package.
 
 A loop-step-4 slice may report "not run" only while this seam does not yet exist — and the seam lands with the first foundation EP, so successive EPs landed on "no port script yet" is exactly the failure mode this step prevents.

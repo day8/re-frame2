@@ -13,11 +13,14 @@ EDN fixtures, one canonical interaction each, in two modes (README §Fixture for
 
 ```bash
 ls spec/conformance/fixtures/*.edn | wc -l                                        # fixture count
+grep -rhoE '^\{? ?:fixture/[a-z0-9?-]+' spec/conformance/fixtures/ | tr -d '{ ' | sort -u  # top-level fixture keys
 grep -rhoE ':call\s+:[a-z][a-z.]*[a-z/-]*' spec/conformance/fixtures/ | sort -u   # Mode-B call ops
 grep -rho ':fsm/[a-z-]*' spec/conformance/fixtures/ | sort -u                     # one family's live tags
 grep -rl ':fixture/dynamic-host-only?' spec/conformance/fixtures/                 # static-host-inapplicable fixtures
 grep -rhoE ':fixture/spec-version\s+"[^"]*"' spec/conformance/fixtures/ | sort -u # spec versions in play
 ```
+
+The **line anchor** in the key grep is load-bearing, not tidiness. Fixtures also register, dispatch, and handle **event ids in the `:fixture/` namespace** (a fixture that needs a marker event registers one under `:fixture/registry`), and those are values inside the map, not keys of it — an unanchored `:fixture/*` search returns them mixed in with the real keys, and also picks up mentions inside `:fixture/doc` strings and `;;` commentary. Both are false positives for the key floor below: build it against an id and a conforming fixture fails. Anchoring on the top-level map's own keys is the discriminator; once the harness has parsed the fixture, take the key set from the parsed map and skip the text search entirely.
 
 New pure primitives may register a new `:call` op in a later fixture spec version; existing ops are never redefined. A harness that hard-codes a stale list will fail current fixtures or misdiagnose a harness gap as a spec gap.
 
@@ -25,12 +28,15 @@ New pure primitives may register a new `:call` op in a later fixture spec versio
 
 [README §How an implementation runs the corpus](https://day8.github.io/re-frame2/spec/conformance/#how-an-implementation-runs-the-corpus) is the contract. The shape: read every fixture; filter (host-applicability first, then capability subset); bootstrap the registry; realise handler bodies via the DSL; create the frame; run the dispatches or calls; capture observables and compare; report per-fixture plus the aggregate `passed / claimed-applicable`.
 
-Four fail-loud floors the harness owes:
+Five fail-loud floors the harness owes:
 
 - **Spec version.** Reject a `:fixture/spec-version` the harness hasn't moved with (README §Versioning) — never silently run a mismatched fixture.
 - **Unknown capability.** A fixture capability in neither the claim nor the `known-skipped` allowlist FAILS the suite with a diagnostic naming it (§The two out-of-claim flavours below).
 - **Unknown op.** An unrecognised handler-DSL op or Mode-B `:call` op fails with a diagnostic naming it; then either grow the interpreter (the designed path) or file the corpus gap (rules 8–9).
+- **Unknown top-level fixture key.** A `:fixture/*` key of the fixture map the harness does not implement fails the run naming it. This is the quietest of the five and the reason it is here: the corpus grows setup and expectation keys ahead of the README's §Fixture format, so a harness that reads only the keys it recognises drops a fixture's setup or its expectation on the floor and reports a **pass** — an expectation that was never checked. Derive the live key set at your pin (the grep above); read §Fixture format as a description, never as a closed list.
 - **Non-vacuous run.** Assert a non-zero runnable-fixture floor — an empty or all-skipped corpus goes RED, never green having exercised nothing.
+
+The middle three are one rule at three depths — capability, operator, key — and all three exist because the README states the principle for capabilities: *"a harness that silently skips unknown capabilities is the shape the spec forbids"* (§Capability tagging). Nothing is special about capabilities there; a silently-skipped key is the same failure wearing a green tick.
 
 Handler bodies are data: a small DSL (`[:set path value]`, `[:update path [:fn op]]`, `[:get path]`, `[:dispatch event]`, …) realised into host closures — ~50 lines, the complete op table in the README. The CLJS reference's interpreter (`implementation/core/src/re_frame/conformance.cljc`) is one worked example, not a contract.
 
