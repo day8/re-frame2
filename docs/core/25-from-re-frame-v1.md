@@ -139,6 +139,8 @@ Fix at the root: ensure a frame and scope the tree to it. The usual shape is `fr
 
 ```clojure
 ;; Prefer: named seed event(s) on frame-root (same pipeline as every later change)
+;; `app-root` is the client-root handle; `main-view` is your application's
+;; root view — two different things, so give them two different names.
 (defonce app-root (reagent-adapter/client-root))
 (def el (js/document.getElementById "app"))
 
@@ -146,7 +148,7 @@ Fix at the root: ensure a frame and scope the tree to it. The usual shape is `fr
   [rf/frame-root {:id :app/main
                   :initial-events [[:app/initialise]   ;; reg-event that returns {:db …}
                                    [:boot]]}
-   [app-root]]
+   [main-view]]
   el)
 
 ;; Also fine: pre-create, then scope — e.g. when boot is outside React
@@ -154,7 +156,7 @@ Fix at the root: ensure a frame and scope the tree to it. The usual shape is `fr
                 :initial-events [[:app/initialise] [:boot]]})
 (reagent-adapter/render! app-root
   [rf/frame-provider {:frame :app/main}
-   [app-root]]
+   [main-view]]
   el)
 ```
 

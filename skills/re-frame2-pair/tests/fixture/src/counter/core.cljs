@@ -13,8 +13,7 @@
  `data-rf2-source-coord` attribute on every registered-view root, so it is
  present on the rendered DOM here — re-frame2-pair's DOM ↔ source bridge depends
  on it (Tool-Pair §Source-mapping, Spec 006 §Source-coord annotation)."
- (:require [reagent.dom.client :as rdc]
- [re-frame.core :as rf]
+ (:require [re-frame.core :as rf]
  [re-frame.views]
  [re-frame.adapter.reagent :as reagent-adapter])
  (:require-macros [re-frame.core :refer [reg-view]]))
@@ -63,8 +62,10 @@
 
 ;; -- Mount --------------------------------------------------------------------
 
-(defonce root
- (rdc/create-root (js/document.getElementById "app")))
+;; The adapter owns the React root. `client-root` allocates an inert handle —
+;; no DOM work at namespace load — and the first `render!` through it creates
+;; the root every later render reuses.
+(defonce app-root (reagent-adapter/client-root))
 
 (defn ^:export run []
  ;; Source-coord DOM annotation is automatic in debug builds (mandatory per
@@ -82,4 +83,6 @@
  (rf/make-frame {:id :rf/default})
  (rf/with-frame :rf/default
   (rf/dispatch-sync [:counter/initialise]))
- (rdc/render root [rf/frame-provider {:frame :rf/default} [counter-app]]))
+ (reagent-adapter/render! app-root
+  [rf/frame-provider {:frame :rf/default} [counter-app]]
+  (js/document.getElementById "app")))

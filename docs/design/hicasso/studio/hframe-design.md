@@ -263,10 +263,17 @@ Hicasso arm error id is catalogued there**: `git grep 'rf.error/hicasso' -- spec
 is empty, which is what HD-017's bench-lane residence implies. So no catalogue
 row is owed, and the question reopens if and when the arm graduates.
 
-**The provisional id did not leak.** `:rf.error/ambient-frame-refused` is written
-in exactly one place in the new work — nowhere. The carry rows pin *"the same id
-an ambient read gets"*, taken live from a sibling row, so `rf2-k0rbk`'s rename
-touches the one pre-existing anchor rather than five new sites.
+**The provisional id did not leak, and the id is now settled.**
+`:rf.error/ambient-frame-refused` is written in exactly one place in the new
+work — nowhere. The carry rows pin *"the same id an ambient read gets"*, taken
+live from a sibling row. That indirection was first argued as rename economy,
+against a rename `rf2-k0rbk` might have ordered; `rf2-k0rbk` closed on
+2026-08-06 confirming the spelling stands, so no rename is coming and that
+argument is discharged. The indirection stays on the reason that outlives it:
+these rows assert that a carry and a read refuse *identically*, so reading the
+id live from the sibling row is what makes the agreement the property under
+test — two independent literals would assert two constants and could not see
+them drift apart. §9 item 2 records the settled contract.
 
 **W7 could not be built when this record was first written, and that was not a
 shortfall.** The row needs the `[:>]` value-first door, and `front/codec.cljs`
@@ -308,10 +315,14 @@ is `rf2-nqj22`. It is also how the SSR rows were grounded: the shared test fixtu
 root-binds `*current-frame*` to `:rf/default`, so the SSR witnesses opt out with
 `:ambient-frame nil` rather than measure the fixture.
 
-**Spec 009's catalogue row for the refusal is behind the code** — it enumerates
-`:operation` as `(:dispatch / :subscribe)`, and at least `:capture-frame` and
-`:current-frame-id` also reach `require-current-frame!`. Filed as `rf2-e28wl`,
-to sequence with `rf2-k0rbk`.
+**Spec 009's catalogue row for the refusal was behind the code, and has caught
+up.** It enumerated `:operation` as `(:dispatch / :subscribe)` when at least
+`:capture-frame` and `:current-frame-id` also reach `require-current-frame!`.
+Filed as `rf2-e28wl`, closed 2026-08-05 and fixed in PR #7533: the row now
+states the rule instead of a list — the category is defined by the DOOR, and
+`:operation` is documented as an OPEN set rather than a closed pair. Nothing is
+left to sequence against `rf2-k0rbk`, which closed the following day leaving the
+id unchanged.
 
 **The guide half is still owed.** §10's guide bullet was fenced out of the
 implementation PR — a rename was landing in `draft-guide/` at the time — so the
@@ -341,8 +352,15 @@ tip, as its own entry now records; (3) stands.*
    stability rule in `implementation/hicasso/spec/complaints.md` closes the
    question outright: an id names one refusal and is never re-spelled or reused.
    Guide text naming it is no longer blocked. *(This item previously held the id
-   PROVISIONAL pending a rename under `rf2-k0rbk`; no such bead exists in the
-   tracker, and the rename it anticipated is one the stability rule forbids.)*
+   PROVISIONAL pending a rename under `rf2-k0rbk`. That marker was a DISCHARGED
+   promise, not a dangling one: `rf2-k0rbk` — "confirm or rename the provisional
+   error id" — was a real bead, and it closed on 2026-08-06 answering
+   **confirm**, so the rename never came. It has since been garbage-collected
+   out of the live tracker, which is why `bd show rf2-k0rbk` now finds nothing;
+   absence from the tracker is not evidence a bead never existed, and existence
+   is decidable in the git history of `.beads/issues.jsonl` rather than in the
+   tracker. The rename it anticipated is in any case one the stability rule
+   forbids.)*
 3. **The name `h/frame` is unfrozen**, as `h/root!` is.
 4. **A diagnostic gap `rf2-2rtt6.122` opened, which is arguably a small bug of its
    own.** The arm's refusal detail is written for the two doors it was aimed at —
