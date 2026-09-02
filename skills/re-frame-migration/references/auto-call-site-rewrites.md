@@ -24,6 +24,7 @@ Neither per-file confirmation nor a second acknowledgement is required — the a
 - Test-layer v1 API to v2 mapping (M-25 / M-26 / M-64 / M-73 — the test/fixture-layer sweep target, in one place)
 - reg-sub flat-sub sugar removed (`:->` / `:=>` desugaring — no `M-N` id)
 - Effect-map consolidation (M-8)
+- Effect-handler arity (M-51 — unary `reg-fx` handler → binary; Type A but **silent-fail**)
 - Dispatch-shape rewrites (M-4, M-9, M-16)
 - Event-registration collapse (M-73 — the `reg-event` codemod)
 
@@ -387,6 +388,35 @@ The single highest-impact mechanical rewrite. The transformation is structural.
 **Edge case → flag**: an unknown top-level key. Could be a destructure or a typo'd fx-id.
 
 **Why a missed custom fx is a silent break** — a registered fx left as a *top-level* key (instead of inside `:fx`) is not part of v2's closed `{:db … :fx …}` effect map; the runtime drops that one key at the commit boundary and emits a **dev-only** `:rf.error/effect-map-shape` trace entry. `:db` and `:fx` still commit and the cascade runs — but the dropped fx's side-effect (and any cascade it would have triggered) silently never happens. It does **not throw** and prints **no console warning**, and in a production build the trace emit is dead-code-eliminated, so there is zero diagnostic. The shape is valid, so the compile is clean, and a boot smoke-test misses it unless that fx fires on the boot path. The only catch is a `dispatch-sync`-then-observe test that asserts the fx's *own* effect occurred (e.g. read the `app-db` value its downstream event writes) — note that re-reading only the `:db` write passes, because `:db` commits regardless. This is why step 1 enumerates the app's own fx ids: an unrecognised custom top-level key is exactly this silent miss.
+
+---
+
+## Effect-handler arity (M-51)
+
+The other half of the effect-side sweep: M-8 moves effects *into* `:fx`, M-51 fixes the **handlers** that receive them. Every v2 fx handler is **binary** — the unary v1 form and the arity-detect shim behind it are cut, so every app that registered its own `reg-fx` (custom `:datadog/log`, toasts, analytics, and the `http-fx` / `async-flow-fx` shims) has sites here.
+
+```clojure
+;; SEARCH — a reg-fx whose handler is a one-arg fn literal
+(rf/reg-fx :http-xhrio
+  (fn [request] ...))                ;; unary v1
+
+;; REWRITE — prepend an unused first parameter
+(rf/reg-fx :http-xhrio
+  (fn [_ request] ...))              ;; binary; `m` ignored
+```
+
+Sweep shape (`rg -U`, because the `fn` sits on the line *after* `reg-fx` — a line-oriented grep misses every hit):
+
+```bash
+rg -U 'reg-fx[^\n]*\n[^\n]*\(fn \[[a-zA-Z_-]+\]'
+```
+
+**This is Type A but SILENT-fail, so grep exhaustively up front — never march the wall.** A unary handler parses and compiles fine; on CLJS there is no arity check, so v2's context-map binds to `args` and the real fx args are **silently dropped**. Details on the failure-visibility axis: [`breaking-changes.md` §Failure-visibility axis](breaking-changes.md#failure-visibility-axis--loud-fail-vs-silent-fail-orthogonal-to-type-ab); sequencing position is [`sequencing.md`](sequencing.md) row 14a.
+
+**Two things the blanket `_`-prepend gets wrong — check both before rewriting:**
+
+1. **Cross-file direct callers.** A converted fx handler often doubles as a plain fn (`log!`, `track!`) called directly by other namespaces. Re-arity-ing the fn silently breaks every one of them. Grep for callers outside the handler's own file; if there are any, **wrap instead of re-arity** — `(rf/reg-fx :id (fn [_ req] (existing-fn req)))`. The full statement of this hazard is the M-51 cross-file-caller note in [`breaking-changes.md` §Failure-visibility axis](breaking-changes.md#failure-visibility-axis--loud-fail-vs-silent-fail-orthogonal-to-type-ab).
+2. **Async handlers need the frame, not just the arity.** The ignore-`m` rewrite is correct for sync-only handlers. A handler that dispatches from an async callback should take `m` and capture the frame — `(rf/capture-frame (:frame m))` — per [`MIGRATION.md` §M-51](../../../migration/from-re-frame-v1/README.md#m-51-reg-fx-handlers-are-binary--rewrite-unary-handlers-to-take-an-unused-first-arg), which carries the full before/after and the rationale.
 
 ---
 
