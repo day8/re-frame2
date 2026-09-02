@@ -73,6 +73,30 @@ Two SSR surfaces are deliberately test-shaped:
 
 A JVM drain **is** a server-side drain. So when a handler under test returns a `#{:client}` effect — a `localStorage` write, a focus call — the resolver skips it in your test exactly as it will in production SSR, emitting the `:rf.fx/skipped-on-platform` trace instead of exploding on a missing `js/localStorage`. That means your existing pipeline-run tests already prove your handlers are server-safe; a handler that *would* crash a server render crashes the JVM test first, which is precisely where you want to hear about it.
 
+## 5. The Node renderer is a fn, so most of it tests on the JVM
+
+If you render on a [Node sidecar](concepts.md#render-on-node), the seam that
+gets you there is one construction opt holding a plain fn — so the two things
+most likely to be wrong are both reachable without starting a second process.
+
+**Renderer selection.** `:renderer` takes any
+`(fn [{:keys [frame-id request opts]}] → {:body-html … :render-hash …})`, so a
+handler test can hand it a stub that returns a fixed string and assert that the
+JVM's half of the page — the `<head>`, `__rf_payload`, the shell, the status and
+the cookies — is assembled around it correctly. That is the whole ownership line
+under test, with no sidecar in the room.
+
+**Construction validation.** `re-frame.ssr.ring.node/renderer` validates its
+opts at construction, so a malformed endpoint, entry, build id or timeout throws
+`:rf.error/ssr-node-renderer-opt-invalid` at boot — pinned by the discriminator,
+exactly as in §3 above.
+
+What genuinely needs both runtimes is the crossing itself, and the repo carries
+it rather than asking you to: the `jvm-node-crossing` CI job launches the real
+sidecar against a plain fixture render module and drives one `JVM → Node → JVM`
+request end to end, covering a refusal and a deadline arm as well as the success
+arm. Your own suite is better spent on the stub above.
+
 ## What stays in the browser
 
 Two SSR behaviours can't run on the JVM, and the honest move is to test them where they live:

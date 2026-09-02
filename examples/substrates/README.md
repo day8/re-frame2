@@ -48,6 +48,30 @@ honest:
   `login.model` drags in no view library or adapter
   (`implementation/scripts/check-login-bundle-isolation.cjs`).
 
+### The Hicasso arm also renders on a server
+
+The Hicasso login carries a fourth file the other two arms do not:
+[`hicasso/login/server.cljs`](hicasso/login/server.cljs), a `:node-library`
+build (`examples/login-hicasso-server`) that publishes the render module the
+[`ssr-node`](../../implementation/ssr-node/README.md) sidecar loads, plus
+[`hicasso/login/host.clj`](hicasso/login/host.clj), the JVM Ring handler that
+dials it. Together they are the product witness for the ssr-node crossing
+(`rf2-8arzr`) — a native Hicasso root rendered on Node while the JVM keeps the
+request, the `<head>`, the payload and the shell.
+
+Two things it is worth knowing before opening them. The **entry allowlists in
+the bundle and the `:render-state` policy in the host are the same list read by
+two processes**, which is the clearest illustration on the tree of why render
+state is a separate policy from the hydration payload — the server notice the
+page renders is deliberately in one and not the other. And `host.clj` is
+**wiring rather than a running server**: a JVM host must load the shared
+`login.model`, which is ClojureScript-only today, so the crossing it describes
+is exercised end to end by the CLJS test rather than by starting this file. Its
+own docstring says so and says why.
+
+The recipe these two files illustrate is
+[Render on Node](../../docs/ssr/concepts.md#render-on-node).
+
 ## Running any of them
 
 From `implementation/`:
