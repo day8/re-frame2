@@ -129,6 +129,59 @@
   `dispatch-sync` handler (rf2-0c23j)."
   (:flush-views! spine-fns))
 
+;; ---- the client root ------------------------------------------------------
+;;
+;; rf2-k5r9t. A browser boot needs one React Root for the life of the page:
+;; created (or hydrated) once, re-rendered on every hot reload, released on
+;; teardown. `client-root` + `render!` + `unmount!` give it that without a
+;; caller-owned raw Root or a create/hydrate branch, and the Root they manage
+;; is tracked by the SAME active-root ownership as the one-shot substrate
+;; `render` slot, so `rf/destroy-adapter!` releases it too. The trio lives in
+;; the shared ratom spine; reagent-slim re-exports the same three names.
+
+(def client-root
+  "Allocate an inert client-root handle. No DOM work — safe at namespace
+  load under a `defonce`, in tests, and on Node. The React Root is created
+  (or hydrated) by the first `render!` through it:
+
+      (defonce app-root (reagent-adapter/client-root))
+
+      (defn ^:dev/after-load mount! []
+        (when-let [el (js/document.getElementById \"app\")]
+          (reagent-adapter/render! app-root
+            [rf/frame-root {:id :rf/default :initial-events [[:app/initialise]]}
+             [app-view]]
+            el)))
+
+  The handle is opaque: hold it, hand it to `render!` and `unmount!`, and
+  nothing else. Returns the handle."
+  (:client-root spine-fns))
+
+(def render!
+  "Render `render-tree` (hiccup) through the client-root `handle` at the DOM
+  element `mount-point`. Returns nil.
+
+      (render! handle render-tree mount-point)
+      (render! handle render-tree mount-point {:hydrate? true})
+
+  The first call creates the React Root at `mount-point` and renders into
+  it — or, with `{:hydrate? true}`, hydrates the server-rendered markup
+  already inside `mount-point` (once; Spec 011). Every later call updates
+  that same Root with the new tree: no second `create-root`, no second
+  hydration. That is what makes the one call both the boot path and the
+  `^:dev/after-load` hook. `mount-point` is read on the first call only.
+
+  Backed by the adapter's active-root ownership: `rf/destroy-adapter!`
+  releases a Root this handle still holds, exactly once, and a `render!`
+  after that mounts afresh."
+  (:render-client-root! spine-fns))
+
+(def unmount!
+  "Unmount the React Root `handle` holds and return the handle to inert.
+  Idempotent: a second call, or a call after `rf/destroy-adapter!` has
+  already released the Root, does nothing. Returns nil."
+  (:unmount-client-root! spine-fns))
+
 (def adapter
   "The Reagent adapter map. Pass to `(rf/init! ...)` to install:
 
