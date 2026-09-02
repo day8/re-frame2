@@ -81,11 +81,11 @@ The table is **complete by gate**: `scripts/check_skill_mcp_drift.py` cross-chec
 | `read-sub` | `{sub, frame?}` — validated, elided one-shot subscription read | [`ops.md` §Read](ops.md#read) |
 | `list-subscriptions` | `{frame?, include-values?}` — the live reactive sub-cache for a frame | [`ops.md` §Read](ops.md#read) |
 | `eval-cljs` | `{form, frame?, await?, timeout-ms?}` — CLJS eval; frame-scopes via `with-frame` | [`ops.md` §Write](ops.md#write) |
-| `read-ui` | `{view-id \| point \| selector}` (exactly one) — rendered subtree + producing entity | [`ops.md` §ui/read](ops.md#view--rendered-content--producing-entity-uiread) |
-| `read-dom` | `{selector, sub-selector?, attrs?, max-text?, limit?}` — raw DOM by CSS selector | [`ops.md` §read-dom](ops.md#read-dom--raw-dom-content-by-explicit-css-selector) |
-| `read-mounted-boundaries` | `{build?, max-tokens?}` — every Hicasso boundary mounted right now, keyed by its read set; no `view-id` arg | [`ops.md` §Hicasso evidence](ops.md#hicasso-evidence--mounted-boundaries-read-attribution-render-cause) |
-| `read-read-attribution` | `{build?, max-tokens?}` — the reverse edge: which boundaries read each subscription | [`ops.md` §Hicasso evidence](ops.md#hicasso-evidence--mounted-boundaries-read-attribution-render-cause) |
-| `explain-render` | `{build?, max-tokens?}` — which of a boundary's reads moved, plus retained runs as leads | [`ops.md` §Hicasso evidence](ops.md#hicasso-evidence--mounted-boundaries-read-attribution-render-cause) |
+| `read-ui` | `{view-id \| point \| selector}` (exactly one) — rendered subtree + producing entity | [`screen-reads.md` §ui/read](screen-reads.md#view--rendered-content--producing-entity-uiread) |
+| `read-dom` | `{selector, sub-selector?, attrs?, max-text?, limit?}` — raw DOM by CSS selector | [`screen-reads.md` §read-dom](screen-reads.md#read-dom--raw-dom-content-by-explicit-css-selector) |
+| `read-mounted-boundaries` | `{build?, max-tokens?}` — every Hicasso boundary mounted right now, keyed by its read set; no `view-id` arg | [`screen-reads.md` §Hicasso evidence](screen-reads.md#hicasso-evidence--mounted-boundaries-read-attribution-render-cause) |
+| `read-read-attribution` | `{build?, max-tokens?}` — the reverse edge: which boundaries read each subscription | [`screen-reads.md` §Hicasso evidence](screen-reads.md#hicasso-evidence--mounted-boundaries-read-attribution-render-cause) |
+| `explain-render` | `{build?, max-tokens?}` — which of a boundary's reads moved, plus retained runs as leads | [`screen-reads.md` §Hicasso evidence](screen-reads.md#hicasso-evidence--mounted-boundaries-read-attribution-render-cause) |
 | `dispatch` | `{event, sync?, frame?, trace?, await-render?, settle?, queued?, fx-overrides?, cofx?}` | [`ops.md` §Write](ops.md#write) |
 | `dispatch-dry-run` | `{event, frame?, cofx?}` — simulate WITHOUT committing; a caller `fx-overrides` is refused (`:reason :fx-overrides-unsupported`); not `--allow-writes`-gated | [`ops.md` §Write](ops.md#write) |
 | `restore-epoch` | `{epoch-id, frame?}` — canonical time-travel undo; `--allow-writes`-gated | [`ops.md` §Time-travel](ops.md#time-travel-epoch-restore) |

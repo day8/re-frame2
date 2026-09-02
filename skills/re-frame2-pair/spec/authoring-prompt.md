@@ -30,7 +30,8 @@ A self-contained prompt that re-authors the `re-frame2-pair` skill from this `sp
 > ├── package.json                        (npm metadata)
 > ├── .claude-plugin/plugin.json          (Claude Code plugin metadata)
 > ├── references/
-> │   ├── ops.md                          (op catalogue — read/write/trace/DOM/watch/hot-reload/time-travel + v1 surface-map; hot-reload protocol lives here as a section)
+> │   ├── ops.md                          (op catalogue — read/write/trace/watch/hot-reload/time-travel + v1 surface-map; hot-reload protocol and the v1 map live here as sections and MUST NOT be split out)
+> │   ├── screen-reads.md                 (what is on screen and why it rendered — DOM source bridge, read-dom vs read-ui, Hicasso evidence)
 > │   ├── recipes.md                      (named procedures)
 > │   ├── errors.md                       (structured error → English + recovery)
 > │   ├── mcp-transport.md                (MCP install + transport reference — the ONLY transport)
