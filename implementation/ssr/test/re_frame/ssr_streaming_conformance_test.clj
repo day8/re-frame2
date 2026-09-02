@@ -83,10 +83,31 @@
 
 (use-fixtures :each reset+reg-fixture-handlers)
 
+(defn- read-one-form
+  "Read `text` as EXACTLY ONE top-level EDN form, or throw. `read-string`
+  returns only the FIRST and silently discards the rest, so a fixture whose
+  expectation block closes early passes having verified less than it claims
+  (rf2-5mr6). Unlike the corpus-walking runners this namespace names its two
+  fixtures directly, so there is no `:fixture/load-error` datum here — but
+  the silent-truncation hazard is identical. Full rationale on
+  `re-frame.conformance-test/read-one-form` (rf2-98ni)."
+  [text fixture-name]
+  (let [forms (edn/read-string (str "[\n" text "\n]"))]
+    (when-not (= 1 (count forms))
+      (throw (ex-info (str "conformance fixture " fixture-name
+                           " must hold exactly ONE top-level EDN form, found "
+                           (count forms)
+                           " — clojure.edn/read-string returns only the first"
+                           " and silently discards the rest (rf2-98ni,"
+                           " rf2-5mr6)")
+                      {:fixture/file  fixture-name
+                       :fixture/forms (count forms)})))
+    (first forms)))
+
 (defn- load-streaming-fixture []
   (let [raw   (slurp (io/file "../../spec/conformance/fixtures/ssr-streaming.edn"))
         fixed (str/replace raw #"::([a-zA-Z][a-zA-Z0-9_-]*)" ":rf.machine.timer/$1")]
-    (edn/read-string fixed)))
+    (read-one-form fixed "ssr-streaming.edn")))
 
 (deftest streaming-fixture-shell-walk-matches-pin
   (testing "render-shell emits the shell HTML + 2 continuations the fixture pins"
@@ -164,8 +185,9 @@
 ;; ===========================================================================
 
 (defn- load-nested-fixture []
-  (edn/read-string
-    (slurp (io/file "../../spec/conformance/fixtures/ssr-streaming-nested.edn"))))
+  (read-one-form
+    (slurp (io/file "../../spec/conformance/fixtures/ssr-streaming-nested.edn"))
+    "ssr-streaming-nested.edn"))
 
 (defn- reg-nested-fixture-handlers! []
   (rf/reg-view ^{:rf/id :streaming-nested.test/inner-section} _ni []
