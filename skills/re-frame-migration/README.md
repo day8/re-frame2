@@ -61,7 +61,9 @@ skills/re-frame-migration/
 ├── references/
 │   ├── kickoff-prompt.md          # Paste-ready prompt for a fresh session
 │   ├── inventory-and-plan.md      # Phase 0a: inventory add-ons + features, scan source, per-item plan
+│   ├── floor-gate.md              # Phase 0b: the React-19 / Reagent-2 floor gate (six checks + go/no-go)
 │   ├── setup.md                   # M-0 detail: dep-coord swap, substrate adapter picker
+│   ├── release-compile-gate.md    # Phase 4: the optimized/release compile gate (-Xss for the StackOverflow class)
 │   ├── xray-replaces-10x.md       # Devtools swap: re-frame-10x → Xray (preload, host, keybindings, parity)
 │   ├── breaking-changes.md        # v1→v2 rule index keyed to v1 trigger surfaces
 │   ├── pre-rename-upgrades.md     # v2-pre-rename-only rule index (never loaded on a v1→v2 migration)
