@@ -37,7 +37,14 @@ Path-pattern grammar:
 /literal      literal segment
 /:name        named param (one segment)
 /*name        splat — greedy across /
-/{ ... }?     optional group; inner /:name is elided in route-url output when absent
+{/:name}?     optional segment group — the slash lives INSIDE the braces
+              ({/literal}? too), so the group is a self-contained optional
+              segment and composes in any position: {/:base}?/about (leading),
+              /articles/:id{/:slug}? (trailing), /docs{/:section}?{/:page}?
+              (sequenced). Absent => the param is absent and route-url elides
+              the whole segment. The slash-outside spelling is NOT part of the
+              grammar: reg-route throws :rf.error/invalid-route-pattern at
+              registration, in dev AND prod, before any state mutates.
 ```
 
 ## The `:rf/route` slice
