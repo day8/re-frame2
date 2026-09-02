@@ -141,7 +141,8 @@ implementation confirmation:
 - `h/as-component`
 - `n/memo` and `n/lazy`
 - overlay heads and option names
-- `motion/presence` with `::h/mounting` / `::h/unmounting` (not `::motion/*`)
+- `motion/presence` (the marker spelling is settled: `::motion/mounting` /
+  `::motion/unmounting`, naming-ledger row 31, executed under `rf2-hg3q`)
 - `forms/buffered-field` and its control options
 - resource `:demand true`
 - route-link's generated `::h/navigate` carrier
@@ -194,8 +195,9 @@ The following older draft ideas are not restored:
 - pre-React-19 ref contracts
 - the retired `h/fn` spelling (the product form is `h/event`, renamed under
   `rf2-hic-066`)
-- `::motion/*` override keys (shipped markers remain `::h/mounting` /
-  `::h/unmounting`)
+- the retired `::h/mounting` / `::h/unmounting` marker spelling (the shipped
+  override keys are `::motion/mounting` / `::motion/unmounting`, respelled
+  under `rf2-hg3q`)
 
 The current guide teaches `h/event` as the one callback form,
 `(rf/capture-frame (h/frame))` at foreign edges, app-db state ownership, CSS

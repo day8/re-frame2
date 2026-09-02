@@ -43,7 +43,7 @@ The walker is also dev-only by classpath: Xray's preload is `:devtools/preloads`
 
 ## React-version regression check
 
-**Each React major bump (16 → 17 → 18 → 19 → …) MUST run a smoke test that confirms the walker still reads parent/child correctly.** The smoke test stubs a minimal Fiber-shaped object graph that mirrors the React version's published structure. It is **not yet written** — it lands with the Fiber-walker itself (rf2-l1hh), and until then this MUST has no home. If the smoke breaks, the choice is binary:
+**Each React major bump (16 → 17 → 18 → 19 → …) MUST run a smoke test that confirms the walker still reads parent/child correctly.** The smoke test stubs a minimal Fiber-shaped object graph that mirrors the React version's published structure. It was **written once and retired with the walker** — it shipped as `tools/causa/test/day8/re_frame2_causa/views/fiber_walker_cljs_test.cljs` and was deleted by the Reactive-panel rebuild (see the Ownership table below), so this MUST currently has no home in the CLJS reference. A conformant React-backed port still owes it. If the smoke breaks, the choice is binary:
 
 1. **Ship a fix** — update the walker to the new Fiber slot names / shape. This is the expected path when React renames a slot but keeps the structural model.
 2. **Fall back to data-attribute tagging** — each `reg-view` mutates its first element's attribute map to include `data-rf-view="<name>"`; the walker queries `document.querySelectorAll('[data-rf-view]')` and infers parent ⊃ children by DOM containment. This is the React-version-independent escape hatch.
@@ -99,25 +99,35 @@ This capability unlocks:
 
 ## Ownership + cross-references
 
-The Fiber-walker design is **locked and wanted** (Decisions log below) but is
-**not yet built** in the CLJS reference. The only capture path that ships today
-is the `data-rf-view` fallback walker. Rows below say which is which: a row
-marked *not yet shipped* names a surface this contract still requires, not one
-that was withdrawn (rf2-l1hh).
+The Fiber-walker design is **locked and wanted** (Decisions log below). In the
+CLJS reference it was **built and then retired**: the walker, the group-by-tree
+renderer, the Views wiring and the React-version smoke all shipped in May 2026
+and were deleted a day later by the Reactive-panel rebuild. The only capture
+path that ships today is the `data-rf-view` fallback walker.
+
+Two things about the paths below are easy to get wrong, so they are stated
+plainly. First, none of the retired files ever lived under `tools/xray/` — they
+were written under `tools/causa/`, and the `causa` → `xray` rename
+(`731188b1fb`, PR #2067, 2026-05-24) landed four days after they were deleted,
+so a `tools/xray/…` path for any of them has never existed at any commit.
+Second, a row marked *retired* records what the CLJS reference withdrew; it does
+**not** withdraw the contract. This document is still a v1 MUST for
+React-backed ports, and the Fiber-walker is still its primary path.
 
 | Surface                                | Owner                                                                  |
 |----------------------------------------|------------------------------------------------------------------------|
-| Fiber-walker implementation (CLJS)     | **Not yet shipped** — no namespace implements it in the CLJS reference. Still the locked primary path (rf2-mxkq7). |
-| Group-by-tree renderer                 | **Not yet shipped** — depends on the Fiber-walker above.               |
-| Views panel toggle wiring              | **Not yet shipped** — Xray ships no Views panel today.                 |
-| React-version regression smoke         | **Not yet shipped** — see [§React-version regression check](#react-version-regression-check) for the MUST this owes. |
+| Fiber-walker implementation (CLJS)     | **Retired** — shipped as `tools/causa/src/day8/re_frame2_causa/views/fiber_walker.cljs` (`fe4ff001b9`, PR #1533, 2026-05-19), deleted by `9781aa4e24` (PR #1741, 2026-05-20). No namespace implements it today; it remains this contract's primary path. |
+| Group-by-tree renderer                 | **Retired** — shipped as `tools/causa/src/day8/re_frame2_causa/views/group_by_tree.cljs` at those same two commits. Neither the group-by-tree mode nor its toggle exists anywhere in `tools/xray` today. |
+| Views panel toggle wiring              | **Retired — the toggle only.** The Views panel itself **ships**: `tools/xray/src/day8/re_frame2_xray/panels/reactive_panel.cljs` registers the `:views` L4 tab labelled "Views". What was withdrawn is the group-by-tree toggle, whose host `tools/causa/src/day8/re_frame2_causa/panels/views_view.cljs` (added `4664501065`, PR #1401) the same rebuild deleted. |
+| React-version regression smoke         | **Retired** — shipped as `tools/causa/test/day8/re_frame2_causa/views/fiber_walker_cljs_test.cljs` at those same two commits; see [§React-version regression check](#react-version-regression-check) for the MUST it owes. |
 | Fallback walker (`data-rf-view` path)  | `tools/xray/src/day8/re_frame2_xray/views/view_walker.cljs` — the only capture path that ships; its own docstring records its fallback status. |
 | Production DCE contract                | `implementation/scripts/check-bundle-isolation.cjs`                    |
 | Reactive-substrate adapter API         | [`006-ReactiveSubstrate.md`](006-ReactiveSubstrate.md) (Fiber is the *contract*, not an adapter-side surface) |
-| Xray Views panel                      | `tools/xray/spec/012-Views.md`                                        |
+| Xray Views panel                      | `tools/xray/spec/021-Dynamic-Panel-Designs.md` §3 — the normative design for the shipped panel. `tools/xray/spec/012-Views.md` is **superseded** by it and describes a richer surface that was never implemented. |
 
 ## Decisions log
 
 - **2026-05-19 ~14:55 AUSEST** — Mike LOCKS Fiber-reading for parent/child hierarchy capture. Per-component metadata reads STAY REJECTED. Comments 4–5 (data-attribute tagging as primary) deprecated to fallback status. (Findings doc §11 Comment 6, §12.)
 - **2026-05-19** — Walker implementation lands behind `interop/debug-enabled?` gate; React-version smoke test seeded for React 16 + 17+. Production DCE verified via `npm run test:bundle-isolation`.
-- **2026-09-03** — Bookkeeping correction (rf2-l1hh). The Ownership table asserted four `tools/xray` paths that do not exist (`fiber_walker.cljs`, `group_by_tree.cljs`, `views_view.cljs`, `fiber_walker_cljs_test.cljs`), and §React-version regression check asserted the smoke test already lived at the last of them. Verified at source: none of the four exists, the only capture path that ships is `views/view_walker.cljs` (the `data-rf-view` fallback, whose docstring names the Fiber-walker as primary), and `__rf2_view_id__` appears in no source file. The rows now say *not yet shipped* instead of naming files. **This corrects the record only — it does not revisit the 2026-05-19 lock, and the Fiber-walker remains the wanted primary path.** Whether to build it is open and tracked separately.
+- **2026-05-20** — **RETIRED.** `9781aa4e24` (PR #1741) rebuilt the Views panel around `reactive_panel.cljs` and deleted the Fiber-walker, the group-by-tree renderer, the `views_view.cljs` toggle wiring and the React-version smoke, naming them individually in its commit body. The `__rf2_view_id__` property went with them — it was defined in the walker as `view-id-prop` and appears in no source file today. The rebuilt panel **keeps** the `:views` tab (label "Views"); what went is the hierarchy / group-by-tree mode. The 2026-05-19 entry above stands: the walker did land. This entry records that it did not survive.
+- **2026-09-03** — Ownership-table correction (rf2-l1hh). The table cited four `tools/xray` source paths. None of those paths has ever existed — the files were real, but they lived under `tools/causa/`, and the `causa` → `xray` rename (`731188b1fb`, PR #2067) landed four days after they were deleted. A first pass replaced the rows with *not yet shipped*, which was wrong in the other direction: these surfaces were built and retired, not never built, and it also asserted that Xray ships no Views panel, which it does. The rows now record the built-then-retired lifecycle with its commits, and the Views row separates the shipped `:views` tab from the withdrawn group-by-tree mode. **This corrects the record only — it does not revisit the 2026-05-19 lock, and the Fiber-walker remains this contract's wanted primary path.** Whether to rebuild it in the CLJS reference is an open operator call, tracked at rf2-2vpm.

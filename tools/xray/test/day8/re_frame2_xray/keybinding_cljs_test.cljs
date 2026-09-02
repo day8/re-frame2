@@ -73,7 +73,9 @@
   (#'keybinding/palette-toggle-key? event))
 
 (defn- spine-key-id
-  "rf2-adve5 — the spine-binding predicate (Space / L / j / k / G).
+  "rf2-adve5 — the spine-binding predicate (Space / L / j / k / Shift+G /
+  `,` / s). `keybinding/spine-key-id`'s `cond` arms are the roster; read
+  them rather than any count restated here (rf2-v0rw).
   Returns the spine event id or nil."
   [event]
   (#'keybinding/spine-key-id event))
@@ -509,16 +511,19 @@
 
 ;; ---- (5) spine-key-id (rf2-adve5) ---------------------------------------
 ;;
-;; Per spec/018 §3 + §6 the five spine bindings are Space, L, j, k, G.
-;; The predicate is *unmodified* — modifier-held variants must not
-;; match (so Cmd+L → focus address bar still works inside Xray). The
-;; mapping table:
+;; Per spec/018 §3 + §6. `keybinding/spine-key-id`'s `cond` arms are the
+;; SOURCE OF TRUTH for the spine set — deliberately no count is stated
+;; here, because the wording that named one undercounted from the moment
+;; the `,` / s arms landed (rf2-v0rw). The predicate is *unmodified* —
+;; modifier-held variants must not match (so Cmd+L → focus address bar
+;; still works inside Xray). Today the arms are:
 ;;
-;;     Space   →  :rf.xray/toggle-live-pause
-;;     L       →  :rf.xray/follow-head      (snap-LIVE)
-;;     G       →  :rf.xray/follow-head      (Shift+G; vim 'Go to head')
-;;     j       →  :rf.xray/focus-event-prev
-;;     k       →  :rf.xray/focus-event-next
+;;     Space    →  :rf.xray/toggle-live-pause
+;;     L        →  :rf.xray/follow-head      (snap-LIVE)
+;;     G        →  :rf.xray/follow-head      (Shift+G; vim 'Go to head')
+;;     j        →  :rf.xray/focus-event-prev
+;;     k        →  :rf.xray/focus-event-next
+;;     `,` / s  →  :rf.xray/settings-toggle  (toggle Settings popup)
 
 (deftest spine-key-id-space-is-toggle-live-pause
   (is (= :rf.xray/toggle-live-pause
@@ -549,6 +554,22 @@
          (spine-key-id (mk-event {:key "k"}))))
   (is (= :rf.xray/focus-event-next
          (spine-key-id (mk-event {:code "KeyK"})))))
+
+(deftest spine-key-id-comma-is-settings-toggle
+  ;; rf2-v0rw — the `,` arm was unasserted, which is why the prose above
+  ;; could undercount the roster without anything going red.
+  (is (= :rf.xray/settings-toggle
+         (spine-key-id (mk-event {:key ","}))))
+  (is (= :rf.xray/settings-toggle
+         (spine-key-id (mk-event {:code "Comma"})))))
+
+(deftest spine-key-id-s-is-settings-toggle
+  ;; rf2-v0rw — `s` is the second door onto the Settings popup; per
+  ;; spec/007-UX-IA.md §Global shortcuts both `,` and `s` open the modal.
+  (is (= :rf.xray/settings-toggle
+         (spine-key-id (mk-event {:key "s"}))))
+  (is (= :rf.xray/settings-toggle
+         (spine-key-id (mk-event {:code "KeyS"})))))
 
 (deftest spine-key-id-c-is-unbound
   ;; rf2-y0z5b — Causality surface dropped entirely; `c` is now free
