@@ -267,7 +267,9 @@ Four things matter, and the first two are the ones a migration gets wrong:
   and the Hicasso one resolve to the *same* frame. Hicasso does ship an
   adapter of its own (`re-frame.hicasso.substrate`), but it is an optional
   module nothing under Hicasso's own source requires, so `h/mount!` neither
-  installs it nor displaces what the app has.
+  installs it nor displaces what the app has. *"Stays" is about a migration in
+  progress. If the app ends with no Reagent view at all, the choice reopens and
+  the author gets told — MIG-24 §When no Reagent view remains.*
 - **`h/render!` is the hot-reload door.** It re-renders the root React already
   has, so the reloaded view code meets its own DOM. Calling `h/mount!` again
   would `createRoot` a second time and replace the tree, discarding every node
@@ -306,6 +308,40 @@ that is the point of them, so do not add one speculatively:
 [re-frame.hicasso.overlay :as overlay]   ; popover, modal
 [re-frame.hicasso.native  :as n]         ; the two Hicasso hooks for React islands
 ```
+
+### When no Reagent view remains, the adapter question opens
+
+Everything above is about a namespace. There is one require the whole-app case
+reaches that a per-namespace sweep never does, and the skill would otherwise
+leave the author holding a dependency for nothing.
+
+Once **every** view in the app is converted, `re-frame.adapter.reagent` is the
+last thing pulling Reagent in — and its only job was ever the substrate half of
+Spec 006: the container `app-db` lives in, plus a derived value that says when
+it moved. It is `day8/re-frame2-reagent` that declares the stock
+`reagent/reagent` dependency; core declares none. Hicasso ships an adapter of
+its own, so that job has a second answer:
+
+```clojure
+(:require [re-frame.core :as rf]
+          [re-frame.hicasso :as h]
+          [re-frame.hicasso.substrate :as substrate])
+
+(rf/init! substrate/adapter)          ;; :kind :rf.adapter/hicasso
+```
+
+`re-frame.hicasso.substrate` ships inside `day8/re-frame2-hicasso`, so that line
+costs no coordinate — and it is what lets the two `deps.edn` entries
+`day8/re-frame2-reagent` and `reagent/reagent` go, rather than standing for a
+substrate the app no longer writes a line of.
+
+**This is the author's call, not the skill's** (cardinal rule 5). Name the
+option and the two dependencies it would retire; then let them decide. Keeping
+the Reagent adapter is a complete, supported configuration whatever the views
+are written in — nothing degrades under it, and an app that may grow a Reagent
+or UIx subtree later has a standing reason to keep it. And the question does not
+arise at all while a single Reagent view survives: until then MIG-15's *the
+install stays* is the whole of the answer.
 
 ## MIG-33 — keystroke handlers → a key map
 
