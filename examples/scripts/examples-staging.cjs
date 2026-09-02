@@ -243,10 +243,20 @@ function stripEdnComments(edn) {
     .join('\n');
 }
 
-// Parse every `:examples/<name>` build def into { build, outputDir, initFn }.
-// `build` is the colon-stripped coord shadow-cljs's CLI expects
-// (`examples/counter-uix`); `outputDir` is the build's `:output-dir`; `initFn`
-// is the `<ns>/run` symbol the build mounts.
+// Parse every `:examples/<name>` build def into { build, target, outputDir,
+// initFn }. `build` is the colon-stripped coord shadow-cljs's CLI expects
+// (`examples/counter-uix`); `target` is the build's `:target` keyword, COLON
+// INCLUDED (`:browser`); `outputDir` is the build's `:output-dir`; `initFn` is
+// the `<ns>/run` symbol the build mounts.
+//
+// `target` is what separates a PAGE build from a server-side one. Not every
+// `:examples/*` build is a page: a `:node-library` (the Hicasso login arm's
+// SSR bundle, rf2-8arzr.5) publishes an `:exports-var` for a Node sidecar to
+// `require` and correctly carries no `:init-fn` and no colocated index.html.
+// Such a build is still parsed — it IS an example build, and
+// check-examples-compile.cjs compiles it — but it is legitimately absent from
+// the runnable manifest listStandaloneExamples derives, and the out+init
+// invariant is asserted of `:browser` builds only.
 //
 // Line-based block scan: a build def opens with a two-space-indented
 // `  :examples/<name>` key (the opening `{` is on the SAME or the FOLLOWING
@@ -273,10 +283,12 @@ function parseExampleBuilds(edn) {
       bodyLines.push(lines[j]);
     }
     const body = bodyLines.join('\n');
+    const targetMatch = body.match(/:target\s+(:[\w.\-]+)/);
     const outMatch = body.match(/:output-dir\s+"([^"]+)"/);
     const initMatch = body.match(/:init-fn\s+([\w.\-]+\/[\w.\-]+)/);
     builds.push({
       build,
+      target: targetMatch ? targetMatch[1] : null,
       outputDir: outMatch ? outMatch[1] : null,
       initFn: initMatch ? initMatch[1] : null,
     });
