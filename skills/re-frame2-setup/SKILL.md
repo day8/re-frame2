@@ -22,6 +22,7 @@ allowed-tools:
   - Bash(clojure -Stree:*)
   - Bash(clojure -Tnew create *)
   - Bash(clojure -Sdeps * -Tnew create *)
+  - Bash(java -version)
   - Bash(npm install)
   - Bash(npm install react@* react-dom@*)
   - Bash(npm view * version)
@@ -63,12 +64,14 @@ Not for: adding re-frame2 to an existing non-trivial app (authoring), writing ap
 
 **The shadow-only project has no `deps.edn`, and pre-publish it needs one.** An ordinary empty shadow-cljs project resolves its classpath from `shadow-cljs.edn`'s own `:dependencies [[...]]` vector, which shadow feeds to its Maven resolver — Maven coordinates only, so it can express neither `:local/root` nor `:git/url`. Those are exactly the two shapes that work before re-frame2 is on Clojars (step 2), so on this input there is no coordinate to add and writing `[day8/re-frame2 "0.0.1.alpha"]` into `:dependencies` 404s at resolution. Convert instead: write a `deps.edn` whose `:paths` carries the author's existing source dirs, whose `:deps` carries whatever was in `:dependencies` plus the day-one coords, and whose `:shadow` alias carries `thheller/shadow-cljs` at the version the project already uses; then replace `shadow-cljs.edn`'s `:dependencies` with `{:deps {:aliases [:shadow]}}`, keeping the author's `:builds`. `:paths` is not optional here — once `:deps` is active shadow stops reading `shadow-cljs.edn`'s `:source-paths`, so source dirs left behind vanish off the classpath. Post-publish the Maven-only `:dependencies` form becomes workable again and the conversion is unnecessary; it is the pre-publish arm of the same publication-state branch as step 2.
 
+**Before you run anything, check `java -version` succeeds.** shadow-cljs is a JVM program and `npx shadow-cljs` only wraps it, so with no JDK on `PATH` every command below — and `clojure -Tnew` on the generator route — dies before compiling anything, wearing an error that says nothing about re-frame2. If it fails, report that the project needs a JDK and stop; don't debug the wrapper.
+
 1. **Write the twelve files** from [`references/first-counter.md`](references/first-counter.md), each at the path its heading names, byte for byte. That leaf is the whole default; nothing else needs reading on this route. (Author-supplied name → rename `acme` / `my-app` consistently, as the leaf describes. Explicit UIx → swap the three files, cardinal rule 3.)
 2. **Point the two framework coordinates at something that resolves.** The leaf's `deps.edn` carries `day8/re-frame2` and `day8/re-frame2-reagent` as `{:mvn/version "…"}` — forward-correct, but re-frame2 is not on Clojars yet, so today those lines fail resolution (`Could not find artifact day8/re-frame2`). Pre-publish, replace the two maps with `:local/root` paths into the reviewed checkout this skill was installed from — `{:local/root "<RE_FRAME2>/implementation/core"}` and `{:local/root "<RE_FRAME2>/implementation/adapters/reagent"}` (UIx: `…/adapters/uix`) — where `<RE_FRAME2>` is the absolute path the skill resolves itself (forward slashes on every OS; `SKILL.md`'s own location is `<RE_FRAME2>/skills/re-frame2-setup/SKILL.md`). The same step follows the generator route. Post-publish, leave the `:mvn/version` lines alone. An author without a checkout, or who wants a self-contained `deps.edn`, takes the `:git/sha` form → [`references/deps-versions.md`](references/deps-versions.md) §Choosing the coordinate.
 3. **`npm install`.** The three npm deps are already pinned in `package.json`; nothing to confirm.
 4. **`npx shadow-cljs compile app`** — the terminating check; it must exit 0 (no missing-namespace or classpath errors). Never hand this command to the author: run it.
-5. **`npx shadow-cljs watch app`** — start the dev server. Report the URL the watch prints, `http://localhost:8280/` (the scaffold's `:dev-http` port; if it is already bound, change the port and report the one actually served).
-6. **Report and hand off.** The skill runs both commands itself. Compile success proves the build, **not the mount**: hand off with *"compiled and serving at http://localhost:8280/ — open it and click `+1`; the counter should advance 0 → 1"* rather than claiming the browser mounted. **Done.**
+5. **`npx shadow-cljs watch app`** — start the dev server. **Read the URL off the watch's own dev-http line, never out of `shadow-cljs.edn`.** The scaffold asks for `http://localhost:8280/`, but `:dev-http` binds a fixed port and a second `watch` in another project is the ordinary way for it to be taken: shadow then reports the bind failure and that address serves whoever got there first, so a URL read from config sends the author to someone else's app rather than to an error. If 8280 is bound, change the port, restart the watch, and report the one it actually printed.
+6. **Report and hand off.** The skill runs both commands itself. Compile success proves the build, **not the mount**: hand off with *"compiled and serving at `<the URL the watch printed>` — open it and click `+1`; the counter should advance 0 → 1"* rather than claiming the browser mounted. **Done.**
 
 ## Done checklist
 
@@ -76,12 +79,12 @@ You're done when all of these hold:
 
 - [ ] The twelve files exist at their paths, and `clojure -Stree` resolves `day8/re-frame2` + `day8/re-frame2-reagent` at one VERSION (step 2 pointed them at a checkout or a commit) plus `reagent/reagent`, and the build classpath resolves (the `:shadow` alias `shadow-cljs.edn` names via `{:deps {:aliases [:shadow]}}` is defined; omitting it is the most common first-`watch` failure).
 - [ ] `npm install` completes and `react` / `react-dom` / `shadow-cljs` are present.
-- [ ] `npx shadow-cljs compile app` exits 0 — the skill ran it; no missing-namespace or classpath errors — and `npx shadow-cljs watch app` is serving `http://localhost:8280/`.
+- [ ] `npx shadow-cljs compile app` exits 0 — the skill ran it; no missing-namespace or classpath errors — and `npx shadow-cljs watch app` is serving the URL it printed (`http://localhost:8280/` unless the port was already taken and you moved it).
 - [ ] The browser shows the heading `acme/my-app`, a `+1` button and `0`, and the button advances the number — the author confirms this in the open page; compile success alone does not prove the mount.
 
 On the **UIx route** the same criteria apply with `day8/re-frame2-uix` + `com.pitch/uix.core` / `uix.dom` in place of the Reagent pair; npm is still just `shadow-cljs` / `react` / `react-dom` (cardinal rule 3).
 
-Hand off with the facts first: the files written, the verification command that succeeded (`npx shadow-cljs compile app`), and the URL being served (`http://localhost:8280/` — ask the author to open it and click `+1`; don't claim the mount from the compile). Then: *"Setup is done. Switch to **`re-frame2`** for events / subs / machines / schemas / frames / fx. The generated `README.md`'s Next steps names the optional attachments — Xray, the in-app devtools panel (`re-frame2-xray` tours it once it is in), and Story — and for live REPL inspection install **`re-frame2-pair`**."*
+Hand off with the facts first: the files written, the verification command that succeeded (`npx shadow-cljs compile app`), and the URL being served — the one the watch printed, not the one in `shadow-cljs.edn` — asking the author to open it and click `+1` (don't claim the mount from the compile). Then: *"Setup is done. Switch to **`re-frame2`** for events / subs / machines / schemas / frames / fx. The generated `README.md`'s Next steps names the optional attachments — Xray, the in-app devtools panel (`re-frame2-xray` tours it once it is in), and Story — and for live REPL inspection install **`re-frame2-pair`**."*
 
 ## Troubleshooting (common build failures)
 
