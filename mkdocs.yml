@@ -329,6 +329,11 @@ nav:
     - "re-frame.adapter.reagent": api/re-frame.adapter.reagent.md
     - "re-frame.adapter.uix": api/re-frame.adapter.uix.md
     - "re-frame.hicasso": api/re-frame.hicasso.md
+    - "re-frame.hicasso.substrate": api/re-frame.hicasso.substrate.md
+    - "re-frame.hicasso.forms": api/re-frame.hicasso.forms.md
+    - "re-frame.hicasso.overlay": api/re-frame.hicasso.overlay.md
+    - "re-frame.hicasso.motion": api/re-frame.hicasso.motion.md
+    - "re-frame.hicasso.native": api/re-frame.hicasso.native.md
     - "re-frame.test-support": api/re-frame.test-support.md
     - "re-frame.test-helpers": api/re-frame.test-helpers.md
 
