@@ -87,7 +87,7 @@ The table is **complete by gate**: `scripts/check_skill_mcp_drift.py` cross-chec
 | `read-read-attribution` | `{build?, max-tokens?}` — the reverse edge: which boundaries read each subscription | [`ops.md` §Hicasso evidence](ops.md#hicasso-evidence--mounted-boundaries-read-attribution-render-cause) |
 | `explain-render` | `{build?, max-tokens?}` — which of a boundary's reads moved, plus retained runs as leads | [`ops.md` §Hicasso evidence](ops.md#hicasso-evidence--mounted-boundaries-read-attribution-render-cause) |
 | `dispatch` | `{event, sync?, frame?, trace?, await-render?, settle?, queued?, fx-overrides?, cofx?}` | [`ops.md` §Write](ops.md#write) |
-| `dispatch-dry-run` | `{event, frame?, fx-overrides?}` — simulate WITHOUT committing; not `--allow-writes`-gated | [`ops.md` §Write](ops.md#write) |
+| `dispatch-dry-run` | `{event, frame?, cofx?}` — simulate WITHOUT committing; a caller `fx-overrides` is refused (`:reason :fx-overrides-unsupported`); not `--allow-writes`-gated | [`ops.md` §Write](ops.md#write) |
 | `restore-epoch` | `{epoch-id, frame?}` — canonical time-travel undo; `--allow-writes`-gated | [`ops.md` §Time-travel](ops.md#time-travel-epoch-restore) |
 | `replay-epoch` | `{epoch-id, frame?}` — one-call strict replay of a retained epoch; `dispatch`'s authority, NOT `--allow-writes`-gated | [`ops.md` §Time-travel](ops.md#time-travel-epoch-restore) |
 | `replace-app-db` | `{db, frame?}` — canonical state injection; `--allow-writes`-gated | [`ops.md` §Write](ops.md#write) |
