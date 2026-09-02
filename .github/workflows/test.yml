@@ -446,36 +446,6 @@ jobs:
         continue-on-error: true
         run: python scripts/check_skill_eval_docs.py --verbose --ci
 
-      # SKILL.md description-budget gate (rf2-w9p2; armed here under rf2-bn5f).
-      # Two limits the agent host actually enforces, both silent when breached.
-      # C1: a description over `skillListingMaxDescChars` (1,536) is hard-sliced
-      # mid-sentence, so the disqualifier a description ends on is the first thing
-      # lost. C2: the family's whole listing footprint, compared against a pinned
-      # RATCHET rather than the absolute 8,000-char budget — past that budget the
-      # planner drops ENTIRE descriptions in ascending priority order, and nine
-      # skills averaging ~1,200 chars cannot fit in 8,000 however they are written,
-      # so failing at the absolute would red the repo with no in-repo remedy (that
-      # is a product decision — ship fewer skills, or accept the lowest-priority
-      # ones rendering bare — not a gate's). The ratchet stops the family getting
-      # worse in this repo's own idiom (check-ai-tracking-ratchet.sh), and the
-      # absolute comparison PRINTS on every run, green or red, so the overshoot is
-      # never lost behind a tick.
-      #
-      # ARMED TOGETHER WITH ITS scripts/test-fast-pr.sh LANES, deliberately, and
-      # they must stay together: check_fast_pr_gap.py derives the required set
-      # from this job and reports any required checker with no local lane, so the
-      # CI half landing alone would (correctly) red that gate. Stdlib-only, which
-      # is what keeps this job dependency-free. Self-test first, then the live scan.
-      - name: Self-test the SKILL.md description-budget gate
-        id: check_skill_description_budget_selftest
-        continue-on-error: true
-        run: python scripts/check_skill_description_budget.py --self-test
-
-      - name: Verify SKILL.md descriptions fit the listing budget
-        id: check_skill_description_budget
-        continue-on-error: true
-        run: python scripts/check_skill_description_budget.py --verbose --ci
-
       # Xray tab-inventory drift guard (rf2-3fc89f.41). The re-frame2-xray skill
       # enumerates the Dynamic-tab inventory that must match the live tool's tab
       # set; a tab added/removed/renamed in the tool without the skill update (or
@@ -963,6 +933,38 @@ jobs:
 
       - name: Validate doc links across docs, spec, skills, migration + tools/*/spec
         run: python scripts/check_doc_slugs.py --verbose
+
+      # SKILL.md description-budget gate (rf2-w9p2; armed under rf2-bn5f). Guards
+      # the two limits the agent host actually enforces, both silent when breached:
+      # the 1,536-char `skillListingMaxDescChars` hard slice on a single
+      # description (it truncates mid-sentence, so the disqualifier a description
+      # ends on is the first thing lost), and the family's whole listing footprint
+      # against a pinned RATCHET rather than the absolute 8,000-char budget — past
+      # that budget the planner drops ENTIRE descriptions in ascending priority
+      # order, and nine skills averaging ~1,200 chars cannot fit in 8,000 however
+      # they are written, so failing at the absolute would red the repo with no
+      # in-repo remedy. The absolute comparison PRINTS on every run, green or red,
+      # so the overshoot is never lost behind a tick.
+      #
+      # WHY THIS JOB AND NOT THE ALWAYS-ON INVARIANT JOB, where every other
+      # check_skill_*.py step lives: this checker is NOT pure stdlib. It reads
+      # SKILL.md front-matter with PyYAML and exits 2 with an install message when
+      # that import fails, and the invariant job installs no pip packages — so
+      # placing it beside its check_skill_* siblings reds every PR. That is the
+      # rf2-rsn1e workflow job-cap ratchet's exact history, and the reason recorded
+      # for the doc-slug gate above; MEASURED here rather than assumed, on the
+      # first CI run of this change: both steps failed with "ERROR: PyYAML is
+      # required". This job already installs requirements.txt, which carries PyYAML
+      # via mkdocs, and is likewise unconditional and off the critical path.
+      #
+      # Its scripts/test-fast-pr.sh lanes land with it: check_fast_pr_gap.py
+      # derives the required set from this job too, so a CI half with no local lane
+      # is reported as unrun. Self-test first, then the live scan.
+      - name: Self-test the SKILL.md description-budget gate
+        run: python scripts/check_skill_description_budget.py --self-test
+
+      - name: Verify SKILL.md descriptions fit the listing budget
+        run: python scripts/check_skill_description_budget.py --verbose --ci
 
       # README inventory drift-ratchet gate (rf2-fvv9c, follows rf2-198k3).
       # check_readme_inventories.py asserts the layout-map <-> disk bijection
