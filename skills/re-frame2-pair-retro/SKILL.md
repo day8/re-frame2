@@ -41,7 +41,7 @@ When you cannot tell which mode you are in, treat it as post-error: offer rather
 
 ## When NOT to use this skill
 
-**Story recorder-session retros are out of scope.** A retro on a Story Test Codegen recording belongs in `re-frame2-pair`'s variant-refinement workflow (the recorder output is a `:script` snippet to refine against a frame, not a pair-session friction trace). If the user asks to "retro on my recorded play sequence" or similar, decline and route to `re-frame2-pair`.
+**Story recorder-session retros are out of scope.** A retro on a Story Test Codegen recording belongs in `re-frame2-pair`'s Stories leaf (`references/stories.md`, on capturing a live interaction back into a `:script`) — the recorder output is a `:script` snippet to refine against a frame, not a pair-session friction trace. If the user asks to "retro on my recorded play sequence" or similar, decline and route to `re-frame2-pair`.
 
 The remaining routing decisions are local and short — each of these is someone else's job, not a retro subject:
 

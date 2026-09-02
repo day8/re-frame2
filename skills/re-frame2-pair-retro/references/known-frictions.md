@@ -197,11 +197,11 @@ Typical improvements:
 
 Signals:
 - the retrospective is unsure whether a tool the user "should have reached for" was actually exposed by the running re-frame2-pair-mcp build, or whether it was reasoning from stale docs
-- the session reasons about tool availability from `re-frame2-pair/references/ops.md` alone — that doc can drift from the live catalogue the running server exposes (the authoritative live catalogue is whatever the attached server returns from `tools/list`; the pair-MCP conformance corpus pins each tool's wire shape but does not catch a recipe citing a tool the build never exposed)
+- the session reasons about tool availability from `re-frame2-pair/references/ops.md` alone — that leaf is the op vocabulary, not the per-tool reference (`re-frame2-pair/references/mcp-transport.md`), and neither is authoritative: the live catalogue is whatever the attached server returns from `tools/list` (the conformance corpus pins each tool's wire shape but does not catch a recipe citing a tool the build never exposed)
 - a "why didn't they use tool X?" thread surfaces with no way to confirm X was actually callable in that session
 
 Typical improvements:
-- when proposing a fix that adds or renames a tool, cross-reference the live catalogue rather than the skill's docs alone — a live-catalogue check is `re-frame2-pair`'s job (the retro itself never probes the runtime; a result the session never produced stays unknown/incomplete)
+- when proposing a fix that adds or renames a tool, cross-reference the live catalogue — that check is `re-frame2-pair`'s job (the retro itself never probes the runtime; a result the session never produced stays unknown/incomplete)
 
 If the session itself ran `discover-app`, its result captures the live build's id, health, and session sentinel, and with the server's `tools/list` sanity-checks "tool X was actually available". When the session's probe failed, branch on the **diagnostic ladder** rather than collapsing every failure to "no surface here" — each reason points at a different next step, so collapsing them yields generic "add the preload" advice when the real fix differs. The ladder reasons (per `probe.cljs`, pinned by the conformance corpus): `:nrepl-unreachable` (shadow-cljs nREPL down — fix connectivity), `:build-not-running` (start the build), `:no-runtime-connected` (build runs but no browser tab attached — open/reload the tab, or pick the correct build), `:runtime-loaded-but-preload-missing` (runtime live but the re-frame2-pair preload absent — add the preload). `:runtime-not-preloaded` is the **degradation fallback** the ladder emits when it cannot otherwise classify — last-resort, not the normal-case verdict.
 
@@ -220,11 +220,11 @@ Typical improvements:
 ### Private-namespace reach-through
 
 Signals:
-- the tool or a recipe reaches into `re-frame.db`, `re-frame.router`, `re-frame.subs`, `re-frame.events`, or `re-frame.registrar`
+- the tool or a recipe reaches into `re-frame.router`, `re-frame.subs`, `re-frame.events`, or `re-frame.registrar`
 - a re-frame2 minor version moves something and the recipe breaks
 
 Typical improvements:
-- audit reach-throughs and replace with public APIs from Tool-Pair
+- audit reach-throughs and replace with public APIs from Tool-Pair; `spec/API.md` §Per-artefact public namespaces draws that line
 - file a GitHub issue against `day8/re-frame2` if the public surface is missing the needed capability
 - add a lint or smoke test that flags private-namespace usage
 
