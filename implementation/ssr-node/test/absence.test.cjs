@@ -19,9 +19,10 @@
 //      from the graph is not a property anyone has to maintain by care.
 //   3. IT ADDS NO DEPENDENCY. Every `require` in `src/` names a `node:`
 //      builtin or a sibling file here, and the one whose specifier is
-//      COMPUTED takes it from the caller, so the package contributes
-//      nothing to `implementation/package.json` and nothing to any
-//      consumer's dependency closure.
+//      COMPUTED takes it from the caller; its own manifest declares no
+//      dependency of any kind and links only to files inside this tree.
+//      So the package contributes nothing to `implementation/package.json`
+//      and nothing to any consumer's dependency closure.
 //
 // ## EVERY CHECK PLANTS ITS OWN FAULT, EVERY RUN
 //
@@ -924,20 +925,118 @@ test('CONTROL — a third-party require is caught, spelled out or computed', () 
   }
 });
 
-test('the package declares no npm dependency of its own', () => {
-  // No package.json here at all: the service is meant to be droppable into
-  // a deployment without an install step, and a manifest would be the
-  // first place a dependency would appear.
-  assert.strictEqual(
-    fs.existsSync(path.join(PACKAGE_DIR, 'package.json')),
-    false,
-    'this package deliberately carries no manifest — see the README',
+// ---------------------------------------------------------------------------
+// 3b. The manifest — what it makes checkable, now that there is one
+// ---------------------------------------------------------------------------
+
+/**
+ * The manifest fields that DECLARE a dependency: the subset of
+ * `MANIFEST_LINK_FIELDS` whose presence, with anything in it, puts a second
+ * package into this one's closure. `workspaces` is here because it links
+ * sibling packages, which is a dependency spelled as a directory.
+ */
+const DEPENDENCY_FIELDS = [
+  'dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies',
+  'bundleDependencies', 'bundledDependencies', 'workspaces',
+];
+
+/** The manifest fields whose leaves are PATHS a resolver follows. */
+const PATH_LINK_FIELDS = ['exports', 'imports', 'main', 'module', 'browser', 'bin', 'types', 'typings'];
+
+/** Every string leaf under a field value — `exports` nests, and `bin` may. */
+const leaves = (v) =>
+  typeof v === 'string' ? [v] : v && typeof v === 'object' ? Object.values(v).flatMap(leaves) : [];
+
+/**
+ * What is wrong with a manifest, as sentences — empty when the package's
+ * closure is the package. Two invariants, and they are the SAME claim
+ * Reading 3 makes of `src/`, read off the file a resolver consults first:
+ * (a) it declares no dependency of any kind, and (b) every path it links a
+ * resolver to lies inside the package and exists. (b) is the manifest's
+ * spelling of "a builtin, a sibling, or the caller's own path" — a `main`
+ * at `../core/…`, or an `exports` leaf naming a bare package, is an edge
+ * out of this tree that no scan of `src/`'s requires can see.
+ */
+function manifestFaults(manifest, packageDir) {
+  const faults = [];
+  for (const field of DEPENDENCY_FIELDS) {
+    if (manifest[field] !== undefined) {
+      faults.push(`${field} is declared: ${JSON.stringify(manifest[field])}`);
+    }
+  }
+  for (const field of PATH_LINK_FIELDS) {
+    for (const leaf of leaves(manifest[field])) {
+      const rel = path.relative(packageDir, path.resolve(packageDir, leaf));
+      if (!leaf.startsWith('./') || rel.startsWith('..') || path.isAbsolute(rel)) {
+        faults.push(`${field} links outside the package: ${leaf}`);
+      } else if (!fs.existsSync(path.join(packageDir, rel))) {
+        faults.push(`${field} links to a file the package does not ship: ${leaf}`);
+      }
+    }
+  }
+  return faults;
+}
+
+test('the manifest declares no dependency of any kind, and links only to files it ships', () => {
+  // THE MANIFEST IS WHERE A DEPENDENCY WOULD APPEAR FIRST, which is why
+  // this package carried none at all until it grew an exports map, a serve
+  // bin and an engines pin (rf2-8arzr.2). This row used to assert the file
+  // did not exist. That was the weaker reading dressed as the stronger one:
+  // nothing can be declared in a file that is not there, but nothing can be
+  // SHOWN about one either, and the property the README states — no
+  // dependency, nothing reachable outside the tree — is only checkable now
+  // that there is a manifest to check it against.
+  const manifest = JSON.parse(fs.readFileSync(path.join(PACKAGE_DIR, 'package.json'), 'utf8'));
+  assert.deepStrictEqual(
+    manifestFaults(manifest, PACKAGE_DIR),
+    [],
+    'the manifest reaches outside the package, or declares a dependency',
   );
+});
+
+test('nothing in implementation/package.json reaches this package', () => {
+  // The rows from before this package had a manifest, kept as they were:
+  // the top-level manifest is the one a client install reads. Reading 1
+  // already scans its link fields for the path; this pins the two
+  // spellings a dependency on this package would actually take there.
   const pkg = JSON.parse(
     fs.readFileSync(path.join(REPO_ROOT, 'implementation', 'package.json'), 'utf8'),
   );
   for (const dep of Object.keys(pkg.devDependencies ?? {})) {
     assert.ok(!dep.includes('ssr-node'), `${dep} should not exist`);
   }
-  assert.strictEqual(pkg.dependencies, undefined, 'this package must add no runtime dependency');
+  assert.strictEqual(pkg.dependencies, undefined, 'the top-level manifest must add no runtime dependency');
+});
+
+test('CONTROL — a manifest that grows a dependency, or links past its own tree, is caught', () => {
+  const dir = scratch({ 'src/service.cjs': 'module.exports = {};\n' });
+  try {
+    const clean = { name: 'x', exports: { './service': './src/service.cjs' }, bin: { x: './src/service.cjs' } };
+    assert.deepStrictEqual(manifestFaults(clean, dir), [], 'the control must be clean, or the zero above proves nothing');
+
+    // Each fault alone, so the sentence names the field and not a neighbour.
+    assert.deepStrictEqual(
+      manifestFaults({ ...clean, dependencies: { react: '^19' } }, dir),
+      ['dependencies is declared: {"react":"^19"}'],
+    );
+    assert.deepStrictEqual(manifestFaults({ ...clean, devDependencies: {} }, dir), ['devDependencies is declared: {}']);
+    assert.deepStrictEqual(
+      manifestFaults({ ...clean, main: '../core/src/index.cjs' }, dir),
+      ['main links outside the package: ../core/src/index.cjs'],
+    );
+    assert.deepStrictEqual(
+      manifestFaults({ ...clean, exports: { './service': 'react' } }, dir),
+      ['exports links outside the package: react'],
+    );
+    assert.deepStrictEqual(
+      manifestFaults({ ...clean, exports: { './service': { require: './src/../../escape.cjs' } } }, dir),
+      ['exports links outside the package: ./src/../../escape.cjs'],
+    );
+    assert.deepStrictEqual(
+      manifestFaults({ ...clean, bin: { x: './bin/absent.cjs' } }, dir),
+      ['bin links to a file the package does not ship: ./bin/absent.cjs'],
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
