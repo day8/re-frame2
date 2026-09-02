@@ -11,8 +11,14 @@
 
       (:document (server/render {:hiccup [views/page {}] …}))
 
-  `render` is the door. `payload-script` and `document` are the
-  composition helpers a host needs to rebuild the envelope without
+  `render` is the door for a host that owns the whole page.
+  `render-body` is the door for one that owns everything EXCEPT the
+  body: it takes a render-state projection the JVM already made, seeds
+  a fresh frame from it, and answers the inner markup alone — the
+  bounded Node sidecar's half of the ssr-node crossing (rf2-8arzr,
+  shared contract S2). Neither is built on the other, and neither
+  changes the other's spellings. `payload-script` and `document` are
+  the composition helpers a host needs to rebuild the envelope without
   writing a second renderer; the roster and the argument for it are
   naming-ledger rows 22 and 50
   (`docs/design/hicasso/product/naming-ledger.md`). The determinism
@@ -40,11 +46,13 @@
   (`docs/design/hicasso/studio/ssr-spike-witness.md`). It is not a
   production HTTP host: the response contract is `re-frame.ssr.ring`'s."
   (:require [re-frame.core :as rf]
+            [re-frame.error :as error]
             [re-frame.hicasso.impl.mount :as mount]
             [re-frame.hicasso.impl.roots :as roots]
             [re-frame.ssr.constants :as ssr-constants]
             [re-frame.ssr.html-helpers :as ssr-html]
             [re-frame.ssr.payload-policy :as payload-policy]
+            [re-frame.ssr.render-state :as render-state]
             ["react-dom/server" :as rdom-server]))
 
 ;; ---------------------------------------------------------------------------
@@ -228,5 +236,182 @@
       (finally
         ;; The window first — `destroy-frame!` may itself throw, and the
         ;; window must already be shut when it runs.
+        (roots/close-adoption-window! window)
+        (rf/destroy-frame! frame-id)))))
+
+;; ---------------------------------------------------------------------------
+;; The body-only entry
+;; ---------------------------------------------------------------------------
+
+(def ^:private recovered-error-listener-id
+  "The id `render-body` registers its error-stream listener under.
+
+  ONE id, reused across renders, and that is safe rather than sloppy: a
+  render is one synchronous `renderToString` call, and the sidecar's
+  isolate admits one render at a time (`implementation/ssr-node`'s worker
+  refuses a second with `:rf.ssr-node/service-saturated`), so two windows
+  cannot overlap. Re-registering the same id REPLACES, so even a caller
+  that broke that rule would lose a listener rather than accumulate one."
+  ::recovered-render-error)
+
+(defn- refuse-recovered-render-error!
+  "Fail the render because the runtime recorded an error it RECOVERED from
+  during the pass.
+
+  This is the one place `render-body` is stricter than `render`, and the
+  asymmetry is the whole reason the entry exists as its own function. A
+  sub that throws mid-render does not take the render down: the
+  framework's built-in recovery yields `nil`, the view renders a hole, and
+  the pass returns a string. On a JVM host that is survivable because the
+  SAME process holds the record, so `re-frame.ssr`'s projection turns it
+  into a 5xx before any bytes reach a client. Across the ssr-node crossing
+  the record is made in the NODE process and the projector is on the JVM,
+  so nothing on the JVM can see it: the sidecar would answer 200 with a
+  page whose content is quietly wrong, and the host would ship it.
+
+  A wrong page served as a success is worse than a loud failure, so the
+  renderer throws instead. The sidecar turns the throw into a refusal
+  (`:rf.ssr-node/render-threw`), the JVM adapter turns the refusal into
+  `:rf.error/ssr-node-refused`, and the request lands on the error view —
+  the same destination the JVM-local path would have reached, by a longer
+  road.
+
+  The id is `:rf.error/ssr-render-failed` — the SSR family's render-time
+  failure, reused rather than multiplied. Nothing about this failure is
+  Hicasso's: it is the framework's render-failure category, raised from
+  the one host that has to raise it by hand."
+  [frame-id {:keys [error] :as record} recorded]
+  (error/throw-error!
+    :rf.error/ssr-render-failed
+    're-frame.hicasso.server/render-body
+    (str "the render completed but the runtime recorded " recorded
+         " error" (when (not= 1 recorded) "s") " it recovered from during the "
+         "pass — the first was " (pr-str error) " — so the markup is not what "
+         "the application meant to render. This renderer does not share a "
+         "process with the error projector, so a 200 here would ship a wrong "
+         "page as a success; the render is failed instead. Fix the surface the "
+         "record names, not the renderer.")
+    {:recovery :fail-the-render
+     :extra    {:frame    frame-id
+                :recorded recorded
+                :record   record}}))
+
+(defn- watch-recovered-errors!
+  "Register a listener on the always-on ERROR-EMIT stream for the extent of
+  one render, and return the atom it fills.
+
+  The always-on stream, not `re-frame.ssr`'s per-frame buffer, and the
+  choice is measured rather than stylistic. That buffer is keyed by frame,
+  and it is filled only for records that CARRY a frame — while Hicasso's
+  render reads its subscriptions through the pure `compute-sub` path
+  (`impl.collector`'s cold read), whose `:rf.error/sub-exception` record is
+  stamped `:frame nil` by construction and documented as such in
+  `re-frame.subs` (\"a `compute-sub`-driven SSR harness that wants the
+  per-frame projection must use the reactive `subscribe` path\"). A
+  per-frame check therefore reads CLEAN on exactly the failure this entry
+  exists to catch — measured, not reasoned: the first cut of this function
+  used the per-frame buffer and its refusal row rendered markup.
+
+  The stream is what survives production hardening (`goog.DEBUG=false`),
+  which is the posture Spec 011 mandates SSR run in, so this reads the same
+  in a release bundle as it does under test. Scoping it to the render
+  window is what makes an unattributed record safe to act on: a render is
+  one synchronous call in an isolate that admits one at a time, so anything
+  arriving inside the window came from the render."
+  []
+  (let [!recorded (atom {:n 0 :first-record nil})]
+    (rf/register-listener! :errors recovered-error-listener-id
+                           (fn [record]
+                             (swap! !recorded
+                                    (fn [seen]
+                                      {:n            (inc (:n seen))
+                                       :first-record (or (:first-record seen) record)}))))
+    !recorded))
+
+(defn render-body
+  "Render one request to the app root's INNER MARKUP and nothing else —
+  no payload, no document, no head, no status. The body-only half of the
+  ssr-node crossing (rf2-8arzr shared contract S2): the JVM owns the
+  request frame, the boot-event drain, `__rf_payload`, the shell and the
+  response; this renders the body from a projection of what the JVM had
+  settled, and returns a string.
+
+  `opts`:
+
+      :hiccup            REQUIRED. The root hiccup form.
+      :render-state      REQUIRED. The two-partition envelope
+                         `{:rf/app-db {…} :rf/runtime-db {…}}` that
+                         `re-frame.ssr.render-state/project` produced on the
+                         JVM and `deserialize` read back here. Installed in
+                         ONE atomic frame-state write by
+                         `render-state/restore!`.
+      :identifier-prefix React's `identifierPrefix`. The hydrating root must
+                         be handed the same string, or every `useId` in the
+                         tree diverges.
+      :frame-opts        merged UNDER the id, the platform and the empty
+                         setup vector, so a request needing `:images`,
+                         `:url-strategy` or `:fx-overrides` declares them the
+                         way any other frame does.
+
+  Three things this deliberately does NOT do, each because the JVM already
+  did it:
+
+    - **no boot-event replay.** `:initial-events` is forced empty even when
+      `frame-opts` carries one, exactly as `render` forces its own. The JVM
+      drained the boot events and the projection IS the settled result;
+      running them again here would be a second drain against a state that
+      has already moved past them.
+    - **no `:snapshot` re-seeding.** `render`'s `:rf/set-db` door seeds the
+      app-db partition alone. The render state is BOTH partitions — the
+      route slice and the machine snapshots live in runtime-db — so it
+      installs through `restore!`, which is the surface that can write
+      both at once.
+    - **no payload.** `__rf_payload` is built on the JVM from the JVM's own
+      app-db under the SEPARATE `:payload` policy. A renderer that built one
+      would be a renderer deciding what the browser may see.
+
+  The frame is `:platform :server`. That is not decoration: it is what
+  gates client-only fx out of a render that has no client.
+
+  **A render that recorded a recovered error is FAILED, not returned** —
+  see `watch-recovered-errors!` for what is watched and
+  `refuse-recovered-render-error!` for why a hole in the page is worse
+  than a refusal.
+
+  One fresh frame per request, and the adoption window open around the
+  render; the window is closed and the frame destroyed in a `finally`, in
+  that order, so a render that threw leaks no more than one that returned."
+  [{:keys [hiccup render-state identifier-prefix frame-opts]}]
+  (let [frame-id  (fresh-frame-id)
+        window    (roots/open-adoption-window!)
+        ;; Armed BEFORE the frame is made, so a fault in construction or in
+        ;; the restore is inside the window too — those are part of the
+        ;; pass, and a page rendered over a half-installed state is the same
+        ;; silent wrong page a recovered sub gives.
+        !recorded (watch-recovered-errors!)]
+    (try
+      (rf/make-frame (assoc frame-opts
+                            :id             frame-id
+                            :platform       :server
+                            ;; This module's, and not overridable — see the
+                            ;; docstring's first bullet.
+                            :initial-events []))
+      (render-state/restore! frame-id render-state)
+      (let [element (mount/tree {:frame frame-id :adoption window} hiccup)
+            ropts   (render-options identifier-prefix)
+            html    (if ropts
+                      (rdom-server/renderToString element ropts)
+                      (rdom-server/renderToString element))
+            {:keys [n first-record]} @!recorded]
+        (when (pos? n)
+          (refuse-recovered-render-error! frame-id first-record n))
+        html)
+      (finally
+        ;; Unregistered FIRST, so the teardown below is outside the window:
+        ;; a destroy-time fault belongs to the process's logs, not to the
+        ;; verdict on markup that has already been decided.
+        (rf/unregister-listener! :errors recovered-error-listener-id)
+        ;; The window before the frame — `destroy-frame!` may itself throw,
+        ;; and the window must already be shut when it runs.
         (roots/close-adoption-window! window)
         (rf/destroy-frame! frame-id)))))
