@@ -571,7 +571,7 @@ The registration-time and `:data`-schema-boundary validators. The three `:data` 
 
 ## See also
 
-- [re-frame.core.md](re-frame.core.md) — `reg-machine` / `defmachine` / `machine-has-tag?` are reached on the `re-frame.core` facade; `dispatch` / `subscribe` / `reg-event` drive and read a machine.
+- [re-frame.core.md](re-frame.core.md) — `reg-machine` / `defmachine` are reached on the `re-frame.core` facade; `dispatch` / `subscribe` / `reg-event` drive and read a machine. A tag read is the `[:rf.machine/has-tag? <machine-id> <tag>]` subscription — a subscription vector, not a fn.
 - [re-frame.schemas.md](re-frame.schemas.md) — machines declare schemas for their `:data` slot the same way ordinary handlers do; the `validate-*-data!` validators gate them.
 - [The table](../machines/concepts.md) — the flat-table contract: guards, actions, encapsulation, finals, schemas. The numbered Machines pages grow one login machine through tags, automatic transitions, hierarchy, parallel regions, history, and actors.
 - [Glossary](../machines/glossary.md) — the surface vocabulary in one place.
