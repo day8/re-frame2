@@ -4,9 +4,9 @@ description: >
   Writes re-frame2 ClojureScript application code — events, subscriptions,
   effects, flows, frames, state machines (reg-machine, parallel regions,
   tags, spawn), schemas, stories, routing, tests, and the canonical patterns
-  (RemoteData, Resources, Forms, Boot, WebSocket, NineStates, ManagedHTTP,
-  AsyncEffect, LongRunningWork, StaleDetection, ReusableComponents,
-  StatefulComponents, FormAction, SSR-Loaders). Use whenever the user
+  (RemoteData, Resources, ResourcesMutations, Forms, Boot, WebSocket,
+  NineStates, ManagedHTTP, AsyncEffect, LongRunningWork, StaleDetection,
+  ReusableComponents, StatefulComponents, FormAction). Use whenever the user
   mentions re-frame2, reg-event, reg-sub, reg-fx,
   reg-cofx, reg-flow, reg-view, reg-machine, reg-route, reg-story,
   reg-app-schema, reg-resource, reg-mutation, dispatch, subscribe, app-db,
@@ -101,7 +101,7 @@ This skill's view surface is the **adapters** — Reagent, reagent-slim, UIx, He
 | Parameterised widget rendered N times (entity-id idiom) | `patterns/reusable-components.md` |
 | View wrapping a stateful JS library (chart / map / editor) | `patterns/stateful-components.md` |
 | SSR form POST handling (progressive enhancement) | `patterns/form-action.md` |
-| SSR parallel data fetch before render (fan-out) | `patterns/ssr-loaders.md` |
+| SSR data load before render — route-owned blocking `:resources` (`:blocking? true`); machines are synchronous-only under SSR, so there is no loader-machine fan-out | `patterns/resources.md` §Route-driven loading |
 
 Patterns compose; a screen can use Forms on submit, RemoteData for the request, and WebSocket for a push.
 
