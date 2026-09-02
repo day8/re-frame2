@@ -178,16 +178,17 @@ When the operating frame is ambiguous (two-plus **app** frames, no pin), **every
 
 ## Where the depth lives — loading map
 
-Read the leaf matching the task. Most references are ≤250 lines; the two catalogue leaves (`ops.md`, `recipes.md`) run longer.
+Read the leaf matching the task. Most references are ≤250 lines; the two catalogue leaves (`ops.md`, `recipes.md`) run longer. Screen reads — what is on screen and why it rendered — are their own leaf (`screen-reads.md`), so an ordinary read/dispatch/trace session never loads them.
 
 | Task shape | Reference |
 |---|---|
-| Pick a structured op (read, validated sub-read, write, dry-run, trace, DOM/UI read, signal recording, blocking wait, hot-reload, time-travel) | [references/ops.md](references/ops.md) |
+| Pick a structured op (read, validated sub-read, write, dry-run, trace, signal recording, blocking wait, hot-reload, time-travel) | [references/ops.md](references/ops.md) |
+| Pick a screen-read op (DOM source bridge, `read-dom` vs `read-ui`, Hicasso evidence) | [references/screen-reads.md](references/screen-reads.md) |
 | Orient on an unfamiliar app in one call, or read a single sub's validated value | `orient` / `read-sub` — see [references/ops.md §Read](references/ops.md#read) (arg signatures in [references/mcp-transport.md §MCP tool reference](references/mcp-transport.md#mcp-tool-reference-args)) |
 | Find out **which registrations / image a specific frame actually runs** (the multi-image / Story case where the same id resolves differently per frame), with per-frame provenance | `describe-image` — see [references/ops.md §Frames](references/ops.md#frames) |
-| Read what's actually on screen (rendered content + producing view entity) | `read-ui` / `read-dom` — see [references/ops.md §View → rendered content](references/ops.md#view--rendered-content--producing-entity-uiread) |
-| Ask which Hicasso boundaries are **mounted right now** (`read-mounted-boundaries`), or **which boundaries read a subscription** you can name (`read-read-attribution`). A boundary here has no view name — the runtime mints no identity, so it is keyed by its read set. Reagent and UIx apps answer `:evidence-tier-unavailable` on all three; every other op in this skill works on them unchanged | see [references/ops.md §Hicasso evidence](references/ops.md#hicasso-evidence--mounted-boundaries-read-attribution-render-cause) |
-| Ask **which of a boundary's reads moved** when it rendered and you didn't expect it to (`explain-render`) — the proven half, beside retained runs offered as leads | see [references/ops.md §Hicasso evidence](references/ops.md#hicasso-evidence--mounted-boundaries-read-attribution-render-cause) |
+| Read what's actually on screen (rendered content + producing view entity) | `read-ui` / `read-dom` — see [references/screen-reads.md §View → rendered content](references/screen-reads.md#view--rendered-content--producing-entity-uiread) |
+| Ask which Hicasso boundaries are **mounted right now** (`read-mounted-boundaries`), or **which boundaries read a subscription** you can name (`read-read-attribution`). A boundary here has no view name — the runtime mints no identity, so it is keyed by its read set. Reagent and UIx apps answer `:evidence-tier-unavailable` on all three; every other op in this skill works on them unchanged | see [references/screen-reads.md §Hicasso evidence](references/screen-reads.md#hicasso-evidence--mounted-boundaries-read-attribution-render-cause) |
+| Ask **which of a boundary's reads moved** when it rendered and you didn't expect it to (`explain-render`) — the proven half, beside retained runs offered as leads | see [references/screen-reads.md §Hicasso evidence](references/screen-reads.md#hicasso-evidence--mounted-boundaries-read-attribution-render-cause) |
 | Simulate an event's consequence WITHOUT committing it (no fx fire) | `dispatch-dry-run` — see [references/recipes.md §"What would this event do?"](references/recipes.md#what-would-this-event-do-dry-run) |
 | Record signals while the human interacts, or block until a condition lands | `record` / `read-recording` / `watch-until` — see [references/ops.md §Signal recording](references/ops.md#signal-recording--blocking-waits) |
 | Run a named procedure the user asked for ("why didn't my view update?", post-mortem, experiment loop, etc.) | [references/recipes.md](references/recipes.md) |

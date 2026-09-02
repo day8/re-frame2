@@ -116,7 +116,8 @@ skills/re-frame2-pair/
 ├── package.json                        (npm metadata)
 ├── .claude-plugin/plugin.json          (Claude Code plugin metadata)
 ├── references/
-│   ├── ops.md                          (op catalogue — read/write/trace/DOM/watch/hot-reload/time-travel + v1 surface-map appendix)
+│   ├── ops.md                          (op catalogue — read/write/trace/watch/hot-reload/time-travel + v1 surface-map appendix)
+│   ├── screen-reads.md                 (what is on screen and why it rendered — DOM source bridge, read-dom vs read-ui, Hicasso evidence)
 │   ├── recipes.md                      (named procedures — "explain this dispatch", post-mortem, etc.)
 │   ├── errors.md                       (structured error → English + recovery)
 │   ├── mcp-transport.md                (MCP install + transport reference — the only transport)
@@ -131,7 +132,9 @@ skills/re-frame2-pair/
     └── authoring-prompt.md             (one-shot reauthor prompt)
 ```
 
-Typical session reads SKILL.md (the always-loaded router) + one or two references. Leaves are single-concept and kept ideally ≤250 lines / ≤16 KB; the two catalogue leaves (`ops.md`, `recipes.md`) run longer where a split would not reduce tokens-per-session. The hot-reload protocol and v1 → v2 surface-map both live in `ops.md` as sections rather than separate leaves.
+Typical session reads SKILL.md (the always-loaded router) + one or two references. Leaves are single-concept and kept ideally ≤250 lines / ≤16 KB; the two catalogue leaves (`ops.md`, `recipes.md`) run longer where a split would not reduce tokens-per-session. The hot-reload protocol and v1 → v2 surface-map both live in `ops.md` as sections rather than separate leaves — that placement is LOCKED, and a re-authoring pass must not split them out.
+
+The screen-read block — DOM source bridge, `read-dom` vs `read-ui`, and Hicasso evidence — is the one part of the catalogue that IS a separate leaf (`references/screen-reads.md`, rf2-wgvyx). It passes the split test in both directions: a read/dispatch/trace/time-travel session never opens it, and a "why did this boundary render?" session wants it without the rest of the catalogue. `ops.md`'s §Contents keeps a row per moved section pointing at it.
 
 ## 6. Discovery surface (frontmatter `description`)
 

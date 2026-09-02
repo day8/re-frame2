@@ -41,6 +41,7 @@
 
 (def ^:private recipes-md (delay (slurp-rel "references/recipes.md")))
 (def ^:private ops-md (delay (slurp-rel "references/ops.md")))
+(def ^:private screen-reads-md (delay (slurp-rel "references/screen-reads.md")))
 (def ^:private skill-md (delay (slurp-rel "SKILL.md")))
 (def ^:private errors-md (delay (slurp-rel "references/errors.md")))
 (def ^:private vocabulary-md (delay (slurp-rel "references/vocabulary.md")))
@@ -300,7 +301,17 @@
              "sensitive reads to the structured tools (rf2-k2off)."))
     (is (and (str/includes? @ops-md "trace-buffer")
              (str/includes? @ops-md "epoch-history"))
-        "ops.md must still name the raw trace-buffer / epoch-history surfaces the carve-out governs.")))
+        "ops.md must still name the raw trace-buffer / epoch-history surfaces the carve-out governs."))
+  ;; screen-reads.md was split out of ops.md under rf2-wgvyx and took the raw
+  ;; `eval-cljs` DOM rows with it, so the carve-out no longer sits "above" them
+  ;; in the same file. The new leaf must keep a pointer back to it.
+  (testing "screen-reads.md points back at ops.md's raw-eval privacy carve-out"
+    (is (and (includes-ci? @screen-reads-md "privacy carve-out")
+             (str/includes? @screen-reads-md "ops.md"))
+        (str "references/screen-reads.md carries raw `eval-cljs` DOM rows but no "
+             "longer points at ops.md's privacy carve-out — a reader who loads only "
+             "this leaf would not learn that those forms return un-elided values "
+             "(rf2-wgvyx)."))))
 
 ;; ---------------------------------------------------------------------------
 ;; MCP-surface conformance drift
