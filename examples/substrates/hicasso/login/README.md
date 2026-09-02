@@ -100,7 +100,9 @@ every node, subscription and scrap of component state.
 
 ```
 login/
-  core.cljs    — the Hicasso HALF: h/defview views + adapter init + frame + mount.
+  core.cljs    — the Hicasso HALF: h/defview views + adapter init + frame + boot.
+  server.cljs  — the SERVER bundle: the entry table the ssr-node sidecar loads.
+  host.clj     — the JVM half: one ssr-handler wired to the Node renderer.
   index.html   — minimal host page.
 ```
 
@@ -123,6 +125,92 @@ one-shot compile-and-serve.
 No backend ships. The login runs against the canned HTTP stub in
 [`login.model`](../../../core/login/model.cljs), so the password
 `correct-horse` succeeds and anything else fails the way the machine expects.
+
+## Rendering it on the server
+
+The same views render on a server, and the interesting part is *which* server.
+Hicasso interprets Hiccup at runtime through React, so there is no JVM string
+emitter to render it with — the page's body is rendered by **Node**, running
+this very application's compiled bundle, while a JVM Ring handler owns
+everything else. That split is the whole shape of it:
+
+| The JVM (`host.clj`) | Node (`server.cljs`) |
+|---|---|
+| the request frame, the boot-event drain, the settle | — |
+| the `<head>`, the shell, `__rf_payload`, status, headers, cookies, redirects | — |
+| error projection and frame teardown | — |
+| — | the body markup, and nothing else |
+
+Node is handed a **projection** of the settled frame — not the frame — under a
+policy the host declares, and it hands back a string. Nothing else crosses in
+either direction.
+
+### The two policies
+
+There are two allowlists, and reading them as one is the mistake worth
+avoiding. `:payload` answers *what may the browser see?*; `:render-state`
+answers *what does the render need?* They differ in both directions:
+
+```clojure
+:payload      [:auth]                                   ;; the browser's
+:render-state {:app-db     [:auth :auth.login/server-notice]
+               :runtime-db [:rf.runtime/machines]}      ;; the render's
+```
+
+`:rf.runtime/machines` is in the render's list and not the browser's *shape*
+because the two partitions are different places: the `:auth.login/flow`
+machine's snapshot lives in runtime-db, and it is what decides whether the page
+shows the form, the welcome or the locked panel. Leave it out and the server
+renders a signed-in visitor a login form.
+
+`:auth.login/server-notice` runs the other way: a deployment notice the host
+resolves per request, which the render may read and the browser never receives.
+**A key in that position must not change the markup.** The hydrating client
+renders from the payload, so a node the two halves disagree about is a node
+React recovers by re-rendering — one recoverable error, measured rather than
+asserted in `re-frame.hicasso.login-server-crossing-ssr-dom-cljs-test`. So
+`host.clj` ships with no notice in app-db, and the key is there to make the
+distinction between the two policies concrete rather than theoretical.
+
+The draft password shows the third case. It is classified `:sensitive` by the
+shared model, so BOTH projections redact it before either wire: the render
+cannot print a secret it was never handed, and the input comes back reading
+`redacted` on a server-rendered page.
+
+### Build it and run it
+
+```bash
+# From implementation/ — the server bundle and the client bundle.
+npx shadow-cljs compile :examples/login-hicasso-server
+npx shadow-cljs compile :examples/login-hicasso
+
+# The sidecar, pointed at the server bundle. It prints ONE JSON line on
+# stdout when it is listening; read the `url` out of that.
+node ssr-node/bin/serve.cjs --module out/examples/login-hicasso-server/server.js
+```
+
+For a deployment, stamp a real build identity into the bundle and give the JVM
+host the same string — the sidecar refuses a request that names a different
+one, and the adapter refuses an answer that comes back with one:
+
+```bash
+npx shadow-cljs release examples/login-hicasso-server   --config-merge '{:closure-defines {hicasso.login.server/build-id "2026-09-02-a1b2c3"}}'
+```
+
+Then serve `host.clj`'s `handler` from any Ring adapter, with
+`LOGIN_HICASSO_SSR_NODE` pointing at the sidecar's URL, and open the page. The
+client boots through the same `core.cljs` either way: it looks for
+`__rf_payload`, and hydrates when it finds one instead of mounting.
+
+**One thing is not done yet, and the JVM host cannot run without it.** A JVM
+host has to hold the application's state, so `login.model` — the owner of every
+`auth.login` schema, fx, machine, event and sub — has to be loadable from
+Clojure, and it is `model.cljs` today. The single line keeping it there is a
+`localStorage` write in the demo session effect. Making it `.cljc` is a change
+to a file all three login arms share and is not made here; until it is,
+`host.clj` is the wiring rather than a running server. The crossing itself is
+exercised end to end, against the real sidecar contract, by
+`implementation/hicasso/test/re_frame/hicasso/login_server_crossing_ssr_dom_cljs_test.cljs`.
 
 ## Copying this into your own app
 
