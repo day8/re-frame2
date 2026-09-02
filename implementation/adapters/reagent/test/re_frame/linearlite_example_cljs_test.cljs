@@ -115,12 +115,34 @@
    route entry's ensure + navigation are deterministic without a fetch / browser.
    The capturing managed-HTTP override replaces the example's own demo stub, so
    the test drives success-vs-failure by choosing which reply to replay (rather
-   than via the example's fail-next-write app-db seam)."
+   than via the example's fail-next-write app-db seam).
+
+   THE ORDER MATTERS, AND THE FRAME IS MADE LAST (rf2-k4oe). A `:url-bound?`
+   frame performs a synchronous initial URL sync AT CONSTRUCTION — `make-frame`
+   -> `frame/upsert-frame!`'s post-create hook -> routing's
+   `:routing/on-frame-registered!` -> `reconcile-url-listener!` — and under Node
+   that URL is `\"/\"`, which is where this example registers
+   `:linearlite.app/board` with a BLOCKING `:linearlite/board` route resource.
+   So the route-entry resource plan runs INSIDE `make-frame`. Construct the
+   frame before the `registrar/register!` loop below and that plan finds the
+   `:resource` kind still empty (the reset hook cleared it), records
+   `:transition :error` / `:rf.error/resource-route-plan` on the routing slice,
+   and — because the suite's own `navigate` never re-plans — the error is
+   STICKY: 16 of these 51 assertions read nil, across 7 of the 10 tests.
+
+   In the consolidated `:node-test` bundle that failure is INVISIBLE, which is
+   why it stood: seven in-tree example apps register a route at `\"/\"`, so `\"/\"`
+   resolves to a co-loaded SIBLING's route and this example's board resource is
+   never planned at construction. The suite was therefore green on account of
+   who it sat beside rather than on account of its own subject. Registering
+   everything first and making the frame last removes that dependence entirely,
+   and matches the committed pilot baseline
+   (`docs/design/hicasso/product/pilots/baseline/linearlite/baseline_test.cljs`).
+   Verified by building this suite in a single-app bundle: 16 failures before,
+   0 after."
   []
   (test-support/reinstate-app-registration! not-found-route-row)
   (reset! last-managed-args nil)
-  (rf/make-frame {:id :rf/default :url-bound? true
-                  :doc "linearlite-example default app frame."})
   ;; rf2-h1vqa4: reinstate through `registrar/register!` — NOT a raw
   ;; registrar-atom swap. Image-loaded frames resolve through the SOURCE
   ;; STORE (the default image is assembled from it), and the reset hook's
@@ -133,7 +155,12 @@
   (routing/reset-counters!)
   (resources-route/install-routing-integration!)
   (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
-  (fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil)))
+  (fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
+  ;; LAST — see the ordering note in the docstring. Everything the frame's
+  ;; construction-time URL sync needs (the reinstated `:resource` / `:mutation`
+  ;; rows, the routing integration, the stubbed fx) is registered above.
+  (rf/make-frame {:id :rf/default :url-bound? true
+                  :doc "linearlite-example default app frame."}))
 
 (defn- isolate-trace-bus-fixture
   "OUTER fixture: keep this resource/mutation-registering suite from leaking
