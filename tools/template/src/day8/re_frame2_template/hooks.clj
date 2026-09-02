@@ -1,168 +1,76 @@
 (ns day8.re-frame2-template.hooks
   "deps-new hooks for day8/re-frame2-template.
 
-   `template.edn` declares three hooks, invoked in this order:
+   `template.edn` names three hooks, invoked in this order:
 
-     1. `data-fn` validates arguments and derives substitution values.
-     2. `template-fn` selects the files for the requested variant.
+     1. `data-fn`         validates the arguments and derives the
+                          substitution values.
+     2. `template-fn`     selects the files for the chosen substrate.
      3. `post-process-fn` prints the generated project's next steps.
 
-   The supported matrix is Reagent and UIx; Story and SSR are mutually
-   exclusive Reagent-only options; Tailwind is available on every
-   substrate. Unknown keys and unsupported combinations fail closed.
+   The template has ONE selector, `:substrate` (`:reagent` by default, or
+   `:uix`), and emits the same twelve-file counter SPA for every value of
+   it. Only `deps.edn`, `core.cljs` and `views.cljs` differ per substrate;
+   they live under `_<substrate>/` and `template-fn` picks the tree. A new
+   substrate is one `substrate-registry` entry, one `_<substrate>/` tree of
+   those three files, and one arm in `template-fn`'s `case`.
 
-   deps-new performs flat `{{key}}` substitution, not conditional template
-   syntax. Variants with structural differences therefore use separate
-   source files; small textual differences use substitution values
-   (`{{story-tag}}`, `{{test-script}}`, and the `{{xray-*}}` /
-   `{{csp-style-src-note*}}` family carrying the Xray wiring per the
-   rf2-p6f6u ruling).
-
-   Which substrates get Xray, Story and SSR is DECLARED per substrate in
-   `substrate-registry` and read through `capability` — never derived by
-   comparing the substrate against one name. See that registry's
-   docstring for why (rf2-48rk3)."
+   deps-new performs flat `{{key}}` substitution, so the one per-substrate
+   difference outside those three files — the display name — rides a
+   substitution value (`{{substrate-label}}`). Unknown arguments fail
+   closed."
   (:require [clojure.set :as set]
             [clojure.string :as string]))
 
-;; -- substrate registry -----------------------------------------------------
-;;
-;; Labels, badges AND capabilities share the same key set used for
-;; substrate validation.
-;;
-;; WHY CAPABILITIES ARE DATA HERE RATHER THAN PREDICATES AT EACH USE SITE
-;; (rf2-48rk3). With exactly two substrates, "does this one ship Xray?"
-;; can be spelled either `(= substrate :reagent)` or `(not= substrate
-;; :uix)`, and the two agree — but only by the arithmetic of a two-element
-;; set. Both spellings were live in this file, and a third substrate made
-;; them DIVERGE: the emitted project got the Xray preload, the
-;; `[data-rf-xray-host]` slot and a README promising the panel, while
-;; `:xray-npm-deps` emitted empty — so its very first `shadow-cljs watch
-;; app` died on a missing JS dependency, the exact failure the
-;; `:xray-npm-deps` comment below records being bitten by once already.
-;;
-;; A capability is therefore a DECLARED property of a substrate, read
-;; through `capability` (which throws on an undeclared key rather than
-;; treating a missing key as false). There is no default arm for a new
-;; substrate to fall through, so the two-value idiom cannot come back.
-
-(def ^:private substrate-capability-keys
-  "Every key a `substrate-registry` entry must declare. Adding a
-   capability here without declaring it on every entry fails closed at
-   the first `capability` read — deliberately: a silently-false
-   capability is how the two-value idiom produced an emitted project
-   that could not compile."
-  #{:xray? :story? :ssr?})
+;; -- substrates ---------------------------------------------------------------
 
 (def ^:private substrate-registry
-  "Substrate metadata + declared capabilities.
-
-   - `:xray?`  — the scaffold wires Xray (preload, `[data-rf-xray-host]`
-     layout host, host CSS, the machine-canvas npm deps, and the README
-     section that promises the panel). Xray's shell renders through the
-     ratom-family substrates; on an element-shaped React substrate the
-     panel cannot mount (rf2-p6f6u / rf2-qgfo4), so those substrates
-     promise nothing.
-   - `:story?` / `:ssr?` — the substrate has Story / SSR sources under
-     its `_<substrate>/` resource tree, so `:include-story?` /
-     `:include-ssr?` can be honoured. `template-fn`'s per-substrate
-     `case` is the other half of this fact; keep them in step."
-  {:reagent {:label     "Reagent"
-             :badge-url "https://img.shields.io/badge/substrate-Reagent-1abc9c.svg"
-             :xray?     true
-             :story?    true
-             :ssr?      true}
-   :uix     {:label     "UIx"
-             :badge-url "https://img.shields.io/badge/substrate-UIx-3498db.svg"
-             :xray?     false
-             :story?    false
-             :ssr?      false}})
-
-;; -- :substrate coercion ----------------------------------------------------
+  "Every substrate the template can emit, keyed by the `:substrate` value.
+   `:label` is the display name the generated README and package.json
+   carry. `valid-substrates` derives from this map, and `template-fn`'s
+   `case` names each substrate's `_<substrate>/` tree — a new substrate
+   is added in both places."
+  {:reagent {:label "Reagent"}
+   :uix     {:label "UIx"}})
 
 (def ^:private valid-substrates (set (keys substrate-registry)))
 
-(defn- capability
-  "Read declared capability `k` off `substrate`'s registry entry.
-
-   Fails closed on an UNDECLARED key rather than reading the `nil` a
-   missing key would return as false. That distinction is the whole
-   point: a substrate added without declaring `:xray?` should stop the
-   scaffold with a message naming the omission, not silently emit a
-   project whose Xray wiring and Xray dependencies disagree."
-  [substrate k]
-  (let [entry (substrate-registry substrate)]
-    (if (contains? entry k)
-      (boolean (get entry k))
-      (throw (ex-info ":rf.error/template-substrate-capability-undeclared"
-                      {:rf.error/id :rf.error/template-substrate-capability-undeclared
-                       :where      'template/capability
-                       :recovery   :fix-registration
-                       :reason     (str "Substrate " (pr-str substrate)
-                                        " does not declare the capability "
-                                        (pr-str k)
-                                        ". Every substrate-registry entry must "
-                                        "declare all of "
-                                        (pr-str substrate-capability-keys)
-                                        " — see the registry docstring "
-                                        "(rf2-48rk3).")
-                       :substrate  substrate
-                       :capability k
-                       :required   substrate-capability-keys})))))
-
-(defn- substrates-supporting
-  "The substrates whose registry entry declares capability `k` true.
-   Used to build refusal messages that name the CURRENT supporting set
-   rather than hardcoding one substrate's name."
-  [k]
-  (into (sorted-set)
-        (keep (fn [[substrate entry]] (when (get entry k) substrate))
-              substrate-registry)))
+(def ^:private default-substrate :reagent)
 
 (defn- coerce-substrate
-  "Validate the `:substrate` arg. Accepts only a keyword (one of
-  `valid-substrates`) or nil (defaults to `:reagent`). deps-new's
-  top-level k/v contract guarantees the value reaches us as a keyword
-  — anything else is a registration error and we throw with a clear
-  message naming the valid set.
-
-  The contract is keyword-only: string and symbol inputs are rejected
-  rather than coerced, preserving the fail-closed argument contract."
+  "Validate `:substrate`. nil selects the default; anything else must be a
+   keyword in `valid-substrates`. deps-new's top-level k/v contract
+   delivers keywords, so a string or symbol is a registration error and is
+   rejected rather than coerced."
   [raw]
-  (let [substrate-kw (cond
-                       (nil? raw)     :reagent
-                       (keyword? raw) raw
-                       :else
-                       (throw (ex-info ":rf.error/template-substrate-must-be-keyword"
-                                       {:rf.error/id :rf.error/template-substrate-must-be-keyword
-                                        :where     'template/coerce-substrate
-                                        :recovery  :fix-registration
-                                        :reason    (str ":substrate must be a keyword (one of "
-                                                        (pr-str valid-substrates)
-                                                        "). Got "
-                                                        (.getName (class raw))
-                                                        ": "
-                                                        (pr-str raw))
-                                        :substrate raw
-                                        :valid     valid-substrates})))]
-    (when-not (valid-substrates substrate-kw)
+  (let [substrate (cond
+                    (nil? raw)     default-substrate
+                    (keyword? raw) raw
+                    :else
+                    (throw (ex-info ":rf.error/template-substrate-must-be-keyword"
+                                    {:rf.error/id :rf.error/template-substrate-must-be-keyword
+                                     :where     'template/coerce-substrate
+                                     :recovery  :fix-registration
+                                     :reason    (str ":substrate must be a keyword (one of "
+                                                     (pr-str valid-substrates)
+                                                     "). Got "
+                                                     (.getName (class raw))
+                                                     ": " (pr-str raw))
+                                     :substrate raw
+                                     :valid     valid-substrates})))]
+    (when-not (valid-substrates substrate)
       (throw (ex-info ":rf.error/template-substrate-must-be-one-of"
                       {:rf.error/id :rf.error/template-substrate-must-be-one-of
                        :where     'template/coerce-substrate
                        :recovery  :fix-registration
                        :reason    (str ":substrate must be one of "
                                        (pr-str valid-substrates)
-                                       " (got " (pr-str substrate-kw) ")")
-                       :substrate substrate-kw
+                                       " (got " (pr-str substrate) ")")
+                       :substrate substrate
                        :valid     valid-substrates})))
-    substrate-kw))
+    substrate))
 
-;; -- argument-key gate -------------------------------------------------------
-;;
-;; deps-new merges caller arguments with keys produced by
-;; `preprocess-options`. Keep this allowlist aligned with the pinned deps-new
-;; version; otherwise a newly introduced harness key will be rejected as an
-;; unknown template flag.
+;; -- argument gate ------------------------------------------------------------
 
 (def ^:private deps-new-harness-keys
   "The keys deps-new injects into the `data` map before `data-fn` runs
@@ -170,44 +78,24 @@
    project-name derivations + run metadata, the `:template-dir`
    `apply-template-fns` adds just before invoking `data-fn`, plus the
    caller-supplied harness opts that survive `preprocess-options`'
-   `dissoc` (`:src-dirs`, `:overwrite`). Verified against the pinned
-   coord's source (org.corfield.new.impl)."
+   `dissoc` (`:src-dirs`, `:overwrite`). Keep this aligned with the pinned
+   deps-new version; otherwise a newly introduced harness key is rejected
+   as an unknown template argument."
   #{:artifact/id :developer :git-dir :group/id :main :name :now/date
     :now/year :overwrite :raw-name :scm/domain :scm/repo :scm/user
     :src-dirs :target-dir :template :template-dir :top :user :version})
 
-(def ^:private template-flag-keys
-  "The template-specific flags we accept today."
-  #{:substrate :include-story? :include-ssr? :css})
-
-(def ^:private reserved-flag-gates
-  "Reserved-but-unimplemented flags and the condition that enables them.
-   Passing one fails closed rather than silently emitting the default app."
-  {})
+(def ^:private template-keys
+  "The template's own arguments. `:substrate` is the one and only
+   selector; every retired feature flag is simply unknown here."
+  #{:substrate})
 
 (defn- gate-arg-keys!
-  "Fail closed on reserved or unknown template arguments.
-
-   - A reserved flag (see `reserved-flag-gates`; empty today) throws
-     `:rf.error/template-unsupported-flag`, naming the flag and its
-     gate — it is not silently dropped.
-   - Any key that is neither a deps-new harness key nor a live
-     template flag throws `:rf.error/template-unknown-flag` (catches
-     typos like `:include-story` / `:include-stories?`)."
+  "Fail closed on any argument that is neither a deps-new harness key nor a
+   template key. A typo, or a flag this template no longer accepts, throws
+   `:rf.error/template-unknown-flag` before any file is written."
   [data]
-  (doseq [[flag gate] reserved-flag-gates]
-    (when (contains? data flag)
-      (throw (ex-info ":rf.error/template-unsupported-flag"
-                      {:rf.error/id :rf.error/template-unsupported-flag
-                       :where    'template/gate-arg-keys!
-                       :recovery :remove-flag
-                       :reason   (str (pr-str flag) " is reserved in the v1 "
-                                      "flag set but not yet implemented "
-                                      "(gated on " gate "). Remove it; "
-                                      "the scaffold can't honour it today.")
-                       :flag     flag
-                       :gate     gate}))))
-  (let [known   (set/union deps-new-harness-keys template-flag-keys)
+  (let [known   (set/union deps-new-harness-keys template-keys)
         unknown (remove known (keys data))]
     (when (seq unknown)
       (throw (ex-info ":rf.error/template-unknown-flag"
@@ -216,559 +104,140 @@
                        :recovery :fix-registration
                        :reason   (str "Unknown template argument(s): "
                                       (pr-str (vec unknown))
-                                      ". The accepted template flags are "
-                                      (pr-str template-flag-keys)
-                                      " (check for a typo, e.g. "
-                                      ":include-story -> :include-story?).")
+                                      ". The template accepts "
+                                      (pr-str template-keys) " only.")
                        :unknown  (vec unknown)
-                       :accepted template-flag-keys})))))
+                       :accepted template-keys})))))
 
-;; -- :include-story? coercion ----------------------------------------------
-
-(defn- coerce-include-story?
-  "Coerce the `:include-story?` arg to a boolean. The only accepted
-   values are literal `true` / `false` / `nil` (nil ⇒ false); anything
-   else throws with a clear message. The flag is Reagent-only —
-   caller-level guard checks the substrate."
-  [raw]
-  (if (contains? #{nil true false} raw)
-    (boolean raw)
-    (throw (ex-info ":rf.error/template-bad-include-story-flag"
-                    {:rf.error/id :rf.error/template-bad-include-story-flag
-                     :where     'template/coerce-include-story?
-                     :recovery  :fix-registration
-                     :reason    (str ":include-story? must be true or false (got "
-                                     (pr-str raw) ")")
-                     :include-story? raw}))))
-
-;; -- :include-ssr? coercion ------------------------------------------------
-
-(defn- coerce-include-ssr?
-  "Coerce the `:include-ssr?` arg to a boolean. The only accepted values
-   are literal `true` / `false` / `nil` (nil ⇒ false); anything else
-   throws with a clear message. The flag is Reagent-only and
-   mutually exclusive with `:include-story?` — caller-level guards check
-   both (see data-fn)."
-  [raw]
-  (if (contains? #{nil true false} raw)
-    (boolean raw)
-    (throw (ex-info ":rf.error/template-bad-include-ssr-flag"
-                    {:rf.error/id :rf.error/template-bad-include-ssr-flag
-                     :where     'template/coerce-include-ssr?
-                     :recovery  :fix-registration
-                     :reason    (str ":include-ssr? must be true or false (got "
-                                     (pr-str raw) ")")
-                     :include-ssr? raw}))))
-
-;; -- :css coercion ---------------------------------------------------------
-
-(def ^:private valid-css
-  "Accepted `:css` values. `nil` ⇒ the plain-CSS default; `:tailwind`
-   swaps in the Tailwind v4 scaffold."
-  #{:tailwind})
-
-(defn- coerce-css
-  "Coerce the `:css` arg to a keyword or nil. `nil` selects the default
-   plain-CSS scaffold; `:tailwind` selects the Tailwind v4 variant.
-   Anything else (a string, a bogus keyword like `:tailwnid`) fails
-   closed with a clear message naming the valid set — matching the
-   fail-closed posture the substrate + flag coercions already carry."
-  [raw]
-  (cond
-    (nil? raw)          nil
-    (valid-css raw)     raw
-    :else
-    (throw (ex-info ":rf.error/template-bad-css-flag"
-                    {:rf.error/id :rf.error/template-bad-css-flag
-                     :where    'template/coerce-css
-                     :recovery :fix-registration
-                     :reason   (str ":css must be one of "
-                                    (pr-str valid-css)
-                                    " (or omitted for the plain-CSS "
-                                    "default). Got "
-                                    (pr-str raw) ".")
-                     :css      raw
-                     :valid    valid-css}))))
-
-;; -- name derivations ------------------------------------------------------
+;; -- name derivations ---------------------------------------------------------
 ;;
-;; deps-new's `preprocess-options` populates the opts map with the
-;; bare project-name fields BUT NOT the `/ns` / `/file` derivatives —
-;; those are computed later by `->subst-map`, after `data-fn` and
-;; `template-fn` have already run. So our data-fn computes them
-;; locally for use in rename targets (the file-map values are pure
-;; Clojure strings, resolved at template-fn time before `->subst-map`
-;; gets near them).
-;;
-;; The transformations match `->subst-map`'s rules:
-;;   - `/file` form: dots → slashes, dashes → underscores.
-;;   - `/ns`   form: slashes → dots, underscores → dashes.
+;; deps-new's `preprocess-options` supplies `:top` / `:main` but computes
+;; their `/ns` and `/file` forms only later, in `->subst-map` — after
+;; `template-fn` has already built its rename targets. So `data-fn` derives
+;; them here, with `->subst-map`'s own rules.
 
 (defn- ->file-path
-  "Convert a name segment to a file-system-path component:
-   dots → slashes, dashes → underscores."
+  "dots → slashes, dashes → underscores."
   [s]
   (-> s str (string/replace "." "/") (string/replace "-" "_")))
 
 (defn- ->ns-form
-  "Convert a name segment to a namespace component:
-   slashes → dots, underscores → dashes."
+  "slashes → dots, underscores → dashes."
   [s]
   (-> s str (string/replace "/" ".") (string/replace "_" "-")))
 
-;; -- data-fn ----------------------------------------------------------------
+(def ^:private npm-name-max-length 214)
+
+(defn- npm-name-valid?
+  "npm's rules for a new unscoped package name: lowercase, URL-safe
+   (`a-z 0-9 - _ . ~`), no leading `.` or `_`, at most 214 characters."
+  [s]
+  (boolean
+    (and (string? s)
+         (<= 1 (count s) npm-name-max-length)
+         (re-matches #"[a-z0-9~-][a-z0-9._~-]*" s))))
+
+(defn- ->npm-name
+  "The emitted package.json `name`: deps-new's `:main` (the artefact
+   segment of `:name` — `acme/my-app` and a bare `my-app` both give
+   `my-app`), lowercased. Unscoped: a scope asserts an npm org the user may
+   not own, and the package is private anyway. Validated because the
+   qualified Clojure name copied verbatim is exactly what npm rejects."
+  [main]
+  (let [candidate (string/lower-case (str main))]
+    (when-not (npm-name-valid? candidate)
+      (throw (ex-info ":rf.error/template-npm-name-invalid"
+                      {:rf.error/id :rf.error/template-npm-name-invalid
+                       :where    'template/->npm-name
+                       :recovery :fix-registration
+                       :reason   (str "The artefact segment of :name, "
+                                      (pr-str (str main)) ", is not a valid "
+                                      "npm package name once lowercased ("
+                                      (pr-str candidate) "): use a-z, 0-9, "
+                                      "`-`, `_`, `.` or `~`, not starting "
+                                      "with `.` or `_`, at most "
+                                      npm-name-max-length " characters.")
+                       :main     (str main)
+                       :npm-name candidate})))
+    candidate))
+
+;; -- data-fn ------------------------------------------------------------------
 
 (defn data-fn
-  "Validate template arguments and derive values used during substitution.
+  "Validate the template arguments and derive the substitution values.
 
-   deps-new supplies `:name`, `:top`, and `:main`. This hook adds the
-   namespace/file forms, selected substrate metadata, package description
-   and test-script variants, and dependency version pins. Keyword copies of
-   selector values are retained for `template-fn`, because deps-new coerces
-   substitution values to strings."
+   deps-new supplies `:name`, `:top` and `:main`. This hook adds the
+   namespace / path forms, the npm package name, the substrate's display
+   label and the dependency pins. The substrate keyword stays on the map
+   for `template-fn`."
   [data]
-  ;; Validate the key set before coercing values so a typo cannot silently
-  ;; emit the default scaffold.
+  ;; Validate the key set before touching any value, so a typo cannot
+  ;; silently emit the default scaffold.
   (gate-arg-keys! data)
   (let [substrate       (coerce-substrate (:substrate data))
-        include-story?  (coerce-include-story? (:include-story? data))
-        include-ssr?    (coerce-include-ssr? (:include-ssr? data))
-        css             (coerce-css (:css data))]
-    ;; Story and SSR have separate complete source variants; there is no
-    ;; combined variant.
-    (when (and include-story? include-ssr?)
-      (throw (ex-info
-               ":rf.error/ssr-and-story-mutually-exclusive"
-               {:rf.error/id :rf.error/ssr-and-story-mutually-exclusive
-                :where     'template/data-fn
-                :recovery  :fix-registration
-                :reason    (str ":include-story? and :include-ssr? are "
-                                "mutually exclusive in v1 — pass at most "
-                                "one. Combining them requires a per-cell "
-                                "template test the v1 surface does not "
-                                "carry (004-SSR-Validation-Report §2.1).")
-                :include-story? include-story?
-                :include-ssr?   include-ssr?})))
+        {:keys [label]} (substrate-registry substrate)
+        top             (:top data)
+        main            (:main data)]
+    {:substrate       substrate
+     :substrate-label label
+     :namespace       (str (->ns-form top) "." (->ns-form main))
+     :nested-dirs     (str (->file-path top) "/" (->file-path main))
+     :npm-name        (->npm-name main)
+     ;; Checked against the repository's sources of truth (VERSION,
+     ;; implementation/package.json) by version_lockstep_test.clj; bump
+     ;; them together.
+     :rf2-version     "0.0.1.alpha"
+     :shadow-version  "3.4.10"
+     :react-version   "19.2.0"}))
 
-    ;; Story and SSR are honoured only where the substrate DECLARES the
-    ;; sources for them (`:story?` / `:ssr?` in substrate-registry). The
-    ;; refusal used to read `(not= substrate :reagent)` — a two-value
-    ;; idiom that happened to be right, attached to a message that named
-    ;; UIx as the substrate being refused. Both now come off the registry,
-    ;; so the message names the CURRENT supporting set for any substrate.
-    (when (and include-story? (not (capability substrate :story?)))
-      (throw (ex-info
-               ":rf.error/template-include-story-reagent-only"
-               {:rf.error/id :rf.error/template-include-story-reagent-only
-                :where     'template/data-fn
-                :recovery  :fix-registration
-                :reason    (str ":include-story? is not available on :substrate "
-                                substrate ". The Story playground is scaffolded "
-                                "for " (pr-str (substrates-supporting :story?))
-                                " today; the other substrates follow once "
-                                "Story's adapter coverage extends to them.")
-                :substrate substrate
-                :supported (substrates-supporting :story?)
-                :include-story? include-story?})))
-
-    (when (and include-ssr? (not (capability substrate :ssr?)))
-      (throw (ex-info
-               ":rf.error/template-include-ssr-reagent-only"
-               {:rf.error/id :rf.error/template-include-ssr-reagent-only
-                :where     'template/data-fn
-                :recovery  :fix-registration
-                :reason    (str ":include-ssr? is not available on :substrate "
-                                substrate ". SSR is scaffolded for "
-                                (pr-str (substrates-supporting :ssr?))
-                                " today; the other substrates follow once "
-                                "their adapters demonstrate SSR parity.")
-                :substrate substrate
-                :supported (substrates-supporting :ssr?)
-                :include-ssr? include-ssr?})))
-    (let [{:keys [label badge-url]} (substrate-registry substrate)
-          top             (:top data)
-          main            (:main data)
-          top-file        (->file-path top)
-          main-file       (->file-path main)
-          top-ns          (->ns-form top)
-          main-ns         (->ns-form main)
-          ;; Xray wiring rides the substrate's DECLARED `:xray?`
-          ;; capability (rf2-p6f6u ruling, 2026-07-22; made a declared
-          ;; capability by rf2-48rk3). Xray's panel shell renders through
-          ;; the ratom-family substrates; on an element-shaped React
-          ;; substrate the panel cannot mount (rf2-qgfo4 made the mount
-          ;; verbs refuse cleanly), so such a scaffold stops promising it:
-          ;; no preload, no [data-rf-xray-host] layout host, no
-          ;; day8/re-frame2-xray coord, no Xray npm deps — until real
-          ;; element-substrate support lands (rf2-p6f6u (a), parked
-          ;; behind a demand trigger).
-          ;;
-          ;; THIS IS THE ONLY XRAY PREDICATE IN THE FILE, and it must
-          ;; stay that way: every `{{xray-*}}` / `{{csp-style-src-note*}}`
-          ;; value below branches on this one boolean. They previously
-          ;; branched on two different spellings of it, which agreed only
-          ;; because the substrate set had two members — see the
-          ;; substrate-registry docstring.
-          xray?           (capability substrate :xray?)]
-      {:substrate           (name substrate)
-       :substrate-kw        substrate
-       :substrate-label     label
-       :include-story?      include-story?
-       :include-ssr?        include-ssr?
-       ;; Keep selectors as keywords for `template-fn`; substitution values
-       ;; are stringified by deps-new.
-       :css-kw              css
-       ;; String form for flat `{{css-name}}` substitution — "tailwind" or
-       ;; "" (plain). The SSR `server.clj` reads it to decide whether the live
-       ;; shell also loads the Tailwind dev compiler.
-       :css-name            (if css (name css) "")
-       :story-tag           (if include-story? ", with Story playground" "")
-       ;; Xray rides the dev build of an `:xray?` scaffold only (the
-       ;; {{xray-preload}} slot in the shared shadow-cljs.edn), and its
-       ;; machine canvas compiles against two npm packages (@xyflow/react +
-       ;; elkjs, required by day8/re-frame2-machines-viz). shadow-cljs
-       ;; resolves JS deps from the project-local node_modules at compile
-       ;; time, so an Xray-wiring package.json must carry both — omit them
-       ;; and the scaffold's first `shadow-cljs watch app` fails with a
-       ;; missing JS dependency (found by the rf2-b16va G1-G4
-       ;; external-consumer validation; the in-repo emitted-test tier masks
-       ;; it by junctioning implementation/node_modules). THIS KEY IS WHY
-       ;; the predicate is now a declared capability: it was the one Xray
-       ;; value spelled `(= substrate :reagent)` while its siblings were
-       ;; spelled `(= substrate :uix)`, so a third substrate wired the
-       ;; preload and omitted these deps — exactly the missing-JS-dependency
-       ;; failure above (rf2-48rk3). A non-`:xray?` substrate ships no Xray
-       ;; pieces (rf2-p6f6u), so it emits empty. Pins ride lockstep with
-       ;; implementation/package.json (version_lockstep_test.clj).
-       :xray-npm-deps       (if xray?
-                              (str ",\n    \"@xyflow/react\": \"12.4.2\","
-                                   "\n    \"elkjs\": \"^0.11.1\"")
-                              "")
-       ;; The shared shadow-cljs.edn's :app-build devtools slot. An
-       ;; `:xray?` substrate wires the Xray preload; the others wire
-       ;; nothing (the emitted build map simply has no :devtools key).
-       :xray-preload        (if xray?
-                              (str "\n   ;; :devtools/preloads loads Xray in dev watch/compile builds."
-                                   "\n   ;; Once rf/init! installs the adapter, Xray auto-mounts into"
-                                   "\n   ;; resources/public/index.html's [data-rf-xray-host] right-side host."
-                                   "\n   ;; Cut from release builds automatically."
-                                   "\n   :devtools   {:preloads [day8.re-frame2-xray.preload]}")
-                              "")
-       ;; The [data-rf-xray-host] right-side layout host in both
-       ;; index.html variants (root/ + _css_tailwind/). Dropped from a
-       ;; non-`:xray?` substrate (no panel can fill it); kept where Xray
-       ;; mounts.
-       :xray-host-aside     (if xray?
-                              (str "\n      <aside class=\"rf2-xray-host\""
-                                   " data-rf-xray-host></aside>")
-                              "")
-       ;; The .rf2-xray-host sizing rules + rationale comment in both
-       ;; app.css variants. One value serves both files (their blocks are
-       ;; identical); empty for a non-`:xray?` substrate, whose index.html
-       ;; ships no host.
-       :xray-host-css
-       (if xray?
-         (str "\n/* The Xray host reserves a RIGHT-side column (the aside follows"
-              "\n * `<main id=\"app\">` in the DOM, so flex flow lays it to the right)."
-              "\n * It only takes up space once Xray has populated it. In dev, the"
-              "\n * `day8.re-frame2-xray.preload` mounts Xray into the"
-              "\n * `[data-rf-xray-host]` aside, making it non-empty and sizing it here."
-              "\n * Release builds drop the preload, so the aside stays empty and"
-              "\n * `:empty` collapses it — `#app` then spans the full viewport instead"
-              "\n * of shipping a blank gutter."
-              "\n *"
-              "\n * `flex-basis` reads `--rf-xray-inline-width` (Xray's host-owned resize"
-              "\n * knob, default 560px) so a persisted drag-resize width and"
-              "\n * cascade-level overrides (`:root`, per-route) take effect — a literal"
-              "\n * width ignores them. `box-sizing: border-box` keeps the 1px"
-              "\n * `border-left` inside the documented width. See the Xray §Layout host"
-              "\n * contract (tools/xray/spec/011-Launch-Modes.md). */"
-              "\n.rf2-xray-host {"
-              "\n  flex: 0 0 var(--rf-xray-inline-width, 560px);"
-              "\n  min-width: 320px;"
-              "\n  box-sizing: border-box;"
-              "\n  border-left: 1px solid #2a2a2a;"
-              "\n}"
-              "\n.rf2-xray-host:empty { display: none; }")
-         "")
-       ;; The plain-CSS index.html's CSP-comment style-src bullet. The
-       ;; `:xray?` text names Xray's inline-style reliance; the other
-       ;; doesn't reference a panel the scaffold doesn't ship.
-       :csp-style-src-note
-       (if xray?
-         (str "- `style-src 'self' 'unsafe-inline'` — the generated views use"
-              "\n           inline `:style` props, and the default-on Xray devtools surface"
-              "\n           injects `<style>` blocks and inline styles. Without"
-              "\n           `'unsafe-inline'` the first page would emit CSP violations and"
-              "\n           Xray's styling would be blocked. (To run with a strict"
-              "\n           `style-src 'self'`, move all inline styles to external CSS /"
-              "\n           a nonce and drop Xray — see README \"Production hardening\".)")
-         (str "- `style-src 'self' 'unsafe-inline'` — the generated views use"
-              "\n           inline `:style` props. Without `'unsafe-inline'` the first"
-              "\n           page would emit CSP violations. (To run with a strict"
-              "\n           `style-src 'self'`, move all inline styles to external CSS /"
-              "\n           a nonce — see README \"Production hardening\".)"))
-       ;; The Tailwind index.html's CSP-comment style-src bullet — same
-       ;; honesty split, with the Tailwind Play-CDN clauses shared.
-       :csp-style-src-note-tailwind
-       (if xray?
-         (str "- `style-src 'self' 'unsafe-inline'` — the generated views use"
-              "\n           inline `:style` props, the default-on Xray devtools surface"
-              "\n           injects `<style>` blocks and inline styles, the inline"
-              "\n           `<style type=\"text/tailwindcss\">` Tailwind SOURCE block below is"
-              "\n           an inline stylesheet, AND the @tailwindcss/browser CDN compiler"
-              "\n           injects a runtime `<style>` block of compiled utilities. Without"
-              "\n           `'unsafe-inline'` the first page would emit CSP violations and"
-              "\n           both Xray's styling and Tailwind's utilities would be blocked."
-              "\n           (To run with a strict `style-src 'self'`, move to the"
-              "\n           `@tailwindcss/cli` compiled build + external CSS / a nonce and"
-              "\n           drop Xray — see README \"Production hardening\".)")
-         (str "- `style-src 'self' 'unsafe-inline'` — the generated views use"
-              "\n           inline `:style` props, the inline"
-              "\n           `<style type=\"text/tailwindcss\">` Tailwind SOURCE block below is"
-              "\n           an inline stylesheet, AND the @tailwindcss/browser CDN compiler"
-              "\n           injects a runtime `<style>` block of compiled utilities. Without"
-              "\n           `'unsafe-inline'` the first page would emit CSP violations and"
-              "\n           Tailwind's utilities would be blocked."
-              "\n           (To run with a strict `style-src 'self'`, move to the"
-              "\n           `@tailwindcss/cli` compiled build + external CSS / a nonce"
-              "\n           — see README \"Production hardening\".)"))
-       ;; README "In-app devtools" section: an `:xray?` substrate documents
-       ;; the shipped panel; the others note the devtools story honestly
-       ;; (Xray rides the ratom-family substrates today, so the scaffold
-       ;; doesn't ship a panel it cannot mount). The non-Xray text names
-       ;; the chosen substrate via `label` rather than hardcoding "UIx",
-       ;; so it stays true for whichever substrate receives it.
-       :xray-readme-devtools
-       (if xray?
-         (str "## In-app devtools (Xray)"
-              "\n"
-              "\n`shadow-cljs.edn` wires `day8.re-frame2-xray.preload` into"
-              "\n`:devtools/preloads` on the `:app` build — the scaffold ships Xray"
-              "\n**on by default** for development. `resources/public/index.html`"
-              "\nincludes the `[data-rf-xray-host]` right-side layout host (the"
-              "\n`<aside>` follows `<main id=\"app\">`, so it lays out to the right), so"
-              "\nXray auto-opens beside your app once `rf/init!` runs. Press"
-              "\n**Ctrl+Shift+C** to hide/show it: per-epoch dispatch log, app-db diff,"
-              "\ncausality graph, time-travel scrubber."
-              "\nRelease builds drop the preload automatically (shadow only runs"
-              "\npreloads under `watch` / `compile`, never `release`)."
-              "\n"
-              "\nXray's panel also offers click-to-source: each trace row that carries"
-              "\na source coordinate (the `:rf.trace/trigger-handler` that re-frame2"
-              "\ntags onto view-render trace events, plus the `:source-coord` on event"
-              "\n/ fx / interceptor rows) renders a jump-to-source link, so you can"
-              "\nclick straight from a dispatch in the log to the form that defined the"
-              "\nhandler. No extra preload or wiring — it ships with the Xray preload"
-              "\nabove.")
-         (str "## In-app devtools"
-              "\n"
-              "\nThis scaffold does not wire Xray (re-frame2's in-app devtools"
-              "\npanel). Xray's panel shell renders through the ratom-family"
-              "\n(Reagent) substrates today; on a " label " app — an element-shaped React"
-              "\nsubstrate — the panel cannot mount, so the scaffold ships no"
-              "\npreload, no layout host, and no dependency it cannot honour. The"
-              "\nReagent scaffold ships Xray on by default; " label " support follows once"
-              "\nXray mounts on element substrates."
-              "\n"
-              "\nYou still get re-frame2's instrumentation without the panel: the"
-              "\nerror sink registered at the top of `events.cljs` surfaces every"
-              "\ndispatch-pipeline error on the console, and `dev/scratch.cljs` is"
-              "\nthe REPL on-ramp for driving the running app."))
-       ;; README "Production hardening" — the development-flavoured meta
-       ;; CSP paragraph. The `:xray?` text explains Xray's inline-style
-       ;; reliance; the other stands on the views' inline :style props.
-       :xray-readme-csp-note
-       (if xray?
-         (str "**The shipped meta CSP is development-flavoured.** It sets"
-              "\n`style-src 'self' 'unsafe-inline'` because the generated views use"
-              "\ninline `:style` props and the default-on Xray devtools surface injects"
-              "\n`<style>` blocks and inline styles — a strict `style-src 'self'` would"
-              "\nemit CSP violations on the first page and block Xray styling. The meta"
-              "\ntag also drops `frame-ancestors` (browsers ignore it from `<meta>`).")
-         (str "**The shipped meta CSP is development-flavoured.** It sets"
-              "\n`style-src 'self' 'unsafe-inline'` because the generated views use"
-              "\ninline `:style` props — a strict `style-src 'self'` would emit CSP"
-              "\nviolations on the first page. The meta tag also drops"
-              "\n`frame-ancestors` (browsers ignore it from `<meta>`)."))
-       ;; README "Production hardening" — the drops-'unsafe-inline'
-       ;; parenthetical. The `:xray?` text names the Xray preload/nonce
-       ;; options; the other needs only the externalise-styles step.
-       :xray-readme-inline-styles-note
-       (if xray?
-         (str "do this only after you have externalised"
-              "\nall inline styles — move the views' `:style` props to `css/app.css`"
-              "\nclasses, and either drop the dev-only Xray preload from your release"
-              "\nbuild [it already is — see \"In-app devtools\" above] or serve Xray under"
-              "\na nonce")
-         (str "do this only after you have externalised"
-              "\nall inline styles — move the views' `:style` props to `css/app.css`"
-              "\nclasses"))
-       ;; SSR emits a JVM test instead of the shared CLJS test.
-       :test-script         (if include-ssr?
-                              "clojure -M:test"
-                              "shadow-cljs compile test && node out/node-test.js")
-       :namespace           (str top-ns "." main-ns)
-       :nested-dirs         (str top-file "/" main-file)
-       :substrate-badge-url badge-url
-       ;; Checked against the repository sources of truth by
-       ;; version_lockstep_test.clj; update the pins together.
-       :rf2-version         "0.0.1.alpha"
-       :shadow-version      "3.4.10"
-       :react-version       "19.2.0"
-       ;; The reviewed re-frame2 commit the emitted TOOLS coords
-       ;; (day8/re-frame2-xray, day8/re-frame2-story) resolve from.
-       ;;
-       ;; Why the tools are pinned by SHA while the framework coords
-       ;; carry {{rf2-version}}: the two tiers ship on different
-       ;; triggers (docs/release-process.md §The tools tier). A `v*`
-       ;; tag publishes the framework artefacts and NO tools — Xray
-       ;; ships on `xray-v*`, Story on `story-v*`. Neither tool tag has
-       ;; been cut, so an :mvn/version tools coord names a Clojars
-       ;; artefact that does not exist: the day the framework publishes,
-       ;; every generated project would resolve its framework coords and
-       ;; 404 on Xray (rf2-57bjg). A git coord against the public
-       ;; monorepo resolves TODAY and keeps resolving after the
-       ;; framework tag, which is the shape the re-frame2-setup skill
-       ;; already teaches for Xray
-       ;; (skills/re-frame2-setup/references/deps-versions.md).
-       ;;
-       ;; MAINTENANCE: bump this to a reviewed `main` commit whenever
-       ;; the tools' public surface moves — there is no in-repo source
-       ;; of truth a lockstep guard could read for a commit of this
-       ;; repository, so version_lockstep_test.clj guards the coord
-       ;; SHAPE (git, never :mvn/version) and the SHA's form, not its
-       ;; freshness. When `xray-v*` / `story-v*` finally ship, retire
-       ;; this pin and move both tools coords back to {{rf2-version}}.
-       :rf2-tools-sha       "ede00fd3bebc28340054159ab555e2214601f34f"})))
-
-;; -- template-fn ------------------------------------------------------------
+;; -- template-fn --------------------------------------------------------------
 ;;
 ;; deps-new's file-emission contract:
 ;;
 ;;   1. Copy `root/` into the project root.
 ;;   2. Apply each `[src-dir target-dir file-map :only]` transform.
 ;;
-;; Underscore-prefixed directories are never bulk-copied. Their explicit
-;; file maps select shared, substrate-specific, and optional sources.
+;; Underscore-prefixed directories are never bulk-copied; their explicit
+;; file maps are the whole emit.
 
 (defn template-fn
-  "Attach the explicit file transforms for the selected project variant.
-
-   Shared files provide build config, dotfiles, and the default CLJS slices.
-   A substrate transform adds its adapter entry point, views, and deps. Story
-   replaces the Reagent entry point and deps and adds `stories.cljs`; SSR
-   replaces the CLJS slices with `core.cljc`, `server.clj`, a JVM test, and an
-   SSR-specific README. The optional Tailwind transform runs last so it can
-   replace the default stylesheet and HTML."
+  "Attach the file transforms: the substrate-agnostic `_shared/` files,
+   renamed into place, then the chosen substrate's `deps.edn`, `core.cljs`
+   and `views.cljs`."
   [edn data]
-  (let [nested         (:nested-dirs data)
-        substrate      (:substrate data)
-        include-story? (:include-story? data)
-        include-ssr?   (:include-ssr? data)
-        css            (:css-kw data)
-        ;; Every shared source must be named here because `:only` disables
-        ;; implicit copying.
-        shared-common  {"gitignore"            ".gitignore"
-                        "editorconfig"         ".editorconfig"
-                        "cljfmt.edn"           ".cljfmt.edn"
-                        "clj-kondo/config.edn" ".clj-kondo/config.edn"
-                        ;; Substrate-invariant: the React substrate is
-                        ;; chosen in deps.edn + core.cljs, never in the
-                        ;; build configs.
-                        "shadow-cljs.edn"      "shadow-cljs.edn"
-                        "package.json"         "package.json"}
-        shared-files   (cond-> shared-common
-                         ;; SSR folds these slices into core.cljc.
-                         (not include-ssr?)
-                         (assoc "events.cljs"      (str "src/" nested "/events.cljs")
-                                "subs.cljs"        (str "src/" nested "/subs.cljs")
-                                "schema.cljs"      (str "src/" nested "/schema.cljs")
-                                "events_test.cljs" (str "test/" nested "/events_test.cljs"))
-                         include-story?
-                         (assoc "stories.cljs"
-                                (str "src/" nested "/stories.cljs"))
-                         ;; Transforms run after the root copy, so this README
-                         ;; replaces the SPA README.
-                         include-ssr?
-                         (assoc "ssr_test.clj"
-                                (str "test/" nested "/ssr_test.clj")
-                                "README_with_ssr.md" "README.md"))
-        shared         [["_shared" "." shared-files :only]]
+  (let [nested          (:nested-dirs data)
+        src             (fn [f] (str "src/" nested "/" f))
+        shared          [["_shared" "."
+                          {"gitignore"        ".gitignore"
+                           "shadow-cljs.edn"  "shadow-cljs.edn"
+                           "package.json"     "package.json"
+                           "events.cljs"      (src "events.cljs")
+                           "subs.cljs"        (src "subs.cljs")
+                           "events_test.cljs" (str "test/" nested "/events_test.cljs")}
+                          :only]]
+        substrate-files {"deps.edn"   "deps.edn"
+                         "core.cljs"  (src "core.cljs")
+                         "views.cljs" (src "views.cljs")}
+        ;; One arm per substrate, naming its resource tree.
+        per-substrate   (case (:substrate data)
+                          :reagent [["_reagent" "." substrate-files :only]]
+                          :uix     [["_uix"     "." substrate-files :only]])]
+    (assoc edn :transform (into shared per-substrate))))
 
-        ;; Any new substrate source must be opted into its map.
-        per-substrate
-        (case substrate
-          "reagent"
-          (cond
-            ;; SSR's core.cljc contains both platform entry points and all
-            ;; shared registrations.
-            include-ssr?
-            [["_reagent" "."
-              {"deps_with_ssr.edn"    "deps.edn"
-               "core_with_ssr.cljc"   (str "src/" nested "/core.cljc")
-               "server.clj"           (str "src/" nested "/server.clj")}
-              :only]]
-
-            :else
-            (let [core-src (if include-story?
-                             "core_with_stories.cljs"
-                             "core.cljs")
-                  deps-src (if include-story?
-                             "deps_with_story.edn"
-                             "deps.edn")]
-              [["_reagent" "."
-                {deps-src     "deps.edn"
-                 core-src     (str "src/" nested "/core.cljs")
-                 "views.cljs" (str "src/" nested "/views.cljs")}
-                :only]]))
-
-          "uix"
-          [["_uix" "."
-            {"deps.edn"        "deps.edn"
-             "core.cljs"       (str "src/" nested "/core.cljs")
-             "views.cljs"      (str "src/" nested "/views.cljs")}
-            :only]])
-
-        ;; This transform runs after the root copy and replaces the plain-CSS
-        ;; files on every substrate.
-        css-overlay
-        (when (= css :tailwind)
-          [["_css_tailwind" "."
-            {"app.css"    "resources/public/css/app.css"
-             "index.html" "resources/public/index.html"}
-            :only]])]
-    (assoc edn :transform (into [] (concat shared per-substrate css-overlay)))))
-
-;; -- post-process-fn --------------------------------------------------------
+;; -- post-process-fn ----------------------------------------------------------
 
 (defn post-process-fn
-  "After file emission, log what landed and where. No fix-ups required
-   today — `template-fn`'s file-map handles dotfile renames inline."
+  "After emission, say what landed and how to run it."
   [_edn data]
-  (let [substrate      (:substrate data)
-        include-story? (:include-story? data)
-        include-ssr?   (:include-ssr? data)
-        css            (:css-kw data)
-        feature-tag    (cond
-                         include-story? " (with Story playground)"
-                         include-ssr?   " (with SSR)"
-                         :else          "")
-        css-tag        (if (= css :tailwind) " (Tailwind CSS)" "")]
-    (println (str "Generated a re-frame2 application " (:name data)
-                  " (" substrate " substrate" feature-tag css-tag ")."))
-    (println "Next steps:")
-    ;; `:target-dir` is preprocess-options' computed output dir
-    ;; (defaults to `(:main data)` when no `:target-dir` arg is given).
-    (println (str "  cd " (:target-dir data)))
-    (println "  npm install")
-    (println "  npx shadow-cljs watch app")
-    (if include-ssr?
-      (do
-        ;; The SSR scaffold runs a JVM render server in front of the client
-        ;; bundle. Build the bundle with `watch app` (above), then boot the
-        ;; server in a second terminal.
-        (println "  clojure -X:server   # in a second terminal — the SSR/Jetty host")
-        (println "Then open http://127.0.0.1:8030"))
-      (println "Then open http://localhost:8280"))
-    nil))
+  (println (str "Generated a re-frame2 application " (:name data)
+                " (" (:substrate-label data) ")."))
+  (println "Next steps:")
+  ;; `:target-dir` is preprocess-options' computed output dir (defaults to
+  ;; `(:main data)` when no `:target-dir` arg is given).
+  (println (str "  cd " (:target-dir data)))
+  (println "  npm install")
+  (println "  npx shadow-cljs watch app")
+  (println "Then open http://localhost:8280")
+  (println (str "Until day8/re-frame2 is published, point its coordinates in "
+                "deps.edn at a checkout with :local/root before the first watch."))
+  nil)
