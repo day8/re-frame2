@@ -172,6 +172,28 @@
     :version        — hydration payload's `:rf/version` (default 1).
     :schema-digest  — hydration payload's `:rf/schema-digest`, when
                       the app participates in the digest check.
+    :renderer       — the render-body seam (Spec 011 §HTTP response
+                      contract):
+
+                        (fn [{:keys [frame-id request opts]}]
+                          -> {:body-html   <string>
+                              :render-hash <string-or-nil>})
+
+                      Called once per request inside the request frame's
+                      scope — after the boot-event drain and the blocking-
+                      resource settle, before the head and hydration
+                      payload are built — with the LIVE post-drain frame
+                      (by id), the Ring request and these opts; never a
+                      hiccup value. It returns body markup and nothing
+                      else: the JVM keeps the head, `__rf_payload`, shell,
+                      status, headers, cookies, redirects, error projection
+                      and frame teardown. The renderer owns its body bytes,
+                      hash marker included; a nil `:render-hash` omits the
+                      payload's `:rf/render-hash` (the unresolved-root
+                      behaviour, rf2-q1b96). A throw is projected exactly
+                      like a `:root-view` render throw. Default:
+                      `re-frame.ssr.ring.pipeline/local-renderer`, the
+                      JVM-local `:root-view` render.
     :html-shell     — (body-html payload-edn opts) → string. Defaults
                       to `default-html-shell`. Replace to inject custom
                       <head>, scripts, JSON-LD, etc.
