@@ -1272,6 +1272,17 @@ These features are not forbidden forever. Each requires a concrete re-frame2
 consumer that cannot be served elegantly by addresses, events, subscriptions,
 resources, ordinary view composition, or a small app helper.
 
+> **Note (2026-09-02, rf2-y8jjk).** The last item held: no general-purpose
+> route-plan executor shipped. What did ship, after this EP closed, is one
+> narrow *named* verb over the same planner — `[:rf.route/replan-resources
+> {:cause …}]`, a same-token replan of the **active** route only (no address,
+> no reload, no guards / `:on-match`), the causal door for an identity input
+> that changes with no route change. The record is
+> [012 §Replanning the active route's resources](../../spec/012-Routing.md#replanning-the-active-routes-resources)
+> and [016 §Route-plan replan — same-token reconciliation](../../spec/016-Resources.md#route-plan-replan--same-token-reconciliation);
+> the RealWorld flagship's app-side planner copy it replaced was the concrete
+> consumer this paragraph asks for.
+
 ### Guide impact
 
 `docs/core/views.md`, `docs/core/where-state-lives.md`, and

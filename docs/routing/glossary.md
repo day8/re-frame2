@@ -52,6 +52,17 @@ commits, via `[route-link {… :prefetch :intent}]` or a direct
 a navigation would — ownerless, non-blocking, and with no route state, guards, or
 `:on-match`. Click through and the ordinary resource dedupe reuses the warmed work.
 
+### **replan**
+
+Rerunning the active route's [effective route plan](#effective-route-plan) against
+the current `app-db` without navigating, via
+`[:rf.route/replan-resources {:cause …}]`. The token, the owner and the address stay
+the same; kept reads are adopted, added ones ensured under the route owner with your
+cause, dropped ones released. The causal door for an identity switch (session restore,
+tenant change) that a passive `{:from-db …}` re-key cannot fetch for itself. Not a
+reload: unchanged data is never refetched, and no guards or `:on-match` run. See
+[Replanning the active route's resources](concepts.md#replanning-the-active-routes-resources).
+
 ### **route chain**
 
 The active route's ancestry. A route names a `:parent`; `@(subscribe [:rf.route/chain])`

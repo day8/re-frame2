@@ -492,6 +492,33 @@ it stays garbage-collectable. Prefetch is a performance hint, not an authorizati
 boundary — warming a destination whose `:can-enter` would deny is permitted and
 means nothing, because activation still evaluates the guard.
 
+### Replanning the active route's resources
+
+Sometimes the *identity* behind a route's reads changes while the route itself does
+not: a saved session restores after the page was already entered, an admin switches
+tenant, a viewer starts impersonating someone. A `{:from-db …}` resource subscription
+re-keys to the new identity on its own — but re-keying is passive, so the freshly
+selected entry just sits `:idle`, and navigating to the same address is deliberately
+a no-op. The causal door is one event:
+
+```clojure
+(rf/dispatch [:rf.route/replan-resources {:cause [:session-restore]}])
+```
+
+It reruns the active route's effective parent-to-leaf plan against the current
+`app-db`, under the **same** nav-token and the same route owner. Identities the plan
+still needs are kept (adopted, no request); newly required ones are ensured under the
+route owner with your `:cause`; the ones the new plan drops lose the owner and only the
+owner. The route's durable plan and blocking facts are replaced and its readiness is
+re-projected, so a route that failed to plan while identity was unresolved is repaired
+in place. A replan that itself fails to plan is a committed failed replan: nothing is
+partially ensured and the owner is released from everything it held, on purpose — a
+departed scope's plan must not keep settling data fetched under the new credentials.
+`:cause` is required; the recipe for an identity switch is *resolve and clear the old
+scope, commit the new identity, then replan*. It is not a reload — unchanged, usable
+data is never refetched — and it runs no guards, `:on-match`, URL or scroll work. See
+[Server state](../resources/concepts.md).
+
 ## Blocking a navigation
 
 <a id="blocking-a-navigation"></a>

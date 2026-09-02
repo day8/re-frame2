@@ -215,6 +215,16 @@ Nil resolution **fails closed** — no silent shared read. Logout clears a scope
 
 Resolve the old scope **before** stripping auth from `db`.
 
+A `{:from-db …}` subscription **re-keys** when the resolver's inputs change — after
+that logout, or a login, the same subscription points at the new viewer's entry. The
+re-key is passive, though: it never fetches, so the new key sits `:idle` until a cause
+ensures it. Navigation is the usual cause. When identity changes and the route does
+not — a session restored after the page was entered, an account or tenant switch — the
+causal door is `[:rf.route/replan-resources {:cause …}]`, which reruns the active
+route's resource plan under the new identity without navigating: clear the old scope,
+commit the new identity, then replan. See
+[Replanning the active route's resources](../routing/concepts.md#replanning-the-active-routes-resources).
+
 ??? info "Coming from TanStack Query?"
 
     Scope is a **required structural axis**, not a key segment you assemble by hand
