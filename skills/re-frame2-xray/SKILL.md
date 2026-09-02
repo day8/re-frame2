@@ -131,6 +131,7 @@ Four launch surfaces ship: one mount facade with three open verbs
 | Mount where the host can't give Xray a layout column (full-screen canvas, no `[data-rf-xray-host]`) | **Overlay (fallback)** | `(xray/open-overlay!)` from CLJS, or `window.day8.re_frame2_xray.open_overlay_BANG_()` from devtools. Floats the shell above the host under `document.body`. The supported fallback — **not** the default path. |
 | Put Xray on a second monitor | **Pop-out window** | Click the visible **`⛶` pop-out button** in the panel top-bar's right-icons cluster (the canonical chrome path). Secondary programmatic path: `(xray/popout!)` from CLJS / `window.day8.re_frame2_xray.popout_BANG_()` (call it — note the parens) from a console. |
 | Install Xray from code (no preload) | **Programmatic `init!`** + a mount verb | Call `(xray/init! opts)` after `rf/init!` to install the foundation (it does **not** open a panel), then `(xray/open!)` / `(xray/open-overlay!)` / `(xray/popout!)` to make it visible. Idempotent. |
+| Deep-link Xray to a tab / epoch / app-db path from code | **`focus!`** | `(xray/focus! {:panel :trace})`, or the fuller `{:frame :panel :epoch-id/:dispatch-id :path}` command. **Navigates an already-installed Xray — it does not install or mount** (preload / `init!` + a mount verb first). The only programmatic tab jump. |
 | Browse what's *registered* instead of one dispatch | **Static mode** | Flip the L1 mode pill or press `Cmd/Ctrl+Shift+M`. |
 | Have an AI agent inspect the runtime | **re-frame2-pair** | Out of scope here — see §First fork above. |
 | Debug a mobile browser | Not supported | Phones refuse to mount (`spec/011-Launch-Modes.md`). |
@@ -207,7 +208,7 @@ deeper question loads at most **one** focused leaf:
 
 | Deep question about… | Load |
 |---|---|
-| Launch in depth — preload vs `init!`, the `[data-rf-xray-host]` contract, missing-host recovery, `open-overlay!`, pop-out lifecycle, the full hotkey contract | [`references/launch-modes.md`](references/launch-modes.md) |
+| Launch in depth — preload vs `init!`, the `[data-rf-xray-host]` contract, missing-host recovery, `open-overlay!`, pop-out lifecycle, the full hotkey contract, the `focus!` deep-link command | [`references/launch-modes.md`](references/launch-modes.md) |
 | The full tab inventory + scope matrix + the Static catalogues (explicit "list every tab") | [`references/panels.md`](references/panels.md) |
 | The Epoch cascade, Trace rows, or where issues surface | [`references/panels-epoch.md`](references/panels-epoch.md) |
 | app-db sections + diffs, or Views render causes | [`references/panels-state.md`](references/panels-state.md) |
