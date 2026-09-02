@@ -43,7 +43,8 @@ the [`:local/root` setup](00-installation.md#add-the-dependencies):
  {:shadow {:extra-deps {thheller/shadow-cljs {:mvn/version "3.4.10"}}}
 
   ;; The test kit, from the same checkout the artifact resolves from.
-  :test   {:extra-paths ["../re-frame2/implementation/hicasso/test_kit/src"]}}}
+  :test   {:extra-deps {day8/re-frame2-hicasso-test-kit
+                        {:local/root "../re-frame2/implementation/hicasso/test_kit"}}}}}
 ```
 
 Then select that alias in the build, beside the one that puts the compiler on the
@@ -56,13 +57,15 @@ not named here is not on it:
 ```
 
 The path is relative to *your* `deps.edn`, exactly as the artifact coordinates
-above are. It also reaches outside your project root, and the Clojure CLI names
-that on every invocation: `WARNING: Use of :paths external to the project has
-been deprecated`. Nothing fails — the root goes on the classpath and `ht` and
-`hm` resolve — and the warning belongs to this route rather than to your project.
-It is the cost of a checkout that is not yet a published coordinate, and it goes
-away with the checkout: resolve Hicasso from a coordinate and the kit arrives in
-the jar with nothing to add and no path to escape.
+above are. It is a coordinate rather than a source path on purpose. The kit
+carries its own `deps.edn`, so the source root it contributes sits inside *that*
+project's boundary and the Clojure CLI has nothing to deprecate. Naming
+`test_kit/src` as an `:extra-paths` entry resolves `ht` and `hm` just as well,
+but that path escapes your project root, and the CLI says so on every
+invocation: `WARNING: Use of :paths external to the project has been
+deprecated`. Both routes work today; only one of them is quiet, and only one of
+them survives a CLI that decides to refuse the escape. When Hicasso is
+published, the kit arrives inside the jar and this alias goes away entirely.
 
 Which build target the tests then run under is a choice per level, and
 the ladder below is the guide to it: L0–L2 are browser-free and need no DOM, while
