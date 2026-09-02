@@ -324,6 +324,8 @@ Standard route-related cofx (canonical detail in [012-Routing.md](012-Routing.md
 ## SSR (Spec 011)
 
 > **Namespace:** the surfaces below live in `re-frame.ssr` (artefact `day8/re-frame2-ssr`); consumers `(:require [re-frame.ssr :as ssr])`. The Ring host-adapter lives in `re-frame.ssr.ring` (artefact `day8/re-frame2-ssr-ring`). The **SSR query surface** (`render-to-string`, `render-tree-hash`, `project-error`, `render-head`, `active-head`, `head-model->html`, `head-snapshot`) is **also late-bind re-exported through `re-frame.core`** — one of the two documented façade exceptions (the other is epoch), per the §Conventions per-artefact namespace table. The **streaming** surface (`streaming-render-*`) and the **Ring host-adapter** (`re-frame.ssr.ring`) are NOT re-exported — they are host-adapter territory; an SSR-aware host requires the namespace directly. Apps targeting SSR add the artefacts to their deps regardless.
+>
+> **The ssr-node crossing (`rf2-8arzr`) adds three host-adapter namespaces**, all requires-directly and none re-exported. `re-frame.ssr.ring.node` (in `day8/re-frame2-ssr-ring`) provides `renderer`, the one non-local `:renderer` the reference ships — the JVM→Node adapter over the bounded sidecar at `implementation/ssr-node`. `re-frame.ssr.render-state` (in `day8/re-frame2-ssr`) is the render-visible projection the seam runs — `project` / `serialize` / `deserialize` / `restore!` over the two-partition envelope. `re-frame.hicasso.server` (in `day8/re-frame2-hicasso`, CLJS) provides `render-body`, the body-only entry a server bundle calls. Their contracts are [011 §Client-side hydration boot helper](011-SSR.md#client-side-hydration-boot-helper); the recipe is [Render on Node](../docs/ssr/concepts.md#render-on-node). These are `:implementation`-tier host-adapter plumbing on the same footing as `re-frame.ssr.ring`'s own vars and are **not rowed below**; they are not yet carried by the manifest either (`rf2-8arzr.7`).
 
 `reg-head` and `reg-error-projector` are rowed canonically in [§Registration](#registration). The head-fn signature is `(fn [db route] head-model)`; the projector-fn signature is `(fn [trace-event] :rf/public-error)`.
 
@@ -369,12 +371,7 @@ Standard SSR-related fx (client-side hydration compatibility checks; `:platforms
 
 > **Implementation-tier SSR internals (not rowed).** The client hydration / streaming lifecycle — `hydrate!`, `verify-hydration!`, `read-server-payload`, `streaming-install!`, `drain-blocking-resources!`, and the per-request response / request accessors (`get-response` / `peek-response` / `flush-response!` / `get-request` / `set-request!` / `clear-request!`) — live in `re-frame.ssr` but are `:implementation`-tier host-adapter plumbing (the supported client path is the `:rf/hydrate` event plus the `re-frame.ssr.ring` host adapter). Per the projection's implementation-tier policy ([§Tier taxonomy](#tier-taxonomy)) they are carried by the manifest but not rowed here — the per-request response accumulator (`:rf/response`) is read through these accessors, **not** a subscription.
 
-Standard SSR-related subs:
-
-| Sub | Returns | Spec |
-|---|---|---|
-| `:rf/head` | The head model for the active route (resolved via `(active-head frame-id)`) | 011 |
-| `:rf/public-error` | The sanitised public-error projection when an error page is being rendered; `nil` otherwise | 011 |
+Standard SSR-related subs: **there are none.** `re-frame.ssr` and `re-frame.ssr.ring` register no subscriptions at all — their only registrations are the `:rf/hydrate` event, the server-only and client-only fx above, and the `:rf.server/request` coeffect. In particular there is **no `:rf/head` sub and no `:rf/public-error` sub**; `@(rf/subscribe [:rf/head])` cannot resolve. Both keywords name a *data shape* registered in [Spec-Schemas](Spec-Schemas.md) (`:rf/head-model` and `:rf/public-error`), not a registry entry. Read them through fns instead: the head model via `active-head` / `render-head` / `head-snapshot`, and the public-error projection via `project-error`. (Two rows here previously described them as subscriptions; corrected under `rf2-8arzr.6`, matching the long-standing statement at [`docs/api/re-frame.ssr.md`](../docs/api/re-frame.ssr.md) §Subscriptions — there are none. Both were keyword rows, which `api_md_check` skips by design, so no gate contradicted them.)
 
 Standard cofx (server-only):
 

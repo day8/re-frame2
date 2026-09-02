@@ -392,15 +392,43 @@ An island is Client-only unless its host declares Render:
 During server rendering, `n/use-sub` performs the same cold snapshot read as
 `h/sub`. It does not install a live subscription.
 
-### Node service requirements
+### Ring-hosted: rendering on a Node sidecar
 
-A production server renderer should provide:
+Everything above renders in a Node process you drive yourself. There is also a
+supported path where a **JVM Ring host** owns the request and calls out to a
+Node sidecar for the body markup — which is what you want when the rest of the
+application already runs on the JVM.
 
-- a fresh frame per request, destroyed in `finally`;
-- a fail-closed app-db payload allowlist;
-- bounded concurrency and a hard render timeout;
-- build identity tying server bytes to the matching client bundle;
-- source-attributed non-200 errors instead of partial pages.
+The division is strict. The JVM keeps the request frame, the boot-event drain,
+the blocking-resource settle, the `<head>`, `__rf_payload`, the shell, the
+status, headers, cookies, redirects, error projection and frame teardown. Node
+returns a string and nothing else, so the sidecar's own HTTP status never
+reaches the browser and no partial page is possible.
 
-The service renders whole pages. Streaming, React Server Components, islands,
-and no-JavaScript progressive enhancement are outside this product's scope.
+Three pieces make it work, and only the middle one is new to this chapter:
+
+- **`re-frame.hicasso.server/render-body`** — the body-only sibling of
+  [`server/render`](#render-a-page-from-a-snapshot). It takes `:hiccup`, a
+  `:render-state` envelope and an `:identifier-prefix`, installs both state
+  partitions into a fresh per-request frame in one write, and returns inner
+  markup. It builds no payload, no document and no head, because the JVM
+  already owns all three. It replays no boot events either — the JVM drained
+  them, and the projection *is* the settled result.
+- **A render module** in a `:node-library` build, publishing a build id and an
+  entry table whose per-entry allowlists are the render-visibility policy.
+- **`:renderer`** on the Ring handler, pointing at
+  `re-frame.ssr.ring.node/renderer`.
+
+The `:identifier-prefix` rule from
+[Create the frame, hydrate state, then adopt the DOM](#create-the-frame-hydrate-state-then-adopt-the-dom)
+applies unchanged and matters more here, because two processes now have to
+agree on the string rather than one.
+
+The full recipe — both builds, the module, the two state policies and why they
+differ, the serve command, build-id skew and the deployment posture — is
+[Render on Node](../../ssr/concepts.md#render-on-node). The worked example is
+[`substrates/hicasso/login`](../../../examples/substrates/hicasso/login).
+
+Whichever host you use, the service renders whole pages. Streaming, React
+Server Components, islands, and no-JavaScript progressive enhancement are
+outside this product's scope.
