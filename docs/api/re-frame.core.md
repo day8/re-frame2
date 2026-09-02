@@ -515,7 +515,7 @@ The view layer is **substrate-agnostic**. The shared dataflow — frames, subscr
 
 The effect map is what an event handler returns; the interceptor chain runs before and after the handler. Handlers stay pure (they return descriptions of effects, not the effects themselves), and the runtime actions those descriptions at exactly one point.
 
-The effect map is **closed**: app handlers return `:db` + `:fx` only. (A third reserved top-level key, `:rf.db/runtime`, exists for framework / runtime-extension authority — never for app handlers.) `:db` is the new `app-db` value, replaced in the commit phase. `:fx` is a vector of `[fx-id args]` pairs (`[fx-id]` is the no-args shorthand); the runtime's fx walker runs each pair against the registered `reg-fx` handler. Both reserved keys are covered by the [effect map](../core/glossary.md#effect-map) glossary entry.
+The effect map is **closed**, at seven top-level keys: everyday app handlers return `:db` + `:fx`; `:rf.db/runtime` is reserved for framework / runtime-extension authority (never for app handlers); and the four EP-0025 commit-plane classification effects — `:sensitive`, `:large`, `:clear-sensitive`, `:clear-large` — classify app-db paths as part of the same commit. A top-level key outside that set **refuses the event before anything commits**, so a well-formed `:db` beside it does not land either. `:db` is the new `app-db` value, replaced in the commit phase. `:fx` is a vector of `[fx-id args]` pairs (`[fx-id]` is the no-args shorthand); the runtime's fx walker runs each pair against the registered `reg-fx` handler. Both everyday keys are covered by the [effect map](../core/glossary.md#effect-map) glossary entry.
 
 ### `reg-interceptor`
 

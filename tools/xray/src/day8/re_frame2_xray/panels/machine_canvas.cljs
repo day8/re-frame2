@@ -165,12 +165,17 @@
   ;; map to localStorage so the operator's choice survives reloads.
   ;;
   ;; rf2-04tx — the persist fx rides `:fx`, not the top level. The effect
-  ;; map is CLOSED (`#{:db :rf.db/runtime :fx}` plus the four EP-0025
-  ;; classification keys, per Spec 002 §Write authority): an fx-id sitting
-  ;; at the top level is policed as `:rf.error/effect-map-shape` and
-  ;; DROPPED, so the localStorage write never happened and the operator's
-  ;; collapse choice never survived a reload. The `:db` write landed either
-  ;; way, so the toggle looked like it worked.
+  ;; map is CLOSED at seven top-level keys (`#{:db :rf.db/runtime :fx}` plus
+  ;; the four EP-0025 classification keys, per Spec 002 §Write authority):
+  ;; an fx-id sitting at the top level is policed as
+  ;; `:rf.error/effect-map-shape` and REFUSES the event pre-commit — nothing
+  ;; commits, not even a well-formed `:db` beside it.
+  ;;
+  ;; BEFORE rf2-04tx, and this is why the bug below hid for eleven weeks,
+  ;; the offending key was DROPPED while the `:db` write landed anyway: the
+  ;; localStorage write never happened and the operator's collapse choice
+  ;; never survived a reload, but the toggle looked like it worked. That
+  ;; partial-success disguise is what the refusal removed.
   (rf/reg-event :rf.xray.machine-canvas/set-chart-collapsed
     (fn [{:keys [db]} [_ {:keys [machine-id mode]}]]
       (let [current (chart-collapsed-of db machine-id)

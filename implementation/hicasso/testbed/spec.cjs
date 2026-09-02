@@ -1652,9 +1652,13 @@ async function armedEdgesAreWired(page, w, ctx) {
   // "nothing has happened yet" is exactly what a dead timer looks like.
   // Both arms shipped DEAD for that reason — `:tb/arm` returned a v1
   // top-level `:dispatch-later` beside `:db`, which re-frame2's closed
-  // effect-map (`#{:db :rf.db/runtime :fx}`, migration M-8) does not
-  // carry — and this section was green in three engines throughout,
-  // while the operator instrument it claims to pin could not fire.
+  // effect-map (seven top-level keys: `#{:db :rf.db/runtime :fx}` plus the
+  // four EP-0025 commit-plane classification effects, migration M-8) does
+  // not carry — and this section was green in three engines throughout,
+  // while the operator instrument it claims to pin could not fire. That is
+  // the PRE-rf2-04tx contract: the foreign key was dropped while the `:db`
+  // beside it committed, so the label rendered with no timer behind it.
+  // Today that spelling refuses the event pre-commit, label and all.
   // Measured 2026-08-11: 15s after the click the readout still read
   // `armed`, while a plain 5000ms `setTimeout` in the same page returned
   // in 5006ms.

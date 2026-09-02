@@ -423,12 +423,18 @@
 ;; clicks them; before it, only the arm that was waited out was witnessed
 ;; at all, and the other could have been wired to nothing (#7815 audit).
 ;; The effects ride in `:fx`, and that is not a style choice. re-frame2's
-;; effect-map is a CLOSED shape — `#{:db :rf.db/runtime :fx}` at the top
-;; level (migration M-8 / EP-0001) — so the v1 spelling these two handlers
-;; shipped with, a top-level `:dispatch-later` beside `:db`, ARMED NOTHING.
+;; effect-map is a CLOSED shape — seven top-level keys, `#{:db :rf.db/runtime
+;; :fx}` plus the four EP-0025 commit-plane classification effects (migration
+;; M-8 / EP-0001) — so the v1 spelling these two handlers shipped with, a
+;; top-level `:dispatch-later` beside `:db`, ARMED NOTHING.
 ;; Both arms were dead from the day they landed: the readout said
 ;; `armed: bump -> [:tb/bump-revision] fires in 5s` and no timer existed
-;; behind it. Measured 2026-08-11 while building the scripted native-IME
+;; behind it. THAT ACCOUNT IS THE PRE-rf2-04tx CONTRACT, and the history is
+;; the point: back then the foreign top-level key was DROPPED while the `:db`
+;; write committed anyway, so the label rendered with nothing queued behind
+;; it. Today the same spelling REFUSES the event pre-commit — no timer and no
+;; label — which is what turns this silent failure into a loud one.
+;; Measured 2026-08-11 while building the scripted native-IME
 ;; witness — 15s after the click the readout still read `armed`, while a
 ;; plain `setTimeout(5000)` in the same page returned in 5006ms, so it was
 ;; the effect and not the clock.

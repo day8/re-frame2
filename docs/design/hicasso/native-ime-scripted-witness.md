@@ -192,9 +192,13 @@ or incomplete run can never be written into `dispositions.md` as verified.
 
 Checks 7 and 8 reach their mid-exchange edge through the testbed's **armed** buttons, and the first rehearsal reported
 `fired=false` for both. They had **never fired**. `:tb/arm` returned a v1-shaped top-level `:dispatch-later` beside
-`:db`, and re-frame2's effect-map is a closed shape — `#{:db :rf.db/runtime :fx}` (migration M-8 / EP-0001) — so
-nothing carried it. Measured: 15s after the click the readout still read `armed`, while a plain `setTimeout(5000)` in
-the same page returned in 5006ms, so it was the effect and not the clock.
+`:db`, and re-frame2's effect-map is a closed shape — seven top-level keys, `#{:db :rf.db/runtime :fx}` plus the four
+EP-0025 commit-plane classification effects (migration M-8 / EP-0001) — so nothing carried it. Measured: 15s after the
+click the readout still read `armed`, while a plain `setTimeout(5000)` in the same page returned in 5006ms, so it was
+the effect and not the clock. **That account is the pre-rf2-04tx contract**, and it is why the failure was silent: the
+foreign top-level key was dropped while the `:db` beside it committed, so the readout could say `armed` with no timer
+behind it. Since rf2-04tx the same spelling refuses the event pre-commit — nothing commits, so there is no `armed`
+label to mislead anyone.
 
 The two arms are the operator instruments added in PR #7815 and sharpened in #7846 *specifically* so a session could
 reach a live composition, and the `armed-edges-are-wired` gate section was green in three engines the whole time: it
