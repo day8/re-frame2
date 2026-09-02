@@ -122,7 +122,8 @@
 ;; `re-frame.mcp-conformance.wire-vocab.source-pins`; and five
 ;; independent marker families moved to their own `*_test.clj`
 ;; namespaces (cursor-stale, result-envelope, redacted-sentinel,
-;; progress-notification, event-bundle). This ns keeps the CORE
+;; progress-notification, event-bundle; progress-notification has since
+;; gone with the streaming retirement, rf2-ahjbc). This ns keeps the CORE
 ;; wrapper-marker contract: fixture-conformance over `canonical-markers`,
 ;; the per-marker negative/live-emission gates, the marker-literal source
 ;; pins, the JS cross-encoding pin, server-coverage, the story-mcp
@@ -136,15 +137,15 @@
 ;;     home / doc-source moved — extend `source_pins.clj`. The generic
 ;;     fixture-conformance + source-pin sweeps in THIS file then cover it.
 ;;   - Non-wrapper marker (a `:reason` value, a bare scalar, a
-;;     tagged-union, a streaming-notification shape): give it its own
+;;     tagged-union): give it its own
 ;;     `*_test.clj` namespace (the cursor-stale / result-envelope /
-;;     redacted-sentinel / progress-notification / event-bundle files
+;;     redacted-sentinel / event-bundle files
 ;;     are the templates) requiring the shared `schemas` + `source-pins`
 ;;     support nses. Keep the schema co-located with its tests when it is
 ;;     referenced only by that family.
 ;;   - Cross-encoding (JS) pin: if a live `.cjs` harness re-encodes the
 ;;     shape, add the per-field grep-marker table next to the family's
-;;     fixture (see the overflow / progress JS pins).
+;;     fixture (see the overflow JS pin).
 ;;   - Near-miss anti-pin: every new marker should be swept by
 ;;     `near-miss-variants` (wrapper markers) or a bespoke variant set
 ;;     (scalars — see redacted-sentinel).

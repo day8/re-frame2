@@ -1,7 +1,7 @@
 (ns re-frame2-pair-mcp.probe-test
   "Unit tests for the runtime preload probe + per-socket probe cache.
 
-  The probe runs one bencode round-trip per non-streaming tool entry
+  The probe runs one bencode round-trip per tool entry
   to confirm the re-frame2-pair runtime is loaded into the consumer build
   before any tool form is sent. That fixed cost would double cheap-read
   latency on every call, so it is cached: once the preload is confirmed
@@ -205,7 +205,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest ensure-runtime-shares-the-cache
-  ;; The five non-streaming tools call `ensure-runtime!`, which
+  ;; Every runtime-touching tool calls `ensure-runtime!`, which
   ;; delegates to `runtime-preloaded?`. The cache benefit MUST flow
   ;; through — one round-trip across many `ensure-runtime!` calls
   ;; for the same conn+build.

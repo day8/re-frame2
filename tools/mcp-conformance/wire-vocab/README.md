@@ -36,7 +36,7 @@ including:
   `canonical-markers` schema/fixture), asserted as the legitimate
   additive slot the operating-frame open-map schema must accept
 - `:rf/redacted`
-- progress notifications and event bundles
+- event bundles
 - reply-envelope trace rows
 - suppression indicator fields and shared input slots
 - operating-frame addresses and egress profiles

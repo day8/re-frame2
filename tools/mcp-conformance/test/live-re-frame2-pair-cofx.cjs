@@ -128,9 +128,10 @@ async function readStampedAt(client) {
 
 // Dispatch `[:counter/stamp]` with a scripted `cofx`, queued so the
 // fixture's depth-0 epoch-recording posture does not surface a
-// `:no-epoch-recorded` isError (same rationale as the subscribe gate's
-// `:queued`). The db commit is synchronous regardless of epoch recording,
-// so the subsequent `:stamped-at` read sees the folded value.
+// `:no-epoch-recorded` isError (the turn-observation harness meets the
+// same posture and enables recording instead — see its header). The db
+// commit is synchronous regardless of epoch recording, so the subsequent
+// `:stamped-at` read sees the folded value.
 async function dispatchStamp(client, timeMs) {
   const resp = await client.callTool({
     name: 'dispatch',

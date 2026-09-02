@@ -71,9 +71,9 @@ structural dedup must be reflected in the payload that `apply-cap`
 measures. The cap then either returns the result unchanged or replaces
 the payload with the fixed-shape overflow marker.
 
-The pair server additionally bounds streaming queues by event count and
-bytes. That upstream resource control is distinct from the per-response
-wire cap. Story-mcp has no streaming surface.
+Neither server has a streaming surface: the pair server's push-streaming
+queues and their event-count / byte bounds — an upstream resource control
+distinct from the per-response wire cap — were retired under rf2-ahjbc.
 
 The detailed mechanism order belongs to the server specs:
 
