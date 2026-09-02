@@ -43,20 +43,24 @@ Present every call site with its file:line and the four options; collect the aut
 
 ## M-5 — Var-aliased `reg-*`
 
+**Type A for `apply` of a `reg-*` symbol** (mechanical — rewrite to direct invocation or to a wrapper macro of the author's own); **Type B for Var-aliasing** (`(def my-reg rf/reg-event)`) — when the alias is invoked dynamically the rewrite depends on understanding the call sites, so it is presented, not applied. One section, two dispositions: classify each hit before you touch it.
+
+**Apply M-73 first.** `reg-event-db` / `reg-event-fx` are removed and `reg-event-ctx` is demoted (EP-0018); they survive only as façade stubs that raise `:rf.error/reg-event-db-removed` (and `-fx-removed` / `-ctx-removed`) at registration, aborting the rest of the namespace load. So run the **M-73** collapse to `reg-event` first — this macro rule then applies to the surviving `reg-event` / `reg-sub` / `reg-fx` / `reg-cofx`.
+
 **Identify**:
 
 ```clojure
-(def my-reg rf/reg-event-db)         ; capturing the Var as a value
-(apply rf/reg-event-db [:id handler]) ; apply over a macro
-(map #(apply rf/reg-event-db %&) ...) ; same shape inside higher-order code
+(def my-reg rf/reg-event)         ; capturing the Var as a value — Type B
+(apply rf/reg-event [:id handler]) ; apply over a macro — Type A
+(map #(apply rf/reg-event %&) ...) ; same shape inside higher-order code — Type A
 ```
 
 **Risk**: `reg-*` are macros in v2; they can't be Var-aliased or `apply`d. The code fails at compile time. The fix shape depends on whether the higher-order use was essential (e.g. registering a generated list of handlers) or accidental (capturing the Var "just because").
 
 **Decision shape**:
 
-1. **Refactor to direct invocation**. The author has a list of `[id handler]` pairs; replace `(apply rf/reg-event-db pair)` with a macro of their own that expands to a sequence of direct `reg-event-db` calls.
-2. **Use the functional surface** (where it exists). re-frame2 may expose `reg-machine*` / `reg-view*` partners — plain-fn surfaces that *can* be Var-aliased. For `reg-event-*` / `reg-sub` / `reg-fx` / `reg-cofx`, no such partner ships today. If the author truly needs the functional form, **file a GitHub issue against `day8/re-frame2`** rather than working around.
+1. **Refactor to direct invocation**. The author has a list of `[id handler]` pairs; replace `(apply rf/reg-event pair)` with a macro of their own that expands to a sequence of direct `reg-event` calls.
+2. **Use the functional surface** (where it exists). Exactly two plain-fn partners ship, and they *can* be Var-aliased: `rf/reg-view*` (on the `re-frame.core` façade) and `re-frame.machines/reg-machine*` (in its owning namespace — it is **not** a façade export, so require `[re-frame.machines :as rf.machines]` and call `rf.machines/reg-machine*`). For `reg-event` / `reg-sub` / `reg-fx` / `reg-cofx`, no such partner ships today. If the author truly needs the functional form, **file a GitHub issue against `day8/re-frame2`** rather than working around.
 
 ---
 
