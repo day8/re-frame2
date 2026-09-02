@@ -55,8 +55,9 @@
   It must be the string the server bundle publishes — `hicasso.login.server/
   build-id`, a `goog-define` a release stamps. The check runs in BOTH
   directions and neither is optional: the sidecar refuses a request whose
-  `buildId` is not its own (`:rf.ssr-node/build-identity-mismatch`), and the
-  adapter refuses an ANSWER whose `x-rf-ssr-build` is not this one
+  `buildId` is not its own — its build-identity refusal, whose code belongs
+  to the sidecar's vocabulary and is spelled there rather than here — and
+  the adapter refuses an ANSWER whose `x-rf-ssr-build` is not this one
   (`:rf.error/ssr-node-build-skew`). Two artefacts from different builds
   cannot quietly serve one page between them."
   (or (System/getenv "LOGIN_HICASSO_BUILD_ID") "login-hicasso-dev"))

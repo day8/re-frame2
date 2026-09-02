@@ -249,7 +249,7 @@
   ONE id, reused across renders, and that is safe rather than sloppy: a
   render is one synchronous `renderToString` call, and the sidecar's
   isolate admits one render at a time (`implementation/ssr-node`'s worker
-  refuses a second with `:rf.ssr-node/service-saturated`), so two windows
+  refuses a second with its service-saturated refusal), so two windows
   cannot overlap. Re-registering the same id REPLACES, so even a caller
   that broke that rule would lose a listener rather than accumulate one."
   ::recovered-render-error)
@@ -270,8 +270,8 @@
   page whose content is quietly wrong, and the host would ship it.
 
   A wrong page served as a success is worse than a loud failure, so the
-  renderer throws instead. The sidecar turns the throw into a refusal
-  (`:rf.ssr-node/render-threw`), the JVM adapter turns the refusal into
+  renderer throws instead. The sidecar turns the throw into its
+  render-threw refusal, the JVM adapter turns that refusal into
   `:rf.error/ssr-node-refused`, and the request lands on the error view —
   the same destination the JVM-local path would have reached, by a longer
   road.
