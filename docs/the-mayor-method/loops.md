@@ -17,7 +17,7 @@ including yours after a refactor.
 
 | Loop | Cadence | Job |
 |---|---|---|
-| Merge + dispatch | short (~10–15 min) | Merge everything green; refill the fleet |
+| Merge + dispatch | short (~10–15 min) | Merge everything green; copy open nightly alerts into the tracker; refill the fleet |
 | Backlog reread | medium (~60 min) | Re-read *all* open items from the raw list |
 | Posture + stranded sweep | medium (~60 min) | Restate the stance; find genuinely stranded work |
 | Hygiene | long (~2 h) | Prune worktrees and branches |
@@ -445,6 +445,24 @@ the remedy above for the ones that hang anyway.
 notifications, and do not trust a filter that returned empty — an empty filter is not a
 dry backlog. One mayor under-saturated at one to three workers while a hundred items
 were ready, because a homegrown filter kept answering empty.
+
+**Read the host's alert channel before the ready list.** Where a nightly system of record
+reports its own failures somewhere the tracker is not — a hosted issue that the workflow opens
+and then edits in place, say — that report reaches no dispatch until something copies it across,
+because the loops read the tracker and the review queue and nothing else. Measured: an alerter
+opened its issue on the first red night, notified three more times across the week, and the
+redness was still found by hand on day seven, because nothing in the loop read the channel it
+wrote to. So the short tick makes one read of that channel, before the ready list, and ensures
+every open alert has exactly one open tracker item keyed on the alert's own URL. Once it does,
+later ticks do nothing: the alert stays the live counter and signature record, and the item is
+the dispatch edge, which the same tick can then fill. Two misreadings of that read both fail open.
+A failed read is "did not sweep this tick", never "nothing red" — an empty result on a clean exit
+is the only "nothing red" there is. And where the alert carries a recovery delay, closing only
+after several consecutive greens, "item closed, alert still open" is the expected state for the
+nights after a fix lands, not a new failure; re-file only when the alert itself says the failure
+has returned since the close, and never by reopening the closed item, whose close reason is a
+normative record. The query, the label and the field that carries the URL are repository values,
+and they live in the agent-instructions file, per the rule at the head of this page.
 
 **Read the newest note first, and order the item by the tracker's own timestamps** — not by
 position, and not by dates written in the prose. The mechanics are set out for the worker under
