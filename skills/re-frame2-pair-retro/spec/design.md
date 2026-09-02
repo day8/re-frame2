@@ -76,7 +76,7 @@ Per Mike's standing memory rule "Findings is local-only" — never commit `ai/` 
 - Probing a live runtime — live inspection and verification route to `re-frame2-pair`; a result the session never produced stays unknown/incomplete.
 - Routing through re-frame-10x — L1.
 - Diagnosing the user's *application code* (that's `re-frame2-pair`'s job, in a live session).
-- Authoring re-frame2 application code — `skills/re-frame2/`; greenfield setup — `skills/re-frame2-setup/`; v1 migration — `skills/re-frame-migration/`; Story-recorder retros — `re-frame2-pair`'s variant-refinement workflow.
+- Authoring re-frame2 application code — `skills/re-frame2/`; greenfield setup — `skills/re-frame2-setup/`; v1 migration — `skills/re-frame-migration/`; Story-recorder retros — `re-frame2-pair`'s Stories leaf (`references/stories.md`, on capturing a live interaction back into a `:script`).
 
 ## 5. File structure (locked)
 
