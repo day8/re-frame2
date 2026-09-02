@@ -23,7 +23,6 @@ amendment behind each cell is design history at
 [`docs/design/hicasso/product/dispositions.md`](../../../docs/design/hicasso/product/dispositions.md)
 §2 (demoted 2026-08-30, `rf2-6c12m.8`), and the two-policy matrix itself is
 [`lanes/react-compatibility-notes.md`](../../../docs/design/hicasso/product/lanes/react-compatibility-notes.md#public-surface-ssrhydration-matrix).
-HS-11 and HS-14 are held Client-only under an open operator question (`rf2-lau0u`).
 
 | Id | Surface | Server policy |
 |---|---|---|
@@ -37,10 +36,10 @@ HS-11 and HS-14 are held Client-only under an open operator question (`rf2-lau0u
 | HS-08 | Controlled DOM fields as a class | Render for the server half; per-control support is a client axis |
 | HS-09 | `h/error-boundary` | Render on the succeeding arm; a throwing child is not caught server-side and reaches the caller's `renderToString` |
 | HS-10 | `h/mount!` | No policy — a client lifecycle command, not a node of the tree |
-| HS-11 | `h/hydrate!` | Client-only — held; whether the measured witness releases it is `rf2-lau0u`'s open question |
+| HS-11 | `h/hydrate!` | Client-only — the adoption half of every Render row; adopts `re-frame.hicasso.server/render`'s bytes under a matching `:identifier-prefix` (`server-render-ssr-dom-cljs-test` §4, §4b) |
 | HS-12 | `h/render!` | No policy — a lifecycle command |
 | HS-13 | `h/unmount!` | No policy — a lifecycle command; idempotent, silent on a rootless handle |
-| HS-14 | Root and frame-provider element, including `identifierPrefix` | Client-only — held with HS-11 under `rf2-lau0u` |
+| HS-14 | Root and frame-provider element, including `identifierPrefix` | Render on bytes from `re-frame.hicasso.server/render` — `server-render-ssr-dom-cljs-test` §1, §2, §4, §4b and `identifier-prefix-ssr-dom-cljs-test`; hand-rolled `renderToString` bytes are outside the claim (§4b-3) |
 | HS-15 | Attribute-merge helper | Render — no separate public spelling |
 | HS-16 | `h/defhost` declaration | Render on `:server :render`; Client-only by default, with an optional `:fallback` |
 | HS-17 | Declared ReactNode positions and named `:slots` | Client-only — named positions unwitnessed on the server |
