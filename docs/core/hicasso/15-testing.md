@@ -56,7 +56,15 @@ not named here is not on it:
 ```
 
 The path is relative to *your* `deps.edn`, exactly as the artifact coordinates
-above are. Which build target the tests then run under is a choice per level, and
+above are. It also reaches outside your project root, and the Clojure CLI names
+that on every invocation: `WARNING: Use of :paths external to the project has
+been deprecated`. Nothing fails — the root goes on the classpath and `ht` and
+`hm` resolve — and the warning belongs to this route rather than to your project.
+It is the cost of a checkout that is not yet a published coordinate, and it goes
+away with the checkout: resolve Hicasso from a coordinate and the kit arrives in
+the jar with nothing to add and no path to escape.
+
+Which build target the tests then run under is a choice per level, and
 the ladder below is the guide to it: L0–L2 are browser-free and need no DOM, while
 L3 mounts real React and L4 wants real engines.
 
