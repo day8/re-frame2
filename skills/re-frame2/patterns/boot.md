@@ -83,13 +83,26 @@ For trivial boots (≤3 steps, no error states, no progress UI), use the chained
      :on     {:succeeded {:target :hydrating :action :record-user}
               :failed    {:target :profile-failed :action :record-error}}}
 
+    ;; Both exit events are APP-prefixed and app-produced — nothing under
+    ;; :rf.route/* is dispatched INTO an app machine. :hydrate/done comes from
+    ;; the handler that finishes hydration; :boot/route-resolved from the
+    ;; route's :on-match (registered below).
     :hydrating {:entry :phase-hydrate :on {:hydrate/done {:target :routing}}}
-    :routing   {:entry :enter-routing :on {:rf.route/resolved {:target :ready}}}
+    :routing   {:entry :enter-routing :on {:boot/route-resolved {:target :ready}}}
 
     :ready          {:meta {:terminal? true}}
     :auth-failed    {:meta {:terminal? true}}
     :profile-failed {:meta {:terminal? true}}
     :fatal-error    {:meta {:terminal? true}}}})
+
+;; The producer of :boot/route-resolved. :on-match is a vector of event vectors
+;; the routing runtime fires-and-forgets once the URL resolves to a valid plan
+;; (Spec 012 §Per-route data loading) — so :enter-routing's :rf.route/handle-url-change
+;; lands here and the machine leaves :routing. Every route the app can land on
+;; at boot carries it.
+(rf/reg-route :route/home
+  {:on-match [[:app/boot [:boot/route-resolved]]]}
+  "/")
 ```
 
 The frame's `:initial-events` dispatch `[:app/boot [:rf.machine/start]]` — the reserved creation marker that births the machine directly into its `:initial` state (`:configuring`) and runs that state's entry-cascade. The marker is a pure init-kick (it is never fed into an `:on` map as a trigger), so the machine self-initialises and starts working at birth — there is no idle parking spot waiting on the marker.
