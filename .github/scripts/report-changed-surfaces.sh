@@ -1111,7 +1111,7 @@ else
         # the same reason.
         #
         # The arm is the WHOLE package tree, not `src/**`. `test/**` carries the
-        # seven suites and their nine fixtures — the fixtures ARE inputs to the
+        # nine suites and their twelve fixtures — the fixtures ARE inputs to the
         # allowlist, protocol and byte-fidelity rows — and README.md documents
         # the five bounded guarantees those rows witness. The suite is seconds
         # and needs no build, so narrowing buys nothing and would skip the very

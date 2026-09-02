@@ -15,10 +15,14 @@ nowhere outside its own tree. That is a deliberate property and it is
 checked rather than asserted; see
 [Client v0 is unaffected](#client-v0-is-unaffected-when-the-service-is-absent).
 
-Status: v0. Built to the specification on `rf2-hic-056` under the
+Status: v0, and wired. Built to the specification on `rf2-hic-056` under the
 operator ruling of 12 August 2026 (`rf2-xpq9`), which removed the "when a named
-caller activates it" condition. There is no caller wired to it yet, and
-wiring `ssr-ring`'s render seam is not this package's work — see
+caller activates it" condition. The caller now exists. `ssr-ring` grew a
+render-body seam — one construction opt, `:renderer` — and
+`re-frame.ssr.ring.node/renderer` is the JVM adapter that dials this service
+through it, both landed by the ssr-node crossing programme (`rf2-8arzr`).
+A `jvm-node-crossing` CI job renders one JVM → Node → JVM request end to end.
+What stayed on the JVM is unchanged, and is still the subject of
 [What this is not](#what-this-is-not).
 
 ---
@@ -609,10 +613,15 @@ practice:
    the version CI runs this suite on. The package uses
    `node:worker_threads`, `node:http` and `node:crypto` only, so the pin
    records what has been witnessed rather than a feature it needs.
-6. Wire the JVM side. `ssr-ring`'s `:renderer` seam and the
-   `re-frame.ssr.ring.node` adapter that dials this service are the
-   ssr-node crossing programme's work (`rf2-8arzr`, slices A and D), not
-   this package's; see below.
+6. Wire the JVM side. Hand `ssr-handler`'s `:renderer` opt a
+   `re-frame.ssr.ring.node/renderer`, configured with the `:endpoint` this
+   service binds, the `:entry` the bundle publishes, the `:build-id` it was
+   built with, and a `:render-state` policy naming the app-db and
+   runtime-db keys a render may see. Those opts are validated at
+   construction, so a misconfigured deployment fails at boot rather than at
+   first request. The adapter derives its own HTTP timeout from
+   `:timeout-ms` + `:admission-ms` + a wire margin, which is the other half
+   of step 4: this service refuses before the JVM stops waiting.
 
 ### Health
 
@@ -640,10 +649,13 @@ JVM. This service returns body markup and nothing else.
 
 Not a renderer. It loads one and bounds it.
 
-Not wired to `ssr-ring`. The render seam at
-`re-frame.ssr.ring.pipeline/build-full-response*` is separate work that
-both server arms need, and this bead was fenced from the hot-zone files it
-would touch.
+Not the JVM half of the crossing. The render seam at
+`re-frame.ssr.ring.pipeline/build-full-response*` and the
+`re-frame.ssr.ring.node` adapter that dials this service both live in
+`ssr-ring`, not here. That is now built (`rf2-8arzr`) — what stays true is
+the direction of the arrow: this package answers a render request and
+knows nothing about its caller, which is what lets the whole thing be
+tested without a JVM in the room.
 
 No streaming render today. The protocol is shaped so that adding one is
 adding frames rather than changing semantics, which is what `rf2-hic-056`
@@ -709,13 +721,21 @@ byte-for-byte the client it would have been if this package did not exist.
 It is checked by `test/absence.test.cjs`, in 3 readings of increasing
 strength:
 
-- nothing references it. A scan over every tracked file in
+- no loader can reach it. A scan over every tracked file in
   `implementation/`, `examples/`, `tools/`, `scripts/` and `.github/` —
-  tracked only, so generated output cannot pollute the reading — finds zero
-  references to this package's path or its refusal namespace, outside the
-  package itself. There is no allowance list, and the checker says why in
-  its own header: an allowance mechanism with nothing in it is the first
-  entry of an allowance list
+  tracked only, so generated output cannot pollute the reading — finds this
+  package's path at zero **loader positions** outside the package: the
+  static specifier of a `require`/`import`, the body of a ClojureScript
+  `ns` `:require`, the classpath and coordinate keys of an EDN build
+  config, and the linking fields of a package manifest. A format that
+  cannot resolve a module — YAML, shell, Markdown — offers no loader
+  position and so cannot host a hit. This reading was once an absolute zero
+  over raw file text, and moved (`rf2-6ovv`) when the package's own CI lane
+  necessarily wrote its path into four wiring files: what the claim needs
+  is that no client can *load* this package, not that no file may *name*
+  it. There is still no allowance list — no path or string is forgiven, the
+  needles were not widened by a character, and the refusal-code namespace
+  `:rf.ssr-node/` keeps its absolute zero on a row of its own
 - it is on no build's source path. `implementation/shadow-cljs.edn`
   names no build reaching it and the top-level `implementation/deps.edn`
   has no entry for it, so it is in no module graph and there is no bundle
