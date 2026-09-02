@@ -449,6 +449,16 @@
                      framework-authority-meta
                      (resource-events/with-classification-lowering
                        resource-events/adopt-route-owner-handler))
+;; rf2-y8jjk — the release-side twin of `adopt-owner`: release an owner from a
+;; SUBSET of the identities it holds. Dispatched by the route planner on a
+;; same-token REPLAN (`:rf.route/replan-resources`) for exactly the identities
+;; the new plan dropped, ordered AFTER the attach fx; clears no route slot (the
+;; replan commit owns them). A framework primitive, not an app verb. See
+;; resources.route/route-resource-plan (plan mode `:replan`).
+(events/reg-event :rf.resource/release-owner-identities
+                     framework-authority-meta
+                     (resource-events/with-classification-lowering
+                       resource-events/release-owner-identities-handler))
 ;; rf2-x76af2.14 — clear-scope / remove settle in-flight work rows terminal
 ;; `:cancelled`, and a cancellation is a COMPLETION: its terminal outcome carries
 ;; the event's causal `:completed-at` (from the declared-flat `:rf/time-ms`),

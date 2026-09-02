@@ -20,8 +20,8 @@
         navigates to the saved article; the `:can-leave?` guard blocks a dirty
         draft and frees a clean / just-saved one;
      5. LOGOUT teardown — `:auth/clear-session` clears the auth slice, drops the
-        session-scoped cache via `:rf.resource/clear-scope`, and releases the
-        principal-switch owner (the mandatory release path);
+        departing principal's scoped caches via `:rf.resource/clear-scope`
+        (the mandatory teardown path);
      6. THE AUTH MACHINE — login drives :idle → :submitting → :authed via managed
         HTTP and stores the session.
 

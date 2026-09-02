@@ -1832,56 +1832,49 @@
 
 ;; ---- release-owner --------------------------------------------------------
 
-(defn release-owner-handler
-  "`:rf.resource/release-owner` — release a liveness owner (drop the owner
-  from every entry's `:active-owners` + the owner-index). Per Spec 016
-  §Active owners and causes. Payload: `{:owner …}`.
+(defn- release-owner-from-identities
+  "The per-identity CORE of an owner release, over an EXPLICIT set of byte
+  `key-id`s (rf2-y8jjk): drop `owner` from each named entry's `:active-owners`
+  (via `state/detach-owner`, which bumps the entry's `:revision` when the owner
+  was actually present — rf2-cxwuhl) and from the owner-index (the owner's
+  index row is dropped outright once it holds nothing); drop the owner from
+  each named entry's in-flight work record, marking `:abort-requested` and
+  collecting the abort fx for any record whose `:owners` are now EMPTY
+  (Spec 016 §Race — a shared request is never cancelled just because ONE owner
+  went away); collect the now-owner-free entries' scoped keys for the
+  poll-only cancel fx (EP-0020 §Polling); and emit the ONE
+  `:rf.resource/owner-released` trace, naming the released entries by their
+  SCOPED KEY (never the reversible key-id — rf2-5o52l). Returns the effects
+  map `{:rf.db/runtime :fx}`.
 
-  Per Spec 016 §Race (owner release while a request is in flight aborts
-  ONLY when no remaining owner needs that work record — a shared request is
-  NOT cancelled just because one route / machine / owner went away). This
-  drops the owner from the durable entry + index AND from the linked work
-  record's `:owners`; for any in-flight attempt whose `:owners` are now
-  EMPTY it emits a best-effort `:rf.http/managed-abort` (opportunistic) and
-  marks the work row `:abort-requested`. Stale suppression by work-id +
-  generation remains the correctness boundary — the abort is an
-  optimisation, not relied on."
-  [{rt :rf.db/runtime, frame-id :rf.frame/id} [_event-id {:keys [owner]}]]
-  (let [runtime-db (or rt {})
-        owned      (get-in runtime-db (conj (state/owner-index-path) owner))
-        ;; rf2-l2gofj: releasing a ROUTE owner ([:route route-id nav-token])
-        ;; happens on every route leave / supersession (route-resource-plan
-        ;; dispatches it). Deterministically clear that nav-token's blocking
-        ;; slot here so a superseded token's blocking state cannot accumulate
-        ;; — reply-driven drain misses it (the owner is already gone from the
-        ;; entries, and an orphaned/aborted in-flight resource never replies).
-        rdb0       (if (and (vector? owner) (= :route (first owner)))
-                     ;; EP-0037 R2: releasing a route owner also clears the
-                     ;; superseded nav-token's plan-identity slot, symmetric
-                     ;; with the blocking slot — a superseded plan's identity
-                     ;; set must not accumulate once its owner is gone.
-                     (-> runtime-db
-                         (route/clear-blocking-slot (nth owner 2))
-                         (route/clear-plan-slot (nth owner 2)))
-                     runtime-db)
-        ;; rf2-9e0tyq — `owned` is a set of byte `key-id`s (the owner-index
-        ;; members), so resolve each to its entry via `entry-path-by-id` (NOT
-        ;; `entry-path`, which would re-transform a scoped-key vector).
-        ;; drop the owner from each owned entry + the index
-        ;; rf2-cxwuhl — drop the owner via `state/detach-owner`, which bumps the
-        ;; entry's `:revision` when the owner was actually present (an owner
-        ;; release is an authoritative durable write a later optimistic rollback
-        ;; could clobber — a blind `restore-before` would otherwise RESURRECT the
-        ;; departed owner from the pre-release snapshot, re-pinning an owner no
-        ;; live caller holds so the entry never GCs). `detach-owner` returns nil
-        ;; for a nil entry, so the `when e` guard is folded in.
-        rdb1       (-> (reduce
-                         (fn [db k-id]
-                           (update-in db (state/entry-path-by-id k-id)
-                                      (fn [e] (state/detach-owner e owner))))
-                         rdb0 (or owned #{}))
-                       (update-in (state/owner-index-path) dissoc owner))
-        ;; for each owned entry that is still in flight, drop the owner from
+  Shared by the two callers, which differ ONLY in the set they hand in:
+  `release-owner-handler` (the whole owner — every index member, plus its
+  route-slot clears) and `release-owner-identities-handler` (the same-owner
+  SUBSET the route planner drops on a replan — no slot touch). It clears NO
+  slot itself. `k-ids` should be members of the owner's index (a caller that
+  hands in an identity the owner does not hold gets a no-op for it: the entry
+  is left unwritten and untraced)."
+  [runtime-db frame-id owner k-ids]
+  (let [k-ids (or k-ids #{})
+        ;; rf2-9e0tyq — `k-ids` are byte `key-id`s (the owner-index members),
+        ;; resolved via `entry-path-by-id` (NOT `entry-path`, which would
+        ;; re-transform a scoped-key vector). Only an entry that EXISTS is
+        ;; written — `detach-owner` on a nil entry returns nil, and writing
+        ;; that nil back would mint an empty entry slot.
+        rdb1  (-> (reduce
+                    (fn [db k-id]
+                      (let [path (state/entry-path-by-id k-id)]
+                        (if-let [e (get-in db path)]
+                          (assoc-in db path (state/detach-owner e owner))
+                          db)))
+                    runtime-db k-ids)
+                  (update-in (state/owner-index-path)
+                             (fn [index]
+                               (let [remaining (reduce disj (get index owner #{}) k-ids)]
+                                 (if (empty? remaining)
+                                   (dissoc index owner)
+                                   (assoc index owner remaining))))))
+        ;; for each released entry that is still in flight, drop the owner from
         ;; the work record; collect the work ids whose owners are now empty
         ;; (orphaned in-flight attempts → opportunistic abort).
         {rdb2 :rdb aborts :aborts}
@@ -1900,7 +1893,7 @@
                              orphaned? (conj [wid (:transport rec'')]))})
                 acc)))
           {:rdb rdb1 :aborts []}
-          (or owned #{}))
+          k-ids)
         ;; EP-0020 §Polling: any entry whose `:active-owners` went EMPTY by
         ;; this release stops polling (a poll never pins an owner-free entry).
         ;; Collect the now-owner-free entries' scoped keys for the poll-only
@@ -1913,7 +1906,7 @@
                       (let [e (get-in rdb2 (state/entry-path-by-id k-id))]
                         (when (and e (empty? (:active-owners e)))
                           (:resource/key e)))))
-              (or owned #{}))
+              k-ids)
         ;; rf2-5o52l — the trace's `:released` names the released entries by
         ;; their SCOPED KEY, never by their `key-id`. A `key-id` is
         ;; `identity/canonical-bytes`, a REVERSIBLE PLAINTEXT CEDN-1 encoding
@@ -1932,7 +1925,7 @@
         (into []
               (keep (fn [k-id]
                       (:resource/key (get-in runtime-db (state/entry-path-by-id k-id)))))
-              (or owned #{}))]
+              k-ids)]
     (trace/emit! :rf.event :rf.resource/owner-released
                  {:rf.frame/id frame-id :owner owner :released released
                   :aborted (mapv first aborts)})
@@ -1945,6 +1938,72 @@
            (seq now-owner-free)
            (conj [:rf.resource/cancel-poll-timers
                   {:frame-id frame-id :resource/keys now-owner-free}]))}))
+
+(defn release-owner-handler
+  "`:rf.resource/release-owner` — release a liveness owner (drop the owner
+  from every entry's `:active-owners` + the owner-index). Per Spec 016
+  §Active owners and causes. Payload: `{:owner …}`.
+
+  Per Spec 016 §Race (owner release while a request is in flight aborts
+  ONLY when no remaining owner needs that work record — a shared request is
+  NOT cancelled just because one route / machine / owner went away). This
+  drops the owner from the durable entry + index AND from the linked work
+  record's `:owners`; for any in-flight attempt whose `:owners` are now
+  EMPTY it emits a best-effort `:rf.http/managed-abort` (opportunistic) and
+  marks the work row `:abort-requested`. Stale suppression by work-id +
+  generation remains the correctness boundary — the abort is an
+  optimisation, not relied on. The per-identity work is
+  `release-owner-from-identities` over the WHOLE owner-index set; this handler
+  adds the route-owner slot clears."
+  [{rt :rf.db/runtime, frame-id :rf.frame/id} [_event-id {:keys [owner]}]]
+  (let [runtime-db (or rt {})
+        owned      (get-in runtime-db (conj (state/owner-index-path) owner))
+        ;; rf2-l2gofj: releasing a ROUTE owner ([:route route-id nav-token])
+        ;; happens on every route leave / supersession (route-resource-plan
+        ;; dispatches it) — and on a committed FAILED replan of the token that
+        ;; is staying (rf2-y8jjk). Deterministically clear that nav-token's
+        ;; blocking slot here so a superseded token's blocking state cannot
+        ;; accumulate — reply-driven drain misses it (the owner is already gone
+        ;; from the entries, and an orphaned/aborted in-flight resource never
+        ;; replies).
+        rdb0       (if (and (vector? owner) (= :route (first owner)))
+                     ;; EP-0037 R2: releasing a route owner also clears the
+                     ;; superseded nav-token's plan-identity slot, symmetric
+                     ;; with the blocking slot — a superseded plan's identity
+                     ;; set must not accumulate once its owner is gone.
+                     (-> runtime-db
+                         (route/clear-blocking-slot (nth owner 2))
+                         (route/clear-plan-slot (nth owner 2)))
+                     runtime-db)]
+    (release-owner-from-identities rdb0 frame-id owner (or owned #{}))))
+
+(defn release-owner-identities-handler
+  "`:rf.resource/release-owner-identities` — release a liveness owner from a
+  SUBSET of the identities it holds: `{:owner … :identities {<key-id>
+  <scoped-key>}}` (the byte-keyed carrier the route planner already computes —
+  rf2-btdl1). The release-side twin of `:rf.resource/adopt-owner`: a framework
+  primitive the route planner dispatches on a same-token REPLAN for exactly the
+  identities the new plan dropped (rf2-y8jjk, Spec 016 §Route-plan replan —
+  same-token reconciliation), never an app verb. The whole-owner
+  `:rf.resource/release-owner` cannot express it — it releases the owner from
+  EVERYTHING it holds and clears the token's slots — and the identities the
+  replan KEEPS must stay owned, so a same-owner reconciliation needs this
+  primitive rather than a release-then-re-ensure (which would momentarily
+  orphan, and abort, in-flight work the plan still needs).
+
+  Same per-identity core as the whole-owner release
+  (`release-owner-from-identities`): the entry survives, its OTHER owners
+  survive, its in-flight work is aborted only when this owner was the last,
+  polling stops only when the entry went owner-free, and the ONE
+  `:rf.resource/owner-released` trace names the released scoped keys. It
+  clears NO route slot — the replan commit that dispatched it has already
+  REPLACED the token's blocking / plan slots with the new plan. An identity
+  the owner does not currently hold (not an owner-index member) is a no-op."
+  [{rt :rf.db/runtime, frame-id :rf.frame/id} [_event-id {:keys [owner identities]}]]
+  (let [runtime-db (or rt {})
+        owned      (get-in runtime-db (conj (state/owner-index-path) owner))
+        k-ids      (into #{} (filter (or owned #{})) (keys identities))]
+    (release-owner-from-identities runtime-db frame-id owner k-ids)))
 
 ;; ---- adopt-owner — the kept-identity attach-before-release primitive -------
 
