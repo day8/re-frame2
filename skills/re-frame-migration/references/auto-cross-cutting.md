@@ -127,7 +127,7 @@ Closed mechanical rename table. The trace and epoch listener APIs collapse onto 
 ;; unregisters its own listeners by key.
 ```
 
-The `stream` keyword (`:trace`) is a **required leading arg** on the unified verb — a 2-arg `(register-listener! id f)` reads the id as the stream and throws `:rf.error/unknown-listener-stream`.
+The `stream` keyword (`:trace`) is a **required leading arg** on the unified verb, and the two ways a stale call fails are **different** — recognise both. Dropping the stream leaves a two-argument `(register-listener! id f)`, which is an **arity error** against the single fixed `[stream id f]` arity: the body never runs, so no framework error is raised. Keeping all three arguments but ordering them id-first and stream-last leaves the listener id sitting in the stream slot, which throws `:rf.error/unknown-listener-stream`.
 
 **Late-bind hook keys** (tool authors only — most apps will not touch these):
 
