@@ -446,13 +446,20 @@
      ;; it ships **no public accessor**", with the public name deferred to a
      ;; stated graduation gate.
      re-frame.routing.tooling
-     ;; The test-only fixture namespace. REQUIRED DIRECTLY by test suites — the
-     ;; skill corpus tells authors to `(:require [re-frame.routing.test-support])`
-     ;; — but required for its LOAD EFFECT: the require registers
-     ;; `:rf.test/simulate-http-resolution`, and the consumer-facing name is
-     ;; that event id, not the one public var (`simulate-http-resolution-handler`,
-     ;; the handler body nobody calls). The manifest is one row per public VAR,
-     ;; so there is nothing here to row; see the sibling note under resources.
+     ;; The test-only fixture namespace, and the ONE name in these two groups
+     ;; that documented guidance tells an author to type:
+     ;; skills/re-frame2/references/tooling/routing.md says of the
+     ;; `:rf.test/simulate-http-resolution` fixture event that it "is test-only,
+     ;; so `(:require [re-frame.routing.test-support])` to register it (it is
+     ;; NOT wired into the production `re-frame.routing` façade)". That require
+     ;; is wanted for its LOAD EFFECT — it registers the event — and nobody
+     ;; calls the one public var (`simulate-http-resolution-handler`, the
+     ;; handler body). One row per public VAR therefore leaves nothing here to
+     ;; row, which is why the tier is internal; but the NAMESPACE NAME is
+     ;; load-bearing all the same, because a name authors are instructed to
+     ;; require is part of the contract even when none of its vars are. Rename
+     ;; it and that skill page breaks. The resources sibling below is NOT this
+     ;; case — see its note.
      re-frame.routing.test-support
      ;; --- implementation/resources/src -------------------------------------
      ;; The door is `re-frame.resources`, enrolled above, whose docstring calls
@@ -548,7 +555,10 @@
      ;; `:resources/reset-resources!` late-bind hook, and the consumer-facing
      ;; name is `re-frame.test-support/make-reset-runtime-fixture` — already
      ;; rowed at :testing with a docs/api page — which FIRES the one public var
-     ;; here. No consumer calls `reset-resources!` itself.
+     ;; here. No consumer calls `reset-resources!` itself. And unlike routing's,
+     ;; THIS name is not itself in the contract: no page under skills/, docs/,
+     ;; spec/ or migration/ instructs the require, so authors reach the reset
+     ;; only through that rowed fixture. The two reasons differ on purpose.
      re-frame.resources.test-support})
 
 (defn- repo-file
