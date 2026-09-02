@@ -2,7 +2,7 @@
   "THE SLICE'S FEED PAGE, TRANSCRIBED INTO UIx — the DONOR ARM `C3` and
   `C4` are stated against (rf2-9wmqd).
 
-  `implementation/hicasso/spec/budgets.md` §4 registers `C3` as *broad
+  `docs/design/hicasso/product/budgets.md` §4 registers `C3` as *broad
   updates ≤ 1.25x the best relevant adapter after topology tuning* and
   `C4` as *sustained > 1.5x*, and §9.4 states both **on the same readings
   as `U1`–`U4`** — which is to say on the slice application's own

@@ -77,7 +77,7 @@
   `server`, `substrate`) — a roster that has GROWN THREE TIMES without
   admitting routing, so the count evidences the absence more sharply
   than when this paragraph was written and it read three;
-  `implementation/hicasso/spec/naming-ledger.md` row 6 carries
+  `docs/design/hicasso/product/naming-ledger.md` row 6 carries
   `re-frame.hicasso.routing` as a PROVISIONAL recommendation and NOT
   under an open question — that ledger's publication note says every
   row is dispositioned and none is open, and its sibling
