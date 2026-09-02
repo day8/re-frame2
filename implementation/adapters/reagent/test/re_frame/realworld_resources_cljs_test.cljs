@@ -23,7 +23,12 @@
         departing principal's scoped caches via `:rf.resource/clear-scope`
         (the mandatory teardown path);
      6. THE AUTH MACHINE — login drives :idle → :submitting → :authed via managed
-        HTTP and stores the session.
+        HTTP and stores the session;
+     7. THE PRODUCTION-SEAM RECEIPT (§11, rf2-k5lbd) — with managed HTTP wired to
+        the app's OWN demo backend, a comment posted through the comment form
+        survives the refetch its invalidation causes: the runtime refetches the
+        route-owned comments read on its own, and the refetch settles on the
+        backend's current state.
 
    The fixture fns + the deterministic transport stub live HERE (the adapter test
    tree), not under examples/real-apps/realworld_resources/ — the example source
@@ -37,12 +42,16 @@
    DETERMINISM. Each test installs its own capturing `:rf.http/managed` override
    and replays the reply explicitly via the transport's real 3-element reply-
    event-append shape (`(conj on-success {:status :ok :value …})`). Routing's
-   url-push is stubbed so navigation is deterministic without a browser.
+   url-push is stubbed so navigation is deterministic without a browser. The one
+   exception is §11, which answers nothing by hand: it drives the production demo
+   backend and awaits its deferred replies (`:after-ms` → `:dispatch-later`) with
+   `test-support/poll-until`, which is why the suite runs under the MAP-FORM
+   (`:async? true`) reset fixture.
 
    Per rf2-am9d this ns uses snapshot/restore via re-frame.test-support so the
    contract is uniform across CLJS fixtures."
   (:require [clojure.string :as str]
-            [cljs.test :refer-macros [deftest testing use-fixtures is]]
+            [cljs.test :refer-macros [deftest testing use-fixtures is async]]
             [re-frame.core :as rf]
             [re-frame.fx :as fx]
             [re-frame.frame :as frame]
@@ -75,6 +84,12 @@
             ;; strategies (already loaded via core; aliased for the ui-arm
             ;; url-strategy pins — rf2-nn5s8 audit rider).
             [realworld-resources.routing :as app-routing]
+            ;; The app's HTTP surface — its `defonce`d demo-backend world
+            ;; (`demo-state`, the documented reset boundary) and `full-url` — plus
+            ;; the shared demo backend itself, for the pure "server truth" read the
+            ;; §11 receipt compares the settled entry against.
+            [realworld-resources.http :as app-http]
+            [realworld-shared.demo-backend :as demo]
             ;; The shared WIRE contract (User / UserResponse) + this app's durable
             ;; app-db schemas (AuthSlice), for the default-frame validator
             ;; regression (rf2-3fc89f.32).
@@ -186,7 +201,7 @@
                                 nil))
   (fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil)))
 
-(defn- isolate-trace-bus-fixture
+(def ^:private isolate-trace-bus-fixture
   "OUTER fixture: keep this resource/mutation-registering suite from leaking
    trace residue into later cross-cutting tooling tests (the Xray/Story panel e2e
    seeds read the process-global trace bus). The leak this closes:
@@ -207,6 +222,12 @@
    the framework trace rings so no collector is active to capture any burst, and
    its teardown clears them again so this suite leaves a clean trace bus.
 
+   MAP-FORM (`{:before :after}`), like the reset fixture beside it (`:async?
+   true`): `cljs.test` runs an `(async done …)` row — §11's production-seam
+   receipt — only when EVERY `:each` fixture is a map, and it runs map
+   `:before`s in listing order and `:after`s in reverse, so listing this one
+   first still makes it the outermost wrapper.
+
    (The registrar side is handled separately: this suite's resources / mutations /
    scopes are removed from the SHARED registrar at NS LOAD — see the top-level
    `swap!` above — and captured in the per-test snapshot baseline as ABSENT, so
@@ -214,18 +235,23 @@
    persisting for another suite's reset to clear.) A later e2e test re-registers
    its own collector (its helper calls `reset-sentinels!` +
    `register-trace-collector!`), so clearing here is safe."
-  [f]
-  (trace-tooling/clear-listeners!)
-  (trace-tooling/clear-trace-rings!)
-  (f)
-  (trace-tooling/clear-listeners!)
-  (trace-tooling/clear-trace-rings!))
+  {:before (fn []
+             (trace-tooling/clear-listeners!)
+             (trace-tooling/clear-trace-rings!))
+   :after  (fn []
+             (trace-tooling/clear-listeners!)
+             (trace-tooling/clear-trace-rings!))})
 
 (use-fixtures :each
   isolate-trace-bus-fixture
   (test-support/make-reset-runtime-fixture
     {:adapter reagent-adapter/adapter
-     :init-fn init!}))
+     :init-fn init!
+     ;; Map-form (rf2-k5lbd): §11's production-seam receipt is an
+     ;; `(async done …)` row, and cljs.test runs one only under map fixtures.
+     ;; Sync rows are served identically (re-frame.async-reset-fixture-cljs-test
+     ;; pins that).
+     :async?  true}))
 
 ;; ============================================================================
 ;; HELPERS
@@ -1885,3 +1911,128 @@
                         (routing/route-link-render {:to :realworld.auth/login}))]
         (is (= "/realworld-resources/login" (:href attrs))
             "the Reagent arm's generated link carries its own mount base")))))
+
+;; ============================================================================
+;; 11. THE PRODUCTION-SEAM RECEIPT — read → write → invalidate → refetch against
+;;     the demo backend the served app runs on (rf2-9n43e part B, rf2-k5lbd)
+;; ============================================================================
+;;
+;; Every other test in this file answers managed HTTP by hand: `init!` swaps
+;; `:rf.http/managed` for a capture, and each test replays the reply it wants.
+;; That pins the app's wiring, but it cannot pin the one claim the example's
+;; README makes — that a write is still there after the refetch it causes —
+;; because the reply is whatever the test says it is. rf2-9n43e found exactly
+;; that gap: the old comment test hand-injected the write reply and asserted
+;; only that a refetch BEGAN, while the shipped backend answered the refetch
+;; out of a frozen seed and every comment vanished on success.
+;;
+;; This receipt answers nothing by hand. The frame is wired the way `core.cljs`
+;; wires the served app (`:fx-overrides {:rf.http/managed
+;; :realworld-resources.demo/http-stub}`), so every read and write goes to the
+;; app's own `demo-state` world through the shared demo backend; each reply
+;; comes back through the backend's own deferred path (`:after-ms` →
+;; `:dispatch-later`, a real 20 ms later); and the test WAITS for the runtime to
+;; settle rather than settling it. `:realworld/post-comment` declares
+;; `:invalidates` and no `:populates`, so the only way the new comment can
+;; reach the entry is the refetch the invalidation causes — which is the
+;; example's headline, and the sequence this row proves.
+;;
+;; Async, and the suite's fixtures are map-form for exactly this row: the
+;; deliverer's first hop is an async router dispatch that a `dispatch-sync`
+;; body never drains (linearlite_example_cljs_test.cljs §5 records the same
+;; boundary), and `cljs.test` runs an `(async done …)` body only under map
+;; fixtures. `with-new-frame` is deliberately NOT used — it destroys the frame
+;; when the body RETURNS, which for an async body is before anything settles —
+;; so the frame is a plain anon record and every dispatch names it.
+
+(def ^:private demo-user
+  "The demo world's one user, as `POST /users/login` issues them — the identity
+   the backend stamps on every write, and the viewer the reads land under."
+  {:email "demo@conduit.dev" :token "stub.demo.jwt" :username "demo"
+   :bio "Canned demo user." :image ""})
+
+(defn- production-seam-frame!
+  "A frame wired the way `realworld-resources.core/mount!` wires the served app:
+   URL-owning, with managed HTTP redirected to this app's PRODUCTION demo-backend
+   seam. url-push and the session-persist fx are no-op'd, as in `restore-frame!`."
+  []
+  (frame/make-anon-frame-record!
+    {:url-bound?   true
+     :fx-overrides {:rf.http/managed                     :realworld-resources.demo/http-stub
+                    :rf.nav/push-url                     :rf/no-op
+                    :realworld-resources.session/persist :rf/no-op}}))
+
+(defn- comment-ids [e] (mapv :id (get-in e [:data :comments])))
+
+(defn- backend-comments
+  "What the demo backend would answer `GET /articles/<slug>/comments` with RIGHT
+   NOW — a pure read of the app's own world, no frame involved. This is the
+   server truth the receipt compares the settled entry against."
+  [slug]
+  (:ok (second (demo/transition @app-http/demo-state
+                                {:request {:method :get
+                                           :url    (app-http/full-url
+                                                     (str "/articles/" slug "/comments"))}}))))
+
+(deftest production-seam-receipt-a-comment-survives-the-refetch-it-causes
+  (testing "examples/real-apps/realworld_resources — against the app's PRODUCTION
+            demo backend, with no hand-injected reply anywhere: the article route
+            plans the comments read; it settles from the backend; the comment
+            form's own submit runs :realworld/post-comment through the same seam;
+            the write settles, invalidates the route-owned read, the runtime
+            refetches it on its own, and the refetch settles on the backend's
+            CURRENT state — the comment just written is in it"
+    (async done
+      ;; The documented reset boundary: this receipt's world, and nobody else's.
+      (reset! app-http/demo-state (demo/fresh-state))
+      (let [f          (production-seam-frame!)
+            slug       "hello-conduit"
+            k          (comments-key "demo" slug)
+            first-load (atom nil)]
+        (rf/dispatch-sync [:auth/store-session demo-user] {:frame f})
+        (rf/dispatch-sync [:rf.route/navigate {:to :realworld.article/show :params {:slug slug}}]
+                          {:frame f})
+        (is (= :loading (:status (entry f k)))
+            "route entry planned the comments read under the demo viewer, in flight")
+        (-> (test-support/poll-until
+              #(= :loaded (:status (entry f k)))
+              {:label "the route-owned comments read settles from the demo backend"})
+            (.then (fn [_]
+                     (let [e (entry f k)]
+                       (reset! first-load (select-keys e [:generation :loaded-at]))
+                       (is (= [1] (comment-ids e))
+                           "the first load is the backend's one seeded comment — nothing hand-injected")
+                       (is (= (backend-comments slug) (:data e))
+                           "…and equal to what the backend answers that GET with right now"))
+                     ;; The app's own comment form. `:comment-form/submit` executes
+                     ;; `:realworld/post-comment`, whose reply goes to the mutation
+                     ;; runtime, never to the entry: `:invalidates`, no `:populates`.
+                     (rf/dispatch-sync [:comment-form/edit "great read"] {:frame f})
+                     (rf/dispatch-sync [:comment-form/submit slug] {:frame f})
+                     (test-support/poll-until
+                       #(let [e (entry f k)
+                              m (rf/compute-sub [:rf/mutation {:instance [:post-comment slug]}]
+                                                (state-value f))]
+                          (and (true? (:success? m))
+                               (> (:generation e) (:generation @first-load))
+                               (= :loaded (:status e))))
+                       {:label "the write settles, the invalidated read refetches, and the refetch settles"})))
+            (.then (fn [_]
+                     (let [e (entry f k)]
+                       (is (= [1 1000] (comment-ids e))
+                           "the refetched read carries the seeded comment AND the one just written — the write survived the refetch it caused, and the id is the backend's deterministic one")
+                       (is (= "great read" (-> e :data :comments second :body))
+                           "the body is the one the form submitted")
+                       (is (= "demo" (-> e :data :comments second :author :username))
+                           "the backend stamped the world's one user as the author")
+                       (is (= (backend-comments slug) (:data e))
+                           "the entry is at the backend's CURRENT truth — the refetch consulted the state the write landed in, not a seed")
+                       (is (nil? (:invalidated-at e))
+                           "the refetch cleared the invalidation it answered")
+                       (is (= 2 (count (get-in @app-http/demo-state [:comments slug])))
+                           "the write landed in this app's own world"))))
+            ;; Report and release; `done` runs once, in the one trailing step.
+            (.catch (fn [e]
+                      (is false (str "production-seam receipt did not settle: " (.-message e)))
+                      nil))
+            (.then (fn [_] (done))))))))
