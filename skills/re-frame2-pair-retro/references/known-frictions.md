@@ -89,9 +89,8 @@ Signals:
 - the timeline of events is correct but the user cannot tell which frame produced which row
 
 Typical improvements:
-- require an explicit `:frame` opt where ambiguity is possible, or surface the implicit choice prominently in the result
+- check first — this already ships: the four-tier cascade refuses with `:ambiguous-frame` rather than guessing, `set-operating-frame` / `get-operating-frame` / `reset-operating-frame` resolve it, and `discover-app` returns `:frames`. Unreached is tool-shaped (pair-skill wording); reached and still short names the framework surface
 - add a "current operating frame" indicator in retrospective output
-- list `(rf/frame-ids)` and recently-active frames at session start
 
 ### Wrong listener for the question
 
@@ -103,7 +102,8 @@ Signals:
 Typical improvements:
 - recipe that names the listener for each question shape
 - default to the `:epoch` stream for cascade-shaped questions; reach for the `:trace` stream only for per-emit detail
-- short prose in SKILL.md naming the two streams and when each wins
+- check first — this already ships: the pair skill states the default (assembled epoch stream first; raw trace stream only for detail the projection drops), so unreached is discoverability, i.e. tool-shaped
+- map those streams onto the routes a session actually calls: the `dispatch` envelope (settled, carrying the assembled epoch), `trace-window`, `watch-epochs`, `watch-until`, `record` / `read-recording`. Every observation arrives as a completed tool result and live-watch is poll-only — no subscription tool exists, so "why didn't they just subscribe?" is not available reasoning
 
 ### Time-travel restore failures
 
@@ -113,9 +113,56 @@ Signals:
 - a hot-swapped handler or evolved schema invalidated an older snapshot, but the failure tag was not surfaced helpfully
 
 Typical improvements:
-- structured presentation of the seven named failure modes (the six `:rf.epoch/restore-*` modes — `restore-unknown-epoch`, `restore-schema-mismatch`, `restore-missing-handler`, `restore-version-mismatch`, `restore-during-drain`, `restore-non-ok-record` — plus unknown-frame via `:rf.error/no-such-handler`) with a next-best-action per mode
-- preflight check before restore (depth, schema digest, machine version)
-- surface `:history-size` and `:schema-digest-recorded`/`:current` in the tool's output
+- check first — this already ships: `restore-epoch` returns a structured refusal (`:restore-rejected`), and the seven failure modes with their `:tags` (`:history-size`, `:schema-digest-recorded`/`:current`, `:missing`, `:failing-paths`) are pinned in re-frame2's Tool-Pair contract — route there rather than re-listing them. Tags that never reached the user are tool-shaped; tags that did and still left the next step unclear are a presentation gap.
+- a next-best-action per failure mode, which the contract pins but does not prescribe
+
+### Dry-run versus a live write
+
+Signals:
+- a throwaway probe went through a live `dispatch` and took the frame's app-db with it — a handler returning `{:db <bare-map>}` REPLACES app-db wholesale
+- "what would this event do?" was answered by committing it, then undoing it
+- a write refused with `:restore-rejected` / `:reset-rejected` and a closed gate was read as a broken tool
+
+Background: `dispatch-dry-run` runs the whole cascade and rolls back without firing fx — the safe primitive for "try this dispatch". The named write tools (`restore-epoch`, `replace-app-db`) sit behind the server's `--allow-writes` flag, **OFF by default**; that gate is the write boundary.
+
+Typical improvements:
+- check first whether `dispatch-dry-run` was reached for at all — available and unused is tool-shaped (pair-skill wording), not a missing surface
+- a refusal read as a fault means it did not carry its own remedy — name the reason and what lifts it
+
+### Wire-boundary privacy elision and the raw-eval carve-out
+
+Signals:
+- a structured read returned `:rf/redacted` or `:rf.size/large-elided` and it was read as missing or broken data
+- raw `eval-cljs` was used to get around an elision, shipping verbatim app-db / trace / epoch state
+- the retro cannot tell an absent value from a withheld one
+
+Background: this is the **wire** boundary, not the build one (§Production-elision confusion below). Structured reads elide server-side under `--allow-sensitive-reads` (**OFF by default**); `eval-cljs` is default-ON and **not** governed by that gate, returning values un-elided — the raw-eval carve-out. A placeholder is a deliberate withholding, not a gap.
+
+Typical improvements:
+- separate "withheld at the wire boundary" from "absent in app-db" — conflating them invents a bug
+- raw eval used to defeat an elision is a finding in its own right; the fix is usually the structured tool that fits
+
+### Wire-size caps and pagination
+
+Signals:
+- a truncated, capped, or deduped page was read as a complete answer
+- the same read was re-run instead of passing the previous response's cursor
+- a `:rf.mcp/dedup-table` payload was reasoned about undecoded
+
+Typical improvements:
+- a capped page is unknown/incomplete, never a negative result — §Session evidence already rules this; the friction is the cap going unnoticed, so make it legible
+- check whether the size-conscious args (`max-tokens`, `limit`/`cursor`, `path`, `mode`, `dedup`, `elision`) went unused (tool-shaped) or were used and still fell short (framework-shaped)
+
+### Hot-reload baseline misuse
+
+Signals:
+- `tail-build` refused with `:missing-baseline` / `:baseline-without-probe` and that was treated as a tool bug
+- a source edit was followed straight by a dispatch or trace read, so the session hit pre-reload code
+- a reload that landed before the first sample was read as a spurious timeout
+
+Typical improvements:
+- the probe's baseline is captured **before** the edit; capturing it after is tool-shaped
+- a correct baseline that still misled names the framework surface it fell short of
 
 ### Production-elision confusion
 
@@ -127,8 +174,7 @@ Signals:
 Background: production elision is a **mixed** result, not a total wall — the dev-gated families go dark while the always-answering families keep responding (orientation / registry-frame shape is the canonical surface that still answers), so a partial result is not a broken tool. The authoritative dark-vs-answering split is owned by re-frame2's Tool-Pair surface index (availability legend + production note) and `spec/009-Instrumentation.md` §What IS available in production; route to them rather than re-enumerating the surfaces here. Misclassifying a mixed production result as everything-is-gone abandons usable probes.
 
 Typical improvements:
-- preflight check that reads `re-frame.interop/debug-enabled?` and reports the answer
-- make "I am attached to a production-elided build" a first-class result state that distinguishes the dark dev-only surfaces from the ones that still answer (name the split by pointing at the routing index, not by re-listing the surfaces in the result)
+- check first — this already ships: `discover-app` reports `:debug-enabled?` and hints when the build is elided. Unreached is tool-shaped; reached and still misread means the result does not separate the dark surfaces from the answering ones (point at the routing index, don't re-list surfaces)
 - recipe for switching to a dev build before continuing
 
 ### Error observability and recovery-model confusion
@@ -144,7 +190,7 @@ Background: recovery and observability are distinct. Recovery is **framework-own
 
 Typical improvements:
 - turn a silent runtime fallback into a louder warning the agent can route to the user
-- prefer a recipe over a doc paragraph when the friction is "I didn't know how to pull recent errors at the REPL"
+- check first — this already ships: the pair skill's `errors.md` carries the trace-buffer recipe for recent `:rf.error/*` ops, so "I didn't know how to pull recent errors" is discoverability, i.e. tool-shaped
 - route the fix: an unrecognised error category or unclear inspection recipe → improve the pair tool's error catalogue (`re-frame2-pair/references/errors.md`); a gap in the runtime's behaviour itself (a category the always-on substrate doesn't cover, missing structured `:tags`) → file upstream against `re-frame2`, cross-linking `spec/009-Instrumentation.md §Error observability`
 
 ### Tool-catalogue / build-capability uncertainty
