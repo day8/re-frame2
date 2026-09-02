@@ -6,7 +6,7 @@
  {:doc
  "GENERATED public-API manifest — do NOT hand-edit the :vars list. Regenerate with: clojure -M -m re-frame.api-manifest.gen (run from implementation/scripts/api-manifest/). The tier/owner/status axes are curated in spec/api-manifest-metadata.edn; existence + kind + facade? are derived from live public vars. See that generator ns for the design.",
  :keystone "rf2-3nbl5.2",
- :var-count 494,
+ :var-count 506,
  :tier-vocab
  [:front-porch
   :advanced
@@ -362,6 +362,11 @@
   {:namespace "re-frame.ssr", :var "streaming-render-shell", :tier :advanced, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ssr", :var "streaming-resolved-template", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ssr", :var "verify-hydration!", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.ssr.render-state", :var "deserialize", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.ssr.render-state", :var "project", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.ssr.render-state", :var "restore!", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.ssr.render-state", :var "serialize", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.ssr.render-state", :var "validate-policy-opts!", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ssr.ring", :var "cookie->set-cookie-header", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ssr.ring", :var "default-html-shell", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ssr.ring", :var "default-on-error", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
@@ -371,6 +376,13 @@
   {:namespace "re-frame.ssr.ring", :var "ssr-handler", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ssr.ring", :var "ssr-middleware", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.ssr.ring", :var "stream-handler", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.ssr.ring.node", :var "default-admission-ms", :tier :implementation, :kind :var, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.ssr.ring.node", :var "default-endpoint", :tier :implementation, :kind :var, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.ssr.ring.node", :var "default-timeout-ms", :tier :implementation, :kind :var, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.ssr.ring.node", :var "http-timeout-ms", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.ssr.ring.node", :var "renderer", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.ssr.ring.node", :var "validate-opts!", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.ssr.ring.node", :var "wire-margin-ms", :tier :implementation, :kind :var, :owner "011", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.story", :var "aggregate-verdict", :tier :tooling, :kind :fn, :owner "007", :status "post-v1 lib", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.story", :var "all-kinds-with-counts", :tier :tooling, :kind :fn, :owner "007", :status "post-v1 lib", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.story", :var "assert-deterministic", :tier :implementation, :kind :fn, :owner "007", :status "post-v1 lib", :facade? false, :runtime-verified? true}

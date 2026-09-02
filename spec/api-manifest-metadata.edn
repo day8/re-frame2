@@ -1409,6 +1409,21 @@
   ["re-frame.ssr" "streaming-hydrate-delta-script"] {:tier :implementation :owner "011" :status "v1"}
 
   ;; =========================================================================
+  ;; re-frame.ssr.render-state — the ssr-node crossing's render-visible
+  ;; projection (day8/re-frame2-ssr, §011). `project` / `serialize` /
+  ;; `deserialize` / `restore!` over the two-partition envelope, plus the
+  ;; policy validator. Requires-directly and re-exported by nothing;
+  ;; spec/API.md §Namespaces places it at `:implementation` "on the same
+  ;; footing as `re-frame.ssr.ring`'s own vars" and does NOT row its vars.
+  ;; Enrolled by rf2-8arzr.7, which found it shipping unscanned.
+  ;; =========================================================================
+  ["re-frame.ssr.render-state" "validate-policy-opts!"] {:tier :implementation :owner "011" :status "v1"}
+  ["re-frame.ssr.render-state" "project"]               {:tier :implementation :owner "011" :status "v1"}
+  ["re-frame.ssr.render-state" "serialize"]             {:tier :implementation :owner "011" :status "v1"}
+  ["re-frame.ssr.render-state" "deserialize"]           {:tier :implementation :owner "011" :status "v1"}
+  ["re-frame.ssr.render-state" "restore!"]              {:tier :implementation :owner "011" :status "v1"}
+
+  ;; =========================================================================
   ;; re-frame.ssr.ring — Ring host-adapter (day8/re-frame2-ssr-ring), §011.
   ;; Internal host-adapter machinery the framework wires (the individual
   ;; `*-handler` / `default-*` fns are NOT rowed as supported var APIs in
@@ -1424,6 +1439,25 @@
   ["re-frame.ssr.ring" "default-on-error"]          {:tier :implementation :owner "011" :status "v1"}
   ["re-frame.ssr.ring" "cookie->set-cookie-header"] {:tier :implementation :owner "011" :status "v1"}
   ["re-frame.ssr.ring" "handler-defaults"]          {:tier :implementation :owner "011" :status "v1"}
+
+  ;; =========================================================================
+  ;; re-frame.ssr.ring.node — the JVM→Node adapter over the bounded sidecar
+  ;; at implementation/ssr-node (day8/re-frame2-ssr-ring, §011). `renderer`
+  ;; is the one non-local `:renderer` the reference ships; the `default-*` /
+  ;; `wire-margin-ms` vars are its published bound defaults and
+  ;; `validate-opts!` / `http-timeout-ms` its opts seam. Requires-directly
+  ;; and re-exported by nothing; spec/API.md §Namespaces places it at
+  ;; `:implementation` "on the same footing as `re-frame.ssr.ring`'s own
+  ;; vars" and does NOT row its vars. Enrolled by rf2-8arzr.7, which found it
+  ;; shipping unscanned.
+  ;; =========================================================================
+  ["re-frame.ssr.ring.node" "default-endpoint"]     {:tier :implementation :owner "011" :status "v1"}
+  ["re-frame.ssr.ring.node" "default-timeout-ms"]   {:tier :implementation :owner "011" :status "v1"}
+  ["re-frame.ssr.ring.node" "default-admission-ms"] {:tier :implementation :owner "011" :status "v1"}
+  ["re-frame.ssr.ring.node" "wire-margin-ms"]       {:tier :implementation :owner "011" :status "v1"}
+  ["re-frame.ssr.ring.node" "validate-opts!"]       {:tier :implementation :owner "011" :status "v1"}
+  ["re-frame.ssr.ring.node" "http-timeout-ms"]      {:tier :implementation :owner "011" :status "v1"}
+  ["re-frame.ssr.ring.node" "renderer"]             {:tier :implementation :owner "011" :status "v1"}
 
   ;; =========================================================================
   ;; re-frame.epoch — optional artefact (day8/re-frame2-epoch), §Tool-Pair.

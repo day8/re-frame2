@@ -102,6 +102,19 @@
     re-frame.http
     re-frame.ssr
     re-frame.ssr.ring
+    ;; The two JVM-loadable namespaces of the ssr-node crossing (rf2-8arzr.7).
+    ;; Both are requires-directly host-adapter surfaces that nothing
+    ;; re-exports: `re-frame.ssr.ring.node` provides `renderer`, the one
+    ;; non-local `:renderer` the reference ships (the JVM→Node adapter over
+    ;; the bounded sidecar at implementation/ssr-node), and
+    ;; `re-frame.ssr.render-state` is the render-visible projection that seam
+    ;; runs. spec/API.md §Namespaces places them at the `:implementation`
+    ;; tier "on the same footing as `re-frame.ssr.ring`'s own vars", so they
+    ;; are rowed here and NOT rowed as var-rows in spec/API.md. They shipped
+    ;; unenrolled — public vars, no `^:no-doc`, zero manifest rows — which is
+    ;; the hole the roster-completeness gate below now closes.
+    re-frame.ssr.render-state
+    re-frame.ssr.ring.node
     re-frame.epoch
     ;; The Hicasso view substrate's public door. A `.cljc` whose `:clj` arm
     ;; is the three authoring macros (`defview` / `event` / `defhost`) and
@@ -160,6 +173,210 @@
                            (str/replace "\\" "/"))))
                 (keep source-file->ns-sym))
           (file-seq root))))
+
+;; ---------------------------------------------------------------------------
+;; Roster completeness (rf2-8arzr.7 — restoring the mechanism of rf2-o8xev).
+;;
+;; THE HOLE. `jvm-namespaces` above is an EXPLICIT roster, and `doc_api_check`
+;; derives ITS namespace roster from the rows that roster produces. So a
+;; namespace absent from the roster is not UNCLASSIFIED — it is UNSCANNED:
+;; `--check` stays green, no documentation-coverage check reaches it, and
+;; every public var in it is invisible to every manifest-derived gate at once.
+;; A completeness check keyed on the roster cannot see what the roster omits.
+;;
+;; WHY THIS IS BEING WRITTEN A SECOND TIME. It is not a new idea. rf2-o8xev
+;; built exactly this reconciliation for `implementation/freehand/src`, with
+;; a public roster, an internal roster and an assertion called FIRST in
+;; `build-manifest`. Freehand's retirement (rf2-0yp7w.6, commit c951808b47)
+;; deleted the tree and — correctly, since the gate refuses to build when a
+;; source namespace is named by neither roster — retired the rosters, the
+;; assertion and its call site with it. What it left behind was
+;; `namespaces-under` and `source-file->ns-sym`: the two pure helpers, with no
+;; caller. The gate was not forgotten, it was ORPHANED, and the orphan reads
+;; exactly like a live backstop to anyone grepping for one. Three namespaces
+;; then shipped unscanned through the gap (`re-frame.ssr.ring.node`,
+;; `re-frame.ssr.render-state`, `re-frame.hicasso.server`).
+;;
+;; THE GATE. It infers NOTHING about publicness: no namespace is
+;; auto-enrolled, no var is auto-published, and `^:no-doc` carve-outs behave
+;; exactly as before. It asserts only that every source namespace under a
+;; covered root has been ACCOUNTED FOR — named either in `jvm-namespaces`
+;; above (a supported surface, introspected and rowed), in the sidecar's
+;; `:cljs-only` rows (a surface the JVM cannot require), or in
+;; `internal-namespaces` below (plumbing nobody authors against). A newly
+;; shipped namespace is in none of the three, so it fails BY NAME with the
+;; ways to answer for it. Classification stays a human decision; only the
+;; OBLIGATION to make one is automated.
+;;
+;; WHY THESE ROOTS AND NOT EVERY TREE. Deliberately narrow, and the narrowness
+;; is the honest part of this fix rather than a shortcut. The SSR trees are
+;; where the class just recurred, and enrolling a tree is not free: every
+;; namespace in it must be classified by a human, once, and recorded below.
+;; `implementation/hicasso/src` is the KNOWN next one — `re-frame.hicasso.server`
+;; is the third unscanned namespace and would need a `:cljs-only` sidecar row,
+;; not a `jvm-namespaces` entry, since it is CLJS-only — but that tree was held
+;; by an open PR when this landed, so it is named here rather than half-done.
+;; Widening to the remaining artefacts is a per-tree decision with a per-tree
+;; cost; the point of the data-driven shape below is that each is a root plus
+;; its classifications, never another mechanism.
+;; ---------------------------------------------------------------------------
+
+(def roster-covered-roots
+  "Repo-relative source trees whose every namespace must be accounted for by
+   one of the three rosters. Adding a tree here is deliberate work, not a
+   free generalisation: it obliges a classification for every namespace
+   beneath it (see this section's header)."
+  ["implementation/ssr/src"
+   "implementation/ssr-ring/src"])
+
+(def internal-namespaces
+  "Source namespaces under `roster-covered-roots` that are deliberately NOT a
+  supported surface: SSR pipeline internals, host-adapter plumbing and
+  emitters. Nothing here is published, documented or rowed in the manifest —
+  being on this list is the RECORD of that decision, not a consequence of it.
+
+  This is not a synonym for `^:no-doc`. NONE of these carry that metadata
+  (the SSR trees use it nowhere at all), so the marker cannot be the
+  classifier — which is precisely why the roster is written down instead of
+  derived. The public doors of these two artefacts are `re-frame.ssr` and
+  `re-frame.ssr.ring`, plus the two crossing surfaces rf2-8arzr.7 enrolled;
+  everything below is reached only from inside them."
+  '#{;; --- implementation/ssr/src -------------------------------------------
+     ;; Boot, install and the shared constant/hash/manifest plumbing.
+     re-frame.ssr.boot
+     re-frame.ssr.constants
+     re-frame.ssr.hash
+     re-frame.ssr.install
+     re-frame.ssr.manifest
+     re-frame.ssr.substrate
+     ;; The render pipeline: request/response shaping, emission, the UI tree.
+     re-frame.ssr.emit
+     re-frame.ssr.html-helpers
+     re-frame.ssr.http-validation
+     re-frame.ssr.request
+     re-frame.ssr.response
+     re-frame.ssr.ui-tree
+     ;; `<head>` collection and emission.
+     re-frame.ssr.head
+     re-frame.ssr.head.emit
+     re-frame.ssr.head.registry
+     ;; Error capture and projection.
+     re-frame.ssr.error-listener
+     re-frame.ssr.error-projector
+     ;; Hydration, egress, payload policy and the server-fx schemas.
+     re-frame.ssr.egress
+     re-frame.ssr.hydrate
+     re-frame.ssr.payload-policy
+     re-frame.ssr.server-fx-schemas
+     re-frame.ssr.suspense
+     ;; Streaming internals (the client half is the browser-side reader).
+     re-frame.ssr.streaming
+     re-frame.ssr.streaming.client
+     re-frame.ssr.streaming.constants
+     ;; --- implementation/ssr-ring/src --------------------------------------
+     ;; Ring host-adapter plumbing beneath `re-frame.ssr.ring`'s own door.
+     re-frame.ssr.ring.cookie
+     re-frame.ssr.ring.headers
+     re-frame.ssr.ring.lifecycle
+     re-frame.ssr.ring.payload
+     re-frame.ssr.ring.pipeline
+     re-frame.ssr.ring.shell
+     re-frame.ssr.ring.streaming
+     re-frame.ssr.ring.trust})
+
+(defn- repo-file
+  "Resolve a `/`-joined repo-relative path against `repo-root`, portably."
+  [rel-path]
+  (apply io/file repo-root (str/split rel-path #"/")))
+
+(defn covered-source-namespaces
+  "The sorted set of every namespace under every root in
+   `roster-covered-roots`. Throws (via `namespaces-under`) when a root has
+   gone missing, rather than quietly reconciling an empty tree."
+  []
+  (into (sorted-set)
+        (mapcat #(namespaces-under (repo-file %)))
+        roster-covered-roots))
+
+(defn- cljs-only-namespaces
+  "Namespaces the sidecar carries `:cljs-only` rows for — accounted for, but
+   by the curated roster rather than by JVM introspection."
+  [sidecar]
+  (into #{} (map (comp symbol :namespace)) (:cljs-only sidecar)))
+
+(defn roster-drift
+  "Reconcile the three rosters against the live source tree. Returns
+   `{:unaccounted [...] :stale [...] :contradictory [...]}`:
+
+     :unaccounted   — a source namespace named by NO roster. The new surface
+                      that would otherwise ship unscanned.
+     :stale         — an INTERNAL roster entry with no source file left. The
+                      roster rots the same way the sidecar does, and is
+                      reconciled the same way.
+     :contradictory — a namespace claimed as BOTH a public surface and
+                      internal, which is not a classification but a
+                      contradiction.
+
+   `present` is the live set from `covered-source-namespaces`; passing it in
+   keeps the reconciliation pure and lets a test drive a synthetic tree
+   through it."
+  [present sidecar]
+  (let [present  (set present)
+        ;; Only the enrolled namespaces SOURCED FROM a covered root count as
+        ;; accounting for that root — `jvm-namespaces` spans every artefact,
+        ;; and the two SSR trees deliberately share one `re-frame.ssr` prefix
+        ;; (`re-frame.ssr.ring` lives in ssr-ring, `re-frame.ssr.render-state`
+        ;; in ssr), so a prefix filter would mis-assign both. Intersecting
+        ;; with what is actually on disk is exact and needs no per-tree rule.
+        enrolled (set/intersection (set jvm-namespaces) present)
+        public   (set/union enrolled
+                            (set/intersection (cljs-only-namespaces sidecar)
+                                              present))]
+    {:unaccounted   (vec (sort (set/difference present
+                                               (set/union public
+                                                          internal-namespaces))))
+     :stale         (vec (sort (set/difference internal-namespaces present)))
+     :contradictory (vec (sort (set/intersection public internal-namespaces)))}))
+
+(defn assert-roster-complete!
+  "Throw with an actionable message when `present` reveals roster drift.
+   Returns `present` unchanged when the rosters account for the tree exactly."
+  [present sidecar]
+  (let [{:keys [unaccounted stale contradictory]} (roster-drift present sidecar)]
+    (when (seq unaccounted)
+      (throw (ex-info
+              (str "Unaccounted public-API source namespace(s) — every "
+                   "namespace under a root in `roster-covered-roots` must be "
+                   "classified, or it ships UNSCANNED (no manifest rows, no "
+                   "documentation-coverage check, and this gate green). "
+                   "Classify each one of:\n  "
+                   (str/join "\n  " unaccounted)
+                   "\n\nEither (a) SUPPORTED SURFACE — add it to "
+                   "`jvm-namespaces` in this generator (or, if it is "
+                   "CLJS-only, add its rows under `:cljs-only` in "
+                   "spec/api-manifest-metadata.edn), and classify each public "
+                   "var there with :tier/:owner/:status; or (b) INTERNAL — add "
+                   "it to `internal-namespaces` in this generator, under the "
+                   "grouping comment that says what it is.")
+              {:unaccounted unaccounted})))
+    (when (seq stale)
+      (throw (ex-info
+              (str "Stale `internal-namespaces` entries — these are recorded "
+                   "as internal plumbing but no source file under "
+                   "`roster-covered-roots` answers to them any more (remove "
+                   "them from the roster in this generator):\n  "
+                   (str/join "\n  " stale))
+              {:stale stale})))
+    (when (seq contradictory)
+      (throw (ex-info
+              (str "Contradictory classification — these namespaces are BOTH "
+                   "enrolled as a public surface (`jvm-namespaces`, or a "
+                   "sidecar `:cljs-only` row) AND recorded as internal in "
+                   "`internal-namespaces`. A namespace is one or the other; "
+                   "remove the wrong entry:\n  "
+                   (str/join "\n  " contradictory))
+              {:contradictory contradictory})))
+    present))
 
 ;; ---------------------------------------------------------------------------
 ;; Derivation from live vars.
@@ -349,6 +566,13 @@
    spec/api-manifest.edn). Throws on missing / stale sidecar entries with
    an actionable message — that throw is what turns the drift-check red."
   [sidecar]
+  ;; ROSTER COMPLETENESS FIRST (rf2-8arzr.7). The reconciliations below all
+  ;; read `jvm-namespaces`, so they can only report on namespaces the roster
+  ;; already names — an unenrolled namespace is invisible to every one of
+  ;; them. Asserting the rosters account for the source tree BEFORE any of
+  ;; them run is what turns "a new public namespace shipped unscanned" from a
+  ;; green run into a named failure.
+  (assert-roster-complete! (covered-source-namespaces) sidecar)
   (let [[rows missing] (build-rows sidecar)
         stale          (stale-sidecar-entries sidecar)
         dups           (duplicate-rows rows)
