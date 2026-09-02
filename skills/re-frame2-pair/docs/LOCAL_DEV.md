@@ -149,7 +149,7 @@ The power of the symlink approach is that editing `SKILL.md` / `references/*.md`
 
 ### `discover-app` can't find the nREPL
 
-`discover-app` returns a port-not-found / connection error. The MCP server discovers the port automatically (it scans `target/shadow-cljs/nrepl.port`, `.shadow-cljs/nrepl.port`, `.nrepl-port` at the CWD and under `implementation/`, and picks the most-recently-modified one). If it misses, first start your dev build:
+`discover-app` returns a port-not-found / connection error. The MCP server discovers the port through a five-step cascade, highest precedence first — `--port-file` → `$SHADOW_CLJS_NREPL_PORT` → MCP `roots/list` workspace walk → shadow's HTTP probe on `:9630` → a CWD-relative scan of the standard port files — described in full in [`references/mcp-transport.md` §Install / configure](../references/mcp-transport.md#install--configure-one-time). Most sessions resolve at step 3 or 4, so the two things worth checking are whether your agent host exposes the project as a workspace root and whether shadow's HTTP server is reachable on 9630 (`--http-port <n>` if you moved it). If discovery still misses, first start your dev build:
 
 ```bash
 npx shadow-cljs watch <build-id>
