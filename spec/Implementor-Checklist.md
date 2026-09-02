@@ -34,6 +34,8 @@ These rows are **pattern-required** in [000 §Host-profile matrix](000-Vision.md
 | **Frame as isolated runtime boundary** | `{state, queue, sub-cache, id}`; multi-instance | [002](002-Frames.md) |
 | **Run-to-completion drain semantics** | Per frame; pipeline run settles before next event | [002](002-Frames.md) |
 | **View contract** | Pure `(state, props) → render-tree`; render-tree is serialisable data | [000 §Pointers to per-area Specs](000-Vision.md#pointers-to-per-area-specs), [§V1](#v1-render-tree-shape) |
+| **Flows** | Registered, runtime-toggleable computed-state declarations that materialise their output into `app-db` — the v2 form of v1's `on-changes`, toggled by two reserved fx-ids. Fixture family `:flow/*` | [013](013-Flows.md) |
+| **Data classification** | `:sensitive` / `:large` classification of durable paths (four commit-plane effects) and of transient payload shapes (registration metadata), redacted at the framework's mediated-egress boundaries. Fail-open hygiene, not a security boundary. Fixture family `:data-classification/*` | [015](015-Data-Classification.md) |
 | **Trace event stream** | Structured events from well-defined emit sites | [009](009-Instrumentation.md) |
 | **Error contract** | Structured trace events for runtime failures (handler exceptions, schema validation, drain depth, no-such-handler, ...) | [009 §Error contract](009-Instrumentation.md#error-contract) |
 | **Runtime shape policing** | Proactive, error-emitting rejection of malformed framework-boundary shapes — closed effect-map top-level keys, classification-effect payloads, `input-fn` returns, interceptor refs, dispatch opts — **not dischargeable by static types** (they erase at the runtime boundary). A malformed effect-map **envelope** is *refused*, not repaired: the event aborts pre-commit with nothing applied | [002](002-Frames.md), [009 §Error contract](009-Instrumentation.md#error-contract) |
@@ -95,11 +97,29 @@ Self-grading against the AI-first principles per [AI-Audit.md](AI-Audit.md). The
 
 **Gate:** does the implementation aim to claim AI-first conformance certification? Useful for spec-conformance certification; non-essential at impl time.
 
+#### Q8. Managed HTTP?
+
+The `:rf.http/managed` fx from [014](014-HTTPRequests.md) — decoding, success/failure normalisation, retry-with-backoff, abort, schema-driven decode, and reply-to-origin dispatch, as one uniform effect rather than per-app reinvention. [014](014-HTTPRequests.md) is a **v1-optional capability**: an implementation MAY ship HTTP infrastructure, but when it does, it ships this contract. The CLJS reference ships it.
+
+**Declaring yes runs the `:rf.http/managed` fixtures.**
+
+**Gate:** does the application talk to an HTTP backend? A port targeting local-only or embedded use skips it; note that [Q9](#q9-resources) depends on it, because managed HTTP is resources' single built-in read transport.
+
+#### Q9. Resources?
+
+Declarative server state from [016](016-Resources.md) — `reg-resource` and the `:rf.resource/*` surface: resource identity, fail-closed cache scopes, active owners, the lifecycle FSM, the frame work ledger, stale/fresh policy, dedupe, stale-reply suppression, inactive GC, route `:resources`, and SSR preload/hydration. A **v1-optional, post-v1 artefact** (`day8/re-frame2-resources` on the CLJS reference); when shipped, the contract is fixed.
+
+**Declaring yes implies Q8 yes** — [016](016-Resources.md) scopes resources to HTTP-only, making `:rf.http/managed` the single built-in read transport.
+
+**Gate:** does the application hold server state that needs caching, staleness and ownership rules? Apps that fetch a handful of endpoints imperatively through Q8 alone don't need it.
+
 ### How declarations map to conformance
 
 Conformance fixtures are capability-tagged (per [conformance/README §Capability tagging](conformance/README.md#capability-tagging)). The harness runs every fixture whose capabilities are a subset of the implementation's claimed list and skips the rest. The score is `passed / claimed-applicable` — an honest accounting of "what works for what was claimed."
 
-A flat-FSM-only port that declares **Q1 yes (flat FSM only)**, **Q2 no**, **Q3 no**, **Q4 yes-via-host-types**, **Q5 no**, **Q6 yes**, **Q7 no** has a clear scope: the corpus runs all `:core/*` fixtures, the `:fsm/flat` fixtures, and the `:actor/own-state` + `:actor/spawn-destroy` fixtures. Routing, SSR, hierarchical FSM, `:fsm/eventless-always`, `:fsm/delayed-after`, `:spawn`, and stories fixtures are reported as not-exercised.
+A flat-FSM-only port that declares **Q1 yes (flat FSM only)**, **Q2 no**, **Q3 no**, **Q4 yes-via-host-types**, **Q5 no**, **Q6 yes**, **Q7 no**, **Q8 yes**, **Q9 no** has a clear scope: the corpus runs all `:core/*` fixtures, the `:fsm/flat` fixtures, the `:actor/spawn-destroy` fixtures, and the `:rf.http/managed` fixtures. Routing, SSR, hierarchical FSM, `:fsm/eventless-always`, `:fsm/delayed-after`, `:spawn`, stories and `:resources/*` fixtures are reported as not-exercised.
+
+**The always-run families are not declared and cannot be opted out of.** `:core/*`, `:identity/*`, `:flow/*`, `:data-classification/*` and `:derivation/*` tag the Required rows above, so every conformant implementation runs them whatever it answers to Q1–Q9. A port scoring itself only against the families it declared is over-reporting.
 
 ---
 
@@ -112,6 +132,8 @@ For each capability included in Part 1, the implementor makes the per-capability
 - **Options by host** — canonical choices for the eight in-scope JS-cross-compile hosts (CLJS, TS, Melange / ReScript / Reason, Fable, Squint, Scala.js, PureScript, Kotlin/JS). Non-target hosts (Python, Rust, Swift, Java) may appear as **non-normative background** to illustrate shape; they are not implementation tracks this checklist sequences.
 - **Reference-impl picks** — what re-frame-cljs uses; what other claimed reference implementations would pick.
 - **Trade-offs** — criteria for choosing.
+
+**Two Required rows carry no entry here, deliberately.** Flows ([013](013-Flows.md)) and data classification ([015](015-Data-Classification.md)) are v1-required and are graded by their `:flow/*` and `:data-classification/*` fixtures, but neither forces a host-technology choice beyond the reactive substrate (**F3**) and the effect primitive (**F4**) already decided above — flows recompute on input change and write through the ordinary commit plane; classification is bookkeeping over paths and payload shapes, redacting at egress. Their conformance is behavioural, so the corpus is the checklist for them. An absent entry here is not a capability the implementation may skip.
 
 ### Foundation (always required)
 
@@ -415,7 +437,7 @@ For each capability included in Part 1, the implementor makes the per-capability
 
 - **Why it matters.** `(app-schemas)`, `(app-schema-at path)`, plus per-registration `(handler-meta kind id)` returning `:schema`.
 - **Options by host.** Falls out of **F1** + **Sch1**.
-- **Reference-impl picks.** CLJS exposes via `re-frame.core`.
+- **Reference-impl picks.** CLJS exposes the schema-introspection accessors on the owning `re-frame.schemas` namespace, not the `re-frame.core` façade — only the `reg-app-schema` / `reg-app-schemas` registration macros are on the façade (per [010 §Schemas as a tooling and agent surface](010-Schemas.md#schemas-as-a-tooling-and-agent-surface)). `handler-meta` is a `re-frame.core` registrar-query surface and is unaffected.
 - **Trade-offs.** Tooling and AI agents read this — make sure the schema is data, not opaque host objects.
 
 ### Machines (if Q1 is yes)
@@ -466,6 +488,38 @@ For each capability included in Part 1, the implementor makes the per-capability
 - **Reference-impl picks.** CLJS reference ships the trace surface, epoch history, and registrar query API in-tree (per [ audit](Tool-Pair.md#how-ai-tools-attach)). re-frame-pair is a separate library that consumes these.
 - **Trade-offs.** **No 10x dependency required** — re-frame2 is infrastructure-complete for AI-tool consumption. 10x and pair share the substrate.
 
+### Managed HTTP (if Q8 is yes)
+
+#### H1. Request transport + abort primitive
+
+- **Why it matters.** `:rf.http/managed` per [014](014-HTTPRequests.md) owns the whole request lifecycle — issue, decode, normalise success/failure, abort — so the transport and its cancellation handle are the one genuinely host-varying choice underneath it. Abort is not optional: the in-flight registry, stale-reply suppression and frame teardown all need a request to be cancellable.
+- **Options by host.** Fetch + `AbortController` on every in-scope JS-cross-compile host (it is the platform primitive all eight compile down to); a host HTTP client where one is idiomatic and exposes cancellation. *Non-normative background:* `java.net.http.HttpClient` on the JVM side of the CLJS reference's dual-host build.
+- **Reference-impl picks.** CLJS uses Fetch + `AbortController`; the JVM side uses `java.net.http.HttpClient`.
+- **Trade-offs.** A transport without a cancellation handle forces the runtime to fake abort by dropping the reply, which leaves the request itself running and defeats the stale-suppression contract the `:rf.http/managed` fixtures assert. Pick a cancellable transport or don't claim Q8.
+
+#### H2. Retry / backoff scheduling
+
+- **Why it matters.** Retry-with-backoff is part of the fixed contract, not app code, so the implementation needs a timer it can schedule and cancel — and one that **T3 production elision** and frame teardown can both reach.
+- **Options by host.** The host's timer primitive, shared with the machine substrate's `:after` scheduling (per **M3**) rather than a second independent scheduler.
+- **Reference-impl picks.** CLJS schedules on the same timer seam the machine `:after` implementation uses.
+- **Trade-offs.** Two schedulers means two teardown paths and two places for a timer to outlive its frame. Reuse the one **F5** already established.
+
+### Resources (if Q9 is yes)
+
+#### Res1. Cache-scope identity
+
+- **Why it matters.** [016](016-Resources.md) makes resource identity and **fail-closed** cache scopes the contract's load-bearing pieces: two resource requests share a cache entry only when their identity *and* scope agree, and an unresolvable scope must fail rather than fall back to a global one. This is a direct consumer of the **F1** identity primitive's value-equality and serialisability.
+- **Options by host.** Falls out of **F1** — the canonical-identity encoding the `:identity/*` fixtures already pin is what makes two argument maps compare equal across hosts.
+- **Reference-impl picks.** CLJS keys the cache on the canonical form of `[resource-id args]` within the resolved scope.
+- **Trade-offs.** A host that keys on reference identity or on an unordered map's iteration order will dedupe inconsistently and fail the `:resources/dedupe` fixture. Fail-open scope resolution is the more dangerous variant — it silently serves one tenant's data to another.
+
+#### Res2. Inactive GC and stale policy
+
+- **Why it matters.** Resources are runtime subsystems with owners: an entry with no active owner is collectable, and a reply that arrives after its request went stale must be suppressed rather than committed. Both are asserted by the corpus (`:resources/owner-gc`, `:resources/stale-suppression`, `:resources/keep-previous`).
+- **Options by host.** Owner tracking rides the same mount/unmount seam as **V3**; staleness is a per-request generation counter compared at reply time — no host primitive beyond **F5**.
+- **Reference-impl picks.** CLJS tracks active owners in `:rf.runtime/resources` and compares a per-request generation on reply.
+- **Trade-offs.** Tying collection to the host's own GC or to weak references makes teardown non-deterministic and untestable; the ledger is explicit for that reason.
+
 ### Security obligations for implementation tooling
 
 The following obligations apply to any port that ships **tooling** (test fixtures, scaffolding, conformance-corpus emit, pair-tool source-mapping). They are spec-pinned defaults the implementor MUST honour — pre-alpha; no back-compat hedges. Full rationale + audit trail in [Security.md](Security.md); the section headings here are the implementor's todo-list.
@@ -497,14 +551,24 @@ The harness (per [conformance/README §How an implementation runs the corpus](co
 4. If no, report as "not exercised."
 5. Aggregate score is `passed / claimed-applicable`.
 
-**Capability tags** (per [conformance/README §Capability tagging](conformance/README.md#capability-tagging)) come in family namespaces:
+**Capability tags** (per [conformance/README §Capability tagging](conformance/README.md#capability-tagging)) come in family namespaces. Every family the corpus uses is listed here, with what gates it:
 
-- `:core/*` — pattern-required basics. Every conformant implementation runs these.
-- `:fsm/*` — FSM-richness axis (`:fsm/flat`, `:fsm/hierarchical`, `:fsm/eventless-always`, `:fsm/delayed-after`, `:fsm/tags`, `:fsm/parallel-regions`). Run if Q1 yes and the matching capability is claimed.
-- `:actor/*` — actor-model axis (`:actor/own-state`, `:actor/spawn-destroy`, `:actor/cross-actor-fx`, `:actor/declarative-spawn`, `:actor/spawn-and-join`, `:actor/system-id`). Run if Q1 yes and the matching capability is claimed.
-- `:routing/*` — run if Q2 yes.
-- `:ssr/*` — run if Q3 yes.
-- `:schemas/*` — run if Q4 yes (regardless of mechanism).
+| Family | Gated by | Notes |
+|---|---|---|
+| `:core/*` | nothing — always run | Pattern-required basics. Every conformant implementation runs these. |
+| `:identity/*` | nothing — always run | The canonical-identity byte contract behind the [Required](#required-not-gated-every-implementation-ships-these) identity-primitive row; a port's encoder is pinned against a frozen token stream. |
+| `:flow/*` | nothing — always run | [013](013-Flows.md) is v1-required. |
+| `:data-classification/*` | nothing — always run | [015](015-Data-Classification.md) is v1-required. |
+| `:derivation/*` | nothing — always run | Graph inspection over the derivation/process algebra ([Derivations](Derivations.md)). |
+| `:fsm/*` | Q1 yes **and** the matching capability claimed | FSM-richness axis. |
+| `:actor/*` | Q1 yes **and** the matching capability claimed | Actor-model axis. |
+| `:routing/*` | Q2 yes | |
+| `:ssr/*` | Q3 yes | |
+| `:schemas/*` | Q4 yes | Regardless of mechanism. |
+| `:rf.http/managed` | Q8 yes | A single tag rather than a `/*` axis — managed HTTP is one contract, claimed whole. |
+| `:resources/*` | Q9 yes | Implies Q8. |
+
+The **members** of `:fsm/*` and `:actor/*` are the claimable capabilities of [005 §Capability matrix](005-StateMachines.md#capability-matrix), which is their authority; the corpus is the roster of which of them a fixture actually exercises today. Read the two together rather than either alone — a capability can be claimable before the corpus covers it, and the corpus grows tags without the matrix moving.
 
 See [conformance/README §Capability tagging worked example](conformance/README.md#capability-tagging-worked-example) for a five-fixture cross-section showing the tag conventions in practice on real corpus entries — useful as a copy-from reference when authoring the implementation's harness manifest.
 
