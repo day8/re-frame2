@@ -152,14 +152,16 @@ safely — a `console.error` plus the same diagnostic at
 **`window.day8.re_frame2_xray.status()`**. First response: check the
 console / call `status()`. The three recoveries (add the column · point
 the selector · fall back to `open-overlay!`) and the full decision tree
-(preload vs `init!`, suppress-auto-open, resize, pop-out lifecycle) live
-in [`references/launch-modes.md`](references/launch-modes.md).
+(preload vs `init!`, suppress-auto-open, resize) live in
+[`references/launch-modes.md`](references/launch-modes.md); the pop-out
+lifecycle is in
+[`references/launch-lifecycle.md`](references/launch-lifecycle.md).
 
 ### Wired hotkeys
 
 Four hotkey families are wired (three global, one focus-gated). Full
 per-key contract + suppression knob:
-[`references/launch-modes.md` §Wired hotkeys](references/launch-modes.md#wired-hotkeys).
+[`references/launch-lifecycle.md` §Wired hotkeys](references/launch-lifecycle.md#wired-hotkeys).
 
 | Key | Scope | Action |
 |---|---|---|
@@ -217,7 +219,9 @@ deeper question loads at most **one** focused leaf:
 
 | Deep question about… | Load |
 |---|---|
-| Launch in depth — preload vs `init!`, the `[data-rf-xray-host]` contract, missing-host recovery, `open-overlay!`, pop-out lifecycle, the full hotkey contract, the `focus!` deep-link command | [`references/launch-modes.md`](references/launch-modes.md) |
+| Launch in depth — preload, the `[data-rf-xray-host]` contract, missing-host recovery, `open-overlay!` | [`references/launch-modes.md`](references/launch-modes.md) |
+| Driving Xray from code — `init!` opts, the `focus!` deep-link command | [`references/launch-programmatic.md`](references/launch-programmatic.md) |
+| Pop-out lifecycle, the full hotkey contract, hidden-state semantics, disabling Xray + production posture | [`references/launch-lifecycle.md`](references/launch-lifecycle.md) |
 | The full tab inventory + scope matrix + the Static catalogues (explicit "list every tab") | [`references/panels.md`](references/panels.md) |
 | The Epoch cascade, Trace rows, or where issues surface | [`references/panels-epoch.md`](references/panels-epoch.md) |
 | app-db sections + diffs, or Views render causes | [`references/panels-state.md`](references/panels-state.md) |

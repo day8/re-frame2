@@ -28,7 +28,7 @@ letter in the tab button's `title` (`Trace (t)`), and nothing more. It is
 **not a key**: no bare letter selects a tab (`s` is a live bare key, but
 for the Settings popup, not for Resources). Jump by keyboard with the
 command palette, `Cmd/Ctrl+K` → "Open Trace panel"; from code, with
-[`focus!`](launch-modes.md#programmatic-focus-focus).
+[`focus!`](launch-programmatic.md#programmatic-focus-focus).
 
 | Tab | Tooltip | Scope | One-line purpose | Depth |
 |---|---|---|---|---|
