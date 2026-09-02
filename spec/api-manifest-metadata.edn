@@ -910,6 +910,9 @@
   ;; Epoch history re-exports (canonical home: re-frame.epoch) — §Tool-Pair.
   ["re-frame.core" "epoch-history"]              {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ["re-frame.core" "restore-epoch!"]             {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
+  ;; rf2-ov144 — the one-call strict replay from a retained epoch id
+  ;; (Tool-Pair §Replay), the dispatch-shaped sibling of `restore-epoch!`.
+  ["re-frame.core" "replay-epoch!"]              {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ;; rf2-uhouu — THE supported receiver decision for a
   ;; `:rf.epoch.cb/silenced-on-frame-destroy` signal: hand back the signal's tags,
   ;; get "is this silence still current?". Weighs REGISTRATION identity (rf2-6ys5n:
@@ -1420,6 +1423,8 @@
   ;; =========================================================================
   ["re-frame.epoch" "epoch-history"]              {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ["re-frame.epoch" "restore-epoch!"]             {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
+  ;; rf2-ov144 — the one-call strict replay from a retained epoch id.
+  ["re-frame.epoch" "replay-epoch!"]              {:tier :tooling :owner "Tool-Pair" :status "v1 (dev-only)"}
   ;; rf2-t3lftq (API-shrink #3): replace-app-db! / reset-app-db! /
   ;; replace-runtime-db! DELETED — consolidated into replace-frame-state!'s
   ;; partial-map contract.

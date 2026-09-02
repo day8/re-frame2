@@ -2355,6 +2355,21 @@
   §Time-travel. Late-bound via `:epoch/restore-epoch!`."}
   restore-epoch!     rf-epoch/restore-epoch!)
 
+(def ^{:doc "Re-drive the named retained epoch's recorded event through the
+  frame's own handlers in ONE call, as a strict replay (Tool-Pair §Replay):
+  the raw `:trigger-event`, the recorded post-generation `:rf.cofx` under
+  `:rf.cofx/mint-policy :strict`, and the record's own `:fx-overrides` /
+  `:interceptor-overrides` are folded into the dispatch in-process — nothing
+  is exported or re-supplied by hand. Same frame in and out; replay runs
+  against the frame's CURRENT state and code (no implicit restore), effects
+  fire again, and the replayed dispatch records a new ordinary epoch.
+  Returns a structured `{:ok? …}` envelope (refusals are decided before
+  anything dispatches; a declared fact absent from the token stays the
+  canonical `:rf.error/missing-required-cofx` hard error), or `false` when
+  the surface is elided / the epoch artefact is absent. Per Tool-Pair
+  §Replay. Late-bound via `:epoch/replay-epoch!`."}
+  replay-epoch!      rf-epoch/replay-epoch!)
+
 ;; There are deliberately NO façade `register-epoch-listener!` /
 ;; `unregister-epoch-listener!` exports (retired rf2-9flalp — API-shrink #4).
 ;; The epoch stream is one of the four pure observation streams,

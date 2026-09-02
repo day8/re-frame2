@@ -108,6 +108,21 @@
     (is (false? (rf/restore-epoch! :rf.nonexistent/frame 0))
         "restore-epoch! returns false under prod even for an unknown frame")))
 
+;; ---- replay-epoch! is a no-op returning false under prod ------------------
+
+(deftest replay-epoch-returns-false-under-prod
+  (testing "rf2-ov144: `replay-epoch!` shares `restore-epoch!`'s `(if-not
+            interop/debug-enabled? false …)` early-return. Under prod it
+            returns `false` for every (frame-id, epoch-id) pair — the
+            precondition checks and the strict re-dispatch DCE entirely,
+            and no structured envelope leaks."
+    (is (false? (rf/replay-epoch! :rf/default 0))
+        "replay-epoch! returns false under prod for a never-recorded epoch")
+    (is (false? (rf/replay-epoch! :rf/default 999999 {:origin :pair}))
+        "replay-epoch! returns false under prod for any epoch-id, opts or not")
+    (is (false? (rf/replay-epoch! :rf.nonexistent/frame 0))
+        "replay-epoch! returns false under prod even for an unknown frame")))
+
 ;; ---- replace-frame-state! is a no-op returning false under prod -----------
 
 (deftest replace-app-db-returns-false-under-prod
