@@ -61,7 +61,7 @@ Every catalogue leaf carries the same five sections: **Detection rules** (greppa
 
 ### L6 — Narrow, evidence-grown catalogue
 
-The catalogue is narrow and evidence-grown. It grows only when an anti-pattern surfaces across 3+ real review sessions — not speculatively (the same organic-growth discipline as `re-frame2-pair-retro/references/known-frictions.md`). **Growth procedure:** when a candidate clears the 3+-session bar, add a new leaf in the locked five-section format (L5), a catalogue row, and a routing row (signals + co-occurrence) in `references/README.md`. The runtime index (`references/README.md`) stays lean — the growth procedure and the deferred-candidate list (§4) live here, not there.
+The catalogue is narrow and evidence-grown. It grows only when an anti-pattern surfaces across 3+ real review sessions — not speculatively (the same organic-growth discipline as `re-frame2-pair-retro/references/known-frictions.md`). **Growth procedure:** when a candidate clears the 3+-session bar, add a new leaf in the locked five-section format (L5), a catalogue row in `references/README.md`, and a routing row (signals + co-occurrence) in SKILL.md §Routing. Routing is one level deep (`skills/README.md` §Leaf size discipline: "no SKILL → A → B chains"), so the runtime table lives in SKILL.md and `references/README.md` is the maintainer catalogue index; the growth procedure and the deferred-candidate list (§4) live here, in neither of them.
 
 ### L7 — Untrusted-evidence boundary
 
@@ -112,13 +112,13 @@ Every idiom pointer below was checked against the cited file. Paths are repo-rel
 12. **View renders only the happy state.** A view that hard-assumes loaded data with no error / loading / empty branches. *Signals:* a view derefing a data sub with no branch on status or emptiness. *Idiom:* the rendering counterpart to leaf 3 — `skills/re-frame2/patterns/nine-states.md` and `spec/Pattern-NineStates.md`. (Carried forward from the original two-item list.)
 13. **Boot dispatched after `make-frame` instead of `:initial-events`.** *Signals:* an app entry point that calls `make-frame` / mounts `frame-root` and then dispatches a boot event as a separate statement. *Idiom:* `skills/re-frame2/patterns/boot.md` §The re-frame2 features this pattern uses names `:initial-events` the "Atomic entry point — fires `[:app/boot [:rf.machine/start]]` exactly once per frame creation; survives hot-reload"; `spec/002-Frames.md` §`make-frame` gives the ordering and drain guarantee. The post-hoc dispatch is not atomic with frame creation, and `frame-root`'s idempotent re-mount deliberately does **not** replay `:initial-events` (`skills/re-frame2/references/fundamentals/frames.md` §`frame-provider` and `frame-root` in views), so the two spellings behave differently under re-mount and hot-reload.
 
-If Mike ever wants to pre-empt L6 for #1 — it restates a standing rule rather than an observation — promoting it is a separate change: a seventh leaf in the L5 five-section format plus a catalogue row and a routing row (signals + co-occurrence) in `references/README.md`. It is not part of maintaining this queue.
+If Mike ever wants to pre-empt L6 for #1 — it restates a standing rule rather than an observation — promoting it is a separate change: a seventh leaf in the L5 five-section format, plus a catalogue row in `references/README.md` and a routing row (signals + co-occurrence) in SKILL.md §Routing. It is not part of maintaining this queue.
 
 ## 5. File structure (locked)
 
 ```
 skills/re-frame2-improver/
-├── SKILL.md (workflow + trigger semantics + self-anti-patterns)
+├── SKILL.md (workflow + trigger semantics + routing table + self-anti-patterns)
 ├── README.md (human-facing intro + install)
 ├── LICENSE (MIT)
 ├── package.json (npm metadata)
@@ -127,7 +127,7 @@ skills/re-frame2-improver/
 │   ├── evals.json (trigger + behavioural critique fixtures — evals.json is the sole inventory; see evals/README.md §Coverage)
 │   └── README.md (coverage table + grading guidance + release threshold)
 ├── references/
-│   ├── README.md (catalogue index + routing table)
+│   ├── README.md (maintainer catalogue index)
 │   └── <six anti-pattern leaves>.md
 └── spec/
     ├── design.md (this file)

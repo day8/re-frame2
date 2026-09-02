@@ -14,7 +14,7 @@ A self-contained **orchestration** prompt that re-authors the `re-frame2-improve
 >
 > *1. `skills/re-frame2-improver/spec/design.md` — the **normative design**: pillars (§2), the locked decisions L1–L10 (§3), the six launch leaves + their canonical idioms (§4), the deferred candidates, and the locked file structure (§5). Pillar 1 in §2 (implementation is ground truth — no fabricated APIs) is cardinal.*
 > *2. `skills/re-frame2-improver/spec/inputs.md` — the **canonical inputs**: the primary/secondary/tertiary source map, the verified spec-ownership table (§3) every leaf footer and API claim must re-verify against, and the incremental **update procedure** (§6).*
-> *3. `skills/re-frame2-improver/references/README.md` — the **catalogue contract**: the anti-pattern index, the load-only-what-matches routing table, the co-occurring-finding consolidation rule, and the locked five-section leaf format.*
+> *3. `skills/re-frame2-improver/references/README.md` — the **catalogue contract**: the anti-pattern index and the locked five-section leaf format. (The load-only-what-matches routing table and the co-occurring-finding consolidation rule live in SKILL.md — routing is one level deep.)*
 > *4. `skills/re-frame2/SKILL.md` + `skills/re-frame2/patterns/` + `skills/re-frame2/references/` — the canonical-idiom source of truth every cross-link routes to.*
 > *5. `skills/re-frame2-pair-retro/` — the structural sibling sharing the `spec/` triad shape; mirror its voice / structure.*
 > *6. `skills/README.md` §Skill routing — the monorepo's trigger matrix. SKILL.md states the sibling boundary in full locally (the packaged install routes without the monorepo); keep the local boundary aligned with this matrix rather than deferring to it.*
@@ -26,7 +26,7 @@ A self-contained **orchestration** prompt that re-authors the `re-frame2-improve
 > *- The **file structure** matches `design.md` §5 exactly (SKILL.md, README.md, LICENSE, package.json, `.claude-plugin/plugin.json`, `evals/`, `references/`, `spec/`).*
 > *- **SKILL.md** walks the one-pass workflow and carries the trigger semantics + self-anti-patterns; its `allowed-tools` follow L4 (`design.md` §3) — filing is delegated, so no `gh` / issue surface. It carries its own untrusted-evidence boundary and programmer-intent correction contract inline (`design.md` L3/L7) — the packaged normal path is self-contained, with no `../shared/` runtime dependency.*
 > *- The **six launch leaves** are exactly those in `design.md` §4, each in the locked five-section format (`design.md` §L5 / `references/README.md`), each cross-linking the canonical idiom `design.md` §4 assigns it and footering to the spec owner `inputs.md` §3 verifies.*
-> *- **`references/README.md`** carries the catalogue index, the routing table, and the consolidation rule.*
+> *- **`SKILL.md`** carries the routing table (signals → leaf, co-occurrence) and the consolidation rule; **`references/README.md`** carries the catalogue index and the leaf format. No SKILL → README → leaf chain.*
 > *- **`evals/`** carries `evals.json` (the sole fixture inventory) + its harness README, per the `evals/README.md` schema and the sibling `skills/re-frame2/evals` convention.*
 > *- Every **locked decision** L1–L10 (`design.md` §3) holds; do not re-litigate or re-word them.*
 >

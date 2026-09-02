@@ -2,6 +2,8 @@
 
 Anti-pattern catalogue for `re-frame2-improver`. Each leaf is one anti-pattern with detection rule, symptom example, canonical re-frame2 idiom, suggested rewrite, and a cross-link to the matching leaf under `skills/re-frame2/patterns/` or the relevant `spec/` document.
 
+> **Maintainer index, not a runtime read.** A review routes from [`../SKILL.md` §Routing](../SKILL.md#routing--load-only-the-leaves-whose-signals-appear) straight to the matching leaves — one level deep, per the family's §Leaf size discipline rule in `skills/README.md` — "no SKILL → A → B chains" (monorepo only; not shipped in the package). This page is the human catalogue index: what each leaf covers, the locked leaf format, and where the design rationale lives.
+
 ## Catalogue
 
 | # | Leaf | Anti-pattern | Canonical idiom |
@@ -12,21 +14,6 @@ Anti-pattern catalogue for `re-frame2-improver`. Each leaf is one anti-pattern w
 | 4 | [`schemaless-events.md`](schemaless-events.md) | Boundary handler ingests untrusted payload with no always-on production validator (dev-only `:schema` / `reg-app-schema` don't count) | Schemas at boundaries — [`schemas.md`](../../re-frame2/references/fundamentals/schemas.md), [`spec/010`](../../../spec/010-Schemas.md) |
 | 5 | [`imperative-effects.md`](imperative-effects.md) | Direct JS / DOM interop in a `reg-event` body — effectful writes AND impure reads | Writes → data-only fx ([`fx.md`](../../re-frame2/references/fundamentals/fx.md)); reads → recorded fact or ambient cofx ([`cofx.md`](../../re-frame2/references/fundamentals/cofx.md)) |
 | 6 | [`view-side-hook-state.md`](view-side-hook-state.md) | `reagent/atom` / `useState` holding non-render-local state | `app-db` + `reg-sub` — [`subs.md`](../../re-frame2/references/fundamentals/subs.md), [`spec/Principles`](../../../spec/Principles.md) |
-
-## Routing — load only the leaves whose signals appear
-
-A typical trigger is a short pasted snippet. Consult the signals below and open only the leaves whose signals plausibly match the in-scope code (usually 1–3, not all 6); each leaf carries the full detection rules. When one leaf matches, load its co-occurring leaf too.
-
-| Leaf | Load when the source shows | Co-occurs with |
-|---|---|---|
-| `manual-retry-loops.md` | `setTimeout` + `dispatch` together; a `:*/retries` / `:*/attempts` counter; inline `Math.pow` back-off; a failure branch re-dispatching the originating id | `imperative-effects.md` (HTTP write) |
-| `boolean-discriminator-subs.md` | 3+ `?`-suffixed subs on one `app-db` path; a view `cond` over multiple sub derefs | `manual-loading-flags.md` |
-| `manual-loading-flags.md` | `(assoc db :*/loading? true)` paired with `dissoc`; `:*/loading?` / `:*/saving?` / `:*/in-flight?` keys | `boolean-discriminator-subs.md` |
-| `schemaless-events.md` | a handler writes a Managed-HTTP reply's `(:value reply)` / `:body` / `:data`, or reads `js/localStorage` / `location.search` / `postMessage`; boundary event ids `:*/loaded` / `:*/received` / `:*/rehydrated` | `imperative-effects.md` (body-read feeding durable state) |
-| `imperative-effects.md` | `.setItem` / DOM `set!` / `js/setTimeout` / inline `rf/dispatch`; `js/Date.now` / `Math.random` / `.getItem`; `@(rf/subscribe …)` in a handler body | `manual-retry-loops.md` (HTTP write); `schemaless-events.md` (storage / URL / postMessage read written to `app-db`) |
-| `view-side-hook-state.md` | `(r/atom …)` / `reagent/atom` at a view or namespace top; `use-state` / `useReducer`; an event handler derefing a view-ns atom | — |
-
-Consolidate co-occurring findings that share one refactor. When 2 leaves match the same code and resolve to the same canonical shape — most often `manual-loading-flags.md` + `boolean-discriminator-subs.md` on one screen, both replaced by the same one-axis shape — a `:status` keyword on the slice read through one selector sub ([`remote-data.md`](../../re-frame2/patterns/remote-data.md)), and a single machine only once a [`slice-or-machine.md`](../../re-frame2/decision-trees/slice-or-machine.md) tell fires — or an HTTP-shaped `imperative-effects.md` write that collapses into the `manual-retry-loops.md` Managed-HTTP fix — name each diagnosis but fold their rewrites into one consolidated fix. Independent rewrites for the same machine contradict each other.
 
 ## Per-leaf format
 
