@@ -99,10 +99,10 @@ lifecycle that shares the machine's `:data` map with its siblings:
   homes.)
 - `:mode` region — the live/archived axis: `:active → :done`.
   `:done` is terminal and tagged `:mode/read-only`. The form and the
-  control buttons disable themselves by asking `machine-has-tag?` for
-  `:mode/read-only` — ask, don't tell. The view never needs to know
-  which state of which region carries the read-only intent; it asks a
-  question and gets a yes/no.
+  control buttons disable themselves by asking
+  `[:rf.machine/has-tag? :ui/nine-states :mode/read-only]` — ask, don't
+  tell. The view never needs to know which state of which region carries
+  the read-only intent; it asks a question and gets a yes/no.
 
 Every state declares `:tags` for its per-axis intent. The
 `render-priority` table over those tags is the one place the page's
