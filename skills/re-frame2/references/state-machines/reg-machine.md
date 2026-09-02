@@ -40,7 +40,7 @@ The basic (non-parallel, non-hierarchical) form:
 (require '[re-frame.core :as rf]
          '[re-frame.machines])     ;; load-time hook registration
 
-(def my-machine
+(rf/defmachine my-machine
   {:initial :idle
    :data    {:attempt 0 :error nil}
 
@@ -75,6 +75,8 @@ The basic (non-parallel, non-hierarchical) form:
 ;; Drive it:
 (rf/dispatch [:my/feature [:start]])
 ```
+
+**`defmachine` is `def` for a literal machine map.** Use it for the `def`-then-register shape and `reg-machine` directly when registering an inline literal. The reason is source capture: `reg-machine`'s compile-time literal-walk sees only the symbol `my-machine` at its call site, so it captures **nothing** per-element; `defmachine` walks the literal at the *definition* site and co-locates `:source-coords` / `:source-code` onto each `:guards` / `:actions` / `:on-spawn-actions` entry, so the source travels into `reg-machine` **with the value**. Write plain `def` and the machine still runs — but `(rf/handler-meta :machine-guard [id guard-id])`, the Xray machine inspector and the Epoch machine-cascade have no per-element source to render. Both forms yield identical capture; the choice is only whether the spec value is named. (Spec 005 §Value-registered machines — `defmachine`.)
 
 The machine map's top-level keys are documented in Spec 005 §Transition table top-level keys: `:initial` (the entry state for non-parallel machines), `:data` (initial shared data), `:schemas` (the machine-level schema map — `[:schemas :data]` is the optional validator for `:data`; see [`machine-schemas.md`](machine-schemas.md)), `:guards` and `:actions` (named lookup tables), `:states` (the transition table), and the optional `:internal-events` set (see §Private `:internal-events`). For parallel machines, `:type :parallel` + `:regions` replaces `:initial` + `:states` — see `regions.md`.
 
@@ -213,6 +215,7 @@ When the flow also validates its **outer** event vector, pass the optional metad
 - **Callbacks receive one context map, not the raw snapshot.** `(fn [{:keys [data event]}] ...)` — the body inspects `(:input data)`, not `(get-in snap [:data :input])`. `data` is already the snapshot's `:data` slot. Same shape for guards, actions, `:entry`, `:exit`.
 - **Actions return an effect map.** `{:data new-data}` (or `{:fx [...]}` or both). Returning a bare data map silently does nothing; `nil` is a no-op.
 - **Use `reg-machine` (macro), not `reg-machine*` (fn).** The macro stamps per-element source coords that tools rely on (`re-frame.core` macro layer, Spec 005 §Source-coord stamping). Reach for `reg-machine*` only for programmatic registration with computed ids.
+- **Naming the spec? Use `rf/defmachine`, not `def`.** `(def m {…})` + `(rf/reg-machine :id m)` is the one shape that silently loses per-element source — `reg-machine` sees a symbol, not a literal, so there is nothing to walk. `defmachine` is the drop-in `def` replacement that stamps the value itself. It does **not** register; pair it with `reg-machine` as usual.
 - **Re-registration replaces.** Last-write-wins, per the standard registrar semantics; the prior snapshot at `[:rf.runtime/machines :snapshots <id>]` survives (the snapshot is in runtime-db, the spec is in the registrar). Hot-reload survives a machine re-declaration.
 
 ## Deeper material

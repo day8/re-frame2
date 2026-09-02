@@ -14,7 +14,7 @@ A "region" in re-frame2 has two distinct meanings depending on context:
 ## Single-region machine — the canonical shape
 
 ```clojure
-(def tags-machine
+(rf/defmachine tags-machine
   {:initial :idle
    :data    {:tags [] :error nil :loaded-at nil :attempt 0}
 
@@ -51,7 +51,7 @@ Adapted from `examples/real-apps/realworld_http/tags.cljs`. The slice's separate
 `:type :parallel` replaces root `:initial` / `:states` with a `:regions` map; each region is a full transition table with its own `:initial`. `:data`, `:guards`, and `:actions` stay at the top level, shared across regions:
 
 ```clojure
-(def nine-states-machine
+(rf/defmachine nine-states-machine
   {:type :parallel
    :data {:items [] :error nil}                       ;; shared across regions
    :guards  {...}                                     ;; top-level, shared
