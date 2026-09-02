@@ -7,9 +7,8 @@
 ## Three leftovers, three ids — and only one of them fails at CLICK time
 
 The single most consequential trap in the whole migration, and it is really
-three. A half-converted view strands Reagent-shaped reads and dispatches in
-three different places, and they fail at three different **times** under three
-different ids:
+three: a half-converted view strands Reagent-shaped reads and dispatches in
+three places, which fail at three different **times** under three different ids:
 
 | The leftover | Fails at | Id |
 |---|---|---|
@@ -19,13 +18,11 @@ different ids:
 
 **Row 1 — the render-time refusal.** A boundary body runs inside an extent that
 *refuses* ambient frame resolution, so a surviving `rf/subscribe` or
-`rf/dispatch` does not quietly work: it raises at the first render. It is **not
-an absence** — a frame IS in scope — so adding another boundary or a
-`with-frame` will not help; the extent withdraws the ambient reach specifically,
-and the `:reason` names both recoveries, `h/sub` for a read and an intent at a
-handler position for a dispatch. **The extent covers helpers too**: a
-parens-called `defn` runs inside the body, so MIG-02's deref-drop reaches it
-(MIG-26).
+`rf/dispatch` raises at the first render. It is **not an absence** — a frame IS
+in scope, so another boundary or a `with-frame` will not help — and the
+`:reason` names both recoveries: `h/sub` for a read, an intent at a handler
+position for a dispatch. **The extent covers helpers too**: a parens-called
+`defn` runs inside the body, so MIG-02's deref-drop reaches it (MIG-26).
 
 **Row 2 — the click-time failure**, and the reason a converted view can look
 finished. Hicasso passes an **unmarked plain function** at an `on-*` prop
@@ -37,17 +34,15 @@ every handler-identity bail-out keep working. So a surviving Reagent closure:
 ```
 
 is not refused at lowering, is not refused at render, and reaches React exactly
-as written. When the browser invokes it later the render extent has unwound,
-ambient dispatch has no frame to resolve against, and it raises
-**`:rf.error/no-frame-context`** — which is *core's* id, not a `hicasso-*` one,
-so a grep for Hicasso diagnostics will not find it either.
+as written. When the browser invokes it later the extent has unwound, ambient
+dispatch has no frame to resolve against, and it raises
+**`:rf.error/no-frame-context`** — *core's* id, not a `hicasso-*` one, so a grep
+for Hicasso diagnostics will not find it either.
 
 **Row 3 — the over-correction**, reached by fixing row 1 or row 2 too
-enthusiastically. `h/sub` is legal only *during* a body run, because a read
-outside one has no render pass to fence it and no boundary to record the edge
-against. Hoist the **read** to render time and close over the **value**; where
-handler code genuinely needs current state, `rf/subscribe-once` is the
-sanctioned snapshot.
+enthusiastically. `h/sub` is legal only *during* a body run: hoist the **read**
+to render time and close over the **value**, and where handler code genuinely
+needs current state, `rf/subscribe-once` is the sanctioned snapshot.
 
 **So grep the converted bodies for surviving closures rather than finding them
 by clicking.** `#(`, `(fn [`, and any `subscribe` or `dispatch` inside a props
@@ -66,24 +61,18 @@ slots. Knowing them turns a stack trace into an instruction:
   in a test, a tool or an error monitor: an id names one refusal and is never
   re-spelled or reused.
 - **`:where`** — the symbol naming the function that refused.
-- **`:reason`** — the human sentence, and it **names the fix**. Read this one
-  first; for the render-time refusal it spells out the collector-and-intent
-  recovery in full.
+- **`:reason`** — the human sentence, and it **names the fix**. Read this first.
 - **`:recovery`** — a keyword classifying that fix
   (`:read-through-the-boundary-collector` for the Hicasso render refusal,
   `:no-recovery` where the runtime does not recover).
 
-Beyond the four, a complaint carries its own class's situational detail — the
-offending query vector, the prop position, the frame. Two further slots,
-`:view` and `:source`, name the boundary that was rendering and the file and
-line its `defview` was written at; they are dev-build **context, not contract**,
-absent under `:advanced` with `goog.DEBUG` false, so read them to help a human
-and never branch on them.
+Beyond the four sits the refusal's own detail — the offending query vector, the
+prop position, the frame. `:view` and `:source` name the rendering boundary and
+where its `defview` was written: dev-build **context, not contract**, absent
+under `:advanced`, so never branch on them.
 
-The index of every id Hicasso raises is
-`implementation/hicasso/spec/complaints.md`; what each one means and what else
-it carries is `spec/009-Instrumentation.md` §Hicasso. Both are in the re-frame2
-repository, alongside the door.
+Every id Hicasso raises is indexed in `implementation/hicasso/spec/complaints.md`;
+what each one means is `spec/009-Instrumentation.md` §Hicasso.
 
 ## Brackets mount, parens inline — the ownership change that reads like spelling
 
@@ -230,15 +219,12 @@ want when several roots share one frame, or when the frame needs options the
 mount config does not carry (`:images`, `:fx-overrides`). The mount then finds
 the frame live and joins it without re-seeding.
 
-The app's existing `rf/init!` stays. Do not delete it as Reagent scaffolding:
+The app's existing `rf/init!` stays — do not delete it as Reagent scaffolding.
 re-frame2 installs no adapter for you and has no default-adapter registry, so
-the install is the app's own explicit line whatever the views are written in. A
-Reagent adapter under a Hicasso tree keeps working exactly as it did, and is
-what a part-migrated page wants — every React-shaped adapter writes the same
-frame context, so the Reagent subtree and the Hicasso one resolve to the *same*
-frame. Hicasso does ship an adapter of its own (`re-frame.hicasso.substrate`),
-but it is an optional module nothing under Hicasso's own source requires, so
-mounting a Hicasso view neither installs it nor displaces what the app has.
+the install is the app's own explicit line whatever the views are written in,
+and a Reagent adapter under a Hicasso tree resolves the *same* frame as the
+Hicasso subtree. Full rule: MIG-15 — plus MIG-24's closing section for the one
+case where the choice reopens, an app with no Reagent view left at all.
 
 For hot reload use `h/render!`, never a second `h/mount!` — the latter
 `createRoot`s again and replaces the whole tree.

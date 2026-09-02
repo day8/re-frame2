@@ -277,10 +277,10 @@ Four things matter, and the first two are the ones a migration gets wrong:
 - **`h/unmount!` is `mount!`'s inverse** and is idempotent. It leaves sibling
   roots, their frames and the container alone.
 
-`reagent.dom.server` / `hydrate-root` are the SSR family → MIG-23 (D): the
-Hicasso pipeline ships — `server/render`, then `ssr/hydrate!`, then
-`h/hydrate!` — so the open question is whether to run a Node renderer, not
-whether a door exists.
+`reagent.dom.server` / `hydrate-root` are the SSR family → MIG-23 (D), whose
+recipe is its own leaf, [`ssr-hydrate.md`](ssr-hydrate.md): the Hicasso pipeline
+ships — `server/render`, then `ssr/hydrate!`, then `h/hydrate!` — so the open
+question is whether to run a Node renderer, not whether a door exists.
 
 ## MIG-24 — ns requires (runs LAST)
 

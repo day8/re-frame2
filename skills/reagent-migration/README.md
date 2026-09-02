@@ -69,7 +69,8 @@ skills/reagent-migration/
 │   ├── catalog-judgment.md    # D-tier — "here's how to DECIDE"
 │   ├── catalog-reject.md      # R-tier — "don't migrate — stay on Reagent"
 │   ├── procedure.md           # report first, then incremental closed-subtree passes
-│   └── gotchas.md             # the click-time closure trap, metadata keys, dialect edges
+│   ├── ssr-hydrate.md         # MIG-23's SSR-then-hydrate recipe (client-only work skips it)
+│   └── gotchas.md             # the three leftover ids, metadata keys, dialect edges
 ├── evals/
 │   └── evals.json             # trigger fixtures + behavioural fixtures across the M/D/R tiers
 └── spec/

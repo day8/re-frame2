@@ -2,7 +2,7 @@
 
 Executable cold-start evidence for the reagent-migration skill's MIG-23
 SSR-then-hydrate recipe (rf2-vpdrf), in
-[`catalog-judgment.md`](../../references/catalog-judgment.md).
+[`ssr-hydrate.md`](../../references/ssr-hydrate.md).
 
 The recipe stands up a Node rendering service — a separate process from the
 browser — and both of its halves construct a frame. re-frame2 has no
