@@ -1,7 +1,7 @@
 ;;;; tests/prompts/prompt_regression_test.clj — prompt-regression for the
 ;;;; canonical re-frame2-pair conversations.
 ;;;;
-;;;; Per `docs/TESTING.md` §4 the goal of prompt regression is to catch
+;;;; Per `docs/TESTING.md` §3 the goal of prompt regression is to catch
 ;;;; SILENT DRIFT in the skill's recipes as the skill itself evolves.
 ;;;; A conversation-driving harness (Claude in the loop) is the *fidelity-
 ;;;; ideal* version of this surface; the structural substrate here catches
@@ -75,7 +75,7 @@
 ;; The canonical-prompts table
 ;; ---------------------------------------------------------------------------
 ;;
-;; Five representative prompts (`docs/TESTING.md` §4 calls them out).
+;; Six representative prompts (`docs/TESTING.md` §3 calls them out).
 ;; Each row carries:
 ;;
 ;; :id stable identifier for cross-referencing in beads/PRs
@@ -816,10 +816,15 @@
                  live " (from tool-descriptors.edn :tool-count) — update the "
                  "prose count when the catalogue changes (rf2-sdudwy)."))))
     (testing "no count-stating doc carries a stale tool count"
-      ;; Sweep the plausible recent counts; the LIVE count is exempt. This
-      ;; catches a doc that was missed when the catalogue grew/shrank.
+      ;; Sweep the counts the catalogue has actually held; the LIVE count is
+      ;; exempt. This catches a doc that was missed when the catalogue
+      ;; grew/shrank. The trajectory, from tool-descriptors.edn's history:
+      ;; 30 -> 35 -> 33 -> 29 -> 30, so 33 and 35 are real stale counts a
+      ;; missed doc could still carry (rf2-je5ki item 8). 31/32 are NOT
+      ;; swept -- the catalogue never held them, so no doc can be stale at
+      ;; one, and sweeping a count that never shipped only adds noise.
       (doseq [[label md] count-docs
-              stale ["26" "27" "28" "29" "30"]
+              stale ["26" "27" "28" "29" "30" "33" "35"]
               :when (not= stale live-s)]
         ;; Match the count only in a TOOL-catalogue framing ("NN tool" /
         ;; "NN-tool" / "all NN") so unrelated numerals (dates, line counts,

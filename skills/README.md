@@ -310,9 +310,9 @@ behaviour. Future skill-authors: do not add one on cargo-cult grounds.
 
 3 skills qualify today:
 
-- [`re-frame2-pair/tests/`](re-frame2-pair/tests) (`e2e/`, `fixture/`,
-  `prompts/`, `runtime/`, `shim/`) — clause (a): the one skill driving a
-  live runtime, so its surface is conventionally testable.
+- [`re-frame2-pair/tests/`](re-frame2-pair/tests) (`fixture/`, `prompts/`,
+  `runtime/`) — clause (a): the one skill driving a live runtime,
+  so its surface is conventionally testable.
 - [`re-frame2-setup/tests/`](re-frame2-setup/tests)
   (`setup_drift_test.clj`) — clause (b): the setup prose is a contract
   boundary with the generator template; the drift guard pins the

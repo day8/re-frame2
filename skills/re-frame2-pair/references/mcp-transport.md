@@ -44,7 +44,7 @@ via a **five-step cascade** (per `tools/re-frame2-pair-mcp/spec/002-nREPL-Transp
 4. **Shadow HTTP probe** — `GET http://127.0.0.1:9630/api/project-info` returns the consumer build's `:project-home`, against which the server reads `target/shadow-cljs/nrepl.port`, `.shadow-cljs/nrepl.port`, `.nrepl-port` (in that order). HTTP port overridable via `--http-port <n>` (default 9630). Fallback for hosts that don't expose `roots`.
 5. CWD-relative scan of the same three port-file candidates — fallback for environments without shadow's web server.
 
-The `--port-file` and `$SHADOW_CLJS_NREPL_PORT` escape hatches (steps 1-2) win the cascade — pass one when discovery misses (no running shadow, non-default `:http :port`, exotic setup). Shadow restarts are absorbed transparently: each subsequent tool call re-reads the cached `<project-home>/.shadow-cljs/nrepl.port` and reconnects if the port changed.
+The `--port-file` and `$SHADOW_CLJS_NREPL_PORT` escape hatches (steps 1-2) win the cascade — pass one when discovery misses (no running shadow, non-default `:http :port`, exotic setup). Shadow restarts are absorbed transparently: each subsequent tool call re-reads the cached port file — the exact path discovery won on, kept verbatim rather than re-derived — and reconnects if the port changed.
 
 ## Stale-binary post-merge hook
 
@@ -184,7 +184,7 @@ The eval path surfaces the ambiguous-target case as `:no-runtime-for-build` (als
 
 ## When the MCP server is degraded
 
-If shadow-cljs isn't running when the MCP server boots, it still answers `tools/list` but every `tools/call` returns
+If shadow-cljs isn't running when the first tool call runs, the server still answers `tools/list` but every `tools/call` returns
 
 ```edn
 {:ok? false :reason :nrepl-port-not-found :hint "..."}
