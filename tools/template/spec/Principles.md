@@ -46,38 +46,33 @@ Every variant emits a working counter. The counter:
   the full cycle: an init event, an action event, a sub, a view
   that dispatches.
 
-This is the "counter throughline" principle applied to the
-scaffolding tool. A developer who runs
+A developer who runs
 `clojure -Tnew create :template io.github.day8/re-frame2-template :name acme/my-app`
 and then opens the guide sees the same code in both places. No
 mismatch, no "wait, what's this different shape doing here?"
 moment.
 
-Branching out from counter (a TodoMVC variant, a routing variant,
-a forms variant) is a future template-mode question. v1 of the
-template keeps the example minimal.
-
 ## P3 — Substrate-agnostic shell, substrate-specific surface
 
-Events (`events.cljs`), subs (`subs.cljs`), the build configs
-(`shadow-cljs.edn`, `package.json`), and the host shell
-(`README.md`, `.gitignore`, `resources/public/index.html`) are
-**identical across all three substrates**. They live under
-`_shared/` in the resource tree (plus `root/` for the bulk-copied
-content with default placement).
+Events (`events.cljs`), subs (`subs.cljs`), the test
+(`events_test.cljs`), the build configs (`shadow-cljs.edn`,
+`package.json`) and the host shell (`README.md`, `.gitignore`,
+`resources/public/index.html`, `css/app.css`) are **identical across
+both substrates**. They live under `_shared/` in the resource tree
+(plus `root/` for the bulk-copied content with default placement).
 
 The substrate-specific files — the only three that genuinely vary
 by substrate — are:
 
 - `core.cljs` — substrate-specific render / mount + adapter wiring.
 - `views.cljs` — substrate-specific component syntax.
-- `deps.edn` — substrate-specific adapter coord + npm libs.
+- `deps.edn` — substrate-specific adapter coord + view library.
 
 `shadow-cljs.edn` and `package.json` carry **no** substrate-varying
 content (the React substrate is chosen in `deps.edn` + `core.cljs`,
-and react / react-dom are the only npm deps for every variant), so
-they too live under `_shared/` and emit once — the lone per-variant
-difference is a cosmetic substrate label in a comment / description,
+and react / react-dom are the only npm dependencies for every
+variant), so they too live under `_shared/` and emit once — the lone
+per-variant difference is a display name in a comment / description,
 filled by `{{substrate-label}}`.
 
 This split is enforced at the resource-tree level (see
@@ -108,6 +103,10 @@ nested EDN payload. `data-fn` in
 reads `:substrate` off the map and threads the coerced keyword
 through to `template-fn`'s per-substrate `case`.
 
+`:substrate` is the one and only selector. A future substrate is a new
+value of it — one registry entry, one resource tree, one `case` arm —
+never a second key.
+
 The v1 clj-new template plumbed `:substrate` through `:edn-args`
 to work around clj-new's top-level-arg stripping; deps-new removed the
 workaround. See
@@ -117,9 +116,11 @@ for the historical record.
 ## P5 — Pins in lockstep with the reference implementation
 
 `:rf2-version`, `:shadow-version`, and `:react-version` are defined
-in one place — the entry ns — and bumped in lockstep with
-`implementation/package.json` and the re-frame2 alpha release
-cadence.
+in one place — the entry ns — and bumped in lockstep with the
+repo-root `VERSION`, `implementation/package.json` and the re-frame2
+release cadence. The view-library and Clojure pins in the per-substrate
+`deps.edn` resources track the adapter and core `deps.edn` files under
+`implementation/` the same way.
 
 The point: what the template emits should match what the reference
 implementation's own CI is exercising. A developer who runs the
@@ -139,6 +140,10 @@ The substrate **value** is also strict: anything not in
 valid set. No silent fallback to default, no "did you mean...?"
 fuzz. The user sees the typo and fixes it.
 
+The same posture covers the key set: any argument the template does not
+accept — a typo, a retired flag — fails closed as unknown before a file
+is written.
+
 See [DESIGN-RATIONALE.md §8](DESIGN-RATIONALE.md) for the rationale.
 
 ## P7 — Tested end-to-end, per substrate
@@ -150,60 +155,43 @@ is exercised end-to-end across the layers:
 1. **Shape.** `template_test.clj` — generates a tmp app via
    `org.corfield.new/create` in-process (the full deps-new pipeline
    — `data-fn` / `template-fn` / `post-process-fn` — runs exactly
-   as a `clojure -Tnew create` shell invocation would), walks the
-   produced file tree, asserts file presence + `deps.edn`
-   substrate-adapter coords. Always runs.
+   as a `clojure -Tnew create` shell invocation would), and asserts
+   the emitted file set IS the twelve-file manifest (a set equality),
+   the parsed `deps.edn` / `shadow-cljs.edn` / `package.json`, the
+   absence of every retired file, coordinate, npm package, preload and
+   host in the emitted tree, the argument gate, and the npm name. Each
+   negative check carries a witness that it bites. Always runs.
 2. **Static parse.** `template_emission_test.clj` — parses every
    emitted `.cljs` file, resolves each `<alias>/<sym>` reference
-   against the framework source under `implementation/core/src/`,
-   and asserts the symbol exists. Catches rename/cut drift between
-   the template scaffold and the runtime API. Always runs.
-3. **Pin lockstep.** `version_lockstep_test.clj` — emits a Reagent
-   app and asserts the template's `:rf2-version` matches the
-   repo-root `VERSION`, the `:shadow-version` matches
-   `implementation/package.json` :devDependencies/shadow-cljs, and
-   the `:react-version` matches the same file's
-   :devDependencies/react. Catches drift between the template's
-   inline pin literals and their external sources of truth. Always
+   against the framework source under `implementation/`, and asserts
+   the symbol exists; pins the hot-reload lifecycle facts on the
+   emitted `core.cljs`. Always runs.
+3. **Pin lockstep.** `version_lockstep_test.clj` — emits an app and
+   asserts the template's pins match their sources of truth. Always
    runs.
-4. **Behavioural.** `emitted_test_run_test.clj` — compiles and runs
-   the emitted `events_test.cljs` end-to-end via shadow-cljs + Node.
-   Gated behind `RF2_TEMPLATE_RUN_EMITTED_TESTS=1` (CI sets it; off
-   locally for fast loop). Two teeth in this tier exist specifically
-   to keep the in-repo run honest about what an EXTERNAL consumer
-   would see, because the tier's own conveniences would otherwise
-   hide two whole classes of defect:
-   - **Emitted-`package.json` completeness.** The tier junctions
-     `implementation/node_modules` into every emitted project rather
-     than paying an `npm install` per variant — so the emitted
-     `package.json` is never consulted and a scaffold that fails to
-     declare a compile-required npm package still compiles green.
-     After `shadow compile app`, the assert reads the `:browser`
-     build's own `manifest.edn` and requires every npm package the
-     build resolved to be one `npm install` would have produced from
-     the emitted `package.json` (declared directly, or pulled in
-     transitively by something declared).
-   - **Dev-page boot proof.** Every other check compiles through the
-     pure-JVM route, and the SSR browser proof drives a synthetic
-     server-painted page that carries no `<meta>` CSP — so nothing
-     loaded the page a newcomer actually opens. A Chromium cell
-     serves the emitted `resources/public`, loads the real
-     `index.html` plus the dev bundle, and requires `#app` to paint
-     the counter, the click to move it 0 → 1, and Chromium to report
-     zero uncaught `pageerror`s.
+4. **Behavioural.** `emitted_test_run_test.clj` — compiles the emitted
+   `:app` and `:test` builds, runs the focused test under Node, loads
+   the real emitted `index.html` in Chromium and proves it paints the
+   counter and moves it 0 → 1 with zero uncaught pageerrors, then
+   breaks the page's mount node and proves that same proof goes red;
+   builds the `:advanced` release. Gated behind
+   `RF2_TEMPLATE_RUN_EMITTED_TESTS=1` (CI sets it; off locally for the
+   fast loop). Its one convenience — junctioning
+   `implementation/node_modules` into the emitted project instead of
+   an `npm install` per variant — is what would let an undeclared npm
+   package compile green, so the tier reads the `:browser` build's own
+   `manifest.edn` and requires every resolved package to be reachable
+   from the emitted `package.json`.
 
-   Both browser cells in this tier — the dev-page boot proof and the
-   SSR DOM-adoption proof — treat an unlaunchable Chromium
-   asymmetrically, and deliberately. Every CI job that enables the tier
-   also installs a browser, so under CI a missing one is a broken job
-   and fails the run. Locally it is a skip, printed as a loud
-   NOT PROVEN banner so it cannot read as a pass. Both proofs went
-   unexecuted in CI for months behind a green skip; that is the failure
-   mode the asymmetry closes.
+   The Chromium proof treats an unlaunchable browser asymmetrically,
+   and deliberately. Every CI job that enables the tier also installs a
+   browser, so under CI a missing one is a broken job and fails the
+   run. Locally it is a skip, printed as a loud NOT PROVEN banner so it
+   cannot read as a pass.
 
-CI sets `RF2_TEMPLATE_RUN_EMITTED_TESTS=1`; a change that breaks
-file-tree shape, drifts the framework surface, breaks the pin
-lockstep, or breaks the emitted test compile fails the build. The
+CI sets `RF2_TEMPLATE_RUN_EMITTED_TESTS=1`; a change that breaks the
+manifest, drifts the framework surface, breaks the pin lockstep, or
+breaks the emitted compile / boot / release fails the build. The
 git-coord release workflow
 (`.github/workflows/template-release.yml`) runs the same
 `clojure -M:test` suite as a pre-release gate, so a `template-v…`

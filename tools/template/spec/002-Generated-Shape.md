@@ -6,94 +6,53 @@
 
 ## What lands in the user's directory
 
-For substrate `:reagent` (the default):
+For `:name acme/my-app` on either substrate — twelve files:
 
 ```
 my-app/
-├── deps.edn                  re-frame2 + Reagent adapter + schemas + Xray + shadow-cljs
-├── shadow-cljs.edn           :app (watch/release) + :test builds; Xray preload on :app
-├── package.json              react + react-dom + shadow-cljs (+ @xyflow/react + elkjs for the Xray preload)
-├── README.md                 "run shadow-cljs watch app; open localhost:8280"
 ├── .gitignore
-├── .editorconfig             2-space, LF, trim trailing, final newline
-├── .clj-kondo/
-│   └── config.edn            empty default; lint rules slot in here
-├── .cljfmt.edn               cljfmt formatter config — `clojure -M:cljfmt check` / `fix`
-├── lefthook.yml              pre-commit format + lint hook (see lefthook.dev/installation)
-├── .github/workflows/
-│   └── ci.yml                baseline CI — JDK 21 + Clojure CLI + Node 22 + `npm test`
+├── README.md                 run / test / release / what is here / next steps
+├── deps.edn                  re-frame2 + the substrate adapter + view library; :shadow alias
+├── package.json              react + react-dom + shadow-cljs; watch / release / test scripts
+├── shadow-cljs.edn           :app (watch / release) + :test (:node-test) builds
 ├── resources/public/
-│   ├── index.html            host page; loads /js/main.js + /css/app.css;
-│   │                         ships the [data-rf-xray-host] devtools column
-│   └── css/app.css           plain stylesheet incl. the .rf2-app-shell layout
-├── src/my_app/
-│   ├── core.cljs             entry point — mounts the view
+│   ├── index.html            host page; loads /js/main.js + /css/app.css
+│   └── css/app.css           a handful of rules
+├── src/acme/my_app/
+│   ├── core.cljs             installs the adapter; mount! is the ^:dev/after-load hook
 │   ├── events.cljs           :counter/initialise, :counter/increment
-│   ├── schema.cljs           whole-app-db Malli schema + reg-app-schema
 │   ├── subs.cljs             :counter/value
-│   └── views.cljs            the counter view
-├── test/my_app/
-│   └── events_test.cljs      cljs.test deftest hitting the events ns
-│                             under the plain-atom adapter
-└── dev/
-    ├── user.clj              JVM-side (user/refresh) workflow entry
-    └── scratch.cljs          REPL scratch ns for (rf/dispatch …)
-                              experiments against the running app
+│   └── views.cljs            the counter view (substrate-specific)
+└── test/acme/my_app/
+    └── events_test.cljs      cljs.test over the events + sub, under the plain-atom adapter
 ```
 
-The runtime deps line carries four re-frame2 coords:
-`day8/re-frame2` (core), the substrate adapter
-(`day8/re-frame2-reagent`), `day8/re-frame2-schemas` (so the
-`schema.cljs` whole-app-db schema validates rather than soft-passing
-per Spec 010), and `day8/re-frame2-xray` (the in-app devtools panel,
-preloaded on the `:app` build — see [§Xray devtools](#xray-devtools)
-below). The three framework coords ride the same `{{rf2-version}}` pin.
-Xray does not: it belongs to the **tools tier**, which ships on its own
-tags (`xray-v*`), and a framework `v*` tag publishes no tools at all —
-so an `:mvn/version` Xray coord would name a Clojars artefact that does
-not exist. It rides a `{{rf2-tools-sha}}` git coord against the public
-monorepo instead (rf2-57bjg); the with-Story scaffold pins Story the
-same way. See [§Tools-tier coords](#tools-tier-coords) below.
+The set is the same for `:reagent` and `:uix`; `deps.edn`, `core.cljs`
+and `views.cljs` differ in content
+([001-Substrate-Variants.md](001-Substrate-Variants.md) §What each
+variant emits). The suite pins this manifest as a set EQUALITY per
+substrate, so a file reappearing is as red as one going missing.
 
-`shadow-cljs.edn` ships `:source-paths ["src" "test" "dev"]` so the
-`:test` build (`:target :node-test`, `:ns-regexp "-test$"`) picks
-the emitted test file up out of the box, and `dev/scratch.cljs` +
-`dev/user.clj` (the Q8 dev-ergonomics lock — REPL scratch ns and
-`(user/refresh)` entry) are reachable from `clojure -M:shadow` and
-shadow's nREPL without further classpath plumbing.
-
-**`dev/scratch.cljs` runs under a frame.** The runtime has no
-implicit `:rf/default` floor — a bare `rf/dispatch` / `rf/subscribe`
-evaluated at the REPL with no established scope raises
-`:rf.error/no-frame-context` (Spec 002 §Frame target resolution). Every
-frame-scoped REPL example the scaffold emits must therefore name a frame:
-the live-app forms pin `:rf/default` (the id `core.cljs` registers and
-renders under) with `rf/with-frame`, or carry an explicit frame inline
-(`{:frame :rf/default}` opts for `dispatch` / `dispatch-sync` /
-`subscribe`); the throw-away experiment creates its own frame with
-`rf/with-new-frame`
-(eval-bind-run-destroy) so the live frame is untouched. The emission test
-(`template_emission_test.clj` §scratch.cljs frame-context audit) rejects
-any frame-scoped scratch call that is neither inside a frame-scope form
-nor carries an explicit frame target.
-
-The UIx variant follows the same shape; only `core.cljs`,
-`views.cljs`, `deps.edn`, and the substrate-adapter coord change.
-See [001-Substrate-Variants.md](001-Substrate-Variants.md) §What
-each variant emits.
+`deps.edn` carries two framework coordinates — `day8/re-frame2` and the
+adapter — on one `{{rf2-version}}` pin, the substrate's view library, and
+a deps-only `:shadow` alias (shadow-cljs on the classpath, `test/` on
+`:extra-paths`). `shadow-cljs.edn` reads its classpath from that alias.
+`package.json` declares `shadow-cljs`, `react` and `react-dom` at the
+lockstep pins and nothing else. Nothing in the tree names Xray, Story,
+SSR, schemas, machines, a linter, a formatter, a hook manager or a CI
+provider.
 
 ## The counter
 
-Every variant emits a working counter:
-
 - An init event `:counter/initialise` seeds `app-db` with
-  `{:counter/value 0}`.
+  `{:counter/value 0}`. `core.cljs` passes it as the frame's
+  `:initial-events`, so it runs once, when the frame is created.
 - An action event `:counter/increment` adds `1` to `:counter/value`.
 - A sub `:counter/value` reads the current count.
 - A view subscribes to `:counter/value` and renders the value plus
   an increment button that dispatches `:counter/increment`.
 
-The app-db slice and subscription id are intentionally feature-scoped
+The app-db slice and subscription id are feature-scoped
 (`:counter/value`, not a bare `:count`) so generated applications start
 with AI-readable, non-colliding state keys. This is the same counter
 shape the developer reads about in [the Guide — app-db](../../../docs/core/app-db.md)
@@ -104,125 +63,34 @@ example.
 ## Hot-reload contract
 
 shadow-cljs calls a `:browser` build's module `:init-fn` exactly once, at
-bundle load, and thereafter invokes only `^:dev/after-load` hooks. Every
-emitted browser entry point therefore carries such a hook — `mount!` on the
-Reagent and UIx scaffolds, `reload!` on the Story scaffold, `render!` on the
-SSR client — and that hook, not `init`, is what a save re-runs.
+bundle load, and thereafter invokes only `^:dev/after-load` hooks
+(measured on shadow-cljs 3.4.10, rf2-r0kk7). Every emitted `core.cljs`
+therefore carries such a hook — `mount!` — and that hook, not `init`, is
+what a save re-runs:
 
-Two things must ride it, and both are normative for every variant:
+1. **One retained root.** The React root lives in a `defonce` cell;
+   `mount!` creates it once and renders into it on every call rather
+   than creating a second root over a live DOM node.
+2. **The frame is created by the view, and reused.** `rf/frame-root`
+   (or `uix-adapter/frame-root`) creates `:rf/default` the first time,
+   running `:initial-events [[:counter/initialise]]` synchronously so
+   the first render sees the seeded app-db, and reuses the live frame
+   without re-seeding on every later render. A reload never touches
+   app-db.
+3. **`init` delegates to `mount!`.** `init` installs the adapter with
+   `rf/init!` — which does not create a frame — and calls `mount!`, so
+   boot and reload traverse one render path.
 
-1. **Re-render into the retained root.** The React root lives in a `defonce`
-   cell; the hook renders into it rather than creating a second root over a
-   live DOM node, and `rf/frame-root` reuses the already-live frame without
-   re-seeding.
-2. **Re-register the app-db schema.** `reg-app-schema` is invoked from a
-   `register-schema!` fn rather than at namespace load (an app-db schema is
-   frame-local, so a bare load-time call would raise
-   `:rf.error/no-frame-context`). A reload therefore re-evaluates the schema
-   `def` but re-registers nothing on its own, and the framework keeps
-   validating against the boot-time value until a page refresh. The hook
-   calls `register-schema!` so the just-loaded schema reaches the live frame.
-   Re-registering the same `(frame, path)` replaces the entry in place, so
-   the frame, its `app-db` and the mounted root are untouched — see
-   [Spec 010 §Multiple schemas at the same path](../../../spec/010-Schemas.md#multiple-schemas-at-the-same-path).
-
-On the Reagent and UIx scaffolds `init` delegates to the hook, so boot and
-reload traverse one path. The Story and SSR scaffolds have their own one-time
-boot ceremonies (route-listener install; frame → schema → hydrate → root), so
-there `init` attaches the schema itself and the hook re-attaches it. The SSR
-hook must NOT re-hydrate or replay seed events.
-
-## Xray devtools
-
-The **Reagent** scaffold ships [Xray](../../xray/) — the in-app
-devtools panel — **on by default in development**. Xray is
-Reagent-only in the emitted matrix (rf2-p6f6u ruling, 2026-07-22):
-Xray's panel shell mounts through the ratom-family substrates today,
-so the `:uix` scaffold ships **no Xray pieces at all** — no preload,
-no `[data-rf-xray-host]` layout host, no `day8/re-frame2-xray` coord,
-no Xray npm deps — rather than promise a panel that cannot mount on an
-element-shaped React substrate (its README notes the devtools story
-honestly; element-substrate support is parked behind a demand
-trigger). Three wiring points land on the Reagent scaffold:
-
-- **deps.edn** carries the `day8/re-frame2-xray` runtime coord as a
-  `{{rf2-tools-sha}}` git coord — see [§Tools-tier coords](#tools-tier-coords).
-- **shadow-cljs.edn** preloads `day8.re-frame2-xray.preload` under the
-  `:app` build's `:devtools {:preloads …}` key. shadow honours
-  `:devtools` only under `watch` / `compile`, never `release`, so the
-  preload is automatically absent from production bundles — no manual
-  guarding needed.
-- **index.html + app.css** reserve the layout: a `.rf2-app-shell`
-  flex container holding `<main id="app">` **first**, then a
-  `[data-rf-xray-host]` `<aside class="rf2-xray-host">` **second** — so
-  flex flow lays the host to the **right** of the app mount. `#app`
-  takes `flex: 1; min-width: 0` (the remaining width); the host takes
-  `flex: 0 0 var(--rf-xray-inline-width, 560px)` with `min-width: 320px`
-  and `box-sizing: border-box` (the `1px border-left` separator stays
-  inside the documented width). The `flex-basis` reads the
-  `--rf-xray-inline-width` custom property (Xray's host-owned resize
-  knob, default 560px) so a persisted drag-resize width and
-  cascade-level overrides take effect — a literal width would ignore
-  them. `.rf2-xray-host:empty { display: none }` collapses the host when
-  it is empty, so release builds (which drop the Xray preload) don't
-  ship a blank gutter and `#app` spans the full viewport. Once
-  `rf/init!` installs the adapter, the `day8.re-frame2-xray.preload`
-  auto-mounts Xray into the `<aside>`, making it non-empty. This matches
-  the published right-side host contract
-  ([tools/xray/spec/011-Launch-Modes.md](../../xray/spec/011-Launch-Modes.md)
-  §Layout host contract).
-
-Xray is default-on because the scaffold's headline promise is
-"save and see it live" — the dispatch log, app-db diff, causality
-graph, and time-travel scrubber are the on-ramp's primary feedback
-surface. See [DESIGN-RATIONALE §9](DESIGN-RATIONALE.md)
-for the WHY and the release-elision guarantee. The generated
-`README.md` documents the runtime experience (the
-`Ctrl+Shift+C` toggle, what each panel shows).
-
-## Tools-tier coords
-
-Two of the coordinates a Reagent scaffold emits are not framework
-artefacts. Xray, and Story under `:include-story? true`, belong to the
-**tools tier**, and the two tiers ship on different triggers
-([`docs/release-process.md` §The tools tier](../../../docs/release-process.md)):
-a `v*` tag publishes the thirteen framework artefacts and no tools at
-all — Xray ships on `xray-v*`, Story on `story-v*`. Neither tool tag has
-been cut.
-
-So the template emits them as **git coords** against the public
-monorepo, pinned to the single reviewed commit `{{rf2-tools-sha}}`
-(hooks.clj carries the pin and the obligation to bump it). Anything else
-would arm a landmine at first publish: an `:mvn/version` tools coord
-sits harmlessly unresolvable today only because the framework coords
-beside it are equally unresolvable, and the day the framework publishes
-every generated project would resolve its framework coords and 404 on
-Xray (rf2-57bjg). The git shape is also what
-[`skills/re-frame2-setup/references/deps-versions.md`](../../../skills/re-frame2-setup/references/deps-versions.md)
-teaches the hand-wired route, so the two front doors agree.
-
-**The with-Story scaffold pays one extra coordinate for this.**
-`tools.deps` gives every git coordinate its own checkout of the
-monorepo, so Xray's and Story's shared in-repo `:local/root`
-dependencies arrive as two different paths for the same library and the
-classpath fails to build (`No known ancestor relationship between local
-versions for day8/re-frame2-machines`). A top-level coordinate wins over
-both, and every other shared library is already pinned in the emitted
-file — `day8/re-frame2-machines` is the only one left, and it is
-genuinely on the app's classpath, since Story runs its loader lifecycle
-as a re-frame2 state machine. Both the git coords and that pin retire
-together when `xray-v*` / `story-v*` ship.
-
-`version_lockstep_test.clj` guards the shape (git, never
-`:mvn/version`; a real `:deps/root`; a full 40-character SHA; one commit
-shared by both tools). It cannot guard the pin's freshness — a commit of
-this repository has no in-repo source of truth a test could read — so
-bumping stays a human obligation, documented on `:rf2-tools-sha`.
+`template_emission_test.clj` pins these facts on the emitted
+`core.cljs`: exactly one `^:dev/after-load` hook, its body renders,
+`init` calls it, exactly one `create-root`, a `defonce` root, and the
+`:initial-events` seed. The behavioural tier then proves the page a
+newcomer opens actually mounts and moves the counter 0 → 1 in Chromium.
 
 ## Resource tree (template-side)
 
 The template's own resource tree mirrors the generated tree's
-substrate-axis split, with deps-new's `root/` + underscore-prefixed
+substrate split, with deps-new's `root/` + underscore-prefixed
 sub-dirs convention:
 
 ```
@@ -233,49 +101,42 @@ tools/template/
 ├── spec/                                 ; this folder
 ├── src/day8/re_frame2_template/
 │   └── hooks.clj                         ; data-fn / template-fn / post-process-fn
+├── test/day8/re_frame2_template/         ; the suite (see Principles §P7)
+├── test-support/dev-page-boot-proof.cjs  ; the Chromium driver the behavioural tier runs
 └── resources/day8/re_frame2_template/
     ├── template.edn                      ; declarative entrypoint
     ├── root/                             ; bulk-copied, default placement
     │   ├── README.md
-    │   ├── lefthook.yml
-    │   ├── .github/workflows/ci.yml      ; baseline CI workflow
-    │   ├── dev/{user.clj, scratch.cljs}
     │   └── resources/public/{index.html, css/app.css}
-    ├── _shared/                          ; substrate-agnostic; renamed / flag-switched at emit
+    ├── _shared/                          ; substrate-agnostic; renamed into place at emit
     │   ├── gitignore                     ; emitted as .gitignore
-    │   ├── editorconfig                  ; emitted as .editorconfig
-    │   ├── cljfmt.edn                    ; emitted as .cljfmt.edn
-    │   ├── clj-kondo/config.edn          ; emitted under .clj-kondo/
-    │   ├── shadow-cljs.edn               ; substrate-invariant build config
-    │   ├── package.json                  ; with-Story description rides {{story-tag}} subst var
-    │   ├── events.cljs
-    │   ├── events_test.cljs
-    │   ├── schema.cljs
+    │   ├── shadow-cljs.edn
+    │   ├── package.json
+    │   ├── events.cljs                   ; emitted under src/<nested-dirs>/
     │   ├── subs.cljs
-    │   └── stories.cljs                  ; only under :include-story? true
-    ├── _reagent/                         ; Reagent-specific
-    │   ├── deps.edn
-    │   ├── deps_with_story.edn           ; picked when :include-story? true
-    │   ├── core.cljs
-    │   ├── core_with_stories.cljs        ; picked when :include-story? true
-    │   └── views.cljs
-    └── _uix/                             ; UIx-specific (deps.edn / core.cljs / views.cljs)
-        └── ...
+    │   └── events_test.cljs              ; emitted under test/<nested-dirs>/
+    ├── _reagent/                         ; deps.edn / core.cljs / views.cljs
+    └── _uix/                             ; deps.edn / core.cljs / views.cljs
 ```
 
 `root/` files are bulk-copied by deps-new's `:root` mechanism with
 default placement (substitution applies, no rename).
 
 `_shared/` files emit only when listed in `template-fn`'s shared
-`:transform` entry (`:only` flag set), with rename rules that
-attach dotfile prefixes and re-home src/test source files under the
-user's namespace path (`src/{{nested-dirs}}/`).
+`:transform` entry (`:only` flag set), with rename rules that attach the
+dotfile prefix and re-home the source files under the user's namespace
+path (`src/{{nested-dirs}}/`, `test/{{nested-dirs}}/`).
 
 `_<substrate>/` files emit only for the chosen substrate, via the
-per-substrate `:transform` entry. Adding a substrate is "drop a
-new sub-tree at `resources/day8/re_frame2_template/_<substrate>/`"
-plus a new `case` clause in `template-fn` plus a one-line entry in
-`valid-substrates`.
+per-substrate `:transform` entry. Adding a substrate is a registry
+entry, a sibling sub-tree and one `case` arm
+([001 §Adding a substrate](001-Substrate-Variants.md#adding-a-substrate)).
+
+`_shared/events.cljs` and `_shared/subs.cljs` stay at those paths and
+keep registering `:counter/initialise`, `:counter/increment` and
+`:counter/value`: `scripts/check_skill_setup_counter_drift.py` reads
+them by path and requires every `:counter/*` id the setup skill's
+snippets use to be registered there.
 
 ## How deps-new finds the resources
 
@@ -284,7 +145,7 @@ deps-new's `find-root` resolves the `:template` argument by:
 1. Looking up `<sanitized-template-name>/template.edn` on the
    classpath (for `:template day8/re-frame2-template`, the lookup
    is `day8/re_frame2_template/template.edn`). The classpath is
-   set up by either a `:local/root "tools/template"` dep or the
+   set up by either a `:local/root` dep on `tools/template` or the
    git-coord clone (deps-new's `auto-git-url` for `io.github.*`
    prefixes).
 2. Reading the `template.edn`'s `:data-fn` / `:template-fn` /
@@ -327,21 +188,9 @@ the template's own additions.
 |---|---|---|
 | `{{namespace}}` | `{{top/ns}}.{{main/ns}}` | `acme.my-app` |
 | `{{nested-dirs}}` | `{{top/file}}/{{main/file}}` | `acme/my_app` |
-| `{{substrate}}` | The chosen substrate name, lower-case | `reagent`, `uix` |
-| `{{substrate-label}}` | The chosen substrate's display name (used in the `shadow-cljs.edn` comment + `package.json` description) | `Reagent`, `UIx` |
-| `{{story-tag}}` | `package.json` `description` suffix that varies by `:include-story?` — lets one shared `package.json` serve both paths | `""`, `", with Story playground"` |
-| `{{xray-npm-deps}}` | `package.json` `devDependencies` fragment carrying the npm packages the Xray preload compiles against (`@xyflow/react` + `elkjs`, required by the machine canvas via `day8/re-frame2-machines-viz`). Reagent-only (rf2-p6f6u): empty for `:uix` (no Xray pieces). | `""`, `",\n    \"@xyflow/react\": \"12.4.2\",\n    \"elkjs\": \"^0.11.1\""` |
-| `{{xray-preload}}` | The shared `shadow-cljs.edn`'s `:app`-build devtools slot: Reagent wires `:devtools {:preloads [day8.re-frame2-xray.preload]}` (+ its rationale comment); `:uix` emits nothing, so its `:app` build has no `:devtools` key (rf2-p6f6u). | `""`, the `:devtools` fragment |
-| `{{xray-host-aside}}` | The `[data-rf-xray-host]` right-side layout host `<aside>` in **both** index.html variants (`root/` + `_css_tailwind/`). Empty for `:uix` (no panel can fill it); present on `:reagent`. | `""`, the `<aside class="rf2-xray-host" …>` line |
-| `{{xray-host-css}}` | The `.rf2-xray-host` sizing rules + rationale comment in **both** app.css variants. One value serves both files; empty for `:uix`. | `""`, the `.rf2-xray-host` block |
-| `{{xray-readme-devtools}}` | The README "In-app devtools" section: Reagent documents the shipped panel (preload / host / Ctrl+Shift+C / click-to-source); `:uix` notes honestly that Xray rides the ratom-family substrates today and what instrumentation the scaffold still gives (rf2-p6f6u). | per-substrate section text |
-| `{{xray-readme-csp-note}}` | The README "Production hardening" development-flavoured-CSP paragraph: the Reagent text explains Xray's inline-style reliance; the `:uix` text stands on the views' inline `:style` props alone. | per-substrate paragraph text |
-| `{{xray-readme-inline-styles-note}}` | The README "Production hardening" drops-`'unsafe-inline'` parenthetical: Reagent names the Xray preload / nonce options; `:uix` needs only the externalise-styles step. | per-substrate clause text |
-| `{{csp-style-src-note}}` | The plain-CSS index.html CSP-comment `style-src` bullet: Reagent's names Xray's inline-style reliance; `:uix`'s doesn't reference a panel the scaffold doesn't ship. | per-substrate comment text |
-| `{{csp-style-src-note-tailwind}}` | The Tailwind index.html CSP-comment `style-src` bullet — same honesty split, with the Tailwind Play-CDN clauses shared. | per-substrate comment text |
-| `{{substrate-badge-url}}` | shields.io badge URL by substrate | `https://img.shields.io/badge/substrate-Reagent-1abc9c.svg` |
-| `{{rf2-version}}` | re-frame2 FRAMEWORK coord version | `0.0.1.alpha` |
-| `{{rf2-tools-sha}}` | The reviewed monorepo commit the TOOLS coords (`day8/re-frame2-xray`, `day8/re-frame2-story`) resolve from — the tools ship on their own tags, so they have no published Maven version to pin. See [§Tools-tier coords](#tools-tier-coords). | `ede00fd3bebc28340054159ab555e2214601f34f` |
+| `{{substrate-label}}` | The chosen substrate's display name (the README, the `package.json` description) | `Reagent`, `UIx` |
+| `{{npm-name}}` | The `package.json` `name`: the artefact segment of `:name`, lowercased — unscoped, npm-valid. A qualified name copied verbatim (`acme/my-app`) is what npm rejects. | `my-app` |
+| `{{rf2-version}}` | re-frame2 framework coord version | `0.0.1.alpha` |
 | `{{shadow-version}}` | shadow-cljs pin | `3.4.10` |
 | `{{react-version}}` | react & react-dom pin | `19.2.0` |
 
@@ -352,20 +201,9 @@ Clojure strings before `->subst-map` runs, so the derived values
 need to exist on the data map at `template-fn` call time.
 
 There is **no conditional-section syntax** (Mustache's
-`{{#flag}}…{{/flag}}` is unavailable under deps-new). Conditional
-emission is implemented at the file-selection level — `template-fn`
-picks `core_with_stories.cljs` over `core.cljs` and
-`deps_with_story.edn` over `deps.edn` per the `:include-story?` flag.
-The output filename is the same; the source-file selection branches.
-The `{{xray-*}}` / `{{csp-style-src-note*}}` family (rf2-p6f6u)
-follows the same small-delta rule: the Reagent-only Xray wiring rides
-substitution values inside shared sources rather than forking
-near-identical `shadow-cljs.edn` / `index.html` / `app.css` /
-`README.md` files per substrate.
-`package.json` is the exception: its sole per-flag delta (the
-`description` parenthetical) is small enough to carry as the
-`{{story-tag}}` subst var, so one shared source serves both paths
-rather than a second near-identical file.
+`{{#flag}}…{{/flag}}` is unavailable under deps-new), and the template
+needs none: the only conditional emission is the per-substrate file
+selection in `template-fn`.
 
 ## Pin lockstep
 
@@ -376,16 +214,17 @@ They are bumped in lockstep with the repo-root `VERSION` and
 `implementation/package.json` per
 [Principles.md §P5](Principles.md#p5--pins-in-lockstep-with-the-reference-implementation):
 
-- `:rf2-version` tracks the repo-root `VERSION` (the alpha-channel
-  re-frame2 release).
+- `:rf2-version` tracks the repo-root `VERSION`.
 - `:shadow-version` matches `implementation/package.json`
   :devDependencies/shadow-cljs.
 - `:react-version` matches `implementation/package.json`
   :devDependencies/react (and react-dom — those two are kept
   pinned together).
-- The `:xray-npm-deps` fragment's `@xyflow/react` and `elkjs` pins
-  match `implementation/package.json` — the versions the monorepo
-  compiles and tests the Xray machine canvas against.
+
+The view-library pins (`reagent/reagent`, `com.pitch/uix.core`,
+`com.pitch/uix.dom`) and the Clojure / ClojureScript pins live in the
+per-substrate `deps.edn` resources and are guarded against the adapter
+and core `deps.edn` files in `implementation/`.
 
 The
 [`version_lockstep_test.clj`](../test/day8/re_frame2_template/version_lockstep_test.clj)
@@ -399,8 +238,6 @@ GitHub Release is cut.
 - [001-Substrate-Variants.md](001-Substrate-Variants.md) — the
   per-variant detail (what `core.cljs` / `views.cljs` look like).
 - [API.md](API.md) — the full invocation surface.
-- [003-DepsNew-Rebuild-Plan.md](003-DepsNew-Rebuild-Plan.md) — the
-  migration plan that established the current resource shape.
 - [DESIGN-RATIONALE.md §1](DESIGN-RATIONALE.md#1--deps-new-over-clj-new)
   — why deps-new + git-coord over clj-new + Clojars.
 - [Guide — app-db](../../../docs/core/app-db.md)

@@ -4,8 +4,8 @@
 > and the v2 equivalent of v1's
 > [`day8/re-frame-template`](https://github.com/day8/re-frame-template).
 >
-> Spec: [`spec/`](./spec/) contains the current contract, design
-> rationale, and migration records.
+> Spec: [`spec/`](./spec/) contains the current contract and the design
+> rationale.
 >
 > Implementation shape: [deps-new](https://github.com/seancorfield/deps-new)
 > template with a programmatic body. Distribution is tag-based git-coord,
@@ -28,10 +28,14 @@
 > the split completes — see [`spec/005-Repo-Split.md`](./spec/005-Repo-Split.md)
 > for the migration procedure.
 
-This tool generates a fresh re-frame2 application skeleton. It is the
-front door for new users: one command and you have a working CLJS app
-wired against the alpha-channel `day8/re-frame2-*` coords, ready to
-`shadow-cljs watch app`.
+This tool generates a small, working re-frame2 application: a counter
+SPA in twelve files that a programmer — or the agent working with them
+— can read in one sitting, run, test, release, and replace with their
+first feature. It has one selector, `:substrate`, which is `:reagent`
+by default or `:uix`; nothing else is a choice at scaffold time.
+Devtools, the component playground, schemas, HTTP, styling frameworks,
+linters and CI all attach afterwards through their own documented
+recipes, which the generated README links.
 
 ## Quick start
 
@@ -48,90 +52,44 @@ wired against the alpha-channel `day8/re-frame2-*` coords, ready to
 > documented below under [Post-split (future)](#post-split-future)
 > only.
 
-The working invocation, against a checkout of this repo (run from the
-repo root):
+The working invocation, against a checkout of this repo. A
+`:local/root` is resolved against the command's working directory, so
+name the checkout absolutely — the relative `"tools/template"` form
+only works from the monorepo root, and from the directory you are
+scaffolding into it fails with `Local lib day8/re-frame2-template not
+found`:
 
 ```bash
-# Reagent — the canonical substrate (default)
+# <RE_FRAME2> = absolute path of your re-frame2 checkout,
+# e.g. /home/you/code/re-frame2 or C:/Users/you/code/re-frame2
+
+# Reagent — the default
 clojure -Sdeps '{:deps {day8/re-frame2-template
-                        {:local/root "tools/template"}}}' \
+                        {:local/root "<RE_FRAME2>/tools/template"}}}' \
         -Tnew create :template day8/re-frame2-template :name acme/my-app
 
 # UIx
 clojure -Sdeps '{:deps {day8/re-frame2-template
-                        {:local/root "tools/template"}}}' \
+                        {:local/root "<RE_FRAME2>/tools/template"}}}' \
         -Tnew create :template day8/re-frame2-template \
         :name acme/my-app \
         :substrate :uix
-
-# Reagent, with the Story playground scaffold
-clojure -Sdeps '{:deps {day8/re-frame2-template
-                        {:local/root "tools/template"}}}' \
-        -Tnew create :template day8/re-frame2-template \
-        :name acme/my-app \
-        :include-story? true
 ```
 
 That assumes the standard `-Tnew` tool is installed per
 [deps-new's README](https://github.com/seancorfield/deps-new#installation).
 
-`:local/root "tools/template"` puts the template's `src/` and
-`resources/` on the classpath, so deps-new resolves the hooks ns and
-the template body via the classpath. The name is
-`day8/re-frame2-template` (not `io.github.day8/re-frame2-template`)
-because the `io.github.*` prefix would trigger deps-new's
-auto-git-clone before classpath lookup — bypassing the local-root
-checkout (and, pre-split, cloning a repo that doesn't exist yet).
+`:local/root` puts the template's `src/` and `resources/` on the
+classpath, so deps-new resolves the hooks ns and the template body via
+the classpath. The name is `day8/re-frame2-template` (not
+`io.github.day8/re-frame2-template`) because the `io.github.*` prefix
+would trigger deps-new's auto-git-clone before classpath lookup —
+bypassing the local-root checkout (and, pre-split, cloning a repo that
+doesn't exist yet).
 
-`:include-story? true` is currently Reagent-only. Combining it with
-`:substrate :uix` throws
-`:rf.error/template-include-story-reagent-only`. A UIx Story
-variant follows once that adapter's Story coverage matches Reagent's.
-
-### `:css :tailwind`
-
-`:css :tailwind` swaps the default plain-CSS scaffold for Tailwind v4
-(zero build step in dev). `index.html` loads the
-`@tailwindcss/browser@4` Play CDN compiler and carries the Tailwind v4
-CSS-first source inline in a `<style type="text/tailwindcss">`
-block — `@import "tailwindcss";` plus design tokens in `@theme { … }`
-(Tailwind v4 has no `tailwind.config.js`). That inline block is the
-compiler's input: the Play CDN compiler reads only inline
-`<style type="text/tailwindcss">` nodes — it never sees an external
-`<link>` stylesheet — so authoring Tailwind there is what makes it
-compile. `resources/public/css/app.css` stays ordinary native CSS
-for the app-shell layout (a bare `@import "tailwindcss"`
-there would just resolve to a bogus `/css/tailwindcss` request and
-`@theme` would be silently dropped). Omit `:css` (or pass nothing) for
-the plain-CSS default. The flag is substrate-invariant — and composes
-with `:include-ssr?`, whose live shell injects the same
-`<style type="text/tailwindcss">` source block. A bogus value
-(for example `:css :tailwnd`) fails closed with
-`:rf.error/template-bad-css-flag`.
-
-Before shipping, move to the compiled `@tailwindcss/cli` build: lift the
-`<style type="text/tailwindcss">` block's contents into a `.css` entry
-file, compile it to a static stylesheet, link that, and drop the CDN
-`<script>` + the inline block. The exact dev→prod transition (and the
-matching CSP tightening — dropping the jsdelivr origin and
-`'unsafe-inline'`) is documented in the generated `index.html`'s
-comments; serve the tightened policy as a response header per the
-generated README's "Production hardening".
-
-```bash
-# Reagent, with Tailwind v4
-clojure -Sdeps '{:deps {day8/re-frame2-template
-                        {:local/root "tools/template"}}}' \
-        -Tnew create :template day8/re-frame2-template \
-        :name acme/my-app \
-        :css :tailwind
-```
-
-Any unrecognised template flag — including a typo such as
-`:include-story` (missing the `?`) — fails closed with
-`:rf.error/template-unknown-flag`. See
-[`spec/API.md`](./spec/API.md#args-reference) for the full flag-set
-status and the error table.
+Any other template argument — a typo, or one of the retired flags —
+fails closed with `:rf.error/template-unknown-flag` before a file is
+written. See [`spec/API.md`](./spec/API.md#errors) for the error table.
 
 ### Post-split (future)
 
@@ -166,6 +124,11 @@ npx shadow-cljs watch app
 `-m shadow.cljs.devtools.cli` itself, so the pure-JVM form is
 `clojure -M:shadow -m shadow.cljs.devtools.cli watch app`.)
 
+Until `day8/re-frame2` is published, the emitted `deps.edn` names
+coordinates that are not on Clojars yet; point them at a checkout with
+`:local/root` before the first watch, as the template's own behavioural
+tier does.
+
 You should see the counter — the same shape walked through in
 [Guide — app-db](../../docs/core/app-db.md).
 
@@ -178,7 +141,11 @@ cd tools/template
 clojure -M:test
 ```
 
-See [Principles §P7](./spec/Principles.md#p7--tested-end-to-end-per-substrate).
+The behavioural tier — a real shadow-cljs compile, the focused test
+under Node, the emitted page in Chromium, and the `:advanced` release —
+is opt-in with `RF2_TEMPLATE_RUN_EMITTED_TESTS=1` and needs a primed
+`implementation/node_modules` plus a Playwright Chromium. See
+[Principles §P7](./spec/Principles.md#p7--tested-end-to-end-per-substrate).
 
 ## Spec
 
@@ -187,14 +154,12 @@ The normative contract lives under [`spec/`](./spec/):
 | File | What's in it |
 |---|---|
 | [`spec/000-Vision.md`](./spec/000-Vision.md) | What the tool is for; lineage from v1; goals; non-goals. |
-| [`spec/001-Substrate-Variants.md`](./spec/001-Substrate-Variants.md) | Reagent / UIx variants; the top-level k/v invocation form; substrate coercion. |
-| [`spec/002-Generated-Shape.md`](./spec/002-Generated-Shape.md) | The file tree emitted; the resource tree; substitution variables. |
-| [`spec/003-DepsNew-Rebuild-Plan.md`](./spec/003-DepsNew-Rebuild-Plan.md) | Completed migration record from clj-new and Clojars to deps-new and git-coord. |
-| [`spec/004-SSR-Validation-Report.md`](./spec/004-SSR-Validation-Report.md) | Completed validation record for the shipped SSR variant. |
+| [`spec/001-Substrate-Variants.md`](./spec/001-Substrate-Variants.md) | The one selector; Reagent / UIx; coercion; how a substrate is added. |
+| [`spec/002-Generated-Shape.md`](./spec/002-Generated-Shape.md) | The twelve-file manifest; the resource tree; substitution variables; the hot-reload contract. |
 | [`spec/005-Repo-Split.md`](./spec/005-Repo-Split.md) | Procedure for the remaining monorepo-to-external-repo split. |
-| [`spec/Principles.md`](./spec/Principles.md) | The design principles (build-time only, counter as canonical example, substrate-agnostic shell, top-level k/v selection). |
-| [`spec/API.md`](./spec/API.md) | The consolidated public invocation surface. |
-| [`spec/DESIGN-RATIONALE.md`](./spec/DESIGN-RATIONALE.md) | WHY each major decision (deps-new + git-coord over clj-new + Clojars, top-level k/v plumbing, the substrate menu, counter as example, no-Story-yet, pin lockstep). |
+| [`spec/Principles.md`](./spec/Principles.md) | The design principles (build-time only, counter as canonical example, substrate-agnostic shell, top-level k/v selection, tested per substrate). |
+| [`spec/API.md`](./spec/API.md) | The consolidated public invocation surface and the error table. |
+| [`spec/DESIGN-RATIONALE.md`](./spec/DESIGN-RATIONALE.md) | WHY each major decision (deps-new + git-coord over clj-new + Clojars, top-level k/v plumbing, the substrate menu, counter as example, one selector and one manifest, pin lockstep) and the decisions this shape superseded. |
 
 ## Cross-references
 
@@ -207,3 +172,6 @@ The normative contract lives under [`spec/`](./spec/):
   canonical counter the Reagent variant mirrors.
 - [`examples/substrates/uix/counter/`](../../examples/substrates/uix/counter/) — UIx
   counter.
+- [`docs/xray/01-installation.md`](../../docs/xray/01-installation.md) and
+  [`docs/story/index.md`](../../docs/story/index.md) — the two
+  post-generation recipes the generated README links.
