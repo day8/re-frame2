@@ -219,12 +219,6 @@ Three recoveries, in order of preference:
 - **Fall back to the overlay** — `(xray/open-overlay!)` (§Overlay fallback
   below) when the host genuinely cannot give a column.
 
-Distinct from this is the **dev-build posture banner** — a dismissable
-yellow "Xray is enabled in this build" top banner shown when a non-elided
-dev build runs in production-like conditions (§Production posture below).
-That is a *warning to elide for production*, not the missing-host failure;
-don't conflate the two.
-
 ## Overlay fallback (open-overlay!)
 
 For hosts that **cannot accommodate a right column** — a full-screen
@@ -391,6 +385,14 @@ strip every side-effect — the trace collector registration, the
 epoch-cb registration, the keybinding listener, the mount call. CI
 verifies via `npm run test:elision`.
 
-A non-elided dev build running in production-like conditions shows a
-yellow top banner: "Xray is enabled in this build. Disable for
-production." Single-click dismiss, remembered for the session.
+**There is no in-build "Xray is enabled" warning banner.** A non-elided
+build gives no posture signal of its own — the tell that Xray shipped is
+simply that its surface is *there*: the panel mounts, the chrome renders,
+and `Ctrl+Shift+C` toggles it. So "would I notice Xray in production?"
+resolves to the elision gate above, not to a runtime warning: keep
+`npm run test:elision` in CI and the surface cannot reach a production
+build in the first place.
+(`spec/007-UX-IA.md` §Production posture does describe a dismissable
+yellow banner for this case. Nothing in `tools/xray/src` implements it —
+it is normative-future, in the same class as the unwired keymap under
+§Wired hotkeys. Don't teach it as a control the operator will see.)
