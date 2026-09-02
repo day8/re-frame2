@@ -256,6 +256,51 @@ The ceilings are grounded in a May 2026 corpus audit (max 203 L, p95
 148 L, median 88 L); leaves that have since outgrown them are refactor
 targets unless they pass the catalogue test above.
 
+### `SKILL.md` frontmatter `description` — the cap that actually bites
+
+**The 1,024-character figure from the Agent Skills packaging spec is not
+the one to author against, because Claude Code does not enforce it**
+(measured against the shipped v2.1.258 runtime, rf2-cupfi). Its frontmatter
+validator checks that `description` is a string and warns when it is
+missing; it applies no length check at all, and no packaging gate in this
+repo checks one either.
+
+What Claude Code *does* enforce is a **per-skill cap of 1,536 characters**
+on the entry it puts in the skill listing — the setting is
+`skillListingMaxDescChars`, and the default is 1,536. The value it caps is
+the `description` alone, or `"<description> - <when_to_use>"` where a
+`when_to_use` field is present. **It is a hard slice: no ellipsis, no
+warning in the listing the model reads, and the cut lands mid-word.** So
+the part at risk is always the *tail*.
+
+Two consequences for authoring, and the first is the one that matters:
+
+- **Put disqualifiers first and trigger phrases last.** A "**Do not use**
+  when…" clause is the sentence that stops the wrong skill loading, so it
+  must never be the sentence a silent slice removes. Trigger-phrase lists
+  are the right thing to carry the risk: they are long, they are
+  redundant by design, and losing the last few costs almost nothing.
+  `re-frame2-xray` was the one description over the enforced cap (1,713
+  characters, so 177 were being cut — and what they cut was exactly its
+  `re-frame2-pair` disqualifier, mid-word); it now leads with the
+  disqualifier and measures 1,482.
+- **A second, blunter mechanism can drop a description whole.** The
+  listing also has a total budget — the context window times four bytes
+  per token times `skillListingBudgetFraction`, which defaults to `0.01`,
+  so roughly 8,000 characters at a 200K window. When the listing exceeds
+  it, Claude Code stops truncating tails and starts dropping *entire*
+  descriptions, lowest-priority first, rendering those skills as a bare
+  `- <name>` with nothing to route on. **Skills bundled with Claude Code
+  are exempt from that pass; skills installed by a consumer — every skill
+  in this directory — are not.** This family currently totals ~10.8K
+  characters of listing across nine skills, so a consumer who installs
+  several of them alongside their own is already in the regime where the
+  budget, not the per-skill cap, decides what survives.
+
+Keeping each description meaningfully under 1,536 is therefore worth
+doing for the listing budget's sake even where nothing is being sliced
+today. Treat the ordering rule as the load-bearing half of this section.
+
 ### Published-skill `allowed-tools` baseline (security policy)
 
 A pragmatic least-privilege stance, not a paranoid one. The skills here

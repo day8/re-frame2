@@ -8,19 +8,6 @@ description: >
  mount, or the wired hotkeys), which of its two
  modes (Dynamic event-spine / Static registry browse) and which tab
  surfaces the data they're looking for, or what each tab is *for*.
- Trigger phrases: "open Xray", "where is X in Xray",
- "which Xray panel shows…", "Xray Static mode", "browse registered
- machines/routes/schemas in Xray", "Ctrl+Shift+C", "Xray hotkey",
- "Xray mode toggle", "Xray popout", "Xray overlay",
- "Xray open-overlay!", "open Xray with no layout host / no
- [data-rf-xray-host] / full-screen canvas", "Xray machine inspector",
- "Xray epoch cascade", "where do Xray issues show up", "Xray Graph
- tab", "Xray derivation/process graph", "where does this value come
- from in Xray", "Xray Resources tab", "Xray Frames tab", "Xray
- module-view", "what images/frames are installed in Xray", "which image
- loaded this frame", "how does this frame resolve its registrations",
- "Xray Hicasso tab", "which Hicasso boundaries are mounted", "what reads
- this subscription", "why did this boundary re-render", and similar.
  **Do not use** when the user asks the AGENT to inspect or change their
  running app — read-only included (read a sub, get a path, snapshot
  state, walk traces, dispatch): that's `re-frame2-pair`, the
@@ -28,6 +15,17 @@ description: >
  (`re-frame2`), bootstrapping a new project (`re-frame2-setup`), or
  implementing Xray itself (no implementor skill exists — the spec is
  the answer).
+ Trigger phrases: "open Xray",
+ "which Xray panel shows…", "Xray Static mode", "browse registered
+ machines/routes/schemas", "Ctrl+Shift+C", "Xray overlay",
+ "Xray open-overlay!", "open Xray with no layout host /
+ full-screen canvas", "Xray machine inspector",
+ "Xray epoch cascade", "where do Xray issues show up", "Xray Graph
+ tab", "where does this value come
+ from in Xray", "Xray Resources tab", "Xray Frames tab", "Xray
+ module-view", "which image loaded this frame",
+ "Xray Hicasso tab", "which Hicasso boundaries are mounted", "what reads
+ this subscription", "why did this boundary re-render", and similar.
 allowed-tools:
  - Read
  - Grep
