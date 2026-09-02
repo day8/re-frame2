@@ -2731,7 +2731,7 @@ Example pairs (acceptable → preferred):
 
 :rf.error/effect-map-shape
   acceptable: "Effect-map returned a disallowed top-level key."
-  preferred:  "Effect-map for `:cart/save` returned top-level key `:dispatch`; only the closed set `#{:db :rf.db/runtime :fx}` is allowed at the top level (app handlers use `:db` / `:fx`) — wrap as `:fx [[:dispatch event]]`."
+  preferred:  "Effect-map for `:cart/save` returned top-level key `:dispatch`; the effect-map is closed — `:db`, `:rf.db/runtime` and `:fx` (plus the four commit-plane classification keys) are the only top-level keys. Move `:dispatch` into `:fx` (e.g. `{:fx [[:dispatch …]]}`). The event is refused until corrected — nothing committed."
 ```
 
 Implementations that omit a `:reason` (returning the empty string) are conformant — the structured payload is the contract — but the rubric is the recommended voice for the reference implementation and for ports.

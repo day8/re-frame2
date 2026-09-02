@@ -460,19 +460,26 @@
 
 ;; ---- bundle-isolation sentinel ------------------------------------------
 ;;
-;; Mirrors the algebra-view siblings / `re-frame.derivation.graph` composer
-;; pattern (rf2-6xm07h et al.): `implementation/scripts/check-bundle-
-;; isolation.cjs` greps the counter production bundle for this exact string.
-;; It lives ONLY in this file's source body — no other namespace, no
-;; docstring, no test fixture references it — so its presence in the
-;; production counter bundle proves this egress-redaction tooling ns's body
-;; got pulled in (most likely via a stray `:require` from a
-;; production-reachable ns). This ns is consumed only by dev tools (Xray) +
-;; the conformance fixtures, which `:require` it directly; the counter
-;; example never does. The string survives `:advanced` because string
-;; literals are not renamed; it sits outside any `interop/debug-enabled?`
-;; gate so DCE cannot drop the literal independently of the surrounding ns
-;; body.
-
-(defonce ^:private bundle-isolation-sentinel
-  "rf.derivation.egress/sentinel:rf2-mm3y49-2026-07-10:do-not-rename")
+;; THE SENTINEL FOR THIS NAMESPACE IS NOT IN THIS FILE, AND THERE IS NO
+;; PLANTED STRING TO MAINTAIN HERE. `implementation/scripts/check-bundle-
+;; isolation.cjs` greps the EMITTED counter/positive-control MODULE, not this
+;; source, and the literal it greps for `derivation-egress` is
+;; `rf.resource/opaque` — the opaque resource-handle marker this namespace
+;; MINTS on a live path (`opaque-handle` emits `[:rf.resource/opaque
+;; <digest>]`; `opaque-handle?` reads the same keyword back), so a CLJS
+;; keyword's fully-qualified name is interned into the emitted JS as a string
+;; constant Closure does not rename.
+;;
+;; A `defonce ^:private bundle-isolation-sentinel` string used to sit here
+;; (rf2-mm3y49). It was inert: private, unconsumed, and therefore dropped by
+;; Closure `:advanced` — ZERO occurrences in the emitted module — so the
+;; `do-not-rename` instruction it carried guarded nothing. `4e43784ec7`
+;; (2026-07-15) moved this roster entry and its `derivation-graph` sibling off
+;; the planted strings when these controls became emitted-module greps; the
+;; var was simply left behind, and rf2-yk2d removed it.
+;;
+;; The rule, and the reason a planted string is the WRONG instinct here: pick
+;; a literal a LIVE code path emits, and verify the count in the emitted
+;; module, never in the `.cljc`. The roster comment in check-bundle-
+;; isolation.cjs beside the `derivation-egress` entry is the full account,
+;; including the two literals that were tried and failed.

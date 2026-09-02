@@ -286,20 +286,27 @@
 ;; ---- effect-map shape policing (Spec migration M-8) -----------------------
 ;;
 ;; Per migration/from-re-frame-v1/README.md §M-8 and Spec-Schemas.md §:rf/effect-map,
-;; the effect-map a reg-event handler returns is a CLOSED shape: only :db,
-;; :rf.db/runtime, and :fx live at the top level. Legacy v1 top-level keys
+;; the effect-map a reg-event handler returns is a CLOSED shape of SEVEN
+;; top-level keys — the three everyday ones (:db, :rf.db/runtime, :fx) plus the
+;; four EP-0025 commit-plane classification effects. Legacy v1 top-level keys
 ;; (:dispatch, :dispatch-later, :dispatch-n, :http, etc.) must move into :fx
 ;; as [[fx-id args] ...] entries.
 ;;
-;; EP-0001: the closed set is #{:db :rf.db/runtime :fx} (per Spec-Schemas
-;; §:rf/effect-map + Spec 002 §Write authority). `:db` is the app-db partition;
-;; `:rf.db/runtime` is the runtime-db partition — a state-bearing top-level
-;; key, reserved BY CONVENTION for framework-authority writers (NOT a security
-;; boundary). `:rf.db/runtime` is NOT a shape error
+;; The closed set is #{:db :rf.db/runtime :fx :sensitive :large
+;; :clear-sensitive :clear-large} — see `closed-effect-map-keys` below, which
+;; is the authority (per Spec-Schemas §:rf/effect-map + Spec 002 §Write
+;; authority + §Commit-plane data-classification effects). `:db` is the app-db
+;; partition; `:rf.db/runtime` is the runtime-db partition — a state-bearing
+;; top-level key, reserved BY CONVENTION for framework-authority writers (NOT a
+;; security boundary), per EP-0001. `:rf.db/runtime` is NOT a shape error
 ;; here — a non-framework handler emitting it is surfaced by the
 ;; `:rf.warning/app-handler-runtime-effect` dev diagnostic (in
-;; `commit-fx-effects`), not dropped. All OTHER unknown top-level keys remain
-;; shape errors.
+;; `commit-fx-effects`), not dropped. The four classification effects
+;; (:sensitive / :large / :clear-sensitive / :clear-large, each a vector of
+;; :rf/path vectors) are commit-plane state effects too, applied WITH the :db
+;; write; their PAYLOAD shape is policed separately by
+;; `re-frame.elision/classification-effect-defect` at the same boundary. All
+;; OTHER unknown top-level keys remain shape errors.
 ;;
 ;; The runtime polices this contract at the router's FINAL-effects boundary:
 ;; a top-level key outside the closed set REFUSES the event. Nothing commits —
@@ -1064,13 +1071,19 @@
   2. `:fx`  — vector of `[fx-id args]` pairs, processed in source order
      by the registered fx handlers (see `reg-fx`).
 
-  The effect-map is a **closed shape** — `#{:db :rf.db/runtime :fx}` at
-  the top level (per migration M-8 + EP-0001). App handlers return only
-  `:db` and `:fx`; `:rf.db/runtime` (the runtime-db partition) is
-  reserved by convention for framework / runtime-extension authority and
-  is not part of an ordinary handler's vocabulary. Legacy v1 top-level
-  keys (`:dispatch`, `:dispatch-later`, `:http`, ...) wrap as `:fx`
-  entries — `{:fx [[:dispatch event] ...]}`.
+  The effect-map is a **closed shape** — SEVEN top-level keys (per
+  migration M-8 + EP-0001 + EP-0025): the three everyday ones
+  `:db` / `:rf.db/runtime` / `:fx`, plus the four commit-plane
+  data-classification effects `:sensitive` / `:large` /
+  `:clear-sensitive` / `:clear-large` (each a vector of `:rf/path`
+  vectors, applied WITH the `:db` write). App handlers return only
+  `:db` and `:fx` day to day; `:rf.db/runtime` (the runtime-db partition)
+  is reserved by convention for framework / runtime-extension authority
+  and is not part of an ordinary handler's vocabulary. Legacy v1
+  top-level keys (`:dispatch`, `:dispatch-later`, `:http`, ...) wrap as
+  `:fx` entries — `{:fx [[:dispatch event] ...]}`. Any other top-level
+  key REFUSES the event pre-commit (`:rf.error/effect-map-shape`) —
+  nothing is committed, and nothing is silently dropped.
 
   The handler is **two-arg** `(fn [coeffects event-vec] …)` (EP-0018 D4).
   Handlers that do not need the event use `_` for the second argument;
