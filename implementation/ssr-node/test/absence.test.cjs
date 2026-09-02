@@ -838,29 +838,94 @@ test('CONTROL — the refusal-code needle finds a refusal code, and only that', 
 
 const BUILD_CONFIGS = ['implementation/shadow-cljs.edn', 'implementation/deps.edn'];
 
+/**
+ * READ AT LOADER POSITIONS, NOT OVER RAW TEXT — rf2-8arzr.9, and the same
+ * move Reading 1 made under rf2-6ovv rather than a second, softer one.
+ *
+ * This row was a raw-text scan of two EDN files, so it asserted that these
+ * configs may not MENTION the package. That is not the reading its own
+ * failure message states: "the package would be on a build's source path"
+ * is a claim about `:source-paths`, `:deps` and their siblings, and a `;;`
+ * comment is none of them. `implementation/shadow-cljs.edn` earned the red
+ * by explaining, in a comment above `:examples/login-hicasso-server`,
+ * which sidecar loads the module that build emits — prose about the
+ * package, in the file where prose about a build belongs.
+ *
+ * Reading 1 had already drawn exactly this line and given the argument for
+ * it: a position that cannot resolve a module cannot host a hit, and the
+ * scope is what the FORMAT can do rather than which files are forgiven. A
+ * comment is not a source path in an EDN build config any more than it is
+ * in an ns form. So this row now reads `loaderPositions` — for `.edn`,
+ * the value form after each of `EDN_LOAD_KEYS` — and the narrowing is the
+ * sibling of one already made, not a new allowance.
+ *
+ * Nothing was widened and nothing is forgiven. The needles are untouched,
+ * no path or string is named as an exception, and the row below plants a
+ * real source path AND the comment that is not one, requiring the first to
+ * be found and the second not to be. What kept this row honest — that a
+ * build reaching this package is caught — is exactly what is still tested.
+ *
+ * Reading 1's whole-repo scan already covers these two files as ordinary
+ * `.edn`; this row survives it because it is the one that FAILS CLOSED on
+ * a config that has gone missing or unparseable, which a repo-wide scan
+ * cannot say anything about.
+ */
 test('no shadow-cljs build and no classpath entry reaches this package', () => {
+  // A missing or key-less config must not read as a clean scan: the raw
+  // scan this replaced threw on a missing file, and `scanLoaderPositions`
+  // skips one silently. Same shape as Reading 3's computed-require guard.
   for (const rel of BUILD_CONFIGS) {
-    const text = fs.readFileSync(path.join(REPO_ROOT, rel), 'utf8');
-    for (const needle of REFERENCES) {
-      needle.lastIndex = 0;
-      assert.strictEqual(
-        needle.test(text),
-        false,
-        `${rel} mentions ${needle} — the package would be on a build's source path`,
-      );
-    }
+    const text = readTracked(REPO_ROOT, rel);
+    assert.ok(text !== null, `${rel} is missing — the scan has nothing to read`);
+    assert.ok(
+      loaderPositions(rel, text).length > 0,
+      `${rel} yields no loader position at all — the scan has gone blind`,
+    );
   }
+  const hits = scanLoaderPositions(REPO_ROOT, BUILD_CONFIGS, REFERENCES, null);
+  assert.deepStrictEqual(
+    hits,
+    [],
+    `a build config puts this package on a source path or a classpath:\n${hits
+      .map((h) => `  ${h.file}:${h.line} (${h.needle})`)
+      .join('\n')}`,
+  );
 });
 
-test('CONTROL — a doctored build config is caught', () => {
+test('CONTROL — a doctored build config is caught, and a comment about one is not', () => {
   const dir = scratch({
+    // Both spellings, at both kinds of loader position an EDN config has.
     'shadow-cljs.edn': '{:builds {:app {:target :browser :source-paths ["ssr-node/src"]}}}\n',
+    'deps.edn': '{:deps {day8/ssr-node {:local/root "../ssr-node"}}}\n',
+    // The near-miss, and the whole of what this row stopped asserting: the
+    // shape `implementation/shadow-cljs.edn` actually carries.
+    'commented.edn':
+      ';; the module `implementation/ssr-node`\'s sidecar loads — prose, not a\n'
+      + ';; source path, and the refusal code :rf.ssr-node/render-threw is not\n'
+      + ';; one either.\n'
+      + '{:builds {:app {:target :browser :source-paths ["src"]}}}\n',
   });
   try {
-    const text = fs.readFileSync(path.join(dir, 'shadow-cljs.edn'), 'utf8');
-    const needle = REFERENCES[0];
-    needle.lastIndex = 0;
-    assert.strictEqual(needle.test(text), true, 'the check must see a planted source path');
+    const found = scanLoaderPositions(dir, ['shadow-cljs.edn', 'deps.edn'], REFERENCES, null);
+    assert.deepStrictEqual(
+      [...new Set(found.map((h) => h.file))],
+      ['shadow-cljs.edn', 'deps.edn'],
+      'the check must see a planted source path and a planted coordinate',
+    );
+    assert.deepStrictEqual(
+      scanLoaderPositions(dir, ['commented.edn'], REFERENCES, null),
+      [],
+      'and a comment naming the package is not a way into a build — the narrowing this row is',
+    );
+    // AND THE COMMENT MUST BE THERE TO BE MISSED. Without this, the row
+    // above passes on an empty fixture and the narrowing is untested: it is
+    // the POSITION doing the work, so the raw scan finds both needles in the
+    // very text the scoped scan is required to walk past.
+    assert.strictEqual(
+      scanForReferences(dir, ['commented.edn'], REFERENCES, null).length,
+      REFERENCES.length,
+      'the near-miss fixture must carry both needles, or the scoped scan proves nothing',
+    );
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
