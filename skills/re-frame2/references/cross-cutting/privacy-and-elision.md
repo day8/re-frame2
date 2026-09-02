@@ -170,7 +170,7 @@ The framework projects, but needs to know *which trust boundary* a record is abo
 | `:rf.egress/ssr-hydration` | the projection applied **after** the SSR allowlist — defence-in-depth, never a parallel SSR mechanism. |
 | `:rf.egress/public-error` | client-safe server error projection; never includes internal raw values. |
 
-The boolean `:rf.size/*` flags (`:include-sensitive?`, `:include-large?`, `:include-digests?`) remain beneath the profiles as an **advanced override layer** — reach for them only to override one axis of a profile, not as the everyday choice. (Names are *provisional*: the set is closed but the spellings don't lock until each profile is exercised by a real consumer surface.)
+The boolean `:rf.size/*` flags (`:include-sensitive?`, `:include-large?`, `:include-digests?`) remain beneath the profiles as an **advanced override layer** — reach for them only to override one axis of a profile, not as the everyday choice.
 
 ### The two projection primitives
 

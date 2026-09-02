@@ -193,4 +193,4 @@ Flow on `:rf.route/url-requested`:
 
 ---
 
-*Derived from `implementation/routing/` (artefact source) and `examples/capabilities/routing/routing/` @ main `a8b836f`. Re-verify after route-metadata, guard-protocol, readiness-projection, or prefetch changes.*
+*Derived from `implementation/routing/` (artefact source) and `examples/capabilities/routing/routing/` @ main. Re-verify after route-metadata, guard-protocol, readiness-projection, or prefetch changes.*
