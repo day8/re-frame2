@@ -4,7 +4,7 @@ Copy the block below into `<pilot-root>/BRIEF.md`. Everything inside it is writt
 
 The brief is deliberately free of in-tree references: no bead ids, no spec sections, no repository paths except the ones the published documentation itself tells a reader to use. That is not tidiness. A brief that leaks in-tree knowledge does not bend a rule, it invalidates the evidence the pilot exists to produce, and the leak is invisible in the output.
 
-Authorized by `rf2-v04s` under [`rf2-hic-063`](README.md#what-governs-this-directory)'s ratification. Assemble the workspace first, per [`workspace.md`](workspace.md).
+Authorized by `rf2-v04s` under [`rf2-hic-063`](README.md#what-governs-this-directory)'s ratification; the sentence naming the test command, under `rf2-xkhul`. Assemble the workspace first, per [`workspace.md`](workspace.md).
 
 ---
 
@@ -18,7 +18,8 @@ The application is Conduit, a Medium-style blogging app: sign in, write
 articles, follow authors, favourite posts, comment, paginate. It runs offline
 against a fake backend that lives in the page, so there is nothing to set up
 and no network to depend on. It is in `app/`, it currently renders through
-Reagent, and it works today. Run it before you change anything.
+Reagent, and it works today. Run it before you change anything. Its
+behavioural tests are in `app/test/`; `npm test` from `app/` runs them.
 
 Your two screens are **the feed** and **the article editor**.
 

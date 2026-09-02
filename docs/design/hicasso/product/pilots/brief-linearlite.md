@@ -4,7 +4,7 @@ Copy the block below into `<pilot-root>/BRIEF.md`. Everything inside it is writt
 
 The brief is deliberately free of in-tree references: no bead ids, no spec sections, no repository paths except the ones the published documentation itself tells a reader to use. That is not tidiness. A brief that leaks in-tree knowledge does not bend a rule, it invalidates the evidence the pilot exists to produce, and the leak is invisible in the output.
 
-Authorized by `rf2-v04s` under [`rf2-hic-063`](README.md#what-governs-this-directory)'s ratification. Assemble the workspace first, per [`workspace.md`](workspace.md).
+Authorized by `rf2-v04s` under [`rf2-hic-063`](README.md#what-governs-this-directory)'s ratification; the sentence naming the test command, under `rf2-xkhul`. Assemble the workspace first, per [`workspace.md`](workspace.md).
 
 **Why this pilot is shaped differently from [Pilot 1](brief-realworld.md), and it matters that it is.** Pilot 1 translates two screens that already exist, which measures whether the documentation supports *porting*. This one ports one screen and grows a second that does not exist yet, which measures whether the documentation supports *authoring* — reaching for a form you have never written, from the guide alone. Those are different failure modes and the two pilots are chosen to cover both, so the card detail is a shipped screen rather than a stretch goal and must not be softened into one when the brief is handed over.
 
@@ -21,7 +21,8 @@ between statuses. Its point is that every write shows on screen instantly and
 quietly reverts if the server rejects it. It runs offline against a fake
 backend in the page, so there is nothing to set up. It is in `app/`, it
 currently renders through Reagent, and it works today. Run it before you
-change anything.
+change anything. Its behavioural tests are in `app/test/`; `npm test` from
+`app/` runs them.
 
 You have two screens, and they are two different jobs.
 

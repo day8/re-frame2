@@ -19,7 +19,7 @@ The published installation chapter tells a reader to clone the monorepo *beside*
     package.json
     public/index.html
     src/
-    test/
+    test/               the app's behavioural baseline, copied in with the source
   BRIEF.md              the pilot's brief, copied from this directory
   FRICTION-LOG.md       the blank log, copied from this directory
 ```
@@ -55,7 +55,7 @@ Its links into `spec/` and `docs/` are a different matter, and following one is 
 
 ## Assemble a workspace
 
-Six steps. Run them from anywhere; `<pilot-root>` and `<repo>` are yours to choose.
+Six steps, the fifth in two halves. Run them from anywhere; `<pilot-root>` and `<repo>` are yours to choose.
 
 **1. Clone and pin.**
 
@@ -70,23 +70,27 @@ git -C re-frame2 rev-parse HEAD    # record this in the log header
 Pilot 1 — RealWorld/Conduit:
 
 ```bash
-mkdir -p app/src/realworld_http app/src/realworld_shared app/public app/test
+mkdir -p app/src/realworld_http app/src/realworld_shared app/public app/test/realworld_http
 cp re-frame2/examples/real-apps/realworld_http/*.cljs   app/src/realworld_http/
 cp re-frame2/examples/real-apps/realworld_http/*.cljc   app/src/realworld_http/
 cp re-frame2/examples/real-apps/realworld_shared/*.cljs app/src/realworld_shared/
 cp re-frame2/examples/real-apps/realworld_http/default-avatar.svg app/public/
 cp re-frame2/examples/real-apps/realworld_http/index.html         app/public/
 cp re-frame2/examples/real-apps/realworld_http/README.md          app/
+cp re-frame2/docs/design/hicasso/product/pilots/baseline/realworld_http/baseline_test.cljs app/test/realworld_http/
 ```
 
 Pilot 2 — LinearLite:
 
 ```bash
-mkdir -p app/src/linearlite app/public app/test
+mkdir -p app/src/linearlite app/public app/test/linearlite
 cp re-frame2/examples/capabilities/resources/linearlite/core.cljs  app/src/linearlite/
 cp re-frame2/examples/capabilities/resources/linearlite/index.html app/public/
 cp re-frame2/examples/capabilities/resources/linearlite/README.md  app/
+cp re-frame2/docs/design/hicasso/product/pilots/baseline/linearlite/baseline_test.cljs app/test/linearlite/
 ```
+
+The last line of each manifest is the app's behavioural baseline, and it is the one file that does not come from the app's own directory. The examples tree is test-free by policy, so each app's behavioural suite lives in the Reagent adapter's test tree and runs on the in-repo harness; [`baseline/`](baseline/README.md) carries the subset that exercises the nominated screens, rewritten as the app's own test namespace so that it stands on `cljs.test`, the core test support and the canned HTTP replies — all of which the `:local/root` route resolves — and on nothing the workspace cannot see. The pilot may read it, since it is under `app/`, which is why it names no in-tree path, bead or spec: the fence holds inside the test file as it does inside the brief. Added under `rf2-xkhul`.
 
 **3. Write the four project files** from the templates below.
 
@@ -101,6 +105,14 @@ cd app && npm install
 ```bash
 npx shadow-cljs watch app     # then open http://localhost:8080
 ```
+
+**5b. Run the baseline, with the app still on Reagent**, and record its exit code in the log header beside the pin. This is outcome 1's "before" measurement, and it is the operator who takes it: a baseline that is not green before the pilot starts is a defect in the scaffolding, fixed here, never handed to the pilot as friction. The run also proves that the `:test` build resolves the test kit, the app and its test namespace from the clean workspace.
+
+```bash
+cd app && npm test > ../baseline-reagent.log 2>&1; echo "baseline exit $?"    # the number goes in the log header
+```
+
+The runner's closing line is the count to expect — as of `rf2-xkhul` the RealWorld baseline reports 4 tests and the LinearLite baseline 9, both with 0 failures and 0 errors — and it is the exit status that is recorded, not the count. Added under `rf2-xkhul`.
 
 **6. Copy the brief and the blank log** into `<pilot-root>/`, from [`brief-realworld.md`](brief-realworld.md) or [`brief-linearlite.md`](brief-linearlite.md), and from [`friction-log.md`](friction-log.md)'s template section.
 
@@ -131,31 +143,39 @@ Pilot 1 — RealWorld/Conduit:
 
 Pilot 2 — LinearLite: the same file with the `machines`, `flows`, `schemas` and `ssr` rows dropped and `day8/re-frame2-resources {:local/root "../re-frame2/implementation/resources"}` added.
 
-The `:test` alias follows the published testing chapter's `:local/root` route, where the Hicasso test kit lives on its own source root outside the artefact's `:paths` and has to be named explicitly. Both pilots need it from the first hour, because outcome 1 is to preserve the app's behavioural tests.
+The `:test` alias follows the published testing chapter's `:local/root` route, where the Hicasso test kit lives on its own source root outside the artefact's `:paths` and has to be named explicitly. Both pilots need it from the first hour, because outcome 1 is to preserve the app's behavioural tests. `"test"` on the same alias is the app's own test root: the baseline lands there in step 2, and the tests the pilot ports or adds go beside it.
 
 ### `app/shadow-cljs.edn`
 
 ```clojure
 {:deps     {:aliases [:shadow :test]}
  :dev-http {8080 "public"}
- :builds   {:app {:target     :browser
-                  :output-dir "public/js"
-                  :asset-path "/js"
-                  :modules    {:main {:init-fn realworld-http.core/run}}}}}
+ :builds   {:app  {:target     :browser
+                   :output-dir "public/js"
+                   :asset-path "/js"
+                   :modules    {:main {:init-fn realworld-http.core/run}}}
+            :test {:target    :node-test
+                   :output-to "out/test.js"
+                   :ns-regexp "-test$"}}}
 ```
 
 Pilot 2 uses `:init-fn linearlite.core/run`.
 
-Both aliases are named on purpose. `:shadow` puts the compiler on the classpath; without it the build dies at `Could not locate shadow/cljs/devtools/cli`. `:test` carries the test kit, and shadow reads its classpath from `deps.edn`, so an alias not named here is not on it.
+Both aliases are named on purpose. `:shadow` puts the compiler on the classpath; without it the build dies at `Could not locate shadow/cljs/devtools/cli`. `:test` carries the test kit and the app's test root, and shadow reads its classpath from `deps.edn`, so an alias not named here is not on it.
+
+The `:test` build compiles every namespace on the classpath whose name ends in `-test` — the baseline under `app/test/`, and whatever the pilot ports or adds beside it — into one Node script. Node is enough for the baseline, which drives events and reads subscriptions without rendering, and for the browser-free rungs of the published testing ladder. A test that mounts real React needs a DOM the Node target does not supply; what to do about that when a ported test reaches for it is the pilot's call, and a call worth logging.
 
 ### `app/package.json`
 
 ```json
 {
+  "scripts":         {"test": "shadow-cljs compile test && node out/test.js"},
   "dependencies":    {"react": "19.2.0", "react-dom": "19.2.0"},
   "devDependencies": {"shadow-cljs": "3.4.10", "@testing-library/dom": "^10"}
 }
 ```
+
+`npm test` is the one-line test command: the briefs name it, step 5b runs it, and outcome 1 quotes its exit code before and after. It compiles the `:test` build and then runs the script, chained with `&&` so a failed compile never runs a stale bundle, and the status it exits with is the test runner's own — one failing assertion is a non-zero exit, which is what makes the captured number evidence.
 
 The React pin is the published floor, not a preference: below 19.2 the lifecycle contract has nothing to run on, and 18 and earlier is not supported. `shadow-cljs` stays in `devDependencies` even though the JVM dependency compiles, because the npm package is where React's CommonJS `process` shim comes from. Testing Library is what the published testing ladder's L3 rung reaches for; add `@testing-library/user-event` if the pilot's ported tests drive real interactions.
 
