@@ -3,8 +3,8 @@
 
 EP-0007 rule 2 ("no stable accepted synonyms") gets the no-floor-lint
 treatment "where shapes allow": a *retired* spelling reappearing in
-repo source is a CI failure, not a doc note. Four renames have merged,
-so four retired spellings are now lintable:
+repo source is a CI failure, not a doc note. Five renames have merged,
+so five retired spellings are now lintable:
 
   (a) The bare `:frame` event-context COEFFECT (sweep item 1, rf2-1m6rf1).
       EP-0002 R3 "one carrier, one name" retired the duplicate `:frame`
@@ -36,6 +36,14 @@ so four retired spellings are now lintable:
       moved 42 `:where` coordinates onto the package's own
       `re-frame.hicasso.impl.*` namespaces; a coordinate naming `front.*`
       or `arm1.*` is retired.
+
+  (e) The facade fn `machine-has-tag?` (rf2-il99l3, reversing rf2-2cmcas).
+      The named-read sugar over a machine's tag set was REMOVED so a machine
+      read has ONE grammar: the shipped surface is the subscription
+      `[:rf.machine/has-tag? …]`, registered at
+      `implementation/machines/src/re_frame/machines.cljc`. No `src`
+      namespace defines `machine-has-tag?` any more, and
+      `spec/api-manifest-metadata.edn` records the removal.
 
 WHY THE SHAPES ARE SCOPED PRECISELY (the "where shapes allow" caveat)
 
@@ -155,6 +163,63 @@ retired SHAPES:
       literal and reported quoted PROSE about the retirement as a
       reintroduction of it — the mirror image of the miss above, and the more
       annoying failure of the two, since it reds a correct edit.
+
+  (e) TWO shapes, and BOTH are read on the RAW line — rule (e) is the one
+      rule here that does NOT mask comments. That is a deliberate departure,
+      decided on measured evidence rather than taste (rf2-4gjt).
+
+      WHY RAW. Every carrier of this spelling that anyone has actually found
+      was found BY HAND, across three separate censuses, and the gate was
+      green throughout. The reason was NOT that the roster lacked the name —
+      adding it to rules (a)-(c) would have changed nothing. It was that both
+      carriers lived exactly where those rules cannot look: one in a `.md`
+      file (a suffix this gate never opens), and one inside a `;;` COMMENT in
+      `examples/patterns/websocket/connection.cljs`, masked before any
+      pattern ran —
+
+          ;; `:rf.machine/has-tag?` (sugar: `(rf/machine-has-tag? :ws/connection
+
+      — a retired facade call presented as live sugar, in a comment. Masking
+      is right for rules (a)-(c), whose retired spellings are ordinary
+      vocabulary that prose must be free to name; it is wrong here, because
+      the QUALIFIED shape below has no legitimate prose use at all.
+
+      SYMBOL (the shape that fires): a NAMESPACE-QUALIFIED
+      `<ns-or-alias>/machine-has-tag?` — `rf/machine-has-tag?`,
+      `re-frame.core/machine-has-tag?`. This is the *public* spelling: how a
+      consumer writes the retired sugar, and how the one real carrier wrote
+      it. Three token boundaries do the whole job of an allow-list, so this
+      rule ships with NO allow-list and needs none:
+
+        * A preceding `:` is DENIED, so the separately-retired KEYWORD
+          `:rf/machine-has-tag?` cannot fire this rule, and neither can the
+          deny-site `docs/machines/tags.md` that spells it to forbid it
+          ("There is no `machine-has-tag?` function and no
+          `[:rf/machine-has-tag? …]`").
+        * The `/` must be IMMEDIATELY before `machine-has-tag?`. That is what
+          keeps the rule off the ~60 private `defn-` test helpers in
+          `implementation/adapters/reagent/test/` — `machine-has-tag?`,
+          `settings-machine-has-tag?`, `tags-machine-has-tag?` and their call
+          sites are all UNQUALIFIED, and rf2-1e8m classified them correct and
+          DO NOT TOUCH. It also keeps it off every prose roster that lists the
+          name after a slash-and-space (a prose roster of API names), which is
+          how the playground README and `sci/deps.edn` spell it.
+        * The shipped subscription `:rf.machine/has-tag?` carries `/has-tag?`,
+          not `/machine-has-tag?`, so it cannot collide.
+
+      DEFINITION (the reintroduction shape): `(defn machine-has-tag?` or
+      `(def machine-has-tag?` — the facade var coming back. `defn-` is
+      excluded by requiring WHITESPACE after `def`/`defn`, which is precisely
+      the private-helper carve-out: the shipped-sugar retirement is about a
+      PUBLIC facade var, and a private test helper of the same name is not
+      that. A public def carrying metadata (`(defn ^{:doc …} machine-has-tag?`)
+      is a documented miss, not worth the false-positive surface.
+
+      MEASURED BEFORE SHIPPING, in both directions: the needle fires on the
+      real historical carrier quoted above, and on NONE of the eight sites
+      that name the spelling at tip. Those eight are pinned verbatim as
+      self-test negatives below, so a future widening that would red a real
+      file fails here first rather than in someone else's PR.
 
 WHERE A SHAPE IS TOO AMBIGUOUS TO LINT WITHOUT NOISE (documented, not shipped)
 
@@ -416,6 +481,33 @@ _RETIRED_QUERY_RETAIN_RE = re.compile(
     r"(?:^|(?<=[\s(\[{,]))"      # keyword-token start (a backtick denies it)
     r":query-retain"
     r"(?=[\s)\]},]|$)"           # keyword-token end
+)
+
+# (e) The retired facade fn `machine-has-tag?` (rf2-il99l3), in its TWO shapes.
+#     Both are matched on the RAW line — see (e) under "WHY THE SHAPES ARE
+#     SCOPED PRECISELY" for why this rule alone does not mask comments.
+#
+# SYMBOL: a NAMESPACE-QUALIFIED reference — `rf/machine-has-tag?`,
+# `re-frame.core/machine-has-tag?`. The `/` must sit immediately before the
+# name, which is what keeps the rule off every unqualified mention: the private
+# `defn-` test helpers and their ~60 call sites, the deny-site, and the prose
+# rosters that list the name after a slash-and-space. The token-start lookbehind
+# denies `:`, so the separately-retired KEYWORD `:rf/machine-has-tag?` is not
+# this rule's business and cannot fire it.
+_SYM_CHAR = r"A-Za-z0-9._*+!'<>=?\-"
+_RETIRED_MACHINE_HAS_TAG_QUALIFIED_RE = re.compile(
+    r"(?<![" + _SYM_CHAR + r":/])"        # token start: not mid-symbol, not after ':'
+    r"[A-Za-z][" + _SYM_CHAR + r"]*"      # the namespace / alias segment
+    r"/machine-has-tag\?"
+    r"(?![" + _SYM_CHAR + r"])"           # token end
+)
+
+# DEFINITION: the facade var coming back. `defn-` cannot match — `def(n)?` is
+# followed by MANDATORY whitespace, so the private-helper spelling is excluded
+# by construction rather than by an allow-list.
+_RETIRED_MACHINE_HAS_TAG_DEF_RE = re.compile(
+    r"\(\s*defn?\s+machine-has-tag\?"
+    r"(?![" + _SYM_CHAR + r"])"
 )
 
 
@@ -741,6 +833,22 @@ def _scan_text(path: Path, text: str) -> list[Finding]:
         if _RETIRED_QUERY_RETAIN_RE.search(line):
             findings.append(
                 Finding(path, line_no, "retired-query-retain-key",
+                        raw_snippet(line_no))
+            )
+
+    # (e) The retired facade fn `machine-has-tag?`. RAW lines, not masked —
+    #     this rule's only real-world carrier to date was inside a `;;`
+    #     comment, and the qualified shape has no legitimate prose use. See
+    #     (e) in the module docstring for the measurement behind that choice.
+    for line_no, line in enumerate(raw, start=1):
+        if _RETIRED_MACHINE_HAS_TAG_QUALIFIED_RE.search(line):
+            findings.append(
+                Finding(path, line_no, "retired-machine-has-tag:qualified",
+                        raw_snippet(line_no))
+            )
+        if _RETIRED_MACHINE_HAS_TAG_DEF_RE.search(line):
+            findings.append(
+                Finding(path, line_no, "retired-machine-has-tag:definition",
                         raw_snippet(line_no))
             )
     return findings
