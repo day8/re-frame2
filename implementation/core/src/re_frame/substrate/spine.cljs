@@ -992,12 +992,21 @@
   the injected `unmount-root`), so the `dispose-adapter!` active-roots drain
   always sees the live set (rf2-w1g0d2). The root constructor / tree-wrap
   (Fragment+sentinel vs none) differs per spine and stays in each render;
-  only this tracking tail is shared."
+  only this tracking tail is shared.
+
+  The thunk is IDEMPOTENT, as Spec 006 §`render` requires of the returned
+  unmount-fn (rf2-k5r9t): membership in the active set is the single
+  liveness fact, and the thunk releases the root only while it still holds
+  it. So a second call is a no-op, and a root the `dispose-adapter!` drain
+  has already released is not released again by its own thunk — the
+  underlying host unmount is reached exactly once per root, whichever of
+  the two callers gets there first."
   [active-roots-cell unmount-op root]
   (swap! active-roots-cell conj root)
   (fn unmount []
-    (swap! active-roots-cell disj root)
-    (unmount-op root)))
+    (when (contains? @active-roots-cell root)
+      (swap! active-roots-cell disj root)
+      (unmount-op root))))
 
 ;; ---- native-root hydration-mismatch adoption reporter (rf2-qfz65) ----------
 ;;
