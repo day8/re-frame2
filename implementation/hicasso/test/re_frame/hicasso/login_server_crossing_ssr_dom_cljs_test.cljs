@@ -69,6 +69,7 @@
   the product claim — run in both."
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             [clojure.string :as str]
+            [goog.object :as gobj]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.hicasso :as h]
@@ -176,6 +177,27 @@
       (js/require (str js/__dirname "/../ssr-node/src/protocol.cjs")))))
 
 (defn- node-lane? [] (some? @protocol))
+
+(defn- code
+  "One refusal code, READ OFF `protocol.cjs`'s own frozen `CODE` table
+  rather than restated as a literal here.
+
+  The rows below are about the CROSSING — that this condition earns that
+  refusal — and reading the constant pins exactly that while leaving the
+  spelling where it belongs. The service's code vocabulary is the
+  service's: `implementation/ssr-node`'s absence witness holds that no file
+  outside that package spells it, and a literal here was a second spelling
+  with nothing keeping it in step with the first (rf2-8arzr.9, which is how
+  the witness went red on main). It is the same rule the JVM adapter
+  already keeps — see `re-frame.ssr.ring.node`, which carries the code as
+  an opaque value and classifies by the transport's status contract.
+
+  A key this table does not carry answers `nil`, so a renamed constant
+  fails the row loudly rather than comparing two absences."
+  [k]
+  (let [v (gobj/get (.-CODE @protocol) k)]
+    (assert (string? v) (str "protocol.cjs CODE has no " k))
+    v))
 
 (def ^:private module
   "`module.exports` as the sidecar receives it."
@@ -372,7 +394,7 @@
     (fn []
       (with-frame! idle-events nil
         (fn [fid]
-          (is (= ":rf.ssr-node/build-identity-mismatch"
+          (is (= (code "BUILD_IDENTITY_MISMATCH")
                  (refusal-code #(crossing! fid {:build-id "some-other-build"})))
               "a host deployed against a different bundle is refused, not served")
           (testing "the control - this bundle's own id renders"
@@ -388,10 +410,10 @@
     (fn []
       (with-frame! idle-events nil
         (fn [fid]
-          (is (= ":rf.ssr-node/state-key-not-allowed"
+          (is (= (code "STATE_KEY_NOT_ALLOWED")
                  (refusal-code #(crossing! fid {:state {":secrets" "{:token \"t\"}"}})))
               "the allowlist belongs to the entry, so a caller cannot widen its own allowance")
-          (is (= ":rf.ssr-node/unknown-entry"
+          (is (= (code "UNKNOWN_ENTRY")
                  (refusal-code #(crossing! fid {:entry "hicasso.login/nope"}))))
           (testing "the control - the keys the table names pass"
             (is (str/includes? (:html (crossing! fid)) "Sign in"))))))))

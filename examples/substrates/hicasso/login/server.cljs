@@ -31,10 +31,11 @@
   `host.clj` hands `ssr-handler` as `:render-state`. ONE list, two readers.
   The two processes are deployed separately, so nothing can MAKE them agree
   — but nothing has to: a host that asks for a key this table does not name
-  is refused with `:rf.ssr-node/state-key-not-allowed`, and a host built
-  against a different bundle is refused with
-  `:rf.ssr-node/build-identity-mismatch`. Drift is loud on the first
-  request, not silent on the thousandth.
+  is refused with the sidecar's state-key-not-allowed refusal, and a host
+  built against a different bundle with its build-identity one. Both codes
+  are the sidecar's vocabulary, spelled in its protocol rather than
+  restated here. Drift is loud on the first request, not silent on the
+  thousandth.
 
   ## The render module contract
 
