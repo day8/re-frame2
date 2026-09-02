@@ -18,7 +18,6 @@ description: >
   §Skill routing for the right sibling skill.
 allowed-tools:
   - Bash(rg *)
-  - Bash(rg -l *)
   # The project's OWN noninteractive install / compile / test gates, for every
   # supported build-tool shape (deps.edn / shadow-cljs / npm / Leiningen / bb) —
   # the routine wildcards skills/README.md §Published-skill allowed-tools
