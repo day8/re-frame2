@@ -4,7 +4,7 @@
    The same feature runs on Reagent (`login.core`) and on UIx
    (`uix.login.core`), and that is the point of this file. All three
    `:require` the identical substrate-free
-   [`login.model`](../../../core/login/model.cljs) namespace — the ONE owner of
+   [`login.model`](../../../core/login/model.cljc) namespace — the ONE owner of
    the `auth.login` schemas, demo fx, five-state machine, form-slice events and
    named subs — and each adds only its own view layer and boot. Diff this
    `core.cljs` against either twin and the diff is the view layer, whole and
@@ -33,7 +33,7 @@
    contract suite (`npm run test:cljs`) and the framework gates, not by a test
    alongside this file."
   (:require [re-frame.core :as rf]
-            ;; The substrate-free model owner (examples/core/login/model.cljs).
+            ;; The substrate-free model owner (examples/core/login/model.cljc).
             ;; Requiring it registers every shared `auth.login` schema, fx,
             ;; machine, event and sub, and hands us `model/frame-config` for the
             ;; boot below. It names no substrate — the Hicasso code lives only

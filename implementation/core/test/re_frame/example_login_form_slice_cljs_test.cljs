@@ -1,6 +1,6 @@
 (ns re-frame.example-login-form-slice-cljs-test
   "Framework-tree regression for the login feature's FORM SLICE + password
-   PRIVACY — the `:auth.login/*` events owned by examples/core/login/model.cljs,
+   PRIVACY — the `:auth.login/*` events owned by examples/core/login/model.cljc,
    the substrate-free model shared across the Reagent/UIx login examples
    (rf2-ppbvav). rf2-t83ail + the password-classification fix rf2-3fc89f.33.
 

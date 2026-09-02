@@ -108,7 +108,7 @@ copies of the `:auth.login/*` dataflow, the three login examples — Reagent
 (`examples/login`), UIx (`examples/login-uix`) and Hicasso
 (`examples/login-hicasso`) — all `:require`
 **one** substrate-free model namespace,
-[`login.model`](core/login/model.cljs) — the single owner of every shared
+[`login.model`](core/login/model.cljc) — the single owner of every shared
 `auth.login` schema, fx, machine, event, and sub (rf2-ppbvav, extended to the
 Hicasso arm by rf2-fmns2). So the ids aren't
 merely *shared*, they're registered from *one source*; each `core.cljs` adds only

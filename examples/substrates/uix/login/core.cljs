@@ -5,7 +5,7 @@
 
    Everything below the views — the state machine, the schemas, the form-slice
    events and subs, the managed-HTTP effect — lives in the substrate-free
-   [`login.model`](../../../core/login/model.cljs) namespace, the ONE owner of
+   [`login.model`](../../../core/login/model.cljc) namespace, the ONE owner of
    the `auth.login` dataflow. This file `:require`s it (registering everything at
    ns-load) and adds only the UIx view layer + mount. The Reagent twin
    (`login.core`) imports the identical model. Same data, two doorways: here a
@@ -23,7 +23,7 @@
   (:require [uix.core :as uix :refer [$ defui]]
             [uix.dom  :as uix-dom]
             [re-frame.core :as rf]
-            ;; The substrate-free model owner (examples/core/login/model.cljs).
+            ;; The substrate-free model owner (examples/core/login/model.cljc).
             ;; Requiring it registers every shared `auth.login` schema, fx,
             ;; machine, event, and sub, and hands us `model/frame-config` for the
             ;; mount below. It names no substrate — the UIx code lives only here.

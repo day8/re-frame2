@@ -19,7 +19,7 @@ the difference is entirely in what ships.
 One substrate-free model namespace, three view layers over it. This is the
 comparison the login example exists to make.
 
-[`login.model`](../core/login/model.cljs) is the ONE owner of the `auth.login`
+[`login.model`](../core/login/model.cljc) is the ONE owner of the `auth.login`
 dataflow — every schema, the demo HTTP fx, the five-state machine, the
 form-slice events, the named subs, and the shared frame config. It names no
 substrate. The three entry points below each `:require` that identical
@@ -58,24 +58,21 @@ build (`examples/login-hicasso-server`) that publishes the render module the
 dials it — the shape of a native Hicasso root rendered on Node while the JVM
 keeps the request, the `<head>`, the payload and the shell (`rf2-8arzr`).
 
-**Read the two files differently, because only one of them runs.**
-`server.cljs` is real and exercised: the CLJS product witness
-(`re-frame.hicasso.login-server-crossing-ssr-dom-cljs-test`) drives the real
-views, the real `login.model` registrations and this module's own published
-entry table through the sidecar's own request validator, simulating only the
-transport. `host.clj` is **annotated wiring rather than a running server** — it
-comments out its `login.model` require, because a JVM host must load the
-application's model and that model is ClojureScript-only today, so nothing
-starts this handler and no gate drives it. Its own docstring says so and says
-why. The transport half of the crossing is witnessed separately, by the
-`jvm-node-crossing` CI job over a real socket.
+**Both files run, and a gate drives each.** `server.cljs` is exercised by the
+CLJS product witness (`re-frame.hicasso.login-server-crossing-ssr-dom-cljs-test`),
+which drives the real views, the real `login.model` registrations and this
+module's own published entry table through the sidecar's own request validator,
+simulating only the transport. `host.clj` is exercised by
+`re-frame.ssr.ring.login-host-crossing-test` (`implementation/ssr-ring/test/`,
+CI's `jvm-node-crossing` job): requiring the namespace is the compile gate, and
+its `:crossing` tests spawn the real launcher on a real socket and drive the
+handler this host constructs.
 
-What the pair is still the clearest illustration of is **why render state is a
-policy distinct from the hydration payload**: the server notice the page
-renders is deliberately in one and not the other. Note that `host.clj` today
-spells its `:render-state` map out literally rather than reading
-`server.cljs`'s `render-state-policy`, so the two halves are not yet one list
-with two readers — that, and the host's runnability, are open on `rf2-8arzr.5`.
+What the pair is the clearest illustration of is **why render state is a policy
+distinct from the hydration payload**: the server notice the page renders is
+deliberately in one and not the other. Both halves read that policy from one
+place — `policy.cljc`, a `.cljc` namespace, because neither neighbour can be
+read by the other's compiler and a copy in either would be a copy that drifts.
 
 The recipe these two files illustrate is
 [Render on Node](../../docs/ssr/concepts.md#render-on-node).

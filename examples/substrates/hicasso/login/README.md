@@ -15,7 +15,7 @@ layer, instead of Reagent.
 Everything below the view layer stays the same, because it is literally the same
 source. The schemas, the five-state machine, the form-slice events, the named
 subscriptions and the canned HTTP stub all live in one substrate-free namespace,
-`login.model` ([`examples/core/login/model.cljs`](../../../core/login/model.cljs)),
+`login.model` ([`examples/core/login/model.cljc`](../../../core/login/model.cljc)),
 which this example `:require`s and both twins import unchanged. Only the views
 and the boot are written differently.
 
@@ -103,12 +103,13 @@ login/
   core.cljs    — the Hicasso HALF: h/defview views + adapter init + frame + boot.
   server.cljs  — the SERVER bundle: the entry table the ssr-node sidecar loads.
   host.clj     — the JVM half: one ssr-handler wired to the Node renderer.
+  policy.cljc  — the render-state list and the entry id, read by BOTH of those.
   index.html   — minimal host page.
 ```
 
 The substrate-free half — schemas, machine, events, subs, HTTP stub, frame
 config — is not in this folder: it is the shared
-[`login.model`](../../../core/login/model.cljs) namespace this `core.cljs`
+[`login.model`](../../../core/login/model.cljc) namespace this `core.cljs`
 `:require`s.
 
 ## How to run
@@ -123,7 +124,7 @@ example on a free local port, and prints the URL to open. Add `--no-watch` for a
 one-shot compile-and-serve.
 
 No backend ships. The login runs against the canned HTTP stub in
-[`login.model`](../../../core/login/model.cljs), so the password
+[`login.model`](../../../core/login/model.cljc), so the password
 `correct-horse` succeeds and anything else fails the way the machine expects.
 
 ## Rendering it on the server
@@ -149,19 +150,43 @@ either direction.
 
 There are two allowlists, and reading them as one is the mistake worth
 avoiding. `:payload` answers *what may the browser see?*; `:render-state`
-answers *what does the render need?* They differ in both directions:
+answers *what does the render need?* They differ in both directions — and they
+are opts on two different constructors, because the thing that projects is the
+renderer:
 
 ```clojure
-:payload      [:auth]                                   ;; the browser's
+;; on ssr-handler — the browser's
+:payload      [:auth]
+;; on the renderer — the render's
 :render-state {:app-db     [:auth :auth.login/server-notice]
-               :runtime-db [:rf.runtime/machines]}      ;; the render's
+               :runtime-db [:rf.runtime/machines]}
 ```
+
+That map is not written twice. It is
+[`policy.cljc`](policy.cljc)'s `render-state-policy`, and `host.clj` and
+`server.cljs` both read it — one list, two readers, one file. It has to be its
+own namespace because neither neighbour can be read by the other's compiler,
+so a policy written in either is a policy the other has to copy. The sidecar
+refuses a host that asks for **more** than the entry table allows; nothing can
+notice a host that asks for **less**, which is the direction a hand-kept copy
+actually drifts in.
 
 `:rf.runtime/machines` is in the render's list and not the browser's *shape*
 because the two partitions are different places: the `:auth.login/flow`
 machine's snapshot lives in runtime-db, and it is what decides whether the page
-shows the form, the welcome or the locked panel. Leave it out and the server
+shows the form, the welcome or the locked panel. A host that restores a session
+and drives the flow to `:authed` needs that snapshot to cross, or the server
 renders a signed-in visitor a login form.
+
+This host drives nothing, and the consequence is worth knowing before you copy
+the file: the machine is **self-seeding** — it materialises a snapshot the first
+time it is dispatched at or subscribed to — and neither happens on the JVM,
+because the rendering happens in Node. So the runtime partition crosses empty
+and Node's own per-request frame seeds `:idle`, which draws the form. That is
+the right page, and both halves of it are measured in
+`re-frame.ssr.ring.login-host-crossing-test`: the shipped configuration crosses
+with an empty runtime partition, and the same page with one machine event added
+to `:initial-events` crosses carrying `:submitting`.
 
 `:auth.login/server-notice` runs the other way: a deployment notice the host
 resolves per request, which the render may read and the browser never receives.
@@ -202,15 +227,27 @@ Then serve `host.clj`'s `handler` from any Ring adapter, with
 client boots through the same `core.cljs` either way: it looks for
 `__rf_payload`, and hydrates when it finds one instead of mounting.
 
-**One thing is not done yet, and the JVM host cannot run without it.** A JVM
-host has to hold the application's state, so `login.model` — the owner of every
+**The host runs**, and two gates say so rather than this paragraph. A JVM host
+has to hold the application's state, so `login.model` — the owner of every
 `auth.login` schema, fx, machine, event and sub — has to be loadable from
-Clojure, and it is `model.cljs` today. The single line keeping it there is a
-`localStorage` write in the demo session effect. Making it `.cljc` is a change
-to a file all three login arms share and is not made here; until it is,
-`host.clj` is the wiring rather than a running server. The crossing itself is
-exercised end to end, against the real sidecar contract, by
-`implementation/hicasso/test/re_frame/hicasso/login_server_crossing_ssr_dom_cljs_test.cljs`.
+Clojure; it is
+[`model.cljc`](../../../core/login/model.cljc), platform-neutral but for one
+reader conditional around the demo session effect's `localStorage` write.
+
+The crossing is witnessed from both ends:
+
+- `implementation/hicasso/test/re_frame/hicasso/login_server_crossing_ssr_dom_cljs_test.cljs`
+  — the **render** half, in CLJS: the real views, the real `login.model`
+  registrations and this module's published entry table, through the sidecar's
+  own request validator.
+- `implementation/ssr-ring/test/re_frame/ssr/ring/login_host_crossing_test.clj`
+  — the **host** half, on the JVM. Requiring `hicasso.login.host` is itself the
+  compile gate (before it, a compile error here passed everything silently);
+  its `:crossing` tests spawn the real `serve.cjs` launcher on a port-0 socket
+  and drive this file's `make-handler`, asserting the complete JVM-owned
+  document, the projection under `policy.cljc`'s list, and the sidecar's refusal
+  of a host that reaches past it. `clojure -M:crossing-test` from
+  `implementation/ssr-ring/`; CI runs it as `jvm-node-crossing`.
 
 ## Copying this into your own app
 

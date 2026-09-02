@@ -3,7 +3,7 @@
 
    The whole login model — the state machine, the schemas, the form-slice
    events and subs, the demo HTTP stub, and the shared frame config — lives in
-   the substrate-free [`login.model`](model.cljs) namespace, required below for
+   the substrate-free [`login.model`](model.cljc) namespace, required below for
    its side-effecting registrations. That namespace is the ONE owner of the
    `auth.login` dataflow; read it for the ideas (the five-state login machine,
    the machine + slice split, the three password-egress boundaries).
@@ -28,7 +28,7 @@
             ;; The substrate-free model owner. Requiring it registers every
             ;; shared `auth.login` schema, fx, machine, event, and sub, and
             ;; hands us `model/frame-config` for the mount below. It names no
-            ;; substrate — see model.cljs.
+            ;; substrate — see model.cljc.
             [login.model :as model]
             [re-frame.adapter.reagent :as reagent-adapter]))
 

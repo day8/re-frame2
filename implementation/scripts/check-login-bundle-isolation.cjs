@@ -7,7 +7,7 @@
  * The three login examples — Reagent (`login.core`), UIx
  * (`uix.login.core`) and Hicasso (`hicasso.login.core`) — share ONE
  * substrate-free model owner,
- * `login.model` (examples/core/login/model.cljs): the single source for every
+ * `login.model` (examples/core/login/model.cljc): the single source for every
  * `auth.login` schema, fx, machine, event, sub, and the frame config. Each
  * example `:require`s that model and adds only its own views + mount.
  *
@@ -286,7 +286,7 @@ function main() {
     if (r.ok) continue;
     if (!r.foreignOk) {
       console.error(`${r.name}: a FOREIGN view runtime leaked into the bundle.`);
-      console.error('  The shared substrate-free login.model (examples/core/login/model.cljs)');
+      console.error('  The shared substrate-free login.model (examples/core/login/model.cljc)');
       console.error('  appears to have pulled in a view library / adapter — the isolation');
       console.error('  claim (rf2-ppbvav) is broken. Likely cause: a `:require` on');
       console.error('  `reagent.*` / `uix.*` / `re-frame.hicasso.*` or `re-frame.adapter.*`');
