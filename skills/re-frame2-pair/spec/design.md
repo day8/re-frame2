@@ -48,7 +48,7 @@ The MCP tool reference lives in `references/mcp-transport.md`.
 ### L4 — Two modes of changing the app
 
 - **REPL changes** are ephemeral; survive hot-reloads of unaffected namespaces but lost on full page reload. Use for probes / experiments / throwaway fixes.
-- **Source edits** are permanent; after any source edit, the AI **must** call `hot-reload/wait` before dispatching or tracing. Otherwise it interacts with pre-reload code and reports misleading results.
+- **Source edits** are permanent; the AI **must** confirm the reload landed before dispatching or tracing. The protocol starts *before* the edit: capture a discriminating `probe`'s pre-edit value as the `baseline`, make the edit, then call `tail-build` with that same probe and baseline. Otherwise it interacts with pre-reload code and reports misleading results.
 
 This dichotomy is a cardinal rule in SKILL.md. The strict source-edit protocol lives in `references/ops.md` §Hot-reload coordination.
 
@@ -102,7 +102,7 @@ Before any time-travel experiment, the AI walks the cascade's effects and tells 
 - **v1→v2 migration** — `skills/re-frame-migration/`.
 - **Porting re-frame2 to a different host** — `skills/re-frame2-implementor/`.
 - **Retrospecting on the pair tool itself** — `skills/re-frame2-pair-retro/`.
-- **Apps not using re-frame2's Tool-Pair contract** (e.g. v1 apps, custom adapters that don't install trace-cb / epoch-cb hooks) — out of scope; the skill returns `:missing :re-frame2-tool-pair` on connect.
+- **Apps not using re-frame2's Tool-Pair contract** (e.g. v1 apps, custom adapters that don't install trace-cb / epoch-cb hooks) — out of scope; `discover-app` refuses on a rung of its preload-failure ladder — such an app lands on `:runtime-loaded-but-preload-missing`, the rung that also covers "no re-frame2 dependency at all". The full ladder is catalogued in `references/errors.md`.
 
 ## 5. File structure (locked)
 
@@ -135,7 +135,7 @@ Typical session reads SKILL.md (the always-loaded router) + one or two reference
 
 ## 6. Discovery surface (frontmatter `description`)
 
-The `description` is "pushy" and lists every surface the live-app workflow exposes: `re-frame2`, `app-db`, `dispatch`, `subscribe`, `reg-event`, `reg-sub`, `reg-fx`, `reg-machine`, `frame`, `epoch`, `interceptor`, `sub-cache`, `trace-buffer`, `register-listener!`, `register-epoch-listener!`, `restore-epoch`, plus the toolchain (`re-com`, `shadow-cljs`). The framing is *"pair-program with a live re-frame2 application"* — discriminates against the authoring-only `re-frame2` skill (which triggers on the same surfaces but in code-writing prose).
+The `description` is "pushy" and lists every surface the live-app workflow exposes: `re-frame2`, `app-db`, `dispatch`, `subscribe`, `reg-event`, `reg-sub`, `reg-fx`, `reg-machine`, `frame`, `epoch`, `interceptor`, `sub-cache`, `trace-buffer`, `register-listener!`, `restore-epoch`, plus the toolchain (`re-com`, `shadow-cljs`). The framing is *"pair-program with a live re-frame2 application"* — discriminates against the authoring-only `re-frame2` skill (which triggers on the same surfaces but in code-writing prose).
 
 ## 7. Anti-patterns the skill explicitly resists
 
@@ -143,7 +143,7 @@ The `description` is "pushy" and lists every surface the live-app workflow expos
 - **Using `reset!` of a frame's app-db when not surgically needed.** Mentioned explicitly in SKILL.md style guidance.
 - **Routing fixes through re-frame-10x.** L2.
 - **Skipping `discover-app`.** L5; every op starts by checking the session sentinel.
-- **Skipping `hot-reload/wait` after a source edit.** L4; the protocol leaf is the canonical reference.
+- **Skipping the `tail-build` confirmation after a source edit** (or calling it without the pre-edit `baseline`). L4; the protocol leaf is the canonical reference.
 - **Inventing alternate vocabulary** for re-frame2 concepts (e.g. "state graph" for "frame", "transition log" for "epoch ring"). Pillar 2.
 - **Asserting completion without grounding in a read.** SKILL.md style guidance — "Validate before proposing".
 
@@ -166,4 +166,4 @@ Currently recipes are listed; an "if you only learn three procedures, learn thes
 
 ### OQ3 — Should the skill ship eval cases (smoke tests for the AI's responses)?
 
-`tests/` exists but only carries connection smoke tests. AI-response evals (e.g. "given this trace, the AI should report X") would tighten the regression-test surface. Status: deferred.
+`tests/` already carries three real surfaces: the `tests/fixture/` counter app and its `:pure-test` CLJS node-test over the shipped `pure.cljc`, the Babashka AST pins in `tests/runtime/*.clj`, and the skill-prompt regression suite in `tests/prompts/` (`docs/TESTING.md` §1–3 describes all three). What is still absent is *AI-response* evals (e.g. "given this trace, the AI should report X"), which would extend the regression surface past structure and prompt text to the AI's own output. Status: deferred.
