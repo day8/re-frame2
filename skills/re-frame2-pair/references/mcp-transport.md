@@ -6,7 +6,7 @@ re-frame2-pair ops run over the **MCP server** — a persistent stdio JSON-RPC s
 
 - [Install / configure (one-time)](#install--configure-one-time)
 - [Stale-binary post-merge hook](#stale-binary-post-merge-hook)
-- [MCP tool reference (args)](#mcp-tool-reference-args) — the 29 tools, name → arg signature → semantics home
+- [MCP tool reference (args)](#mcp-tool-reference-args) — the 30 tools, name → arg signature → semantics home
 - [When to use `snapshot` vs the per-op reads](#when-to-use-snapshot-vs-the-per-op-reads)
 - [Preload probe (no inject step)](#preload-probe-no-inject-step)
 - [Build-id resolution](#build-id-resolution)
