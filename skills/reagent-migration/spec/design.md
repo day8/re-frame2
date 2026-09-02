@@ -184,7 +184,8 @@ skills/reagent-migration/
 │   ├── catalog-judgment.md        (D-tier — "here's how to DECIDE")
 │   ├── catalog-reject.md          (R-tier — "don't migrate this / stay on Reagent")
 │   ├── procedure.md               (reporter first, then incremental closed-subtree passes; the test kit)
-│   └── gotchas.md                 (the click-time closure trap, metadata keys, dialect edges, guide-vs-door)
+│   ├── ssr-hydrate.md             (MIG-23's SSR-then-hydrate recipe — severed from catalog-judgment.md under rf2-n87aa; a client-only migration never loads it)
+│   └── gotchas.md                 (three leftovers/three ids, metadata keys, dialect edges, guide-vs-door)
 ├── evals/
 │   └── evals.json                 (trigger fixtures + behavioural fixtures across the M/D/R tiers)
 └── spec/
@@ -196,6 +197,13 @@ skills/reagent-migration/
 `evals/` and `spec/` are authoring-time scaffolding — not part of the
 distributable (`package.json` `files` omits them). Every reference leaf stays one
 level deep from `SKILL.md`.
+
+**Seven reference leaves, not the original six** (rf2-n87aa, 2026-09-02).
+`ssr-hydrate.md` was severed from `catalog-judgment.md`, which had reached 1.8x
+the family line ceiling and failed the catalogue test in `skills/README.md`
+§Leaf size discipline: MIG-23's recipe is ~110 self-contained lines that a
+client-only SPA migration — the common case — never reads, yet every D-tier load
+carried it. `SKILL.md` routes to it directly, so the one-level rule holds.
 
 ## 5. Where this diverges from `re-frame-migration`
 
