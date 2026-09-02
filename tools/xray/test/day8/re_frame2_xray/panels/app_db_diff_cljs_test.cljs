@@ -556,6 +556,45 @@
             (str "the RAW value leaked to the clipboard under a destroyed "
                  "frame (rf2-7htk7). text: " (pr-str text)))))))
 
+(deftest copy-value-with-no-observed-frame-fails-closed-under-id-collision
+  (testing "rf2-7htk7 (third pass) — an app registers a LIVE frame under the
+            public keyword the earlier explicit-nil substitute expanded to,
+            :day8.re-frame2-xray.egress/no-frame. With the picker unselected
+            the copy must still redact whole: a substitute that is itself a
+            registrable frame id resolved to that live frame, took the
+            walker's live-frame branch, and its empty declaration registry
+            shipped the value RAW"
+    (registry/register-xray-handlers!)
+    ;; The app's own frame holds the secret and declares it sensitive — but
+    ;; the picker never selects it, so its policy is not what governs here.
+    (rf/make-frame {:id :rf/default})
+    (rf/with-frame :rf/default (seed-sensitive-schema!))
+    ;; The colliding frame: an ordinary public keyword any app can spell.
+    (rf/make-frame {:id :day8.re-frame2-xray.egress/no-frame})
+    (try
+      (let [captured (atom [])]
+        (rf/make-frame {:id :rf/xray
+                        :fx-overrides {:rf.xray.fx/copy-to-clipboard
+                                       (fn [_ctx args] (swap! captured conj args))}})
+        ;; No :rf.xray/set-target-frame — the unselected picker.
+        (rf/with-frame :rf/xray
+          (rf/dispatch-sync
+            [:rf.xray/copy-value-to-clipboard
+             {:auth {:username "ada" :password "shh"}}]))
+        (is (= 1 (count @captured)))
+        (let [text (:text (first @captured))]
+          (is (= ":rf/redacted" text)
+              (str "no observed frame must egress the whole-value redaction "
+                   "sentinel even with a live frame registered under the "
+                   "explicit-nil substitute's id. text: " (pr-str text)))
+          (is (not (re-find #"shh" text))
+              (str "the RAW secret leaked to the clipboard through a live "
+                   "frame colliding with the explicit-nil substitute "
+                   "(rf2-7htk7). text: " (pr-str text)))))
+      (finally
+        ;; Never leave the colliding id live for a sibling test.
+        (rf/destroy-frame! :day8.re-frame2-xray.egress/no-frame)))))
+
 (deftest copy-path-is-not-a-value-egress
   (testing "rf2-uo0rc.2 — the path-copy variant copies only the path
             vector (key names, no values); it is not a value-egress site
