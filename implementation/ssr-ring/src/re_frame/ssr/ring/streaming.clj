@@ -597,7 +597,18 @@
   `default-streaming-suffix`). `:initial-events`
   accepts BOTH forms `ssr-handler` does — an `:initial-events` vector OR a
   `(fn [request] -> initial-events-vector)` deriving the setup vector from
-  the Ring request; both flow through the shared setup pipeline. One exception:
+  the Ring request; both flow through the shared setup pipeline. Two
+  exceptions, both REJECTED at handler-construction time with
+  `:rf.error/ssr-streaming-unsupported-opt` (ex-data `:opt-key`, `:got`,
+  `:recovery`):
+
+    `:renderer` — the non-streaming `ssr-handler`'s render-body seam
+    (rf2-8arzr.1). The streaming path renders its shell and every
+    continuation chunk from the JVM-resolved `:root-view`, so a body that
+    arrives whole from a non-local renderer has nothing to straddle;
+    streaming over a non-local renderer is a programme non-goal. Use
+    `ssr-handler` with `:renderer`, or drop it to stream the JVM-local
+    render. `:root-view` therefore stays required here.
 
     `:html-shell` is NOT supported by the streaming path and is REJECTED
     at handler-construction time (`:rf.error/ssr-streaming-unsupported-opt`).
@@ -682,7 +693,7 @@
   ;; (attribute-value positions) by the streaming
   ;; prefix/suffix. See `validate-construction-opts!` for details.
   (lifecycle/validate-construction-opts! raw-opts)
-  ;; Reject opts the streaming path cannot honour (currently
+  ;; Reject opts the streaming path cannot honour (`:renderer` and
   ;; `:html-shell`) at construction time. `ssr-handler` builds its response
   ;; from a one-piece `:html-shell` fn; the streaming path flushes a SPLIT
   ;; prefix/suffix straddling the continuation chunks, so a one-piece shell

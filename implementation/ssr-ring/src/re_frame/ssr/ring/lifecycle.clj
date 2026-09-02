@@ -430,8 +430,32 @@
   streaming envelope DOES honour). A nil `:html-shell` passes (no
   override requested).
 
+  `:renderer`: the render-body seam (rf2-8arzr.1) hands a non-local
+  renderer the settled frame ONCE and takes back one body. The streaming
+  handler renders its shell and then re-enters the tree per continuation
+  chunk from the same JVM-resolved `:root-view`, so a body that arrives
+  whole from elsewhere has no continuation to straddle — streaming over a
+  non-local renderer is a programme non-goal, and silently rendering the
+  JVM `:root-view` instead would be the same fail-open gap `:html-shell`
+  closes. `stream-handler` therefore refuses a non-nil `:renderer` the
+  same way, pointing the caller at the non-streaming `ssr-handler`. A
+  nil `:renderer` passes (the default JVM-local render).
+
   Returns `opts` unchanged on success."
   [opts]
+  (when (some? (:renderer opts))
+    (error/throw-error!
+      :rf.error/ssr-streaming-unsupported-opt
+      'rf.ssr/stream-handler
+      (str "stream-handler does not support :renderer — the streaming "
+           "path renders its shell and each continuation chunk from the "
+           "JVM-resolved :root-view (Spec 011 §Streaming SSR), so a body "
+           "rendered whole elsewhere has no continuation to straddle. "
+           "Use the non-streaming ssr-handler with :renderer, or drop "
+           ":renderer to stream the JVM-local render.")
+      {:recovery :drop-renderer-or-use-non-streaming-handler
+       :extra    {:opt-key :renderer
+                  :got     (:renderer opts)}}))
   (when (some? (:html-shell opts))
     (error/throw-error!
       :rf.error/ssr-streaming-unsupported-opt
