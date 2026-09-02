@@ -4509,6 +4509,11 @@ The host-agnostic conformance fixture format. Per [conformance/README.md](confor
    [:fixture/id           :keyword]
    [:fixture/spec-version :string]
    [:fixture/doc          {:optional true} :string]
+   ;; The capability set this fixture exercises. The harness runs the
+   ;; fixture only when this is a subset of the port's claimed list; an
+   ;; unrecognised capability fails the run rather than skipping it.
+   ;; Per [conformance/README.md](conformance/README.md) §Capability tagging.
+   [:fixture/capabilities [:set :keyword]]
 
    [:fixture/registry
     [:map
@@ -4521,7 +4526,15 @@ The host-agnostic conformance fixture format. Per [conformance/README.md](confor
      ;; `:app-schemas` fixture key carries `path → schema` for the
      ;; runner's `reg-app-schema` realisation step.
      [:app-schemas     {:optional true} [:map-of [:vector :any] :any]]
-     [:route           {:optional true} [:map-of :keyword :map]]]]
+     [:route           {:optional true} [:map-of :keyword :map]]
+     [:machine         {:optional true} [:map-of :keyword :map]]
+     [:machine-action  {:optional true} [:map-of :keyword :map]]
+     [:machine-guard   {:optional true} [:map-of :keyword :map]]
+     ;; Static flow shape; the output-fn body rides `:fixture/flow-bodies`.
+     [:flow            {:optional true} [:map-of :keyword :map]]
+     [:resource        {:optional true} [:map-of :keyword :map]]
+     [:error-projector {:optional true} [:map-of :keyword :map]]
+     [:head            {:optional true} [:map-of :keyword :map]]]]
 
    ;; Handler bodies are expressed in the :rf/handler-body-dsl grammar
    ;; defined above (single canonical definition).
@@ -4529,6 +4542,35 @@ The host-agnostic conformance fixture format. Per [conformance/README.md](confor
     [:map-of :keyword [:map-of :keyword HandlerBody]]]
 
    [:fixture/frame-config {:optional true} :map]
+
+   ;; Multi-frame fixtures: the frames to create, in order. The FIRST
+   ;; frame's `:id` is also the established scope that registration-time
+   ;; frame-local surfaces and bare `dispatch-sync` resolve against
+   ;; (EP-0002); single-frame fixtures get `:rf/default`.
+   [:fixture/frames       {:optional true} [:vector [:map [:id :keyword]]]]
+
+   ;; Simulated host-runtime facts. `:platform` merges into the frame
+   ;; config unless `:fixture/frame-config` sets `:platform` itself.
+   [:fixture/runtime      {:optional true}
+    [:map [:platform {:optional true} [:enum :client :server]]]]
+
+   ;; Output-fn bodies for the flows declared under `:fixture/registry
+   ;; :flow`, in the same DSL as `:fixture/handlers`. Flows are
+   ;; frame-scoped, so they register AFTER the frame exists.
+   [:fixture/flow-bodies  {:optional true} [:map-of :keyword HandlerBody]]
+
+   ;; Commit-plane `:sensitive` / `:large` classifications installed into
+   ;; the frame's elision registry before the dispatches, per
+   ;; [conformance/README.md](conformance/README.md)
+   ;; §The `:fixture/classification-effects` harness step.
+   [:fixture/classification-effects {:optional true} :map]
+
+   ;; `true` marks a fixture asserting a RUNTIME validation trace that a
+   ;; statically-typed host claiming schemas through its type system
+   ;; cannot produce — the malformed value never compiles. Such a host
+   ;; filters these out BEFORE the capability-subset check.
+   [:fixture/dynamic-host-only? {:optional true} :boolean]
+
    [:fixture/dispatches   {:optional true} [:vector [:vector :any]]]
 
    ;; `:fixture/calls` carries direct invocations of pure primitives (Mode B).
@@ -4588,10 +4630,35 @@ The host-agnostic conformance fixture format. Per [conformance/README.md](confor
         [:opts    {:optional true} :map]                                      ;; {:doctype? bool} etc.
         [:expect  :string]]]]]]                                               ;; expected HTML output
 
+   ;; Sub query-vectors the harness invokes against the post-dispatch
+   ;; state, so a sub that THROWS is observed as a sub failure rather
+   ;; than as an absent value.
+   [:fixture/compute-subs {:optional true} [:vector [:vector :any]]]
+
+   ;; Simulates the client's first render after `:rf/hydrate` so
+   ;; hydration-mismatch detection is exercised: the simulated client
+   ;; hash is compared against the server hash carried in the hydrate
+   ;; payload. Per [011 §Hydration-mismatch detection](011-SSR.md#hydration-mismatch-detection).
+   [:fixture/render-after-hydrate
+    {:optional true}
+    [:map
+     [:simulated-client-render-hash :string]
+     [:first-diff-path {:optional true} [:vector :any]]]]
+
+   ;; Streaming SSR: the ordered chunks the response must emit. Pins
+   ;; chunk ORDER on the wire, which a whole-document compare cannot.
+   [:fixture/wire-order
+    {:optional true}
+    [:vector [:map
+              [:kind         :keyword]
+              [:must-include [:vector :string]]]]]
+
    [:fixture/expect
     {:optional true}
     [:map
      [:final-app-db        {:optional true} :any]
+     [:final-app-db-absent {:optional true} [:vector [:vector :any]]]         ;; paths whose tip key must be ABSENT
+     [:final-runtime-db    {:optional true} :any]
      [:sub-values          {:optional true} [:map-of [:vector :any] :any]]
      [:sub-graph-topology  {:optional true} :map]
      [:trace-emissions     {:optional true} [:vector :map]]
@@ -4600,7 +4667,9 @@ The host-agnostic conformance fixture format. Per [conformance/README.md](confor
 
 `:rf/fixture-handler-body` is a synonym for `:rf/handler-body-dsl` (defined above) — the fixture format reuses the canonical DSL grammar rather than redefining it. Reserved built-ins are enumerated in [conformance/README.md §Handler-body DSL builtins](conformance/README.md#handler-body-dsl-builtins).
 
-The schema is open by convention — fixture files may add `:fixture/<key>`-namespaced metadata keys.
+The schema is open by convention — fixture files may add `:fixture/<key>`-namespaced metadata keys, and new setup or expectation keys land in the corpus ahead of any port implementing them. Openness is not permission to ignore: a harness meeting a top-level key it does not implement **fails the run naming the key**, for the same reason an unrecognised capability fails rather than skipping (per [conformance/README.md §Capability tagging](conformance/README.md#capability-tagging)). Silently dropping a setup key changes the scenario; silently dropping an expectation key lets the fixture pass having verified nothing.
+
+The key roster above is therefore a snapshot, and the corpus is the authority. Re-derive it at your pin from the **parsed top-level map** of each fixture — a text search for `:fixture/…` cannot tell a map key from a value, and the corpus contains event *ids* in the `:fixture/` namespace (`:fixture/interceptor-fired`, `:fixture/clear-interceptor`, both registered under `:fixture/registry :event`) that such a search reports as though they were top-level keys. A harness built on that mistake rejects a conforming fixture. The prose roster with per-key semantics lives in [conformance/README.md §Top-level fixture keys](conformance/README.md#top-level-fixture-keys).
 
 ## Resolved decisions
 
