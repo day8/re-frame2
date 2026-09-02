@@ -38,11 +38,22 @@
         and reconstructs parent ⊃ children purely from DOM containment.
         No React internals; no Fiber slot reads; no version-coupling.
 
-  It is ACTIVE under the canonical install, not dormant: with no Fiber-walker
-  at HEAD there is nothing for it to stand in for. It is also the path that
-  survives the two cases the Fiber design does not cover — a React-version
-  regression that breaks Fiber slot reads, and a non-React substrate (none
-  today; Reagent and UIx both mount through React).
+  Being the only implementation present is NOT the same as being invoked, and
+  running the two together is what `rf2-amz1` was filed against. This namespace
+  is UNWIRED at HEAD: nothing under `tools/xray/src` or `tools/xray/test`
+  requires it, and `walk!` and `tagged-elements` have no caller outside this
+  file and its own DOM test. It is dormant unless a consumer explicitly
+  requires the namespace and calls it.
+
+  One live consumer is easy to mistake for a caller. The Views panel's
+  hover-highlight resolves a single `[data-rf-view='<view-id>']` selector to
+  stamp a class (`panels/reactive-panel-view`). That reads the same ATTRIBUTE,
+  but it is an element lookup by id rather than a hierarchy walk: it calls
+  nothing in this namespace, and it captures no tree.
+
+  What this path does hold is the coverage the Fiber design does not — a
+  React-version regression that breaks Fiber slot reads, and a non-React
+  substrate (none today; Reagent and UIx both mount through React).
 
   ## Fidelity gaps (documented edge cases)
 
