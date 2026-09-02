@@ -597,8 +597,10 @@
 ;; the play surface. A child overriding a parent's :script with
 ;; :plays (or vice versa) used to FAIL: the straight merge carried BOTH
 ;; keys and the schema's mutual-exclusion :fn rejected a body the author
-;; never wrote with both. resolve-extends now drops the inherited sibling
-;; when the child declares the other encoding.
+;; never wrote with both. Registration now stores the child's raw body as
+;; authored — the parent is never merged in at this layer — and the plan
+;; compiler lowers both encodings to `:script` (see `plan.cljc` §Play surface),
+;; so the child's own encoding wins and the schema never sees both keys.
 
 (deftest reg-variant-extends-child-plays-overrides-parent-play-script
   (testing "a child declaring :plays while inheriting :script from

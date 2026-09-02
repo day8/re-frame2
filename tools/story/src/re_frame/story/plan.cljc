@@ -159,9 +159,13 @@
 ;; ============================================================================
 
 (def ^:dynamic *max-extends-depth*
-  "Hard cap on the `:extends` chain length, mirroring
-  `re-frame.story.extends/*max-extends-depth*`. A body that hits this
-  limit is treated as a cycle."
+  "Hard cap on the `:extends` chain length. A body that hits this limit is
+  treated as a cycle. 32 is more than any sane chain — a project that reaches
+  it has either a cycle or a structural problem. Authors who need a longer
+  chain can rebind, but that is a smell.
+
+  `re-frame.story.tags/*max-extends-depth*` mirrors this bound for the
+  best-effort tag resolver."
   32)
 
 (defn resolve-source-chain

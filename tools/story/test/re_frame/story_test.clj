@@ -6,7 +6,9 @@
   - Macro expansion → registry write round-trip.
   - Body shape validation (`:rf.error/<kind>-shape`).
   - Tag membership (`:rf.error/unknown-tag`).
-  - `:extends` resolution + cycle / unknown-parent detection.
+  - `:extends` raw storage at registration + unknown-parent detection at
+    plan-compile (the compiler is the merge authority; cycle and depth-cap
+    detection live with it in `re-frame.story.plan-test`).
   - Form-B `:variants` desugaring.
   - Source-coord stamping.
   - Query API (`registrations`, `handler-meta`, `variants-with-tags`,
@@ -23,7 +25,6 @@
             [re-frame.story :as story]
             [re-frame.story.canonical :as canonical]
             [re-frame.story.config :as story-config]
-            [re-frame.story.extends :as extends]
             [re-frame.story.plan :as plan]
             [re-frame.story.registrar :as registrar]
             [re-frame.story.schemas :as schemas]))
@@ -302,39 +303,13 @@
       (catch clojure.lang.ExceptionInfo e
         (is (= :rf.error/story-extends-unknown (:rf.error/id (ex-data e))))))))
 
-(deftest extends-cycle-detection
-  (testing ":extends cycle raises :rf.error/extends-cycle"
-    ;; Set up a cycle: a → b → a. We have to use the raw lookup because
-    ;; reg-variant would reject the second registration on unknown-parent.
-    (let [lookup {:story.a/first  {:extends :story.a/second :setup []}
-                  :story.a/second {:extends :story.a/first  :setup []}}]
-      (try
-        (extends/resolve-extends (get lookup :story.a/first)
-                                 #(get lookup %))
-        (is false "expected an exception")
-        (catch clojure.lang.ExceptionInfo e
-          (is (= :rf.error/story-extends-cycle (:rf.error/id (ex-data e)))))))))
-
-(deftest extends-depth-cap
-  (testing ":extends depth cap fires at *max-extends-depth*"
-    (let [;; A chain of 50 IDs each pointing to the next; n=49 names the
-          ;; deepest, n=0 names the leaf. Resolution from leaf has to
-          ;; walk every parent.
-          chain-len 50
-          chain     (into {}
-                          (for [i (range chain-len)]
-                            (let [this   (keyword "story.chain" (str "n" i))
-                                  parent (when (< (inc i) chain-len)
-                                           (keyword "story.chain" (str "n" (inc i))))]
-                              [this (cond-> {:setup []}
-                                      parent (assoc :extends parent))])))]
-      (binding [extends/*max-extends-depth* 32]
-        (try
-          (extends/resolve-extends (get chain :story.chain/n0)
-                                   #(get chain %))
-          (is false "expected an exception")
-          (catch clojure.lang.ExceptionInfo e
-            (is (= :rf.error/story-extends-chain-too-long (:rf.error/id (ex-data e))))))))))
+;; Cycle detection and the depth cap were witnessed here against the
+;; standalone `re-frame.story.extends` resolver, which was retired
+;; (rf2-6r9j.11) — it had drifted from the compiled-plan merge semantics, so a
+;; green witness there proved nothing about the shipped runtime. Both now sit
+;; on the merge authority in `re-frame.story.plan-test`
+;; (§`extends-cycle-fails`, §`extends-depth-cap-fails`), where they run on the
+;; JVM and CLJS alike.
 
 ;; ---- Form-B desugaring -------------------------------------------------
 
