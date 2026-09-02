@@ -4,7 +4,7 @@ The operator's page. It says what a pilot workspace contains, how to assemble on
 
 A pilot agent is never sent here — this page sits inside the repository the pilot is blinded to. What the agent gets is `BRIEF.md` and `FRICTION-LOG.md`, both of which land in the workspace by the procedure below.
 
-Authorized by `rf2-v04s` under [`rf2-hic-063`](README.md#what-governs-this-directory)'s ratification; the `_shared/` line in both source manifests, under `rf2-f22y`; the documentation row in the read fence and the docs line in the layout block, under `rf2-lpfz`; the rehearsal variant of outcome 7, under `rf2-dc0c`; step 6 naming the fenced block rather than the file, under `rf2-lh7b`; pilot 2's distinct `:dev-http` port and step 5's identity check, under `rf2-v6l6`.
+Authorized by `rf2-v04s` under [`rf2-hic-063`](README.md#what-governs-this-directory)'s ratification; the `_shared/` line in both source manifests, under `rf2-f22y`; the documentation row in the read fence and the docs line in the layout block, under `rf2-lpfz`; the rehearsal variant of outcome 7, under `rf2-dc0c`; step 6 naming the fenced block rather than the file, under `rf2-lh7b`; pilot 2's distinct `:dev-http` port and step 5's identity check, under `rf2-v6l6`; step 1 setting the pin rather than reading it back, under `rf2-zmhn`; the `PRE-PILOT` header being stamped at collection, under `rf2-yqtr`.
 
 ## Layout
 
@@ -28,7 +28,7 @@ The published installation chapter tells a reader to clone the monorepo *beside*
 
 `app/deps.edn` sits one level under `<pilot-root>`, which is what makes every `:local/root "../re-frame2/…"` in the published documentation resolve without modification. Do not flatten it.
 
-**Pin the checkout.** Record the commit the workspace was built at in the log's header and do not update it mid-pilot. A pilot that silently moves onto a newer tree is measuring two things at once, and outcome 7 — upgrade across the RC — is the one place a deliberate second pin belongs. On a rehearsal there is no second pin to belong there, and outcome 7 is [recorded `BLOCKED`](#rehearsal-runs-outcome-7-is-blocked) instead.
+**Pin the checkout.** Record the commit the workspace was built at in the log's header and do not update it mid-pilot. A pilot that silently moves onto a newer tree is measuring two things at once, and outcome 7 — upgrade across the RC — is the one place a deliberate second pin belongs. On a rehearsal there is no second pin to belong there, and outcome 7 is [recorded `BLOCKED`](#rehearsal-runs-outcome-7-is-blocked) instead. Both pilots take the same pin, which is why [step 1](#assemble-a-workspace) sets it explicitly instead of reading back whatever the clone landed on.
 
 ## The read fence
 
@@ -66,8 +66,11 @@ Six steps, the fifth in two halves. Run them from anywhere; `<pilot-root>` and `
 ```bash
 mkdir -p <pilot-root> && cd <pilot-root>
 git clone https://github.com/day8/re-frame2.git
-git -C re-frame2 rev-parse HEAD    # record this in the log header
+git -C re-frame2 checkout --detach <sha>   # the one sha, chosen before you start
+git -C re-frame2 rev-parse HEAD            # verifies the line above; record it in the log header
 ```
+
+**The sha is chosen, not discovered, and `rev-parse` checks the choice rather than reporting an accident.** Without the `checkout --detach` line each workspace lands on whatever `main` happened to be at the instant its own clone ran, and nothing downstream notices: two clones issued in the same tick during the rehearsal assembly came out six commits apart, two of those commits runtime changes under `implementation/`. Each pin was recorded faithfully into its own log header, which is exactly where the divergence is invisible — a header is read for what it says, not against the other pilot's. [`rf2-hic-063`](README.md#what-governs-this-directory)'s method permits the two pilots to run in parallel, and the point of running two is two independent readings of the *same* product; on different commits they read two products, and the logs are then comparable neither with each other nor against the counted run they are read beside. So pick one sha before assembling either workspace, use that same sha in both, and treat the `rev-parse HEAD` line as the check that you did — it must print the sha you chose. Added under `rf2-zmhn`.
 
 **2. Copy the application source**, preserving the namespace-to-path mapping. In the repository these files are flat under a source root; in the workspace they take their namespace path under `app/src/`.
 
@@ -152,6 +155,8 @@ Checkout pin: <sha>
 ```
 
 Both replacements are written to be read alone. Neither names a rehearsal, a counted run, or this page, so the pilot meets one instruction rather than a choice between two. Added under `rf2-dc0c`.
+
+**The `PRE-PILOT — NOT §13 EVIDENCE` header is stamped at collection, and it is the operator who stamps it.** The blank log the pilot receives carries no such header, and none is added to [`friction-log.md`](friction-log.md)'s template: it would tell a blinded pilot that it is inside an experiment whose evidence status is contested, and a pilot that knows it is rehearsing reports differently. The label is for the later reader — an auditor, or the [§13](../specification.md#13-definition-of-done) checkpoint — so write it at the top of each log when the log comes back, before the log is filed with the run's findings. That keeps the archived artefact marked and the pilot blinded, which the two orderings do not trade off: adding the line afterwards is one line of work, and un-blinding a pilot cannot be undone at all. Added under `rf2-yqtr`.
 
 ## The four project files
 
