@@ -179,7 +179,7 @@ The lifecycle maps onto state-keywords. The slice's `:status` field disappears. 
 - **Slice form** — single form, no concurrent axes, validation is synchronous, view code is straightforward. The vast majority of cases.
 - **Machine form** — the form is one region of a parallel page machine (composes with `patterns/nine-states.md`); OR the lifecycle wants `:spawn` (e.g. an async per-field validator as a child actor); OR the team wants tag-shaped queries.
 
-Realworld ships both shapes side-by-side. `:auth :login-form`, `:auth :register-form`, `:editor`, `:comment-form` use the slice form; `:settings/form` uses the machine form. The README's "Pattern-Forms — two shapes side-by-side" section has the worked comparison.
+Realworld ships both shapes side-by-side. `:auth :login-form`, `:auth :register-form`, `:editor`, `:comment-form` use the slice form; `:settings/form` uses the machine form. `examples/real-apps/realworld_http/settings.cljs`'s machine header holds the two shapes up side by side, down to the `:submitting?` boolean becoming a tag question.
 
 ## Common variations
 

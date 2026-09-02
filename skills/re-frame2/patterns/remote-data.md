@@ -138,7 +138,7 @@ The lifecycle's status enum maps **one-to-one** onto state-keywords. The slice's
 - **Slice form** — single resource, no concurrent axes, no cancellation cascade needed, view code can be host-agnostic. The vast majority of cases.
 - **Machine form** — the lifecycle is one region of a larger parallel machine (composes with `patterns/nine-states.md` and `patterns/forms.md`); OR the request's lifetime should be bound to a parent state (the actor-destroy cancellation cascade fires when the region exits); OR the team wants tag-shaped queries instead of slice-field comparisons.
 
-Realworld ships both shapes side-by-side. `articles`, `feed`, `article`, `comments`, `profile`, `profile.articles`, `profile.favorites` use the slice form; `tags` uses the machine form. The README's "Pattern-RemoteData — two shapes side-by-side" section has the worked comparison.
+Realworld ships both shapes side-by-side. `articles`, `feed`, `article`, `comments`, `profile`, `profile.articles`, `profile.favorites` use the slice form; `tags` uses the machine form. `examples/real-apps/realworld_http/tags.cljs`'s namespace docstring holds the two shapes up side by side and lists what changes when the machine swallows the lifecycle.
 
 ## Common variations
 

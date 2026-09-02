@@ -120,7 +120,7 @@ A boot-registered listener has **no frame scope** when the reply fires — it is
 
 (`(keyword "rf/default")` reconstructs the namespaced id, so the namespace survives the worker boundary. For a non-keyword or gensym'd frame id, capture an `(rf/capture-frame (:frame m))` at fx time instead and dispatch through `(:dispatch handle)`.)
 
-**Streaming / multi-reply.** LLM-style or SSE-style where each chunk is a separate dispatch. Each emission is a normal dispatched event; the receiving handler appends to a buffer slice. The fx posts once; the reply channel fires N events. Pattern-RemoteData's `:streaming` lifecycle layers on top.
+**Streaming / multi-reply.** LLM-style or SSE-style where each chunk is a separate dispatch. Each emission is a normal dispatched event; the receiving handler appends to a buffer slice. The fx posts once; the reply channel fires N events. RemoteData has no `:streaming` state — its enum is `:idle | :loading | :fetching | :loaded | :error` — so hold `:fetching` for the duration of the stream and flip to `:loaded` on the terminal chunk.
 
 **Fire-and-forget.** Logging, analytics, beacon writes — the caller may omit `:on-success` / `:on-error`. The fx-handler should treat both as nilable (see the `when on-success` / `when on-error` guards above).
 
