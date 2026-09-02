@@ -1625,6 +1625,44 @@
    :asset-path "."
    :modules    {:main {:init-fn hicasso.login.core/run}}}
 
+  ;; rf2-8arzr.5 — the SERVER half of the Hicasso login arm: the module
+  ;; `implementation/ssr-node`'s sidecar loads, so a JVM `ssr-handler`
+  ;; running `re-frame.ssr.ring.node/renderer` can render this page's body
+  ;; on Node. A `:node-library` rather than a `:node-script`: the sidecar
+  ;; `require`s the artefact and reads the entry table it exports, and
+  ;; `:exports-var` is what publishes one whole object as `module.exports`.
+  ;;
+  ;; NO `:init-fn`, and no `index.html` beside it — this build is not a
+  ;; page. `examples/scripts/examples-staging.cjs` skips a build with
+  ;; neither, so it stays out of the runnable manifest `npm run dev:example`
+  ;; reads, while `scripts/check-examples-compile.cjs` (which derives its
+  ;; roster from every `:examples/*` key here) compiles it warnings-fatal
+  ;; like the rest.
+  ;;
+  ;; The build id it publishes is a `goog-define`
+  ;; (`hicasso.login.server/build-id`); a release stamps the real one
+  ;; through `--config-merge :closure-defines`. See the example README.
+  ;; `:optimizations :simple` and `:infer-externs false` go TOGETHER and are
+  ;; one decision rather than two. A server bundle is not shipped over a
+  ;; wire, so `:advanced`'s only products here would be unreadable stack
+  ;; traces and a property-renaming hazard; under `:simple` nothing is
+  ;; renamed, which is what makes turning externs inference off free rather
+  ;; than a suppression. It has to be off because a NODE target carries no
+  ;; browser externs, so core's `substrate/spine.cljs` — DOM-reading code
+  ;; this bundle never runs — raises eight `:infer-warning`s that
+  ;; `check-examples-compile.cjs` treats as failures. That is the same
+  ;; measurement rf2-bl0j recorded when it put `:hicasso-modules-compile` on
+  ;; a `:browser` target, and the same reason `:node-test-hicasso` above
+  ;; sets the flag. Externs inference is JUDGED on the browser builds, which
+  ;; is where a renamed property could actually bite.
+  :examples/login-hicasso-server
+  {:target      :node-library
+   :output-dir  "out/examples/login-hicasso-server"
+   :output-to   "out/examples/login-hicasso-server/server.js"
+   :exports-var hicasso.login.server/module
+   :compiler-options {:optimizations  :simple
+                      :infer-externs  false}}
+
   :examples/realworld
   {:target     :browser
    :output-dir "out/examples/realworld"
