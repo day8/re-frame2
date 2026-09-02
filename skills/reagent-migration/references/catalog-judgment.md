@@ -311,18 +311,39 @@ owns the read wherever the call lexically sits. What fails is a read or a
 dispatch with **no active render**: a timer, a callback the browser invokes
 later, a foreign listener.
 
-**The decision is therefore about *when*, not *where*.** And the failure is the
-nastiest one in the migration, because nothing refuses at render:
+**The decision is therefore about *when*, not *where*.** Three different
+leftovers fail at three different times under three different ids, and telling
+them apart is most of the debugging:
 
-- An ambient `rf/dispatch` from a callback raises `:rf.error/no-frame-context` —
-  **core's id, not a `hicasso-*` one** — at click time.
-- Preference order: (1) if it runs during render, leave it in the helper — that
-  is the supported shape; (2) if it runs later, **hoist the read to render time
-  and pass the value into the callback**; (3) if the callback genuinely needs to
-  act, it returns an intent vector from an `h/event`, which is the frame-carrying
-  spelling.
+- **A leftover ambient `rf/subscribe` or `rf/dispatch` fails at RENDER**, and
+  this is the one the helper case makes easy to miss. A boundary body runs
+  inside an extent that *refuses* ambient frame resolution, so the first render
+  raises `:rf.error/ambient-frame-refused` — and the extent reaches **the helper
+  too**, because a parens-called `defn` runs inside whoever called it. So
+  MIG-02's deref-drop applies to the helper as well: an `h/sub` there is legal,
+  a surviving `@(rf/subscribe …)` there is not. The refusal is deliberately
+  **not** `:rf.error/no-frame-context` — a refused ambient read and a genuinely
+  frameless one are different mistakes — so it says in as many words that a
+  frame IS in scope and that another boundary will not fix it. Its `:reason`
+  names both recoveries: the collector for a read, an intent at a handler
+  position for a dispatch.
+- **An ambient `rf/dispatch` from a callback fails at CLICK**, raising
+  `:rf.error/no-frame-context` — **core's id, not a `hicasso-*` one**. Nothing
+  refuses it at render, which is what makes it the nastiest one in the
+  migration.
+- **An `h/sub` hoisted too far fails at FIRE.** Moved *out* of the render and
+  into the callback it was meant to serve, it raises
+  `:rf.error/hicasso-sub-outside-render`: hoist the READ to render time and
+  close over the VALUE, not the read. `rf/subscribe-once` is the sanctioned
+  snapshot for handler and utility code.
+- Preference order: (1) if it runs during render, leave it in the helper —
+  deref-dropped, that is the supported shape; (2) if it runs later, **hoist the
+  read to render time and pass the value into the callback**; (3) if the
+  callback genuinely needs to act, it returns an intent vector from an
+  `h/event`, which is the frame-carrying spelling.
 
-Grep these out rather than discovering them by clicking.
+Grep these out rather than discovering them by clicking — `gotchas.md`
+§Three leftovers, three ids carries the table and how to read the complaint.
 
 ## MIG-23 — SSR-then-hydrate
 

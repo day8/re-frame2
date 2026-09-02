@@ -133,6 +133,8 @@ The traps that mangle a view silently → [`references/gotchas.md`](references/g
 
 **A leftover `#(dispatch …)` closure compiles, renders, and fails at CLICK time.** Hicasso passes an unmarked plain function through to React **by identity** — deliberately, so `React.memo` and handler-identity bail-outs keep working — so nothing refuses it at render. When the browser invokes it later there is no render extent, ambient dispatch has nothing to resolve, and it raises `:rf.error/no-frame-context`. That is the whole-view-coherence law (rule 2) with teeth: grep the converted bodies for surviving closures rather than finding them by clicking.
 
+**And it is one of three.** The same half-conversion fails at three different times under three different ids: a leftover ambient `rf/subscribe`/`rf/dispatch` inside the render extent — the body *or* a helper it inlines — refuses at RENDER with `:rf.error/ambient-frame-refused`; the closure above fails at CLICK with `:rf.error/no-frame-context`; an `h/sub` hoisted out into a callback or timer fails at FIRE with `:rf.error/hicasso-sub-outside-render`. Branch on `:rf.error/id` and read `:reason`, which names the fix — the table and the complaint shape are in [`references/gotchas.md`](references/gotchas.md).
+
 The rest: the **bare-symbol trap** (`[:li item]` — `item` is *content*), **brackets vs parens**, **the exactly-one-props-map law**, **data-vectors-are-not-hiccup** (`[:buy 1]` in an `:on-click` is an event), **markers do not nest** (a `::h/value` below the vector's top level arrives as a literal keyword), and **a key map at `:on-submit` prevents on every branch**.
 
 ## Done checklist
