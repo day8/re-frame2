@@ -40,7 +40,7 @@ Wire the harness into the port's CI; every commit should report the score. **The
 
 This section is the skill's single owner of three things: how to **derive** the claimable set, the **family → scope-question map**, and the **corpus/spec divergence rule**. The port profile records only the result.
 
-Three families are **v1-required** and always claimed: `:core/*` (pattern-required basics), `:identity/*` (the EP-0012 `:rf/path` algebra + CEDN-1 canonical identity), and `:data-classification/*` (the Spec 015 egress/redaction contract). Every other family maps to a profile scope question and is claimed iff that answer is yes:
+Three families are **v1-required** and always claimed: `:core/*` (pattern-required basics), `:identity/*` (the `:rf/path` algebra + CEDN-1 canonical identity — `EP-0012` is the `docs/EP/` proposal behind it, `spec/Conventions.md` the normative text), and `:data-classification/*` (the Spec 015 egress/redaction contract). Every other family maps to a profile scope question and is claimed iff that answer is yes:
 
 | Family | Claimed when |
 |---|---|
