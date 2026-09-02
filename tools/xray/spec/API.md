@@ -724,11 +724,15 @@ The copy event therefore forwards `:frame` even when the picker has
 selected nothing: `elide-wire-value` validates the id against the live
 registry, so an unselected picker and a host frame destroyed between
 render and click both take the walker's frameless arm and egress the
-whole-value `:rf/redacted` sentinel. `egress-value` substitutes an
-unregisterable sentinel id for an explicitly-passed `nil` to make that
-so; a caller that omits `:frame` entirely keeps the ambient-resolution
-behaviour, which is what the palette's already-validated `with-frame`
-wrap wants.
+whole-value `:rf/redacted` sentinel. `egress-value` substitutes a
+private identity value for an explicitly-passed `nil` to make that so —
+an identity, not a keyword: the registry is keyed by whatever `:id`
+`make-frame` is handed, so any keyword, however it is namespaced, is a
+public frame id an app can register, and a live frame under the
+substitute's id would resolve and egress the value RAW under its empty
+registry (the third-pass collision regression pins this). A caller that
+omits `:frame` entirely keeps the ambient-resolution behaviour, which is
+what the palette's already-validated `with-frame` wrap wants.
 
 `egress-value` also takes an optional `:path` — the ABSOLUTE app-db path
 the value sits at. The framework's declarations (classified via the
