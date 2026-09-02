@@ -40,6 +40,11 @@
             ;; here.
             [login.model :as model]
             [re-frame.hicasso :as h]
+            ;; The client half of an SSR route: `ssr/hydrate!` installs the
+            ;; server's app-db from `__rf_payload` BEFORE the first client
+            ;; render. On a client-only load it finds no payload and is a
+            ;; no-op, which is what lets ONE `run` serve both pages.
+            [re-frame.ssr :as ssr]
             ;; Hicasso is a VIEW layer, not a substrate: it owns Hiccup
             ;; interpretation and the render boundary, while the reactive
             ;; container app-db lives in comes from an adapter. Hicasso ships
@@ -47,6 +52,31 @@
             ;; coordinate (docs/core/hicasso/00-installation.md §Hicasso needs a
             ;; substrate adapter).
             [re-frame.hicasso.substrate :as substrate]))
+
+;; ============================================================================
+;; THE SSR COORDINATES  (shared by the client boot and the server bundle)
+;; ============================================================================
+;;
+;; Three constants both halves of the crossing have to agree on, declared
+;; ONCE here because `server.cljs` requires this namespace and the client
+;; boot below is in it. A second copy is a second thing to keep in step.
+
+(def identifier-prefix
+  "React's `identifierPrefix`, handed unchanged to the server render and to
+  the hydrating client root. React numbers every `useId` per root from the
+  same start and prefixes it with this string, so a hydrating root given a
+  different one — or none, where the server had one — resolves every id in
+  the tree differently from the bytes it is adopting."
+  "rf-login-")
+
+(def app-element-id
+  "The element the JVM host's shell wraps Node's body markup in, and the one
+  the client adopts."
+  "app")
+
+(def frame-id
+  "The one frame this page owns, on both hosts."
+  :rf/default)
 
 ;; ============================================================================
 ;; VIEWS  (Hicasso — h/defview + h/sub + intents)
@@ -141,11 +171,47 @@
        locked? [locked-panel]
        :else   [login-form])]))
 
+;; The SERVER-ONLY read, and the one view in this file that only a server
+;; render can fill.
+;;
+;; `[:auth.login/server-notice]` is a TOP-LEVEL app-db key a JVM host puts a
+;; deployment notice in — a maintenance window, a region, whatever the
+;; operator resolves per request. It is declared HERE rather than in the
+;; shared `login.model` because only this arm has a server; the Reagent and
+;; UIx twins never see it, and the model stays substrate-free.
+;;
+;; It is the example's demonstration that the two SSR policies are DISTINCT:
+;; a host may name this key in `:render-state` (so the render can read it)
+;; while leaving it out of `:payload` (so the browser never receives it).
+;; **And that choice has a price, which is the rule to take away**: a
+;; render-state key the payload does not carry must not CHANGE THE MARKUP,
+;; because the hydrating client renders from the payload and React reports a
+;; recoverable error for every node the two disagree about. So the shipped
+;; host (`host.clj`) puts no notice in app-db and this banner renders
+;; nothing on both halves; the witness
+;; (`re-frame.hicasso.login-server-crossing-ssr-dom-cljs-test`) is where the
+;; key is filled, and it measures both the absence from `__rf_payload` and
+;; the hydration cost.
+(rf/reg-sub :auth.login/server-notice
+  {:doc "A deployment notice a JVM host may place at the top-level app-db
+         key of the same name. Absent on a client-only load, and absent
+         from the hydration payload whenever the host declares it
+         render-visible but not payload-visible."}
+  (fn sub-auth-login-server-notice [db _]
+    (:auth.login/server-notice db)))
+
+(h/defview server-notice
+  "The deployment notice, when there is one."
+  [_]
+  (when-some [notice (h/sub [:auth.login/server-notice])]
+    [:p.server-notice {:data-testid "login-server-notice"} notice]))
+
 (h/defview root-view
   "The example's root boundary."
   [_]
   [:div.app
    [:h1 "Sign in"]
+   [server-notice]
    [login-banner]])
 
 ;; ============================================================================
@@ -200,12 +266,34 @@
   (when-some [root @!root]
     (h/render! root [root-view])))
 
+;; ONE boot, two pages. A client-only load has no `__rf_payload` in the
+;; document, so `ssr/hydrate!` is a no-op and the root MOUNTS — exactly the
+;; three lines above. A server-rendered load has one, so the payload is
+;; installed first and the root ADOPTS the markup already on the page
+;; instead of throwing it away.
+;;
+;; The branch is on the payload rather than on a build flag deliberately:
+;; one bundle serves both, so `npm run dev:example -- examples/login-hicasso`
+;; keeps working unchanged and the SSR route needs no second build.
+;;
+;; No `:render-tree-fn` is passed to `ssr/hydrate!`. The render-tree hash is
+;; hiccup-tier-only, and this is an adoption-tier root: Hicasso's server
+;; render ships no `:rf/render-hash` and there is nothing to compare
+;; against. Adoption is verified by React itself — a divergence surfaces as
+;; a recoverable error on this root's own stream.
+
 (defn run []
   (rf/init! substrate/adapter)
-  (rf/make-frame (merge {:id  :rf/default
+  (rf/make-frame (merge {:id  frame-id
                          :doc "Login (Hicasso) demo frame."}
                         model/frame-config))
   (when-let [el (and (exists? js/document)
-                     (js/document.getElementById "app"))]
-    (reset! !root (h/mount! el {:frame :rf/default} [root-view])))
+                     (js/document.getElementById app-element-id))]
+    (let [payload (ssr/read-server-payload)
+          config  {:frame             frame-id
+                   :identifier-prefix identifier-prefix}]
+      (if (some? payload)
+        (do (ssr/hydrate! {:frame frame-id :payload payload})
+            (reset! !root (h/hydrate! el config [root-view])))
+        (reset! !root (h/mount! el config [root-view])))))
   nil)
