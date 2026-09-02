@@ -312,13 +312,19 @@
 ;; refuses, and each spelling that still carries is proved on its own.
 ;;
 ;; THE ERROR ID IS NOT REPEATED IN THESE ROWS, deliberately.
-;; `:rf.error/ambient-frame-refused` is PROVISIONAL (rf2-k0rbk may rename
-;; it), so a carry's refusal is pinned as *the same id an ambient read
-;; gets*, taken live from [[refusal-id]]. The literal is anchored ONCE in
-;; this file — by `ambient-subscribe-inside-a-body-refuses-by-name` above —
-;; so a rename touches one row rather than five, and these rows go on
-;; saying the thing that is actually interesting: that a carry and a read
-;; refuse identically.
+;; `:rf.error/ambient-frame-refused` is SETTLED: it is rowed in
+;; `spec/009-Instrumentation.md`'s error catalogue, it is raised by
+;; `re-frame.frame/emit-ambient-frame-refused!`, and the stability rule in
+;; `implementation/hicasso/spec/complaints.md` closes the question outright
+;; — an id names one refusal, and it is never re-spelled or reused.
+;;
+;; So the indirection below is not waiting on a rename; it earns its place
+;; on its own. What these rows assert is the AGREEMENT — a carry's refusal
+;; is pinned as *the same id an ambient read gets*, taken live from
+;; [[refusal-id]]. Two independent literals would assert two constants and
+;; could not see the two drift apart; one live read is what makes "refuse
+;; identically" the property under test rather than a coincidence. The
+;; rows above that pin the spelling BY NAME are where the literal belongs.
 
 (defn- refusal-id
   "The id core raises for an ambient READ refused inside a body. Taken
