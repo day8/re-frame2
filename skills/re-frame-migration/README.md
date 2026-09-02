@@ -37,7 +37,7 @@ This is the migration companion to the main [`re-frame2`](../re-frame2) skill (w
 
 The skill is structured around `migration/from-re-frame-v1/README.md` in this repo, which is the authoritative breaking-change list for re-frame v1.x → re-frame2. The skill:
 
-- routes the workflow (6 phases)
+- routes the workflow (two pre-flight phases plus six)
 - sequences the rules (which to apply first, what depends on what)
 - operationalises Type A vs Type B (mechanical vs judgment-call)
 - produces the final migration summary

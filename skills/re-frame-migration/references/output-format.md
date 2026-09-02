@@ -33,7 +33,7 @@ Keep it **under 300 words** unless the migration was unusually complex.
 - **No new findings buried in narrative.** If you discover something during the migration that warrants reporting upstream (spec drift, missing M-rule, surprising behaviour), file a GitHub issue against `day8/re-frame2` — announce the cross-repo filing first, then follow the skill's filing recipe: **compose the body into a file with the `Write` tool and pass it with `gh issue create --body-file`** (`--body` / stdin / here-doc are banned for transcript-derived bodies — they reintroduce shell interpolation/injection risk). See [`issue-filing.md`](issue-filing.md) for the full title-and-body recipe + redaction pass. Reference the issue number in the summary; don't bury the finding inside prose. (`bd` is monorepo-internal and never invoked from a published skill.)
 - **Items flagged for human review are explicit.** A Type B rule the author **declined** to apply is just as important as one they applied. Both go in the summary.
 
-## Worked example A — only Type A rules tripped
+## Worked example A — nothing left flagged
 
 A medium-shape migration: a Reagent app with 30 events, 12 subs, no machines, no SSR, three `:dispatch` effect-map entries, one `reg-global-interceptor`, two `dispatch-sync` calls inside handlers, one `^:flush-dom`, no `reg-sub-raw`, no `re-frame.alpha`, has `re-frame-test`.
 
@@ -41,6 +41,7 @@ A medium-shape migration: a Reagent app with 30 events, 12 subs, no machines, no
 ## Migration summary
 
 - re-frame version: `re-frame/re-frame 1.4.5` → `day8/re-frame2 <VERSION>` + `day8/re-frame2-reagent <VERSION>`
+- Pinned MIGRATION.md corpus: `day8/re-frame2@a1b2c3d` (path: `~/src/re-frame2`)
 - Files modified: 14
 - Dependencies changed (non-re-frame): `react`/`react-dom` 18 → ^19 and `shadow-cljs` 2.20 → 3.4.10 (Phase-0b floor gate + Check-4 toolchain skew); Reagent rode in via the `-reagent` adapter (not pinned directly). No other deps touched.
 - Required rules applied:
@@ -52,7 +53,8 @@ A medium-shape migration: a Reagent app with 30 events, 12 subs, no machines, no
   - M-17 (1 site, Type A — single-frame app): `reg-global-interceptor` → default-frame `:interceptors`.
   - M-20 (4 sites): `:re-frame/default` → `:rf/default`.
   - M-25 (1 site): `re-frame.test` → `re-frame.test-support`; `day8/re-frame-test` coord dropped.
-  - M-40 (1 site): `(rf/init!)` → `(rf/init! reagent-adapter/adapter)`.
+- Type B rules applied (with explicit author approval):
+  - M-40 (1 site): `(rf/init!)` → `(rf/init! reagent-adapter/adapter)`. Surfaced the call site; author confirmed Reagent as the boot adapter.
 - Opt-in changes applied: none, not requested.
 - Verification:
   - Compile: clean.
@@ -61,7 +63,7 @@ A medium-shape migration: a Reagent app with 30 events, 12 subs, no machines, no
 
 ## Items flagged for human review
 
-None — the codebase tripped only Type A rules.
+None — the one Type B rule this codebase tripped (M-40, the adapter choice) was settled with the author during the migration; everything else was Type A.
 
 ## Anything unexpected
 
@@ -76,11 +78,13 @@ Same shape but the codebase also had two `reg-sub-raw` calls, a multi-frame stru
 ## Migration summary
 
 - re-frame version: `re-frame/re-frame 1.4.5` → `day8/re-frame2 <VERSION>` + `day8/re-frame2-reagent <VERSION>`
+- Pinned MIGRATION.md corpus: `day8/re-frame2@a1b2c3d` (path: `~/src/re-frame2`)
 - Files modified: 18 (+ 2 awaiting author decision)
 - Dependencies changed (non-re-frame): already on React 19 + a current toolchain (floor gate was a fast pass); `@xyflow/react` + `elkjs` added for the Xray Machine-inspector chart (10x→Xray swap). No other deps touched.
-- Required rules applied: M-0, M-1 (5 sites), M-8 (7 sites), M-9 (3 sites), M-20 (9 sites), M-25 (1 site), M-40 (1 site).
+- Required rules applied: M-0, M-1 (5 sites), M-8 (7 sites), M-9 (3 sites), M-20 (9 sites), M-25 (1 site).
 - Type B rules applied (with explicit author approval):
   - M-3 (2 sites): `:dispatch` effects with intermediate-render dependency were both real animation pacing — converted to `:dispatch-later`.
+  - M-40 (1 site): `(rf/init!)` → `(rf/init! reagent-adapter/adapter)`. Surfaced the call site; author confirmed Reagent as the boot adapter.
   - M-17 (1 site, multi-frame): `reg-global-interceptor` was an audit logger — converted to `register-listener!`.
 - Opt-in changes applied: none, not requested.
 - Verification:
