@@ -186,8 +186,20 @@
            operation, same substrate, same extent — and not a fact about
            `react-dom/server`"
     (reset! !ambient ::unset)
-    (let [{:keys [document]} (server/render (request [reading {}]))
-          data               @!ambient]
+    ;; The page no longer comes back. `:rf.error/ambient-frame-refused` is a
+    ;; PROMOTED category — `require-current-frame!` emits it on the always-on
+    ;; error stream and then throws — so it lands in the recovered-error
+    ;; window `server/render` gained with rf2-ypom / rf2-ct24, and the door
+    ;; refuses the page. That verdict is deliberately blunt: any record
+    ;; inside the window fails the render, INCLUDING one the view caught
+    ;; itself, because the stream cannot tell a handled refusal from an
+    ;; unhandled one and a check that guessed would be guessing on exactly
+    ;; the class of fault it exists to catch. The row's subject is untouched
+    ;; — it still measures WHOSE refusal the read got, and it now also
+    ;; measures that the door names that same refusal as its reason.
+    (let [thrown (try (server/render (request [reading {}]))
+                      (catch :default e e))
+          data   @!ambient]
       (is (= :rf.error/ambient-frame-refused (:rf.error/id data))
           (str "expected the ambient refusal for the read; got " (pr-str data)))
       (is (= :subscribe (:operation data)))
@@ -195,6 +207,11 @@
           "the substrate refused, not the renderer — which is what makes
            this the same answer the browser gives")
       (is (= 'hicasso/boundary-render (:extent data)))
-      (is (str/includes? document "class=\"row\"")
-          "and the render completed: the refusal is the read's, not the
-           page's"))))
+      (testing "and the page is refused rather than shipped, naming the
+                read's refusal as its reason: the refusal is still the
+                read's, and the render will not paper over it"
+        (let [page (ex-data thrown)]
+          (is (= :rf.error/ssr-render-failed (:rf.error/id page))
+              (str "expected the whole-page door to fail the render; got " (pr-str page)))
+          (is (= :rf.error/ambient-frame-refused (:error (:record page)))
+              "and the record the door names is the read's own"))))))
