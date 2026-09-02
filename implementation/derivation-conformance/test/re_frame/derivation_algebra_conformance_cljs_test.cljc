@@ -1299,28 +1299,37 @@
         (is (not (contains-secret? top-wid))
             "no raw secret survives in the projected work-id")))))
 
+(defn- egress-sensitive-value-contributors
+  "The `egress-live-contributors` fixture plus a value-bearing live sub node
+  sitting at the frame-sensitive `[:cart :items]` path, so one graph exercises
+  BOTH egress leak channels: the value-path walk and the frame-independent
+  resource-identity projection."
+  []
+  (assoc (egress-live-contributors)
+         :subs
+         {:live-shape :map
+          :static-fn  (constantly {})
+          :live-fn    (constantly
+                        {[:cart/items]
+                         {:id      [:cart/items] :kind :derivation :rf/family :subs
+                          :inputs  [] :output [:fact [:cart/items]]
+                          :storage :ephemeral :evaluation :on-demand
+                          :lifecycle :subscription-cache-entry
+                          :value   {:cart {:items secret-token}}}})}))
+
+(defn- classify-egress-frame-sensitive!
+  "Install the `[:cart :items]` sensitive classification on `egress-frame`
+  through the same runtime-db effect the commit plane uses."
+  []
+  (frame/swap-runtime-db! egress-frame
+    (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:cart :items]]}))))
+
 (deftest g-graph-egress-for-unknown-frame-fails-closed
   ;; An unreachable frame has no usable value policy, so value-bearing fields
   ;; fail closed. Resource identity projection is independent of that policy.
   (rf/make-frame {:id egress-frame})
-  ;; Install the classification through the same runtime-db effect used by the
-  ;; commit plane.
-  (frame/swap-runtime-db! egress-frame
-    (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:cart :items]]})))
-  ;; a value-bearing live sub node at a frame-sensitive path, alongside the
-  ;; sensitive resource identity.
-  (let [contributors
-        (assoc (egress-live-contributors)
-               :subs
-               {:live-shape :map
-                :static-fn  (constantly {})
-                :live-fn    (constantly
-                              {[:cart/items]
-                               {:id      [:cart/items] :kind :derivation :rf/family :subs
-                                :inputs  [] :output [:fact [:cart/items]]
-                                :storage :ephemeral :evaluation :on-demand
-                                :lifecycle :subscription-cache-entry
-                                :value   {:cart {:items secret-token}}}})})
+  (classify-egress-frame-sensitive!)
+  (let [contributors (egress-sensitive-value-contributors)
         raw (graph/live-derivation-graph egress-frame contributors)]
     (testing "the raw graph carries the secret in value and identity positions"
       (is (contains-secret? raw)))
@@ -1349,6 +1358,49 @@
             "the classified [:cart :items] leaf is redacted")
         (is (= :derivation (:kind sub)) "the sub node is still present + classified")
         (is (not (contains-secret? redacted)))))))
+
+(deftest g-graph-egress-nil-frame-fails-closed-under-sentinel-id-collision
+  ;; rf2-g1vu — the fail-closed stamp `project-graph` applies when the
+  ;; governing frame is nil / unreachable must be a value NO app can register
+  ;; a frame under. It was `::no-egress-frame`, i.e. the ordinary public
+  ;; keyword `:re-frame.derivation.egress/no-egress-frame`: `make-frame`
+  ;; validates no `:id` type and the registry is keyed by whatever id it is
+  ;; handed, so an app registering a live frame under that literal turned the
+  ;; fail-CLOSED stamp into a live-frame walk under that frame's (empty)
+  ;; declaration registry, and the graph's value-bearing fields shipped RAW.
+  ;;
+  ;; Same defect class as Xray's `::no-frame`, fixed by the rf2-7htk7 third
+  ;; pass (commit 449bfd21c7) with the collision regression this arm mirrors:
+  ;; register a live frame under the literal id, leave the governing frame
+  ;; unselected, assert `:rf/redacted`.
+  (rf/make-frame {:id egress-frame})
+  (classify-egress-frame-sensitive!)
+  ;; The colliding frame: an ordinary public keyword any app can spell, and
+  ;; deliberately with no classification of its own — an empty declaration
+  ;; registry is what makes the leak observable.
+  (rf/make-frame {:id :re-frame.derivation.egress/no-egress-frame})
+  (try
+    (let [raw (graph/live-derivation-graph egress-frame
+                                           (egress-sensitive-value-contributors))]
+      (is (contains-secret? raw)
+          "the raw graph carries the secret in value and identity positions")
+      ;; An ambient frame is bound as well, so a pass here cannot be an
+      ;; accident of there being nothing to borrow.
+      (rf/with-frame :rf/default
+        (is (some? (frame/resolve-current-frame))
+            "an ambient frame is bound, making policy borrowing observable")
+        (let [redacted (egress/project-graph raw nil)
+              sub      (get-in redacted [:nodes [:sub [:cart/items]]])]
+          (is (= privacy/redacted-sentinel (:value sub))
+              "a nil governing frame must redact the whole value-bearing field
+               even with a live frame registered under the dead-frame
+               sentinel's former keyword id")
+          (is (not (contains-secret? redacted))
+              "no raw secret survives a nil-frame egress while a frame is live
+               under the dead-frame sentinel's former keyword id (rf2-g1vu)"))))
+    (finally
+      ;; Never leave the colliding id live for a sibling test.
+      (rf/destroy-frame! :re-frame.derivation.egress/no-egress-frame))))
 
 (deftest g-graph-egress-is-idempotent
   ;; Forwarders may project the same graph more than once. Full graph equality
