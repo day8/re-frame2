@@ -5,12 +5,15 @@ Load when the task is **authoring a `deftest` / `cljs.test` test** against re-fr
 ## The single import
 
 ```clojure
-(:require [re-frame.core            :as rf]
-          [re-frame.test-support    :as ts]
-          [re-frame.adapter.reagent :as reagent-adapter]   ; the adapter the fixture installs
+(:require [re-frame.core         :as rf]
+          [re-frame.test-support :as ts]
+          #?(:clj  [re-frame.substrate.plain-atom :as substrate]      ; JVM: the plain-atom substrate
+             :cljs [re-frame.adapter.reagent      :as substrate])     ; CLJS: the Reagent adapter
           #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
              :cljs [cljs.test    :refer-macros [deftest is testing use-fixtures]]))
 ```
+
+**The adapter require is reader-conditional, and must be.** `re-frame.adapter.reagent` ships as `reagent.cljs` — CLJS-only, so a JVM reader cannot load it; `re-frame.substrate.plain-atom` is `.cljc` and is the JVM counterpart. Both expose `adapter`, so binding them to the **same alias** keeps the fixture below to one line on both hosts. This is the idiom the reference implementation's own dual-host `*-cljs-test.cljc` suites use. A **single-platform** test file needs no conditional — require the Reagent adapter in a `.cljs` file, plain-atom in a `.clj` one.
 
 Everything you need — fixtures, helpers — lives under `re-frame.test-support`. Do not reach into `re-frame.registrar` or `re-frame.frame` directly.
 
@@ -18,15 +21,16 @@ Everything you need — fixtures, helpers — lives under `re-frame.test-support
 
 ```clojure
 (use-fixtures :each
-  (ts/make-reset-runtime-fixture {:adapter reagent-adapter/adapter}))
+  (ts/make-reset-runtime-fixture {:adapter substrate/adapter}))
 ```
 
 `make-reset-runtime-fixture` snapshot/restores the registrar around each test, resets every frame's `app-db` to `{}`, disposes any installed substrate adapter and reinstalls the one in `:adapter`, and ensures `:rf/default` is present. Per-test `reg-event` / `reg-sub` / `reg-machine` calls land cleanly inside the test and are rolled back on the way out — **without** wiping framework registrations (e.g. `:rf/route`, `:rf/machine` subs) that landed at namespace-load time.
 
-JVM tests pass the plain-atom adapter:
+A **JVM-only** (`.clj`) test drops the conditional and names the plain-atom substrate directly:
 
 ```clojure
-(:require [re-frame.substrate.plain-atom :as plain-atom])
+(:require [re-frame.substrate.plain-atom :as plain-atom]
+          [clojure.test :refer [deftest is testing use-fixtures]])
 
 (use-fixtures :each (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
 ```
