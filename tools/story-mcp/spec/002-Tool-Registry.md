@@ -299,8 +299,16 @@ value assertion in `end-to-end-story.cjs`).
 
 Returns the set registered via
 `re-frame.story/register-substrate!` (Reagent canonical; UIx
-opt-in per host). The JVM stdio server returns `[]` because it has no
-bridge to the CLJS registry.
+opt-in per host). The JVM stdio server has no bridge to that CLJS
+registry, so it returns the machine-readable capability-unavailable
+error (`isError true`, `:rf.error
+:rf.error/story-mcp-capability-unavailable`) — never an empty list. An
+empty `:substrates` vec is reserved for a REACHED registry that
+genuinely holds nothing: EMPTY means the registry answered and held
+none, UNAVAILABLE means the host could not look, and a reader who takes
+the first for the second concludes no substrates are registered when
+nothing ever consulted the registry. Read the set from a browser-local
+Story host (rf2-3fc89f.21).
 
 ## Docs — for agents reading the story library
 
