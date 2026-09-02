@@ -6,7 +6,6 @@ Every script returns structured edn (`{:ok? false :reason ...}`) rather than rai
 
 - `:nrepl-port-not-found` → no shadow-cljs nREPL is reachable at all — this is the **pre-connection degraded-mode** envelope every tool short-circuits to before any runtime check. Tell the user to start their dev build with `shadow-cljs watch <build>`.
 - `:debug-disabled` → re-frame2's `interop/debug-enabled?` is false (production build, or `goog.DEBUG` was set false). The trace stream and epoch history are elided in this build.
-- `:ns-not-loaded :missing :re-frame2` → re-frame2 isn't loaded; check the user's deps.
 - `:no-frames-registered` → no frame is up yet. `init!` only installs the adapter — it creates no frame under EP-0002, so calling it won't help; tell the user to establish the app's frame at the root (e.g. a root `frame-root {:id ...}`, or `make-frame`), or wait for app boot.
 
 ### `discover-app` preload-failure ladder
@@ -16,10 +15,31 @@ When `discover-app` can't find the runtime marker, it runs a **diagnostic ladder
 - `:nrepl-unreachable` → the JVM round-trip failed — the nREPL socket is dead even though the MCP server is up (the shadow-cljs JVM stopped, or restarted leaving a stale socket). Recovery: restart `shadow-cljs watch` and retry; the MCP server reconnects on the next tool call.
 - `:build-not-running` → nREPL is reachable but shadow isn't running the **targeted** build (a build-id typo, not a short-tail — suffix resolution already ran). Carries `:running-builds` (what IS up) plus `:running-builds-arg-forms` (each in the paste-ready `:build` arg form). Recovery: re-target a running build — `discover-app {build: ":other-build"}` (or set `SHADOW_CLJS_BUILD_ID`).
 - `:no-runtime-connected` → the build IS running but no CLJS runtime answered — no browser tab has connected, or the tab's WebSocket dropped. Carries `:running-builds`. Recovery: open the app in a browser tab, or if a tab is open, reload the page so the runtime reconnects. **You can't reload a browser yourself — relay the `:hint` to the user.**
-- `:runtime-loaded-but-preload-missing` → a CLJS runtime is alive but the `re-frame2-pair.runtime` preload marker is absent — **this is the normal missing-preload case.** The fix is the two-line `shadow-cljs.edn` preload entry (see `SKILL.md` §Setup). Common after a fresh clone, or when the consumer wired in the MCP server but not the `re-frame2-pair.runtime` preload (the linked skill's `preload/` directory on `:source-paths`).
+- `:runtime-loaded-but-preload-missing` → a CLJS runtime is alive but the `re-frame2-pair.runtime` preload marker is absent — **this is the normal missing-preload case.** The fix is the two-line `shadow-cljs.edn` preload entry (see `SKILL.md` §Setup). Common after a fresh clone, or when the consumer wired in the MCP server but not the `re-frame2-pair.runtime` preload (the linked skill's `preload/` directory on `:source-paths`). **An app with no re-frame2 dependency at all lands on this rung too** — the preload namespace requires `re-frame.core`, so it never loads and never installs the marker. There is no separate "re-frame2 isn't loaded" reason to look for; if the deps are the real problem, this is the reason that says so.
 - `:runtime-not-preloaded` → **degradation fallback only.** Fires when the ladder *itself* errors mid-diagnosis (e.g. a transient nREPL failure), so the response degrades to this blanket reason with the generic preload hint. On the normal missing-preload path the server returns `:runtime-loaded-but-preload-missing` (above), not this — so if you see `:runtime-not-preloaded`, suspect a flaky connection, not just a missing preload entry.
 - `:ambiguous-frame` → multiple frames are registered and no session pin is set. The envelope is recovery-shaped: `:operation` (the refusing op), `:available-frames` (the app frames you may pick from), `:selected-frame` (the current pin, nil = none), and `:event` / `:query` when the op knew it. Pin one of `:available-frames` with `set-operating-frame {frame: ":foo"}` (the escape from this refusal — SKILL.md §Multi-frame model), or pass a per-call `frame: ":foo"` arg.
-- `:handler-error` inside an epoch → the user's handler threw; surface the `:rf.error/handler-exception` trace event from `(re-frame.trace.tooling/trace-buffer :rf/default {:flat true :op-type :error})`. (Frame-id first; `:op-type` is a `:flat-only` filter so pass `:flat true`. Use the `re-frame.trace.tooling` ns — `rf/trace-buffer` is JVM-only and returns nil in the browser runtime.)
+- **A handler that threw is not a `:reason`** — no tool returns one for it. It surfaces as the `:rf.error/handler-exception` **trace op**: read it from `(re-frame.trace.tooling/trace-buffer :rf/default {:flat true :op-type :error})` and report it against the handler. (Frame-id first; `:op-type` is a `:flat-only` filter so pass `:flat true`. Use the `re-frame.trace.tooling` ns — `rf/trace-buffer` is JVM-only and returns nil in the browser runtime.)
+
+## `eval-cljs` failures
+
+`eval-cljs` carries the long tail, so these are the reasons you hit most. All are returned as `{:ok? false :reason ...}` envelopes, never raised.
+
+- `:rf.error/eval-cljs-compile-error` → the form didn't compile (syntax, arity, or an unresolved symbol — most often an alias that doesn't exist in the runtime). Fix the form and fully-qualify the namespace; there are no ambient aliases.
+- `:rf.error/eval-cljs-threw` → the form compiled and ran, then raised. The envelope carries `:ex` (the printed throwable), `:message` and `:ex-data` — read those and report the app-level cause, don't re-run blind.
+- `:rf.error/eval-cljs-timeout` → the form didn't settle inside `:timeout-ms`. Raise `timeout-ms`, project the result smaller, or — if the value is a Promise — pass `await: true` so the runtime resolves it instead of returning the pending object.
+- `:rf.error/eval-cljs-rejected` → the nREPL session refused the form. Re-run `discover-app` to confirm the build and runtime are still the ones you think you're talking to.
+- `:rf.error/eval-cljs-disabled` → the operator launched the server with `--no-eval`. **Only they can lift it** (relaunch without the flag); until then, use the typed tools and say which gesture you can't reach.
+- `:rf.error/eval-cljs-mailbox-missing` / `:rf.error/eval-cljs-await-wrap-failed` → the `await: true` path broke — the mailbox vanished (usually a page reload between the wrap and the poll) or the wrapper returned an unrecognised sentinel. Retry once without a reload in flight; a repeat is a wire-shape regression worth reporting.
+
+## Tool-envelope refusals
+
+Ops refuse with a `:reason` rather than guessing. Beyond `:ambiguous-frame` and `:debug-disabled` above:
+
+- `:restore-rejected` → `restore-epoch` couldn't rewind: the epoch-id has aged out of the ring, or a drain is in flight. The frame-state is unchanged. Re-read the ring (`trace-window` / `snapshot`'s `:epochs` slice) and pick a live id.
+- `:reset-rejected` → `replace-app-db` refused: no such frame, a drain in flight, or the supplied db failed the app-schema. The app-db is unchanged; fix the shape against the schema and retry.
+- `:missing-baseline` → `tail-build` got a `:probe` with no `:baseline`. The baseline must be captured **before** the source edit; a post-edit self-baseline can't distinguish a fast reload from no reload.
+- `:baseline-without-probe` → the mirror image: a `:baseline` with nothing to compare it against. Supply the probe form the baseline came from.
+- `:port-unresolved` → `discover-app {port: N}` found no build serving that port in the shadow-cljs `:dev-http` map. Pass `:build` explicitly, or call `discover-app` with no arg to auto-select.
 
 ## A structured read came back blank
 
