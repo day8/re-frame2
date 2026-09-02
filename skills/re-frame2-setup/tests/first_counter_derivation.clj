@@ -33,6 +33,12 @@
 ;;;;
 ;;;;     bb tests/first_counter_derivation.clj
 ;;;;
+;;;; It takes NO arguments and refuses any, rather than ignoring them: this
+;;;; script only ever writes, so `--check` and friends are routed to
+;;;; `bb tests/setup_drift_test.clj`, which is the no-write check. A
+;;;; regeneration that changes nothing leaves the working tree byte-identical,
+;;;; on Windows too — the leaf's existing line endings are preserved.
+;;;;
 ;;;; Only the region between the BEGIN/END markers in each leaf is rewritten;
 ;;;; the prose around it is hand-maintained.
 ;;;;
@@ -113,6 +119,25 @@
 (defn- lf [s] (-> s (str/replace "\r\n" "\n") (str/replace "\r" "\n")))
 
 (defn- slurp-lf [f] (lf (slurp f)))
+
+;; Every comparison in this file — and in `setup_drift_test.clj`, which
+;; LF-normalises for the same reason — is done on LF text, because LF is what
+;; git stores. The WRITEBACK is the one place that must not assume it: a
+;; Windows checkout (`core.autocrlf=true`) holds these leaves as CRLF, and
+;; spitting LF over one leaves `git status` reporting it modified, and every
+;; later git command warning `LF will be replaced by CRLF`, for a file whose
+;; content never changed (`git hash-object --path` still matches the committed
+;; blob). Nothing is lost from the repository by that, but a dirty tree the
+;; operator did not cause is indistinguishable at a glance from one they did.
+;; So render on LF, then restore whatever the leaf already used.
+
+(defn- eol-of
+  "The line ending the leaf is currently stored with in the working tree."
+  [raw]
+  (if (str/includes? raw "\r\n") "\r\n" "\n"))
+
+(defn- apply-eol [s eol]
+  (if (= eol "\r\n") (str/replace s "\n" "\r\n") s))
 
 ;; ---------------------------------------------------------------------------
 ;; Render
@@ -225,9 +250,15 @@
         end   (some-> (str/index-of text end-marker) (+ (count end-marker)))]
     (when-not (and start end)
       (throw (ex-info "leaf carries no BEGIN/END generated markers" {})))
-    (str (subs text 0 start)
-         (str/trim-newline new-region) "\n"
-         (subs text end))))
+    ;; `end` points just PAST the end marker, so the tail still carries the
+    ;; newline that terminated the marker's own line. Emitting one here as well
+    ;; appended a blank line on every run — cumulative, not a one-off, because
+    ;; the next run's tail then began with two. Consume the tail's newline and
+    ;; re-emit exactly one, which makes a no-op regeneration a no-op.
+    (let [tail (subs text end)]
+      (str (subs text 0 start)
+           (str/trim-newline new-region) "\n"
+           (cond-> tail (str/starts-with? tail "\n") (subs 1))))))
 
 (defn reagent-files [] (render-project :reagent))
 
@@ -243,10 +274,41 @@
 (defn regenerate! []
   (doseq [[leaf region] [[first-counter-md (expected-first-counter-region)]
                          [entry-namespace-md (expected-uix-region)]]]
-    (spit leaf (replace-region (slurp leaf) region))
+    (let [raw (slurp leaf)]
+      (spit leaf (apply-eol (replace-region raw region) (eol-of raw))))
     (println "wrote" (.getPath leaf))))
 
+(defn- gate-args!
+  "Fail closed on ANY argument, before a single byte is written.
+
+   This script takes none. It used to ignore whatever it was given and run
+   its normal generate-and-write path regardless, so `--check` — the mode a
+   caller most naturally reaches for — silently REGENERATED and exited 0.
+   That is the failure-open shape: a well-formed green from an instrument
+   that did the opposite of what was asked.
+
+   Refusing what it does not understand is the fix, rather than growing a
+   second checker: the no-write check already exists, and is named below so
+   the caller who typed `--check` is routed to it instead of being told only
+   that they were wrong. Same shape as the template's own
+   `day8.re-frame2-template.hooks/gate-arg-keys!`, which this script loads
+   for its substitution values."
+  [args]
+  (when (seq args)
+    (binding [*out* *err*]
+      (println "first_counter_derivation.clj takes no arguments; got"
+               (pr-str (vec args)))
+      (println)
+      (println "  bb tests/first_counter_derivation.clj    regenerate both leaves (WRITES)")
+      (println "  bb tests/setup_drift_test.clj            verify them without writing")
+      (println)
+      (println "Nothing was written."))
+    (System/exit 2)))
+
 ;; Script entry: `bb tests/first_counter_derivation.clj` rewrites both
-;; generated regions. Loading the file from a test (`load-file`) does not.
+;; generated regions. Loading the file from a test (`load-file`) does not —
+;; which is also why the argument gate lives here rather than at the top
+;; level, where it would see the TEST runner's arguments.
 (when (= *file* (System/getProperty "babashka.file"))
+  (gate-args! *command-line-args*)
   (regenerate!))
