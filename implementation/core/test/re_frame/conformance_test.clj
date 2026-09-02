@@ -93,10 +93,22 @@
   silently ignores everything after it. So a fixture whose expectation
   block closes one brace early still loads, still runs, and still reports
   as PASSING — with every assertion that fell outside the block discarded.
-  That is exactly what `routing-not-found.edn` did (rf2-5mr6). Reading
-  `[<text>]` instead makes the reader see the whole file: trailing text
-  becomes a second element, and a stray closing delimiter becomes an
-  unmatched-delimiter error.
+  That is exactly what `routing-not-found.edn` did (rf2-5mr6).
+
+  WHY NOT WRAP THE TEXT AS `[<text>]` EITHER, which is what this fn did
+  when the check first landed. Counting the elements of a SYNTHETIC vector
+  is a guard the guarded text can walk straight out of: a fixture that
+  closes the envelope itself with an early `]` yields a ONE-element vector,
+  so the count check passes and everything after that `]` is discarded in
+  silence — recreating the exact truncation class the check exists to
+  remove. Measured on the merged code: the text `{:fixture/id :first}`,
+  newline, `] {:fixture/id :silently-hidden}` returned `#:fixture{:id
+  :first}` without throwing.
+
+  SO READ THE ORIGINAL TEXT — no envelope, hence nothing to escape from —
+  and PROVE EOF behind the first form with a second read against a
+  sentinel. `one-form-guard-rejects-early-close-bracket` below pins both
+  directions.
 
   WHY IT THROWS, and why the `try`/`catch` that used to wrap this is gone.
   The catch turned any load failure into a `{:fixture/load-error ...}` map,
@@ -106,23 +118,33 @@
   the defect it is meant to catch — the fixture would stop passing
   falsely and start vanishing quietly instead. Corpus malformation is a
   repository defect, not a per-fixture runtime condition, so it fails the
-  run.
+  run. The `catch` in the body below is NOT that catch and must not be
+  read as its return: it RE-THROWS, and exists only so a reader error
+  arrives naming the fixture it came out of.
 
   The corpus scanner (`scripts/check_conformance_fixture_edn.py`, rf2-x91a)
   is the complementary half: it sees fixtures whose capabilities are
   unclaimed, which this check never loads at all."
   [text fixture-name]
-  (let [forms (edn/read-string (str "[\n" text "\n]"))]
-    (when-not (= 1 (count forms))
-      (throw (ex-info (str "conformance fixture " fixture-name
-                           " must hold exactly ONE top-level EDN form, found "
-                           (count forms)
-                           " — clojure.edn/read-string returns only the first"
-                           " and silently discards the rest (rf2-98ni,"
-                           " rf2-5mr6)")
-                      {:fixture/file  fixture-name
-                       :fixture/forms (count forms)})))
-    (first forms)))
+  (let [eof  (Object.)
+        rdr  (java.io.PushbackReader. (java.io.StringReader. text))
+        fail (fn [why data]
+               (throw (ex-info (str "conformance fixture " fixture-name " " why
+                                    " (rf2-98ni, rf2-5mr6)")
+                               (assoc data :fixture/file fixture-name))))
+        rd   (fn []
+               (try (edn/read {:eof eof} rdr)
+                    (catch Exception e
+                      (fail (str "is not readable EDN: " (.getMessage e))
+                            {:fixture/reader-error (.getMessage e)}))))
+        form (rd)]
+    (when (identical? eof form)
+      (fail "holds no top-level EDN form" {:fixture/forms 0}))
+    (when-not (identical? eof (rd))
+      (fail (str "must hold exactly ONE top-level EDN form — a plain read"
+                 " returns the first and silently discards the rest")
+            {:fixture/forms :more-than-one}))
+    form))
 
 (defn- load-fixture [file]
   ;; A handful of fixtures use `::name` (auto-resolved keyword) which pure
@@ -219,6 +241,43 @@
 
 (deftest run-conformance-corpus
   (runner/run-corpus (all-fixtures) host "JVM"))
+
+;; ---- rf2-98ni acceptance: the one-form guard cannot be escaped ------------
+;;
+;; The FIRST case is the discriminating one. Its trailing text opens with `]`,
+;; which is what the previous `[<text>]` implementation could not survive: the
+;; fixture closed the synthetic vector itself, `read-string` returned a
+;; one-element vector, the count check passed, and the second map vanished. A
+;; regression whose trailing text were an ordinary form would have passed
+;; against that implementation too and pinned nothing.
+
+(deftest one-form-guard-rejects-early-close-bracket
+  (is (thrown? clojure.lang.ExceptionInfo
+               (read-one-form "{:fixture/id :first}\n] {:fixture/id :hidden}"
+                              "early-close.edn"))
+      (str "a fixture that closes the reader's envelope itself with an early ] "
+           "MUST fail to load — under the [<text>] implementation this returned "
+           "the first form and discarded the second in silence (rf2-98ni)"))
+
+  (is (thrown? clojure.lang.ExceptionInfo
+               (read-one-form "{:fixture/id :first}\n{:fixture/id :second}"
+                              "two-forms.edn"))
+      "ordinary trailing text must still be refused (rf2-5mr6)")
+
+  (is (thrown? clojure.lang.ExceptionInfo
+               (read-one-form "\n;; only a comment\n" "empty.edn"))
+      "a fixture holding no top-level form must fail rather than load as nil")
+
+  ;; The other direction: a well-formed fixture, and one with the trailing
+  ;; whitespace and comments real corpus files carry, must still load.
+  (is (= {:fixture/id :ok}
+         (read-one-form "{:fixture/id :ok}" "clean.edn"))
+      "a single well-formed form must load unchanged")
+
+  (is (= {:fixture/id :ok}
+         (read-one-form "\n;; leading comment\n{:fixture/id :ok}\n;; trailing\n"
+                        "commented.edn"))
+      "comments and surrounding whitespace are not trailing FORMS"))
 
 ;; ---- rf2-xurchk acceptance self-tests -------------------------------------
 ;;
