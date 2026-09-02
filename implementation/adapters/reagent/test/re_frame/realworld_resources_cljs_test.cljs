@@ -1014,27 +1014,130 @@
               "the seed marks nothing touched of its own"))))))
 
 ;; ============================================================================
-;; 10. SESSION-RESTORE-WITH-TOKEN — the documented "restore stays put" invariant,
-;;     plus the passive-re-key feed re-ensure (rf2-svj926)
+;; 10. SESSION RESTORE + [:rf.route/replan-resources …] — the documented "restore
+;;     stays put" invariant over the framework's replan command (rf2-svj926 →
+;;     rf2-y8jjk): the composed-route deep link, the confirmed-anonymous twin,
+;;     and the logged-out home
 ;; ============================================================================
+;;
+;; Cold-boot session restore is the one principal switch with no accompanying
+;; route change, so the route's `{:from-db …}` reads fail closed at entry (the
+;; viewer is unresolved) and nothing re-plans them for free. The example used to
+;; carry its own 39-line partial planner (`:auth/ensure-viewer-route`) here; it
+;; read the LEAF route's handler-meta only, so on a composed route it silently
+;; omitted the inherited parent read, and it never touched the durable plan /
+;; blocking slots or the slice readiness. Both restore outcomes now dispatch the
+;; framework's `[:rf.route/replan-resources {:cause …}]`, which reruns the ONE
+;; canonical planner over the registered parent-to-leaf branch under the
+;; UNCHANGED nav-token — the tests below pin what the app-side copy could not:
+;; the inherited parent read, the stored plan membership, the blocking slot, the
+;; repaired `:error` / `:transition`, and the absence of any navigation effect.
 
 (defn- articles-list-key
   "The :realworld/articles home-list key for a viewer scope + page."
   ([scope] (articles-list-key scope 1))
   ([scope page] (state/scoped-resource-key scope :realworld/articles {:tag nil :page page})))
 
-(deftest session-restore-success-stays-put-and-re-ensures-route-under-the-viewer
-  (testing "examples/real-apps/realworld_resources — cold boot with a saved token:
-            during the token-present/user-unresolved window the viewer scope is
-            fail-closed (nil), so a deep-link home route's viewer-scoped reads are
-            NOT stored under any viewer/anonymous/global identity (no
-            authenticated-response leak). Once GET /user settles, :restore-session
-            stores the session, re-ensures the CURRENT route's reads under the
-            resolved viewer via :auth/ensure-viewer-route, and does NOT navigate
-            (the deep link survives) (rf2-j538f7.29)"
-    (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
-                                       :fx-overrides {:rf.nav/push-url :rf/no-op
-                                                      :realworld-resources.session/persist :rf/no-op}})]
+(defn- slice
+  "The live route slice `{:route-id :params :query :fragment :transition :error :nav-token}`."
+  [frame]
+  (get-in (runtime-db frame) [:rf.runtime/routing :current]))
+
+(defn- plan-slot
+  "The durable plan-identity map routing records under `token`
+   (`[:rf.runtime/routing :resource-plan <token>]`, `{<key-id> <scoped-key>}`)."
+  [frame token]
+  (get-in (runtime-db frame) [:rf.runtime/routing :resource-plan token]))
+
+(defn- blocking-slot
+  "The durable blocking map under `token` (`[:rf.runtime/routing :resource-blocking <token>]`)."
+  [frame token]
+  (get-in (runtime-db frame) [:rf.runtime/routing :resource-blocking token]))
+
+(defn- by-id
+  "The byte-keyed `{<key-id> <scoped-key>}` carrier shape the plan / blocking slots
+   hold, built from scoped keys — so a slot can be asserted whole."
+  [& scoped-keys]
+  (into {} (map (juxt state/key-id identity)) scoped-keys))
+
+(defn- entries-for
+  "Every cache entry for `resource-id`, under ANY scope."
+  [frame resource-id]
+  (into [] (comp (map val) (filter #(= resource-id (second (:resource/key %)))))
+        (get-in (runtime-db frame) (state/entries-path))))
+
+(defn- restore-frame!
+  "A URL-owning anon frame for the restore tests: url-push and the session-persist
+   fx are no-op'd so navigation is deterministic and the token never reaches
+   localStorage."
+  []
+  (frame/make-anon-frame-record! {:url-bound? true
+                                  :fx-overrides {:rf.nav/push-url :rf/no-op
+                                                 :realworld-resources.session/persist :rf/no-op}}))
+
+(def ^:private activation-trace-ops
+  "The trace operations an ACTIVATION emits and a replan must not: the nav-token
+   allocation, the lifecycle pair, the planned projection, and the fragment-only
+   door's own trace. `:rf.resource/route-plan` rides along so the replan's ONE
+   planner row can be read beside them."
+  #{:rf.route.nav-token/allocated :rf.route/activated :rf.route/deactivated
+    :rf.route/planned :rf.route/fragment-changed :rf.resource/route-plan})
+
+(deftest logged-out-home-plans-articles-and-tags-and-not-the-feed
+  (testing "examples/real-apps/realworld_resources — a CONFIRMED-ANONYMOUS cold visit
+            to / plans the article list (under the anonymous viewer) and the tags, and
+            NOT the session feed: the feed occurrence is admitted by ROUTE DATA only on
+            the ?feed=following arm, so a nil session scope is never a whole-plan
+            failure on the public home page. Before rf2-y8jjk the feed entry carried
+            no :when, its {:from-db :realworld/session} scope resolved nil for a
+            logged-out visitor, the WHOLE home plan failed closed, and — because a
+            no-token boot takes the machine's :idle no-op branch — nothing ever
+            rescued the articles or the tags."
+    (with-new-frame [f (restore-frame!)]
+      (rf/dispatch-sync [:auth/initialise]
+                        {:frame f :rf.cofx {:realworld-resources.session/token nil}})
+      (is (= :idle (rf/compute-sub [:auth/state] (state-value f)))
+          "no token → the :idle no-op branch — no restore will ever replan this route")
+      (is (= anon-viewer-scope (rf/resolve-resource-scope (rf/app-db-value f) :realworld/viewer))
+          "no user + no token → the CONFIRMED-anonymous viewer")
+      (rf/dispatch-sync [:rf.route/navigate {:to :realworld/home}] {:frame f})
+      (let [{:keys [route-id error transition nav-token]} (slice f)]
+        (is (= :realworld/home route-id))
+        (is (nil? error) "the home plan FORMED — no nil-session planning error on /")
+        (is (= :loading transition) "the blocking article list is in flight")
+        (is (some? (entry f (articles-list-key anon-viewer-scope)))
+            "the article list is planned under the anonymous viewer")
+        (is (some? (entry f (tags-key))) "the popular tags are planned")
+        (is (empty? (entries-for f :realworld/feed))
+            "the session feed is NOT planned on the bare / — under any scope")
+        (is (= (by-id (articles-list-key anon-viewer-scope) (tags-key)) (plan-slot f nav-token))
+            "the token's plan slot holds exactly the two planned identities"))
+      (testing "the following-feed arm logged out IS a whole-plan planning error, by
+                design: the arm asks for the session feed and the session scope is nil"
+        (rf/dispatch-sync [:rf.route/navigate {:to :realworld/home :query {:feed "following"}}]
+                          {:frame f})
+        (let [{:keys [error transition query]} (slice f)]
+          (is (= "following" (:feed query)))
+          (is (= :rf.error/resource-route-plan (:rf.error/id error))
+              "the slice carries the planning error — never a silent omission")
+          (is (= :realworld/feed (:resource-id error)) "…and it names the feed")
+          (is (= :error transition))
+          (is (empty? (entries-for f :realworld/feed))
+              "no feed entry under any scope (fail-closed, no partial ensure)"))))))
+
+(deftest session-restore-success-replans-the-following-feed-deep-link-under-the-viewer
+  (testing "examples/real-apps/realworld_resources — cold boot with a saved token on the
+            /?feed=following deep link: during the token-present / user-unresolved
+            window the viewer AND session scopes are fail-closed (nil), so route entry
+            is a committed failed activation (no entry under ANY identity — the
+            authenticated-response leak the nil rule closes) and the slice carries the
+            planning error. Once GET /user settles, :auth/session-restored stores the
+            session and dispatches [:rf.route/replan-resources {:cause
+            [:session-restore]}]: the same route, the same nav-token, the whole plan
+            (articles under alice's viewer, tags, the feed under alice's session) now
+            ensured and recorded, the error repaired — and NO navigation (the deep
+            link survives) (rf2-j538f7.29, rf2-y8jjk)"
+    (with-new-frame [f (restore-frame!)]
       ;; Boot WITH a saved token → :begin-restore (GET /user in flight). Capture
       ;; that request now, before the route plan below lowers others.
       (rf/dispatch-sync [:auth/initialise]
@@ -1047,39 +1150,53 @@
             "the shell defers rendering while the viewer is unresolved")
         (is (nil? (rf/resolve-resource-scope (rf/app-db-value f) :realworld/viewer))
             "token present + user unresolved → viewer scope nil (fail-closed)")
-        ;; The URL syncs to a HOME deep link (stand-in). Its viewer-scoped reads
-        ;; fail closed — no articles entry is stored under ANY identity.
-        (rf/dispatch-sync [:rf.route/navigate {:to :realworld/home}] {:frame f})
-        (is (= :realworld/home (route-id f)) "cold boot lands on the home deep link")
-        (is (nil? (entry f (articles-list-key (viewer-scope "alice"))))
-            "no articles stored under a signed-in viewer during restore")
-        (is (nil? (entry f (articles-list-key anon-viewer-scope)))
-            "no articles stored under the anonymous viewer during restore")
-        (is (nil? (entry f (state/scoped-resource-key :rf.scope/global :realworld/articles {:tag nil :page 1})))
-            "no articles stored under :rf.scope/global during restore — the leak the fix closes")
-        ;; GET /user settles → :restore-session stores alice + re-ensures the route.
-        (reply-success! restore-req
-                        {:user {:username "alice" :email "alice@example.com" :token "jwt-restore"}}
-                        f)
-        (is (= :authed (rf/compute-sub [:auth/state] (state-value f))))
-        (is (= "alice" (:username (rf/compute-sub [:auth/user] (state-value f)))))
-        (is (false? (rf/compute-sub [:auth/viewer-resolving?] (state-value f)))
-            "the gate lifts once the viewer resolves")
-        ;; restore stays put — it does NOT navigate (unlike interactive login).
-        (is (= :realworld/home (route-id f))
-            "restore stays put on the deep link — no post-login redirect")
-        ;; the home route's reads are NOW ensured under alice's viewer + session,
-        ;; WITHOUT any navigation (via :auth/ensure-viewer-route).
-        (is (some? (entry f (articles-list-key (viewer-scope "alice"))))
-            "the article list is re-ensured under alice's viewer scope")
-        (is (some? (entry f (feed-key "alice" 1)))
-            "the session feed is re-ensured under alice's session scope")))
+        ;; The URL syncs to the following-feed HOME deep link. Every read fails
+        ;; closed — no entry is stored under ANY identity.
+        (rf/dispatch-sync [:rf.route/navigate {:to :realworld/home :query {:feed "following"}}]
+                          {:frame f})
+        (let [{:keys [route-id error transition nav-token]} (slice f)]
+          (is (= :realworld/home route-id) "cold boot lands on the home deep link")
+          (is (= :rf.error/resource-route-plan (:rf.error/id error))
+              "route entry is a committed failed activation while the viewer is unresolved")
+          (is (= :error transition))
+          (is (nil? (plan-slot f nav-token)) "a failed activation writes no plan slot")
+          (is (empty? (entries-for f :realworld/articles))
+              "no articles stored under ANY identity during restore — the leak the nil rule closes")
+          (is (empty? (entries-for f :realworld/feed)) "no feed stored under any identity either")
+          ;; GET /user settles → :auth/session-restored stores alice + replans the route.
+          (reply-success! restore-req
+                          {:user {:username "alice" :email "alice@example.com" :token "jwt-restore"}}
+                          f)
+          (is (= :authed (rf/compute-sub [:auth/state] (state-value f))))
+          (is (= "alice" (:username (rf/compute-sub [:auth/user] (state-value f)))))
+          (is (false? (rf/compute-sub [:auth/viewer-resolving?] (state-value f)))
+              "the gate lifts once the viewer resolves")
+          (let [after         (slice f)
+                articles-key  (articles-list-key (viewer-scope "alice"))
+                feed-key*     (feed-key "alice" 1)]
+            ;; restore stays put — it does NOT navigate (unlike interactive login).
+            (is (= :realworld/home (:route-id after))
+                "restore stays put on the deep link — no post-login redirect")
+            (is (= nav-token (:nav-token after))
+                "the SAME activation: the nav-token is unchanged, so the route owner is the same owner")
+            (is (= "following" (get-in after [:query :feed])) "the query survives byte-for-byte")
+            ;; the whole plan is NOW ensured under alice, WITHOUT any navigation.
+            (is (some? (entry f articles-key)) "the article list is ensured under alice's viewer scope")
+            (is (some? (entry f (tags-key))) "the tags are ensured")
+            (is (some? (entry f feed-key*)) "the session feed is ensured under alice's session scope")
+            (is (contains? (:active-owners (entry f feed-key*)) [:route :realworld/home nav-token])
+                "…owned by the ACTIVE route owner, so route leave releases it")
+            ;; the durable facts the app-side copy never wrote
+            (is (= (by-id articles-key (tags-key) feed-key*) (plan-slot f nav-token))
+                "the plan slot equals the materialized three-identity map")
+            (is (= (by-id articles-key) (blocking-slot f nav-token))
+                "the blocking slot names the blocking article list until it settles")
+            (is (nil? (:error after)) "the planning error is REPAIRED")
+            (is (= :loading (:transition after)) "readiness re-projected from the new plan")))))
 
     ;; CONTRAST — an interactive login DOES bounce home, proving navigation is
     ;; observable in this harness (so the non-navigation above is a real signal).
-    (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
-                                       :fx-overrides {:rf.nav/push-url :rf/no-op
-                                                      :realworld-resources.session/persist :rf/no-op}})]
+    (with-new-frame [f (restore-frame!)]
       (rf/dispatch-sync [:rf.route/navigate {:to :realworld.auth/login}] {:frame f})
       (rf/dispatch-sync [:auth/initialise]
                         {:frame f :rf.cofx {:realworld-resources.session/token nil}})
@@ -1098,15 +1215,167 @@
       (is (= :realworld/home (route-id f))
           "interactive login bounces home via :auth/session-established → :auth/post-login-redirect"))))
 
-(deftest session-restore-failure-stays-put-and-re-ensures-under-anonymous
+(deftest session-restore-success-replans-a-composed-deep-link-through-the-parent-chain
+  (testing "ACCEPTANCE (rf2-y8jjk) — cold boot with a saved token on the favorites
+            tab, a route that INHERITS the BLOCKING :realworld/profile banner from its
+            :realworld.profile/show :parent. Route entry fails closed (viewer
+            unresolved). Once GET /user lands, [:rf.route/replan-resources {:cause
+            [:session-restore]}] reruns the ONE planner over the REGISTERED
+            parent-to-leaf branch under the UNCHANGED nav-token: (i) route id / params
+            / nav-token are byte-for-byte unchanged; (ii) the INHERITED banner AND the
+            leaf list are ensured under alice's viewer; (iii) the plan slot equals the
+            materialized two-identity map and the blocking slot names the banner until
+            it settles; (iv) the slice error is repaired and :transition goes :loading
+            → :idle as the banner reply lands; (v) no URL push / replace, no scroll,
+            no activation trace, no :on-match. The retired app-side copy read the
+            LEAF's handler-meta only, so it never ensured the banner: the slice kept
+            the planning error and the token's slots stayed unwritten."
+    (let [pushed   (atom [])
+          scrolled (atom [])]
+      ;; Capture the host nav fxs GLOBALLY (both platforms) so a push / scroll
+      ;; would be observable; the frame below therefore does NOT override
+      ;; `:rf.nav/push-url`.
+      (fx/reg-fx :rf.nav/push-url    {:platforms #{:server :client}} (fn [_ url]  (swap! pushed conj url)))
+      (fx/reg-fx :rf.nav/replace-url {:platforms #{:server :client}} (fn [_ url]  (swap! pushed conj url)))
+      (fx/reg-fx :rf.nav/scroll      {:platforms #{:server :client}} (fn [_ args] (swap! scrolled conj args)))
+      (with-new-frame [f (frame/make-anon-frame-record!
+                           {:url-bound?   true
+                            :fx-overrides {:realworld-resources.session/persist :rf/no-op}})]
+        (rf/dispatch-sync [:auth/initialise]
+                          {:frame f :rf.cofx {:realworld-resources.session/token "jwt-restore"}})
+        (is (= :restoring (rf/compute-sub [:auth/state] (state-value f))))
+        (let [restore-req @last-managed-args]
+          (rf/dispatch-sync [:rf.route/navigate {:to     :realworld.profile/favorites
+                                                 :params {:username "celeb"}}]
+                            {:frame f})
+          (let [{:keys [route-id params nav-token] :as before} (slice f)
+                banner-key    (profile-key "alice" "celeb")
+                fav-key       (favorited-articles-key "alice" "celeb" 1)
+                pushes-before (count @pushed)]
+            (is (= :realworld.profile/favorites route-id))
+            (is (= {:username "celeb"} params))
+            (is (some? nav-token))
+            (is (= :rf.error/resource-route-plan (:rf.error/id (:error before)))
+                "route entry failed closed — the viewer is unresolved during restore")
+            (is (= :error (:transition before)))
+            (is (empty? (entries-for f :realworld/profile))
+                "no banner entry under ANY scope (fail-closed, no partial ensure)")
+            (is (empty? (entries-for f :realworld/favorited-articles)))
+            (is (nil? (plan-slot f nav-token)) "a failed activation writes no plan slot")
+            (is (nil? (blocking-slot f nav-token)) "…and no blocking slot")
+            (with-trace-recorder! [traces {:pred  #(contains? activation-trace-ops (:operation %))
+                                           :shape :by-op}]
+              ;; GET /user settles → alice → [:rf.route/replan-resources {:cause [:session-restore]}]
+              (reply-success! restore-req
+                              {:user {:username "alice" :email "alice@example.com" :token "jwt-restore"}}
+                              f)
+              (let [after (slice f)]
+                ;; (i) the address and the token are untouched
+                (is (= [route-id params nav-token]
+                       [(:route-id after) (:params after) (:nav-token after)])
+                    "route id / params / nav-token byte-for-byte unchanged — the SAME activation")
+                (is (= (:query before) (:query after)))
+                (is (= (:fragment before) (:fragment after)))
+                ;; (ii) the INHERITED parent read and the leaf read, under alice
+                (is (some? (entry f banner-key))
+                    "the banner INHERITED from :realworld.profile/show is ensured under alice's viewer")
+                (is (some? (entry f fav-key))
+                    "the leaf's own favorited list is ensured under alice's viewer")
+                (is (contains? (:active-owners (entry f banner-key))
+                               [:route :realworld.profile/favorites nav-token])
+                    "the banner is owned by the ACTIVE route owner (leaf id + unchanged token)")
+                (is (empty? (filter #(not= (viewer-scope "alice") (first (:resource/key %)))
+                                    (entries-for f :realworld/profile)))
+                    "…and under no other viewer identity")
+                ;; (iii) the durable plan / blocking facts
+                (is (= (by-id banner-key fav-key) (plan-slot f nav-token))
+                    "the plan slot equals the materialized two-identity map")
+                (is (= (by-id banner-key) (blocking-slot f nav-token))
+                    "the blocking slot names the blocking banner until it settles")
+                ;; (iv) readiness repaired and re-projected
+                (is (nil? (:error after)) "the planning error is REPAIRED")
+                (is (= :loading (:transition after)) "the blocking banner is in flight")
+                ;; (v) no navigation work of any kind
+                (is (= pushes-before (count @pushed)) "no :rf.nav/push-url / replace-url")
+                (is (empty? @scrolled) "no :rf.nav/scroll")
+                (let [ops @traces]
+                  (is (empty? (:rf.route.nav-token/allocated ops)) "no nav-token was minted")
+                  (is (empty? (:rf.route/activated ops)) "no activation lifecycle trace")
+                  (is (empty? (:rf.route/deactivated ops)))
+                  (is (empty? (:rf.route/planned ops)) "no navigation plan projection")
+                  (is (empty? (:rf.route/fragment-changed ops)))
+                  (is (= 1 (count (:rf.resource/route-plan ops)))
+                      "exactly ONE planner row — the replan itself")
+                  (let [tags (:tags (first (:rf.resource/route-plan ops)))]
+                    (is (= :replan (:plan-cause tags)) "the row is discriminated as a replan")
+                    (is (= [:session-restore] (:replan-cause tags)) "…carrying the caller cause")
+                    (is (= nav-token (:nav-token tags)) "…under the unchanged token")
+                    (is (= [:realworld.profile/show :realworld.profile/favorites] (:branch tags))
+                        "…over the COMPOSED parent-to-leaf branch")
+                    (is (= 2 (:ensured tags)))))
+                ;; the banner reply lands → the route projects :idle through the
+                ;; reply-driven half of the readiness table.
+                (reply-success! (managed-request-for "/profiles/celeb")
+                                {:profile {:username "celeb" :bio "" :image "" :following false}}
+                                f)
+                (is (= :loaded (:status (entry f banner-key))))
+                (is (= :idle (:transition (slice f))) "readiness lands once the banner settles")
+                (is (nil? (:error (slice f))))
+                (is (empty? (blocking-slot f nav-token))
+                    "the settled banner is pruned from the token's blocking slot")))))))))
+
+(deftest session-restore-failure-replans-a-composed-deep-link-under-anonymous
+  (testing "examples/real-apps/realworld_resources — the confirmed-anonymous TWIN of
+            the acceptance test: the same favorites deep link, but GET /user is
+            REJECTED (401). :abandon-restore clears the session (the viewer resolves
+            to :anonymous), STAYS PUT, and dispatches [:rf.route/replan-resources
+            {:cause [:session-restore-failed]}]: the inherited banner and the leaf list
+            are ensured under the ANONYMOUS viewer under the unchanged nav-token, the
+            plan slot equals the two-identity map, and the slice error is repaired —
+            never a navigate home, never an entry under a signed-in viewer."
+    (with-new-frame [f (restore-frame!)]
+      (rf/dispatch-sync [:auth/initialise]
+                        {:frame f :rf.cofx {:realworld-resources.session/token "jwt-stale"}})
+      (is (= :restoring (rf/compute-sub [:auth/state] (state-value f))))
+      (let [restore-req @last-managed-args]
+        (rf/dispatch-sync [:rf.route/navigate {:to     :realworld.profile/favorites
+                                               :params {:username "celeb"}}]
+                          {:frame f})
+        (let [{:keys [nav-token] :as before} (slice f)
+              banner-key (state/scoped-resource-key anon-viewer-scope :realworld/profile {:username "celeb"})
+              fav-key    (state/scoped-resource-key anon-viewer-scope :realworld/favorited-articles
+                                                    {:username "celeb" :page 1})]
+          (is (= :rf.error/resource-route-plan (:rf.error/id (:error before)))
+              "route entry failed closed while the viewer was unresolved")
+          (is (empty? (entries-for f :realworld/profile)) "nothing stored under any viewer yet")
+          ;; GET /user is REJECTED (401) → :auth/restore-failed → :abandon-restore
+          (rf/dispatch-sync (conj (:on-failure restore-req) {:status :error :error {:rf.http/status 401}})
+                            {:frame f})
+          (is (= :idle (rf/compute-sub [:auth/state] (state-value f))))
+          (is (nil? (get-in (rf/app-db-value f) [:auth :token])) "the stale token is cleared")
+          (is (= anon-viewer-scope (rf/resolve-resource-scope (rf/app-db-value f) :realworld/viewer))
+              "the viewer is now CONFIRMED anonymous")
+          (let [after (slice f)]
+            (is (= :realworld.profile/favorites (:route-id after))
+                "restore failure keeps the deep link in place (no navigate home)")
+            (is (= nav-token (:nav-token after)) "the nav-token is unchanged — the same activation")
+            (is (some? (entry f banner-key)) "the INHERITED banner is ensured under the anonymous viewer")
+            (is (some? (entry f fav-key)) "the leaf list is ensured under the anonymous viewer")
+            (is (nil? (entry f (profile-key "alice" "celeb"))) "never stored under a signed-in viewer")
+            (is (= (by-id banner-key fav-key) (plan-slot f nav-token))
+                "the plan slot equals the materialized two-identity map")
+            (is (= (by-id banner-key) (blocking-slot f nav-token)))
+            (is (nil? (:error after)) "the planning error is REPAIRED")
+            (is (= :loading (:transition after)))))))))
+
+(deftest session-restore-failure-stays-put-and-replans-under-anonymous
   (testing "examples/real-apps/realworld_resources — a restore that FAILS (the saved
             token was rejected) clears the session and STAYS PUT on the public deep
-            link, then re-ensures the current route's reads under the now-confirmed
-            ANONYMOUS viewer (:abandon-restore → :auth/ensure-viewer-route), without
-            navigating home (rf2-j538f7.29, gate 5 failure branch)"
-    (with-new-frame [f (frame/make-anon-frame-record! {:url-bound? true
-                                       :fx-overrides {:rf.nav/push-url :rf/no-op
-                                                      :realworld-resources.session/persist :rf/no-op}})]
+            link, then replans the current route's reads under the now-confirmed
+            ANONYMOUS viewer (:abandon-restore → [:rf.route/replan-resources {:cause
+            [:session-restore-failed]}]), without navigating home (rf2-j538f7.29,
+            gate 5 failure branch; rf2-y8jjk)"
+    (with-new-frame [f (restore-frame!)]
       (rf/dispatch-sync [:auth/initialise]
                         {:frame f :rf.cofx {:realworld-resources.session/token "jwt-stale"}})
       (is (= :restoring (rf/compute-sub [:auth/state] (state-value f))))
@@ -1119,24 +1388,33 @@
         (is (nil? (entry f (article-key "public-post"))) "not under a signed-in viewer")
         (is (nil? (entry f (state/scoped-resource-key anon-viewer-scope :realworld/article {:slug "public-post"})))
             "not under the anonymous viewer yet either (viewer still unresolved)")
-        ;; GET /user is REJECTED (401) → :auth/restore-failed → :abandon-restore
-        (rf/dispatch-sync (conj (:on-failure restore-req) {:status :error :error {:rf.http/status 401}})
-                          {:frame f})
-        (is (= :idle (rf/compute-sub [:auth/state] (state-value f)))
-            "restore failure lands the machine back at :idle")
-        (is (nil? (get-in (rf/app-db-value f) [:auth :token])) "the stale token is cleared")
-        (is (false? (rf/compute-sub [:auth/viewer-resolving?] (state-value f)))
-            "the viewer is now RESOLVED (confirmed anonymous)")
-        ;; STAYS PUT — a failed restore does not yank a public deep link home.
-        (is (= :realworld.article/show (route-id f))
-            "restore failure keeps the public deep link in place (no navigate home)")
-        ;; the article read is re-ensured under the ANONYMOUS viewer, not alice/global.
-        (is (some? (entry f (state/scoped-resource-key anon-viewer-scope :realworld/article {:slug "public-post"})))
-            "the article is re-ensured under the anonymous viewer")
-        (is (nil? (entry f (article-key "alice" "public-post")))
-            "never stored under a signed-in viewer")
-        (is (nil? (entry f (state/scoped-resource-key :rf.scope/global :realworld/article {:slug "public-post"})))
-            "never stored under :rf.scope/global")))))
+        (let [token-before (:nav-token (slice f))
+              anon-article (state/scoped-resource-key anon-viewer-scope :realworld/article {:slug "public-post"})
+              anon-comments (state/scoped-resource-key anon-viewer-scope :realworld/comments {:slug "public-post"})]
+          ;; GET /user is REJECTED (401) → :auth/restore-failed → :abandon-restore
+          (rf/dispatch-sync (conj (:on-failure restore-req) {:status :error :error {:rf.http/status 401}})
+                            {:frame f})
+          (is (= :idle (rf/compute-sub [:auth/state] (state-value f)))
+              "restore failure lands the machine back at :idle")
+          (is (nil? (get-in (rf/app-db-value f) [:auth :token])) "the stale token is cleared")
+          (is (false? (rf/compute-sub [:auth/viewer-resolving?] (state-value f)))
+              "the viewer is now RESOLVED (confirmed anonymous)")
+          ;; STAYS PUT — a failed restore does not yank a public deep link home.
+          (is (= :realworld.article/show (route-id f))
+              "restore failure keeps the public deep link in place (no navigate home)")
+          (is (= token-before (:nav-token (slice f))) "the same activation — no nav-token minted")
+          ;; the article read is replanned under the ANONYMOUS viewer, not alice/global.
+          (is (some? (entry f anon-article))
+              "the article is ensured under the anonymous viewer")
+          (is (some? (entry f anon-comments))
+              "…and so is its :when-admitted comments sub-resource")
+          (is (nil? (entry f (article-key "alice" "public-post")))
+              "never stored under a signed-in viewer")
+          (is (nil? (entry f (state/scoped-resource-key :rf.scope/global :realworld/article {:slug "public-post"})))
+              "never stored under :rf.scope/global")
+          (is (= (by-id anon-article anon-comments) (plan-slot f token-before))
+              "the plan slot records exactly the replanned membership")
+          (is (nil? (:error (slice f))) "the planning error is repaired"))))))
 
 (deftest optional-auth-representation-is-not-shared-across-viewers
   (testing "examples/real-apps/realworld_resources — THE CORE FIX: viewer A's
