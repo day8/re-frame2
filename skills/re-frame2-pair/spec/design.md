@@ -135,7 +135,9 @@ Typical session reads SKILL.md (the always-loaded router) + one or two reference
 
 ## 6. Discovery surface (frontmatter `description`)
 
-The `description` is "pushy" and lists every surface the live-app workflow exposes: `re-frame2`, `app-db`, `dispatch`, `subscribe`, `reg-event`, `reg-sub`, `reg-fx`, `reg-machine`, `frame`, `epoch`, `interceptor`, `sub-cache`, `trace-buffer`, `register-listener!`, `restore-epoch`, plus the toolchain (`re-com`, `shadow-cljs`). The framing is *"pair-program with a live re-frame2 application"* — discriminates against the authoring-only `re-frame2` skill (which triggers on the same surfaces but in code-writing prose).
+The `description` is **prose, not a keyword list**. It frames the skill by SITUATION — *"Pair-program against a **running** re-frame2 application via its Tool-Pair contract"* — then names just enough live-runtime surface to be recognisable (attach to a live shadow-cljs nREPL, a frame's app-db, dispatch events, hot-swap handlers, the trace stream and per-frame epoch history, `restore-epoch`, `replay-epoch`), carries an explicit **"Do not use"** clause (static spec reading, architecture questions, design discussion, ordinary source edits — those route to `skills/re-frame2/`), points at `references/vocabulary.md` for the surface glossary rather than inlining it, and closes with *"vocabulary matches alone do not justify activation"*.
+
+That closing clause is the load-bearing one. The authoring-only `re-frame2` skill triggers on the same surfaces in code-writing prose, so the two skills are discriminated by **whether a live runtime is involved**, never by which nouns appear. Stuffing the surface vocabulary into this `description` would name precisely the terms both skills share and make the collision worse — which is why the glossary lives in a leaf and the frontmatter stays prose. A re-authoring pass MUST NOT convert it back into a keyword list (rf2-8wt8).
 
 ## 7. Anti-patterns the skill explicitly resists
 
