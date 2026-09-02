@@ -59,6 +59,40 @@
   | `:apply`           | same as `:delegate` but `(apply f args)` — for variadic arglists |
   | `[expr expr ...]`  | recursion form — emits `(<name> expr expr ...)`                  |
 
+  ### A hook value MUST be a FUNCTION, never a COMPONENT
+
+  Both direct body kinds CALL the hook value — `:delegate` emits `(f a b)`,
+  `:apply` emits `(apply f args)` — so whatever the producing namespace
+  publishes is invoked as an ordinary function. That is correct for every
+  hook in the table, and it is a real constraint rather than a stylistic one:
+  a component that is CALLED never becomes a component. On Reagent it runs
+  inside its CALLER's component instance, so it reads that instance's React
+  context rather than its own, and any `:contextType` its head carries is
+  inert.
+
+  Nothing enforces this and nothing can warn about it. The failure is silent
+  at registration, silent at call, and surfaces only when something
+  downstream needs the context — in a real browser, since a unit suite that
+  calls the render fn under `rf/with-frame` is answered by the dynamic-var
+  tier and stays green.
+
+  **The worked instance is rf2-nvcp.** `rf/route-link` is a `defwrapper` over
+  `:routing/route-link`, and routing published the registered `:route/link`
+  view head straight into it. The head was called rather than mounted, so
+  `(.-context cmp)` answered React's empty default and the render-time
+  `require-current-frame!` raised `:rf.error/no-frame-context` on FIRST
+  render — every routed application blank, for about two and a half months,
+  behind a fully green suite.
+
+  The repair belongs at the PUBLICATION side, not here: publish a function
+  that EMITS AN ELEMENT (`(fn [& args] (into [(views/view-head :route/link)]
+  args))`) and the substrate componentizes the head exactly as it does a
+  `reg-view` view. `defwrapper` is deliberately NOT taught a second calling
+  convention for this — the `:apply` / `:delegate` arities are correct for
+  functions, which is what every hook value is, and a component-aware body
+  kind would fork a hot path to accommodate one case already fixed upstream
+  of it.
+
   ### `artefact-info` map shape
 
   ```
@@ -155,6 +189,14 @@
      Shape: `(defwrapper name docstring-or-attr-map spec & arity-forms)`.
      Each arity-form is `(arglist body-kind)` where body-kind is
      `:delegate`, `:apply`, or `[recursion-args ...]`.
+
+     The hook value MUST be a FUNCTION. Both `:delegate` and `:apply` CALL
+     it, and a component that is called never becomes a component — it
+     renders inside its caller's instance and reads the caller's React
+     context, leaving any `:contextType` inert. A component-valued hook
+     therefore publishes an element-EMITTING fn instead. See the ns
+     docstring §A hook value MUST be a FUNCTION, never a COMPONENT; rf2-nvcp
+     is the worked instance.
 
      When `:where` is omitted from the spec, it defaults to
      `'rf/<name>` — the common case. Wrappers whose public-facing
