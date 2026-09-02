@@ -102,9 +102,9 @@ When the same viewer identity (session / tenant / account / locale / impersonati
 
 ```clojure
 (rf/reg-resource-scope :session
-  {:inputs  {:username [:db [:auth :user :username]]}    ;; declared inputs — names ↦ source descriptors
-   :resolve (fn [{:keys [username]} _ctx]
-              (when username [:rf.scope/session {:username username}]))})
+  {:inputs {:username [:db [:auth :user :username]]}}    ;; metadata (2nd slot): declared inputs — names ↦ source descriptors
+  (fn [{:keys [username]} _ctx]                           ;; resolver (3rd slot): first arg is ALWAYS the resolved inputs map
+    (when username [:rf.scope/session {:username username}])))
 
 ;; reference it anywhere derived scope is allowed:
 (rf/reg-resource :feed
@@ -115,7 +115,7 @@ When the same viewer identity (session / tenant / account / locale / impersonati
      :decode  :app/feed}))
 ```
 
-The `{:inputs … :resolve …}` form **declares** which app facts decide identity — so tooling can explain it and the runtime re-resolves only when a declared input changes. A whole-db function sugar exists (`(rf/reg-resource-scope :session (fn [db _ctx] …))`) but lowers to an explicit whole-db dependency tooling flags as a cost — prefer declared inputs. A `{:from-db …}` reference resolves **at use time** against the causal db of its site, **fail-closed**: nil at a scope-requiring site is the unresolved condition (route planning never substitutes global; a sub is the loud `:rf.error/resource-sub-unresolved-scope`), never a silent fall-through. A **live subscription re-keys reactively** when the resolver's inputs change mid-session (account switch / login / logout): it points at the *new* scoped key and shows that key's state (`:idle` / `:loading`), never the old principal's data — the leak boundary holds across the re-key.
+The grammar is 3-slot — `(reg-resource-scope id metadata resolve-fn)`: the `{:inputs …}` metadata map **declares** which app facts decide identity — so tooling can explain it and the runtime re-resolves only when a declared input changes — and the resolver is the **third** slot, whose first arg is always the resolved inputs map. A `:resolve` key left *inside* the metadata map is rejected at registration (`:rf.error/invalid-resource-scope-spec`). A whole-db function sugar exists (`(rf/reg-resource-scope :session (fn [db _ctx] …))`) — the **only** form whose first arg is the whole db — but it lowers to an explicit whole-db dependency tooling flags as a cost — prefer declared inputs. A `{:from-db …}` reference resolves **at use time** against the causal db of its site, **fail-closed**: nil at a scope-requiring site is the unresolved condition (route planning never substitutes global; a sub is the loud `:rf.error/resource-sub-unresolved-scope`), never a silent fall-through. A **live subscription re-keys reactively** when the resolver's inputs change mid-session (account switch / login / logout): it points at the *new* scoped key and shows that key's state (`:idle` / `:loading`), never the old principal's data — the leak boundary holds across the re-key.
 
 > **Declarative route-derived scope references (`{:from-route …}` / `{:from-frame …}`) are reserved, not shipped.** A `reg-resource-scope` resolver's declared `:inputs` are **db-derived** only in this slice (a future EP adds a route/runtime input source) — so don't write a *named* resolver reaching for route/frame facts, and don't invent a `{:from-route …}` / `{:from-frame …}` form. **This does not retire route-resource scope functions:** a route `:resources` entry's `:scope` MAY still be an anonymous `(fn [route ctx] …)` route resolver (§Route-driven loading), because that one site carries a *populated* planning context — the exception to the reserved-`ctx` rule. The narrow ban: don't synthesise an anonymous scope fn at registration / spec-side surfaces (where `ctx` is reserved-nil), and don't reach for the unshipped route/frame references — name db-derived identity with `reg-resource-scope` instead.
 
