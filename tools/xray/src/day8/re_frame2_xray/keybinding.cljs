@@ -46,13 +46,19 @@
 
   ## Spine keybindings (rf2-adve5 — spec/018-Event-Spine.md §3 + §6)
 
-  Five unmodified keys drive the spine sub:
+  Bare keys — no Ctrl / Meta / Alt, and Shift only for `G` — drive
+  the spine sub. `spine-key-id` below is the SOURCE OF TRUTH for the
+  set: its `cond` arms are the roster, and spec/007-UX-IA.md §Shell
+  spine keys mirrors them. Read one of those rather than trusting a
+  count restated here (rf2-jy64 — this list undercounted for as long
+  as it carried a number). Today the arms are:
 
-      Space  →  :rf.xray/toggle-live-pause      (pause/resume LIVE feed)
-      L      →  :rf.xray/follow-head            (snap-LIVE)
-      j      →  :rf.xray/focus-event-prev       (step back through events)
-      k      →  :rf.xray/focus-event-next       (step forward through events)
-      G      →  :rf.xray/follow-head            (fast-forward to head)
+      Space    →  :rf.xray/toggle-live-pause    (pause/resume LIVE feed)
+      L        →  :rf.xray/follow-head          (snap-LIVE)
+      j        →  :rf.xray/focus-event-prev     (step back through events)
+      k        →  :rf.xray/focus-event-next     (step forward through events)
+      Shift+G  →  :rf.xray/follow-head          (fast-forward to head)
+      `,` / s  →  :rf.xray/settings-toggle      (toggle Settings popup)
 
   These keys collide with normal typing in any text field, so they
   fire ONLY when:
@@ -132,7 +138,8 @@
   Per the parent epic's architectural-lock decision (2026-05-19):
   Cmd-Shift-M is the chord — a paired letter that doesn't collide
   with the existing Ctrl+Shift+C (toggle shell), Cmd/Ctrl+K (palette),
-  or the bare-letter spine bindings (Space / L / j / k / G).
+  or the bare-letter spine bindings (Space / L / j / k / Shift+G /
+  `,` / s — see `spine-key-id`).
 
   Accepts EITHER Cmd OR Ctrl as the primary modifier so mac users
   get muscle-memory Cmd and Windows/Linux users get Ctrl — the same
@@ -264,10 +271,18 @@
 
 (defn- spine-key-id
   "Map an unmodified keydown to the spine event id it dispatches, or
-  nil when the key is not a spine binding. Per spec/018 §3 + §6 the
-  five bindings are Space / L / j / k / G. Bare-key (no modifiers)
-  is required so the bindings don't collide with browser shortcuts
-  (Cmd+L → focus address bar, Ctrl+Shift+C → Xray toggle, etc.)."
+  nil when the key is not a spine binding.
+
+  THIS FN IS THE SOURCE OF TRUTH for the spine set — the `cond` arms
+  below are the roster, and spec/018 §3 + §6 and spec/007-UX-IA.md
+  §Shell spine keys mirror them. Deliberately no count is stated
+  here: the previous wording named one and drifted when the `,` / s
+  arms landed (rf2-jy64).
+
+  Bare-key (no Ctrl / Meta / Alt) is required so the bindings don't
+  collide with browser shortcuts (Cmd+L → focus address bar,
+  Ctrl+Shift+C → Xray toggle, etc.). Shift is permitted, and is
+  required by the `G` arm."
   [^js event]
   (when (and (not (.-ctrlKey event))
              (not (.-metaKey event))
@@ -392,8 +407,8 @@
           (rf/dispatch [:rf.xray/palette-toggle])))
 
     ;; Spine bindings — only fire inside the Xray shell, never on
-    ;; editable elements. Per spec/018 §3 + §6 the keys are
-    ;; Space / L / j / k / G.
+    ;; editable elements. Per spec/018 §3 + §6; `spine-key-id` is the
+    ;; roster (Space / L / j / k / Shift+G / `,` / s).
     ;;
     ;; rf2-ttnst — also gate on "not inside a modal". The Settings
     ;; popup and command palette each carry bare letters of their own
