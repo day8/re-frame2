@@ -1753,6 +1753,21 @@ The launch pill doesn't render in production builds (per Spec 009 §
 Production builds — `goog.DEBUG=false` elides the entire surface).
 `Ctrl+Shift+C` does nothing. CI verifies via `npm run test:elision`.
 
+> **Status (rf2-2oug): the posture banner below is normative-future —
+> nothing in `tools/xray/src` implements it.** The paragraph is retained as
+> the design, not as a description of a shipped surface. Census at tip over
+> `tools/xray/src`: zero hits for the banner text both line-oriented and
+> whitespace-collapsed, against a `dismiss` control returning 43.
+>
+> It is deliberately not built. The posture question it answers is already
+> answered by the elision gate above — a production build carries no Xray
+> surface at all, and `npm run test:elision` holds that in CI — so the
+> banner is a dev-build courtesy rather than a privacy control, and
+> building it speculatively to make this sentence true would be the wrong
+> direction of causation. The `skills/re-frame2-xray` reference
+> `references/launch-lifecycle.md` §Production posture records the same
+> status in the same words; the two carriers must stay in step.
+
 In a non-elided dev build running in production-like conditions,
 Xray shows a yellow top banner: "Xray is enabled in this build.
 Disable for production." Single-click dismiss, remembered for the

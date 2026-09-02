@@ -415,6 +415,29 @@ Constraints inherited from the `window.opener` posture:
   garbage-collected. Pop-out re-bootstraps on opener reload by
   re-reading `window.opener.xrayRuntime`.
 
+> **Status (rf2-9vm0): the `window.opener.xrayRuntime` handle in the last
+> bullet is normative-future — nothing in `tools/xray/src` sets or reads
+> it.** This marker is scoped to that HANDLE alone and to nothing else in
+> this section. Pop-out itself **ships**, by the mechanism stated above:
+> `window.open` plus same-JS-realm reads and dispatches against the
+> opener's runtime atoms, with no `postMessage`, `BroadcastChannel`,
+> shared worker or query-param layer. That description is accurate and
+> normative — see `mount.cljs` `popout!`, `install-opener-gone-overlay!`
+> and `start-opener-gone-watchdog!`. Census at tip over `tools/xray/src`:
+> zero hits for `xrayRuntime` both line-oriented and whitespace-collapsed,
+> against an `opener` control returning 79 and a `popout` control
+> returning 165.
+>
+> **The bullet's second claim is a real gap, not drift, and is tracked
+> rather than marked away (rf2-uong).** With no handle there is no
+> re-bootstrap, and `opener-gone?` is `(or (nil? opener) (.-closed
+> opener))` — a same-origin hard reload leaves `window.opener` live and
+> `.closed` false, so the watchdog never fires and the opener-gone overlay
+> never shows. The pop-out keeps rendering against the previous realm's
+> atoms: silently stale rather than visibly broken. Whether the fix is to
+> widen the predicate, to build the re-bootstrap, or to declare the reload
+> case out of scope is open on that bead.
+
 Solves the "I want Xray on a second monitor while the app runs
 full-screen" use case.
 
