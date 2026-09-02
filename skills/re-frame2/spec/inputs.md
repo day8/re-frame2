@@ -20,7 +20,7 @@ Specific files the leaves lean on:
 - `implementation/core/src/re_frame/test_support.cljc` — `make-reset-runtime-fixture`, `snapshot-registrar` / `restore-registrar!`, `assert-path-equals`, `poll-until`.
 - `implementation/core/src/re_frame/substrate/plain_atom.cljc` — JVM-side adapter.
 - `implementation/adapters/reagent/src/re_frame/adapter/reagent.cljs` — `frame-provider`, plain-Reagent-fn warning.
-- `implementation/machines/src/re_frame/machines.cljc` — `reg-machine`, `:spawn`, parallel regions, tags.
+- `implementation/machines/src/re_frame/machines/**` — the 33-file machine artefact (`transition`, `parallel`, `spawn_order`, `timer`, `tooling`, `lifecycle_fx/`, …): `:spawn`, parallel regions, tags. `machines.cljc` beside it is the façade that re-exports that tree — read it for the public surface, the sub-namespaces for behaviour. The `reg-machine` / `defmachine` **macros** live in `implementation/core/src/re_frame/core.cljc`, not here.
 - `implementation/http/src/re_frame/http.cljc` — `:rf.http/managed`, failure categories, request stubs.
 
 ## 2. Secondary input — `examples/**`
@@ -58,7 +58,7 @@ Used for *why*, not *what*. The leaves cite EPs by name for design rationale (fr
 
 These shape the skill's voice and structure but aren't quoted directly.
 
-- **`ai/findings/re-frame2-skill-design-v2.md`** — the design rationale captured during the v2 redesign. Sources Q14 (no verification module), the four pillars, the cut-test, the routing model.
+- **`ai/findings/re-frame2-skill-design-v2.md`** — the v2 redesign rationale: the four pillars, the cut-test, the routing model. **Historical, and not available in a clone** — the `ai/` tree is local-only and untracked (per L11), so a fresh reauthoring session cannot read it; design.md §2–§3 carry everything it fed. It also sourced the original **Q14 — no verification module** posture, which was **unlocked on 2026-08-31**: see design.md L3 *History*. Do not reproduce Q14 as a live constraint.
 - **`skills/re-frame-migration/spec/**`** + **`skills/re-frame2-implementor/spec/**`** — the existing `spec/` triad pattern (design / inputs / authoring-prompt). This skill's spec/ mirrors that shape.
 - **`SKILL-REDIRECT.md`** (repo root) — the canonical pointer table the leaves redirect to for deep-dive content.
 - Anthropic skills guidance — `name` ≤ 64 chars, lowercase + hyphens; `description` "pushy"; SKILL.md under ~500 lines; leaves one level deep; avoid time-sensitive content (deferred to lookup leaves like `references/deps-versions.md` in the sibling setup skill).
