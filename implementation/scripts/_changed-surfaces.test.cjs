@@ -282,7 +282,8 @@ test('Spec-only .md change fires implementation_jvm but NOT cljs (rf2-f79t8, rf2
 
 test('Docs prose with NO pinning suite still skips jvm-core + cljs (rf2-f79t8, rf2-61ar)', () => {
   // rf2-61ar armed the docs trees a test.yml suite reads (docs/machines, two
-  // docs/api pages, one docs/design page) and left every other docs page
+  // docs/api pages, one docs/design page, and since rf2-8arzr.6
+  // docs/ssr/concepts.md) and left every other docs page
   // classifying exactly as it did before. That asymmetry IS the bead's
   // narrowing, so this case keeps its original control — a docs/core page
   // reaches none of the armed trees. Since rf2-7v5vx that holds for the WHOLE
@@ -428,7 +429,7 @@ test('unpinned PROSE reads implementation_jvm false — the render-law census re
   // The seventh walk's domain is `git ls-files`, not a directory: every tracked
   // `.md` / `.clj` / `.cljc` / `.cljs` in the repo. rf2-61ar armed
   // `implementation_jvm` for the prose a test.yml suite PINS — nearly all of
-  // `spec/*`, `docs/machines/*`, three named pages — and deliberately left the
+  // `spec/*`, `docs/machines/*`, four named pages — and deliberately left the
   // rest of `docs/` arming nothing. So the census outruns the arm, and a
   // retired render-law claim landing on an unpinned page merged green.
   for (const p of [
@@ -5490,6 +5491,7 @@ const PROSE_PINS_ARMING_JVM = [
   ['docs/machines/concepts.md', 'transition_geometry_terminology_jvm_test.clj', 'jvm-machines'],
   ['docs/api/re-frame.adapter.uix.md', 'scope_ensure_authority_test.clj', 'jvm-core'],
   ['docs/api/re-frame.ssr.md', 'ssr_doc_example_projector_test.clj', 'jvm-ssr'],
+  ['docs/ssr/concepts.md', 'ssr_doc_example_node_build_id_test.clj', 'jvm-ssr'],
   ['docs/design/hicasso/product/async-routing-recipes.md', 'recipes/async_nav_doc_test.clj', 'jvm-routing'],
   ['spec/000-Vision.md', 'scope_ensure_authority_test.clj', 'jvm-core'],
   ['spec/005-StateMachines.md', 'transition_geometry_terminology_jvm_test.clj', 'jvm-machines'],
@@ -5524,6 +5526,12 @@ test('prose no suite reads still arms NOTHING — the narrowing (rf2-61ar)', () 
     'docs/hicasso/concepts.md',
     'docs/core/intro.md',
     'docs/api/re-frame.core.md', // 23 of the 25 docs/api pages carry no JVM pin
+    // The same narrowing one tree over (rf2-8arzr.6): `concepts.md` carries
+    // the Node recipe whose build-id literals ssr_doc_example_node_build_id_
+    // test.clj holds together, and the other nine pages in docs/ssr/ carry no
+    // JVM pin at all. The arm is the PAGE, not the tree — this is the verdict
+    // that says so.
+    'docs/ssr/testing.md',
     // A docs/design/** exemplar, which is what the count beside it measures --
     // so this one does NOT follow the guide to docs/core/hicasso/. The chapter
     // it used to name left the tree under rf2-0yp7w; REWRITE-NOTES.md is the
@@ -6072,7 +6080,15 @@ const DECLARED_NO_SURFACE_OUTPUT = {
   'docs/routing': DOCS_YML,
   'docs/scripts': DOCS_YML,
   'docs/skills': DOCS_YML,
-  'docs/ssr': DOCS_YML,
+  // `docs/ssr` is DELIBERATELY ABSENT since rf2-8arzr.6, and the ratchet below
+  // is what makes that a requirement rather than a tidy-up: the tree used to
+  // be DOCS_YML, and then `docs/ssr/concepts.md` gained a test.yml pin
+  // (ssr_doc_example_node_build_id_test.clj, jvm-ssr) and an arm to schedule
+  // it. One armed file arms the tree, so the declaration became stale and had
+  // to go — leaving it would have told the next reader this tree is ungated
+  // months after it stopped being. The other nine pages are still covered by
+  // docs.yml + check_doc_slugs.py exactly as DOCS_YML says; that is a
+  // statement about pages, and this table is keyed by tree.
   'docs/story': DOCS_YML,
   'docs/stylesheets': DOCS_YML,
   'docs/the-mayor-method': DOCS_YML,

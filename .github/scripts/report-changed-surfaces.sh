@@ -1512,6 +1512,8 @@ else
       #                                                              → jvm-core
       #   docs/api/re-frame.ssr.md           ssr_doc_example_projector_test.clj
       #                                                              → jvm-ssr
+      #   docs/ssr/concepts.md               ssr_doc_example_node_build_id_
+      #                                        test.clj              → jvm-ssr
       #   docs/design/hicasso/product/       recipes/async_nav_doc_test.clj
       #     async-routing-recipes.md                                 → jvm-routing
       #   spec/000-Vision.md                 scope_ensure_authority_test.clj
@@ -1587,6 +1589,19 @@ else
         # pages' worth of edits into a 22-job JVM tier when 23 of them have no
         # JVM pin at all is the "coarse rules clutter the matrix" TESTING.md
         # warns about. Add the page here when a new JVM suite names one.
+        implementation_jvm=true
+        ;;
+      docs/ssr/concepts.md)
+        # One named file, NOT `docs/ssr/*` — the same narrowing the two
+        # `docs/api` pages above get, for the same reason: exactly one page in
+        # this ten-page tree is read by a test.yml suite.
+        # `ssr_doc_example_node_build_id_test.clj` (jvm-ssr) reads the "Render
+        # on Node" recipe's fences and fails when its paired build-id literals
+        # diverge — the bundle's `goog-define`, the host's `:build-id` renderer
+        # opt and the launcher transcript that echoes them. The other nine
+        # pages carry no JVM pin, and the tree's own coverage is docs.yml plus
+        # check_doc_slugs.py, neither of which reads inside a fence. Add a page
+        # here when a new JVM suite names one (rf2-8arzr.6).
         implementation_jvm=true
         ;;
       docs/design/hicasso/product/async-routing-recipes.md)
