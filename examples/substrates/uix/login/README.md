@@ -15,7 +15,7 @@ Everything below the [view](../../../../docs/core/glossary.md#view) layer stays
 the same — the same schemas, the same machine, the same named subscriptions,
 the same canned HTTP stub — because it is literally the same source. All of it
 lives in one substrate-free namespace, `login.model`
-([`examples/core/login/model.cljs`](../../../core/login/model.cljs)), which this
+([`examples/core/login/model.cljc`](../../../core/login/model.cljc)), which this
 example `:require`s and both twins — Reagent and
 [Hicasso](../../hicasso/login/) — import unchanged. Only the
 views are written differently. That's the idea worth taking away: swapping the
@@ -123,7 +123,7 @@ login/
 
 The substrate-free half — schemas, machine, events, subs, HTTP stub, frame
 config — is not in this folder: it is the shared
-[`login.model`](../../../core/login/model.cljs) namespace this `core.cljs`
+[`login.model`](../../../core/login/model.cljc) namespace this `core.cljs`
 `:require`s.
 
 ## How to run

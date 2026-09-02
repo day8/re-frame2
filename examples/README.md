@@ -152,7 +152,7 @@ Both apps share read-only helpers (avatars, markdown rendering) from `real-apps/
 
 ## Substrates
 
-The same dataflow, rendered through a different view layer — the proof the adapter swaps cleanly. **[`substrates/README.md`](substrates/README.md) is the entry point**: it sorts these into the two comparisons they actually make (same authoring language / different package, versus one model / three view languages) and says what each holds constant. The headline is the **login triple** — Reagent, UIx and Hicasso over one substrate-free [`login.model`](core/login/model.cljs), where diffing any two entry points shows the view layer and nothing else.
+The same dataflow, rendered through a different view layer — the proof the adapter swaps cleanly. **[`substrates/README.md`](substrates/README.md) is the entry point**: it sorts these into the two comparisons they actually make (same authoring language / different package, versus one model / three view languages) and says what each holds constant. The headline is the **login triple** — Reagent, UIx and Hicasso over one substrate-free [`login.model`](core/login/model.cljc), where diffing any two entry points shows the view layer and nothing else.
 
 | Example | What it demonstrates |
 |---|---|

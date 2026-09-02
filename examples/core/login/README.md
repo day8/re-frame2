@@ -8,7 +8,7 @@ Read this when you've seen the smaller examples and you want to know how the pie
 
 Everything in the feature shares one prefix: `:auth.login/*`. The machine, the events, the subscriptions — all of it. (The registered views are the one exception: their ids come from the file's namespace, for example `:login.core/root-view`.) That prefix marks the unit you'd lift into its own folder in a real codebase (more on that below).
 
-The whole substrate-free half of that feature — the machine, schemas, events, subs, demo HTTP stub, and frame config — lives in one place: [`model.cljs`](model.cljs), the namespace `login.model`. It is the single owner of the `auth.login` dataflow. This `core.cljs`, its [UIx twin](../../substrates/uix/login/) and its [Hicasso twin](../../substrates/hicasso/login/) each `:require` that model and add only their own views + mount. So the model you read below lives once, not three times — one owner, three view layers. [`examples/substrates/README.md`](../../substrates/README.md) lays the comparison out.
+The whole substrate-free half of that feature — the machine, schemas, events, subs, demo HTTP stub, and frame config — lives in one place: [`model.cljc`](model.cljc), the namespace `login.model`. It is the single owner of the `auth.login` dataflow. This `core.cljs`, its [UIx twin](../../substrates/uix/login/) and its [Hicasso twin](../../substrates/hicasso/login/) each `:require` that model and add only their own views + mount. So the model you read below lives once, not three times — one owner, three view layers. [`examples/substrates/README.md`](../../substrates/README.md) lays the comparison out.
 
 ## What this demonstrates
 
@@ -58,13 +58,13 @@ This is the canonical cross-view-layer base. The exact same login feature — th
 
 The substrate here is stock Reagent (not reagent-slim). This is the reference example, so it sits on the reference substrate. If it's the stock-vs-slim contrast you want, that's a different pair: `counter` / `counter_slim_and_fast`.
 
-A note on layout (this is example layout, not production layout). The substrate-free half already lives in its own file, `model.cljs` — the seam a real codebase draws first. In a larger app you'd split `model.cljs` further along the seams the `:auth.login/*` slice implies — `login/schema.cljc | events.cljs | subs.cljs | machines.cljs`. Here the model is one file so you can read it whole; each `core.cljs` keeps only the views + mount.
+A note on layout (this is example layout, not production layout). The substrate-free half already lives in its own file, `model.cljc` — the seam a real codebase draws first. In a larger app you'd split `model.cljc` further along the seams the `:auth.login/*` slice implies — `login/schema.cljc | events.cljs | subs.cljs | machines.cljs`. Here the model is one file so you can read it whole; each `core.cljs` keeps only the views + mount.
 
 ## Files
 
 ```
 login/
-  model.cljs           — THE substrate-free owner: schema + fx + machine +
+  model.cljc           — THE substrate-free owner: schema + fx + machine +
                          events + subs + frame config. Shared, id for id, by
                          all three login examples (Reagent / UIx / Hicasso).
   core.cljs            — the Reagent HALF: reg-view views + adapter init + mount.

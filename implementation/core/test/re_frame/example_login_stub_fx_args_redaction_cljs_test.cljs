@@ -1,7 +1,7 @@
 (ns re-frame.example-login-stub-fx-args-redaction-cljs-test
   "Framework-tree security regression for the login example's DEMO HTTP STUB —
    the `:auth.login.demo/managed-stub` reg-fx owned by
-   examples/core/login/model.cljs (rf2-a6zmmu).
+   examples/core/login/model.cljc (rf2-a6zmmu).
 
    These belong in the framework test tree, NOT under examples/ (examples stay
    test-free per rf2-8cevm). The ns requires the login model owner

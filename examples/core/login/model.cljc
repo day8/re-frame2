@@ -57,8 +57,16 @@
    because all three builds import it, any adapter/view library it dragged in
    would leak into the two login bundles it doesn't belong in.
 
-   In a real codebase you'd split this across login/schema.cljc, events.cljs,
-   subs.cljs, and machines.cljs. It lives in one namespace here so you can read
+   SUBSTRATE-FREE AND PLATFORM-NEUTRAL. It is `.cljc`, not `.cljs`, and the
+   second half of that is load-bearing rather than tidy: the Hicasso arm
+   server-renders through a JVM Ring host
+   (`examples/substrates/hicasso/login/host.clj`), and a JVM host has to hold
+   the application's state — so every `auth.login` schema, fx, machine, event
+   and sub has to be loadable from Clojure. One handler body needs a platform,
+   the `localStorage` write in `:auth.session/store`, and it says so in place.
+
+   In a real codebase you'd split this across login/schema.cljc, events.cljc,
+   subs.cljc, and machines.cljc. It lives in one namespace here so you can read
    the whole model top to bottom in one sitting."
   ;; re-frame2 ships its bigger features opt-in. You pay for what you use, and
   ;; you say so by requiring it. Each `re-frame.*` require here is a feature
@@ -199,7 +207,16 @@
 (rf/reg-fx :auth.session/store
   {:doc       "Stash the session token in localStorage so the login
                 survives a refresh. Client-only — localStorage is a
-                browser thing, so `:platforms` keeps it off the server."
+                browser thing, so `:platforms` keeps it off the server.
+
+                This is the ONE handler body in this namespace that is not
+                platform-neutral, and it is why the file is `.cljc` rather
+                than `.cljs`. `:platforms #{:client}` already keeps the
+                effect from RUNNING on a server; a reader conditional is
+                what keeps `js/globalThis` from being READ there, so a JVM
+                host can load the shared model at all. The two are
+                different boundaries — one runtime, one compile-time — and
+                a server-side host needs both."
    ;; The token is a credential, and fx args are a transient payload with their
    ;; OWN egress owner — separate from the event that produced them. So this
    ;; registration classifies its `:token` arg `:sensitive`: the per-effect
@@ -211,8 +228,13 @@
    :sensitive [[:token]]
    :platforms #{:client}}
   (fn fx-auth-session-store [_m {:keys [token]}]
-    (when-let [ls (.-localStorage js/globalThis)]
-      (.setItem ls "auth/token" token))))
+    #?(:cljs (when-let [ls (.-localStorage js/globalThis)]
+               (.setItem ls "auth/token" token))
+       ;; Unreachable on the JVM — `:platforms #{:client}` refuses the
+       ;; effect before a handler body runs. Present so the namespace
+       ;; READS on a Clojure classpath, which is what a JVM SSR host needs.
+       :clj  (throw (ex-info "auth.session/store is client-only"
+                             {:token-present? (some? token)})))))
 
 (rf/reg-fx :auth.login.demo/managed-stub
   {:doc       "Our stand-in backend. It reads the URL and request body and

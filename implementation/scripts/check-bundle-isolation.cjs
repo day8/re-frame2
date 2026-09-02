@@ -731,7 +731,7 @@ const ARTEFACTS = [
 //       the artefact; assert every sentinel is PRESENT (count > 0). The
 //       strongest form (the perf-bundle template): it proves the sentinel is a
 //       live literal that survives `:advanced` compilation into a real
-//       production bundle. `login` (examples/core/login/model.cljs) requires
+//       production bundle. `login` (examples/core/login/model.cljc) requires
 //       the schemas / machines / http artefacts, so its bundle carries their
 //       sentinels — empirically 1+ each (rf2-e6qmxk validation).
 //

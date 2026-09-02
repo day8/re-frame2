@@ -27,15 +27,18 @@
   declares no list for a partition cannot be rendered at all — absence is a
   refusal, never a licence to read everything.
 
-  They are derived from `render-state-policy` below, which is also the map
-  `host.clj` hands `ssr-handler` as `:render-state`. ONE list, two readers.
-  The two processes are deployed separately, so nothing can MAKE them agree
-  — but nothing has to: a host that asks for a key this table does not name
-  is refused with the sidecar's state-key-not-allowed refusal, and a host
-  built against a different bundle with its build-identity one. Both codes
-  are the sidecar's vocabulary, spelled in its protocol rather than
-  restated here. Drift is loud on the first request, not silent on the
-  thousandth.
+  They are derived from `hicasso.login.policy/render-state-policy` — the
+  SAME Var `host.clj` hands the Node renderer as `:render-state`, in a
+  `.cljc` namespace precisely so both halves can read it. ONE list, two
+  readers, one file. The two processes are deployed separately, so nothing
+  can MAKE them agree at run time — but nothing has to: a host that asks
+  for a key this table does not name is refused with the sidecar's
+  state-key-not-allowed refusal, and a host built against a different
+  bundle with its build-identity one. Both codes are the sidecar's
+  vocabulary, spelled in its protocol rather than restated here. Drift is
+  loud on the first request, not silent on the thousandth — and a host
+  built from this repository cannot drift in the first place, because
+  there is one list to edit.
 
   ## The render module contract
 
@@ -52,6 +55,8 @@
             ;; The views, the SSR coordinates and every `auth.login`
             ;; registration (the model rides in through this one require).
             [hicasso.login.core :as views]
+            ;; The one render-state list, shared with `host.clj`.
+            [hicasso.login.policy :as policy]
             [login.model :as model]))
 
 ;; ---------------------------------------------------------------------------
@@ -76,48 +81,22 @@
 ;; ---------------------------------------------------------------------------
 ;; The render-state policy — the one list both halves read
 ;; ---------------------------------------------------------------------------
-
-(def render-state-policy
-  "What the render is allowed to see. `host.clj` passes this map to
-  `ssr-handler` as `:render-state`; `entries` below publishes the same keys
-  as the sidecar's per-partition allowlists.
-
-  It is DISTINCT from the host's `:payload` policy, and deliberately so:
-
-    `:auth`                   the form slice at `[:auth :login-form]` — the
-                              draft the inputs are bound to. Also in the
-                              payload, because the client needs it to
-                              re-render the same controlled inputs. The
-                              draft PASSWORD is classified `:sensitive` by
-                              the shared model, so the projection redacts it
-                              on both wires: the render cannot print a
-                              secret it was never handed.
-    `:auth.login/server-notice`  a deployment notice the host resolves per
-                              request. NOT in the payload — the browser
-                              never receives it. See the note beside the
-                              sub in `core.cljs` for the rule that comes
-                              with that choice.
-    `:rf.runtime/machines`    the machine snapshots. `:auth.login/flow` is
-                              what decides which of the page's three faces
-                              renders, so without this partition the server
-                              would render the form for an authenticated
-                              visitor. It lives in runtime-db, which is
-                              exactly why the render state is TWO
-                              partitions and not one."
-  {:app-db     [:auth :auth.login/server-notice]
-   :runtime-db [:rf.runtime/machines]})
+;;
+;; It is NOT written here. `hicasso.login.policy/render-state-policy` owns it,
+;; in a `.cljc` namespace both this bundle and the JVM `host.clj` require, and
+;; that namespace's docstring is where the per-key reasoning lives.
 
 (def root-entry
-  "The entry identifier a JVM host names in its renderer opts. One root, one
-  entry; a bigger application publishes one per server-rendered route."
-  "hicasso.login/root")
+  "The entry identifier a JVM host names in its renderer opts — from the
+  shared policy namespace, for the same reason the allowlists are."
+  policy/root-entry)
 
 (defn- allowlist
-  "The EDN text of each key in one slot of `render-state-policy` — the
-  spelling the protocol's key grammar admits (`:foo`, `:foo/bar`), and the
-  same spelling `render-state/serialize` puts on the wire."
+  "The EDN text of each key in one slot of `policy/render-state-policy` —
+  the spelling the protocol's key grammar admits (`:foo`, `:foo/bar`), and
+  the same spelling `render-state/serialize` puts on the wire."
   [slot]
-  (into-array (map pr-str (get render-state-policy slot))))
+  (into-array (map pr-str (get policy/render-state-policy slot))))
 
 ;; ---------------------------------------------------------------------------
 ;; The module

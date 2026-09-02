@@ -28,7 +28,18 @@
  {:test {;; The local fixture combines core's public reset fixture with the
          ;; SSR per-request side-channel resets available through the
          ;; production SSR dependency.
-         :extra-paths ["test"]
+         ;;
+         ;; The two `../../examples` roots are the login arm's JVM host
+         ;; witness (rf2-8arzr.5, `login_host_crossing_test.clj`): it
+         ;; requires `hicasso.login.host` (examples/substrates) which
+         ;; requires the shared `login.model` (examples/core). Loading the
+         ;; namespace is half the witness — before this, a compile error in
+         ;; that host passed every gate silently. Same shape as
+         ;; implementation/core/deps.edn's `:test`, which puts the example
+         ;; buckets on the classpath for `re-frame.examples-test`.
+         :extra-paths ["test"
+                       "../../examples/core"
+                       "../../examples/substrates"]
          ;; Mirrors implementation/ssr/deps.edn :test alias — schemas /
          ;; flows / routing / machines load at ns-load time and the
          ;; reset-runtime fixture reloads them after registrar/clear-all!.
@@ -36,6 +47,9 @@
                        day8/re-frame2-flows      {:local/root "../flows"}
                        day8/re-frame2-routing    {:local/root "../routing"}
                        day8/re-frame2-machines   {:local/root "../machines"}
+                       ;; `login.model` turns on managed HTTP and its
+                       ;; canned-reply stubs (the example's demo backend).
+                       day8/re-frame2-http       {:local/root "../http"}
                        ;; Resource payload tests require the optional hooks
                        ;; without adding them to the published adapter.
                        day8/re-frame2-resources  {:local/root "../resources"}
@@ -53,11 +67,17 @@
 
   ;; Nightly/rigorous gate: includes only tests excluded by `:test`.
   :slow-test
-  {:extra-paths ["test"]
+  {:extra-paths ["test"
+                 ;; Every lane that scans `test/` loads every namespace in
+                 ;; it, the login host witness included — so the classpath
+                 ;; the `:test` alias explains is needed here too.
+                 "../../examples/core"
+                 "../../examples/substrates"]
    :extra-deps  {day8/re-frame2-schemas    {:local/root "../schemas"}
                  day8/re-frame2-flows      {:local/root "../flows"}
                  day8/re-frame2-routing    {:local/root "../routing"}
                  day8/re-frame2-machines   {:local/root "../machines"}
+                 day8/re-frame2-http       {:local/root "../http"}
                  day8/re-frame2-resources  {:local/root "../resources"}
                  day8/re-frame2-test-quiet {:local/root "../test-quiet"}
                  ring/ring-jetty-adapter {:mvn/version "1.12.1"}}
@@ -71,11 +91,16 @@
   ;; (`jvm-node-crossing` in .github/workflows/test.yml); the default `:test`
   ;; alias never touches Node.
   :crossing-test
-  {:extra-paths ["test"]
+  {:extra-paths ["test"
+                 ;; The login arm's JVM host and the model it holds — the
+                 ;; product half of the crossing (rf2-8arzr.5).
+                 "../../examples/core"
+                 "../../examples/substrates"]
    :extra-deps  {day8/re-frame2-schemas    {:local/root "../schemas"}
                  day8/re-frame2-flows      {:local/root "../flows"}
                  day8/re-frame2-routing    {:local/root "../routing"}
                  day8/re-frame2-machines   {:local/root "../machines"}
+                 day8/re-frame2-http       {:local/root "../http"}
                  day8/re-frame2-resources  {:local/root "../resources"}
                  day8/re-frame2-test-quiet {:local/root "../test-quiet"}
                  ring/ring-jetty-adapter {:mvn/version "1.12.1"}}

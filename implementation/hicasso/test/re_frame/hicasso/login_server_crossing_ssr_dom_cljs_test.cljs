@@ -85,6 +85,7 @@
             ;; entry table, and the substrate-free model every `auth.login`
             ;; registration lives in.
             [hicasso.login.core :as views]
+            [hicasso.login.policy :as app-policy]
             [hicasso.login.server :as app-server]
             [login.model :as model]))
 
@@ -119,7 +120,7 @@
 
 (def ^:private payload-policy-opts
   "What the HOST lets the browser see — `[:auth]`, the form slice, and
-  nothing else. Narrower than `app-server/render-state-policy` on purpose:
+  nothing else. Narrower than `app-policy/render-state-policy` on purpose:
   that is the whole claim of §3."
   {:payload [:auth]})
 
@@ -212,7 +213,7 @@
   parses it into."
   [wire {:keys [build-id entry state]}]
   #js {:protocol 1
-       :entry    (or entry app-server/root-entry)
+       :entry    (or entry app-policy/root-entry)
        :state    (clj->js (or state (:rf/app-db wire)))
        :runtime  (clj->js (:rf/runtime-db wire))
        :buildId  (or build-id (.-buildId module))})
@@ -222,7 +223,7 @@
   policy and serialize both partitions to per-key EDN text."
   [frame-id]
   (render-state/serialize
-    (render-state/project frame-id {:render-state app-server/render-state-policy})))
+    (render-state/project frame-id {:render-state app-policy/render-state-policy})))
 
 (defn- hand-to-module!
   "Hand the module the frozen call shape `worker.cjs` builds, and answer
@@ -307,7 +308,7 @@
 
 (deftest the-server-bundle-satisfies-the-render-module-contract
   (testing "the entry table, which every lane can read"
-    (let [entry (aget (.-entries module) app-server/root-entry)]
+    (let [entry (aget (.-entries module) app-policy/root-entry)]
       (is (some? entry) "the module publishes the entry a host names")
       (is (= [":auth" ":auth.login/server-notice"] (vec (.-stateAllowlist entry)))
           "both allowlists, in the EDN spelling the protocol's key grammar admits")
