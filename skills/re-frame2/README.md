@@ -4,7 +4,7 @@
 
 A `Skill` that helps `Claude Code` (and any Claude Agent SDK harness) author re-frame2 ClojureScript applications. Companion to [`re-frame2-pair`](../re-frame2-pair) (which targets running apps) and [`re-frame2-setup`](../re-frame2-setup) (which bootstraps new projects from scratch).
 
-This skill carries the recipes, decision rules, and canonical declarations Claude needs to write idiomatic re-frame2 code on the first attempt — events, subscriptions, effects, frames, state machines, schemas, stories, routing, and the canonical patterns (RemoteData, Resources, Forms, Boot, WebSocket, NineStates, ManagedHTTP, AsyncEffect, LongRunningWork, StaleDetection, ReusableComponents, StatefulComponents, FormAction, SSR-Loaders).
+This skill carries the recipes, decision rules, and canonical declarations Claude needs to write idiomatic re-frame2 code on the first attempt — events, subscriptions, effects, frames, state machines, schemas, stories, routing, and the canonical patterns (RemoteData, Resources, ResourcesMutations, Forms, Boot, WebSocket, NineStates, ManagedHTTP, AsyncEffect, LongRunningWork, StaleDetection, ReusableComponents, StatefulComponents, FormAction).
 
 ## Scope
 

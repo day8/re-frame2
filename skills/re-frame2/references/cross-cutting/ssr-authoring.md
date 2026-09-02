@@ -142,7 +142,7 @@ When the page shell + header should render immediately while slow subtrees strea
  [slow-card card-id]]                         ;; renders the fallback until the card's data resolves, then streams in
 ```
 
-Worked example: `examples/capabilities/ssr/ssr_streaming/core.cljc` (a three-slow-card dashboard) — read it for the `:rf/suspense-boundary` marker, per-card fallback hiccup, inline-fallback failure semantics, and interleaved per-subtree hydration. Spec: [`spec/011-SSR.md §Streaming`](../../../../spec/011-SSR.md#streaming-ssr). For the parallel data-fetch fan-out an SSR request needs, see [`../../patterns/ssr-loaders.md`](../../patterns/ssr-loaders.md). Low priority — skip unless the task is explicitly streaming SSR.
+Worked example: `examples/capabilities/ssr/ssr_streaming/core.cljc` (a three-slow-card dashboard) — read it for the `:rf/suspense-boundary` marker, per-card fallback hiccup, inline-fallback failure semantics, and interleaved per-subtree hydration. Spec: [`spec/011-SSR.md §Streaming`](../../../../spec/011-SSR.md#streaming-ssr). For the data an SSR request must load before render, use route-owned blocking `:resources` — [`../../patterns/resources.md` §Route-driven loading](../../patterns/resources.md#route-driven-loading-route-resources); machines are synchronous-only under SSR, so a `:spawn-all` fan-out never settles the render. Low priority — skip unless the task is explicitly streaming SSR.
 
 ## Common gotchas
 
@@ -155,7 +155,7 @@ Worked example: `examples/capabilities/ssr/ssr_streaming/core.cljc` (a three-slo
 
 ## Cross-references
 
-- SSR patterns: [`../../patterns/form-action.md`](../../patterns/form-action.md) (handling an HTML form POST — progressive enhancement, CSRF, multipart); [`../../patterns/ssr-loaders.md`](../../patterns/ssr-loaders.md) (parallel data fetch via `:spawn-all` before render). A page typically uses Loaders for the GET render and FormAction for subsequent POSTs.
+- SSR patterns: [`../../patterns/form-action.md`](../../patterns/form-action.md) (handling an HTML form POST — progressive enhancement, CSRF, multipart); [`../../patterns/resources.md` §Route-driven loading](../../patterns/resources.md#route-driven-loading-route-resources) (route-owned blocking `:resources` — the one SSR render barrier the runtime installs; machines are synchronous-only under SSR). A page typically uses blocking route resources for the GET render and FormAction for subsequent POSTs.
 - Spec normative: [`spec/011-SSR.md §Head/meta contract`](../../../../spec/011-SSR.md) (`reg-head` / `render-head` / `active-head`); [`§The :rf/hydrate event`](../../../../spec/011-SSR.md) (check fxs).
 - API summary: [`spec/API.md §SSR (Spec 011)`](../../../../spec/API.md) — `render-head`, `active-head`, `head-model->html` row; `reg-head` row in §Registration.
 - Guide concept: [`docs/ssr/concepts.md`](../../../../docs/ssr/concepts.md) — narrative walkthrough, head/meta and hydration sections.
