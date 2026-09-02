@@ -6,7 +6,7 @@
  {:doc
  "GENERATED public-API manifest — do NOT hand-edit the :vars list. Regenerate with: clojure -M -m re-frame.api-manifest.gen (run from implementation/scripts/api-manifest/). The tier/owner/status axes are curated in spec/api-manifest-metadata.edn; existence + kind + facade? are derived from live public vars. See that generator ns for the design.",
  :keystone "rf2-3nbl5.2",
- :var-count 510,
+ :var-count 528,
  :tier-vocab
  [:front-porch
   :advanced
@@ -204,10 +204,28 @@
   {:namespace "re-frame.hicasso", :var "route-link", :tier :advanced, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.hicasso", :var "sub", :tier :advanced, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.hicasso", :var "unmount!", :tier :advanced, :kind :fn, :owner "004C", :status "v1", :facade? false, :runtime-verified? true}
+  {:namespace "re-frame.hicasso.evidence", :var "envelope", :tier :tooling, :kind :fn, :owner "Tool-Pair", :status "v1", :facade? false, :runtime-verified? false}
+  {:namespace "re-frame.hicasso.evidence", :var "loss-reasons", :tier :tooling, :kind :var, :owner "Tool-Pair", :status "v1", :facade? false, :runtime-verified? false}
+  {:namespace "re-frame.hicasso.evidence", :var "producer", :tier :tooling, :kind :var, :owner "Tool-Pair", :status "v1", :facade? false, :runtime-verified? false}
+  {:namespace "re-frame.hicasso.evidence", :var "reads", :tier :tooling, :kind :var, :owner "Tool-Pair", :status "v1", :facade? false, :runtime-verified? false}
+  {:namespace "re-frame.hicasso.evidence", :var "schema", :tier :tooling, :kind :var, :owner "Tool-Pair", :status "v1", :facade? false, :runtime-verified? false}
+  {:namespace "re-frame.hicasso.evidence", :var "unknown", :tier :tooling, :kind :var, :owner "Tool-Pair", :status "v1", :facade? false, :runtime-verified? false}
+  {:namespace "re-frame.hicasso.forms", :var "buffered-field", :tier :advanced, :kind :var, :owner "006", :status "v1", :facade? false, :runtime-verified? false}
+  {:namespace "re-frame.hicasso.forms", :var "drafts", :tier :advanced, :kind :var, :owner "006", :status "v1", :facade? false, :runtime-verified? false}
+  {:namespace "re-frame.hicasso.motion", :var "presence", :tier :advanced, :kind :var, :owner "006", :status "v1", :facade? false, :runtime-verified? false}
+  {:namespace "re-frame.hicasso.native", :var "use-frame", :tier :advanced, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? false}
+  {:namespace "re-frame.hicasso.native", :var "use-sub", :tier :advanced, :kind :fn, :owner "006", :status "v1", :facade? false, :runtime-verified? false}
+  {:namespace "re-frame.hicasso.overlay", :var "modal", :tier :advanced, :kind :var, :owner "006", :status "v1", :facade? false, :runtime-verified? false}
+  {:namespace "re-frame.hicasso.overlay", :var "popover", :tier :advanced, :kind :var, :owner "006", :status "v1", :facade? false, :runtime-verified? false}
   {:namespace "re-frame.hicasso.server", :var "document", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? false}
   {:namespace "re-frame.hicasso.server", :var "payload-script", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? false}
   {:namespace "re-frame.hicasso.server", :var "render", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? false}
   {:namespace "re-frame.hicasso.server", :var "render-body", :tier :implementation, :kind :fn, :owner "011", :status "v1", :facade? false, :runtime-verified? false}
+  {:namespace "re-frame.hicasso.substrate", :var "adapter", :tier :adapter, :kind :var, :owner "006", :status "v1", :facade? false, :runtime-verified? false}
+  {:namespace "re-frame.hicasso.tool", :var "explain-render", :tier :tooling, :kind :fn, :owner "Tool-Pair", :status "v1", :facade? false, :runtime-verified? false}
+  {:namespace "re-frame.hicasso.tool", :var "read-intents", :tier :tooling, :kind :fn, :owner "Tool-Pair", :status "v1", :facade? false, :runtime-verified? false}
+  {:namespace "re-frame.hicasso.tool", :var "read-mounted-boundaries", :tier :tooling, :kind :fn, :owner "Tool-Pair", :status "v1", :facade? false, :runtime-verified? false}
+  {:namespace "re-frame.hicasso.tool", :var "read-read-attribution", :tier :tooling, :kind :fn, :owner "Tool-Pair", :status "v1", :facade? false, :runtime-verified? false}
   {:namespace "re-frame.http", :var "delete", :tier :advanced, :kind :fn, :owner "014", :status "v1 (optional capability)", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.http", :var "get", :tier :advanced, :kind :fn, :owner "014", :status "v1 (optional capability)", :facade? false, :runtime-verified? true}
   {:namespace "re-frame.http", :var "head", :tier :advanced, :kind :fn, :owner "014", :status "v1 (optional capability)", :facade? false, :runtime-verified? true}

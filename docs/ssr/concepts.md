@@ -497,6 +497,7 @@ a build id, an **entry table**, a once-per-isolate `boot` and a per-request
             [re-frame.ssr.render-state :as render-state]
             [my-app.views :as views]))
 
+;; The development default. A release build overrides it — see step 5.
 (goog-define build-id "my-app-dev")
 
 (def render-state-policy
@@ -559,7 +560,9 @@ One construction opt. Nothing else about the handler moves:
      :renderer       (node/renderer
                        {:endpoint     "http://127.0.0.1:8148"
                         :entry        "my-app/root"
-                        :build-id     "2026-09-02-a1b2c3"
+                        ;; Must equal the server bundle's `build-id` — the
+                        ;; development default here, a stamped id in a release.
+                        :build-id     "my-app-dev"
                         :render-state {:app-db     [:todos :session]
                                        :runtime-db [:rf.runtime/routing
                                                     :rf.runtime/machines]}
@@ -623,7 +626,7 @@ re-frame2-ssr-node --module /srv/my-app/out/my-app-server/server.js
 The launcher writes exactly one line to stdout once the socket is listening:
 
 ```json
-{"rf.ssr-node":"ready","url":"http://127.0.0.1:8148","host":"127.0.0.1","port":8148,"buildId":"2026-09-02-a1b2c3","protocol":1}
+{"rf.ssr-node":"ready","url":"http://127.0.0.1:8148","host":"127.0.0.1","port":8148,"buildId":"my-app-dev","protocol":1}
 ```
 
 Scan for the line whose `"rf.ssr-node"` key is `"ready"` rather than assuming
@@ -643,6 +646,36 @@ whose `buildId` is not its own, and the adapter refuses an answer whose
 `x-rf-ssr-build` is not the `:build-id` it was configured with
 (`:rf.error/ssr-node-build-skew`). Two artefacts from different builds cannot
 quietly serve one page between them.
+
+That check is why **the two literals above are one value written twice** — the
+bundle's `goog-define` and the adapter's `:build-id` — and why the steps above
+leave both at `"my-app-dev"`. Paste the recipe as written and it renders;
+change one without the other and every request refuses, which is the check
+doing its job rather than a fault.
+
+**Stamp a deployment id into both.** `"my-app-dev"` is a development default and
+must not reach production, because it says nothing about *which* build answered.
+For a release, override the `goog-define` at build time and give the JVM host
+the same string:
+
+```bash
+# One id, named once, written into both artefacts.
+BUILD_ID="$(git rev-parse --short HEAD)"
+
+npx shadow-cljs release :my-app/server \
+  --config-merge "{:closure-defines {my-app.server/build-id \"$BUILD_ID\"}}"
+```
+
+```clojure
+;; …and the host reads the same id rather than repeating the literal.
+:build-id (or (System/getenv "MY_APP_BUILD_ID")
+              (throw (ex-info "MY_APP_BUILD_ID is not set" {})))
+```
+
+Deploy with `MY_APP_BUILD_ID` set to that same `$BUILD_ID`. Fail loudly on an
+unset variable rather than defaulting: a host that silently falls back to
+`"my-app-dev"` against a stamped bundle refuses every request, and the refusal
+names the skew rather than the missing variable that caused it.
 
 ### 6. Hydrate
 

@@ -247,7 +247,70 @@
   {:namespace "re-frame.hicasso.server" :var "document"       :kind :fn :facade? false :tier :implementation :owner "011" :status "v1" :runtime-verified? false}
   {:namespace "re-frame.hicasso.server" :var "payload-script" :kind :fn :facade? false :tier :implementation :owner "011" :status "v1" :runtime-verified? false}
   {:namespace "re-frame.hicasso.server" :var "render"         :kind :fn :facade? false :tier :implementation :owner "011" :status "v1" :runtime-verified? false}
-  {:namespace "re-frame.hicasso.server" :var "render-body"    :kind :fn :facade? false :tier :implementation :owner "011" :status "v1" :runtime-verified? false}]
+  {:namespace "re-frame.hicasso.server" :var "render-body"    :kind :fn :facade? false :tier :implementation :owner "011" :status "v1" :runtime-verified? false}
+
+  ;; ---- The rest of the Hicasso tree (rf2-3ne8) ------------------------------
+  ;;
+  ;; `implementation/hicasso/src` became a `roster-covered-roots` entry with
+  ;; these rows, so every namespace under it is now classified: the five
+  ;; OPTIONAL AUTHORING MODULES and the two TOOL-TIER namespaces below, plus
+  ;; the door and `.server` above, with the seventeen `re-frame.hicasso.impl.*`
+  ;; namespaces recorded in the generator's `internal-namespaces`.
+  ;;
+  ;; They land HERE rather than in `jvm-namespaces` for the same reason
+  ;; `.server` does: every one is `.cljs` (or, for `.native`, a `.cljc` whose
+  ;; whole body is a `#?(:cljs …)` arm), so the JVM generator cannot require
+  ;; them and `ns-publics` can never reach them.
+  ;;
+  ;; TIERS, and they were RULED rather than chosen for convenience (rf2-3ne8,
+  ;; 2026-09-03). The first five are genuine public authoring surfaces — each
+  ;; carries a require-me-directly example in its own ns docstring, and
+  ;; `substrate/adapter` is what an application passes to `(rf/init! …)`. So
+  ;; `:advanced` throughout, matching the door's own rows (Hicasso is an opt-in
+  ;; published substrate, so it is not the front-porch set), except
+  ;; `re-frame.hicasso.substrate`, which is `:adapter` on exactly the footing
+  ;; `re-frame.adapter.reagent` and `re-frame.adapter.uix` already have. Those
+  ;; tiers are docs-eligible, and the five `docs/api/re-frame.hicasso.*.md`
+  ;; pages that `doc_api_check`'s coverage clause therefore obliges landed in
+  ;; the same change. `^:no-doc` was NOT used to make the gate quiet: a public
+  ;; authoring surface with no documentation page is the friction this library
+  ;; exists to remove.
+  ;;
+  ;; `re-frame.hicasso.tool` and `re-frame.hicasso.evidence` are `:tooling` by
+  ;; their own docstrings — the four reads Xray and the AI pair consume, and the
+  ;; envelope vocabulary those reads answer in. Owner `Tool-Pair`, the contract
+  ;; that governs a tool-facing reader door. `:tooling` is outside
+  ;; `doc_api_check`'s eligible tiers, so those rows add no docs/api obligation.
+  ;;
+  ;; NOT ROWED: `re-frame.hicasso.substrate/spine-fns`. It is public only so
+  ;; core's shared React-adapter conformance suite can assert the surfaces the
+  ;; spine produced, and it carries `^:no-doc` — which `gen.clj` drops from
+  ;; every JVM-introspected namespace, so omitting it here is the same rule
+  ;; applied to a curated row rather than an exception to it.
+  ;;
+  ;; `:runtime-verified? false` throughout — the CLJS enumeration probe
+  ;; (`implementation/scripts/api-manifest/probe/`) covers the door, not these.
+  ;; Covering them would pull each module's own React/DOM requires into the
+  ;; probe's build graph, which is a shared-build change rather than a row
+  ;; change; #9040 and #9045 set the same precedent.
+  {:namespace "re-frame.hicasso.evidence"  :var "envelope"               :kind :fn  :facade? false :tier :tooling  :owner "Tool-Pair" :status "v1" :runtime-verified? false}
+  {:namespace "re-frame.hicasso.evidence"  :var "loss-reasons"           :kind :var :facade? false :tier :tooling  :owner "Tool-Pair" :status "v1" :runtime-verified? false}
+  {:namespace "re-frame.hicasso.evidence"  :var "producer"               :kind :var :facade? false :tier :tooling  :owner "Tool-Pair" :status "v1" :runtime-verified? false}
+  {:namespace "re-frame.hicasso.evidence"  :var "reads"                  :kind :var :facade? false :tier :tooling  :owner "Tool-Pair" :status "v1" :runtime-verified? false}
+  {:namespace "re-frame.hicasso.evidence"  :var "schema"                 :kind :var :facade? false :tier :tooling  :owner "Tool-Pair" :status "v1" :runtime-verified? false}
+  {:namespace "re-frame.hicasso.evidence"  :var "unknown"                :kind :var :facade? false :tier :tooling  :owner "Tool-Pair" :status "v1" :runtime-verified? false}
+  {:namespace "re-frame.hicasso.forms"     :var "buffered-field"         :kind :var :facade? false :tier :advanced :owner "006"       :status "v1" :runtime-verified? false}
+  {:namespace "re-frame.hicasso.forms"     :var "drafts"                 :kind :var :facade? false :tier :advanced :owner "006"       :status "v1" :runtime-verified? false}
+  {:namespace "re-frame.hicasso.motion"    :var "presence"               :kind :var :facade? false :tier :advanced :owner "006"       :status "v1" :runtime-verified? false}
+  {:namespace "re-frame.hicasso.native"    :var "use-frame"              :kind :fn  :facade? false :tier :advanced :owner "006"       :status "v1" :runtime-verified? false}
+  {:namespace "re-frame.hicasso.native"    :var "use-sub"                :kind :fn  :facade? false :tier :advanced :owner "006"       :status "v1" :runtime-verified? false}
+  {:namespace "re-frame.hicasso.overlay"   :var "modal"                  :kind :var :facade? false :tier :advanced :owner "006"       :status "v1" :runtime-verified? false}
+  {:namespace "re-frame.hicasso.overlay"   :var "popover"                :kind :var :facade? false :tier :advanced :owner "006"       :status "v1" :runtime-verified? false}
+  {:namespace "re-frame.hicasso.substrate" :var "adapter"                :kind :var :facade? false :tier :adapter  :owner "006"       :status "v1" :runtime-verified? false}
+  {:namespace "re-frame.hicasso.tool"      :var "explain-render"         :kind :fn  :facade? false :tier :tooling  :owner "Tool-Pair" :status "v1" :runtime-verified? false}
+  {:namespace "re-frame.hicasso.tool"      :var "read-intents"           :kind :fn  :facade? false :tier :tooling  :owner "Tool-Pair" :status "v1" :runtime-verified? false}
+  {:namespace "re-frame.hicasso.tool"      :var "read-mounted-boundaries" :kind :fn :facade? false :tier :tooling  :owner "Tool-Pair" :status "v1" :runtime-verified? false}
+  {:namespace "re-frame.hicasso.tool"      :var "read-read-attribution"  :kind :fn  :facade? false :tier :tooling  :owner "Tool-Pair" :status "v1" :runtime-verified? false}]
 
  ;; --------------------------------------------------------------------------
  ;; :jvm-only-classification — the MIRROR of :cljs-only above, and the
@@ -651,10 +714,17 @@
   ;; facade vars (moved off the :api-md-known-unmanifested allowlist above).
   ;; `reg-resource-scope` registers a pure named db-derived scope resolver
   ;; under the :resource-scope kind; `clear-resource-scope` is the registrar
-  ;; decrement; `resolve-resource-scope` is the scope-resolution helper (not
-  ;; an effect, but emits `:rf.resource/scope-resolved` dev trace, so not a
-  ;; pure data helper — rf2-fi6tda.7; the logout coeffect-db idiom). Same
-  ;; optional-artefact wrapper posture
+  ;; decrement; `resolve-resource-scope` is the scope-resolution helper — PURE
+  ;; over the resolver registry (the logout coeffect-db idiom): not an effect
+  ;; and with no observability side effect, so it emits no
+  ;; `:rf.resource/scope-resolved` trace. That evidence is emitted only at the
+  ;; causal resolution boundaries — a resource event's `{:from-db …}` scope,
+  ;; route entry and mutation settle. (rf2-gfrv corrects this comment's earlier
+  ;; rf2-fi6tda.7 wording, which claimed the opposite and contradicted the
+  ;; `re-frame.resources` neighbour below; the behaviour is pinned by
+  ;; `pure-resolve-resource-scope-emits-no-trace` in
+  ;; implementation/resources/test/re_frame/resources_from_db_scope_cljs_test.cljc.)
+  ;; Same optional-artefact wrapper posture
   ;; as reg-resource.
   ["re-frame.core" "reg-resource-scope"]    {:tier :advanced :owner "016" :status "v1 (optional capability)"}
   ["re-frame.core" "clear-resource-scope"]  {:tier :advanced :owner "016" :status "v1 (optional capability)"}
