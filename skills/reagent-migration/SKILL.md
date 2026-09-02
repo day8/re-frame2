@@ -147,6 +147,7 @@ The rest: the **bare-symbol trap** (`[:li item]` — `item` is *content*), **bra
 - [ ] The R-tier views were left on Reagent with an honest reason.
 - [ ] Every Hicasso verb emitted exists in the shipped door, checked there rather than in a design page (cardinal rule 6).
 - [ ] Requires cleaned up last (MIG-24); no orphaned `reagent.*` requires, none dropped that a held view still needs.
+- [ ] **If no Reagent view remains**, the author was *told* the adapter choice is now open — `re-frame.hicasso.substrate/adapter` would retire `day8/re-frame2-reagent` and `reagent` (MIG-24) — and made the call themselves. Not decided for them, and never raised while a Reagent view is still standing.
 - [ ] The subtree compiles and its tests pass (the skill ran the gates), and the programmer has **rendered** and eyeballed the converted views.
 
 Hand off: *"Views rewritten into Hicasso where it made sense; the rest stay on Reagent, which is a fully-supported configuration. Switch to **`re-frame2`** for new application code, or **`re-frame2-pair`** for live inspection."*
