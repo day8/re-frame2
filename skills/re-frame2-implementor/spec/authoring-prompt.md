@@ -13,7 +13,7 @@ A self-contained prompt that re-authors the `re-frame2-implementor` skill from t
 > *1. `skills/re-frame2-implementor/spec/design.md` — the locked decisions L1–L10 (L3 is the verification posture: the agent runs the port's discovered noninteractive gates itself; interactive/visual evidence is a handoff) and §6, the reduction rationale.*
 > *2. `skills/re-frame2-implementor/spec/inputs.md` — the canonical inputs, and §4's list of repo gates the skill is wired into (two filename constraints and the literal provenance commands/safety clauses that MUST survive).*
 > *3. `spec/000-Vision.md`, `spec/Implementor-Checklist.md`, `spec/conformance/README.md` — the three load-bearing spec files.*
-> *4. `skills/README.md` — leaf-size discipline (each leaf ≤250 lines AND ≤16 KB), the allowed-tools baseline, the verification-posture table.*
+> *4. `skills/README.md` — the leaf-size discipline (§Leaf size discipline), the allowed-tools baseline, the verification-posture table.*
 >
 > *Then write the skill with this exact file structure:*
 >
@@ -36,7 +36,7 @@ A self-contained prompt that re-authors the `re-frame2-implementor` skill from t
 >
 > *Hard tooling constraints (spec/inputs.md §4): keep the filenames `references/cardinal-rules.md`, `references/phase-1-decisions.md`, `references/phase-2-impl-order.md`; keep the literal spec-pin commands and the gh-issue body/title/search safety clauses; every line stating the foundation order includes 015, and every line pinning the gate-1 scope names all three v1-required families; run `scripts/check_skill_implementor_order.py` and `scripts/check_skill_implementor_partition_drift.py` (both `--self-test` then `--verbose --ci`) plus `scripts/check_skill_mcp_drift.py --verbose --ci` before opening the PR.*
 >
-> *Voice: tight, declarative, workflow-shaped. Every leaf ≤250 lines and ≤16 KB. Don't duplicate `spec/` content — reference it by URL and teach the derivation greps. Don't write a verification leaf. Don't reference rf2-XXXX bead ids in user-facing content. Don't claim AI authorship anywhere.*
+> *Voice: tight, declarative, workflow-shaped. Leaf sizes are `skills/README.md` §Leaf size discipline's to state — don't restate them here. Don't duplicate `spec/` content — reference it by URL and teach the derivation greps. Don't write a verification leaf. Don't reference rf2-XXXX bead ids in user-facing content. Don't claim AI authorship anywhere.*
 
 ## Notes on the reauthoring contract
 
