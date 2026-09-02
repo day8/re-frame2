@@ -33,7 +33,7 @@ Spec 005 §Declarative `:spawn` §Worked example (verbatim shape). While the par
 | `:start` | event vector dispatched to the newborn after spawn | optional |
 | `:fixed-actor-id` | explicit actor-address input instead of gensym (per-state singleton) — the explicit-address identity (was the overloaded `:spawn-id`) | optional |
 | `:id-prefix` | base for the gensym'd actor id; defaults to `:machine-id` | optional |
-| `:system-id` | stable name for the actor — address it later via `dispatch-to-system` / `machine-by-system-id` (a keyword, not the gensym'd id) | optional |
+| `:system-id` | stable name for the actor — address it later by emitting `[:rf.machine/dispatch-to-system [<system-id> <event-vector>]]` from an action's `:fx`, or by reading `machine-by-system-id` (a keyword, not the gensym'd id) | optional |
 | `:timeout` / `:on-timeout` | bound the child's lifetime: `:timeout` is integer-ms **or** an ISO-8601 duration (`"PT5S"` — the `"5s"` shorthand is rejected); `:on-timeout` is the transition taken when it fires (lowers onto `:after`) | optional (pair) |
 
 Per Spec 005 §Spawn-spec keys. The runtime stamps `:rf/parent-id` (the parent's registration id) + `:rf/invoke-id` (the declarative invocation path — the absolute prefix-path of the `:spawn`-bearing state node; was `:rf/spawn-id`) onto the child so the destroy fx can locate the actor on exit, and binds the newborn's id into the parent's own `:data` under `:rf/spawned` (see the id-recording gotcha below).
