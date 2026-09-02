@@ -180,4 +180,4 @@ Optional-artefact surfaces raise `:rf.error/<artefact>-artefact-missing` (regist
 
 ---
 
-*Derived from `implementation/core/src/re_frame/core.cljc` (the public surface) and the per-artefact source trees under `implementation/{machines,schemas,routing,http,ssr,epoch,flows}/` @ main `1ed174f`. Re-verify when new public surface lands. This is the public-surface glance, not an exhaustive export inventory — for the complete facade see `SKILL-REDIRECT.md` → Definitive API reference.*
+*Derived from `implementation/core/src/re_frame/core.cljc` (the public surface) and the per-artefact source trees under `implementation/{machines,schemas,routing,http,ssr,epoch,flows}/` @ main. Re-verify when new public surface lands. This is the public-surface glance, not an exhaustive export inventory — for the complete facade see `SKILL-REDIRECT.md` → Definitive API reference.*

@@ -166,7 +166,7 @@ When no schema is available the fallback infers from the value: maps recurse as 
 
 A variant's `:script` slot IS the test. `(story/run-variant :story.counter/loaded)` returns the unified run-result; read the verdict off its top-level `:status` ∈ `{:pass :fail :cannot-run :error}` (via `(story/result-status result)` / `(story/result-passed? result)`). The result's `:assertions` are the unified records (each with a derived `:status`); `(story/read-assertions :story.counter/loaded)` returns the raw frame accumulator. The play-runner stamps each `:rf.assert/*` entry with its source coord so failures point at the variant body line.
 
-For tests that don't need a render shell, run variants headless from a JVM test (`shadow-cljs run`, deps.edn alias) — the play-runner is platform-agnostic per Spec 011.
+For tests that don't need a render shell, run variants headless from a JVM test (`shadow-cljs run`, deps.edn alias) — the play-runner is platform-agnostic per `tools/story/spec/017-Testing-Story.md`.
 
 ## Test-pane dev UX — SB9-parity affordances
 
@@ -193,4 +193,4 @@ The dev shell's Test pane and recorder ship ergonomic affordances that consume w
 
 ---
 
-*Derived from `tools/story/` (artefact source) and `tools/story/testbeds/counter_with_stories/` @ main `89bd9c3`. Re-verify after Story-macro grammar changes or new `:rf.assert/*` events.*
+*Derived from `tools/story/` (artefact source) and `tools/story/testbeds/counter_with_stories/` @ main. Re-verify after Story-macro grammar changes or new `:rf.assert/*` events.*

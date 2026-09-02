@@ -5,8 +5,9 @@ Load when the task is **authoring a `deftest` / `cljs.test` test** against re-fr
 ## The single import
 
 ```clojure
-(:require [re-frame.core         :as rf]
-          [re-frame.test-support :as ts]
+(:require [re-frame.core            :as rf]
+          [re-frame.test-support    :as ts]
+          [re-frame.adapter.reagent :as reagent-adapter]   ; the adapter the fixture installs
           #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
              :cljs [cljs.test    :refer-macros [deftest is testing use-fixtures]]))
 ```
@@ -385,4 +386,4 @@ Pick the tightest match, run it from the directory that declares it, and report 
 
 ---
 
-*Derived from `implementation/core/src/re_frame/test_support.cljc` (public test-support surface — `make-reset-runtime-fixture`, `assert-path-equals`, `poll-until`), `implementation/core/src/re_frame/test_helpers.cljc` (view-tree assertion surface — hiccup walkers + `testid`), and `implementation/core/src/re_frame/substrate/plain_atom.cljc` (JVM adapter) @ main `89bd9c3`. Re-verify after test-support / test-helpers surface changes.*
+*Derived from `implementation/core/src/re_frame/test_support.cljc` (public test-support surface — `make-reset-runtime-fixture`, `assert-path-equals`, `poll-until`), `implementation/core/src/re_frame/test_helpers.cljc` (view-tree assertion surface — hiccup walkers + `testid`), and `implementation/core/src/re_frame/substrate/plain_atom.cljc` (JVM adapter) @ main. Re-verify after test-support / test-helpers surface changes.*
