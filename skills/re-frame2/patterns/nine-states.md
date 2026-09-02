@@ -113,6 +113,8 @@ The root view branches once, in a `case`, on the resolved keyword. Disabled-attr
 
 `examples/patterns/nine_states/core.cljs` — the full machine declaration, render-priority table, `:ui/render` selector, per-state views, and headless tests per state. Read it in full for the implementation-as-shipped shape, including how the form slice composes with the `:form` region.
 
+The declaration above is **trimmed to the pattern**. The shipped machine also carries a whole-machine `:reset`: every region takes `:reset` back to its initial state — which is the one thing that thaws the terminal `:mode :done` — and the `:data` region's `:reset` runs a `:reset-domain` action clearing the machine-owned domain data (`:items`, `:error`, and the `:archived-at` stamp the `:mode` region writes on `:archive`). That pairing is the point worth carrying over: a reset that returns the *states* to square one while leaving the *data* those states were about is a blank view laid over stale data, not a blank slate.
+
 ## Why a render-priority vector beats a `cond` in the view
 
 The render-priority **vector** is the load-bearing move. A priority `cond` in the root view encodes the same priority in **control flow** (clause order); the vector encodes it in **data**. The data shape lets a test pretty-print it, a code review compare two pages side-by-side, and a tooling pass read the priority without parsing the view's body. The selector sub re-runs only when the tag union changes; Reagent dedups on the resolved keyword; the root view re-renders only when the winning render changes — not every time a non-winning region advances.
