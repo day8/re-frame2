@@ -574,7 +574,7 @@
   is required for registered lookups and frame-sensitive egress
   classification."
   [frame-id resp
-   {:keys [emit-hash? version schema-digest payload
+   {:keys [renderer emit-hash? version schema-digest payload
            html-shell content-type client-frame-id]
     :as   opts}]
   ;; Blocking route resources settle before rendering; absent resource hooks
@@ -591,12 +591,17 @@
         ;; Pin the request frame across the body render, head lookups and
         ;; payload projection.
         (rf/with-frame frame-id
-          (let [;; The render-body seam: body markup plus an optional
-                ;; locally-derived hash, from the live post-drain frame.
+          (let [;; THE RENDER-BODY SEAM (rf2-8arzr.1). The caller's
+                ;; `:renderer` — or the JVM-local default — returns body
+                ;; markup plus an optional locally-derived hash from the live
+                ;; post-drain frame. The pipeline consumes that pair and owns
+                ;; everything else: head, payload, shell, status, headers,
+                ;; cookies, error projection and teardown.
+                render (or renderer local-renderer)
                 {:keys [body-html render-hash]}
-                (local-renderer {:frame-id frame-id
-                                 :request  (ssr/get-request frame-id)
-                                 :opts     opts})
+                (render {:frame-id frame-id
+                         :request  (ssr/get-request frame-id)
+                         :opts     opts})
                 ;; Explicit head HTML bypasses route-derived attributes and has
                 ;; no client-reconstructible model.
                 head-bag  (if explicit-head
@@ -702,21 +707,22 @@
     (materialise-error-arm frame-id resp* public-error* opts)))
 
 (defn build-full-response
-  "Render the caller's `:root-view` against `frame-id`, build the
-  hydration payload, wrap in the html-shell, and materialise to a Ring
+  "Render the body against `frame-id` through the render-body seam — the
+  caller's `:renderer`, or `local-renderer` rendering `:root-view` — build
+  the hydration payload, wrap in the html-shell, and materialise to a Ring
   response.
 
-  The root view resolves once per request: both
-  the wire HTML (via `render-to-string` + its embedded
-  `data-rf-render-hash`) and the payload's `:rf/render-hash` derive
-  from the same hiccup tree, so a non-idempotent fn-form root-view
-  cannot fire a spurious `:rf.ssr/hydration-mismatch` on a successful
-  hydration.
+  The renderer runs once per request and returns the body's hash beside
+  its markup: the wire `data-rf-render-hash` and the payload's
+  `:rf/render-hash` both come from that one call, so a non-idempotent
+  fn-form root-view cannot fire a spurious `:rf.ssr/hydration-mismatch`
+  on a successful hydration.
 
   A render-time
   throw (e.g. the `validate-tag-name!` rejection of
   `(keyword \"has space\")`, a view-fn `(throw (ex-info ...))`, a
-  hiccup-walker structural error) is routed through the SAME error
+  hiccup-walker structural error, a `:renderer` that throws) is routed
+  through the SAME error
   projector that catches drain-time fx/handler exceptions. The
   outer try/catch here:
 
