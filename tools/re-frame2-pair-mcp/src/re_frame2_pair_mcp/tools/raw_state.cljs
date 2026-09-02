@@ -12,8 +12,8 @@
   The boot-gate closes both holes. When `--allow-sensitive-reads` is OFF
   (the published-build default), re-frame2-pair-mcp:
 
-  1. FORCES `:include-sensitive false` on every snapshot / get-path /
-     subscribe call, regardless of what the caller passed.
+  1. FORCES `:include-sensitive false` on every snapshot / get-path
+     call, regardless of what the caller passed.
   2. FORCES `:elision true` on every snapshot / get-path call,
      regardless of what the caller passed.
   3. Signals the preload runtime to default-elide its `tap>` emissions
@@ -150,7 +150,7 @@
   leave the build-id in the resolved set after a reload, so
   `signal-runtime!` would no-op, the freshly-recreated runtime would stay
   at its permissive default, and the next state-emitting tool (snapshot /
-  get-path / subscribe / replace-app-db / restore-epoch /
+  get-path / replace-app-db / restore-epoch /
   dispatch-dry-run / record / watch-until) could tap RAW prev/next app-db
   through `tap>` even with `--allow-sensitive-reads` OFF.
 

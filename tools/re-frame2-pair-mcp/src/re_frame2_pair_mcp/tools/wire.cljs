@@ -233,8 +233,9 @@
   Centralises the MUST-level \"omit when zero\" rule from
   [Conventions §Cross-MCP indicator-field vocabulary][1] and
   [Spec 009 §Indicator field on tool responses][2]. Every tool that
-  walks a tree-typed payload (`snapshot`, `get-path`, `trace-window`,
-  `watch-epochs`, `subscribe`) routes its envelope-tail through here so
+  walks a tree-typed payload (`snapshot`, `get-path`, `read-sub`,
+  `trace-window`, `watch-epochs`, `dispatch-dry-run`) routes its
+  envelope-tail through here so
   the rule lives in one place — drift across emit sites can no longer
   silently violate the MUST.
 

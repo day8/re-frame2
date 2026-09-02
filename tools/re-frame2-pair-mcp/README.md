@@ -639,7 +639,8 @@ them, or only mutating ones?), session-log eviction (size cap?
 time cap? per-host?), and how replay interacts with the
 per-session response cache (replay a cache-hit verbatim, or
 invalidate?). Filed as a follow-on RFE rather than a P2 because the
-existing pull-mode / push-mode surfaces cover the high-frequency
+existing turn-shaped surfaces (`trace-window` / `watch-epochs`,
+`watch-until`, `record` + `read-recording`) cover the high-frequency
 debug-loop need; this is the cold-storage slot.
 
 ## Back-compat with the bash shims
