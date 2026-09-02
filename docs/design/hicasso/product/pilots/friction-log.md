@@ -4,7 +4,7 @@ The pilot's own record, kept as the work happens. It is the programme's delivera
 
 The format is built around [the seven outcomes](#part-1-the-seven-outcomes) rather than around a generic template, because those seven are what the ratification says the pilots prove. Two things follow: the log has a section per outcome and no free-floating "notes" bucket, and an outcome that was never attempted is a distinct verdict from one that failed.
 
-Authorized by `rf2-v04s` under [`rf2-hic-063`](README.md#what-governs-this-directory)'s ratification. The blank template is [at the end](#the-blank-template); copy that into the workspace.
+Authorized by `rf2-v04s` under [`rf2-hic-063`](README.md#what-governs-this-directory)'s ratification; the template's `Baseline:` header line, which the operator fills in at [workspace step 5b](workspace.md#assemble-a-workspace), under `rf2-xkhul`. The blank template is [at the end](#the-blank-template); copy that into the workspace.
 
 ## A short log is a bad sign, not a good one
 
@@ -111,6 +111,7 @@ Pilot:            <1 or 2>
 Agent:            <identifier>
 Workspace:        <pilot-root>
 Checkout pin:     <sha>
+Baseline:         npm test → exit <code>, with the app still on Reagent
 Docs read from:   <published site URL or local build>
 Started / ended:  <date> / <date>
 

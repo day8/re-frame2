@@ -10,12 +10,14 @@ Filed under `rf2-v04s`, executing item 2 of [`rf2-hic-063`](#what-governs-this-d
 
 | Page | What it is | Read it when |
 | --- | --- | --- |
-| [`workspace.md`](workspace.md) | The per-pilot workspace: layout, the four project files copy-ready, the per-pilot source manifest, and the read fence | Setting a pilot up |
+| [`workspace.md`](workspace.md) | The per-pilot workspace: layout, the four project files copy-ready, the per-pilot source manifest with its behavioural baseline, and the read fence | Setting a pilot up |
 | [`brief-realworld.md`](brief-realworld.md) | Pilot 1's brief — RealWorld/Conduit, the feed and the article editor | Handing the brief to the agent |
 | [`brief-linearlite.md`](brief-linearlite.md) | Pilot 2's brief — LinearLite, the board and the grown card detail | Handing the brief to the agent |
 | [`friction-log.md`](friction-log.md) | The friction-log format, built around the seven outcomes | Before a pilot writes its first entry, and when dispositioning a finished log |
 
 The 2 briefs are the only pages a pilot agent ever sees. `workspace.md` is the operator's. `friction-log.md` is quoted into the brief by reference, and its blank template is copied into the workspace. But the pilot is never sent to this directory to read it, because this directory is inside the repository the pilot is blinded to.
+
+Beside the four pages, [`baseline/`](baseline/README.md) holds the two app-owned test files that `workspace.md`'s manifest copies into `app/test/` — the behavioural baseline outcome 1 is measured against. They are fixtures the workspace compiles, not a test lane of this repository, and nothing here runs them. Added under `rf2-xkhul`.
 
 ## The blinding is a read fence, not an absence
 
