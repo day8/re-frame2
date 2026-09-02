@@ -50,6 +50,22 @@ them in one command. After the counter mounts, the same handoff to
 
 ### Running the generator pre-publish
 
+**Prerequisite — the `-Tnew` tool.** `clojure -Tnew create …` is
+[deps-new](https://github.com/seancorfield/deps-new)'s standard tool, installed globally
+under the alias `new`. Without it the command fails with an unknown-tool error before a
+single file is emitted, and the failure says nothing about re-frame2. The skill's
+`allowed-tools` grant covers `-Tnew create` but deliberately **not** `clojure -Ttools`:
+installing a tool writes outside the project, into the author's Clojure tools directory,
+which is the author's call rather than a scaffolder's. So if `-Tnew` is missing, say so
+and hand over the one line:
+
+```bash
+clojure -Ttools install-latest :lib io.github.seancorfield/deps-new :as new
+```
+
+…then continue once the author has run it. The manual 6-step path needs no tool at all
+and is always available instead.
+
 The pre-publish command has **two independent coordinates**, and one shared working
 directory cannot carry both — conflating them is what made the earlier documented form
 fail on its first use:
