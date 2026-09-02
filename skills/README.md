@@ -98,8 +98,9 @@ the situation they cover:
 - [`re-frame2-implementor/`](re-frame2-implementor) — guide an
   engineer building a new re-frame2 implementation — a port to a
   different host language or substrate, not an application built on the
-  CLJS reference. 2-phase workflow: Phase 1 locks the host-language,
-  substrate, scope, and primitive decisions; Phase 2 walks the EP corpus
+  CLJS reference. 2-phase workflow: Phase 1 records the port
+  profile — spec pin, host/toolchain, host mechanisms, capability claim —
+  with no interview by default; Phase 2 walks the EP corpus
   in dependency order with `spec/conformance/` as the acceptance test.
 
 ### Live-runtime devtools & pair programming
@@ -180,7 +181,7 @@ Both kinds of friction target the same repo and carry the tool-vs-framework
 distinction in the draft's title + body:
 
 - pair-tool friction — SKILL.md wording, scripts, recipes, structured-results shapes, attach/discovery, cross-platform behaviour
-- framework / Tool-Pair contract friction — missing trace events, gaps in `epoch-history` / `restore-epoch` failure modes, missing registrar query surfaces, source-coord annotation gaps, schema-reflection shortcomings. Name the specific Tool-Pair surface from the consolidated capability table in [`spec/Tool-Pair.md`](../spec/Tool-Pair.md) (the shipped tool catalogue is [`re-frame2-pair/README.md`](re-frame2-pair/README.md)).
+- framework / Tool-Pair contract friction — missing trace events, gaps in `epoch-history` / `restore-epoch` failure modes, missing registrar query surfaces, source-coord annotation gaps, schema-reflection shortcomings. Name the specific Tool-Pair surface from the consolidated capability table in [`spec/Tool-Pair.md`](../spec/Tool-Pair.md) (the shipped tool catalogue is [`re-frame2-pair/references/mcp-transport.md`](re-frame2-pair/references/mcp-transport.md) — the per-tool table `check_skill_mcp_drift.py` pins against the server's descriptor manifest).
 
 The draft contract lives in [`re-frame2-pair-retro/SKILL.md` §Issue drafts](re-frame2-pair-retro/SKILL.md#issue-drafts).
 
@@ -214,8 +215,14 @@ Each skill subdir contains, at minimum:
 - `spec/` and `evals/` (where present) are authoring-time scaffolding
   — the skill's own design docs and eval fixtures. They are not part of
   the skill contract a consumer loads, so they stay out of `package.json`
-  `files[]` (the published npm package ships `SKILL.md`, `README.md`,
-  `references/`, and `.claude-plugin/` only).
+  `files[]`. The rule runs the other way: `files[]` ships everything
+  `SKILL.md` routes to. Every skill ships `SKILL.md`, `README.md`,
+  `LICENSE`, `references/` and `.claude-plugin/`; a skill that routes
+  further ships that too — `re-frame2` adds `patterns/`,
+  `decision-trees/` and `examples-map.md`, and `re-frame2-pair` adds
+  `preload/`, `docs/`, `agents/`, `STATUS.md` and `RELEASING.md` because
+  its documented install path needs them. `spec/` and `evals/` stay out
+  of every skill's `files[]`.
 
 Skills release through re-frame2's own pipeline (no skill-local CI
 workflows). Deterministic structural tests for
