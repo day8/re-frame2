@@ -91,11 +91,17 @@ rg -n '\[\s*re-frame\.[a-z-]+' . \
                                  (rf/dispatch-sync [::reset-app-db v])
 (subs/clear-sub-cache!) → (rf/clear-sub-cache! :rf/default)
 (re-frame.core/clear-subscription-cache!) → (rf/clear-sub-cache! :rf/default) ; public v1 no-arg name
-(reg/get-handler kind id) → (rf/handler-meta kind id) ; public registrar query; returns the registration metadata map (no raw handler fn is exposed publicly in v2)
+(reg/get-handler kind id) → (rf/handler-meta kind id) ; INTROSPECTING call sites only; returns the registration metadata map (no raw handler fn is exposed publicly in v2) — a site that CALLS the result is Type B, see the caveat below
 (re-frame.utils/map-vals f m) → (clojure.core/update-vals m f) ; Clojure 1.11+ (note arg order: update-vals takes the map first)
 ```
 
 **Note (M-1 `get-handler` rewrite)**: the rewrite above targets `rf/handler-meta`, which is the actual public registrar-query surface in `re-frame.core`. The MIGRATION.md M-1 row was corrected to match — there is no `rf/get-handler` in v2.
+
+**Caveat (M-1 `get-handler` → `handler-meta` is NOT verbatim where the result is CALLED — silent wrong value):** the corpus row carries a condition the one-line rewrite above cannot — *"For call sites that introspected the registration this is the right surface; a call site that actually **invoked** the returned handler fn needs a rethink (flag for review)"* ([`MIGRATION.md` §M-1](../../../migration/from-re-frame-v1/README.md#m-1-private-namespace-access--re-framedb-re-framerouter-re-framesubs-re-frameevents-re-frameregistrar--public-clear-subscription-cache-rename)). `handler-meta` returns the registration **metadata map**, not the handler fn — and the dominant v1 use of `re-frame.registrar/get-handler` is a test suite invoking the handler directly, `((reg/get-handler :event :foo) cofx [:foo 1])`.
+
+That shape does not fail loudly after the swap, because **a CLJS map is itself callable**: invoked as a fn it is a keyword-lookup-with-default, so the two-arg call above returns its **second argument** (`[:foo 1]`) and a one-arg call returns `nil`. No compile error, no arity error, no throw — the wrong value simply flows on, and only the project's own suite surfaces it ([`runtime-smoke-test.md`](runtime-smoke-test.md#the-done-bar-is-more-than-the-local-dev-build) — fixtures and `*_test` namespaces never load at app boot).
+
+So classify each `get-handler` hit by **what happens to its result**: introspected (a key read off it, handed to a tool) → the mechanical swap above; **invoked** → **flag for the author (Type B, cite M-1)**, since no raw handler fn is exposed publicly in v2. The v2 route for the test that wanted the fn is to drive the handler through `dispatch-sync` under `make-reset-runtime-fixture` ([`MIGRATION.md` §M-52](../../../migration/from-re-frame-v1/README.md#m-52-run-test-sync-removed--use-dispatch-sync-under-make-reset-runtime-fixture)), or to hold a direct reference to the handler fn in the test namespace.
 
 **Caveat (M-1 `@app-db` → `app-db-value` is NOT semantically identical — reactivity loss):** `(rf/app-db-value :rf/default)` returns a **non-reactive snapshot** — a plain `app-db` map value, no deref, no reactive subscription (per `re-frame.core/app-db-value`'s docstring: *"current `app-db` VALUE (a plain map)… no deref, no container"*). v1's `@re-frame.db/app-db` is a **reactive** deref — `app-db` is a Reagent `ratom`, so a deref **inside a reactive context** (a `reaction`, a component render body, a `track`) subscribes that render to db changes and re-renders when `app-db` changes.
 
