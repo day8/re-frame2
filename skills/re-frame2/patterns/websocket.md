@@ -209,9 +209,9 @@ The pattern below uses `:cred-ref` as the placeholder; substitute whatever opaqu
           :ws/rotate-cred {:action :rotate-cred}}}}})
 ```
 
-Caller: `(rf/dispatch [:ws/connection [:ws/connect {:url "wss://api.example.com/ws" :cred-ref (current-session-cred-ref)}]])` — `current-session-cred-ref` returns an opaque pointer into the host-side credential vault. The bearer itself never crosses the dispatch boundary; the actor's app-side `:auth.cred/fetch` cofx (your prefix) resolves the pointer to a bearer at the auth write — not when the socket is created. Anything the socket's enclosing scope resolves is retained by the socket handle for the whole connection, which is the opposite of what "resolve, use, discard" promises.
+Caller: `(rf/dispatch [:ws/connection [:ws/connect {:url "wss://api.example.com/ws" :cred-ref (current-session-cred-ref)}]])` — `current-session-cred-ref` returns an opaque pointer into the host-side credential vault, which the actor's app-side `:auth.cred/fetch` cofx (your prefix) resolves at the auth write.
 
-If the credential genuinely must move via dispatch (e.g. an out-of-band rotation event), name the payload path in the **registration's** `:sensitive` metadata — the registration owns transient-payload classification (see [`../references/cross-cutting/privacy-and-elision.md`](../references/cross-cutting/privacy-and-elision.md)):
+The escape hatch §Credential discipline names — a credential that genuinely must move via dispatch — puts the payload path in the **registration's** `:sensitive` metadata:
 
 ```clojure
 (rf/reg-event :ws/rotate-cred-from-bearer
@@ -224,7 +224,7 @@ If the credential genuinely must move via dispatch (e.g. an out-of-band rotation
     {:fx [[:auth.cred/store {:bearer bearer :on-stored [:ws/connection [:ws/rotate-cred ::new-ref]]}]]}))
 ```
 
-The `:auth.cred/*` family is an illustrative sketch under a sample app prefix — re-frame2 ships **no** credential cofx/fx, and `:rf/*` (`:rf.cred/*` included) is framework-reserved, so register these under your own auth-slice prefix. The contract this leaf locks: **opaque ref in `:data`; bearer never in `:data`; if a bearer must move via dispatch, classify its path at its owner — a durable app-db secret via the writing event's `:sensitive` commit-plane effect, or a transient payload key in the dispatching handler's registration `:sensitive` metadata** (there is no handler-meta privacy switch).
+The `:auth.cred/*` family is an illustrative sketch under a sample app prefix — re-frame2 ships **no** credential cofx/fx, and `:rf/*` (`:rf.cred/*` included) is framework-reserved, so register these under your own auth-slice prefix.
 
 ## Variations
 
@@ -246,8 +246,8 @@ The `:connected` `:ws/received` transition vets the frame first — connection e
 
 - **Anchoring `:spawn` on `:connecting` instead of `:active`.** Destroys the socket on transition to `:authenticating`. Lifetime MUST span all three leaves.
 - **Storing the `WebSocket` JS object in `app-db`.** Not a value, not serialisable, won't survive snapshot replay. Actor owns it host-side; only the actor id appears in `:data`.
-- **Storing a raw bearer / `auth-token` / cookie / refresh token in machine `:data`.** Same reasoning as the WebSocket JS object plus a privacy one: `:data` is framework-inspectable, so anything held there is liable to land in app-db snapshots, trace emissions, recorder fixtures, and pair tooling — places the dev does not inspect character-by-character. Use the opaque-`:cred-ref` shape above; the bearer lives host-side, resolved by a client-only seam at the auth write, and never re-enters dispatch.
-- **Routing a refresh bearer through dispatch without classifying its path at its owner.** If a credential genuinely must move via dispatch (e.g. an out-of-band rotation), classify the path where it lands — a durable app-db secret via the writing event's `:sensitive` commit-plane effect, or the transient dispatch payload key in the dispatching handler's registration `:sensitive` metadata — per the privacy seam in [`../references/cross-cutting/privacy-and-elision.md`](../references/cross-cutting/privacy-and-elision.md). (There is **no** handler-meta `{:sensitive? true}` privacy switch; classification is fail-open and does not propagate.)
+- **Storing a raw bearer / `auth-token` / cookie / refresh token in machine `:data`.** Same reasoning as the WebSocket JS object, plus a privacy one — use the opaque-`:cred-ref` shape (§Credential discipline).
+- **Routing a refresh bearer through dispatch without classifying its path at its owner.** There is **no** handler-meta `{:sensitive? true}` privacy switch; classification is fail-open and does not propagate (§Credential discipline).
 - **Reconnect via `setTimeout` from inside fx-handler.** Bypasses the machine, tracing, stale-detection. Use `:after`.
 - **Skipping `:current-socket?` on `:ws/received`.** A slow `:message` from a torn-down socket lands in the new connection's `:in-flight` — wrong-reply at best.
 - **Settling `:in-flight` on only one door out of `:active`.** The `:ws/closed` drop is the door everyone remembers. A clean `:ws/disconnect` and an app-level `:ws/fatal` destroy the socket just as surely, and a slot stranded by `:ws/fatal` survives even a later manual `:ws/connect` out of `:failed` — its timeout carries the dead socket-id, so `:current-socket?` drops it and nothing else ever clears the slot. Route every exit through one shared fail-and-clear rather than repeating the logic per door.
