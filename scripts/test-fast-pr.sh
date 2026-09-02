@@ -1319,12 +1319,30 @@ if [ "$run_docs" = true ]; then
   # tier already ~28s (mkdocs --strict dominates).  The NINTH is excluded and
   # named below.
   #
-  # They are not subject to the trap PR #7496 found in the mkdocs build — that
-  # gate reads `docs/`, and docs.yml stages `cp -r spec docs/spec` first, so a
-  # bare local run exits 0 having read nothing of a spec edit.  Each of these
-  # scans the TRACKED `spec/` tree and explicitly excludes the staged
-  # `docs/spec/` mirror (`_EXCLUDE_REL_PREFIXES`), so running them here reads
-  # exactly what CI reads, with no staging step to forget.
+  # These read the TRACKED `spec/` tree.  The mkdocs build reads a STAGED COPY
+  # of it: `mkdocs_hooks.py`'s `on_pre_build` hook mirrors `spec/` into
+  # `docs/spec` and `migration/` into `docs/migration` before MkDocs scans a
+  # single file, on EVERY invocation — build, serve, --strict, local or CI.
+  # docs.yml keeps its own `cp -r spec docs/spec` step, which the hook's
+  # docstring calls redundant belt-and-braces.
+  #
+  # So both trees are present during a build, and each of these sweeps
+  # explicitly excludes the staged `docs/spec/` mirror
+  # (`_EXCLUDE_REL_PREFIXES`) rather than counting every finding twice.
+  # Running them here reads exactly what CI reads, with no staging step to
+  # forget.
+  #
+  # An earlier version of this comment said the mkdocs gate reads only
+  # `docs/`, so "a bare local run exits 0 having read nothing of a spec edit".
+  # That was false when written (rf2-4cbx): the hook landed 2026-05-19 in
+  # b2e622c316, the comment 2026-08-05.  MEASURED on a checkout where
+  # `docs/spec` and `docs/migration` did not exist at all — a bare
+  # `python -m mkdocs build --strict`, with no staging step, recreated both
+  # and built 52 spec pages at exit 0; a broken `../../docs/` link planted in
+  # `spec/conformance/README.md` then took the same bare run to exit 1 naming
+  # the file and the unresolvable target.  A bare local strict build DOES
+  # cover a spec edit.  See also the `mkdocs --strict build` block below,
+  # which describes the staged copies correctly.
   run "inject-cofx residue self-test" "python scripts/check_inject_cofx_residue.py --self-test --verbose" \
     python "$spine_root/scripts/check_inject_cofx_residue.py" --self-test --verbose
 
