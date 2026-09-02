@@ -20,29 +20,15 @@ For handler- / view- / db-seeding- / error-handler-shaped Type B rewrites, see [
 
 **Trigger**: only Type B when the codebase has more than one frame. Single-frame codebases hit the Type A rewrite (move to `:rf/default` `:interceptors`).
 
-> **Correctness trap — all global interceptors for a frame fold into ONE frame declaration.** Frame re-registration is a **complete replacement** of the config map's replaceable slots, not a merge — and `:interceptors` is one of those slots (per [`spec/002-Frames.md` §Re-registration — surgical update](../../../spec/002-Frames.md#re-registration--surgical-update): "the re-registered metadata map is the **complete replacement** of the previous map's replaceable slots, *not* a merge"). So you **cannot** translate N `reg-global-interceptor` calls into N separate `(rf/make-frame {:id :rf/default :interceptors [...]})` calls — the **last** call wins and silently wipes every earlier `:interceptors` vector. Fold ALL of a frame's global interceptors into a **single** frame declaration's `:interceptors` vector:
+> **Correctness trap — all global interceptors for a frame fold into ONE frame declaration.** Frame re-registration is a **complete replacement** of the config map's replaceable slots, not a merge — and `:interceptors` is one of those slots (per [`spec/002-Frames.md` §Re-registration — surgical update](../../../spec/002-Frames.md#re-registration--surgical-update): "the re-registered metadata map is the **complete replacement** of the previous map's replaceable slots, *not* a merge"). So you **cannot** translate N `reg-global-interceptor` calls into N separate `(rf/make-frame {:id :rf/default :interceptors [...]})` calls — the **last** call wins and silently wipes every earlier `:interceptors` vector. Fold ALL of a frame's global interceptors into a **single** frame declaration's `:interceptors` vector.
 >
-> ```clojure
-> ;; v1 — two global interceptors
-> (rf/reg-global-interceptor my-audit-icpt)
-> (rf/reg-global-interceptor recorder-icpt)
->
-> ;; v2 — register each value once, then ONE make-frame referencing BOTH by id,
-> ;; in the same vector (NOT two make-frame calls).
-> ;; A frame `:interceptors` chain carries references, never inline values (EP-0022) —
-> ;; an inline value here throws :rf.error/inline-interceptor-removed.
-> (rf/reg-interceptor :app/audit  my-audit-icpt)
-> (rf/reg-interceptor :app/record recorder-icpt)
-> (rf/make-frame
->   {:id :rf/default
->    :interceptors [:app/audit :app/record]})
-> ```
+> The register-then-reference before/after is corpus M-17's Type-A block — [`MIGRATION.md` §M-17](../../../migration/from-re-frame-v1/README.md#m-17-reg-global-interceptor--clear-global-interceptor-removed--use-frame-level-interceptors) — read it with this trap in mind: **one** `make-frame`, every id in the **same** `:interceptors` vector. (That chain carries **references**, never inline values, per EP-0022; an inline value throws `:rf.error/inline-interceptor-removed`.)
 >
 > This applies to the single-frame Type-A rewrite too (it's a correctness fact about re-registration, not a multi-frame concern) — but it's stated here because a multi-frame fold makes the trap easy to walk into when you're replicating "globals" across several frame declarations.
 
 > **Judgement call — multi-namespace or multi-lifecycle globals are NOT pure Type-A.** When the v1 `reg-global-interceptor` calls are spread across **multiple namespaces**, or registered at **different lifecycles** (e.g. one at ns-load, another *deferred* until after some external dependency has initialised — its interceptor body depends on that init having run), folding them into a single frame-config `:interceptors` vector forces a **single registration site and a single activation moment**. That can change ordering (activating a deferred interceptor too early) — a behavioural decision, not a mechanical rewrite. **Surface it to the author** (where the combined frame declaration should live, when it should run relative to the external init), rather than auto-applying. Even a single-frame app trips this judgement case when the globals had staggered lifecycles.
 
-> **An interceptor id-reference is NOT a load-order dependency.** Folding `reg-global-interceptor` values into a frame's `{:interceptors [:app/audit :app/record]}` replaces direct **value** references (which made the defining ns a `:require` dependency) with **id lookups** — keywords that create **no** load-order edge to the ns whose `reg-interceptor` registers them. If the migration then drops that ns's `:require` because the value "looks dead", the `reg-interceptor` may not have run when this `make-frame` validates its refs at registration — the boot throws `:rf.error/unregistered-interceptor`. Keep a side-effecting `:require` of the interceptor-registry ns (or load all interceptor-registering nses early from a foundational ns the whole app requires), before any `reg-event` / `make-frame` references them. "Dropping the require because the value isn't used anymore" is the trap. Full version (and the same hazard for the M-70 chain-shape rewrite): [`auto-cross-cutting.md` §M-70](auto-cross-cutting.md#event-interceptor-chains--metadata-interceptors-m-70--mechanical-loud-at-runtime-not-loud-at-compile).
+> **An interceptor id-reference is NOT a load-order dependency.** Folding `reg-global-interceptor` values into a frame's `{:interceptors [:app/audit :app/recorder]}` replaces direct **value** references (which made the defining ns a `:require` dependency) with **id lookups** — keywords that create **no** load-order edge to the ns whose `reg-interceptor` registers them. If the migration then drops that ns's `:require` because the value "looks dead", the `reg-interceptor` may not have run when this `make-frame` validates its refs at registration — the boot throws `:rf.error/unregistered-interceptor`. Keep a side-effecting `:require` of the interceptor-registry ns (or load all interceptor-registering nses early from a foundational ns the whole app requires), before any `reg-event` / `make-frame` references them. "Dropping the require because the value isn't used anymore" is the trap. Full version (and the same hazard for the M-70 chain-shape rewrite): [`auto-cross-cutting.md` §M-70](auto-cross-cutting.md#event-interceptor-chains--metadata-interceptors-m-70--mechanical-loud-at-runtime-not-loud-at-compile).
 
 **Identify**: every `(rf/reg-global-interceptor ...)` AND the codebase has any non-default frame declaration.
 
@@ -176,23 +162,7 @@ Strip the `(rf/subscribe …)` wrappers; return the bare query vectors. The
 computation fn already destructures a vector of inputs in the same order — it is
 **unchanged**.
 
-```clojure
-;; v1 — signal fn returns a vector of live reactions
-(rf/reg-sub :item/detail
-  (fn [[_ id]]
-    [(rf/subscribe [:item/by-id id])
-     (rf/subscribe [:selection/current])])
-  (fn [[item selected] [_ id]]
-    (assoc item :selected? (= selected id))))
-
-;; v2 — input-fn returns a vector of query vectors
-(rf/reg-sub :item/detail
-  (fn [[_ id]]
-    [[:item/by-id id]
-     [:selection/current]])
-  (fn [[item selected] [_ id]]
-    (assoc item :selected? (= selected id))))
-```
+Before/after: [`MIGRATION.md` §M-71 case 1](../../../migration/from-re-frame-v1/README.md#m-71-v1-signal-functions--v2-input-fns-vector-of-query-vectors).
 
 ### 2. Map-returning — pick an EXPLICIT input order, switch to vector destructuring
 
@@ -206,23 +176,7 @@ v2 does **not** accept a map return. Choose an explicit input order, return a
 > computation fn's destructure. Reading the order off the source map's literal
 > key sequence is a latent bug.
 
-```clojure
-;; v1 — signal fn returns a MAP of live reactions
-(rf/reg-sub :item/detail
-  (fn [[_ id]]
-    {:item     (rf/subscribe [:item/by-id id])
-     :selected (rf/subscribe [:selection/current])})
-  (fn [{:keys [item selected]} [_ id]]      ;; map destructuring
-    (assoc item :selected? (= selected id))))
-
-;; v2 — explicit input order + vector destructuring
-(rf/reg-sub :item/detail
-  (fn [[_ id]]
-    [[:item/by-id id]                        ;; chosen order: item, then selected
-     [:selection/current]])
-  (fn [[item selected] [_ id]]              ;; vector destructuring, same order
-    (assoc item :selected? (= selected id))))
-```
+Before/after: [`MIGRATION.md` §M-71 case 2](../../../migration/from-re-frame-v1/README.md#m-71-v1-signal-functions--v2-input-fns-vector-of-query-vectors).
 
 ### 3. Single-signal-returning — wrap in a vector of ONE query vector
 
@@ -317,16 +271,9 @@ rewrite, and let the author confirm.
 
 **Risk**: rewriting one side (dispatch site) without the other (registration destructure) breaks the runtime. Rewrites must be atomic per event-id.
 
-**Decision shape** (per event-id):
+**Decision shape** (per event-id): read the registration's positional destructure for the parameter names, rewrite every dispatch / subscribe call site for that id *and* the registration's destructure in **one atomic edit** — `(rf/dispatch [:user/login email password])` → `(rf/dispatch [:user/login {:email email :password password}])`.
 
-1. Find the registration for the id. Read the handler's positional destructure: `[_ [_ email password]]` → parameter names `email`, `password`.
-2. Walk every dispatch / subscribe call site for the id.
-3. Propose the rewrite: `(rf/dispatch [:user/login email password])` → `(rf/dispatch [:user/login {:email email :password password}])`; registration's destructure changes to `[_ [_ {:keys [email password]}]]`.
-4. **Flag rather than guess** when:
-   - The handler's destructure is anonymous (`[_ event]` with no inner shape) — agent can't infer names.
-   - The dispatch is built dynamically (`(rf/dispatch (cons :user/login args))`).
-   - Mixed-arity dispatches for the same id (some 2-arg, some 3-arg).
-   - Trivial-arity (`[:counter/inc]`) and single-arg (`[:user-by-id 42]`) — do **not** migrate; they stay as-is.
+The per-event-id mechanics and the four cases the agent **flags rather than guesses** (anonymous destructure, dynamically-built event vectors, mixed-arity call sites, and trivial-/single-arg ids that stay as-is) are enumerated in [`MIGRATION.md` §M-19](../../../migration/from-re-frame-v1/README.md#m-19-multi-positional-dispatch--subscribe-vectors--map-payload-form-opt-in) — work from there rather than from a second copy.
 
 `unwrap` users are pre-canonical at the call site; only the destructure may need a cleanup.
 
@@ -351,7 +298,7 @@ rewrite, and let the author confirm.
   f)
 ```
 
-`reg-flow` is the **3-slot** form `(reg-flow flow-id metadata derive-fn)`: the id is **positional** (not an `:id` key), `metadata` carries `:inputs` / `:output-path` (both required), and the derive fn `f` is the third value slot — a `:derive` left inside the metadata map is rejected loudly (`:rf.error/invalid-flow-metadata`), per [`spec/API.md` §Registration](../../../spec/API.md#registration). The author picks the flow id; the agent suggests `:legacy/<original-event-id>` as a starting point. Also: add `day8/re-frame2-flows` dep + `(:require [re-frame.flows])`.
+`reg-flow` is the **3-slot** form `(reg-flow flow-id metadata derive-fn)`: the id is **positional** (not an `:id` key), `metadata` carries `:inputs` / `:output-path` (both required), and the derive fn `f` is the third value slot — a `:derive` left inside the metadata map is rejected loudly (`:rf.error/invalid-flow-metadata`), per [`spec/API.md` §Registration](../../../spec/API.md#registration). The author picks the flow id; the agent asks, defaulting to a namespaced keyword derived from the call site — `:<user-ns>/<event-id>-flow` per [`MIGRATION.md` §M-21](../../../migration/from-re-frame-v1/README.md#m-21-drop-debug-trim-v-on-changes-enrich-after-interceptors). Use the **project's own** prefix (M-10), never a `:legacy/` one. Also: add `day8/re-frame2-flows` dep + `(:require [re-frame.flows])`.
 
 ### `enrich`
 
