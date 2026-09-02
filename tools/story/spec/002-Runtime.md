@@ -444,8 +444,7 @@ the only per-phase distinction.
 `:assertions` slot carries the record. `:app-db` reflects whatever
 state the frame held at the failure boundary (loader phase may have
 written some intermediate state before throwing; the runtime does not
-roll back). `:rendered-hiccup` is nil under failure (phase 3 is
-skipped). Consumers querying `passed?` aggregate over `:assertions`;
+roll back). Consumers querying `passed?` aggregate over `:assertions`;
 any `:rf.error/*` record drops the aggregate to false.
 
 ### Loader teardown contract
@@ -715,14 +714,19 @@ baselines.
 
 ```clojure
 (run-variant variant-id)
-(run-variant variant-id {:render? true :mode :Mode.app/dark :substrate :reagent})
+(run-variant variant-id {:mode :Mode.app/dark :substrate :reagent})
 ;; => {:frame           <variant-id>
 ;;     :app-db          {...}
 ;;     :assertions      [{:assertion :rf.assert/path-equals :passed? true ...} ...]
-;;     :rendered-hiccup [...]                    ; only if :render? true
 ;;     :elapsed-ms      <number>
 ;;     :snapshot        {:variant-id ..., :mode ..., :substrate ..., :content-hash "..."}}
 ```
+
+`run-variant` does not render. Rendering is `render-variant`'s job, and it
+returns its own result map with a `:rendered` slot carrying the host-render
+result — see [§Args, controls, and `render-variant`](017-Testing-Story.md).
+Screenshot and visual-regression work drives `render-variant`; the run result
+carries no rendering slot.
 
 `run-variant` runs the four-phase lifecycle:
 

@@ -114,7 +114,7 @@ interaction — see [`004-Assertions.md`](004-Assertions.md)
 
 A `:test`-tagged variant that stubs an fx behaves exactly like one
 that doesn't. `run-variant` returns the same
-`{:frame :app-db :assertions :rendered-hiccup :elapsed-ms}` shape;
+`{:frame :app-db :assertions :elapsed-ms}` shape;
 the stubbed response participates in the variant's effective state
 the same way a real fx response would. Stories-as-tests pick up
 "the analytics pipeline is dead" coverage for free.
@@ -888,7 +888,7 @@ phase-2 SOTA adds that are cheap.
 | 6. `force-fx-stub` — universal-fx mocking primitive (replaces the Storybook addon parade; see §`force-fx-stub`) | Stage 2 |
 | 7. Six-domino trace panel per variant via `register-listener!` | Stage 6 |
 | 8. Xray epoch panel embedded as `reg-story-panel` | Stage 6 |
-| 9. Story portability — `run-variant` returns `{:frame :app-db :assertions :rendered-hiccup :elapsed-ms}` | Stage 3 |
+| 9. Story portability — `run-variant` returns `{:frame :app-db :assertions :elapsed-ms}` | Stage 3 |
 | 10. EDN-first variant artefact (no `:render` fn-slot, round-trippable) | Stage 2 |
 | 11. Inclusion tags (seven canonical + `!`-prefix removal) | Stage 2 |
 | 12. Workspace grid + transit-shareable layouts | Stage 4 |

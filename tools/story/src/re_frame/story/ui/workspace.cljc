@@ -324,8 +324,7 @@
      (let [shell @state/shell-state-atom
            opts  {:active-modes   (:active-modes shell)
                   :cell-overrides (get-in shell [:cell-overrides variant-id])
-                  :substrate      (:substrate shell)
-                  :render?        true}]
+                  :substrate      (:substrate shell)}]
        (runtime/run-variant variant-id opts)
        nil)))
 

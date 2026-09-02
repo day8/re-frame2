@@ -111,7 +111,7 @@ before they meet the token contracts.
   when the view is substrate-portable.
 - **Test fixtures.** A `:test`-tagged variant *is* a complete component
   test; `(run-variant id)` returns
-  `{:frame :app-db :assertions :rendered-hiccup :elapsed-ms}` —
+  `{:frame :app-db :assertions :elapsed-ms}` —
   exactly what a `deftest` needs. The `:test` mode pane drives play
   sequences interactively with a Storybook-class **play step-debugger**
   (step / pause / rewind / step-back / breakpoint) — the canvas

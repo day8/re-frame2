@@ -65,7 +65,6 @@
    :app-db          {}
    :assertions      []
    :checks          []
-   :rendered-hiccup nil
    :elapsed-ms      0
    :snapshot        nil
    :decorators      {:hiccup [] :frame-setup [] :fx-override [] :errors []}
@@ -560,9 +559,9 @@
   - the top-level `:status` is the unified verdict.
 
   The `:lifecycle` / `:frame` / `:snapshot` / `:decorators` /
-  `:effective-args` / `:rendered-hiccup` slots are PRESERVED (API stable,
-  spec/017 §1a — `:status` sits alongside `:lifecycle`), so consumers can
-  read those slots and the unified shape from the one result.
+  `:effective-args` slots are PRESERVED (API stable, spec/017 §1a —
+  `:status` sits alongside `:lifecycle`), so consumers can read those slots
+  and the unified shape from the one result.
 
   Checks + schema-expectations are sourced from the compiled `:plan`,
   so a registered variant and an INLINE plan assemble the
@@ -685,9 +684,6 @@
                     :elapsed-ms          (- (interop/now-ms) start-ms)})]
     (cond-> (merge unified
                    {:frame           variant-id
-                    ;; Reserved compatibility slot. Visual rendering is
-                    ;; performed by the UI shell or `render-variant`.
-                    :rendered-hiccup nil
                     :snapshot        snapshot
                     :decorators      decorator-stack
                     :effective-args  effective-args
@@ -1274,8 +1270,8 @@
     :substrate       active substrate (`:reagent`, `:uix`, ...)
 
   Returns a Promise (CLJS) / CompletableFuture (JVM). Rendering is a
-  separate `render-variant` or UI-shell concern; this runner preserves the
-  compatibility `:rendered-hiccup` slot as nil.
+  separate `render-variant` or UI-shell concern — this runner produces no
+  rendered output, and the result map carries no rendering slot.
 
   Production callers (CLJS `:advanced` with `enabled?` false) get an
   immediately-resolved promise of the empty result map — per `001-Authoring.md`
@@ -1373,7 +1369,7 @@
   post-commit) collapse to ONE reset + ONE generation.
 
   `opts` is the standard `run-variant` opts (`:active-modes` / `:cell-overrides`
-  / `:substrate` / `:render?`) plus a `:run-key` — the shell slice that
+  / `:substrate`) plus a `:run-key` — the shell slice that
   identifies this logical run (see `re-frame.story.ui.canvas/run-key`). A
   changed `:run-key`, or a re-prepare after the current generation was already
   resumed, claims a fresh generation and re-runs phases 0-2.

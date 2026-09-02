@@ -128,13 +128,18 @@ result map. The slots that matter for tests:
 | `:lifecycle` | `:pre-mount` / `:mounting` / `:loading` / `:ready` | Did the variant reach `:ready`, or park earlier? |
 | `:app-db` | the post-lifecycle `app-db` of the variant's frame | Read with `get-in` / sub-equivalents to assert structural state |
 | `:assertions` | vector of `{:assertion :rf.assert/path-equals :passed? true ...}` maps | Did the in-variant `:script` assertions pass? |
-| `:rendered-hiccup` | hiccup tree (when `:render? true` passed to `run-variant`) | DOM-shape assertions without a real DOM |
 | `:elapsed-ms` | number | Performance budget assertions |
 | `:snapshot` | `{:variant-id ... :mode ... :substrate ... :content-hash ...}` | Visual-regression keying — see [`002-Runtime.md`](002-Runtime.md) §Snapshot identity |
 
 The full shape is documented in [`002-Runtime.md`](002-Runtime.md)
 §Programmatic API. Tests typically assert on `:lifecycle` + `:app-db`
 + `:assertions`.
+
+`run-variant` does not render, so there is no rendered-output slot to assert
+on. For DOM-shape assertions call `render-variant`, which returns its own
+result map with a `:rendered` slot — see
+[`017-Testing-Story.md`](017-Testing-Story.md) §Args, controls, and
+`render-variant`.
 
 ### Two assertion modes — pick one (or both)
 

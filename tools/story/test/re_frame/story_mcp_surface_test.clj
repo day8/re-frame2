@@ -14,7 +14,8 @@
   - **render-story / run-variant from MCP perspective** — invoke
     `run-variant` against a seeded variant; assert the return shape
     matches spec/002 + spec/006 (`{:frame :app-db :assertions
-    :rendered-hiccup :elapsed-ms ...}`).
+    :elapsed-ms ...}`). Rendering is `render-variant`'s job and the run
+    result carries no rendering slot (rf2-6r9j.13).
   - **dispatch-via-mcp same-process round trip** — register a variant
     via `reg-variant*` (the MCP write path), then dispatch into the
     variant's frame with the `{:frame variant-id}` opts map (the
