@@ -1,1815 +1,438 @@
 (ns day8.re-frame2-template.template-test
-  "JVM tests for the deps-new template body (003-DepsNew-Rebuild-Plan.md
-   §2.2-2.4).
+  "The shape contract for the emitted project.
 
-   Strategy:
+   Every test drives `org.corfield.new/create` in-process — the same
+   `data-fn` / `template-fn` / `post-process-fn` pipeline a shell-out
+   `clojure -Tnew create` runs — and then reads the generated tree as a
+   black box:
 
-     1. Generate a tmp app via `org.corfield.new/create` for each
-        substrate (Reagent / UIx). Driving the deps-new entry
-        fn in-process exercises the same `data-fn` / `template-fn` /
-        `post-process-fn` pipeline a shell-out `clojure -Tnew create`
-        would — without spawning a JVM per substrate.
-     2. Walk the generated tree and assert the expected file shape.
-     3. Read the generated `deps.edn`, parse it as EDN, and assert the
-        expected substrate-adapter coord is present.
-     4. Assert the `:include-story?` flag branches:
-          - default path emits no story files / coords
-          - true on Reagent emits stories.cljs + with-stories core +
-            day8/re-frame2-story coord
-          - true on non-Reagent substrates throws with a clear message
+     1. The emitted file set is EXACTLY the twelve-file manifest, for
+        both substrates (a set equality, not a containment check).
+     2. `deps.edn` / `shadow-cljs.edn` / `package.json` parse and carry
+        the substrate's coordinates, the two builds, and an npm-valid name.
+     3. Nothing retired reappears: no advanced coordinate, no Xray npm
+        package, no preload, no layout host, no variant file, no removed
+        option in any emitted text.
+     4. The argument gate: Reagent is the default, `:substrate` is strict
+        on value and shape, and every retired flag (`:include-story?`,
+        `:include-ssr?`, `:css`) fails as an UNKNOWN key.
 
-   Covers the same generated-surface checks across the substrate matrix."
+   The checks that carry a negative assertion also carry a witness that
+   the instrument bites, so a green here is never the \"no matches\" kind."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.java.io :as io]
             [clojure.string :as string]
-            [day8.re-frame2-template.hooks :as hooks]
             [day8.re-frame2-template.test-support
              :refer [tmp-dir delete-recursively run-template!
                      run-template-opts! read-edn file-exists?]]))
 
-;; --- Test helpers ----------------------------------------------------------
-;;
-;; tmp-dir / delete-recursively / template-resource-dir / run-template! /
-;; read-edn / file-exists? live in the shared `test-support` ns.
+;; --- The contract ----------------------------------------------------------
 
-;; --- The expected per-substrate shape ------------------------------------
-
-(def ^:private common-files
-  ["deps.edn"
-   "shadow-cljs.edn"
-   "package.json"
-   "README.md"
-   ".gitignore"
-   ;; Dev ergonomics bundle.
-   ".editorconfig"
-   ".clj-kondo/config.edn"
-   ;; Formatter config.
-   ".cljfmt.edn"
-   ;; Git pre-commit hook config.
-   "lefthook.yml"
-   ;; Baseline CI workflow.
-   ".github/workflows/ci.yml"
-   "dev/user.clj"
-   "dev/scratch.cljs"
-   "resources/public/index.html"
-   "resources/public/css/app.css"])
-
-(def ^:private per-substrate-sources
-  ;; Generated under src/<nested-dirs>/ and test/<nested-dirs>/. For
-  ;; project-name "acme/my-app" deps-new produces nested-dirs
-  ;; "acme/my_app".
-  ["src/acme/my_app/core.cljs"
-   "src/acme/my_app/events.cljs"
-   "src/acme/my_app/schema.cljs"
-   "src/acme/my_app/subs.cljs"
-   "src/acme/my_app/views.cljs"
-   "test/acme/my_app/events_test.cljs"])
+(def ^:private manifest
+  "The twelve files every substrate emits for `acme/my-app`."
+  #{".gitignore"
+    "README.md"
+    "deps.edn"
+    "package.json"
+    "shadow-cljs.edn"
+    "resources/public/index.html"
+    "resources/public/css/app.css"
+    "src/acme/my_app/core.cljs"
+    "src/acme/my_app/events.cljs"
+    "src/acme/my_app/subs.cljs"
+    "src/acme/my_app/views.cljs"
+    "test/acme/my_app/events_test.cljs"})
 
 (def ^:private substrate-coord
   {:reagent 'day8/re-frame2-reagent
    :uix     'day8/re-frame2-uix})
 
-;; --- Tests ---------------------------------------------------------------
+(def ^:private view-lib-coords
+  {:reagent '#{reagent/reagent}
+   :uix     '#{com.pitch/uix.core com.pitch/uix.dom}})
 
-(defn- assert-shape!
-  "For a given substrate, generate the app inside a tmp dir, walk the
-  expected file tree, and assert deps.edn contains the expected coords."
+(def ^:private retired-coords
+  "Coordinates the default scaffold no longer installs, anywhere in
+   deps.edn — `:deps` or any alias."
+  '#{day8/re-frame2-xray
+     day8/re-frame2-story
+     day8/re-frame2-ssr
+     day8/re-frame2-ssr-ring
+     day8/re-frame2-schemas
+     day8/re-frame2-machines
+     dev.weavejester/cljfmt
+     clj-kondo/clj-kondo
+     org.clojure/tools.namespace})
+
+(def ^:private retired-text
+  "Substrings that must not appear in ANY emitted text file: the retired
+   options, the Xray preload / host / npm packages, the schema, error-sink
+   and HTTP tutorials, the toolchain configs and the security policy."
+  ["include-story?" "include-ssr?" ":css :tailwind" "tailwindcss"
+   "day8.re-frame2-xray" "data-rf-xray-host" "rf2-xray-host"
+   "@xyflow/react" "elkjs" "rf2-tools-sha"
+   "re-frame.schemas" "reg-app-schema" "register-schema!"
+   "register-listener!" ":rf.http/managed"
+   "lefthook" "cljfmt" "clj-kondo" "tools.namespace"
+   "Content-Security-Policy"])
+
+;; --- Readers ---------------------------------------------------------------
+
+(defn- emitted-files
+  "Every regular file under `root`, as a set of forward-slash paths
+   relative to `root`."
+  [^java.io.File root]
+  (let [base (.toPath (.getCanonicalFile root))]
+    (into #{}
+          (comp (filter #(.isFile ^java.io.File %))
+                (map (fn [^java.io.File f]
+                       (-> (.relativize base (.toPath (.getCanonicalFile f)))
+                           str
+                           (string/replace "\\" "/")))))
+          (file-seq root))))
+
+(defn- all-coords
+  "Every coordinate a parsed deps.edn names — `:deps` plus every alias's
+   `:extra-deps` / `:replace-deps` / `:deps`."
+  [deps]
+  (into (set (keys (:deps deps)))
+        (mapcat (fn [alias] (mapcat keys ((juxt :extra-deps :replace-deps :deps) alias))))
+        (vals (:aliases deps))))
+
+(defn- retired-coords-in [deps]
+  (set (filter retired-coords (all-coords deps))))
+
+(defn- retired-text-in
+  "`[relative-path substring]` for every retired substring found in an
+   emitted text file."
+  [^java.io.File root]
+  (for [rel  (sort (emitted-files root))
+        :let [text (slurp (io/file root rel))]
+        s    retired-text
+        :when (string/includes? text s)]
+    [rel s]))
+
+(defn- assert-no-scaffold-emitted!
+  "The gate fired before any file was written."
+  [^java.nio.file.Path tmp]
+  (is (zero? (count (.listFiles (io/file (.toString tmp)))))
+      "no scaffold is emitted when the argument gate throws"))
+
+;; --- The per-substrate contract ------------------------------------------
+
+(defn- assert-contract!
   [substrate]
   (let [tmp (tmp-dir (str "rf2-template-" (name substrate) "-"))]
     (try
       (let [root (run-template! tmp "acme/my-app" substrate)]
-        (doseq [p (concat common-files per-substrate-sources)]
-          (is (file-exists? root p)
-              (str "expected file " p " in generated tree for substrate " substrate)))
+        ;; -- exactly the manifest --
+        (is (= manifest (emitted-files root))
+            (str substrate " must emit exactly the twelve-file manifest; "
+                 "missing " (pr-str (sort (remove (emitted-files root) manifest)))
+                 ", extra " (pr-str (sort (remove manifest (emitted-files root))))))
 
-        ;; -- deps.edn structure --
+        ;; -- deps.edn --
         (let [deps (read-edn (io/file root "deps.edn"))]
           (is (map? deps) "deps.edn parses as a map")
+          (is (= ["src"] (:paths deps)) "deps.edn :paths is [\"src\"]")
           (is (contains? (:deps deps) 'day8/re-frame2)
-              "deps.edn references day8/re-frame2 core")
+              "deps.edn names day8/re-frame2")
           (is (contains? (:deps deps) (substrate-coord substrate))
-              (str "deps.edn references " (substrate-coord substrate)))
-          ;; The literal pin VALUE is owned by version_lockstep_test.clj
-          ;; (reads repo-root VERSION on disk); asserting a hard-coded
-          ;; "0.0.1.alpha" here would duplicate it and false-fail the
-          ;; moment VERSION bumps. Present-check only.
-          (is (some? (get-in deps [:deps 'day8/re-frame2 :mvn/version]))
-              "core coord carries an :mvn/version pin"))
+              (str "deps.edn names " (substrate-coord substrate)))
+          (doseq [coord (view-lib-coords substrate)]
+            (is (contains? (:deps deps) coord)
+                (str "deps.edn names the view library " coord)))
+          ;; The pin VALUES are version_lockstep_test.clj's; present-check only.
+          (is (= (get-in deps [:deps 'day8/re-frame2 :mvn/version])
+                 (get-in deps [:deps (substrate-coord substrate) :mvn/version]))
+              "core and adapter ride one :mvn/version")
+          (is (= #{:shadow} (set (keys (:aliases deps))))
+              "deps.edn carries the :shadow alias and nothing else")
+          (is (= ["test"] (get-in deps [:aliases :shadow :extra-paths]))
+              ":shadow puts test/ on the classpath (and no dev/)")
+          (is (nil? (get-in deps [:aliases :shadow :main-opts]))
+              ":shadow is deps-only — `npx shadow-cljs` supplies its own -m")
+          (is (contains? (get-in deps [:aliases :shadow :extra-deps]) 'thheller/shadow-cljs)
+              ":shadow carries the shadow-cljs coordinate")
+          (is (empty? (retired-coords-in deps))
+              (str "deps.edn must name no retired coordinate; found "
+                   (pr-str (retired-coords-in deps)))))
 
-        ;; -- shadow-cljs.edn structure --
-        (let [scs  (read-edn (io/file root "shadow-cljs.edn"))
-              app  (get-in scs [:builds :app])
-              tst  (get-in scs [:builds :test])]
-          (is (= :browser (:target app))
-              "shadow-cljs :app build targets :browser")
-          (is (= 'acme.my-app.core/init
-                 (get-in app [:modules :main :init-fn]))
-              "init-fn matches generated namespace")
-          (is (some #{"test"} (:source-paths scs))
-              "shadow-cljs.edn :source-paths includes \"test\" so the emitted test file is discoverable")
-          (is (= :node-test (:target tst))
-              "shadow-cljs :test build targets :node-test")
-          ;; Xray preload — REAGENT-ONLY (rf2-p6f6u): Xray's panel shell
-          ;; mounts through the ratom-family substrates, so the :uix
-          ;; scaffold wires no preload (an honest scaffold does not
-          ;; promise a panel it cannot mount).
-          (case substrate
-            :reagent (is (some #{'day8.re-frame2-xray.preload}
-                               (get-in app [:devtools :preloads]))
-                         "shadow-cljs :app :devtools/preloads wires Xray on Reagent")
-            :uix     (is (nil? (get-in app [:devtools :preloads]))
-                         ":uix shadow-cljs :app build wires NO preloads —
-                          no Xray on the element substrates (rf2-p6f6u)"))
-          ;; NO build hooks (rf2-vwum3). Both scaffolds used to wire the
-          ;; compiled-view substrate's compiler build hook into
-          ;; `:build-defaults`, but that hook's namespace ships inside
-          ;; `day8/re-frame2-ui` and NEITHER emitted deps.edn declares a
-          ;; coordinate that provides it — the adapter
-          ;; substrates render through Reagent / UIx, not through the
-          ;; compiled-view substrate. Shadow does not fail on an unloadable
-          ;; hook (it warns and continues, exit 0), so the scaffold shipped a
-          ;; hook that silently did nothing. A scaffold names a build hook only
-          ;; when its own deps.edn carries the artefact that supplies it.
-          (is (not (contains? (set (keys scs)) :cache-blockers))
-              "shadow-cljs.edn no longer carries the removed :cache-blockers tax")
-          (is (empty? (get-in scs [:build-defaults :build-hooks]))
-              "shadow-cljs.edn wires NO build hooks — the scaffold's deps.edn
-               supplies no artefact carrying one, and shadow only warns on a
-               hook it cannot load (rf2-vwum3)"))
+        ;; -- shadow-cljs.edn --
+        (let [scs (read-edn (io/file root "shadow-cljs.edn"))
+              app (get-in scs [:builds :app])
+              tst (get-in scs [:builds :test])]
+          (is (= {:aliases [:shadow]} (:deps scs))
+              "shadow-cljs.edn reads its classpath from the :shadow alias")
+          (is (= ["src" "test"] (:source-paths scs))
+              ":source-paths is [\"src\" \"test\"]")
+          (is (= #{:app :test} (set (keys (:builds scs))))
+              "exactly the :app and :test builds")
+          (is (= :browser (:target app)) ":app targets :browser")
+          (is (= 'acme.my-app.core/init (get-in app [:modules :main :init-fn]))
+              ":app :init-fn is the generated core/init")
+          (is (not (contains? app :devtools))
+              ":app wires no :devtools — no preload of any kind")
+          (is (= :node-test (:target tst)) ":test targets :node-test")
+          (is (= "-test$" (:ns-regexp tst)) ":test picks up *-test namespaces"))
 
-        ;; -- Xray coord in deps.edn — REAGENT-ONLY (rf2-p6f6u) --
-        (let [deps (read-edn (io/file root "deps.edn"))]
-          (case substrate
-            :reagent
-            (do (is (contains? (:deps deps) 'day8/re-frame2-xray)
-                    "deps.edn references day8/re-frame2-xray on Reagent")
-                ;; Coord SHAPE owned by version_lockstep_test.clj's
-                ;; tools-coord guard — Xray is a TOOL and ships on
-                ;; `xray-v*`, which no framework `v*` tag cuts, so the
-                ;; emitted coord is a git coord (rf2-57bjg).
-                (is (some? (get-in deps [:deps 'day8/re-frame2-xray :git/sha]))
-                    "Xray coord carries a :git/sha pin"))
-            :uix
-            (is (not (contains? (:deps deps) 'day8/re-frame2-xray))
-                ":uix deps.edn does NOT reference day8/re-frame2-xray —
-                 the scaffold ships no panel it cannot mount (rf2-p6f6u)")))
+        ;; -- package.json --
+        (let [pj (slurp (io/file root "package.json"))]
+          (is (string/includes? pj "\"name\": \"my-app\"")
+              "package.json name is the npm-valid artefact segment, not acme/my-app")
+          (is (string/includes? pj "\"private\": true") "package.json is private")
+          (doseq [needle ["\"shadow-cljs\"" "\"react\"" "\"react-dom\""
+                          "\"watch\"" "\"release\"" "\"test\""]]
+            (is (string/includes? pj needle)
+                (str "package.json carries " needle))))
 
-        ;; -- Schemas coord in deps.edn --
-        (let [deps (read-edn (io/file root "deps.edn"))]
-          (is (contains? (:deps deps) 'day8/re-frame2-schemas)
-              "deps.edn references day8/re-frame2-schemas (best-practice
-               whole-app-db schema needs the artefact on the classpath
-               for CLJS validation to fire)")
-          ;; Pin value owned by version_lockstep_test.clj.
-          (is (some? (get-in deps [:deps 'day8/re-frame2-schemas :mvn/version]))
-              "schemas coord carries an :mvn/version pin"))
+        ;; -- the substrate's own view shape --
+        (let [views (slurp (io/file root "src/acme/my_app/views.cljs"))]
+          (is (string/includes? views (case substrate :reagent "reg-view" :uix "defui"))
+              (str substrate " views.cljs uses its substrate's view form")))
 
-        ;; -- Best-practice surface in events.cljs + schema.cljs --
-        (let [events-text (slurp (io/file root "src/acme/my_app/events.cljs"))
-              schema-text (slurp (io/file root "src/acme/my_app/schema.cljs"))
-              core-text   (slurp (io/file root "src/acme/my_app/core.cljs"))]
-          (is (.contains events-text "register-listener!")
-              "events.cljs registers an error-sink trace listener
-               (errors-are-events-too best-practice)")
-          (is (.contains events-text "re-frame.trace.tooling")
-              "events.cljs uses the re-frame.trace.tooling/register-listener!
-               surface — CLJS-only (the rf/... alias is JVM-only,
-               per rf2-qwm0a)")
-          (is (.contains events-text "re-frame.schemas")
-              "events.cljs side-effect-loads re-frame.schemas so Malli
-               publishes into the late-bind hook table before any
-               reg-app-schema runs")
-          (is (.contains events-text "re-frame.schemas.malli")
-              "events.cljs also loads the Malli adapter (without it the
-               default validator soft-passes per Spec 010)")
-          (is (.contains events-text ":rf.http/managed")
-              "events.cljs ships the commented HTTP failure-matrix
-               exemplar so users see the canonical call shape")
-          (is (.contains events-text ":rf.http/http-5xx")
-              "events.cljs's HTTP exemplar uses the closed
-               :rf.http/* category set in :retry :on")
-          (is (.contains schema-text "reg-app-schema")
-              "schema.cljs registers a whole-app-db schema")
-          (is (.contains schema-text "CounterDb")
-              "schema.cljs ships the CounterDb Malli schema")
-          ;; -- Emitted source must teach the canonical positional
-          ;;    reg-app-schema grammar (rf2-qm7k83 Part A).
-          ;; The schema is the POSITIONAL value slot: (reg-app-schema [] schema).
-          ;; The retired schema-in-metadata form {:schema CounterDb} must not
-          ;; survive in emitted source OR comments. Scan events.cljs's schema-
-          ;; load comment too, so it cannot cite the stale grammar.
-          (is (not (.contains events-text "{:schema CounterDb}"))
-              "events.cljs must NOT cite the retired schema-in-metadata
-               (reg-app-schema [] {:schema CounterDb}) form in a comment — the
-               canonical grammar is positional (reg-app-schema [] CounterDb)")
-          (is (not (.contains schema-text "{:schema CounterDb}"))
-              "schema.cljs must NOT emit the retired schema-in-metadata
-               (rf/reg-app-schema [] {:schema CounterDb}) call — the canonical
-               grammar is positional (rf/reg-app-schema [] CounterDb)")
-          (is (.contains schema-text "(rf/reg-app-schema [] {:frame :rf/default} CounterDb)")
-              "schema.cljs emits the canonical positional grammar with the
-               explicit frame target
-               (rf/reg-app-schema [] {:frame :rf/default} CounterDb) —
-               rf2-h1vqa4: boot attaches the schema before the frame-root
-               mount creates the frame")
+        ;; -- nothing retired, anywhere in the emitted text --
+        (is (empty? (retired-text-in root))
+            (str "retired vocabulary in the emitted tree: "
+                 (pr-str (retired-text-in root))))
 
-          ;; -- EP-0011 / rf2-ibksxg / rf2-et4c1s: HTTP exemplar teaches the
-          ;;    ONE canonical uniform reply envelope + the CURRENT reply-
-          ;;    addressing surface (no compat dialect, no retired co-located
-          ;;    form) --
-          ;; The reply the exemplar reads IS the framework-wide uniform reply
-          ;; envelope delivered verbatim (appended as the event's last arg);
-          ;; there is no separate {:kind :success/:failure} HTTP dialect
-          ;; (retired). The exemplar must name the envelope, its canonical
-          ;; :status/:completed-at facts, and address its reply with the
-          ;; app-facing :reply-to unified key (the :on-success/:on-failure
-          ;; routing sugar sits over it) — never the retired co-located
-          ;; :rf/reply read nor the internal :rf/reply-to descriptor as an
-          ;; app-facing spelling (rf2-et4c1s) — so a future edit cannot
-          ;; re-introduce the retired compat payload or co-located form.
-          (is (.contains events-text "sugar over the one")
-              "events.cljs HTTP exemplar marks :on-success/:on-failure as pure
-               ROUTING sugar over the one direct reply target (rf2-ibksxg — no
-               {:kind …} compat dialect)")
-          (is (not (.contains events-text "compatibility sugar"))
-              "events.cljs HTTP exemplar must NOT re-teach the retired
-               {:kind :success/:failure} compat-sugar framing (rf2-ibksxg)")
-          (is (.contains events-text "uniform reply envelope")
-              "events.cljs HTTP exemplar names the framework-wide uniform
-               reply envelope the reply IS (EP-0011 — rf2-rzsxrk)")
-          (is (.contains events-text ":reply-to")
-              "events.cljs HTTP exemplar addresses its reply with the app-facing
-               :reply-to unified key — the one target the :on-success/:on-failure
-               routing sugar sits over (EP-0011 / rf2-et4c1s — rf2-rzsxrk)")
-          ;; The retired co-located `:rf/reply` read AND the retired
-          ;; :rf/reply-to-as-app-facing framing must both be gone. `:rf/reply`
-          ;; catches both — `:rf/reply-to` embeds `:rf/reply`, and the co-
-          ;; located envelope key is exactly `:rf/reply`. (The internal
-          ;; descriptor is a conformance surface, not consumer-template
-          ;; content — a user who uncomments the exemplar must hit neither
-          ;; :rf.error/http-no-reply-target nor a co-located read.) The
-          ;; correlation fact `:rf.reply/work-id` uses a dot, not a slash,
-          ;; so it does NOT trip this guard.
-          (is (not (.contains events-text ":rf/reply"))
-              "events.cljs HTTP exemplar must NOT read the retired co-located
-               :rf/reply envelope key NOR cite :rf/reply-to as an app-facing
-               spelling — the app-facing surface is :reply-to / :on-success /
-               :on-failure (rf2-et4c1s)")
-          (is (.contains events-text ":completed-at")
-              "events.cljs HTTP exemplar names the canonical :completed-at
-               reply fact (EP-0011 — rf2-rzsxrk)")
-
-          ;; -- EP-0015: events.cljs decode-body classification guidance --
-          ;; The :decode :auto exemplar must say it is the simple
-          ;; non-sensitive case and point real bodies at a :decode SCHEMA
-          ;; with :sensitive? / :large? props + the unschematized
-          ;; fail-closed posture, so the scaffold cannot drift to a
-          ;; "decode :auto is the whole story" framing.
-          (is (.contains events-text ":sensitive?")
-              "events.cljs decode note names per-slot :sensitive? schema
-               props for sensitive HTTP response bodies (EP-0015 — rf2-7i66d0)")
-          (is (.contains events-text "fail-closed")
-              "events.cljs decode note states an unschematized HTTP body is
-               whole-sensitive / fail-closed (EP-0015 — rf2-7i66d0)")
-
-          ;; -- EP-0015/EP-0025: classification pointer at the boot site +
-          ;;    schema-is-shape-not-egress note --
-          ;; core.cljs must point the user at commit-plane egress
-          ;; classification where it boots the app frame, and schema.cljs
-          ;; must state that schemas validate shape, NOT durable app-db
-          ;; egress (the one-owner-one-route rule).
-          (is (.contains core-text ":sensitive")
-              "core.cljs points at :sensitive egress classification at the
-               frame boot site (EP-0015/EP-0025 — rf2-7i66d0)")
-          (is (.contains schema-text "does NOT classify durable app-db")
-              "schema.cljs states a schema validates shape and does NOT
-               classify durable app-db egress (frame owns that — EP-0015;
-               rf2-7i66d0)"))
-
-        ;; -- package.json sanity --
-        (let [pj-text (slurp (io/file root "package.json"))]
-          (is (.contains pj-text "\"shadow-cljs\"")
-              "package.json declares shadow-cljs devDependency")
-          (is (.contains pj-text "\"react\"")
-              "package.json declares react")
-          ;; The Xray preload compiles day8/re-frame2-machines-viz's
-          ;; machine canvas, which requires these npm packages on the
-          ;; REAGENT scaffold. Without them Reagent's first
-          ;; `shadow-cljs watch app` fails with a missing JS dependency
-          ;; (rf2-b16va). The :uix scaffold ships no Xray pieces, so the
-          ;; deps must NOT leak into it (rf2-p6f6u).
-          (case substrate
-            :reagent
-            (do (is (.contains pj-text "\"@xyflow/react\"")
-                    "package.json declares @xyflow/react (Xray machine-canvas npm dep)")
-                (is (.contains pj-text "\"elkjs\"")
-                    "package.json declares elkjs (Xray machine-canvas npm dep)"))
-            :uix
-            (do (is (not (.contains pj-text "@xyflow/react"))
-                    ":uix package.json does NOT carry @xyflow/react (no Xray — rf2-p6f6u)")
-                (is (not (.contains pj-text "\"elkjs\""))
-                    ":uix package.json does NOT carry elkjs (no Xray — rf2-p6f6u)"))))
-
-        ;; -- Xray layout host + honest README (rf2-p6f6u) --
-        ;; Reagent ships the [data-rf-xray-host] right-side host + its
-        ;; sizing CSS; the :uix scaffold must ship NEITHER, and its README
-        ;; must note the devtools story honestly instead of inheriting the
-        ;; ships-Xray claim.
-        (let [index-text  (slurp (io/file root "resources/public/index.html"))
-              css-text    (slurp (io/file root "resources/public/css/app.css"))
-              readme-text (slurp (io/file root "README.md"))]
-          (case substrate
-            :reagent
-            (do (is (.contains index-text "data-rf-xray-host")
-                    "Reagent index.html ships the Xray layout host")
-                (is (.contains css-text ".rf2-xray-host")
-                    "Reagent app.css ships the Xray host sizing rules")
-                (is (.contains readme-text "the scaffold ships Xray")
-                    "Reagent README documents the shipped Xray panel"))
-            :uix
-            (do (is (not (.contains index-text "data-rf-xray-host"))
-                    ":uix index.html ships NO [data-rf-xray-host] host —
-                     nothing can mount into it (rf2-p6f6u)")
-                (is (not (.contains css-text "rf2-xray-host"))
-                    ":uix app.css ships NO .rf2-xray-host rules (rf2-p6f6u)")
-                (is (not (.contains readme-text "the scaffold ships Xray"))
-                    ":uix README does not inherit the ships-Xray claim (rf2-p6f6u)")
-                (is (.contains readme-text "does not wire Xray")
-                    ":uix README notes the devtools story honestly —
-                     Xray rides the ratom-family substrates today (rf2-p6f6u)"))))
-
-        ;; -- views.cljs picks up the substrate-specific shape --
-        (let [views-text (slurp (io/file root "src/acme/my_app/views.cljs"))]
-          (case substrate
-            :reagent (is (.contains views-text "reg-view")
-                         "Reagent views.cljs uses reg-view")
-            :uix     (is (.contains views-text "defui")
-                         "UIx views.cljs uses defui")))
-
-        ;; -- Per-substrate README badge --
-        ;;
-        ;; The badge LINE varies by substrate, so it lives in the
-        ;; per-substrate shape test. The substrate-INVARIANT README/CI/
-        ;; security text lives in `root-content-test` below — it comes
-        ;; from `root/`, so it is asserted once rather than per substrate.
-        (let [readme-text (slurp (io/file root "README.md"))]
-          (is (.contains readme-text
-                         (case substrate
-                           :reagent "substrate-Reagent"
-                           :uix     "substrate-UIx"))
-              "README ships the per-substrate badge")))
+        ;; -- the README's two escape hatches --
+        (let [readme (slurp (io/file root "README.md"))]
+          (is (string/includes? readme "docs/xray/01-installation.md")
+              "README links the Xray installation page")
+          (is (string/includes? readme "docs/story/index.md")
+              "README links the Story page")
+          (is (string/includes? readme "npx shadow-cljs watch app")
+              "README says how to run")
+          (is (string/includes? readme "npm test")
+              "README says how to test")
+          (is (string/includes? readme "npm run release")
+              "README says how to release")))
       (finally
         (delete-recursively tmp)))))
 
-(deftest root-content-test
-  (testing "substrate-invariant root/ content (README best-practice +
-            naming + badges, baseline CI workflow, security baseline) —
-            generated once. These files come from root/ and are
-            substrate-agnostic, so re-running them per substrate (the
-            old assert-shape! shape) was 3× redundant + mislayered
-            (rf2-5v619, L3)."
-    (let [tmp (tmp-dir "rf2-template-root-content-")]
-      (try
-        (let [root (run-template! tmp "acme/my-app" :reagent)]
-          ;; -- README best-practice + naming sections --
-          (let [readme-text (slurp (io/file root "README.md"))]
-            (is (.contains readme-text "Best practices baked into the scaffold")
-                "README has a Best practices section")
-            (is (.contains readme-text "Errors are events too")
-                "README documents the errors-are-events-too posture")
-            (is (.contains readme-text "Typed app-db boundaries")
-                "README documents the typed-at-boundaries posture")
-            (is (.contains readme-text "closed failure-category set")
-                "README documents the closed :rf.http/* failure-category set")
-            (is (.contains readme-text "Naming conventions")
-                "README documents the naming-conventions rules")
-            (is (.contains readme-text "spec/Conventions.md")
-                "README links to spec/Conventions.md for the normative catalogue"))
+(deftest reagent-contract-test
+  (testing ":substrate :reagent emits the contract"
+    (assert-contract! :reagent)))
 
-          ;; -- README Hot reload — accurate reg-* cleanup claim --
-          ;; The runtime registry only adds / same-id-replaces on reload; a
-          ;; deleted or renamed reg-* form's old (kind, id) is NOT pruned by
-          ;; a plain shadow-cljs reload — it lingers until a browser/dev-
-          ;; process refresh. The README must not over-promise that a
-          ;; rename/remove "drops the old registration". Reject that
-          ;; phrase and positively require the explicit-refresh recovery.
-          ;; Scope the assertions to the Hot reload section.
-          (let [readme-text (slurp (io/file root "README.md"))
-                hr-start    (.indexOf readme-text "## Hot reload")
-                hr-end      (let [i (.indexOf readme-text "\n## " (inc hr-start))]
-                              (if (neg? i) (count readme-text) i))
-                hr-sec      (subs readme-text (max 0 hr-start) hr-end)]
-            (is (not (neg? hr-start))
-                "README has a Hot reload section")
-            (is (not (.contains hr-sec "drops the old registration"))
-                "README Hot reload section must NOT promise that a
-                 rename/remove drops the old registration — the registry
-                 does not prune deleted/renamed ids on plain reload
-                 (rf2-n70mno)")
-            ;; The wording wraps across lines in the rendered README, so
-            ;; normalise whitespace before the substring check.
-            (let [hr-norm (string/replace hr-sec #"\s+" " ")]
-              (is (.contains hr-norm "does NOT prune the old")
-                  "README Hot reload section states deleting/renaming a
-                   handler does NOT prune the old id on plain reload
-                   (rf2-n70mno)"))
-            (is (or (.contains hr-sec "refresh the browser")
-                    (.contains hr-sec "restart the dev process"))
-                "README Hot reload section documents the real recovery —
-                 browser/dev-process refresh rebuilds the registry from
-                 an empty slate (rf2-n70mno)"))
+(deftest uix-contract-test
+  (testing ":substrate :uix emits the contract"
+    (assert-contract! :uix)))
 
-          ;; -- README EP-0015 privacy/egress classification --
-          ;; The README must carry a concise privacy/egress section that
-          ;; distinguishes app-db schemas (shape) from durable classification
-          ;; (:sensitive / :large commit-plane effects), and shows where
-          ;; sensitive/large app-db paths are declared. (App-specific HTTP
-          ;; carrier names ride the :rf.http/managed `:carriers` block, EP-0025.)
-          ;; Scope the assertions to that section so an honest mention elsewhere
-          ;; can't satisfy them weakly.
-          (let [readme-text (slurp (io/file root "README.md"))
-                priv-start  (.indexOf readme-text "### Privacy / egress classification")
-                priv-end    (let [i (.indexOf readme-text "\n### " (inc priv-start))]
-                              (if (neg? i) (count readme-text) i))
-                priv-sec    (subs readme-text (max 0 priv-start) priv-end)]
-            (is (not (neg? priv-start))
-                "README has a Privacy / egress classification section
-                 (EP-0015 — rf2-7i66d0)")
-            (is (.contains priv-sec "do NOT classify egress")
-                "README privacy section states app-db schemas validate shape
-                 and do NOT classify egress (EP-0015 — rf2-7i66d0)")
-            (is (.contains priv-sec "commit-plane")
-                "README privacy section shows durable classification authored
-                 by the writing event's commit-plane effects (EP-0025;
-                 rf2-7i66d0 / rf2-h1vqa4)")
-            (is (and (.contains priv-sec ":sensitive")
-                     (.contains priv-sec ":large"))
-                "README privacy section names :sensitive and :large
-                 frame-owned classification keys (EP-0015 — rf2-7i66d0)")
-            (is (.contains priv-sec "spec/015-Data-Classification.md")
-                "README privacy section links Spec 015 for the normative
-                 classification model (EP-0015 — rf2-7i66d0)"))
-
-          ;; -- README EP-0011 HTTP reply-envelope lowering --
-          ;; The README HTTP section must name the lowering: the {:kind …}
-          ;; reply IS the framework-wide uniform reply envelope delivered
-          ;; verbatim (rf2-ibksxg — no {:kind …} compat dialect), with the
-          ;; reply :status vocabulary (:ok/:error/:cancelled; :stale
-          ;; suppressed). Scope to the HTTP section.
-          (let [readme-text (slurp (io/file root "README.md"))
-                http-start  (.indexOf readme-text "### HTTP")
-                http-end    (let [i (.indexOf readme-text "\n### " (inc http-start))]
-                              (if (neg? i) (count readme-text) i))
-                http-sec    (subs readme-text (max 0 http-start) http-end)]
-            (is (not (neg? http-start))
-                "README has an HTTP section")
-            (is (not (.contains http-sec "compatibility sugar"))
-                "README HTTP section must NOT re-teach the retired
-                 {:kind :success/:failure} compat-sugar framing (rf2-ibksxg)")
-            (is (.contains http-sec "sugar over the one")
-                "README HTTP section marks :on-success/:on-failure as pure
-                 ROUTING sugar over the one direct reply target (rf2-ibksxg)")
-            (is (.contains http-sec "uniform reply envelope")
-                "README HTTP section names the uniform reply envelope the
-                 reply IS (EP-0011 — rf2-rzsxrk)")
-            (is (and (.contains http-sec ":ok")
-                     (.contains http-sec ":cancelled")
-                     (.contains http-sec ":stale"))
-                "README HTTP section maps HTTP outcomes onto the canonical
-                 :status values incl. :stale suppression (EP-0011 —
-                 rf2-rzsxrk)")
-            (is (.contains http-sec "Managed-Effects.md")
-                "README HTTP section links Managed-Effects.md for the uniform
-                 reply envelope contract (EP-0011 — rf2-rzsxrk)")
-            ;; EP-0015 HTTP-body classification also lives in the HTTP
-            ;; section — the :decode :auto / schema-prop posture.
-            (is (.contains http-sec ":sensitive?")
-                "README HTTP section names :decode-schema :sensitive? props
-                 for sensitive response bodies (EP-0015 — rf2-7i66d0)"))
-
-          ;; -- README substrate-invariant badges --
-          (let [readme-text (slurp (io/file root "README.md"))]
-            (is (.contains readme-text "img.shields.io/badge/built")
-                "README ships a 'built with re-frame2' badge")
-            (is (.contains readme-text "License-MIT")
-                "README ships a License badge"))
-
-          ;; -- README hot-reload contract accuracy --
-          ;; The generated README MUST describe the ACTUAL rf/init!
-          ;; contract (implementation/core/src/re_frame/core.cljc init!;
-          ;; pinned by implementation/core/test/re_frame/boot_test.clj):
-          ;; init! is idempotent — it installs the adapter ONLY when none
-          ;; is seated and does NOT create the :rf/default frame (EP-0002:
-          ;; the runtime never synthesises a frame from absence; core.cljc
-          ;; init! docstring). The scaffold's frame is created by the VIEW:
-          ;; the rf/frame-root ENSURE element in core.cljs (rf2-h1vqa4 —
-          ;; the make-frame boot ceremony is retired). A
-          ;; second init! call does NOT re-install the adapter, snapshot the
-          ;; registrar, or reset app-db. The README must NOT overstate this
-          ;; ("each call to init! snapshots the registrar, re-installs the
-          ;; adapter, and resets the frame's app-db") NOR claim init!
-          ;; "ensures the :rf/default frame exists" — both teach a false
-          ;; mental model. The seed boundary is frame-root's
-          ;; :initial-events [[:counter/initialise]] declaration, not init!.
-          (let [readme-text (slurp (io/file root "README.md"))
-                ;; Scope the false-claim greps to the Hot reload section
-                ;; (from its heading to the next ## heading) so an honest
-                ;; mention elsewhere (e.g. the adapter API discussion)
-                ;; can't trip them.
-                hot-reload-start (.indexOf readme-text "## Hot reload")
-                hot-reload-end   (let [i (.indexOf readme-text "\n## " (inc hot-reload-start))]
-                                   (if (neg? i) (count readme-text) i))
-                hot-reload-sec   (subs readme-text hot-reload-start hot-reload-end)]
-            (is (not (neg? hot-reload-start))
-                "README has a Hot reload section")
-            ;; The actual contract is stated.
-            (is (.contains readme-text ":initial-events [[:counter/initialise]]")
-                "README names frame-root's :initial-events
-                 [[:counter/initialise]] declaration as the seed boundary
-                 (rf2-8n4s71 #2 / rf2-h1vqa4)")
-            ;; The false claims must be gone — init! by itself does none
-            ;; of these (boot_test.clj pins the second-call no-op).
-            (is (not (.contains hot-reload-sec "snapshots the registrar"))
-                "README Hot reload section must NOT claim rf/init! snapshots
-                 the registrar — boot_test.clj pins the second call as a
-                 no-op (rf2-8n4s71 #2)")
-            (is (not (.contains hot-reload-sec "re-installs the adapter"))
-                "README Hot reload section must NOT claim rf/init! re-installs
-                 the adapter on each call — it installs ONLY when none is
-                 seated (core.cljc init!; rf2-8n4s71 #2)")
-            (is (not (.contains hot-reload-sec "resets the frame's app-db"))
-                "README Hot reload section must NOT claim rf/init! resets
-                 app-db by itself — frame-root's :initial-events seed at
-                 frame creation is the seed boundary (rf2-8n4s71 #2)")
-            ;; -- README init!/:rf/default contract --
-            ;; init! does NOT create :rf/default (EP-0002); the scaffold's
-            ;; frame is created by the view's rf/frame-root ENSURE element
-            ;; (rf2-h1vqa4). core.cljc init! docstring + the emitted
-            ;; core.cljs pin this.
-            (is (not (.contains hot-reload-sec "init! ensures"))
-                "README Hot reload section must NOT claim rf/init! ensures the
-                 :rf/default frame exists — init! does NOT create the default
-                 frame (EP-0002; core.cljc init!; rf2-frex1l)")
-            (is (and (.contains hot-reload-sec "does **not** create the `:rf/default`")
-                     (.contains hot-reload-sec "frame-root"))
-                "README Hot reload section must state init! does NOT create the
-                 :rf/default frame and that the view's frame-root ensures it
-                 at mount (EP-0002; rf2-frex1l / rf2-h1vqa4)"))
-
-          ;; -- README schema registration is frame-scoped --
-          ;; reg-app-schema is frame-local (EP-0002); a frameless ns-load
-          ;; call raises :rf.error/no-frame-context (schemas/storage.cljc
-          ;; reg-app-schema). The emitted schema.cljs wraps it in a
-          ;; register-schema! fn that names the app frame explicitly via
-          ;; {:frame :rf/default} (rf2-h1vqa4 — boot attaches it before the
-          ;; frame-root mount creates the frame). The
-          ;; README MUST NOT teach a frameless top-level reg-app-schema and
-          ;; MUST name the frame-scoped contract.
-          (let [readme-text (slurp (io/file root "README.md"))
-                schema-start (.indexOf readme-text "### Typed app-db boundaries")
-                schema-end   (let [i (.indexOf readme-text "\n### " (inc schema-start))]
-                               (if (neg? i) (count readme-text) i))
-                schema-sec   (subs readme-text schema-start schema-end)]
-            (is (not (neg? schema-start))
-                "README has a Typed app-db boundaries section")
-            (is (not (.contains schema-sec "\n(rf/reg-app-schema [] CounterDb)"))
-                "README schema section must NOT show a frameless top-level
-                 (rf/reg-app-schema [] CounterDb) — it would raise
-                 :rf.error/no-frame-context at ns-load (EP-0002; rf2-frex1l)")
-            (is (.contains schema-sec ":rf.error/no-frame-context")
-                "README schema section must name :rf.error/no-frame-context as
-                 the failure mode of a frameless registration (rf2-frex1l)")
-            (is (and (.contains schema-sec "register-schema!")
-                     (.contains schema-sec "{:frame :rf/default}"))
-                "README schema section must teach the frame-scoped contract —
-                 a register-schema! fn that names the app frame explicitly via
-                 {:frame :rf/default} (mirrors the emitted schema.cljs /
-                 core.cljs; rf2-frex1l / rf2-h1vqa4)"))
-
-          ;; -- README Xray host wording — right-side, not left --
-          ;; The emitted index.html orders <main id="app"> BEFORE
-          ;; <aside data-rf-xray-host> and app.css documents/implements a
-          ;; RIGHT-side host (pinned by the Xray layout-host audit in
-          ;; template_emission_test.clj; matches
-          ;; tools/xray/spec/011-Launch-Modes.md). The README must agree:
-          ;; a "left layout column" description would contradict the
-          ;; emitted layout + the Xray spec.
-          (let [readme-text (slurp (io/file root "README.md"))]
-            (is (not (.contains readme-text "left layout column"))
-                "README must NOT call the Xray host a 'left layout column' —
-                 the emitted index.html/app.css ship a RIGHT-side host
-                 (rf2-8n4s71 #3)")
-            (is (re-find #"right-side layout host" readme-text)
-                "README describes the Xray host as a right-side layout host
-                 (matches the emitted index.html/app.css + Xray spec —
-                 rf2-8n4s71 #3)"))
-
-          ;; -- Baseline CI workflow --
-          (let [ci-text (slurp (io/file root ".github/workflows/ci.yml"))]
-            (is (.contains ci-text "name: ci")
-                ".github/workflows/ci.yml declares the ci workflow")
-            (is (.contains ci-text "node-version: '22'")
-                "ci.yml pins Node 22 LTS")
-            (is (.contains ci-text "java-version: '21'")
-                "ci.yml pins JDK 21 (matches re-frame2 reference build)")
-            (is (.contains ci-text "actions/checkout@")
-                "ci.yml uses actions/checkout with a SHA pin")
-            (is (.contains ci-text "actions/setup-java@")
-                "ci.yml uses actions/setup-java with a SHA pin")
-            (is (.contains ci-text "actions/setup-node@")
-                "ci.yml uses actions/setup-node with a SHA pin")
-            (is (.contains ci-text "DeLaGuardo/setup-clojure@")
-                "ci.yml uses DeLaGuardo/setup-clojure with a SHA pin")
-            (is (.contains ci-text "npm test")
-                "ci.yml runs `npm test` (delegates to shadow-cljs :node-test
-                 per the emitted package.json)")
-            (is (.contains ci-text "# acme/my-app")
-                "ci.yml header substitutes {{name}}")
-            ;; deps-new's flat {{key}} substitution leaves GitHub
-            ;; `${{ … }}` expressions untouched because no subst key
-            ;; matches the spaced inner token. Pin that invariant so a
-            ;; future data key collision or substitution-engine change
-            ;; that corrupts the workflow expressions is caught here.
-            (is (.contains ci-text "${{ runner.os }}")
-                "ci.yml's GitHub `${{ runner.os }}` expression survives
-                 substitution verbatim (not eaten by deps-new {{key}}
-                 substitution)")
-            (is (.contains ci-text "${{ hashFiles('deps.edn') }}")
-                "ci.yml's GitHub `${{ hashFiles(...) }}` expression
-                 survives substitution verbatim"))
-
-          ;; -- Security baseline (CSP-runtime parity) --
-          (let [index-text  (slurp (io/file root "resources/public/index.html"))
-                ;; The actual CSP policy is the `content="…"` attribute of
-                ;; the CSP meta tag — NOT the surrounding HTML comment
-                ;; (which legitimately discusses directives like
-                ;; frame-ancestors). Pull just the policy string so the
-                ;; directive assertions below test the live policy, not
-                ;; documentation prose.
-                csp-policy  (some-> (re-find #"http-equiv=\"Content-Security-Policy\"\s+content=\"([^\"]*)\""
-                                             index-text)
-                                    second)
-                readme-text (slurp (io/file root "README.md"))]
-            (is (.contains index-text "Content-Security-Policy")
-                "index.html ships a CSP meta tag")
-            (is (some? csp-policy)
-                "the CSP meta tag's content=\"…\" policy string is parseable")
-            (is (.contains csp-policy "default-src 'self'")
-                "index.html CSP uses default-src 'self'")
-            (is (.contains csp-policy "object-src 'none'")
-                "index.html CSP forbids plugin objects")
-            (is (.contains index-text "data-rf-xray-host")
-                "index.html provides Xray's default true-inline layout host")
-
-            ;; The dev meta CSP MUST permit inline
-            ;; styles: the generated views use inline :style props and the
-            ;; default-on Xray surface injects <style> blocks + inline
-            ;; styles. A strict `style-src 'self'` would emit CSP
-            ;; violations on the first page and block Xray. Assert the
-            ;; meta tag's style-src admits 'unsafe-inline' so the shipped
-            ;; runtime renders clean under its own policy.
-            (is (.contains csp-policy "style-src 'self' 'unsafe-inline'")
-                "index.html meta CSP permits inline styles (generated
-                 views + default-on Xray both rely on them — rf2-l4prz
-                 Finding 2)")
-
-            ;; shadow-cljs DEV builds (:optimizations :none) load every
-            ;; compiled namespace through goog.globalEval. Without
-            ;; 'unsafe-eval' in script-src the documented first run
-            ;; (`npx shadow-cljs watch app` → open localhost:8280) is a
-            ;; BLANK page — every module load dies with a CSP EvalError.
-            ;; The release bundle never evals; the production response
-            ;; header drops it (README). Found by the rf2-b16va G1-G4
-            ;; external boot proof.
-            (is (.contains csp-policy "script-src 'self' 'unsafe-eval'")
-                "index.html meta CSP script-src admits 'unsafe-eval' —
-                 shadow dev builds eval compiled namespaces; without it
-                 the dev page is blank (rf2-b16va)")
-
-            ;; `frame-ancestors` delivered via a <meta> tag is IGNORED by
-            ;; browsers; only a response header honours it. Asserting it on
-            ;; the meta tag would be a false anti-clickjacking pass. The CSP
-            ;; POLICY must NOT carry frame-ancestors; the anti-clickjacking
-            ;; contract lives in the README's response-header snippets,
-            ;; asserted below. (The HTML comment may mention it — we test the
-            ;; policy string, not the file.)
-            (is (not (.contains csp-policy "frame-ancestors"))
-                "index.html meta CSP policy does NOT carry frame-ancestors —
-                 browsers ignore it from <meta>; it belongs in a response
-                 header (rf2-l4prz Finding 3)")
-
-            (is (.contains readme-text "Production hardening")
-                "README documents Production hardening")
-            ;; The anti-clickjacking contract: frame-ancestors lives in
-            ;; the README's response-header snippets, where it works.
-            (is (.contains readme-text "frame-ancestors 'none'")
-                "README's production response-header snippets carry
-                 frame-ancestors 'none' (the real anti-clickjacking
-                 contract — rf2-l4prz Finding 3)")
-            (is (.contains readme-text "X-Content-Type-Options")
-                "README covers nosniff header")
-            (is (.contains readme-text "Referrer-Policy")
-                "README covers Referrer-Policy header")))
-        (finally
-          (delete-recursively tmp))))))
-
-(deftest reagent-default-substrate-test
-  (testing "default (no :substrate arg) produces Reagent variant"
+(deftest reagent-is-the-default-test
+  (testing "no :substrate arg produces the Reagent scaffold"
     (let [tmp (tmp-dir "rf2-template-default-")]
       (try
         (let [root (run-template! tmp "acme/my-app" nil)
               deps (read-edn (io/file root "deps.edn"))]
           (is (contains? (:deps deps) 'day8/re-frame2-reagent)
-              "default substrate is Reagent"))
+              "default substrate is Reagent")
+          (is (= manifest (emitted-files root))
+              "the default emits the same manifest"))
         (finally
           (delete-recursively tmp))))))
 
-(deftest reagent-substrate-test
-  (testing ":substrate :reagent produces the expected tree"
-    (assert-shape! :reagent)))
+;; --- The instruments bite ------------------------------------------------
+;;
+;; The manifest equality, the coordinate scan and the text scan are the
+;; guards against an advanced dependency or file reappearing. Each is
+;; exercised once against an input it must flag.
 
-(deftest uix-substrate-test
-  (testing ":substrate :uix produces the expected tree"
-    (assert-shape! :uix)))
+(deftest manifest-check-bites-test
+  (testing "an extra emitted file breaks the manifest equality"
+    (let [tmp (tmp-dir "rf2-template-witness-file-")]
+      (try
+        (let [root (run-template! tmp "acme/my-app" :reagent)]
+          (is (= manifest (emitted-files root)) "control: clean tree matches")
+          (spit (io/file root "dev/user.clj") "(ns user)")
+          (is (not= manifest (emitted-files root))
+              "a reappearing dev/user.clj is seen by the manifest check"))
+        (finally
+          (delete-recursively tmp))))))
+
+(deftest retired-coord-check-bites-test
+  (testing "a retired coordinate in :deps or in an alias is seen"
+    (let [tmp (tmp-dir "rf2-template-witness-coord-")]
+      (try
+        (let [root (run-template! tmp "acme/my-app" :reagent)
+              deps (read-edn (io/file root "deps.edn"))]
+          (is (empty? (retired-coords-in deps)) "control: clean deps.edn")
+          (is (= '#{day8/re-frame2-xray}
+                 (retired-coords-in (assoc-in deps [:deps 'day8/re-frame2-xray]
+                                              {:mvn/version "0"})))
+              "an Xray coordinate in :deps is seen")
+          (is (= '#{clj-kondo/clj-kondo}
+                 (retired-coords-in (assoc-in deps [:aliases :clj-kondo :extra-deps
+                                                    'clj-kondo/clj-kondo]
+                                              {:mvn/version "0"})))
+              "a clj-kondo coordinate in an alias is seen"))
+        (finally
+          (delete-recursively tmp))))))
+
+(deftest retired-text-check-bites-test
+  (testing "a retired substring in any emitted text file is seen"
+    (let [tmp (tmp-dir "rf2-template-witness-text-")]
+      (try
+        (let [root (run-template! tmp "acme/my-app" :reagent)]
+          (is (empty? (retired-text-in root)) "control: clean tree")
+          (spit (io/file root "shadow-cljs.edn")
+                (str (slurp (io/file root "shadow-cljs.edn"))
+                     "\n;; :devtools {:preloads [day8.re-frame2-xray.preload]}\n"))
+          (is (= [["shadow-cljs.edn" "day8.re-frame2-xray"]] (retired-text-in root))
+              "a reappearing preload mention is seen, and named"))
+        (finally
+          (delete-recursively tmp))))))
 
 ;; --- Name derivation -----------------------------------------------------
 ;;
-;; Every other test in this suite scaffolds `acme/my-app` — a project
-;; name with a single-segment group (no dots) and a single-dash artifact.
-;; That name leaves the two derivation transforms in
-;; `hooks.clj`/`data-fn` (`->file-path` dots→slashes + dashes→underscores;
-;; `->ns-form` the inverse) doing only the trivial single-dash work; the
-;; dot→slash branch and the multi-dash branch are never exercised. A
-;; regression that broke dotted-group nesting (`com.acme` →
-;; `com/acme`) or multi-dash file mangling (`my-cool-app` →
-;; `my_cool_app`) would ship green from the whole rest of the suite.
-;;
-;; This test scaffolds `com.acme/my-cool-app` and pins the full
-;; derivation chain end-to-end: the rename target nesting
-;; (`src/<nested-dirs>/…` = `src/com/acme/my_cool_app/…`), the
-;; substituted `{{namespace}}` flowing into the emitted ns form +
-;; shadow-cljs `:init-fn`, and the group-stripped output directory name.
-;; It is a fresh-emit test (no shared mutable state) and deterministic.
-
-(def ^:private dotted-name "com.acme/my-cool-app")
-(def ^:private dotted-nested "com/acme/my_cool_app")     ;; ->file-path
-(def ^:private dotted-ns "com.acme.my-cool-app")         ;; ->ns-form
+;; `acme/my-app` leaves the two derivation transforms doing only trivial
+;; work; a dotted group + a multi-dash artefact exercises the dot→slash
+;; and dash→underscore branches, the substituted `{{namespace}}`, and the
+;; npm name.
 
 (deftest name-derivation-dotted-group-test
-  (testing "a dotted-group + multi-dash project name derives the right
-            nested file path (->file-path: dots→slashes, dashes→underscores)
-            and the right namespace (->ns-form) across rename targets and
-            substituted content"
+  (testing "com.acme/my-cool-app nests under com/acme/my_cool_app, names the
+            namespace com.acme.my-cool-app, and the npm package my-cool-app"
     (let [tmp (tmp-dir "rf2-template-dotted-name-")]
       (try
-        (let [root (run-template! tmp dotted-name :reagent)]
-          ;; -- (1) project output dir is the group-stripped artifact name --
+        (let [root (run-template! tmp "com.acme/my-cool-app" :reagent)]
           (is (= "my-cool-app" (.getName root))
-              "deps-new names the output dir after the artifact portion
-               (group stripped)")
-
-          ;; -- (2) src/test rename targets nest under the file-path form --
+              "the output dir is the group-stripped artefact")
           (doseq [rel ["src/com/acme/my_cool_app/core.cljs"
                        "src/com/acme/my_cool_app/events.cljs"
                        "src/com/acme/my_cool_app/subs.cljs"
-                       "src/com/acme/my_cool_app/schema.cljs"
                        "src/com/acme/my_cool_app/views.cljs"
                        "test/com/acme/my_cool_app/events_test.cljs"]]
-            (is (file-exists? root rel)
-                (str "expected " rel " — nested-dirs must be "
-                     dotted-nested " (->file-path of " dotted-name ")")))
-
-          ;; -- (3) the substituted {{namespace}} reaches the emitted ns
-          ;;        form + shadow-cljs :init-fn in the dash-preserving
-          ;;        ->ns-form, NOT the underscore file form. --
-          (let [core-text (slurp (io/file root "src/com/acme/my_cool_app/core.cljs"))]
-            (is (.contains core-text (str "(ns " dotted-ns ".core"))
-                "emitted core.cljs ns form uses the ->ns-form (dashes kept)"))
-          (let [scs (read-edn (io/file root "shadow-cljs.edn"))]
-            (is (= (symbol (str dotted-ns ".core") "init")
-                   (get-in scs [:builds :app :modules :main :init-fn]))
-                "shadow-cljs :init-fn substitutes the derived namespace"))
-
-          ;; -- (4) the events_test.cljs requires the user nses by their
-          ;;        derived namespace (regression guard on the rename +
-          ;;        substitution feeding the emitted test scaffold). --
+            (is (file-exists? root rel) (str "expected " rel)))
+          (is (string/includes? (slurp (io/file root "src/com/acme/my_cool_app/core.cljs"))
+                                "(ns com.acme.my-cool-app.core")
+              "the ns form keeps the dashes")
+          (is (= 'com.acme.my-cool-app.core/init
+                 (get-in (read-edn (io/file root "shadow-cljs.edn"))
+                         [:builds :app :modules :main :init-fn]))
+              "shadow-cljs :init-fn substitutes the derived namespace")
           (let [test-text (slurp (io/file root "test/com/acme/my_cool_app/events_test.cljs"))]
-            (is (.contains test-text (str "[" dotted-ns ".events]"))
-                "events_test.cljs requires the user events ns by derived namespace")
-            (is (.contains test-text (str "[" dotted-ns ".subs]"))
-                "events_test.cljs requires the user subs ns by derived namespace")))
+            (is (string/includes? test-text "[com.acme.my-cool-app.events]")
+                "events_test.cljs requires the events ns by derived namespace"))
+          (is (string/includes? (slurp (io/file root "package.json"))
+                                "\"name\": \"my-cool-app\"")
+              "package.json name is the artefact segment"))
         (finally
           (delete-recursively tmp))))))
 
-(deftest name-derivation-dotted-group-with-story-test
-  (testing "the dotted-group name also threads correctly through the
-            with-story scaffold: stories.cljs nests under nested-dirs and
-            references the view by its derived namespaced id"
-    (let [tmp (tmp-dir "rf2-template-dotted-story-")]
+(def ^:private npm-name-re
+  "npm's rules for a new unscoped package name, as the test's own oracle:
+   lowercase, URL-safe, no leading `.` or `_`."
+  #"[a-z0-9~-][a-z0-9._~-]*")
+
+(defn- emitted-npm-name [^java.io.File root]
+  (second (re-find #"\"name\":\s*\"([^\"]*)\"" (slurp (io/file root "package.json")))))
+
+(deftest npm-name-test
+  (testing "the emitted package.json name is npm-valid, derived from the
+            artefact segment, for qualified, dotted, bare and mixed-case names"
+    (doseq [[project-name expected] [["acme/my-app"          "my-app"]
+                                     ["com.acme/my-cool-app" "my-cool-app"]
+                                     ["my-app"               "my-app"]
+                                     ["Acme/MyApp"           "myapp"]]]
+      (let [tmp (tmp-dir "rf2-template-npm-name-")]
+        (try
+          (let [root (run-template! tmp project-name :reagent)
+                nm   (emitted-npm-name root)]
+            (is (= expected nm) (str project-name " → " expected))
+            (is (re-matches npm-name-re nm) (str nm " is npm-valid"))
+            (is (not= project-name nm) "the Clojure name is never copied verbatim"))
+          (finally
+            (delete-recursively tmp))))))
+  (testing "the qualified Clojure name copied verbatim is what the rule rejects"
+    (is (nil? (re-matches npm-name-re "acme/my-app")))))
+
+(deftest invalid-npm-name-rejected-test
+  (testing "an artefact segment npm cannot take fails closed before any file lands"
+    (let [tmp (tmp-dir "rf2-template-npm-name-bad-")]
       (try
-        (let [root (run-template! tmp dotted-name :reagent true)]
-          (is (file-exists? root "src/com/acme/my_cool_app/stories.cljs")
-              "stories.cljs nests under the derived nested-dirs path")
-          (let [stories-text (slurp (io/file root "src/com/acme/my_cool_app/stories.cljs"))]
-            (is (.contains stories-text (str ":" dotted-ns ".views/counter-app"))
-                "stories.cljs references the view by the derived namespaced id
-                 (the {{namespace}} substitution lands inside the keyword)")))
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                              #":rf\.error/template-npm-name-invalid"
+                              (run-template! tmp "acme/_private" :reagent))
+            "a leading underscore is not an npm package name")
+        (assert-no-scaffold-emitted! tmp)
         (finally
           (delete-recursively tmp))))))
+
+;; --- The argument gate ---------------------------------------------------
 
 (deftest invalid-substrate-rejected-test
-  (testing "unknown :substrate value throws with a clear message"
+  (testing "a :substrate outside the valid set throws, naming the set"
     (let [tmp (tmp-dir "rf2-template-bad-")]
       (try
         (is (thrown-with-msg? clojure.lang.ExceptionInfo
                               #":rf\.error/template-substrate-must-be-one-of"
-                              (run-template! tmp "acme/my-app" :svelte))
-            "unknown substrate is rejected")
-        ;; The retired :ui variant (rf2-qmvep) takes the SAME path as any
-        ;; other unknown keyword — no shim, no alias, no deprecation
-        ;; message. It emitted a day8/re-frame2-ui coordinate that will
-        ;; never publish, so the honest answer is that the substrate does
-        ;; not exist.
+                              (run-template! tmp "acme/my-app" :svelte)))
+        ;; The retired :ui and :helix values take the same path as any other
+        ;; unknown keyword — no shim, no alias, no deprecation message.
         (is (thrown-with-msg? clojure.lang.ExceptionInfo
                               #":rf\.error/template-substrate-must-be-one-of"
-                              (run-template! tmp "acme/my-app" :ui))
-            "the retired :ui substrate is rejected like any unknown value")
+                              (run-template! tmp "acme/my-app" :ui)))
+        (assert-no-scaffold-emitted! tmp)
         (finally
           (delete-recursively tmp))))))
 
 (deftest non-keyword-substrate-rejected-test
-  (testing "non-keyword :substrate value (string, symbol, number, …)
-            is rejected with a clear message (rf2-h0imw: keyword-only
-            coercion replaces the earlier forgiving-input posture)."
+  (testing "a non-keyword :substrate (string, symbol, number) is rejected, not coerced"
     (let [tmp (tmp-dir "rf2-template-non-kw-")]
       (try
-        ;; String form — rejected so registration errors surface
-        ;; immediately rather than being coerced silently to :reagent.
-        (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                              #":rf\.error/template-substrate-must-be-keyword"
-                              (run-template! tmp "acme/my-app" "reagent"))
-            "string substrate is rejected")
-        ;; Symbol form — same.
-        (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                              #":rf\.error/template-substrate-must-be-keyword"
-                              (run-template! tmp "acme/my-app" 'reagent))
-            "symbol substrate is rejected")
-        ;; Arbitrary other type — same.
-        (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                              #":rf\.error/template-substrate-must-be-keyword"
-                              (run-template! tmp "acme/my-app" 42))
-            "number substrate is rejected")
+        (doseq [raw ["reagent" 'reagent 42]]
+          (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                                #":rf\.error/template-substrate-must-be-keyword"
+                                (run-template! tmp "acme/my-app" raw))
+              (str (pr-str raw) " is rejected")))
+        (assert-no-scaffold-emitted! tmp)
         (finally
           (delete-recursively tmp))))))
 
-;; --- three-value safety of the substrate idiom (rf2-48rk3) ---------------
-;;
-;; The template shipped two substrates, and its substrate-conditional
-;; logic was spelled two different ways that AGREE only at cardinality 2:
-;; `:xray-npm-deps` read `(= substrate :reagent)` while every sibling
-;; `{{xray-*}}` value read `(= substrate :uix)`. Adding any third
-;; substrate made them diverge — the emitted project wired the Xray
-;; preload, the `[data-rf-xray-host]` slot and a README promising the
-;; panel, while its package.json carried none of Xray's npm deps, so its
-;; first `shadow-cljs watch app` died on a missing JS dependency.
-;;
-;; Capabilities are now DECLARED per substrate and read through one
-;; accessor. These tests are what keeps that true: they inject a
-;; hypothetical third substrate — the template ships no third variant
-;; today, and deliberately so — and assert the emitted values stay
-;; coherent, plus that an undeclared capability fails closed rather than
-;; reading as false.
-
-(def ^:private hooks-registry
-  (ns-resolve 'day8.re-frame2-template.hooks 'substrate-registry))
-
-(def ^:private hooks-valid
-  (ns-resolve 'day8.re-frame2-template.hooks 'valid-substrates))
-
-(def ^:private capability-keys
-  @(ns-resolve 'day8.re-frame2-template.hooks 'substrate-capability-keys))
-
-(defn- with-third-substrate
-  "Run `f` with `entry` registered as a third substrate `:third`."
-  [entry f]
-  (with-redefs-fn {hooks-registry (assoc @hooks-registry :third entry)
-                   hooks-valid    (conj @hooks-valid :third)}
-    f))
-
-(defn- data-for
-  "The `data-fn` substitution map for `substrate`, with the extra args."
-  [substrate & {:as extra}]
-  (hooks/data-fn (merge {:name "acme/my-app" :top "acme" :main "my-app"
-                         :substrate substrate}
-                        extra)))
-
-(deftest every-substrate-declares-every-capability-test
-  (testing "each substrate-registry entry declares the full capability
-            key set — a missing key would read as false and silently
-            emit a scaffold whose wiring and dependencies disagree"
-    (doseq [[substrate entry] @hooks-registry]
-      (doseq [k capability-keys]
-        (is (contains? entry k)
-            (str substrate " must declare " k
-                 " (see substrate-registry's docstring)"))
-        (is (boolean? (get entry k))
-            (str substrate "'s " k " must be a literal boolean"))))))
-
-(deftest xray-substitution-keys-are-coherent-per-substrate-test
-  (testing "the structural Xray substitution values are all-present or
-            all-absent together, for every substrate INCLUDING a
-            hypothetical third — this is the exact invariant the two
-            spellings broke (preload wired, npm deps missing)"
-    (let [structural [:xray-npm-deps :xray-preload
-                      :xray-host-aside :xray-host-css]
-          check      (fn [substrate expected-xray?]
-                       (let [d (data-for substrate)]
-                         (doseq [k structural]
-                           (is (= expected-xray? (boolean (seq (get d k))))
-                               (str substrate "'s " k
-                                    " must follow its declared :xray? ("
-                                    expected-xray? ")")))
-                         ;; The README section heading is the user-visible
-                         ;; half of the same promise.
-                         (is (= expected-xray?
-                                (boolean (re-find #"## In-app devtools \(Xray\)"
-                                                  (str (:xray-readme-devtools d)))))
-                             (str substrate
-                                  "'s README must promise the Xray panel only "
-                                  "when the substrate wires it"))))]
-      ;; The two shipped substrates.
-      (check :reagent true)
-      (check :uix false)
-      ;; A hypothetical third, both ways round. Neither may produce the
-      ;; mixed state that motivated rf2-48rk3.
-      (with-third-substrate {:label "Third" :badge-url "https://example.invalid/b.svg"
-                             :xray? false :story? false :ssr? false}
-        #(check :third false))
-      (with-third-substrate {:label "Third" :badge-url "https://example.invalid/b.svg"
-                             :xray? true :story? false :ssr? false}
-        #(check :third true)))))
-
-(deftest undeclared-capability-fails-closed-test
-  (testing "a substrate registered without declaring a capability throws
-            naming the omission, rather than reading the missing key as
-            false and emitting a half-wired scaffold"
-    (with-third-substrate {:label "Third" :badge-url "https://example.invalid/b.svg"}
-      (fn []
-        (is (thrown-with-msg?
-              clojure.lang.ExceptionInfo
-              #":rf\.error/template-substrate-capability-undeclared"
-              (data-for :third))
-            "an undeclared capability is a registration error")
-        (let [data (try (data-for :third)
-                        (catch clojure.lang.ExceptionInfo e (ex-data e)))]
-          (is (= :third (:substrate data))
-              "ex-data names the offending substrate")
-          (is (contains? capability-keys (:capability data))
-              "ex-data names which capability was undeclared")
-          (is (= capability-keys (:required data))
-              "ex-data carries the full required key set"))))))
-
-(deftest feature-refusal-messages-name-the-supported-set-test
-  (testing "the Story / SSR refusals name the substrates that DO support
-            the feature rather than hardcoding one substrate's name — the
-            old `(not= substrate :reagent)` guards told every refused
-            caller that 'UIx variants follow', which is wrong text for
-            any substrate that is not UIx"
-    (with-third-substrate {:label "Third" :badge-url "https://example.invalid/b.svg"
-                           :xray? false :story? false :ssr? false}
-      (fn []
-        (doseq [[flag id] [[:include-story?
-                            #":rf\.error/template-include-story-reagent-only"]
-                           [:include-ssr?
-                            #":rf\.error/template-include-ssr-reagent-only"]]]
-          (is (thrown-with-msg? clojure.lang.ExceptionInfo id
-                                (data-for :third flag true))
-              (str flag " is refused on a substrate that does not declare it"))
-          (let [data   (try (data-for :third flag true)
-                            (catch clojure.lang.ExceptionInfo e (ex-data e)))
-                reason (:reason data)]
-            (is (= #{:reagent} (:supported data))
-                (str flag "'s ex-data names the currently supporting set"))
-            (is (not (string/includes? reason "UIx"))
-                (str flag "'s refusal must not name UIx when refusing a "
-                     "substrate that is not UIx — got: " reason))
-            (is (string/includes? reason ":third")
-                (str flag "'s refusal names the substrate actually chosen"))))))))
-
-;; --- :include-story? flag (003-DepsNew-Rebuild-Plan.md §2.4) -------------
-
-(deftest default-path-emits-no-story-files-test
-  (testing "default path (no :include-story?) does not emit stories.cljs
-            and does not pull in the day8/re-frame2-story coord"
-    (let [tmp (tmp-dir "rf2-template-no-story-")]
-      (try
-        (let [root (run-template! tmp "acme/my-app" :reagent)]
-          (is (not (file-exists? root "src/acme/my_app/stories.cljs"))
-              "stories.cljs is NOT emitted on the default path")
-          (let [deps    (read-edn (io/file root "deps.edn"))
-                pkg-txt (slurp (io/file root "package.json"))]
-            (is (not (contains? (:deps deps) 'day8/re-frame2-story))
-                "deps.edn does NOT reference day8/re-frame2-story on default path")
-            (is (not (.contains pkg-txt "\"story\":"))
-                "package.json does NOT carry a `story` npm script on default path"))
-          ;; The default-path core.cljs should still be the simple one —
-          ;; no Story require, no hash-routing surface.
-          (let [core-text (slurp (io/file root "src/acme/my_app/core.cljs"))]
-            (is (not (.contains core-text "re-frame.story"))
-                "default-path core.cljs does NOT require re-frame.story")
-            (is (not (.contains core-text "#/stories"))
-                "default-path core.cljs has no hash-routing scaffold")))
-        (finally
-          (delete-recursively tmp))))))
-
-(deftest explicit-include-story-false-equals-default-test
-  (testing "passing :include-story? false EXPLICITLY (not omitted) takes
-            the same no-story path as the default — exercises the
-            `false`-coercion branch of coerce-include-story? + the
-            `(some? include-story?)` arg-passthrough in run-template!,
-            distinct from the nil/omitted path the sibling test covers"
-    (let [tmp (tmp-dir "rf2-template-story-false-")]
-      (try
-        (let [root (run-template! tmp "acme/my-app" :reagent false)]
-          (is (not (file-exists? root "src/acme/my_app/stories.cljs"))
-              "stories.cljs is NOT emitted when :include-story? is explicitly false")
-          (let [deps      (read-edn (io/file root "deps.edn"))
-                core-text (slurp (io/file root "src/acme/my_app/core.cljs"))]
-            (is (not (contains? (:deps deps) 'day8/re-frame2-story))
-                "deps.edn does NOT reference the story coord on explicit false")
-            (is (not (.contains core-text "re-frame.story"))
-                "core.cljs is the default (no-story) variant on explicit false")))
-        (finally
-          (delete-recursively tmp))))))
-
-(deftest include-story-true-reagent-test
-  (testing ":include-story? true on Reagent emits stories.cljs +
-            the with-stories core variant, and wires the story coord"
-    (let [tmp (tmp-dir "rf2-template-with-story-")]
-      (try
-        (let [root (run-template! tmp "acme/my-app" :reagent true)]
-          ;; -- The Story scaffold lands --
-          (is (file-exists? root "src/acme/my_app/stories.cljs")
-              "stories.cljs is emitted under :include-story? true")
-          ;; -- Story coord + npm script are wired --
-          (let [deps    (read-edn (io/file root "deps.edn"))
-                pkg-txt (slurp (io/file root "package.json"))]
-            (is (contains? (:deps deps) 'day8/re-frame2-story)
-                "deps.edn references day8/re-frame2-story")
-            ;; Coord SHAPE owned by version_lockstep_test.clj's
-            ;; tools-coord guard — Story is a TOOL and ships on
-            ;; `story-v*`, which no framework `v*` tag cuts, so the
-            ;; emitted coord is a git coord (rf2-57bjg).
-            (is (some? (get-in deps [:deps 'day8/re-frame2-story :git/sha]))
-                "story coord carries a :git/sha pin")
-            ;; The resolution pin the two git coords need: tools.deps
-            ;; gives each git coordinate its own monorepo checkout, so
-            ;; Xray's and Story's shared `:local/root` machines dep
-            ;; otherwise arrives as two paths for one library and the
-            ;; classpath fails to build (rf2-57bjg).
-            (is (some? (get-in deps [:deps 'day8/re-frame2-machines :mvn/version]))
-                "with-story deps.edn pins day8/re-frame2-machines, the
-                 library Xray and Story both reach through their own
-                 monorepo checkouts")
-            ;; The with-Story template declares no Story-specific npm
-            ;; dependency — there is no vendored qrcode-generator dep.
-            (is (not (.contains pkg-txt "\"qrcode-generator\""))
-                "package.json does NOT declare qrcode-generator (Share
-                 popover + QR encoder retired in rf2-ymnfx Issue B)"))
-          ;; -- core.cljs is the hash-routing with-stories variant --
-          (let [core-text (slurp (io/file root "src/acme/my_app/core.cljs"))]
-            (is (.contains core-text "re-frame.story")
-                "with-stories core.cljs requires re-frame.story")
-            (is (.contains core-text "mount-shell!")
-                "with-stories core.cljs mounts the Story shell")
-            (is (.contains core-text "#/stories")
-                "with-stories core.cljs routes #/stories to the shell")
-            (is (.contains core-text "acme.my-app.stories")
-                "with-stories core.cljs requires the stories ns so its
-                 reg-* calls fire at boot")
-            ;; `init` runs on every hot-reload, and
-            ;; the hashchange listener's closure identity changes per
-            ;; rebuild. Without a defonce-held listener + removeEventListener
-            ;; before re-adding, reloads accumulate stale listeners (each
-            ;; route change then fires the mount switch N times: repeated
-            ;; React root teardown, flicker, a listener leak). Assert the
-            ;; hot-reload-safe wiring is present.
-            (is (.contains core-text "defonce")
-                "with-stories core.cljs holds hot-reload state in a defonce
-                 (the hashchange listener must survive reloads — rf2-l4prz
-                 Finding 4)")
-            (is (.contains core-text "removeEventListener")
-                "with-stories core.cljs removes the previously-installed
-                 hashchange listener before re-adding on hot-reload, so
-                 reloads don't accumulate stale listeners (rf2-l4prz
-                 Finding 4)"))
-          ;; -- stories.cljs uses the four shipped reg-* macros and
-          ;;    references the template's existing event/sub/view ids --
-          (let [stories-text (slurp (io/file root "src/acme/my_app/stories.cljs"))]
-            (is (.contains stories-text "story/reg-story")
-                "stories.cljs uses reg-story")
-            (is (.contains stories-text "story/reg-variant")
-                "stories.cljs uses reg-variant")
-            (is (.contains stories-text "story/reg-tag")
-                "stories.cljs uses reg-tag")
-            (is (.contains stories-text "story/reg-workspace")
-                "stories.cljs uses reg-workspace")
-            (is (.contains stories-text ":counter/initialise")
-                "stories.cljs references the template's :counter/initialise event")
-            (is (.contains stories-text ":counter/increment")
-                "stories.cljs references the template's :counter/increment event")
-            (is (.contains stories-text ":counter/value")
-                "stories.cljs's :rf.assert/path-equals targets the
-                 template's :counter/value app-db slot")
-            (is (.contains stories-text ":acme.my-app.views/counter-app")
-                "stories.cljs references the template's view by namespaced
-                 id (Story renders by id, not by symbol)")))
-        (finally
-          (delete-recursively tmp))))))
-
-;; --- with-Story release elision: config ⇆ docs agreement -----------------
-;;
-;; The with-Story core docstring + the generated README must
-;; NOT claim that `npx shadow-cljs release app` elides Story
-;; automatically / for free. It does NOT — `re-frame.story.config/enabled?`
-;; defaults true and the emitted shadow-cljs.edn sets no `:release`
-;; closure-define, so a plain release SHIPS the Story shell + `#/stories`
-;; route + every registration. The docs and the config must AGREE that
-;; elision is OPT-IN, and the docs must give the exact closure-define a
-;; user adds to elide.
-;;
-;; This test pins that agreement three ways:
-;;   (a) the emitted shadow-cljs.edn does NOT set the Story closure-define
-;;       (matches the "opt-in" story — if a future edit DID add it, the
-;;       docs would need to flip to "automatic" and this test reminds us);
-;;   (b) the with-Story core docstring + README both carry the exact
-;;       opt-in closure-define string AND flag it as opt-in;
-;;   (c) neither doc carries a false-automatic claim
-;;       ("inherits that elision automatically" / "costs nothing in
-;;       production") that would promise free release elision.
-
-(deftest with-story-release-elision-docs-config-agree-test
-  (testing "with-Story scaffold: the release-elision docs (core docstring
-            + README) agree with the emitted shadow-cljs.edn — elision is
-            documented as OPT-IN with the exact closure-define, and the
-            config does not silently set it (rf2-l4prz Finding 1)"
-    (let [tmp (tmp-dir "rf2-template-story-elision-")]
-      (try
-        (let [root      (run-template! tmp "acme/my-app" :reagent true)
-              core-text (slurp (io/file root "src/acme/my_app/core.cljs"))
-              readme    (slurp (io/file root "README.md"))
-              scs       (read-edn (io/file root "shadow-cljs.edn"))
-              ;; The exact closure-define a user adds to elide Story.
-              define-sym 're-frame.story.config/enabled?]
-
-          ;; (a) The emitted shadow-cljs.edn must NOT set the Story
-          ;;     closure-define anywhere — that is what makes elision
-          ;;     opt-in. Walk the whole build map for the define symbol so
-          ;;     a `:release`/`:dev`/`:compiler-options` placement is all
-          ;;     caught.
-          (let [scs-str (pr-str scs)]
-            (is (not (.contains scs-str (str define-sym)))
-                (str "emitted shadow-cljs.edn must NOT set "
-                     define-sym " — Story release elision is opt-in (the "
-                     "docs say so). If a future change DOES set it by "
-                     "default, the docs must flip to 'automatic' and this "
-                     "assertion + the doc text must be updated together "
-                     "(rf2-l4prz Finding 1).")))
-
-          ;; (b) Both docs carry the exact opt-in closure-define AND mark
-          ;;     it opt-in. `enabled? false` is the literal token a user
-          ;;     copies; "opt-in" / "OPT-IN" marks it as not automatic.
-          (doseq [[label text] [["with-Story core.cljs" core-text]
-                                ["README" readme]]]
-            (is (.contains text "re-frame.story.config/enabled? false")
-                (str label " gives the exact closure-define a user adds "
-                     "to elide Story from release (rf2-l4prz Finding 1)"))
-            (is (.contains (clojure.string/lower-case text) "opt-in")
-                (str label " marks Story release elision as OPT-IN "
-                     "(not automatic) (rf2-l4prz Finding 1)")))
-
-          ;; (c) The false-automatic claims must be absent from both
-          ;;     docs — they would assert free/automatic release elision.
-          ;;     `inherits that elision automatically` (whitespace-folded)
-          ;;     and `costs nothing in production` are the two phrases
-          ;;     that would promise a free/automatic release elision.
-          (doseq [[label text] [["with-Story core.cljs" core-text]
-                                ["README" readme]]]
-            (let [folded (clojure.string/replace text #"\s+" " ")]
-              (is (not (.contains folded "inherits that elision automatically"))
-                  (str label " no longer claims the release build inherits "
-                       "elision automatically (rf2-l4prz Finding 1)")))
-            (is (not (.contains text "costs nothing in production"))
-                (str label " no longer claims Story 'costs nothing in "
-                     "production' (it ships unless you opt in) "
-                     "(rf2-l4prz Finding 1)"))))
-        (finally
-          (delete-recursively tmp))))))
-
-;; --- package.json one-source byte-exact contract -------------------------
-;;
-;; The template emits package.json from a SINGLE `_shared/package.json`
-;; source whose `description` parenthetical rides the `{{story-tag}}`
-;; subst var (`""` default / `", with Story playground"` under
-;; :include-story?). This test is the generate-both-and-diff proof: both
-;; the default and the with-Story emission must be BYTE-EXACT against the
-;; expected literals below. The expected strings are the full resolved
-;; output for the `acme/my-app` Reagent emission (the template's three
-;; subst vars resolved), differing only in the `description`
-;; parenthetical. If a future edit to the shared package.json or the
-;; story-tag derivation drifts the output, this fires.
-
-(def ^:private expected-package-json-default
-  "Expected `_shared/package.json` emission for `acme/my-app` on the
-  Reagent default path (`:include-story? false`, subst vars resolved —
-  including the `{{xray-npm-deps}}` fragment carrying the Xray
-  machine-canvas npm deps, rf2-b16va)."
-  (str "{\n"
-       "  \"name\": \"acme/my-app\",\n"
-       "  \"version\": \"0.1.0\",\n"
-       "  \"private\": true,\n"
-       "  \"description\": \"re-frame2 application (Reagent substrate).\",\n"
-       "  \"scripts\": {\n"
-       "    \"watch\":   \"shadow-cljs watch app\",\n"
-       "    \"release\": \"shadow-cljs release app\",\n"
-       "    \"test\":    \"shadow-cljs compile test && node out/node-test.js\"\n"
-       "  },\n"
-       "  \"devDependencies\": {\n"
-       "    \"shadow-cljs\": \"3.4.10\",\n"
-       "    \"@xyflow/react\": \"12.4.2\",\n"
-       "    \"elkjs\": \"^0.11.1\"\n"
-       "  },\n"
-       "  \"dependencies\": {\n"
-       "    \"react\":     \"19.2.0\",\n"
-       "    \"react-dom\": \"19.2.0\"\n"
-       "  }\n"
-       "}\n"))
-
-(def ^:private expected-package-json-with-story
-  "Expected `_shared/package.json` emission for `acme/my-app` on the
-  Reagent `:include-story? true` path — identical to the default save
-  for the `{{story-tag}}`-driven `description` parenthetical."
-  (str "{\n"
-       "  \"name\": \"acme/my-app\",\n"
-       "  \"version\": \"0.1.0\",\n"
-       "  \"private\": true,\n"
-       "  \"description\": \"re-frame2 application (Reagent substrate, with Story playground).\",\n"
-       "  \"scripts\": {\n"
-       "    \"watch\":   \"shadow-cljs watch app\",\n"
-       "    \"release\": \"shadow-cljs release app\",\n"
-       "    \"test\":    \"shadow-cljs compile test && node out/node-test.js\"\n"
-       "  },\n"
-       "  \"devDependencies\": {\n"
-       "    \"shadow-cljs\": \"3.4.10\",\n"
-       "    \"@xyflow/react\": \"12.4.2\",\n"
-       "    \"elkjs\": \"^0.11.1\"\n"
-       "  },\n"
-       "  \"dependencies\": {\n"
-       "    \"react\":     \"19.2.0\",\n"
-       "    \"react-dom\": \"19.2.0\"\n"
-       "  }\n"
-       "}\n"))
-
-(defn- normalise-eol
-  "Strip CR so the byte-identical comparison is line-ending agnostic.
-  The source `package.json` may be checked out with CRLF on Windows
-  (git `autocrlf`); the expected literals below are written with LF.
-  Normalising both sides keeps the content-identity assertion portable
-  across the Windows dev box and the Linux CI runner."
-  [s]
-  (string/replace s "\r" ""))
-
-(deftest package-json-story-tag-byte-identical-test
-  (testing "the {{story-tag}}-driven single package.json emits the
-            expected byte-exact content on both the default and
-            :include-story? true paths (rf2-sqqxj one-source proof —
-            EOL-normalised so it is portable Windows↔CI)"
-    (let [tmp (tmp-dir "rf2-template-pkg-story-tag-")]
-      (try
-        (let [default-root (run-template! tmp "acme/my-app" :reagent false)
-              default-txt  (slurp (io/file default-root "package.json"))]
-          (is (= (normalise-eol expected-package-json-default)
-                 (normalise-eol default-txt))
-              "default-path package.json content matches the expected
-               single-source _shared/package.json emission"))
-        (finally
-          (delete-recursively tmp)))
-      ;; Fresh tmp for the with-Story path so the two emissions don't
-      ;; collide on the same output dir.
-      (let [tmp2 (tmp-dir "rf2-template-pkg-story-tag-on-")]
+(deftest retired-flags-are-unknown-test
+  (testing "the retired :include-story? / :include-ssr? / :css keys fail as
+            UNKNOWN — no alias, no deprecation warning, no compatibility path"
+    (doseq [[flag value] [[:include-story? true]
+                          [:include-story? false]
+                          [:include-ssr?   true]
+                          [:css            :tailwind]]]
+      (let [tmp (tmp-dir "rf2-template-retired-flag-")]
         (try
-          (let [story-root (run-template! tmp2 "acme/my-app" :reagent true)
-                story-txt  (slurp (io/file story-root "package.json"))]
-            (is (= (normalise-eol expected-package-json-with-story)
-                   (normalise-eol story-txt))
-                "with-Story package.json content matches the expected
-                 single-source _shared/package.json emission (story-tag on)"))
+          (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                                #":rf\.error/template-unknown-flag"
+                                (run-template-opts! tmp "acme/my-app" {flag value}))
+              (str flag " is unknown"))
+          (let [data (try (run-template-opts! tmp "acme/my-app" {flag value})
+                          (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+            (is (= [flag] (:unknown data))
+                (str "ex-data names " flag " as the unknown key"))
+            (is (= #{:substrate} (:accepted data))
+                "ex-data names :substrate as the only accepted key"))
+          (assert-no-scaffold-emitted! tmp)
           (finally
-            (delete-recursively tmp2)))))))
+            (delete-recursively tmp)))))))
 
-(deftest include-story-non-reagent-rejected-test
-  (testing ":include-story? true is rejected for non-Reagent substrates
-            in v1 — UIx follows once Story's adapter coverage
-            matches Reagent's"
-    (let [tmp (tmp-dir "rf2-template-story-uix-")]
-      (try
-        (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                              #":rf\.error/template-include-story-reagent-only"
-                              (run-template! tmp "acme/my-app" :uix true))
-            ":include-story? + :uix is rejected at the entry-fn")
-        (finally
-          (delete-recursively tmp))))))
-
-(deftest invalid-include-story-rejected-test
-  (testing "non-boolean :include-story? value throws with a clear message"
-    (let [tmp (tmp-dir "rf2-template-story-bad-")]
-      (try
-        (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                              #":rf\.error/template-bad-include-story-flag"
-                              (run-template! tmp "acme/my-app" :reagent "yes"))
-            "non-boolean :include-story? is rejected")
-        (finally
-          (delete-recursively tmp))))))
-
-;; --- :include-ssr? flag (004-SSR-Validation-Report §3) -------------------
-;;
-;; Both gating conditions cleared (implementation/ssr + ssr-ring carry the
-;; full Spec 011 reference impl; rf2-0m5ea closed), so `:include-ssr?` is a
-;; LIVE Reagent-only flag mirroring `:include-story?`'s shape. The report's
-;; §3.3 test plan: a positive Reagent shape check + the three negative
-;; guards (UIx / story-mutual-exclusion).
-
-(deftest default-path-emits-no-ssr-files-test
-  (testing "default path (no :include-ssr?) does not emit the SSR sources
-            and does not pull in the ssr / ssr-ring / jetty coords"
-    (let [tmp (tmp-dir "rf2-template-no-ssr-")]
-      (try
-        (let [root (run-template! tmp "acme/my-app" :reagent)]
-          (is (not (file-exists? root "src/acme/my_app/core.cljc"))
-              "core.cljc is NOT emitted on the default path (core.cljs is)")
-          (is (file-exists? root "src/acme/my_app/core.cljs")
-              "the default path emits the pure-CLJS core.cljs")
-          (is (not (file-exists? root "src/acme/my_app/server.clj"))
-              "server.clj is NOT emitted on the default path")
-          (is (not (file-exists? root "test/acme/my_app/ssr_test.clj"))
-              "ssr_test.clj is NOT emitted on the default path")
-          (let [deps (read-edn (io/file root "deps.edn"))]
-            (is (not (contains? (:deps deps) 'day8/re-frame2-ssr))
-                "deps.edn does NOT reference day8/re-frame2-ssr on default path")
-            (is (not (contains? (:deps deps) 'day8/re-frame2-ssr-ring))
-                "deps.edn does NOT reference day8/re-frame2-ssr-ring on default path")
-            (is (not (contains? (:aliases deps) :server))
-                "deps.edn has no :server alias on the default path")))
-        (finally
-          (delete-recursively tmp))))))
-
-(deftest include-ssr-true-reagent-test
-  (testing ":include-ssr? true on Reagent emits core.cljc + server.clj +
-            ssr_test.clj, wires the ssr / ssr-ring / jetty coords + the
-            :server alias, and omits the per-slice CLJS sources"
-    (let [tmp (tmp-dir "rf2-template-with-ssr-")]
-      (try
-        (let [root (run-template-opts! tmp "acme/my-app"
-                                       {:substrate :reagent :include-ssr? true})]
-          ;; -- SSR sources land; the .cljs core does NOT --
-          (is (file-exists? root "src/acme/my_app/core.cljc")
-              "core.cljc (shared JVM + CLJS) is emitted under :include-ssr? true")
-          (is (not (file-exists? root "src/acme/my_app/core.cljs"))
-              "the pure-CLJS core.cljs is NOT emitted on the SSR path
-               (core.cljc replaces it)")
-          (is (file-exists? root "src/acme/my_app/server.clj")
-              "server.clj (the Ring host) is emitted under :include-ssr? true")
-          (is (file-exists? root "test/acme/my_app/ssr_test.clj")
-              "the headless JVM ssr_test.clj is emitted under :include-ssr? true")
-
-          ;; -- the per-slice CLJS sources are folded into core.cljc, so
-          ;;    they are NOT emitted separately --
-          (doseq [omitted ["src/acme/my_app/events.cljs"
-                           "src/acme/my_app/subs.cljs"
-                           "src/acme/my_app/schema.cljs"
-                           "src/acme/my_app/views.cljs"
-                           "test/acme/my_app/events_test.cljs"]]
-            (is (not (file-exists? root omitted))
-                (str omitted " is NOT emitted on the SSR path — the SSR "
-                     "core.cljc folds in its own events / subs / schema / view")))
-
-          ;; -- deps.edn structure: SSR coords + :server alias --
-          (let [deps (read-edn (io/file root "deps.edn"))]
-            (is (map? deps) "SSR deps.edn parses as a map")
-            (is (contains? (:deps deps) 'day8/re-frame2)
-                "SSR deps.edn references day8/re-frame2 core")
-            (is (contains? (:deps deps) 'day8/re-frame2-reagent)
-                "SSR deps.edn references the Reagent adapter")
-            (is (contains? (:deps deps) 'day8/re-frame2-ssr)
-                "SSR deps.edn references day8/re-frame2-ssr")
-            (is (contains? (:deps deps) 'day8/re-frame2-ssr-ring)
-                "SSR deps.edn references day8/re-frame2-ssr-ring")
-            (is (contains? (:deps deps) 'ring/ring-jetty-adapter)
-                "SSR deps.edn references ring/ring-jetty-adapter (the dev/test host)")
-            ;; The three re-frame2 SSR coords ride {{rf2-version}} — same
-            ;; pin as core. Present-check only (the literal is owned by
-            ;; version_lockstep_test.clj).
-            (is (some? (get-in deps [:deps 'day8/re-frame2-ssr :mvn/version]))
-                "ssr coord carries an :mvn/version pin")
-            (is (some? (get-in deps [:deps 'day8/re-frame2-ssr-ring :mvn/version]))
-                "ssr-ring coord carries an :mvn/version pin")
-            ;; -- :server alias wiring --
-            (let [server-alias (get-in deps [:aliases :server])]
-              (is (some? server-alias)
-                  "SSR deps.edn declares a :server alias")
-              (is (= 'acme.my-app.server/-main (:exec-fn server-alias))
-                  ":server alias :exec-fn targets the emitted server ns")
-              (is (map? (:exec-args server-alias))
-                  ":server alias carries :exec-args (port + public-root)")
-              (is (contains? (:exec-args server-alias) :public-root)
-                  ":server :exec-args carries a :public-root the server serves
-                   the bundle + CSS scaffold from (contained under it)")))
-
-          ;; -- :test alias wiring — the headless JVM ssr_test.clj gate --
-          ;; The SSR scaffold ships NO cljs.test suite, so `clojure -M:test`
-          ;; (this alias) is the ONLY automated test — what `npm test` and the
-          ;; generated CI run (rf2-97eebb). Without the alias the emitted
-          ;; ssr_test.clj is orphaned and never executes.
-          (let [test-alias (get-in (read-edn (io/file root "deps.edn"))
-                                   [:aliases :test])]
-            (is (some? test-alias)
-                "SSR deps.edn declares a :test alias (runs ssr_test.clj on the JVM)")
-            (is (= ["test"] (:extra-paths test-alias))
-                ":test alias puts the test/ dir on the classpath")
-            (is (contains? (:extra-deps test-alias)
-                           'io.github.cognitect-labs/test-runner)
-                ":test alias pulls in the cognitect test-runner")
-            (is (= ["-m" "cognitect.test-runner"] (:main-opts test-alias))
-                ":test alias runs `clojure -M:test` via the cognitect test-runner"))
-
-          ;; -- package.json `test` script runs the JVM gate, NOT an empty
-          ;;    CLJS node-test bundle (the SSR scaffold has no cljs.test suite,
-          ;;    so a node-test run would false-green on zero tests) --
-          (let [pkg-text (slurp (io/file root "package.json"))]
-            (is (.contains pkg-text "\"test\":    \"clojure -M:test\"")
-                "SSR package.json `test` npm script runs the JVM `clojure -M:test` gate")
-            (is (not (.contains pkg-text "node out/node-test.js"))
-                "SSR package.json `test` script does NOT run the CLJS node-test
-                 bundle — the SSR path ships no cljs.test suite (rf2-97eebb)"))
-
-          ;; -- core.cljc carries the SSR wiring --
-          (let [core-text (slurp (io/file root "src/acme/my_app/core.cljc"))]
-            (is (.contains core-text "(ns acme.my-app.core")
-                "core.cljc's ns form uses the derived namespace")
-            (is (.contains core-text "re-frame.ssr")
-                "core.cljc requires re-frame.ssr")
-            (is (.contains core-text "ssr/hydrate!")
-                "core.cljc boots the client through ssr/hydrate! (READ/HYDRATE/VERIFY)")
-            (is (.contains core-text ":rf/server-init")
-                "core.cljc carries the :rf/server-init per-request boot event")
-            (is (.contains core-text ":app/root")
-                "core.cljc pins the root view id :app/root the server + client both name")
-            (is (.contains core-text "server-init-events")
-                "core.cljc exposes server-init-events for the Ring host")
-            (is (.contains core-text "register-schema!")
-                "core.cljc exposes register-schema! for per-frame schema attach")
-            (is (.contains core-text ":ssr/register-schema")
-                "core.cljc's server-init-events attaches the whole-app-db schema
-                 via an ambient :initial-events step, so it lands on the SAME
-                 per-request frame ssr-handler constructs, not a
-                 different/default one (rf2-hbobni)"))
-
-          ;; -- server.clj carries the Ring host wiring --
-          (let [server-text (slurp (io/file root "src/acme/my_app/server.clj"))]
-            (is (.contains server-text "(ns acme.my-app.server")
-                "server.clj's ns form uses the derived namespace")
-            (is (.contains server-text "re-frame.ssr.ring")
-                "server.clj requires the re-frame.ssr.ring host adapter")
-            (is (.contains server-text "ssr-handler")
-                "server.clj builds an ssr-handler")
-            (is (.contains server-text "run-jetty")
-                "server.clj boots Jetty")
-            (is (.contains server-text "defn -main")
-                "server.clj exposes -main (the :server alias entry point)")
-            (is (.contains server-text "[acme.my-app.core :as app]")
-                "server.clj requires the app's core ns by derived namespace")
-            ;; -- server.clj owns the ONE live-shell + static-asset contract:
-            ;;    the live shell loads the CSS scaffold + hosts Xray, and the
-            ;;    composite handler serves the stylesheet with normalised
-            ;;    containment (rf2-3fc89f.26) --
-            (is (.contains server-text ":html-shell")
-                "server.clj installs a custom :html-shell that loads the CSS scaffold")
-            (is (.contains server-text "default-html-shell")
-                "the live shell composes from the framework's default-html-shell
-                 (structured helper) rather than string-splicing rendered HTML")
-            (is (.contains server-text "/css/app.css")
-                "the live shell links the emitted /css/app.css stylesheet")
-            (is (.contains server-text "data-rf-xray-host")
-                "the live shell carries the [data-rf-xray-host] Xray host")
-            (is (.contains server-text "text/css")
-                "the composite handler serves the stylesheet with a text/css MIME")
-            (is (or (.contains server-text "getCanonicalFile")
-                    (.contains server-text "getCanonicalPath"))
-                "the static-asset serving normalises paths for containment (no URI traversal)")
-            (is (.contains server-text "public-root")
-                "server.clj serves static assets from a single public root")
-            ;; The Tailwind dev compiler is runtime-guarded by `tailwind?`,
-            ;; which the `{{css-name}}` substitution resolves. On the plain SSR
-            ;; path the guard is `(= \"\" \"tailwind\")` (false), so the
-            ;; compiler string — present in source but dead-guarded — is never
-            ;; emitted. (The Tailwind cell asserts the true-guard counterpart.)
-            (is (.contains server-text "(= \"\" \"tailwind\")")
-                "the plain SSR server's tailwind? guard resolves to false — the
-                 dev compiler is not loaded"))
-
-          ;; -- ssr_test.clj is the headless JVM gate --
-          (let [ssr-test-text (slurp (io/file root "test/acme/my_app/ssr_test.clj"))]
-            (is (.contains ssr-test-text "(ns acme.my-app.ssr-test")
-                "ssr_test.clj's ns form uses the derived namespace")
-            (is (.contains ssr-test-text "render-to-string")
-                "ssr_test.clj renders the root view via render-to-string")
-            (is (.contains ssr-test-text "render-tree-hash")
-                "ssr_test.clj asserts the structural render hash")
-            (is (.contains ssr-test-text "data-rf-render-hash")
-                "ssr_test.clj asserts the render-hash marker on the emitted HTML")
-            (is (.contains ssr-test-text "[acme.my-app.core :as app]")
-                "ssr_test.clj requires the app core ns by derived namespace"))
-
-          ;; -- the emitted README is the SSR variant, NOT the SPA shape
-          ;;    (rf2-6ikgyr) — README_with_ssr.md overwrote the default
-          ;;    root/README.md the bulk-copy laid down --
-          (let [readme-text (slurp (io/file root "README.md"))]
-            ;; SSR-specific dev workflow: the JVM render server + its port +
-            ;; the second-terminal boot step the SPA README never mentions.
-            (is (.contains readme-text "clojure -X:server")
-                "SSR README documents the `clojure -X:server` JVM host boot step")
-            (is (.contains readme-text "127.0.0.1:8030")
-                "SSR README points at the SSR host (127.0.0.1:8030)")
-            ;; SSR-specific emitted files (the SPA README lists the per-slice
-            ;; sources instead).
-            (is (.contains readme-text "core.cljc")
-                "SSR README describes core.cljc (shared server render + client hydration)")
-            (is (.contains readme-text "server.clj")
-                "SSR README describes the Ring host server.clj")
-            (is (.contains readme-text "ssr_test.clj")
-                "SSR README describes the headless JVM ssr_test.clj gate")
-            ;; SSR concepts.
-            (is (re-find #"(?i)hydrat" readme-text)
-                "SSR README explains server render + client hydration")
-            (is (.contains readme-text "reg-error-projector")
-                "SSR README documents the SSR error-projector surface")
-            ;; The gate is JVM ssr_test.clj (`clojure -M:test`), NOT the
-            ;; CLJS-only node runner the SPA README ships.
-            (is (.contains readme-text "clojure -M:test")
-                "SSR README runs the JVM ssr_test.clj with `clojure -M:test`")
-            ;; -- and NOT the SPA-shape content that mis-describes this branch --
-            (is (not (.contains readme-text "8280"))
-                "SSR README does NOT tell the user to open the SPA dev port 8280")
-            (is (not (.contains readme-text "out/node-test.js"))
-                "SSR README does NOT ship the CLJS-only `node out/node-test.js`
-                 command — the SSR gate is JVM ssr_test.clj")
-            (doseq [spa-file ["events.cljs" "subs.cljs" "views.cljs" "schema.cljs"]]
-              (is (not (.contains readme-text spa-file))
-                  (str "SSR README does NOT reference the SPA-shape source "
-                       spa-file " — those slices are folded into core.cljc")))))
-        (finally
-          (delete-recursively tmp))))))
-
-(deftest include-ssr-tailwind-cell-test
-  ;; The {:include-ssr? true :css :tailwind} matrix cell (rf2-3fc89f.26).
-  ;; The plain SSR cell (include-ssr-true-reagent-test) asserts the
-  ;; substrate-invariant live-shell + static-asset contract; this cell adds
-  ;; the Tailwind-specific surface: the emitted server.clj loads the
-  ;; @tailwindcss/browser dev compiler in the LIVE shell (not just the unused
-  ;; static index.html), and the CSS overlay swaps in the Tailwind entry.
-  (testing ":include-ssr? true + :css :tailwind emits an SSR scaffold whose
-            LIVE shell loads the Tailwind compiler + serves the Tailwind CSS"
-    (let [tmp (tmp-dir "rf2-template-ssr-tailwind-")]
-      (try
-        (let [root (run-template-opts! tmp "acme/my-app"
-                                       {:substrate :reagent
-                                        :include-ssr? true
-                                        :css :tailwind})]
-          ;; The SSR sources are emitted (same as the plain SSR cell).
-          (is (file-exists? root "src/acme/my_app/core.cljc")
-              "core.cljc is emitted for the SSR+Tailwind cell")
-          (is (file-exists? root "src/acme/my_app/server.clj")
-              "server.clj is emitted for the SSR+Tailwind cell")
-          (is (file-exists? root "test/acme/my_app/ssr_test.clj")
-              "ssr_test.clj is emitted for the SSR+Tailwind cell")
-
-          ;; The Tailwind overlay swapped in the app.css — which under the
-          ;; compiler-input fix (rf2-j538f7.22) is ordinary native CSS, NOT a
-          ;; Tailwind entry: the compiler-visible source lives inline in the
-          ;; live shell's <style type="text/tailwindcss"> block (asserted on
-          ;; server.clj below), never in the externally-linked app.css.
-          (let [css-text (slurp (io/file root "resources/public/css/app.css"))]
-            (is (not (.contains css-text "@import \"tailwindcss\""))
-                "the emitted app.css is ordinary native CSS — NO bare
-                 @import \"tailwindcss\" in the externally-linked stylesheet")
-            (is (.contains css-text "rf2-xray-host")
-                "the emitted app.css still carries the plain Xray-host layout"))
-
-          ;; server.clj — the LIVE shell loads the Play CDN compiler AND the
-          ;; inline <style type="text/tailwindcss"> source block it compiles,
-          ;; AND links the (plain) CSS, so the actual SSR response (NOT the
-          ;; unused index.html) carries a compiler input that actually
-          ;; compiles. This is the combination the API says composes
-          ;; (spec/API.md).
-          (let [server-text (slurp (io/file root "src/acme/my_app/server.clj"))]
-            (is (.contains server-text "@tailwindcss/browser")
-                "the SSR+Tailwind server.clj loads the @tailwindcss/browser dev
-                 compiler in the live shell (the documented combination works,
-                 not silently fails)")
-            (is (.contains server-text "text/tailwindcss")
-                "the SSR+Tailwind live shell injects the inline
-                 <style type=\"text/tailwindcss\"> source block — the Play CDN
-                 compiler's only input — so @theme/@import actually compile on
-                 the SSR response (not silently dropped)")
-            ;; The tailwind? guard resolves to TRUE here (contrast the plain
-            ;; cell's `(= "" "tailwind")`), so the compiler is actually emitted.
-            (is (.contains server-text "(= \"tailwind\" \"tailwind\")")
-                "the SSR+Tailwind server's tailwind? guard resolves to true —
-                 the dev compiler is live on the SSR response")
-            (is (.contains server-text "/css/app.css")
-                "the SSR+Tailwind live shell links the (plain) CSS entry")
-            (is (.contains server-text ":html-shell")
-                "the SSR+Tailwind server installs the custom CSS-loading shell")
-            (is (.contains server-text "text/css")
-                "the SSR+Tailwind handler serves the stylesheet with a text/css MIME"))
-
-          ;; The emitted README is still the SSR variant.
-          (let [readme-text (slurp (io/file root "README.md"))]
-            (is (.contains readme-text "clojure -X:server")
-                "SSR+Tailwind README documents the JVM host boot step")))
-        (finally
-          (delete-recursively tmp))))))
-
-(deftest include-ssr-non-reagent-rejected-test
-  (testing ":include-ssr? true is rejected for non-Reagent substrates in
-            v1 — UIx SSR follows once the per-substrate adapters
-            demonstrate parity"
-    (let [tmp (tmp-dir "rf2-template-ssr-uix-")]
-      (try
-        (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                              #":rf\.error/template-include-ssr-reagent-only"
-                              (run-template-opts! tmp "acme/my-app"
-                                                  {:substrate :uix :include-ssr? true}))
-            ":include-ssr? + :uix is rejected at the entry-fn")
-        (finally
-          (delete-recursively tmp))))))
-
-(deftest include-ssr-and-story-mutually-exclusive-test
-  (testing ":include-story? true + :include-ssr? true is rejected — the two
-            feature flags are mutually exclusive in v1
-            (004-SSR-Validation-Report §2.1)"
-    (let [tmp (tmp-dir "rf2-template-ssr-story-")]
-      (try
-        (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                              #":rf\.error/ssr-and-story-mutually-exclusive"
-                              (run-template-opts! tmp "acme/my-app"
-                                                  {:substrate     :reagent
-                                                   :include-story? true
-                                                   :include-ssr?   true}))
-            "story + ssr together is rejected at the entry-fn")
-        (finally
-          (delete-recursively tmp))))))
-
-(deftest invalid-include-ssr-rejected-test
-  (testing "non-boolean :include-ssr? value throws with a clear message"
-    (let [tmp (tmp-dir "rf2-template-ssr-bad-")]
-      (try
-        (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                              #":rf\.error/template-bad-include-ssr-flag"
-                              (run-template-opts! tmp "acme/my-app"
-                                                  {:substrate :reagent :include-ssr? "yes"}))
-            "non-boolean :include-ssr? is rejected")
-        (finally
-          (delete-recursively tmp))))))
-
-;; --- argument-key gate ----------------------------------------------------
-;;
-;; The substrate posture fails closed on bad VALUES; these tests pin the
-;; complementary strictness on the KEY set. Reserved-but-unimplemented
-;; flags and likely typos must fail closed rather than fail open into a
-;; misleading vanilla scaffold. Each asserts the emitted dir does NOT
-;; exist after the throw — the gate fires before any file is written.
-
-(defn- assert-no-scaffold-emitted!
-  [^java.nio.file.Path tmp]
-  (is (zero? (count (.listFiles (clojure.java.io/file (.toString tmp)))))
-      "the gate fired before any scaffold was emitted (tmp dir is empty)"))
-
-(deftest css-tailwind-emits-tailwind-scaffold-test
-  (testing ":css :tailwind (rf2-gthro closed; wiring rf2-nxqcov; compiler-input
-            fix rf2-j538f7.22) swaps the plain-CSS scaffold for the Tailwind v4
-            variant — index.html loads the Play CDN compiler AND carries the
-            CSS-first source inline in a <style type=\"text/tailwindcss\">
-            block (the compiler's only input), app.css stays ordinary native
-            CSS, and both keep the Xray-host layout contract"
-    (let [tmp (tmp-dir "rf2-template-css-tailwind-")]
-      (try
-        (let [proj    (run-template-opts! tmp "acme/my-app"
-                                          {:css :tailwind})
-              app-css (slurp (io/file proj "resources/public/css/app.css"))
-              index   (slurp (io/file proj "resources/public/index.html"))]
-          ;; -- COHERENT SHAPE (rf2-j538f7.22): the Play CDN compiler reads
-          ;;    ONLY inline `<style type="text/tailwindcss">` nodes, never an
-          ;;    external <link> stylesheet. So the Tailwind v4 CSS-first source
-          ;;    (`@import "tailwindcss"` + the `@theme` design tokens) MUST live
-          ;;    inline in index.html, and app.css MUST NOT carry a bare Tailwind
-          ;;    `@import` (which would resolve to a bogus /css/tailwindcss
-          ;;    request while @theme is silently dropped). --
-          (is (re-find
-                #"(?s)<style type=\"text/tailwindcss\">.*?@import\s+\"tailwindcss\";.*?@theme\b.*?--color-brand.*?</style>"
-                index)
-              "tailwind index.html routes the CSS-first source (@import +
-               @theme design token) through an inline
-               <style type=\"text/tailwindcss\"> block — the Play CDN
-               compiler's only input")
-          (is (not (re-find #"@import\s+\"tailwindcss\"" app-css))
-              "tailwind app.css is ordinary native CSS — NO bare
-               @import \"tailwindcss\" in the externally-linked stylesheet the
-               Play CDN compiler never reads (a bare import there resolves to a
-               bogus /css/tailwindcss request; @theme would be silently
-               dropped)")
-          (is (not (re-find #"no Tailwind" app-css))
-              "the plain-CSS preamble (\"no Tailwind\") is gone — the
-               Tailwind variant overwrote the default app.css")
-          ;; -- the Xray-host layout contract SURVIVES the swap (the
-          ;;    emission test's assert-xray-host-contract! also pins this;
-          ;;    a lightweight cross-check here keeps the tailwind path
-          ;;    honest in the shape suite too) --
-          (is (re-find #"flex:\s*0\s+0\s+var\(--rf-xray-inline-width,\s*560px\)"
-                       app-css)
-              "tailwind app.css keeps the resizable Xray-host flex-basis")
-          (is (re-find #"\.rf2-xray-host:empty\s*\{[^}]*display:\s*none" app-css)
-              "tailwind app.css keeps the :empty host collapse")
-          ;; -- index.html loads the dev CDN compiler + admits it in the CSP --
-          (is (re-find #"@tailwindcss/browser@4" index)
-              "tailwind index.html loads the @tailwindcss/browser@4 dev CDN")
-          (is (re-find #"script-src[^;]*cdn\.jsdelivr\.net" index)
-              "tailwind index.html CSP script-src admits the jsdelivr CDN")
-          (is (re-find #"script-src[^;]*'unsafe-eval'" index)
-              "tailwind index.html CSP script-src admits 'unsafe-eval'
-               (shadow dev builds eval compiled namespaces — rf2-b16va)")
-          ;; -- the RIGHT-side Xray host DOM order survives the swap --
-          (is (< (.indexOf index "id=\"app\"")
-                 (.indexOf index "data-rf-xray-host"))
-              "tailwind index.html keeps `<main id=\"app\">` before the
-               Xray host aside (right-side host contract)"))
-        (finally
-          (delete-recursively tmp))))))
-
-(deftest css-bad-value-rejected-test
-  (testing "a bogus :css value fails closed with :rf.error/template-bad-css-flag
-            rather than silently emitting the plain-CSS scaffold"
-    (let [tmp (tmp-dir "rf2-template-css-bad-")]
-      (try
-        (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                              #":rf\.error/template-bad-css-flag"
-                              (run-template-opts! tmp "acme/my-app"
-                                                  {:css :tailwnid}))
-            ":css :tailwnid (typo) is rejected as an invalid css value")
-        (assert-no-scaffold-emitted! tmp)
-        (finally
-          (delete-recursively tmp))))))
-
-(deftest misspelled-story-flag-rejected-test
-  (testing "a one-character Story-flag typo (:include-story, dropping the
-            ?) fails closed rather than scaffolding a Story-less app the
-            user believes has Story"
-    (let [tmp (tmp-dir "rf2-template-typo-")]
-      (try
-        (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                              #":rf\.error/template-unknown-flag"
-                              (run-template-opts! tmp "acme/my-app"
-                                                  {:include-story true}))
-            ":include-story (typo for :include-story?) is rejected")
-        (assert-no-scaffold-emitted! tmp)
-        (finally
-          (delete-recursively tmp))))))
-
-(deftest pluralised-story-flag-rejected-test
-  (testing "the :include-stories? plural typo also fails closed"
-    (let [tmp (tmp-dir "rf2-template-typo2-")]
-      (try
-        (is (thrown-with-msg? clojure.lang.ExceptionInfo
-                              #":rf\.error/template-unknown-flag"
-                              (run-template-opts! tmp "acme/my-app"
-                                                  {:include-stories? true}))
-            ":include-stories? (plural typo) is rejected")
-        (assert-no-scaffold-emitted! tmp)
-        (finally
-          (delete-recursively tmp))))))
+(deftest typo-keys-are-unknown-test
+  (testing "a typo of any key fails closed rather than scaffolding the default"
+    (doseq [opts [{:substrat :uix} {:include-story true} {:sub :uix}]]
+      (let [tmp (tmp-dir "rf2-template-typo-")]
+        (try
+          (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                                #":rf\.error/template-unknown-flag"
+                                (run-template-opts! tmp "acme/my-app" opts))
+              (str (pr-str opts) " is rejected"))
+          (assert-no-scaffold-emitted! tmp)
+          (finally
+            (delete-recursively tmp)))))))
 
 (deftest harness-keys-not-rejected-test
-  (testing "the gate's allowlist does not false-reject deps-new harness
-            keys — a representative harness key (:overwrite) plus the
-            valid template flags scaffold cleanly"
+  (testing "deps-new's own harness keys (:overwrite, :src-dirs, :target-dir …)
+            pass the gate and a valid invocation still scaffolds"
     (let [tmp (tmp-dir "rf2-template-harness-")]
       (try
-        ;; :overwrite + :src-dirs are harness keys run-template-opts!
-        ;; already injects; add an explicit :substrate to confirm the
-        ;; happy path still emits with the gate in place.
-        (let [proj (run-template-opts! tmp "acme/my-app"
-                                       {:substrate :reagent})]
-          (is (file-exists? proj "deps.edn")
-              "a valid invocation still scaffolds with the gate active"))
+        (let [proj (run-template-opts! tmp "acme/my-app" {:substrate :reagent})]
+          (is (= manifest (emitted-files proj))
+              "a valid invocation scaffolds with the gate active"))
         (finally
           (delete-recursively tmp))))))

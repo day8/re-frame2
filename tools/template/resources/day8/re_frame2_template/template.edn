@@ -2,9 +2,8 @@
 ;;
 ;; deps-new maps the template symbol to this resource and resolves these
 ;; functions from the classpath. `template-fn` builds `:transform` at run
-;; time because the selected substrate and optional features change the
-;; emitted file set.
-{:description     "Scaffold a new re-frame2 application (Reagent / UIx; optional Story playground via :include-story? true on Reagent)."
+;; time because the selected substrate changes three of the emitted files.
+{:description     "Scaffold a new re-frame2 application (Reagent default, or :substrate :uix)."
  :data-fn         day8.re-frame2-template.hooks/data-fn
  :template-fn     day8.re-frame2-template.hooks/template-fn
  :post-process-fn day8.re-frame2-template.hooks/post-process-fn}

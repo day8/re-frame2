@@ -1,33 +1,24 @@
-;; {{name}} — shadow-cljs build config ({{substrate-label}} substrate).
-;;
-;; Shared by the adapter substrates (Reagent / UIx): the same two
-;; builds — the React substrate is chosen in deps.edn + core.cljs, not
-;; here.
+;; {{name}} — shadow-cljs build config.
 ;;
 ;; Two builds:
-;;   :app  — watch / release. Compiles to resources/public/js/main.js.
-;;           Boot entry point: {{namespace}}.core/init.
-;;   :test — node-side test runner. Picks up any *_test.cljs file under
-;;           test/ and runs it via cljs.test.
-{:deps   {:aliases [:shadow]}
- :source-paths ["src" "test" "dev"]
+;;   :app  — watch / release. Compiles to resources/public/js/main.js and
+;;           boots {{namespace}}.core/init. shadow calls :init-fn ONCE, at
+;;           bundle load; after a hot reload it calls the build's
+;;           ^:dev/after-load hooks instead, so core.cljs carries one
+;;           (`mount!`) that re-renders the edited views.
+;;   :test — the node-side test runner. Picks up every *_test.cljs under
+;;           test/ and runs it with cljs.test.
+{:deps         {:aliases [:shadow]}
+ :source-paths ["src" "test"]
 
  :dev-http {8280 "resources/public"}
 
  :builds
- {:app
-  {:target     :browser
-   :output-dir "resources/public/js"
-   :asset-path "/js"
-   ;; shadow calls the module :init-fn ONCE, when the bundle loads. It does
-   ;; NOT re-run it after a hot reload — a reload loads the new code and then
-   ;; calls the build's ^:dev/after-load hooks. core.cljs therefore carries
-   ;; one — the fn that re-renders the edited views into the retained React
-   ;; root. Without it shadow logs "reloading code but no :after-load hooks
-   ;; are configured!" and the page keeps showing the OLD view.
-   :modules    {:main {:init-fn {{namespace}}.core/init}}{{xray-preload}}}
+ {:app  {:target     :browser
+         :output-dir "resources/public/js"
+         :asset-path "/js"
+         :modules    {:main {:init-fn {{namespace}}.core/init}}}
 
-  :test
-  {:target    :node-test
-   :output-to "out/node-test.js"
-   :ns-regexp "-test$"}}}
+  :test {:target    :node-test
+         :output-to "out/node-test.js"
+         :ns-regexp "-test$"}}}

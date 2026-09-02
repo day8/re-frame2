@@ -1,15 +1,15 @@
 {
-  "name": "{{name}}",
+  "name": "{{npm-name}}",
   "version": "0.1.0",
   "private": true,
-  "description": "re-frame2 application ({{substrate-label}} substrate{{story-tag}}).",
+  "description": "re-frame2 application ({{substrate-label}}).",
   "scripts": {
     "watch":   "shadow-cljs watch app",
     "release": "shadow-cljs release app",
-    "test":    "{{test-script}}"
+    "test":    "shadow-cljs compile test && node out/node-test.js"
   },
   "devDependencies": {
-    "shadow-cljs": "{{shadow-version}}"{{xray-npm-deps}}
+    "shadow-cljs": "{{shadow-version}}"
   },
   "dependencies": {
     "react":     "{{react-version}}",

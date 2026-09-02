@@ -1,12 +1,12 @@
 (ns day8.re-frame2-template.test-support
   "Shared harness for the tools/template JVM test suite.
 
-   The four sibling test files
-   (`template_test.clj` / `template_emission_test.clj` /
-   `emitted_test_run_test.clj` / `version_lockstep_test.clj`) all draw
-   `tmp-dir` / `delete-recursively` / `template-resource-dir` /
-   `run-template!` / `repo-root` from here. These are pure functions with
-   no top-level mutable state, so a single shared copy is the right home.
+   The sibling test files (`template_test.clj` /
+   `template_emission_test.clj` / `emitted_test_run_test.clj` /
+   `version_lockstep_test.clj`) all draw `tmp-dir` / `delete-recursively`
+   / `template-resource-dir` / `run-template!` / `repo-root` from here.
+   These are pure functions with no top-level mutable state, so a single
+   shared copy is the right home.
 
    `repo-root` is a single walk-up that anchors on
    `implementation/core/src/re_frame` — the strongest, deepest repo
@@ -21,10 +21,6 @@
            [java.nio.file.attribute FileAttribute]))
 
 ;; --- emitted-file readers --------------------------------------------------
-;;
-;; `read-edn` / `file-exists?` are tiny one-liners that every test which
-;; walks an emitted project needs. Homed here so the next "read the
-;; emitted deps.edn" call doesn't re-inline `slurp` + `read-string`.
 
 (defn read-edn
   "Parse `f` (a `java.io.File`) as a single EDN value."
@@ -139,43 +135,17 @@
 
 ;; --- run-template! ---------------------------------------------------------
 
-(defn run-template!
-  "Drive `org.corfield.new/create` to scaffold an app inside `tmp`.
-  Returns the emitted project root as a `java.io.File`. Equivalent to
-  shelling out to `clojure -Tnew create :template … :name … …`, minus
-  the JVM start-up cost.
-
-  `substrate` may be nil (exercises the default-substrate path).
-  `include-story?` is optional; when supplied (non-nil) it is passed
-  through as the `:include-story?` deps-new arg — `true` selects the
-  with-story scaffold, `false` forces the default path explicitly."
-  ([tmp project-name substrate]
-   (run-template! tmp project-name substrate nil))
-  ([tmp project-name substrate include-story?]
-   (let [dir-str   (.toString ^Path tmp)
-         ;; deps-new names the output dir after the artifact portion of
-         ;; `acme/my-app` (the part after the `/`), so strip the group.
-         dir-name  (-> project-name name (string/replace #"^.*?/" ""))
-         proj-dir  (io/file dir-str dir-name)
-         opts      (cond-> {:template   'day8/re-frame2-template
-                            :name       (symbol project-name)
-                            :target-dir (.getCanonicalPath proj-dir)
-                            :src-dirs   [(template-resource-dir)]
-                            :overwrite  :delete}
-                     substrate              (assoc :substrate substrate)
-                     (some? include-story?) (assoc :include-story? include-story?))]
-     (deps-new/create opts)
-     proj-dir)))
-
 (defn run-template-opts!
-  "Like `run-template!`, but merges `extra-opts` straight onto the
-  deps-new opts map — so a test can pass arbitrary template arguments
-  (reserved flags, typo keys, …) that the positional `run-template!`
-  arity can't express. Used by the argument-gate negative tests: they
-  assert reserved / unknown keys fail closed before any scaffold is
-  emitted."
+  "Drive `org.corfield.new/create` to scaffold `project-name` inside `tmp`
+  with `extra-opts` merged straight onto the deps-new opts map — so a test
+  can pass any template argument (a retired flag, a typo key, …). Returns
+  the emitted project root as a `java.io.File`. Equivalent to shelling out
+  to `clojure -Tnew create :template … :name … …`, minus the JVM start-up
+  cost."
   [tmp project-name extra-opts]
   (let [dir-str   (.toString ^Path tmp)
+        ;; deps-new names the output dir after the artifact portion of
+        ;; `acme/my-app` (the part after the `/`), so strip the group.
         dir-name  (-> project-name name (string/replace #"^.*?/" ""))
         proj-dir  (io/file dir-str dir-name)
         opts      (merge {:template   'day8/re-frame2-template
@@ -186,3 +156,10 @@
                          extra-opts)]
     (deps-new/create opts)
     proj-dir))
+
+(defn run-template!
+  "Scaffold `project-name` inside `tmp` for `substrate`, which may be nil
+  (exercises the default-substrate path). See `run-template-opts!`."
+  [tmp project-name substrate]
+  (run-template-opts! tmp project-name
+                      (cond-> {} substrate (assoc :substrate substrate))))
