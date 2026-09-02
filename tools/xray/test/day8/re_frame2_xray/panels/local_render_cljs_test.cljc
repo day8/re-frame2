@@ -313,3 +313,84 @@
       (finally
         ;; Never leave the colliding id live for a sibling test.
         (rf/destroy-frame! colliding-sentinel-id)))))
+
+;; ---------------------------------------------------------------------------
+;; 7b. THE CALLER-VISIBLE ARM (rf2-ws60, SECOND pass — the audit of PR #9044).
+;;
+;; §7 above registers the RETIRED KEYWORD and then asserts STRUCTURALLY that the
+;; replacement is not a keyword. That is a test about the SHAPE of the sentinel,
+;; and it is why the first repair passed its own regression while still leaking:
+;; making the identity `^:private` is NECESSARY AND NOT SUFFICIENT, because the
+;; PUBLIC `local-render-opts` RETURNS the stamped `:frame` to its caller. Nobody
+;; had to manufacture an equal object — they were handed the identical one, and
+;; a frame registered under it made the next unreachable projection resolve to
+;; that live frame and ship the secret RAW.
+;;
+;; So these arms exercise the value A REAL CALLER RECEIVES, never the definition:
+;; take `(:frame (local-render-opts nil))`, register a live frame under THAT
+;; EXACT VALUE, and assert an unreachable projection still redacts. Against the
+;; pre-fix code this failed with
+;;   {:same-sentinel? true, :registered? true,
+;;    :rendered {:auth {:token "secret-session-jwt-abc123"}}}
+;;
+;; The discriminator this pins is not "is the def private" but "does any PUBLIC
+;; fn RETURN a structure containing it" — answered here by minting a FRESH
+;; identity per call, so the escaped value governs nothing else.
+;; ---------------------------------------------------------------------------
+
+(deftest local-render-fails-closed-when-a-frame-is-registered-under-the-handed-out-sentinel
+  (testing "rf2-ws60 — an app registers a live frame under the sentinel the
+            PUBLIC local-render-opts handed it. A nil / unreachable observed
+            frame MUST still redact the whole value"
+    (let [handed-out (:frame (local-render/local-render-opts nil))]
+      (rf/make-frame {:id handed-out})
+      (try
+        (testing "a NIL observed frame fails closed despite the registration"
+          (let [rendered (local-render/local-render-value app-db-value nil)]
+            (is (= :rf/redacted rendered)
+                (str "nil observed frame must redact WHOLE even with a live "
+                     "frame registered under the sentinel local-render-opts "
+                     "returned. got: " (pr-str rendered)))
+            (is (not= "secret-session-jwt-abc123" (get-in rendered [:auth :token]))
+                "the session token leaked through the handed-out sentinel")))
+
+        (testing "an UNREACHABLE observed frame likewise fails closed"
+          (let [rendered (local-render/local-render-value app-db-value
+                                                          :app/does-not-exist)]
+            (is (= :rf/redacted rendered)
+                (str "unreachable observed frame must redact WHOLE. got: "
+                     (pr-str rendered)))))
+
+        (testing "the PATH-AWARE sibling shares the seam, so it fails closed too"
+          (let [rendered (local-render/local-render-value-at
+                           (:auth app-db-value) nil [:auth])]
+            (is (= :rf/redacted rendered)
+                (str "local-render-value-at must redact WHOLE under the same "
+                     "registration. got: " (pr-str rendered)))))
+
+        (finally
+          (rf/destroy-frame! handed-out))))))
+
+(deftest dead-frame-sentinel-is-single-use-per-projection
+  (testing "rf2-ws60 — the property that makes the handed-out value harmless:
+            each call MINTS A FRESH identity, so a sentinel a caller obtained
+            (and could register a frame under) governs no other projection. A
+            shared singleton is the defect, so assert the values are DISTINCT"
+    (let [a (:frame (local-render/local-render-opts nil))
+          b (:frame (local-render/local-render-opts nil))
+          c (:frame (local-render/local-render-opts :app/does-not-exist))]
+      (is (some? a) "the sentinel is still stamped, never nil/absent")
+      (is (not (identical? a b))
+          (str "two nil-frame opts must NOT share one dead-frame sentinel — a "
+               "reusable identity is registrable by whoever receives it. got: "
+               (pr-str a)))
+      (is (not= a b)
+          "the two sentinels must not be equal either (identity, not a datum)")
+      (is (not (identical? a c))
+          "the nil-frame and unreachable-frame sentinels must differ too")))
+
+  (testing "a LIVE frame is still carried verbatim — minting applies only to the
+            unreachable branch, so the reachable hot path is unchanged"
+    (is (= secure-frame (:frame (local-render/local-render-opts secure-frame))))
+    (is (identical? secure-frame
+                    (:frame (local-render/local-render-opts secure-frame))))))
