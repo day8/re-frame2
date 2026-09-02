@@ -736,6 +736,32 @@ jobs:
         continue-on-error: true
         run: python scripts/check_inject_cofx_residue.py --verbose
 
+      # EDN well-formedness for the conformance corpus (rf2-x91a). Both fixture
+      # loaders read a fixture with `clojure.edn/read-string`, which returns the
+      # FIRST form and ignores the rest — so a fixture whose expectation block
+      # closes one brace early still loads, still runs and still reports as
+      # PASSING while every assertion outside that block is discarded. That is
+      # rf2-5mr6: `routing-not-found.edn`, one extra `}`, two `:trace-emissions`
+      # assertions never executed, green for however long it sat there.
+      #
+      # A STEP HERE RATHER THAN A JOB, and unconditional rather than gated. The
+      # classifier's `spec/conformance/fixtures/*` arm sets only
+      # implementation_jvm / cljs_node_test / cljs_browser / cljs_prod — four
+      # heavy JVM/Node/Chromium lanes, and no cheap flag exists to ride. Buying
+      # a whole job (or a wider surface) for a stdlib bracket scan over 247
+      # small files, which costs milliseconds, is the same trade the inject-cofx
+      # gate above declined for the same reason. Stdlib-only, so it keeps this
+      # job's defining dependency-free property intact.
+      - name: Self-test the conformance fixture EDN gate
+        id: check_conformance_fixture_edn_selftest
+        continue-on-error: true
+        run: python scripts/check_conformance_fixture_edn.py --self-test --verbose
+
+      - name: Validate every conformance fixture is one well-formed EDN form
+        id: check_conformance_fixture_edn
+        continue-on-error: true
+        run: python scripts/check_conformance_fixture_edn.py --verbose
+
       # THE WORKFLOW JOB-CAP RATCHET (rf2-rsn1e) DOES NOT LIVE HERE, AND THE
       # REASON IS THIS JOB'S DEFINING PROPERTY. It landed beside these checkers
       # and redded every PR: it parses the workflow documents with PyYAML —

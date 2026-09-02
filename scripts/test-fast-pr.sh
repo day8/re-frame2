@@ -1204,6 +1204,18 @@ run "gate-scheduling audit self-test" "python scripts/check_gate_scheduling.py -
 run "gate-scheduling audit (rf2-6ckzl)" "python scripts/check_gate_scheduling.py --verbose" \
   python "$spine_root/scripts/check_gate_scheduling.py" --verbose
 
+# Conformance-corpus EDN well-formedness (rf2-x91a).  Always-on rather than
+# tiered: `spec/conformance/fixtures/*.edn` is not an `.md` path so it never
+# arms the documentation tier, and the classifier routes it only to the heavy
+# JVM/CLJS lanes.  A stdlib bracket scan over 247 small files costs
+# milliseconds, so it runs on every diff, mirroring its always-on step in the
+# invariant job.
+run "conformance fixture EDN gate self-test" "python scripts/check_conformance_fixture_edn.py --self-test --verbose" \
+  python "$spine_root/scripts/check_conformance_fixture_edn.py" --self-test --verbose
+
+run "conformance fixture EDN gate (rf2-x91a)" "python scripts/check_conformance_fixture_edn.py --verbose" \
+  python "$spine_root/scripts/check_conformance_fixture_edn.py" --verbose
+
 # The last three are `verify-readme-links`', not the invariant job's.  Note that
 # CI runs `check_readme_links --ci` ALWAYS-ON while this spine runs it in the
 # documentation tier; only the self-test arm is added here, so the live scan
