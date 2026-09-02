@@ -154,8 +154,9 @@ closed at commit `a4e1d6f5e6`. What each gate now has:
   server-only value that never reaches the browser.
 - **Gate 5, the end-to-end `JVM → Node → JVM` witness, is discharged.** It has
   a JVM leg to witness now: the `jvm-node-crossing` job
-  (`.github/workflows/test.yml`) runs `node_crossing_test.clj` on every PR
-  against a plain fixture render module, over a real socket. Slice E added the
+  (`.github/workflows/test.yml`) runs `node_crossing_test.clj` against a plain
+  fixture render module, over a real socket, on any PR touching either half of
+  the crossing (`implementation_jvm` or `ssr_node`). Slice E added the
   application half beside it — a CLJS product witness driving the real Hicasso
   login views and registrations through that example's own published entry
   table, simulating only the transport the other half already proves. **The two
