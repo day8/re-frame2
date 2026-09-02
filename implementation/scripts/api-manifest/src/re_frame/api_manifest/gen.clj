@@ -212,10 +212,18 @@
 ;; is the honest part of this fix rather than a shortcut. The SSR trees are
 ;; where the class just recurred, and enrolling a tree is not free: every
 ;; namespace in it must be classified by a human, once, and recorded below.
-;; `implementation/hicasso/src` is the KNOWN next one — `re-frame.hicasso.server`
-;; is the third unscanned namespace and would need a `:cljs-only` sidecar row,
-;; not a `jvm-namespaces` entry, since it is CLJS-only — but that tree was held
-;; by an open PR when this landed, so it is named here rather than half-done.
+;; `implementation/hicasso/src` joined them under rf2-3ne8, and what it cost is
+;; worth recording, because it is the argument for the gate rather than against
+;; it. Twenty-four of its twenty-six namespaces were unaccounted, and the
+;; assumption — this bead's own, and the dispatch's — was that they were mostly
+;; internal. FIVE WERE PUBLIC AUTHORING SURFACES: `.forms`, `.motion`,
+;; `.overlay`, `.native` and `.substrate`, each carrying a require-me-directly
+;; example in its own ns docstring, and `.substrate` supplying the very adapter
+;; `(rf/init! …)` takes. They had shipped with no manifest row and no
+;; documentation page, and nothing but this gate would have said so. They were
+;; tiered honestly and given pages rather than quieted with `^:no-doc`; the two
+;; tool-tier namespaces (`.tool`, `.evidence`) were rowed `:tooling`, which
+;; obliges no page; the seventeen `re-frame.hicasso.impl.*` are below.
 ;; Widening to the remaining artefacts is a per-tree decision with a per-tree
 ;; cost; the point of the data-driven shape below is that each is a root plus
 ;; its classifications, never another mechanism.
@@ -227,20 +235,23 @@
    free generalisation: it obliges a classification for every namespace
    beneath it (see this section's header)."
   ["implementation/ssr/src"
-   "implementation/ssr-ring/src"])
+   "implementation/ssr-ring/src"
+   "implementation/hicasso/src"])
 
 (def internal-namespaces
   "Source namespaces under `roster-covered-roots` that are deliberately NOT a
   supported surface: SSR pipeline internals, host-adapter plumbing and
-  emitters. Nothing here is published, documented or rowed in the manifest —
-  being on this list is the RECORD of that decision, not a consequence of it.
+  emitters, and the Hicasso runtime beneath its door. Nothing here is
+  published, documented or rowed in the manifest — being on this list is the
+  RECORD of that decision, not a consequence of it.
 
   This is not a synonym for `^:no-doc`. NONE of these carry that metadata
   (the SSR trees use it nowhere at all), so the marker cannot be the
   classifier — which is precisely why the roster is written down instead of
-  derived. The public doors of these two artefacts are `re-frame.ssr` and
-  `re-frame.ssr.ring`, plus the two crossing surfaces rf2-8arzr.7 enrolled;
-  everything below is reached only from inside them."
+  derived. The public doors of these three artefacts are `re-frame.ssr`,
+  `re-frame.ssr.ring` and `re-frame.hicasso`, plus the two crossing surfaces
+  rf2-8arzr.7 enrolled and the Hicasso modules rf2-3ne8 enrolled; everything
+  below is reached only from inside them."
   '#{;; --- implementation/ssr/src -------------------------------------------
      ;; Boot, install and the shared constant/hash/manifest plumbing.
      re-frame.ssr.boot
@@ -282,7 +293,47 @@
      re-frame.ssr.ring.pipeline
      re-frame.ssr.ring.shell
      re-frame.ssr.ring.streaming
-     re-frame.ssr.ring.trust})
+     re-frame.ssr.ring.trust
+     ;; --- implementation/hicasso/src ---------------------------------------
+     ;; Everything under `re-frame.hicasso.impl.*` and nothing else: the door
+     ;; (`re-frame.hicasso`), its five optional authoring modules, its SSR
+     ;; module and its two tool-tier namespaces are all ENROLLED instead — nine
+     ;; namespaces of the tree's twenty-six, leaving these seventeen. The `impl`
+     ;; segment is the artefact's own published boundary, stated in
+     ;; `docs/api/re-frame.hicasso.md` and in spec/Conventions.md's artefact
+     ;; row: "everything else is `re-frame.hicasso.impl.*` and is not a
+     ;; consumer surface". So the roster and the naming agree here, which the
+     ;; SSR trees above could not manage — but the roster is still written out
+     ;; rather than derived from the segment, because a prefix rule would
+     ;; silently absorb a future non-`impl` namespace that nobody classified,
+     ;; which is the exact failure this gate exists to prevent.
+     ;; The render pipeline: hiccup in, React elements out, and the commit
+     ;; fence that keeps one render pass on one commit.
+     re-frame.hicasso.impl.codec
+     re-frame.hicasso.impl.collector
+     re-frame.hicasso.impl.generation
+     re-frame.hicasso.impl.slot
+     ;; Props and callbacks: intent lowering, controlled-element converge.
+     re-frame.hicasso.impl.controlled
+     re-frame.hicasso.impl.intent
+     ;; Roots, mounting and the hydration adoption window.
+     re-frame.hicasso.impl.mount
+     re-frame.hicasso.impl.roots
+     ;; Frame-locked ops and instance-key local state.
+     re-frame.hicasso.impl.frames
+     re-frame.hicasso.impl.state
+     ;; Refusals: the one constructor, the dev-only ledger, and the runtime's
+     ;; own error boundary component.
+     re-frame.hicasso.impl.boundary
+     re-frame.hicasso.impl.error
+     ;; The impure halves of the optional modules, whose doors are the
+     ;; enrolled `re-frame.hicasso.overlay` / `.motion` namespaces, plus the
+     ;; portal and route-link markup shapes the door re-exports.
+     re-frame.hicasso.impl.overlay
+     re-frame.hicasso.impl.portal
+     re-frame.hicasso.impl.presence
+     re-frame.hicasso.impl.presence-react
+     re-frame.hicasso.impl.route-link})
 
 (defn- repo-file
   "Resolve a `/`-joined repo-relative path against `repo-root`, portably."
