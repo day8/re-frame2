@@ -103,12 +103,29 @@
    re-register it that way, re-install the example's `:resource` registration
    the reset hook wiped, reset routing counters, re-publish the late-bound
    routing integration, and stub the managed-HTTP + url-push fx so route entry's
-   page-0 ensure + navigation are deterministic without a fetch / browser."
+   page-0 ensure + navigation are deterministic without a fetch / browser.
+
+   THE ORDER MATTERS, AND THE FRAME IS MADE LAST (rf2-djqm, prophylactic —
+   the shape rf2-k4oe repaired in the LinearLite suite). A `:url-bound?` frame
+   performs a synchronous initial URL sync AT CONSTRUCTION — `make-frame` ->
+   `frame/upsert-frame!`'s post-create hook -> routing's
+   `:routing/on-frame-registered!` -> `reconcile-url-listener!` — and under
+   Node that URL is `\"/\"`. So a route registered at `\"/\"` has its route-entry
+   resource plan run INSIDE `make-frame`. Construct the frame before the
+   `registrar/register!` loop below and that plan sees the `:resource` kind
+   still EMPTY (the shared reset hook cleared it), records `:transition :error`
+   / `:rf.error/resource-route-plan` on the routing slice, and — because the
+   suite's own navigation never re-plans — the error is STICKY.
+
+   This suite is green either way TODAY only because its `\"/\"` route declares
+   no BLOCKING resource; add one and it reproduces rf2-k4oe exactly, silently.
+   Registering everything first and making the frame last removes the
+   dependence entirely, and matches the committed pilot baseline
+   (`docs/design/hicasso/product/pilots/baseline/linearlite/baseline_test.cljs`,
+   which documents \"the frame is made last\")."
   []
   (test-support/reinstate-app-registration! not-found-route-row)
   (reset! last-managed-args nil)
-  (rf/make-frame {:id :rf/default :url-bound? true
-                  :doc "infinite-feed-example default app frame."})
   ;; rf2-h1vqa4: reinstate through `registrar/register!` — NOT a raw
   ;; registrar-atom swap. Image-loaded frames resolve through the SOURCE
   ;; STORE (the default image is assembled from it), and the reset hook's
@@ -122,7 +139,12 @@
   ;; Capturing no-op: the reply is replayed explicitly by the test so the
   ;; 3-element internal reply event matches what the live transport produces.
   (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
-  (fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil)))
+  (fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
+  ;; LAST — see the ordering note in the docstring. Everything the frame's
+  ;; construction-time URL sync needs (the reinstated `:resource` rows, the
+  ;; routing integration, the stubbed fx) is registered above.
+  (rf/make-frame {:id :rf/default :url-bound? true
+                  :doc "infinite-feed-example default app frame."}))
 
 (defn- isolate-trace-bus-fixture
   "OUTER fixture: keep this resource-registering suite from leaking trace

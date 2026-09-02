@@ -171,7 +171,27 @@
    (`:url-bound? true`); re-register it that way, re-install the example's
    resource / mutation / scope registrations the reset hook wiped, reset routing
    counters, re-publish the late-bound routing integration, and stub managed-HTTP
-   + url-push so ensure / navigation are deterministic without a fetch / browser."
+   + url-push so ensure / navigation are deterministic without a fetch / browser.
+
+   THE ORDER MATTERS, AND THE FRAME IS MADE LAST (rf2-djqm, prophylactic —
+   the shape rf2-k4oe repaired in the LinearLite suite). A `:url-bound?` frame
+   performs a synchronous initial URL sync AT CONSTRUCTION — `make-frame` ->
+   `frame/upsert-frame!`'s post-create hook -> routing's
+   `:routing/on-frame-registered!` -> `reconcile-url-listener!` — and under
+   Node that URL is `\"/\"`. So a route registered at `\"/\"` has its route-entry
+   resource plan run INSIDE `make-frame`. Construct the frame before the
+   `registrar/register!` loop below and that plan sees the `:resource` /
+   `:mutation` kinds still EMPTY (the shared reset hook cleared them), records
+   `:transition :error` / `:rf.error/resource-route-plan` on the routing slice,
+   and — because the suite's own navigation never re-plans — the error is
+   STICKY.
+
+   This suite is green either way TODAY only because its `\"/\"` route declares
+   no BLOCKING resource; add one and it reproduces rf2-k4oe exactly, silently.
+   Registering everything first and making the frame last removes the
+   dependence entirely, and matches the committed pilot baseline
+   (`docs/design/hicasso/product/pilots/baseline/linearlite/baseline_test.cljs`,
+   which documents \"the frame is made last\")."
   []
   ;; rf2-h1vqa4: re-scrub the sibling app's rows per test — the merge-form
   ;; store restore preserves slots this suite's baseline does not know
@@ -181,8 +201,6 @@
   (test-support/reinstate-app-registration! not-found-route-row)
   (reset! last-managed-args nil)
   (reset! managed-args-log [])
-  (rf/make-frame {:id :rf/default :url-bound? true
-                  :doc "realworld-resources default app frame."})
   ;; Re-install the example's ns-load resource/mutation/scope registrations.
   ;; rf2-h1vqa4: reinstate through `registrar/register!` — NOT a raw
   ;; registrar-atom swap. Image-loaded frames resolve through the SOURCE
@@ -199,7 +217,12 @@
                                 (reset! last-managed-args args)
                                 (swap! managed-args-log conj args)
                                 nil))
-  (fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil)))
+  (fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
+  ;; LAST — see the ordering note in the docstring. Everything the frame's
+  ;; construction-time URL sync needs (the reinstated `:resource` / `:mutation`
+  ;; rows, the routing integration, the stubbed fx) is registered above.
+  (rf/make-frame {:id :rf/default :url-bound? true
+                  :doc "realworld-resources default app frame."}))
 
 (def ^:private isolate-trace-bus-fixture
   "OUTER fixture: keep this resource/mutation-registering suite from leaking
