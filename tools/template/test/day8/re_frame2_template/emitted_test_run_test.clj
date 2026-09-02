@@ -46,15 +46,16 @@
    the env var is unset every deftest records a single documented skip
    assertion and exits.
 
-   ## The MANUAL setup-skill scaffold fixture
+   ## The setup skill's default scaffold
 
-   `setup-skill-scaffold-compiles-test` materialises the `re-frame2-setup`
-   SKILL's hand-written greenfield scaffold straight from its reference
-   markdown — for each documented route (Reagent / UIx) — synthesises the
-   day-one `deps.edn` it documents, and compiles the `:app` build against
-   the in-repo source. It does not go through the template's emission at
-   all; it is the interim real-compile cover for the skill's own
-   snippets, riding the same gate."
+   `skills/re-frame2-setup/references/first-counter.md` ships the twelve
+   files the skill's default route writes, rendered from THIS template by
+   the skill's `tests/first_counter_derivation.clj`. Two tests at the
+   bottom consume that leaf as a consumer would: an ungated one asserts
+   the leaf equals a real deps-new emission byte for byte, and a gated
+   black-box one materialises the shipped files into a fresh project,
+   applies the documented pre-publish coordinate step, compiles, boots the
+   page in Chromium, clicks 0 -> 1, and proves the proof bites."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.java.io :as io]
             [clojure.edn :as edn]
@@ -76,9 +77,10 @@
   "Swap the `day8/re-frame2*` :mvn/version coords in a project's deps.edn
   for `:local/root` paths into the in-repo source tree, then write it
   back. Core and the substrate adapter are always rewritten; schemas and
-  Xray only when the deps.edn names them (the template emits neither, the
-  setup-skill scaffold names both on its Reagent route) — an unconditional
-  assoc would ADD a coordinate the project does not declare."
+  Xray only when the deps.edn names them (neither the template nor the
+  setup skill's derived scaffold does any more — the arms stay for a
+  project that added them) — an unconditional assoc would ADD a
+  coordinate the project does not declare."
   [^java.io.File root ^java.io.File proj-dir substrate]
   (let [deps-file (io/file proj-dir "deps.edn")
         deps      (edn/read-string (slurp deps-file))
@@ -539,407 +541,305 @@
             (compile-and-run-emitted-test! :uix {}))))))
 
 ;; ===========================================================================
-;; MANUAL setup-skill scaffold fixture
+;; The setup skill's default scaffold — derivation lock + black-box fixture
 ;; ===========================================================================
 ;;
-;; A second materialise+compile fixture that proves the `re-frame2-setup`
-;; SKILL's hand-written greenfield scaffold compiles against the in-repo
-;; source tree — for EACH documented manual route (Reagent / UIx),
-;; each with exactly its documented direct day-one dependencies. The skill
-;; ships its recipe as copyable fenced blocks with the current
-;; schema-bearing boot ceremony (`:rf/default` + `make-frame` +
-;; `with-frame` + `register-schema!` + `dispatch-sync` + `frame-provider
-;; {:frame …}`), so no equivalence assertion against the generator template
-;; can prove the skill path compiles — only a real compile can. Two things
-;; the net proves that the cheap gates cannot: (1) each route's snippets
-;; compile (syntax, namespace graph, adapter-root call, views); and (2) the
-;; synthesised deps.edn is dependency-HONEST — every direct day-one
-;; coordinate the skill documents is present, not silently resolved through
-;; a transitive Xray → schemas (or adapter → substrate) edge
-;; (`assert-skill-deps-shape!`). This is a semantic-drift NET (in-repo
-;; source compile), NOT a published-coordinate proof.
-
-;; --- fenced-block extraction -----------------------------------------------
+;; `skills/re-frame2-setup/references/first-counter.md` carries, between
+;; `<!-- BEGIN generated … -->` / `<!-- END generated -->` markers, the
+;; twelve files the skill's default route writes — one `### `path`` heading
+;; and one fenced block per file — rendered from this template for its
+;; reference project `acme/my-app` by the skill's
+;; `tests/first_counter_derivation.clj`. `references/entry-namespace.md`
+;; carries the three files the `:uix` substrate swaps, the same way.
+;;
+;;   * `setup-skill-leaves-are-the-template-emission-test` (ungated, cheap):
+;;     runs the REAL deps-new pipeline for `acme/my-app` on both substrates
+;;     and asserts each leaf's generated blocks equal the emitted files byte
+;;     for byte, and that the UIx leaf carries exactly the files whose
+;;     content differs between the two emissions. The skill's own bb suite
+;;     compares the leaves against its renderer; this arm compares them
+;;     against the generator itself, so a divergence between the two
+;;     instruments cannot hide.
+;;
+;;   * `setup-skill-default-scaffold-mounts-test` (gated like the template
+;;     tiers): materialises the leaf's files into a fresh temp project — the
+;;     exact shipped source, not a re-derivation — applies the documented
+;;     pre-publish step (the two framework coords → `:local/root`, SKILL.md
+;;     step 2), links `node_modules`, compiles `app` + `test`, proves the
+;;     emitted `package.json` is complete, boots the real page in Chromium
+;;     (the heading `acme/my-app` painted, the counter reads 0, a click moves
+;;     it to 1, zero pageerrors), runs the starter test under Node, and
+;;     proves the proof bites twice — the broken-mount witness (build / init
+;;     wiring) and a broken-click witness (`views.cljs` dispatching an event
+;;     nobody registers, recompiled: the page paints, the click never moves
+;;     the counter).
 
 (def ^:private skill-setup-refs
-  "Absolute dir of the re-frame2-setup skill's reference snippets."
+  "Absolute dir of the re-frame2-setup skill's reference leaves."
   (delay (io/file (repo-root) "skills/re-frame2-setup/references")))
 
-(defn- fenced-blocks
-  "Every fenced code block in `md-text` tagged exactly `lang` (e.g.
-  \"clojure\" / \"html\" / \"css\"), in document order. CRLF-tolerant —
-  the skill reference files ship Windows line endings. Returns the block
-  bodies (the text BETWEEN the fences), each with trailing CRLF/CR
-  normalised to LF so the emitted scaffold file is clean regardless of
-  the markdown's line-ending style."
-  [md-text lang]
-  (->> (re-seq (re-pattern (str "(?s)```" lang "\\r?\\n(.*?)```")) md-text)
-       (map (fn [[_ body]] (-> body
-                               (string/replace "\r\n" "\n")
-                               (string/replace "\r" "\n"))))))
+(def ^:private generated-begin "<!-- BEGIN generated by tests/first_counter_derivation.clj -->")
+(def ^:private generated-end   "<!-- END generated -->")
 
-(defn- single-fenced-block
-  "The unique fenced `lang` block in `md-text`, or the first block for
-  which `pred` (optional) is truthy. Throws loudly if zero match — a
-  skill-doc edit that renames the fence or moves the snippet must fail
-  the fixture, not silently emit an empty scaffold file."
-  ([md-text lang where] (single-fenced-block md-text lang where (constantly true)))
-  ([md-text lang where pred]
-   (let [blocks (filter pred (fenced-blocks md-text lang))]
-     (when (empty? blocks)
-       (throw (ex-info (str "setup-skill fixture: found no ```" lang
-                            " fenced block " where
-                            " — the skill snippet anchors moved; update the "
-                            "fixture extractor.")
-                       {:lang lang :where where})))
-     (first blocks))))
+(def ^:private regenerate-hint
+  (str "Regenerate with `bb tests/first_counter_derivation.clj` from "
+       "skills/re-frame2-setup/ — the bodies inside a leaf's generated region "
+       "are this template's emission and are never hand-edited."))
 
-;; --- deps.edn synthesis (skill documents the :git/sha / :local/root shape) --
+(defn- lf [s]
+  (-> s (string/replace "\r\n" "\n") (string/replace "\r" "\n")))
 
-(def ^:private substrate-dep-symbols
-  "The substrate's own Maven coords the skill documents as DIRECT day-one
-  deps beyond the four re-frame2 coords — the JS-substrate libraries each
-  route's copied source requires. Reagent: `reagent/reagent`
-  (`references/deps-versions.md`). UIx: `com.pitch/uix.core` +
-  `com.pitch/uix.dom`
-  (`references/entry-namespace.md` §UIx greenfield). Versions are
-  harvested from the generator template (source of truth); this map only
-  names the coordinates each route must carry directly."
-  {:reagent ['reagent/reagent]
-   :uix     ['com.pitch/uix.core 'com.pitch/uix.dom]})
+(defn- leaf-files
+  "path → body from a leaf's generated region: each `### `path`` heading
+   followed by a 3- or 4-backtick fenced block. The same shape the skill's
+   derivation script writes and its bb suite reads back."
+  [md-text]
+  (let [text   (lf md-text)
+        start  (string/index-of text generated-begin)
+        end    (string/index-of text generated-end)
+        region (if (and start end) (subs text start end) "")]
+    (into (sorted-map)
+          (for [[_ path _ body] (re-seq #"(?s)### `([^`\n]+)`\n\n(`{3,4})[a-z]*\n(.*?)\n\2\n"
+                                        region)]
+            [path (str body "\n")]))))
 
-(defn- harvest-skill-deps-inputs
-  "Emit the generator template for `substrate` once and read back
-  everything the synthesised skill deps.edn must keep in lockstep with
-  the template: the substrate-invariant clojure / clojurescript pins +
-  the `:shadow` alias (shadow-cljs build dep), plus the substrate's own
-  Maven coords (`substrate-dep-symbols`) at the exact versions the
-  template pins. Harvesting from the template — the source of truth the
-  skill mirrors — keeps the fixture drift-free: there is nothing to
-  hand-maintain here.
+(defn- read-leaf-files [leaf]
+  (leaf-files (slurp (io/file @skill-setup-refs leaf))))
 
-  Returns {:clojure .. :clojurescript .. :shadow-alias .. :substrate-deps ..}."
+(defn- project-files
+  "path → body (LF) for every regular file under `root`."
+  [^java.io.File root]
+  (into (sorted-map)
+        (for [f (file-seq root) :when (.isFile f)]
+          [(-> (.relativize (.toPath root) (.toPath f)) str (string/replace "\\" "/"))
+           (lf (slurp f))])))
+
+(defn- emit-reference-project!
+  "A real deps-new emission of `acme/my-app` for `substrate`, as path → body."
   [substrate]
-  (let [tmp (tmp-dir (str "rf2-skill-pins-" (name substrate) "-"))]
+  (let [tmp (tmp-dir (str "rf2-setup-emit-" (name substrate) "-"))]
     (try
-      (let [proj (run-template! tmp "acme/my-app" substrate)
-            deps (edn/read-string (slurp (io/file proj "deps.edn")))]
-        {:clojure        (get-in deps [:deps 'org.clojure/clojure :mvn/version])
-         :clojurescript  (get-in deps [:deps 'org.clojure/clojurescript :mvn/version])
-         :shadow-alias   (get-in deps [:aliases :shadow])
-         :substrate-deps (into {}
-                               (map (fn [sym] [sym (get-in deps [:deps sym])]))
-                               (get substrate-dep-symbols substrate))})
-      (finally
-        (delete-recursively tmp)))))
+      (project-files (run-template! tmp "acme/my-app" substrate))
+      (finally (delete-recursively tmp)))))
 
-(defn- skill-deps-edn
-  "The synthesised greenfield `deps.edn` for the setup-skill scaffold in
-  `substrate`, matching `references/deps-versions.md`'s documented day-one
-  shape: core + the selected substrate adapter + schemas + Xray on the
-  REAGENT route only (the UIx route ships no Xray — its day-one framework
-  set is three coords; rf2-hki2j / rf2-p6f6u) + the substrate's own Maven
-  deps (reagent/reagent for Reagent; com.pitch/uix.{core,dom} for UIx) +
-  the required `:shadow` alias.
+(defn- assert-leaf-equals-emission! [leaf files expected]
+  (is (seq files) (str leaf " carries no generated region — the extractor found nothing."))
+  (is (= (set (keys expected)) (set (keys files)))
+      (str leaf ": file set differs from the template's emission. Missing "
+           (pr-str (sort (remove (set (keys files)) (keys expected))))
+           ", extra " (pr-str (sort (remove (set (keys expected)) (keys files))))
+           ". " regenerate-hint))
+  (doseq [[path body] expected :when (contains? files path)]
+    (is (= body (get files path))
+        (str leaf ": `" path "` differs from what deps-new emits. " regenerate-hint))))
 
-  `day8/re-frame2-schemas` is a DIRECT day-one coordinate — the counter
-  attaches a whole-app-db schema and `:require`s `re-frame.schemas`
-  (`first-counter.md` / `shared-dataflow.md`), and `deps-versions.md`
-  lists it as a day-one coord. It is NOT left to resolve transitively via
-  Xray; `assert-skill-deps-shape!` pins that honesty before the
-  `:local/root` rewrite.
-
-  The framework `day8/re-frame2*` coords carry a placeholder
-  `:mvn/version`; `rewrite-deps-for-local-run!` swaps them for
-  `:local/root` paths into the monorepo before the compile, so the
-  placeholder version is never resolved. The substrate Maven deps resolve
-  normally from Clojars."
-  [substrate {:keys [clojure clojurescript shadow-alias substrate-deps]}]
-  (let [adapter-coord (symbol "day8" (str "re-frame2-" (name substrate)))]
-    {:paths ["src"]
-     :deps  (merge {'org.clojure/clojure       {:mvn/version clojure}
-                    'org.clojure/clojurescript {:mvn/version clojurescript}
-                    'day8/re-frame2            {:mvn/version "PLACEHOLDER"}
-                    adapter-coord              {:mvn/version "PLACEHOLDER"}
-                    'day8/re-frame2-schemas    {:mvn/version "PLACEHOLDER"}}
-                   (when (= substrate :reagent)
-                     {'day8/re-frame2-xray {:mvn/version "PLACEHOLDER"}})
-                   substrate-deps)
-     :aliases {:shadow shadow-alias}}))
-
-;; --- dependency-honesty net ------------------------------------------------
-
-(defn- required-direct-coords
-  "The DIRECT day-one coordinate keys the skill documents for `substrate`
-  (`references/deps-versions.md` + `entry-namespace.md`): core + the
-  selected adapter + schemas + Xray (REAGENT route only — the UIx route
-  ships no Xray, rf2-hki2j) + the substrate's own Maven deps. The
-  synthesised deps.edn must carry every one as a DIRECT `:deps` key — none
-  may be left to resolve transitively (Xray → schemas; adapter
-  `:local/root` → substrate dep)."
-  [substrate]
-  (concat ['day8/re-frame2
-           (symbol "day8" (str "re-frame2-" (name substrate)))
-           'day8/re-frame2-schemas]
-          (when (= substrate :reagent) ['day8/re-frame2-xray])
-          (get substrate-dep-symbols substrate)))
-
-(defn- assert-skill-deps-shape!
-  "The dependency-honesty teeth: assert the SYNTHESISED deps map carries
-  every direct day-one coordinate the skill documents for `substrate`
-  (`required-direct-coords`), BEFORE `rewrite-deps-for-local-run!` points
-  anything at `:local/root`. A compile alone cannot supply this teeth —
-  `day8/re-frame2-xray` depends on `day8/re-frame2-schemas`, and each
-  adapter `:local/root` pulls its own substrate Maven dep transitively, so
-  a compile stays green even when the scaffold's OWN deps.edn omits the
-  direct coordinate. Only a shape assertion on the direct keys catches
-  that dishonesty. Returns `deps-map`."
-  [substrate deps-map]
-  (let [direct (:deps deps-map)]
-    (doseq [coord (required-direct-coords substrate)]
-      (is (contains? direct coord)
-          (str "setup-skill deps-honesty (" (name substrate) "): the "
-               "synthesised deps.edn must carry a DIRECT `" coord "` "
-               "coordinate — references/deps-versions.md documents it as a "
-               "day-one dep. It is absent, yet a compile would still go "
-               "green because "
-               (cond
-                 (and (= coord 'day8/re-frame2-schemas)
-                      (= substrate :reagent))
-                 "day8/re-frame2-xray depends on schemas transitively"
-                 (contains? (set (get substrate-dep-symbols substrate)) coord)
-                 (str "the " (name substrate) " adapter :local/root pulls it "
-                      "transitively")
-                 :else
-                 "it may resolve through another coord transitively")
-               " — masking the missing DIRECT dependency the skill teaches. "
-               "Add it to skill-deps-edn (and confirm the skill reference "
-               "still documents it as day-one)."))))
-  deps-map)
+(deftest setup-skill-leaves-are-the-template-emission-test
+  (testing "the setup skill's generated regions equal a real deps-new emission for acme/my-app, byte for byte"
+    (let [reagent    (emit-reference-project! :reagent)
+          uix        (emit-reference-project! :uix)
+          differs    (into (sorted-map)
+                           (filter (fn [[path body]] (not= body (get reagent path))) uix))
+          ;; The display label rides `{{substrate-label}}` into two files the
+          ;; skill does not re-ship: their UIx bodies must be the Reagent
+          ;; bodies with the label swapped, and nothing more.
+          label-only (into (sorted-map)
+                           (filter (fn [[path body]]
+                                     (= body (string/replace (get reagent path "") "Reagent" "UIx")))
+                                   differs))
+          swapped    (apply dissoc differs (keys label-only))]
+      (is (= 12 (count reagent))
+          (str "the template's Reagent emission is not twelve files: " (pr-str (keys reagent))))
+      (assert-leaf-equals-emission! "first-counter.md" (read-leaf-files "first-counter.md") reagent)
+      (is (= #{"README.md" "package.json"} (set (keys label-only)))
+          (str "the files that differ between substrates by the display label alone are "
+               (pr-str (keys label-only)) " — the setup skill's UIx route tells the author "
+               "to swap the label in README.md and package.json; revisit that sentence."))
+      (is (= #{"deps.edn" "src/acme/my_app/core.cljs" "src/acme/my_app/views.cljs"}
+             (set (keys swapped)))
+          (str "the two substrates now differ structurally in " (pr-str (keys swapped))
+               " — the setup skill's UIx route is documented as a three-file swap; "
+               "regenerate the leaves and update SKILL.md cardinal rule 3 together."))
+      (assert-leaf-equals-emission! "entry-namespace.md §UIx greenfield"
+                                    (read-leaf-files "entry-namespace.md") swapped))))
 
 ;; --- materialisation -------------------------------------------------------
 
-(defn- materialise-skill-scaffold!
-  "Write the setup-skill scaffold for `substrate` into `proj-dir` from the
-  skill's own markdown fenced blocks (the load-bearing surfaces) plus a
-  synthesised, dependency-honest framework `deps.edn`. Returns proj-dir.
+(defn- materialise-leaf!
+  "Write `files` (path → body) under `proj-dir` exactly as shipped."
+  [^java.io.File proj-dir files]
+  (doseq [[path body] files]
+    (let [f (io/file proj-dir path)]
+      (.mkdirs (.getParentFile f))
+      (spit f body)))
+  proj-dir)
 
-  Build wiring is PER-ROUTE (rf2-hki2j): the Reagent route takes the
-  Xray-wired blocks from `references/shadow-cljs.md`; the UIx route takes
-  the Xray-free variants from `references/entry-namespace.md` §UIx
-  greenfield (no :devtools preload, no [data-rf-xray-host] aside, no
-  .rf2-xray-host CSS — the panel cannot mount on element substrates):
-    deps.edn                        (synthesised — see skill-deps-edn;
-                                     shape-asserted before any rewrite)
-    shadow-cljs.edn                 (the route's :builds block)
-    resources/public/index.html     (the route's html block)
-    resources/public/css/app.css    (the route's css block)
+(def ^:private reduced-day-one-coords
+  #{'org.clojure/clojure 'org.clojure/clojurescript
+    'day8/re-frame2 'day8/re-frame2-reagent 'reagent/reagent})
 
-  Reagent route (from `references/first-counter.md`):
-    src/your_app/core.cljs          (the one-file counter block)
+;; --- the click-path witness ------------------------------------------------
 
-  UIx route (shared-dataflow.md + entry-namespace.md):
-    src/your_app/events.cljs        (shared-dataflow.md events block)
-    src/your_app/subs.cljs          (shared-dataflow.md subs block)
-    src/your_app/schema.cljs        (shared-dataflow.md schema block)
-    src/your_app/core.cljs          (entry-namespace.md substrate core block)
-    src/your_app/views.cljs         (entry-namespace.md substrate views block)"
-  [^java.io.File proj-dir substrate pins]
-  (let [refs        @skill-setup-refs
-        reagent?    (= substrate :reagent)
-        ;; Per-route build-wiring source: Reagent reads shadow-cljs.md
-        ;; (the FIRST ```clojure block carrying a `:builds` map — later
-        ;; clojure blocks are the deps.edn :shadow alias fragment etc.);
-        ;; UIx reads the Xray-free variants in entry-namespace.md §UIx
-        ;; greenfield (its only :builds/html/css blocks).
-        wiring-md   (slurp (io/file refs (if reagent?
-                                           "shadow-cljs.md"
-                                           "entry-namespace.md")))
-        wiring-where (if reagent?
-                       "in shadow-cljs.md"
-                       "in entry-namespace.md §UIx greenfield")
-        shadow-edn  (single-fenced-block wiring-md "clojure"
-                                         (str wiring-where " (the :builds block)")
-                                         #(string/includes? % ":builds"))
-        index-html  (single-fenced-block wiring-md "html" wiring-where)
-        app-css     (single-fenced-block wiring-md "css" wiring-where)
-        deps        (skill-deps-edn substrate pins)]
-    (.mkdirs (io/file proj-dir "src/your_app"))
-    (.mkdirs (io/file proj-dir "resources/public/css"))
-    ;; Dependency-honesty net: prove every direct day-one coord the skill
-    ;; documents is present BEFORE rewrite-deps-for-local-run! can inject a
-    ;; :local/root (or a transitive Xray/adapter edge can mask an omission).
-    (assert-skill-deps-shape! substrate deps)
-    (spit (io/file proj-dir "deps.edn")
-          (with-out-str (pprint/pprint deps)))
-    (spit (io/file proj-dir "shadow-cljs.edn") shadow-edn)
-    (spit (io/file proj-dir "resources/public/index.html") index-html)
-    (spit (io/file proj-dir "resources/public/css/app.css") app-css)
-    (if (= substrate :reagent)
-      ;; Reagent: the whole-file counter — the only ```clojure block in
-      ;; first-counter.md. ns `your-app.core` → src/your_app/core.cljs.
-      (let [first-counter (slurp (io/file refs "first-counter.md"))
-            core-cljs     (single-fenced-block first-counter "clojure"
-                                               "in first-counter.md")]
-        (spit (io/file proj-dir "src/your_app/core.cljs") core-cljs))
-      ;; UIx: the substrate-neutral dataflow (events/subs/schema
-      ;; from shared-dataflow.md) + the substrate entry ns + views (from
-      ;; entry-namespace.md). This is the COMPLETE emitted project for a
-      ;; non-Reagent greenfield — nothing from first-counter.md.
-      (let [shared      (slurp (io/file refs "shared-dataflow.md"))
-            entry       (slurp (io/file refs "entry-namespace.md"))
-            sub-name    (name substrate)
-            events      (single-fenced-block
-                          shared "clojure" "(events.cljs) in shared-dataflow.md"
-                          #(string/includes? % "(ns your-app.events"))
-            subs        (single-fenced-block
-                          shared "clojure" "(subs.cljs) in shared-dataflow.md"
-                          #(string/includes? % "(ns your-app.subs"))
-            schema      (single-fenced-block
-                          shared "clojure" "(schema.cljs) in shared-dataflow.md"
-                          #(string/includes? % "(ns your-app.schema"))
-            ;; Select the substrate core/views blocks by a
-            ;; substrate-unique token: UIx core requires `uix.dom`,
-            ;; UIx views use `defui`. (One-arm `case` — a future
-            ;; substrate route fails loudly here.)
-            core-token  (case substrate :uix "uix.dom")
-            views-token (case substrate :uix "defui")
-            core-cljs   (single-fenced-block
-                          entry "clojure"
-                          (str "(" sub-name " core.cljs) in entry-namespace.md")
-                          #(and (string/includes? % "(ns your-app.core")
-                                (string/includes? % core-token)))
-            views-cljs  (single-fenced-block
-                          entry "clojure"
-                          (str "(" sub-name " views.cljs) in entry-namespace.md")
-                          #(and (string/includes? % "(ns your-app.views")
-                                (string/includes? % views-token)))]
-        (spit (io/file proj-dir "src/your_app/events.cljs") events)
-        (spit (io/file proj-dir "src/your_app/subs.cljs")   subs)
-        (spit (io/file proj-dir "src/your_app/schema.cljs") schema)
-        (spit (io/file proj-dir "src/your_app/core.cljs")   core-cljs)
-        (spit (io/file proj-dir "src/your_app/views.cljs")  views-cljs)))
-    proj-dir))
+(defn- run-broken-click-witness!
+  "The red witness for the click path: make `views.cljs` dispatch an event
+  nobody registers, recompile, run the SAME driver, and require it to fail
+  (exit 1) — the page still paints (init and the mount are untouched), but
+  the click never moves the counter. Restores `views.cljs` byte for byte;
+  the compiled bundle is left broken because nothing after this reads it."
+  [^java.io.File root ^java.io.File proj label env]
+  (testing (str label " — broken-click witness (the boot proof goes RED when the "
+                "button dispatches an unregistered event)")
+    (let [views    (io/file proj "src/acme/my_app/views.cljs")
+          original (slurp views)
+          broken   (string/replace original ":counter/increment" ":counter/incremnt")]
+      (is (not= original broken)
+          "the witness must actually change views.cljs: it dispatches :counter/increment")
+      (try
+        (spit views broken)
+        (let [{:keys [exit out]}
+              (run-process! ["clojure" "-M:shadow" "-m" "shadow.cljs.devtools.cli"
+                             "compile" "app"]
+                            proj env)]
+          (is (zero? exit)
+              (str "the broken-click recompile must itself succeed — an unregistered "
+                   "event id is a runtime miss, not a compile error; exited " exit
+                   ". Output:\n" out)))
+        (let [{:keys [exit out]}
+              (run-boot-proof-driver! root proj (str label " (broken click)")
+                                      {"RF2_TEMPLATE_BROWSER_PROOF_TIMEOUT_MS" "8000"})]
+          (is (= 1 exit)
+              (str "the dev-page boot proof must go RED (exit 1) when the +1 button "
+                   "dispatches an unregistered event; it exited " exit
+                   ". A green here means the click tooth is inert. Output:\n" out))
+          (when (= 1 exit)
+            (println (str "  [broken-click witness] " label ": the boot proof went RED "
+                          "(exit 1) with the button dispatching an unregistered event, "
+                          "as required."))))
+        (finally
+          (spit views original)))
+      (is (= original (slurp views))
+          "views.cljs is restored byte-for-byte after the witness"))))
 
 ;; --- the fixture -----------------------------------------------------------
 
-(defn- compile-skill-scaffold! [substrate]
-  (let [root (repo-root)
-        pins (harvest-skill-deps-inputs substrate)
-        tmp  (tmp-dir (str "rf2-skill-scaffold-" (name substrate) "-"))]
+(defn- mount-skill-scaffold! []
+  (let [root  (repo-root)
+        label "setup-skill default scaffold"
+        tmp   (tmp-dir "rf2-setup-scaffold-")]
     (try
-      (let [proj (io/file (.toString tmp) "my-app")]
+      (let [files (read-leaf-files "first-counter.md")
+            proj  (io/file (.toString tmp) "my-app")]
         (.mkdirs proj)
-        (materialise-skill-scaffold! proj substrate pins)
-        ;; The synthesised deps.edn carries placeholder :mvn/version
-        ;; framework coords; rewrite them to :local/root against the
-        ;; monorepo — same path the generator-template variants take.
-        (rewrite-deps-for-local-run! root proj substrate)
+        (is (= 12 (count files))
+            (str "first-counter.md must carry the twelve-file manifest; found "
+                 (count files) ": " (pr-str (keys files))))
+        (materialise-leaf! proj files)
+
+        ;; --- SKILL.md step 2: point the two framework coords at the checkout.
+        ;; `rewrite-deps-for-local-run!` is the function the template tiers
+        ;; use; it rewrites core + the adapter and nothing else, which is
+        ;; exactly the leaf's day-one set. The shape assertion below is the
+        ;; dependency-honesty tooth: the shipped deps.edn must carry the
+        ;; reduced set directly, not resolve anything through a transitive
+        ;; edge, and the step must leave both framework coords as :local/root.
+        (rewrite-deps-for-local-run! root proj :reagent)
+        (let [deps (edn/read-string (slurp (io/file proj "deps.edn")))]
+          (is (= reduced-day-one-coords (set (keys (:deps deps))))
+              (str "the shipped default deps.edn must carry exactly the reduced day-one "
+                   "set (clojure, clojurescript, core, the Reagent adapter, reagent); got "
+                   (pr-str (sort (keys (:deps deps)))) ". " regenerate-hint))
+          (is (every? #(contains? (get-in deps [:deps %]) :local/root)
+                      ['day8/re-frame2 'day8/re-frame2-reagent])
+              "the documented pre-publish step must leave both framework coords as :local/root"))
+
         (let [linked?   (link-node-modules! root proj)
               node-path (.getCanonicalPath (io/file root "implementation/node_modules"))
               env       {"NODE_PATH" node-path}]
           (is linked?
-              (str "project-local node_modules must resolve for the setup-skill "
-                   (name substrate) " scaffold's `:app` (:browser) compile — it "
-                   "ignores NODE_PATH. Symlink/junction into " (.getPath proj)
-                   " failed; ensure implementation/node_modules exists "
-                   "(`npm install` in implementation/) and the OS allows a "
-                   "symlink or `mklink /J` junction."))
+              (str "project-local node_modules must resolve for the shipped scaffold's "
+                   "`:app` (:browser) compile — it ignores NODE_PATH. Symlink/junction "
+                   "into " (.getPath proj) " failed; ensure implementation/node_modules "
+                   "exists (`npm ci` in implementation/) and the OS allows a symlink or "
+                   "`mklink /J` junction."))
 
-          ;; --- assert the scaffold wires the PER-ROUTE Xray contract BEFORE
-          ;; compiling (cheap structural locks on the extracted snippets).
-          ;; Reagent ships the day-one preload + host; the UIx route ships
-          ;; NEITHER (Xray cannot mount on element substrates — rf2-hki2j /
-          ;; rf2-p6f6u). -----------------------------------------------------
-          (testing (str "setup-skill " (name substrate)
-                        " scaffold wires the per-route Xray contract")
-            (let [shadow-text (slurp (io/file proj "shadow-cljs.edn"))
-                  html-text   (slurp (io/file proj "resources/public/index.html"))]
-              (if (= substrate :reagent)
-                (do
-                  (is (string/includes? shadow-text "day8.re-frame2-xray.preload")
-                      (str "the skill's day-one shadow-cljs.edn block "
-                           "(references/shadow-cljs.md) no longer wires "
-                           "`:devtools {:preloads [day8.re-frame2-xray.preload]}`. "
-                           "Xray is a Reagent-route day-one dep and index.html "
-                           "ships the host column — the canonical block must "
-                           "wire the preload that fills it."))
-                  (is (string/includes? html-text "data-rf-xray-host")
-                      (str "the skill's index.html block (references/shadow-cljs.md) "
-                           "no longer carries the `[data-rf-xray-host]` Xray layout "
-                           "host column.")))
-                (do
-                  (is (and (not (string/includes? shadow-text "day8.re-frame2-xray"))
-                           (not (string/includes? shadow-text ":devtools")))
-                      (str "the skill's UIx shadow-cljs.edn block "
-                           "(references/entry-namespace.md §UIx greenfield) "
-                           "wires a devtools preload — the UIx route ships no "
-                           "Xray (the panel cannot mount on element "
-                           "substrates; rf2-hki2j)."))
-                  (is (not (string/includes? html-text "data-rf-xray-host"))
-                      (str "the skill's UIx index.html block "
-                           "(references/entry-namespace.md §UIx greenfield) "
-                           "carries the `[data-rf-xray-host]` column — no "
-                           "panel can fill it on this route (rf2-hki2j)."))))))
-
-          ;; --- compile the :app build -------------------------------------
-          (testing (str "setup-skill " (name substrate)
-                        " scaffold — clojure -M:shadow compile app")
-            ;; The harvested :shadow alias is deps-only (no :main-opts),
-            ;; so name the shadow CLI ns explicitly — same rationale as
-            ;; the template variants above.
+          ;; --- compile: both builds the shipped shadow-cljs.edn declares ------
+          (testing (str label " — clojure -M:shadow compile app test")
             (let [{:keys [exit out]}
-                  (run-process! ["clojure" "-M:shadow"
-                                 "-m" "shadow.cljs.devtools.cli"
-                                 "compile" "app"] proj env)]
+                  (run-process! ["clojure" "-M:shadow" "-m" "shadow.cljs.devtools.cli"
+                                 "compile" "app" "test"]
+                                proj env)]
               (is (zero? exit)
-                  (str "`clojure -M:shadow compile app` exited " exit
-                       " for the MANUAL setup-skill " (name substrate)
-                       " scaffold. The skill's hand-written greenfield counter "
-                       "(skills/re-frame2-setup/references/"
-                       (if (= substrate :reagent)
-                         "first-counter.md"
-                         "shared-dataflow.md + entry-namespace.md")
-                       " + shadow-cljs.md) no longer compiles against the "
-                       "in-repo re-frame2 source. Its schema-bearing boot "
-                       "ceremony (`make-frame` → `with-frame` / "
-                       "`register-schema!` / `dispatch-sync` → scoped "
-                       "`frame-provider {:frame …}` render) diverges from the "
-                       "generator template, so the template variants above "
-                       "can't catch this. Output:\n" out))
-              ;; A zero-exit with no emitted bundle would false-green.
+                  (str "`clojure -M:shadow compile app test` exited " exit
+                       " for the setup skill's SHIPPED default scaffold "
+                       "(skills/re-frame2-setup/references/first-counter.md, the twelve "
+                       "files an author gets). Output:\n" out))
               (let [bundle (io/file proj "resources/public/js/main.js")]
                 (is (and (.isFile bundle) (pos? (.length bundle)))
-                    (str "`compile app` must emit a non-empty "
-                         "resources/public/js/main.js for the setup-skill "
-                         (name substrate) " scaffold. Bundle: "
-                         (if (.isFile bundle)
-                           (str (.length bundle) " bytes")
-                           "absent"))))))))
+                    (str "`compile app` must emit a non-empty resources/public/js/main.js "
+                         "for the shipped scaffold. Bundle: "
+                         (if (.isFile bundle) (str (.length bundle) " bytes") "absent"))))))
+
+          ;; --- the consumer-realism tooth, before anything overwrites the bundle
+          (assert-emitted-package-json-complete! root proj label)
+
+          ;; --- the mounted counter: heading, 0, click, 1, zero pageerrors -----
+          ;; RF2_TEMPLATE_EXPECT_H1 pins the heading TEXT: `acme/my-app` comes
+          ;; from the shipped views.cljs, so a passing proof is positive
+          ;; evidence that the leaf's source — not a stale bundle — is what
+          ;; the browser rendered.
+          (let [proof-exit
+                (testing (str label " — Chromium dev-page boot proof (heading acme/my-app "
+                              "painted, counter 0 -> 1, zero pageerror)")
+                  (let [{:keys [exit out]}
+                        (run-boot-proof-driver! root proj label
+                                                {"RF2_TEMPLATE_EXPECT_H1" "acme/my-app"})]
+                    (check-browser-proof!
+                      (str "dev-page boot proof -- " label)
+                      "dev-page boot"
+                      exit out
+                      (str "the shipped scaffold's dev-page boot proof exited " exit
+                           " — the page an author opens after `npx shadow-cljs watch app` "
+                           "did not paint the heading `acme/my-app` with the counter at 0, "
+                           "or the click did not move it to 1, or Chromium raised an "
+                           "uncaught pageerror. Output:\n" out))
+                    exit))]
+
+            ;; --- the starter test the scaffold ships, under Node ----------------
+            (testing (str label " — node out/node-test.js (the shipped events_test.cljs)")
+              (let [bundle (io/file proj "out/node-test.js")]
+                (is (.isFile bundle)
+                    "the compile step produced out/node-test.js for the shipped scaffold")
+                (when (.isFile bundle)
+                  (let [{:keys [exit out]} (run-process! ["node" "out/node-test.js"] proj env)]
+                    (is (zero? exit)
+                        (str "`node out/node-test.js` exited " exit
+                             " for the shipped scaffold. Output:\n" out))
+                    (is (re-find #"Ran \d+ tests? containing \d+ assertions" out)
+                        (str "expected the cljs.test summary line. Got:\n" out))
+                    (is (re-find #"0 failures, 0 errors" out)
+                        (str "expected '0 failures, 0 errors'. Got:\n" out))))))
+
+            ;; --- the proof must bite, on both axes AC5 names --------------------
+            (when (= 0 proof-exit)
+              (run-broken-boot-witness! root proj label)
+              (run-broken-click-witness! root proj label env)))))
       (finally
         (delete-recursively tmp)))))
 
-(deftest setup-skill-scaffold-compiles-test
-  ;; The interim real-compile cover for the MANUAL setup-skill scaffold,
-  ;; for EACH documented substrate route (Reagent / UIx) — each
-  ;; materialised solely from shipped skills/re-frame2-setup references and
-  ;; compiled with exactly its documented direct day-one dependencies. The
-  ;; per-PR published-coordinate buildability gate stays deferred to
-  ;; publication. Semantic-drift net: proves the skill's own fenced
-  ;; snippets compile against the monorepo source AND that each route's
-  ;; deps.edn is dependency-honest (assert-skill-deps-shape!), NOT that a
-  ;; published coord resolves. Same `RF2_TEMPLATE_RUN_EMITTED_TESTS` gate
-  ;; as the template variants above; `:app`-only compile (the skill's
-  ;; day-one block ships a single `:app` build, no `:test` build).
-  (testing "the re-frame2-setup skill's hand-written greenfield scaffold
-            compiles against the in-repo source for EACH documented
-            substrate (Reagent / UIx), each with exactly its
-            documented direct day-one dependencies"
+(deftest setup-skill-default-scaffold-mounts-test
+  ;; The black-box fixture for the setup skill's default route: the EXACT
+  ;; shipped source (not a re-derivation) is what gets materialised, so a
+  ;; regression in the leaf itself — a hand edit inside the generated
+  ;; region, a stale render, a placeholder — reaches the compile and the
+  ;; browser. Same RF2_TEMPLATE_RUN_EMITTED_TESTS gate as the template
+  ;; tiers; in-repo :local/root coords, not a published-coordinate proof.
+  (testing "the setup skill's shipped default scaffold resolves, compiles, boots in
+            Chromium with the heading and 0, moves to 1 on click, runs its starter
+            test, and the proof goes red when the mount node or the click path breaks"
     (if-not @enabled?
-      (skip-if-disabled! "setup-skill-scaffold")
+      (skip-if-disabled! "setup-skill default scaffold")
       (do (is @clojure-cli-available?
               "`clojure` CLI must be on PATH when RF2_TEMPLATE_RUN_EMITTED_TESTS=1")
-          (when @clojure-cli-available?
-            (doseq [substrate [:reagent :uix]]
-              (testing (str "— " (name substrate) " route")
-                (compile-skill-scaffold! substrate))))))))
+          (is @node-available?
+              "`node` must be on PATH when RF2_TEMPLATE_RUN_EMITTED_TESTS=1")
+          (when (and @clojure-cli-available? @node-available?)
+            (mount-skill-scaffold!))))))

@@ -69,6 +69,8 @@ const { chromium } = require(require.resolve('playwright', { paths: [IMPL_ROOT] 
 
 const BOOT_PAGE = '/index.html';
 const TIMEOUT_MS = parseInt(process.env.RF2_TEMPLATE_BROWSER_PROOF_TIMEOUT_MS || '30000', 10);
+// Optional: the exact <h1> text the mounted page must show (unset = any non-empty heading).
+const EXPECT_H1 = process.env.RF2_TEMPLATE_EXPECT_H1 || '';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -216,6 +218,19 @@ function diagnose(lines) {
           (hints.length ? `\nLikely cause:\n  - ${hints.join('\n  - ')}` : '') +
           `\n(underlying wait: ${waitErr.message.split('\n')[0]})`,
       );
+    }
+
+    // -- Tooth 1b (optional): the heading TEXT is the one the caller expects.
+    // Set RF2_TEMPLATE_EXPECT_H1 to pin it — the setup-skill fixture does,
+    // because the heading comes from the shipped views.cljs, so a match is
+    // positive evidence that the source under test is what the browser ran.
+    if (EXPECT_H1) {
+      const h1 = await page.evaluate(() =>
+        (document.querySelector('#app h1').textContent || '').trim(),
+      );
+      if (h1 !== EXPECT_H1) {
+        throw new Error(`expected the heading to read '${EXPECT_H1}', got '${h1}'`);
+      }
     }
 
     // -- Tooth 2: the dataflow is LIVE — clicking +1 moves the counter -------
