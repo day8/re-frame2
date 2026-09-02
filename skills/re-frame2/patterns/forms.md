@@ -17,14 +17,14 @@ The prompt mentions: a form, validation, "show errors after submit", inline fiel
 - **`reg-event :form.feature/edit-field`** — update `:draft`; add the field to `:touched` (returns `{:db ...}`).
 - **`reg-event :form.feature/blur-field`** — add to `:touched` (if not already); run per-field validation (returns `{:db ...}`).
 - **`reg-event :form.feature/submit`** — run full validation, latch `:submit-attempted? true`, dispatch the request, set `:status :submitting` (returns `{:db ... :fx ...}`).
-- **`reg-event :form.feature/submit-success` / `:submit-error`** — fold the server reply. **Structured server errors land in `:errors`** (same slot as client-side validation, including the reserved `:_form` key); **transport / non-field failures land in `:submit-error`**. Both set `:status :error`.
+- **`reg-event :form.feature/submit-success` / `:submit-error`** — fold the server reply; the failure arm splits it across `:errors` and `:submit-error` per rule 2 below, and sets `:status :error`.
 - **Layered convenience subs** — `:field-error` (per-field; shows when touched OR submit-attempted), `:form-errors` (reads `:_form`, always visible), `:dirty?` (draft differs from `:submitted` when non-nil, otherwise from defaults), `:can-submit?` (no errors AND not currently submitting).
 - **(machine variant) `reg-machine` with `:initial :neutral` + states `:neutral :incorrect :submitting :correct` + `:tags`** — the lifecycle as machine states. `:rf.machine/has-tag?` answers `@(rf/subscribe [:rf.machine/has-tag? :form-id :form/in-flight])` in place of `:submitting?` (the sub returns a reaction — deref it).
 
 Two non-obvious rules:
 
 1. **`:_form` is the reserved key inside `:errors`** for form-level errors (cross-field validation, server-returned "credentials invalid"). Always visible whenever present — does not gate on `:touched` or `:submit-attempted?`. Field ids must not collide with `:_form`.
-2. **`:errors` vs `:submit-error`**: structured field errors → `:errors`; unstructured transport failures (network down, 500 with no body, timeout) → `:submit-error`. Same `:status :error`; different render path.
+2. **`:errors` vs `:submit-error`**: structured field errors → `:errors` (the same slot as client-side validation, `:_form` included); unstructured transport failures (network down, 500 with no body, timeout) → `:submit-error`. Same `:status :error`; different render path.
 
 ## Auth / secret-bearing forms (load-bearing — read for any login / signup / 2FA / password-change shape)
 
@@ -41,13 +41,8 @@ Worked auth example — minimal diff from the slice form above:
 ;; The standard `[:rf.interceptor/path [:auth :login]]` ref focuses the
 ;; handler's :db onto the [:auth :login] slice — the body reads/writes
 ;; slice-relative paths ([:draft], [:status]), NOT full app-db paths, and the
-;; returned :db is spliced back into the slice. NOTE: a schema slot's
-;; `:sensitive? true` prop only redacts that schema's OWN validation-failure
-;; traces — it does NOT classify the durable app-db draft path (spec 015
-;; §Schemas describe shape). Keep the password out of app-db egress by clearing
-;; it on submit (below) and/or classifying the writing path with a commit-plane
-;; `:sensitive` effect ({:db … :sensitive [[:auth :login :draft :password]]}).
-;; The handler body still sees the real password via the :event coeffect.
+;; returned :db is spliced back into the slice. The handler body still sees the
+;; real password via the :event coeffect.
 (rf/reg-event :form.login/submit
   {:interceptors [[:rf.interceptor/path [:auth :login]]]}
   (fn [{:keys [db]} _]                          ;; db here IS the [:auth :login] slice
@@ -69,13 +64,13 @@ Worked auth example — minimal diff from the slice form above:
         {:db (assoc db' :errors errors)}))))
 ```
 
-For 2FA flows, the same shape applies to the TOTP / recovery-code field. Clear the `[:auth :2fa-verify :draft :totp-code]` path after submit, and — if the value ever lands durably — classify it via the writing handler's commit-plane `:sensitive` effect; a schema `:sensitive?` prop alone does not classify the durable slot.
+For 2FA flows the same shape applies to the TOTP / recovery-code field — clear `[:auth :2fa-verify :draft :totp-code]` after submit, and classify it at its owner if it ever lands durably. A schema slot's `:sensitive? true` prop does **not** do that job: it only redacts that schema's own validation-failure traces, never the durable app-db path (spec 015 §Schemas describe shape).
 
-This is a complement to, not a replacement for, the slice form above — apply the four disciplines only on auth / 2FA / password-change / API-key-rotation flows. Everyday forms (settings, article-editor, comments) keep the plain slice shape.
+Everyday forms (settings, article-editor, comments) keep the plain slice shape.
 
 ## Canonical declaration — slice form
 
-The dominant shape. Lifted from `spec/Pattern-Forms.md` (mirrored in `examples/real-apps/realworld_http/auth.cljs` for the `:auth :login-form` and `:auth :register-form` slices, and in `examples/real-apps/realworld_http/article_editor.cljs` and `comments.cljs`).
+The dominant shape. Lifted from `spec/Pattern-Forms.md`; the mirrors are under §Worked example below.
 
 ```clojure
 (def FormSlice
@@ -172,14 +167,14 @@ Used when the form's lifecycle is *part of* a larger page's machine (composes wi
                  :on {:edit {:target :neutral :action :edit-field}}}}})
 ```
 
-The lifecycle maps onto state-keywords. The slice's `:status` field disappears. The view's `:submitting?` boolean becomes `@(rf/subscribe [:rf.machine/has-tag? :settings/form :settings/in-flight])` — the view doesn't need to know which state-keyword carries the in-flight intent; the tag does. The slice's `:draft` / `:errors` / `:touched` / `:submit-error` / `:submitted` live in the machine's `:data` map.
+The lifecycle maps onto state-keywords, so the slice's `:status` field disappears and its `:draft` / `:errors` / `:touched` / `:submit-error` / `:submitted` live in the machine's `:data` map. The view asks the tag rather than the state-keyword, so it never needs to know which state carries the in-flight intent.
 
 ## When to choose each form
 
 - **Slice form** — single form, no concurrent axes, validation is synchronous, view code is straightforward. The vast majority of cases.
 - **Machine form** — the form is one region of a parallel page machine (composes with `patterns/nine-states.md`); OR the lifecycle wants `:spawn` (e.g. an async per-field validator as a child actor); OR the team wants tag-shaped queries.
 
-Realworld ships both shapes side-by-side. `:auth :login-form`, `:auth :register-form`, `:editor`, `:comment-form` use the slice form; `:settings/form` uses the machine form. `examples/real-apps/realworld_http/settings.cljs`'s machine header holds the two shapes up side by side, down to the `:submitting?` boolean becoming a tag question.
+Realworld ships both shapes side-by-side. `:auth :login-form`, `:auth :register-form`, `:editor`, `:comment-form` use the slice form; `:settings/form` uses the machine form, and that file's machine header holds the two up against each other.
 
 ## Common variations
 
@@ -196,15 +191,14 @@ Realworld ships both shapes side-by-side. `:auth :login-form`, `:auth :register-
 
 ## Why error visibility hinges on `submit-attempted? OR touched`
 
-Three options for "when do per-field errors show?": **Always** (blank required fields on first render — hostile); **only when touched** (a still-empty required field stays invisibly invalid after a submit attempt — hidden); **touched OR submit-attempted?** (after the first submit, every error shows regardless of whether that field was touched). Only the third handles "user pressed submit on a half-filled form". The `:submit-attempted?` latch is `false` until the first submit click, then `true` forever. The `:field-error` convenience sub bakes the rule in; views read `@(subscribe [:form.login/field-error :email])` and don't reason about visibility.
+Three options for "when do per-field errors show?": **Always** (blank required fields on first render — hostile); **only when touched** (a still-empty required field stays invisibly invalid after a submit attempt — hidden); **touched OR submit-attempted?** (after the first submit, every error shows regardless of whether that field was touched). Only the third handles "user pressed submit on a half-filled form". The `:submit-attempted?` latch is `false` until the first submit click, then `true` forever, and the `:field-error` sub bakes the rule in so views never reason about visibility.
 
-`:_form` (the reserved form-level errors key) is always visible whenever present — cross-field errors and server-rejection banners aren't bound to a single field, so the gate doesn't apply.
+The `:_form` gate doesn't apply at all: cross-field errors and server-rejection banners aren't bound to a single field.
 
 ## Deeper pointers
 
 - Spec: `SKILL-REDIRECT.md` → *Pattern — Forms* (full slice schema, conformance checklist, async-validation composition, SSR considerations).
 - Substrate: `SKILL-REDIRECT.md` → *EP — Schemas (010)* (boundary validation), *EP — State machines (005)* (machine form).
-- Compose: `patterns/nine-states.md` (the `:form` region of a parallel machine), `patterns/remote-data.md` (the submit's request lifecycle).
 
 ---
 

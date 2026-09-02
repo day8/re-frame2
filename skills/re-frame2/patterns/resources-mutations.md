@@ -1,6 +1,6 @@
 # Pattern — Resource Mutations
 
-The **write** counterpart to [Pattern-Resources](resources.md): `reg-mutation` registers a named WRITE that, on success, patches / populates / invalidates the cached reads [`resources.md`](resources.md) owns. Keyed by **instance id**, so two concurrent submissions never clobber each other. This leaf covers the mutation surface — declaration, the workflow-vs-cache split, `:reply-to`, scoped invalidation descriptors, exact-target populate/patch/removes, and optimistic plans. The read side (`reg-resource`, scope resolution, `ensure` / owners / causes) lives in [`resources.md`](resources.md).
+The **write** counterpart to [Pattern-Resources](resources.md): `reg-mutation` registers a named WRITE that, on success, patches / populates / invalidates the cached reads `resources.md` owns. Keyed by **instance id**, so two concurrent submissions never clobber each other. This leaf covers the mutation surface — declaration, the workflow-vs-cache split, `:reply-to`, scoped invalidation descriptors, exact-target populate/patch/removes, and optimistic plans.
 
 > **Mental-model anchor:** `reg-mutation` + `[:rf.mutation/execute …]` is re-frame2's **`useMutation`**; call-site **`:reply-to`** is its **`onSuccess`** — but the continuation is a *causal event target*, not a callback (the runtime dispatches your event with a reply map after cache consequences settle, so it lands on the event tape: replayable, traced, interceptor-visible). The full TanStack / RTK-Query mapping is in [`resources.md`](resources.md)'s mental-model table.
 
@@ -8,11 +8,9 @@ The **write** counterpart to [Pattern-Resources](resources.md): `reg-mutation` r
 
 ## When to load
 
-The prompt mentions: a **mutation** that updates cached reads, "navigate / show a toast / update state **after** a write succeeds" (mutation completion / `:reply-to` workflow continuation — the `onSuccess` shape), invalidating facts in **different scopes** from one write (per-target descriptors), an **optimistic** update (a heart flips before the reply lands), or "seed the detail entry from the reply" (populate). Load [`resources.md`](resources.md) alongside for the read-side cache these writes keep coherent.
+The prompt mentions: a **mutation** that updates cached reads, "navigate / show a toast / update state **after** a write succeeds" (mutation completion / `:reply-to` workflow continuation — the `onSuccess` shape), invalidating facts in **different scopes** from one write (per-target descriptors), an **optimistic** update (a heart flips before the reply lands), or "seed the detail entry from the reply" (populate). Load [`resources.md`](resources.md) alongside for the read side.
 
 ## Mutations — the causal write counterpart
-
-A mutation is a named WRITE that, on success, patches / populates / invalidates cached reads. Keyed by **instance id**, so two concurrent submissions never clobber each other.
 
 ```clojure
 (rf/reg-mutation
@@ -36,7 +34,7 @@ A mutation is a named WRITE that, on success, patches / populates / invalidates 
 
 `:patches` / `:populates` (optional) transform / seed resource entries before the success-time invalidation. For a write whose effect should show *immediately* — before the reply lands — declare an **optimistic plan** (`:optimistic` / `:optimistic-tags`); the runtime records the inverse and commits / rolls back / reconciles on settle (see [§Optimistic mutations](#optimistic-mutations-apply-before-the-reply)). Do **not** hand-roll optimistic rollback against the reserved cache keys.
 
-The mutation request fn returns a managed-HTTP args map but MUST NOT supply `:request-id` / `:on-success` / `:on-failure` — the runtime owns reply addressing and stale suppression. Cross-cutting transport concerns (auth headers, retry) live in the managed-HTTP decoration seam that resource reads use too — see [`resources.md` §Request decoration](resources.md#request-decoration--auth-headers-retry-the-managed-http-seam).
+A mutation's request fn obeys the same contract as a resource's — no `:request-id` / `:on-success` / `:on-failure`, and cross-cutting transport concerns in the decoration seam: [`resources.md` §Request decoration](resources.md#request-decoration--auth-headers-retry-the-managed-http-seam).
 
 ### Two axes a mutation carries: cache consequences vs workflow
 
@@ -47,7 +45,7 @@ A write has two jobs, and re-frame2 keeps them on separate axes — the single r
 | **Cache consequences** — keep the cache coherent | **declarative on `reg-mutation`**: `:patches` / `:populates` / `:invalidates` | refresh the article list after a save; seed the detail entry from the reply |
 | **App workflow** — what the *app* does next | **call-site `:reply-to`** on `[:rf.mutation/execute …]` | navigate to the new slug; update the auth slice; show a toast; fold validation errors |
 
-Mantra: **`:reply-to` is for workflow; populate / patch / invalidate are for cache.** This is re-frame2's divergence from TanStack/RTK-Query's `onSuccess` callback — the continuation is a causal *event*, not a callback.
+Mantra: **`:reply-to` is for workflow; populate / patch / invalidate are for cache.**
 
 ## Mutation completion — `:reply-to` (workflow continuation)
 
@@ -79,7 +77,7 @@ Three load-bearing rules:
 - **Fires exactly once, after the cache settles.** Phase order is runtime-owned and deterministic: resolve scope → send → accept/suppress → **cache consequences** (`:patches` / `:populates` / `:invalidates`) → mutation instance settlement → **continuation**. So a `:reply-to` handler observes the cache already coherent and the instance already settled for that reply.
 - **Static args are preserved; the reply is appended after them.** `:reply-to [:toast/after-save {:kind :article}]` dispatches `[:toast/after-save {:kind :article} reply]`.
 
-Use this instead of the watcher-reaction idiom (watch `[:rf/mutation …]` from a component lifecycle hook, dispatch when it goes successful) — see [`patterns/stale-detection.md` §Post-mutation workflow](stale-detection.md). There is **no** registration-level `:reply-to` on `reg-mutation`: invariant workflow is spelled by every call site passing the same target; the cache plan covers the declarative half.
+There is **no** registration-level `:reply-to` on `reg-mutation`: invariant workflow is spelled by every call site passing the same target; the cache plan covers the declarative half.
 
 ## Per-target scoped invalidation (descriptors)
 
@@ -143,7 +141,7 @@ Populate is an **authoritative load**: a key seeded from an accepted reply becom
 ;;            [{:resource :article/by-slug :params {:slug slug} :scope :rf.scope/global}])
 ```
 
-`:populates` / `:patches` / `:removes` / `:invalidates` all receive `(params result)` — the one canonical mutation-consequence signature. Derive a db-relative scope through a **named resolver reference** (`{:from-db …}`), never by threading `db`/`ctx` into the callback.
+`:populates` / `:patches` / `:removes` / `:invalidates` all receive `(params result)` — the one canonical mutation-consequence signature.
 
 ## Optimistic mutations (apply before the reply)
 
@@ -189,7 +187,7 @@ Load-bearing rules:
 ## Anti-patterns
 
 - **Watching mutation state from a component to drive workflow.** Do not use the watcher-reaction idiom (a Form-3 lifecycle hook watching `[:rf/mutation …]` and dispatching when it goes successful) — use call-site **`:reply-to`**. The runtime owns when it accepted and settled the reply; let it produce the causal continuation. See [`patterns/stale-detection.md` §Post-mutation workflow](stale-detection.md).
-- **Putting app workflow on `reg-mutation`.** Navigation, toasts, auth-slice writes belong in the `:reply-to` handler (workflow axis), not in `:populates`/`:invalidates` (cache axis). Keep the two axes apart.
+- **Putting app workflow on `reg-mutation`.** Navigation, toasts, auth-slice writes belong in the `:reply-to` handler, not in `:populates`/`:invalidates` — keep the two axes apart.
 - **Threading `db`/`ctx` into a `:populates`/`:invalidates` callback** to compute a scope. The callback signature is `(params result)`; derive db-relative scope through a named resolver reference `{:from-db …}`, which tooling can name and which gives descriptors a stable reference.
 - **`:cross-scope? true` as the ergonomic mixed-scope path.** It is the audited escape for scopes the call site *can't* enumerate. When you can name the scopes, use per-target **descriptors** — `:cross-scope?` invalidates a tag across *every* viewer (a privacy-relevant broad op).
 - **Hand-rolling optimistic cache writes + rollback** against the reserved mutation keys. Optimistic mutations ship — declare a `reg-mutation` `:optimistic` / `:optimistic-tags` plan and let the runtime record the inverse and commit / roll back / reconcile on settle (see [§Optimistic mutations](#optimistic-mutations-apply-before-the-reply)). A hand-written inverse drifts from the forward patch and `assoc`-es into framework-owned runtime-db.
