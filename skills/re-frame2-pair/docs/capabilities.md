@@ -123,4 +123,4 @@ Full procedures in [`references/recipes.md`](../references/recipes.md).
 
 ---
 
-Notes column tracks the MCP-primary 29-tool surface. Complements [`STATUS.md`](../STATUS.md) (per-surface implementation state).
+Notes column tracks the MCP-primary 30-tool surface. Complements [`STATUS.md`](../STATUS.md) (per-surface implementation state).

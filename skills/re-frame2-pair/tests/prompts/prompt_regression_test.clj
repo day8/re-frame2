@@ -819,7 +819,7 @@
       ;; Sweep the plausible recent counts; the LIVE count is exempt. This
       ;; catches a doc that was missed when the catalogue grew/shrank.
       (doseq [[label md] count-docs
-              stale ["26" "27" "28" "30"]
+              stale ["26" "27" "28" "29" "30"]
               :when (not= stale live-s)]
         ;; Match the count only in a TOOL-catalogue framing ("NN tool" /
         ;; "NN-tool" / "all NN") so unrelated numerals (dates, line counts,
