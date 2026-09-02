@@ -52,7 +52,7 @@
   different question: does every control type named in
   [specification 4.2] have a support-or-refusal policy, in three engines,
   with none of them silently unsupported. That roster is
-  `implementation/hicasso/spec/dispositions.md` section 2.3, and these
+  `docs/design/hicasso/product/dispositions.md` section 2.3, and these
   are the controls it needs on screen:
 
   | control | policy behind it | what it is here to settle |

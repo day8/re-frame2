@@ -903,7 +903,7 @@ async function formResetAndFillProxy(page, w) {
 // seven model policies. The rows below are a different question — does
 // every control type specification 4.2 names have a support-or-refusal
 // policy that holds in three engines, with none of them silently
-// unsupported. `implementation/hicasso/spec/dispositions.md` section 2.3 is
+// unsupported. `docs/design/hicasso/product/dispositions.md` section 2.3 is
 // the roster and this block fills it.
 //
 // Three of these rows are FINDINGS rather than confirmations, and they are

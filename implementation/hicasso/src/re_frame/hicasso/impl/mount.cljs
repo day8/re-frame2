@@ -69,7 +69,7 @@
   `re-frame.hicasso.server/render` builds its element here too, so the
   bytes it emits and the tree `hydrate-root!` adopts agree on `useId`'s
   tree position by construction
-  (implementation/hicasso/spec/dispositions.md HS-11, obstruction 2;
+  (docs/design/hicasso/product/dispositions.md HS-11, obstruction 2;
   witnesses in docs/design/hicasso/architecture.md, section The root)."
   [handle hiccup]
   (let [app (provider (:frame handle)
@@ -272,7 +272,7 @@
   and this root's tree is `tree`'s Fragment rather than the bare app, so
   the server half must be `re-frame.hicasso.server/render`, which builds
   its element from the same function
-  (implementation/hicasso/spec/dispositions.md HS-11, obstruction 2;
+  (docs/design/hicasso/product/dispositions.md HS-11, obstruction 2;
   `re-frame.hicasso.server-render-ssr-dom-cljs-test`). Mechanism and
   witnesses: docs/design/hicasso/architecture.md, section The root."
   ([container frame-kw hiccup] (hydrate-root! container frame-kw hiccup nil))

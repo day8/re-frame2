@@ -276,7 +276,7 @@ runs and every node still the server's. `tree` is public because
 `re-frame.hicasso.server/render` builds its element from the same function:
 React derives a `useId` from tree position as well as from the prefix, so the
 server's bytes and the adopted tree agree by construction rather than by two
-implementations agreeing (`implementation/hicasso/spec/dispositions.md`,
+implementations agreeing (`docs/design/hicasso/product/dispositions.md`,
 HS-11 obstruction 2).
 
 **The adoption window is per-root, closed by a component, and minted in

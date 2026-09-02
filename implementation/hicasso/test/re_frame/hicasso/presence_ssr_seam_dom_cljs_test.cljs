@@ -22,7 +22,7 @@
   ## The surface is dispositioned, and it does not do what its
   disposition says
 
-  `implementation/hicasso/spec/dispositions.md` HS-33 — *optional motion
+  `docs/design/hicasso/product/dispositions.md` HS-33 — *optional motion
   and presence module* — carries the operative disposition
   **Client-only**, and the canonical two-policy matrix
   (`lanes/react-compatibility-notes.md`) states what bare Client-only
@@ -124,7 +124,7 @@
   spellable by hand, so they keep measuring what they always measured. What
   closing the file needs is a decision that the windowless spelling is out of
   scope — and HS-33's disposition is
-  `implementation/hicasso/spec/dispositions.md`'s, not a witness's. The
+  `docs/design/hicasso/product/dispositions.md`'s, not a witness's. The
   transitions below stay written down for whoever takes it:
 
     §1  the `\"mounting\"` expectation becomes `\"present\"`, and the
