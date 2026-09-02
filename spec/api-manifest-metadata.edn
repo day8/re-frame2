@@ -78,6 +78,14 @@
   {:namespace "re-frame.adapter.reagent" :var "adapter"             :kind :var :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.reagent" :var "flush-views!"        :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.reagent" :var "set-hiccup-emitter!" :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
+  ;; rf2-k5r9t — the reusable client root: allocate inert, render (create or
+  ;; hydrate once, then update the same Root), unmount idempotently. Backed by
+  ;; the adapter's active-root ownership (Spec 006 §`render` / §Adapter
+  ;; disposal lifecycle). The published slim artefact publishes the same trio
+  ;; at this ns after its rename.
+  {:namespace "re-frame.adapter.reagent" :var "client-root"         :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
+  {:namespace "re-frame.adapter.reagent" :var "render!"             :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
+  {:namespace "re-frame.adapter.reagent" :var "unmount!"            :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   ;; --- UIx adapter (day8/re-frame2-uix) — probe fully-rowed ---
   {:namespace "re-frame.adapter.uix" :var "adapter"             :kind :var :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.adapter.uix" :var "use-subscribe"       :kind :fn  :facade? false :tier :adapter :owner "006" :status "v1" :runtime-verified? true}

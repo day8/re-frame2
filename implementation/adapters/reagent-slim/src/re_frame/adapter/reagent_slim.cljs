@@ -69,6 +69,42 @@
   when callers need deterministic Suspense ordering."
   (:flush-views! spine-fns))
 
+;; ---- the client root ------------------------------------------------------
+;;
+;; rf2-k5r9t. The same `client-root` / `render!` / `unmount!` trio the stock
+;; Reagent adapter publishes, from the same shared ratom spine, so an app
+;; that swaps coordinates keeps its boot namespace byte for byte. See
+;; `re-frame.adapter.reagent` for the recipe.
+
+(def client-root
+  "Allocate an inert client-root handle. No DOM work — safe at namespace
+  load under a `defonce`, in tests, and on Node. The React Root is created
+  (or hydrated) by the first `render!` through it. The handle is opaque:
+  hold it, hand it to `render!` and `unmount!`, and nothing else."
+  (:client-root spine-fns))
+
+(def render!
+  "Render `render-tree` (hiccup) through the client-root `handle` at the DOM
+  element `mount-point`. Returns nil.
+
+      (render! handle render-tree mount-point)
+      (render! handle render-tree mount-point {:hydrate? true})
+
+  The first call creates the React Root at `mount-point` and renders into
+  it — or, with `{:hydrate? true}`, hydrates the server-rendered markup
+  already inside `mount-point` (once). Every later call updates that same
+  Root with the new tree: no second `create-root`, no second hydration, so
+  the one call is both the boot path and the `^:dev/after-load` hook.
+  `mount-point` is read on the first call only. `rf/destroy-adapter!`
+  releases a Root this handle still holds, exactly once."
+  (:render-client-root! spine-fns))
+
+(def unmount!
+  "Unmount the React Root `handle` holds and return the handle to inert.
+  Idempotent: a second call, or a call after `rf/destroy-adapter!` has
+  already released the Root, does nothing. Returns nil."
+  (:unmount-client-root! spine-fns))
+
 (def adapter
   "The reagent-slim adapter map. Pass to `(rf/init! ...)` to install, using
   the PUBLISHED ns `re-frame.adapter.reagent` (the in-tree `-slim` ns is

@@ -3511,6 +3511,9 @@
        :subscribe-container        …
        :make-derived-value         …
        :render                     …
+       :client-root                …
+       :render-client-root!        …
+       :unmount-client-root!       …
        :render-to-string           …
        :dispose-adapter!           …
        :flush-render!              …
@@ -3530,7 +3533,8 @@
 
   Produces: container quartet incl. the substrate-scoped gensym; the
   create-root/hydrate-root render with active-roots tracking + an unmount
-  thunk that drops itself from the set; and the four-MUST dispose body
+  thunk that drops itself from the set; the reusable client-root handle
+  ops riding that same path (rf2-k5r9t); and the four-MUST dispose body
   (`dispose-frame-sub-caches!` + active-roots drain w/ per-root throw-
   swallow + emitter clear)."
   [{:keys [gensym-prefix-sub r-atom make-reaction create-root render-root
@@ -3580,17 +3584,62 @@
         ;; unmount thunk removes itself from the set before unmounting.
         ;; Per rf2-gwkvr: Spec 006 §`render` types `:hydrate?` as a
         ;; boolean; no defensive coercion.
-        render
-        (fn render [render-tree mount-point opts]
-          (let [hydrate? (:hydrate? opts)
-                root     (if hydrate?
-                           (hydrate-root mount-point render-tree)
-                           (let [r (create-root mount-point)]
-                             (render-root r render-tree)
-                             r))]
+        ;;
+        ;; rf2-k5r9t: `mount-root!` is the ONE create-or-hydrate path. The
+        ;; one-shot contract `render` and the reusable client-root handle
+        ;; below both ride it, so the handle adds no second lifecycle —
+        ;; every Root either produces is tracked in `active-roots-cell`,
+        ;; drained by `dispose-adapter!`, and released at most once.
+        mount-root!
+        (fn mount-root! [render-tree mount-point opts]
+          (let [root (if (:hydrate? opts)
+                       (hydrate-root mount-point render-tree)
+                       (let [r (create-root mount-point)]
+                         (render-root r render-tree)
+                         r))]
             ;; rf2-w1g0d2: shared track-and-unmount tail (unmount-op =
             ;; the injected `unmount-root`).
-            (track-active-root! active-roots-cell unmount-root root)))
+            [root (track-active-root! active-roots-cell unmount-root root)]))
+        render
+        (fn render [render-tree mount-point opts]
+          (second (mount-root! render-tree mount-point opts)))
+        ;; rf2-k5r9t — the reusable client root behind each ratom adapter
+        ;; ns's `client-root` / `render!` / `unmount!` trio. A handle is an
+        ;; atom: nil while inert, and once the first `render!` has created
+        ;; or hydrated a Root, a map of three closures over that Root —
+        ;; `:live?` (still in the active set?), `:update!` (render a new
+        ;; tree into the same Root) and `:unmount!` (the tracked thunk).
+        ;; The raw Root is reachable through none of them, so it stays
+        ;; private to the spine. Liveness is READ off `active-roots-cell`
+        ;; rather than kept in the handle: that is what lets the
+        ;; `dispose-adapter!` drain release a still-live handle's Root
+        ;; exactly once, a later `unmount!` on it find nothing left to do,
+        ;; and a later `render!` on it mount afresh.
+        client-root
+        (fn client-root [] (atom nil))
+        render-client-root!
+        (fn render-client-root!
+          ([handle render-tree mount-point]
+           (render-client-root! handle render-tree mount-point nil))
+          ([handle render-tree mount-point opts]
+           (let [live @handle]
+             (if (and live ((:live? live)))
+               ;; Later renders update the same Root — created or hydrated
+               ;; — through the plain render op: never a second
+               ;; constructor, never a second hydration.
+               ((:update! live) render-tree)
+               (let [[root unmount] (mount-root! render-tree mount-point opts)]
+                 (reset! handle
+                         {:live?    (fn live? [] (contains? @active-roots-cell root))
+                          :update!  (fn update! [tree] (render-root root tree))
+                          :unmount! unmount}))))
+           nil))
+        unmount-client-root!
+        (fn unmount-client-root! [handle]
+          (when-let [live @handle]
+            (reset! handle nil)
+            ((:unmount! live)))
+          nil)
         ;; Spec 006 §Adapter disposal lifecycle (rf2-9fdkb, rf2-a47kq,
         ;; rf2-jcjul, rf2-7v82h). The four-MUST list:
         ;;   1. Cancel in-flight reactive subscriptions — walk every live
@@ -3666,6 +3715,11 @@
      :subscribe-container        subscribe-container
      :make-derived-value         make-derived-value
      :render                     render
+     ;; rf2-k5r9t — the reusable client root (see the closures above);
+     ;; re-exported by both ratom adapter namespaces as the same trio.
+     :client-root                client-root
+     :render-client-root!        render-client-root!
+     :unmount-client-root!       unmount-client-root!
      :render-to-string           (make-render-to-string emitter-cell)
      :dispose-adapter!           dispose-adapter!
      ;; rf2-40a84 — production synchronous render-commit, wired into the
