@@ -84,9 +84,10 @@
         .getCanonicalFile)))
 
 (defn read-one-form
-  "Read `text` as EXACTLY ONE top-level EDN form, or throw. The canonical
-  copy of this rationale; the sibling artefacts' runners carry the same
-  three lines and cite this one (rf2-98ni).
+  "Read `text` as EXACTLY ONE top-level EDN form, or throw. Six sibling
+  runners carry the same body — no artefact puts `core/test` on another's
+  classpath, so there is no shared home for it below `src/` — and each
+  cites this docstring rather than restating it (rf2-98ni).
 
   WHY NOT `edn/read-string` DIRECTLY. It returns the FIRST form and
   silently ignores everything after it. So a fixture whose expectation
