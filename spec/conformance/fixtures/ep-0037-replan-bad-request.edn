@@ -1,0 +1,70 @@
+;; Conformance fixture: ep-0037/replan-bad-request
+;;
+;; rf2-y8jjk — [:rf.route/replan-resources {:cause <edn>}] carries ONE closed
+;; payload map whose :cause is REQUIRED and non-nil, and replans the ACTIVE
+;; route. A malformed event, or a dispatch with no active route slice, is
+;; rejected BEFORE any planning with :rf.error/replan-bad-request — no ensures,
+;; no planner row, the slice untouched. Five reasons, each exercised once:
+;;   - :no-active-route — a well-formed request on a frame that has not
+;;     navigated yet (the replan has nothing to rerun; a silent no-op here is
+;;     precisely the 2am mystery the command exists to remove);
+;;   - :bad-event-arity — a one-element event vector;
+;;   - :not-a-map       — a non-map payload;
+;;   - :unknown-key     — a key outside the closed roster #{:cause} (a route
+;;     address is NOT a replan payload — the command replans the ACTIVE route);
+;;   - :missing-cause   — an absent or nil :cause (silently defaulting the one
+;;     field the command exists to carry would defeat it).
+;; After all five the live route is still :route/home :idle.
+;;
+;; Per [012 §Replanning the active route's resources](../../012-Routing.md#replanning-the-active-routes-resources).
+
+{:fixture/id           :ep-0037/replan-bad-request
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:routing/match-url :core/event-handler}
+ :fixture/doc          "rf2-y8jjk: [:rf.route/replan-resources] rejects BEFORE planning with :rf.error/replan-bad-request — :no-active-route (no slice yet), :bad-event-arity, :not-a-map, :unknown-key (a :to address is not a replan payload), :missing-cause (absent, then nil) — dispatches no ensures, and leaves the live route (:route/home :idle) untouched."
+
+ :fixture/registry
+ {:route
+  {:route/home {:path "/"}}}
+
+ :fixture/dispatches
+ [;; nothing has navigated yet — there is no active route to replan.
+  [:rf.route/replan-resources {:cause [:boot]}]
+  [:rf.route/transitioned "/"]
+  ;; a one-element event — the event-vector shape gate runs first.
+  [:rf.route/replan-resources]
+  ;; a non-map payload.
+  [:rf.route/replan-resources "session-restore"]
+  ;; a route address is NOT a replan payload — the command replans the ACTIVE route.
+  [:rf.route/replan-resources {:to :route/home :cause [:x]}]
+  ;; :cause is required …
+  [:rf.route/replan-resources {}]
+  ;; … and non-nil.
+  [:rf.route/replan-resources {:cause nil}]]
+
+ :fixture/expect
+ {;; The live route is unchanged by the five rejected replans.
+  :final-runtime-db
+  {:rf.runtime/routing {:current {:route-id   :route/home
+                                  :transition :idle
+                                  :error      nil}}}
+
+  :trace-emissions
+  [{:operation :rf.error/replan-bad-request
+    :op-type   :error
+    :tags      {:where :event :reason :no-active-route :keys []}}
+   {:operation :rf.error/replan-bad-request
+    :op-type   :error
+    :tags      {:where :event :reason :bad-event-arity :keys []}}
+   {:operation :rf.error/replan-bad-request
+    :op-type   :error
+    :tags      {:where :event :reason :not-a-map :keys []}}
+   {:operation :rf.error/replan-bad-request
+    :op-type   :error
+    :tags      {:where :event :reason :unknown-key :keys [:to]}}
+   {:operation :rf.error/replan-bad-request
+    :op-type   :error
+    :tags      {:where :event :reason :missing-cause :keys [:cause]}}
+   {:operation :rf.error/replan-bad-request
+    :op-type   :error
+    :tags      {:where :event :reason :missing-cause :keys [:cause]}}]}}
