@@ -35,7 +35,9 @@ Wire the route to it via `:head` route metadata — **one `:head` per route in v
 
 Standard head-model keys (per `:rf/head-model` in Spec-Schemas): `:title`, `:meta`, `:link`, `:script`, `:json-ld`, `:html-attrs`, `:body-attrs`. The SSR pipeline emits in canonical order — `<title>` first, then `<meta>` in declaration order, then `<link>`, `<script>`, JSON-LD; `:html-attrs` populate `<html>`, `:body-attrs` populate `<body>`.
 
-**No registered head is fine.** Routes without `:head` get the silent default — `<title>` derived from frame metadata's `:doc`, plus `<meta charset>` and `<meta viewport>`. No warning.
+**No registered head is fine.** Routes without `:head` get the silent default — `:title` from the frame's `:doc` metadata (`""` when the frame has none, so the key shape stays stable) plus the viewport `<meta>`. No warning.
+
+The default head does **not** carry `<meta charset>`, and neither should a head model you write. Charset is an *envelope* concern owned by the document shell, which hardcodes `<meta charset="utf-8">` as the first `<head>` byte; a route's `:head` declares page-specific metas. This matters the moment you build a custom envelope with `head-model->html` — emit the charset from your shell, because a head model that also carried one would produce two `<meta charset>` tags.
 
 `reg-head` returns its `id` (family-wide reg-* return convention). Query via `(rf/registrations :head)` → `id → metadata`.
 
@@ -43,10 +45,10 @@ Standard head-model keys (per `:rf/head-model` in Spec-Schemas): `:title`, `:met
 
 ```clojure
 (rf/render-head :head/article {:frame :rf/default
-                               :route active-route})           ;; :route optional; defaults to (subscribe [:route])
+                               :route active-route})           ;; :route optional; defaults to the frame's active route slice
 ```
 
-Returns the head-model map. Pure, JVM-runnable. Used by the SSR pipeline (and by tooling that wants to inspect the head without re-rendering the body). Equivalent value-shape to `(compute-head head-id db route)` for any registered `head-id`.
+Returns the head-model map. Pure, JVM-runnable. Used by the SSR pipeline (and by tooling that wants to inspect the head without re-rendering the body). With `:route` omitted it reads the frame's active route slice from the **runtime-db** at `[:rf.runtime/routing :current]` (the head fn reads the frame's app-db for its model; the route is a runtime-db read). Raises `:rf.error/no-such-head` when `head-id` is not registered.
 
 ## `active-head` — the current route's head model
 
@@ -54,7 +56,9 @@ Returns the head-model map. Pure, JVM-runnable. Used by the SSR pipeline (and by
 (rf/active-head frame-id)       ;; frame is carried, not ambient
 ```
 
-`active-head` is **1-arity only** — the no-arg form was removed (EP-0002); a `nil` `frame-id` raises `:rf.error/no-frame-context` rather than resolving against a synthesised default frame. Sugar: looks up the active route's `:head` metadata, resolves to a registered head id, calls `render-head`, returns the model. The `:rf/head` sub returns the same value reactively for views/tools.
+`active-head` is **1-arity only** — the no-arg form was removed (EP-0002); a `nil` `frame-id` raises `:rf.error/no-frame-context` rather than resolving against a synthesised default frame. Sugar: looks up the active route's `:head` metadata, resolves to a registered head id, calls `render-head`, returns the model; with no `:head` on the route (or no active route) it returns `default-head`.
+
+**There is no `:rf/head` subscription.** The SSR head registry registers none, so a view or tool that wants the active head calls `(rf/active-head frame-id)` — `(subscribe [:rf/head])` resolves nothing. (Per Cardinal rule 1, where a spec row and `implementation/**` disagree, the implementation is ground truth.)
 
 ## `head-model->html` — explicit serialiser
 
