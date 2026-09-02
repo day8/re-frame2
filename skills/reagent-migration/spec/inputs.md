@@ -33,11 +33,14 @@ the check rather than a polish pass.
   - `impl/controlled.cljs` — what "controlled" actually covers (input/textarea,
     not select) and `::h/revision`.
 - **The optional modules** — `forms.cljs`, `motion.cljs`, `overlay.cljs`,
-  `native.cljc`. Each names its own public surface; `native.cljc` classifies its
-  vars explicitly.
+  `native.cljc`, `server.cljs`, `substrate.cljs`. Each names its own public
+  surface; `native.cljc` classifies its vars explicitly. `substrate.cljs` is the
+  one MIG-24's end-state section reads: Hicasso's own adapter, and the reason
+  the adapter question reopens once no Reagent view is left.
 - **The test kit** — `implementation/hicasso/test_kit/src/re_frame/hicasso/`
-  `test.cljs` and `test/mounted.cljs`. `hm/shadow!` is the migration's own
-  instrument and it ships.
+  `test.cljs`, `test/mounted.cljs`, `test/forms.cljs`, `test/runtime.cljs` and
+  `test/server.cljs`. `hm/shadow!` is the migration's own instrument and it
+  ships.
 - **`implementation/hicasso/test/**`** — the shipped witnesses. When a docstring
   and a test disagree about a call shape, the test is what runs. The
   `consumer_app.cljs` exemplar is the authoritative boot sequence.

@@ -315,12 +315,10 @@ Everything above is about a namespace. There is one require the whole-app case
 reaches that a per-namespace sweep never does, and the skill would otherwise
 leave the author holding a dependency for nothing.
 
-Once **every** view in the app is converted, `re-frame.adapter.reagent` is the
-last thing pulling Reagent in — and its only job was ever the substrate half of
-Spec 006: the container `app-db` lives in, plus a derived value that says when
-it moved. It is `day8/re-frame2-reagent` that declares the stock
-`reagent/reagent` dependency; core declares none. Hicasso ships an adapter of
-its own, so that job has a second answer:
+Once **every** view in the app is converted, `re-frame.adapter.reagent` is no
+longer earning its place: its only job was ever the substrate half of Spec 006
+— the container `app-db` lives in, plus a derived value that says when it
+moved. Hicasso ships an adapter of its own, so that job has a second answer:
 
 ```clojure
 (:require [re-frame.core :as rf]
@@ -331,17 +329,46 @@ its own, so that job has a second answer:
 ```
 
 `re-frame.hicasso.substrate` ships inside `day8/re-frame2-hicasso`, so that line
-costs no coordinate — and it is what lets the two `deps.edn` entries
-`day8/re-frame2-reagent` and `reagent/reagent` go, rather than standing for a
-substrate the app no longer writes a line of.
+costs no coordinate. What follows from it is **two** decisions, and this
+migration only measured the first.
 
-**This is the author's call, not the skill's** (cardinal rule 5). Name the
-option and the two dependencies it would retire; then let them decide. Keeping
-the Reagent adapter is a complete, supported configuration whatever the views
-are written in — nothing degrades under it, and an app that may grow a Reagent
-or UIx subtree later has a standing reason to keep it. And the question does not
-arise at all while a single Reagent view survives: until then MIG-15's *the
-install stays* is the whole of the answer.
+**1 — the adapter install, and `day8/re-frame2-reagent` with it.** This one
+follows from the views alone. That artefact ships exactly one namespace,
+`re-frame.adapter.reagent`, so once the install line is gone nothing else in
+the app was using it.
+
+**2 — the `reagent/reagent` coordinate.** This one does *not* follow. The skill
+is **views only** (cardinal rule 5) and never read the rest of the codebase: an
+`r/atom` in a non-view namespace, a `reagent.ratom/run!` in a utility, or a
+library the app depends on are all ordinary things to still be holding.
+*Zero Reagent views is not zero Reagent.* And the coupling runs the way that
+surprises people — `day8/re-frame2-reagent` is what puts `reagent/reagent` on
+the classpath, because it declares the stock dependency and core declares none.
+So an app that never listed Reagent itself and still calls `r/atom` somewhere
+**breaks when the adapter coordinate goes**, and the repair is to *add* a
+direct `reagent/reagent` entry rather than remove one.
+
+Decide 2 on a measurement, not on an inference from 1. Re-run the reporter
+(step 0) over the **whole** repository rather than the subtree this migration
+touched, and read its census half: it counts Reagent API call sites across
+`reagent.core`, `reagent.dom`, `reagent.dom.client` and `reagent.ratom`, and it
+reports what it could not resolve instead of skipping it. Its summary line is
+what you are reading for:
+
+```
+0 Reagent API call site(s) across 0 file(s) that name Reagent — 0 mechanical, 0 human-decision, 0 runtime-blocker
+```
+
+Zero call sites **and** no `UNRESOLVED` clause is what licenses dropping
+`reagent/reagent`. Anything else names what has to stay.
+
+**Both calls are the author's, not the skill's** (cardinal rule 5). Name the
+option, and say what each decision rests on; then let them decide. Keeping the
+Reagent adapter is a complete, supported configuration whatever the views are
+written in — nothing degrades under it, and an app that may grow a Reagent or
+UIx subtree later has a standing reason to keep it. And none of it arises while
+a single Reagent view survives: until then MIG-15's *the install stays* is the
+whole of the answer.
 
 ## MIG-33 — keystroke handlers → a key map
 
