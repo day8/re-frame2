@@ -361,6 +361,8 @@ For HTTP stubs, the fn form lets the test return a canned response shape without
                                    {:frame (:frame m)})))}})
 ```
 
+For a *block* of dispatches that all want the same stub, `(rf/with-fx-overrides {…} & body)` binds the map for the body's lexical scope instead of repeating the opt on every call — precedence is per-call opt > lexical `with-fx-overrides` > per-frame, and it composes with `with-frame`.
+
 Per-frame `:fx-overrides` in the frame config accepts the same fn-value form, so a test frame can install a stub once for every dispatch routed to it. The id-keyword form (`{:rf.http/managed :rf.http/managed-canned-success}`) is the portable pattern-level form — use it when the stub is shared across many tests or when SSR / serialisation is in play; reach for the fn form when one test wants a bespoke response.
 
 ## Discovering a project's gates
