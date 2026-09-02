@@ -15,16 +15,21 @@ is what `routing-not-found.edn` did: one extra `}` at line 46, two
 `:trace-emissions` assertions never executed, green for however long it sat
 there.
 
-BOTH HALVES OF THE CHECK ARE LOad-BEARING, and neither alone is enough:
+EVERY HALF OF THE CHECK IS LOAD-BEARING, and none alone is enough:
 
   * A "does it read without error" check catches NOTHING here — reading
     without error on a malformed file is precisely what `read-string` does.
   * A bracket-balance check alone misses trailing text that happens to
     balance: `{:a 1} {:b 2}` is perfectly balanced and still hides the
     second form from every loader.
+  * A DEPTH-ONLY balance check — one counter for all three delimiter kinds —
+    misses a mismatched pair, because the two errors cancel: `{:a [1 2)}`
+    ends at depth 0, never goes negative, and holds one top-level "form",
+    yet is not EDN at all. That was this gate's own false green (rf2-x91a).
 
-So this scans for three things: bracket depth that never goes negative, a
-final depth of zero, and exactly one top-level form.
+So this scans for four things: each closer matching the delimiter kind it
+closes, bracket depth that never goes negative, a final depth of zero, and
+exactly one top-level form.
 
 WHY A SCANNER AND NOT A PARSER. Python has no EDN reader in the stdlib, and
 this gate must run in the fast-PR spine with no dependency to install. The
@@ -75,6 +80,9 @@ for _stream in (sys.stdout, sys.stderr):
 
 _OPEN = "([{"
 _CLOSE = ")]}"
+# The closer each opener requires. Aggregate depth cannot see this: `[1 2)`
+# and `[1 2]` move the counter identically.
+_CLOSER_FOR = {"(": ")", "[": "]", "{": "}"}
 # EDN treats a comma as whitespace.
 _WS = " \t\r\f\v,"
 
@@ -89,6 +97,8 @@ class Scan:
         "top_level_forms",
         "second_form_line",
         "unterminated_string_line",
+        "mismatch",
+        "unclosed_opener",
     )
 
     def __init__(self) -> None:
@@ -98,6 +108,12 @@ class Scan:
         self.top_level_forms = 0
         self.second_form_line: int | None = None
         self.unterminated_string_line: int | None = None
+        # (closer_found, closer_line, opener_char, opener_line) for the first
+        # closer that does not match the delimiter it closes, else None.
+        self.mismatch: tuple[str, int, str, int] | None = None
+        # (opener_char, opener_line) for the outermost delimiter still open at
+        # end of file, else None.
+        self.unclosed_opener: tuple[str, int] | None = None
 
     @property
     def ok(self) -> bool:
@@ -106,6 +122,7 @@ class Scan:
             and self.first_negative_line is None
             and self.top_level_forms == 1
             and self.unterminated_string_line is None
+            and self.mismatch is None
         )
 
     def summary(self) -> str:
@@ -123,8 +140,18 @@ def scan_edn(text: str) -> Scan:
     forms are semantically valid EDN. It answers exactly the two questions
     `clojure.edn/read-string` will not — is it balanced, and is there anything
     after the first form.
+
+    Balance is tracked with an opener STACK, not an aggregate depth counter.
+    A counter is blind to `{:a [1 2)}`: the `)` and the `}` each move it by
+    one, so the two errors cancel and the file scans clean (rf2-x91a). The
+    stack knows which delimiter each closer is closing, so it does not.
     """
     s = Scan()
+    # Openers still awaiting a closer, innermost last: (char, line).
+    stack: list[tuple[str, int]] = []
+    # Kept alongside the stack so the reported depth stays a signed number:
+    # the stack bottoms out at empty, but depth goes NEGATIVE on a closer
+    # with nothing open, which is the rf2-5mr6 signature.
     depth = 0
     line = 1
     in_string = False
@@ -187,6 +214,7 @@ def scan_edn(text: str) -> Scan:
             continue
 
         if ch in _OPEN:
+            stack.append((ch, line))
             depth += 1
             i += 1
             continue
@@ -197,6 +225,10 @@ def scan_edn(text: str) -> Scan:
                 s.min_depth = depth
             if depth < 0 and s.first_negative_line is None:
                 s.first_negative_line = line
+            if stack:
+                opener_ch, opener_line = stack.pop()
+                if _CLOSER_FOR[opener_ch] != ch and s.mismatch is None:
+                    s.mismatch = (ch, line, opener_ch, opener_line)
             if depth <= 0:
                 # The form closed: anything after this, even with no
                 # whitespace between, is a NEW top-level form.
@@ -208,6 +240,8 @@ def scan_edn(text: str) -> Scan:
 
     if in_string:
         s.unterminated_string_line = string_start_line
+    if stack:
+        s.unclosed_opener = stack[0]
     s.final_depth = depth
     return s
 
@@ -219,6 +253,14 @@ def _defect_reason(s: Scan) -> str | None:
             f"unterminated string opened at line {s.unterminated_string_line} "
             f"({s.summary()})"
         )
+    if s.mismatch is not None:
+        found, found_line, opener_ch, opener_line = s.mismatch
+        return (
+            f"mismatched delimiters — the '{found}' at line {found_line} "
+            f"closes the '{opener_ch}' opened at line {opener_line}, which "
+            f"needs '{_CLOSER_FOR[opener_ch]}'. Aggregate depth cannot see "
+            f"this: the two errors cancel ({s.summary()})"
+        )
     if s.first_negative_line is not None:
         return (
             f"unbalanced brackets — a closing bracket at line "
@@ -227,9 +269,15 @@ def _defect_reason(s: Scan) -> str | None:
             f"read-string ({s.summary()})"
         )
     if s.final_depth != 0:
+        where = ""
+        if s.unclosed_opener is not None:
+            where = (
+                f", the outermost being the '{s.unclosed_opener[0]}' opened "
+                f"at line {s.unclosed_opener[1]}"
+            )
         return (
-            f"unbalanced brackets — {s.final_depth} unclosed at end of file "
-            f"({s.summary()})"
+            f"unbalanced brackets — {s.final_depth} unclosed at end of file"
+            f"{where} ({s.summary()})"
         )
     if s.top_level_forms == 0:
         return f"no top-level EDN form ({s.summary()})"
@@ -331,6 +379,24 @@ _TRICKY_BUT_VALID = """;; brackets in }} comments {{ are ignored
  :note "trailing ; is not a comment inside a string"}
 """
 
+# The rf2-x91a false green, reduced to its smallest form. Aggregate depth
+# ends at 0, never goes negative, and counts one top-level form — so a
+# depth-only scanner calls this well-formed EDN. It is not EDN at all.
+_MISMATCHED_PAIR = """{:a [1 2)}
+"""
+
+# The same defect at fixture scale: the assertion VECTOR is closed with a
+# brace, and the outer map is then closed with the vector's bracket. Every
+# aggregate number here is identical to the well-formed file's —
+# final-depth=0, min-depth=0, top-level-forms=1 — which is exactly why this
+# case, and none of the ones above it, discriminates the two scanners.
+_MISMATCHED_IN_FIXTURE = """;; a conformance fixture
+{:kind :routing
+ :given {:url "/garbage/path"}
+ :trace-emissions
+ [{:operation :rf.error/no-such-handler}}]
+"""
+
 _UNCLOSED = """{:kind :routing
  :given {:url "/x"}
 """
@@ -350,6 +416,8 @@ def _run_self_tests(verbose: bool = False) -> int:
         ("ok_well_formed.edn", _GOOD, 0),
         ("ok_brackets_in_strings_and_chars.edn", _TRICKY_BUT_VALID, 0),
         ("bad_extra_closing_brace.edn", _EXTRA_BRACE, 1),
+        ("bad_mismatched_pair.edn", _MISMATCHED_PAIR, 1),
+        ("bad_mismatched_in_fixture.edn", _MISMATCHED_IN_FIXTURE, 1),
         ("bad_trailing_second_form.edn", _TRAILING_FORM, 1),
         ("bad_unclosed_form.edn", _UNCLOSED, 1),
         ("bad_unterminated_string.edn", _UNTERMINATED_STRING, 1),
@@ -405,11 +473,36 @@ def _run_self_tests(verbose: bool = False) -> int:
         elif verbose:
             sys.stderr.write("self-test PASS: names_the_file\n")
 
+    # A defect COUNT of 1 on the mismatched cases is not enough: if they were
+    # caught by the depth rule instead, they would not discriminate an
+    # opener stack from the aggregate counter that shipped the false green.
+    # Assert the reason, and assert the aggregate numbers are the clean
+    # file's, so a regression to depth-only counting fails here.
+    for name, text in (
+        ("mismatch_pair", _MISMATCHED_PAIR),
+        ("mismatch_in_fixture", _MISMATCHED_IN_FIXTURE),
+    ):
+        s = scan_edn(text)
+        reason = _defect_reason(s)
+        if (
+            reason is None
+            or not reason.startswith("mismatched delimiters")
+            or s.summary() != "final-depth=0 min-depth=0 top-level-forms=1"
+        ):
+            sys.stderr.write(
+                f"self-test FAIL: {name}_is_invisible_to_depth — expected a "
+                f"'mismatched delimiters' defect over clean aggregate "
+                f"numbers, got {reason!r} with {s.summary()}\n"
+            )
+            failures += 1
+        elif verbose:
+            sys.stderr.write(f"self-test PASS: {name}_is_invisible_to_depth\n")
+
     if failures:
         sys.stderr.write(f"\n{failures} self-test failure(s).\n")
         return 1
     if verbose:
-        sys.stderr.write(f"all {len(cases) + 1} self-tests passed.\n")
+        sys.stderr.write(f"all {len(cases) + 3} self-tests passed.\n")
     return 0
 
 
