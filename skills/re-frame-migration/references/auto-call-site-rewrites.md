@@ -185,7 +185,7 @@ M-52 above covers the **synchronous** test surface (`run-test-sync` → `dispatc
 
 1. **`run-test-async` → `cljs.test/async`.** v1's macro bound an `async`-style completion callback; the v2-canonical form is the stock `cljs.test/async` macro, which binds a `done` fn you call once the awaited assertions have run. No re-frame surface is involved — this is the standard ClojureScript async-test shape.
 2. **`wait-for-event` → a trace listener matching `:rf.event/run-end`.** v1 `wait-for` / `wait-for-event` registered a one-shot `add-post-event-callback` that fired when the awaited event's handler had run to completion. Per **M-26**, `add-post-event-callback` → `register-listener!` / `unregister-listener!` (the dev-only trace listener API — live under `cljs.test` / JVM test runs). Match the `:rf.event/run-end` trace marker — it is emitted **after** the handler's interceptor chain, db commit, and fx walk, i.e. the exact handler-complete timing v1's post-event callback gave (NOT `:rf.event/run-start`, which fires before the handler body). The awaited event id rides the trace event under `[:tags :rf.trace/event-id]`.
-3. **The fixture `make-restore-fn` → an epoch-free snapshot/restore.** MIGRATION.md **M-26** maps v1's `make-restore-fn` to the epoch surface (`(let [snap (rf/app-db-value frame-id)] (fn [] (rf/replace-app-db! frame-id snap)))`). `replace-app-db!` is late-bound on the **`day8/re-frame2-epoch`** artefact (M-33) and raises `:rf.error/epoch-artefact-missing` when it is absent — a plain (non-Xray, no-epoch) test suite does not carry epoch on its classpath. For those suites, snapshot `(rf/app-db-value :rf/default)` and restore via a one-shot `reg-event` dispatched synchronously — no epoch dependency:
+3. **The fixture `make-restore-fn` → an epoch-free snapshot/restore.** MIGRATION.md **M-26** maps v1's `make-restore-fn` to the epoch surface: `(let [snap (rf/app-db-value frame-id)] (fn [] (rf/replace-frame-state! frame-id {:rf.db/app snap})))`. Note the argument shape — `replace-frame-state!` takes a **partial frame-state map**, and the partition is named explicitly by its key: `{:rf.db/app v}` replaces app-db and leaves the runtime partition untouched (this is the API-shrink #3 consolidation of the former `replace-app-db!` / `reset-app-db!` / `replace-runtime-db!` family into one fn; there is no `rf/replace-app-db!` to call). `replace-frame-state!` is late-bound on the **`day8/re-frame2-epoch`** artefact (M-33) and raises `:rf.error/epoch-artefact-missing` when it is absent — a plain (non-Xray, no-epoch) test suite does not carry epoch on its classpath. For those suites, snapshot `(rf/app-db-value :rf/default)` and restore via a one-shot `reg-event` dispatched synchronously — no epoch dependency:
 
 ```clojure
 ;; SEARCH (v1)
@@ -213,8 +213,9 @@ M-52 above covers the **synchronous** test surface (`run-test-sync` → `dispatc
 ;; types"). So pass :async? true to the reset fixture (its :before set!s the
 ;; ambient scope PERSISTENTLY so a bare dispatch-sync drains across the async
 ;; boundary), AND express the app-db snapshot/restore as a {:before :after} map
-;; too. (If the suite DOES pull day8/re-frame2-epoch, the M-26 replace-app-db!
-;; restore is the simpler path — use that instead.)
+;; too. (If the suite DOES pull day8/re-frame2-epoch, the M-26 restore is the
+;; simpler path — (rf/replace-frame-state! frame-id {:rf.db/app snap}) — use
+;; that instead.)
 (def ^:private app-db-snap (atom nil))
 (def restore-app-db-fixture                                ; map-form, not fn-form
   {:before (fn [] (reset! app-db-snap (rf/app-db-value :rf/default)))
@@ -263,7 +264,7 @@ The test / fixture layer carries its own v1 *test-API* subset — distinct from 
 | v1 test-layer surface | v2 replacement | Rule |
 |---|---|---|
 | `(:require [re-frame.test …])` / `[day8.re-frame.test …]` | `(:require [re-frame.test-support …])` — ships in core; drop the `day8/re-frame-test` Maven coord | **M-25** |
-| `(use-fixtures :each (rf-test/make-restore-fn))` — the per-test snapshot/restore fixture | `(ts/make-reset-runtime-fixture {:adapter adapter})` is the v2 per-test `:each` fixture that fills the same role — registrar / runtime isolation, the fixture every v2 suite installs (the builder rename is M-64). The **app-db snapshot/restore** half `make-restore-fn` performed stacks on top: epoch-free inline (snapshot `(rf/app-db-value :rf/default)`, restore via a one-shot `reg-event` dispatched synchronously) or, when the suite pulls `day8/re-frame2-epoch`, `replace-app-db!`. | **M-26** (the `make-restore-fn` drop) + the `make-reset-runtime-fixture` builder (M-64) |
+| `(use-fixtures :each (rf-test/make-restore-fn))` — the per-test snapshot/restore fixture | `(ts/make-reset-runtime-fixture {:adapter adapter})` is the v2 per-test `:each` fixture that fills the same role — registrar / runtime isolation, the fixture every v2 suite installs (the builder rename is M-64). The **app-db snapshot/restore** half `make-restore-fn` performed stacks on top: epoch-free inline (snapshot `(rf/app-db-value :rf/default)`, restore via a one-shot `reg-event` dispatched synchronously) or, when the suite pulls `day8/re-frame2-epoch`, `(rf/replace-frame-state! frame-id {:rf.db/app snap})`. | **M-26** (the `make-restore-fn` drop) + the `make-reset-runtime-fixture` builder (M-64) |
 | `(rf/reg-event-db …)` inside a fixture / `:before` body | `(rf/reg-event …)` — destructure `:db` from the coeffects map, wrap the body `{:db …}`. A fixture is **not** exempt: the retired `reg-event-db` throwing stub throws `:rf.error/reg-event-db-removed` the instant the fixture registers it. | **M-73** |
 | `add-post-event-callback` / `remove-post-event-callback` driving an **async** test wait | a **one-shot `:trace`-stream listener matching `:rf.event/run-end`** — `(rf/register-listener! :trace k f)` that fires once the awaited event's handler has run to completion, then `(rf/unregister-listener! :trace k)`. | **M-26** |
 
