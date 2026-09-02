@@ -503,7 +503,7 @@
 ;; rf2-rjjry + rf2-ynved — the exceptional imperative-subscription recipe must be
 ;; LIVE and instance-safe, and it must be so on its own.
 ;;
-;; The copy-pasteable Form-3 (guided-handlers-state.md §M-11) re-feeds an
+;; The copy-pasteable Form-3 (guided-views-m11.md §M-11) re-feeds an
 ;; imperative widget as a sub's value changes. It used to do that with an
 ;; `add-watch` on the acquired reaction, and this fixture used to mirror that —
 ;; but only because it stood an external `ratom/run!` DRIVER beside the mounts to

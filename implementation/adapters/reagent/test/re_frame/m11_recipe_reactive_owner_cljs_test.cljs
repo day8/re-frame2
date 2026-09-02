@@ -3,7 +3,7 @@
   must own its subscription per mount.
 
   WHAT SHIPPED, AND WHY IT WAS WRONG. The copy-pasteable recipe in
-  `skills/re-frame-migration/references/guided-handlers-state.md` §M-11 acquired
+  `skills/re-frame-migration/references/guided-views-m11.md` §M-11 acquired
   a subscription in `:component-did-mount`, seeded an imperative widget from a
   plain deref of it, and then observed it with `add-watch`. Under this adapter a
   subscription IS a bare `reagent.ratom/Reaction`, built deliberately WITHOUT

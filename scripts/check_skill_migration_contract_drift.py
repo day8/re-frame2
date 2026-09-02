@@ -101,8 +101,8 @@ Two contract facts, each pinned against the shipped spec:
 
   * **Form-3 capture-once retarget invariance — a RELATIONSHIP + POLARITY +
     cross-owner check (rf2-aalo4n, rf2-gjrlz).** The reagent-slim FORM-3.md is the
-    adopter-facing owner of the Form-3 capture-once recipe; guided-handlers-
-    state.md §M-11 is the canonical migration recipe. FORM-3.md recommends
+    adopter-facing owner of the Form-3 capture-once recipe; guided-views-m11.md
+    §M-11 is the canonical migration recipe. FORM-3.md recommends
     capturing the frame once in the outer `reg-view*` callable, but that handle is
     a LOCKED value that never re-resolves (`make-capture-frame` closes the captured
     frame over every op — capture_frame.cljc), so capture-once is safe ONLY while the
@@ -227,10 +227,11 @@ ADAPTER_READMES = (
     REPO_ROOT / "implementation" / "adapters" / "reagent-slim" / "README.md",
 )
 # The reagent-slim Form-3 adopter owner (rf2-aalo4n). FORM-3.md is the
-# adopter-facing companion to the canonical migration recipe (guided-handlers-
-# state.md §M-11); it carries the same lifecycle-frame contract the READMEs do,
-# so it belongs on the same stale-claim scan surface, and its capture-once
-# retarget invariance is pinned by `form3_capture_once_retarget_problems`.
+# adopter-facing companion to the canonical migration recipe
+# (guided-views-m11.md §M-11); it carries the same lifecycle-frame contract the
+# READMEs do, so it belongs on the same stale-claim scan surface, and its
+# capture-once retarget invariance is pinned by
+# `form3_capture_once_retarget_problems`.
 FORM3_MD = REPO_ROOT / "implementation" / "adapters" / "reagent-slim" / "FORM-3.md"
 
 
@@ -2220,8 +2221,8 @@ def _self_test() -> int:
         "reg-event-error-handler moves to a per-frame :on-error recovery policy.",
         dirty=True, label="A5 reg-event-error-handler moves to per-frame :on-error",
     )
-    # A6/A7 — the exact pre-fix M-11 "Leave as-is" stale claim (guided-handlers-
-    # state.md:90 shape) + the README fall-through variant.
+    # A6/A7 — the exact pre-fix M-11 "Leave as-is" stale claim
+    # (guided-views-m11.md shape) + the README fall-through variant.
     expect(
         "Leave as-is. The author accepts that the component pins to `:rf/default` "
         "regardless of where it renders.",
@@ -2276,8 +2277,8 @@ def _self_test() -> int:
         "resolve to it at render time.",
         dirty=False, label="B8 reg-view descendants resolve (no plain-fn subject)",
     )
-    # B9/B10/B11 — the corrected M-11 "Leave as-is" wording (guided-handlers-
-    # state.md:90 post-fix) and explicit-target phrasing must NOT flag.
+    # B9/B10/B11 — the corrected M-11 "Leave as-is" wording
+    # (guided-views-m11.md post-fix) and explicit-target phrasing must NOT flag.
     expect(
         "Do not describe this as pinning to `:rf/default`: there is no "
         "`:rf/default` fall-through (EP-0002), so a frame-dependent plain fn "
