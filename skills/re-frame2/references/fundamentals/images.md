@@ -57,4 +57,4 @@ The image-generation seal, re-`make-frame` hot-reload semantics, and the EP-0026
 
 ---
 
-*Derived from `re-frame.core` (`image`, `make-frame`, `frame-generation`, `generation-diff`) @ main `89bd9c3`. Re-verify after image-assembly or frame-constructor changes.*
+*Derived from `re-frame.core` (`image`, `make-frame`, `frame-generation`, `generation-diff`) @ main. Re-verify after image-assembly or frame-constructor changes.*

@@ -23,7 +23,7 @@ Verified in `implementation/core/src/re_frame/fx.cljc` (the `reg-fx` fn). Metada
 
 ## The fx-map shape
 
-A `reg-event` handler returns a **closed-shape** map — the next state and what to do. The closed set of legal top-level keys is `#{:db :rf.db/runtime :fx}`:
+A `reg-event` handler returns a **closed-shape** map — the next state and what to do. The everyday three top-level keys are `:db`, `:rf.db/runtime` and `:fx`; the closed set also admits the four EP-0025 commit-plane classification effects (`:sensitive`, `:large`, `:clear-sensitive`, `:clear-large` — see [`../cross-cutting/privacy-and-elision.md`](../cross-cutting/privacy-and-elision.md)), which apply *with* the `:db` write rather than routing through `:fx`:
 
 ```clojure
 {:db            <new-app-db>      ;; app-db partition — the everyday key
@@ -33,7 +33,7 @@ A `reg-event` handler returns a **closed-shape** map — the next state and what
       ...]}
 ```
 
-Each `:fx` entry is a 2-vector: `[fx-id args]`. The runtime walks them in source order, synchronously, after the state partitions commit (`fx.cljc:4-9`). Any top-level key **outside** the closed set — `:dispatch`, `:dispatch-later`, `:http`, etc — emits `:rf.error/effect-map-shape` and is dropped (`police-effect-map-shape!` + `closed-effect-map-keys` in `events.cljc`). There are no auto-routed top-level effect keys; every effect rides `:fx` (or the closed set).
+Each `:fx` entry is a 2-vector: `[fx-id args]`. The runtime walks them in source order, synchronously, after the state partitions commit (`fx.cljc:4-9`). Any top-level key **outside** the closed set — `:dispatch`, `:dispatch-later`, `:http`, etc — emits `:rf.error/effect-map-shape` and **refuses the event pre-commit**, so nothing commits and no `:fx` walks (`effect-map-defect` + `closed-effect-map-keys` in `events.cljc`). There are no auto-routed top-level effect keys; every effect rides `:fx` (or the closed set).
 
 **`:rf.db/runtime` is the one new state-bearing key (EP-0001).** Ordinary app handlers write app data via `:db` and almost never touch it — it targets the runtime-db partition (machine snapshots, route slice, SSR metadata) and is reserved **by convention** for framework-authority writers (SSR hydrate, machines, routing, flows). It is **not** a shape error: a non-framework handler that emits it gets the `:rf.warning/app-handler-runtime-effect` dev diagnostic (it is not dropped). Don't flag a framework/SSR/machine handler's legitimate `:rf.db/runtime` write as illegal.
 
@@ -84,7 +84,7 @@ Per `fx.cljc:4-9`:
 
 ## Common gotchas
 
-- **Return shape is closed (`#{:db :rf.db/runtime :fx}`).** Top-level `:dispatch`, `:dispatch-later`, `:http`, etc. are outside the set and dropped with a `:rf.error/effect-map-shape` trace — wrap them inside `:fx`. `:rf.db/runtime` is inside the set (framework-authority runtime-db write), so it is never a shape error.
+- **Return shape is closed (`:db`, `:rf.db/runtime`, `:fx`, plus the four EP-0025 classification keys).** Top-level `:dispatch`, `:dispatch-later`, `:http`, etc. are outside the set, and one of them **refuses the whole event** with a `:rf.error/effect-map-shape` trace — the `:db` beside it does not commit either — so wrap them inside `:fx`. `:rf.db/runtime` is inside the set (framework-authority runtime-db write), so it is never a shape error.
 - **Fx handlers receive `(ctx, args)`, not just `args`.** The first arg is `{:frame ... :event ...}`. Ignore it with `_ctx` if you don't need it.
 - **Returning a value from an fx handler does nothing.** Side effects are the point. `:rf.fx/handled` is emitted on success so the epoch projection records the run.
 - **`:platforms #{:client}` makes the fx skip silently on server.** A `:rf.fx/skipped-on-platform` warning fires — fine for browser-only side effects, but check this if a fx mysteriously doesn't run under SSR.
@@ -97,4 +97,4 @@ Per-frame fx overrides, the full reserved fx-id table, `:rf.http/managed`, flows
 
 ---
 
-*Derived from `implementation/core/src/re_frame/fx.cljc`, `implementation/core/src/re_frame/events.cljc`, and `implementation/core/src/re_frame/frame.cljc` @ main `89bd9c3`. Re-verify line numbers after fx-walker or fx-overrides changes.*
+*Derived from `implementation/core/src/re_frame/fx.cljc`, `implementation/core/src/re_frame/events.cljc`, and `implementation/core/src/re_frame/frame.cljc` @ main. Re-verify line numbers after fx-walker or fx-overrides changes.*

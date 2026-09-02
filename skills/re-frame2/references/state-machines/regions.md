@@ -132,4 +132,4 @@ For the full parallel-regions contract — broadcast routing, per-region scoping
 
 ---
 
-*Derived from the `re-frame.machines.*` sub-namespaces (`lifecycle-fx.validation` for the parallel-regions validator, `parallel` / `transition` for broadcast + tag union) @ main `89bd9c3`, and the worked examples `examples/real-apps/realworld_http/tags.cljs` and `examples/patterns/nine_states/core.cljs`. Citations are symbol-level (machines.cljc was split); re-verify after parallel-regions or broadcast-routing changes.*
+*Derived from the `re-frame.machines.*` sub-namespaces (`lifecycle-fx.validation` for the parallel-regions validator, `parallel` / `transition` for broadcast + tag union) @ main, and the worked examples `examples/real-apps/realworld_http/tags.cljs` and `examples/patterns/nine_states/core.cljs`. Citations are symbol-level (machines.cljc was split); re-verify after parallel-regions or broadcast-routing changes.*

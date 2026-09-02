@@ -144,4 +144,4 @@ Full rationale, the architectural properties that make the shape work, and the c
 
 ---
 
-*Derived from Pattern-AsyncEffect in the spec @ main `89bd9c3`; the HTTP instance shape is illustrative (the closest live managed-HTTP reference is `examples/core/managed_http_counter/`). No standalone example for the hand-rolled `reg-fx` shape; re-verify against the chosen substrate when authoring a new instance.*
+*Derived from Pattern-AsyncEffect in the spec @ main; the HTTP instance shape is illustrative (the closest live managed-HTTP reference is `examples/core/managed_http_counter/`). No standalone example for the hand-rolled `reg-fx` shape; re-verify against the chosen substrate when authoring a new instance.*

@@ -165,4 +165,4 @@ SKILL-REDIRECT.md → *Pattern — Boot* (auth-machine retry-ownership, SSR hand
 
 ---
 
-*Derived from `examples/patterns/boot/boot.cljs` and Pattern-Boot in the spec @ main `89bd9c3`.*
+*Derived from `examples/patterns/boot/boot.cljs` and Pattern-Boot in the spec @ main.*

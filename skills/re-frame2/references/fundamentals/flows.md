@@ -138,7 +138,7 @@ returns, and the cleared flow's output path is vacated when
 
 Flow evaluation happens **right after the event handler's interceptor chain — as the framework's outermost `:after` — transforming the pending `:db` effect before the single deferred install and before `:fx` walks**, once per event, over **this frame's** registered flows only:
 
-1. The interceptor chain runs (`:before`s, handler, then `:after`s in reverse). The flow transform is the **outermost `:after`**, so it fires last — after every other `:after` (incl. a `(path :slice)` interceptor's `:after`) has reshaped the handler's slice back into the full `:db` effect.
+1. The interceptor chain runs (`:before`s, handler, then `:after`s in reverse). The flow transform is the **outermost `:after`**, so it fires last — after every other `:after` (incl. a `[:rf.interceptor/path [:slice]]` ref's `:after`) has reshaped the handler's slice back into the full `:db` effect.
 2. The flow walk reads the chain's **pending frame-state** — the pending `:db` effect for bare app-db inputs and the pending `:rf.db/runtime` effect for `[:rf.db/runtime …]` inputs (not the live partitions) — and walks the frame's flows in **topologically-sorted** order (dependency derived from `:output-path`/`:inputs` overlap; a runtime-db input never creates a spurious edge, since outputs are always app-db paths). Each flow recomputes only if its input values changed by `=` since last run (the first walk of a newly-registered flow always fires), `assoc-in`-ing its output into the pending **`:db`** effect (outputs are app-db only).
 3. The single **deferred `:db` install** writes the flow-augmented value into `app-db`; sub-cache invalidates; `:rf.event/db-changed` fires here — after flows.
 4. `:fx` walks — so an `:fx` entry that reads `app-db` sees flow outputs (e.g. `[:dispatch [:react-to-area-change]]` works cleanly).
@@ -161,4 +161,4 @@ Per-frame topsort + cycle-detection, partition-qualified input resolution (binar
 
 ---
 
-*Derived from `spec/013-Flows.md`, `implementation/flows/src/re_frame/` (the `day8/re-frame2-flows` artefact), and the worked example `examples/core/flows/core.cljs` @ main `89bd9c3`. Re-verify line/shape after flow-runtime changes.*
+*Derived from `spec/013-Flows.md`, `implementation/flows/src/re_frame/` (the `day8/re-frame2-flows` artefact), and the worked example `examples/core/flows/core.cljs` @ main. Re-verify line/shape after flow-runtime changes.*

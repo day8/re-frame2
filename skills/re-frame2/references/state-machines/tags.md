@@ -73,4 +73,4 @@ For the full state-tags contract — declaration shape, snapshot semantics, the 
 
 ---
 
-*Derived from `re-frame.machines.transition` (`compute-tags` / `commit-tags`) and `re-frame.machines.parallel` (`compute-tags-parallel` — the cross-region union), and the `:rf.machine/has-tag?` sub in `re-frame.machines` @ main `89bd9c3`. Citations are symbol-level (machines.cljc was split); re-verify after tag-union or `:rf.machine/has-tag?` changes.*
+*Derived from `re-frame.machines.transition` (`compute-tags` / `commit-tags`) and `re-frame.machines.parallel` (`compute-tags-parallel` — the cross-region union), and the `:rf.machine/has-tag?` sub in `re-frame.machines` @ main. Citations are symbol-level (machines.cljc was split); re-verify after tag-union or `:rf.machine/has-tag?` changes.*

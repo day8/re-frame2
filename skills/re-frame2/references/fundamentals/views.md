@@ -42,7 +42,7 @@ The injected `dispatch` / `subscribe` are why a `reg-view` body needs no frame t
 [(rf/view :counter) "Count"]      ;; lookup by id — for computed ids, cross-module, or hot-reload
 ```
 
-`(rf/view :id)` returns the **wrapped** (frame-aware) fn `reg-view` produced, re-resolved on every call (so hot-reload swaps are picked up). Reach for it when the id is computed at runtime, the Var isn't in scope, or you want hot-reload re-resolution at the call site. A `view` miss returns `nil` (no error). **Bare `[:counter "Count"]`** — a keyword tag Reagent would interpret as a registered view — is **not supported in v1**; use the Var or `(rf/view …)`.
+`(rf/view :id)` returns the **wrapped** (frame-aware) fn `reg-view` produced, re-resolved on every call (so hot-reload swaps are picked up). Reach for it when the id is computed at runtime, the Var isn't in scope, or you want hot-reload re-resolution at the call site. A `view` miss returns `nil` (no error). **Bare `[:counter "Count"]`** — a keyword tag Reagent would interpret as a registered view — is **not supported**; use the Var or `(rf/view …)`.
 
 ### The call site MUST be hiccup, never a bare function call
 

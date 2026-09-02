@@ -196,4 +196,4 @@ Frame presets in detail, machine-instance teardown contract, the React-context c
 
 ---
 
-*Derived from `re-frame.frame`, `re-frame.core`, and `re-frame.adapter.reagent` @ main `89bd9c3`. Citations are symbol-level; re-verify symbol homes after frame-resolution or adapter-late-bind changes.*
+*Derived from `re-frame.frame`, `re-frame.core`, and `re-frame.adapter.reagent` @ main. Citations are symbol-level; re-verify symbol homes after frame-resolution or adapter-late-bind changes.*

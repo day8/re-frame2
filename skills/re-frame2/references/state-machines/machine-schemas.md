@@ -78,4 +78,4 @@ See Spec 005 §Schema validation and §`[:schemas :data]` is the re-frame2 analo
 
 ---
 
-*Derived from the `re-frame.machines.*` sub-namespaces (`transition`, `lifecycle-fx.registration` / `validation`) and `spec/005-StateMachines.md` (EP-0029) @ main `89bd9c3`. Citations are symbol-level; re-verify after machine-schema or classification changes.*
+*Derived from the `re-frame.machines.*` sub-namespaces (`transition`, `lifecycle-fx.registration` / `validation`) and `spec/005-StateMachines.md` (EP-0029) @ main. Citations are symbol-level; re-verify after machine-schema or classification changes.*

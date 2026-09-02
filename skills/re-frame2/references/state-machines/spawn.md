@@ -196,4 +196,4 @@ For the full declarative-`:spawn` desugaring rules, composition with hierarchica
 
 ---
 
-*Derived from the `re-frame.machines.lifecycle-fx.*` sub-namespaces (`registration` desugar, `join` engine, `destroy` / `exit-cascade`, `validation`) @ main `89bd9c3`, and `spec/conformance/fixtures/spawn-all-*` fixtures. Citations are symbol-level (machines.cljc was split); re-verify after `:spawn`/`:spawn-all` runtime changes.*
+*Derived from the `re-frame.machines.lifecycle-fx.*` sub-namespaces (`registration` desugar, `join` engine, `destroy` / `exit-cascade`, `validation`) @ main, and `spec/conformance/fixtures/spawn-all-*` fixtures. Citations are symbol-level (machines.cljc was split); re-verify after `:spawn`/`:spawn-all` runtime changes.*

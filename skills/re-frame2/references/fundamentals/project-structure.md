@@ -118,4 +118,4 @@ A per-frame concern large enough for its own file (a "per-request server frame" 
 
 ---
 
-*Derived from the canonical worked examples (`examples/real-apps/realworld_http/`, `examples/core/counter/`, `examples/core/login/`, `examples/capabilities/ssr/ssr/`, `tools/story/testbeds/counter_with_stories/`) @ main `89bd9c3`. The shape is example-driven; re-verify after substantial restructure of those examples.*
+*Derived from the canonical worked examples (`examples/real-apps/realworld_http/`, `examples/core/counter/`, `examples/core/login/`, `examples/capabilities/ssr/ssr/`, `tools/story/testbeds/counter_with_stories/`) @ main. The shape is example-driven; re-verify after substantial restructure of those examples.*

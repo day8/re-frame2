@@ -122,4 +122,4 @@ For the full cancellation contract — trace events, the late-bind hook surface,
 
 ---
 
-*Derived from the `re-frame.machines.lifecycle-fx.*` sub-namespaces (`destroy` fx, `finalize` / `frame-destroy` abort-hook seam) and `re-frame.frame` (frame-destroy walk) @ main `89bd9c3`. Citations are symbol-level (machines.cljc was split); re-verify after cancellation-cascade or `:rf.http/managed` abort-hook changes.*
+*Derived from the `re-frame.machines.lifecycle-fx.*` sub-namespaces (`destroy` fx, `finalize` / `frame-destroy` abort-hook seam) and `re-frame.frame` (frame-destroy walk) @ main. Citations are symbol-level (machines.cljc was split); re-verify after cancellation-cascade or `:rf.http/managed` abort-hook changes.*

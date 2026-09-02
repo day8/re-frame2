@@ -125,4 +125,4 @@ The render-priority **vector** is the load-bearing move. A priority `cond` in th
 
 ---
 
-*Derived from `examples/patterns/nine_states/core.cljs` @ main `89bd9c3`. Re-verify after substantial reshape of the nine-states example.*
+*Derived from `examples/patterns/nine_states/core.cljs` @ main. Re-verify after substantial reshape of the nine-states example.*
