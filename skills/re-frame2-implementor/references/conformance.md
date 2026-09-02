@@ -44,9 +44,11 @@ Wire the harness into the port's CI; every commit should report the score. **The
 
 ## Capability tagging
 
-This section is the skill's single owner of three things: how to **derive** the claimable set, the **family → scope-question map**, and the **corpus/spec divergence rule**. The port profile records only the result.
+This section is the skill's single owner of three things: how to **derive** the claimable set, the **family → scope-decision map**, and the **corpus/spec divergence rule**. The port profile records only the result.
 
-Three families are **v1-required** and always claimed: `:core/*` (pattern-required basics), `:identity/*` (the `:rf/path` algebra + CEDN-1 canonical identity — `EP-0012` is the `docs/EP/` proposal behind it, `spec/Conventions.md` the normative text), and `:data-classification/*` (the Spec 015 egress/redaction contract). Every other family maps to a profile scope question and is claimed iff that answer is yes:
+Three families are **v1-required** and always claimed: `:core/*` (pattern-required basics), `:identity/*` (the `:rf/path` algebra + CEDN-1 canonical identity — `EP-0012` is the `docs/EP/` proposal behind it, `spec/Conventions.md` the normative text), and `:data-classification/*` (the Spec 015 egress/redaction contract). Every other family maps to a profile scope decision and is claimed iff that answer is yes.
+
+**Q-numbers are the checklist's, and it numbers seven.** [`spec/Implementor-Checklist.md` Part 1](https://day8.github.io/re-frame2/spec/Implementor-Checklist/#part-1--how-complete) carries Q1–Q7 and stops; it has no question row for flows, managed HTTP or resources. Those three are **skill-local scope decisions** — same yes/no shape, same default of no, but read from the owning Spec named in the row rather than from a checklist question. Do not cite a Q-number for them.
 
 | Family | Claimed when |
 |---|---|
@@ -54,9 +56,9 @@ Three families are **v1-required** and always claimed: `:core/*` (pattern-requir
 | `:routing/*` | Q2 routing |
 | `:ssr/*` | Q3 SSR |
 | `:schemas/*` | Q4 schemas ≠ no (see §Static hosts below) |
-| `:flow/*` | Q8 flows |
-| `:rf.http/managed` | Q9 managed HTTP |
-| `:resources/*` | Q10 resources |
+| `:flow/*` | flows — skill-local; owner [`spec/013-Flows.md`](https://day8.github.io/re-frame2/spec/013-Flows/) |
+| `:rf.http/managed` | managed HTTP — skill-local; owner [`spec/014-HTTPRequests.md`](https://day8.github.io/re-frame2/spec/014-HTTPRequests/) |
+| `:resources/*` | resources — skill-local, presupposes managed HTTP; owner [`spec/016-Resources.md`](https://day8.github.io/re-frame2/spec/016-Resources/) |
 | `:derivation/algebra-graph` + `:derivation/algebra-graph-subs-machines` | Q6 Tool-Pair inspection — a subs+machines-only graph host claims the narrow tag and known-skips the broad one. Owner: [`spec/Derivations.md` §Graph inspection](https://day8.github.io/re-frame2/spec/Derivations/), which the fixtures themselves cite; the `:derivation-graph` `:call` op is specified there |
 
 **Fixtures are authoritative for what RUNS; the README + owning Spec for what EXISTS to be claimed — and the two diverge in both directions.** The common case is corpus-ahead: the fixtures carry tags the prose lists lag, so enumerate each claimed family from `spec/conformance/fixtures/` at the pin (the greps above). But `:actor/*` is corpus-**behind**: the README and Spec 005 declare capabilities the fixtures don't yet back — a real, spec-mandated capability with no fixture goes on `known-skipped` only if you don't implement it, never because a grep missed it. Cross-check each family against the README's table before finalising the claim.
