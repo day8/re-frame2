@@ -91,7 +91,7 @@ The `reg-view` macro (and its injected locals) is **Reagent-only** — it does n
 
 ## Hicasso — the re-frame-native peer
 
-Everything above is the **adapter** story: re-frame2 drives a React view layer someone else wrote (Reagent, reagent-slim, UIx), and `reg-view` is how a component becomes frame-aware inside it. Those adapters are first-class and stay that way.
+Everything above is the **adapter** story: re-frame2 drives a React view layer someone else wrote (Reagent, reagent-slim, UIx), and each adapter has its own spelling for frame awareness — `reg-view` on Reagent, the `use-subscribe` / `use-frame` hooks on UIx. Those adapters are first-class and stay that way.
 
 **Hicasso** (`re-frame.hicasso`, conventionally aliased `h`) is the other option — a view layer re-frame2 owns, so the view tier stays in the same data story as the rest of the app. A view is an `h/defview` mounted in brackets and never called; subscriptions are read with `(h/sub …)`, which returns the value rather than something to deref; and handlers lift to event vectors as data, so a structural test can assert what a button does with `=`.
 
