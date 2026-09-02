@@ -2030,7 +2030,7 @@ Five Static sub-tabs, mode-scoped mnemonics per the findings doc
 |---|---|---|---|
 | **Machines**     | `m` (default) | rf2-o5f5f.2 | Registry browse + Topology + 4-mode sub-strip |
 | **Routes**       | `r` | rf2-o5f5f.3 | Registered routes (promoted from Dynamic) + Simulate-URL |
-| **Schemas**      | `c` | rf2-o5f5f.4 | Registered schemas + sample data + jump-to-source |
+| **Schemas**      | `c` | rf2-o5f5f.4 | Registered app-db / event / sub schemas as Malli EDN, with `:doc`, searchable, + jump-to-source |
 | **Flows**        | `f` | rf2-uhsqb   | Registered flows catalogue |
 | **Interceptors** | `i` | rf2-o5f5f.6 | Pure-browse lens over interceptor chains — ref-aware (EP-0022): surfaces by-reference entries (keyword / `[id arg]`) alongside inline values, enriched from the `:interceptor` registrar |
 
