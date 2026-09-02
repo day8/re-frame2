@@ -82,7 +82,7 @@
 (defn- run-key-for [vid tag] {:variant-id vid :cell-overrides tag})
 
 (defn- prepare! [vid tag]
-  (rt/prepare-run! vid {:render? true :run-key (run-key-for vid tag)}))
+  (rt/prepare-run! vid {:run-key (run-key-for vid tag)}))
 
 (defn- resume!
   "Call the single run owner's resume. The play-scripts here are pure

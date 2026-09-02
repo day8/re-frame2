@@ -309,7 +309,6 @@
           opts  {:active-modes   (:active-modes shell)
                  :cell-overrides (get-in shell [:cell-overrides variant-id])
                  :substrate      (:substrate shell)
-                 :render?        true
                  :run-key        (canvas/run-key shell variant-id)}]
       (try
         (runtime/prepare-run! variant-id opts)
