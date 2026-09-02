@@ -40,12 +40,33 @@ For an async settle, poll the re-rendered view with `ts/poll-until` until it mat
 
 ```clojure
 ;; Async — a queued dispatch (HTTP reply, scheduled event, machine :after)
-;; settles past dispatch-sync; poll the re-rendered view.
+;; settles past dispatch-sync; poll the re-rendered view. (JVM shown; on CLJS
+;; poll-until returns a Promise — use the cljs.test/async form below.)
 (deftest status-eventually-ready
   (rf/dispatch [:cart/fetch])                              ;; plain dispatch — queues
   (is (ts/poll-until
         #(= "ready" (h/text-content (h/find-by-testid (cart-view) "status")))
         {:timeout-ms 5000 :label "status ready"})))
+```
+
+On CLJS that `is` would assert the **Promise object**, which is truthy the moment it
+is created — green before the predicate settles, and green again when it later
+rejects. Await it instead:
+
+```clojure
+;; CLJS — compose the Promise under cljs.test/async; assert inside .then.
+(deftest status-eventually-ready-cljs
+  (async done
+    (-> (ts/poll-until
+          #(= "ready" (h/text-content (h/find-by-testid (cart-view) "status")))
+          {:timeout-ms 5000 :label "status ready"})
+        (.then (fn [_]
+                 (is (= "ready" (h/text-content
+                                  (h/find-by-testid (cart-view) "status"))))
+                 (done)))
+        (.catch (fn [e]
+                  (is false (str "poll-until timed out: " (.-message e)))
+                  (done))))))
 ```
 
 `ts/poll-until` opts: `:timeout-ms` (default 2000), `:interval-ms` (default 5), `:label` (timeout-message tag). **Per-platform shape**: **JVM** synchronous — returns the truthy value, throws `ex-info` (`:rf.error/id :rf.error/poll-until-timeout`) on timeout; **CLJS** returns a `js/Promise` — resolves with the truthy value, rejects on timeout, compose with `cljs.test/async`. For sync runs, a `find-by-testid` / `text-content` walk after `dispatch-sync` suffices — reach for `poll-until` only when the run is genuinely async. Not a substitute for timer-semantics sleeps (grace-period elapse, throttle/debounce window).

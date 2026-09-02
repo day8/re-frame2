@@ -118,7 +118,7 @@ If a reference contradicts the leaf, **the reference wins** — and if it's the 
 - [`pick-a-pattern.md`](pick-a-pattern.md) — pattern choice (orthogonal to state-shape choice).
 - [`../references/state-machines/reg-machine.md`](../references/state-machines/reg-machine.md) — how to author `reg-machine` (states / initial / guards / actions).
 - [`../references/state-machines/regions.md`](../references/state-machines/regions.md) — single-region and `:type :parallel` regions.
-- [`../references/state-machines/tags.md`](../references/state-machines/tags.md) — `:tags` on states + `machine-has-tag?` query.
+- [`../references/state-machines/tags.md`](../references/state-machines/tags.md) — `:tags` on states + the `[:rf.machine/has-tag? <machine-id> <tag>]` subscription.
 - [`../references/state-machines/spawn.md`](../references/state-machines/spawn.md) — `:spawn` and `:spawn-all` for child machines.
 - [`../references/state-machines/history.md`](../references/state-machines/history.md) — `:type :history` re-entry (shallow / deep / default).
 - [`../references/state-machines/cancellation.md`](../references/state-machines/cancellation.md) — the actor-destroy cascade.
