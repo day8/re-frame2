@@ -19,8 +19,10 @@ Confirm all three, or stop:
    [`../SKILL.md`](../SKILL.md) §Read this first carries it as a table — and
    take an explicit yes. Don't migrate views because you can.
 3. **Hicasso is actually reachable from the target project's build.** It is
-   **pre-publication**: there is no released Maven coordinate to depend on, and
-   the coordinate shown in the draft guide's installation page does not resolve.
+   **pre-publication**: `day8/re-frame2-hicasso` is not published and there is
+   no date at which it will be, so there is no released Maven coordinate to
+   depend on — the installation page says so itself and resolves the artefact
+   by `:local/root` from a checkout.
    A project can adopt it only by consuming the in-tree / git-source artefact.
    If it has no path to that, there is nothing to migrate *onto* yet — say so
    and wait. This is migration honesty, not a reason to publish early.
@@ -159,8 +161,11 @@ are real:
 
 - **`re-frame.hicasso.test`** (conventionally `ht`) — the value-level tiers.
 - **`re-frame.hicasso.test.mounted`** (conventionally `hm`) — the mounted tier:
-  `mount!`, `render!`, `settle!`, `dispatch-and-settle!`, `unmount!`,
-  `assert-clean!` and the residue checks.
+  `mount!`, `rerender!`, `settle!`, `dispatch-and-settle!`, `unmount!`,
+  `assert-clean!` and the residue checks. Note `rerender!`, not `render!`: the
+  hot-reload door on the `h` namespace is `h/render!`, but the test kit's
+  re-render verb is spelled `rerender!`, and cardinal rule 6 applies to the kit
+  exactly as it does to the door.
 
 Note the packaging: the kit lives on a **separate source root** that is
 deliberately not on the library's `:paths`, so a consumer who never writes a

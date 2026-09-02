@@ -89,9 +89,11 @@ reader work they did not have to do.
 Two further honesty obligations ride here:
 
 - **Hicasso is PRE-PUBLICATION.** No Maven coordinate, absent from the lockstep
-  array and the release matrix. A project adopts it from source or not at all —
-  and the coordinate printed in the draft guide's installation page does not
-  resolve. Pre-flight check 3 in `procedure.md` exists for this.
+  array and the release matrix. A project adopts it from source or not at all.
+  The installation page states this itself and resolves the artefact by
+  `:local/root` from a checkout, so there is no coordinate printed there to
+  fail — the honesty obligation is naming the absence, not warning about a bad
+  coordinate. Pre-flight check 3 in `procedure.md` exists for this.
 - **Staying on Reagent is a complete, supported configuration**, never a
   half-migrated one.
 
@@ -150,11 +152,18 @@ rather than restated.
 
 ### L9 — Emit only what has shipped, and READ THE DOOR to find out
 
-Hicasso's **draft guide teaches forms that do not exist** —
-an `h/fn` spelling, a key-map restriction to
-`:on-key-down`/`:on-key-up`. The authority is
+**Guide pages describe forms that do not exist.** The authority is
 `implementation/hicasso/src/re_frame/hicasso.cljc` and the `impl/` namespaces
 beside it, not a design page and not the guide.
+
+The lock's original example, an `h/fn` spelling, was swept to `h/event` on
+2026-08-15 and no page teaches it now; and the `draft-guide/` corpus the lock
+named has itself **shipped** as `docs/core/hicasso/` (rf2-0yp7w), leaving only a
+rewrite-audit note behind it. **Neither fact retires the lock**, because the
+class outlived both examples: the shipped guide still restricts key maps to
+`:on-key-down`/`:on-key-up` while `impl/intent.cljs`'s `lower-prop` accepts a
+map at any event position. Re-derive the examples when citing them; the rule is
+the constant.
 
 **This is now the highest-risk lock in the folder**, because unlike Freehand
 there is no `spec/API.md` roster to check against — Hicasso is pre-publication

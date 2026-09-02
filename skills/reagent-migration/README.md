@@ -25,8 +25,8 @@ When to reach for it (narrow): you are already on re-frame2, you know you don't 
   - M-tier ("do this") — `h/defview` and the one-props-map law, deref-drop, dispatch-lifting with the 2 markers, `::h/prevent`, key-meta → `:key`, the prop dialect (mostly: leave it alone), root mounting, ns requires, keystroke handlers → an IME-gated key map.
   - D-tier ("how to DECIDE") — Form-2/`with-let` state (app-db via `h/reg-state`, the forms module, or a React island), Form-3 lifecycle (callback refs, events, `h/error-boundary`), the `:on-*` handler split, foreign React and its callback contracts (`h/defhost` / `[:>]` / `h/as-element` / `h/as-component`), derived state, the ratom-as-store restructure, computed props via a plain `merge` with the owned keys last, and SSR-then-hydrate (the pipeline ships; the decision is whether to run a Node renderer).
   - R-tier ("don't migrate — stay on Reagent") — the honesty backbone, and it is short: the prev-props update protocol, a frame-pinned reactive read, Reagent introspection and schedulers.
-- An incremental procedure — report, then a closed subtree at a time, leaf → root; verify it compiles, renders, and passes tests. Includes the shipped test kit (`re-frame.hicasso.test`, `re-frame.hicasso.test.mounted`) and `hm/shadow!`, which runs the Reagent original and the Hicasso candidate side by side against isolated copies of one seeded frame and compares DOM and intents.
-- The gotchas — led by the one that costs most: a leftover `#(dispatch …)` closure crosses to React by identity, compiles, renders, and fails at click time with `:rf.error/no-frame-context`. Then metadata keys never being read, the string/symbol prop-key edges, markers not nesting, and the several places the draft guide teaches a spelling that does not exist.
+- An incremental procedure — report, then a closed subtree at a time, leaf → root; verify it compiles, renders, and passes tests. Includes the shipped test kit (`re-frame.hicasso.test*` — `.test`, `.test.mounted`, `.test.forms`, `.test.runtime`, `.test.server`) and `hm/shadow!`, which runs the Reagent original and the Hicasso candidate side by side against isolated copies of one seeded frame and compares DOM and intents.
+- The gotchas — led by the one that costs most, and it is really three: a half-converted view fails at three different times under three different ids (a leftover ambient read or dispatch refuses at render, a surviving `#(dispatch …)` closure fails at click, an `h/sub` hoisted into a callback fails at fire), plus how to read the complaint that says which. Then metadata keys never being read, the string/symbol prop-key edges, markers not nesting, and the places a guide page overstates the shipped surface.
 
 ## What it deliberately does not cover
 
@@ -47,7 +47,7 @@ The skill is knowledge Claude reads and then applies to a consumer's Reagent cod
 - reasons through the D-tier decisions with the author
 - declines the R-tier cases honestly, holding those views on Reagent
 
-One standing rule governs all of it: emit only what has shipped, and read the door to find out. Hicasso's draft guide describes forms that do not exist — an `h/fn` spelling, for one — so a design page is not authority. The skill checks `re-frame.hicasso` itself before it writes a verb, and names the gap when there isn't one.
+One standing rule governs all of it: emit only what has shipped, and read the door to find out. Guide pages have described forms that do not exist — the `h/fn` spelling was swept to `h/event` in August 2026, and the key-map position restriction is still overstated today — so no page is authority for a spelling. The skill checks `re-frame.hicasso` itself before it writes a verb, and names the gap when there isn't one.
 
 ## Status
 
