@@ -63,8 +63,7 @@
    it overrides `:rf.http/managed` with a canned stub that synthesises the board
    reply and, when armed, the 503 — and the whole optimistic lifecycle runs
    standalone."
-  (:require [reagent.dom.client :as rdc]
-            [clojure.string :as str]
+  (:require [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.registrar :as registrar]
             ;; Managed HTTP — the one transport every resource and mutation
@@ -616,7 +615,7 @@
 ;; metadata ensures it, kicked off by the first URL sync `:url-bound? true`
 ;; performs automatically when the frame is created.
 
-(defonce react-root (atom nil))
+(defonce app-root (reagent-adapter/client-root))
 
 (def app-frame :rf/default)
 
@@ -625,16 +624,15 @@
 (defn ^:dev/after-load mount! []
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
-    (when-not @react-root
-      (reset! react-root (rdc/create-root el)))
     ;; Frame created and configured right here. First mount builds it under
     ;; `app-frame` and applies the config; hot reload reuses it.
-    (rdc/render @react-root
-                [rf/frame-root {:id           app-frame
-                                :doc          "Linearlite optimistic-board demo frame."
-                                :url-bound?   true
-                                :fx-overrides {:rf.http/managed :linearlite.demo/http-stub}}
-                 [root-view]])))
+    (reagent-adapter/render! app-root
+      [rf/frame-root {:id           app-frame
+                      :doc          "Linearlite optimistic-board demo frame."
+                      :url-bound?   true
+                      :fx-overrides {:rf.http/managed :linearlite.demo/http-stub}}
+       [root-view]]
+      el)))
 
 (defn run []
   (rf/init! reagent-adapter/adapter)

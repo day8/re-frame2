@@ -37,8 +37,7 @@
    Every Conduit endpoint goes out via `:rf.http/managed`. The demo entry
    below swaps in a canned-stub override so the app runs with no network at
    all. See the HTTP guide: ../../../docs/async/http.md"
-  (:require [reagent.dom.client :as rdc]
-            [re-frame.core :as rf]
+  (:require [re-frame.core :as rf]
             ;; Managed HTTP ships in its own artefact. Requiring it registers
             ;; the `:rf.http/managed` fx (and its family), so dispatching it
             ;; resolves to something.
@@ -292,9 +291,9 @@
 ;; the browser-test bundle, and creating the root at load time would race two
 ;; roots onto the same container — one example's mount bleeding into another's
 ;; tests, with React grumbling "createRoot called twice" the whole way. The
-;; name `react-root` (not `root`) keeps it distinct from the `root-view`
+;; name `app-root` (not `root`) keeps it distinct from the `root-view`
 ;; above.
-(defonce react-root (atom nil))
+(defonce app-root (reagent-adapter/client-root))
 
 ;; ============================================================================
 ;; HTTP REQUEST INTERCEPTOR
@@ -354,8 +353,6 @@
 (defn ^:dev/after-load mount! []
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
-    (when-not @react-root
-      (reset! react-root (rdc/create-root el)))
     ;; Here's where the frame is born. A single `frame-root {:id …}` at
     ;; the render root creates, configures, and seeds the app frame all in one
     ;; place. The first mount conjures `:rf/default` and applies its config:
@@ -412,16 +409,17 @@
     ;; act on the moment `GET /user` lands (auth.cljs §THE COLD-BOOT DEEP-LINK
     ;; WINDOW has the full sequence; rf2-k85nd is the bug that taught us).
     ;; No explicit `:rf.route/handle-url-change` initial event is needed.
-    (rdc/render @react-root
-                [rf/frame-root {:id              :rf/default
-                                :doc             "Realworld demo frame."
-                                :url-bound?      true
-                                :url-strategy    routing/url-strategy
-                                :initial-events  [[:auth/classify-token]
-                                                      [:auth/initialise]
-                                                      [:app/initialise]]
-                                    :fx-overrides    {:rf.http/managed :realworld.demo/http-stub}}
-                 [root-view]])))
+    (reagent-adapter/render! app-root
+      [rf/frame-root {:id              :rf/default
+                      :doc             "Realworld demo frame."
+                      :url-bound?      true
+                      :url-strategy    routing/url-strategy
+                      :initial-events  [[:auth/classify-token]
+                                            [:auth/initialise]
+                                            [:app/initialise]]
+                          :fx-overrides    {:rf.http/managed :realworld.demo/http-stub}}
+       [root-view]]
+      el)))
 
 (defn run []
   ;; Tell re-frame2 to render through Reagent. This is the one genuinely

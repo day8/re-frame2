@@ -44,19 +44,21 @@ spell out the shape to look for.
 ## Convention: example mount-isolation — defer DOM mount to `mount!`
 
 How an example *boots and mounts* — `boot!` installs the adapter, `mount!`
-creates the frame via the `frame-root` ensure component, the `defonce` root plus
-`^:dev/after-load` give hot reload — is the canonical app-startup shape, covered
-in [Boot and mount an app](../docs/core/how-to/boot-and-mount-an-app.md). The
+creates the frame via the `frame-root` ensure component, the `defonce`
+client-root handle plus `^:dev/after-load` give hot reload — is the canonical
+app-startup shape, covered in
+[Boot and mount an app](../docs/core/how-to/boot-and-mount-an-app.md). The
 only part that's *test-specific* is this one rule:
 
 > Example `core` namespaces are co-required by their `cljs-test` wrappers under
 > the **node-test** build (`ns-regexp "cljs-test$"`, no DOM), so they must not
-> mount at ns-load — an ns-load `create-root` crashes with no `js/document`.
+> mount at ns-load — an ns-load render crashes with no `js/document`.
 
-So the `create-root` call lives **inside `mount!`** (created lazily, behind a
-`(exists? js/document)` guard), never at the top level of the namespace. That's
-what lets the same `core` ns load cleanly both in a browser and headlessly on
-Node. The rule is enforced by code review.
+So the `render!` call lives **inside `mount!`** (behind a
+`(exists? js/document)` guard), never at the top level of the namespace; the
+`defonce` handle itself is inert (`reagent-adapter/client-root` touches no DOM
+until the first `render!`). That's what lets the same `core` ns load cleanly
+both in a browser and headlessly on Node. The rule is enforced by code review.
 
 `run` is the bundle entry point, wired as the `:init-fn` of the example's
 shadow-cljs build in

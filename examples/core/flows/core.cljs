@@ -33,8 +33,7 @@
 
    The guide has the full registration map, the topological sort, and the
    failure semantics."
-  (:require [reagent.dom.client :as rdc]
-            [re-frame.core :as rf]
+  (:require [re-frame.core :as rf]
             ;; Flows live in their own artefact, so you opt in. Requiring
             ;; re-frame.flows once wires up the flow API; leave it out and the
             ;; reg-flow calls below raise :rf.error/flows-artefact-missing.
@@ -276,7 +275,7 @@
 ;; never at ns-load. Loading a namespace should touch no DOM, so that two
 ;; co-required example namespaces don't both race to slap `create-root` onto
 ;; the shared `#app`.
-(defonce react-root (atom nil))
+(defonce app-root (reagent-adapter/client-root))
 
 ;; `frame-root` (ENSURE, `{:id …}`) would normally be where
 ;; `:rf/default` gets created — but by the time it mounts below, `run` has
@@ -298,11 +297,10 @@
 (defn mount! []
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
-    (when-not @react-root
-      (reset! react-root (rdc/create-root el)))
-    (rdc/render @react-root
-                [rf/frame-root {:id app-frame}
-                 [cart-app]])))
+    (reagent-adapter/render! app-root
+      [rf/frame-root {:id app-frame}
+       [cart-app]]
+      el)))
 
 ;; The hot-reload seam. Most examples mark `mount!` itself `^:dev/after-load`:
 ;; all their registrations are top-level forms, so reloading the namespace

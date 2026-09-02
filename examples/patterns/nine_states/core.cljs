@@ -73,8 +73,7 @@
    It all lives in one file so you can read it top to bottom. A real
    codebase would spread it across schema / events / subs / views /
    machines files."
-  (:require [reagent.dom.client :as rdc]
-            [re-frame.core :as rf]
+  (:require [re-frame.core :as rf]
             [re-frame.registrar :as registrar]
             ;; Schemas ship as their own artefact, day8/re-frame2-schemas.
             ;; Requiring this ns wires up the hooks the `rf/reg-app-schema`
@@ -813,13 +812,13 @@
 ;; The mount lives inside `run`, deliberately not at namespace-load time.
 ;; Here's why: the browser-test bundle requires several example namespaces
 ;; at once, and they all share one `#app` element. If each grabbed it with
-;; `rdc/create-root` the moment its ns loaded, they'd trample each other —
+;; a `render!` the moment its ns loaded, they'd trample each other —
 ;; React's "createRoot called on the same container twice" warning, plus
-;; cross-example leakage. Keeping `create-root` inside `run` means ns-load
+;; cross-example leakage. Keeping the first `render!` inside `run` means ns-load
 ;; has zero DOM side effects, and the namespaces coexist in one build
 ;; without a fuss.
 
-(defonce react-root (atom nil))
+(defonce app-root (reagent-adapter/client-root))
 
 ;; DOM setup lives in `mount!`, tagged `^:dev/after-load` so shadow-cljs re-runs
 ;; it after each hot reload — edited views re-render into the same root and frame.
@@ -839,14 +838,13 @@
   ;; attached to.
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
-    (when-not @react-root
-      (reset! react-root (rdc/create-root el)))
-    (rdc/render @react-root
-                [rf/frame-root {:id             :rf/default
-                                :doc            "Nine-states demo frame."
-                                :fx-overrides   {:rf.http/managed :nine-states.http/managed-demo}
-                                :initial-events [[:nine-states.app/initialise]]}
-                 [root-view]])))
+    (reagent-adapter/render! app-root
+      [rf/frame-root {:id             :rf/default
+                      :doc            "Nine-states demo frame."
+                      :fx-overrides   {:rf.http/managed :nine-states.http/managed-demo}
+                      :initial-events [[:nine-states.app/initialise]]}
+       [root-view]]
+      el)))
 
 (defn run []
   ;; Tell the runtime which substrate to render through. Just the adapter —

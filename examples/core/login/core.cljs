@@ -24,8 +24,7 @@
   ;; reference base — mirrored as `login-uix` and `login-hicasso` over the same
   ;; `login.model` — so staying on Reagent keeps the trio an honest
   ;; apples-to-apples comparison.
-  (:require [reagent.dom.client :as rdc]
-            [re-frame.core :as rf]
+  (:require [re-frame.core :as rf]
             ;; The substrate-free model owner. Requiring it registers every
             ;; shared `auth.login` schema, fx, machine, event, and sub, and
             ;; hands us `model/frame-config` for the mount below. It names no
@@ -120,7 +119,7 @@
 ;; the DOM exactly zero times. Otherwise, the moment another example
 ;; co-requires this one, two `create-root` calls race for `#app` and you get
 ;; the kind of bug that only shows up on Tuesdays.
-(defonce react-root (atom nil))
+(defonce app-root (reagent-adapter/client-root))
 
 ;; `mount!` is browser setup: create the root lazily, then render the view tree
 ;; inside the frame-root. `^:dev/after-load` is shadow's cue to re-run it on
@@ -130,8 +129,6 @@
 (defn ^:dev/after-load mount! []
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
-    (when-not @react-root
-      (reset! react-root (rdc/create-root el)))
     ;; Frame setup, all in one breath. `frame-root {:id …}` is the "make sure
     ;; this frame exists" shape (ENSURE): on first mount it creates
     ;; `:rf/default` at commit, applies the config below, runs `:initial-events`
@@ -146,11 +143,12 @@
     ;; views' injected `dispatch`/`subscribe` (and the machine reads) know to
     ;; talk to `:rf/default`. Render a `reg-view` outside any frame scope and it
     ;; fails loud rather than guessing.
-    (rdc/render @react-root
-                [rf/frame-root (merge {:id  :rf/default
-                                       :doc "Login demo frame."}
-                                      model/frame-config)
-                 [root-view]])))
+    (reagent-adapter/render! app-root
+      [rf/frame-root (merge {:id  :rf/default
+                             :doc "Login demo frame."}
+                            model/frame-config)
+       [root-view]]
+      el)))
 
 (defn run []
   ;; Tell re-frame2 to render through Reagent. The adapter is just a spec

@@ -20,7 +20,6 @@
    subscription, and app-db each have a glossary entry in
    `docs/core/glossary.md`."
   (:require [clojure.string :as str]
-            [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             ;; `re-frame.schemas` ships in day8/re-frame2-schemas. Required
             ;; for its side effect: loading this ns installs the late-bind
@@ -190,7 +189,7 @@
 ;; example namespaces required together would both grab for the shared `#app`
 ;; element and race to `create-root` on it — and a race in your test harness is
 ;; precisely the bug you don't want. See examples/TESTING.md, "mount-isolation".
-(defonce react-root (atom nil))
+(defonce app-root (reagent-adapter/client-root))
 
 ;; The frame's whole life story fits in one place: the `frame-root {:id
 ;; app-frame …}` in `mount!` below. First mount creates the frame and runs its
@@ -215,12 +214,11 @@
 (defn ^:dev/after-load mount! []
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
-    (when-not @react-root
-      (reset! react-root (rdc/create-root el)))
-    (rdc/render @react-root
-                [rf/frame-root {:id app-frame
-                                :initial-events [[:temp/initialise]]}
-                 [temperature-converter]])))
+    (reagent-adapter/render! app-root
+      [rf/frame-root {:id app-frame
+                      :initial-events [[:temp/initialise]]}
+       [temperature-converter]]
+      el)))
 
 (defn run []
   ;; `init!` tells re-frame2 which reactive substrate to render through — here,

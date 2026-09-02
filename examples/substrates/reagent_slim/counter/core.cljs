@@ -20,8 +20,7 @@
    prove a CI gate, live entirely off to the side, and boot the same app
    through the shared `boot!` helper below — the entry just hands it a hook
    that exercises the pure-CLJS SSR path the gate inspects. Read past them."
-  (:require [reagent2.dom.client                :as rdc]
-            [re-frame.core                      :as rf]
+  (:require [re-frame.core                      :as rf]
             ;; Monorepo-only spelling (see the ns docstring). Your app picks
             ;; slim by its deps coordinate, not by naming this namespace.
             [re-frame.adapter.reagent-slim      :as reagent-slim-adapter]))
@@ -71,7 +70,7 @@
 ;; `create-root` on the shared `#app`. Same mount shape as
 ;; `examples/core/counter`.
 
-(defonce react-root (atom nil))
+(defonce app-root (reagent-slim-adapter/client-root))
 
 ;; The app frame is born in exactly one place: the `frame-root {:id
 ;; app-frame …}` at the render root below. On first mount the provider
@@ -92,12 +91,11 @@
 (defn ^:dev/after-load mount! []
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
-    (when-not @react-root
-      (reset! react-root (rdc/create-root el)))
-    (rdc/render @react-root
-                [rf/frame-root {:id app-frame
-                                :initial-events [[:counter/initialise]]}
-                 [counter-app]])))
+    (reagent-slim-adapter/render! app-root
+      [rf/frame-root {:id app-frame
+                      :initial-events [[:counter/initialise]]}
+       [counter-app]]
+      el)))
 
 (defn boot!
   "Stand the example up. Two steps: install the slim adapter, then lazily

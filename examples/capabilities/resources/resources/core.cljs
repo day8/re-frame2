@@ -44,8 +44,7 @@
    This example is reads only. The other half of the story — writes, and how a
    mutation invalidates reads by tag — lives in the
    [resources guide](../../../../docs/resources/concepts.md)."
-  (:require [reagent.dom.client :as rdc]
-            [re-frame.core :as rf]
+  (:require [re-frame.core :as rf]
             [re-frame.registrar :as registrar]
             ;; Managed HTTP is the transport a resource fetch rides on.
             ;; Requiring it registers the `:rf.http/managed` effect that every
@@ -532,7 +531,7 @@
 ;; automatically. See the frame glossary entry:
 ;; ../../../../docs/core/glossary.md#frame
 
-(defonce react-root (atom nil))
+(defonce app-root (reagent-adapter/client-root))
 
 ;; The id this app's frame is created under. Despite the name, `:rf/default`
 ;; carries no special privilege — it's just an ordinary id. The URL ownership
@@ -545,20 +544,19 @@
 (defn ^:dev/after-load mount! []
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
-    (when-not @react-root
-      (reset! react-root (rdc/create-root el)))
     ;; Here's the frame, created and configured by `frame-root {:id …}`.
     ;; `:fx-overrides` is the trick that lets the demo stand alone: it reroutes
     ;; every `:rf.http/managed` ensure to the per-URL canned stub up above. The
     ;; override is frame-wide, which is fine here precisely because this example
     ;; never makes a request we'd actually want to reach the network — a blanket
     ;; override is the right grain.
-    (rdc/render @react-root
-                [rf/frame-root {:id           app-frame
-                                :doc          "Resources demo frame."
-                                :url-bound?   true
-                                :fx-overrides {:rf.http/managed :resources.demo/http-stub}}
-                 [root-view]])))
+    (reagent-adapter/render! app-root
+      [rf/frame-root {:id           app-frame
+                      :doc          "Resources demo frame."
+                      :url-bound?   true
+                      :fx-overrides {:rf.http/managed :resources.demo/http-stub}}
+       [root-view]]
+      el)))
 
 (defn run []
   (rf/init! reagent-adapter/adapter)

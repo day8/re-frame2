@@ -28,8 +28,7 @@
      schema.cljs     — Malli wire shapes + the handful of app-db schemas
      http.cljs       — the demo backend stub + failure projection
      views.cljs      — passive pages + the small UI event glue"
-  (:require [reagent.dom.client :as rdc]
-            [re-frame.core :as rf]
+  (:require [re-frame.core :as rf]
             ;; Managed HTTP — the one built-in transport both resources and
             ;; mutations lower onto.
             [re-frame.http.managed]
@@ -229,7 +228,7 @@
 ;; MOUNT  (CLJS reference; client-only)
 ;; ============================================================================
 
-(defonce react-root (atom nil))
+(defonce app-root (reagent-adapter/client-root))
 
 (def app-frame :rf/default)
 
@@ -298,8 +297,6 @@
 (defn ^:dev/after-load mount! []
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
-    (when-not @react-root
-      (reset! react-root (rdc/create-root el)))
     ;; Create + configure + seed the app frame, all in one place (see the block
     ;; above). The frame is created synchronously during render, so by the time
     ;; this call returns it's live and seeded.
@@ -316,16 +313,17 @@
     ;; went looking for it. The session token seeded by `:auth/initialise` is
     ;; already in app-db by then, so the bearer-auth interceptor decorates
     ;; those reads on the way out.
-    (rdc/render @react-root
-                [rf/frame-root {:id              app-frame
-                                :doc             "RealWorld-on-resources demo frame."
-                                :url-bound?      true
-                                :url-strategy    routing/url-strategy
-                                :fx-overrides    {:rf.http/managed :realworld-resources.demo/http-stub}
-                                :initial-events  [[:auth/classify-token]
-                                                      [:auth/initialise]
-                                                      [:app/initialise]]}
-                 [root-view]])
+    (reagent-adapter/render! app-root
+      [rf/frame-root {:id              app-frame
+                      :doc             "RealWorld-on-resources demo frame."
+                      :url-bound?      true
+                      :url-strategy    routing/url-strategy
+                      :fx-overrides    {:rf.http/managed :realworld-resources.demo/http-stub}
+                      :initial-events  [[:auth/classify-token]
+                                            [:auth/initialise]
+                                            [:app/initialise]]}
+       [root-view]]
+      el)
     ;; The frame is now live and session-seeded (and, per the note above, has
     ;; already synced its first route). The next two calls install ongoing
     ;; listeners, each doing an initial sync against that frame — so they have

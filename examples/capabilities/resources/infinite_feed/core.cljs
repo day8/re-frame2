@@ -58,8 +58,7 @@
    in-flight dedupe, stale-reply suppression, the passive status flow all run
    exactly as they would over a live network. A small reply delay gives the
    load-more spinner a moment on screen before each page lands."
-  (:require [reagent.dom.client :as rdc]
-            [re-frame.core :as rf]
+  (:require [re-frame.core :as rf]
             [re-frame.registrar :as registrar]
             ;; Managed HTTP — the built-in transport resources fetch over.
             ;; Loading it registers the `:rf.http/managed` fx that every page
@@ -356,7 +355,7 @@
 ;; frame carries no `:initial-events`.
 ;; See docs/core/glossary.md#frame-root.
 
-(defonce react-root (atom nil))
+(defonce app-root (reagent-adapter/client-root))
 
 (def app-frame :rf/default)
 
@@ -365,17 +364,16 @@
 (defn ^:dev/after-load mount! []
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
-    (when-not @react-root
-      (reset! react-root (rdc/create-root el)))
     ;; The provider creates the app frame (config and all) on first mount and
     ;; reuses it on hot reload. Route entry ensures page 0, so there's no need
     ;; for `:initial-events`.
-    (rdc/render @react-root
-                [rf/frame-root {:id           app-frame
-                                :doc          "Infinite-feed demo frame."
-                                :url-bound?   true
-                                :fx-overrides {:rf.http/managed :infinite-feed.demo/http-stub}}
-                 [root-view]])))
+    (reagent-adapter/render! app-root
+      [rf/frame-root {:id           app-frame
+                      :doc          "Infinite-feed demo frame."
+                      :url-bound?   true
+                      :fx-overrides {:rf.http/managed :infinite-feed.demo/http-stub}}
+       [root-view]]
+      el)))
 
 (defn run []
   (rf/init! reagent-adapter/adapter)

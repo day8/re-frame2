@@ -22,8 +22,7 @@
    - A controlled slider that dispatches on every drag
 
    Terms: events, subscriptions, app-db, frames — docs/core/glossary.md."
-  (:require [reagent.dom.client :as rdc]
-            [re-frame.core :as rf]
+  (:require [re-frame.core :as rf]
             ;; Pulling this in registers the hooks that teach the frame how to
             ;; validate against a schema — that's what makes `rf/reg-app-schema` work.
             [re-frame.schemas]
@@ -199,7 +198,7 @@
 ;; ns-load. Loading a namespace shouldn't touch the DOM — if it did, two example
 ;; namespaces loaded together would both race to `create-root` the shared `#app`
 ;; element, and exactly one of them would win. Lazy keeps that drama away.
-(defonce react-root (atom nil))
+(defonce app-root (reagent-adapter/client-root))
 
 ;; All the frame's lifecycle happens in one spot — the `frame-root` in
 ;; `mount!` below. On first mount it creates the frame, applies its config, and fires
@@ -220,12 +219,11 @@
 (defn ^:dev/after-load mount! []
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
-    (when-not @react-root
-      (reset! react-root (rdc/create-root el)))
-    (rdc/render @react-root
-                [rf/frame-root {:id app-frame
-                                :initial-events [[:timer/initialise]]}
-                 [timer-view]])))
+    (reagent-adapter/render! app-root
+      [rf/frame-root {:id app-frame
+                      :initial-events [[:timer/initialise]]}
+       [timer-view]]
+      el)))
 
 (defn run []
   ;; `init!` tells the runtime to render through the Reagent adapter. That's all

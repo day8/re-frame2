@@ -30,12 +30,11 @@
    New to the terms? docs/core/glossary.md defines event, subscription,
    app-db, and view; docs/core/views.md covers views and hiccup
    in depth."
-  ;; We render through stock Reagent (`reagent.dom.client` +
-  ;; `re-frame.adapter.reagent`). The adapter is the value that teaches
+  ;; We render through stock Reagent, via the `re-frame.adapter.reagent`
+  ;; client root. The adapter is the value that teaches
   ;; re-frame2 how to talk to a given rendering library — swap it and the
   ;; same app runs on UIx. See docs/core/glossary.md#adapter.
-  (:require [reagent.dom.client :as rdc]
-            [clojure.string     :as str]
+  (:require [clojure.string     :as str]
             [re-frame.core      :as rf]
             [re-frame.adapter.reagent :as reagent-adapter]))
 
@@ -369,13 +368,13 @@
 ;; ============================================================================
 ;;
 ;; Loading this namespace touches the DOM exactly never. We hold off on
-;; `create-root` until `run` is called. The reason is the test bundle:
+;; the first `render!` until `run` is called. The reason is the test bundle:
 ;; many example namespaces get loaded into one page there, and if each one
 ;; grabbed a root the moment it loaded, they'd all fight over the same
 ;; container. Defer the mount and they stay out of each other's way. See
 ;; examples/TESTING.md (mount-isolation convention).
 
-(defonce react-root (atom nil))
+(defonce app-root (reagent-adapter/client-root))
 
 ;; re-frame2 won't conjure a frame for you — an app stands up its own. We
 ;; do it in exactly one place: the `frame-root {:id app-frame}` in
@@ -396,12 +395,11 @@
 (defn ^:dev/after-load mount! []
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
-    (when-not @react-root
-      (reset! react-root (rdc/create-root el)))
-    (rdc/render @react-root
-                [rf/frame-root {:id app-frame
-                                :initial-events [[:notebook/initialise]]}
-                 [notebook]])))
+    (reagent-adapter/render! app-root
+      [rf/frame-root {:id app-frame
+                      :initial-events [[:notebook/initialise]]}
+       [notebook]]
+      el)))
 
 (defn run []
   ;; One job each: `init!` tells the runtime to render through Reagent. It

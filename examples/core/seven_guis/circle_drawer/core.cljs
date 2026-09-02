@@ -21,8 +21,7 @@
    full-featured undo library (per-slice history, depth limits, custom
    policies) belongs in user or library code. The framework gives you the
    hook; the rest is yours."
-  (:require [reagent.dom.client :as rdc]
-            [re-frame.core :as rf]
+  (:require [re-frame.core :as rf]
             ;; Pulling in `re-frame.schemas` wires up the hooks that teach
             ;; `rf/reg-app-schema` how to do its job. Require it, then use it.
             [re-frame.schemas]
@@ -302,7 +301,7 @@
 ;; — otherwise two example namespaces sharing one page would both lunge for the
 ;; same `#app` and race each other to `create-root`. See the mount-isolation
 ;; convention in examples/TESTING.md.
-(defonce react-root (atom nil))
+(defonce app-root (reagent-adapter/client-root))
 
 ;; The frame's whole life story happens in one place: the
 ;; `frame-root {:id app-frame …}` down in `mount!`. On the first mount it
@@ -325,12 +324,11 @@
 (defn ^:dev/after-load mount! []
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
-    (when-not @react-root
-      (reset! react-root (rdc/create-root el)))
-    (rdc/render @react-root
-                [rf/frame-root {:id app-frame
-                                :initial-events [[:drawer/initialise]]}
-                 [drawer-view]])))
+    (reagent-adapter/render! app-root
+      [rf/frame-root {:id app-frame
+                      :initial-events [[:drawer/initialise]]}
+       [drawer-view]]
+      el)))
 
 (defn run []
   ;; `init!` tells re-frame2 to render through Reagent. One adapter, one process.

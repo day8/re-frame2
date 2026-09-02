@@ -58,8 +58,7 @@
    the CLJS substrate contract tests (`npm run test:cljs`, ns
    `re-frame.websocket-cljs-test`). The example tree is test-free, so
    `npm run test:adapter-smokes` does not build this example."
-  (:require [reagent.dom.client :as rdc]
-            [re-frame.core :as rf]
+  (:require [re-frame.core :as rf]
             [re-frame.adapter.reagent :as reagent-adapter]
             [websocket.schema]
             [websocket.connection]
@@ -102,7 +101,7 @@
 ;; container. Building it in `run` keeps loading this namespace free of
 ;; DOM side effects.
 
-(defonce react-root (atom nil))
+(defonce app-root (reagent-adapter/client-root))
 
 ;; One place owns the frame: the `frame-root` at the render root.
 ;; `run` installs the adapter, then renders `[frame-root {:id ...}
@@ -122,12 +121,11 @@
 (defn ^:dev/after-load mount! []
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
-    (when-not @react-root
-      (reset! react-root (rdc/create-root el)))
-    (rdc/render @react-root
-                [rf/frame-root {:id app-frame
-                                :initial-events [[:ws.app/initialise]]}
-                 [views/root-view]])))
+    (reagent-adapter/render! app-root
+      [rf/frame-root {:id app-frame
+                      :initial-events [[:ws.app/initialise]]}
+       [views/root-view]]
+      el)))
 
 (defn run []
   (rf/init! reagent-adapter/adapter)

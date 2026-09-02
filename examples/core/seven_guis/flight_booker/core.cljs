@@ -21,8 +21,7 @@
    - One event per distinct user intent
    - Layered subs built with :<- chains
    - UI state driven by sub return values"
-  (:require [reagent.dom.client :as rdc]
-            [re-frame.core :as rf]
+  (:require [re-frame.core :as rf]
             ;; Loading re-frame.schemas registers its late-bind hooks, which
             ;; is what makes rf/reg-app-schema resolve below.
             [re-frame.schemas]
@@ -237,7 +236,7 @@
 ;; ns-load. Loading a namespace must do no DOM side effects, so that co-loaded
 ;; example namespaces don't race each other to `create-root` onto the shared
 ;; `#app`. See examples/TESTING.md, the Example mount-isolation convention.
-(defonce react-root (atom nil))
+(defonce app-root (reagent-adapter/client-root))
 
 ;; The whole frame lifecycle lives in one place: the `frame-root {:id
 ;; app-frame …}` at the render root below. On first mount it creates the app
@@ -256,12 +255,11 @@
 (defn ^:dev/after-load mount! []
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
-    (when-not @react-root
-      (reset! react-root (rdc/create-root el)))
-    (rdc/render @react-root
-                [rf/frame-root {:id app-frame
-                                :initial-events [[:flight/initialise]]}
-                 [flight-booker]])))
+    (reagent-adapter/render! app-root
+      [rf/frame-root {:id app-frame
+                      :initial-events [[:flight/initialise]]}
+       [flight-booker]]
+      el)))
 
 (defn run []
   ;; `init!` installs the reactive adapter for the process. The adapter ns

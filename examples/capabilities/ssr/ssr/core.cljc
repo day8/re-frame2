@@ -79,7 +79,6 @@
             ;; sources `:rf/version` from it rather than pinning a literal, so a
             ;; future bump flows through without editing every producer.
             #?(:clj [re-frame.ssr.payload-policy :as payload-policy])
-            #?(:cljs [reagent.dom.client :as rdc])
             #?(:cljs [re-frame.adapter.reagent :as reagent-adapter])
             ;; The client mount step — the payload-vs-client-only React-root
             ;; branch — factored into a registration-free helper so the browser
@@ -396,7 +395,7 @@
 ;; the DOM — so if several example namespaces get required together, none of them
 ;; can race the others to slap a root onto the shared `#app`. One root per
 ;; container, reused across hot reloads.
-#?(:cljs (defonce react-root (atom nil)))
+#?(:cljs (defonce app-root (reagent-adapter/client-root)))
 
 ;; The client's app-frame id. The app names its frame out loud and threads the
 ;; very same id through two places: `ssr/hydrate!` (where the server's state
@@ -408,19 +407,23 @@
 ;; hydration target, plain and simple (see the note over in `handle-request`).
 (def app-frame :rf/default)
 
-;; Re-render the current view into the RETAINED root. Tagged `^:dev/after-load`
-;; so shadow-cljs re-runs it after each hot reload — edited views re-render into
-;; the same root and the already-hydrated frame. It never creates a root and
-;; never re-hydrates: the root is established once in `run`, and HYDRATE happens
-;; once there too, so a reload can't re-seed over the interactive state.
+;; Re-render the current view through the adapter's client root. Tagged
+;; `^:dev/after-load` so shadow-cljs re-runs it after each hot reload — edited
+;; views re-render into the same root and the already-hydrated frame. The
+;; handle makes the reload safe by construction: `run` performed the ONE
+;; hydrating first render (or a fresh mount on a client-only load), and every
+;; later `render!` through the same handle updates that root — never a second
+;; root, never a re-hydration — so a reload can't re-seed over the interactive
+;; state. HYDRATE happens once, in `run`.
 #?(:cljs
    (defn ^:dev/after-load render! []
-     (when-let [root @react-root]
+     (when-let [el (and (exists? js/document) (js/document.getElementById "app"))]
        ;; Render inside the app-frame's `frame-provider`, so every `dispatch` and
        ;; `subscribe` down in the view tree resolves to the frame we hydrated.
-       (rdc/render root
-                   [rf/frame-provider {:frame app-frame}
-                    [(rf/view :app/root)]]))))
+       (reagent-adapter/render! app-root
+         [rf/frame-provider {:frame app-frame}
+          [(rf/view :app/root)]]
+         el))))
 
 #?(:cljs
    (defn run []
@@ -463,13 +466,13 @@
          ;; than inside the shared mount helper.)
          (when-not payload
            (rf/dispatch-sync [:ssr/client-bootstrap] {:frame app-frame}))
-         ;; The adopt-vs-fresh React-root decision lives in ONE place —
-         ;; `ssr.mount/mount!` — so the DOM-adoption regression executes the
-         ;; exact branch this recipe ships instead of a copy: payload present ⇒
-         ;; `hydrate-root` ADOPTS the server DOM; absent ⇒ a fresh `create-root`
-         ;; + `render`. The retained root is stashed for `render!`'s hot-reload
+         ;; The adopt-vs-fresh decision lives in ONE place — `ssr.mount/mount!`
+         ;; — so the DOM-adoption regression executes the exact call this recipe
+         ;; ships instead of a copy: payload present ⇒ the first render through
+         ;; the client root HYDRATES and ADOPTS the server DOM; absent ⇒ a fresh
+         ;; mount. The handle keeps that root for `render!`'s hot-reload
          ;; re-renders.
-         (reset! react-root (mount/mount! el tree payload))))))
+         (mount/mount! app-root el tree payload)))))
 
 ;; No tests in this file — and that's deliberate. The example tree stays
 ;; test-free so the source reads as pure demonstration; the headless tests that

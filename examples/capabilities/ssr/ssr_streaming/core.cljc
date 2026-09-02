@@ -34,7 +34,6 @@
   (:require [re-frame.core :as rf]
             [re-frame.schemas]
             [re-frame.ssr :as ssr]
-            #?(:cljs [reagent.dom.client :as rdc])
             #?(:cljs [re-frame.adapter.reagent :as reagent-adapter])))
 
 ;; ============================================================================
@@ -340,7 +339,7 @@
 ;; sibling example namespaces loaded alongside this one can't race each other
 ;; to `create-root` the shared `#app`. (Mount-isolation convention — see
 ;; examples/TESTING.md.)
-#?(:cljs (defonce react-root (atom nil)))
+#?(:cljs (defonce app-root (reagent-adapter/client-root)))
 
 ;; The client's app-frame id, carried explicitly. The same id flows into the
 ;; streaming `install!`, into `ssr/hydrate!`, and into the root
@@ -354,21 +353,24 @@
 ;; [frames](../../../../docs/core/glossary.md#frame-identity-is-carried-not-found).
 #?(:cljs (def app-frame :rf/default))
 
-;; Re-render the current view into the RETAINED root. Tagged `^:dev/after-load`
-;; so shadow-cljs re-runs it after each hot reload — edited views re-render into
-;; the same root and the already-hydrated frame. It never creates a root and
-;; never re-hydrates: the root is established once in `run` (via `hydrate-root`
-;; when the server painted the page, `create-root` otherwise), and HYDRATE plus
-;; the streaming install happen once there too, so a reload can't re-seed over
-;; the interactive state.
+;; Re-render the current view through the adapter's client root. Tagged
+;; `^:dev/after-load` so shadow-cljs re-runs it after each hot reload — edited
+;; views re-render into the same root and the already-hydrated frame. The
+;; handle makes the reload safe by construction: `run`'s readiness callback
+;; performed the ONE hydrating first render (or a fresh mount on a client-only
+;; load), and every later `render!` through the same handle updates that root
+;; — never a second root, never a re-hydration — so a reload can't re-seed over
+;; the interactive state. HYDRATE and the streaming install happen once, in
+;; `run`.
 #?(:cljs
    (defn ^:dev/after-load render! []
-     (when-let [root @react-root]
+     (when-let [el (and (exists? js/document) (js/document.getElementById "app"))]
        ;; Wrap the render in `frame-provider` so every `dispatch` and
        ;; `subscribe` inside the tree resolves to the frame we hydrated.
-       (rdc/render root
-                   [rf/frame-provider {:frame app-frame}
-                    [(rf/view :dashboard/root)]]))))
+       (reagent-adapter/render! app-root
+         [rf/frame-provider {:frame app-frame}
+          [(rf/view :dashboard/root)]]
+         el))))
 
 #?(:cljs
    (defn run []
@@ -429,18 +431,17 @@
                           tree    [rf/frame-provider {:frame app-frame}
                                    [(rf/view :dashboard/root)]]]
                       (when el
-                        (if payload
-                          ;; Server-rendered: ADOPT the painted DOM.
-                          ;; `hydrate-root` reconciles React against that
-                          ;; markup — same nodes, listeners attached, no
-                          ;; re-paint — and returns the retained root.
-                          (reset! react-root (rdc/hydrate-root el tree))
-                          ;; No payload means the server never rendered this
-                          ;; page — a plain first load with nothing to adopt.
-                          ;; Mount a fresh root.
-                          (do
-                            (reset! react-root (rdc/create-root el))
-                            (rdc/render @react-root tree))))))})))
+                        ;; The adopt-vs-fresh decision is one option on the
+                        ;; first render. With a payload the server painted the
+                        ;; page, so the render HYDRATES: React reconciles
+                        ;; against that markup — same nodes, listeners
+                        ;; attached, no re-paint. Without one the server never
+                        ;; rendered this page — a plain first load with nothing
+                        ;; to adopt — and the adapter mounts a fresh root.
+                        ;; Either way the root is created exactly once, here,
+                        ;; and the `^:dev/after-load` `render!` above reuses it.
+                        (reagent-adapter/render! app-root tree el
+                                                 {:hydrate? (some? payload)}))))})))
 
 ;; The JVM headless test that walks the server stream end to end (shell →
 ;; per-card resolved chunks → final payload) lives over in
