@@ -33,7 +33,7 @@
   Two facts the module exists for, both at `render`: the element is
   `impl.mount/tree`'s, the same fork the hydrating client root adopts, so
   a `useId` React derives from tree position agrees on both sides of the
-  wire (`implementation/hicasso/spec/dispositions.md`, HS-11 obstruction
+  wire (`docs/design/hicasso/product/dispositions.md`, HS-11 obstruction
   2); and the adoption window is open around the render, so
   presence-managed children render `:present` on both halves. This is an
   adoption-tier root and ships no `:rf/render-hash`, by Spec 011's tiering

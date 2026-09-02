@@ -140,7 +140,7 @@
   which an anchored panel is painted unanchored. Why a `useId`-derived
   name was refused instead:
   `docs/design/hicasso/product/globals.md`, §The page-wide id namespace,
-  and `implementation/hicasso/spec/dispositions.md` HS-32."
+  and `docs/design/hicasso/product/dispositions.md` HS-32."
   [^js panel ident]
   (set! (.. panel -style -positionAnchor) ident)
   nil)
