@@ -57,7 +57,7 @@ Three families are **v1-required** and always claimed: `:core/*` (pattern-requir
 | `:flow/*` | Q8 flows |
 | `:rf.http/managed` | Q9 managed HTTP |
 | `:resources/*` | Q10 resources |
-| `:derivation/algebra-graph` + `:derivation/algebra-graph-subs-machines` | Q6 Tool-Pair inspection — a subs+machines-only graph host claims the narrow tag and known-skips the broad one |
+| `:derivation/algebra-graph` + `:derivation/algebra-graph-subs-machines` | Q6 Tool-Pair inspection — a subs+machines-only graph host claims the narrow tag and known-skips the broad one. Owner: [`spec/Derivations.md` §Graph inspection](https://day8.github.io/re-frame2/spec/Derivations/), which the fixtures themselves cite; the `:derivation-graph` `:call` op is specified there |
 
 **Fixtures are authoritative for what RUNS; the README + owning Spec for what EXISTS to be claimed — and the two diverge in both directions.** The common case is corpus-ahead: the fixtures carry tags the prose lists lag, so enumerate each claimed family from `spec/conformance/fixtures/` at the pin (the greps above). But `:actor/*` is corpus-**behind**: the README and Spec 005 declare capabilities the fixtures don't yet back — a real, spec-mandated capability with no fixture goes on `known-skipped` only if you don't implement it, never because a grep missed it. Cross-check each family against the README's table before finalising the claim.
 
