@@ -100,7 +100,7 @@ Related: [Effects](effects.md), [Coeffects](coeffects.md).
 
 What an [event handler](#event-handler) — or a [machine](../machines/glossary.md#machine) action — returns: a *description* of change, not the change itself.
 
-Two reserved keys. `:db` is the new [app-db](#app-db):
+Two everyday keys. `:db` is the new [app-db](#app-db):
 
 ```clojure
 {:db new-db}
@@ -114,7 +114,7 @@ Two reserved keys. `:db` is the new [app-db](#app-db):
       [:dispatch-later {:ms 500 :event [:cart/saved]}]]}
 ```
 
-Only `:db` and `:fx` may appear at the top level; an unknown key fails loud. Each effect runs through an [effect handler](#effect-handler) (`reg-fx`).
+The closed top level is seven keys: `:db` and `:fx` (the two an app handler writes), the framework-authority `:rf.db/runtime`, and the four commit-plane classification keys `:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`. Any other top-level key fails loud — the event is refused before anything commits, so a well-formed `:db` beside it does not land either. Each effect runs through an [effect handler](#effect-handler) (`reg-fx`).
 
 Related: [Effects](effects.md), [Coeffects](coeffects.md). Casual name for the `:fx` key: "fx".
 

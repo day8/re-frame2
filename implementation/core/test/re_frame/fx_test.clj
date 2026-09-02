@@ -14,7 +14,8 @@
     5. :platforms gating skips with :rf.fx/skipped-on-platform.
     6. Effect-map shape (M-8): legacy v1 top-level keys are policed.
     6b. :fx VALUE shape (rf2-24zly): a non-sequential :fx value is policed
-        (dropped + traced), not thrown — symmetric with M-8.
+        (refused pre-commit + traced since rf2-04tx; a DROP before it), not
+        thrown — symmetric with M-8.
     6c. :fx per-ENTRY shape (rf2-n6d3m): a non-nil/non-empty NON-vector entry
         is policed (dropped + traced); nil/empty stays a silent no-op.
     6d. :fx per-ENTRY arity / fx-id-type (rf2-18kwf): a non-keyword head or an
@@ -482,9 +483,11 @@
 ;; ---- 6. Effect-map shape policing (M-8) -----------------------------------
 ;;
 ;; Per migration/from-re-frame-v1/README.md §M-8 and Spec-Schemas.md §:rf/effect-map,
-;; the effect map is CLOSED: #{:db :rf.db/runtime :fx} at the top level. App
-;; handlers return only :db and :fx; :rf.db/runtime is the reserved
-;; framework-authority runtime-db effect. A handler returning a key OUTSIDE
+;; the effect map is CLOSED at SEVEN top-level keys: #{:db :rf.db/runtime :fx}
+;; plus the four EP-0025 commit-plane classification effects #{:sensitive
+;; :large :clear-sensitive :clear-large}. App handlers return only :db and :fx;
+;; :rf.db/runtime is the reserved framework-authority runtime-db effect. A
+;; handler returning a key OUTSIDE
 ;; that closed set (e.g. a legacy v1 :dispatch / :dispatch-later / :dispatch-n /
 ;; :http at the top level) MUST raise a structured trace per Spec 009 §Error
 ;; contract; the runtime does NOT silently drop and does NOT silently route

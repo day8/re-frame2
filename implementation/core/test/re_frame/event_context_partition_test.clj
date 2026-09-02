@@ -9,9 +9,11 @@
     2. `:rf.db/runtime` + `:rf.frame/id` are present in the event context
        (per Spec 002 §Event context threads both partitions). `:rf.db/runtime`
        reads `nil` until the physical partition lands in bead 5.
-    3. The closed effect-map is widened to `#{:db :rf.db/runtime :fx}`
-       (per Spec-Schemas §:rf/effect-map): a `:rf.db/runtime` effect is NOT a
-       shape error, while a foreign top-level key still is.
+    3. The closed effect-map is widened to admit `:rf.db/runtime` (per
+       Spec-Schemas §:rf/effect-map, whose closed set is SEVEN keys — `:db`,
+       `:rf.db/runtime`, `:fx` and the four EP-0025 commit-plane
+       classification effects): a `:rf.db/runtime` effect is NOT a shape
+       error, while a foreign top-level key still is.
     4. `:rf.warning/app-handler-runtime-effect` fires when an ORDINARY app
        handler returns a `:rf.db/runtime` effect, and DOES NOT fire for a
        framework-authority handler (`:rf/machine? true`) — reserved BY
@@ -28,9 +30,14 @@
   guarded.
 
   THE POLICING ITSELF IS NOT DEV-ONLY, and that is the whole point of the file:
-  a foreign top-level effect key is DROPPED, a non-sequential `:fx` is DROPPED
-  before `do-fx` can throw a raw host exception after the `:db` commit, and a
-  legacy `:rf/runtime` root is REJECTED WHOLE — in every posture. Each case
+  a foreign top-level effect key REFUSES the event, a non-sequential `:fx`
+  REFUSES it too — both abort PRE-COMMIT, so no `:db` lands beside them and
+  `do-fx` never runs to throw a raw host exception — and a legacy
+  `:rf/runtime` root is REJECTED WHOLE — in every posture. (Before rf2-04tx
+  cases (a) and (b) were DROPS that committed the `:db` anyway; that
+  partial-success disguise is gone. A malformed ENTRY inside a well-shaped
+  `:fx` vector is the one case that still recovers per-entry — it is
+  post-commit, on the best-effort do-fx plane.) Each case
   already had, or now has, an always-on assertion on exactly that: what
   committed, what did not, and that the drain survived. Read the file with the
   guards on and it still says everything that matters about production
@@ -150,7 +157,9 @@
             "the bare :frame coeffect is no longer injected (one carrier, one name)")))))
 
 ;; ===========================================================================
-;; 3 — effect-map widening (closed set #{:db :rf.db/runtime :fx})
+;; 3 — effect-map widening (:rf.db/runtime joins the closed set, which today
+;;     is the seven keys #{:db :rf.db/runtime :fx :sensitive :large
+;;     :clear-sensitive :clear-large})
 ;; ===========================================================================
 
 (deftest runtime-db-effect-is-not-a-shape-error
