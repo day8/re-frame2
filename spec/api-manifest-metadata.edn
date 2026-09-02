@@ -215,7 +215,39 @@
   {:namespace "re-frame.hicasso" :var "render!"        :kind :fn  :facade? false :tier :advanced :owner "004C" :status "v1" :runtime-verified? true}
   {:namespace "re-frame.hicasso" :var "route-link"     :kind :fn  :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
   {:namespace "re-frame.hicasso" :var "sub"            :kind :fn  :facade? false :tier :advanced :owner "006"  :status "v1" :runtime-verified? true}
-  {:namespace "re-frame.hicasso" :var "unmount!"       :kind :fn  :facade? false :tier :advanced :owner "004C" :status "v1" :runtime-verified? true}]
+  {:namespace "re-frame.hicasso" :var "unmount!"       :kind :fn  :facade? false :tier :advanced :owner "004C" :status "v1" :runtime-verified? true}
+
+  ;; ---- re-frame.hicasso.server — the third ssr-node crossing ns (rf2-3ne8) --
+  ;;
+  ;; The last of the three namespaces rf2-8arzr.7 found shipping UNSCANNED:
+  ;; genuinely public vars, zero `^:no-doc` markers, and no manifest row at all.
+  ;; PR #9040 enrolled the other two (`re-frame.ssr.render-state` and
+  ;; `re-frame.ssr.ring.node`) and left this one deliberately, because
+  ;; `implementation/hicasso/**` was held by PR #9035 while that work ran.
+  ;;
+  ;; It lands HERE rather than in `jvm-namespaces` because it is CLJS-ONLY: the
+  ;; namespace `:require`s `["react-dom/server"]`, so the JVM generator cannot
+  ;; require it and `ns-publics` can never reach it. That is exactly the case
+  ;; this key exists for.
+  ;;
+  ;; `:implementation` throughout, and NOT a judgement made here — spec/API.md
+  ;; §SSR states it for all three crossing namespaces: "these are
+  ;; `:implementation`-tier host-adapter plumbing on the same footing as
+  ;; `re-frame.ssr.ring`'s own vars and are not rowed below". Owner 011 is the
+  ;; spec that carries their contracts (§Client-side hydration boot helper), the
+  ;; same owner #9040 gave the other two. `:implementation` is outside
+  ;; `doc_api_check`'s eligible tiers, so these rows add no docs/api obligation.
+  ;;
+  ;; `:runtime-verified? false` — the CLJS enumeration probe
+  ;; (`implementation/scripts/api-manifest/probe/`) does not cover this
+  ;; namespace. Covering it would pull `react-dom/server` into the probe's
+  ;; build graph, which is a shared-build change rather than a row change; the
+  ;; flag exists precisely so an unprobed row states its own status rather than
+  ;; overclaiming (see `gen.clj`'s note on the per-row flag, rf2-2mtte).
+  {:namespace "re-frame.hicasso.server" :var "document"       :kind :fn :facade? false :tier :implementation :owner "011" :status "v1" :runtime-verified? false}
+  {:namespace "re-frame.hicasso.server" :var "payload-script" :kind :fn :facade? false :tier :implementation :owner "011" :status "v1" :runtime-verified? false}
+  {:namespace "re-frame.hicasso.server" :var "render"         :kind :fn :facade? false :tier :implementation :owner "011" :status "v1" :runtime-verified? false}
+  {:namespace "re-frame.hicasso.server" :var "render-body"    :kind :fn :facade? false :tier :implementation :owner "011" :status "v1" :runtime-verified? false}]
 
  ;; --------------------------------------------------------------------------
  ;; :jvm-only-classification — the MIRROR of :cljs-only above, and the
