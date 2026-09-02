@@ -190,6 +190,6 @@ command's default. Source
 
 The keydown contract (the four wired hotkey families + guardrails) has a
 single home:
-[`launch-modes.md` §Wired hotkeys](launch-modes.md#wired-hotkeys). Source of
+[`launch-lifecycle.md` §Wired hotkeys](launch-lifecycle.md#wired-hotkeys). Source of
 truth
 [`keybinding.cljs`](../../../tools/xray/src/day8/re_frame2_xray/keybinding.cljs).

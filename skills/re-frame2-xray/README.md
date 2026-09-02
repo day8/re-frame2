@@ -19,7 +19,9 @@ Xray is the human-facing panel; when the user asks an agent to inspect or change
 ## Repo contents
 
 - `SKILL.md` — the question-first router: the actor fork, the route card (question → first surface), the launch quick-reference, chrome one-liners, and the leaf-loading guide
-- `references/launch-modes.md` — full launch-mode decision tree (preload vs `init!`, suppress-auto-open, `:rf.xray/layout-host-selector`, host-CSS-variable resize, the `open-overlay!` no-layout-host fallback, pop-out lifecycle, wired hotkeys)
+- `references/launch-modes.md` — the launch decision tree (preload, `:rf.xray/layout-host-selector`, host-CSS-variable resize, suppress-auto-open, missing-host recovery, the `open-overlay!` no-layout-host fallback)
+- `references/launch-programmatic.md` — driving Xray from code: `init!` opts and the `focus!` deep-link command
+- `references/launch-lifecycle.md` — pop-out lifecycle, the wired hotkey contract, hidden-state semantics, disabling Xray, production posture
 - `references/panels.md` — the compact canonical tab inventory (10 Dynamic + 5 Static), the scope matrix, and the panel → content-home mapping for surfaces that are not their own tab
 - `references/panels-epoch.md` · `panels-state.md` · `panels-domains.md` · `panels-resources.md` · `panels-structure.md` — one leaf per panel family (the Epoch cascade + Trace + issues; app-db + Views; Machine + Routes; Resources; Graph + Frames + Hicasso) — a deep question loads only its family
 - `references/chrome.md` — the first-screen chrome inventory in depth (LIVE/RETRO, time-travel rewind, filter pills, command-palette sources, the Settings-popup tabs, the Snapshot app-db redaction contract)
