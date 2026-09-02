@@ -184,7 +184,9 @@ The client's job is to land in the state the server finished in, without redoing
 
 ```clojure
 ;; Adapted from examples/capabilities/ssr/ssr/core.cljc — requires, alongside rf and ssr:
-;;   [reagent.dom.client :as rdc]  [re-frame.adapter.reagent :as reagent-adapter]
+;;   [re-frame.adapter.reagent :as reagent-adapter]
+(defonce app-root (reagent-adapter/client-root))
+
 (defn ^:export run []
   (rf/init! reagent-adapter/adapter)          ;; installs the adapter — creates no frame
   (rf/make-frame {:id :app :platform :client})
@@ -192,23 +194,22 @@ The client's job is to land in the state the server finished in, without redoing
         payload (ssr/hydrate! {:frame          :app
                                :render-tree-fn (fn [] ((rf/view :app/root)))})
         tree    [rf/frame-provider {:frame :app} [(rf/view :app/root)]]]
-    (if payload
-      ;; Server-rendered: ADOPT the existing DOM. `hydrate-root` reconciles
-      ;; React against the server markup — same nodes, listeners attached, no
-      ;; re-paint. (`create-root` + `render` would throw the server HTML away.)
-      (rdc/hydrate-root el tree)
-      ;; No payload script — a client-only first load. Fresh root, fresh render.
-      (do
-        (rf/dispatch-sync [:app/client-bootstrap] {:frame :app})
-        (rdc/render (rdc/create-root el) tree)))))
+    (when-not payload
+      ;; No payload script — a client-only first load, so seed before rendering.
+      (rf/dispatch-sync [:app/client-bootstrap] {:frame :app}))
+    ;; One `render!` either way. `:hydrate? true` ADOPTS the existing DOM: React
+    ;; reconciles against the server markup — same nodes, listeners attached, no
+    ;; re-paint. `:hydrate? false` mounts a fresh root, which would throw the
+    ;; server HTML away — right only for the client-only branch.
+    (reagent-adapter/render! app-root tree el {:hydrate? (some? payload)})))
 ```
 
 `hydrate!` does the **state** half — read, install, verify — and returns the payload
 it applied (or `nil`). It deliberately does *not* touch the DOM mount. Adopting the
 server's painted DOM is the **substrate's** job and a separate call: hand the existing
-container to the adapter's `hydrate-root` (React's `hydrateRoot`), *not* `create-root`
-+ `render`. The latter discards the server markup and mounts fresh — correct only for
-the no-payload, client-only branch.
+container to the adapter's `render!` with `{:hydrate? true}` (React's `hydrateRoot`
+underneath). Without that option the same call mounts a fresh root, discarding the
+server markup — correct only for the no-payload, client-only branch.
 
 Two rules to hold onto:
 
@@ -397,7 +398,6 @@ the server's DOM.
             [re-frame.ssr :as ssr]
             [re-frame.ssr.ring :as ssr-ring]
             [re-frame.http.managed]
-            #?(:cljs [reagent.dom.client :as rdc])
             #?(:cljs [re-frame.adapter.reagent :as reagent-adapter])
             #?(:clj  [ring.adapter.jetty :as jetty])))
 
@@ -419,6 +419,8 @@ the server's DOM.
         :root-view      [(rf/view :app/root)]                 ;; hiccup vector or 0-arity fn
         :payload        [:articles :session-user]})))  ;; required allowlist
 
+#?(:cljs (defonce app-root (reagent-adapter/client-root)))
+
 #?(:cljs
    (defn ^:export run []
      (rf/init! reagent-adapter/adapter)
@@ -427,10 +429,10 @@ the server's DOM.
            payload (ssr/hydrate! {:frame          :app
                                   :render-tree-fn (fn [] ((rf/view :app/root)))})
            tree    [rf/frame-provider {:frame :app} [(rf/view :app/root)]]]
-       (if payload
-         (rdc/hydrate-root el tree)                      ;; server-rendered: adopt the DOM
-         (do (rf/dispatch-sync [:app/client-bootstrap] {:frame :app})
-             (rdc/render (rdc/create-root el) tree)))))) ;; client-only: fresh root
+       (when-not payload                                 ;; client-only: seed first
+         (rf/dispatch-sync [:app/client-bootstrap] {:frame :app}))
+       ;; payload ⇒ adopt the server's DOM; no payload ⇒ fresh root
+       (reagent-adapter/render! app-root tree el {:hydrate? (some? payload)}))))
 ```
 
 Same `:frame` on `hydrate!` and `frame-provider`. Full walk-through:

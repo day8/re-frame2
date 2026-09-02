@@ -136,8 +136,7 @@ Your page owns the layout; Xray owns only the content inside `[data-rf-xray-host
 ;; Adapted from examples/core/counter and examples/real-apps/realworld_http
 ;; in the re-frame2 repo.
 (ns conduit.core
-  (:require [reagent.dom.client       :as rdc]
-            [re-frame.core            :as rf]
+  (:require [re-frame.core            :as rf]
             [re-frame.adapter.reagent :as reagent-adapter])
   (:require-macros [re-frame.core :refer [reg-view]]))
 
@@ -178,17 +177,17 @@ Your page owns the layout; Xray owns only the content inside `[data-rf-xray-host
    [banner]])
 
 ;; --- Mount: the only impure corner of the file ---
-(defonce root
-  (rdc/create-root (js/document.getElementById "app")))
+(defonce app-root (reagent-adapter/client-root))
 
 (defn run []
   (rf/init! reagent-adapter/adapter)        ;; 1. install the Reagent substrate
   (rf/make-frame {:id :rf/default})             ;; 2. establish this app's one frame
   (rf/with-frame :rf/default
     (rf/dispatch-sync [:app/initialise]))   ;; 3. seed app-db before first render
-  (rdc/render root
+  (reagent-adapter/render! app-root
     [rf/frame-provider {:frame :rf/default} ;; 4. the whole tree runs in this frame
-     [shell]]))
+     [shell]]
+    (js/document.getElementById "app")))
 ```
 
 The events, subs, and views here are just the quickstart's pipeline again — an [event](../../core/glossary.md#event) updates [app-db](../../core/glossary.md#app-db) (your app's single state map), a [subscription](../../core/glossary.md#subscription) reads from it, and a [view](../../core/glossary.md#view) renders that read. Two bits of syntax look new only because the browser cells smoothed them over:
@@ -204,7 +203,7 @@ What's genuinely new beyond syntax is the **boot**, the part the quickstart's br
 
 **Move 3 — `with-frame` + `dispatch-sync` seeds state.** Out here, outside the rendered tree, there's no provider in scope, so `with-frame` scopes the dispatch lexically to `:rf/default`. And it's [`dispatch-sync`](../../core/glossary.md#dispatch-sync) — a dispatch that runs the [event pipeline](../../core/glossary.md#event-pipeline) immediately rather than queuing it — because plain [`dispatch`](../../core/glossary.md#dispatch) would let the first render race it and paint an empty app-db. Seeding synchronously at the boot boundary is one of the handful of legitimate uses of `dispatch-sync`; the others are tests and REPL exploration. What they share is that they all run *outside* any handler — `dispatch-sync` from inside a running handler is rejected with `:rf.error/dispatch-sync-in-handler`, because the pipeline is already draining synchronously and a second one would convey nothing.
 
-**Move 4 — `frame-provider` wraps the tree.** The [provider](../../core/glossary.md#frame-provider) carries the already-registered `:rf/default` frame down through React context, so every bare `dispatch` / `subscribe` inside a `reg-view` body resolves to it without naming it. The `{:frame …}` config shape is the one that matters: handed a `:frame` key, the provider **scopes** the tree to a frame that already exists (you registered it in Move 2). It creates nothing and destroys nothing — it only routes ambient calls. It's the React-side counterpart to `with-frame`, which can't reach across React's render boundary because a child renders *after* the `with-frame` form has already returned. (`defonce` guards the root because a hot reload must not call `create-root` twice on the same element.)
+**Move 4 — `frame-provider` wraps the tree.** The [provider](../../core/glossary.md#frame-provider) carries the already-registered `:rf/default` frame down through React context, so every bare `dispatch` / `subscribe` inside a `reg-view` body resolves to it without naming it. The `{:frame …}` config shape is the one that matters: handed a `:frame` key, the provider **scopes** the tree to a frame that already exists (you registered it in Move 2). It creates nothing and destroys nothing — it only routes ambient calls. It's the React-side counterpart to `with-frame`, which can't reach across React's render boundary because a child renders *after* the `with-frame` form has already returned. (`defonce` keeps the same client-root handle across hot reloads, and the handle keeps the same React root: the first `render!` through it creates the root, every later one updates it.)
 
 That's the whole boot. Four moves: install the substrate, register the frame, seed it, scope the tree to it.
 

@@ -237,8 +237,7 @@ Now for `core.cljs`. You're replacing the whole file from setup: the placeholder
 ;; src/conduit/core.cljs
 ;; Adapted from examples/capabilities/routing/routing/core.cljs
 (ns conduit.core
-  (:require [reagent.dom.client :as rdc]
-            [re-frame.core :as rf]
+  (:require [re-frame.core :as rf]
             ;; Loading re-frame.routing once at boot is what makes
             ;; reg-route, route-link, and the :rf.route/* events and
             ;; subs available through re-frame.core.
@@ -349,8 +348,7 @@ One verb, `dispatch`, whether the user clicked a link, pressed Back, or your han
 Finish `core.cljs` with the boot function your build invokes:
 
 ```clojure
-(defonce root
-  (rdc/create-root (js/document.getElementById "app")))
+(defonce app-root (reagent-adapter/client-root))
 
 (defn run []
   (rf/init! reagent-adapter/adapter)
@@ -359,9 +357,10 @@ Finish `core.cljs` with the boot function your build invokes:
                   :url-bound? true})
   (rf/with-frame :rf/default
     (rf/dispatch-sync [:app/initialise]))
-  (rdc/render root
-              [rf/frame-provider {:frame :rf/default}
-               [root-view]]))
+  (reagent-adapter/render! app-root
+    [rf/frame-provider {:frame :rf/default}
+     [root-view]]
+    (js/document.getElementById "app")))
 ```
 
 Reading it top to bottom:

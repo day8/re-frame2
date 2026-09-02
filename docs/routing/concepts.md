@@ -629,7 +629,6 @@ Copy-paste shape (pages and loaders are stubs — fill in as the tutorial does):
 (ns app.routes
   (:require [re-frame.core :as rf]
             [re-frame.routing]
-            [reagent.dom.client :as rdc]
             [re-frame.adapter.reagent :as reagent-adapter]))
 
 (rf/reg-route :app/home {} "/")
@@ -649,11 +648,14 @@ Copy-paste shape (pages and loaders are stubs — fill in as the tutorial does):
     :rf.route/not-found [not-found-page]
     [not-found-page]))
 
+(defonce app-root (reagent-adapter/client-root))
+
 (defn run []
   (rf/init! reagent-adapter/adapter)
-  (rdc/render (rdc/create-root (js/document.getElementById "app"))
-              [rf/frame-root {:id :rf/default :url-bound? true}
-               [root-view]]))
+  (reagent-adapter/render! app-root
+    [rf/frame-root {:id :rf/default :url-bound? true}
+     [root-view]]
+    (js/document.getElementById "app")))
 ```
 
 ## Troubleshooting
