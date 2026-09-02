@@ -98,6 +98,12 @@
 (def ^:private render-listener-id      :re-frame.hicasso.server/render-recovered-error)
 (def ^:private render-body-listener-id :re-frame.hicasso.server/render-body-recovered-error)
 
+;; `re-frame.error-emit/listeners` is `^:private`, and reaching into it is
+;; deliberate: a RELEASED listener is not observable from any public surface —
+;; the registry is the only place a leak shows, and §3's whole claim is that
+;; each door releases its own. `re-frame.conformance-corpus-cljs-test` reads
+;; `re-frame.trace.tooling/listeners` for the same reason.
+#_{:clj-kondo/ignore [:private-call]}
 (defn- live-error-listener-ids []
   (set (keys @error-emit/listeners)))
 
