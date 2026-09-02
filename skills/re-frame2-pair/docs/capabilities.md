@@ -35,11 +35,11 @@ What re-frame2-pair can see inside a live re-frame2 app.
 | Read a specific path | *done* | `get-path` via `(get-in (rf/app-db-value frame-id) path)`; `snapshot {path}` for a bounded subtree |
 | Diff `app-db` before/after one event | *done* | Each `:rf/epoch-record` carries `:db-before` and `:db-after`; `dispatch` / `trace-window` surface the depth-1 `:db-diff` projection |
 | List registered handlers | *done* | `list-handlers {kind}` over `rf/registrations` |
-| Inspect handler + interceptor chain + source coords | *done* | `handler-meta {kind: "event", id}` over `rf/handler-meta` (returns `:ns` / `:line` / `:file` / `:column` / `:handler-fn`) |
+| Inspect handler + interceptor chain + source coords | *done* | `handler-meta {kind: "event", id}` over `rf/handler-meta` (returns `:ns` / `:line` / `:file` / `:column` / `:doc` / `:tags` / `:handler-fn-hash` / `:rf.mcp/source-uri`). The live `:handler-fn` is **stripped**, not returned — it is replaced by `:handler-fn-hash`, which is what you probe against over a hot-reload |
 | Sample a subscription on demand | *done* | `read-sub {sub: "[:query-v]"}` (validated; subscribes a not-yet-mounted sub) |
 | Inspect the live sub cache | *done* | `list-subscriptions` (and `snapshot`'s `:sub-cache` slice) return the per-frame materialised cache `{query-v {:value v :ref-count n}}` (CLJS-only) |
 | Show subs that re-ran for one epoch | *done* | `:sub-runs` projection per epoch (Spec-Schemas) |
-| Show effects fired for one epoch | *done* | `:effects` projection carries one entry per dispatched fx (successes included) with `:fx-id` / `:args` / `:outcome`; off-box each row's `:args` egresses as `:rf/redacted` by default (`:include-fx-args?` opt-in), and `:trace-events` carries richer per-fx detail |
+| Show effects fired for one epoch | *done* | `:effects` projection carries one entry per dispatched fx (successes included) with `:fx-id` / `:args` / `:outcome`; off-box each row's `:args` egresses as `:rf/redacted` by default — the wire opt-in is `dispatch-dry-run`'s `include-fx-args` arg (no `?`), honoured only when the server was launched with `--allow-sensitive-reads` — and `:trace-events` carries richer per-fx detail |
 | Follow cascaded dispatch chains | *done* | `:dispatch-id` / `:parent-dispatch-id` correlation over the per-frame trace-ring event bundles |
 | Show components that re-rendered | *done* | `:renders` projection per epoch |
 | Attach source location to renders | *done* | Source coords flow from registrar metadata; `:render-key` is a finalised **tuple** `[<view-id-or-:rf.view/anonymous> <instance-token>]` — resolve coords from `(first render-key)` via `handler-meta {kind: "view"}`, or `read-ui`'s `:source-coord` for anonymous fns (see `references/recipes.md` "Explain this dispatch") |
@@ -73,7 +73,7 @@ What re-frame2-pair can see inside a live re-frame2 app.
 | List recorded epochs per frame | *done* | `trace-window` / `snapshot` (`:epochs` slice) over `rf/epoch-history` |
 | Restore an epoch | *done* | `restore-epoch` (dedicated tool, `--allow-writes`-gated) over `rf/restore-epoch!` |
 | Inject an arbitrary app-db state | *done* | `replace-app-db` (dedicated tool, `--allow-writes`-gated) over `(rf/replace-frame-state! frame-id {:rf.db/app v})` — the JSON-loaded-bug-repro case |
-| Restore failure surfaces | *done* | Seven modes, all documented (Tool-Pair §Time-travel); `(re-frame.trace.tooling/trace-buffer {:op-type :error})` carries the structured tags |
+| Restore failure surfaces | *done* | Seven modes, all documented (Tool-Pair §Time-travel); `(re-frame.trace.tooling/trace-buffer :rf/default {:flat true :op-type :error})` carries the structured tags. Frame-id comes **first** — an opts map as the sole arg silently returns `[]` — and `:op-type` is a `:flat-only` filter, so `:flat true` is required. Use the `re-frame.trace.tooling` ns: `rf/trace-buffer` is a JVM-only alias that returns nil in the browser |
 | Configure ring depth | *done* | `(rf/configure! {:epoch-history {:depth N}})` |
 | Reverse side effects | *guardrail* | Restore rewinds durable **frame-state** (both partitions); it does NOT reverse side effects or transient host state. `restore-epoch`'s `:unreplayable-effects` enumerates the non-pure fx the original cascade fired that the restore cannot undo |
 
@@ -96,6 +96,8 @@ What re-frame2-pair can see inside a live re-frame2 app.
 
 Full procedures in [`references/recipes.md`](../references/recipes.md).
 
+**Live observation is turn-shaped** — every observation arrives as a completed tool result, and there are five routes: a `dispatch` consequence, the `watch-epochs` / `trace-window` poll, a blocking `watch-until`, `record` + `read-recording`, and `tail-build`. Push-mode streaming was retired; these five are the one supported live-observation workflow (see [`STATUS.md`](../STATUS.md)).
+
 | Recipe | Status |
 |---|---|
 | "Why didn't this view update?" | *done* — walks `:sub-runs`, names the equality gate |
@@ -105,7 +107,8 @@ Full procedures in [`references/recipes.md`](../references/recipes.md).
 | "What event caused this render?" | *done* |
 | "Where in source did this DOM element come from?" | *done* — `dom/source-at` reads `data-rf2-source-coord` first, `data-rc-src` second |
 | "Replay this bug from the same starting state" | *done* — first-class via `restore-epoch` |
-| "Watch all `:foo/*` events while I click around" | *done* |
+| "Watch all `:foo/*` events while I click around" | *done* — poll `watch-epochs {pred: {"event-id-prefix": ":foo/"}}`, passing each response's `:head-id` back as the next `since-id` |
+| "Record a value while I interact" / "Wait until X happens" | *done* — `record` + `read-recording` capture a signal's changes across the interaction window (an app-db path, a sub, a DOM node's text/attribute, the focus slot); `watch-until` blocks until a predicate over one of those signals holds |
 | "Post-mortem — how did I get into this state?" | *done* — bounded by `epoch-history` depth |
 | "Inspect this machine" | *done* — `list-handlers {kind: "machine"}`, `handler-meta {kind: "machine"}` |
 | "Stub an effect for an experiment" | *done* — `:fx-overrides` per call |
