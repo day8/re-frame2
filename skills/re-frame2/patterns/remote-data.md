@@ -173,4 +173,4 @@ This leaf is the **hand-rolled** slice (or machine region). Shared across views 
 
 ---
 
-*Derived from `examples/real-apps/realworld_http/articles.cljs` (slice form) and `examples/real-apps/realworld_http/tags.cljs` (machine form) @ main `89bd9c3`. Re-verify if RealWorld's slice shape changes.*
+*Derived from `examples/real-apps/realworld_http/articles.cljs` (slice form) and `examples/real-apps/realworld_http/tags.cljs` (machine form) @ main. Re-verify if RealWorld's slice shape changes.*

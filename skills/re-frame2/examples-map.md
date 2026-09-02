@@ -106,4 +106,4 @@ Per [Spec 006 §Adapter shipping convention](../../spec/006-ReactiveSubstrate.md
 
 ---
 
-*Derived from `examples/**` and `examples/README.md` @ main `89bd9c3`. Re-verify whenever a new worked example lands.*
+*Derived from `examples/**` and `examples/README.md` @ main. Re-verify whenever a new worked example lands.*

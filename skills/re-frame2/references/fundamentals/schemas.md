@@ -150,4 +150,4 @@ Validation-order spec, per-step recovery, digest algorithm, the schemas artefact
 
 ---
 
-*Derived from `implementation/core/src/re_frame/core.cljc` (macro + validator seam) and `implementation/core/src/re_frame/spec.cljc` (boundary interceptor) @ main `89bd9c3`. Citations are symbol-level; re-verify symbol homes after `validate-at-boundary-interceptor` or `set-schema-validator!` changes.*
+*Derived from `implementation/core/src/re_frame/core.cljc` (macro + validator seam) and `implementation/core/src/re_frame/spec.cljc` (boundary interceptor) @ main. Citations are symbol-level; re-verify symbol homes after `validate-at-boundary-interceptor` or `set-schema-validator!` changes.*

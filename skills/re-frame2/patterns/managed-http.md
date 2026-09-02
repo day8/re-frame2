@@ -162,4 +162,4 @@ For the machine-form wrapper in production, see the auth-flow in `patterns/boot.
 
 ---
 
-*Derived from `examples/core/managed_http_counter/` and `implementation/http/` @ main `89bd9c3`.*
+*Derived from `examples/core/managed_http_counter/` and `implementation/http/` @ main.*

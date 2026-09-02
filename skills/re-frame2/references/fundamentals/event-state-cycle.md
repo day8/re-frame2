@@ -32,7 +32,7 @@ Sanity-checking a mental model: tracing what happens between `(rf/dispatch ...)`
 
 **6. User handler.** The wrapped `reg-event` handler-fn fires: it receives `(cofx, event)` → returns `{:db ... :rf.db/runtime ... :fx [...]}` (or `nil` for a no-op); the runtime stashes the returned effects under `(:effects ctx ...)`. A handler whose only effect is a db write returns `{:db new-db}` — the db write is one effect, not a special return shape. Full-context manipulation is done by a **registered interceptor** (authored with `reg-interceptor`, the public `context -> context` primitive; referenced by id from the chain — the lowering constructor `->interceptor*` is internal-only), not a distinct handler form.
 
-**7. Effect-shape policing.** Top-level keys outside the closed set `#{:db :rf.db/runtime :fx}` emit `:rf.error/effect-map-shape` and are dropped (`police-effect-map-shape!` in `events.cljc`). v2's effect map is closed. `:rf.db/runtime` is inside the set — the framework-authority runtime-db partition (EP-0001); a non-framework handler emitting it gets a `:rf.warning/app-handler-runtime-effect` dev diagnostic, not a drop.
+**7. Effect-shape policing.** A top-level key outside the closed set `#{:db :rf.db/runtime :fx :sensitive :large :clear-sensitive :clear-large}` emits `:rf.error/effect-map-shape` and **refuses the whole event here, pre-commit** — steps 8 and 9 never run, so a well-formed `:db` sitting beside the bad key does not land either (`effect-map-defect` in `events.cljc` detects; the router emits). v2's effect map is closed. `:rf.db/runtime` is inside the set — the framework-authority runtime-db partition (EP-0001); a non-framework handler emitting it gets a `:rf.warning/app-handler-runtime-effect` dev diagnostic, not a refusal. The four `:sensitive` / `:large` / `:clear-sensitive` / `:clear-large` keys are the EP-0025 commit-plane classification effects, applied *with* the `:db` write rather than routed through `:fx`.
 
 **8. State partitions commit.** `re-frame.substrate.adapter/replace-container!` writes the new app-db (and runtime-db, when present) into the frame's container. **Atomic.**
 
@@ -52,7 +52,7 @@ Sanity-checking a mental model: tracing what happens between `(rf/dispatch ...)`
 | Interceptor chain | `events.cljc` (handler-wrapping fns) | metadata `:schema`, interceptors vector |
 | Coeffect assembly | `cofx.cljc` (`deliver-declared-cofx`) | `:rf.cofx/requires` metadata |
 | Handler invocation | `events.cljc` (handler-wrapping fn) | `reg-event` (one form) |
-| Effect-map policing | `events.cljc` (`police-effect-map-shape!`) | `:rf.error/effect-map-shape` trace |
+| Effect-map policing | `events.cljc` (`effect-map-defect`) | `:rf.error/effect-map-shape` trace |
 | `:db` commit | `subs.cljc` + substrate adapter | atomic via `replace-container!` |
 | `:fx` walk | `fx.cljc` (`do-fx` / `handle-one-fx`) | `reg-fx`, `:fx-overrides` |
 | Sub recompute | `subs.cljc` | reaction graph + synchronous ref-count cache |
@@ -127,4 +127,4 @@ Drain-depth bounds, the `:rf.epoch/*` projection of one full cycle for re-frame2
 
 ---
 
-*Derived from `implementation/core/src/re_frame/{router,events,cofx,fx,subs}.cljc` and the substrate adapters under `implementation/core/src/re_frame/substrate/` @ main `89bd9c3`. Citations are symbol-level; re-verify symbol homes after router or interceptor-chain changes.*
+*Derived from `implementation/core/src/re_frame/{router,events,cofx,fx,subs}.cljc` and the substrate adapters under `implementation/core/src/re_frame/substrate/` @ main. Citations are symbol-level; re-verify symbol homes after router or interceptor-chain changes.*

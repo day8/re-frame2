@@ -154,4 +154,4 @@ Full rationale — `:spawn-all` runtime, join-state layout, the `:join` enum (`:
 
 ---
 
-*Derived from Pattern-LongRunningWork and the worked example `examples/patterns/long_running_work/` @ main `89bd9c3`.*
+*Derived from Pattern-LongRunningWork and the worked example `examples/patterns/long_running_work/` @ main.*

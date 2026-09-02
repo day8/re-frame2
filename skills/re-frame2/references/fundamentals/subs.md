@@ -91,4 +91,4 @@ Sub topology inspection (`sub-topology`), cache snapshots, the disposal algorith
 
 ---
 
-*Derived from `implementation/core/src/re_frame/subs.cljc` @ main `89bd9c3`. Citations are symbol-level; re-verify symbol homes after sub-cache disposal-algorithm changes.*
+*Derived from `implementation/core/src/re_frame/subs.cljc` @ main. Citations are symbol-level; re-verify symbol homes after sub-cache disposal-algorithm changes.*

@@ -145,4 +145,4 @@ Full rationale — including the architectural properties that make the pattern 
 
 ---
 
-*Derived from Pattern-StaleDetection in the spec @ main `89bd9c3`. Substrate-owned variants are tested under `spec/conformance/fixtures/` (search `stale-after`, `nav-token`). Re-verify after epoch-suppression or trace-event family-naming changes.*
+*Derived from Pattern-StaleDetection in the spec @ main. Substrate-owned variants are tested under `spec/conformance/fixtures/` (search `stale-after`, `nav-token`). Re-verify after epoch-suppression or trace-event family-naming changes.*

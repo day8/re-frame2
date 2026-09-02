@@ -1,6 +1,6 @@
 # re-frame2 (skill)
 
-> ↑ [`skills/`](..) — index of all 8 re-frame2 skills.
+> ↑ [`skills/`](..) — index of all 9 re-frame2 skills.
 
 A `Skill` that helps `Claude Code` (and any Claude Agent SDK harness) author re-frame2 ClojureScript applications. Companion to [`re-frame2-pair`](../re-frame2-pair) (which targets running apps) and [`re-frame2-setup`](../re-frame2-setup) (which bootstraps new projects from scratch).
 
@@ -27,8 +27,8 @@ skills/re-frame2/
 ├── .claude-plugin/
 │   └── plugin.json                   Claude Code plugin metadata.
 ├── references/
-│   ├── fundamentals/                 events, fx, cofx, subs, views, flows, frames, schemas, event-state-cycle, project-structure.
-│   ├── state-machines/               reg-machine, regions, tags, spawn, history, cancellation.
+│   ├── fundamentals/                 events, fx, cofx, subs, views, flows, frames, schemas, images, event-state-cycle, project-structure.
+│   ├── state-machines/               reg-machine, xstate-translation, machine-schemas, regions, tags, spawn, history, cancellation.
 │   ├── tooling/                      stories, routing, story-recorder, story-mcp-loop, xray.
 │   └── cross-cutting/                testing, api-cheatsheet, privacy-and-elision, production-observability, ssr-authoring, path-and-identity.
 ├── patterns/                         One leaf per canonical pattern (14 leaves).

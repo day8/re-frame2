@@ -272,4 +272,4 @@ The `:connected` `:ws/received` transition vets the frame first — connection e
 
 ---
 
-*Derived from Pattern-WebSocket and the worked example `examples/patterns/websocket/` @ main `89bd9c3`. Re-verify after `:rf.ws/*` or connection-machine changes.*
+*Derived from Pattern-WebSocket and the worked example `examples/patterns/websocket/` @ main. Re-verify after `:rf.ws/*` or connection-machine changes.*

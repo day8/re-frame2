@@ -208,4 +208,4 @@ Three options for "when do per-field errors show?": **Always** (blank required f
 
 ---
 
-*Derived from `examples/real-apps/realworld_http/auth.cljs` (slice form), `examples/real-apps/realworld_http/settings.cljs` (machine form), and `examples/core/login/` @ main `89bd9c3`. Re-verify if Forms-pattern slice shape changes.*
+*Derived from `examples/real-apps/realworld_http/auth.cljs` (slice form), `examples/real-apps/realworld_http/settings.cljs` (machine form), and `examples/core/login/` @ main. Re-verify if Forms-pattern slice shape changes.*

@@ -47,4 +47,4 @@ For the full contract behind any row — the transition-table grammar, guard/act
 
 ---
 
-*Derived from `spec/005-StateMachines.md` §Lessons from xstate / §Deliberate omissions vs xstate and the `re-frame.machines.*` sub-namespaces @ main `89bd9c3`. Re-verify divergence rows after any machine-grammar change.*
+*Derived from `spec/005-StateMachines.md` §Lessons from xstate / §Deliberate omissions vs xstate and the `re-frame.machines.*` sub-namespaces @ main. Re-verify divergence rows after any machine-grammar change.*
