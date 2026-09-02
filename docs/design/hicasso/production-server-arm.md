@@ -91,7 +91,9 @@ direction:
   compliant shape — JVM host, JVM payload, JVM shell, Node returning a body
   string across a contract — now has its Node end built and its JVM end not, and
   the crossing itself remains **unmeasured**, so *"the single largest unmeasured
-  thing on this page"* stands. §5's table is a reading taken while this page was
+  thing on this page"* stands. *(Superseded by the sixth status fact below,
+  2026-09-02: the JVM end is built and the crossing is instrumented. Left
+  standing because on this page the chronology is the finding.)* §5's table is a reading taken while this page was
   written and its column now says so; the rows the service changes are *"a
   callable Node process"* and *"process supervision, pooling, restart"*, and the
   rows naming the JVM↔Node contract, the JVM-written payload and shell, and the
@@ -133,6 +135,44 @@ rather than deleted, and is repointed with its pinned measurement untouched.
 here.** The arm choice was ruled on 2026-08-08 and is untouched; this amendment
 corrects what the page asserts about the present, and says where the pricing
 would move if anyone re-opened it.
+
+**A sixth status fact, added 2026-09-02 (`rf2-8arzr.6`): Arm B is built, and
+the two undischarged start gates named above are discharged.** The ssr-node
+crossing programme (`rf2-8arzr`, ruled 2026-09-02, six slices A–F) landed the
+JVM half in six PRs; slice D merged as commit `4c351a44ba` and slice E's arm
+closed at commit `a4e1d6f5e6`. What each gate now has:
+
+- **Gate 3, the per-application state projector, is discharged.** It is
+  `re-frame.ssr.render-state` (slice C, `rf2-8arzr.3`) — a `project` on the JVM
+  over a fail-closed per-partition allowlist, `serialize` / `deserialize` across
+  the wire, and `restore!` seeding a fresh Node-side frame. §5's objection that
+  *"a service that allowlists what arrives is not a projector"* is answered:
+  the JVM now produces the projection, and the allowlists stayed where they
+  were as the entry-owned second check. It carries the round-trip corpus and
+  the negative fixture the gate asked for, and the projection is deliberately
+  a policy DISTINCT from the hydration payload's, so a render can read a
+  server-only value that never reaches the browser.
+- **Gate 5, the end-to-end `JVM → Node → JVM` witness, is discharged.** It has
+  a JVM leg to witness now: the `jvm-node-crossing` job
+  (`.github/workflows/test.yml`) runs `node_crossing_test.clj` on every PR
+  against a plain fixture render module, and slice E added the native-Hicasso
+  product witness over the login example's own server bundle.
+
+**The "single largest unmeasured thing on this page" line retires.** §3's
+closing sentence said the compliant shape — JVM host, JVM payload, JVM shell,
+Node returning a body string across a contract — had not been built and had not
+been measured. It is built, and it is instrumented: `node_crossing_test.clj`
+prints one observational complete-crossing timing per run, labelled in the
+source as observational rather than a threshold, which was the deliberately
+modest instrument the ruling asked for (a pre-registered latency budget and
+pool-saturation measurement as a merge gate were considered and rejected as
+gold plating for a pre-alpha). **A figure is not quoted here**, because the
+number is emitted per run rather than pinned, and this page does not carry
+measurements it did not take.
+
+**No band, cost table or figure on this page moves**, on the same terms the
+third and fifth facts set. This records that the arm was built; it does not
+re-price the arm that was not.
 
 ## What this document deliberately does not contain, and the tension that produced it
 
@@ -308,6 +348,10 @@ built the Node arm's render, not the Node arm's topology.** The sidecar's
 compliant shape — JVM host, JVM payload, JVM shell, Node returning a body string
 across a contract — has not been built and has not been measured. That is the
 single largest unmeasured thing on this page.
+
+*(Retired 2026-09-02 by the sixth status fact in §2 — the crossing is built and
+carries an observational per-run timing. The sentence is left standing as the
+record of what was true when §3 was written.)*
 
 ## 4. Arm A — the JVM structural walk
 

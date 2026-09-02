@@ -1442,7 +1442,7 @@ Malli schemas attached to `app-db` paths; validated on writes in dev, elided in 
 
 ### SSR → [re-frame.ssr.md](re-frame.ssr.md)
 
-Server-side rendering is the same framework server-side. A curated set of rendering and head primitives is re-exported here as **late-bound wrappers**. Each wrapper resolves to the `re-frame.ssr` implementation when the `day8/re-frame2-ssr` artefact is on the classpath, and throws a clear "SSR not loaded" error otherwise. The host-adapter surface ([re-frame.ssr.ring.md](re-frame.ssr.ring.md)) and the per-request `:rf.server/*` fx are **not** re-exported. Standard SSR events (`:rf/server-init`, `:rf/hydrate`), subs (`:rf/head`, `:rf/public-error`), and the server-only fx live in the SSR doc.
+Server-side rendering is the same framework server-side. A curated set of rendering and head primitives is re-exported here as **late-bound wrappers**. Each wrapper resolves to the `re-frame.ssr` implementation when the `day8/re-frame2-ssr` artefact is on the classpath, and throws a clear "SSR not loaded" error otherwise. The host-adapter surface ([re-frame.ssr.ring.md](re-frame.ssr.ring.md)) and the per-request `:rf.server/*` fx are **not** re-exported. Standard SSR events (`:rf/server-init`, `:rf/hydrate`) and the server-only fx live in the SSR doc. SSR registers **no subscriptions** — `:rf/head` and `:rf/public-error` name data shapes, not registry entries, and are read through `active-head` / `render-head` / `head-snapshot` and `project-error` respectively ([re-frame.ssr.md](re-frame.ssr.md#subscriptions--there-are-none)).
 
 #### `reg-head`
 
