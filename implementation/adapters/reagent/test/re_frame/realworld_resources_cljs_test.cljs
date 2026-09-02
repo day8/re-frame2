@@ -1251,7 +1251,10 @@
           (let [{:keys [route-id params nav-token] :as before} (slice f)
                 banner-key    (profile-key "alice" "celeb")
                 fav-key       (favorited-articles-key "alice" "celeb" 1)
-                pushes-before (count @pushed)]
+                ;; the ACTIVATION above legitimately pushed a URL and scrolled;
+                ;; the replan must add nothing to either log.
+                pushes-before  (count @pushed)
+                scrolls-before (count @scrolled)]
             (is (= :realworld.profile/favorites route-id))
             (is (= {:username "celeb"} params))
             (is (some? nav-token))
@@ -1297,7 +1300,7 @@
                 (is (= :loading (:transition after)) "the blocking banner is in flight")
                 ;; (v) no navigation work of any kind
                 (is (= pushes-before (count @pushed)) "no :rf.nav/push-url / replace-url")
-                (is (empty? @scrolled) "no :rf.nav/scroll")
+                (is (= scrolls-before (count @scrolled)) "no :rf.nav/scroll")
                 (let [ops @traces]
                   (is (empty? (:rf.route.nav-token/allocated ops)) "no nav-token was minted")
                   (is (empty? (:rf.route/activated ops)) "no activation lifecycle trace")
