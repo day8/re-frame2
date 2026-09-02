@@ -12,7 +12,7 @@ const { encode } = require('../observations.cjs');
 module.exports = {
   protocol: 1,
   buildId: 'hang-build-1',
-  entries: { 'app/root': { stateAllowlist: [':todos'] }, 'app/quick': { stateAllowlist: [] } },
+  entries: { 'app/root': { stateAllowlist: [':todos'], runtimeAllowlist: [] }, 'app/quick': { stateAllowlist: [], runtimeAllowlist: [] } },
 
   render({ entry }, emit) {
     if (entry === 'app/quick') {

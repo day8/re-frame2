@@ -46,6 +46,22 @@
 // from the request: with the payload built on the JVM, a render that
 // asked for either would be a render building a payload.
 //
+// ## TWO PARTITIONS CROSS, AND EACH HAS ITS OWN ALLOWLIST
+//
+// A settled frame is two partitions — the application's app-db and the
+// framework's runtime-db (the route slice, the machine snapshots) — and a
+// render reads both. So the request carries both, in the same per-key
+// EDN-text shape: `state` for the app-db partition and `runtime` for the
+// runtime-db partition, each gated by an ENTRY-owned list (`stateAllowlist`
+// / `runtimeAllowlist`). The JVM projects them with
+// `re-frame.ssr.render-state/project` under its own `:render-state` policy
+// (rf2-8arzr shared contract S3/S4) and the bundle's entry seeds a fresh
+// frame from them with `render-state/restore!` — the framework decided that
+// install door, which is why the gap an earlier revision of the README
+// carried openly is closed. The invariants did not move: the service still
+// never decodes application data, an entry with no list for a partition
+// cannot be rendered, and a caller cannot widen its own allowance.
+//
 // ## FAIL-CLOSED MEANS THE FIELD LIST IS THE CONTRACT
 //
 // A request field this file does not name is a refusal. Not ignored, not
@@ -107,10 +123,22 @@ const REQUEST_FIELDS = Object.freeze([
   'protocol',
   'entry',
   'state',
+  'runtime',
   'args',
   'buildId',
   'timeoutMs',
   'requestId',
+]);
+
+/**
+ * The two frame-state partitions a request carries, as [request field,
+ * entry allowlist field, what the keys are]. One table, so the request
+ * validator and the module validator cannot disagree about which
+ * partitions exist.
+ */
+const PARTITIONS = Object.freeze([
+  Object.freeze({ field: 'state', allowlist: 'stateAllowlist', keys: 'app-db' }),
+  Object.freeze({ field: 'runtime', allowlist: 'runtimeAllowlist', keys: 'runtime-db' }),
 ]);
 
 /**
@@ -187,11 +215,12 @@ const MODULE_RETURN_REFUSAL =
   'an absence. Render what the module has to say, and return nothing.';
 
 /**
- * A top-level app-db key, as its EDN text. Keywords in re-frame2 are what
- * top-level app-db keys are (Spec 011 §`:rf/app-db` projection), so the
- * wire spelling is a leading colon and no whitespace. Deliberately not a
- * full keyword grammar: this is a boundary check, and a boundary that
- * reimplements the reader is a boundary with a reader's bugs.
+ * A top-level partition key, as its EDN text. Keywords in re-frame2 are
+ * what top-level app-db and runtime-db keys are (Spec 011 §`:rf/app-db`
+ * projection; Conventions §Reserved runtime-db keys), so the wire spelling
+ * is a leading colon and no whitespace. Deliberately not a full keyword
+ * grammar: this is a boundary check, and a boundary that reimplements the
+ * reader is a boundary with a reader's bugs.
  */
 const KEY_TEXT = /^:[^\s:][^\s]*$/;
 
@@ -221,17 +250,47 @@ const refuse = (code, message, detail) => {
 const isPlainObject = (x) => typeof x === 'object' && x !== null && !Array.isArray(x);
 
 /**
+ * One entry's allowlist for one partition: present, an array, every
+ * member a top-level key in EDN spelling. Absence is a refusal — see
+ * `validateModule`.
+ */
+function validateAllowlist(where, id, entry, { allowlist, keys }) {
+  const list = entry[allowlist];
+  if (!Array.isArray(list)) {
+    refuse(
+      CODE.MALFORMED_MODULE,
+      `${where} entry ${JSON.stringify(id)} declares no ${allowlist}. An entry with no ` +
+        `declared render-visibility list for the ${keys} partition cannot be rendered — ` +
+        `absence is a refusal, never a licence to read everything.`,
+      { entry: id, allowlist },
+    );
+  }
+  for (const k of list) {
+    if (typeof k !== 'string' || !KEY_TEXT.test(k)) {
+      refuse(
+        CODE.MALFORMED_MODULE,
+        `${where} entry ${JSON.stringify(id)} ${allowlist} carries ${JSON.stringify(k)}, ` +
+          `which is not a top-level ${keys} key in EDN spelling`,
+        { entry: id, allowlist, key: k },
+      );
+    }
+  }
+}
+
+/**
  * Validate the render module a service was pointed at.
  *
  * Fail-closed here too, and for the sharpest reason in the file: an entry
- * with no `stateAllowlist` is not an entry that may read everything, it
- * is an entry that cannot be rendered. A permissive default on THIS list
- * is the whole-app-db-by-accident failure the framework's payload policy
- * was written to prevent, one wire over — and the pricing dossier is
- * explicit that the render projection's failure mode is worse than the
- * payload's, because a payload allowlist that is too narrow costs the
- * client a recompute while a render projection that is too narrow is a
- * silently wrong page.
+ * with no `stateAllowlist` — or no `runtimeAllowlist` — is not an entry
+ * that may read everything, it is an entry that cannot be rendered. A
+ * permissive default on EITHER list is the whole-app-db-by-accident
+ * failure the framework's payload policy was written to prevent, one wire
+ * over — and the pricing dossier is explicit that the render projection's
+ * failure mode is worse than the payload's, because a payload allowlist
+ * that is too narrow costs the client a recompute while a render
+ * projection that is too narrow is a silently wrong page. An entry that
+ * reads nothing from a partition declares the EMPTY list for it; that is
+ * a decision, and absence is not.
  */
 function validateModule(mod, where = '<render module>') {
   if (!isPlainObject(mod)) {
@@ -261,28 +320,57 @@ function validateModule(mod, where = '<render module>') {
     if (!isPlainObject(entry)) {
       refuse(CODE.MALFORMED_MODULE, `${where} entry ${JSON.stringify(id)} is not an object`);
     }
-    const list = entry.stateAllowlist;
-    if (!Array.isArray(list)) {
-      refuse(
-        CODE.MALFORMED_MODULE,
-        `${where} entry ${JSON.stringify(id)} declares no stateAllowlist. An entry with no ` +
-          `declared render-visibility list cannot be rendered — absence is a refusal, never ` +
-          `a licence to read everything.`,
-        { entry: id },
-      );
-    }
-    for (const k of list) {
-      if (typeof k !== 'string' || !KEY_TEXT.test(k)) {
-        refuse(
-          CODE.MALFORMED_MODULE,
-          `${where} entry ${JSON.stringify(id)} allowlists ${JSON.stringify(k)}, which is not ` +
-            `a top-level app-db key in EDN spelling`,
-          { entry: id, key: k },
-        );
-      }
-    }
+    for (const partition of PARTITIONS) validateAllowlist(where, id, entry, partition);
   }
   return mod;
+}
+
+/**
+ * Validate one partition of a request — `state` or `runtime` — against
+ * the entry's allowlist for it. Returns `{ partition, bytes }`: the
+ * partition as sent (an empty object when the field was absent) and the
+ * UTF-8 byte count of every key and value in it, so the caller can hold
+ * both partitions to one ceiling. Throws `Refusal`.
+ */
+function validatePartition(req, entry, entryId, { field, allowlist, keys }) {
+  if (req[field] === undefined) return { partition: {}, bytes: 0 };
+  if (!isPlainObject(req[field])) {
+    refuse(
+      CODE.BAD_REQUEST_FIELD,
+      `\`${field}\` must be an object mapping a top-level ${keys} key (EDN text) to that ` +
+        "key's value (EDN text)",
+      { field },
+    );
+  }
+  let bytes = 0;
+  for (const [k, v] of Object.entries(req[field])) {
+    if (!KEY_TEXT.test(k)) {
+      refuse(
+        CODE.BAD_REQUEST_FIELD,
+        `${field} key ${JSON.stringify(k)} is not a top-level ${keys} key in EDN spelling`,
+        { field, key: k },
+      );
+    }
+    if (typeof v !== 'string') {
+      refuse(
+        CODE.BAD_REQUEST_FIELD,
+        `${field} value for ${k} must be EDN text; the service does not decode application data`,
+        { field, key: k },
+      );
+    }
+    // The allowlist belongs to the ENTRY, never to the request, so a
+    // caller cannot widen its own allowance — for either partition.
+    if (!entry[allowlist].includes(k)) {
+      refuse(CODE.STATE_KEY_NOT_ALLOWED, `entry ${JSON.stringify(entryId)} may not read ${k}`, {
+        entry: entryId,
+        field,
+        key: k,
+        allowed: entry[allowlist],
+      });
+    }
+    bytes += Buffer.byteLength(k, 'utf8') + Buffer.byteLength(v, 'utf8');
+  }
+  return { partition: req[field], bytes };
 }
 
 /**
@@ -367,52 +455,18 @@ function validateRequest(req, tables, limits = {}) {
     });
   }
 
-  // ---- the state, and the render-visibility allowlist --------------------
-  let state = {};
-  if (req.state !== undefined) {
-    if (!isPlainObject(req.state)) {
-      refuse(
-        CODE.BAD_REQUEST_FIELD,
-        '`state` must be an object mapping a top-level app-db key (EDN text) to that ' +
-          "key's value (EDN text)",
-        { field: 'state' },
-      );
-    }
-    let bytes = 0;
-    for (const [k, v] of Object.entries(req.state)) {
-      if (!KEY_TEXT.test(k)) {
-        refuse(
-          CODE.BAD_REQUEST_FIELD,
-          `state key ${JSON.stringify(k)} is not a top-level app-db key in EDN spelling`,
-          { field: 'state', key: k },
-        );
-      }
-      if (typeof v !== 'string') {
-        refuse(
-          CODE.BAD_REQUEST_FIELD,
-          `state value for ${k} must be EDN text; the service does not decode application data`,
-          { field: 'state', key: k },
-        );
-      }
-      // The allowlist belongs to the ENTRY, never to the request, so a
-      // caller cannot widen its own allowance.
-      if (!entry.stateAllowlist.includes(k)) {
-        refuse(CODE.STATE_KEY_NOT_ALLOWED, `entry ${JSON.stringify(req.entry)} may not read ${k}`, {
-          entry: req.entry,
-          key: k,
-          allowed: entry.stateAllowlist,
-        });
-      }
-      bytes += Buffer.byteLength(k, 'utf8') + Buffer.byteLength(v, 'utf8');
-    }
-    if (bytes > maxRequestBytes) {
-      refuse(
-        CODE.REQUEST_TOO_LARGE,
-        `state is ${bytes} bytes, over the ${maxRequestBytes}-byte ceiling`,
-        { bytes, ceiling: maxRequestBytes },
-      );
-    }
-    state = req.state;
+  // ---- the two partitions, and their render-visibility allowlists --------
+  const state = validatePartition(req, entry, req.entry, PARTITIONS[0]);
+  const runtime = validatePartition(req, entry, req.entry, PARTITIONS[1]);
+  // ONE ceiling over both partitions: the budget is the request's EDN
+  // text, and a partition is a way of naming it, not a second allowance.
+  const bytes = state.bytes + runtime.bytes;
+  if (bytes > maxRequestBytes) {
+    refuse(
+      CODE.REQUEST_TOO_LARGE,
+      `state and runtime together are ${bytes} bytes, over the ${maxRequestBytes}-byte ceiling`,
+      { bytes, ceiling: maxRequestBytes },
+    );
   }
 
   // ---- the deadline ------------------------------------------------------
@@ -432,7 +486,8 @@ function validateRequest(req, tables, limits = {}) {
   return {
     protocol: PROTOCOL_VERSION,
     entry: req.entry,
-    state,
+    state: state.partition,
+    runtime: runtime.partition,
     args: req.args,
     requestId: req.requestId,
     timeoutMs,
@@ -461,6 +516,7 @@ module.exports = {
   PROTOCOL_VERSION,
   CODE,
   REQUEST_FIELDS,
+  PARTITIONS,
   REFUSED_FIELDS,
   COMPLETE_FIELDS,
   MODULE_RETURN_REFUSAL,

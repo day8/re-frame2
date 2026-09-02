@@ -11,7 +11,7 @@
 module.exports = {
   protocol: 1,
   buildId: 'chunked-build-1',
-  entries: { 'app/root': { stateAllowlist: [':bytes'] } },
+  entries: { 'app/root': { stateAllowlist: [':bytes'], runtimeAllowlist: [] } },
 
   async render({ state }, emit) {
     const parts = JSON.parse(state[':bytes'] ?? '["<a>","<b>","<c>"]');

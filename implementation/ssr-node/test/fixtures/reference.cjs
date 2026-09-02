@@ -26,7 +26,9 @@ let inFlight = 0;
 let overlapMax = 0;
 
 /** What a render of this module observed. Shared with its in-process control. */
-function observe({ entry, state, args }) {
+// `runtime` defaults for the in-process CONTROLS that call `render`
+// directly with a state-only call; through the service it always arrives.
+function observe({ entry, state, runtime = {}, args }) {
   const seenBefore = seen.has(state);
   seen.add(state);
 
@@ -48,6 +50,10 @@ function observe({ entry, state, args }) {
     // never saw another's state.
     readTodos: state[':todos'] ?? null,
     readRoute: state[':route'] ?? null,
+    // The runtime partition, observed the same way: what the module READ,
+    // and that it arrived frozen like `state` did.
+    readRuntimeRoute: runtime[':rf.runtime/routing'] ?? null,
+    runtimeFrozen: Object.isFrozen(runtime),
     overlapMax,
     threadId: require('node:worker_threads').threadId,
   };
@@ -57,8 +63,11 @@ module.exports = {
   protocol: 1,
   buildId: 'reference-build-1',
   entries: {
-    'app/root': { stateAllowlist: [':todos', ':route', ':delay', ':bytes'] },
-    'app/other': { stateAllowlist: [':route'] },
+    'app/root': {
+      stateAllowlist: [':todos', ':route', ':delay', ':bytes'],
+      runtimeAllowlist: [':rf.runtime/routing'],
+    },
+    'app/other': { stateAllowlist: [':route'], runtimeAllowlist: [] },
   },
 
   booted: false,

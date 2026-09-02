@@ -13,7 +13,7 @@ const { encode } = require('../observations.cjs');
 module.exports = {
   protocol: 1,
   buildId: 'sloppy-build-1',
-  entries: { 'app/root': { stateAllowlist: [':todos'] } },
+  entries: { 'app/root': { stateAllowlist: [':todos'], runtimeAllowlist: [] } },
 
   render({ state }, emit) {
     let threw = false;

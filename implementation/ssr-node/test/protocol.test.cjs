@@ -17,10 +17,11 @@
 
 const test = require('node:test');
 const assert = require('node:assert');
-const { withService, collect, refusalOf } = require('./_support.cjs');
+const { withService, collect, observed, refusalOf } = require('./_support.cjs');
 const {
   CODE,
   REQUEST_FIELDS,
+  PARTITIONS,
   REFUSED_FIELDS,
   Refusal,
   validateRequest,
@@ -30,12 +31,20 @@ const {
 const TABLES = {
   buildId: 'reference-build-1',
   entries: {
-    'app/root': { stateAllowlist: [':todos', ':route'] },
-    'app/other': { stateAllowlist: [':route'] },
+    'app/root': {
+      stateAllowlist: [':todos', ':route'],
+      runtimeAllowlist: [':rf.runtime/routing', ':rf.runtime/machines'],
+    },
+    'app/other': { stateAllowlist: [':route'], runtimeAllowlist: [] },
   },
 };
 
-const OK = () => ({ protocol: 1, entry: 'app/root', state: { ':todos': '[]' } });
+const OK = () => ({
+  protocol: 1,
+  entry: 'app/root',
+  state: { ':todos': '[]' },
+  runtime: { ':rf.runtime/routing': '{:current {:route-id :home}}' },
+});
 
 /** The code a request refused with, or null if it validated. */
 function codeOf(req, limits) {
@@ -56,7 +65,18 @@ test('the control request validates', () => {
   const out = validateRequest(OK(), TABLES);
   assert.strictEqual(out.entry, 'app/root');
   assert.deepStrictEqual(out.state, { ':todos': '[]' });
+  assert.deepStrictEqual(out.runtime, { ':rf.runtime/routing': '{:current {:route-id :home}}' });
   assert.strictEqual(out.timeoutMs, 1000, 'the service default applies when none is asked for');
+});
+
+test('the partition table names both partitions, and nothing else', () => {
+  assert.deepStrictEqual(
+    PARTITIONS.map((p) => [p.field, p.allowlist]),
+    [
+      ['state', 'stateAllowlist'],
+      ['runtime', 'runtimeAllowlist'],
+    ],
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -72,6 +92,7 @@ test('every field the contract DOES name is accepted — the list is not vacuous
     protocol: 1,
     entry: 'app/root',
     state: { ':route': '{:name :home}' },
+    runtime: { ':rf.runtime/machines': '{:snapshots {}}' },
     args: '{:page 3}',
     buildId: 'reference-build-1',
     timeoutMs: 250,
@@ -192,6 +213,59 @@ test('state keys must be top-level app-db keys, and values must be EDN text', ()
   assert.strictEqual(codeOf({ ...OK(), state: [] }), CODE.BAD_REQUEST_FIELD);
 });
 
+// ---------------------------------------------------------------------------
+// The runtime partition — the same door, the same posture
+// ---------------------------------------------------------------------------
+
+test('a runtime key the entry does not declare is refused, and the refusal names the partition', () => {
+  const err = refuseOf({ ...OK(), runtime: { ':rf.runtime/resources': '{}' } });
+  assert.strictEqual(err.code, CODE.STATE_KEY_NOT_ALLOWED);
+  assert.strictEqual(err.detail.field, 'runtime');
+  assert.strictEqual(err.detail.key, ':rf.runtime/resources');
+  assert.deepStrictEqual(err.detail.allowed, [':rf.runtime/routing', ':rf.runtime/machines']);
+  // ...and the app-db refusal names ITS partition, so the two cannot be confused.
+  assert.strictEqual(refuseOf({ ...OK(), state: { ':secrets': '{}' } }).detail.field, 'state');
+});
+
+test('the runtime allowlist belongs to the ENTRY too - an empty list reads nothing', () => {
+  const req = { protocol: 1, entry: 'app/other', state: { ':route': '{}' } };
+  assert.strictEqual(codeOf(req), null);
+  assert.strictEqual(
+    codeOf({ ...req, runtime: { ':rf.runtime/routing': '{}' } }),
+    CODE.STATE_KEY_NOT_ALLOWED,
+    'app/other declared [] - a decision, and the caller cannot widen it',
+  );
+});
+
+test('runtime keys must be top-level runtime-db keys, values EDN text, and runtime an object', () => {
+  assert.strictEqual(codeOf({ ...OK(), runtime: { routing: '{}' } }), CODE.BAD_REQUEST_FIELD);
+  assert.strictEqual(codeOf({ ...OK(), runtime: { ':rf.runtime/routing': {} } }), CODE.BAD_REQUEST_FIELD);
+  assert.strictEqual(codeOf({ ...OK(), runtime: '{}' }), CODE.BAD_REQUEST_FIELD);
+  assert.strictEqual(refuseOf({ ...OK(), runtime: [] }).detail.field, 'runtime');
+});
+
+test('an absent runtime partition validates as an empty one - the field is optional, like state', () => {
+  const req = OK();
+  delete req.runtime;
+  assert.deepStrictEqual(validateRequest(req, TABLES).runtime, {});
+  delete req.state;
+  assert.deepStrictEqual(validateRequest(req, TABLES).state, {});
+});
+
+test('the byte ceiling is ONE ceiling over both partitions', () => {
+  const state = { ':todos': '"' + 'a'.repeat(40) + '"' };
+  const runtime = { ':rf.runtime/routing': '"' + 'b'.repeat(40) + '"' };
+  const bytesOf = (o) =>
+    Object.entries(o).reduce((n, [k, v]) => n + Buffer.byteLength(k) + Buffer.byteLength(v), 0);
+  const each = Math.max(bytesOf(state), bytesOf(runtime));
+  const ceiling = each + 10; // room for either alone, not for both
+  assert.ok(bytesOf(state) + bytesOf(runtime) > ceiling, 'the fixture must exceed the ceiling only together');
+  const base = { protocol: 1, entry: 'app/root' };
+  assert.strictEqual(codeOf({ ...base, state }, { maxRequestBytes: ceiling }), null);
+  assert.strictEqual(codeOf({ ...base, runtime }, { maxRequestBytes: ceiling }), null);
+  assert.strictEqual(codeOf({ ...base, state, runtime }, { maxRequestBytes: ceiling }), CODE.REQUEST_TOO_LARGE);
+});
+
 test('state is bounded, and the ceiling is measured in BYTES', () => {
   // One em dash is one code unit and three bytes. A ceiling that counted
   // code units would admit this; the byte accounting refuses it. Written
@@ -200,11 +274,11 @@ test('state is bounded, and the ceiling is measured in BYTES', () => {
   const value = `"${'\u005cu2014'.repeat(40)}"`;
   const bytes = Buffer.byteLength(':todos', 'utf8') + Buffer.byteLength(value, 'utf8');
   assert.ok(bytes > value.length, 'the fixture must be non-ASCII or it proves nothing');
-  assert.strictEqual(
-    codeOf({ ...OK(), state: { ':todos': value } }, { maxRequestBytes: bytes - 1 }),
-    CODE.REQUEST_TOO_LARGE,
-  );
-  assert.strictEqual(codeOf({ ...OK(), state: { ':todos': value } }, { maxRequestBytes: bytes }), null);
+  // No runtime partition on this request: the ceiling is measured to the
+  // byte, and the shared ceiling would otherwise count runtime's bytes too.
+  const stateOnly = { protocol: 1, entry: 'app/root', state: { ':todos': value } };
+  assert.strictEqual(codeOf(stateOnly, { maxRequestBytes: bytes - 1 }), CODE.REQUEST_TOO_LARGE);
+  assert.strictEqual(codeOf(stateOnly, { maxRequestBytes: bytes }), null);
 });
 
 test('a deadline over the service ceiling is clamped rather than refused', () => {
@@ -222,10 +296,34 @@ test('a render module is validated, and an entry with no allowlist is unrenderab
   const good = {
     protocol: 1,
     buildId: 'b',
-    entries: { 'app/root': { stateAllowlist: [':a'] } },
+    entries: { 'app/root': { stateAllowlist: [':a'], runtimeAllowlist: [] } },
     render() {},
   };
   assert.strictEqual(validateModule(good), good);
+});
+
+test('an entry with a stateAllowlist but no runtimeAllowlist is unrenderable too', () => {
+  const half = {
+    protocol: 1,
+    buildId: 'b',
+    entries: { 'app/root': { stateAllowlist: [':a'] } },
+    render() {},
+  };
+  assert.throws(
+    () => validateModule(half),
+    (e) =>
+      e.code === CODE.MALFORMED_MODULE &&
+      /runtimeAllowlist/.test(e.message) &&
+      e.detail.allowlist === 'runtimeAllowlist',
+  );
+  const badKey = {
+    ...half,
+    entries: { 'app/root': { stateAllowlist: [':a'], runtimeAllowlist: ['routing'] } },
+  };
+  assert.throws(
+    () => validateModule(badKey),
+    (e) => e.code === CODE.MALFORMED_MODULE && /runtime-db key/.test(e.message),
+  );
 });
 
 test('a module with no build identity is refused — there would be nothing to compare', () => {
@@ -258,6 +356,37 @@ test('a refused request yields no chunks, and never touches an isolate', async (
   });
 });
 
+test('the runtime partition reaches the module frozen, and a refused runtime key yields no chunks', async () => {
+  await withService('reference', { isolates: 1 }, async (service) => {
+    assert.deepStrictEqual(
+      service.entries['app/root'].runtimeAllowlist,
+      [':rf.runtime/routing'],
+      'the LIVE table carries the runtime allowlist the bundle published',
+    );
+    const out = await collect(service, {
+      protocol: 1,
+      entry: 'app/root',
+      state: { ':todos': '[1]' },
+      runtime: { ':rf.runtime/routing': '{:current {:route-id :home}}' },
+    });
+    const seen = observed(out);
+    assert.strictEqual(seen.readRuntimeRoute, '{:current {:route-id :home}}', 'the module READ the runtime partition');
+    assert.strictEqual(seen.runtimeFrozen, true, 'and it arrived frozen, like state');
+
+    const before = service.stats();
+    const err = await refusalOf(() =>
+      collect(service, {
+        protocol: 1,
+        entry: 'app/root',
+        runtime: { ':rf.runtime/machines': '{}' },
+      }),
+    );
+    assert.strictEqual(err.code, CODE.STATE_KEY_NOT_ALLOWED);
+    assert.strictEqual(err.detail.field, 'runtime');
+    assert.strictEqual(service.stats().ready, before.ready, 'a refusal must not have borrowed an isolate');
+  });
+});
+
 test('an entry the bundle lacks is refused against the LIVE table, not a copy', async () => {
   await withService('reference', { isolates: 1 }, async (service) => {
     assert.deepStrictEqual(Object.keys(service.entries).sort(), ['app/other', 'app/root']);
@@ -269,6 +398,7 @@ test('an entry the bundle lacks is refused against the LIVE table, not a copy', 
 test('a malformed bundle refuses at BOOT, not at first request', async () => {
   for (const [fixtureName, why] of [
     ['bad-no-allowlist', /stateAllowlist/],
+    ['bad-no-runtime-allowlist', /runtimeAllowlist/],
     ['bad-no-build-id', /buildId/],
     ['bad-protocol', /protocol/],
   ]) {
