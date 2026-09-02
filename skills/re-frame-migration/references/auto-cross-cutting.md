@@ -352,12 +352,19 @@ The adapter value is the `adapter` Var from the substrate adapter ns (e.g. `(:re
 ```clojure
 (ns my-app.core
   (:require [re-frame.core :as rf]
-            [re-frame.adapter.reagent :as reagent]   ; the adapter ns (M-38)
-            [reagent.dom.client :as rdomc]))         ; React-19 createRoot path
+            [re-frame.adapter.reagent :as reagent])) ; the adapter ns (M-38) —
+                                      ; it owns the React root, so the app
+                                      ; requires NO reagent.dom.client
 
 (def app-frame :app/main)             ; pick an explicit app-frame id
                                       ; (a migration MAY use :rf/default —
                                       ;  but it is still registered, never inferred)
+
+(defonce app-root (reagent/client-root)) ; the client-root HANDLE. Inert until the
+                                      ; first render!, so the defonce is safe on
+                                      ; every hot reload. `app-root` is the handle;
+                                      ; `main-view` below is your application's root
+                                      ; VIEW — two different things, two names.
 
 (defn ^:export init []                ; the boot entry point
   (rf/init! reagent/adapter)          ; 1. ADD: install adapter (creates NO frame)
@@ -365,9 +372,10 @@ The adapter value is the `adapter` Var from the substrate adapter ns (e.g. `(:re
     {:id app-frame                    ;    via :initial-events — dispatch-sync'd into
      :initial-events [[:initialize-db]]}) ; the fresh frame; by the time make-frame
                                       ;    RETURNS, app-db already reflects the seed cascade.
-  (rdomc/render (rdomc/create-root el); 3. render LAST, UNDER the SCOPE-only frame-provider:
+  (reagent/render! app-root           ; 3. render LAST, UNDER the SCOPE-only frame-provider:
     [rf/frame-provider {:frame app-frame}  ; scope-only — frame already exists
-     [app-root]]))
+     [main-view]]
+    el))
 ```
 
 `:initial-events` are the single seed mechanism — **do not also `dispatch-sync` the same event** from a `with-frame` wrap. The framework dispatch-syncs each `:initial-events` step into the freshly-created frame at `make-frame` time and drains to fixed point, so by the time `make-frame` returns the seed has already committed (verified in [`spec/002-Frames.md` §make-frame config grammar](../../../spec/002-Frames.md)). Re-dispatching `[:initialize-db]` after `make-frame` runs the same handler **twice** — harmless for an idempotent seed, but a boot handler that emits effects, starts a machine, increments a counter, or stamps durable state then double-fires. To seed multiple events, list them directly in the `:initial-events` vector, in order (see the M-15 walkthrough in [`guided-handlers-state.md`](guided-handlers-state.md#m-15--top-level-app-db-seeding)); never repeat an `:initial-events` step in a separate boot dispatch.
@@ -382,12 +390,13 @@ The adapter value is the `adapter` Var from the substrate adapter ns (e.g. `(:re
      :initial-events [[:initialize-db]]}) ; seed runs here, once
   (rf/with-frame app-frame            ; establish a scope for ADDITIONAL boot work …
     (rf/dispatch-sync [:app/extra-boot-work]))  ; … a DISTINCT event, not :initialize-db
-  (rdomc/render (rdomc/create-root el)
+  (reagent/render! app-root
     [rf/frame-provider {:frame app-frame}
-     [app-root]]))
+     [main-view]]
+    el))
 ```
 
-Either way, **the render is wrapped in `frame-provider` (its `{:frame …}` SCOPE-only shape) for the app frame** so every bare `dispatch` / `subscribe` in the tree resolves against it. (The frame already exists from `make-frame`, so you scope it with `{:frame …}` rather than ensure it; the sibling `frame-root {:id …}` component *ensures* a named frame — create-if-absent, reuse-no-reseed — which this boot shape doesn't need because `make-frame` already created it.) If the v1 boot used `(reagent.dom/render …)`, that mount call is itself a React-19 rewrite (M-42 mount-path half → `react-dom/client` `createRoot` + `render`); the **ordering** rule and the provider wrap are independent of which mount API the app lands on.
+Either way, **the render is wrapped in `frame-provider` (its `{:frame …}` SCOPE-only shape) for the app frame** so every bare `dispatch` / `subscribe` in the tree resolves against it. (The frame already exists from `make-frame`, so you scope it with `{:frame …}` rather than ensure it; the sibling `frame-root {:id …}` component *ensures* a named frame — create-if-absent, reuse-no-reseed — which this boot shape doesn't need because `make-frame` already created it.) If the v1 boot used `(reagent.dom/render …)`, that mount call is itself a React-19 rewrite (M-42 mount-path half → the adapter's own `client-root` handle + `render!`, exactly as above — the migrated app requires neither `reagent.dom.client` nor `reagent2.dom.client`, because the adapter owns the React root and the coordinate is chosen in `deps.edn`); the **ordering** rule and the provider wrap are independent of which mount API the app lands on.
 
 > **The boot kick is the SYNCHRONOUS sibling of a larger no-frame-context class — the async one needs a DIFFERENT fix.** Wrapping the synchronous boot dispatch in `with-frame` works only because the dispatch runs *while the binding is live*. A bare `dispatch` / `subscribe` that runs **after** boot from an async callback registered outside any view — a module-level `addEventListener` (popstate / hashchange), a `setTimeout` / `setInterval` / `requestAnimationFrame` timer, a `window 'error'` handler, a JS-lib lifecycle callback — raises the same `:rf.error/no-frame-context`, but a registration-time `with-frame` does **not** survive into the callback; the frame must be re-established **inside** it. See [`guided-views-m11.md` §The async listener timer and error-handler class](guided-views-m11.md#the-async-listener-timer-and-error-handler-class).
 
