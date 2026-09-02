@@ -35,6 +35,35 @@ Each fixture is an EDN map. A fixture exercises the spec in one of two modes:
 
 A fixture chooses one mode; the runner executes whichever of `:fixture/dispatches` and `:fixture/calls` is present. (A few fixtures may include calls after a dispatch sequence to assert pure-function output against the post-drain registry; that is still Mode A — the dispatches are the load-bearing part and `:fixture/expect` is the primary contract.)
 
+### Top-level fixture keys
+
+Every top-level key the corpus uses. A harness that meets a key it does not implement **fails the run naming the key** — it must not skip it silently, for the same reason an unrecognised capability fails rather than skipping (see [§Capability tagging](#capability-tagging)). Ignoring a setup key silently changes the scenario; ignoring an expectation key lets a fixture pass having verified nothing.
+
+| Key | Required | What it does |
+|---|---|---|
+| `:fixture/id` | always | The fixture's identity, namespaced by family. |
+| `:fixture/spec-version` | always | Corpus format version this fixture is written against. See [§Versioning](#versioning). |
+| `:fixture/capabilities` | always | The capability set this fixture exercises; the harness runs it only if this is a subset of the port's claimed list. See [§Capability tagging](#capability-tagging). |
+| `:fixture/doc` | always | One-line statement of what the fixture pins. |
+| `:fixture/registry` | setup | Registration metadata by kind — the shapes a port declares before handler bodies are realised. Sub-kinds in use: `:event`, `:sub`, `:fx`, `:cofx`, `:view`, `:route`, `:machine`, `:machine-action`, `:machine-guard`, `:flow`, `:resource`, `:error-projector`, `:head`, and `:app-schemas` (which is **not** a registrar kind — it carries `path → schema` for the runner's `reg-app-schema` step). |
+| `:fixture/handlers` | setup | Handler bodies in the [handler-body DSL](#handler-bodies-as-data), keyed by kind then id. |
+| `:fixture/frame-config` | setup | The config the frame is constructed with (`:initial-events`, `:platform`, …). |
+| `:fixture/frames` | setup | Multi-frame fixtures: the frames to create, in order. The **first** frame's `:id` also becomes the established scope registration-time frame-local surfaces and bare `dispatch-sync` resolve against; single-frame fixtures get `:rf/default`. |
+| `:fixture/runtime` | setup | Simulated host-runtime facts. Today one key: `:platform` (`:client` / `:server`), merged into the frame config unless the config sets `:platform` itself. |
+| `:fixture/flow-bodies` | setup | Output-fn bodies for the flows declared under `:fixture/registry :flow`, in the same DSL as `:fixture/handlers`. Flows are frame-scoped, so they register **after** the frame exists. |
+| `:fixture/classification-effects` | setup | Commit-plane `:sensitive` / `:large` classifications to install into the frame's elision registry before the dispatches. See [§The `:fixture/classification-effects` harness step](#the-fixtureclassification-effects-harness-step). |
+| `:fixture/dynamic-host-only?` | gating | `true` marks a fixture asserting a **runtime** validation trace that a statically-typed host claiming schemas through its type system cannot produce — the malformed value never compiles. Such a host filters these out *before* the capability-subset check and records the reason; that is a documented static-host path, not claim-set drift. |
+| `:fixture/dispatches` | Mode A | The event vectors to dispatch, in order. |
+| `:fixture/calls` | Mode B | Direct invocations of pure primitives, each carrying its own expectation. See [§Mode B](#mode-b--pure--direct-call). |
+| `:fixture/expect` | Mode A | The single post-drain expectation block. |
+| `:fixture/compute-subs` | expectation | Sub query-vectors the harness invokes against the post-dispatch state, so a sub that *throws* is observed as a sub failure rather than as an absent value. |
+| `:fixture/render-after-hydrate` | expectation | Simulates the client's first render after `:rf/hydrate` so hydration-mismatch detection can be exercised: `:simulated-client-render-hash` and optional `:first-diff-path` are compared against the server hash carried in the hydrate payload. |
+| `:fixture/wire-order` | expectation | Streaming SSR: the ordered chunks the response must emit, each `{:kind … :must-include [...]}`. Pins chunk **order** on the wire, which a post-hoc whole-document compare cannot. |
+
+**This table is the roster, not the counts.** Re-derive the live set at your pin from the fixtures themselves rather than trusting any prose list — including this one. Take the key set from the **parsed top-level map** of each fixture; a text search for `:fixture/…` cannot tell a map key from a value and will report event ids in the `:fixture/` namespace (`:fixture/interceptor-fired`, `:fixture/clear-interceptor` — both ordinary event ids registered under `:fixture/registry :event`) as though they were top-level keys. A harness built on that mistake **rejects a conforming fixture**.
+
+The format is open by convention: fixtures may carry additional `:fixture/`-namespaced keys, and new setup or expectation keys land here ahead of any port implementing them — which is exactly why the unknown-key failure above is loud.
+
 ### Mode A — dispatch-driven
 
 The classic shape: a starting state (frame configuration plus initial `app-db`), a sequence of events, and one top-level expectation block.
@@ -254,6 +283,11 @@ Capability tag conventions:
 - `:fsm/*` — FSM-richness axis (`:fsm/flat`, `:fsm/hierarchical`, `:fsm/eventless-always`, `:fsm/delayed-after`, `:fsm/tags`, `:fsm/parallel-regions`, `:fsm/final-states`, `:fsm/registration-validation`).
 - `:actor/*` — actor-model axis (`:actor/own-state`, `:actor/spawn-destroy`, `:actor/cross-actor-fx`, `:actor/declarative-spawn`, `:actor/spawn-and-join`, `:actor/system-id`).
 - `:routing/*`, `:ssr/*`, `:schemas/*` — per-spec capabilities for ports that ship them.
+- `:identity/*` — the canonical-identity byte contract ([EP-0012](../../docs/EP/EP-0012-path-optics-and-canonical-forms.md)): CEDN-1 encoding, identity comparison, and the `:rf/path` instantiate boundary. **Not optional** — it backs the required identity primitive, so every port runs these.
+- `:flow/*` — the Spec 013 flow substrate (`:flow/basic`, `:flow/topo`, `:flow/dirty-check`, `:flow/toggle`, `:flow/frame-scoped`, `:flow/hot-reload`, `:flow/trace`). **Not optional** — [013](../013-Flows.md) is v1-required.
+- `:data-classification/*` — the Spec 015 `:sensitive` / `:large` egress model. **Not optional** — [015](../015-Data-Classification.md) is v1-required.
+- `:derivation/*` — the cross-family derivation/process graph ([Derivations](../Derivations.md)), split into the broad `:derivation/algebra-graph` and the narrow `:derivation/algebra-graph-subs-machines` so a host spanning only subs + machines claims the subset. See the `:derivation-graph` call op in [§Mode B](#mode-b--pure--direct-call).
+- `:rf.http/managed` — a single tag rather than a `/*` axis: managed HTTP ([014](../014-HTTPRequests.md)) is one contract, claimed whole. For ports that ship it.
 - `:resources/*` — the Spec 016 resource-runtime axis for ports that ship `day8/re-frame2-resources` (`:resources/ensure` — first-load + fresh-skip cache-hit; `:resources/dedupe` — dedupe-join; `:resources/stale-suppression` — stale-reply generation suppression; `:resources/scope-fail-closed` — the scope fail-closed trio; `:resources/owner-gc` — owner release → GC eligibility; `:resources/keep-previous` — refresh-error preserves prior data). Exercised by the `resources-*.edn` fixtures — Mode-A dispatch of `:rf.resource/ensure` / `refetch` / `release-owner` / `gc-fired` plus the framework-internal `:rf.resource.internal/succeeded` / `failed` replies (the reply verification triple — `:resource/key`, `:work/id`, `:generation` — is pure EDN; the runner drives the reply the way `route-stale-nav-token-suppression.edn` drives its continuation), plus the pure `:reg-resource` / `:resolve-scope` call ops for the fail-closed registration + scope-resolution boundary.
 
 A flat-FSM-only port declares `:capabilities #{:core/event-handler ... :fsm/flat :actor/own-state :actor/spawn-destroy ...}` in its harness manifest; the corpus runs every fixture whose capabilities are a subset and skips the rest. The aggregate score is `passed / claimed-applicable` — an accounting of what works for the claimed list.
