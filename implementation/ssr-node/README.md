@@ -122,12 +122,17 @@ now enforced in `worker.cjs` — the one place where the topology can be
 enforced, because nothing downstream can carry what it never posts — and
 checked on the FRAMES rather than on the HTTP response.
 
-The state keys. Each entry in the table declares its own
-`stateAllowlist`: the top-level app-db keys a render of that entry may
-read. A request carrying a key that entry does not declare is refused
-(`:rf.ssr-node/state-key-not-allowed`). The list belongs to the entry,
-not to the request, so a caller cannot widen its own allowance; and an
-entry that declares no list cannot be rendered at all.
+The partition keys. A settled frame is two partitions — app-db and the
+framework's runtime-db — and a request carries both, as `state` and
+`runtime`. Each entry in the table declares its own list for each:
+`stateAllowlist`, the top-level app-db keys a render of that entry may
+read, and `runtimeAllowlist`, the top-level runtime-db keys (the route
+slice, the machine snapshots). A request carrying a key the entry does not
+declare for that partition is refused (`:rf.ssr-node/state-key-not-allowed`,
+`detail.field` naming which). The lists belong to the entry, not to the
+request, so a caller cannot widen its own allowance; an entry that reads
+nothing from a partition declares the empty list for it; and an entry that
+declares no list for either partition cannot be rendered at all.
 
 This is the render-visibility policy the server-arm pricing recorded as
 absent — its §5, "a second, larger egress with no policy written for
@@ -285,7 +290,11 @@ in the refusal message:
   "entry": "app/root",              // must be a key of the module's entry table
   "state": {                        // top-level app-db key -> that key's EDN text
     ":todos": "[{:id 1, :done? false}]",
-    ":route": "{:name :home}"
+    ":session": "{:user \"u-42\"}"
+  },
+  "runtime": {                      // top-level runtime-db key -> EDN text; optional
+    ":rf.runtime/routing": "{:current {:route-id :home}}",
+    ":rf.runtime/machines": "{:snapshots {:auth {:state :authed}}}"
   },
   "args": "{:page 3}",              // optional: the root's arguments, EDN text
   "buildId": "…",                   // optional: refuse unless the bundle matches
@@ -294,13 +303,18 @@ in the refusal message:
 }
 ```
 
-`state` is a map of key text to value text, not one EDN blob, and that
-shape is doing 2 jobs. It lets the service enforce the key allowlist
-without parsing application state or carrying an EDN reader — a boundary
-that has to understand what it is guarding is a worse boundary. And it is
-the separable shape: nothing bakes in that the whole snapshot arrives at
-once, so a caller that later wants to send state incrementally is adding
-frames rather than changing semantics.
+`state` and `runtime` are maps of key text to value text, not one EDN
+blob, and that shape is doing 2 jobs. It lets the service enforce the key
+allowlists without parsing application state or carrying an EDN reader — a
+boundary that has to understand what it is guarding is a worse boundary.
+And it is the separable shape: nothing bakes in that the whole snapshot
+arrives at once, so a caller that later wants to send state incrementally
+is adding frames rather than changing semantics. The two are the two
+partitions of one settled frame — `:rf/app-db` and `:rf/runtime-db`, the
+envelope the hydration payload already uses — projected on the JVM by
+`re-frame.ssr.render-state/project` under the handler's `:render-state`
+policy and serialised per key by `render-state/serialize`; one byte ceiling
+covers both.
 
 ### Response frames
 
@@ -339,7 +353,7 @@ rather than presenting a well-formed shorter page.
 | `:rf.ssr-node/bad-request-field` | a named field of the wrong shape |
 | `:rf.ssr-node/request-too-large` | over the state or body ceiling |
 | `:rf.ssr-node/unknown-entry` | an id the loaded bundle does not carry |
-| `:rf.ssr-node/state-key-not-allowed` | a key the entry does not declare |
+| `:rf.ssr-node/state-key-not-allowed` | a `state` or `runtime` key the entry does not declare for that partition |
 | `:rf.ssr-node/build-identity-mismatch` | caller's `buildId` ≠ the bundle's |
 | `:rf.ssr-node/render-timeout` | deadline expired; the isolate was terminated |
 | `:rf.ssr-node/render-threw` | the render module threw, emitted nothing, or returned a value |
@@ -352,17 +366,39 @@ The `:rf.ssr-node/*` family is a new reserved-namespace tenant. Cataloguing
 it in `spec/Conventions.md` is a sequenced follow-up; that file is a
 hot-zone file this bead was fenced from.
 
-### A gap this protocol does not paper over
+### The runtime partition, and the door the framework decided
 
-`state` carries app-db keys only, because `:rf/set-db` is the
-framework's app-db seeding door and it seeds app-db alone. The frame's
-runtime-db — the route slice, machine snapshots, the partition Spec 011
-carries separately in its own payload — has no inbound door on this path
-at all, as the server-arm pricing records at its §5. The one existing
-"install a whole frame-state from serialised EDN" event is `:rf/hydrate`,
-and it is the client's. Inventing a second one here would be a framework
-decision made in a sidecar, so the protocol carries the gap openly rather
-than closing it by guess.
+An earlier revision of this protocol carried `state` — app-db keys —
+alone, and said so openly: the frame's runtime-db (the route slice, the
+machine snapshots, the partition Spec 011 carries separately in its own
+payload) had no inbound door on this path, because the one existing
+"install a whole frame-state from serialised EDN" event was `:rf/hydrate`,
+the client's, and inventing a second one here would have been a framework
+decision made in a sidecar.
+
+The framework has now made that decision, by ruling (rf2-8arzr, shared
+contract S3/S4), and it lives where such a decision belongs:
+`re-frame.ssr.render-state`, in the SSR artefact. `project` reads the
+settled server frame under a `:render-state` policy — a fail-closed
+allowlist per partition, declared beside `:payload` and never derived
+from it, because what the render needs and what the browser may see are
+different lists — and produces both partitions in the hydration payload's
+own envelope, `{:rf/app-db {…} :rf/runtime-db {…}}`, with the frame's
+classification applied the way the payload applies it. `serialize` turns
+that into the per-key EDN text this wire carries. And `restore!` is the
+second install door: it seeds a FRESH per-request frame with both
+partitions in one atomic write, replaying no boot events (the JVM drained
+them; the projection IS the settled result) and running none of the
+client's hydration concerns.
+
+So `runtime` rides beside `state`, in the same shape, gated by the same
+kind of entry-owned list. The invariants did not move: the service still
+never decodes application data, absence of a list is still a refusal, and
+the fail-closed guarantee stays here in Node rather than moving to the
+JVM. A value the projection cannot carry — a fn, a host object, a record,
+a JVM-only number — fails on the JVM at projection with a named error, so
+what reaches this wire is by construction what the far side reads back
+equal.
 
 ---
 
@@ -384,10 +420,15 @@ module.exports = {
   buildId: process.env.MY_APP_BUILD_ID,
 
   // The entry table. The JVM knows these ids; only the bundle can resolve
-  // one back into a root form. `stateAllowlist` is the render-visibility
-  // policy for that entry, and an entry without one cannot be rendered.
+  // one back into a root form. `stateAllowlist` and `runtimeAllowlist` are
+  // the render-visibility policy for that entry — one list per partition —
+  // and an entry without either cannot be rendered. An entry that reads
+  // nothing from a partition declares `[]`.
   entries: {
-    'app/root': { stateAllowlist: [':todos', ':route'] },
+    'app/root': {
+      stateAllowlist: [':todos', ':session'],
+      runtimeAllowlist: [':rf.runtime/routing', ':rf.runtime/machines'],
+    },
   },
 
   // Once per isolate, before the first render. Install the substrate here
@@ -395,11 +436,11 @@ module.exports = {
   // and not a per-request one.
   boot() { /* rf.init!(adapter); registerViews(); */ },
 
-  // Once per request. `state` is frozen; writing to it throws. Call `emit`
-  // one or more times with body markup, and return nothing — `emit` is
-  // this module's only channel out of the isolate.
-  render({ entry, state, args }, emit) {
-    emit(MY_APP_SSR.renderToString(entry, state, args));
+  // Once per request. `state` and `runtime` are frozen; writing to either
+  // throws. Call `emit` one or more times with body markup, and return
+  // nothing — `emit` is this module's only channel out of the isolate.
+  render({ entry, state, runtime, args }, emit) {
+    emit(MY_APP_SSR.renderToString(entry, state, runtime, args));
   },
 };
 ```
@@ -423,11 +464,12 @@ can only be discovered after the render, a module that both emitted and
 returned produces a torn response carrying `detail.afterChunks` — the
 bytes really did leave, and the transport must not present them as a page.
 
-The CLJS half — the thing behind `MY_APP_SSR.renderToString` — is the
-existing Hicasso render entry: a per-request `gensym` frame, `:rf/set-db`
-for the snapshot, `codec/root-element` under `react-dom/server`, and
-`destroy-frame!` in a `finally`. This package does not reimplement any of
-it and does not depend on it.
+The CLJS half — the thing behind `MY_APP_SSR.renderToString` — is a
+per-request `gensym` frame made with no initial events,
+`re-frame.ssr.render-state/deserialize` over `state` and `runtime`,
+`render-state/restore!` to seed both partitions, the root element under
+`react-dom/server`, and `destroy-frame!` in a `finally`. This package
+does not reimplement any of it and does not depend on it.
 
 ---
 
