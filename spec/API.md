@@ -284,6 +284,8 @@ Standard route-related events:
 | `:rf.route/entry-denied` | A `:can-enter` guard rejected navigation *into* a route. TERMINAL — nothing commits and no pending value is created; dispatched exactly once per attempt, carrying `{:destination :target :cause :requested-url :guard}`. A framework no-op default handler ships, so denial is safe with no application handler. | 012 |
 | `:rf.route/continue` | User-dispatched event proceeding a blocked navigation. | 012 |
 | `:rf.route/cancel` | User-dispatched event abandoning a blocked navigation. | 012 |
+| `:rf.route/prefetch` | Warm-mode resource-only intent preload: `[:rf.route/prefetch {address}]` runs a named destination's effective resource plan ownerlessly WITHOUT navigating (no route state, guards, `:on-match`, or readiness change). | 012 |
+| `:rf.route/replan-resources` | Same-token replan of the ACTIVE route: `[:rf.route/replan-resources {:cause <edn>}]` reruns its effective resource plan against the current app-db WITHOUT navigating — same address, same nav-token, same owner; kept identities adopted, added ensured with the caller's `:cause`, dropped released; readiness re-projected. `:cause` is required. Not a reload; no guards, `:on-match`, URL or scroll work. | 012 |
 
 Standard route-related subs:
 

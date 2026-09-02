@@ -1735,15 +1735,20 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
   ;; as an error trace, NEVER a silent cache miss; FIRST-error-wins when several
   ;; route resources fail to plan. A WARM-mode prefetch planning failure carries
   ;; :plan-cause :prefetch and NO :nav-token (a preload owns no route state — it
-  ;; is emitted as a trace only, never written to any slice). Per Spec 016
-  ;; §Route integration.
+  ;; is emitted as a trace only, never written to any slice). A same-token
+  ;; REPLAN planning failure (rf2-y8jjk) carries :plan-cause :replan, the
+  ;; caller's cause under :replan-cause, and the nav-token PRESENT — the token
+  ;; that is staying: a committed failed replan installs it on the slice like
+  ;; an activation failure. Per Spec 016 §Route integration / §Route-plan
+  ;; replan — same-token reconciliation.
   [:map
    [:category    :keyword]
    [:route-id    :keyword]                    ;; the LEAF activation target
    [:resource-id {:optional true} :keyword]   ;; absent for a branch-resolution / collapse-cycle failure that names no single resource
    [:contributor {:optional true} [:map [:route-id :keyword] [:local-id {:optional true} :any]]]  ;; the CONTRIBUTING route + local declaration; every contributor's :when/:params/:scope runs against the LEAF target, so :route-id alone cannot say which declaration failed. Absent for a failure belonging to no single declaration (branch resolution / collapse cycle)
-   [:nav-token   {:optional true} :any]       ;; ABSENT for a :plan-cause :prefetch failure (a warm-mode preload has no nav-token)
-   [:plan-cause  {:optional true} :keyword]   ;; :prefetch on a warm-mode intent-preload planning failure; absent for a navigation-commit failure
+   [:nav-token   {:optional true} :any]       ;; ABSENT for a :plan-cause :prefetch failure (a warm-mode preload has no nav-token); PRESENT for :replan (the token that is staying) and for an activation failure
+   [:plan-cause  {:optional true} :keyword]   ;; :prefetch on a warm-mode intent-preload planning failure; :replan on a same-token replan failure; absent for a navigation-commit failure
+   [:replan-cause {:optional true} :any]      ;; the :rf.route/replan-resources caller's :cause, verbatim — only with :plan-cause :replan (the :cause slot below is the ex-data, never the caller cause)
    [:cause       {:optional true} :any]        ;; the underlying canonicalization / validation ex-data
    [:reason      :string]])
 
@@ -1775,6 +1780,23 @@ A schema and its catalogue row are **co-edited**, and a conformance test holds t
    [:where     :keyword]                  ;; :event
    [:reason    :keyword]                  ;; the first extraction-law violation (e.g. :unknown-keys / :bad-address)
    [:keys      {:optional true} [:vector :any]]
+   [:frame     {:optional true} :any]])
+
+(def ReplanBadRequestTags
+  ;; [:rf.route/replan-resources {request}] was malformed, or was dispatched
+  ;; with no active route to replan (rf2-y8jjk). The payload is ONE closed map
+  ;; {:cause <edn>} whose :cause is REQUIRED and non-nil. The always-on gate
+  ;; rejected it BEFORE the slice was read and BEFORE any planning — no ensures,
+  ;; no planner row, the slice untouched. :reason is one of :bad-event-arity /
+  ;; :not-a-map / :unknown-key / :missing-cause / :no-active-route. Distinct from
+  ;; :rf.error/resource-route-plan with :plan-cause :replan (a well-formed
+  ;; request whose plan could not be built — a committed failed replan). Per
+  ;; Spec 012 §Replanning the active route's resources.
+  [:map
+   [:category  {:optional true} :keyword]
+   [:where     :keyword]                  ;; :event
+   [:reason    :keyword]                  ;; the first violation (e.g. :missing-cause / :unknown-key / :no-active-route)
+   [:keys      {:optional true} [:vector :any]]  ;; the offending keys; [] for the arity / map / slice reasons
    [:frame     {:optional true} :any]])
 
 (def ResourceRouteBlockingTags
