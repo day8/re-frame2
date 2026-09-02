@@ -6,7 +6,7 @@
 
 > **Transport superseded.** This is the original design record. The
 > live, skill-facing transport is now the **MCP server**
-> (`tools/re-frame2-pair-mcp/`) — **29** tools, **all 29**
+> (`tools/re-frame2-pair-mcp/`) — **30** tools, **all 30**
 > allow-listed; the two write-authority tools (`restore-epoch`,
 > `replace-app-db`) are the canonical named-write path and are gated
 > behind the server's default-OFF `--allow-writes` flag — the server's
