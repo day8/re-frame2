@@ -217,6 +217,13 @@ runWithWatchdog(
       { name: 'read-mounted-boundaries', arguments: {} },
       { name: 'read-read-attribution', arguments: {} },
       { name: 'explain-render', arguments: {} },
+      // replay-epoch (rf2-ov144) — the one-call strict replay of a retained
+      // epoch. It takes dispatch's authority posture, NOT the --allow-writes
+      // gate, so degraded it routes through ensure-connection! like every
+      // other live-runtime tool and returns the shared :nrepl-port-not-found
+      // envelope — which is exactly the posture this row pins: a regression
+      // that put it behind the write gate would answer :writes-disabled here.
+      { name: 'replay-epoch', arguments: { 'epoch-id': '0' } },
       // Every advertised pair-mcp tool below is SDK-CALLED so a regression
       // in its callTool envelope / outputSchema / structuredContent shape
       // / argument handling turns RED rather than shipping green under a

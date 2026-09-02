@@ -27,7 +27,9 @@ event stream` model — there is no realm coordinate, the EP-0013 realm
 substrate was deleted in full under EP-0024),
 the write pair `restore-epoch` + `replace-app-db` (rf2-ee38b.18 — the
 Tool-Pair time-travel + state-injection primitives, gated behind
-`--allow-writes`), `dispatch-dry-run` (rf2-17hvp — simulate a cascade without
+`--allow-writes`), the one-call strict replay `replay-epoch` (rf2-ov144 —
+Tool-Pair §Replay from a retained epoch id; `dispatch`'s authority, not
+`--allow-writes`-gated), `dispatch-dry-run` (rf2-17hvp — simulate a cascade without
 committing), the view-plane reads `read-dom` (rf2-nfjil) + the typed
 `ui/read` op `read-ui` (rf2-3bu3d.1 — rendered content + producing
 entity, riding the view-id↔DOM map), and the signal
@@ -1172,6 +1174,14 @@ record still halts on any declared recordable fact). Omit `replay` (with or
 without `cofx`) for the ordinary live path; set it to **assert** a fixture
 reproduces.
 
+**One call from a retained id — `replay-epoch`.** `replay true` still
+needs the caller to read the record's `:trigger-event` / `:rf.cofx` /
+override slots and re-supply them by hand — which an off-box agent
+cannot do for an argument-bearing event, because the projected epoch
+pages show those args only as `:rf/redacted`. [`replay-epoch`](#replay-epoch)
+performs the same strict gesture from nothing but the epoch id,
+resolving the raw record in-process (rf2-ov144).
+
 ### Envelope override re-supply — `interceptor-overrides` (rf2-m7x0qb / Tool-Pair §Replay)
 
 `replay` alone hard-wires the strict `:rf.cofx` policy, but a **faithful**
@@ -1557,6 +1567,75 @@ The `app-db` is unchanged on failure. A rejected restore is **not** a
 terminal-empty outcome — the write did not land — so it rides with
 `isError: true` per the §"Every `:ok? false` response is `isError: true`"
 rule (rf2-or8s29); the host must not read it as a landed write.
+
+## replay-epoch
+
+Strict replay of a retained epoch in **one call** (rf2-ov144) —
+re-drive the named epoch's recorded event through the app's own
+handlers with its RAW argument-bearing `:trigger-event`, its recorded
+post-generation `:rf.cofx` token under `:rf.cofx/mint-policy :strict`,
+and BOTH recorded override maps (`:fx-overrides` /
+`:interceptor-overrides`), all resolved **in-process** by the preload
+runtime's `replay-epoch` primitive
+(`(rf/replay-epoch! frame-id epoch-id {:origin :pair})`, per
+[`Tool-Pair.md` §Replay](../../../spec/Tool-Pair.md#replay-epoch)).
+Only the id crosses the wire. This is what `dispatch {replay true …}`
+(§Strict replay above) cannot offer an off-box agent: that recipe needs
+the caller to read and re-supply the record's event / cofx / override
+slots, and the projected epoch pages (`trace-window` / `watch-epochs` /
+`snapshot`) show event args only as `:rf/redacted` — by design
+(rf2-nm611o), and unchanged here: no raw event-argument egress knob is
+added.
+
+**Faithful or fail-loud.** A recorded fact is re-presented verbatim and
+the generator / host is NOT consulted; a declared fact ABSENT from the
+record fails with `:rf.error/missing-required-cofx` (no live mint). The
+runtime translates that loud throw into the envelope so the tool result
+carries the reason.
+
+**State semantics.** Same frame in and out. Replay runs against the
+frame's CURRENT state and code — it does NOT restore first (compose
+with `restore-epoch` to rewind, then replay); external effects the
+handler emits fire AGAIN; the frame's live config applies; and the
+replayed dispatch records a NEW ordinary epoch (`:epoch-id`), with
+`:source-epoch-id` naming the one replayed.
+
+**Authority: `dispatch`'s, not the writes gate.** The tool drives the
+application's own handlers — it rewrites no partition out of band — so
+it is NOT `--allow-writes`-gated, is tagged `:origin :pair`, and carries
+`dispatch`'s destructive annotations. `--allow-writes` keeps naming
+exactly the two out-of-band rewrite tools (`restore-epoch` /
+`replace-app-db`).
+
+**`epoch-id` is `:any`**: parsed as EDN, not assumed `string?` — the
+reference runtime emits **integer** ids, so `"7"` reads as the number 7
+(the `restore-epoch` contract).
+
+**Args**: `epoch-id` (string, required — EDN id), `frame` (string,
+e.g. `":stories"`; defaults to the operating frame — the record is read
+from, and the event dispatched into, this SAME frame), `build` (string).
+
+**Returns**: on success the same CONSEQUENCE shape as `dispatch`
+(`:db-changed?` / `:changed-paths` / `:effects-fired` / `:no-op?` /
+`:cascade-summary`), projected from the NEW epoch, plus
+`:replayed? true`, `:source-epoch-id`, `:epoch-id`, `:event-id`,
+`:frame`. The cascade-summary's `:event-vector` fails closed exactly as
+`dispatch`'s does (the tool signals the raw-state posture before the
+eval). Every `{:ok? false …}` rides as `isError: true` per the
+§"Every `:ok? false` response is `isError: true`" rule — the replay
+did not land:
+
+| `:reason` | When |
+|---|---|
+| `:missing-epoch-id` / `:invalid-epoch-id` | arg absent / unreadable — no runtime round-trip |
+| `:rf.error/no-such-handler` (`:kind :frame`) | unknown / destroyed frame — refused before dispatch |
+| `:rf.epoch/replay-during-drain` | a drain is in flight — refused before dispatch |
+| `:rf.epoch/replay-unknown-epoch` (`:history-size`) | id not in the frame's current history (never recorded / aged out) — refused before dispatch |
+| `:rf.epoch/replay-non-replayable-record` (`:cause`) | `:halted` (outcome not `:ok`; `:outcome` / `:halt-reason` ride along), `:synthetic` (a `replace-app-db` record), `:missing-trigger-event`, `:missing-replay-token` — refused before dispatch |
+| `:rf.epoch/replay-unreplayable-fx-override` (`:fx-ids`) | a recorded `:fx-overrides` entry is the `:rf/fn-override` sentinel — refused before dispatch |
+| `:rf.error/missing-required-cofx` | the strict dispatch failed loud on a declared fact absent from the record (the code moved on since it was recorded); nothing was minted |
+| `:replay-unavailable` | the framework returned `false` — epoch surface elided, or `day8/re-frame2-epoch` not loaded |
+| `:ambiguous-frame` | no operating frame resolves (two-plus app frames, no pin) |
 
 ## replace-app-db
 

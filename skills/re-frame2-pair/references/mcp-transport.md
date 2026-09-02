@@ -62,7 +62,7 @@ The hook is idempotent, advisory (never blocks a pull), and prints the exact reb
 
 ## MCP tool reference (args)
 
-The server exposes **29 tools** (catalogued in `tools/re-frame2-pair-mcp/tool-descriptors.edn`, the generated descriptor manifest), and **all 29 are reachable from this skill's `allowed-tools:`**. The two write-authority tools (`restore-epoch`, `replace-app-db`) are the canonical path for named state rewrites, gated by the server's default-OFF `--allow-writes` flag — the server's gate, not the allow-list, is the write boundary; the eval forms are the backstop for a gate-OFF server. The full gate + backstop explanation lives in [`ops.md` §Time-travel](ops.md#time-travel-epoch-restore).
+The server exposes **30 tools** (catalogued in `tools/re-frame2-pair-mcp/tool-descriptors.edn`, the generated descriptor manifest), and **all 30 are reachable from this skill's `allowed-tools:`**. The two write-authority tools (`restore-epoch`, `replace-app-db`) are the canonical path for named state rewrites, gated by the server's default-OFF `--allow-writes` flag — the server's gate, not the allow-list, is the write boundary; the eval forms are the backstop for a gate-OFF server. The full gate + backstop explanation lives in [`ops.md` §Time-travel](ops.md#time-travel-epoch-restore).
 
 This is the **transport index** — the tool name, its arg signature, and where its per-tool semantics are documented. The behaviour of each tool (return shapes, modes, gotchas) lives once in `ops.md`; this table does not restate it.
 
@@ -89,6 +89,7 @@ The table is **complete by gate**: `scripts/check_skill_mcp_drift.py` cross-chec
 | `dispatch` | `{event, sync?, frame?, trace?, await-render?, settle?, queued?, fx-overrides?, cofx?}` | [`ops.md` §Write](ops.md#write) |
 | `dispatch-dry-run` | `{event, frame?, fx-overrides?}` — simulate WITHOUT committing; not `--allow-writes`-gated | [`ops.md` §Write](ops.md#write) |
 | `restore-epoch` | `{epoch-id, frame?}` — canonical time-travel undo; `--allow-writes`-gated | [`ops.md` §Time-travel](ops.md#time-travel-epoch-restore) |
+| `replay-epoch` | `{epoch-id, frame?}` — one-call strict replay of a retained epoch; `dispatch`'s authority, NOT `--allow-writes`-gated | [`ops.md` §Time-travel](ops.md#time-travel-epoch-restore) |
 | `replace-app-db` | `{db, frame?}` — canonical state injection; `--allow-writes`-gated | [`ops.md` §Write](ops.md#write) |
 | `trace-window` | `{ms, limit?, cursor?}` — epoch records added in the last N ms | [`ops.md` §Trace](ops.md#trace) |
 | `watch-epochs` | `{pred?, since-id?, limit?, cursor?}` — pull-mode poll | [`ops.md` §Live watch](ops.md#live-watch) |

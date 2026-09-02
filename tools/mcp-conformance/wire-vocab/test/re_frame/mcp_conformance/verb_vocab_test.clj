@@ -18,6 +18,9 @@
     "read"
     "discover"
     "restore"
+    ;; rf2-ov144 — re-drive a recorded thing through the live system
+    ;; (`replay-epoch`); the recorded run is the input, never a payload.
+    "replay"
     "reset"
     "replace"
     ;; Reserved for the one operating-frame session pin.

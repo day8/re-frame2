@@ -2220,6 +2220,78 @@
        ;; elide the framework's `false`.
        false))))
 
+(defn replay-epoch
+  "(rf/replay-epoch! frame-id epoch-id {:origin :pair}) — the ONE-CALL strict
+   replay of a retained epoch (rf2-ov144, Tool-Pair §Replay). The framework
+   resolves the raw record in-process and re-drives its `:trigger-event`
+   with the recorded post-generation `:rf.cofx` under
+   `:rf.cofx/mint-policy :strict` plus the record's own `:fx-overrides` /
+   `:interceptor-overrides` — so no event / cofx / override payload ever
+   crosses the wire, and the arg-redacted off-box projection is never the
+   input. Same frame in and out; runs against the frame's CURRENT state
+   and code (no implicit restore — compose with `restore-epoch` first to
+   rewind), effects fire again, and the replayed dispatch records a NEW
+   ordinary epoch. Tagged `:origin :pair` exactly like `pair-dispatch-sync!`
+   (dispatch authority, not the `--allow-writes` write gate).
+
+   Returns a structured envelope:
+
+     - `{:ok? true :replayed? true :source-epoch-id <id> :epoch-id <new-id>
+         :event-id <kw> :frame <id> :db-changed? … :changed-paths …
+         :effects-fired … :no-op? … :cascade-summary {…}}` on success —
+       the `dispatch-consequence!` shape, projected from the NEW epoch.
+     - the framework's `{:ok? false :reason …}` refusal envelope verbatim
+       (`:rf.epoch/replay-unknown-epoch`, `:rf.epoch/replay-during-drain`,
+       `:rf.epoch/replay-non-replayable-record` + `:cause`,
+       `:rf.epoch/replay-unreplayable-fx-override` + `:fx-ids`,
+       `:rf.error/no-such-handler`) — nothing was dispatched.
+     - `{:ok? false :reason :rf.error/missing-required-cofx …}` when the
+       strict dispatch itself failed loud on a declared fact absent from
+       the record: the framework THROWS (its canonical hard error, never a
+       mint); this arity translates the throw into the envelope so the
+       tool result carries the reason.
+     - `{:ok? false :reason :replay-unavailable}` when the framework
+       returned `false` (epoch surface elided / artefact absent).
+
+   The two arities mirror `restore-epoch`'s shape — 1-arity reads
+   `(current-frame)`, 2-arity is explicit."
+  ([epoch-id] (replay-epoch epoch-id (current-frame)))
+  ([epoch-id frame-id]
+   ;; The assembled-epoch listener attributes the pair epoch (frame-qualified);
+   ;; the strict re-dispatch fires it synchronously below.
+   (ensure-epoch-listener!)
+   (if-not frame-id
+     (ambiguous-frame-error :replay-epoch {:epoch-id epoch-id})
+     (let [result (try (rf/replay-epoch! frame-id epoch-id {:origin :pair})
+                       (catch :default e
+                         {:ok?      false
+                          :reason   (or (:rf.error/id (ex-data e)) :replay-failed)
+                          :epoch-id epoch-id
+                          :frame    frame-id
+                          :message  (ex-message e)
+                          :hint     (str "the strict re-dispatch failed loud — a declared "
+                                         "recordable fact is absent from the record (the code "
+                                         "moved on since it was recorded?) or the handler threw. "
+                                         "Nothing was minted.")}))]
+       (cond
+         (false? result)
+         {:ok?      false
+          :reason   :replay-unavailable
+          :epoch-id epoch-id
+          :frame    frame-id
+          :hint     (str "rf/replay-epoch! returned false — the epoch surface is elided "
+                         "(interop/debug-enabled? false) or day8/re-frame2-epoch is not loaded.")}
+
+         (and (map? result) (:ok? result))
+         (let [attached (attach-cascade (assoc result :replayed? true)
+                                        frame-id (:epoch-id result))]
+           (if (:cascade-summary attached)
+             (consequence-from-summary attached)
+             attached))
+
+         :else
+         result)))))
+
 (defn undo-step-back
   "Restore the previous epoch in the operating frame. Returns
    `{:ok? true :epoch-id <previous> :restored? true :cascade-summary

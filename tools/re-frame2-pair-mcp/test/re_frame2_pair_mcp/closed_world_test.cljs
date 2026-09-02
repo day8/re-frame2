@@ -42,7 +42,7 @@
   ;; positive here would route a nREPL-dependent tool around the
   ;; connection and hand it a nil conn.
   (doseq [tool ["discover-app" "eval-cljs" "dispatch" "snapshot" "get-path"
-                "restore-epoch" "replace-app-db"
+                "restore-epoch" "replay-epoch" "replace-app-db"
                 ;; The re-frame.hicasso.tool reads eval over nREPL in the
                 ;; browser runtime — NOT server-local.
                 "read-mounted-boundaries" "read-read-attribution" "explain-render"]]
