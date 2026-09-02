@@ -453,8 +453,12 @@ browser, and because the body is rendered before any shell is assembled, there
 is no partial page to serve.
 
 The worked example is
-[`substrates/hicasso/login`](../../examples/substrates/hicasso/login) —
-`server.cljs` is the bundle, `host.clj` is the handler.
+[`substrates/hicasso/login`](../../examples/substrates/hicasso/login):
+`server.cljs` is a real render module, and the test suite drives the real
+views and registrations through it. Read its `host.clj` as annotated wiring
+rather than as a server you can start — that example's model is
+ClojureScript-only today, so a JVM host cannot yet load it. The code below is
+the shape to copy; it is not transcribed from a running deployment.
 
 ### 1. Build both bundles
 
