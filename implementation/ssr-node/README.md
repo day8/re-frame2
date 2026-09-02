@@ -10,8 +10,9 @@ never reachable from another's.
 It is a plain Node package. No ClojureScript, no npm dependencies, no
 build step, and no entry in any shadow-cljs build or in the top-level
 `deps.edn` — `node:worker_threads`, `node:http` and `node:crypto` are the
-whole dependency list. That is a deliberate property and it is checked
-rather than asserted; see
+whole dependency list, and its `package.json` declares none and links
+nowhere outside its own tree. That is a deliberate property and it is
+checked rather than asserted; see
 [Client v0 is unaffected](#client-v0-is-unaffected-when-the-service-is-absent).
 
 Status: v0. Built to the specification on `rf2-hic-056` under the
@@ -433,8 +434,84 @@ it and does not depend on it.
 
 ## Using it
 
+The package is `@day8/re-frame2-ssr-node`: private, and installed from
+its directory rather than a registry — `npm install <checkout>/implementation/ssr-node`,
+or a `file:` entry in the host's `package.json`. The install is a link
+and not a download, because the manifest declares no dependency. Its
+public surface is the serve command and the two entry points in its
+`exports` map; a path into `src/` is not part of it.
+
+### The serve command
+
+What a JVM host talks to. The manifest's `bin` is `re-frame2-ssr-node`,
+and `node bin/serve.cjs` from the package directory is the same program:
+
+```
+re-frame2-ssr-node --module /srv/my-app/out/server-bundle.cjs
+
+  --module <path>            the application server bundle (required; resolved
+                             against the working directory)
+  --port <n>                 TCP port to listen on; 0 picks a free one             [8148]
+  --host <name>              interface to bind                                      [127.0.0.1]
+  --isolates <n>             worker threads; each renders one request at a time     [2]
+  --timeout-ms <n>           render deadline when the request names none            [1000]
+  --max-timeout-ms <n>       ceiling on the deadline a request may ask for          [5000]
+  --admission-ms <n>         how long a request waits for a free isolate before 503 [250]
+  --max-request-bytes <n>    ceiling on the request body, and on its state          [1048576]
+```
+
+`http://127.0.0.1:8148` is the default endpoint, and the one a JVM host
+assumes when told nothing else. The tests bind an ephemeral port (`0`)
+rather than a fixed one, so a run never collides with a developer's
+server or with a concurrent worker's.
+
+```
+POST /render          Content-Type: application/json   -> 200 text/html
+POST /render?stream=1                                  -> 200, chunked
+GET  /health                                           -> 200 application/json
+```
+
+Response headers: `x-rf-ssr-build` (the build identity), `x-rf-ssr-chunks`,
+`x-rf-ssr-render-ms`, and `x-rf-ssr-request` when the caller sent a
+`requestId`. A refusal answers with `application/json`, the refusal frame
+as its body, and `x-rf-ssr-refusal` carrying the code — 4xx for a caller
+fault, 503 for saturation or shutdown, 504 for a deadline, 500 for ours.
+
+### The ready line
+
+Once the socket is listening the launcher writes one line to stdout, and
+nothing else, ever:
+
+```json
+{"rf.ssr-node":"ready","url":"http://127.0.0.1:8148","host":"127.0.0.1","port":8148,"buildId":"reference-build-1","protocol":1}
+```
+
+One JSON object, these six keys in this order, newline-terminated. `host`
+and `port` are the address the socket is bound to as the OS reports it —
+so a supervisor that passed `--port 0` reads the real port here — and
+`url` is that address spelled for a dialler (an IPv6 host gets its
+brackets). `buildId` is the loaded bundle's identity, the same value
+`/health` and every render response carry; `protocol` is the version the
+service speaks. A reader should scan stdout for the line whose
+`"rf.ssr-node"` key is `"ready"` rather than assume it is the first one:
+the launcher itself never writes anything else there, but an application
+bundle that logs at boot does so through the same descriptor.
+
+Everything diagnostic goes to stderr. The exit code is `0` after SIGTERM
+or SIGINT and a graceful close, `1` when the service could not start (the
+module refused, the port is taken), and `2` for a wrong command line,
+which also prints the usage. `test/serve.test.cjs` pins the line field by
+field.
+
+### In process
+
+A Node host that would rather not cross a socket imports through the
+exports map — `./service` for the service, `./http` for the transport the
+launcher runs:
+
 ```js
-const { createService } = require('.../implementation/ssr-node/src/service.cjs');
+const { createService } = require('@day8/re-frame2-ssr-node/service');
+const { serve } = require('@day8/re-frame2-ssr-node/http');
 
 const service = await createService({
   modulePath: '/srv/my-app/out/server-bundle.cjs',   // absolute
@@ -454,31 +531,11 @@ const { html } = await service.renderToString({
 // …or, for a streaming caller, the primitive the wrapper above is built on:
 for await (const frame of service.renderFrames(request)) { /* … */ }
 
+// …or the transport, on a port of your choosing; 0 picks a free one:
+const http = await serve({ service, port: 8148 });
+
 await service.close();
 ```
-
-Or over HTTP, which is what a JVM caller uses:
-
-```js
-const { serve } = require('.../implementation/ssr-node/src/http.cjs');
-const http = await serve({ service, port: 8148 });
-```
-
-```
-POST /render          Content-Type: application/json   -> 200 text/html
-POST /render?stream=1                                  -> 200, chunked
-GET  /health                                           -> 200 application/json
-```
-
-Port 8148 is this package's default. The tests bind an ephemeral port
-(`0`) rather than a fixed one, so a run never collides with a developer's
-server or with a concurrent worker's.
-
-Response headers: `x-rf-ssr-build` (the build identity), `x-rf-ssr-chunks`,
-`x-rf-ssr-render-ms`, and `x-rf-ssr-request` when the caller sent a
-`requestId`. A refusal answers with `application/json`, the refusal frame
-as its body, and `x-rf-ssr-refusal` carrying the code — 4xx for a caller
-fault, 503 for saturation or shutdown, 504 for a deadline, 500 for ours.
 
 ### Deployment
 
@@ -492,9 +549,13 @@ practice:
    release as the JVM host — the bundle contains the application's own
    compiled views, and a skew between the two is two different
    applications answering one request.
-2. Run it as `node serve.cjs` behind a supervisor that restarts on
-   exit. The service is stateless between requests; a restart loses
-   nothing but warm isolates.
+2. Run `re-frame2-ssr-node --module <bundle>` — or `node bin/serve.cjs`
+   with the same flags — behind a supervisor that restarts on exit and
+   stops it with SIGTERM, which closes the socket and the isolates and
+   exits 0. Every knob is a flag of [the serve command](#the-serve-command),
+   and the supervisor learns the port from [the ready line](#the-ready-line).
+   The service is stateless between requests; a restart loses nothing but
+   warm isolates.
 3. Size the pool. One isolate renders one request at a time, so the
    pool size is the concurrency. Each isolate is a worker thread with its
    own V8 heap and its own copy of the bundle, so memory scales with it.
@@ -502,14 +563,14 @@ practice:
    service refuses before the caller gives up. A
    `:rf.ssr-node/render-timeout` is a diagnosable event; a socket the
    caller abandoned is not.
-5. Pin the runtime. The workflows pin Node 24 for CI only, and the
-   server-arm pricing lists that as an open row for a production sidecar.
-   This package uses `node:worker_threads`, `node:http` and `node:crypto`
-   only, and nothing newer than Node 18 semantics.
-6. Wire the JVM side. `ssr-ring`'s render call is a single hard-wired
-   line to the hiccup emitter, and a new render seam at that call site is
-   work both server arms need and neither has. It is not this package's;
-   see below.
+5. Pin the runtime. The manifest's `engines` says `node >=24`, which is
+   the version CI runs this suite on. The package uses
+   `node:worker_threads`, `node:http` and `node:crypto` only, so the pin
+   records what has been witnessed rather than a feature it needs.
+6. Wire the JVM side. `ssr-ring`'s `:renderer` seam and the
+   `re-frame.ssr.ring.node` adapter that dials this service are the
+   ssr-node crossing programme's work (`rf2-8arzr`, slices A and D), not
+   this package's; see below.
 
 ### Health
 
@@ -556,25 +617,18 @@ that is out of scope here.
 node implementation/ssr-node/test/run.cjs
 ```
 
-No build, no npm install, no browser, roughly 7 seconds — 8
-suites, 83 rows. Each suite runs in its own process, because several of
+No build, no npm install, no browser, roughly 8 seconds — 9
+suites, 96 rows. Each suite runs in its own process, because several of
 them deliberately kill worker threads and a shared process would let one
 file's leaked isolate turn the next file's clean failure into a hang.
 
-There is deliberately no npm script and no CI job yet, and the reason is
-measurable rather than aesthetic. Adding one line to
-`implementation/package.json` moves that file into the diff, and the
-changed-surface classifier CI shares with the local spine reads a
-`package.json` edit as reaching 11 expensive lanes — the browser
-suites, bundle isolation, the production-elision probes, the Hicasso HMR
-testbed. Every file in this package arms none of them. Paying 11
-CI lanes for the convenience of `npm run` over `node` is the wrong trade
-in a PR whose entire point is that it touches nothing, so the wiring is
-left as a follow-up to be sequenced against that file's other traffic.
-
-That classification is also the empirical half of the absence claim below:
-the classifier, which is the repo's own answer to "what can this diff
-affect", answers nothing for this package's files.
+`npm run test:ssr-node` from `implementation/` runs the same file, and
+CI's `node-ssr-node` job runs it on every change under this directory
+(rf2-n8vp) — with no `npm ci` before it, because the package needs
+nothing installed. That lane is the empirical half of the absence claim
+below: the changed-surface classifier, which is the repo's own answer to
+"what can this diff affect", arms this one lane for this package's files
+and nothing else.
 
 The suite drives the service against reference render modules under
 `test/fixtures/` — well-behaved, mutating, sloppy-mode, hanging, throwing,
@@ -627,9 +681,10 @@ strength:
   for a build to pick up if one ever did. This is the strong reading:
   absence from the graph is not a property anyone has to maintain by care
 - it adds no dependency. Every `require` in `src/` is a `node:` builtin
-  or a sibling file here, and the package carries no `package.json` of its
-  own, so it contributes nothing to `implementation/package.json` and
-  nothing to any consumer's closure
+  or a sibling file here, and the package's own `package.json` declares no
+  dependency of any kind and links — `exports`, `bin` — only to files
+  inside this tree, so it contributes nothing to `implementation/package.json`
+  and nothing to any consumer's closure
 
 Each of the 3 is paired with a row that plants exactly that fault in a
 scratch directory and requires the scan to find it. The first of those
