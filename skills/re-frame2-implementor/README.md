@@ -47,7 +47,7 @@ skills/re-frame2-implementor/
 ├── .claude-plugin/
 │   └── plugin.json                # Claude Code plugin metadata
 ├── evals/
-│   └── evals.json                 # Trigger-accuracy fixtures for the description
+│   └── evals.json                 # Trigger accuracy + answer quality (schema 2)
 ├── references/
 │   ├── cardinal-rules.md          # The eleven rules in prose + anti-pattern corollaries
 │   ├── phase-1-decisions.md       # The port profile: defaults, spec pin, template

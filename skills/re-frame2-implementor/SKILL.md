@@ -13,8 +13,13 @@ description: >
   "conformance corpus", or any prompt about building re-frame2 itself.
   **Do not use** for: writing apps on the CLJS reference (use
   `re-frame2`), greenfield bootstrap (use `re-frame2-setup`), v1→v2
-  migration (use `re-frame-migration`), or live-app inspection (use
-  `re-frame2-pair`).
+  migration (use `re-frame-migration`), live-app inspection (use
+  `re-frame2-pair`), or a port to an out-of-scope target — a non-React
+  substrate (Vue, Solid, Svelte, vanilla DOM) or a host that does not
+  cross-compile to JS (Python, Ruby, native Rust, Go, server-side JVM):
+  out of scope by deliberate spec choice, so surface the
+  `spec/000-Vision.md` scope footnote and stop rather than starting
+  Phase 1.
 allowed-tools:
   - Bash(gh issue *)
   - Bash(git -C * rev-parse *)
