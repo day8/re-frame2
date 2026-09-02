@@ -4,7 +4,7 @@ The operator's page. It says what a pilot workspace contains, how to assemble on
 
 A pilot agent is never sent here — this page sits inside the repository the pilot is blinded to. What the agent gets is `BRIEF.md` and `FRICTION-LOG.md`, both of which land in the workspace by the procedure below.
 
-Authorized by `rf2-v04s` under [`rf2-hic-063`](README.md#what-governs-this-directory)'s ratification; the `_shared/` line in both source manifests, under `rf2-f22y`; the documentation row in the read fence and the docs line in the layout block, under `rf2-lpfz`; the rehearsal variant of outcome 7, under `rf2-dc0c`.
+Authorized by `rf2-v04s` under [`rf2-hic-063`](README.md#what-governs-this-directory)'s ratification; the `_shared/` line in both source manifests, under `rf2-f22y`; the documentation row in the read fence and the docs line in the layout block, under `rf2-lpfz`; the rehearsal variant of outcome 7, under `rf2-dc0c`; step 6 naming the fenced block rather than the file, under `rf2-lh7b`; pilot 2's distinct `:dev-http` port and step 5's identity check, under `rf2-v6l6`.
 
 ## Layout
 
@@ -111,8 +111,10 @@ cd app && npm install
 **5. Prove the workspace boots before the pilot starts.** This is the operator's check, not the pilot's, and it must pass with the app still on Reagent — otherwise the pilot's first hour is spent debugging the scaffolding and the friction log records the operator's mistakes as the framework's.
 
 ```bash
-npx shadow-cljs watch app     # then open http://localhost:8080
+npx shadow-cljs watch app     # then open http://localhost:8080 — pilot 2 uses 8081
 ```
+
+**Then check the page is *this* pilot's application, not the other one's.** The two pilots carry different `:dev-http` ports for exactly this reason: [`rf2-hic-063`](README.md#what-governs-this-directory)'s method permits them to run in parallel from separate workspaces, and two shadow-cljs servers asking for the same port do not fail. The second prints `BindException Address already in use` as a *warning*, above its own `Build completed` line, and carries on — leaving the first pilot's application answering on that port with no page errors, no console errors and no failed requests. A boot check that only counts errors passes while looking at the wrong app. Confirm by sight instead: pilot 1 renders Conduit's masthead — `conduit`, Home, Sign in, Sign up — and pilot 2 renders the LinearLite board. Added under `rf2-v6l6`.
 
 **5b. Run the baseline, with the app still on Reagent**, and record its exit code in the log header beside the pin. This is outcome 1's "before" measurement, and it is the operator who takes it: a baseline that is not green before the pilot starts is a defect in the scaffolding, fixed here, never handed to the pilot as friction. The run also proves that the `:test` build resolves the test kit, the app and its test namespace from the clean workspace.
 
@@ -122,7 +124,7 @@ cd app && npm test > ../baseline-reagent.log 2>&1; echo "baseline exit $?"    # 
 
 The runner's closing line is the count to expect — as of `rf2-xkhul` the RealWorld baseline reports `Ran 4 tests containing 123 assertions.` and the LinearLite baseline `Ran 10 tests containing 51 assertions.`, both with `0 failures, 0 errors.` — and it is the exit status that is recorded, not the count. The compile also prints a handful of `:infer-warning` lines from the framework's own source; they do not fail the run, and they are the framework's to log, not the operator's to hide. (Before `rf2-luo6` gave the test kit its own `deps.edn`, a Clojure CLI deprecation notice about the kit's external path printed here too; the coordinate route above no longer emits it.) Added under `rf2-xkhul`.
 
-**6. Copy the brief and the blank log** into `<pilot-root>/`, from [`brief-realworld.md`](brief-realworld.md) or [`brief-linearlite.md`](brief-linearlite.md), and from [`friction-log.md`](friction-log.md)'s template section.
+**6. Copy the brief and the blank log** into `<pilot-root>/`, from the fenced block inside [`brief-realworld.md`](brief-realworld.md) or [`brief-linearlite.md`](brief-linearlite.md), and from the fenced block inside [`friction-log.md`](friction-log.md)'s template section. It is the block that is copied in each case, not the page around it. The front matter above each fence is operator-facing — bead ids, a link to this page, the note that the pilot is inside a blinding experiment — so copying the whole file hands all of it to a blinded pilot, and the result still reads like a brief. Added under `rf2-lh7b`.
 
 ### Rehearsal runs: outcome 7 is BLOCKED
 
@@ -197,7 +199,9 @@ The `:test` alias follows the published testing chapter's `:local/root` route, w
                    :ns-regexp "-test$"}}}
 ```
 
-Pilot 2 uses `:init-fn linearlite.core/run`.
+Pilot 2 uses `:init-fn linearlite.core/run` and `:dev-http {8081 "public"}`.
+
+The port differs on purpose, and it is the one line in this file that must not be copied between the two workspaces. Both pilots may run at once, and a second server asking for a port the first already holds does not fail — it warns and keeps building, and the port keeps serving the first pilot's app. Distinct ports remove that; they also make what remains loud rather than silent, because a browser pointed at the wrong port now shows either nothing at all or an obviously different application, instead of a plausible one. Added under `rf2-v6l6`.
 
 Both aliases are named on purpose. `:shadow` puts the compiler on the classpath; without it the build dies at `Could not locate shadow/cljs/devtools/cli`. `:test` carries the test kit and the app's test root, and shadow reads its classpath from `deps.edn`, so an alias not named here is not on it.
 
