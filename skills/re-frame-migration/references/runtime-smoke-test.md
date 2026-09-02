@@ -111,7 +111,7 @@ All three of those gates run a **dev (`:none`) build** — the convergence compi
 
 This is a real field outcome, not a hypothetical: a migration went green on the dev compile (1200+ files, 0 warnings), 126 passing unit tests, and a clean boot smoke-test, **while CI was red on every branch** with `StackOverflowError at com.google.javascript.jscomp.RemoveUnusedCode/traverseChildren` in the optimized browser-test compile. The dev done-bar reported "done"; the optimized gate did not.
 
-The cure is mechanical — raise the **compile** JVM's thread stack with `-Xss` — and it carries a placement gotcha that decides whether the `-Xss` actually reaches the compile JVM at all. Both live in [`setup.md` §The optimized / release compile gate](setup.md#the-optimized--release-compile-gate--raise--xss-for-the-stackoverflow-class). (This is a stack-**depth** `StackOverflowError` in the **optimized** compile of the migrated *app's own* code, fixed with `-Xss` headroom — a distinct failure from any dev-build transpile-down error.)
+The cure is mechanical — raise the **compile** JVM's thread stack with `-Xss` — and it carries a placement gotcha that decides whether the `-Xss` actually reaches the compile JVM at all. Both live in [`release-compile-gate.md` §The optimized / release compile gate](release-compile-gate.md#the-optimized--release-compile-gate--raise--xss-for-the-stackoverflow-class). (This is a stack-**depth** `StackOverflowError` in the **optimized** compile of the migrated *app's own* code, fixed with `-Xss` headroom — a distinct failure from any dev-build transpile-down error.)
 
 ---
 
