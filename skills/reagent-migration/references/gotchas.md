@@ -4,13 +4,33 @@
 > renders, and then misbehaves. Read them before a first migration. They are
 > ordered by how expensive they are to find later.
 
-## A leftover `#(dispatch …)` closure fails at CLICK time
+## Three leftovers, three ids — and only one of them fails at CLICK time
 
-The single most consequential trap in the whole migration.
+The single most consequential trap in the whole migration, and it is really
+three. A half-converted view strands Reagent-shaped reads and dispatches in
+three different places, and they fail at three different **times** under three
+different ids:
 
-Hicasso passes an **unmarked plain function** at an `on-*` prop straight through
-to React **by identity** — deliberately, so `React.memo` and every
-handler-identity bail-out keep working. So a surviving Reagent closure:
+| The leftover | Fails at | Id |
+|---|---|---|
+| an ambient `@(rf/subscribe …)` or `(rf/dispatch …)` still inside the render extent — the body **or** a helper it inlines | RENDER | `:rf.error/ambient-frame-refused` |
+| a `#(rf/dispatch …)` closure surviving at an `:on-*` prop | CLICK | `:rf.error/no-frame-context` |
+| an `(h/sub …)` moved out into a callback, a timer or a promise | FIRE | `:rf.error/hicasso-sub-outside-render` |
+
+**Row 1 — the render-time refusal.** A boundary body runs inside an extent that
+*refuses* ambient frame resolution, so a surviving `rf/subscribe` or
+`rf/dispatch` does not quietly work: it raises at the first render. It is **not
+an absence** — a frame IS in scope — so adding another boundary or a
+`with-frame` will not help; the extent withdraws the ambient reach specifically,
+and the `:reason` names both recoveries, `h/sub` for a read and an intent at a
+handler position for a dispatch. **The extent covers helpers too**: a
+parens-called `defn` runs inside the body, so MIG-02's deref-drop reaches it
+(MIG-26).
+
+**Row 2 — the click-time failure**, and the reason a converted view can look
+finished. Hicasso passes an **unmarked plain function** at an `on-*` prop
+straight through to React **by identity** — deliberately, so `React.memo` and
+every handler-identity bail-out keep working. So a surviving Reagent closure:
 
 ```clojure
 {:on-click #(dispatch [:save])}     ; converted view, un-lifted handler
@@ -22,13 +42,48 @@ ambient dispatch has no frame to resolve against, and it raises
 **`:rf.error/no-frame-context`** — which is *core's* id, not a `hicasso-*` one,
 so a grep for Hicasso diagnostics will not find it either.
 
+**Row 3 — the over-correction**, reached by fixing row 1 or row 2 too
+enthusiastically. `h/sub` is legal only *during* a body run, because a read
+outside one has no render pass to fence it and no boundary to record the edge
+against. Hoist the **read** to render time and close over the **value**; where
+handler code genuinely needs current state, `rf/subscribe-once` is the
+sanctioned snapshot.
+
 **So grep the converted bodies for surviving closures rather than finding them
-by clicking.** `#(`, `(fn [`, and any `dispatch` inside a props map are the
-search. The fix is MIG-04/05 (a vector) or MIG-18 (`h/event`, which carries the
-frame it was lowered in).
+by clicking.** `#(`, `(fn [`, and any `subscribe` or `dispatch` inside a props
+map — or inside a helper the body inlines — are the search. The fix is MIG-04/05
+(a vector) or MIG-18 (`h/event`, which carries the frame it was lowered in).
 
 This is what cardinal rule 2 — never half-migrate a view — is protecting you
 from.
+
+## Reading a complaint
+
+Each refusal above is a thrown `ex-info`, and its `ex-data` carries core's four
+slots. Knowing them turns a stack trace into an instruction:
+
+- **`:rf.error/id`** — the stable discriminator. **This** is what to branch on
+  in a test, a tool or an error monitor: an id names one refusal and is never
+  re-spelled or reused.
+- **`:where`** — the symbol naming the function that refused.
+- **`:reason`** — the human sentence, and it **names the fix**. Read this one
+  first; for the render-time refusal it spells out the collector-and-intent
+  recovery in full.
+- **`:recovery`** — a keyword classifying that fix
+  (`:read-through-the-boundary-collector` for the Hicasso render refusal,
+  `:no-recovery` where the runtime does not recover).
+
+Beyond the four, a complaint carries its own class's situational detail — the
+offending query vector, the prop position, the frame. Two further slots,
+`:view` and `:source`, name the boundary that was rendering and the file and
+line its `defview` was written at; they are dev-build **context, not contract**,
+absent under `:advanced` with `goog.DEBUG` false, so read them to help a human
+and never branch on them.
+
+The index of every id Hicasso raises is
+`implementation/hicasso/spec/complaints.md`; what each one means and what else
+it carries is `spec/009-Instrumentation.md` §Hicasso. Both are in the re-frame2
+repository, alongside the door.
 
 ## Brackets mount, parens inline — the ownership change that reads like spelling
 

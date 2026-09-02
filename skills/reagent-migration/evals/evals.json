@@ -49,7 +49,8 @@
        "Explains the timing: when the browser invokes it later the render extent has unwound, ambient dispatch has no frame to resolve against, and the failure lands at click time.",
        "Notes the id is core's :rf.error/no-frame-context, not a :rf.error/hicasso-* one, so grepping for Hicasso diagnostics will not find it.",
        "Fixes it to the event vector {:on-click [:save]} (MIG-04), or to h/event where the callback genuinely needs the event (MIG-18).",
-       "Advises grepping the converted bodies for surviving closures rather than finding them by clicking, and connects that to the whole-view-coherence rule."
+       "Advises grepping the converted bodies for surviving closures rather than finding them by clicking, and connects that to the whole-view-coherence rule.",
+       "Distinguishes this CLICK-time id from the RENDER-time one: a leftover ambient rf/subscribe or rf/dispatch still inside the render extent — the body OR a helper it inlines — refuses at first render with :rf.error/ambient-frame-refused, a DIFFERENT id, because a refused ambient read and a genuinely frameless one are different mistakes. Does not report the render-time refusal as :rf.error/no-frame-context, and does not claim this click-time failure would have been caught at render."
      ]},
 
     {"id": 18, "kind": "behavioural", "tier": "M", "name": "m-key-metadata-is-never-read",
