@@ -357,8 +357,31 @@ reports what it cannot resolve instead of skipping it:
 0 Reagent API call site(s) across 0 file(s) that name Reagent — 0 mechanical, …
 ```
 
-Zero call sites **and** no `UNRESOLVED` clause licenses dropping
-`reagent/reagent`. Anything else names what has to stay.
+**Read the second number, not the first.** The reporter says what it measures:
+its estimand is *Reagent API call sites, addressed at the CALL*. A call-site
+count is the wrong instrument for a dependency question, because a dependency
+is created by a **reference**, not by a call. This is not a hypothetical gap —
+
+```clojure
+(ns app.core (:require [reagent.core :as r]))
+(def factory r/atom)          ;; passed as a value; never in call-head position
+```
+
+— censuses as **0 call sites, no `UNRESOLVED`**, because the require does carry
+an alias and nothing is called. `factory` still resolves `reagent.core/atom`,
+and the build still needs `reagent/reagent`. The same blind spot covers Reagent
+Vars handed around as values, type and protocol references, and any
+build/preload configuration that names Reagent outside scanned CLJS call heads.
+
+So the licence is the **files** half of that line: `0 file(s) that name Reagent`,
+after you have removed the requires you proved orphaned, **and** no `UNRESOLVED`
+clause. One file still naming a recognised Reagent namespace keeps the
+coordinate, whatever the call count says. Pair it with a plain textual sweep of
+the whole repository — sources *and* dependency/build configuration
+(`deps.edn`, `shadow-cljs.edn`, preloads) — for the non-call references the
+reporter does not claim to census. Anything that turns up names what has to
+stay; when in doubt, keep `reagent/reagent`, which costs a coordinate and never
+a broken build.
 
 **Both calls are the author's** (cardinal rule 5): name the option and what each
 rests on, then let them decide. Keeping the Reagent adapter is a complete,

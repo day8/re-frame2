@@ -54,20 +54,25 @@ is created — green before the predicate settles, and green again when it later
 rejects. Await it instead:
 
 ```clojure
-;; CLJS — compose the Promise under cljs.test/async; assert inside .then.
+;; CLJS — compose the Promise under cljs.test/async.
+;; `async` is a cljs.test macro, so refer it alongside the rest:
+;;   #?(:cljs [cljs.test :refer-macros [deftest is async]])
 (deftest status-eventually-ready-cljs
   (async done
+    (rf/dispatch [:cart/fetch])                    ;; the same queued dispatch as the JVM row
     (-> (ts/poll-until
           #(= "ready" (h/text-content (h/find-by-testid (cart-view) "status")))
           {:timeout-ms 5000 :label "status ready"})
-        (.then (fn [_]
-                 (is (= "ready" (h/text-content
-                                  (h/find-by-testid (cart-view) "status"))))
-                 (done)))
-        (.catch (fn [e]
+        (.then  (fn [_]
+                  (is (= "ready" (h/text-content
+                                   (h/find-by-testid (cart-view) "status"))))))
+        (.catch (fn [e]                            ;; report and RELEASE — no done here
                   (is false (str "poll-until timed out: " (.-message e)))
-                  (done))))))
+                  nil))
+        (.then  (fn [_] (done))))))                ;; ONE trailing done, shared by both paths
 ```
+
+**The rejection handler goes upstream of the single trailing `done`, and calls it on neither path.** `cljs.test/run-block` hands `done` a continuation that runs the *whole remainder of the run* synchronously. So a `.catch` sitting **downstream** of `done` claims whatever a later namespace throws as this row's failure — printing it against this row's label — and then calls `done` a second time. Assert in `.then`, report and return `nil` in `.catch`, finish in one trailing `.then`; shared teardown belongs in that trailing step, where it is written once and still runs once per path. `re-frame.test-support`'s own `poll-until` docstring states this rule and shows this shape.
 
 `ts/poll-until` opts: `:timeout-ms` (default 2000), `:interval-ms` (default 5), `:label` (timeout-message tag). **Per-platform shape**: **JVM** synchronous — returns the truthy value, throws `ex-info` (`:rf.error/id :rf.error/poll-until-timeout`) on timeout; **CLJS** returns a `js/Promise` — resolves with the truthy value, rejects on timeout, compose with `cljs.test/async`. For sync runs, a `find-by-testid` / `text-content` walk after `dispatch-sync` suffices — reach for `poll-until` only when the run is genuinely async. Not a substitute for timer-semantics sleeps (grace-period elapse, throttle/debounce window).
 

@@ -10,7 +10,9 @@ Load when the task is **authoring a `deftest` / `cljs.test` test** against re-fr
           #?(:clj  [re-frame.substrate.plain-atom :as substrate]      ; JVM: the plain-atom substrate
              :cljs [re-frame.adapter.reagent      :as substrate])     ; CLJS: the Reagent adapter
           #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-             :cljs [cljs.test    :refer-macros [deftest is testing use-fixtures]]))
+             :cljs [cljs.test    :refer-macros [deftest is testing use-fixtures async]]))
+;; `async` is CLJS-only (there is no clojure.test/async) — it appears in the
+;; :cljs arm alone, and the `:async? true` suite below needs it.
 ```
 
 **The adapter require is reader-conditional, and must be.** `re-frame.adapter.reagent` ships as `reagent.cljs` — CLJS-only, so a JVM reader cannot load it; `re-frame.substrate.plain-atom` is `.cljc` and is the JVM counterpart. Both expose `adapter`, so binding them to the **same alias** keeps the fixture below to one line on both hosts. This is the idiom the reference implementation's own dual-host `*-cljs-test.cljc` suites use. A **single-platform** test file needs no conditional — require the Reagent adapter in a `.cljs` file, plain-atom in a `.clj` one.
