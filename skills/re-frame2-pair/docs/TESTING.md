@@ -63,8 +63,14 @@ injection (`pure_delegation_test.clj`); framework-boundary wiring the runtime
 must keep (`app_db_reset_test.clj` → `rf/replace-frame-state!`,
 `dom_readback_redaction_test.clj` → `rf/project-egress`,
 `registrar_describe_test.clj` → `strip-fns` / `:handler-fn` hygiene,
-`frame_registrar_test.clj`, `dispatch_consequence_test.clj`); and the load-time
-sentinel (`preload_sentinel_test.clj`).
+`frame_registrar_test.clj`, `dispatch_consequence_test.clj`); the load-time
+sentinel (`preload_sentinel_test.clj`); and the safety contracts a refusal
+path must not quietly report as success (`dry_run_sink_pin_test.clj` and
+`dry_run_rollback_failure_pin_test.clj` — dry-run's no-effect and
+rollback-failure guarantees, `undo_restore_rejected_pin_test.clj` —
+`undo-to-epoch`'s restore-rejected branch, `raw_state_tap_test.clj` —
+the raw-state tap-elide path, `recorder_test.clj` — the signal
+recorder). That is all twelve `tests/runtime/*_test.clj` files.
 
 **To run:**
 
@@ -126,7 +132,7 @@ driving the pair-mcp server over stdio.
 
 ## 3. Skill-prompt regression (`tests/prompts/`)
 
-**Status: scaffolded — see `tests/prompts/prompt_regression_test.clj` for the current deftests; runs in changed-surface PR CI.**
+**Status: live gate — see `tests/prompts/prompt_regression_test.clj` for the current deftests; runs in changed-surface PR CI.**
 
 Table-driven structural regression against `references/recipes.md`,
 `references/ops.md` (which now also carries the hot-reload-coordination
@@ -136,7 +142,7 @@ prompts table at the top of `tests/prompts/prompt_regression_test.clj`
 binds each representative user prompt to the recipe heading that
 covers it AND the ops the recipe is expected to name.
 
-The 5 canonical prompts wired so far:
+The 6 canonical prompts wired so far:
 
 1. "What's in `app-db` under `:user/profile`?" → recipe still names
    a `snapshot` / `get-path` style read (the `:must-mention`
@@ -153,6 +159,9 @@ The 5 canonical prompts wired so far:
    `reg-event` (the one public event registrar).
 5. "Where in the code does this button come from?" → recipe still
    names `dom/source-at` and `data-rf2-source-coord`.
+6. "Run this variant in the app I have open" → the *Drive a Story
+   variant* recipe still names `eval-cljs`, `re-frame.story/run-variant`,
+   `await` and `set-operating-frame`.
 
 Each row matches via `clojure.string/includes?` on the section of
 recipes.md under the expected heading; an alternation list lets us
