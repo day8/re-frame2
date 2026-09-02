@@ -1,16 +1,18 @@
 # re-frame2-implementor
 
-> ↑ [`skills/`](..) — index of all 8 re-frame2 skills.
+> ↑ [`skills/`](..) — index of all re-frame2 skills.
 
 A `Skill` that helps `Claude Code` (or any Anthropic-skill-compatible agent) guide an engineer building a new re-frame2 implementation — a port to a different host language, not an application built on the existing CLJS reference.
 
-This is the implementor's companion to the 3 application-side skills in this repo:
+This is the implementor's companion to the application-side skills in this repo:
 
 - [`re-frame2`](../re-frame2) — for writing application code on the CLJS reference.
 - [`re-frame2-setup`](../re-frame2-setup) — for bootstrapping a fresh greenfield project on the CLJS reference.
 - [`re-frame-migration`](../re-frame-migration) — for porting an existing re-frame v1 codebase to the CLJS reference.
+- [`reagent-migration`](../reagent-migration) — for moving Reagent views to Hicasso once that port has landed.
+- [`re-frame2-improver`](../re-frame2-improver) — for critiquing existing re-frame2 code against the anti-pattern catalogue.
 
-Where the 3 application-side skills are about using re-frame2, this skill is about realising it.
+Where the application-side skills are about using re-frame2, this skill is about realising it.
 
 ## What it covers
 
