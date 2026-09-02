@@ -83,8 +83,38 @@ For a parallel machine the snapshot's `:state` is a **map** keyed by region-name
 
 `:data` is shared across regions (same map). `:tags` is the union of every active state's `:tags` set across every region. Per Spec 005 §Parallel regions §Snapshot shape and `compute-tags-parallel` in `re-frame.machines.parallel` (the cross-region union — it calls `compute-tags` per region).
 
+## Cross-region coordination — the `stateIn` substitute
+
+When one region's guard must predicate on a **sibling** region's active state, do **not** couple them through a shared `:data` flag. A guard or action running inside a region receives two extra context keys beyond the usual `{:data :event :state :meta}`:
+
+| ctx key | value | use |
+|---|---|---|
+| `:tags` | the machine-wide active-configuration tag union, across **every** region | the **coarse, idiomatic** read: a sibling advertises a state-tag and any region's guard tests for it |
+| `:all-state` | the region-name → active-state map (`{:form :valid :checkout :idle}`) | the **precise** read, the literal analog of xstate's `stateIn({form: 'valid'})` |
+
+```clojure
+;; :checkout's :submit fires only while the :form region is in :valid.
+(rf/reg-machine :ui/checkout
+  {:type    :parallel
+   :data    {}
+   :guards  {:form-valid? (fn [{:keys [tags]}]
+                            (contains? tags :form/valid))}
+   :regions
+   {:form     {:initial :editing
+               :states  {:editing {:tags #{:form/editing} :on {:complete :valid}}
+                         :valid   {:tags #{:form/valid}}}}
+    :checkout {:initial :idle
+               :states  {:idle       {:on {:submit {:target :submitting
+                                                    :guard  :form-valid?}}}
+                         :submitting {:tags #{:checkout/submitting}}}}}})
+```
+
+This is re-frame2's answer to XState v5's `stateIn` / SCXML's `In()` — behavioural parity, not API mimicry (there is no `stateIn` primitive). Per Spec 005 §Cross-region coordination — tags as `stateIn`; threaded by `callback-ctx` in `re-frame.machines.transition`.
+
 ## Common gotchas
 
+- **`:tags` / `:all-state` are frozen for the whole selection round.** Both reflect the configuration as it stood at the **start** of the round, not a live view. So one event cannot flip `:form` to `:valid` *and* fire `:checkout`'s sibling-guarded `:submit` in the same pass — `:checkout`'s guard still sees `:form` as `:editing`. That is what makes selection **declaration-order-independent**: reordering regions can never change the selected set. To converge inside the same macrostep, either `:raise` an internal event from the sibling's action (re-broadcast FIFO on the next microstep) or guard an `:always` on the sibling read (selected on the next eventless round).
+- **These two keys are region-only.** A flat / compound machine's ctx is exactly `{:data :event :state :meta}` — don't write a guard that destructures `:tags` and then reuse it in a flat machine.
 - **`:type :parallel` is mutually exclusive with root `:initial` / `:states`.** Use one or the other at the top level. Registration throws `:rf.error/machine-parallel-bad-shape` if both are present (validated in `re-frame.machines.lifecycle-fx.validation`).
 - **Each region needs its own `:initial`.** Region bodies are themselves transition tables; a missing `:initial` keyword is a registration-time error (`re-frame.machines.lifecycle-fx.validation`).
 - **Region names are keywords.** `:regions {:data {...} :form {...}}` — not strings, not symbols. Validated at registration (`re-frame.machines.lifecycle-fx.validation`).

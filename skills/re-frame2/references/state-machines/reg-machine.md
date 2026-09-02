@@ -17,7 +17,7 @@ Most concepts map cleanly. The flags below are where xstate-trained intuition st
 - **`setup({actors, guards, actions})` → per-machine `:guards` / `:actions` maps.** Machine-scoped, not globally registered; cross-machine reuse is via plain Clojure vars.
 - **Timeouts are integer-ms or ISO-8601 (`"PT5S"`), never the `"5s"` shorthand.** `:internal-events` is a **set** (`#{:tick}`), not an array.
 
-The full 27-row translation key — every concept, convergence and divergence, plus history / tags / choice / typed-context rows — is the sole carrier at [`xstate-translation.md`](xstate-translation.md). When you reach for an xstate slot that isn't flagged above, check that catalogue rather than assume parity.
+The full 28-row translation key — every concept, convergence and divergence, plus history / tags / choice / typed-context / wildcard / `:reenter?` / `stateIn` rows — is the sole carrier at [`xstate-translation.md`](xstate-translation.md). When you reach for an xstate slot that isn't flagged above, check that catalogue rather than assume parity.
 
 ## Canonical signature
 
@@ -130,6 +130,8 @@ The value under an `:on` event keyword is one of:
 
 The transition's `:target` may be a single keyword (sibling-level) or a vector path (absolute, for cross-level transitions). Per `normalise-on-clause` in `re-frame.machines.transition`.
 
+An `:on` **key** is one of **three event-descriptor tiers**, resolved most-specific-first *at each level* before the walk moves up to an ancestor: the exact event id, the namespace wildcard `:ns/*` (`:mouse/*`), then the total wildcard `:*`. A guard-blocked candidate is not *enabled*, so it falls through to the next-coarser tier at the same level. Add **`:reenter? true`** to make a self / ancestor target **external** (exit + entry fire, `:after` timers restart, `:spawn` children respawn); without it such a target still re-resolves the target's descendants to `:initial`, and only a **targetless** transition leaves the configuration untouched. Both are catalogued in [`xstate-translation.md`](xstate-translation.md).
+
 ## Guards / actions — keyword reference or inline fn
 
 `:guards` and `:actions` at the machine top level are lookup tables. Inside an `:on` transition, `:guard` and `:action` accept **either** a keyword that resolves through those tables, **or** an inline fn:
@@ -150,6 +152,8 @@ Per the inspectability bias (Spec 005 §Inspectability bias): named entries surf
 ### Guard / action contract
 
 Every callback receives **one context map** — `(fn [{:keys [data event state meta] cofx :rf.cofx}] ...)` — and destructures the keys it needs. `data` is the snapshot's `:data` slot (a plain map); `event` is the inbound event vector; `state` is the discrete FSM keyword; `meta` is any user `:meta` on the snapshot. The `:rf.cofx` key's **name** contains a dot, so it can't ride inside `:keys` — bind it with the explicit `cofx :rf.cofx` pair (Spec 005 §Guard/action contract). **`:rf.cofx` is the causal recordable-coeffect record (EP-0010 recording / EP-0017 authoring)** — the same flat `{:rf/time-ms …}` map the dispatching event handler saw, surfaced onto the machine ctx so a bare-fn guard/action deciding on a host fact reads `(:rf/time-ms cofx)` not an ambient `js/Date` / `(random-uuid)`. Present when the dispatch carried a causal token; **absent for pure-fn callers** (conformance corpus / JVM fixtures driving the engine without a router coeffect). To have the framework *ensure* a fact, declare it via **consumer attachment** (`:rf.cofx/requires` on the named guard/action entry; the fact arrives flat beside the destructure). Machine `:data` is **durable** (survives snapshot/restore + replay), so any host fact a guard/action folds into `:data` MUST come from this record, never an ambient read — same durable-write rule as event handlers (Spec 002 §Recordable coeffects; Spec 005 §Machines). Actions return `{:data new-data :fx [...]}` (either key optional); guards return truthy/falsey. See `call-guard` / `call-action` in `re-frame.machines.transition`.
+
+**Flat / compound machines get exactly `{:data :event :state :meta}`. A callback running inside a parallel *region* additionally carries `:tags` and `:all-state`** — the machine-wide tag union and the region-name → active-state map, which are re-frame2's cross-region `stateIn` substitute. Those two keys appear **only** for region callbacks (`:all-state` is the region marker), so a flat machine's ctx is unchanged. See `regions.md` §Cross-region coordination.
 
 There is **no positional `(data event)` arity and no opt-in 3-arity escape hatch** — the runtime always delivers the full context map and the destructure pattern decides what's bound. `:state` and `:meta` are available for introspection with no flag (Spec 005 §Snapshot introspection — `:state` / `:meta`). The uniform single-map shape avoids the paste-from-`:guard`-into-`:on-spawn` trap (an `id` silently bound to the event vector, or vice-versa).
 
