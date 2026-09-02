@@ -56,9 +56,17 @@ This is the one check most likely to turn a "cheap coord swap" into a multi-week
 
 ### Check 3 — Legacy React-API scan
 
-Scan the source for surviving hand-rolled React-DOM **legacy** call sites — chiefly `ReactDOM.render` (and `ReactDOM.hydrate` / `ReactDOM.unmountComponentAtNode`). These were removed in React 18 and remain gone in React 19; any survivor must migrate to the `createRoot` API (`react-dom/client`) in the same pass.
+Scan the source for **every** legacy mount call site — the Reagent-routed root mount as well as any surviving hand-rolled React-DOM one. Both migrate to the `createRoot` API in the same pass.
 
-Most v1 codebases route their root mount through Reagent and never call `ReactDOM.render` directly, so this is usually empty — but a flag here, found pre-flight, is far cheaper than a runtime crash. A read-only search such as `rg -n 'ReactDOM\.(render|hydrate|unmountComponentAtNode)'` over the source tree surfaces them; flag each for the author.
+**The Reagent-routed mount is the common case, not the rare one — and it is the silent one.** Most v1 codebases mount through `reagent.dom/render` (or `reagent.core/render`), so this check normally *hits*; an empty result on a Reagent app means the pattern missed, not that there is nothing to do. On the classic bridge that Var still resolves, but React 19 removed the `react-dom/render` beneath it: it warns to the console and returns **without mounting**. The build is clean, the suite is green, and the page is blank — no throw, no `:rf.error/*` trace. (On the slim adapter the same call site fails loudly at compile time instead, as an unresolved var.) The hand-rolled `ReactDOM.render` / `ReactDOM.hydrate` / `ReactDOM.unmountComponentAtNode` sites are the rarer half — removed in React 18 and still gone in React 19 — but a survivor is a runtime crash, so sweep for both in one pass.
+
+A read-only search over the source tree surfaces them:
+
+```bash
+rg -n 'ReactDOM\.(render|hydrate|unmountComponentAtNode)|reagent\.(dom|core)/render|\b(rdom|r|reagent)/render\b|unmount-component-at-node'
+```
+
+Flag each for the author, the test-harness mounts included. The rewrite itself — `create-root` + `render`, in the namespace keyed to whichever adapter M-0 commits — belongs to **M-42**: [`guided-handlers-state.md` §M-42](guided-handlers-state.md#m-42--react-19-removed-reagent-surfaces-bridge-and-slim). Don't re-derive it here.
 
 ### Check 4 — CLJS / shadow-cljs / Closure-compiler toolchain-skew check (hits almost every older shadow-cljs app)
 
