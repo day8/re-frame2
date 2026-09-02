@@ -76,7 +76,7 @@ past an evicted row.
 Per §021 §17.1.5 (binding; HCM-safe because glyph alone carries
 signal, colour is never alone):
 
-| Tab (Dynamic) | Mnem | Icon | Stripe token |
+| Tab (Dynamic) | Tooltip | Icon | Stripe token |
 |---|---|---|---|
 | Epoch | `e` | `⚡` | `:accent-violet` |
 | app-db | `a` | `◐` | `:cyan` |
