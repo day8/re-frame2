@@ -109,6 +109,11 @@ const FIXTURE = `{:builds
                    :output-dir "out/examples/gamma"
                    :modules {:main {:init-fn seven-guis.gamma.core/run}}}
 
+  :examples/delta-server
+  {:target      :node-library
+   :output-dir  "out/examples/delta-server"
+   :exports-var delta.server/module}
+
   :some-other-build
   {:target :browser}}}`;
 
@@ -116,7 +121,7 @@ it('parseExampleBuilds recovers every adjacent example build (no skip-every-othe
   const builds = parseExampleBuilds(FIXTURE);
   assert.deepStrictEqual(
     builds.map((b) => b.build).sort(),
-    ['examples/alpha', 'examples/beta', 'examples/gamma'],
+    ['examples/alpha', 'examples/beta', 'examples/delta-server', 'examples/gamma'],
   );
 });
 
@@ -134,15 +139,39 @@ it('parseExampleBuilds ignores commented-out build keys', () => {
   assert.ok(!ids.includes('examples/should-be-ignored'));
 });
 
+// `target` is what separates a PAGE build from a server-side one, and a
+// non-`:browser` example build must still be RECOVERED (it is an example
+// build; check-examples-compile.cjs compiles it) while carrying no :init-fn.
+// Dropping it from the parse would hide it from every reader at once.
+it('parseExampleBuilds recovers :target, and a :node-library build keeps no :init-fn', () => {
+  const byId = Object.fromEntries(parseExampleBuilds(FIXTURE).map((b) => [b.build, b]));
+  assert.strictEqual(byId['examples/alpha'].target, ':browser');
+  assert.strictEqual(byId['examples/gamma'].target, ':browser');
+  assert.strictEqual(byId['examples/delta-server'].target, ':node-library');
+  assert.strictEqual(byId['examples/delta-server'].outputDir, 'out/examples/delta-server');
+  assert.strictEqual(byId['examples/delta-server'].initFn, null);
+});
+
 // ---- real-repo derivation: non-vacuous + the three UIx examples ----------
 
-it('parseExampleBuilds(shadow-cljs.edn) is non-vacuous and every build has out+init', () => {
+// The out+init invariant is asserted of the PAGE builds — the `:browser` ones
+// listStandaloneExamples turns into runnable entries. A server-side example
+// build (`:node-library`, publishing an `:exports-var` for a Node sidecar to
+// require — rf2-8arzr.5) is not a page and correctly declares neither, so
+// holding it to the page invariant asserts something false of the domain.
+// Every build must still declare a `:target`: a null one would silently drop a
+// real page build out of the loop below, which is the vacuity this pins shut.
+it('parseExampleBuilds(shadow-cljs.edn) is non-vacuous and every :browser build has out+init', () => {
   const builds = parseExampleBuilds(readShadowEdn());
-  assert.ok(
-    builds.length >= 30,
-    `expected the full example set (>=30), got ${builds.length} — parser/edn drift`,
-  );
   for (const b of builds) {
+    assert.ok(b.target, `build ${b.build} declares no :target — parser/edn drift`);
+  }
+  const pages = builds.filter((b) => b.target === ':browser');
+  assert.ok(
+    pages.length >= 30,
+    `expected the full example page set (>=30), got ${pages.length} of ${builds.length} — parser/edn drift`,
+  );
+  for (const b of pages) {
     assert.ok(b.outputDir, `build ${b.build} missing :output-dir`);
     assert.ok(b.initFn, `build ${b.build} missing :init-fn`);
   }
