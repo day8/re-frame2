@@ -114,21 +114,26 @@ The agent-host workflow is *don't make the user restart anything*.
 The server's job is to keep working through the gaps and surface a
 useful error when the runtime isn't ready.
 
-## Bash-shim back-compat preserved
+## Bash-shim back-compat: preserved, then discharged
 
-The bash shims under `skills/re-frame2-pair/scripts/` continue to
-work and are not slated for removal. Their headers carry a
-deprecation notice pointing here; migration is opt-in per session.
+This principle originally read *bash-shim back-compat preserved*: the
+shims under `skills/re-frame2-pair/scripts/` kept working alongside the
+MCP server, migration was opt-in per session, and agents could mix the
+two transports in one workflow. That was the deliberate posture while
+both transports existed.
 
-The migration discipline is *additive, not destructive*. Agents can
-mix shim calls and MCP tool calls in the same workflow during the
-transition. Existing skill docs and runbooks that reference the
-shims keep working; nothing breaks because the MCP server shipped.
+**Both no longer do.** The shim chain was deleted on 2026-07-11 under
+rf2-dduetj (commit `31594b44c3`), and `skills/re-frame2-pair/scripts/`
+holds no files. There is no second transport to preserve compatibility
+with, nothing to mix, and no migration left to opt into — MCP is the
+one implementation of every op. The principle is recorded here because
+it explains the shape the server was built to: contract-identical op
+names and arg shapes, which is why the changeover cost nothing.
 
-The op vocabulary overlaps cleanly: the bash shims cover six of the
+The overlap that made it tractable: the shims covered six of the
 canonical re-frame2-pair ops (`discover-app`, `eval-cljs`, `dispatch`,
 `trace-window`, `watch-epochs`, `tail-build`), with identical names
-and arg shapes — only the transport differs. Every other MCP tool
+and arg shapes — only the transport differed. Every other MCP tool
 (the write pair `restore-epoch` / `replace-app-db`, `dispatch-dry-run`,
 the mega-op reads `snapshot` / `get-path`, the read-orientation pair
 `orient` / `read-sub`, the view-plane reads `read-dom` / `read-ui`,
@@ -138,9 +143,9 @@ operating-frame trio `set-operating-frame` / `reset-operating-frame` /
 the registrar-introspection pair `handler-meta` / `list-handlers`, and
 `get-re-frame2-pair-instructions` — full catalogue in
 [`003-Tool-Catalogue.md`](003-Tool-Catalogue.md)) has no shim
-equivalent. This is what makes
-the back-compat tractable: the overlap is contract-identical; the
-plumbing underneath is different.
+equivalent. That is what made the back-compat tractable while it
+lasted: the overlap was contract-identical, and only the plumbing
+underneath differed.
 
 ## Tight token budget per response
 

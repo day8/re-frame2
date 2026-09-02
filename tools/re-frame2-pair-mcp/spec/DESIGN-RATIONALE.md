@@ -277,7 +277,7 @@ decomposition; bounded surface) still holds — both amendments are
   composed server-side over the existing per-slice runtime readers.
   Earns its keep as a mega-op for investigate-X workflows that would
   otherwise chain 5–10 individual `eval-cljs` reads. No bash-shim
-  equivalent; the shim chain stays at six.
+  equivalent; the shim chain stayed at six.
 - **rf2-hq49** added `subscribe` / `unsubscribe`: streaming
   subscription on the trace + epoch bus, layered over MCP's
   `notifications/progress` mechanism. Push-mode replacement for the
@@ -296,9 +296,10 @@ grew the catalogue further, and the rf2-ahjbc streaming retirement
 shrank it — the canonical count lives in
 the live [`registry.cljs`](../src/re_frame2_pair_mcp/tools/registry.cljs),
 full listing at [`003-Tool-Catalogue.md`](./003-Tool-Catalogue.md).
-The bash shims ship six. The shim catalogue is a strict subset of the
-MCP catalogue, with identical names and arg shapes for every
-overlapping op.
+The bash shims shipped six — a strict subset of the MCP catalogue,
+with identical names and arg shapes for every overlapping op. (That
+chain was itself retired under rf2-dduetj on 2026-07-11; see Lock #6,
+discharged.)
 
 Post-Lock additions accumulated as follows:
 
@@ -482,10 +483,22 @@ position-vs-bytes footgun was hit; locked at PR #423 merge.
 
 ---
 
-## Lock #6 — Bash-shim deprecation cadence
+## Lock #6 — Bash-shim deprecation cadence *(discharged 2026-07-11)*
 
 **Locked 2026-05-12 (Mike).** **Both surfaces ship side-by-side.**
 No removal scheduled; shims remain working with deprecation notice.
+
+> **DISCHARGED 2026-07-11 — the removal this lock deferred has happened.**
+> The bash/babashka shim chain under `skills/re-frame2-pair/scripts/`
+> was deleted under rf2-dduetj (commit `31594b44c3`); that directory
+> holds no files, and Pair MCP is the one implementation of every op.
+> This lock is **not overturned** — it played out exactly as its final
+> *Why* bullet anticipated ("if/when the MCP server is the obvious
+> answer for every consumer, the shims come out in a later drop; the
+> decision is reversible"). The side-by-side period ran 2026-05-12 to
+> 2026-07-11. The record below is the reasoning as locked, retained
+> unaltered; read it as history, not as current guidance. Nothing in
+> it still describes a shipping surface.
 
 ### Question
 
@@ -533,12 +546,15 @@ changes.
 
 ### Date locked
 
-2026-05-12 (Mike).
+2026-05-12 (Mike). Discharged 2026-07-11 by the shim removal
+(rf2-dduetj, commit `31594b44c3`).
 
 ### Trail-of-thought citations
 
 - rf2-5b8e PR #423 description.
-- `tools/re-frame2-pair-mcp/README.md` § Back-compat with the bash shims.
+- `tools/re-frame2-pair-mcp/README.md` § The retired bash shims.
+- rf2-dduetj — `chore(pair): remove retired bash/babashka transport;
+  Pair MCP is the one implementation` (commit `31594b44c3`).
 
 ---
 
@@ -955,7 +971,7 @@ read, not a registrar-union enumeration. What verb does it take?
 | 3 | Connection model | **Single persistent nREPL socket** | 2026-05-12 |
 | 4 | Tool catalogue cardinality | **Seven ops at v0.1.0; grown additively to thirty** (canonical count: the live [`registry.cljs`](../src/re_frame2_pair_mcp/tools/registry.cljs); full listing: [`003-Tool-Catalogue.md`](./003-Tool-Catalogue.md); see Lock #4 *Subsequent evolution* for the drop-by-drop lineage) | 2026-05-12 |
 | 5 | bencode pinning | **`bencode@~2.0.3`** (CommonJS; position-not-bytes) | 2026-05-12 |
-| 6 | Bash-shim deprecation | **Side-by-side, no removal scheduled** | 2026-05-12 |
+| 6 | Bash-shim deprecation | **Side-by-side, no removal scheduled** — **discharged 2026-07-11**: the shims were removed (rf2-dduetj, commit `31594b44c3`) and Pair MCP is now the one transport | 2026-05-12 |
 | 7 | Wire-boundary token cap | **Egress-centralised wrapper + pluggable `:strategy` + truncate-with-`{:rf.mcp/overflow …}`-marker** | 2026-05-13 |
 | 8 | Recorder verb shapes | **`record` bare mega-op; `read-recording` (`read-`); `watch-until` (new `watch-` prefix)** | 2026-05-31 |
 | 9 | Orientation verb shape | **`orient` bare mega-op; `read-sub` (`read-`)** | 2026-06-02 |

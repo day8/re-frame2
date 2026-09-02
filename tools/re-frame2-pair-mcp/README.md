@@ -5,8 +5,9 @@ that pair-programs with a live re-frame2 application over a persistent
 nREPL connection.
 
 This is the structural successor to the bash-shim → babashka → nREPL
-chain under `skills/re-frame2-pair/scripts/`. The shims still ship for
-back-compat, but new sessions should prefer the MCP server.
+chain that used to live under `skills/re-frame2-pair/scripts/`. Those
+shims were removed on 2026-07-11 (rf2-dduetj, commit `31594b44c3`);
+this MCP server is the one implementation of every op.
 
 ## What it is
 
@@ -33,7 +34,7 @@ cljs-eval compile.
 
 ## Tool surface
 
-| MCP tool       | Bash-shim equivalent      | What it does |
+| MCP tool       | Former bash shim (retired) | What it does |
 |----------------|---------------------------|--------------|
 | `discover-app` | `discover-app.sh`         | Verify shadow-cljs nREPL is reachable, probe the preloaded re-frame2-pair runtime marker, return a health summary. Run first every session. |
 | `orient`       | _(new — no bash equivalent)_ | App-shape orientation summary in one round-trip (rf2-3bu3d.8) — "what is this app and what can I drive?". Composes liveness + frames + per-app-frame app-db top-keys + registrar counts/ids + machines from the existing introspection surfaces. Compact + summarized by design; drill via `list-handlers` / `snapshot` / `get-path` / `read-sub`. |
@@ -648,10 +649,12 @@ existing turn-shaped surfaces (`trace-window` / `watch-epochs`,
 `watch-until`, `record` + `read-recording`) cover the high-frequency
 debug-loop need; this is the cold-storage slot.
 
-## Back-compat with the bash shims
+## The retired bash shims
 
-The shims under `skills/re-frame2-pair/scripts/` still work and are
-not slated for removal in this drop. Their headers carry a
-deprecation notice pointing here. Migration is opt-in per session;
-agents can mix shim calls and MCP tool calls in the same workflow
-during the transition.
+Until 2026-07-11 a parallel bash/babashka shim chain under
+`skills/re-frame2-pair/scripts/` implemented six of these ops, and this
+section described how to mix the two transports. That chain was removed
+under rf2-dduetj (commit `31594b44c3`) and no longer exists: there are
+no shim scripts to call, and nothing to migrate from. The MCP server is
+the only transport. The "Former bash shim" column in the tool table
+above is kept as a historical name mapping for old runbooks.
