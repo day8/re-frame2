@@ -338,37 +338,34 @@ follows from the views alone. That artefact ships exactly one namespace,
 the app was using it.
 
 **2 — the `reagent/reagent` coordinate.** This one does *not* follow. The skill
-is **views only** (cardinal rule 5) and never read the rest of the codebase: an
-`r/atom` in a non-view namespace, a `reagent.ratom/run!` in a utility, or a
-library the app depends on are all ordinary things to still be holding.
-*Zero Reagent views is not zero Reagent.* And the coupling runs the way that
-surprises people — `day8/re-frame2-reagent` is what puts `reagent/reagent` on
-the classpath, because it declares the stock dependency and core declares none.
-So an app that never listed Reagent itself and still calls `r/atom` somewhere
-**breaks when the adapter coordinate goes**, and the repair is to *add* a
-direct `reagent/reagent` entry rather than remove one.
+is **views only** (cardinal rule 5) and never read the rest of the codebase, and
+an `r/atom` in a helper or a `reagent.ratom/run!` in a watcher is an ordinary
+thing to still be holding. *Zero Reagent views is not zero Reagent.* The
+coupling also runs the way that surprises people: `day8/re-frame2-reagent` is
+what puts `reagent/reagent` on the classpath, since it declares the stock
+dependency and core declares none. An app that never listed Reagent itself and
+still calls `r/atom` somewhere **breaks when the adapter coordinate goes** — and
+the repair is to *add* a direct `reagent/reagent` entry, not remove one.
 
-Decide 2 on a measurement, not on an inference from 1. Re-run the reporter
-(step 0) over the **whole** repository rather than the subtree this migration
-touched, and read its census half: it counts Reagent API call sites across
-`reagent.core`, `reagent.dom`, `reagent.dom.client` and `reagent.ratom`, and it
-reports what it could not resolve instead of skipping it. Its summary line is
-what you are reading for:
+So decide 2 on a measurement rather than an inference from 1. Re-run the
+reporter (step 0) over the **whole** repository, not the subtree this migration
+touched, and read its census half — it counts Reagent API call sites across
+`reagent.core`, `reagent.dom`, `reagent.dom.client` and `reagent.ratom`, and
+reports what it cannot resolve instead of skipping it:
 
 ```
-0 Reagent API call site(s) across 0 file(s) that name Reagent — 0 mechanical, 0 human-decision, 0 runtime-blocker
+0 Reagent API call site(s) across 0 file(s) that name Reagent — 0 mechanical, …
 ```
 
-Zero call sites **and** no `UNRESOLVED` clause is what licenses dropping
+Zero call sites **and** no `UNRESOLVED` clause licenses dropping
 `reagent/reagent`. Anything else names what has to stay.
 
-**Both calls are the author's, not the skill's** (cardinal rule 5). Name the
-option, and say what each decision rests on; then let them decide. Keeping the
-Reagent adapter is a complete, supported configuration whatever the views are
-written in — nothing degrades under it, and an app that may grow a Reagent or
-UIx subtree later has a standing reason to keep it. And none of it arises while
-a single Reagent view survives: until then MIG-15's *the install stays* is the
-whole of the answer.
+**Both calls are the author's** (cardinal rule 5): name the option and what each
+rests on, then let them decide. Keeping the Reagent adapter is a complete,
+supported configuration whatever the views are written in, and an app that may
+grow a Reagent or UIx subtree later has a standing reason to keep it. None of it
+arises while a single Reagent view survives — until then MIG-15's *the install
+stays* is the whole of the answer.
 
 ## MIG-33 — keystroke handlers → a key map
 
