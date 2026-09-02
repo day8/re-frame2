@@ -65,7 +65,12 @@ function launch(args) {
   const ready = new Promise((resolve, reject) => {
     child.stdout.on('data', () => {
       const line = out.stdout.split('\n').find((l) => l.includes('"rf.ssr-node"'));
-      if (line !== undefined) resolve(JSON.parse(line));
+      if (line === undefined) return;
+      try {
+        resolve(JSON.parse(line));
+      } catch (err) {
+        reject(new Error(`the ready line is not one JSON object: ${JSON.stringify(line)} (${err.message})`));
+      }
     });
     exited.then(() => reject(new Error(`exited before a ready line\nstdout: ${out.stdout}\nstderr: ${out.stderr}`)));
   });
