@@ -37,9 +37,9 @@
     {"id": 21, "kind": "behavioural", "name": "behav-mixed-type-a-b-pauses-once-on-batched-decisions",
      "prompt": "Migrate this v1 app to re-frame2 (corpus at ../re-frame2 pinned to <sha>; target <v2-version>). deps.edn project with a :test alias. The handlers are reg-event-db with top-level :dispatch keys; there are two reg-sub-raw subscriptions whose bodies subscribe to a websocket stream; and one event handler calls dispatch-sync from inside its body.",
      "expectations": [
-       "Applies the Type-A rules (M-73, M-8) after announcing each sweep, without waiting for a second acknowledgement, and then runs the discovered compile / test gate (`clojure -M:test`) itself and reports the result.",
-       "Identifies the two reg-sub-raw sites (M-18) and the in-handler dispatch-sync (M-3) as Type B: for each it names the site, explains the risk, and proposes the rewrite — presented as ONE batch after the Type-A sweep, not one interruption per site (cardinal rules 2 and 4; sequencing.md).",
-       "Does NOT rewrite the M-18 or M-3 sites before the author decides; the report lists them under 'Items flagged for human review'.",
+       "Applies the Type-A rules after announcing each sweep, without waiting for a second acknowledgement — M-73, M-8, and the in-handler dispatch-sync, which is M-9 (Type A: the static lexical position inside the reg-event-* body is the discriminator) and is rewritten in the sweep to `:fx [[:dispatch <event-vec>]]` — then runs the discovered compile / test gate (`clojure -M:test`) itself and reports the result.",
+       "Identifies the two reg-sub-raw sites (M-18) as Type B: for each it names the site, explains the risk, and proposes the rewrite — presented as ONE batch after the Type-A sweep, not one interruption per site (cardinal rules 2 and 4; sequencing.md).",
+       "Does NOT rewrite the M-18 sites before the author decides; the report lists them under 'Items flagged for human review'. The M-9 dispatch-sync site is NOT in that batch — holding a corpus-Type-A rewrite for an author decision fails this expectation exactly as rewriting a Type-B site unasked would (cardinal rule 2).",
        "Runs compile / tests after the Type-A sweep and reports those results BEFORE presenting the Type-B batch, so the author decides against a known-green baseline."
      ]},
 
