@@ -495,13 +495,40 @@ const ARTEFACTS = [
   // loads it and Closure `:advanced` + goog.DEBUG=false DCE its body
   // wholesale. A non-zero hit means the egress ns got dragged into the counter
   // bundle (most likely a stray `:require` from a production-reachable ns, or
-  // an accidental re-export from the core facade). The sentinel is the live
-  // missing-frame marker produced by the egress projection.
+  // an accidental re-export from the core facade). The sentinel is the opaque
+  // resource-handle marker the egress projection MINTS: `opaque-handle` emits
+  // `[:rf.resource/opaque <digest>]` and `opaque-handle?` reads the same
+  // keyword back, both on the live path reached from `project-graph`, so the
+  // keyword's fully-qualified name is interned into this module's emitted JS.
+  //
+  // TWO literals were tried here before this one and BOTH are traps worth
+  // naming, because each is what reading the source alone would pick (rf2-fgco):
+  //
+  //   `re-frame.derivation.egress/no-egress-frame` — the old `::no-egress-frame`
+  //     dead-frame stamp. rf2-g1vu correctly replaced that keyword with a fresh
+  //     host object (`#?(:clj (Object.) :cljs (js/Object.))`) so no app-spellable
+  //     id can collide with it, and a keyword interns its name as a string where
+  //     an identity value interns nothing. The literal left the artefact and this
+  //     positive control went 0/1 — which is the whole point of rf2-e6qmxk, and
+  //     is how the drift was caught rather than shipped as a vacuous green.
+  //
+  //   `rf.derivation.egress/sentinel:rf2-mm3y49-2026-07-10:do-not-rename` — the
+  //     `defonce ^:private bundle-isolation-sentinel` still planted at the bottom
+  //     of egress.cljc. It reads like the obvious choice and it is NOT one: the
+  //     var is private and nothing consumes its value, so Closure `:advanced`
+  //     drops it and the emitted module carries 0 occurrences (measured on
+  //     out/bundle-isolation-positive-control/derivation-egress.js). That is why
+  //     4e43784ec7 moved this entry — and its `derivation-graph` sibling, onto
+  //     `rf/family` — off the planted strings when the controls became
+  //     emitted-module greps rather than source greps.
+  //
+  // The rule both traps teach: pick a literal a LIVE code path emits, and verify
+  // the count in the emitted module, never in the .cljc.
   {
     name: 'derivation-egress',
     internalSentinels: [
-      { source: 're-frame.derivation.egress missing-frame marker',
-        sentinel: 're-frame.derivation.egress/no-egress-frame' },
+      { source: 're-frame.derivation.egress opaque resource-handle marker',
+        sentinel: 'rf.resource/opaque' },
     ],
     consumerAllowList: null,
     expectedAllowListHits: 0,
