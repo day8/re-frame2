@@ -178,6 +178,7 @@ Each phase uses `:spawn` to spawn the async work; transitions on success or fail
 
       :hydrating
       {:entry :set-phase
+       ;; :hydrate/done is app-dispatched — by the handler that finishes hydration.
        :on    {:hydrate/done {:target :routing}}}
 
       :routing
@@ -188,7 +189,14 @@ Each phase uses `:spawn` to spawn the async work; transitions on success or fail
        ;;   {:fx [[:dispatch [:ws/connection
        ;;                     [:ws/connect {:url        (-> data :config :ws-url)
        ;;                                   :auth-token (-> data :session :token)}]]]]}
-       :on    {:rf.route/resolved {:target :ready}}}
+       ;; :boot/route-resolved is app-prefixed and produced by the initial
+       ;; route's :on-match — `{:on-match [[:app/boot [:boot/route-resolved]]]}`
+       ;; on the route metadata, a vector of event vectors the routing runtime
+       ;; fires-and-forgets once the URL resolves to a valid plan (Spec 012
+       ;; §Per-route data loading). Nothing under :rf.route/* is dispatched
+       ;; into an app machine; every route the app can land on at boot carries
+       ;; this :on-match entry.
+       :on    {:boot/route-resolved {:target :ready}}}
 
       :ready          {:meta {:terminal? true}}
       :auth-failed    {:meta {:terminal? true}}
@@ -447,7 +455,7 @@ Re-boot is rare; it is not the default. Most apps boot once per page load and re
 
 ### Boot vs initial-route resolution
 
-Route resolution is **part of boot** — state `:routing` runs `:rf.route/handle-url-change`, the route's `:on-match` may dispatch further loads, and the machine commits to `:ready` only after the route slice is settled. This keeps "the URL determined what loaded" inside the boot trace, where it is inspectable.
+Route resolution is **part of boot** — state `:routing` runs `:rf.route/handle-url-change`; the route's `:on-match` may dispatch further loads and is also what tells the machine the route resolved (an app-prefixed `[:app/boot [:boot/route-resolved]]` entry in its `:on-match` vector, fired-and-forgotten by the runtime once a valid plan forms); the machine commits to `:ready` on that event. This keeps "the URL determined what loaded" inside the boot trace, where it is inspectable.
 
 Routes that depend on auth (a "must-be-logged-in" route) work because `:authenticating` has already run by the time `:routing` evaluates. The route's matched-state can read auth from `app-db` and redirect or short-circuit as needed.
 
