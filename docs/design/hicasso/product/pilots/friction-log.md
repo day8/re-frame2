@@ -4,7 +4,7 @@ The pilot's own record, kept as the work happens. It is the programme's delivera
 
 The format is built around [the seven outcomes](#part-1-the-seven-outcomes) rather than around a generic template, because those seven are what the ratification says the pilots prove. Two things follow: the log has a section per outcome and no free-floating "notes" bucket, and an outcome that was never attempted is a distinct verdict from one that failed.
 
-Authorized by `rf2-v04s` under [`rf2-hic-063`](README.md#what-governs-this-directory)'s ratification; the template's `Baseline:` header line, which the operator fills in at [workspace step 5b](workspace.md#assemble-a-workspace), under `rf2-xkhul`. The blank template is [at the end](#the-blank-template); copy that into the workspace.
+Authorized by `rf2-v04s` under [`rf2-hic-063`](README.md#what-governs-this-directory)'s ratification; the template's `Baseline:` header line, which the operator fills in at [workspace step 5b](workspace.md#assemble-a-workspace), under `rf2-xkhul`; the template's supplied `Docs read from:` answer, under `rf2-lpfz`; the checkout case in outcome 7's rule and in the attestation, under `rf2-dc0c`. The blank template is [at the end](#the-blank-template); copy that into the workspace.
 
 ## A short log is a bad sign, not a good one
 
@@ -47,7 +47,7 @@ Rules that make the row mean something:
 - **Outcome 1 is measured twice** — the suite passing before the migration is the baseline, and without it "the tests pass" says nothing.
 - **Outcome 5 induces the failure deliberately.** Pick a fault the published diagnostics chapter claims to cover, break it on purpose, and record whether the documented path actually reached it. A pilot that only diagnoses the bugs it happened to write has not tested the instrument.
 - **Outcome 6 checks the built page runs**, not merely that the build exited zero. Advanced compilation removes diagnostics and warning strings, and a bundle that compiles but does not boot is the failure this outcome exists to catch.
-- **Outcome 7 needs two pins**, and moving the checkout pin is what stands in for an upgrade until a release coordinate exists. Record both, and record what broke — a rename surfacing as a compile error at the call site is the promised behaviour, not a defect.
+- **Outcome 7 needs two pins**, and moving the checkout pin is what stands in for an upgrade until a release coordinate exists. Record both, and record what broke — a rename surfacing as a compile error at the call site is the promised behaviour, not a defect. **Where the run resolves the library from a checkout rather than from a released version there is no second pin, and the outcome is `BLOCKED`.** It is not simulated by repointing the checkout at a later commit: that yields a row which reads as upgrade evidence without being any, and a later counted run is read against this log. The operator applies that variant to the copied log during [assembly](workspace.md#rehearsal-runs-outcome-7-is-blocked), so the pilot meets one instruction rather than a choice. Amended under `rf2-dc0c`.
 
 ## Part 2: friction entries
 
@@ -96,6 +96,8 @@ Checkout pin at end:   <sha>
 
 **An empty list here is the expected value and must still be written.** The point is that somebody signed it: an absent attestation and a clean one are the same silence otherwise, and only one of them is evidence. A non-empty list is not a failed pilot — it is a pilot that reported accurately, and it lets the audit weigh the affected entries instead of discarding the whole log.
 
+The two pin lines belong to a run that has two pins. Where the library is resolved from a checkout and outcome 7 is `BLOCKED`, they collapse to the single pin the run actually had; the operator makes that replacement when copying the template, at [assembly](workspace.md#rehearsal-runs-outcome-7-is-blocked). Leaving them as a pair asks the pilot for something the run cannot produce, and a pilot will try to produce it. Amended under `rf2-dc0c`.
+
 ## Part 4: disposition
 
 The operator's section, written after the pilot ends and never by the pilot. Each entry gets a disposition — `fixed`, `filed`, `rejected`, or `not a defect` — with its bead. This is what `rf2-hic-063`'s acceptance means by the friction log being dispositioned, and it is the half that turns the log into work.
@@ -112,7 +114,8 @@ Agent:            <identifier>
 Workspace:        <pilot-root>
 Checkout pin:     <sha>
 Baseline:         npm test → exit <code>, with the app still on Reagent
-Docs read from:   <published site URL or local build>
+Docs read from:   re-frame2/docs/core/hicasso/ — the checkout's copy of the
+                  published documentation; there is no published site yet
 Started / ended:  <date> / <date>
 
 A near-empty log is suspect, not successful. Record every hesitation,

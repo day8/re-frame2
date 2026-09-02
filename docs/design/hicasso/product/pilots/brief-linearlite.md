@@ -2,9 +2,9 @@
 
 Copy the block below into `<pilot-root>/BRIEF.md`. Everything inside it is written *to the pilot agent* and is the only thing that agent is given, alongside the blank friction log and the workspace itself.
 
-The brief is deliberately free of in-tree references: no bead ids, no spec sections, no repository paths except the ones the published documentation itself tells a reader to use. That is not tidiness. A brief that leaks in-tree knowledge does not bend a rule, it invalidates the evidence the pilot exists to produce, and the leak is invisible in the output.
+The brief is deliberately free of in-tree references: no bead ids, no spec sections, no repository paths except the ones the published documentation itself tells a reader to use, and one added since: `docs/core/hicasso/` inside the checkout, which is where the published documentation is kept until a site exists (`rf2-lpfz`). Naming it is what makes the pilot's only reference reachable at all. That is not tidiness. A brief that leaks in-tree knowledge does not bend a rule, it invalidates the evidence the pilot exists to produce, and the leak is invisible in the output.
 
-Authorized by `rf2-v04s` under [`rf2-hic-063`](README.md#what-governs-this-directory)'s ratification; the sentence naming the test command, under `rf2-xkhul`. Assemble the workspace first, per [`workspace.md`](workspace.md).
+Authorized by `rf2-v04s` under [`rf2-hic-063`](README.md#what-governs-this-directory)'s ratification; the sentence naming the test command, under `rf2-xkhul`; the address of the published documentation in the read rules, under `rf2-lpfz`. Assemble the workspace first, per [`workspace.md`](workspace.md).
 
 **Why this pilot is shaped differently from [Pilot 1](brief-realworld.md), and it matters that it is.** Pilot 1 translates two screens that already exist, which measures whether the documentation supports *porting*. This one ports one screen and grows a second that does not exist yet, which measures whether the documentation supports *authoring* — reaching for a form you have never written, from the guide alone. Those are different failure modes and the two pilots are chosen to cover both, so the card detail is a shipped screen rather than a stretch goal and must not be softened into one when the brief is handed over.
 
@@ -56,7 +56,10 @@ produce. Only you can tell us.
 
 - The published Hicasso documentation, in full. It is your reference for
   everything: what to type, what things are called, why something broke, how
-  to test, how to build for production.
+  to test, how to build for production. It has not been put on a website yet,
+  so your copy of it is the one inside the checkout beside your project, at
+  `re-frame2/docs/core/hicasso/`. Those pages are the documentation; reading
+  them is not reading the checkout.
 - Everything in `app/`. That is your codebase. Its README explains what the
   application does and which patterns it is built from — read it freely.
 - Ordinary error output: compiler messages, stack traces, browser console.
@@ -65,19 +68,22 @@ produce. Only you can tell us.
 **You may not read:**
 
 - The `re-frame2/` checkout sitting beside your project, for anything other
-  than the two mechanical uses below. Not its source, not its internal design
-  notes, not its other example applications, not its history.
+  than the documentation named above and the two mechanical uses below. Not
+  its source, not its internal design notes, not its other example
+  applications, not its history.
 - Any file your app's README links to outside `app/`. The README is yours; the
   things it points at are not.
 - Any source file named in a stack trace. Knowing that a complaint came from
   some internal file is diagnosis and is fine. Opening that file is research
   and is not.
 
-**The `re-frame2/` checkout is a build input, not a reference work.** Two uses
-of it are expected and correct, because the published documentation itself
-tells you to make them: your `deps.edn` resolves the library from it, and the
-migration tool the documentation opens with is run from a path inside it. Both
-are the documented setup. Neither is licence to browse.
+**The `re-frame2/` checkout is a build input, not a reference work.** The
+documentation above is the one exception, and only because it has nowhere else
+to live yet. Two further uses of it are expected and correct, because the
+published documentation itself tells you to make them: your `deps.edn` resolves
+the library from it, and the migration tool the documentation opens with is run
+from a path inside it. Both are the documented setup. Neither is licence to
+browse.
 
 There is no trick here and you are not being tested for compliance. If you
 read something you should not have, write it down in the log's attestation and
