@@ -325,7 +325,8 @@ it was fenced out of `rf2-zllp8` for the same reason it was fenced out of
 
 ## 9. What is NOT settled here — flagged for a ruling
 
-*Written before the implementation. §8a resolves (1) and (4); (2) and (3) stand.*
+*Written before the implementation. §8a resolves (1) and (4); (2) is settled at
+tip, as its own entry now records; (3) stands.*
 
 1. **The error id.** The design pass proposed
    `:rf.error/hicasso-frame-outside-boundary`; the synthesis comment wrote
@@ -334,10 +335,14 @@ it was fenced out of `rf2-zllp8` for the same reason it was fenced out of
    **`-outside-boundary` is the spelling that matches the tree** and is the
    recommendation — but the implementer should have it confirmed rather than pick
    silently, because error ids are catalogued in Spec 009.
-2. **`:rf.error/ambient-frame-refused` is PROVISIONAL.** `rf2-k0rbk` may rename
-   it. Nothing in this design may be built on that spelling; `h/frame` does not
-   depend on it, and the guide text that names it must be written after
-   `rf2-k0rbk` settles.
+2. **`:rf.error/ambient-frame-refused` is SETTLED**, and this design may be
+   built on that spelling. It is rowed in `spec/009-Instrumentation.md`'s error
+   catalogue and raised by `re-frame.frame/emit-ambient-frame-refused!`, and the
+   stability rule in `implementation/hicasso/spec/complaints.md` closes the
+   question outright: an id names one refusal and is never re-spelled or reused.
+   Guide text naming it is no longer blocked. *(This item previously held the id
+   PROVISIONAL pending a rename under `rf2-k0rbk`; no such bead exists in the
+   tracker, and the rename it anticipated is one the stability rule forbids.)*
 3. **The name `h/frame` is unfrozen**, as `h/root!` is.
 4. **A diagnostic gap `rf2-2rtt6.122` opened, which is arguably a small bug of its
    own.** The arm's refusal detail is written for the two doors it was aimed at —
