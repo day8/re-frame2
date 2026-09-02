@@ -26,7 +26,7 @@
      "expectations": [
        "The agent establishes whether a deps.edn exists before adding coordinates to one — the prompt's 'shadow-cljs.edn exists' project ordinarily has none.",
        "On the :dependencies-only project the agent CONVERTS: it writes a deps.edn carrying :paths (the author's existing source dirs), the day-one coords and a :shadow alias with the project's existing thheller/shadow-cljs version, then replaces shadow-cljs.edn's :dependencies with {:deps {:aliases [:shadow]}}.",
-       "The author's existing source dirs land in deps.edn :paths. Once :deps is active shadow ignores shadow-cljs.edn's :source-paths, so a conversion that leaves them behind silently drops them off the classpath.",
+       "The author's existing source dirs move into deps.edn in the same edit — app dirs on :paths, test dirs on the :shadow alias's :extra-paths. Once the classpath comes from deps.edn, shadow warns about and ignores shadow-cljs.edn's :source-paths, so a conversion that leaves a dir only there silently drops it off the classpath.",
        "The agent does NOT write [day8/re-frame2 \"0.0.1.alpha\"] (or any :mvn/version framework coord) into :dependencies pre-publish — it 404s at resolution; the pre-publish shapes are :local/root or :git/url, which :dependencies cannot express.",
        "The author's own :builds, mount-point id, dev-http port and :output-dir / :asset-path are preserved; the leaf's shapes are the target, not a literal overwrite."
      ]},
