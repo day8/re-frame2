@@ -1026,14 +1026,23 @@
 
 (defn- teardown-popout-state!
   "Internal: tear down the popout singleton if present. Invokes the
-  substrate unmount, clears the opener-gone watchdog, attempts to
-  close the popout window, and clears the singleton. All steps run
-  inside swallow-errors guards — this is a last-chance cleanup (test
+  substrate unmount, clears the opener-gone watchdog, detaches the
+  opener-side `pagehide` announcer, attempts to close the popout
+  window, and clears the singleton. All steps run inside
+  swallow-errors guards — this is a last-chance cleanup (test
   fixture, opener-side unload), not a contract-checking call site."
   []
-  (when-let [{:keys [window unmount watchdog-id]} @popout-state]
+  (when-let [{:keys [window unmount watchdog-id
+                     opener-window opener-pagehide-handler]} @popout-state]
     (when watchdog-id
       (try (js/clearInterval watchdog-id) (catch :default _ nil)))
+    ;; rf2-uong — drop the opener-side `pagehide` announcer. Unlike the
+    ;; watchdog (a timer owned by this realm) the listener would otherwise
+    ;; accumulate across repeated popout open/close cycles in ONE opener
+    ;; realm, each survivor closing over a now-detached overlay node.
+    (when (and opener-window opener-pagehide-handler)
+      (try (.removeEventListener opener-window "pagehide" opener-pagehide-handler)
+           (catch :default _ nil)))
     (when unmount
       (try (unmount) (catch :default _ nil)))
     (when window
@@ -1253,10 +1262,17 @@
       (set! (.-fontSize s)    "20px")
       (set! (.-fontWeight s)  "600")
       (set! (.-marginBottom s) "12px"))
+    ;; rf2-uong — the overlay now also fires on an opener RELOAD, so the
+    ;; copy must not assert "closed": a reloaded opener is still on screen,
+    ;; and a message contradicting what the user can see reads as a bug in
+    ;; Xray rather than an explanation. Name the cause generically and say
+    ;; what to do; "no longer connected to the running runtime" is the true
+    ;; statement common to closed, navigated-away and reloaded openers.
     (set! (.-textContent hint)
-          (str "The host application window has been closed. "
-               "This Xray pop-out is no longer connected to a "
-               "running runtime — close this window."))
+          (str "The host application window was closed or reloaded. "
+               "This Xray pop-out is no longer connected to the "
+               "running runtime — close this window and open a "
+               "fresh pop-out."))
     (let [s (.-style hint)]
       (set! (.-color s)      opener-gone-overlay-secondary)
       (set! (.-fontSize s)   "14px")
@@ -1318,6 +1334,76 @@
         id      (js/setInterval tick 500)]
     (reset! id-atom id)
     id))
+
+;; ---- popout opener-RELOAD announcer (rf2-uong) ---------------------------
+;;
+;; The watchdog above cannot see an opener RELOAD, and widening its
+;; predicate would not help — the watchdog does not survive the event it
+;; would be asked to detect.
+;;
+;; Everything Xray runs for the popout lives in the OPENER's JS realm:
+;; `popout!` is called from the opener, `substrate-adapter/render` paints
+;; the popout's DOM from there, `popout-state` is an opener-realm atom, and
+;; `start-opener-gone-watchdog!`'s `js/setInterval` registers its timer on
+;; the OPENER's window. A hard reload of the opener discards that realm and
+;; every timer, closure and atom it owned. So after the reload there is no
+;; tick left to evaluate any predicate, however widened — and meanwhile
+;; `window.opener` still resolves (a WindowProxy survives navigation,
+;; now fronting the NEW realm) with `.closed` false, so even a surviving
+;; watchdog would read "opener fine".
+;;
+;; Detecting it AFTER the fact would therefore need Xray code running in
+;; the POPOUT's own realm, which today runs none — the popout document is
+;; opened blank and rendered into from the opener. That means injecting a
+;; `<script>`: real new surface, for a case the opener can simply announce.
+;;
+;; So the opener announces its own death on the way out. At `pagehide` the
+;; opener's realm is still alive and still holds the direct DOM handle to
+;; the popout's overlay node (same-origin, no serialisation layer — the
+;; popout's whole posture), so revealing the overlay is the SAME
+;; `show-opener-gone-overlay!` the watchdog calls, reached from a different
+;; edge. The mutation lands in the popout's document, which is NOT reloaded,
+;; so it persists after the opener realm is gone.
+;;
+;; `pagehide` fires for reload, cross-document navigation AND close, so this
+;; also backstops the cases the watchdog already covers.
+
+(defn- register-opener-reload-announcer!
+  "Reveal the popout's opener-gone overlay when the OPENER window unloads —
+  the hard-reload case `opener-gone?` structurally cannot observe (rf2-uong).
+  Returns the registered handler so `teardown-popout-state!` can detach it,
+  or nil when no listener could be registered.
+
+  `opener-win` is passed rather than read from `js/window` so the dependency
+  is explicit and a test can drive the listener against a stub.
+
+  `pagehide` ONLY, deliberately — never `unload`/`beforeunload`. This
+  listener goes on the DEVELOPER'S OWN APPLICATION WINDOW, and an `unload`
+  or `beforeunload` handler makes a page ineligible for the back/forward
+  cache in every major browser. Xray is a devtool: it must not degrade the
+  navigation behaviour of the app it is inspecting to report on itself.
+  `pagehide` is the specified replacement and carries no such penalty.
+
+  Two guards:
+
+  - **`persisted`** — a persisted `pagehide` is a bfcache FREEZE, not a
+    teardown, and a back-navigation can resume the very realm (and popout
+    render tree) that is being suspended. Announcing there would cry wolf
+    over a popout about to work again, so only a non-persisted pagehide
+    reveals.
+  - **window identity** — mirrors `register-popout-unload-cleanup!`: a
+    stale handler must not paint over a popout that a fresh `popout!` has
+    since replaced."
+  [opener-win win overlay-node]
+  (when (and (some? opener-win) (.-addEventListener opener-win))
+    (let [handler (fn opener-pagehide-handler [event]
+                    (when (and (not (.-persisted event))
+                               (some-> @popout-state :window (identical? win)))
+                      (show-opener-gone-overlay! overlay-node)))]
+      (try
+        (.addEventListener opener-win "pagehide" handler)
+        handler
+        (catch :default _ nil)))))
 
 ;; ---- popout stylesheet hand-off (rf2-czcg5) -----------------------------
 ;;
@@ -1388,7 +1474,15 @@
   watchdog reveals the spec'd 'opener gone — close this window'
   overlay so the popout is not left in a frozen-or-broken state
   with no UI signal as to the cause. See `install-opener-gone-
-  overlay!` + `start-opener-gone-watchdog!` for the contract."
+  overlay!` + `start-opener-gone-watchdog!` for the contract.
+
+  Per rf2-uong that pair is joined by an opener-side `pagehide`
+  announcer, because the watchdog covers only the cases in which
+  the OPENER'S REALM OUTLIVES the event. A hard reload of the
+  opener destroys the realm that owns the watchdog's timer, so no
+  widening of `opener-gone?` could catch it; instead the opener
+  reveals the overlay itself on its way out, while it still holds
+  the popout's DOM handle. See `register-opener-reload-announcer!`."
   []
   (if-let [state @popout-state]
     state
@@ -1429,13 +1523,19 @@
                                        node nil)
                         overlay-node (install-opener-gone-overlay! doc)
                         watchdog-id  (start-opener-gone-watchdog! win overlay-node)
+                        ;; rf2-uong — the reload case the watchdog cannot
+                        ;; see, because the reload destroys the watchdog.
+                        announcer    (register-opener-reload-announcer!
+                                       js/window win overlay-node)
                         state        {:ok?          true
                                       :window       win
                                       :node         node
                                       :unmount      unmount
                                       :mode         :popout
                                       :overlay-node overlay-node
-                                      :watchdog-id  watchdog-id}]
+                                      :watchdog-id  watchdog-id
+                                      :opener-window           js/window
+                                      :opener-pagehide-handler announcer}]
                     (reset! popout-state state)
                     (register-popout-unload-cleanup! win)
                     state)))))))))

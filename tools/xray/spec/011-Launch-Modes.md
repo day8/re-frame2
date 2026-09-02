@@ -412,8 +412,25 @@ Constraints inherited from the `window.opener` posture:
   overlay is also torn down by `teardown-popout-state!` (test path)
   and on the popout's own `pagehide` / `unload`.
 - The pop-out can't survive a hard reload of the opener — atoms get
-  garbage-collected. Pop-out re-bootstraps on opener reload by
-  re-reading `window.opener.xrayRuntime`.
+  garbage-collected, and so does everything else Xray runs for the
+  pop-out, because it ALL lives in the opener's JS realm: the render
+  tree, the `popout-state` atom, and the watchdog timer above (its
+  `setInterval` is registered on the OPENER's window). Re-bootstrapping
+  on opener reload by re-reading `window.opener.xrayRuntime` remains
+  normative-future (see the status note below): the pop-out does NOT
+  re-bootstrap today. It announces instead. Per `rf2-uong`
+  `popout!` registers a `pagehide` listener on the OPENER window
+  (`register-opener-reload-announcer!`) which reveals the same
+  opener-gone overlay while the opener's realm is still alive and
+  still holds the pop-out's DOM handle. The reveal persists because
+  the pop-out's own document is not reloaded. The user closes the
+  stale pop-out and opens a fresh one.
+
+  The announcer is `pagehide` ONLY — never `unload` / `beforeunload`,
+  which would make the DEVELOPER'S OWN APPLICATION WINDOW ineligible
+  for the back/forward cache. It ignores a `persisted` pagehide (a
+  bfcache freeze a back-navigation can resume) and guards on pop-out
+  window identity, as the external-close cleanup below does.
 
 > **Status (rf2-9vm0): the `window.opener.xrayRuntime` handle in the last
 > bullet is normative-future — nothing in `tools/xray/src` sets or reads
@@ -428,15 +445,32 @@ Constraints inherited from the `window.opener` posture:
 > against an `opener` control returning 79 and a `popout` control
 > returning 165.
 >
-> **The bullet's second claim is a real gap, not drift, and is tracked
-> rather than marked away (rf2-uong).** With no handle there is no
-> re-bootstrap, and `opener-gone?` is `(or (nil? opener) (.-closed
-> opener))` — a same-origin hard reload leaves `window.opener` live and
-> `.closed` false, so the watchdog never fires and the opener-gone overlay
-> never shows. The pop-out keeps rendering against the previous realm's
-> atoms: silently stale rather than visibly broken. Whether the fix is to
-> widen the predicate, to build the re-bootstrap, or to declare the reload
-> case out of scope is open on that bead.
+> **The bullet's second claim — the re-bootstrap — is RESOLVED, and not
+> the way it was written (rf2-uong).** The reload case was real: with no
+> handle there is no re-bootstrap, and `opener-gone?` is `(or (nil?
+> opener) (.-closed opener))` — a same-origin hard reload leaves
+> `window.opener` live (a WindowProxy survives navigation, now fronting
+> the NEW realm) and `.closed` false, so the watchdog never fired and the
+> pop-out kept rendering against the previous realm's atoms: silently
+> stale rather than visibly broken.
+>
+> **Widening the predicate would not have fixed it, which is why the
+> shipped answer is neither of the two shapes first proposed.** The
+> watchdog does not survive the event it would be asked to detect: its
+> `setInterval` timer is registered on the OPENER's window, so the reload
+> that makes the pop-out stale also destroys the watchdog. After the
+> reload nothing of Xray's is left running to evaluate any predicate.
+> Detecting it after the fact would require Xray code in the POP-OUT's own
+> realm, which today runs none — the pop-out document is opened blank and
+> rendered into from the opener — so it would mean injecting a `<script>`.
+>
+> **What ships instead is an opener-side announcement**, described in the
+> bullet above: the opener reveals the existing overlay at `pagehide`,
+> while its realm is still alive and still holds the pop-out's DOM handle.
+> No new pop-out-realm surface, no re-bootstrap machinery, and the
+> overlay's copy now names a reload as well as a close. The
+> `window.opener.xrayRuntime` handle stays normative-future per the marker
+> above; nothing in the shipped behaviour depends on it.
 
 Solves the "I want Xray on a second monitor while the app runs
 full-screen" use case.
