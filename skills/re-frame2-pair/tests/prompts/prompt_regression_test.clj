@@ -304,14 +304,24 @@
         "ops.md must still name the raw trace-buffer / epoch-history surfaces the carve-out governs."))
   ;; screen-reads.md was split out of ops.md under rf2-wgvyx and took the raw
   ;; `eval-cljs` DOM rows with it, so the carve-out no longer sits "above" them
-  ;; in the same file. The new leaf must keep a pointer back to it.
-  (testing "screen-reads.md points back at ops.md's raw-eval privacy carve-out"
-    (is (and (includes-ci? @screen-reads-md "privacy carve-out")
-             (str/includes? @screen-reads-md "ops.md"))
+  ;; in the same file. The leaf must therefore state the CONSEQUENCE itself.
+  ;; Pinning a pointer back to ops.md instead would lock in a
+  ;; SKILL -> screen-reads -> ops load chain, which skills/README.md and
+  ;; spec/authoring-prompt.md ("no SKILL -> A -> B chains") both forbid — and a
+  ;; mere substring test for "ops.md" is satisfied by the provenance sentence
+  ;; ("split out of ops.md") while the safety rule itself is absent.
+  (testing "screen-reads.md states the raw-eval un-elided rule locally"
+    (is (and (includes-ci? @screen-reads-md "un-elided")
+             (includes-ci? @screen-reads-md "eval-cljs"))
         (str "references/screen-reads.md carries raw `eval-cljs` DOM rows but no "
-             "longer points at ops.md's privacy carve-out — a reader who loads only "
-             "this leaf would not learn that those forms return un-elided values "
-             "(rf2-wgvyx)."))))
+             "longer states locally that those forms return un-elided values — a "
+             "reader who loads only this leaf must learn the carve-out HERE, not by "
+             "opening a second leaf (rf2-wgvyx)."))
+    (is (not (str/includes? @screen-reads-md "(ops.md#operations-catalogue)"))
+        (str "references/screen-reads.md routes its raw-eval safety rule into "
+             "ops.md, so a screen-read task loads SKILL.md -> screen-reads.md -> "
+             "ops.md — the leaf-to-leaf chain skills/README.md and "
+             "spec/authoring-prompt.md forbid (rf2-wgvyx)."))))
 
 ;; ---------------------------------------------------------------------------
 ;; MCP-surface conformance drift

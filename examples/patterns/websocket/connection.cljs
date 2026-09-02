@@ -770,10 +770,10 @@
     (fn [snap _] (:state snap)))
 
   ;; One little yes/no sub per tag. Each chains off the FRAMEWORK sub
-  ;; `:rf.machine/has-tag?` (sugar: `(rf/machine-has-tag? :ws/connection
-  ;; tag)`), which returns the snapshot's tag-containment bit directly — so a
-  ;; view can ask "connected?" and get a boolean without unpacking the
-  ;; hierarchical `:state` vector or re-reading the snapshot itself.
+  ;; `:rf.machine/has-tag?`, which returns the snapshot's tag-containment bit
+  ;; directly — so a view can ask "connected?" and get a boolean without
+  ;; unpacking the hierarchical `:state` vector or re-reading the snapshot
+  ;; itself.
   ;; See docs/machines/glossary.md#state-tag.
   (rf/reg-sub :ws/connecting?
     :<- [:rf.machine/has-tag? :ws/connection :websocket/connecting]

@@ -1,6 +1,8 @@
 # Reading what's on screen
 
-The **what is on screen, and why did it render** half of the op vocabulary, split out of [`ops.md`](ops.md) so a read/dispatch/trace/time-travel session does not load it and a screen-read session does not load the whole catalogue. Same transport, same conventions as `ops.md` — including its [privacy carve-out](ops.md#operations-catalogue) for raw `eval-cljs` forms.
+The **what is on screen, and why did it render** half of the op vocabulary, split out of [`ops.md`](ops.md) so a read/dispatch/trace/time-travel session does not load it and a screen-read session does not load the whole catalogue. Same transport, same conventions.
+
+> **Raw `eval-cljs` is un-elided — the carve-out, stated here so you need no second leaf.** The `dom/*` rows in §DOM source bridge below are raw `eval-cljs` forms. `eval-cljs` is default-ON (gated only by `--no-eval`) and is **not** governed by the `--allow-sensitive-reads` gate: it returns the form's value **without** running the wire-boundary elision walker, so whatever those forms read ships verbatim — rendered user text and attribute values included. The structured `read-dom` / `read-ui` tools do the opposite, capping and eliding per node at the source (`:rf.size/large-elided`), and `read-ui`'s `:text` additionally routes through `elide-wire-value`. So when the screen may carry privacy-sensitive content, prefer the structured tool; reach for a raw `dom/*` eval for that content only on explicit user/operator request. This is the same raw-eval carve-out as [SKILL.md §Style guidance](../SKILL.md), which is always loaded.
 
 Three doors, in the order you usually need them:
 
