@@ -43,7 +43,7 @@
   :final-runtime-db {:rf.runtime/routing {:current {:route-id     :rf.route/not-found
                                           :params {:url "/garbage/path"}
                                           :query  {}
-                                          :error  nil}}}}
+                                          :error  nil}}}
 
   :trace-emissions
   [;; The runtime emits :rf.error/no-such-handler when match-url returns nil.
