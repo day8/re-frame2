@@ -525,29 +525,78 @@
   [frame-id resp public-error opts]
   (materialise-error-arm frame-id resp public-error opts))
 
+(defn local-renderer
+  "The DEFAULT `:renderer` — the JVM-local render body `build-full-response*`
+  ran inline before the render-body seam existed (rf2-8arzr.1). Resolves
+  the handler's `:root-view`, hashes the resolved tree, and renders it with
+  the wire `data-rf-render-hash` marker gated by `:emit-hash?`.
+
+  Renderer contract (Spec 011 §HTTP response contract):
+
+      (fn [{:keys [frame-id request opts]}]
+        -> {:body-html   <string>
+            :render-hash <string-or-nil>})
+
+  `build-full-response*` calls it INSIDE the request frame's scope, AFTER
+  the boot-event drain and the blocking-resource settle, BEFORE head
+  resolution and the payload build consume its result. Its input is the
+  live post-drain frame (by id — everything the JVM knows is reachable
+  from it), the Ring request and the handler opts; never a hiccup value.
+  The renderer owns the body bytes, hash marker included — the pipeline
+  never rewrites them. `:render-hash` feeds the payload's
+  `:rf/render-hash`; nil OMITS the key, exactly the unresolved-root
+  behaviour (rf2-q1b96).
+
+  This default reads `:root-view` and `:emit-hash?` from `opts`. A nil
+  hash (the unresolved root form) must ALSO drop `:emit-hash?`:
+  `render-to-string` treats a true `:emit-hash?` with no `:render-hash` as
+  \"compute it yourself\" (rf2-atmvj), which would re-stamp the very
+  constant that root is being spared."
+  [{:keys [opts]}]
+  (let [{:keys [root-view emit-hash?]} opts
+        hiccup   (lifecycle/resolve-root-view root-view)
+        ;; Compute the body hash once for both the emitted marker and the
+        ;; payload. nil for an unresolved root form — that root gets NO hash
+        ;; on either channel (rf2-q1b96; see `render-document-hash`).
+        hash-str (lifecycle/render-document-hash hiccup)]
+    {:body-html   (ssr/render-to-string
+                    hiccup
+                    {:doctype?    false
+                     :emit-hash?  (and emit-hash? (some? hash-str))
+                     :render-hash (when emit-hash? hash-str)})
+     :render-hash hash-str}))
+
 (defn ^:private build-full-response*
   "The non-error path of `build-full-response`. Split into its own fn
   so the outer projector catch reads as a simple wrapper.
 
-  Root, body, head, and hydration projection share one frame scope. This is
-  required for registered lookups and frame-sensitive egress classification."
+  Body render, head, and hydration projection share one frame scope. This
+  is required for registered lookups and frame-sensitive egress
+  classification."
   [frame-id resp
-   {:keys [root-view emit-hash? version schema-digest payload
+   {:keys [emit-hash? version schema-digest payload
            html-shell content-type client-frame-id]
     :as   opts}]
   ;; Blocking route resources settle before rendering; absent resource hooks
   ;; make this a no-op.
   (ssr/drain-blocking-resources! frame-id opts)
-  (let [;; Single `with-frame` block covers the frame-aware stages:
-        ;; root-view resolution (a 0-arity fn may close over subscribe-time
-        ;; reads), the render walk (subs on registered views), head
-        ;; resolution (`rf/active-head` reads the frame's route registry),
-        ;; AND the hydration-payload build. One push/pop per request.
+  (let [;; Single `with-frame` block covers the frame-aware stages: the
+        ;; body render (root-view resolution — a 0-arity fn may close over
+        ;; subscribe-time reads — and the render walk's subs on registered
+        ;; views), head resolution (`rf/active-head` reads the frame's route
+        ;; registry), AND the hydration-payload build. One push/pop per
+        ;; request.
         explicit-head (:head opts)
         {:keys [head-html html-attrs body-attrs body-html head-hash rf-payload]}
-        ;; Pin the request frame across view/head lookups and payload projection.
+        ;; Pin the request frame across the body render, head lookups and
+        ;; payload projection.
         (rf/with-frame frame-id
-          (let [hiccup    (lifecycle/resolve-root-view root-view)
+          (let [;; The render-body seam: body markup plus an optional
+                ;; locally-derived hash, from the live post-drain frame.
+                {:keys [body-html render-hash]}
+                (local-renderer {:frame-id frame-id
+                                 :request  (ssr/get-request frame-id)
+                                 :opts     opts})
                 ;; Explicit head HTML bypasses route-derived attributes and has
                 ;; no client-reconstructible model.
                 head-bag  (if explicit-head
@@ -555,28 +604,14 @@
                              :html-attrs nil
                              :body-attrs nil}
                             (lifecycle/resolve-head frame-id))
-                ;; Compute the body hash once for both emitted marker and payload.
-                ;; nil for an unresolved root form — that root gets NO hash on
-                ;; either channel (rf2-q1b96; see `render-document-hash`).
-                hash-str  (lifecycle/render-document-hash hiccup)
                 ;; Hash the head model on its separate reconstructible channel.
                 head-hash (lifecycle/render-head-hash (:head-model head-bag))
-                body-html (ssr/render-to-string
-                            hiccup
-                            ;; `:emit-hash?` must ALSO fall away with the hash:
-                            ;; `render-to-string` treats a true `:emit-hash?`
-                            ;; with no `:render-hash` as "compute it yourself"
-                            ;; (rf2-atmvj), which would re-stamp the very
-                            ;; constant this root is being spared.
-                            {:doctype?    false
-                             :emit-hash?  (and emit-hash? (some? hash-str))
-                             :render-hash (when emit-hash? hash-str)})
                 ;; Read after rendering and inside the frame scope. Optional
                 ;; resource projection uses the carried frame to apply derived
                 ;; sensitivity before serializing the durable runtime slice.
                 app-db     (rf/app-db-value frame-id)
                 runtime-db (:rf.db/runtime (rf/frame-state-value frame-id))
-                rf-payload (payload/build-payload frame-id app-db runtime-db hash-str
+                rf-payload (payload/build-payload frame-id app-db runtime-db render-hash
                                                   {:version         version
                                                    :schema-digest   schema-digest
                                                    :payload         payload
