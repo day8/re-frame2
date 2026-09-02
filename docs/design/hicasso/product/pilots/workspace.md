@@ -112,7 +112,7 @@ npx shadow-cljs watch app     # then open http://localhost:8080
 cd app && npm test > ../baseline-reagent.log 2>&1; echo "baseline exit $?"    # the number goes in the log header
 ```
 
-The runner's closing line is the count to expect — as of `rf2-xkhul` the RealWorld baseline reports `Ran 4 tests containing 123 assertions.` and the LinearLite baseline `Ran 10 tests containing 51 assertions.`, both with `0 failures, 0 errors.` — and it is the exit status that is recorded, not the count. The compile also prints a handful of `:infer-warning` lines from the framework's own source and a Clojure CLI deprecation notice about the test kit's external path; neither fails the run, and both are the framework's to log, not the operator's to hide. Added under `rf2-xkhul`.
+The runner's closing line is the count to expect — as of `rf2-xkhul` the RealWorld baseline reports `Ran 4 tests containing 123 assertions.` and the LinearLite baseline `Ran 10 tests containing 51 assertions.`, both with `0 failures, 0 errors.` — and it is the exit status that is recorded, not the count. The compile also prints a handful of `:infer-warning` lines from the framework's own source; they do not fail the run, and they are the framework's to log, not the operator's to hide. (Before `rf2-luo6` gave the test kit its own `deps.edn`, a Clojure CLI deprecation notice about the kit's external path printed here too; the coordinate route above no longer emits it.) Added under `rf2-xkhul`.
 
 **6. Copy the brief and the blank log** into `<pilot-root>/`, from [`brief-realworld.md`](brief-realworld.md) or [`brief-linearlite.md`](brief-linearlite.md), and from [`friction-log.md`](friction-log.md)'s template section.
 
@@ -139,12 +139,14 @@ Pilot 1 — RealWorld/Conduit:
 
  :aliases
  {:shadow {:extra-deps {thheller/shadow-cljs {:mvn/version "3.4.10"}}}
-  :test   {:extra-paths ["test" "../re-frame2/implementation/hicasso/test_kit/src"]}}}
+  :test   {:extra-paths ["test"]
+           :extra-deps  {day8/re-frame2-hicasso-test-kit
+                         {:local/root "../re-frame2/implementation/hicasso/test_kit"}}}}}
 ```
 
 Pilot 2 — LinearLite: the same file with the `machines`, `flows`, `schemas`, `ssr` and `markdown` rows dropped and `day8/re-frame2-resources {:local/root "../re-frame2/implementation/resources"}` added.
 
-The `:test` alias follows the published testing chapter's `:local/root` route, where the Hicasso test kit lives on its own source root outside the artefact's `:paths` and has to be named explicitly. Both pilots need it from the first hour, because outcome 1 is to preserve the app's behavioural tests. `"test"` on the same alias is the app's own test root: the baseline lands there in step 2, and the tests the pilot ports or adds go beside it.
+The `:test` alias follows the published testing chapter's `:local/root` route, where the Hicasso test kit lives on its own source root outside the artefact's `:paths` and has to be named explicitly — as a second `:local/root` coordinate, which is what keeps it inside a project boundary and off the Clojure CLI's external-path deprecation. Both pilots need it from the first hour, because outcome 1 is to preserve the app's behavioural tests. `"test"` on the same alias is the app's own test root: the baseline lands there in step 2, and the tests the pilot ports or adds go beside it.
 
 ### `app/shadow-cljs.edn`
 

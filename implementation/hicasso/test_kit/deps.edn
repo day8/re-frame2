@@ -1,0 +1,38 @@
+;; The Hicasso test kit, as a resolvable :local/root coordinate.
+;;
+;; WHY THIS FILE EXISTS. The published testing chapter
+;; (docs/core/hicasso/15-testing.md) tells a reader to put this kit on a test
+;; alias. Spelled as an external :extra-paths entry —
+;;   :test {:extra-paths ["../re-frame2/implementation/hicasso/test_kit/src"]}
+;; — the path escapes the consuming project's root, and the Clojure CLI names
+;; that on EVERY invocation:
+;;   WARNING: Use of :paths external to the project has been deprecated,
+;;   please remove: ../re-frame2/implementation/hicasso/test_kit/src
+;; Nothing fails today, but a future CLI may refuse it, and a pilot following
+;; the published route meets the warning on their first build.
+;;
+;; A :local/root coordinate pointing HERE is inside the project boundary of
+;; THIS root, so it warns about nothing. That only works if the target carries
+;; a manifest: without this file the same coordinate is a HARD failure,
+;; "Error building classpath. Manifest file not found for
+;; day8/re-frame2-hicasso-test-kit in coordinate ..." — measured on CLI
+;; 1.12.4.1618, which is why the chapter's line could not simply change shape
+;; and this file had to land with it (rf2-luo6).
+;;
+;; WHAT THIS DOES NOT CHANGE. test_kit/src stays deliberately OFF the Hicasso
+;; artefact's own :paths, so an application that writes no test still carries
+;; none of the kit — see the header of implementation/hicasso/deps.edn, which
+;; spends several paragraphs on why :paths and :clein/build :src-dirs are not
+;; the same lever. This file adds a SECOND coordinate; it does not put
+;; test_kit/src on the artefact. Reachability, not packaging, is still what
+;; keeps the kit out of a production bundle.
+;;
+;; Deliberately NO :aliases here, and specifically no :clein/build. The
+;; publishable-artefact discovery in
+;; implementation/scripts/lib/publishable-runtimes.cjs walks
+;; implementation/<name>/<sub> probing for a deps.edn and enrols a directory
+;; only when it declares a :clein/build alias. Adding one here would enrol the
+;; test kit as a publishable runtime, which would then have to be added to
+;; .github/scripts/verify-version-lockstep.sh's ARTEFACT_PATHS/ARTEFACTS table.
+;; The kit ships inside the Hicasso jar, not as its own artefact.
+{:paths ["src"]}
