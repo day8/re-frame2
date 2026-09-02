@@ -1612,10 +1612,30 @@
      :listeners listeners
      :closed?   closed?}))
 
+(defn- mk-stub-opener-window-with-listeners
+  "An opener stub that records `addEventListener` / `removeEventListener`
+  calls, so a test can fire the rf2-uong `pagehide` announcer directly and
+  assert the teardown detach."
+  []
+  (let [listeners (atom {})
+        {:keys [window closed?]} (mk-stub-opener-window)]
+    (set! (.-addEventListener window)
+          (fn [event-name handler]
+            (swap! listeners update event-name (fnil conj []) handler)
+            nil))
+    (set! (.-removeEventListener window)
+          (fn [event-name handler]
+            (swap! listeners update event-name
+                   (fn [hs] (vec (remove #(identical? % handler) hs))))
+            nil))
+    {:window window :listeners listeners :closed? closed?}))
+
 (defn- opener-gone?* [win] ((deref #'mount/opener-gone?) win))
 (defn- install-opener-gone-overlay!* [doc] ((deref #'mount/install-opener-gone-overlay!) doc))
 (defn- start-opener-gone-watchdog!* [win overlay-node]
   ((deref #'mount/start-opener-gone-watchdog!) win overlay-node))
+(defn- register-opener-reload-announcer!* [opener-win win overlay-node]
+  ((deref #'mount/register-opener-reload-announcer!) opener-win win overlay-node))
 
 (deftest opener-gone?-true-when-opener-closed
   (testing "rf2-h3ekl: opener-gone? reads window.opener.closed and
@@ -1758,6 +1778,114 @@
         (finally
           (set! (.-setInterval js/globalThis) prior-set)
           (set! (.-clearInterval js/globalThis) prior-clear))))))
+
+;; ---------------------------------------------------------------------------
+;; rf2-uong — the OPENER-RELOAD case the watchdog structurally cannot observe.
+;;
+;; `opener-gone?` is `(or (nil? opener) (.-closed opener))`, and a same-origin
+;; hard reload leaves `window.opener` live (a WindowProxy survives navigation)
+;; with `.closed` false — so the predicate reads "opener fine". Widening it
+;; would not help: the watchdog's `setInterval` timer is registered on the
+;; OPENER's window, so the reload that makes the popout stale also destroys
+;; the watchdog. Nothing of Xray's is left running in the popout's realm to
+;; evaluate any predicate at all.
+;;
+;; So the opener announces on its way out, at `pagehide`, while it still holds
+;; the popout's DOM handle. These arms pin that edge.
+;; ---------------------------------------------------------------------------
+
+(deftest opener-gone?-is-false-across-a-reload--why-the-announcer-exists
+  (testing "rf2-uong: the PREMISE. A reloaded opener is neither nil nor
+            .closed, so opener-gone? reads false and the watchdog would
+            never reveal the overlay — this is the gap the announcer fills,
+            not a bug in the predicate"
+    (let [{opener :window} (mk-stub-opener-window)
+          {popout :window} (mk-stub-popout-window-with-opener opener)]
+      (is (false? (opener-gone?* popout))
+          "a live-but-reloaded opener reads as NOT gone — .closed is false
+           and the reference is non-nil, exactly as after a hard reload"))))
+
+(deftest opener-reload-announcer-reveals-overlay-on-pagehide
+  (testing "rf2-uong: the opener's own pagehide reveals the popout overlay,
+            so a hard reload of the host app stops presenting stale panels
+            as live data"
+    (let [{opener :window listeners :listeners} (mk-stub-opener-window-with-listeners)
+          {popout :window} (mk-stub-popout-window-with-opener opener)
+          doc              (.-document popout)
+          overlay          (install-opener-gone-overlay!* doc)]
+      (seed-popout-state! {:window popout})
+      (try
+        (let [handler (register-opener-reload-announcer!* opener popout overlay)]
+          (is (some? handler) "announcer returns its handler for teardown")
+          (is (= [handler] (get @listeners "pagehide"))
+              "the announcer registers on the OPENER window's pagehide")
+          (is (nil? (get @listeners "unload"))
+              "NEVER unload — an unload listener would make the developer's
+               own application window ineligible for the back/forward cache")
+          (is (nil? (get @listeners "beforeunload"))
+              "NEVER beforeunload — same bfcache penalty")
+          (is (= "none" (.-display (.-style overlay)))
+              "overlay hidden before the opener goes away")
+          (handler (js-obj "persisted" false))
+          (is (= "flex" (.-display (.-style overlay)))
+              "a non-persisted opener pagehide reveals the overlay"))
+        (finally
+          (reset! @#'mount/popout-state nil))))))
+
+(deftest opener-reload-announcer-ignores-a-persisted-pagehide
+  (testing "rf2-uong: a persisted pagehide is a bfcache FREEZE a
+            back-navigation can resume — the opener realm, and the popout
+            render tree with it, come back alive. Announcing there would cry
+            wolf over a popout that is about to work again"
+    (let [{opener :window} (mk-stub-opener-window-with-listeners)
+          {popout :window} (mk-stub-popout-window-with-opener opener)
+          doc              (.-document popout)
+          overlay          (install-opener-gone-overlay!* doc)]
+      (seed-popout-state! {:window popout})
+      (try
+        (let [handler (register-opener-reload-announcer!* opener popout overlay)]
+          (handler (js-obj "persisted" true))
+          (is (= "none" (.-display (.-style overlay)))
+              "a persisted (bfcache) pagehide must NOT reveal the overlay"))
+        (finally
+          (reset! @#'mount/popout-state nil))))))
+
+(deftest opener-reload-announcer-guards-on-popout-window-identity
+  (testing "rf2-uong: a stale announcer whose popout window is no longer the
+            registered :window slot must not paint over the popout a fresh
+            popout! has since installed — mirrors the watchdog's guard"
+    (let [{opener :window} (mk-stub-opener-window-with-listeners)
+          {popout :window} (mk-stub-popout-window-with-opener opener)
+          doc              (.-document popout)
+          overlay          (install-opener-gone-overlay!* doc)]
+      ;; popout-state references a DIFFERENT window than the announcer's.
+      (seed-popout-state! {:window (:window (mk-stub-popout-window-with-opener opener))})
+      (try
+        (let [handler (register-opener-reload-announcer!* opener popout overlay)]
+          (handler (js-obj "persisted" false))
+          (is (= "none" (.-display (.-style overlay)))
+              "the identity guard suppressed the reveal on a superseded popout"))
+        (finally
+          (reset! @#'mount/popout-state nil))))))
+
+(deftest teardown-popout-state!-detaches-the-opener-announcer
+  (testing "rf2-uong: teardown removes the opener-side pagehide listener, so
+            repeated popout open/close cycles in ONE opener realm do not
+            accumulate handlers closing over detached overlay nodes"
+    (let [{opener :window listeners :listeners} (mk-stub-opener-window-with-listeners)
+          {popout :window} (mk-stub-popout-window-with-opener opener)
+          doc              (.-document popout)
+          overlay          (install-opener-gone-overlay!* doc)]
+      (seed-popout-state! {:window popout})
+      (let [handler (register-opener-reload-announcer!* opener popout overlay)]
+        (is (= [handler] (get @listeners "pagehide")) "registered before teardown")
+        (swap! @#'mount/popout-state assoc
+               :opener-window opener
+               :opener-pagehide-handler handler)
+        ((deref #'mount/teardown-popout-state!))
+        (is (empty? (get @listeners "pagehide"))
+            "teardown detached the opener-side announcer")
+        (is (nil? @@#'mount/popout-state) "singleton cleared")))))
 
 (deftest teardown-popout-state!-clears-watchdog-interval
   (testing "rf2-h3ekl: when popout-state carries a :watchdog-id slot,
