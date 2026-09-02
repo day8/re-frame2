@@ -56,18 +56,16 @@ git-coord shape.
 
 ### The invocation form
 
-The substrate selector + the feature flags move from `:edn-args` to
-top-level k/v pairs:
+The substrate selector moves from `:edn-args` to a top-level k/v pair:
 
 ```bash
 # OLD — clj-new + :edn-args
 clojure -X:project/new :template re-frame2 :name acme/my-app \
-        :edn-args '[:substrate :uix :include-story? true]'
+        :edn-args '[:substrate :uix]'
 
 # NEW — deps-new + top-level k/v
 clojure -Tnew create :template io.github.day8/re-frame2-template :name acme/my-app \
-        :substrate :uix \
-        :include-story? true
+        :substrate :uix
 ```
 
 deps-new takes top-level args directly. The clj-new-era
@@ -76,58 +74,23 @@ deps-new takes top-level args directly. The clj-new-era
 template); deps-new has no analogous behaviour, so the indirection
 retires.
 
-## The locked-three-flags rule
+## One selector
 
-Under the v1-era clj-new template the supported flag set was
-`:substrate` plus the gated `:include-story?` exception. Under the
-deps-new rebuild, the locked v1 set is exactly three flags:
-
-| Flag | Type | Default | Meaning |
-|---|---|---|---|
-| `:include-story?` | boolean | `false` | When `true`, scaffolds the Story playground alongside the live app (Reagent only in v1). |
-| `:css` | keyword (`:plain` / `:tailwind`) | `:plain` | When `:tailwind`, scaffolds Tailwind v4 in place of the default plain-CSS `app.css`. |
-| `:include-ssr?` | boolean | `false` | When `true`, scaffolds the SSR build (Spec 011). |
-
-Plus the substrate selector:
+The clj-new template carried a gated Story flag beside `:substrate`, and
+the first deps-new cut grew that into three feature flags (Story, SSR,
+Tailwind). All three are gone (rf2-zq34m, 2026-09-02): the template
+emits one small counter SPA and `:substrate` is its only argument.
 
 | Arg | Values | Default |
 |---|---|---|
 | `:substrate` | `:reagent` / `:uix` | `:reagent` |
 
-No other branching flags ship in v1. Every new flag requires
-explicit DESIGN-RATIONALE justification (see
-[tools/template/spec/DESIGN-RATIONALE.md](../../tools/template/spec/DESIGN-RATIONALE.md)).
-
-## Per-flag delta (clj-new → deps-new)
-
-For each flag, the move from `:edn-args '[...]'` to top-level k/v:
-
-```bash
-# Substrate
-# OLD
-clojure -X:project/new :template re-frame2 :name acme/my-app \
-        :edn-args '[:substrate :uix]'
-# NEW
-clojure -Tnew create :template io.github.day8/re-frame2-template :name acme/my-app \
-        :substrate :uix
-
-# Include Story
-# OLD
-clojure -X:project/new :template re-frame2 :name acme/my-app \
-        :edn-args '[:include-story? true]'
-# NEW
-clojure -Tnew create :template io.github.day8/re-frame2-template :name acme/my-app \
-        :include-story? true
-
-# Combined
-# OLD
-clojure -X:project/new :template re-frame2 :name acme/my-app \
-        :edn-args '[:substrate :uix :include-story? true]'
-# NEW
-clojure -Tnew create :template io.github.day8/re-frame2-template :name acme/my-app \
-        :substrate :uix \
-        :include-story? true
-```
+Passing a retired flag fails closed as an unknown key — there is no
+alias, warning or compatibility path; this note is the migration
+record. Story, SSR and Tailwind each attach to a generated app through
+their own docs (the generated README links the Story and Xray pages).
+See [tools/template/spec/DESIGN-RATIONALE.md](../../tools/template/spec/DESIGN-RATIONALE.md)
+for why.
 
 ## What didn't change
 
@@ -135,10 +98,9 @@ clojure -Tnew create :template io.github.day8/re-frame2-template :name acme/my-a
   new substrate is still the same shape: drop a sub-tree under
   `_<substrate>/`, add a `case` clause in `template-fn`, ship the
   per-substrate test.
-- The substrate-agnostic shell. `events.cljs`, `subs.cljs`,
-  host HTML, `.gitignore`, `dev/` tree, `.editorconfig`,
-  `lefthook.yml` — emitted identically across the
-  substrates.
+- The substrate-agnostic shell. `events.cljs`, `subs.cljs`, the
+  host HTML, `.gitignore` and the build configs — emitted identically
+  across the substrates.
 - The counter throughline. Every variant emits a working
   counter, mirroring [the Guide introduction — a tiny counter
   application](https://github.com/day8/re-frame2/blob/main/docs/core/introduction.md)
@@ -157,8 +119,8 @@ scaffold against a specific template release:
 clojure -Tnew create :template io.github.day8/re-frame2-template#template-v0.0.1.alpha :name acme/my-app
 ```
 
-(The `template-v…` prefix matches the template's tag-on-release CI;
-see [tools/template/spec/003-DepsNew-Rebuild-Plan.md §3.1](../../tools/template/spec/003-DepsNew-Rebuild-Plan.md).)
+(The `template-v…` prefix matches the template's tag-on-release CI,
+`.github/workflows/template-release.yml`.)
 
 Tag-pinning is the recommended shape for reproducible scaffolds —
 the team gets the same emitted tree every time, independent of any
@@ -181,8 +143,6 @@ for the full install reference.
   — what the template is for; lineage from v1.
 - [tools/template/spec/API.md](../../tools/template/spec/API.md)
   — the consolidated public invocation surface.
-- [tools/template/spec/003-DepsNew-Rebuild-Plan.md](../../tools/template/spec/003-DepsNew-Rebuild-Plan.md)
-  — the normative migration plan.
 - [tools/template/spec/005-Repo-Split.md](../../tools/template/spec/005-Repo-Split.md)
   — the monorepo → external repo migration procedure.
 - [tools/template/spec/DESIGN-RATIONALE.md](../../tools/template/spec/DESIGN-RATIONALE.md)

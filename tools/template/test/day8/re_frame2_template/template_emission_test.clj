@@ -135,11 +135,12 @@
   ;; surface-existence check wants. The regex tolerates leading metadata
   ;; clauses (`^:private`, `^{...}` with one level of brace nesting) and is
   ;; POSSESSIVE throughout so the nested alternation cannot backtrack into
-  ;; a StackOverflowError on `re-frame.core`'s ~3K lines.
+  ;; a StackOverflowError on `re-frame.core`'s ~3K lines. `defui` is in the
+  ;; list because the UIx adapter defines `frame-root` with it.
   (let [meta-clause "(?:\\^(?:\\w[\\w/.:?<>=*+!\\-]*|\\{(?:[^{}]++|\\{[^{}]*+\\})*+\\})\\s+)*+"
         sym-char    "[a-zA-Z*+!?<>=$%_\\-][\\w*+!?<>=$%\\-]*"]
     (re-pattern
-      (str "\\(def(?:n-?|macro|multi|once|protocol|record|type)?\\s+"
+      (str "\\(def(?:n-?|macro|multi|once|protocol|record|type|ui)?\\s+"
            meta-clause
            "(" sym-char ")"))))
 
@@ -314,8 +315,8 @@
           (let [core (slurp (io/file (run-template! tmp "acme/my-app" substrate)
                                      "src/acme/my_app/core.cljs"))
                 body (hook-body core "mount!")]
-            (is (= 1 (count (re-seq #"\^:dev/after-load" core)))
-                (str substrate ": core.cljs names exactly one ^:dev/after-load hook"))
+            (is (= 1 (count (re-seq #"\(defn\s+\^:dev/after-load" core)))
+                (str substrate ": core.cljs defines exactly one ^:dev/after-load hook"))
             (is (some? body)
                 (str substrate ": the hook is `mount!`"))
             (is (and body (string/includes? body renders))

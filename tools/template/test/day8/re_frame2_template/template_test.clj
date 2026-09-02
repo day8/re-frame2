@@ -14,8 +14,8 @@
         package, no preload, no layout host, no variant file, no removed
         option in any emitted text.
      4. The argument gate: Reagent is the default, `:substrate` is strict
-        on value and shape, and every retired flag (`:include-story?`,
-        `:include-ssr?`, `:css`) fails as an UNKNOWN key.
+        on value and shape, and every retired feature flag (Story, SSR,
+        Tailwind CSS) fails as an UNKNOWN key.
 
    The checks that carry a negative assertion also carry a witness that
    the instrument bites, so a green here is never the \"no matches\" kind."
@@ -244,6 +244,7 @@
       (try
         (let [root (run-template! tmp "acme/my-app" :reagent)]
           (is (= manifest (emitted-files root)) "control: clean tree matches")
+          (io/make-parents (io/file root "dev/user.clj"))
           (spit (io/file root "dev/user.clj") "(ns user)")
           (is (not= manifest (emitted-files root))
               "a reappearing dev/user.clj is seen by the manifest check"))
@@ -341,7 +342,8 @@
                 nm   (emitted-npm-name root)]
             (is (= expected nm) (str project-name " → " expected))
             (is (re-matches npm-name-re nm) (str nm " is npm-valid"))
-            (is (not= project-name nm) "the Clojure name is never copied verbatim"))
+            (when (string/includes? project-name "/")
+              (is (not= project-name nm) "a qualified Clojure name is never copied verbatim")))
           (finally
             (delete-recursively tmp))))))
   (testing "the qualified Clojure name copied verbatim is what the rule rejects"
@@ -391,8 +393,8 @@
           (delete-recursively tmp))))))
 
 (deftest retired-flags-are-unknown-test
-  (testing "the retired :include-story? / :include-ssr? / :css keys fail as
-            UNKNOWN — no alias, no deprecation warning, no compatibility path"
+  (testing "the retired Story / SSR / CSS keys fail as UNKNOWN — no alias,
+            no deprecation warning, no compatibility path"
     (doseq [[flag value] [[:include-story? true]
                           [:include-story? false]
                           [:include-ssr?   true]

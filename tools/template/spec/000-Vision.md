@@ -10,8 +10,8 @@
 ## What this tool is
 
 `re-frame2-template` is the **front-door scaffolding tool** for new
-re-frame2 apps. One command and a developer has a working CLJS app
-wired against the alpha-channel `day8/re-frame2-*` coords, ready to
+re-frame2 apps. One command and a developer has a small, working CLJS
+app wired against the `day8/re-frame2-*` coords, ready to
 `shadow-cljs watch app`.
 
 It is a [deps-new](https://github.com/seancorfield/deps-new) template
@@ -22,24 +22,19 @@ clojure -Tnew create :template io.github.day8/re-frame2-template \
         :name acme/my-app
 ```
 
-What lands in the user's directory is a complete CLJS project: a
-substrate-adapter wired against re-frame2, a host HTML page, a
-shadow-cljs build, and a worked counter mirroring
-[`examples/<substrate>/counter*/`](../../../examples/).
+What lands is a twelve-file counter SPA: `deps.edn`, `shadow-cljs.edn`,
+`package.json`, a short `README.md`, `.gitignore`, the host page and its
+stylesheet, `core.cljs` / `events.cljs` / `subs.cljs` / `views.cljs`,
+and one focused `events_test.cljs`. A programmer, or the agent working
+with them, can read it in one sitting, run it, test it, release it, and
+replace the counter with their first feature. See
+[002-Generated-Shape.md](002-Generated-Shape.md).
 
-The **canonical emit set** also includes the 2026-standard dev
-ergonomics:
-[`.editorconfig`](../resources/day8/re_frame2_template/_shared/editorconfig),
-a stub
-[`.clj-kondo/config.edn`](../resources/day8/re_frame2_template/_shared/clj-kondo/config.edn),
-a `dev/` tree
-([`dev/user.clj`](../resources/day8/re_frame2_template/root/dev/user.clj) for the JVM-side
-`(user/refresh)` workflow and
-[`dev/scratch.cljs`](../resources/day8/re_frame2_template/root/dev/scratch.cljs) for REPL-driven
-`(rf/dispatch …)` experiments), and a minimal plain stylesheet at
-[`resources/public/css/app.css`](../resources/day8/re_frame2_template/root/resources/public/css/app.css).
-Rationale: see
-`ai/findings/re-frame2-template-design.md` §6 (gitignored working note; Mike-locked SHIP 2026-05-12).
+The template has **one selector**: `:substrate`, `:reagent` by default or
+`:uix`. Both values emit the same manifest; the substrate swaps
+`deps.edn`, `core.cljs` and `views.cljs`, because that choice changes
+authored source and adapter wiring. Nothing else is a choice at scaffold
+time.
 
 ## Lineage
 
@@ -57,12 +52,12 @@ v2 tool inherits that lineage. The technology underneath shifts:
   form, which clones the repo at the tag (or HEAD). The tagged
   commit IS the artefact; no Maven packaging step.
 - **re-frame → re-frame2.** The generated app's deps target the
-  alpha re-frame2 coords. The shape of the generated counter
-  mirrors v2's reference examples, not v1's.
+  re-frame2 coords. The shape of the generated counter mirrors v2's
+  reference examples, not v1's.
 - **One substrate → a substrate menu.** v1 was Reagent only. v2's
-  template ships Reagent (canonical default) and UIx variants. The
-  substrate selector is a top-level k/v argument (`:substrate :uix`);
-  see [001-Substrate-Variants.md](001-Substrate-Variants.md).
+  template ships Reagent (the default) and UIx. The substrate selector
+  is a top-level k/v argument (`:substrate :uix`); see
+  [001-Substrate-Variants.md](001-Substrate-Variants.md).
 
 A v1 user who knew `lein new re-frame my-app` reads the v2 invocation
 and recognises the shape. That continuity is deliberate.
@@ -71,67 +66,45 @@ and recognises the shape. That continuity is deliberate.
 
 - **One command, working app.** The generated tree builds with
   `shadow-cljs watch app` immediately — no follow-up edits required.
+- **Small enough to read and replace.** The scaffold contains the
+  counter dataflow and the lifecycle facts needed to edit it, and
+  nothing that the app has not asked for. Everything else — devtools,
+  the component playground, schemas, HTTP, SSR, styling frameworks,
+  linters, CI — attaches afterwards through its own documented recipe,
+  which the generated README's next-steps section links.
 - **Substrate-agnostic shell, substrate-specific views.** Events,
-  subs, and the host HTML are shared across variants; only the entry
-  point (`core.cljs`), the view (`views.cljs`), and the substrate
-  adapter coord differ.
+  subs, the build config and the host page are shared; only the entry
+  point, the view and the substrate's coordinates differ.
 - **Counter as canonical example.** The generated counter is the
-  same shape the developer reads about in [the Guide quickstart
-  — app-db and a complete counter](../../../docs/core/app-db.md).
-  What the template emits is what the guide walks through.
+  same shape the developer reads about in [the Guide —
+  app-db](../../../docs/core/app-db.md). What the template emits is what
+  the guide walks through.
 - **Lockstep with the reference implementation's pins.** The
-  shadow-cljs / react pins the template emits track
-  `implementation/package.json` — the smoke-tested combination is
-  what users get. The in-template lockstep guard
+  shadow-cljs / React pins the template emits track
+  `implementation/package.json`, and the framework pin tracks the
+  repo-root `VERSION` — the smoke-tested combination is what users
+  get. The in-template lockstep guard
   ([`test/day8/re_frame2_template/version_lockstep_test.clj`](../test/day8/re_frame2_template/version_lockstep_test.clj))
   enforces this on every release.
 
 ## Non-goals
 
-- **Branching feature toggles** beyond the current set. The
-  template ships **three flags total**: `:include-story?`, `:css`,
-  and `:include-ssr?`. Branching is reserved for the day when choices
-  materially exceed deps-new's substitution capability
-  ([DESIGN-RATIONALE](DESIGN-RATIONALE.md) §deps-new vs CLI).
-
-  The three locked flags are permitted because each enables an
-  *optional shared scaffolding* whose absence would force the user
-  into hand-wiring known idioms:
-
-  - `:include-story?` — emits a
-    `counter_with_stories`-shaped story scaffold alongside the
-    live app. Currently Reagent-only.
-  - `:css :tailwind` — Tailwind v4 in place of the default plain-CSS
-    scaffold: an `index.html` that loads the `@tailwindcss/browser@4`
-    Play CDN compiler and carries the CSS-first source
-    (`@import "tailwindcss";` + `@theme` tokens; no
-    `tailwind.config.js`) **inline** in a
-    `<style type="text/tailwindcss">` block — the only input the Play CDN
-    compiler reads — while `app.css` stays ordinary native CSS for the
-    app shell + Xray-host layout. Substrate-invariant.
-  - `:include-ssr?` — SSR scaffolding per
-    Spec 011: a shared `core.cljc` (JVM render + CLJS hydration),
-    a `server.clj` Ring host, and a headless `ssr_test.clj`.
-    Currently Reagent-only; mutually exclusive with `:include-story?`.
-
-  Resist further proliferation — every additional flag requires
-  explicit DESIGN-RATIONALE justification.
-- **Bundling Story by default.** [`tools/story/`](../../story/)
-  is the Storybook-class playground for re-frame2; the template
-  does **not** pre-wire it on the default path. The opt-in
-  `:include-story?` flag (see the exception above) is the
-  supported on-ramp for users who want the playground scaffolded;
-  rationale and shape live in
-  [DESIGN-RATIONALE](DESIGN-RATIONALE.md) §No-Story-yet.
-- **Multi-frame scaffolds.** Frames (Spec 002) are a runtime
-  concern. The template emits a single-frame app; the user reads
-  Guide chapter 06 to add more.
-- **Server-side hosting on the default path.** The default scaffold is a
-  pure CLJS SPA — no backend. SSR scaffolding (Spec 011) is the opt-in
-  exception: `:include-ssr? true` emits a shared
-  `core.cljc` + a Ring/Jetty `server.clj` host + a headless `ssr_test.clj`
-  (currently Reagent-only). See 004-SSR-Validation-Report and
-  001-Substrate-Variants §Variants.
+- **Feature flags, profiles, wizards.** `:substrate` is the one and
+  only selector. The three feature flags the first deps-new cut
+  carried (Story, SSR, Tailwind CSS) are gone, and no `:include-xray?`
+  or `:minimal?` replaces them; a second template or a prompt sequence
+  is out of scope in the same way. Every capability
+  beyond the counter is a post-generation step, and a future substrate
+  arrives as a new VALUE of `:substrate`, never as a second key. See
+  [DESIGN-RATIONALE §10](DESIGN-RATIONALE.md) for why.
+- **Bundling devtools or the playground by default.**
+  [Xray](../../xray/) and [Story](../../story/) each attach through their
+  own installation page in a few edits; the scaffold links those pages
+  rather than pre-wiring either.
+- **Multi-frame scaffolds.** Frames (Spec 002) are a runtime concern.
+  The template emits a single-frame app.
+- **Server-side hosting.** The scaffold is a pure client-side SPA.
+  SSR (Spec 011) is learned from its own docs and examples.
 
 ## Distribution
 
@@ -153,19 +126,16 @@ publication moment from the consumer's perspective.
 
 Initial home is `tools/template/` inside the `day8/re-frame2`
 monorepo. Final home is a dedicated `day8/re-frame2-template` repo; see
-005-Repo-Split for the remaining procedure.
+[005-Repo-Split.md](005-Repo-Split.md) for the remaining procedure.
 
 ## Cross-references
 
 - [`tools/README.md`](../../README.md) — the tools/ convention and
   the per-tool spec/ folder convention.
-- [001-Substrate-Variants.md](001-Substrate-Variants.md) — the three
-  shipped variants.
+- [001-Substrate-Variants.md](001-Substrate-Variants.md) — the two
+  shipped substrates.
 - [002-Generated-Shape.md](002-Generated-Shape.md) — the file tree
   the template emits.
-- [003-DepsNew-Rebuild-Plan.md](003-DepsNew-Rebuild-Plan.md) — the
-  migration plan (clj-new + Clojars → deps-new + git-coord) that
-  established the current shape.
 - [API.md](API.md) — the consolidated public invocation surface.
 - [DESIGN-RATIONALE.md](DESIGN-RATIONALE.md) — WHY each major call
   was made.

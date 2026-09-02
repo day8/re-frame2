@@ -74,7 +74,7 @@ clojure -Sdeps '{:deps {day8/re-frame2-template {:local/root "<RE_FRAME2>/tools/
 ```
 
 That emits `./my-app/`; then `cd my-app && npm install && npx shadow-cljs watch app`.
-Add `:substrate :uix` for the UIx variant, `:include-story? true` for the Story scaffold.
+Add `:substrate :uix` for the UIx variant.
 
 Already standing *inside* the empty directory you want the app generated into? Add
 deps-new's own target options — `:target-dir . :overwrite true`. The `:overwrite` is

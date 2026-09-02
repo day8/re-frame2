@@ -89,14 +89,7 @@ matrices. It is the "put every awkward UI state on one screen" example.
 
 ## Install Story
 
-For a new app, the template can wire Story into the dev build:
-
-```bash
-clojure -Tnew create \
-  :template io.github.day8/re-frame2-template \
-  :name acme/my-app \
-  :include-story? true
-```
+The generator template emits no Story wiring, so a freshly scaffolded app and a long-lived one attach Story the same way: the dev alias, the require and the mount below.
 
 For an existing checkout during alpha, use the local tool. `:local/root` is relative to *your* `deps.edn`, so the path assumes a re-frame2 clone sitting **beside** your project directory:
 
