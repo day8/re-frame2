@@ -190,13 +190,21 @@
       (is (= (mvn-version deps "day8/re-frame2") (mvn-version deps "day8/re-frame2-reagent"))
           "first-counter.md's deps.edn pins core and the adapter at different versions — lockstep."))))
 
+(defn- committed-byte-size
+  "The leaf's size as git stores it: UTF-8 with LF line endings. A Windows
+   checkout (core.autocrlf=true) writes CRLF, which would read one byte per
+   line larger than the file every other platform and CI sees."
+  [^java.io.File f]
+  (count (.getBytes (str/replace (slurp f) "\r\n" "\n") "UTF-8")))
+
 (deftest every-leaf-meets-the-family-byte-ceiling
   (testing "each reference leaf is ≤16 KB and SKILL.md ≤500 lines (skills/README.md §Leaf size discipline)"
     (doseq [f (.listFiles (io/file setup-root "references"))
             :when (str/ends-with? (.getName f) ".md")]
-      (is (<= (.length f) 16384)
-          (str (.getName f) " is " (.length f) " bytes, over the family 16 KB leaf ceiling "
-               "(rf2-rc0yh AC2). Trim the prose around the generated region, not the region.")))
+      (is (<= (committed-byte-size f) 16384)
+          (str (.getName f) " is " (committed-byte-size f) " bytes (LF-normalised), over the "
+               "family 16 KB leaf ceiling (rf2-rc0yh AC2). Trim the prose around the "
+               "generated region, not the region.")))
     (is (<= (count (str/split-lines @skill-md)) 500)
         "SKILL.md exceeds the 500-line orchestrator ceiling.")))
 
