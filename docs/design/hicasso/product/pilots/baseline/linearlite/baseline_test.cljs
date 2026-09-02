@@ -64,25 +64,30 @@
 
 (defn- init!
   "Per-test setup, after the adapter is installed and the registry is live.
-   The app owns the URL through `:rf/default`, so re-register that frame the
-   same way; re-install the `:resource` / `:mutation` registrations the reset
-   wiped; reset routing's counters; re-publish the routing integration; and
-   stub managed HTTP and the URL push so route entry's ensure and navigation
-   are deterministic without a fetch or a browser."
+   Re-install the `:resource` / `:mutation` registrations the reset wiped;
+   reset routing's counters; re-publish the routing integration; stub managed
+   HTTP and the URL push so route entry's ensure and navigation are
+   deterministic without a fetch or a browser; and only THEN create the app's
+   frame. The app owns the URL through `:rf/default`, so it is re-registered
+   the same way.
+
+   The order matters. A frame resolves handlers through a generation sealed
+   when it is created, so everything a test needs the frame to see — the
+   re-installed registrations and the stubbed effects — is registered first,
+   and the frame is made last."
   []
   (reset! last-managed-args nil)
-  (rf/make-frame {:id :rf/default :url-bound? true
-                  :doc "linearlite default app frame."})
   ;; Re-install through `registrar/register!`, which writes the registry and
-  ;; the source store in lockstep and marks the live frame's projection dirty,
-  ;; so the frame's next resolution sees the reinstated registrations.
+  ;; the source store in lockstep.
   (doseq [[kind id->meta] resource-kind-snapshots
           [id meta] id->meta]
     (registrar/register! kind id meta))
   (routing/reset-counters!)
   (resources-route/install-routing-integration!)
   (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
-  (fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil)))
+  (fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
+  (rf/make-frame {:id :rf/default :url-bound? true
+                  :doc "linearlite default app frame."}))
 
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture

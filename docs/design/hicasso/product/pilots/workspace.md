@@ -112,7 +112,7 @@ npx shadow-cljs watch app     # then open http://localhost:8080
 cd app && npm test > ../baseline-reagent.log 2>&1; echo "baseline exit $?"    # the number goes in the log header
 ```
 
-The runner's closing line is the count to expect — as of `rf2-xkhul` the RealWorld baseline reports 4 tests and the LinearLite baseline 9, both with 0 failures and 0 errors — and it is the exit status that is recorded, not the count. Added under `rf2-xkhul`.
+The runner's closing line is the count to expect — as of `rf2-xkhul` the RealWorld baseline reports `Ran 4 tests containing 123 assertions.` and the LinearLite baseline `Ran 10 tests containing 51 assertions.`, both with `0 failures, 0 errors.` — and it is the exit status that is recorded, not the count. The compile also prints a handful of `:infer-warning` lines from the framework's own source and a Clojure CLI deprecation notice about the test kit's external path; neither fails the run, and both are the framework's to log, not the operator's to hide. Added under `rf2-xkhul`.
 
 **6. Copy the brief and the blank log** into `<pilot-root>/`, from [`brief-realworld.md`](brief-realworld.md) or [`brief-linearlite.md`](brief-linearlite.md), and from [`friction-log.md`](friction-log.md)'s template section.
 
@@ -120,7 +120,7 @@ The runner's closing line is the count to expect — as of `rf2-xkhul` the RealW
 
 ### `app/deps.edn`
 
-Both pilots resolve every artefact from the one checkout. The rows differ only in which artefacts each application actually requires; a coordinate the app does not require may be dropped, and leaving it in costs nothing but classpath.
+Both pilots resolve every re-frame2 artefact from the one checkout. The rows differ only in which artefacts each application actually requires; a coordinate the app does not require may be dropped, and leaving it in costs nothing but classpath. RealWorld needs one library from Maven as well: its article body renders CommonMark through `io.github.nextjournal/markdown`, and without that row the build stops at `The required namespace "nextjournal.markdown" is not available` before a single test runs.
 
 Pilot 1 — RealWorld/Conduit:
 
@@ -134,14 +134,15 @@ Pilot 1 — RealWorld/Conduit:
          day8/re-frame2-flows    {:local/root "../re-frame2/implementation/flows"}
          day8/re-frame2-schemas  {:local/root "../re-frame2/implementation/schemas"}
          day8/re-frame2-ssr      {:local/root "../re-frame2/implementation/ssr"}
-         day8/re-frame2-hicasso  {:local/root "../re-frame2/implementation/hicasso"}}
+         day8/re-frame2-hicasso  {:local/root "../re-frame2/implementation/hicasso"}
+         io.github.nextjournal/markdown {:mvn/version "0.7.225"}}
 
  :aliases
  {:shadow {:extra-deps {thheller/shadow-cljs {:mvn/version "3.4.10"}}}
   :test   {:extra-paths ["test" "../re-frame2/implementation/hicasso/test_kit/src"]}}}
 ```
 
-Pilot 2 — LinearLite: the same file with the `machines`, `flows`, `schemas` and `ssr` rows dropped and `day8/re-frame2-resources {:local/root "../re-frame2/implementation/resources"}` added.
+Pilot 2 — LinearLite: the same file with the `machines`, `flows`, `schemas`, `ssr` and `markdown` rows dropped and `day8/re-frame2-resources {:local/root "../re-frame2/implementation/resources"}` added.
 
 The `:test` alias follows the published testing chapter's `:local/root` route, where the Hicasso test kit lives on its own source root outside the artefact's `:paths` and has to be named explicitly. Both pilots need it from the first hour, because outcome 1 is to preserve the app's behavioural tests. `"test"` on the same alias is the app's own test root: the baseline lands there in step 2, and the tests the pilot ports or adds go beside it.
 
@@ -167,13 +168,22 @@ The `:test` build compiles every namespace on the classpath whose name ends in `
 
 ### `app/package.json`
 
+Pilot 1 — RealWorld/Conduit:
+
 ```json
 {
   "scripts":         {"test": "shadow-cljs compile test && node out/test.js"},
-  "dependencies":    {"react": "19.2.0", "react-dom": "19.2.0"},
+  "dependencies":    {"react": "19.2.0", "react-dom": "19.2.0",
+                      "markdown-it": "^14.1.0", "markdown-it-block-image": "^0.0.3",
+                      "markdown-it-footnote": "^3.0.3", "markdown-it-texmath": "^1.0.0",
+                      "markdown-it-toc-done-right": "^4.2.0", "punycode": "2.1.1"},
   "devDependencies": {"shadow-cljs": "3.4.10", "@testing-library/dom": "^10"}
 }
 ```
+
+Pilot 2 — LinearLite: the same file with the six rows from `markdown-it` to `punycode` dropped; the board renders no Markdown.
+
+The six are what the Markdown library's ClojureScript side tokenizes with, and they are exactly the `:npm-deps` its jar declares. shadow-cljs would install them on its own the first time it compiled, but an installer that runs as a side effect of a compile is a surprise the pilot should not meet, so they are declared here and installed in step 4 with everything else.
 
 `npm test` is the one-line test command: the briefs name it, step 5b runs it, and outcome 1 quotes its exit code before and after. It compiles the `:test` build and then runs the script, chained with `&&` so a failed compile never runs a stale bundle, and the status it exits with is the test runner's own — one failing assertion is a non-zero exit, which is what makes the captured number evidence.
 
