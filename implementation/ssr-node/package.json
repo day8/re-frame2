@@ -1,0 +1,21 @@
+{
+  "name": "@day8/re-frame2-ssr-node",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The bounded Node/React SSR service — a sidecar the JVM ssr-ring host calls for body markup, and nothing else.",
+  "license": "MIT",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=24"
+  },
+  "exports": {
+    "./service": "./src/service.cjs",
+    "./http": "./src/http.cjs"
+  },
+  "bin": {
+    "re-frame2-ssr-node": "./bin/serve.cjs"
+  },
+  "scripts": {
+    "test": "node test/run.cjs"
+  }
+}
