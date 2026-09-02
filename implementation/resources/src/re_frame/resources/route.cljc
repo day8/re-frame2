@@ -998,9 +998,39 @@
   — a `{:from-db <id>}` route-resource `:scope` (or the resource's spec
   `:scope` policy) resolves against it at route entry, BEFORE planning the
   resource work (EP-0016 D3 slice 3). A reference that resolves nil is a
-  fail-closed planning error (route planning MUST NOT substitute global)."
+  fail-closed planning error (route planning MUST NOT substitute global).
+
+  PLAN MODE (rf2-y8jjk). `:plan-cause :replan` (with the caller's non-nil
+  `:replan-cause`) reruns the plan for the ACTIVE route under its UNCHANGED
+  owner — the `:rf.route/replan-resources` command, reached through
+  `on-route-replan-fx` / the `:routing/on-route-replan` hook. Every planning
+  rule above is identical; what differs is exactly the same-owner
+  reconciliation ordinary navigation never meets (Spec 016 §Route-plan replan
+  — same-token reconciliation):
+
+    - the caller's `:replan-cause` rides VERBATIM as the `:cause` of every
+      ensure / adopt (the activation cause is `[:route-entry route-id
+      nav-token]`);
+    - `prev-id` / `prev-nav-token` ARE the current pair, so the whole-prior-
+      owner release the activation mode emits would release the standing
+      owner from everything it keeps. The same-owner case therefore emits a
+      SUBSET release — `:rf.resource/release-owner-identities` over exactly the
+      byte-keyed identities the new plan drops — ordered LAST, after the
+      attach fx;
+    - a FAILED replan releases the standing owner WHOLESALE
+      (`:rf.resource/release-owner`, which also clears the token's slots) and
+      dispatches no partial ensure — the committed-failed-activation
+      semantics, applied to the token that is staying. Deliberately
+      destructive: a departed scope's plan must not keep settling bytes
+      fetched under the new credentials into the old scope's entry;
+    - the `:rf.resource/route-plan` row and the `:rf.error/resource-route-plan`
+      failure carry `:plan-cause :replan` and `:replan-cause` (the failure's
+      own `:cause` slot is the ex-data, so the caller cause is not overloaded
+      onto it). No new trace operation.
+
+  Absent `plan-cause` is the navigation-commit (activation) mode, unchanged."
   [route ctx {:keys [nav-token prev-id prev-nav-token app-db runtime-db branch
-                     branch-error prev-identities]}]
+                     branch-error prev-identities plan-cause replan-cause]}]
   ;; rf2-ac71vm — fail closed on missing/invalid structural planning inputs.
   ;; These are seam-contract bugs (routing must thread a ctx + nav-token),
   ;; surfaced loudly rather than collapsing into an empty-ctx / no-owner read.
@@ -1022,7 +1052,15 @@
              {:route-id (:id route) :recovery :fix-route-integration})))
   (let [route-id  (:id route)
         owner     [:route route-id nav-token]
-        cause     [:route-entry route-id nav-token]
+        ;; rf2-y8jjk — plan MODE (see the docstring). A replan keeps the owner
+        ;; and threads the caller's cause; `stamp` marks the planner's failure
+        ;; envelope so the diagnostic says which mode failed.
+        replan?   (= :replan plan-cause)
+        cause     (if replan? replan-cause [:route-entry route-id nav-token])
+        stamp     (fn [err]
+                    (if replan?
+                      (assoc err :plan-cause :replan :replan-cause replan-cause)
+                      err))
         ;; EP-0037 R2: compose the effective parent-to-leaf branch. Routing
         ;; owns the `:parent` walk and hands the resolved metas down as
         ;; `:branch` (parent-most-first); a direct call with no `:branch` (or
@@ -1031,16 +1069,6 @@
         ;; case of the same composer.
         branch    (or branch [{:route-id route-id
                                :route-meta {:resources (:resources route)}}])
-        ;; release the PREVIOUS route's owner (route leave / supersession).
-        ;; Ordered LAST in the fx (attach-before-release): the resource runtime
-        ;; drops the owner from every entry's :active-owners, but only AFTER
-        ;; this plan has attached its owner to every kept + added identity, so a
-        ;; still-in-flight ancestor shared by both plans is never momentarily
-        ;; ownerless (never aborted). Per Spec 016 §Plan diff and owner handoff.
-        release-fx (when (and prev-id prev-nav-token
-                              (not= [prev-id prev-nav-token] [route-id nav-token]))
-                     [[:dispatch [:rf.resource/release-owner
-                                  {:owner [:route prev-id prev-nav-token]}]]])
         ;; Compose + collapse. A branch-resolution failure (fail-loud), a
         ;; per-contributor `:after`/`:when`/params/scope throw, or a
         ;; collapse-created cycle is a PLANNING error → a committed failed
@@ -1048,7 +1076,7 @@
         {:keys [ordered advisories plan-error]}
         (cond
           branch-error
-          (let [err (branch-plan-error route-id nav-token branch-error)]
+          (let [err (stamp (branch-plan-error route-id nav-token branch-error))]
             (trace/emit-error! :rf.error/resource-route-plan err)
             {:plan-error err})
           :else
@@ -1056,7 +1084,7 @@
             (let [occs      (materialize-occurrences branch route ctx app-db)
                   collapsed (collapse-and-order occs)]
               (if-let [cyclic (:cycle collapsed)]
-                (let [err (collapse-cycle-error route-id nav-token cyclic)]
+                (let [err (stamp (collapse-cycle-error route-id nav-token cyclic))]
                   (trace/emit-error! :rf.error/resource-route-plan err)
                   {:plan-error err})
                 collapsed))
@@ -1064,8 +1092,8 @@
               ;; when / params / scope / :after PLANNING failure — surface on
               ;; the route slice + Xray, never a silent cache miss. The error
               ;; names the resource when the ex carries it.
-              (let [err (plan-error route-id nav-token
-                                    (:resource-id (ex-data ex)) ex)]
+              (let [err (stamp (plan-error route-id nav-token
+                                           (:resource-id (ex-data ex)) ex))]
                 (trace/emit-error! :rf.error/resource-route-plan err)
                 {:plan-error err}))))
         ;; EP-0037 R2 plan diff: partition the dedup'd identities into
@@ -1219,10 +1247,38 @@
         ;; `:redundant-children` are the authorities).
         ensured-identities (into [] (comp (remove adopted?) (map :scoped-key)) ordered)
         kept-identities    (into [] (comp (filter adopted?) (map :scoped-key)) ordered)
-        removed-identities (into []
-                                 (comp (remove (fn [[k-id _]] (contains? next-by-id k-id)))
-                                       (map val))
-                                 (sort-by key prev-by-id))
+        removed-by-id      (into {}
+                                 (remove (fn [[k-id _]] (contains? next-by-id k-id)))
+                                 prev-by-id)
+        removed-identities (into [] (map val) (sort-by key removed-by-id))
+        ;; The release fx. Ordered LAST in the fx (attach-before-release): the
+        ;; resource runtime drops the owner from every entry's :active-owners,
+        ;; but only AFTER this plan has attached its owner to every kept + added
+        ;; identity, so a still-in-flight ancestor shared by both plans is never
+        ;; momentarily ownerless (never aborted). Per Spec 016 §Plan diff and
+        ;; owner handoff.
+        release-fx (cond
+                     ;; rf2-y8jjk — replan: the SAME owner stays. A formed plan
+                     ;; releases it from exactly the byte-keyed identities it
+                     ;; dropped (the subset primitive clears NO slot — the
+                     ;; routing commit owns them); a FAILED plan releases it
+                     ;; wholesale (the committed-failed-activation semantics —
+                     ;; `release-owner` also clears the token's slots).
+                     replan?
+                     (cond
+                       plan-error
+                       [[:dispatch [:rf.resource/release-owner {:owner owner}]]]
+                       (seq removed-by-id)
+                       [[:dispatch [:rf.resource/release-owner-identities
+                                    {:owner owner :identities removed-by-id}]]]
+                       :else nil)
+                     ;; activation: release the PREVIOUS route's owner (route
+                     ;; leave / supersession) — never the token that is
+                     ;; committing.
+                     (and prev-id prev-nav-token
+                          (not= [prev-id prev-nav-token] [route-id nav-token]))
+                     [[:dispatch [:rf.resource/release-owner
+                                  {:owner [:route prev-id prev-nav-token]}]]])
         added-count        (count ensured-identities)
         removed-count      (count removed-identities)]
     (trace/emit! :rf.event :rf.resource/route-plan
@@ -1248,7 +1304,10 @@
                           :kept-identities    kept-identities
                           :removed-identities removed-identities}
                    (seq advisories) (assoc :redundant-children advisories)
-                   plan-error       (assoc :plan-error true)))
+                   plan-error       (assoc :plan-error true)
+                   ;; rf2-y8jjk — the replan discriminator: the activation shape
+                   ;; plus `:plan-cause :replan` and the caller cause.
+                   replan?          (assoc :plan-cause :replan :replan-cause replan-cause)))
     ;; The blocking + identity MAPS (`{<key-id> <scoped-key>}`) and plan-error
     ;; ride back to `commit-navigation`, which writes the blocking + plan slots
     ;; under the nav-token + records a plan-error on the route slice's `:error`,
@@ -1327,6 +1386,55 @@
                               :branch          branch
                               :branch-error    branch-error
                               :prev-identities prev-identities})))))
+
+;; ---- rf2-y8jjk — same-token replan of the active route ---------------------
+;;
+;; `:rf.route/replan-resources` (`re-frame.routing.replan`) reruns the ACTIVE
+;; route's plan under its UNCHANGED nav-token. Same planner, same rules, plan
+;; MODE `:replan` (see `route-resource-plan`): `prev-id` / `prev-nav-token` are
+;; the current pair, `prev-identities` is the token's own recorded plan, the
+;; caller's cause threads onto every ensure / adopt, and the same-owner case
+;; reconciles by SUBSET release. Routing writes the returned slots and readiness
+;; under the same token (replacing, never conditionally). Per Spec 016
+;; §Route-plan replan — same-token reconciliation.
+
+(defn on-route-replan-fx
+  "The `:routing/on-route-replan` hook body routing's `:rf.route/replan-resources`
+  handler consults. `entry` is the hook arg `{:route-meta :route-id :params
+  :query :fragment :nav-token :ctx :app-db :runtime-db :branch :branch-error
+  :prev-identities :cause}` — the CURRENT slice's address + unchanged token,
+  the currently REGISTERED branch, the pre-commit runtime-db, the token's
+  recorded plan identities, and the caller's non-nil `:cause`. Returns `{:fx
+  [...] :blocking {<key-id> <scoped-key>} :identities {<key-id> <scoped-key>}
+  :plan-error err?}` — the `on-route-entry-fx` shape — or nil when there is
+  NOTHING to replan: no branch contributor declares `:resources`, the token
+  recorded no prior plan, and branch resolution did not fail. (A route whose
+  plan was previously formed and now resolves to nothing still replans — to an
+  EMPTY plan, which releases its identities and clears both slots.) The `:ctx`
+  passes through UNCHANGED, as `on-route-entry-fx` does. Per Spec 016
+  §Route-plan replan — same-token reconciliation."
+  [{:keys [route-meta route-id params query fragment nav-token ctx app-db
+           runtime-db branch branch-error prev-identities cause]}]
+  (let [branch (or branch [{:route-id route-id :route-meta route-meta}])]
+    (when (or branch-error
+              (seq prev-identities)
+              (some (fn [c] (seq (:resources (:route-meta c)))) branch))
+      (route-resource-plan {:id        route-id
+                            :params    params
+                            :query     query
+                            :fragment  fragment
+                            :resources (:resources route-meta)}
+                           ctx
+                           {:nav-token       nav-token
+                            :prev-id         route-id
+                            :prev-nav-token  nav-token
+                            :app-db          app-db
+                            :runtime-db      runtime-db
+                            :branch          branch
+                            :branch-error    branch-error
+                            :prev-identities prev-identities
+                            :plan-cause      :replan
+                            :replan-cause    cause}))))
 
 ;; ---- EP-0037 R3 — warm-mode intent prefetch -------------------------------
 ;;
@@ -1424,13 +1532,17 @@
   the `:resources` route-metadata key), the `:routing/on-route-entry`
   plan hook (so `commit-navigation` runs the resource ensure/release plan
   on entry), and the `:routing/on-route-prefetch` warm-mode hook (so
-  `:rf.route/prefetch` warms the destination's branch resources ownerlessly).
-  All are no-op-effect on an app that never loads routing — the hooks simply
-  sit unread. Idempotent. Per Spec 016 §Route integration + §Route-plan
-  prefetch — warm-mode."
+  `:rf.route/prefetch` warms the destination's branch resources ownerlessly),
+  and the `:routing/on-route-replan` same-token hook (so
+  `:rf.route/replan-resources` reruns the active route's plan under its
+  unchanged owner). All are no-op-effect on an app that never loads routing —
+  the hooks simply sit unread. Idempotent. Per Spec 016 §Route integration +
+  §Route-plan prefetch — warm-mode + §Route-plan replan — same-token
+  reconciliation."
   []
   (late-bind/set-fn! :routing/extra-route-keys
                      (fn extra-route-keys-thunk [] extra-route-keys))
   (late-bind/set-fn! :routing/on-route-entry    on-route-entry-fx)
   (late-bind/set-fn! :routing/on-route-prefetch on-route-prefetch-fx)
+  (late-bind/set-fn! :routing/on-route-replan   on-route-replan-fx)
   nil)

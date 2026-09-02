@@ -56,6 +56,7 @@
             [re-frame.routing.nav-token :as nav-token]
             [re-frame.routing.navigate :as navigate]
             [re-frame.routing.prefetch :as prefetch]
+            [re-frame.routing.replan :as replan]
             [re-frame.routing.registry :as registry]
             [re-frame.routing.scroll :as scroll]
             [re-frame.routing.strategy :as strategy]
@@ -288,6 +289,20 @@
 (events/reg-event :rf.route/prefetch
                      framework-authority-meta
                      prefetch/prefetch-handler)
+
+;; :rf.route/replan-resources — Spec 012 §Replanning the active route's
+;; resources (rf2-y8jjk). Rerun the ACTIVE route's effective resource plan
+;; against the current app-db under the UNCHANGED nav-token, without navigating
+;; — the causal door for an app-db-derived identity input (principal, tenant,
+;; locale) that changed with no route change. It mints NO nav-token / pending-nav
+;; id (a replan is not an activation), so it declares neither recordable
+;; allocation cofx — only the default `:db` (for `{:from-db …}` scope
+;; resolution) + `:rf.db/runtime` + `:rf.frame/id`. It DOES write runtime-db
+;; (the per-token blocking / plan slots and the slice readiness), so the
+;; framework-authority marker is load-bearing here, not a courtesy.
+(events/reg-event :rf.route/replan-resources
+                     framework-authority-meta
+                     replan/replan-handler)
 
 ;; :rf.route/transitioned + :rf.route/handle-url-change — Spec 012 §URL
 ;; changes are events. Both declare both recordable allocation cofx (mint the
