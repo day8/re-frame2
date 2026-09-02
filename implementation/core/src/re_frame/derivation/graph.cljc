@@ -815,22 +815,3 @@
                 (present-families contributors))
          selector-targets (get-in contributors [:machines :selector-targets])]
      (assemble :live nodes contributors selector-targets {:frame frame-id}))))
-
-;; ---- bundle-isolation sentinel ------------------------------------------
-;;
-;; Per rf2-2axssk / rf2-eiiifu / rf2-gn9juw / rf2-s8w3nw / rf2-bmzq0 /
-;; rf2-qwm0a (the five algebra-view siblings + the trace.tooling split
-;; pattern): `implementation/scripts/check-bundle-isolation.cjs` greps the
-;; counter bundle for this exact string. The string lives ONLY in this
-;; file's source body — no other namespace, no docstring, no test fixture
-;; references it — so its presence in the production counter bundle proves
-;; this graph-inspection composer's body got pulled in (most likely via a
-;; stray `:require` from a production-reachable ns). This composer is
-;; consumed only by dev tools (Xray) + the conformance fixtures, which
-;; `:require` it directly; the counter example never does. The string
-;; survives `:advanced` because string literals are not renamed; it sits
-;; outside any `interop/debug-enabled?` gate so DCE cannot drop the literal
-;; independently of the surrounding ns body.
-
-(defonce ^:private bundle-isolation-sentinel
-  "rf.derivation.graph/sentinel:rf2-6xm07h-2026-06-12:do-not-rename")
