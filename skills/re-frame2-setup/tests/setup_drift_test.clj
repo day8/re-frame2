@@ -1,26 +1,31 @@
 ;;;; tests/setup_drift_test.clj — structural regression for the
 ;;;; re-frame2-setup skill's correctness-critical contract claims.
 ;;;;
-;;;; Guards two contract claims the setup skill must keep correct:
+;;;; Guards the contract claims the setup skill must keep correct:
 ;;;;
-;;;;   1. Lockstep is a BUILD/dependency discipline, not a boot-time
-;;;;      runtime check. The runtime (`rf/init!` + `install-adapter!`)
-;;;;      carries no per-artefact VERSION metadata, so the skill MUST NOT
-;;;;      promise that a mixed-version app is caught "at boot time". A
-;;;;      future edit re-introducing the boot-enforcement claim fails this
-;;;;      suite.
+;;;;   1. The default scaffold IS the generator template's emission. The
+;;;;      twelve files in `references/first-counter.md` and the three UIx
+;;;;      files in `references/entry-namespace.md` are generated regions
+;;;;      rendered from `tools/template/` by `tests/first_counter_derivation.clj`;
+;;;;      this suite loads that renderer and asserts the leaves equal it, so a
+;;;;      template change (or a hand edit inside a region) fails here until
+;;;;      the leaves are regenerated. The JVM tier repeats the comparison
+;;;;      against a real deps-new emission.
 ;;;;
-;;;;   2. The UIx manual substrate pins MUST match the generator
-;;;;      template's `deps.edn` literals (the source of truth — the skill's
-;;;;      own "never invent a version, match the template" discipline).
-;;;;      This test READS the live template `_uix/deps.edn` on disk and
-;;;;      asserts the skill's entry-namespace pins still match — so a
-;;;;      template bump that isn't mirrored into the skill fails here
-;;;;      rather than silently shipping a stale pin.
+;;;;   2. The day-one set is the reduced one. No schemas, no Xray coord, no
+;;;;      devtools preload, no Xray host column, no `@xyflow/react` / `elkjs`,
+;;;;      no CSP on the default route — each is a later, explicit step. The
+;;;;      locks that once pinned those pieces as day-one now pin their absence.
+;;;;
+;;;;   3. Lockstep is a BUILD/dependency discipline, not a boot-time runtime
+;;;;      check; the UIx pins match the template; the coordinate guidance
+;;;;      branches on publication state; the pin default is zero-interview and
+;;;;      the skill executes the scaffold.
 ;;;;
 ;;;; This is the CHEAP class of drift the setup skill can suffer: a prose
-;;;; promise of a runtime invariant that doesn't exist, or a substrate pin
-;;;; that diverges from the tested template.
+;;;; promise of a runtime invariant that doesn't exist, a file body that
+;;;; drifted from the template it claims to be, or a day-one piece leaking
+;;;; back onto the default route.
 ;;;;
 ;;;; Run locally:  bb tests/setup_drift_test.clj   (from skills/re-frame2-setup/)
 ;;;; Exit:         0 = pass, non-zero = fail.
@@ -28,22 +33,21 @@
 ;;;; CI: gated by the `skills-structural` job in .github/workflows/test.yml,
 ;;;; which loops `skills/re-frame2-setup/tests/*_test.clj`. The job fires when
 ;;;; `report-changed-surfaces.sh` classifies a `skills/re-frame2-setup/**`
-;;;; change as `skills_structural=true`. So the prose-drift locks below
-;;;; are guarded in CI, not just locally.
+;;;; change as `skills_structural=true`. So the locks below are guarded in CI,
+;;;; not just locally.
 ;;;;
-;;;; What this suite does NOT cover: it is a PROSE-DRIFT / structural guard, not
-;;;; a buildability smoke. It does not materialise the scaffold and run
-;;;; `npm install` + `npx shadow-cljs compile app` — that heavier
-;;;; generated-project smoke is deferred on COST, not on coordinate shape: a
-;;;; fresh npm install plus a cold ClojureScript compile is minutes of CI per
-;;;; run, and publishing the framework coords would not make it any cheaper.
-;;;; Run `npm run test:cljs` / the substrate contract tests for real-regression
-;;;; coverage of the wiring this skill teaches.
+;;;; What this suite does NOT cover: it does not materialise the scaffold and
+;;;; run `npm install` + `npx shadow-cljs compile app`. That is the black-box
+;;;; fixture `setup-skill-default-scaffold-mounts-test` in
+;;;; tools/template/test/day8/re_frame2_template/emitted_test_run_test.clj
+;;;; (behind RF2_TEMPLATE_RUN_EMITTED_TESTS=1), which compiles the shipped
+;;;; leaf, boots it in Chromium and clicks the counter 0 -> 1.
 ;;;;
 ;;;; NOT published — `package.json` :files excludes `tests/`.
 
 (ns setup-drift-test
-  (:require [clojure.java.io :as io]
+  (:require [clojure.edn]
+            [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing run-tests]]))
 
@@ -78,31 +82,137 @@
 (def ^:private skill-md
   (delay (slurp-rel setup-root "SKILL.md")))
 
+(def ^:private readme-md
+  (delay (slurp-rel setup-root "README.md")))
+
 (def ^:private first-counter-md
   (delay (slurp-rel setup-root "references/first-counter.md")))
 
-(def ^:private shared-dataflow-md
-  (delay (slurp-rel setup-root "references/shared-dataflow.md")))
+(def ^:private template-resources
+  "tools/template/resources/day8/re_frame2_template")
 
 (def ^:private reagent-template-core
-  (delay (slurp-rel repo-root
-                    "tools/template/resources/day8/re_frame2_template/_reagent/core.cljs")))
+  (delay (slurp-rel repo-root (str template-resources "/_reagent/core.cljs"))))
+
+(def ^:private reagent-template-deps
+  (delay (slurp-rel repo-root (str template-resources "/_reagent/deps.edn"))))
 
 (def ^:private uix-template-deps
-  (delay (slurp-rel repo-root
-                    "tools/template/resources/day8/re_frame2_template/_uix/deps.edn")))
+  (delay (slurp-rel repo-root (str template-resources "/_uix/deps.edn"))))
+
+(def ^:private template-index-html
+  (delay (slurp-rel repo-root (str template-resources "/root/resources/public/index.html"))))
 
 (defn- contains-any? [text alts]
   (some #(str/includes? text %) alts))
 
 (defn- mvn-version
   "Extract the :mvn/version string pinned for `coord` in a deps.edn body,
-   or nil if the coord isn't found."
+   or nil if the coord isn't found. Whitespace-tolerant, so an aligned
+   deps.edn column reads the same as a single space."
   [deps-body coord]
   (some-> (re-find (re-pattern (str (java.util.regex.Pattern/quote coord)
                                     "\\s*\\{:mvn/version\\s+\"([^\"]+)\""))
                    deps-body)
           second))
+
+;; ---------------------------------------------------------------------------
+;; The derivation — the leaves' generated regions, and their render
+;; ---------------------------------------------------------------------------
+;;
+;; `first_counter_derivation.clj` is the renderer that WRITES the two
+;; generated regions. Loading it here (not running it — its script guard
+;; keys off babashka.file) gives this suite the same render to compare
+;; against, plus the block extractor the JVM tier shares in spirit.
+
+(load-file (.getPath (io/file setup-root "tests/first_counter_derivation.clj")))
+
+(def ^:private first-counter-files
+  "path → body, as shipped in first-counter.md's generated region."
+  (delay (first-counter-derivation/extract-files @first-counter-md)))
+
+(def ^:private uix-files
+  "path → body, as shipped in entry-namespace.md's generated region."
+  (delay (first-counter-derivation/extract-files @entry-namespace-md)))
+
+(def ^:private rendered-reagent
+  (delay (first-counter-derivation/reagent-files)))
+
+(def ^:private rendered-uix
+  (delay (first-counter-derivation/uix-swap-files)))
+
+(def ^:private regenerate-hint
+  "Regenerate with `bb tests/first_counter_derivation.clj` from skills/re-frame2-setup/ — the file bodies inside the generated regions are the template's emission, never hand-edited.")
+
+(defn- assert-region-matches-render! [label files rendered]
+  (is (seq rendered)
+      (str label ": the renderer produced no files — first_counter_derivation.clj "
+           "could not read tools/template; the comparison below would be vacuous."))
+  (is (= (set (keys rendered)) (set (keys files)))
+      (str label ": the generated region's file set differs from the template's emission. "
+           "Missing " (pr-str (sort (remove (set (keys files)) (keys rendered))))
+           ", extra " (pr-str (sort (remove (set (keys rendered)) (keys files))))
+           ". " regenerate-hint))
+  (doseq [[path body] rendered
+          :when (contains? files path)]
+    (is (= body (get files path))
+        (str label ": `" path "` in the generated region differs from what the "
+             "template emits. " regenerate-hint))))
+
+;; ---------------------------------------------------------------------------
+;; Lock 0 — the leaves are the template's emission (rf2-rc0yh slice B)
+;; ---------------------------------------------------------------------------
+
+(deftest first-counter-region-is-the-template-render
+  (testing "first-counter.md's twelve files equal the template's Reagent emission for acme/my-app"
+    (assert-region-matches-render! "first-counter.md" @first-counter-files @rendered-reagent)
+    (is (= 12 (count @first-counter-files))
+        (str "first-counter.md must carry exactly the twelve-file manifest the template "
+             "emits; found " (count @first-counter-files) ". " regenerate-hint))))
+
+(deftest uix-region-is-the-template-render
+  (testing "entry-namespace.md's UIx region equals the template's three per-substrate files"
+    (assert-region-matches-render! "entry-namespace.md §UIx greenfield" @uix-files @rendered-uix)))
+
+(deftest generated-regions-carry-no-placeholders
+  (testing "neither generated region leaks a template placeholder or an unresolved pin"
+    (doseq [[label files] [["first-counter.md" @first-counter-files]
+                           ["entry-namespace.md" @uix-files]]
+            [path body] files]
+      (is (not (contains-any? body ["{{" "<VERSION>" "<SHA>" "PLACEHOLDER"]))
+          (str label ": `" path "` carries a placeholder. The default route writes no "
+               "<VERSION>/<SHA> and no unsubstituted {{key}} — the pins are the "
+               "template's literals, rendered by derivation (rf2-rc0yh)."))))
+  (testing "the day-one framework coords carry a literal :mvn/version (the template's reviewed pin)"
+    (let [deps (get @first-counter-files "deps.edn" "")]
+      (is (some? (mvn-version deps "day8/re-frame2"))
+          "first-counter.md's deps.edn no longer pins day8/re-frame2 with a literal :mvn/version.")
+      (is (= (mvn-version deps "day8/re-frame2") (mvn-version deps "day8/re-frame2-reagent"))
+          "first-counter.md's deps.edn pins core and the adapter at different versions — lockstep."))))
+
+(deftest every-leaf-meets-the-family-byte-ceiling
+  (testing "each reference leaf is ≤16 KB and SKILL.md ≤500 lines (skills/README.md §Leaf size discipline)"
+    (doseq [f (.listFiles (io/file setup-root "references"))
+            :when (str/ends-with? (.getName f) ".md")]
+      (is (<= (.length f) 16384)
+          (str (.getName f) " is " (.length f) " bytes, over the family 16 KB leaf ceiling "
+               "(rf2-rc0yh AC2). Trim the prose around the generated region, not the region.")))
+    (is (<= (count (str/split-lines @skill-md)) 500)
+        "SKILL.md exceeds the 500-line orchestrator ceiling.")))
+
+(deftest default-route-reads-one-leaf
+  (testing "SKILL.md's default route reads first-counter.md and nothing else"
+    (let [skill @skill-md]
+      (is (str/includes? skill "references/first-counter.md")
+          "SKILL.md no longer routes the default to references/first-counter.md.")
+      (is (str/includes? skill "nothing else needs reading")
+          (str "SKILL.md no longer states that first-counter.md is the whole default — "
+               "the default route is SKILL.md plus at most one leaf (rf2-rc0yh AC2)."))))
+  (testing "README.md's 'same canonical scaffold' claim is stated (and Lock 0 makes it true)"
+    (is (str/includes? @readme-md "Both routes land on the same canonical scaffold")
+        (str "README.md dropped the claim that both routes land on the same canonical "
+             "scaffold. With the manual route derived from the template it is literally "
+             "true; keep saying so (rf2-rc0yh)."))))
 
 ;; ---------------------------------------------------------------------------
 ;; Lock 1 — lockstep is build-time discipline, NOT a boot-time runtime check
@@ -157,28 +267,29 @@
 ;; Lock 2 — UIx manual pins match the generator template (source of truth)
 ;; ---------------------------------------------------------------------------
 
-(deftest uix-skill-pin-matches-template
-  (testing "entry-namespace.md UIx pins match the template _uix/deps.edn"
+(deftest uix-leaf-deps-pins-match-template
+  (testing "the UIx deps.edn in entry-namespace.md pins uix.core / uix.dom exactly as the template does"
     (let [tmpl-core (mvn-version @uix-template-deps "com.pitch/uix.core")
           tmpl-dom  (mvn-version @uix-template-deps "com.pitch/uix.dom")
-          skill     @entry-namespace-md]
+          leaf-deps (get @uix-files "deps.edn" "")
+          leaf-core (mvn-version leaf-deps "com.pitch/uix.core")
+          leaf-dom  (mvn-version leaf-deps "com.pitch/uix.dom")]
       (is (some? tmpl-core)
           "Could not read com.pitch/uix.core pin from the template _uix/deps.edn.")
       (is (some? tmpl-dom)
           "Could not read com.pitch/uix.dom pin from the template _uix/deps.edn.")
-      (is (str/includes? skill (str "com.pitch/uix.core {:mvn/version \"" tmpl-core "\"}"))
-          (str "entry-namespace.md's com.pitch/uix.core pin diverged from "
-               "the template (template pins " (pr-str tmpl-core) "). The "
-               "manual setup path must generate the same known-good deps "
-               "as the generator template (rf2-0qkyn). Mirror the template "
-               "bump into the skill."))
-      (is (str/includes? skill (str "com.pitch/uix.dom  {:mvn/version \"" tmpl-dom "\"}"))
-          (str "entry-namespace.md's com.pitch/uix.dom pin diverged from "
-               "the template (template pins " (pr-str tmpl-dom) ")."))
+      (is (= tmpl-core leaf-core)
+          (str "entry-namespace.md's com.pitch/uix.core pin (" (pr-str leaf-core)
+               ") diverged from the template (" (pr-str tmpl-core) "). The manual "
+               "setup path must generate the same known-good deps as the generator "
+               "template (rf2-0qkyn). " regenerate-hint))
+      (is (= tmpl-dom leaf-dom)
+          (str "entry-namespace.md's com.pitch/uix.dom pin (" (pr-str leaf-dom)
+               ") diverged from the template (" (pr-str tmpl-dom) "). " regenerate-hint))
       (is (= tmpl-core tmpl-dom)
           (str "Template uix.core (" tmpl-core ") and uix.dom (" tmpl-dom
                ") pins are no longer equal — UIx ships core+dom in "
-               "lockstep; update the skill's paired pins accordingly.")))))
+               "lockstep; update the template's paired pins accordingly.")))))
 
 (deftest uix-version-target-divergence-is-flagged
   (testing "the spec-006 UIx-2.x vs template-1.4.4 divergence carries a heads-up"
@@ -195,91 +306,71 @@
                "missing from the UIx version-target heads-up.")))))
 
 ;; ---------------------------------------------------------------------------
-;; Lock 3 — Xray layout host snippet matches the CURRENT published contract
-;; (right-side host, --rf-xray-inline-width-driven width).
+;; Lock 3 — the default page ships NO Xray host (flipped by rf2-rc0yh slice B).
 ;;
-;; The setup recipe scaffolds the `[data-rf-xray-host]` layout host. The
-;; published contract (tools/xray/spec/011-Launch-Modes.md §Layout host
-;; contract + the shipped examples/_shared/css) is a RIGHT-side host whose
-;; flex-basis reads `var(--rf-xray-inline-width, 560px)`. A LEFT-side host
-;; with a literal `flex: 0 0 420px` would (a) put the panel on the wrong
-;; side and (b) ignore the persisted resize width Xray's drag handle writes.
-;; These guards fail if that wrong shape (or the literal `420px`) appears in
-;; the setup guidance.
+;; Before the rf2-zq34m collapse the Reagent route scaffolded an
+;; `<aside data-rf-xray-host>` column beside `#app`, and three locks here
+;; pinned its published geometry (right side, --rf-xray-inline-width, no
+;; stale 420px). The template now emits one mount node and no host, and so
+;; does the skill: the same three locks pin the ABSENCE of the host — in the
+;; emitted page, in every skill file, and in the DOM shape.
 ;; ---------------------------------------------------------------------------
 
-(deftest xray-host-snippet-consumes-inline-width-var
-  (testing "the shadow-cljs.md host CSS reads --rf-xray-inline-width, not a literal width"
-    (let [body @shadow-cljs-md]
-      (is (str/includes? body "var(--rf-xray-inline-width, 560px)")
-          (str "shadow-cljs.md's [data-rf-xray-host] CSS no longer reads "
-               "`flex: 0 0 var(--rf-xray-inline-width, 560px)`. The host "
-               "width MUST come from the published custom property "
-               "(day8.re-frame2-xray.config/default-layout-host-css-var, "
-               "default 560px per spec/011-Launch-Modes.md §Resizing the "
-               "inline host) so the drag handle's persisted width and any "
-               "cascade override take effect — a literal flex-basis ignores "
-               "them (rf2-w4axt)."))
-      (is (str/includes? body "box-sizing: border-box")
-          (str "shadow-cljs.md's host CSS lost `box-sizing: border-box` — "
-               "without it the 1px border-left renders the host 1px wider "
-               "than the documented var(...) width (rf2-w4axt)."))
-      (is (str/includes? body "border-left")
-          (str "shadow-cljs.md's host CSS lost the `border-left` separator "
-               "from the published contract (rf2-w4axt).")))))
+(def ^:private xray-host-tokens
+  ["data-rf-xray-host" "rf2-xray-host" "--rf-xray-inline-width" "420px"
+   ":devtools/preloads" "day8.re-frame2-xray.preload" "@xyflow/react" "elkjs"])
 
-(deftest xray-host-snippet-has-no-stale-420px-or-left-wording
-  (testing "neither the host CSS nor the SKILL summary carry the stale 420px / left-column shape"
-    (doseq [[label body] [["shadow-cljs.md" @shadow-cljs-md]
-                          ["SKILL.md"       @skill-md]]]
-      (is (not (str/includes? body "420px"))
-          (str label " still mentions the stale literal `420px` host width. "
-               "The host width is `var(--rf-xray-inline-width, 560px)` per "
-               "the current Xray contract (rf2-w4axt)."))
-      (is (not (contains-any? body ["left layout column"
-                                    "left** layout column"
-                                    "Xray on the left"
-                                    "places Xray on the left"]))
-          (str label " describes the Xray host as a LEFT column. The current "
-               "contract is a RIGHT-side host (<main> first, <aside "
-               "data-rf-xray-host> second) per spec/011-Launch-Modes.md "
-               "(rf2-w4axt).")))))
+(deftest default-scaffold-ships-no-xray-host
+  (testing "first-counter.md's index.html / app.css blocks carry no Xray host column or host CSS"
+    (let [html (get @first-counter-files "resources/public/index.html" "")
+          css  (get @first-counter-files "resources/public/css/app.css" "")]
+      (is (seq html) "first-counter.md carries no resources/public/index.html block.")
+      (is (seq css)  "first-counter.md carries no resources/public/css/app.css block.")
+      (doseq [[label body] [["index.html" html] ["app.css" css]]
+              token ["data-rf-xray-host" "rf2-xray-host" "--rf-xray"]]
+        (is (not (str/includes? body token))
+            (str "the default scaffold's " label " carries `" token "` — the reduced "
+                 "template ships no Xray host (rf2-zq34m: STRIP BOTH); Xray attaches "
+                 "later by its own recipe (rf2-rc0yh)."))))))
 
-(deftest xray-host-dom-order-is-main-then-aside
-  (testing "shadow-cljs.md index.html orders <main> before the <aside> host (right-side flow)"
-    ;; Compare the actual HTML TAGS, not any prose mention of `data-rf-xray-host`
-    ;; (the canonical-block intro + the opt-out prose both name the host
-    ;; attribute before the index.html block, so a whole-body first-occurrence
-    ;; search would false-fail — guard against the markup, not the prose).
-    (let [body      @shadow-cljs-md
-          main-idx  (str/index-of body "<main id=\"app\">")
-          ;; the <aside ...> opening tag that carries data-rf-xray-host
-          aside-idx (some-> (re-find #"<aside[^>]*data-rf-xray-host" body)
-                            (->> (str/index-of body)))]
-      (is (and (some? main-idx) (some? aside-idx))
-          "Could not find both <main id=\"app\"> and the <aside ... data-rf-xray-host> tag in shadow-cljs.md.")
-      (is (and main-idx aside-idx (< main-idx aside-idx))
-          (str "shadow-cljs.md's index.html does not place <main id=\"app\"> "
-               "BEFORE the <aside data-rf-xray-host>. Flex flow lays the "
-               "aside to the RIGHT only when <main> comes first "
-               "(spec/011-Launch-Modes.md §Layout host contract, rf2-w4axt).")))))
+(deftest skill-carries-no-xray-host-wiring
+  (testing "no skill file names the Xray host / preload / npm pair as scaffold wiring"
+    (doseq [[label body] [["SKILL.md" @skill-md]
+                          ["README.md" @readme-md]
+                          ["first-counter.md" @first-counter-md]
+                          ["shadow-cljs.md" @shadow-cljs-md]
+                          ["entry-namespace.md" @entry-namespace-md]
+                          ["deps-versions.md" @deps-versions-md]]
+            token xray-host-tokens]
+      (is (not (str/includes? body token))
+          (str label " names `" token "`. Xray, its host column, its devtools "
+               "preload and its npm pair are not part of the scaffold on any route — "
+               "they attach later, by Xray's own recipe (rf2-rc0yh, rf2-zq34m).")))))
+
+(deftest default-index-html-has-one-mount-node-and-no-aside
+  (testing "first-counter.md's index.html is the template's: <main id=\"app\"> and no <aside>"
+    (let [html (get @first-counter-files "resources/public/index.html" "")]
+      (is (str/includes? html "<main id=\"app\">")
+          "the default index.html lost its <main id=\"app\"> mount node.")
+      (is (not (str/includes? html "<aside"))
+          (str "the default index.html carries an <aside> — the reduced template "
+               "ships one mount node and no layout column (rf2-rc0yh)."))
+      (is (= (str/trim html)
+             (-> @template-index-html
+                 (str/replace "\r\n" "\n")
+                 (str/replace "{{name}}" "acme/my-app")
+                 str/trim))
+          (str "the default index.html differs from the template's root index.html "
+               "rendered for acme/my-app. " regenerate-hint)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Lock 4 — the reagent/dom CLJS-namespace troubleshooting row diagnoses the
 ;; Maven/classpath side, NOT npm React.
-;;
-;; `reagent.dom.client` ships from the `reagent/reagent` Maven coordinate on
-;; the CLJS classpath; a missing npm React surfaces as a JS module error, not
-;; a missing .cljs namespace. Telling the author to `npm install react
-;; react-dom` to fix a missing CLJS namespace is the wrong layer. This guard
-;; fails if the reagent/dom row is mapped to npm-only recovery.
 ;; ---------------------------------------------------------------------------
 
 (deftest reagent-dom-row-diagnoses-maven-not-npm
   (testing "SKILL.md's reagent/dom/client.cljs row points at the Maven/classpath cause"
     (let [body @skill-md
-          ;; The reagent/dom/client.cljs troubleshooting bullet, isolated to
-          ;; one paragraph so we don't catch the separate npm-React row.
           row   (some-> (re-find #"(?m)^- \*\*`Could not locate reagent/dom/client\.cljs`.*$"
                                  body))]
       (is (some? row)
@@ -297,7 +388,6 @@
                "react react-dom` — a missing CLJS namespace is never fixed "
                "by installing npm packages. npm-React failures belong in the "
                "separate JS-module-resolution row (rf2-w4axt)."))
-      ;; And the distinct npm-React row must still exist for actual JS failures.
       (is (re-find #"Cannot find module 'react'" body)
           (str "SKILL.md lost the separate npm-React troubleshooting row "
                "(`Cannot find module 'react'` / react-dom/client). Real JS "
@@ -305,125 +395,43 @@
                "`npm install` (rf2-w4axt).")))))
 
 ;; ---------------------------------------------------------------------------
-;; Lock 5 — the dev CSP guidance matches the generator template's index.html.
+;; Lock 5 — the default route is CSP-free (flipped by rf2-rc0yh slice B).
 ;;
-;; The template's root/resources/public/index.html ships a DEV-flavoured CSP
-;; meta tag tuned to the runtime the scaffold produces:
-;;   - `script-src 'self' 'unsafe-eval'` — shadow-cljs DEV builds (`watch` /
-;;     `compile`, :optimizations :none) load every compiled namespace through
-;;     goog.globalEval, so without 'unsafe-eval' the dev page is blank (every
-;;     module load dies with a CSP EvalError). The release bundle never evals;
-;;     the production header drops it (rf2-zgwro).
-;;   - `style-src 'self' 'unsafe-inline'` — generated views use inline `:style`
-;;     props and the default-on Xray devtools injects <style>/inline styles, so
-;;     a strict `style-src 'self'` would emit violations + break Xray on first
-;;     run.
-;;   - NO meta `frame-ancestors` — browsers IGNORE it from a <meta> tag; it is a
-;;     response-header-only directive, so it belongs in the production header.
-;; A strict dev CSP (`script-src 'self'`, `style-src 'self'`, meta
-;; `frame-ancestors`) would diverge from the tested template and cause a
-;; blank first run / CSP violations / broken Xray styling. These guards fail
-;; if that strict-dev shape (or a meta `frame-ancestors`) appears, and require
-;; the dev/prod split (a documented stricter production RESPONSE HEADER that
-;; drops the two 'unsafe-*' loosenings and adds `frame-ancestors`) to stay
-;; present.
+;; Four locks used to pin a dev-flavoured CSP meta tag in the scaffold's
+;; index.html against the template's, plus the documented production
+;; response header. The reduced template ships no CSP at all — a dev page
+;; with a strict meta CSP is the blank-first-page trap the boot proof
+;; exists for, and a production policy is the host's, not the scaffold's.
+;; The flipped lock pins the absence in the emitted page and keeps CSP prose
+;; off the default route (SKILL.md + first-counter.md); shadow-cljs.md may
+;; carry the one 'unsafe-eval' warning for an author who adds a policy later.
 ;; ---------------------------------------------------------------------------
 
-(defn- meta-csp-content
-  "Extract the content=\"...\" of the Content-Security-Policy <meta> tag, or nil."
-  [body]
-  (some-> (re-find #"(?s)<meta http-equiv=\"Content-Security-Policy\"\s+content=\"([^\"]+)\"" body)
-          second))
-
-(deftest dev-csp-allows-unsafe-inline-styles
-  (testing "shadow-cljs.md's index.html meta CSP allows 'unsafe-inline' styles (matches the template)"
-    (let [meta-csp (meta-csp-content @shadow-cljs-md)]
-      (is (some? meta-csp)
-          "Could not find the Content-Security-Policy <meta> tag in shadow-cljs.md.")
-      (is (and meta-csp (str/includes? meta-csp "style-src 'self' 'unsafe-inline'"))
-          (str "shadow-cljs.md's CSP meta tag no longer allows "
-               "`style-src 'self' 'unsafe-inline'`. The generated views use "
-               "inline `:style` props and the default-on Xray devtools injects "
-               "<style>/inline styles — a strict `style-src 'self'` emits CSP "
-               "violations and breaks Xray styling on first run. The dev meta "
-               "tag must match the template's "
-               "root/resources/public/index.html (rf2-pxl6l)."))
-      (is (and meta-csp (not (re-find #"style-src 'self';" meta-csp)))
-          (str "shadow-cljs.md's CSP meta tag still carries a STRICT "
-               "`style-src 'self';` (no 'unsafe-inline') for the DEV policy — "
-               "that diverges from the template and breaks the first page / "
-               "Xray. Strict `style-src 'self'` belongs only in the PRODUCTION "
-               "response header (rf2-pxl6l).")))))
-
-(deftest dev-csp-allows-unsafe-eval-scripts
-  (testing "shadow-cljs.md's index.html meta CSP admits 'unsafe-eval' scripts (dev builds eval; matches the template)"
-    (let [meta-csp (meta-csp-content @shadow-cljs-md)]
-      (is (some? meta-csp)
-          "Could not find the Content-Security-Policy <meta> tag in shadow-cljs.md.")
-      (is (and meta-csp (str/includes? meta-csp "script-src 'self' 'unsafe-eval'"))
-          (str "shadow-cljs.md's CSP meta tag no longer admits "
-               "`script-src 'self' 'unsafe-eval'`. shadow-cljs DEV builds "
-               "(watch/compile, :optimizations :none) load every compiled "
-               "namespace through goog.globalEval — without 'unsafe-eval' the "
-               "dev page is BLANK: every module load dies with a CSP "
-               "EvalError. The dev meta tag must match the template's "
-               "root/resources/public/index.html (rf2-zgwro)."))))
-  (testing "the production response header stays eval-free (drops 'unsafe-eval')"
-    (let [prod-header (some-> (re-find #"(?m)^Content-Security-Policy: ([^\r\n]+)"
-                                       @shadow-cljs-md)
-                              second)]
-      (is (some? prod-header)
-          "Could not find the production `Content-Security-Policy:` response-header line in shadow-cljs.md.")
-      (is (and prod-header (not (str/includes? prod-header "unsafe-eval")))
-          (str "shadow-cljs.md's production response header carries "
-               "'unsafe-eval'. The release bundle is one static file and "
-               "never evals — the production policy must drop it "
-               "(rf2-zgwro).")))))
-
-(deftest dev-csp-meta-omits-frame-ancestors
-  (testing "shadow-cljs.md's index.html meta CSP omits frame-ancestors (meta-tag-ignored directive)"
-    ;; Isolate the <meta http-equiv="Content-Security-Policy" ...> block content
-    ;; so we test the META tag specifically, not the prose / production-header
-    ;; guidance (which legitimately mentions frame-ancestors).
-    (let [meta-csp (meta-csp-content @shadow-cljs-md)]
-      (is (some? meta-csp)
-          "Could not find the Content-Security-Policy <meta> tag in shadow-cljs.md.")
-      (is (and meta-csp (not (str/includes? meta-csp "frame-ancestors")))
-          (str "shadow-cljs.md's CSP <meta> tag declares `frame-ancestors`. "
-               "Browsers IGNORE `frame-ancestors` from a <meta> tag — it only "
-               "takes effect from a response header, so putting it in the meta "
-               "tag implies anti-clickjacking protection the page does not "
-               "have. It belongs in the production response header "
-               "(rf2-pxl6l).")))))
-
-(deftest csp-documents-prod-response-header-with-frame-ancestors
-  (testing "shadow-cljs.md documents a stricter production response header that adds frame-ancestors"
-    (let [body @shadow-cljs-md]
-      (is (contains-any? body ["response header" "Production hardening"])
-          (str "shadow-cljs.md no longer documents serving CSP as a production "
-               "RESPONSE HEADER. The dev meta tag is not the production policy; "
-               "the skill must give the dev/prod split (rf2-pxl6l)."))
-      (is (str/includes? body "frame-ancestors 'none'")
-          (str "shadow-cljs.md's production CSP guidance no longer adds "
-               "`frame-ancestors 'none'`. That directive is response-header-"
-               "only and is where anti-clickjacking actually takes effect — it "
-               "must appear in the production header guidance (rf2-pxl6l).")))))
+(deftest default-route-is-csp-free
+  (testing "the template's index.html carries no CSP meta tag (premise)"
+    (is (not (str/includes? @template-index-html "Content-Security-Policy"))
+        (str "tools/template's root index.html now carries a Content-Security-Policy. "
+             "If the template deliberately re-added a CSP, revisit this lock and the "
+             "skill's shadow-cljs.md together.")))
+  (testing "first-counter.md's index.html block carries no CSP meta tag"
+    (is (not (str/includes? (get @first-counter-files "resources/public/index.html" "")
+                            "Content-Security-Policy"))
+        (str "the default index.html carries a Content-Security-Policy meta tag the "
+             "template does not. " regenerate-hint)))
+  (testing "SKILL.md and first-counter.md teach no CSP on the default route"
+    (doseq [[label body] [["SKILL.md" @skill-md] ["first-counter.md" @first-counter-md]]
+            token ["Content-Security-Policy" "unsafe-eval" "frame-ancestors"]]
+      (is (not (str/includes? body token))
+          (str label " names `" token "`. CSP / hosting policy is a later, explicit "
+               "step — not day-one, not on the default route (rf2-rc0yh).")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Lock 6 — user-facing direct-run shadow-cljs commands are qualified with npx.
-;;
-;; A fresh project's only shadow-cljs is a LOCAL npm devDependency; bare
-;; `shadow-cljs watch app` hits `command not found` when no global binary is on
-;; PATH (common on Windows/PowerShell). Direct-run commands in the user-facing
-;; prose must use `npx shadow-cljs ...` (or `npm run ...`). Bare `shadow-cljs`
-;; is fine ONLY inside a package.json "scripts" block (npm puts node_modules/.bin
-;; on PATH there). This guard fails if an unqualified direct-run command
-;; reappears outside a scripts context.
 ;; ---------------------------------------------------------------------------
 
 (deftest first-counter-verify-command-uses-npx
-  (testing "first-counter.md's verification command qualifies shadow-cljs with npx"
-    (let [fc (slurp-rel setup-root "references/first-counter.md")]
+  (testing "first-counter.md's verification prose qualifies shadow-cljs with npx"
+    (let [fc @first-counter-md]
       (is (str/includes? fc "npx shadow-cljs watch app")
           (str "first-counter.md's verify step no longer runs "
                "`npx shadow-cljs watch app`. A fresh project's shadow-cljs is "
@@ -431,20 +439,8 @@
                "(esp. Windows/PowerShell) (rf2-pxl6l).")))))
 
 ;; ---------------------------------------------------------------------------
-;; Lock 7 — the UIx manual path supplies substrate-specific VIEW code and
-;; does NOT route UIx authors to the Reagent `reg-view` first-counter.
-;;
-;; The Reagent first-counter leaf uses `reg-view` (auto-injected
-;; dispatch/subscribe) — a Reagent-only construct. UIx has no
-;; auto-injection: it reads subs via the adapter `use-subscribe` hook and
-;; takes `dispatch` off the adapter `use-frame` hook (capture-frame in hook
-;; position). Supplying only
-;; deps/entry-root substitutions for UIx would leave an author to
-;; combine a UIx entry ns with the Reagent `reg-view` counter — a
-;; non-compiling scaffold. These guards require the substrate VIEW snippets to
-;; be present in
-;; entry-namespace.md (matching the template's _uix/views.cljs) and
-;; require SKILL.md + first-counter.md to steer UIx away from `reg-view`.
+;; Lock 7 — the UIx route supplies substrate-specific VIEW code and does NOT
+;; route UIx authors to the Reagent `rf/reg-view` views.
 ;; ---------------------------------------------------------------------------
 
 (deftest uix-greenfield-supplies-substrate-views
@@ -455,7 +451,7 @@
                "counter view snippet. UIx has no "
                "auto-injection — the manual path must ship the substrate "
                "`views.cljs`, not send the author to the Reagent `reg-view` "
-               "leaf (rf2-74uffk)."))
+               "views (rf2-74uffk)."))
       (is (str/includes? body "uix-adapter/use-subscribe")
           (str "The UIx view snippet must read subscriptions through "
                "the adapter `use-subscribe` hook (no auto-injected `subscribe` "
@@ -465,7 +461,6 @@
                "adapter `use-frame` hook (capture-frame in hook position) — "
                "there is no auto-injected `dispatch` on that substrate "
                "(rf2-p74yf2)."))
-      ;; The "everything else is identical" claim must NOT swallow views.
       (is (not (re-find #"(?i)views.{0,40}identical across substrates" body))
           (str "entry-namespace.md claims views are identical across "
                "substrates — they are NOT. Reagent uses `reg-view`; UIx "
@@ -473,22 +468,19 @@
                "identical' claim must exclude views (rf2-74uffk).")))))
 
 (deftest uix-not-routed-to-reagent-reg-view-counter
-  (testing "SKILL.md + first-counter.md steer UIx away from the Reagent reg-view leaf"
+  (testing "SKILL.md + first-counter.md steer UIx away from the Reagent reg-view views"
     (let [skill @skill-md
-          fc    (slurp-rel setup-root "references/first-counter.md")]
-      ;; SKILL step 6 must flag the leaf as Reagent-specific and point
-      ;; UIx at use-subscribe / the substrate views.
+          fc    @first-counter-md]
       (is (contains-any? skill ["UIx does NOT use `reg-view`"
                                 "UIx** does NOT use `reg-view`"
                                 "UIx does not use `reg-view`"
                                 "does NOT use `reg-view`"])
-          (str "SKILL.md step 6 no longer warns that UIx does not use the "
-               "Reagent `reg-view` counter. A UIx author must be routed "
+          (str "SKILL.md no longer warns that UIx does not use the "
+               "Reagent `reg-view` views. A UIx author must be routed "
                "to the substrate views, not the Reagent leaf (rf2-74uffk)."))
-      ;; first-counter.md must declare itself Reagent-only and redirect.
       (is (contains-any? fc ["Reagent only" "Reagent-only"])
           (str "first-counter.md no longer flags itself as Reagent-only. The "
-               "leaf uses `reg-view` + `reagent.dom.client` — UIx must "
+               "leaf's views use `rf/reg-view` + `reagent.dom.client` — UIx must "
                "be redirected to the substrate views (rf2-74uffk)."))
       (is (and (str/includes? fc "use-subscribe")
                (str/includes? fc "entry-namespace.md"))
@@ -499,13 +491,6 @@
 ;; ---------------------------------------------------------------------------
 ;; Lock 8 — the JS-module React recovery uses the PINNED baseline, not bare
 ;; `npm install react react-dom` (which writes latest-from-npm).
-;;
-;; The skill's default path copies the React/ReactDOM versions from the pinned
-;; `implementation/package.json` (deps-versions.md §package.json) and only takes
-;; latest-from-npm on explicit opt-in. Bare `npm install react react-dom` would
-;; write npm's current `latest` into package.json — breaking reproducibility
-;; and risking a React/Reagent mismatch. This guard fails if that bare command
-;; appears in the JS-module row and requires the pinned-baseline recovery.
 ;; ---------------------------------------------------------------------------
 
 (deftest js-module-react-row-uses-pinned-baseline
@@ -514,19 +499,15 @@
           row  (some-> (re-find #"(?m)^- \*\*`Cannot find module 'react'`.*$" body))]
       (is (some? row)
           "Could not find the `Cannot find module 'react'` troubleshooting row in SKILL.md.")
-      ;; The row must positively recover from the pinned baseline...
       (is (and row (str/includes? row "pinned"))
           (str "The JS-module React row no longer recovers from the PINNED "
                "baseline. The fix is to restore react/react-dom in "
-               "package.json from the pinned `implementation/package.json`, "
+               "package.json to the pinned versions the leaf carries, "
                "then plain `npm install` — not latest-from-npm (rf2-74uffk)."))
-      (is (and row (contains-any? row ["reproducibility" "cardinal rule 1"]))
+      (is (and row (contains-any? row ["reproducibility" "cardinal rule"]))
           (str "The JS-module React row no longer cites the reproducibility / "
-               "cardinal-rule-1 reason for avoiding latest-from-npm "
+               "cardinal-rule reason for avoiding latest-from-npm "
                "(rf2-74uffk)."))
-      ;; ...and must NOT POSITIVELY advise the bare unpinned command. The
-      ;; corrected row may mention it only to FORBID it ("Don't run bare ...");
-      ;; a positive recommendation would lack that negation cue.
       (is (and row (str/includes? row "Don't run bare `npm install react react-dom`"))
           (str "The JS-module React row no longer explicitly FORBIDS bare "
                "`npm install react react-dom` (writes npm `latest`, breaks "
@@ -535,46 +516,10 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Lock 9 — the greenfield coordinate BRANCHES on publication state. It does
-;; not teach one unconditional shape.
-;;
-;; THE BRANCH IS THE SUBJECT HERE, NOT EITHER TIER'S CURRENT STATE — and that
-;; distinction is the whole point of the lock, because the state moves while
-;; the branch does not:
-;;
-;;   - Pre-tag, the unresolvable coordinate was the FRAMEWORK. No
-;;     `day8/re-frame2*` artefact was on a registry, so `{:mvn/version
-;;     "<VERSION>"}` 404'd and a greenfield project that wrote it failed
-;;     dependency resolution before it ever compiled (rf2-ol8l7a, which is the
-;;     bead these four assertions were written for).
-;;   - Once a `v*` tag ships the framework, the unresolvable coordinate is the
-;;     TOOLS TIER. Xray and Story ride their own tag prefixes — `xray-v*`,
-;;     `story-v*` — which a framework `v*` tag does not cut, so
-;;     `day8/re-frame2-xray {:mvn/version "<VERSION>"}` stays a 404 however
-;;     current <VERSION> is. That is why the generator template emits git
-;;     coords for both tools (rf2-57bjg).
-;;
-;; So the four assertions below are deliberately SUBJECT-AGNOSTIC, and so are
-;; their failure messages. They fail when the deps guidance stops branching at
-;; all — when it teaches one unconditional `:mvn/version` shape for every
-;; `day8/re-frame2*` coordinate, which is a false-green setup for whichever
-;; coordinate does not currently resolve. They say nothing about WHICH tier
-;; that is.
-;;
-;; ONE LOCK, NOT TWO. Splitting this per tier reads tempting and is wrong: a
-;; framework-specific half would assert something the framework release makes
-;; FALSE, so it would ship already scheduled for deletion. What survives both
-;; cuts is the branch, and the branch is one claim.
-;;
-;; The honest end state: these go vacuous only when EVERY day8/re-frame2*
-;; coordinate resolves, framework and tools alike. At that point the branch is
-;; genuinely gone and the lock has done its job — delete it deliberately
-;; rather than restating something false to get back to green.
-;;
-;; (rf2-lyriz. Before that bead the name, the rationale and the first failure
-;; message all described the FRAMEWORK's publication state, while the
-;; assertion had quietly become satisfiable by the Xray caveat alone — so the
-;; editor who correctly removes that caveat at the `xray-v*` cut would have
-;; reddened a lock telling them to go re-assert something untrue.)
+;; not teach one unconditional shape. (Subject-agnostic on purpose — see the
+;; rf2-lyriz rationale: the branch survives whichever tier is currently the
+;; unresolvable one; delete this deliberately only when EVERY day8/re-frame2*
+;; coordinate resolves.)
 ;; ---------------------------------------------------------------------------
 
 (deftest deps-guidance-branches-on-actual-publication-state
@@ -584,177 +529,120 @@
                                "have not published" "not yet published"])
           (str "deps-versions.md no longer names ANY day8/re-frame2* "
                "coordinate as unpublished, so it can no longer branch the "
-               "coordinate shape at all. Whichever tier is currently "
-               "unresolvable has to be said out loud before the page can "
-               "teach a route around it — the tools tier (`day8/re-frame2-xray` "
-               "until an `xray-v*` tag is cut) once the framework ships, the "
-               "framework itself before that. If EVERY day8/re-frame2* "
-               "coordinate now resolves on Clojars then this lock is done: "
-               "retire it deliberately, do not restate something false to get "
-               "green (rf2-ol8l7a, rf2-lyriz)."))
+               "coordinate shape at all. If EVERY day8/re-frame2* coordinate "
+               "now resolves on Clojars then this lock is done: retire it "
+               "deliberately, do not restate something false to get green "
+               "(rf2-ol8l7a, rf2-lyriz)."))
       (is (str/includes? body ":git/sha")
           (str "deps-versions.md no longer gives the `:git/sha` route. For any "
                "day8/re-frame2* artefact whose `:mvn/version` does not resolve, "
                "`:git/url` + `:git/sha` (or `:local/root`) is the ONLY working "
-               "manual route, and the page has to carry it — otherwise the "
-               "caveat above is a dead end (rf2-ol8l7a, rf2-lyriz)."))
+               "manual route (rf2-ol8l7a, rf2-lyriz)."))
       (is (contains-any? body ["Clojars" "resolve"])
           (str "deps-versions.md no longer points version discovery at whether "
-               "the coordinate actually RESOLVES on Clojars. The repo VERSION "
-               "string is the next-release tag, not a published-Maven-version "
-               "guarantee (rf2-ol8l7a)."))
-      ;; For the coordinate that does NOT resolve, the `:mvn/version` shape may
-      ;; appear only as a LABELLED destination — never as its today's-route
-      ;; recommendation. (For a coordinate that does resolve, `:mvn/version`
-      ;; being the plain recommendation is correct and this assertion is
-      ;; indifferent to it.)
+               "the coordinate actually RESOLVES on Clojars (rf2-ol8l7a)."))
       (is (contains-any? body ["After publication" "Post-publish" "post-publish"
                                "AFTER PUBLICATION"])
           (str "deps-versions.md no longer labels `:mvn/version` as the "
                "POST-PUBLISH destination for the coordinate that does not "
-               "resolve yet. An unqualified `:mvn/version \"<VERSION>\"` for "
-               "such a coord is a false-green setup — it 404s on Clojars and "
-               "fails resolution before anything compiles — so it must be "
-               "clearly gated as the after-publication shape rather than "
-               "offered as today's route (rf2-ol8l7a, rf2-lyriz).")))))
+               "resolve yet (rf2-ol8l7a, rf2-lyriz)."))))
+  (testing "SKILL.md step 2 points the framework coords at something that resolves, on both routes"
+    (let [skill @skill-md]
+      (is (str/includes? skill ":local/root \"<RE_FRAME2>/implementation/core\"")
+          (str "SKILL.md step 2 no longer shows the pre-publish :local/root rewrite for "
+               "day8/re-frame2. The leaf's deps.edn ships a forward-correct :mvn/version "
+               "that 404s today; the skill must point it at the checkout before "
+               "npm install (rf2-rc0yh)."))
+      (is (str/includes? skill "generator route")
+          (str "SKILL.md no longer says the coordinate step follows the generator route "
+               "too — the generator emits the same unresolvable :mvn/version (rf2-rc0yh).")))))
 
 ;; ---------------------------------------------------------------------------
-;; Lock 10 — the schema-missing contract is a LOUD error, not a CLJS soft-pass.
-;;
-;; Core routes reg-app-schema / reg-app-schemas through :on-absent :throw —
-;; without `day8/re-frame2-schemas` they throw
-;; :rf.error/schemas-artefact-missing (implementation/core/.../core_schemas.cljc).
-;; Requiring `re-frame.schemas` wires Malli automatically, so a registered
-;; schema validates (Spec 010 §Schema implies validation on CLJS). Teaching
-;; that missing the schemas artefact "soft-passes" on the normal setup path is
-;; false: it throws, and a present artefact validates. These guards fail if the
-;; soft-pass-on-the-setup-path framing appears and require the loud-error /
-;; Malli-wired contract to be stated.
+;; Lock 10 — schemas are pay-as-you-go, NOT day-one (flipped by rf2-rc0yh
+;; slice B). The counter attaches no schema; `day8/re-frame2-schemas` is
+;; added at the moment the author calls reg-app-schema, and deps-versions.md
+;; keeps the loud `:rf.error/schemas-artefact-missing` contract on that row
+;; (Spec 010: schema implies validation; no soft-pass).
 ;; ---------------------------------------------------------------------------
 
-(deftest schema-missing-artefact-is-loud-not-softpass
-  (testing "deps-versions.md teaches the loud :rf.error/schemas-artefact-missing contract, not a setup-path soft-pass"
+(deftest schemas-are-pay-as-you-go-not-day-one
+  (testing "the default scaffold carries no schema artefact, require, or registration"
+    (doseq [[path body] @first-counter-files
+            token ["re-frame.schemas" "reg-app-schema" "CounterDb" "re-frame2-schemas"]]
+      (is (not (str/includes? body token))
+          (str "first-counter.md's `" path "` carries `" token "` — schemas are not "
+               "day-one on the reduced scaffold (rf2-zq34m); add the artefact when the "
+               "author writes a schema (rf2-rc0yh AC3)."))))
+  (testing "the default deps.edn is exactly core + adapter + view library (+ Clojure/ClojureScript)"
+    (let [deps (clojure.edn/read-string (get @first-counter-files "deps.edn" "{}"))]
+      (is (= #{"org.clojure/clojure" "org.clojure/clojurescript" "day8/re-frame2"
+               "day8/re-frame2-reagent" "reagent/reagent"}
+             (set (map str (keys (:deps deps)))))
+          (str "first-counter.md's deps.edn :deps are not the reduced five (clojure, "
+               "clojurescript, core, adapter, reagent). " regenerate-hint))))
+  (testing "deps-versions.md keeps the loud schemas contract on the pay-as-you-go row"
     (let [body @deps-versions-md]
       (is (str/includes? body ":rf.error/schemas-artefact-missing")
           (str "deps-versions.md no longer names the loud "
                "`:rf.error/schemas-artefact-missing` thrown when an app calls "
-               "reg-app-schema without day8/re-frame2-schemas. Current core "
-               "routes the registration through :on-absent :throw — it does NOT "
-               "silently soft-pass on the setup path (rf2-ol8l7a)."))
+               "reg-app-schema without day8/re-frame2-schemas (rf2-ol8l7a)."))
       (is (str/includes? body "re-frame.schemas")
           (str "deps-versions.md no longer says you must `:require` "
-               "`re-frame.schemas` before reg-app-schema. Requiring it wires "
-               "Malli automatically so a registered schema validates (Spec 010 "
-               "§Schema implies validation on CLJS) (rf2-ol8l7a)."))
-      ;; The soft-pass word may survive ONLY adjacent to a negation / the
-      ;; substitute-validator carve-out — never as the plain missing-artefact
-      ;; greenfield behaviour. Assert the missing-artefact sentence is NOT
-      ;; framed as a soft-pass.
+               "`re-frame.schemas` before reg-app-schema (rf2-ol8l7a)."))
       (is (not (re-find #"(?i)without (it|the artefact|day8/re-frame2-schemas)[^.\n]{0,80}soft.?pass"
                         body))
-          (str "deps-versions.md still says missing the schemas artefact "
-               "CLJS soft-passes on the setup path. The current contract is a "
-               "loud throw (:rf.error/schemas-artefact-missing); soft-pass "
-               "language is reserved for substitute-validator / explicit "
-               "default-absent contexts per Spec 010 (rf2-ol8l7a)."))))
-  (testing "first-counter.md frames 'no schema errors' as nothing-registered, not a soft-pass"
-    (let [fc (slurp-rel setup-root "references/first-counter.md")]
-      (is (not (re-find #"(?i)there'?s nothing to validate[^.\n]*soft.?passe?s?" fc))
-          (str "first-counter.md still says the counter 'soft-passes' because "
-               "there's nothing to validate. The correct framing: no schema is "
-               "registered, so there is no validation WORK — not a soft-pass "
-               "(a registered schema DOES validate once re-frame.schemas is "
-               "required) (rf2-ol8l7a).")))))
+          (str "deps-versions.md says missing the schemas artefact soft-passes. "
+               "The contract is a loud throw (rf2-ol8l7a)."))))
+  (testing "SKILL.md says no schemas on day one"
+    (is (str/includes? @skill-md "no schemas")
+        (str "SKILL.md no longer states that schemas are not day-one. The reduced "
+             "scaffold ships none; the author adds the artefact when they write one "
+             "(rf2-rc0yh)."))))
 
 ;; ---------------------------------------------------------------------------
-;; Lock 11 — the FIRST canonical shadow-cljs.edn block carries the day-one Xray
-;; preload.
-;;
-;; Xray is a day-one dep (deps-versions.md) and index.html ships the
-;; [data-rf-xray-host] column; the SKILL.md day-one shape + done-checklist both
-;; require `:devtools/preloads [day8.re-frame2-xray.preload]`. Presenting the
-;; FIRST copyable shadow-cljs.edn block WITHOUT the preload (arriving only in a
-;; later ":devtools (optional, for hot-reload)" section) would make the most
-;; obvious block to copy produce a compiling app whose right-side host stays
-;; empty: a false-green scaffold (the dep + host markup are present but nothing
-;; loads Xray). This guard fails if the day-one block drops the preload while
-;; the deps/checklist still require Xray, or if the section frames the preload
-;; as optional hot-reload material.
+;; Lock 11 — the default build carries NO devtools preload (flipped by
+;; rf2-rc0yh slice B). The FIRST copyable shadow-cljs.edn used to have to
+;; carry `:devtools {:preloads [day8.re-frame2-xray.preload]}`; the reduced
+;; template emits no :devtools key at all, and Xray is a next step.
 ;; ---------------------------------------------------------------------------
 
-(defn- first-shadow-build-block
-  "The FIRST ```clojure fenced block in shadow-cljs.md that contains a
-   `:builds` map — i.e. the canonical day-one build the author copies first.
-   CRLF-tolerant (the reference files use Windows line endings)."
-  [body]
-  (some (fn [block] (when (str/includes? block ":builds") block))
-        (map second (re-seq #"(?s)```clojure\r?\n(.*?)```" body))))
+(deftest default-shadow-build-carries-no-devtools-preload
+  (testing "first-counter.md's shadow-cljs.edn is the template's two-build config with no :devtools"
+    (let [block (get @first-counter-files "shadow-cljs.edn" "")]
+      (is (seq block) "first-counter.md carries no shadow-cljs.edn block.")
+      (is (str/includes? block ":builds") "the shadow-cljs.edn block has no :builds map.")
+      (is (str/includes? block ":init-fn acme.my-app.core/init")
+          "the shadow-cljs.edn block's :init-fn no longer names acme.my-app.core/init.")
+      (is (str/includes? block ":test") "the shadow-cljs.edn block lost the :test build the template ships.")
+      (is (not (str/includes? block ":devtools"))
+          (str "the default shadow-cljs.edn carries a :devtools map — the reduced "
+               "template emits none; a preload is a later, explicit step (rf2-rc0yh)."))
+      (is (not (str/includes? block "re-frame2-xray"))
+          "the default shadow-cljs.edn names Xray — it ships no preload (rf2-rc0yh)."))))
 
-(deftest day-one-shadow-build-includes-xray-preload
-  (testing "the first canonical shadow-cljs.edn build block wires the day-one Xray preload"
-    (let [block (first-shadow-build-block @shadow-cljs-md)]
-      (is (some? block)
-          "Could not find the first `:builds` shadow-cljs.edn block in shadow-cljs.md.")
-      (is (and block (str/includes? block "day8.re-frame2-xray.preload"))
-          (str "The FIRST canonical shadow-cljs.edn build block omits the "
-               "day-one `[day8.re-frame2-xray.preload]`. Xray is a day-one dep "
-               "and index.html ships the [data-rf-xray-host] column — the most "
-               "obvious block to copy must wire the preload that fills it, or "
-               "the scaffold compiles with a permanently-empty Xray host "
-               "(false-green) (rf2-agi57x)."))
-      (is (and block (str/includes? block ":devtools"))
-          (str "The first shadow-cljs.edn build block no longer carries the "
-               "`:devtools` map. The day-one preload lives under `:devtools "
-               "{:preloads [...]}` in the canonical block (rf2-agi57x)."))))
-  (testing "the day-one deps/checklist that REQUIRE Xray are still present (guard premise)"
+(deftest xray-is-a-next-step-not-day-one
+  (testing "SKILL.md and first-counter.md name no Xray coordinate or preload as scaffold content"
+    (doseq [[label body] [["SKILL.md" @skill-md] ["first-counter.md" @first-counter-md]]
+            token ["day8/re-frame2-xray" "day8.re-frame2-xray"]]
+      (is (not (str/includes? body token))
+          (str label " names `" token "` — Xray is not day-one on either route "
+               "(rf2-zq34m STRIP BOTH; rf2-rc0yh AC3)."))))
+  (testing "SKILL.md frames Xray as a later step the handoff points at, and states the scaffold is small"
     (let [skill @skill-md]
-      ;; The guard above is only meaningful while the day-one shape still
-      ;; mandates Xray. If a future edit drops Xray from day-one entirely, this
-      ;; sub-test fails LOUDLY so the preload guard is revisited deliberately
-      ;; rather than silently mismatching the (now Xray-free) day-one shape.
-      (is (str/includes? skill ":devtools/preloads [day8.re-frame2-xray.preload]")
-          (str "SKILL.md no longer requires `:devtools/preloads "
-               "[day8.re-frame2-xray.preload]` in the day-one shape/checklist. "
-               "If Xray was deliberately dropped from day-one, revisit Lock 11 "
-               "(the preload-in-default-block guard) — it assumes Xray is "
-               "day-one (rf2-agi57x).")))))
-
-(deftest shadow-devtools-section-not-labelled-optional-hot-reload
-  (testing "the :devtools section header no longer frames the Xray preload as optional hot-reload material"
-    (let [body @shadow-cljs-md]
-      ;; A ":devtools block (optional, for hot-reload)" TOC/section header
-      ;; would imply the Xray preload is opt-in hot-reload tooling. It is the
-      ;; day-one default — not optional hot-reload material. (Nor is the preload
-      ;; what drives hot reload: for the :browser target shadow calls the module
-      ;; :init-fn ONCE at bundle load and does NOT re-run it on a reload, so the
-      ;; entry ns carries a ^:dev/after-load hook — rf2-ms6r8, measured under
-      ;; rf2-r0kk7 / PR #8400.)
-      (is (not (str/includes? body "optional, for hot-reload"))
-          (str "shadow-cljs.md still labels the `:devtools` section "
-               "\"optional, for hot-reload\". The Xray preload is the day-one "
-               "default, not optional hot-reload material. Reframe the section "
-               "header (rf2-agi57x).")))))
+      (is (str/includes? skill "Xray")
+          "SKILL.md no longer mentions Xray at all — the handoff should still point at it as an optional next step.")
+      (is (str/includes? skill "no Xray")
+          "SKILL.md no longer states that Xray is not day-one (rf2-rc0yh).")
+      (is (str/includes? skill "Next steps")
+          "SKILL.md no longer routes the optional attachments through the generated README's Next steps."))))
 
 ;; ---------------------------------------------------------------------------
 ;; Lock 12 — zero-interview pin default + executor posture (rf2-rc0yh).
 ;;
-;; One unqualified greenfield prompt must produce one served SPA with no
-;; clarification round and no handing-back of commands:
-;;
-;;   * deps-versions.md must NOT tell the skill to stop and ask when the
-;;     author supplied no pin — the no-pin default IS the generator template's
-;;     pinned baseline (hooks.clj, drift-guarded by version_lockstep_test.clj),
-;;     and an author-supplied pin merely overrides it.
-;;   * SKILL.md must frame the skill as the EXECUTOR: it runs `npm install`
-;;     and a terminating `npx shadow-cljs compile app` itself, starts the
-;;     watch, and reports the actual URL — and it must keep the honesty line
-;;     that compile success alone is not a mount claim.
-;;
 ;; The RETIRED original Lock 12 (rf2-agi57x) asserted the opposite posture for
 ;; the generator — that allowed-tools must NOT grant `clojure -Tnew` and the
 ;; prose must frame the generator as user-run. rf2-rc0yh dropped that
-;; prohibition as policy (the skill runs the generator itself when the author
-;; asks for that route); do not reintroduce it.
+;; prohibition as policy; do not reintroduce it.
 ;; ---------------------------------------------------------------------------
 
 (deftest pin-default-is-zero-interview
@@ -767,31 +655,21 @@
                "template's pinned baseline — proceed, don't interview."))
       (is (not (re-find #"(?i)the skill never auto-selects" body))
           (str "deps-versions.md re-introduces the never-auto-selects pin "
-               "interview. An author-supplied pin OVERRIDES the template-"
-               "baseline default; its absence is not a reason to stop "
-               "(rf2-rc0yh)."))
+               "interview (rf2-rc0yh)."))
       (is (contains-any? body ["default pin is the generator template's baseline"
                                "an author-supplied pin overrides"])
           (str "deps-versions.md no longer names the generator template's "
-               "pinned baseline as the no-pin default. One reviewed source of "
-               "truth (template hooks.clj, drift-guarded by "
-               "version_lockstep_test.clj) is what makes the zero-interview "
-               "default reproducible (rf2-rc0yh)."))))
+               "pinned baseline as the no-pin default (rf2-rc0yh)."))))
   (testing "SKILL.md states the zero-interview default"
     (let [skill @skill-md]
       (is (contains-any? skill ["no clarification round" "never a reason to stop and ask"
                                 "zero-interview"])
-          (str "SKILL.md no longer states the zero-interview default: an "
-               "unqualified greenfield request proceeds on Reagent + the "
-               "template-baseline pin with no clarification round "
+          (str "SKILL.md no longer states the zero-interview default "
                "(rf2-rc0yh).")))))
 
 (deftest skill-executes-the-scaffold-and-reports-the-url
   (testing "SKILL.md frames the skill as running install + a terminating compile itself"
     (let [skill @skill-md
-          ;; Isolate the YAML front-matter (between the first two `---`
-          ;; fences) so the grant premise reads the actual allowed-tools
-          ;; block, not prose.
           fm    (some-> (re-find #"(?s)^---\r?\n(.*?)\r?\n---" skill) second)]
       (is (some? fm)
           "Could not isolate the SKILL.md YAML front-matter (allowed-tools block).")
@@ -799,50 +677,21 @@
                (str/includes? fm "npm install")
                (str/includes? fm "shadow-cljs compile"))
           (str "SKILL.md's allowed-tools no longer grant the executor path "
-               "(`npm install` + `shadow-cljs compile`). The skill runs the "
-               "scaffold itself; the grants must cover it (rf2-rc0yh)."))
+               "(`npm install` + `shadow-cljs compile`) (rf2-rc0yh)."))
       (is (str/includes? skill "The skill runs both commands itself")
           (str "SKILL.md no longer frames the skill as the executor of the "
-               "verify-and-serve step — it must run the terminating "
-               "`npx shadow-cljs compile app` and start the watch itself "
-               "rather than handing the author a to-do list (rf2-rc0yh)."))
+               "verify-and-serve step (rf2-rc0yh)."))
       (is (str/includes? skill "http://localhost:8280/")
           (str "SKILL.md no longer reports the actual dev URL "
-               "(http://localhost:8280/). The handoff names the successful "
-               "command and the URL being served (rf2-rc0yh)."))
+               "(http://localhost:8280/) (rf2-rc0yh)."))
       (is (contains-any? skill ["not the mount" "does not prove the mount"
                                 "don't claim the mount" "compile success alone"])
           (str "SKILL.md dropped the honesty line: compile success proves the "
-               "build, not the browser mount — the handoff must not claim the "
-               "counter mounted from a green compile alone (rf2-rc0yh).")))))
+               "build, not the browser mount (rf2-rc0yh).")))))
 
 ;; ---------------------------------------------------------------------------
 ;; Lock 13 — the PUBLIC entry-ramp docs (docs-site setup page + top-level
 ;; skills index) stay in sync with the current setup/template contract.
-;;
-;; The authoritative SKILL.md / setup references / template API docs are the
-;; source of truth; two USER-FACING discoverability surfaces must not drift
-;; from them:
-;;
-;;   * docs/skills/re-frame2-setup.md must teach the current lockstep count —
-;;     TEN publishable framework artefacts (the S7 Helix removal took the set
-;;     from eleven to ten), with day8/re-frame2-xray on the same line (see
-;;     SKILL.md cardinal rule 2 + README.md) — not the stale "all
-;;     eleven ship at the same version" count, and must link the reference leaves
-;;     to the PLURAL `…/skills/re-frame2-setup/references` GitHub path (a
-;;     singular `…/reference` 404s). check_doc_slugs.py can't catch either: it
-;;     skips external http(s) URLs and does not validate prose artefact counts.
-;;
-;;   * skills/README.md must caveat the one-shot generator: the published
-;;     `io.github.day8/re-frame2-template` `-Tnew create` form can't resolve
-;;     pre-split (the external repo doesn't exist yet; the working route is
-;;     `:local/root`, per tools/template/README.md + the setup skill's own
-;;     cardinal rule 5). NOTE: the index was later slimmed to point at
-;;     tools/template/README.md rather than inline the full invocation, so the
-;;     guard keys off the surviving `tools/template` + `:local/root` mentions.
-;;
-;; These guards read the two public files off disk (no network) and fail if
-;; any of the three drifts appears while check_doc_slugs.py stays green.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private docs-setup-page-md
@@ -857,321 +706,186 @@
       (is (not (re-find #"(?i)eleven" body))
           (str "docs/skills/re-frame2-setup.md re-teaches the stale "
                "\"all eleven ship at the same version\" lockstep count. The "
-               "current contract is TEN publishable framework artefacts "
-               "shipping in lockstep (the S7 Helix removal dropped "
-               "day8/re-frame2-helix), with day8/re-frame2-xray riding the "
-               "same version line (SKILL.md cardinal rule 2 / README.md). "
-               "The docs-site page must not drift back to the old count."))
+               "current contract is TEN publishable framework artefacts."))
       (is (re-find #"(?i)\ball ten\b" body)
           (str "docs/skills/re-frame2-setup.md no longer states the TEN "
-               "publishable framework artefacts ship in lockstep. The "
-               "corrected lockstep wording must name the current count "
-               "consistently with SKILL.md / README.md.")))))
+               "publishable framework artefacts ship in lockstep."))))
+  (testing "docs/skills/re-frame2-setup.md teaches the reduced twelve-file scaffold"
+    (is (str/includes? @docs-setup-page-md "twelve files")
+        (str "docs/skills/re-frame2-setup.md no longer describes the twelve-file "
+             "scaffold the skill writes (rf2-rc0yh)."))))
 
 (deftest docs-setup-page-references-link-is-plural
   (testing "docs/skills/re-frame2-setup.md links the reference leaves to the real plural `references/` path"
     (let [body @docs-setup-page-md]
-      ;; The repo directory is `skills/re-frame2-setup/references` (plural);
-      ;; a singular `…/reference` GitHub URL 404s. Fail on any singular
-      ;; self-repo path that is NOT immediately followed by the plural `s`.
       (is (not (re-find #"skills/re-frame2-setup/reference(?!s)" body))
           (str "docs/skills/re-frame2-setup.md links the reference leaves to "
                "the SINGULAR `skills/re-frame2-setup/reference` GitHub path, "
-               "which 404s — the repo directory is `references` (plural). "
-               "check_doc_slugs.py skips external http(s) URLs, so this guard "
-               "is the only backstop (rf2-79gtjr)."))
+               "which 404s (rf2-79gtjr)."))
       (is (re-find #"skills/re-frame2-setup/references" body)
           (str "docs/skills/re-frame2-setup.md no longer links the reference "
-               "leaves to the real plural `skills/re-frame2-setup/references` "
-               "path (rf2-79gtjr).")))))
+               "leaves to the real plural path (rf2-79gtjr).")))))
 
 (deftest skills-index-template-form-carries-pre-split-caveat
   (testing "skills/README.md pairs any generator mention with a pre-split caveat + the working :local/root route"
     (let [body @skills-index-md]
-      ;; Premise guard: the index must still reference the generator template
-      ;; (tools/template). If that reference is gone entirely this lock is moot;
-      ;; fail loudly so the caveat requirement is revisited deliberately rather
-      ;; than silently passing on an absent string. (The index no longer inlines
-      ;; the full `io.github.day8/re-frame2-template -Tnew create` invocation —
-      ;; it now points at tools/template/README.md for the working route — so the
-      ;; guard keys off the surviving `tools/template` reference instead.)
       (is (str/includes? body "tools/template")
           (str "skills/README.md no longer references the generator template "
                "(tools/template). If it was removed deliberately, revisit "
-               "Lock 13 (the pre-split-caveat guard assumes the generator is "
-               "mentioned) (rf2-79gtjr)."))
-      ;; Any generator mention must carry the pre-split caveat: the published
-      ;; :template / io.github coord can't resolve pre-split.
+               "Lock 13 (rf2-79gtjr)."))
       (is (contains-any? body ["Pre-split" "pre-split" "isn't published yet"
                                "not published yet" "can't resolve"])
           (str "skills/README.md mentions the generator template with NO "
-               "pre-split caveat. The published coord can't resolve pre-split "
-               "(the external repo doesn't exist yet); the index must say so, "
-               "matching tools/template/README.md and the setup skill's "
-               "cardinal rule 5 (rf2-79gtjr)."))
-      ;; …and must point at the working `:local/root` route — inline, or via a
-      ;; pointer to tools/template/README.md — so the caveat isn't a dead end.
+               "pre-split caveat (rf2-79gtjr)."))
       (is (str/includes? body ":local/root")
           (str "skills/README.md gives the pre-split caveat but not the "
-               "working `:local/root` route (inline, or via a pointer to "
-               "tools/template/README.md). The caveat must be paired with the "
-               "route that actually works today (rf2-79gtjr).")))))
+               "working `:local/root` route (rf2-79gtjr).")))))
 
 ;; ---------------------------------------------------------------------------
-;; Lock 8 — the manual boot seed matches the generator's frame-root ENSURE
-;; contract.
-;;
-;; The generator template mounts through `frame-root`'s `{:id :rf/default
-;; :initial-events [[:counter/initialise]]}` ENSURE shape: the seed runs ONCE,
-;; synchronously, at frame creation; a hot-reload re-mount REUSES the live
-;; frame without re-seeding (refresh the tab to re-seed). The retired boot
-;; ceremony (reg-frame + with-frame + dispatch-sync) must not reappear in the
-;; template OR the manual snippets — the manual route (first-counter.md +
-;; entry-namespace.md) must land on the same boot/seed behaviour the
-;; generator ships (rf2-xqds87 lineage; frame-root migration).
+;; Lock 8b — the manual boot seed matches the generator's frame-root ENSURE
+;; contract, on both substrates.
 ;; ---------------------------------------------------------------------------
+
+(def ^:private frame-root-ensure
+  #"frame-root\s+\{:id\s+app-frame[^}]*:initial-events\s+\[\[:counter/initialise\]\]")
 
 (deftest manual-boot-seed-matches-generator-frame-root-contract
-  (testing "the generator Reagent template mounts via frame-root {:id … :initial-events …} (premise of this lock)"
+  (testing "the generator Reagent template mounts via frame-root {:id app-frame :initial-events …} (premise of this lock)"
     (let [tmpl @reagent-template-core]
       (is (and (str/includes? tmpl "rf/frame-root")
-               (re-find #":initial-events\s+\[\[:counter/initialise\]\]" tmpl))
+               (re-find #":initial-events\s+\[\[:counter/initialise\]\]" tmpl)
+               (str/includes? tmpl "(def app-frame :rf/default)"))
           (str "the generator Reagent template no longer mounts via "
-               "`[rf/frame-root {:id :rf/default :initial-events "
-               "[[:counter/initialise]]}]`. If the generator boot contract "
-               "changed, update this lock AND the manual snippets together."))
+               "`[rf/frame-root {:id app-frame :initial-events "
+               "[[:counter/initialise]]}]` with `(def app-frame :rf/default)`. "
+               "If the generator boot contract changed, regenerate the leaves "
+               "AND update this lock together."))
       (is (not (str/includes? tmpl "reg-frame"))
           (str "the generator Reagent template reintroduced the retired "
-               "`reg-frame` boot ceremony — re-check the manual-snippet "
-               "alignment in this lock."))))
-  (testing "first-counter.md + entry-namespace.md mount via frame-root's ENSURE seed, not the retired ceremony"
-    (doseq [[label body] [["first-counter.md" @first-counter-md]
-                          ["entry-namespace.md" @entry-namespace-md]]]
-      (is (re-find #"frame-root\s+\{:id\s+:rf/default[^}]*:initial-events\s+\[\[:(counter|your-app)/initialise\]\]"
-                   body)
-          (str label " no longer mounts the manual counter via "
-               "`frame-root {:id :rf/default :initial-events "
-               "[[...initialise]]}`. The manual boot must match the "
-               "generator's ENSURE contract (seed once at frame creation; "
-               "hot reload reuses the live frame without re-seeding)."))
+               "`reg-frame` boot ceremony."))))
+  (testing "both entry namespaces the skill ships mount via frame-root's ENSURE seed, not the retired ceremony"
+    (doseq [[label body] [["first-counter.md core.cljs" (get @first-counter-files "src/acme/my_app/core.cljs" "")]
+                          ["entry-namespace.md UIx core.cljs" (get @uix-files "src/acme/my_app/core.cljs" "")]]]
+      (is (re-find frame-root-ensure body)
+          (str label " no longer mounts via `frame-root {:id app-frame :initial-events "
+               "[[:counter/initialise]]}`. The manual boot must match the generator's "
+               "ENSURE contract. " regenerate-hint))
+      (is (str/includes? body "(def app-frame :rf/default)")
+          (str label " no longer defines app-frame as :rf/default. " regenerate-hint))
       (is (not (re-find #"\(rf/reg-frame" body))
-          (str label " reintroduced the retired `reg-frame` boot ceremony. "
-               "The frame is created by the view's frame-root ENSURE "
-               "element; programmatic creation is rf/make-frame (not part "
-               "of the greenfield boot recipe).")))))
+          (str label " reintroduced the retired `reg-frame` boot ceremony.")))))
 
 ;; ---------------------------------------------------------------------------
-;; Lock 14 — the UIx manual namespace graph is COMPLETE and SELF-CONTAINED.
-;;
-;; The alternate-substrate route was previously false-green: the entry snippets
-;; dispatched :counter/initialise and subscribed :counter/value, but no supplied
-;; copied file registered them, so a compiled project reached
-;; :rf.error/no-such-handler / :rf.error/no-such-sub at boot and never attached
-;; CounterDb. The fix single-sources the substrate-neutral dataflow ONCE in
-;; references/shared-dataflow.md (events + subs + schema) and makes the UIx
-;; entry namespace :require it + call register-schema! under
-;; with-frame BEFORE dispatch-sync (the generator's boot order). These guards
-;; fail if the shared dataflow loses any of the three registration axes, or if
-;; the substrate core.cljs stops requiring it / stops attaching the schema before
-;; the seed. Lock 7 checks only that the VIEW snippets exist; a project with the
-;; views but no registrations still COMPILES — this lock closes that hole
-;; (rf2-3fc89f).
+;; Lock 14 — the dataflow is registered once, on both substrates, with no
+;; schema axis (flipped by rf2-rc0yh slice B: the shared-dataflow.md leaf and
+;; its schema.cljs are retired; events.cljs + subs.cljs live in the default
+;; scaffold and the UIx entry ns requires them).
 ;; ---------------------------------------------------------------------------
 
-(deftest shared-dataflow-registers-all-three-axes
-  (testing "shared-dataflow.md supplies copy-complete event, sub, and schema registrations"
-    (let [body @shared-dataflow-md]
-      (is (and (re-find #"reg-event\s+:counter/initialise" body)
-               (re-find #"reg-event\s+:counter/increment" body))
-          (str "shared-dataflow.md no longer registers BOTH :counter/initialise "
-               "and :counter/increment via reg-event. The substrate-neutral "
-               "events source must install every event the UIx views "
-               "dispatch, or the manual scaffold boots to "
-               ":rf.error/no-such-handler (rf2-3fc89f)."))
-      (is (re-find #"reg-sub\s+:counter/value" body)
-          (str "shared-dataflow.md no longer registers the :counter/value sub. "
-               "The UIx views subscribe it via use-subscribe; without the "
-               "registration the counter renders nil (:rf.error/no-such-sub) "
-               "(rf2-3fc89f)."))
-      (is (and (str/includes? body "CounterDb")
-               (re-find #"reg-app-schema\s+\[\]\s+\{:frame :rf/default\}\s+CounterDb" body)
-               (str/includes? body "register-schema!"))
-          (str "shared-dataflow.md no longer supplies the CounterDb schema + a "
-               "frame-local register-schema! that calls (reg-app-schema [] "
-               "{:frame :rf/default} CounterDb) — the explicit-frame attach "
-               "that runs at boot BEFORE the frame-root mount creates the "
-               "frame (rf2-3fc89f)."))
-      ;; The events source must require re-frame.schemas (side-effecting) so the
-      ;; Malli validator is live before register-schema! runs.
-      (is (str/includes? body "[re-frame.schemas]")
-          (str "shared-dataflow.md no longer requires `[re-frame.schemas]` — the "
-               "side-effecting load that wires Malli's validate/explain so a "
-               "registered schema validates rather than throwing "
-               ":rf.error/schemas-artefact-missing (rf2-3fc89f).")))))
+(deftest default-scaffold-registers-events-and-sub-without-schema
+  (testing "first-counter.md's events.cljs / subs.cljs register the counter vocabulary"
+    (let [events (get @first-counter-files "src/acme/my_app/events.cljs" "")
+          subs   (get @first-counter-files "src/acme/my_app/subs.cljs" "")
+          views  (get @first-counter-files "src/acme/my_app/views.cljs" "")]
+      (is (and (re-find #"reg-event\s+:counter/initialise" events)
+               (re-find #"reg-event\s+:counter/increment" events))
+          (str "events.cljs no longer registers BOTH :counter/initialise and "
+               ":counter/increment. " regenerate-hint))
+      (is (re-find #"reg-sub\s+:counter/value" subs)
+          (str "subs.cljs no longer registers :counter/value. " regenerate-hint))
+      (is (and (re-find #"dispatch\s+\[:counter/increment\]" views)
+               (re-find #"subscribe\s+\[:counter/value\]" views))
+          (str "views.cljs no longer dispatches :counter/increment / subscribes "
+               ":counter/value — the ids the events/subs install. " regenerate-hint))))
+  (testing "no file in the default scaffold registers a schema"
+    (doseq [[path body] @first-counter-files]
+      (is (not (re-find #"reg-app-schemas?|register-schema!" body))
+          (str "first-counter.md's `" path "` registers a schema. The reduced scaffold "
+               "has no schema axis (rf2-rc0yh AC3).")))))
 
-(deftest uix-core-requires-shared-dataflow-and-attaches-schema
-  (testing "entry-namespace.md's UIx core.cljs requires the shared graph and attaches the schema before the seed"
-    (let [body @entry-namespace-md]
-      ;; The substrate core.cljs block must :require the shared event/sub/schema
-      ;; namespaces.
-      (doseq [[label ns-token] [["events" "your-app.events"]
-                                ["subs"   "your-app.subs"]
-                                ["schema" "your-app.schema"]]]
-        (is (>= (count (re-seq (re-pattern (java.util.regex.Pattern/quote ns-token)) body)) 1)
-            (str "entry-namespace.md's UIx core.cljs no longer :requires the "
-                 "shared `" ns-token "` namespace. "
-                 "The substrate entry ns must load the shared " label
-                 " registrations, or the compiled project boots with the "
-                 "dataflow unregistered (rf2-3fc89f).")))
-      ;; register-schema! must be called at boot in the substrate block.
-      (is (>= (count (re-seq #"\(schema/register-schema!\)" body)) 1)
-          (str "entry-namespace.md no longer calls (schema/register-schema!) in "
-               "the UIx core.cljs. The frame-local schema attach "
-               "must run at boot on every substrate, matching the generator's "
-               "_uix/core.cljs (rf2-3fc89f)."))
-      ;; …and it must run BEFORE the mount (the attach names :rf/default
-      ;; explicitly, so it precedes frame creation; the frame's :initial-events
-      ;; seed is then validated from its first write).
-      ;;
-      ;; Since rf2-ms6r8 the entry ns is TWO fns — the boot ceremony in `init`,
-      ;; and a `^:dev/after-load mount!` carrying the frame-root, which is what
-      ;; shadow re-runs on a hot reload (`:init-fn` is NOT re-run; see the
-      ;; hot-reload lock below). So the ordering can no longer be read off the
-      ;; adjacency of `register-schema!` and `frame-root` — they are in
-      ;; different fns, and the frame-root now appears EARLIER in the file. The
-      ;; invariant is unchanged and is asserted where it actually lives: inside
-      ;; `init`, the schema attach precedes the `(mount!)` call.
-      (is (re-find #"\(schema/register-schema!\)[^\n]*(?:\n[^\n]*){0,3}?\(mount!\)"
-                   body)
-          (str "entry-namespace.md's substrate boot no longer attaches the schema "
-               "BEFORE the mount. The explicit-frame "
-               "register-schema! must precede the (mount!) call in `init` so the "
-               ":counter/initialise seed is validated from its first write "
-               "(rf2-3fc89f lineage; frame-root migration).")))))
+(deftest uix-core-requires-events-subs-views-and-attaches-no-schema
+  (testing "entry-namespace.md's UIx core.cljs requires the shared dataflow and boots init! -> mount!"
+    (let [body (get @uix-files "src/acme/my_app/core.cljs" "")]
+      (doseq [ns-token ["acme.my-app.events" "acme.my-app.subs" "acme.my-app.views"]]
+        (is (str/includes? body (str "[" ns-token))
+            (str "entry-namespace.md's UIx core.cljs no longer :requires `" ns-token
+                 "`. The substrate entry ns must load the shared registrations "
+                 "(rf2-3fc89f lineage). " regenerate-hint)))
+      (is (not (re-find #"register-schema!|re-frame\.schemas" body))
+          (str "entry-namespace.md's UIx core.cljs attaches a schema — the reduced "
+               "scaffold has none on either substrate (rf2-rc0yh)."))
+      (is (re-find #"\(defn\s+\^:export\s+init\s+\[\]\s+\(rf/init!\s+uix-adapter/adapter\)\s+\(mount!\)\)" body)
+          (str "entry-namespace.md's UIx `init` is no longer exactly `(rf/init! "
+               "uix-adapter/adapter)` then `(mount!)` — the template's two-step boot. "
+               regenerate-hint)))))
 
 ;; ---------------------------------------------------------------------------
-;; Lock 14b — the substrate entry ns carries the ^:dev/after-load re-render hook
-;; that gives the author hot reload (rf2-ms6r8, measured under rf2-r0kk7 /
-;; PR #8400).
-;;
-;; shadow's :browser target calls the module :init-fn ONCE, at bundle load, and
-;; does NOT re-run it after a hot reload — it loads the new code and calls the
-;; build's ^:dev/after-load hooks. With none configured it logs "reloading code
-;; but no :after-load hooks are configured!" and the page keeps painting the OLD
-;; view (measured unchanged for 90s on a real generated scaffold). This skill
-;; taught the opposite for both substrates, so an author following it built an
-;; app with no working inner loop.
-;;
-;; The prose wording is guarded repo-side by
-;; scripts/check_skill_setup_counter_drift.py; this lock guards the SHAPE of the
-;; copyable UIx code — the hook must exist, and it must be the fn that mounts,
-;; not a decoration on something that never renders.
+;; Lock 14b — the substrate entry ns carries the ^:dev/after-load re-render
+;; hook that gives the author hot reload (rf2-ms6r8, measured under rf2-r0kk7).
 ;; ---------------------------------------------------------------------------
 
 (deftest uix-core-carries-after-load-render-hook
   (testing "entry-namespace.md's UIx core.cljs re-renders from a ^:dev/after-load hook"
-    (let [body @entry-namespace-md]
+    (let [body (get @uix-files "src/acme/my_app/core.cljs" "")]
       (is (re-find #"\(defn\s+\^:dev/after-load\s+mount!" body)
           (str "entry-namespace.md's UIx core.cljs no longer defines "
                "`(defn ^:dev/after-load mount! ...)`. shadow does NOT re-run the "
                "module :init-fn after a hot reload — without this hook the "
                "scaffolded app compiles, reloads, and never repaints "
                "(rf2-ms6r8)."))
-      ;; The hook must be the fn that actually renders: the frame-root ENSURE
-      ;; mount has to sit inside `mount!`, not back in `init`.
-      (is (re-find #"\(defn\s+\^:dev/after-load\s+mount!(?:[\s\S]{0,600}?)frame-root\s+\{:id\s+:rf/default[\s\S]{0,120}?:initial-events\s+\[\[:counter/initialise\]\]"
+      (is (re-find #"\(defn\s+\^:dev/after-load\s+mount!(?:[\s\S]{0,600}?)frame-root\s+\{:id\s+app-frame[\s\S]{0,120}?:initial-events\s+\[\[:counter/initialise\]\]"
                    body)
           (str "entry-namespace.md's `^:dev/after-load mount!` no longer "
                "contains the frame-root ENSURE mount. The hook must be what "
-               "re-renders — a hook that does not mount leaves the reload just "
-               "as dead as no hook at all (rf2-ms6r8).")))))
+               "re-renders (rf2-ms6r8).")))))
 
 ;; ---------------------------------------------------------------------------
-;; Lock 15 — the UIx route ships NO Xray (rf2-hki2j; rf2-p6f6u lineage).
-;;
-;; Xray's panel shell is hiccup rendered through the ratom-family substrates;
-;; on element-shaped React substrates (UIx) it cannot mount — the launch verbs
-;; refuse (rf2-qgfo4) and hiccup on the React-hook render slot raises
-;; :rf.error/hiccup-on-element-render-slot (rf2-p6f6u). The generator
-;; template's :uix scaffold therefore ships no Xray pieces, and the skill's
-;; UIx manual route must match: no day8/re-frame2-xray coord, no
-;; @xyflow/react + elkjs npm pair, no :devtools preload, no
-;; [data-rf-xray-host] host, no .rf2-xray-host CSS — with the devtools story
-;; stated honestly (Story + re-frame2-pair work on every substrate). The
-;; Reagent route keeps its full day-one Xray wiring (Locks 3 + 11 guard it).
-;; These guards fail if an Xray piece leaks back into the UIx recipe, if the
-;; honest devtools framing disappears, or if the template's _uix/deps.edn
-;; re-adds Xray (in which case revisit this whole lock deliberately —
-;; element-substrate support may have landed).
+;; Lock 15 — the UIx route is the template's three-file swap of the same
+;; Xray-free, schema-free scaffold (flipped by rf2-rc0yh slice B: before the
+;; collapse only the UIx route was Xray-free and it carried its own build
+;; wiring; now both routes are, and the UIx route shares the nine other files).
 ;; ---------------------------------------------------------------------------
 
-(deftest uix-template-stays-xray-free
-  (testing "the template _uix/deps.edn carries no Xray coord (premise of this lock)"
-    (is (not (str/includes? @uix-template-deps "re-frame2-xray"))
-        (str "tools/template's _uix/deps.edn now carries day8/re-frame2-xray. "
-             "If Xray gained element-substrate support and the :uix scaffold "
-             "deliberately re-ships it, update Lock 15 AND the skill's UIx "
-             "route (entry-namespace.md §UIx greenfield, deps-versions.md, "
-             "SKILL.md) together (rf2-hki2j)."))))
+(deftest both-templates-are-xray-free-and-schema-free
+  (testing "neither template deps.edn carries an Xray or schemas coord (premise of this lock)"
+    (doseq [[label body] [["_reagent/deps.edn" @reagent-template-deps]
+                          ["_uix/deps.edn" @uix-template-deps]]
+            token ["re-frame2-xray" "re-frame2-schemas"]]
+      (is (not (str/includes? body token))
+          (str "tools/template's " label " now carries " token ". If the template "
+               "deliberately re-ships it, update Lock 15 AND the skill's day-one rule "
+               "together (rf2-zq34m, rf2-rc0yh).")))))
 
-(deftest uix-build-wiring-is-xray-free
-  (testing "entry-namespace.md's UIx shadow-cljs.edn block ships no Xray preload"
-    (let [block (first-shadow-build-block @entry-namespace-md)]
-      (is (some? block)
-          (str "Could not find the UIx `:builds` shadow-cljs.edn block in "
-               "entry-namespace.md §UIx greenfield. The UIx route must ship "
-               "its own Xray-free build block (rf2-hki2j)."))
-      (is (and block
-               (not (str/includes? block "day8.re-frame2-xray"))
-               (not (str/includes? block ":devtools")))
-          (str "entry-namespace.md's UIx shadow-cljs.edn block wires a "
-               "devtools preload — the UIx route ships none (the emitted "
-               "build map has no :devtools key, matching the template's "
-               "_uix emission) (rf2-hki2j)."))))
-  (testing "entry-namespace.md's UIx index.html/app.css blocks ship no Xray host"
-    (let [body      @entry-namespace-md
-          uix-html  (some-> (re-find #"(?s)```html\r?\n(.*?)```" body) second)
-          uix-css   (some-> (re-find #"(?s)```css\r?\n(.*?)```" body) second)]
-      (is (some? uix-html)
-          "Could not find the UIx index.html block in entry-namespace.md §UIx greenfield.")
-      (is (and uix-html (not (str/includes? uix-html "data-rf-xray-host")))
-          (str "entry-namespace.md's UIx index.html block carries the "
-               "[data-rf-xray-host] column — no panel can fill it on this "
-               "route; drop the aside (rf2-hki2j)."))
-      (is (some? uix-css)
-          "Could not find the UIx app.css block in entry-namespace.md §UIx greenfield.")
-      (is (and uix-css (not (str/includes? uix-css "rf2-xray-host")))
-          (str "entry-namespace.md's UIx app.css block carries .rf2-xray-host "
-               "rules — there is no host to size on this route (rf2-hki2j).")))))
-
-(deftest uix-route-states-honest-devtools-story
-  (testing "entry-namespace.md drops the Xray coord and states the devtools story"
+(deftest uix-route-shares-the-default-build-wiring
+  (testing "entry-namespace.md carries no build wiring of its own — the nine shared files are the default's"
     (let [body @entry-namespace-md]
-      (is (str/includes? body "drop the `day8/re-frame2-xray` coord")
-          (str "entry-namespace.md's UIx deps bullet no longer tells the "
-               "author to drop the day8/re-frame2-xray coord (rf2-hki2j)."))
-      (is (str/includes? body "ratom-family")
-          (str "entry-namespace.md no longer explains WHY the UIx route is "
-               "Xray-free (the panel shell renders through the ratom-family "
-               "substrates). The honesty needs its reason (rf2-hki2j)."))
-      (is (and (str/includes? body "re-frame2-pair") (str/includes? body "Story"))
-          (str "entry-namespace.md no longer states the honest devtools "
-               "story — Story + the re-frame2-pair tooling work on every "
-               "substrate (rf2-hki2j)."))))
-  (testing "deps-versions.md scopes Xray + its npm pair to the Reagent route"
-    (let [body @deps-versions-md]
-      (is (str/includes? body "day-one dep on the Reagent route")
-          (str "deps-versions.md no longer scopes day8/re-frame2-xray to the "
-               "Reagent route — the UIx route ships no Xray (rf2-hki2j)."))
-      (is (str/includes? body "Reagent-route-only")
-          (str "deps-versions.md no longer scopes the @xyflow/react + elkjs "
-               "npm pair to the Reagent route. The UIx package.json is three "
-               "deps (shadow-cljs / react / react-dom), matching the "
-               "template's _uix emission (rf2-hki2j)."))))
-  (testing "SKILL.md states the UIx route ships no Xray pieces"
-    (is (str/includes? @skill-md "no Xray pieces")
-        (str "SKILL.md no longer states the UIx route ships no Xray pieces "
-             "(cardinal rules 3/4 + step scoping) (rf2-hki2j)."))))
+      (is (not (str/includes? body ":builds"))
+          (str "entry-namespace.md carries a `:builds` map — the UIx route ships the "
+               "default scaffold's shadow-cljs.edn unchanged (rf2-rc0yh)."))
+      (is (not (re-find #"(?s)```(html|css)\r?\n" body))
+          (str "entry-namespace.md carries an html/css block — the UIx route ships the "
+               "default index.html / app.css unchanged (rf2-rc0yh)."))
+      (is (str/includes? body "identical to the Reagent scaffold")
+          (str "entry-namespace.md no longer states that the other nine files are "
+               "identical to the Reagent scaffold (rf2-rc0yh).")))))
+
+(deftest uix-route-is-a-three-file-swap
+  (testing "the UIx region carries exactly the files the template's template-fn varies per substrate"
+    (let [expected (set (first-counter-derivation/substrate-swap-paths))]
+      (is (= #{"deps.edn" "src/acme/my_app/core.cljs" "src/acme/my_app/views.cljs"} expected)
+          (str "the template now varies a different file set per substrate: " (pr-str expected)
+               ". Regenerate the leaves and update SKILL.md's three-file-swap rule."))
+      (is (= expected (set (keys @uix-files)))
+          (str "entry-namespace.md's UIx region carries " (pr-str (sort (keys @uix-files)))
+               " but the template varies " (pr-str (sort expected)) ". " regenerate-hint))))
+  (testing "SKILL.md states the UIx route as the three-file swap of the same scaffold"
+    (is (str/includes? @skill-md "three-file swap")
+        "SKILL.md no longer states the UIx route as a three-file swap (rf2-rc0yh)."))
+  (testing "deps-versions.md scopes no Xray to any route"
+    (is (not (contains-any? @deps-versions-md ["day-one dep on the Reagent route"
+                                               "Reagent-route-only"]))
+        (str "deps-versions.md still scopes Xray or its npm pair to the Reagent route as "
+             "day-one — neither route ships Xray (rf2-zq34m STRIP BOTH; rf2-rc0yh)."))))
 
 ;; ---------------------------------------------------------------------------
 ;; Run
