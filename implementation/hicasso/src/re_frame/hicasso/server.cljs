@@ -146,31 +146,47 @@
 ;; The recovered-error verdict — both doors
 ;; ---------------------------------------------------------------------------
 
-(def ^:private render-listener-id
-  "The id `render` registers its error-stream listener under. See
-  `render-body-listener-id` for why the two doors do not share one."
+(def ^:private render-listener-tag
+  "The DOOR half of the key `render` registers its error-stream listener
+  under. See `listener-key` for the other half and why there is one."
   ::render-recovered-error)
 
-(def ^:private render-body-listener-id
-  "The id `render-body` registers its error-stream listener under.
-
-  ONE id per door, and DIFFERENT ids deliberately. Two windows cannot
-  overlap in the ordinary way — a render is one synchronous
-  `renderToString` call on a single-threaded runtime, and the sidecar's
-  isolate admits one at a time (`implementation/ssr-node`'s worker refuses
-  a second with its service-saturated refusal) — but that argument is
-  `render-body`'s alone, and `render` is a general host door with no
-  saturation guard behind it. The one way to break it is re-entrancy: a
-  view that called the other door mid-render. Sharing an id there would
-  let the inner registration REPLACE the outer listener and the inner
-  `finally` unregister it, leaving the outer render blind for the rest of
-  its pass — the exact silent-wrong-page failure both doors exist to
-  catch. Distinct ids leave both watches live and each door reads only its
-  own atom, so the hole is closed by construction rather than by argument.
-  A door re-entering ITSELF still reuses one id, where re-registering
-  REPLACES and the outer render loses a listener rather than accumulating
-  one."
+(def ^:private render-body-listener-tag
+  "The DOOR half of the key `render-body` registers its error-stream
+  listener under. See `listener-key`."
   ::render-body-recovered-error)
+
+(defn- listener-key
+  "The key ONE render registers its error-stream listener under: the door's
+  `tag` paired with that render's own `frame-id`.
+
+  PER INVOCATION, not per door, and the distinction is the whole point.
+  Two windows cannot overlap in the ordinary way — a render is one
+  synchronous `renderToString` call on a single-threaded runtime, and the
+  sidecar's isolate admits one at a time (`implementation/ssr-node`'s
+  worker refuses a second with its service-saturated refusal) — but that
+  argument is `render-body`'s alone, and `render` is a general host door
+  with no saturation guard behind it. The one way to break it is
+  re-entrancy: a view that calls a door mid-render.
+
+  A per-DOOR id closed only half of that. Registering REPLACES, so two
+  distinct door ids kept `render` inside `render-body` safe, but left a
+  door re-entering ITSELF sharing one id: the inner registration replaced
+  the outer listener and the inner `finally` unregistered it, leaving the
+  OUTER render blind for the rest of its pass — the exact
+  silent-wrong-page failure both doors exist to catch, reached from the
+  one direction the door ids could not separate (rf2-ypom, the audit of
+  PR #9035). React refusing a nested render does not make it safe: the
+  inner `finally` still runs, and still removes the outer's listener.
+
+  `frame-id` is already unique per request — a `gensym` no other
+  invocation holds — so pairing it with the tag makes every window's key
+  distinct by construction. Nesting therefore ACCUMULATES listeners
+  instead of replacing them, each `finally` removes exactly the key its
+  own invocation added, and every live render keeps reading its own atom
+  to the end of its pass."
+  [tag frame-id]
+  [tag frame-id])
 
 (defn- refuse-recovered-render-error!
   "Fail the render, from the door named by `where`, because the runtime
@@ -333,11 +349,14 @@
         ;; module-level flag, which would let one request's throw leave
         ;; every later request born-present.
         window    (roots/open-adoption-window!)
+        ;; Keyed on THIS invocation's frame, so a re-entrant `render`
+        ;; cannot unregister the outer one's listener — see `listener-key`.
+        listener  (listener-key render-listener-tag frame-id)
         ;; Armed BEFORE the frame is made, so the setup vector is inside
         ;; the window too: a boot event that throws and recovers leaves the
         ;; page rendered over state the request never established, which is
         ;; the same silent wrong page a recovered sub gives.
-        !recorded (watch-recovered-errors! render-listener-id)]
+        !recorded (watch-recovered-errors! listener)]
     (try
       (rf/make-frame (assoc frame-opts
                             :id             frame-id
@@ -390,8 +409,9 @@
       (finally
         ;; Unregistered FIRST, so the teardown below is outside the window:
         ;; a destroy-time fault belongs to the process's logs, not to the
-        ;; verdict on markup that has already been decided.
-        (rf/unregister-listener! :errors render-listener-id)
+        ;; verdict on markup that has already been decided. THIS
+        ;; invocation's key, so a nested render removes only its own.
+        (rf/unregister-listener! :errors listener)
         ;; The window before the frame — `destroy-frame!` may itself throw,
         ;; and the window must already be shut when it runs.
         (roots/close-adoption-window! window)
@@ -458,11 +478,13 @@
   [{:keys [hiccup render-state identifier-prefix frame-opts]}]
   (let [frame-id  (fresh-frame-id)
         window    (roots/open-adoption-window!)
+        ;; Keyed on THIS invocation's frame — see `listener-key`.
+        listener  (listener-key render-body-listener-tag frame-id)
         ;; Armed BEFORE the frame is made, so a fault in construction or in
         ;; the restore is inside the window too — those are part of the
         ;; pass, and a page rendered over a half-installed state is the same
         ;; silent wrong page a recovered sub gives.
-        !recorded (watch-recovered-errors! render-body-listener-id)]
+        !recorded (watch-recovered-errors! listener)]
     (try
       (rf/make-frame (assoc frame-opts
                             :id             frame-id
@@ -484,8 +506,9 @@
       (finally
         ;; Unregistered FIRST, so the teardown below is outside the window:
         ;; a destroy-time fault belongs to the process's logs, not to the
-        ;; verdict on markup that has already been decided.
-        (rf/unregister-listener! :errors render-body-listener-id)
+        ;; verdict on markup that has already been decided. THIS
+        ;; invocation's key, so a nested render removes only its own.
+        (rf/unregister-listener! :errors listener)
         ;; The window before the frame — `destroy-frame!` may itself throw,
         ;; and the window must already be shut when it runs.
         (roots/close-adoption-window! window)

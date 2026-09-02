@@ -74,6 +74,49 @@
 (rf/reg-sub ::detonates
   (fn [_ _] (throw (js/Error. "the sub that recovers to nil"))))
 
+(def ^:private !inner-outcome
+  "What §5's nested call did — `:returned` or `:threw`. Recorded rather than
+   asserted on: the claim is about the OUTER render's verdict, and it must hold
+   whichever way React treats the nesting."
+  (atom ::unset))
+
+;; §5's boot event, registered HERE for the reason the block comment above
+;; gives: the reset fixture captures its source-store baseline when
+;; `use-fixtures` is EVALUATED, so a registration written further down the file
+;; is erased before the first row runs. Written below, this handler was silently
+;; absent and its dispatch became `:rf.error/no-such-handler` — so the outer
+;; render still refused and every assertion but the precondition passed. The row
+;; would have read GREEN while measuring no re-entrancy at all; §5's
+;; precondition is what caught it.
+;;
+;; The inner render takes PLAIN hiccup rather than a view, so this handler
+;; compiles here without forward-referencing the probes defined below.
+;;
+;; It re-enters and RETURNS — it must not throw. A boot event whose handler
+;; throws is not a recovered error at all: `rf/make-frame` raises
+;; `:rf.error/initial-events-step-failed` and takes the render down before the
+;; verdict is ever reached (measured). The recovered emission is §5's SECOND
+;; boot event instead.
+(rf/reg-event ::re-enter-then-recover
+  (fn [{:keys [db]} _]
+    ;; Re-enter the SAME door. Under the fixed-key form this REPLACED the outer
+    ;; listener, and the inner `finally` then removed it outright.
+    (reset! !inner-outcome
+            (try (server/render {:hiccup   [:div.inner "inner"]
+                                 :snapshot {:label "inner"}
+                                 :payload  [:label]})
+                 :returned
+                 (catch :default _ :threw)))
+    {:db db}))
+
+;; DELIBERATELY NEVER REGISTERED. Dispatching it raises
+;; `:rf.error/no-such-handler`, a promoted always-on category the framework
+;; RECOVERS from — the boot-event step continues and the render proceeds to its
+;; verdict. That is exactly the shape §5 needs: a genuine recovered error,
+;; emitted inside the outer render's window and AFTER the inner door's
+;; `finally` has run.
+(def ^:private no-handler-event ::deliberately-unregistered)
+
 (use-fixtures :each
   (test-support/make-reset-runtime-fixture
     {:adapter uix-adapter/adapter
@@ -85,18 +128,29 @@
      :init-fn       (fn [] (collector/reset-runtime!))}))
 
 ;; ---------------------------------------------------------------------------
-;; The listener ids, spelled out
+;; The listener keys, spelled out
 ;; ---------------------------------------------------------------------------
 ;;
-;; `re-frame.hicasso.server` keeps these private, and §3 and §4 are the only
-;; readers of them in the corpus: proving a listener was RELEASED needs a
-;; name to look for, and proving the two doors cannot collide needs both
-;; names. Renaming an id in the source breaks these two rows and nothing
-;; else — which is the intended blast radius, since the rows exist to pin
-;; that the ids are two and that each door clears its own.
+;; `re-frame.hicasso.server` keeps these private, and §3, §4 and §5 are the
+;; only readers of them in the corpus: proving a listener was RELEASED needs a
+;; name to look for, and proving the doors cannot collide needs all of them.
+;; Renaming a tag in the source breaks these rows and nothing else — which is
+;; the intended blast radius, since the rows exist to pin that each door clears
+;; its own and that nesting does not disarm an outer window.
+;;
+;; A key is `[tag frame-id]` — PER INVOCATION, not per door (rf2-ypom). The
+;; door tag alone is no longer a registry key, so these rows match on the tag
+;; half and count the windows carrying it.
 
-(def ^:private render-listener-id      :re-frame.hicasso.server/render-recovered-error)
-(def ^:private render-body-listener-id :re-frame.hicasso.server/render-body-recovered-error)
+(def ^:private render-listener-tag      :re-frame.hicasso.server/render-recovered-error)
+(def ^:private render-body-listener-tag :re-frame.hicasso.server/render-body-recovered-error)
+
+(defn- door-keys
+  "Every live `:errors` registry key belonging to `tag` — one per render of
+   that door currently in flight. Guards on `vector?` because the registry is
+   corpus-wide and other owners register under keys of their own shape."
+  [tag ids]
+  (set (filter #(and (vector? %) (= tag (first %))) ids)))
 
 ;; `re-frame.error-emit/listeners` is `^:private`, and reaching into it is
 ;; deliberate: a RELEASED listener is not observable from any public surface —
@@ -230,10 +284,9 @@
 (deftest the-frame-and-the-listener-are-released-on-every-exit
   (let [frames-before    (live-frame-ids)
         listeners-before (live-error-listener-ids)]
-    (is (not (contains? listeners-before render-listener-id))
-        "precondition: the door's listener is not already registered, so the
-         absences below are the `finally` doing its job and not a vacuous
-         never-registered")
+    (is (empty? (door-keys render-listener-tag listeners-before))
+        "precondition: the door has no window open, so the absences below are
+         the `finally` doing its job and not a vacuous never-registered")
 
     (testing "success"
       (server/render (request))
@@ -258,14 +311,15 @@
       (is (str/includes? (:html (server/render (request))) "alpha")))))
 
 ;; ---------------------------------------------------------------------------
-;; §4 — the two doors do not share a listener id
+;; §4 — the doors do not share a listener key
 ;; ---------------------------------------------------------------------------
 ;;
-;; A shared id is the obvious hazard: re-registering REPLACES, so a
+;; A shared key is the obvious hazard: re-registering REPLACES, so a
 ;; re-entrant call would let the inner `finally` unregister the OUTER
 ;; door's listener and leave the outer render blind for the rest of its
 ;; pass — the exact silent-wrong-page failure both doors exist to catch.
-;; The ids are two, and these rows read them at the one moment it matters.
+;; The keys are per invocation, and these rows read them at the one moment
+;; it matters.
 
 (deftest each-door-arms-its-own-listener-and-only-its-own
   (testing "`render`'s window, observed from inside `render`"
@@ -273,10 +327,10 @@
     (server/render (request :hiccup [watching {}]))
     (let [live @!listeners-mid-render]
       (is (set? live) "the probe ran inside the render")
-      (is (contains? live render-listener-id)
+      (is (= 1 (count (door-keys render-listener-tag live)))
           "the whole-page door's listener is armed while its render is in flight")
-      (is (not (contains? live render-body-listener-id))
-          "and the body-only door's is not — the ids are two, so neither
+      (is (empty? (door-keys render-body-listener-tag live))
+          "and the body-only door's is not — the tags differ, so neither
            door can unregister the other's")))
 
   (testing "`render-body`'s window, observed from inside `render-body`"
@@ -285,8 +339,79 @@
                          :render-state {:rf/app-db {:label "alpha"} :rf/runtime-db {}}})
     (let [live @!listeners-mid-render]
       (is (set? live))
-      (is (contains? live render-body-listener-id))
-      (is (not (contains? live render-listener-id))))))
+      (is (= 1 (count (door-keys render-body-listener-tag live))))
+      (is (empty? (door-keys render-listener-tag live))))))
+
+;; ---------------------------------------------------------------------------
+;; §5 — SAME-door re-entrancy: the outer window survives the inner `finally`
+;; ---------------------------------------------------------------------------
+;;
+;; The audit of PR #9035 (rf2-ypom). §4 proves the two doors' keys differ, so
+;; a CROSS-door nesting is safe — but that was the whole of it: with one FIXED
+;; key per door, a door re-entering ITSELF reused a single key, the inner
+;; registration REPLACED the outer listener, and the inner `finally`
+;; unregistered it. The outer render then finished BLIND: any recovered error
+;; after that point was recorded by nobody, and the door returned a successful
+;; page over markup the application never meant to produce — the precise
+;; failure this whole suite exists to prevent, reached from the one direction
+;; §4's two-tag argument could not separate.
+;;
+;; React rejecting a nested render does not make it safe, and that is why the
+;; row below CATCHES the inner call rather than requiring it to succeed: the
+;; inner `finally` runs on the throw too, and it is the `finally` — not the
+;; render — that removed the outer's listener.
+;;
+;; The fix keys each registration on the invocation's own frame id, so nesting
+;; ACCUMULATES windows instead of replacing them. Run this row against the
+;; pre-fix fixed-key form and it fails by the outer render RETURNING.
+
+;; The re-entry happens in a BOOT EVENT rather than in a view, and the reason is
+;; measured rather than stylistic. `render`'s window is armed BEFORE the frame
+;; is made, so the setup vector runs inside it — the door's own docstring names
+;; this case: "a boot event that throws and recovers leaves the page rendered
+;; over state the request never established, which is the same silent wrong page
+;; a recovered sub gives". That makes it a genuine in-window emission. The
+;; handler itself is registered above `use-fixtures`; see the note there.
+;;
+;; Re-entering from a VIEW instead does not work as an instrument, and the way
+;; it fails is worth recording: a nested render tears down the OUTER render's
+;; collector extent, so the next `h/sub` in the outer view raises
+;; `:rf.error/hicasso-sub-outside-render` from `impl.collector/read-key!` before
+;; any recovered error can be emitted. The outer render then fails for a reason
+;; that has nothing to do with the listener, and the row would pass against the
+;; fixed-key form for the wrong reason — a green that measures the wrong thing.
+;; The boot-event route reaches the same window without touching the collector.
+
+(deftest a-same-door-re-entrant-render-does-not-blind-the-outer-render
+  (let [listeners-before (live-error-listener-ids)
+        frames-before    (live-frame-ids)
+        _                (reset! !inner-outcome ::unset)
+        ;; Two boot events, in order: the first re-enters the door and returns,
+        ;; the second emits the recovered error the outer listener must still be
+        ;; alive to see.
+        thrown           (try (server/render
+                                (request :initial-events [[::re-enter-then-recover]
+                                                          [no-handler-event]]))
+                              (catch :default e e))]
+    (is (not= ::unset @!inner-outcome)
+        "precondition: the nested call really ran, so this row is about
+         re-entrancy and not about a boot event that never re-entered")
+    (is (instance? ExceptionInfo thrown)
+        "the OUTER render must still refuse: a recovered error emitted after
+         the inner door's `finally` has to reach the outer render's listener")
+    (let [data (ex-data thrown)]
+      (is (= :rf.error/ssr-render-failed (:rf.error/id data))
+          "the recovered error was SEEN — under the fixed-key form the inner
+           `finally` had already removed this render's listener, so nothing
+           recorded it and the door answered a document instead")
+      (is (= 're-frame.hicasso.server/render (:where data))
+          "and the refusal is the OUTER invocation's"))
+    (testing "the registry baseline is restored — every window opened by the
+              nesting is closed, the inner one included"
+      (is (= listeners-before (live-error-listener-ids)))
+      (is (empty? (door-keys render-listener-tag (live-error-listener-ids))))
+      (is (= frames-before (live-frame-ids))
+          "and neither invocation left a frame behind"))))
 
 (deftest render-body-keeps-its-refusal-and-leaves-no-residue
   (testing "the sibling door's semantics are unchanged by the whole-page
