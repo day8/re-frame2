@@ -1,12 +1,33 @@
 (ns day8.re-frame2-xray.views.view-walker
-  "Fallback runtime view-hierarchy walker — `data-rf-view` attribute path
-  (rf2-01il5).
+  "Runtime view-hierarchy walker — the `data-rf-view` attribute path (built by
+  commit `da39b0c0f8`, PR #1780).
 
-  ## Status: FALLBACK SAFETY NET only
+  ## Status: the ONLY runtime view-hierarchy capture path the reference ships
 
-  The primary path for runtime view-hierarchy capture is the Fiber-walker
-  (rf2-mxkq7) — see [View-Hierarchy-Capture.md](../../../../../spec/View-Hierarchy-Capture.md).
-  This namespace ships the **data-attribute fallback**:
+  A React Fiber-walker was built beside this one and later RETIRED. Added by
+  commit `fe4ff001b9` (PR #1533, 2026-05-19) at
+  `tools/causa/src/day8/re_frame2_causa/views/fiber_walker.cljs`; deleted by
+  commit `9781aa4e24` (PR #1741, 2026-05-20), the Reactive-panel rebuild, which
+  took the group-by-tree renderer, the Views toggle wiring and the
+  React-version regression smoke with it. Those files never lived under
+  `tools/xray/` — the Causa → Xray rename (`731188b1fb`, PR #2067) landed four
+  days after the deletion.
+
+  Nothing implements a Fiber-walker at HEAD, so this namespace is NOT a safety
+  net standing beside a live primary path: it is the whole of runtime
+  view-hierarchy capture in the CLJS reference. Whether the Fiber-walker
+  returns is an open product question owned by `rf2-2vpm`.
+
+  Commits and PRs are cited above because they are durable. The ids these lines
+  used to carry — `rf2-01il5` for this walker and `rf2-mxkq7` for the
+  Fiber-walker — are NOT beads and resolve to nothing; they survive only in the
+  commit subjects named here.
+
+  The CONTRACT this path answers to, including the Fiber slots a React-backed
+  port MUST read, stays pinned in
+  [View-Hierarchy-Capture.md](../../../../../../spec/View-Hierarchy-Capture.md).
+
+  This namespace ships the **data-attribute** capture:
 
       - Each re-frame2 adapter (Reagent / UIx) tags the rendered
         root DOM element of every registered view with
@@ -17,16 +38,15 @@
         and reconstructs parent ⊃ children purely from DOM containment.
         No React internals; no Fiber slot reads; no version-coupling.
 
-  Activate this walker when:
-
-      1. A future React-version regression breaks the Fiber-walker.
-      2. A non-React substrate is ever wired in (none today — Reagent,
-         and UIx all mount through React, so the data-attribute
-         path is dormant under the canonical install).
+  It is ACTIVE under the canonical install, not dormant: with no Fiber-walker
+  at HEAD there is nothing for it to stand in for. It is also the path that
+  survives the two cases the Fiber design does not cover — a React-version
+  regression that breaks Fiber slot reads, and a non-React substrate (none
+  today; Reagent and UIx both mount through React).
 
   ## Fidelity gaps (documented edge cases)
 
-  The fallback is a **lossy approximation** of the Fiber-walker. Per
+  This path is a **lossy approximation** of what a Fiber walk would see. Per
   Spec 006 §View tagging contract §Documented edge cases:
 
       - Fragment root (`:<>`) — invisible to the walker (no DOM
@@ -60,7 +80,7 @@
        :node-key  <integer>}                 ;; stable hash of the DOM node
 
   In document order — mirrors the Fiber-walker's output shape per
-  [View-Hierarchy-Capture.md §Output shape](../../../../../spec/View-Hierarchy-Capture.md#output-shape)
+  [View-Hierarchy-Capture.md §Output shape](../../../../../../spec/View-Hierarchy-Capture.md#output-shape)
   so consumer code is path-agnostic. `:node-key` substitutes for the
   Fiber-walker's `:fiber-key` — same role (stable React key for tree-row
   rendering across re-walks)."
@@ -79,8 +99,9 @@
   Alias of the canonical `re-frame.source-coords/parse-view-id` (the source-
   coord contract owner) — the inverse of `format-view-id`. This parser used to
   be reimplemented inline here and in the re-frame2-pair preload runtime's
-  `view-entity`; rf2-ztxnm8 collapsed both onto the one canonical impl in core
-  (the data-rf-view analogue of rf2-nr7vf2's `parse-source-coord` work). See
+  `view-entity`; commit `49c566370c` collapsed both onto the one canonical impl
+  in core (the data-rf-view analogue of the `parse-source-coord` dedup in
+  commit `04ab2d3d3b`). See
   that fn for the value format (Spec 006 §View tagging contract §Attribute
   value format / Spec-Schemas §`:rf/view-id-attr`) and the Tool-Pair opacity
   caveat (downstream callers MUST NOT depend on the parsed shape's stability

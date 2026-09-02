@@ -117,10 +117,28 @@
   `:rf/redacted`, unless the caller explicitly waived sensitive redaction).
   We therefore stamp this sentinel as the `:frame` opt when no live governing
   frame is known, so the walker fails closed on its own dead-frame branch
-  rather than resolving an ambient frame. The keyword is namespaced into this
-  panel so it can never collide with a real frame id. Mirrors the off-box
-  derivation-graph fix (rf2-udkj69); applied to local-render by rf2-cra0nq."
-  ::no-egress-frame)
+  rather than resolving an ambient frame.
+
+  It has to be a value NO frame can be registered under, and a keyword is not
+  one: `make-frame` validates no `:id` type and the registry is keyed by
+  whatever id it is handed, so every keyword — however it is namespaced — is a
+  public id an app can spell. Earlier passes used `::no-egress-frame`, which
+  expands to the ordinary public keyword
+  `:day8.re-frame2-xray.panels.local-render/no-egress-frame`; a live frame
+  registered under that id made the stamp RESOLVE, took the walker's LIVE-frame
+  branch, and shipped the value RAW under that frame's empty declaration
+  registry — the fail-CLOSED stamp becoming fail-OPEN (rf2-ws60). A fresh host
+  object is an IDENTITY rather than a datum — nothing outside this var can
+  produce an equal value — so no registration can match it, and `frame/frame`
+  misses on it exactly as on a destroyed id.
+
+  Mirrors the off-box derivation-graph fix (rf2-udkj69); applied to
+  local-render by rf2-cra0nq. Third carrier of the sentinel class fixed at
+  `day8.re-frame2-xray.egress/no-frame` (rf2-7htk7) and
+  `re-frame.derivation.egress` (rf2-g1vu); this file is `.cljc` and IS read on
+  the JVM (its test namespace runs under `clojure -M:test`), so the substitute
+  takes the reader-conditional form rather than a bare `(js/Object.)`."
+  #?(:clj (Object.) :cljs (js/Object.)))
 
 (defn local-render-profile
   "Resolve the egress profile a local panel render should project under,
@@ -144,7 +162,8 @@
     (`frame/resolve-current-frame`) and ship value-bearing fields RAW under
     that borrowed frame's policy — the exact ambient-borrow leak this seam
     abolishes (rf2-cra0nq, mirroring rf2-udkj69). The sentinel is a non-nil
-    id that resolves to no live frame, so the walker takes its
+    value that NO frame can be registered under (rf2-ws60 — a namespaced
+    keyword was one, and collided), so the walker takes its
     unresolvable-frame fail-closed branch (redact the whole value) rather
     than borrow another frame's policy.
   - **`:rf.size/include-large? true`** — the on-box 'keep large' override
