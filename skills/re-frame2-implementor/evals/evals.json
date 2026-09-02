@@ -1,8 +1,8 @@
 {
  "skill_name": "re-frame2-implementor",
- "schema_version": "1",
- "convention": "anthropics/skills/skill-creator evals.json — trigger-only fixture per references/schemas.md. Each entry carries `should_trigger` so skill-creator's description-optimisation loop can score train/held-out trigger accuracy.",
- "notes": "Positives target port / second-implementation / conformance prompts for the eight in-scope JS-cross-compile-to-React+VDOM hosts (CLJS, TS, Melange/ReScript/Reason, Fable, Squint, Scala.js, PureScript, Kotlin/JS). Negatives target app authoring on the CLJS reference, live-runtime work, v1 migration (sibling skills), and out-of-scope hosts (non-React substrates / non-cross-compile-to-JS languages — out of scope per spec/000-Vision.md scope footnote).",
+ "schema_version": "2",
+ "convention": "anthropics/skills/skill-creator evals.json — per references/schemas.md, in the two-layer shape the re-frame2-xray sibling uses. Every entry carries `should_trigger` so skill-creator's description-optimisation loop can score train/held-out trigger accuracy; the two highest-drift behaviours ALSO carry `expected_output` + `expectations[]` so a pass that keeps the skill firing cannot mask an answer that has drifted from the skill's own contract. One deliberate divergence from xray: an out-of-scope NEGATIVE here carries the answer-quality layer too. Where xray's negatives assert nothing (an adjacent-surface prompt has no one right answer), an out-of-scope port request does have one — SKILL.md §When NOT to use prescribes surfacing the spec/000-Vision.md scope footnote and stopping — so the trigger layer says 'do not load' while the answer-quality layer pins what must happen if the router surfaces the skill anyway. That is exactly the hole a trigger-only fixture leaves: a description optimised into firing on Python would score green while the agent kicked off Phase 1 for a terminal UI.",
+ "notes": "Positives target port / second-implementation / conformance prompts for the eight in-scope JS-cross-compile-to-React+VDOM hosts (CLJS, TS, Melange/ReScript/Reason, Fable, Squint, Scala.js, PureScript, Kotlin/JS). Negatives target app authoring on the CLJS reference, live-runtime work, v1 migration (sibling skills), and out-of-scope hosts (non-React substrates / non-cross-compile-to-JS languages — out of scope per spec/000-Vision.md scope footnote, which the description's Do-not-use list now names explicitly so ids 17-19 stop matching the trigger clause). The two behavioural entries grade the skill's highest-drift behaviours: id 17 pins the out-of-scope STOP (scope footnote named, eight in-scope hosts listed, no Phase 1/2 kickoff), and id 20 pins the no-interview minimum-port default from references/phase-1-decisions.md §No interview by default (optional capabilities all default to no, no per-decision questioning, host-idiomatic mechanisms chosen, Step 0 / first slice begun in the same run).",
  "evals": [
  {"id": 1, "name": "port-typescript", "should_trigger": true, "prompt": "I want to port re-frame2 to TypeScript. Where do I start?"},
  {"id": 2, "name": "port-fable", "should_trigger": true, "prompt": "Build me a second re-frame2 implementation in F# using Fable. What decisions do I need to make first?"},
@@ -20,8 +20,35 @@
  {"id": 14, "name": "neg-xray-tour", "should_trigger": false, "prompt": "Which Xray panel shows machine state?", "rationale": "Xray tour is its own skill."},
  {"id": 15, "name": "neg-vocab-port", "should_trigger": false, "prompt": "I'm porting Redux from JavaScript to TypeScript — any tips on the action-creator pattern?", "rationale": "Vocabulary hit on 'port' but unrelated framework."},
  {"id": 16, "name": "neg-improver", "should_trigger": false, "prompt": "Review my re-frame2 source for anti-patterns.", "rationale": "Critique mode on CLJS code is re-frame2-improver."},
- {"id": 17, "name": "neg-out-of-scope-python", "should_trigger": false, "prompt": "Can I implement re-frame2 in Python for a terminal UI app?", "rationale": "Out of scope: Python is not a cross-compile-to-JS host and a terminal UI is not React+VDOM. Per spec/000-Vision.md scope footnote, only the eight in-scope JS-React hosts are implementation targets."},
+ {
+  "id": 17,
+  "name": "neg-out-of-scope-python",
+  "should_trigger": false,
+  "prompt": "Can I implement re-frame2 in Python for a terminal UI app?",
+  "rationale": "Out of scope: Python is not a cross-compile-to-JS host and a terminal UI is not React+VDOM. Per spec/000-Vision.md scope footnote, only the eight in-scope JS-React hosts are implementation targets.",
+  "expected_output": "The agent answers that this port is out of scope and says why: re-frame2 commits to React + VDOM at the render side and to host languages that cross-compile to JS, so Python plus a terminal UI is excluded by the spec/000-Vision.md scope footnote. It names the eight in-scope hosts and stops there — no port profile, no EP walk, no conformance-seam bootstrap.",
+  "expectations": [
+   "The output says a Python / terminal-UI re-frame2 port is out of scope, and cites the spec/000-Vision.md scope footnote (or the Spec 006 React+VDOM render-side commitment) as the reason.",
+   "The output names the in-scope set — the eight JS-cross-compile-to-React+VDOM hosts (ClojureScript, TypeScript, Melange/ReScript/Reason, Fable (F#), Squint, Scala.js, PureScript, Kotlin/JS).",
+   "The output does NOT begin Phase 1 (recording a port profile) or Phase 2 (an EP walk, a first slice, a conformance-harness seam) for the out-of-scope target.",
+   "The output frames the exclusion as a deliberate scope choice — not an oversight, a corpus gap, or something to file upstream as a spec gap."
+  ]
+ },
  {"id": 18, "name": "neg-out-of-scope-rust", "should_trigger": false, "prompt": "I'm thinking of porting re-frame2 to Rust for an egui frontend. What's the implementor checklist?", "rationale": "Out of scope: native Rust is not a cross-compile-to-JS host and egui is not React+VDOM. Deliberate scope choice, not an oversight (spec/000-Vision.md)."},
- {"id": 19, "name": "neg-out-of-scope-substrate", "should_trigger": false, "prompt": "How would I build re-frame2 against a Vue or Svelte substrate instead of React?", "rationale": "Out of scope: re-frame2 commits to React+VDOM at the render side (spec/006-ReactiveSubstrate.md); non-React substrates are out of scope."}
+ {"id": 19, "name": "neg-out-of-scope-substrate", "should_trigger": false, "prompt": "How would I build re-frame2 against a Vue or Svelte substrate instead of React?", "rationale": "Out of scope: re-frame2 commits to React+VDOM at the render side (spec/006-ReactiveSubstrate.md); non-React substrates are out of scope."},
+ {
+  "id": 20,
+  "name": "behav-minimum-port-no-interview",
+  "should_trigger": true,
+  "prompt": "Build me a minimum re-frame2 port in TypeScript.",
+  "expected_output": "The agent takes the minimum-port request without an interview, per references/phase-1-decisions.md §No interview by default: it records the port profile (spec pin + host-idiomatic TypeScript mechanisms) with every optional capability defaulted to no, asks at most a single materially load-bearing question, and moves into Step 0 / the first foundation slice in the same run rather than stopping to collect answers.",
+  "expectations": [
+   "The output records a port profile in which every optional capability (state machines, routing, SSR, schemas, flows, managed HTTP, resources, Tool-Pair inspection, stories, AI-Audit) is defaulted to no.",
+   "The output asks no per-decision or per-optional-capability question — at most one question, and only where a missing choice materially changes the implementation.",
+   "The output picks host-idiomatic TypeScript mechanisms itself (persistent data, the reactive container over the React binding, build tool, test runner) rather than handing the engineer a questionnaire.",
+   "The output begins work in the same run — the Step 0 conformance feedback seam and/or the first foundation slice — instead of ending at the profile.",
+   "The output does NOT make committing the profile a gate before implementation starts."
+  ]
+ }
  ]
 }
