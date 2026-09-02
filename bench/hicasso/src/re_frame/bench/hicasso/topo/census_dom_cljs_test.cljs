@@ -5,7 +5,7 @@
 
   ## Why this half needed no quiet box
 
-  [The budgets page](../../../../../../../implementation/hicasso/spec/budgets.md)
+  [The budgets page](../../../../../../../docs/design/hicasso/product/budgets.md)
   sorts every performance row into two families with opposite operational
   rules, and the sentence that matters here is its own: a counter *\"reads
   the same on a loaded box\"*. Boundary body runs and rows of markup are

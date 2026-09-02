@@ -5,7 +5,7 @@
   is spelled here — `root!` and `hydrate-root!` are published as
   `h/mount!` and `h/hydrate!` over the guide's `(node config view)` shape,
   `render!` and `unmount!` under their own names
-  (implementation/hicasso/spec/naming-ledger.md rows 13 and 20). Every
+  (docs/design/hicasso/product/naming-ledger.md rows 13 and 20). Every
   door is root-scoped: it takes a handle, or makes one, and reaches
   nothing another root owns. `release!` is the fixture door and is not on
   the facade.
@@ -312,7 +312,7 @@
   fixture door, and not on the facade, because it ends with a page that
   holds nothing — right where one test owns the page, wrong for a consumer
   tearing down one of two roots
-  (implementation/hicasso/spec/naming-ledger.md row 13). Idempotent, so a
+  (docs/design/hicasso/product/naming-ledger.md row 13). Idempotent, so a
   fixture can route through it twice. Not the door a residue assertion
   takes — see `unmount!`."
   [handle]

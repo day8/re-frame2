@@ -235,7 +235,7 @@ file's docstrings were trimmed to the contract (rf2-76hbj, executing the
 rf2-6c12m.4 rule). The ruling is
 [HD-021](decisions.md#hd-021--the-v0-execution-contract-root-hmr-headless);
 the door names and the `(node config view)` shape are naming-ledger rows 13
-and 20 (`implementation/hicasso/spec/naming-ledger.md`); what teardown may
+and 20 (`docs/design/hicasso/product/naming-ledger.md`); what teardown may
 and may not touch is [globals.md](product/globals.md).
 
 **Every door commits before it returns, except the hydrating one.** React 19

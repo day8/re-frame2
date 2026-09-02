@@ -790,7 +790,7 @@
   That is not an accident of what happened to get written. It is the shape
   the only shared schedule allowed, and it is the reason both of the clock
   drivers pointed at the package measure a mount:
-  `implementation/hicasso/spec/budgets.md` §4 registers `U1`–`U4` over
+  `docs/design/hicasso/product/budgets.md` §4 registers `U1`–`U4` over
   *latency to visible echo* and *latency to next paint* and records, in
   those words, that the population is what still blocks them.
 

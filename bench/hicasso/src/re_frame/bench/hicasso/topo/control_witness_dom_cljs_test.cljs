@@ -5,7 +5,7 @@
 
   ## Why this file needs no quiet box, and the clock run does
 
-  [The budgets page](../../../../../../../implementation/hicasso/spec/budgets.md)
+  [The budgets page](../../../../../../../docs/design/hicasso/product/budgets.md)
   sorts performance rows into two families, and its own sentence is the
   fence: a counter *\"reads the same on a loaded box\"*. Everything
   asserted here is an integer on a monotone counter or a string read out

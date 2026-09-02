@@ -31,7 +31,7 @@
   buffered/draft/revision law is D016
   (`docs/design/freehand/decisions/D016-buffered-and-revision-controls.md`).
   The scope ruling is naming-ledger row 16
-  (`implementation/hicasso/spec/naming-ledger.md`); the recipes the module
+  (`docs/design/hicasso/product/naming-ledger.md`); the recipes the module
   is written on, and the validation and submit orchestration it
   deliberately leaves to them, are
   `docs/design/hicasso/product/forms-recipes.md`."
