@@ -400,7 +400,13 @@
           (is (= 1 exit)
               (str "the dev-page boot proof must go RED (exit 1) on a page with "
                    "no #app mount node; it exited " exit
-                   ". A green here means the proof is inert. Output:\n" out)))
+                   ". A green here means the proof is inert. Output:\n" out))
+          ;; Say so on the green path too: a witness that speaks only when
+          ;; it fails is indistinguishable in the run output from one that
+          ;; never ran.
+          (when (= 1 exit)
+            (println (str "  [broken-boot witness] " label ": the boot proof went RED "
+                          "(exit 1) on a page with no #app mount node, as required."))))
         (finally
           (spit index original)))
       (is (= original (slurp index))
