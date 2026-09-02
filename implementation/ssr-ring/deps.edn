@@ -16,7 +16,13 @@
 ;; on core and SSR; neither depends on it.
 {:paths ["src"]
  :deps  {day8/re-frame2     {:local/root "../core"}
-         day8/re-frame2-ssr {:local/root "../ssr"}}
+         day8/re-frame2-ssr {:local/root "../ssr"}
+         ;; The JVM->Node adapter (`re-frame.ssr.ring.node`) speaks JSON to
+         ;; the bounded Node render sidecar. This is ssr-ring's ONE dependency
+         ;; beyond core and ssr — first-party, no transitive deps — accepted
+         ;; by the crossing ruling (rf2-8arzr S6); cheshire and hand-rolled
+         ;; JSON were rejected there.
+         org.clojure/data.json {:mvn/version "2.5.1"}}
 
  :aliases
  {:test {;; The local fixture combines core's public reset fixture with the
@@ -38,10 +44,12 @@
                        ;; End-to-end tests observe bytes through a real Jetty
                        ;; host. These test dependencies are not published.
                        ring/ring-jetty-adapter {:mvn/version "1.12.1"}}
-         ;; The default gate excludes live-host stress tests; the nightly
-         ;; alias below runs only those excluded tests.
+         ;; The default gate excludes live-host stress tests and the
+         ;; JVM->Node->JVM crossing witness (`:crossing`, which spawns a Node
+         ;; sidecar — this alias stays Node-free); the aliases below run
+         ;; exactly those excluded sets.
          :main-opts   ["-m" "re-frame.test-quiet.runner" "--dir" "test"
-                       "-e" ":slow" "-e" ":stress"]}
+                       "-e" ":slow" "-e" ":stress" "-e" ":crossing"]}
 
   ;; Nightly/rigorous gate: includes only tests excluded by `:test`.
   :slow-test
@@ -55,6 +63,24 @@
                  ring/ring-jetty-adapter {:mvn/version "1.12.1"}}
    :main-opts   ["-m" "re-frame.test-quiet.runner" "--dir" "test"
                  "-i" ":slow" "-i" ":stress"]}
+
+  ;; The JVM->Node->JVM crossing witness (rf2-8arzr.4): only the tests
+  ;; tagged `:crossing`. Each spawns implementation/ssr-node's serve launcher
+  ;; on a plain fixture render module (test/fixtures/node/) via
+  ;; ProcessBuilder, so Node 24 must be on PATH. CI runs it as its own job
+  ;; (`jvm-node-crossing` in .github/workflows/test.yml); the default `:test`
+  ;; alias never touches Node.
+  :crossing-test
+  {:extra-paths ["test"]
+   :extra-deps  {day8/re-frame2-schemas    {:local/root "../schemas"}
+                 day8/re-frame2-flows      {:local/root "../flows"}
+                 day8/re-frame2-routing    {:local/root "../routing"}
+                 day8/re-frame2-machines   {:local/root "../machines"}
+                 day8/re-frame2-resources  {:local/root "../resources"}
+                 day8/re-frame2-test-quiet {:local/root "../test-quiet"}
+                 ring/ring-jetty-adapter {:mvn/version "1.12.1"}}
+   :main-opts   ["-m" "re-frame.test-quiet.runner" "--dir" "test"
+                 "-i" ":crossing"]}
 
   ;; Clojars deployment.
   ;; The release workflow swaps :local/root → :mvn/version before
