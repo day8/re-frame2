@@ -975,6 +975,24 @@ _FIX_HINTS = {
         "Naming the coordinate inside a larger sentence is always safe — the "
         "string rule fires only on a whole literal that IS the coordinate."
     ),
+    "retired-machine-has-tag": (
+        "The facade fn `machine-has-tag?` was retired by rf2-il99l3 (reversing "
+        "rf2-2cmcas) so a machine read has ONE grammar. No `src` namespace "
+        "defines it. Read a machine's tag set through the shipped "
+        "SUBSCRIPTION instead — `@(rf/subscribe [:rf.machine/has-tag? "
+        "<machine-id> <tag>])` — registered in "
+        "`implementation/machines/src/re_frame/machines.cljc`. Note the "
+        "shipped spelling puts `machine` in the keyword NAMESPACE "
+        "(`:rf.machine/has-tag?`); the retired keyword `:rf/machine-has-tag?` "
+        "is a separate spelling and is not what this rule matches. "
+        "If you are writing PROSE about the retirement, spell the name "
+        "UNQUALIFIED (`` `machine-has-tag?` ``) as every in-tree deny-site and "
+        "API roster already does — this rule fires only on a "
+        "NAMESPACE-QUALIFIED reference (`rf/machine-has-tag?`), which is the "
+        "live-call shape, so a retirement note cannot trip it. A PRIVATE "
+        "`defn-` helper of the same name in a test is untouched and "
+        "deliberately so (rf2-1e8m classified those correct)."
+    ),
 }
 
 
@@ -1007,7 +1025,8 @@ def main(argv: list[str]) -> int:
             "EP-0007 §Enforcement: fail on a retired spelling reappearing in "
             "repo source (the bare :frame coeffect; redirect :url/:to; "
             "route :query-retain; a hicasso front.*/arm1.* bench coordinate, "
-            "as a symbol OR as a string)."
+            "as a symbol OR as a string; the retired facade fn "
+            "machine-has-tag?, qualified or redefined)."
         ),
     )
     parser.add_argument(
@@ -1141,6 +1160,70 @@ _SANCTIONED_PROSE_MENTIONS: tuple[tuple[str, str], ...] = (
      "must now be declared in `:query` / `:query-defaults`."),
 )
 
+# Rule (e) cases, scanned as RAW single lines through `_scan_text` — the same
+# mechanism as `_SANCTIONED_PROSE_MENTIONS` above and for the same reason: the
+# point of this rule is its SHAPE, so the cases are pinned verbatim rather than
+# carried in `.cljc` fixtures whose masking would hide what is being asserted.
+#
+# The negatives are the whole census of sites naming this spelling at tip (8
+# files, `git grep -F machine-has-tag?` excluding the tracker export), plus the
+# private-helper and lookalike shapes. Every one must stay GREEN — this is the
+# allow-list's replacement: the rule earns its zero red from its SHAPE, so if a
+# future widening would red a real file it fails HERE, in this repo, rather
+# than in someone else's PR.
+_MACHINE_HAS_TAG_SELF_TEST_CASES: tuple[tuple[str, str, int], ...] = (
+    # --- positives: the retired facade spelling must FIRE ---
+    ("examples/patterns/websocket/connection.cljs (the real carrier, in a "
+     ";; comment, removed by 26f0b5df59 — found BY HAND, three censuses)",
+     "  ;; `:rf.machine/has-tag?` (sugar: `(rf/machine-has-tag? :ws/connection "
+     ":open)`)", 1),
+    ("a live qualified call",
+     "(when (rf/machine-has-tag? :ws/conn :open) :yes)", 1),
+    ("the fully-qualified facade",
+     "(re-frame.core/machine-has-tag? machine-id :open)", 1),
+    ("the facade var reintroduced as a public defn",
+     "(defn machine-has-tag? [machine-id tag] (contains? (tags machine-id) tag))",
+     1),
+    ("the facade var reintroduced as a public def",
+     "(def machine-has-tag? some-other-fn)", 1),
+    # --- negatives: every site naming the spelling at tip, verbatim ---
+    ("docs/machines/tags.md:101 — the DENY-SITE, names it only to forbid it",
+     "There is no `machine-has-tag?` function and no `[:rf/machine-has-tag? …]`",
+     0),
+    ("docs/EP/EP-0002-frame-target-resolution.md:606 — historical design record",
+     "- `machine-has-tag?`.", 0),
+    ("docs/EP/EP-0002-frame-target-resolution.md:933 — historical design record",
+     "- `machine-by-system-id`, `sub-machine`, and `machine-has-tag?`.", 0),
+    ("docs/EP/EP-0002-frame-target-resolution.md:1420 — historical design record",
+     "- `sub-machine` and `machine-has-tag?` delegate to no-frame subscribe "
+     "paths.", 0),
+    ("docs/tools/playground/README.md:20 — a prose roster of API names",
+     "/ `machine-has-tag?` / `machines` / `machine-meta` /", 0),
+    ("docs/tools/playground/README.md:124 — a prose roster of API names",
+     "| `day8/re-frame2-machines` | `:local/root` | Spec 005 state-machine "
+     "artefact (rf2-ldgpd) — activates `reg-machine` / `subscribe "
+     "[:rf/machine …]` / `machine-has-tag?` for ch12 live cells |", 0),
+    ("docs/tools/playground/sci/deps.edn:19 — a prose roster of API names",
+     ";;     / `machine-has-tag?` aliases on `re-frame.core`", 0),
+    ("spec/api-manifest-metadata.edn:816 — the retirement RECORD itself",
+     "  ;; `re-frame.machines` (already classified below). The "
+     "`machine-has-tag?` /", 0),
+    # --- negatives: the private test helpers rf2-1e8m classified DO NOT TOUCH ---
+    ("a private defn- helper (implementation/adapters/reagent/test/*)",
+     "(defn- machine-has-tag? [m tag] (contains? (:tags m) tag))", 0),
+    ("a prefixed private defn- helper",
+     "(defn- settings-machine-has-tag? [m tag] (contains? (:tags m) tag))", 0),
+    ("an unqualified call site of such a helper (~60 of these)",
+     "    (is (machine-has-tag? snapshot :ready))", 0),
+    ("a prefixed helper's call site",
+     "    (is (tags-machine-has-tag? snapshot :ready))", 0),
+    # --- negatives: the shipped surface and the neighbouring retired keyword ---
+    ("the SHIPPED subscription — `machine` is in the keyword NAMESPACE",
+     "@(rf/subscribe [:rf.machine/has-tag? :ws/conn :open])", 0),
+    ("the separately-retired KEYWORD — a ':' denies this rule's token start",
+     "(rf/subscribe [:rf/machine-has-tag? :ws/conn :open])", 0),
+)
+
 # Rule (d) fixtures, scanned through `scan_coordinates` rather than `scan` —
 # different surface, different masking, so a separate roster. Each POSITIVE
 # plants exactly one shape and expects exactly one finding, which is itself an
@@ -1181,6 +1264,12 @@ def _run_self_tests(verbose: bool = False) -> int:
     A second phase scans `_SANCTIONED_PROSE_MENTIONS` — verbatim retirement
     notes from trees this gate does not scan, where no masking applies — as raw
     lines, so the shape scoping is proven independently of the masking.
+
+    A fourth phase runs `_MACHINE_HAS_TAG_SELF_TEST_CASES` as raw single
+    lines. Rule (e) reads RAW lines (it does not mask comments), so a pinned
+    line is the honest surface for it — and its negatives are the WHOLE census
+    of sites naming that spelling at tip, which is what lets the rule ship with
+    no allow-list at all.
 
     A third phase runs `_COORD_SELF_TEST_CASES` through `scan_coordinates`.
     Rule (d) needs its own phase because it needs its own scanner: it reads
@@ -1252,6 +1341,21 @@ def _run_self_tests(verbose: bool = False) -> int:
             )
             failures += 1
 
+    # Phase 4: rule (e), as raw single lines. Same mechanism as phase 2 — the
+    # rule reads RAW lines, so a fixture file would prove nothing a pinned line
+    # does not, and the pinned line shows the asserted shape on its face.
+    for label, line, expected in _MACHINE_HAS_TAG_SELF_TEST_CASES:
+        got = len(_scan_text(Path("<machine-has-tag case>"), line))
+        if got == expected:
+            if verbose:
+                sys.stderr.write(f"self-test PASS: {label} (findings={got})\n")
+        else:
+            sys.stderr.write(
+                f"self-test FAIL: {label} expected findings={expected}, "
+                f"got {got}:\n      {line}\n"
+            )
+            failures += 1
+
     # Phase 3: rule (d), through its own scanner. Same direct-file mode, but
     # `scan_coordinates` — rule (d) reads inside string literals and accepts
     # `.md`, neither of which `scan` does.
@@ -1279,6 +1383,7 @@ def _run_self_tests(verbose: bool = False) -> int:
         return 1
     if verbose:
         total = (len(cases) + len(_SANCTIONED_PROSE_MENTIONS)
+                 + len(_MACHINE_HAS_TAG_SELF_TEST_CASES)
                  + len(_COORD_SELF_TEST_CASES))
         sys.stderr.write(f"all {total} self-tests passed.\n")
     return 0
