@@ -1079,13 +1079,15 @@ CLJS (returns a `js/Promise` — compose with `(.then ...)` under `cljs.test/asy
   (async done
     (-> (ts/poll-until #(= 3 (:count (rf/app-db-value :other-frame)))
                        {:timeout-ms 5000 :label "fan-out drained"})
-        (.then (fn [_]
-                 (is (= 3 (:count (rf/app-db-value :other-frame))))
-                 (done)))
-        (.catch (fn [e]
+        (.then  (fn [_]
+                  (is (= 3 (:count (rf/app-db-value :other-frame))))))
+        (.catch (fn [e]                            ;; report and RELEASE — no done here
                   (is false (str "poll-until timed out: " (.-message e)))
-                  (done))))))
+                  nil))
+        (.then  (fn [_] (done))))))                ;; ONE trailing done, shared by both paths
 ```
+
+**The rejection handler goes upstream of the single trailing `done`, and calls it on neither path.** `cljs.test/run-block` hands `done` a continuation that runs the *whole remainder of the run* synchronously, so a `.catch` sitting **downstream** of `done` claims whatever a later namespace throws as this row's failure — printing it against this row's label — and then calls `done` a second time, re-forcing `run-block`'s unrealized delay and re-running the offending namespace. Assert in `.then`, report and return `nil` in `.catch`, finish in one trailing `.then`; shared teardown belongs in that trailing step, where it is written once and still runs once per path. `re-frame.test-support`'s own `poll-until` docstring states this rule and shows this shape.
 
 Timer-semantics sleeps that must stay (grace-period elapse, throttle/debounce, "prove no event fires within window N", host-clock advancement) keep their `Thread/sleep` / `js/setTimeout` but annotate the intent inline with a `;; Timer-semantics sleep: ...` comment so audits don't re-flag them.
 
