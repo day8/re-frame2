@@ -5173,8 +5173,28 @@ jobs:
 
   node-ssr-node:
     name: Node implementation/ssr-node (bounded SSR service suite)
-    needs: detect_changed_surfaces
-    if: needs.detect_changed_surfaces.outputs.ssr_node == 'true'
+    # UNCONDITIONAL, and that is the fix rather than a relaxation — rf2-8arzr.9.
+    #
+    # This job was armed off `ssr_node`, which classifies `implementation/
+    # ssr-node/**`. But the suite's absence.test.cjs makes claims about the
+    # WHOLE repository — it walks `git ls-files` over implementation/,
+    # examples/, tools/, scripts/ and .github/ and requires that nothing out
+    # there names this package at a loader position or spells its refusal
+    # vocabulary. A control armed only by its own directory cannot catch its
+    # own case, and it did not: three commits touching hicasso and the login
+    # example broke two rows in five files, the job was skipped on the PR that
+    # broke it and on every branch after, and main sat red for days with no
+    # signal anywhere. The first branch to arm the job was one editing the
+    # classifier, which arms everything.
+    #
+    # Arming it on the surfaces the witness reads would mean arming it on
+    # nearly the whole repo, so run it always. That costs what the comment
+    # below already establishes: no `npm ci`, no build, no browser, seconds of
+    # ubuntu time. `js-harness-self-tests` — the job this one's steps already
+    # cite as the same posture — is ungated for the same reason, as are
+    # `verify-readme-links` and `beads-pr-boundary`.
+    #
+    # `ssr_node` is NOT dead: `jvm-node-crossing` still arms on it.
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:
