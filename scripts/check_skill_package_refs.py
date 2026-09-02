@@ -16,15 +16,26 @@ The invariant this gate enforces — in-package link resolution (rf2-deo2zp):
     doc (SKILL.md / README.md / references/**.md) MUST resolve to a file the
     package.json `files` allow-list ships.
 
+"Intra-package" is decided by where a link RESOLVES, not by how it is spelled
+(rf2-kgw8z). A `../` from a nested doc usually lands back inside the package —
+`references/README.md` -> `../spec/design.md` is the reported case, and
+`references/x.md` -> `../SKILL.md` is the common one — so treating the literal
+`../` prefix as "escapes the package" left those links unexamined.
+
 The defect this prevents: a shipped doc links to a sibling support doc
 (`docs/LOCAL_DEV.md`, `STATUS.md`, `RELEASING.md`, ...) that the `files`
 allow-list omits, so a packaged install resolves the link to a missing file at
-exactly the point a user is configuring the skill. Links that escape the
-package (`../`) point at the monorepo, not the tarball, and are out of scope
-here — the repo-wide docs link gate (`scripts/check_doc_slugs.py`) fails any
-such link whose target does not exist in the repo, which is what retires a
+exactly the point a user is configuring the skill. Links that genuinely RESOLVE
+outside the package point at the monorepo, not the tarball, and stay out of
+scope here — the repo-wide docs link gate (`scripts/check_doc_slugs.py`) fails
+any such link whose target does not exist in the repo, which is what retires a
 reintroduced `../shared/`-style dependency. npm always ships `package.json`,
 the README, and LICENSE/LICENCE regardless of `files`.
+
+This gate is NOT an existence checker, and must not become one: a link to a
+path that matches the `files` allow-list but does not exist on disk passes here
+by design, and `check_doc_slugs.py` owns that question. What is checked is
+allow-list membership — a packaging question.
 
 Exit code:
     0  no findings
@@ -168,20 +179,23 @@ def _broken_package_links(skill_dir: Path) -> list[str]:
                 target = raw.split("#", 1)[0].split("?", 1)[0]
                 if not target:
                     continue
-                # Links escaping the package (../) point at the monorepo, not
-                # the tarball — out of scope for this allow-list check; the
-                # repo-wide docs link gate (check_doc_slugs.py) validates their
-                # targets exist in the repo.
-                if target.startswith("../"):
-                    continue
                 # Resolve relative to the linking doc's directory, then make it
-                # package-root-relative.
+                # package-root-relative. Scope is decided by where a link
+                # RESOLVES, never by how it is spelled (rf2-kgw8z): a `../`
+                # from a nested doc very often lands back INSIDE the package
+                # — `references/README.md` -> `../spec/design.md` is the
+                # reported case — and skipping on the literal prefix left
+                # every such link unexamined, which is the allow-list question
+                # this gate exists to answer.
                 resolved = (doc.parent / target).resolve()
                 try:
                     rel_target = resolved.relative_to(skill_dir.resolve())
                 except ValueError:
-                    # Resolves outside the package despite no literal ../ prefix
-                    # (symlink, etc.) — treat as out of scope.
+                    # Genuinely escapes the package: points at the monorepo,
+                    # not the tarball, so it is out of scope for this
+                    # allow-list check. The repo-wide docs link gate
+                    # (check_doc_slugs.py) validates that its target exists in
+                    # the repo.
                     continue
                 rel_str = rel_target.as_posix()
                 if _is_shipped(rel_str, allow):
@@ -252,8 +266,9 @@ def _make_skill(
     package: bool,
     files: list[str] | None = None,  # package.json `files`; None -> ["SKILL.md"]
     skill_link: str | None = None,   # an intra-package link to embed in SKILL.md
+    ref_link: str | None = None,     # a link to embed in references/lens.md
     create_docs: bool = False,       # create docs/SETUP.md on disk
-    monorepo_only: bool = False,     # mark the skill_link line monorepo-only
+    monorepo_only: bool = False,     # mark the link's line monorepo-only
 ) -> None:
     d = root / name
     if package:
@@ -262,14 +277,23 @@ def _make_skill(
             d / "package.json",
             '{"name": "@day8/%s", "files": %s}' % (name, json.dumps(allow)),
         )
+    suffix = (
+        " (not in the published package; run from a monorepo clone)"
+        if monorepo_only
+        else ""
+    )
     skill_body = "# skill\n"
     if skill_link is not None:
-        suffix = " (not in the published package; run from a monorepo clone)" if monorepo_only else ""
         skill_body += f"See [setup]({skill_link}){suffix}.\n"
     if create_docs:
         _write(d / "docs" / "SETUP.md", "# setup\n")
     _write(d / "SKILL.md", skill_body)
-    _write(d / "references" / "lens.md", "# refs\n")
+    # references/lens.md sits one level down, so a `../` link from it resolves
+    # back INSIDE the package — the rf2-kgw8z shape.
+    ref_body = "# refs\n"
+    if ref_link is not None:
+        ref_body += f"See [design]({ref_link}){suffix}.\n"
+    _write(d / "references" / "lens.md", ref_body)
     _write(d / "README.md", "# readme\n")
 
 
@@ -313,7 +337,7 @@ def _run_self_tests(verbose: bool = False) -> int:
             ),
             0,
         ),
-        # link escaping the package (../) is out of scope here (the repo-wide
+        # link RESOLVING outside the package is out of scope here (the repo-wide
         # docs link gate validates its target exists in the repo)      -> 0
         (
             "ok_parent_escape_out_of_scope",
@@ -321,6 +345,53 @@ def _run_self_tests(verbose: bool = False) -> int:
                 package=True,
                 files=["SKILL.md", "README.md"],
                 skill_link="../../tools/foo/README.md",
+            ),
+            0,
+        ),
+        # rf2-kgw8z — a `../` link from a NESTED doc that resolves back INSIDE
+        # the package, at a path `files` omits. Spelled like an escape, but it
+        # is an intra-package link and is exactly the reported improver case
+        # (references/README.md -> ../spec/design.md).                  -> 1
+        (
+            "bad_parent_reentry_unshipped",
+            dict(
+                package=True,
+                files=["SKILL.md", "README.md", "references/"],
+                ref_link="../spec/design.md",
+            ),
+            1,
+        ),
+        # the same `../` re-entry shape, but the target IS shipped      -> 0
+        (
+            "ok_parent_reentry_shipped",
+            dict(
+                package=True,
+                files=["SKILL.md", "README.md", "references/"],
+                ref_link="../SKILL.md",
+            ),
+            0,
+        ),
+        # the same `../` re-entry to an unshipped path, but the LINE documents
+        # it as a deliberate monorepo-only reference                    -> 0
+        (
+            "ok_parent_reentry_marked",
+            dict(
+                package=True,
+                files=["SKILL.md", "README.md", "references/"],
+                ref_link="../spec/design.md",
+                monorepo_only=True,
+            ),
+            0,
+        ),
+        # NOT an existence checker: a `../` re-entry to a path that is SHIPPED
+        # by the allow-list but does not exist on disk stays green — existence
+        # is check_doc_slugs.py's question, not this gate's.            -> 0
+        (
+            "ok_shipped_but_absent_is_not_our_question",
+            dict(
+                package=True,
+                files=["SKILL.md", "README.md", "references/", "docs/"],
+                ref_link="../docs/NEVER-CREATED.md",
             ),
             0,
         ),
