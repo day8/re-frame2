@@ -94,8 +94,9 @@
       ;; Match against `fx/strip-comments-and-strings`-neutered source so a
       ;; docstring / comment MENTION of `wire/with-indicators` can't satisfy
       ;; the routing pin — only a real CODE reference counts (rf2-qyfy1m).
-      ;; subscribe.cljs names the helper in two docstrings; without the
-      ;; strip, deleting its real splices would leave the pin green.
+      ;; (The motivating case was the since-retired subscribe.cljs, which
+      ;; named the helper in two docstrings — rf2-ahjbc; the hazard is
+      ;; generic to any tool source and the strip stays.)
       (let [src      (fx/read-source rel)
             stripped (fx/strip-comments-and-strings src)]
         (is (str/includes? stripped "wire/with-indicators")

@@ -28,8 +28,8 @@ against the **exact shipped code** rather than a copied mirror (rf2-etsj8p):
 fixture compiles `re-frame2-pair.pure` (on the `../../preload` source path) and
 the tests at `tests/fixture/test/re_frame2_pair/pure_test.cljs`, running them
 under Node. These exercise the EXACT pure fns the runtime delegates to — no
-mirror — so the covered matrices (multi-frame ambiguity, redaction, streaming
-eviction/timing, read-sub validation, snapshot/orient, cascade outcome, and the
+mirror — so the covered matrices (multi-frame ambiguity, redaction, epoch
+timing/matching, read-sub validation, snapshot/orient, cascade outcome, and the
 hash-cache bedrock invariant) test the shipped preload directly.
 
 **To run:**

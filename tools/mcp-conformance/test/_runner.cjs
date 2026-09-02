@@ -357,7 +357,7 @@ function assertClassificationRatchet(tools, expected) {
       if (ro || de) {
         throw new Error(
           'tool ' + t.name + ' classification regressed: fixture pins ' +
-            '`neither` (a session-pin / streaming tool — NEITHER readOnlyHint ' +
+            '`neither` (a session-pin tool — NEITHER readOnlyHint ' +
             'NOR destructiveHint true) but the live descriptor has ' +
             'readOnlyHint=' + JSON.stringify(a.readOnlyHint) +
             ', destructiveHint=' + JSON.stringify(a.destructiveHint) +

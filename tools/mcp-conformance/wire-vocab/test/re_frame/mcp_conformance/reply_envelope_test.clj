@@ -9,15 +9,15 @@
   reply envelope among the record-shaped tool egress
   (spec/Tool-Pair.md §`project-egress` record-shaped egress).
   `tools/mcp-conformance` is the client-side MCP gate for re-frame2-pair-mcp's
-  `trace-window` / `subscribe` surfaces — the off-box delivery path over the
+  `trace-window` / `watch-epochs` surfaces — the off-box delivery path over the
   authoritative per-frame trace rings (Tool-Pair §Reading the per-frame
   trace ring). But the surface validated only the MCP wrapper / event-bundle
   envelope and a simple counter dispatch — it pinned NO managed-async
   reply-envelope trace content. `rg \"EP-0011|reply-envelope|rf\\.reply\"
   tools/mcp-conformance` returned no matches before this gate.
 
-  This is the wire-vocab counterpart to the live-`subscribe` end-to-end
-  path: a pure-JVM schema + fixture + source-pin gate (the same shape as
+  This is the wire-vocab counterpart to the live turn-shaped end-to-end
+  path (`live-re-frame2-pair-turn-observation.cjs`): a pure-JVM schema + fixture + source-pin gate (the same shape as
   `event_bundle_test` / the `canonical-markers` table) that pins the
   ADDITIVE `:rf.reply/*` trace vocabulary an MCP consumer reads off a
   `trace-window` / event-bundle `:trace-events` row, so a rename / drop /
@@ -67,7 +67,7 @@
   re-validate the whole managed-effect suite (the runtime / resources /
   Xray tests own family-internal correctness + the live emission); it is
   the MCP-egress-visible contract that those keys reach a `trace-window` /
-  `subscribe` consumer un-renamed. See README §EP-0011 coverage boundary."
+  `watch-epochs` consumer un-renamed. See README §EP-0011 coverage boundary."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [malli.core :as m]

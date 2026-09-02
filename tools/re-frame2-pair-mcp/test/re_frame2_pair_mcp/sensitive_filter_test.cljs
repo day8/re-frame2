@@ -281,7 +281,7 @@
          :trace-events [{:operation :rf.event/run-end :tags {:rf.trace/phase :run-end} :sensitive? true}]})))
 
 ;; ---------------------------------------------------------------------------
-;; strip-sensitive on epoch records — the streaming-surface defense-in-depth
+;; strip-sensitive on epoch records — the epoch-read defense-in-depth
 ;; scenarios. These match how trace-window-tool / watch-epochs-tool feed
 ;; epoch vectors through the same helper.
 ;; ---------------------------------------------------------------------------

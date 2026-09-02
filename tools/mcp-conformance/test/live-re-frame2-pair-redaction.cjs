@@ -96,7 +96,7 @@
 // ## Gating
 //
 // **Skipped unless `$SHADOW_CLJS_NREPL_PORT` is set.** Same posture as
-// the sibling `live-re-frame2-pair-overflow.cjs` / `-subscribe.cjs`:
+// the sibling `live-re-frame2-pair-overflow.cjs` / `-turn-observation.cjs`:
 // without a live nREPL the server runs degraded and every tool returns
 // the same `:nrepl-port-not-found` envelope — no `:db-*` ever crosses, so
 // the redaction surface is unreachable. The hermetic orchestrator

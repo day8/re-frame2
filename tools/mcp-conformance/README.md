@@ -54,9 +54,10 @@ absent.
 ### Live pair conformance
 
 The live tests exercise behaviour that requires a connected browser
-runtime: overflow, progress notifications, sensitive-value projection,
-the universal `isError`/`:ok?` relationship, recordable coeffects, and
-event metadata.
+runtime: overflow, turn-shaped observation (dispatch consequence,
+`watch-epochs`, `watch-until`, the recorder read-back), sensitive-value
+projection, the universal `isError`/`:ok?` relationship, recordable
+coeffects, and event metadata.
 
 [`scripts/live-test-inventory.cjs`](scripts/live-test-inventory.cjs) is
 the single owner of the live-test roster. Both `npm test` and the

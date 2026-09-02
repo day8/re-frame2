@@ -26,7 +26,10 @@
 //   4. `record` + `read-recording` capture a change driven while the
 //      recorder observes (the human/browser-driven capture path — here
 //      the change is driven by a dispatch between the two calls) and
-//      return the change-log as a completed read.
+//      return the change-log as a completed read. The recorder's own
+//      pre-dispatch baseline entry is drained first, so the proof is an
+//      entry carrying the exact post-dispatch value — never "at least
+//      one entry", which the baseline alone satisfies.
 //
 // Every call above is awaited to completion before the next fires —
 // the sequential shape an ordinary coding agent drives. A regression
@@ -110,6 +113,34 @@ function fatalIfError(label, resp) {
         'this completed result. Got: ' +
         (responseText(resp) || JSON.stringify(resp)).slice(0, 400),
     );
+  }
+}
+
+// Every `:value <int>` slot in a read-recording result, in change-log
+// order. With ONE recorded signal these are exactly the entries' values —
+// the envelope's other integer slots ride `:count` / `:frames-sampled` /
+// `:t` / `:frame`, none of which is spelled `:value`.
+function entryValues(text) {
+  return Array.from(text.matchAll(/:value (\d+)/g), (m) => parseInt(m[1], 10));
+}
+
+// Poll `read-recording` on a short cadence until `done(values)` holds or
+// the deadline passes (bounded — the outer watchdog caps the whole
+// harness). The recorder samples per animation frame, so an entry lands a
+// frame or two after its change. Each poll is itself a completed tool
+// call. Returns the LAST read's values + text; the caller judges them.
+async function pollReadRecording(client, recordingId, extraArgs, label, done) {
+  const deadline = Date.now() + 8000;
+  for (;;) {
+    const resp = await client.callTool({
+      name: 'read-recording',
+      arguments: { 'recording-id': recordingId, ...extraArgs },
+    });
+    fatalIfError('read-recording ' + recordingId + ' (' + label + ')', resp);
+    const text = responseText(resp) || '';
+    const values = entryValues(text);
+    if (done(values) || Date.now() >= deadline) return { values, text };
+    await new Promise((r) => setTimeout(r, 250));
   }
 }
 
@@ -293,11 +324,32 @@ runWithWatchdog(
         target + '}',
     );
 
-    // ---- 4. record -> drive a change -> read-recording ----
+    // ---- 4. record -> drain the baseline -> drive a change -> read-recording ----
     //
     // The recorder observes while the app is driven (in production use a
     // human/browser drives it; here a dispatch between the two calls
     // stands in). The change-log comes back as a completed read.
+    //
+    // The recorder's FIRST tick records every signal's first sample as a
+    // baseline entry (`recording-sampler-tick!`'s last-values starts
+    // empty), so "at least one entry" holds before anything is driven and
+    // would stay green if the recorder missed the dispatch entirely (the
+    // rf2-ahjbc audit's false-green finding). The proof of a
+    // DISPATCH-DRIVEN capture is therefore three steps: await and DRAIN
+    // the pre-dispatch baseline, pinned to the value read before `record`;
+    // dispatch; then require an entry carrying the exact post-dispatch
+    // value, which existed nowhere in app-db before the dispatch.
+    const recBeforeResp = await client.callTool({
+      name: 'get-path',
+      arguments: { path: '[:count]' },
+    });
+    fatalIfError('get-path [:count] (recorder arm)', recBeforeResp);
+    const recBefore = parseCountValue(
+      responseText(recBeforeResp) || '',
+      'get-path [:count] (recorder arm)',
+    );
+    const recTarget = recBefore + 1;
+
     const recResp = await client.callTool({
       name: 'record',
       arguments: { signals: '[{:app-db [:count]}]' },
@@ -313,35 +365,59 @@ runWithWatchdog(
     const recordingId = idMatch[1];
     console.log('OK   record -> recording installed (' + recordingId + ')');
 
+    // Await the baseline and drain it (`drain: true` consumes the buffered
+    // entries; the recording keeps running). It must be exactly one entry
+    // carrying the pre-dispatch value — anything else means the recorder
+    // is not observing the signal we think it is.
+    const baseline = await pollReadRecording(
+      client,
+      recordingId,
+      { drain: true },
+      'baseline',
+      (values) => values.length > 0,
+    );
+    if (baseline.values.length !== 1 || baseline.values[0] !== recBefore) {
+      throw new Error(
+        'read-recording (drain) MUST return exactly the pre-dispatch ' +
+          'baseline entry (:value ' + recBefore + ') before anything is ' +
+          'driven; got values ' + JSON.stringify(baseline.values) + ': ' +
+          baseline.text.slice(0, 400),
+      );
+    }
+    console.log(
+      'OK   read-recording (drain) -> pre-dispatch baseline entry :value ' +
+        recBefore + ' drained',
+    );
+
     const recIncResp = await client.callTool({
       name: 'dispatch',
       arguments: { event: '[:counter/inc]', sync: true },
     });
     fatalIfError('dispatch [:counter/inc] (recorder arm)', recIncResp);
 
-    // The recorder samples per animation frame; poll the read-back on a
-    // short cadence until the change lands (bounded — the outer watchdog
-    // caps the whole harness). Each poll is itself a completed tool call.
-    const READ_DEADLINE = Date.now() + 8000;
-    let sawChange = false;
-    let lastReadText = '';
-    while (Date.now() < READ_DEADLINE && !sawChange) {
-      const readResp = await client.callTool({
-        name: 'read-recording',
-        arguments: { 'recording-id': recordingId },
-      });
-      fatalIfError('read-recording ' + recordingId, readResp);
-      lastReadText = responseText(readResp) || '';
-      // At least one change entry sampled — `:count <n>` with n >= 1.
-      const cm = /:count (\d+)/.exec(lastReadText);
-      if (cm && parseInt(cm[1], 10) >= 1) sawChange = true;
-      if (!sawChange) await new Promise((r) => setTimeout(r, 250));
-    }
-    if (!sawChange) {
+    // The dispatch-driven entry: the exact post-dispatch value, and only
+    // that — the drained baseline must not come back.
+    const driven = await pollReadRecording(
+      client,
+      recordingId,
+      {},
+      'post-dispatch',
+      (values) => values.includes(recTarget),
+    );
+    if (!driven.values.includes(recTarget)) {
       throw new Error(
-        'read-recording never returned a captured change for the ' +
-          'dispatch driven while recording (waited 8s): ' +
-          lastReadText.slice(0, 400),
+        'read-recording never returned an entry carrying the post-dispatch ' +
+          'value :value ' + recTarget + ' for the dispatch driven while ' +
+          'recording (waited 8s; values seen ' +
+          JSON.stringify(driven.values) + '): ' + driven.text.slice(0, 400),
+      );
+    }
+    if (driven.values.includes(recBefore)) {
+      throw new Error(
+        'read-recording MUST NOT return the drained baseline (:value ' +
+          recBefore + ') again — the post-drain log should carry only ' +
+          'dispatch-driven entries; got values ' +
+          JSON.stringify(driven.values) + ': ' + driven.text.slice(0, 400),
       );
     }
     // Stop + tear down the recorder.
@@ -351,7 +427,8 @@ runWithWatchdog(
     });
     fatalIfError('read-recording (stop)', stopResp);
     console.log(
-      'OK   record + read-recording -> driven change captured and returned as a completed read',
+      'OK   record + read-recording -> dispatch-driven change captured (:value ' +
+        recTarget + ') and returned as a completed read',
     );
 
     // ---- Restore the fixture's boot posture (shared-runtime hygiene) ----

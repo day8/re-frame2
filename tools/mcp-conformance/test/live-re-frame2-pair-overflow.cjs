@@ -73,23 +73,23 @@
 
 // ## DRY-on-3 resolution
 //
-// This file and its `live-re-frame2-pair-*.cjs` siblings (subscribe,
-// redaction) share the nREPL SKIP-gate (via $SHADOW_CLJS_NREPL_PORT) and
-// the SDK-spawn ceremony. Both are now factored: the SKIP gate routes
-// through `runWithWatchdog.skip`, and the spawn+connect+teardown ceremony
-// is `_runner.cjs`'s `connectServer` / `closeQuietly` (the redaction arm's
-// second-server boot uses it directly). What is NOT shared — by design —
-// is each variant's data-driven field validator: this variant's overflow
-// parsing/validation lives in the overflow-SPECIFIC `lib/overflow-marker.cjs`
-// (`REQUIRED_FIELDS` + `assertOverflowBody` + the closed-wrapper guard),
-// while subscribe keeps `REQUIRED_PARAMS` + `assertProgressParams` inline.
-// Each pins a DISTINCT Malli schema (`ReFrame2PairOverflowBody` vs
-// `ReFrame2PairProgressNotificationParams`) and the JVM cross-encoding gate
-// in `wire_vocab_test.clj` greps each validator's literal source rows by
-// name — collapsing them into one GENERIC helper would dissolve that
-// per-schema attribution and weaken the conformance contract. (The overflow
-// helper was extracted so its pure logic is unit-testable off the live
-// path; it is not shared with subscribe.)
+// This file and its `live-re-frame2-pair-*.cjs` siblings (turn-observation,
+// redaction, isError, cofx, event-meta) share the nREPL SKIP-gate (via
+// $SHADOW_CLJS_NREPL_PORT) and the SDK-spawn ceremony. Both are factored:
+// the SKIP gate routes through `runWithWatchdog.skip`, and the
+// spawn+connect+teardown ceremony is `_runner.cjs`'s `connectServer` /
+// `closeQuietly` (the redaction and turn-observation arms' second-server
+// boots use it directly). What is NOT shared — by design — is this
+// variant's data-driven field validator: overflow parsing/validation lives
+// in the overflow-SPECIFIC `lib/overflow-marker.cjs` (`REQUIRED_FIELDS` +
+// `assertOverflowBody` + the closed-wrapper guard). It pins ONE Malli
+// schema (`ReFrame2PairOverflowBody`), and the JVM cross-encoding gate in
+// `wire_vocab_test.clj` greps the validator's literal source rows by name —
+// folding it into a GENERIC helper would dissolve that per-schema
+// attribution and weaken the conformance contract. (The helper was
+// extracted so its pure logic is unit-testable off the live path. The
+// retired streaming harness kept its own progress-params validator inline
+// for the same per-schema reason; rf2-ahjbc removed it with the subsystem.)
 
 const path = require('node:path');
 const os = require('node:os');

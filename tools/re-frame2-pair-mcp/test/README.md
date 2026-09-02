@@ -52,8 +52,8 @@ What this layer covers:
   / `re-frame.schemas-conformance-test` / `re-frame.flows-conformance-test`
   on the framework side.
 - Snapshot pipeline / wire shape — `snapshot_test.cljs`,
-  `subscribe_test.cljs`, `list_subscriptions_test.cljs`,
-  `wire_cap_test.cljs`, `typical_tokens_test.cljs`. These exercise
+  `list_subscriptions_test.cljs`, `wire_cap_test.cljs`,
+  `typical_tokens_test.cljs`. These exercise
   the SHAPE the server emits without ever opening a socket; nREPL is
   stubbed at `nrepl/cljs-eval-value`.
 
@@ -89,9 +89,8 @@ runs deterministically. Exercises:
   `inputSchema.properties` keys. A renamed property fails this test
   (the rename is part of the wire contract; users' MCP-host configs
   depend on it).
-- Selected app-facing calls (`eval-cljs`, `snapshot`, `get-path`,
-  `subscribe`, and `unsubscribe`) return
-  `:reason :nrepl-port-not-found` with no app endpoint.
+- Selected app-facing calls (`eval-cljs`, `snapshot`, and `get-path`)
+  return `:reason :nrepl-port-not-found` with no app endpoint.
 - An unknown tool returns an `isError` envelope with
   `:reason :unknown-tool` before endpoint discovery.
 
