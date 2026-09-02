@@ -8,14 +8,7 @@ Reach for this leaf when authoring a `rf/reg-machine` call: the declaration map'
 
 **Standing advice for every machine: sketch it the xstate way (states, transitions, guards, actions, `context`, `invoke`, parallel states, final states), then translate each piece into its re-frame2 equivalent.** xstate is the widely-known JS FSM model and well-represented in your training data. Parity target is XState **v6** semantics (EP-0029), not exact compat with an alpha — many re-frame2 divergences are *toward* v6 (it dropped the v5 helper creators `assign` / `sendTo` / `raise` / `and`/`or`/`not` and the `setup()` registry, which re-frame2 never had).
 
-Most concepts map cleanly. The flags below are where xstate-trained intuition steers you wrong — re-frame2 **renames or omits** the slot:
-
-- **`context` → `:data`.** No `context` slot; the machine's private map is `:data`.
-- **`assign({...})` → an action returning `{:data new-data}`** (and/or `{:fx [...]}`). No `[:assign …]` form; symmetric with `reg-event`'s `{:db :fx}` return.
-- **`invoke` → `:spawn`** (and `:spawn-all` for fan-out-and-join). One `:spawn` per state (xstate admits a vector); `invoke onError` → `:spawn`'s `:on-error` transition. See [`spawn.md`](spawn.md).
-- **No action-vectors, no `{and: [...]}` compound-guard data.** One fn or one named registered compound per `:action` / `:guard` slot.
-- **`setup({actors, guards, actions})` → per-machine `:guards` / `:actions` maps.** Machine-scoped, not globally registered; cross-machine reuse is via plain Clojure vars.
-- **Timeouts are integer-ms or ISO-8601 (`"PT5S"`), never the `"5s"` shorthand.** `:internal-events` is a **set** (`#{:tick}`), not an array.
+Most concepts map cleanly. The slots re-frame2 **renames or omits** — where xstate-trained intuition steers you wrong — are: **`context` → `:data`**; **`assign({…})` → an action returning `{:data …}`** (and/or `{:fx […]}`), never an `[:assign …]` form; **`invoke` → `:spawn`** (one per state, `:spawn-all` for fan-out, `invoke onError` → `:on-error` — see [`spawn.md`](spawn.md)); **no action-vectors and no `{and: […]}` compound-guard data** — one fn or one named registered compound per `:action` / `:guard` slot; **`setup({actors, guards, actions})` → per-machine `:guards` / `:actions` maps**, machine-scoped rather than globally registered, reused across machines via plain Clojure vars; and **timeouts are integer-ms or ISO-8601 (`"PT5S"`), never the `"5s"` shorthand**, with `:internal-events` a **set** (`#{:tick}`) rather than an array.
 
 The full 28-row translation key — every concept, convergence and divergence, plus history / tags / choice / typed-context / wildcard / `:reenter?` / `stateIn` rows — is the sole carrier at [`xstate-translation.md`](xstate-translation.md). When you reach for an xstate slot that isn't flagged above, check that catalogue rather than assume parity.
 
@@ -153,7 +146,7 @@ Per the inspectability bias (Spec 005 §Inspectability bias): named entries surf
 
 ### Guard / action contract
 
-Every callback receives **one context map** — `(fn [{:keys [data event state meta] cofx :rf.cofx}] ...)` — and destructures the keys it needs. `data` is the snapshot's `:data` slot (a plain map); `event` is the inbound event vector; `state` is the discrete FSM keyword; `meta` is any user `:meta` on the snapshot. The `:rf.cofx` key's **name** contains a dot, so it can't ride inside `:keys` — bind it with the explicit `cofx :rf.cofx` pair (Spec 005 §Guard/action contract). **`:rf.cofx` is the causal recordable-coeffect record (EP-0010 recording / EP-0017 authoring)** — the same flat `{:rf/time-ms …}` map the dispatching event handler saw, surfaced onto the machine ctx so a bare-fn guard/action deciding on a host fact reads `(:rf/time-ms cofx)` not an ambient `js/Date` / `(random-uuid)`. Present when the dispatch carried a causal token; **absent for pure-fn callers** (conformance corpus / JVM fixtures driving the engine without a router coeffect). To have the framework *ensure* a fact, declare it via **consumer attachment** (`:rf.cofx/requires` on the named guard/action entry; the fact arrives flat beside the destructure). Machine `:data` is **durable** (survives snapshot/restore + replay), so any host fact a guard/action folds into `:data` MUST come from this record, never an ambient read — same durable-write rule as event handlers (Spec 002 §Recordable coeffects; Spec 005 §Machines). Actions return `{:data new-data :fx [...]}` (either key optional); guards return truthy/falsey. See `call-guard` / `call-action` in `re-frame.machines.transition`.
+Every callback receives **one context map** — `(fn [{:keys [data event state meta] cofx :rf.cofx}] ...)` — and destructures the keys it needs. `data` is the snapshot's `:data` slot (a plain map); `event` is the inbound event vector; `state` is the discrete FSM keyword; `meta` is any user `:meta` on the snapshot. The `:rf.cofx` key's **name** contains a dot, so it can't ride inside `:keys` — bind it with the explicit `cofx :rf.cofx` pair (Spec 005 §Guard/action contract). Machine `:data` is **durable** (it survives snapshot/restore and replay), so any host fact a guard/action folds into `:data` MUST come from `:rf.cofx` — `(:rf/time-ms cofx)`, never an ambient `js/Date` / `(random-uuid)`. `:rf.cofx` is present when the dispatch carried a causal token and **absent for pure-fn callers** (the conformance corpus and JVM fixtures drive the engine without a router coeffect), so a guard must tolerate its absence. The record itself and consumer attachment via `:rf.cofx/requires` are [`../fundamentals/cofx.md`](../fundamentals/cofx.md)'s (EP-0010 / EP-0017). Actions return `{:data new-data :fx [...]}` (either key optional); guards return truthy/falsey. See `call-guard` / `call-action` in `re-frame.machines.transition`.
 
 **Flat / compound machines get exactly `{:data :event :state :meta}`. A callback running inside a parallel *region* additionally carries `:tags` and `:all-state`** — the machine-wide tag union and the region-name → active-state map, which are re-frame2's cross-region `stateIn` substitute. Those two keys appear **only** for region callbacks (`:all-state` is the region marker), so a flat machine's ctx is unchanged. See `regions.md` §Cross-region coordination.
 
@@ -161,7 +154,7 @@ There is **no positional `(data event)` arity and no opt-in 3-arity escape hatch
 
 ## Machine schemas and snapshot redaction
 
-A machine spec MAY declare an optional machine-level **`:schemas`** map (EP-0029 A3) — `[:schemas :data]` validates the `:data` context (the re-frame2 analog of XState typed context), `[:schemas :output]` validates the `:output-key` completion payload. Durable `:data` egress redaction is a **separate** surface: top-level `:sensitive` / `:large` path vectors on the spec, projection-relative to one actor's snapshot. (The Malli `:sensitive?` *prop* inside `[:schemas :data]` redacts only validation-failure traces, not normal snapshot egress.) The full contract — declaration grammar, dev-only validation lifecycle, best-effort output validation, and per-instance classification lowering — is the sole carrier at [`machine-schemas.md`](machine-schemas.md).
+A machine spec MAY declare an optional machine-level **`:schemas`** map — `[:schemas :data]` validates the `:data` context (the re-frame2 analog of XState typed context), `[:schemas :output]` the `:output-key` completion payload — while durable `:data` egress redaction is a **separate** surface driven by top-level `:sensitive` / `:large` path vectors. Declaration grammar, the dev-only validation lifecycle, best-effort output validation and per-instance classification lowering are the sole carrier at [`machine-schemas.md`](machine-schemas.md).
 
 ## Subscribing to a machine
 
@@ -184,23 +177,11 @@ Project off the snapshot with ordinary `reg-sub`:
 
 ## Driving a machine as a discrete event-driven flow
 
-A machine that drives a discrete event-driven flow — application boot, a websocket-connection lifecycle — needs **no special registration form**. `reg-machine` already registers the machine **as an event handler** (see §Canonical signature above): author the flow with `reg-machine`, then drive it by dispatching the nested `[machine-id [:event-name & args]]` form. A frame's `:initial-events` births it at frame creation with the reserved creation marker:
+A machine that drives a discrete event-driven flow — application boot, a websocket-connection lifecycle — needs **no special registration form**. `reg-machine` already registers the machine **as an event handler** (§Canonical signature): author the flow exactly as above, then drive it by dispatching the nested `[machine-id [:event-name & args]]` form. A frame's `:initial-events` births it at frame creation with the reserved creation marker — `(rf/dispatch [:app/boot [:rf.machine/start]])`.
 
-```clojure
-(rf/reg-machine :app/boot
-  {:initial :configuring
-   :data    {:phase :configuring :config nil}
-   :states  {...}
-   :guards  {...}
-   :actions {...}})
+To validate the flow's **outer** event vector, pass the optional metadata MIDDLE slot — `(rf/reg-machine :app/boot {:schema BootEvent} boot-machine)`; to validate its **`:data`**, declare `[:schemas :data]` inside the spec map (see [`machine-schemas.md`](machine-schemas.md)), which **requires** the `reg-machine` home. `patterns/boot.md` and `patterns/websocket.md` carry the worked flows.
 
-;; drive it — e.g. from the frame's :initial-events:
-(rf/dispatch [:app/boot [:rf.machine/start]])
-```
-
-When the flow also validates its **outer** event vector, pass the optional metadata MIDDLE slot — `(rf/reg-machine :app/boot {:schema BootEvent} boot-machine)`; when it validates its **`:data`**, declare `[:schemas :data]` inside the spec map (see [`machine-schemas.md`](machine-schemas.md)), which **requires** the `reg-machine` home. `patterns/boot.md` and `patterns/websocket.md` carry the worked flows.
-
-> **Advanced — `re-frame.machines/make-machine-handler`.** The lower-level factory that builds the raw event-handler fn `reg-machine` registers for you (owned by `re-frame.machines`, **not** on the `re-frame.core` façade; the `reg-machine` / `defmachine` registration macros stay on the `rf/` façade). It is a **schema-less escape hatch** for programmatic composition — **not** a normal authoring path. Registering it by hand, `(rf/reg-event id meta (make-machine-handler spec))`, does **not** stamp the `:rf/machine?` / `:rf/machine` registration metadata or the per-element source coordinates that machine introspection, `(machine-meta id)`, visualisers, and Xray resolve through — so the machine is invisible to those tools. And a spec carrying a `[:schemas :data]` schema **throws `:rf.error/machine-schema-requires-reg-machine`** on that path: the post-commit `:data` validator resolves the schema *through* the missing metadata stamp, so it would silently validate nothing — the framework fails loud at construction instead. Reach for it only when you genuinely need the bare handler fn programmatically; author normal machines with `reg-machine`. See `references/cross-cutting/api-cheatsheet.md` §Machines for the contract row.
+> **Advanced — `re-frame.machines/make-machine-handler`.** The lower-level factory behind `reg-machine`, owned by `re-frame.machines` and **not** on the `rf/` façade: a **schema-less escape hatch** for programmatic composition, never a normal authoring path. Registering it by hand skips the `:rf/machine?` / `:rf/machine` metadata **and** the per-element source coords, so the machine is invisible to `(machine-meta id)`, visualisers and Xray — and a `[:schemas :data]`-bearing spec **throws `:rf.error/machine-schema-requires-reg-machine`** at construction rather than silently validating nothing. See `references/cross-cutting/api-cheatsheet.md` §Machines.
 
 ## Querying registered machines
 
