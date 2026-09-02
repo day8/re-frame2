@@ -455,12 +455,21 @@ browser, and because the body is rendered before any shell is assembled, there
 is no partial page to serve.
 
 The worked example is
-[`substrates/hicasso/login`](../../examples/substrates/hicasso/login):
-`server.cljs` is a real render module, and the test suite drives the real
-views and registrations through it. Read its `host.clj` as annotated wiring
-rather than as a server you can start — that example's model is
-ClojureScript-only today, so a JVM host cannot yet load it. The code below is
-the shape to copy; it is not transcribed from a running deployment.
+[`substrates/hicasso/login`](../../examples/substrates/hicasso/login), and both
+halves of it run. `server.cljs` is a real render module and `host.clj` is a real
+Ring handler — the shared `login.model` is `.cljc`, so the JVM holds the
+application's state the same way the browser does. Two suites drive them:
+`re-frame.hicasso.login-server-crossing-ssr-dom-cljs-test` renders the real
+views and registrations through the published entry table, and
+`re-frame.ssr.ring.login-host-crossing-test` spawns the real launcher on an
+ephemeral port and drives the handler across it.
+
+One leg is covered by neither on its own: the compiled server bundle running
+under the sidecar in a single process. The JVM suite stands a fixture render
+module in for it, deliberately — compiling the bundle inside a JVM test would
+put shadow-cljs on that lane for nothing the ClojureScript suite does not
+already hold. Read the two together and every step below has a witness behind
+it; read either alone and it does not.
 
 ### 1. Build both bundles
 
@@ -485,9 +494,29 @@ step 5 exists to catch.
 
 ### 2. Write the render module
 
+Two files, and the split is load-bearing. The **policy** — the entry id and the
+per-partition key lists — goes in its own `.cljc` namespace, because the render
+module is ClojureScript, the Ring host in step 3 is Clojure, and a `.cljc`
+namespace is the only file both compilers read:
+
+```clojure
+(ns my-app.policy)
+
+(def root-entry "my-app/root")
+
+(def render-state-policy
+  {:app-db     [:todos :session]
+   :runtime-db [:rf.runtime/routing :rf.runtime/machines]})
+```
+
+Write those lists once. Two hand-kept copies drift, and the direction the
+sidecar **cannot** refuse is the safe-looking one: a host asking for *more* than
+the entry allows is refused by name, while a host asking for *less* is served a
+page rendered from incomplete state, with nothing anywhere to notice.
+
 The sidecar renders nothing itself; it loads your bundle. The module publishes
-a build id, an **entry table**, a once-per-isolate `boot` and a per-request
-`render`:
+a build id, an **entry table** derived from that policy, a once-per-isolate
+`boot` and a per-request `render`:
 
 ```clojure
 (ns my-app.server
@@ -495,17 +524,17 @@ a build id, an **entry table**, a once-per-isolate `boot` and a per-request
             [re-frame.hicasso.server :as server]
             [re-frame.hicasso.substrate :as substrate]
             [re-frame.ssr.render-state :as render-state]
+            ;; The one policy, shared with the host in step 3.
+            [my-app.policy :as policy]
             [my-app.views :as views]))
 
 ;; The development default. A release build overrides it — see step 5.
+;; This one stays in the bundle rather than the shared namespace: `goog-define`
+;; is a ClojureScript form, and the id is this bundle's own identity.
 (goog-define build-id "my-app-dev")
 
-(def render-state-policy
-  {:app-db     [:todos :session]
-   :runtime-db [:rf.runtime/routing :rf.runtime/machines]})
-
 (defn- allowlist [slot]
-  (into-array (map pr-str (get render-state-policy slot))))
+  (into-array (map pr-str (get policy/render-state-policy slot))))
 
 (defn- boot! []
   (rf/init! substrate/adapter)
@@ -524,7 +553,7 @@ a build id, an **entry table**, a once-per-isolate `boot` and a per-request
 (def module
   #js {:protocol 1
        :buildId  build-id
-       :entries  (js-obj "my-app/root"
+       :entries  (js-obj policy/root-entry
                          #js {:stateAllowlist   (allowlist :app-db)
                               :runtimeAllowlist (allowlist :runtime-db)})
        :boot     boot!
@@ -546,28 +575,34 @@ One construction opt. Nothing else about the handler moves:
 ```clojure
 (ns my-app.host
   (:require [re-frame.ssr.ring :as ssr-ring]
-            [re-frame.ssr.ring.node :as node]))
+            [re-frame.ssr.ring.node :as node]
+            ;; The same policy the render module reads.
+            [my-app.policy :as policy]))
 
 (def handler
   (ssr-ring/ssr-handler
     {:initial-events [[:app/init]]
-     ;; What the BROWSER may see.
+     ;; What the BROWSER may see — an `ssr-handler` opt.
      :payload        [:todos]
-     ;; What the RENDER may see.
-     :render-state   {:app-db     [:todos :session]
-                      :runtime-db [:rf.runtime/routing :rf.runtime/machines]}
      ;; No :root-view — only the default JVM-local renderer reads one.
      :renderer       (node/renderer
                        {:endpoint     "http://127.0.0.1:8148"
-                        :entry        "my-app/root"
+                        :entry        policy/root-entry
                         ;; Must equal the server bundle's `build-id` — the
                         ;; development default here, a stamped id in a release.
                         :build-id     "my-app-dev"
-                        :render-state {:app-db     [:todos :session]
-                                       :runtime-db [:rf.runtime/routing
-                                                    :rf.runtime/machines]}
+                        ;; What the RENDER may see — a RENDERER opt, because
+                        ;; the renderer is what projects.
+                        :render-state policy/render-state-policy
                         :timeout-ms   1000})}))
 ```
+
+**`:render-state` sits on the renderer, not on `ssr-handler`.** A copy written
+at the top level beside `:payload` reads exactly like the live policy and is
+silently ignored — `ssr-handler` has no such opt to read — so the render
+projects under whatever the renderer was actually given. It is the same reason
+step 2's entry table and this step's `:render-state` read one shared Var rather
+than two literals that happen to agree today.
 
 `:renderer` is validated at construction, so a misconfigured deployment fails
 at boot rather than at the first request. Omitting it keeps the JVM-local
@@ -579,15 +614,25 @@ streaming renders its shell and every continuation from a server-resolved
 
 `:payload` answers *what may the browser see?* `:render-state` answers *what
 does the render need?* They are separate because the answers genuinely differ
-in both directions.
+in both directions — and, as step 3 shows, they are opts on two different
+constructors, because the thing that projects is the renderer.
 
 A server-only value — a deployment notice, an internal flag, an entitlement —
 belongs in `:render-state` and must stay out of `:payload`. Deriving one from
 the other would either leak it to the browser or render `nil` where the page
 expects content. Meanwhile the route slice and machine snapshots live in
 **runtime-db**, not app-db, which is why render state is a two-partition
-envelope `{:rf/app-db {…} :rf/runtime-db {…}}` rather than one map. A page
-whose face is chosen by a machine renders the wrong face without it.
+envelope `{:rf/app-db {…} :rf/runtime-db {…}}` rather than one map.
+
+Whether that second partition carries anything is a property of the **host**
+rather than of the page. A host that has driven a machine — one restoring a
+session, say — must hand the render the snapshot that decides which face to
+draw, or it renders a signed-in visitor a login form. A host that neither
+dispatches at the machine nor subscribes to it sends the partition across
+empty, and a self-seeding machine then materialises its initial state in the
+render's own per-request frame, which is the right page. Name the key either
+way: the list is the deployment's ceiling, not a promise that something fills
+it. Both directions are measured in the login example's crossing suite.
 
 Both policies are fail-closed allowlists of top-level keys, and both project
 the same EDN wire domain the hydration payload already uses. Where the
