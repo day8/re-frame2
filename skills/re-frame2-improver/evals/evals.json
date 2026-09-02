@@ -271,6 +271,38 @@
         "The applied change stays inside the named scope — the handler plus the one accompanying reg-fx registration; the agent does not expand into unrelated refactors or land a broader redesign under the same authorisation.",
         "The output cross-links the canonical idiom (skills/re-frame2/references/fundamentals/fx.md and/or spec/Conventions.md's data-only fx convention)."
       ]
+    },
+    {
+      "id": 32,
+      "kind": "behavioural",
+      "name": "behav-neg-unresolvable-path",
+      "dimension": "false-positive-avoidance",
+      "prompt": "Spot any anti-patterns in src/my_app/checkout/handlers.cljs?",
+      "expected_output": "The named path does not resolve — behavioural fixtures run against an empty workspace, so there is no src/my_app/checkout/handlers.cljs to read. The prompt therefore lands on the branch of trigger filter 2 that the activation fixtures never reach: a named path establishes scope only once the skill has READ it (SKILL.md §Workflow step 1, \"read it now\"), and \"a path that doesn't exist or can't be read does not — say so and ask for a snippet rather than fabricate\". A passing run attempts the read, reports plainly that the path could not be found or read, and asks for a snippet or a resolvable path. It emits NO finding, NO path:line evidence, NO quoted source, and NO Edit. A confident, unresolvable file name is the input shape most likely to induce the cardinal failure (SKILL.md §Anti-patterns: \"Don't fabricate findings to fill the output\"), which is why this fixture sits in the release-blocking false-positive-avoidance dimension. The run also must not substitute a generic anti-pattern tour for the review it could not perform — declining and asking IS the deliverable here. Eval 33 is its control: with a snippet pasted alongside the same unresolvable path, the critique must proceed normally, so a skill that has merely learned \"missing path ⇒ refuse\" fails there.",
+      "expectations": [
+        "The transcript shows the agent ATTEMPTING to resolve the named path (a Read — or a Glob / Grep resolution attempt — against src/my_app/checkout/handlers.cljs) before answering, per SKILL.md §Workflow step 1's \"read it now\"; it does not skip straight to a verdict.",
+        "The output states plainly that the named path could not be found or read — the failure is reported to the user, not silently absorbed.",
+        "The output ASKS for a snippet or a resolvable path (SKILL.md trigger filter 2: \"say so and ask for a snippet rather than fabricate\").",
+        "The output emits NO finding against that file: no catalogue anti-pattern is named for it, no path:line evidence is cited, and no source text is quoted or paraphrased as though it had been read.",
+        "No Edit tool call is made.",
+        "The agent does not substitute a generic re-frame2 anti-pattern tour, a catalogue listing, or speculative \"common mistakes in files like this\" advice for the review it could not perform."
+      ]
+    },
+    {
+      "id": 33,
+      "kind": "behavioural",
+      "name": "behav-unresolvable-path-with-snippet",
+      "dimension": "critique-correctness",
+      "leaf": "imperative-effects.md",
+      "prompt": "Spot any anti-patterns in src/my_app/checkout/handlers.cljs? Here is the handler I mean:\n\n(rf/reg-event :checkout/submit\n  (fn [{:keys [db]} [_ order]]\n    (.setItem js/localStorage \"last-order\" (pr-str order))\n    {:db (assoc-in db [:checkout :status] :submitting)}))",
+      "expected_output": "The control that makes eval 32 discriminating rather than merely refusable: the same unresolvable path, now with a snippet pasted alongside it. Trigger filter 2 is satisfied by the snippet on its own, so the review MUST proceed — a skill that has over-learned \"named path missing ⇒ decline\" fails here. The agent scopes to the pasted snippet, names the imperative WRITE (.setItem js/localStorage …) inside the reg-event body, and routes it to a data-only fx per references/imperative-effects.md. It may note in one line that the named file could not be read and that the critique is scoped to the snippet — but it does not withhold the critique over that, and it invents nothing about the parts of the file it never saw.",
+      "expectations": [
+        "Skill skills/re-frame2-improver/ is invoked and references/imperative-effects.md is read.",
+        "The agent DELIVERS the critique rather than declining: the pasted snippet satisfies trigger filter 2 on its own, so an unresolvable path beside it does not suppress the review.",
+        "The output names the anti-pattern as imperative interop — the (.setItem js/localStorage …) WRITE inside the reg-event body — and routes it to a data-only fx (a reg-fx issued from the handler's :fx), not to a coeffect.",
+        "The output's scope is the pasted snippet: it reports no finding about, and quotes no source from, the parts of src/my_app/checkout/handlers.cljs it never read.",
+        "The output cross-links the canonical idiom (skills/re-frame2/references/fundamentals/fx.md and/or spec/Conventions.md's data-only fx convention)."
+      ]
     }
   ]
 }

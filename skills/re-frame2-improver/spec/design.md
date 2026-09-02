@@ -27,7 +27,14 @@ These are not up for re-litigation. A future authoring pass MUST preserve them u
 
 The skill activates on three filters holding together: (a) review/audit/critique/improvements/anti-pattern phrasing about the user's own re-frame2 code, (b) a body of `.cljs`/`.cljc` source in scope — read or edited in the conversation, supplied as a snippet, **or named by the user as a concrete `.cljs`/`.cljc` path or directory** (in which case the skill reads it before critiquing), (c) not a sibling skill's job. Vocabulary alone is not enough. If (a) holds but (b) doesn't — no file, snippet, or resolvable named path — decline and ask for a snippet or a path rather than fabricate evidence.
 
-A named path is sufficient scope because resolving it (the skill reads the file) is the same act the in-conversation-read case already satisfies; declining a clear *"spot anti-patterns in `cart/handlers.cljs`"* would be a worse UX than reading the one file the user pointed at. The eval fixtures encode this: a prompt naming a `.cljs` path (`evals.json` #5/#6/#7) is `should_trigger: true`; a vocabulary-only prompt with no path (`#9 neg-vocab-no-source`) is `should_trigger: false`.
+A named path is sufficient scope because resolving it (the skill reads the file) is the same act the in-conversation-read case already satisfies; declining a clear *"spot anti-patterns in `cart/handlers.cljs`"* would be a worse UX than reading the one file the user pointed at.
+
+The eval fixtures encode **both halves** of that rule, and the distinction matters because only one half is an activation question:
+
+- **Activation.** A prompt naming a `.cljs` path (`evals.json` #5/#6/#7) is `should_trigger: true`; a vocabulary-only prompt with no path (`#9 neg-vocab-no-source`) is `should_trigger: false`.
+- **Behaviour when the named path does not resolve.** `#32 behav-neg-unresolvable-path` requires the read *attempt*, the plain statement that the path could not be read, and the ask — and forbids any finding, `path:line` evidence or `Edit`. Its control `#33 behav-unresolvable-path-with-snippet` keeps that refusal honest: the same unresolvable path arriving *beside* a pasted snippet must still produce a normal critique of the snippet, so a skill that has over-learned "missing path ⇒ decline" fails.
+
+Until #32/#33 landed the activation fixtures were the whole of the coverage here, and a run that answered a named-but-unreadable path with invented `path:line` findings passed the entire suite — the cardinal failure (L8) on the one input shape most likely to induce it (rf2-0aegi).
 
 ### L2 — Static, never live
 
