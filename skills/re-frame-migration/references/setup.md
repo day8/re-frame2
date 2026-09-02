@@ -220,7 +220,9 @@ All three become `day8/re-frame2` + the matching adapter artefact.
 |---|---|
 | `:require [reagent.core ...]` anywhere in the source tree | `day8/re-frame2-reagent` |
 | `:require [uix.core ...]` and Reagent has been removed | `day8/re-frame2-uix` |
-| No view layer (a backend-only re-frame app, server-side only) | `day8/re-frame2-reagent` is still the safe default; the adapter is lightweight |
+| No view layer (backend-only / headless / a test harness) | **No adapter artefact.** The headless plain-atom adapter ships *inside* `day8/re-frame2`: `(:require [re-frame.substrate.plain-atom :as plain-atom])`, then `(rf/init! plain-atom/adapter)`. Phase-0b's React floor does not apply |
+
+The canonical adapter inventory — every adapter's `:kind`, published namespace, and Maven coordinate — is [`spec/006-ReactiveSubstrate.md` §CLJS reference scope](../../../spec/006-ReactiveSubstrate.md#cljs-reference-scope). Do **not** add `day8/re-frame2-reagent` to an app with no view layer: it declares stock Reagent, which drags the React 19 npm peers into a project that never renders, and makes the Phase-0b floor gate apply to a build that has no floor to clear.
 
 ### Mixed-substrate projects — the compile-closure rule (not "add only one")
 
