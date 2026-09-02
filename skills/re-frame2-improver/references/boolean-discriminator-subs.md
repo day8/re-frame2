@@ -17,13 +17,21 @@ Structural signal: the boolean subs are mutually exclusive (exactly one is `true
 
 Each boolean sub is a fresh probe of the same underlying state, with no machine-readable declaration of the mutual exclusion. The view re-renders on **every** discriminator deref. The mutual-exclusion invariant is enforced by convention only — nothing prevents `:loading?` and `:error?` from being simultaneously `true` if a careless handler forgets a `dissoc`. New states (`:stale`, `:reloading`, `:partial`) require a new sub + a new view branch + an audit of all existing booleans for the new mutual-exclusion case — a cost that scales with the *square* of the state count.
 
-A re-frame2 state machine declares the states once; tags label the per-state intent; one selector sub answers the render question.
+The correction is the same move at either size: declare the render question **once**, in one derivation, and let the view do a single `case`. Over a `:status` slice that is one `reg-sub`; over a state machine the states declare themselves once, tags label the per-state intent, and the same one selector sub answers the question. Which of the two the code needs is a separate judgement — see below.
 
 ## The canonical fix
 
-[`tags.md`](../../re-frame2/references/state-machines/tags.md) — declare a `reg-machine` whose states carry `:tags`, then resolve the page's render through **one selector sub** over a data-shaped render-priority table (the view does a single `case`). For full page-level rendering with cardinality buckets, [`nine-states.md`](../../re-frame2/patterns/nine-states.md) is the canonical pattern.
+**Smallest correction first.** The defect is the *cluster*, not the state model. Read the `Before` below and notice what is already there: the lifecycle is a single `:status` keyword at `[:article :status]` — a Pattern-RemoteData slice — and the four booleans are four fresh probes of it. So the proportionate correction is **one selector sub** over the state that already exists, folding the empty-vs-loaded cardinality question into the same derivation, and one `case` in the view. That removes both symptoms outright: the render question is answered once per change instead of once per discriminator (no multi-deref re-render), and the mutual-exclusion invariant becomes a single expression a reader can check, so a new `:stale` state is one clause rather than an audit of the whole cluster. Neither symptom needs a machine to fix.
 
-Spec source: [`spec/005-StateMachines.md`](../../../spec/005-StateMachines.md) §Tags.
+Canonical idiom: [`remote-data.md`](../../re-frame2/patterns/remote-data.md) §Canonical declaration — slice form, whose explicit `:status` enum and layered convenience subs are precisely this shape, and which calls it "the dominant shape … the vast majority of cases".
+
+**When the machine pays.** Reach for `reg-machine` when the lifecycle has actually earned it, not because the render code was untidy. [`slice-or-machine.md`](../../re-frame2/decision-trees/slice-or-machine.md) is the owning decision: it defaults to **slice** unless one of four tells fires — multi-step async phases with phase-distinct transitions, a cancellation cascade, a terminal state, or orthogonal axes. Add the two [`remote-data.md`](../../re-frame2/patterns/remote-data.md) §When to choose each form gives for this pattern specifically: the lifecycle is a region of a larger parallel machine (Nine States), or the team wants tag-shaped queries instead of slice-field comparisons.
+
+When one of those holds, the shape of the fix does not change — it is still **one selector sub, one `case`** — it just reads the machine's `:tags` instead of the slice's `:status`: declare a `reg-machine` whose states carry `:tags` and resolve the render through one selector sub over a data-shaped render-priority table ([`tags.md`](../../re-frame2/references/state-machines/tags.md)). For full page-level rendering with cardinality buckets across several axes, [`nine-states.md`](../../re-frame2/patterns/nine-states.md) is the canonical pattern.
+
+**Report the two as different findings with different patch sizes.** The one-sub correction is the immediate repair; the machine is the optional broader redesign, and only when a tell fires.
+
+Spec sources: [`spec/Pattern-RemoteData.md`](../../../spec/Pattern-RemoteData.md) (the status slice) and [`spec/005-StateMachines.md`](../../../spec/005-StateMachines.md) §Tags (the machine).
 
 ## Worked example
 
@@ -45,7 +53,30 @@ Spec source: [`spec/005-StateMachines.md`](../../../spec/005-StateMachines.md) �
     @(rf/subscribe [:article/loaded?])  [article-body]))
 ```
 
-**After** — a machine whose states carry `:tags`, one selector sub over a data render-priority table, one `case` in the view:
+**After — the smallest correction.** The `:status` keyword is already in `app-db`; one derivation answers the render question, and the view does one `case`:
+
+```clojure
+(rf/reg-sub :article (fn [db _] (:article db)))
+
+(rf/reg-sub :article/render                        ;; ONE derivation, not four probes
+  :<- [:article]
+  (fn [{:keys [status data]} _]
+    (case status
+      :loading :loading
+      :error   :error
+      :loaded  (if (empty? data) :empty :loaded)   ;; cardinality folded in here
+      :idle)))                                     ;; nil / :idle — nothing fetched yet
+
+(rf/reg-view article-page []
+  (case @(subscribe [:article/render])
+    :idle [placeholder] :loading [spinner]
+    :error [error-banner] :empty [empty-state]
+    :loaded [article-body]))
+```
+
+Four subs become one, the view derefs once, and the mutual exclusion is a single `case` rather than an invariant spread across four handlers. There is no lazy-initialisation boundary to manage: the slice is ordinary `app-db`, so the `:idle` default covers "nothing fetched yet" with no eager-start kick. Adding `:stale` is one `case` clause on each side.
+
+**After — the optional redesign** (only when a [`slice-or-machine.md`](../../re-frame2/decision-trees/slice-or-machine.md) tell fires, or the page is already a Nine States machine) — a machine whose states carry `:tags`, one selector sub over a data render-priority table, one `case` in the view:
 
 ```clojure
 (rf/reg-machine :article
