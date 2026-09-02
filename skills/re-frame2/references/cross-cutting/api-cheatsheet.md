@@ -13,6 +13,7 @@ One-line signatures for the public `re-frame.core` surface. **For full docstring
 | `rf/reg-view` | `(sym [args] body)` — defn-shape, auto-injects `dispatch`/`subscribe` |
 | `rf/reg-view*` | `(id metadata? render-fn)` — runtime form |
 | `rf/reg-app-schema` | `(path schema)` / `(path {:frame frame} schema)` — schema is the positional value slot, optional middle metadata map carries `:frame`; **dev-build assertion** — registered in production, never checked there, so it is not the production boundary guard (`:rf.schema/at-boundary` is); needs `day8/re-frame2-schemas` |
+| `rf/reg-app-schemas` | `(path->schema)` / `(path->schema {:frame frame})` — bulk form; note the opts map **trails** here where `reg-app-schema`'s `:frame` is a middle slot. Returns the vector of paths registered. Same dev-build-assertion posture (registered in production, never checked there); needs `day8/re-frame2-schemas` |
 | `rf/reg-machine` | `(id metadata? machine-spec)` — registration macro stays on the façade (call-site coord capture, no owned-ns macro form); needs `day8/re-frame2-machines`. The plain-fn runtime form `reg-machine*` is the owned-ns surface `re-frame.machines/reg-machine*`, **not** on the `rf/` façade |
 | `rf/reg-flow` | `(flow-id metadata derive-fn)` — 3-slot: id first, pure derive fn last; `metadata` carries `:inputs` / `:output-path` (both REQUIRED) + optional `:doc` / `:schema` / `:frame`. A `:derive` inside the metadata is rejected (`:rf.error/invalid-flow-metadata`). Needs `day8/re-frame2-flows` |
 | `rf/reg-route` | `(id metadata-map path)` — path is the third positional arg; needs `day8/re-frame2-routing` |
@@ -71,6 +72,7 @@ The public composition model is `image → frame → event stream`; there is **n
 |---|---|
 | `re-frame.routing/match-url` | `(url)` → `{:route-id :params :query :fragment ...}` or `nil` — owned-ns surface, **not** on the `rf/` façade (the `reg-route` registration macro stays on `rf/`) |
 | `re-frame.routing/route-url` | `({:to route-id :params … :query … :fragment …})` → `"/url"` — one address-only map (`:to` required); `:fragment` appends `#frag` (nil/empty omitted, percent-encoded); `:url` / `:query-merge` / policy / unknown keys reject loud; owned-ns surface, **not** on the `rf/` façade |
+| `rf/route-link` | the registered view at `:route/link` — `[rf/route-link {:to :route-id :params {} :query {} :fragment "" & html-attrs} & children]`. Renders one `<a href>` (built via `route-url`) and intercepts plain primary-button clicks to dispatch `:rf.route/url-requested`; modifier-key / middle-clicks defer to the browser. Computes no active state |
 
 ## HTTP — `day8/re-frame2-http`
 
@@ -83,6 +85,21 @@ Production fx surface: `re-frame.http.managed`. Test surfaces (canned-stub fxs +
 | `http-test-support/install-managed-request-stubs!` / `uninstall-managed-request-stubs!` | per-call fx-overrides — **not** on the `rf/` façade; call through `re-frame.http.test-support` |
 | `rf/clear-http-interceptor` | `(id)` / `(id {:frame target})` — production surface, `re-frame.http.managed`. Single-arity clears in the carried scope (under no scope raises `:rf.error/no-frame-context`, never synthesises `:rf/default`); the two-arity opts map is fail-closed — EXACTLY `{:frame target}`, so `{}`, `{:frame nil}`, a typo'd/extra key and a non-map all raise `:rf.error/http-bad-interceptor` **before** any ambient frame resolves. Frame-first `(frame id)` is the artefact-internal `clear-http-interceptor*` seam (used by the `:rf.fx/clear-http-interceptor` fx), **not** a public arity |
 
+## Resources and mutations — `day8/re-frame2-resources` (see `patterns/resources.md`, `patterns/resources-mutations.md`)
+
+| Surface | Shape |
+|---|---|
+| `rf/reg-resource` | `(resource-id metadata request-fn)` — **macro**, 3-slot: the `:request` handler is the third VALUE slot; `metadata` is the middle map carrying the REQUIRED fail-closed `:scope` + `:params-schema` (plus optional `:doc` / `:data-schema` / `:stale-after-ms` / `:gc-after-ms` / `:tags` / `:transport`) |
+| `rf/reg-resource-scope` | `(scope-id metadata resolve-fn)` — **macro**, a PURE named scope resolver; `metadata` carries the declared `:inputs` map `{name [:db <rf-path>]}` (+ optional `:doc`). Omit `:inputs` for the whole-db sugar |
+| `rf/reg-mutation` | `(mutation-id metadata request-fn)` — **macro**, 3-slot: the `:request` write fn (a Spec 014 managed-HTTP args map) is the third value slot; `metadata` carries the REQUIRED `:params-schema` plus optional `:invalidates` / `:patches` / `:populates` / `:scope` / `:invalidate-timing` / `:retry`. Run one with `[:rf.mutation/execute …]` |
+| `rf/clear-resource` / `rf/clear-resource-scope` / `rf/clear-mutation` | `(id)` — **registration**-lifecycle removal, NOT cache invalidation. Data lifecycle is the `:rf.resource/invalidate-tags` / `:rf.resource/remove` / `:rf.resource/clear-scope` fxs; a mutation instance's reset is the `[:rf.mutation/clear …]` event |
+| `rf/resources` / `rf/mutations` | `()` / `({:frame …})` → `{:resource-ids […] :entries {…}}` · `{:mutation-ids […] :instances {…}}`. Without `:frame` only the static registry — no ambient frame fallback |
+| `rf/resource-meta` / `rf/mutation-meta` | `(id)` → the registered spec map (`:params-schema` `:request` `:scope` `:tags` … · `:invalidates` `:patches` `:populates` …), or `nil` |
+| `rf/resource-state` | `({:resource :scope :params :frame})` → that scoped instance's durable runtime entry, or `nil`. Frame carried explicitly (EP-0002); an absent/nil `:frame` fails closed with `:rf.error/no-frame-context` |
+| `rf/mutation-state` | `({:instance :frame})` → the instance's durable row `{:status :result :error …}`, or `nil` |
+| `rf/resolve-resource-scope` | `(db scope-id)` — **db first**. Resolves a named resolver against a db *value* → concrete scope or `nil`; a plain fn over the registry, not an effect (it does emit `:rf.resource/scope-resolved` dev trace). The logout idiom: resolve from the handler's coeffect db, then pass the concrete scope to `:rf.resource/clear-scope` |
+| `rf/install-revalidation-listeners!` / `rf/remove-revalidation-listeners!` | `(frame-id)` — window-focus / network-reconnect listeners driving active-stale revalidation. Idempotent (hot-reload safe), CLJS-only (JVM no-op), cancelled on frame destroy |
+
 ## Test support — `re-frame.test-support` (see `cross-cutting/testing.md`)
 
 | Surface | Shape |
@@ -91,6 +108,7 @@ Production fx surface: `re-frame.http.managed`. Test surfaces (canned-stub fxs +
 | `ts/snapshot-registrar` / `ts/restore-registrar!` | low-level snapshot/restore; compose in a `try` / `finally` for an ad-hoc bracket |
 | `ts/assert-path-equals` | `(path expected-val)` / `(path expected-val opts)` — mirrors `:rf.assert/path-equals`; full-db check → `(is (= expected-db (rf/app-db-value f)))` |
 | `ts/poll-until` | `(pred)` / `(pred opts)` — bounded poll; opts `:timeout-ms` (2000) `:interval-ms` (5) `:label`. JVM-sync (throws on timeout) / CLJS-Promise (rejects on timeout) |
+| `rf/with-fx-overrides` | `(overrides-map & body)` — **macro** on the `rf/` façade; binds `:fx-overrides` for `body`'s lexical scope, the block-shaped alternative to passing the opt on every `dispatch`. Precedence: per-call opt > lexical `with-fx-overrides` > per-frame. Composes with `with-frame` |
 | fire N events in order | `(doseq [ev evs] (rf/dispatch-sync ev))` — each drains to fixed point before the next |
 
 ## View tests — `re-frame.test-helpers` (see `cross-cutting/testing.md`)
@@ -138,7 +156,7 @@ Owner classifies / framework projects / sinks consume. Classification keys are *
 | schema `:sensitive?` / `:large?` | `[:token {:sensitive? true} :string]` Malli prop — HTTP `:decode` body (transient) + validation-FAILURE-trace redaction only. NOT a route for durable app-db OR machine `:data` snapshot egress |
 | `rf/project-egress` | `(record-or-value opts)` — record-level boundary primitive; `opts` `{:rf.egress/profile <closed six-member enum> :frame … :path […]}`. Required before any off-box sink; fail-closed when no frame known |
 | `rf/elide-wire-value` | `(value opts)` — low-level tree-shaped-value walker `project-egress` delegates to; advanced `:rf.size/include-sensitive?` / `:include-large?` / `:include-digests?` overrides |
-| `rf/register-observability-sink!` | `(sink-id fn)` — register the concrete sink fn for a frame `:observability` sink id; fn receives an **already-projected** record (no sink-local redaction) |
+| `rf/register-observability-sink!` (+ `rf/unregister-observability-sink!`) | `(sink-id fn)` — register the concrete sink fn for a frame `:observability` sink id; fn receives an **already-projected** record (no sink-local redaction). `(sink-id)` drops it again |
 | `rf/projected-record` | `(record)` — dev-only projected epoch/observation record read |
 | `rf/register-listener!` `:events` / `:errors` (+ `rf/unregister-listener!`) | advanced low-level listener registries beneath frame `:observability` |
 
@@ -180,4 +198,4 @@ Optional-artefact surfaces raise `:rf.error/<artefact>-artefact-missing` (regist
 
 ---
 
-*Derived from `implementation/core/src/re_frame/core.cljc` (the public surface) and the per-artefact source trees under `implementation/{machines,schemas,routing,http,ssr,epoch,flows}/` @ main. Re-verify when new public surface lands. This is the public-surface glance, not an exhaustive export inventory — for the complete facade see `SKILL-REDIRECT.md` → Definitive API reference.*
+*Derived from `implementation/core/src/re_frame/core.cljc` (the public surface) and the per-artefact source trees under `implementation/{machines,schemas,routing,http,resources,ssr,epoch,flows}/`, cross-checked against `spec/api-manifest.edn`'s `re-frame.core` rows, @ main. Re-verify when new public surface lands. This is the public-surface glance, not an exhaustive export inventory — for the complete facade see `SKILL-REDIRECT.md` → Definitive API reference.*
