@@ -235,6 +235,30 @@
                   (catch #?(:clj Exception :cljs :default) e
                     (:rf.error/id (ex-data e)))))))))
 
+(deftest extends-depth-cap-fails
+  (testing "an :extends chain longer than plan/*max-extends-depth* fails plan construction"
+    ;; A chain of 50 ids each pointing at the next; n0 is the leaf, n49 the
+    ;; deepest ancestor. Resolution from the leaf has to walk every parent, so
+    ;; the cap fires before the chain runs out. No cycle here — the depth cap
+    ;; is a SEPARATE bound with its own error id, and this is its only witness.
+    ;;
+    ;; Moved off the retired standalone `re-frame.story.extends` resolver
+    ;; (rf2-6r9j.11) onto the compiled-plan merge authority, which is what the
+    ;; runtime actually walks.
+    (let [chain-len 50
+          m         (into {}
+                          (for [i (range chain-len)]
+                            (let [this   (keyword "story.chain" (str "n" i))
+                                  parent (when (< (inc i) chain-len)
+                                           (keyword "story.chain" (str "n" (inc i))))]
+                              [this (cond-> {:setup []}
+                                      parent (assoc :extends parent))])))]
+      (binding [plan/*max-extends-depth* 32]
+        (is (= :rf.error/story-extends-chain-too-long
+               (try (plan-of :story.chain/n0 m)
+                    (catch #?(:clj Exception :cljs :default) e
+                      (:rf.error/id (ex-data e))))))))))
+
 (deftest unknown-keyword-target-fails
   (testing "a keyword target with no registered body fails"
     (is (= :rf.error/story-unknown-variant
