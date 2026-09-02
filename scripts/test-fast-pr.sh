@@ -912,6 +912,25 @@ run "eval-docs guard self-test" "python scripts/check_skill_eval_docs.py --self-
 run "skill eval-docs match evals.json" "python scripts/check_skill_eval_docs.py --verbose --ci" \
   python "$spine_root/scripts/check_skill_eval_docs.py" --verbose --ci
 
+# SKILL.md description-budget gate (rf2-w9p2; armed under rf2-bn5f).  Guards the
+# two limits the agent host actually enforces, both silent when breached: the
+# 1,536-char hard slice on a single description (it truncates mid-sentence, so
+# the disqualifier a description ends on is the first thing lost), and the
+# family's whole listing footprint against a pinned ratchet -- past the
+# 8,000-char budget the planner drops ENTIRE descriptions, lowest priority
+# first.  The absolute comparison prints on every run, so the overshoot is never
+# lost behind a tick.  Paired with test.yml's steps of the same ids and moves
+# with them: check_fast_pr_gap.py derives its required set from that job and
+# reports a required checker with no local lane as unrun.  Pure-stdlib and
+# sub-second, so it sits in the always-on block rather than the docs tier -- the
+# footprint it ratchets can be moved by any SKILL.md edit.  Self-test first
+# (proves both rules fire in both directions), then the live scan.
+run "SKILL.md description-budget self-test" "python scripts/check_skill_description_budget.py --self-test" \
+  python "$spine_root/scripts/check_skill_description_budget.py" --self-test
+
+run "SKILL.md descriptions fit listing budget" "python scripts/check_skill_description_budget.py --verbose --ci" \
+  python "$spine_root/scripts/check_skill_description_budget.py" --verbose --ci
+
 # README inventory ratchet (rf2-198k3): layout-map<->disk bijection +
 # 'N <noun>' count-numeral claims.  Runs unconditionally (not gated on a
 # documentation diff) because the drift it catches can be triggered by a *dir*

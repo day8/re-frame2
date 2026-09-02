@@ -446,6 +446,36 @@ jobs:
         continue-on-error: true
         run: python scripts/check_skill_eval_docs.py --verbose --ci
 
+      # SKILL.md description-budget gate (rf2-w9p2; armed here under rf2-bn5f).
+      # Two limits the agent host actually enforces, both silent when breached.
+      # C1: a description over `skillListingMaxDescChars` (1,536) is hard-sliced
+      # mid-sentence, so the disqualifier a description ends on is the first thing
+      # lost. C2: the family's whole listing footprint, compared against a pinned
+      # RATCHET rather than the absolute 8,000-char budget — past that budget the
+      # planner drops ENTIRE descriptions in ascending priority order, and nine
+      # skills averaging ~1,200 chars cannot fit in 8,000 however they are written,
+      # so failing at the absolute would red the repo with no in-repo remedy (that
+      # is a product decision — ship fewer skills, or accept the lowest-priority
+      # ones rendering bare — not a gate's). The ratchet stops the family getting
+      # worse in this repo's own idiom (check-ai-tracking-ratchet.sh), and the
+      # absolute comparison PRINTS on every run, green or red, so the overshoot is
+      # never lost behind a tick.
+      #
+      # ARMED TOGETHER WITH ITS scripts/test-fast-pr.sh LANES, deliberately, and
+      # they must stay together: check_fast_pr_gap.py derives the required set
+      # from this job and reports any required checker with no local lane, so the
+      # CI half landing alone would (correctly) red that gate. Stdlib-only, which
+      # is what keeps this job dependency-free. Self-test first, then the live scan.
+      - name: Self-test the SKILL.md description-budget gate
+        id: check_skill_description_budget_selftest
+        continue-on-error: true
+        run: python scripts/check_skill_description_budget.py --self-test
+
+      - name: Verify SKILL.md descriptions fit the listing budget
+        id: check_skill_description_budget
+        continue-on-error: true
+        run: python scripts/check_skill_description_budget.py --verbose --ci
+
       # Xray tab-inventory drift guard (rf2-3fc89f.41). The re-frame2-xray skill
       # enumerates the Dynamic-tab inventory that must match the live tool's tab
       # set; a tab added/removed/renamed in the tool without the skill update (or
