@@ -83,21 +83,57 @@
         (io/file "spec" "conformance" "fixtures")
         .getCanonicalFile)))
 
+(defn read-one-form
+  "Read `text` as EXACTLY ONE top-level EDN form, or throw. The canonical
+  copy of this rationale; the sibling artefacts' runners carry the same
+  three lines and cite this one (rf2-98ni).
+
+  WHY NOT `edn/read-string` DIRECTLY. It returns the FIRST form and
+  silently ignores everything after it. So a fixture whose expectation
+  block closes one brace early still loads, still runs, and still reports
+  as PASSING — with every assertion that fell outside the block discarded.
+  That is exactly what `routing-not-found.edn` did (rf2-5mr6). Reading
+  `[<text>]` instead makes the reader see the whole file: trailing text
+  becomes a second element, and a stray closing delimiter becomes an
+  unmatched-delimiter error.
+
+  WHY IT THROWS, and why the `try`/`catch` that used to wrap this is gone.
+  The catch turned any load failure into a `{:fixture/load-error ...}` map,
+  and `conformance-runner/run-corpus` classifies that map as `:skipped?
+  true` while `machines-conformance-test` filters those fixtures out
+  altogether. A caught parse error would therefore be exactly as silent as
+  the defect it is meant to catch — the fixture would stop passing
+  falsely and start vanishing quietly instead. Corpus malformation is a
+  repository defect, not a per-fixture runtime condition, so it fails the
+  run.
+
+  The corpus scanner (`scripts/check_conformance_fixture_edn.py`, rf2-x91a)
+  is the complementary half: it sees fixtures whose capabilities are
+  unclaimed, which this check never loads at all."
+  [text fixture-name]
+  (let [forms (edn/read-string (str "[\n" text "\n]"))]
+    (when-not (= 1 (count forms))
+      (throw (ex-info (str "conformance fixture " fixture-name
+                           " must hold exactly ONE top-level EDN form, found "
+                           (count forms)
+                           " — clojure.edn/read-string returns only the first"
+                           " and silently discards the rest (rf2-98ni,"
+                           " rf2-5mr6)")
+                      {:fixture/file  fixture-name
+                       :fixture/forms (count forms)})))
+    (first forms)))
+
 (defn- load-fixture [file]
-  (try
-    ;; A handful of fixtures use `::name` (auto-resolved keyword) which pure
-    ;; clojure.edn cannot read without a *reader-resolver*. Rewrite ONLY a
-    ;; standalone auto-resolved keyword `::name` (one that begins a token) to
-    ;; a stable namespace so the fixture loads (rf2-lu3f). The lookbehind keeps
-    ;; the rewrite from corrupting a `::` INSIDE a value (e.g. a CEDN-1 token
-    ;; string `"k::answer"`).
-    (let [raw   (slurp file)
-          fixed (string/replace raw #"(?<=[\s(\[{])::([a-zA-Z][a-zA-Z0-9_-]*)"
-                                ":rf.machine.timer/$1")]
-      (edn/read-string fixed))
-    (catch Throwable e
-      {:fixture/load-error (.getMessage e)
-       :fixture/file       (.getName file)})))
+  ;; A handful of fixtures use `::name` (auto-resolved keyword) which pure
+  ;; clojure.edn cannot read without a *reader-resolver*. Rewrite ONLY a
+  ;; standalone auto-resolved keyword `::name` (one that begins a token) to
+  ;; a stable namespace so the fixture loads (rf2-lu3f). The lookbehind keeps
+  ;; the rewrite from corrupting a `::` INSIDE a value (e.g. a CEDN-1 token
+  ;; string `"k::answer"`).
+  (let [raw   (slurp file)
+        fixed (string/replace raw #"(?<=[\s(\[{])::([a-zA-Z][a-zA-Z0-9_-]*)"
+                              ":rf.machine.timer/$1")]
+    (read-one-form fixed (.getName file))))
 
 (defn all-fixtures []
   (->> (file-seq fixtures-dir)

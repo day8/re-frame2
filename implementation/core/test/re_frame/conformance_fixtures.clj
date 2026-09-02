@@ -33,26 +33,44 @@
       (throw (ex-info "conformance fixtures dir not found"
                       {:tried [(.getPath nested) (.getPath legacy)]})))))
 
+(defn- read-one-form
+  "Read `text` as EXACTLY ONE top-level EDN form, or throw. See
+  `re-frame.conformance-test/read-one-form` for the full rationale
+  (rf2-98ni).
+
+  This is the CLJS arm's seam, and it is the loudest of the seven: the
+  macro below runs on the JVM at CLJS COMPILE time, so a malformed
+  fixture fails the build outright rather than reaching a runner that
+  could classify it as a skip."
+  [text fixture-name]
+  (let [forms (edn/read-string (str "[\n" text "\n]"))]
+    (when-not (= 1 (count forms))
+      (throw (ex-info (str "conformance fixture " fixture-name
+                           " must hold exactly ONE top-level EDN form, found "
+                           (count forms)
+                           " — clojure.edn/read-string returns only the first"
+                           " and silently discards the rest (rf2-98ni,"
+                           " rf2-5mr6)")
+                      {:fixture/file  fixture-name
+                       :fixture/forms (count forms)})))
+    (first forms)))
+
 (defn- load-fixture-from-file
   "Read one EDN fixture file, applying the same `::name` rewrite the
   JVM runner uses so `clojure.edn/read-string` (which has no reader
   resolver) accepts auto-resolved keywords."
   [file]
-  (try
-    (let [raw   (slurp file)
-          ;; Rewrite ONLY a standalone auto-resolved keyword `::name` (one
-          ;; beginning a token — preceded by `(` / `[` / `{` / whitespace).
-          ;; The lookbehind keeps the rewrite from corrupting a `::` INSIDE a
-          ;; value, e.g. the CEDN-1 keyword token `"k::answer"` in an EP-0012
-          ;; `:expect` string (rf2-qyb9l1). Mirror of the JVM runner's
-          ;; load-fixture rewrite.
-          fixed (str/replace raw
-                             #"(?<=[\s(\[{])::([a-zA-Z][a-zA-Z0-9_-]*)"
-                             ":rf.machine.timer/$1")]
-      (edn/read-string fixed))
-    (catch Throwable e
-      {:fixture/load-error (.getMessage e)
-       :fixture/file       (.getName file)})))
+  (let [raw   (slurp file)
+        ;; Rewrite ONLY a standalone auto-resolved keyword `::name` (one
+        ;; beginning a token — preceded by `(` / `[` / `{` / whitespace).
+        ;; The lookbehind keeps the rewrite from corrupting a `::` INSIDE a
+        ;; value, e.g. the CEDN-1 keyword token `"k::answer"` in an EP-0012
+        ;; `:expect` string (rf2-qyb9l1). Mirror of the JVM runner's
+        ;; load-fixture rewrite.
+        fixed (str/replace raw
+                           #"(?<=[\s(\[{])::([a-zA-Z][a-zA-Z0-9_-]*)"
+                           ":rf.machine.timer/$1")]
+    (read-one-form fixed (.getName file))))
 
 (defn- load-all-fixtures
   "Return a sorted-by-filename vector of `[filename fixture-data]`

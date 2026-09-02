@@ -197,19 +197,35 @@
         (io/file "spec" "conformance" "fixtures")
         .getCanonicalFile)))
 
+(defn- read-one-form
+  "Read `text` as EXACTLY ONE top-level EDN form, or throw. `read-string`
+  returns only the FIRST and silently discards the rest, so a fixture whose
+  expectation block closes early passes having verified less than it claims
+  (rf2-5mr6). Throws rather than returning `:fixture/load-error`, which the
+  runner classifies as a SKIP — as silent as the defect. Full rationale on
+  `re-frame.conformance-test/read-one-form` (rf2-98ni)."
+  [text fixture-name]
+  (let [forms (edn/read-string (str "[\n" text "\n]"))]
+    (when-not (= 1 (count forms))
+      (throw (ex-info (str "conformance fixture " fixture-name
+                           " must hold exactly ONE top-level EDN form, found "
+                           (count forms)
+                           " — clojure.edn/read-string returns only the first"
+                           " and silently discards the rest (rf2-98ni,"
+                           " rf2-5mr6)")
+                      {:fixture/file  fixture-name
+                       :fixture/forms (count forms)})))
+    (first forms)))
+
 (defn- load-fixture
   "Read one EDN fixture, applying the same `::name` rewrite the JVM core
   runner uses so `clojure.edn/read-string` (no reader resolver) accepts
   auto-resolved keywords. Per rf2-lu3f."
   [file]
-  (try
-    (let [raw   (slurp file)
-          fixed (str/replace raw #"::([a-zA-Z][a-zA-Z0-9_-]*)"
-                             ":rf.machine.timer/$1")]
-      (edn/read-string fixed))
-    (catch Throwable e
-      {:fixture/load-error (.getMessage e)
-       :fixture/file       (.getName file)})))
+  (let [raw   (slurp file)
+        fixed (str/replace raw #"::([a-zA-Z][a-zA-Z0-9_-]*)"
+                           ":rf.machine.timer/$1")]
+    (read-one-form fixed (.getName file))))
 
 (defn- all-ssr-fixtures
   "Every fixture file whose name matches `ssr-*.edn`. Returns
