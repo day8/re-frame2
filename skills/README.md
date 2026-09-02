@@ -251,10 +251,39 @@ Single source of truth for the per-leaf size ceiling — per-skill
   one trigger (the retro's pattern-check step) and is scanned whole to
   classify an unknown friction, so a reader cannot know in advance which half
   holds their case and a split would load both.
+- dense teaching leaves may exceed it on that same test, for a different
+  reason. A catalogue is scanned whole because it is *unordered*; a teaching
+  leaf is read whole because it is a *single arc*.
+  `re-frame2/references/state-machines/reg-machine.md` is recorded exempt on
+  that test: it is not a bag of entries but one declaration taught end to
+  end, from mental model through declaration shape to gotchas, and the second
+  half loads on the same trigger as the first — so a split raises
+  tokens-per-session, and costs `SKILL.md` routing rows besides. The overrun
+  here is density, not duplication: 68 prose lines carry 20 KB and code
+  fences are only 13% of the file, which is exactly the long-unwrapped-prose
+  load the byte ceiling exists to catch — a true positive with no split
+  available.
+
+Recorded exempt on the token test, so the next author cites this list rather
+than re-deriving it. Line counts and LF-normalised bytes, measured
+2026-09-03:
+
+- catalogue-shaped — `re-frame2-pair/references/ops.md` 220 L / 46,461 B;
+  `re-frame2-pair/references/recipes.md` 424 L / 46,086 B;
+  `re-frame2-pair-retro/references/known-frictions.md` 242 L / 16,752 B
+- dense teaching — `re-frame2/references/state-machines/reg-machine.md`
+  208 L / 20,599 B; `re-frame2/references/state-machines/spawn.md`
+  199 L / 19,236 B; `re-frame-migration/references/guided-views-m11.md`
+  261 L / 39,701 B
 
 The ceilings are grounded in a May 2026 corpus audit (max 203 L, p95
 148 L, median 88 L); leaves that have since outgrown them are refactor
-targets unless they pass the catalogue test above.
+targets unless they pass the test above. The exemption is narrow, and the
+ceiling is not unreachable in general: de-duplication brought
+`re-frame2/references/fundamentals/cofx.md` (16,115 B) and
+`re-frame2/patterns/forms.md` (16,105 B) back inside both ceilings, and
+`re-frame2/references/cross-cutting/testing.md` was genuinely split, carving
+out `testing-views.md`. Try both before recording an exception.
 
 ### `SKILL.md` frontmatter `description` — the cap that actually bites
 
