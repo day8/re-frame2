@@ -71,8 +71,9 @@ author with a no-op button.
 Two further checks keep the sole-canonical-source contract (rf2-qzrkek):
 
   * CANONICAL-SOURCE. The copy-complete Reagent `core.cljs` (a fenced
-    `clojure` block that requires `reagent.dom.client` and mounts via
-    `rdc/render`) must exist in EXACTLY ONE place — first-counter.md — and
+    `clojure` block that requires `re-frame.adapter.reagent` and mounts via
+    the adapter's client root, `reagent-adapter/render!`) must exist in
+    EXACTLY ONE place — first-counter.md — and
     NOT in entry-namespace.md, which now explains the boot lifecycle keyed to
     it (retaining the UIx/Helix substrate deltas) instead of duplicating a
     second runnable skeleton.
@@ -235,12 +236,13 @@ AFTER_LOAD_HOOK = re.compile(r"(?:\^\s*)?:dev/after-?load", re.IGNORECASE)
 ADAPTER_KEY_DRIFT = re.compile(r"(?<![:`\w-])`state-container`")
 
 # CANONICAL-SOURCE (rf2-qzrkek). A copy-complete Reagent `core.cljs` is a fenced
-# ```clojure block that both requires `reagent.dom.client` AND mounts via
-# `rdc/render`. It must live in EXACTLY ONE place — first-counter.md — so the
-# setup skill has a single copy-complete entry source. entry-namespace.md
-# explains the boot lifecycle keyed to it (retaining the UIx/Helix substrate
-# deltas, which mount via uix-dom / react-dom, not `rdc/render`) rather than
-# carrying a duplicate Reagent skeleton.
+# ```clojure block that both requires `re-frame.adapter.reagent` AND mounts
+# via the adapter's client root, `reagent-adapter/render!` (rf2-k5r9t). It
+# must live in EXACTLY ONE place — first-counter.md — so the setup skill has a
+# single copy-complete entry source. entry-namespace.md explains the boot
+# lifecycle keyed to it (retaining the UIx/Helix substrate deltas, which mount
+# via uix-dom / react-dom, not the Reagent client root) rather than carrying a
+# duplicate Reagent skeleton.
 FENCED_CLOJURE = re.compile(r"(?s)```clojure\r?\n(.*?)```")
 
 # MALLI-REQUIRE (rf2-qzrkek). Requiring `re-frame.schemas` alone wires Malli —
@@ -417,12 +419,14 @@ def find_adapter_key_drift(name: str, text: str) -> list[str]:
 
 def _reagent_core_blocks(text: str) -> list[str]:
     """Fenced `clojure` blocks that are a copy-complete Reagent core.cljs —
-    they require `reagent.dom.client` AND mount via `rdc/render`. UIx/Helix
-    snippets (uix-dom / react-dom) never match."""
+    they require `re-frame.adapter.reagent` AND mount via the adapter's
+    client root, `reagent-adapter/render!` (rf2-k5r9t; the entry ns no
+    longer touches `reagent.dom.client` itself). UIx/Helix snippets
+    (uix-dom / react-dom) never match."""
     return [
         block
         for block in FENCED_CLOJURE.findall(text)
-        if "reagent.dom.client" in block and "rdc/render" in block
+        if "re-frame.adapter.reagent" in block and "reagent-adapter/render!" in block
     ]
 
 
@@ -438,7 +442,7 @@ def find_canonical_source_drift(
         problems.append(
             "CANONICAL-SOURCE: first-counter.md must carry EXACTLY ONE "
             "copy-complete Reagent core.cljs fenced block (requires "
-            "`reagent.dom.client` and mounts via `rdc/render`) — the sole "
+            "`re-frame.adapter.reagent` and mounts via `reagent-adapter/render!`) — the sole "
             f"copy-complete setup entry source; found {len(fc_blocks)}. An "
             "anchor moved or a duplicate crept in; the emitted-scaffold "
             "compile also extracts this one block."
@@ -447,7 +451,7 @@ def find_canonical_source_drift(
         problems.append(
             f"CANONICAL-SOURCE: entry-namespace.md carries {len(en_blocks)} "
             "copy-complete Reagent core.cljs fenced block(s) "
-            "(`reagent.dom.client` + `rdc/render`). The sole copy-complete "
+            "(`re-frame.adapter.reagent` + `reagent-adapter/render!`). The sole copy-complete "
             "core.cljs must live ONLY in first-counter.md; entry-namespace.md "
             "explains the boot lifecycle keyed to it — retain the UIx/Helix "
             "substrate deltas, but do not duplicate the Reagent skeleton "
@@ -739,13 +743,13 @@ def _self_test() -> int:
 
     # Case H — CANONICAL-SOURCE clean: the copy-complete Reagent core.cljs
     # lives ONLY in first-counter.md; entry-namespace.md's UIx snippet mounts
-    # via uix-dom (not rdc/render), so it is not a Reagent core block.
+    # via uix-dom (not reagent-adapter/render!), so it is not a Reagent core block.
     good_fc_block = (
         "```clojure\n"
         "(ns your-app.core\n"
-        "  (:require [reagent.dom.client :as rdc]))\n"
+        "  (:require [re-frame.adapter.reagent :as reagent-adapter]))\n"
         "(defn ^:export init []\n"
-        "  (rdc/render @react-root [counter-app]))\n"
+        "  (reagent-adapter/render! app-root [counter-app] el))\n"
         "```\n"
     )
     good_en_no_reagent = (
