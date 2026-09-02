@@ -124,7 +124,7 @@ A single test: **does the retry decision depend on anything other than failure c
 | "Body says `:rate-limited`, wait the hinted delay." | State machine — semantic. |
 | "Retry only if user is still on the page." | State machine — semantic. |
 
-Both layers compose. A machine's `:spawn` spawns a managed request that itself retries 5xx; once that loop terminates the machine sees one `:succeeded` / `:failed` and transitions. The full auth-machine worked example combining 5xx-retry-at-transport AND 401-refresh-at-semantic lives in `patterns/boot.md`.
+Both layers compose. A machine's `:spawn` spawns a managed request that itself retries 5xx; once that loop terminates the machine sees one `:succeeded` / `:failed` and transitions. The full auth-machine worked example combining 5xx-retry-at-transport AND 401-refresh-at-semantic lives in SKILL-REDIRECT.md → *Pattern — Boot* §Worked example — auth-machine and the retry-ownership boundary.
 
 ## Variations
 
@@ -151,13 +151,13 @@ Both layers compose. A machine's `:spawn` spawns a managed request that itself r
 
 `examples/core/managed_http_counter/` — each button issues a managed HTTP request. Covers success (`GET /api/inc.json`), 404 (`:rf.http/http-4xx` with HTML body — NOT `:rf.http/decode-failure` despite `:decode :json`), canned-success stub for retry-recover, and `:request-id` cancellation via `:rf.http/managed-abort`.
 
-For the machine-form wrapper in production, see the auth-flow in `patterns/boot.md`.
+For the machine-form wrapper in production, see the auth-flow worked example — SKILL-REDIRECT.md → *Pattern — Boot* §Worked example — auth-machine and the retry-ownership boundary.
 
 ## Pointers
 
 - Full spec — args map, request envelope, failure categories, reply payload, test stubs (`with-managed-request-stubs`, ships in `re-frame.http.test-support`) → SKILL-REDIRECT.md → *EP — HTTP requests (014)*.
 - Schema-driven decode → SKILL-REDIRECT.md → *EP — Schemas (010)*.
-- Retry-ownership worked example → `patterns/boot.md`.
+- Retry-ownership worked example (401-then-refresh) → SKILL-REDIRECT.md → *Pattern — Boot* §Worked example — auth-machine and the retry-ownership boundary.
 - `:spawn` substrate → SKILL-REDIRECT.md → *EP — State machines (005)*.
 
 ---

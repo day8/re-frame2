@@ -127,7 +127,7 @@ Each link is a Pattern-AsyncEffect interaction. Past three links, scatter wins; 
 
 ## Variations
 
-**The retry-ownership boundary.** Mixed transport-vs-semantic retry — e.g. auth machine handling 401-then-refresh-then-retry — sits at the boundary between `:rf.http/managed :retry` (transport: backoff + attempt count) and machine transitions (semantic: refresh-then-loop-back-to `:loading-me`). Both compose. See `patterns/managed-http.md`.
+**The retry-ownership boundary.** Mixed transport-vs-semantic retry — e.g. auth machine handling 401-then-refresh-then-retry — sits at the boundary between `:rf.http/managed :retry` (transport: backoff + attempt count) and machine transitions (semantic: refresh-then-loop-back-to `:loading-me`). Both compose. Boundary table → `patterns/managed-http.md`; the worked 401-then-refresh shape (the `:got-401?` guard, the `:refreshing` state, and the loop-back to the *original* request's state) → SKILL-REDIRECT.md → *Pattern — Boot* §Worked example — auth-machine and the retry-ownership boundary.
 
 **Boot UI — single signal.** The snapshot lives in the **runtime-db** partition, so derive from the framework `:rf/machine` sub (which reads runtime-db) rather than reaching into a partition layer-1 subs don't see:
 
