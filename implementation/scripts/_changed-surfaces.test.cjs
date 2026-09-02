@@ -1485,14 +1485,36 @@ const SSR_NODE_LANE = {
   fixture: 'implementation/ssr-node/test/fixtures/bad-no-allowlist.cjs',
 };
 
-test('the ssr-node job is gated on its own output and runs the suite (rf2-n8vp)', () => {
+// THE JOB IS UNGATED, AND THIS ROW NOW PINS THAT — rf2-8arzr.9, reversing the
+// half of the shape above that turned out to be wrong for this lane.
+//
+// The four-sided shape is right for a lane whose suite tests the tree the
+// classifier arms on. This one's does not: `absence.test.cjs` walks
+// `git ls-files` across implementation/, examples/, tools/, scripts/ and
+// .github/ and asserts that nothing out there can load this package or spells
+// its refusal codes. Arming that on `implementation/ssr-node/**` made a
+// whole-repo control blind to every tree it polices — and it was measured
+// blind: slice E broke two rows in five files outside the package, the job was
+// skipped on that PR and on every branch after it, and main was red for days
+// with the alert channel silent.
+//
+// So the direction of this row flips. What must never come back is the `if:`,
+// because re-adding it restores exactly the blindness, and it would look like
+// tidying. The rest of the shape is unchanged and still load-bearing.
+test('the ssr-node job is UNGATED and runs the suite (rf2-8arzr.9, was rf2-n8vp)', () => {
   const workflow = fs.readFileSync(WORKFLOW, 'utf8');
   const block = jobBlock(workflow, SSR_NODE_LANE.job);
-  assert.match(block, /needs: detect_changed_surfaces/);
-  assert.match(
+  assert.doesNotMatch(
     block,
-    /if: needs\.detect_changed_surfaces\.outputs\.ssr_node == 'true'/,
-    `${SSR_NODE_LANE.job} must be gated on ${SSR_NODE_LANE.output}`,
+    /^\s+if:/m,
+    `${SSR_NODE_LANE.job} must carry no if: — its suite polices the whole repo, `
+      + 'so any surface can break it and every surface must run it',
+  );
+  assert.doesNotMatch(
+    block,
+    /^\s+needs:/m,
+    `${SSR_NODE_LANE.job} must not need detect_changed_surfaces — it reads no `
+      + 'output, and needing it would let a failed detector skip this job',
   );
   assert.match(
     block,
@@ -1505,12 +1527,20 @@ test('the ssr-node job is gated on its own output and runs the suite (rf2-n8vp)'
     stepRunning(block, `npm run ${SSR_NODE_LANE.script}`),
     `the job must run \`npm run ${SSR_NODE_LANE.script}\` as a step`,
   );
-  // Plumbed out of detect_changed_surfaces, or the `if:` reads an empty string
-  // and the job can never run — silently.
+  // The output survives this job losing its `if:`, because `jvm-node-crossing`
+  // arms on it — the sidecar is half of that crossing. So it must still be
+  // plumbed out of detect_changed_surfaces, or THAT job's `if:` reads an empty
+  // string and can never fire, silently.
   assert.match(
     workflow,
     /ssr_node: \$\{\{ steps\.detect\.outputs\.ssr_node \}\}/,
     `${SSR_NODE_LANE.output} must be declared as a detect_changed_surfaces output`,
+  );
+  assert.match(
+    jobBlock(workflow, 'jvm-node-crossing'),
+    /needs\.detect_changed_surfaces\.outputs\.ssr_node == 'true'/,
+    'jvm-node-crossing is what keeps the ssr_node output live — the classifier '
+      + 'rows below guard it, not this job',
   );
   // Required, not advisory. A job absent from the aggregator's needs: is a job
   // a merge can skip past, which is where this artefact already was.
