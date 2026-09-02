@@ -191,37 +191,41 @@ Present the categorisation per site; confirm with the author; only then apply. F
 
 ## M-42 — React-19-removed Reagent surfaces (bridge *and* slim)
 
-**Trigger**: fires on **both** Reagent paths, because the render call site breaks on the React-19 floor both adapters target. On the **bridge**, stock Reagent 2.x still ships the `reagent.dom/render` Var — but React 19 removed `react-dom/render` underneath it, so the Var warns and no-ops at runtime; the call site must be rewritten to `reagent.dom.client/create-root` + `render`. On **slim**, the legacy `reagent.dom` render surface is absent entirely (the render API lives at `reagent2.dom.client`), so the same call site fails at **compile** time with an unresolved-var error. Either way the render call site needs a createRoot+render **rewrite**; only the **target namespace** differs. The *other* legacy symbols (`dom-node`, `force-update-all`, `unmount-component-at-node`) are **absent on slim** (a compile-time unresolved-var, not a runtime shim throw) but **unchanged on the bridge** (stock Reagent has not removed them — only the React-DOM `render`/`createRoot` floor moved).
+**Trigger**: fires on **both** Reagent paths, because the render call site breaks on the React-19 floor both adapters target. On the **bridge**, stock Reagent 2.x still ships the `reagent.dom/render` Var — but React 19 removed `react-dom/render` underneath it, so the Var warns and no-ops at runtime. On **slim**, the legacy `reagent.dom` render surface is absent entirely, so the same call site fails at **compile** time with an unresolved-var error. Either way the render call site needs a **rewrite** — and the rewrite target is the **adapter's own client root** (`re-frame.adapter.reagent/client-root` + `render!`), not a caller-owned `create-root`. The *other* legacy symbols (`dom-node`, `force-update-all`, `unmount-component-at-node`) are **absent on slim** (a compile-time unresolved-var, not a runtime shim throw) but **unchanged on the bridge** (stock Reagent has not removed them — only the React-DOM `render`/`createRoot` floor moved).
 
-> **Do not read "apps on the bridge are unaffected" (MIGRATION.md §M-42) as "the bridge needs no render change."** That sentence is about the legacy Vars still *existing* on the bridge (stock Reagent 2.x has not removed them). But the **render call site still needs the createRoot rewrite on the bridge too**: the `reagent.dom/render` Var survives, yet React 19 removed the `react-dom/render` it delegated to, so it warns and no-ops at runtime. The bridge just targets a different namespace (`reagent.dom.client`) than slim.
+> **Do not read "apps on the bridge are unaffected" (MIGRATION.md §M-42) as "the bridge needs no render change."** That sentence is about the legacy Vars still *existing* on the bridge (stock Reagent 2.x has not removed them). But the **render call site still needs the rewrite on the bridge too**: the `reagent.dom/render` Var survives, yet React 19 removed the `react-dom/render` it delegated to, so it warns and no-ops at runtime.
 
-**The adapter-keyed render-namespace table** (the render rewrite is the same shape — `create-root` + `render` around the same `container` — only the namespace changes):
+**The rewritten boot namespace is the same on both coordinates.** The published `day8/reagent-slim` artefact ships its adapter at the canonical `re-frame.adapter.reagent` ns, and both artefacts publish the same `client-root` / `render!` / `unmount!` trio — so the migrated file compiles unchanged against either. The app never requires `reagent.dom.client` *or* `reagent2.dom.client`: the adapter owns the React root, and the coordinate is chosen in `deps.edn`, not in the boot line.
 
-| Adapter the app boots | Render namespace (createRoot + render) | Coord |
+| Adapter the app boots | Boot namespace it requires | Coord |
 |---|---|---|
-| **classic bridge** (stock Reagent 2.x + `re-frame.adapter.reagent`) | `reagent.dom.client` | `day8/re-frame2-reagent` |
-| **slim rewrite** (`re-frame.adapter.reagent-slim`) | `reagent2.dom.client` | `day8/reagent-slim` |
+| **classic bridge** (stock Reagent 2.x) | `re-frame.adapter.reagent` | `day8/re-frame2-reagent` |
+| **slim rewrite** | `re-frame.adapter.reagent` | `day8/reagent-slim` |
 
 ```clojure
 ;; v1 (both paths) — reagent.dom/render no-ops under React 19 (bridge) / is absent (slim)
 (reagent.dom/render [app] (.getElementById js/document "app"))
 
-;; bridge — create-root + render via reagent.dom.client
-(defonce root (rdc/create-root (.getElementById js/document "app"))) ; [reagent.dom.client :as rdc]
-(rdc/render root [app])
+;; v2 (both paths, byte-identical) — the adapter owns the root.
+;; [re-frame.adapter.reagent :as reagent-adapter]
+;;
+;; `client-root` allocates an inert handle: no DOM work at namespace load, so
+;; the `defonce` is safe to evaluate on every hot reload. The first `render!`
+;; through the handle creates the React root; every later one renders into
+;; that same root, which is what makes `^:dev/after-load` re-render rather
+;; than mount a second, fighting root.
+(defonce app-root (reagent-adapter/client-root))
 
-;; slim — identical shape, reagent2.dom.client target
-(defonce root (rdc/create-root (.getElementById js/document "app"))) ; [reagent2.dom.client :as rdc]
-(rdc/render root [app])
+(reagent-adapter/render! app-root [app] (.getElementById js/document "app"))
 ```
 
-Pick the row by the **adapter artefact M-0 committed** — that disambiguates the namespace without inspecting the substrate source.
+M-0's committed artefact still decides the **coordinate**, but it no longer changes a line of the boot namespace — which is the point of the adapter-owned root, and the reason there is no namespace to disambiguate here any more.
 
 **Identify**: grep for call sites of `render` (`reagent.dom/render`, `reagent.core/render`), plus — *on slim only* — the other removed symbols: `unmount-component-at-node`, `dom-node`, `force-update-all`, plus the `reagent.dom.server` surface per the MIGRATION.md list.
 
 **Risk + decision shape — split by symbol**:
 
-1. **`render` / `unmount-component-at-node` (Type A — mechanical, *both* adapters for `render`)**: rewrite to a `create-root` + `render` / `unmount` pair around the same `container`, in the adapter-appropriate namespace from the table above. Apply once the caller's `container` reference is identified — this half rides the normal Type A sweep with the sweep-level announcement (Cardinal rule 4). (`unmount-component-at-node` is only *removed* on slim; on the bridge it remains available, but the surrounding render rewrite usually makes the `create-root`-returned root's `unmount` the natural target anyway.)
+1. **`render` / `unmount-component-at-node` (Type A — mechanical, *both* adapters for `render`)**: rewrite to a `defonce` `client-root` handle plus `render!` / `unmount!` around the same `container`, on the canonical `re-frame.adapter.reagent` ns for either coordinate. Apply once the caller's `container` reference is identified — this half rides the normal Type A sweep with the sweep-level announcement (Cardinal rule 4). (`unmount-component-at-node` is only *removed* on slim; on the bridge it remains available, but the surrounding render rewrite makes the adapter's `unmount!` on that same handle the natural target anyway.)
 2. **`dom-node` (Type B — ask first; slim only)**: `findDOMNode` returned the underlying DOM node for a mounted component; the canonical React-19 replacement captures the node via `:ref` at the call site **of the parent**, not at the consumer. There is **no static-analysable rewrite** — the agent flags every `dom-node` site and the author supplies the parent ref ownership. (Available unchanged on the bridge.)
 3. **`force-update-all` (Type B — ask first; slim only)**: had no documented use beyond global-rebuild scripts. Flag every site and ask the maintainer whether it can be removed entirely; if not, file a GitHub issue (per the [`issue-filing.md`](issue-filing.md) recipe) rather than inventing a replacement. (Available unchanged on the bridge.)
 

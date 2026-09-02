@@ -124,10 +124,17 @@ And establishing the app frame at boot (the runtime infers no frame, so you regi
    :fx-overrides {:rf.http/managed :auth.login.demo/managed-stub}})
 
 ;; ...then scope it at the root so bare dispatch/subscribe resolve to it
-;; (frame-provider {:frame …} — the frame already exists from make-frame above):
-(rdc/render root
+;; (frame-provider {:frame …} — the frame already exists from make-frame above).
+;; The adapter owns the React root: `client-root` hands back an inert handle
+;; (no DOM work at namespace load), and the first `render!` through it creates
+;; the root every later render reuses. `app-root` is that handle; `main-view`
+;; is your application's root view — two different things, two different names.
+(defonce app-root (reagent-adapter/client-root))
+
+(reagent-adapter/render! app-root
   [rf/frame-provider {:frame :app/login}
-   [app-root]])
+   [main-view]]
+  (js/document.getElementById "app"))
 ```
 
 ## Frame metadata — what goes in it
