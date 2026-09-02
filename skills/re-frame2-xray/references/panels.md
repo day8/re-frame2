@@ -21,7 +21,14 @@ Left-to-right in tab order (mnemonics `e a v t m r s g u h`):
 **Epoch · app-db · Views · Trace · Machine · Routes · Resources · Graph ·
 Frames · Hicasso.**
 
-| Tab | Mnem | Scope | One-line purpose | Depth |
+The **Tooltip** column below is each tab's `:mnem` — the parenthesised
+letter in the tab button's `title` (`Trace (t)`), and nothing more. It is
+**not a key**: no bare letter selects a tab (`s` is a live bare key, but
+for the Settings popup, not for Resources). Jump by keyboard with the
+command palette, `Cmd/Ctrl+K` → "Open Trace panel"; from code, with
+[`focus!`](launch-modes.md#programmatic-focus-focus).
+
+| Tab | Tooltip | Scope | One-line purpose | Depth |
 |---|---|---|---|---|
 | **Epoch** *(default landing)* | `e` | focused epoch | The focused dispatch's full cascade as a numbered vertical timeline, per-step ✓/✗/⊘, exceptions inline under their step. | [panels-epoch.md](panels-epoch.md) |
 | **app-db** | `a` | focused epoch | State sectioned by reserved area, collapsible lazy-trees, inline `← was X` diffs, downstream-subs hover. | [panels-state.md](panels-state.md) |
@@ -57,12 +64,15 @@ the six focused-epoch lenses rebind.
 ## Static mode — 5 registry-browse tabs
 
 Event-INDEPENDENT browse of what's *registered* (3-layer chrome, no L2
-spine). Flip in with the L1 mode pill or `Cmd/Ctrl+Shift+M`. Mnemonics
-are mode-scoped (`m` here opens the Static Machines browse, not the
-Dynamic instance-inspector). Order per
+spine). Flip in with the L1 mode pill or `Cmd/Ctrl+Shift+M`. Static has
+its own tooltip letters, so a letter can appear in both modes' tab bars
+meaning that mode's tab — `m` labels the Static **Machines** browse here
+and the Dynamic instance-inspector there. As above, they are tooltip
+letters, not keys: pressing one selects nothing, and the palette entry is
+"Open Machines (Static)". Order per
 [`007-UX-IA.md` §Static mode](../../../tools/xray/spec/007-UX-IA.md):
 
-| Tab | Mnem | Question it answers |
+| Tab | Tooltip | Question it answers |
 |---|---|---|
 | **Machines** *(default)* | `m` | "What machines are registered, and what do they look like?" Registry browse + full topology (picker + zoom/pan/fit) + a 4-mode sub-strip incl. the Sim engine. |
 | **Routes** | `r` | "Which route would `/orders/42` match?" Every registered route + a Simulate-URL input. |

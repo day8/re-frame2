@@ -91,8 +91,17 @@ pretend to follow the event — route them by structure, not by dispatch.
 Dynamic mode's L3 tab bar holds **10 tabs**, left-to-right (mnemonics
 `e a v t m r s g u h`): **Epoch · app-db · Views · Trace · Machine ·
 Routes · Resources · Graph · Frames · Hicasso**. Static mode holds **5**:
-**Machines · Routes · Schemas · Flows · Interceptors** (mnemonics are
-mode-scoped — `m` opens the active mode's tab). The compact canonical
+**Machines · Routes · Schemas · Flows · Interceptors**, with its own
+letters — the same letter can label a tab in each mode, as `m` does for
+Dynamic's Machine and Static's Machines.
+
+**Those letters are tooltip hints, not keys.** Each is rendered into its
+tab button's `title` — `Trace (t)` — and is read by nothing else. **No
+bare letter selects a tab**; keyboard tab-jump is the command palette
+(`Cmd/Ctrl+K` → "Open Trace panel" / "Open Machines (Static)"), and from
+code it is `focus!`. Watch `s` in particular: it labels the Resources tab
+but *is* a live bare key — bound to the Settings popup (§Wired hotkeys),
+not to Resources. The compact canonical
 inventory — every tab's one-liner and the scope matrix in one place — is
 [`references/panels.md`](references/panels.md); load it for an explicit
 full-inventory request, not for routine routing.
