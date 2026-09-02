@@ -86,7 +86,7 @@ narrowest one first.
   `elision false` if you actually need the raw slot.
 - **Got a `{:rf.mcp/overflow ...}` marker?** You tripped `max-tokens`.
   Narrow `path`, switch a slice to `"summary"`, lower `limit`, or add
-  a tighter `filter`/`pred` — pick whichever knob the overflow's
+  a tighter `pred` — pick whichever knob the overflow's
   `:tool` hint suggests.
 
 ### Cross-MCP marker family
