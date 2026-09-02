@@ -279,6 +279,27 @@
             (is (map? record) "and the record still rides for the inspector"))
           (is (zero? report-error)))))))
 
+(deftest bad-frame-provider-arg-carries-its-reason-too
+  (when (browser?)
+    (testing "`emit-bad-frame-provider-arg!` says it MIRRORS
+              `emit-no-frame-context!`, and it has the same shape for the
+              same reason — no exception, a composed :reason on the payload.
+              Pinned so the two cannot drift into one carrying its message
+              and the other not"
+      (error-emit/clear-error-listeners!)
+      (let [payload (frame/bad-frame-provider-arg-payload
+                      "not-a-frame" {:where 'rf/frame-provider})
+            {:keys [console]}
+            (capture-console #(frame/emit-bad-frame-provider-arg! payload))]
+        (is (= 1 (count console)))
+        (let [[_ summary record] (first console)]
+          (is (re-find #"^:rf\.error/bad-frame-provider-arg\b" summary))
+          (is (re-find #"must be a frame id keyword" summary)
+              (str "the payload's own sentence reaches the line; got "
+                   (pr-str summary)))
+          (is (= (:reason payload) (:reason record))
+              "and verbatim onto the record for an off-box shipper"))))))
+
 ;; ===========================================================================
 ;; OWNED — a listener suppresses the fallback, on BOTH fan-out sites
 ;; ===========================================================================
