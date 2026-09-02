@@ -94,8 +94,9 @@
 ;;     read authenticated (the bearer interceptor decorates it), so its bytes are
 ;;     the token-holder's, NOT anonymous's — labelling them shareable under the
 ;;     anonymous identity is exactly the cross-viewer leak. So the read simply
-;;     does not fire until restore settles, at which point `:auth/ensure-viewer-
-;;     route` (auth.cljs) re-plans the active route under the now-resolved viewer.
+;;     does not fire until restore settles, at which point the framework's
+;;     `[:rf.route/replan-resources {:cause …}]` (dispatched from auth.cljs)
+;;     re-plans the active route under the now-resolved viewer.
 ;;
 ;; The `:token` input is read ONLY for its PRESENCE — it never rides the derived
 ;; scope (which carries at most a username). The framework classifies the
