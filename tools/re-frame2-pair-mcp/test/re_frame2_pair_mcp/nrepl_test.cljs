@@ -772,7 +772,12 @@
 ;; read — NOT a fixed derivation. The server caches whatever discovery
 ;; resolved, so the per-tool-call re-read checks the right file and doesn't
 ;; false-positive "file vanished".
-(deftest discover-port-shadow-probe-surfaces-each-candidate-file
+;;
+;; The two candidate orders are SEPARATE deftests on purpose: ClojureScript
+;; runs only the FIRST `async` form in a `deftest`, so a sibling `async`
+;; alongside it never executes and can never fail. Keep one `async` per
+;; `deftest` here — adding a second would silently drop its assertions.
+(deftest discover-port-shadow-probe-surfaces-dot-shadow-candidate-file
   (testing ".shadow-cljs/nrepl.port wins → that exact file is surfaced"
     (async done
       (let [stub-fn (fn [^js path]
@@ -792,7 +797,12 @@
                      (is (not (re-find #"target[\\/]shadow-cljs" (str (:port-file r))))
                          "the absent target candidate is NOT what's cached")
                      (restore!)
-                     (done)))))))
+                     (done))))))))
+
+;; Second candidate order: both earlier candidates absent, so the LAST
+;; standard candidate (.nrepl-port) is the one that reads — and the one
+;; whose path must be surfaced.
+(deftest discover-port-shadow-probe-surfaces-nrepl-port-candidate-file
   (testing ".nrepl-port wins (last candidate) → that exact file is surfaced"
     (async done
       (let [stub-fn (fn [^js path]

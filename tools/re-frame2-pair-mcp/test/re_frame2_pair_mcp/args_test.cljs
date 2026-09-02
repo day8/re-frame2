@@ -15,7 +15,7 @@
   `re-frame.mcp-base.args-test/parse-boolean-*` — the cross-MCP base
   parser this wrapper delegates to. These tests verify the table lookup
   and the JS-args / nil handling on top."
-  (:require [cljs.test :refer-macros [deftest is testing]]
+  (:require [cljs.test :refer-macros [deftest is]]
             [applied-science.js-interop :as j]
             [re-frame2-pair-mcp.tools.args :as args]))
 

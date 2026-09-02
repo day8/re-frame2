@@ -17,7 +17,6 @@
   cached conn is REUSED when the cached port-file still reads the same
   port — i.e. no spurious 'file vanished' reconnect."
   (:require [cljs.test :refer-macros [deftest is testing async use-fixtures]]
-            [applied-science.js-interop :as j]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.server :as server]
             ["fs" :as fs]

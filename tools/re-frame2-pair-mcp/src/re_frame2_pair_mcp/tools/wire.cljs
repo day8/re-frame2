@@ -167,23 +167,6 @@
       ;; payload keeps its namespace inside the envelope too.
       (if (object? sc) sc (clj->js {"rf.mcp/value" (qualify-keywords v)})))))
 
-(defn structured-content
-  "Public projection of `v` to the SDK-friendly `:structuredContent` JS
-  value — the SAME namespace-preserving, null-safe projection `ok-text`
-  / `err-text` use.
-
-  Exposed for the handful of result envelopes built OUTSIDE
-  the per-tool callbacks — server-level handler-threw / discovery
-  errors (server.cljs), the cache-hit marker (cache.cljs), and the
-  overflow marker (cap.cljs). A bare
-  `:structuredContent (clj->js payload)` at those sites would be
-  namespace-LOSSY: `:rf.mcp/cache-hit` → `\"cache-hit\"`,
-  `:rf.mcp/overflow` → `\"overflow\"`, and `:rf.error/*` reason VALUES
-  would lose their namespace. Routing them through this single helper
-  keeps the structured-content round-trip contract intact everywhere."
-  [v]
-  (structured-of v))
-
 (defn result
   "Build an arbitrary MCP result envelope carrying both the
   pr-str EDN `:content` text and the namespace-preserving
@@ -257,15 +240,6 @@
   [args k]
   (let [v (j/get args (name k))]
     (when-not (or (nil? v) (undefined? v)) v)))
-
-(defn arg-keyword
-  "Pluck an arg slot and coerce to a keyword via `(some-> v keyword)`.
-  Returns nil when the slot is absent. Compresses the
-  `(some-> (wire/arg args :foo) keyword)` pattern that recurs across
-  the per-tool bodies (topic / frame plucks) — single source of truth
-  for the str→kw coercion shape callers don't need to spell out."
-  [args k]
-  (some-> (arg args k) keyword))
 
 (defn mark-resolved-build-id!
   "Record the build-id that `discover-app` just resolved on the conn-atom.

@@ -95,7 +95,7 @@
   carrier for both because one tool body reaches both relays: it builds
   its form with `ef/rt-let` and shapes its response with
   `run-wire-pipeline`."
-  (:require [cljs.test :refer-macros [deftest is testing async use-fixtures]]
+  (:require [cljs.test :refer-macros [deftest is async use-fixtures]]
             [clojure.string :as str]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.server :as server]

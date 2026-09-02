@@ -29,8 +29,7 @@
     A new tool that walks a payload but bypasses the helper would
     only be caught by hand-review today; this test makes the bypass
     a build failure."
-  (:require [cljs.test :refer-macros [deftest is testing]]
-            [clojure.string :as str]
+  (:require [cljs.test :refer-macros [deftest is]]
             [re-frame2-pair-mcp.tools.wire :as wire]))
 
 (def ^:private fs (js/require "fs"))

@@ -35,8 +35,8 @@
   (let [ms        (or (wire/arg raw-args :ms) 1000)
         build-id  (wire/arg-build conn raw-args)
         ;; Coerce `:frame` via the colon-tolerant
-        ;; `->frame-keyword` (the shared `fresh-keyword` path), not the
-        ;; raw `(keyword ...)` of `arg-keyword`. A documented `:rf/default`
+        ;; `->frame-keyword` (the shared `fresh-keyword` path), not a
+        ;; raw `(keyword ...)`. A documented `:rf/default`
         ;; / `:foo` frame-id passed with its leading colon must resolve
         ;; rather than minting the malformed `::rf/default`, which matches
         ;; no frame. Same coercion `dispatch` uses.

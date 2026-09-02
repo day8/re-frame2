@@ -21,7 +21,6 @@
   These tests prove the build STICKS across the `invoke` boundary so the
   follow-up no-`build` calls target the resolved build."
   (:require [cljs.test :refer-macros [deftest is async]]
-            [applied-science.js-interop :as j]
             [re-frame2-pair-mcp.nrepl :as nrepl]
             [re-frame2-pair-mcp.tools :as tools]
             [re-frame2-pair-mcp.tools.discover-app :as discover-app]

@@ -52,7 +52,7 @@
   ratchets surface to the same log a contributor reads when
   iterating on the per-pipeline arm. A separate runner would
   duplicate the deps wiring for no information gain."
-  (:require [cljs.test :refer-macros [deftest is testing]]
+  (:require [cljs.test :refer-macros [deftest is]]
             [re-frame.mcp-base.dedup :as base-dedup]
             [re-frame.mcp-base.elision :as base-elision]
             [re-frame2-pair-mcp.tools.wire-pipeline :as wp]))

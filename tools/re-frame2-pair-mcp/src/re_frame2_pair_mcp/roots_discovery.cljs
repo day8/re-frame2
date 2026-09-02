@@ -180,7 +180,9 @@
   or nil if no port file is present (shadow isn't running for that project).
 
   Injected `read-file-fn` is the fs reader (path → string, throws on missing).
-  Test seam — production callers use [[project-home->candidate]]."
+  Production reaches this fn through [[candidates-from-edns*]], which
+  [[discover-via-roots*]] calls with the reader threaded down from
+  [[discover-via-roots]]; tests call it directly with a stub reader."
   [read-file-fn project-home]
   (some (fn [rel]
           (let [pf   (node-path/join project-home rel)
@@ -190,12 +192,6 @@
                :port-file    pf
                :port         port})))
         port-file-relpaths))
-
-(defn project-home->candidate
-  "Default-arity wrapper around [[project-home->candidate*]] using
-  `fs.readFileSync`. See that fn's docstring for the contract."
-  [project-home]
-  (project-home->candidate* (.-readFileSync fs) project-home))
 
 (defn candidates-from-edns*
   "Map a JS array of `shadow-cljs.edn` paths to the live nREPL candidates.
@@ -211,12 +207,6 @@
        (distinct)
        (keep #(project-home->candidate* read-file-fn %))
        (vec)))
-
-(defn candidates-from-edns
-  "Default-arity wrapper around [[candidates-from-edns*]] using
-  `fs.readFileSync`."
-  [edn-paths]
-  (candidates-from-edns* (.-readFileSync fs) edn-paths))
 
 ;; ---------------------------------------------------------------------------
 ;; Top-level discovery — `roots/list` → walk → candidates
