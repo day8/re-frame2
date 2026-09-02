@@ -48,6 +48,14 @@
 (defn- content-type-of [headers]
   (or (get headers "content-type") (get headers "Content-Type")))
 
+(defn- drain-stream
+  "Read a streaming Ring body (an InputStream) to a String."
+  [body]
+  (if (string? body)
+    body
+    (with-open [in body]
+      (slurp in))))
+
 (def ^:private request
   {:uri "/seam" :request-method :get :headers {"x-seam-probe" "yes"}})
 
@@ -259,6 +267,54 @@
       (is (nil? (wire-render-hash body))
           "the pipeline never rewrites body bytes — marker included")
       (is (str/includes? body "<div>bare</div>")))))
+
+;; ===========================================================================
+;; Acceptance 3 — stream-handler refuses :renderer at construction
+;; ===========================================================================
+
+(deftest stream-handler-refuses-renderer-at-construction
+  (testing "rf2-8arzr.1 Acceptance 3: a non-nil :renderer is REJECTED when
+            stream-handler is constructed — the :html-shell precedent — with
+            ex-data naming the opt, the value and a recovery"
+    (register-app!)
+    (let [ex   (is (thrown? clojure.lang.ExceptionInfo
+                     (ssr-ring/stream-handler
+                       (assoc base-opts
+                              :root-view [(rf/view :seam/root)]
+                              :renderer  fixed-renderer))))
+          data (ex-data ex)]
+      (is (= :rf.error/ssr-streaming-unsupported-opt (:rf.error/id data))
+          "the structured id is the existing unsupported-opt refusal — no
+           new error id")
+      (is (= :renderer (:opt-key data)) "ex-data names the offending opt")
+      (is (= fixed-renderer (:got data)) "ex-data carries the rejected value")
+      (is (keyword? (:recovery data)) "ex-data carries a recovery")
+      (is (str/includes? (str (:reason data)) ":renderer")
+          "the reason names :renderer")
+      (is (str/includes? (str (:reason data)) "ssr-handler")
+          "the reason points the caller at the non-streaming handler")))
+  (testing "…including a :renderer offered INSTEAD of :root-view — the
+            streaming path cannot take a whole body from elsewhere, so it
+            refuses rather than silently rendering nothing"
+    (register-app!)
+    (let [ex (is (thrown? clojure.lang.ExceptionInfo
+                   (ssr-ring/stream-handler
+                     (assoc base-opts :renderer fixed-renderer))))]
+      (is (= :rf.error/ssr-streaming-unsupported-opt
+             (:rf.error/id (ex-data ex))))
+      (is (= :renderer (:opt-key (ex-data ex))))))
+  (testing "…while an absent or explicit-nil :renderer constructs cleanly and
+            streams the JVM-local render — the refusal gates only a non-nil
+            override, never the default path"
+    (register-app!)
+    (doseq [opts [(assoc base-opts :root-view [(rf/view :seam/root)])
+                  (assoc base-opts :root-view [(rf/view :seam/root)]
+                                   :renderer nil)]]
+      (let [handler  (ssr-ring/stream-handler opts)
+            response (handler request)
+            body     (drain-stream (:body response))]
+        (is (= 200 (:status response)))
+        (is (str/includes? body "jvm body") "the JVM :root-view streamed")))))
 
 ;; ===========================================================================
 ;; A renderer throw is a render-time throw

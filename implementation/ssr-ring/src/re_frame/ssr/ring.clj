@@ -199,6 +199,10 @@
                       JVM-local `:root-view` render — the only renderer
                       that reads `:root-view`, which is why `:root-view` is
                       required exactly when this opt is absent.
+                      `stream-handler` refuses a non-nil `:renderer` at
+                      construction (`:rf.error/ssr-streaming-unsupported-
+                      opt`, the `:html-shell` precedent): streaming over a
+                      non-local renderer is unsupported.
     :html-shell     — (body-html payload-edn opts) → string. Defaults
                       to `default-html-shell`. Replace to inject custom
                       <head>, scripts, JSON-LD, etc.
