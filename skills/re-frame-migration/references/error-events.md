@@ -1,6 +1,6 @@
 # error-events
 
-The **single source of truth** for re-frame2's error / warning / advisory event vocabulary is [`spec/009-Instrumentation.md` §Error event catalogue](../../../spec/009-Instrumentation.md#error-event-catalogue). The catalogue enumerates ~95 categories with `:operation`, `:op-type`, trigger, default `:recovery`, and `:tags` columns. **Do not inline the catalogue here** — duplication will drift; cross-reference the spec instead.
+The **single source of truth** for re-frame2's error / warning / advisory event vocabulary is [`spec/009-Instrumentation.md` §Error event catalogue](../../../spec/009-Instrumentation.md#error-event-catalogue). The catalogue enumerates every category, with `:operation`, `:op-type`, `Channel` (always-on vs diagnostic), trigger, default `:recovery`, and `:tags` columns. **Do not inline the catalogue here** — duplication will drift; cross-reference the spec instead.
 
 When an agent migrating a v1 codebase needs to answer *"is this error name old or new?"* or *"which listener surface do I wire production error monitoring on?"* — the answer is one click away in the spec, and this leaf points the way. (There is **no** app-steering frame-level `:on-error` recovery policy to "intercept" anything — recovery is framework-owned; see below.)
 
@@ -69,8 +69,7 @@ Listener registration is **one stream-parameterized verb** — `(register-listen
       (js/console.warn evt))))
 ```
 
-`:op-type` values on the trace stream: the bare severity/flow discriminators `:error`, `:warning`, `:info`, `:flow`, plus the `:rf.<family>` domino discriminators (`:rf.event`, `:rf.sub`, `:rf.fx`, `:rf.cofx`, `:rf.view`, `:rf.frame`, `:rf.machine`, …). Note the family discriminators carry the `:rf.` prefix — a listener filtering effects matches `:rf.fx`, not bare `:fx`. The mapping from `:operation` prefix to `:op-type` is in the catalogue's `:op-type` column. (The corpus's M-13/M-26 entries recommend the `:trace` stream for the cross-frame *observer* role; for a listener that must keep firing in production, prefer the `:errors` stream per the dev/prod split above.)
-
+`:op-type` values on the trace stream: the bare severity/flow discriminators `:error`, `:warning`, `:info`, `:flow`, plus the `:rf.<family>` domino discriminators (`:rf.event`, `:rf.sub`, `:rf.fx`, `:rf.cofx`, `:rf.view`, `:rf.frame`, `:rf.machine`, …). Note the family discriminators carry the `:rf.` prefix — a listener filtering effects matches `:rf.fx`, not bare `:fx`. The mapping from `:operation` prefix to `:op-type` is in the catalogue's `:op-type` column.
 ## Production elision — what elides and what stays always-on
 
 The error-handling surface is **split** across the dev/prod gate. Getting this backwards leads to wiring production monitoring on a surface that silently goes dark.
