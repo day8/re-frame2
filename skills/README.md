@@ -219,7 +219,7 @@ Each skill subdir contains, at minimum:
 
 Skills release through re-frame2's own pipeline (no skill-local CI
 workflows). Deterministic structural tests for
-`re-frame2-pair/` and `re-frame2-setup/` run in
+`re-frame2-pair/`, `re-frame2-setup/` and `re-frame2-pair-retro/` run in
 `.github/workflows/test.yml` when those skill paths change;
 behavioural replay fixtures remain manual/diagnostic and are not required
 PR coverage.
@@ -308,7 +308,7 @@ conventions (leaf size discipline, single-source routing, one-level
 routing) are the test — a `tests/` dir there would test prose, not
 behaviour. Future skill-authors: do not add one on cargo-cult grounds.
 
-3 skills qualify today:
+4 skills qualify today:
 
 - [`re-frame2-pair/tests/`](re-frame2-pair/tests) (`e2e/`, `fixture/`,
   `prompts/`, `runtime/`, `shim/`) — clause (a): the one skill driving a
@@ -324,3 +324,11 @@ behaviour. Future skill-authors: do not add one on cargo-cult grounds.
   lifecycle, and the fixture is the drift guard that reds if a
   default-adapter registry ever appears — the same shape as setup's. Wired
   as the `reagent-migration-fixture-cold-start` job.
+- [`re-frame2-pair-retro/tests/`](re-frame2-pair-retro/tests)
+  (`duplicate_search_test.clj`) — clause (b): the §Issue drafts
+  duplicate-search argv is a command contract with `gh`'s open-only
+  default, so the pin reds if `--state all` or the `day8/re-frame2`
+  narrowing is dropped and a closed owner stops being found. It extracts
+  the prescribed argv from `SKILL.md` verbatim; it is a command-contract
+  pin, not a session-evidence scorer, and stays the skill's only test.
+  Wired in the `skills-structural` job.
