@@ -184,6 +184,30 @@
       (is (false? (rf/restore-epoch! :rf/default :some-epoch-id))
           "restore-epoch! returns false (refuses to operate)"))))
 
+(deftest replay-epoch-refuses-when-debug-disabled
+  (testing "rf2-ov144: `replay-epoch!` is gated exactly like `restore-epoch!`
+            — under the disabled gate it returns `false`, resolves no record
+            and dispatches nothing. The dispatch-shaped time-travel surface
+            is dev-only for the same reason the state-rewrite one is."
+    (rf/reg-event :prod-gate.epoch/replay-probe
+      (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
+    ;; WITNESS: the probe ran once. Under the dev gate that also retains a
+    ;; record (so the refusal below is exercised against a RETAINED id);
+    ;; under the real production-gate lane the ring stays empty by design
+    ;; and the id falls back to an unknown one — both must refuse.
+    (rf/dispatch-sync [:prod-gate.epoch/replay-probe])
+    (is (= 1 (:n (app-db-of :rf/default)))
+        "WITNESS: the probe handler ran — there is a real dispatch to refuse to replay")
+    (let [recorded-id (or (:epoch-id (last (rf/epoch-history :rf/default)))
+                          :some-epoch-id)]
+      (with-redefs [interop/debug-enabled? false]
+        (is (false? (rf/replay-epoch! :rf/default recorded-id))
+            "replay-epoch! returns false (refuses to operate)")
+        (is (false? (rf/replay-epoch! :rf/default :some-epoch-id {:origin :pair}))
+            "replay-epoch! returns false for the opts arity too — no envelope leaks"))
+      (is (= 1 (:n (app-db-of :rf/default)))
+          "the probe handler did NOT run again — nothing was dispatched"))))
+
 (deftest replace-app-db-refuses-when-debug-disabled
   (testing "`replace-frame-state!` must refuse to operate
             when the JVM debug gate is off. Same admin-surface

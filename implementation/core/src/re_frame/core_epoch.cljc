@@ -57,6 +57,35 @@
   {:hook :epoch/restore-epoch! :artefact epoch-artefact :on-absent :false}
   ([frame-id epoch-id] :delegate))
 
+(defwrapper replay-epoch!
+  "Re-drive the named retained epoch's recorded event through the frame's
+  own handlers in ONE call, as a strict replay (Tool-Pair §Replay): the raw
+  argument-bearing `:trigger-event`, the recorded post-generation `:rf.cofx`
+  token under `:rf.cofx/mint-policy :strict`, and the record's own
+  `:fx-overrides` / `:interceptor-overrides` are resolved in-process and
+  folded into the dispatch opts — nothing is exported or copied by hand.
+  Same frame in and out; replay runs against the frame's CURRENT state and
+  code (it does not restore first — compose with `restore-epoch!` for
+  that), any external effect the handler emits fires again, and the
+  replayed dispatch records a new ordinary epoch.
+
+  Returns a structured `{:ok? …}` envelope: on success `:epoch-id` is the
+  new epoch and `:source-epoch-id` the replayed one; a refusal (`:reason` —
+  `:rf.error/no-such-handler` for an unknown frame, or one of
+  `:rf.epoch/replay-during-drain` / `:rf.epoch/replay-unknown-epoch` /
+  `:rf.epoch/replay-non-replayable-record` /
+  `:rf.epoch/replay-unreplayable-fx-override`) is decided BEFORE anything
+  dispatches. A declared recordable fact absent from the recorded token is
+  the canonical `:rf.error/missing-required-cofx` hard error out of the
+  dispatch, never a mint. The 3-arity threads an ordinary dispatch-opts map
+  for the slots replay does not own (`:origin` / `:source` / `:trace-id`).
+  Returns `false` when the epoch surface is elided, or when the
+  `day8/re-frame2-epoch` artefact is not on the classpath — the same inert
+  value `restore-epoch!` returns. Late-bound via `:epoch/replay-epoch!`."
+  {:hook :epoch/replay-epoch! :artefact epoch-artefact :on-absent :false}
+  ([frame-id epoch-id] :delegate)
+  ([frame-id epoch-id opts] :delegate))
+
 (defwrapper register-epoch-listener!
   "Register a callback fired for each assembled
   `:rf/epoch-record`. Per Spec 009 §`register-epoch-listener!`. Same-id

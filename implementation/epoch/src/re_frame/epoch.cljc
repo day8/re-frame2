@@ -421,6 +421,75 @@
         :fail (do (tool-pair/emit-precondition-failure! op tags)
                   false)))))
 
+;; ---- replay (Tool-Pair §Replay) --------------------------------------------
+;;
+(defn replay-epoch!
+  "Re-drive the named retained epoch's recorded event through `frame-id`'s
+  own handlers, in ONE call, as a faithful-or-fail-loud strict replay
+  (Tool-Pair §Replay). The record is resolved in-process and its replay
+  material is folded into the dispatch opts here — the raw argument-bearing
+  `:trigger-event` (off-box egress only ever shows its args as
+  `:rf/redacted`), the post-generation `:rf.cofx` token under
+  `:rf.cofx/mint-policy :strict`, and the record's own serializable
+  `:fx-overrides` / `:interceptor-overrides`. Nothing is exported and
+  nothing is copied by hand.
+
+  Source and target frame are the SAME frame: the record is read from
+  `frame-id`'s history and the event is dispatched into `frame-id`. Replay
+  runs against the frame's CURRENT state and code — it does not restore
+  first (compose with `restore-epoch!` for that), any external effect the
+  handler emits fires again, the frame's live per-frame config applies, and
+  the replayed dispatch records a NEW ordinary epoch. Re-presenting the
+  recorded `:rf/time-ms` makes that epoch's `:committed-at` equal the
+  original's.
+
+  `opts` (3-arity) is an ordinary dispatch-opts map for the slots replay
+  does not own — `:origin`, `:source`, `:trace-id`; a value it carries
+  under `:frame`, `:rf.cofx`, `:rf.cofx/mint-policy`, `:fx-overrides` or
+  `:interceptor-overrides` is discarded.
+
+  Returns a structured envelope, never a bare boolean:
+
+    {:ok? true  :frame <id> :source-epoch-id <id> :event-id <kw>
+     :epoch-id <the replayed dispatch's own new epoch; nil if not retained>}
+    {:ok? false :reason <kw> :frame <id> :epoch-id <id> …tags}
+
+  Every refusal is decided BEFORE anything is dispatched, and returns the
+  envelope only (no trace is emitted for it):
+
+    :rf.error/no-such-handler (kind :frame)   — frame not registered / destroyed
+    :rf.epoch/replay-during-drain             — called while a drain is in flight
+    :rf.epoch/replay-unknown-epoch            — id not in the frame's current
+                                                history (`:history-size`)
+    :rf.epoch/replay-non-replayable-record    — `:cause` is `:halted` (outcome
+                                                not `:ok`; `:outcome` /
+                                                `:halt-reason` ride along),
+                                                `:synthetic` (a
+                                                `replace-frame-state!` record),
+                                                `:missing-trigger-event` or
+                                                `:missing-replay-token`
+    :rf.epoch/replay-unreplayable-fx-override — a recorded `:fx-overrides` entry
+                                                is the opaque `:rf/fn-override`
+                                                sentinel (`:fx-ids`)
+
+  A declared recordable fact ABSENT from the recorded token is NOT a
+  refusal: the dispatch runs and fails with the canonical
+  `:rf.error/missing-required-cofx` hard error, exactly as any `:strict`
+  dispatch does — `replay-epoch!` neither catches it nor mints.
+
+  Returns `false` when the epoch surface is elided (`interop/debug-enabled?`
+  false) — the same inert value `restore-epoch!` returns."
+  ([frame-id epoch-id] (replay-epoch! frame-id epoch-id nil))
+  ([frame-id epoch-id opts]
+   (if-not interop/debug-enabled?
+     false
+     (let [{:keys [outcome epoch reason tags]}
+           (tool-pair/check-replay-preconditions! frame-id epoch-id)]
+       (case outcome
+         :ok   (tool-pair/perform-replay! frame-id epoch opts)
+         :fail (merge {:ok? false :reason reason :frame frame-id :epoch-id epoch-id}
+                      tags))))))
+
 ;; ---- replace-frame-state! (Tool-Pair §Pair-tool writes) -------------------
 ;;
 ;; Dev-only state injection outside the dispatch loop. Present partition keys
@@ -694,6 +763,7 @@
    ;; ---- introspection + Tool-Pair write surface --------------------
    :epoch/epoch-history       epoch-history
    :epoch/restore-epoch!      restore-epoch!
+   :epoch/replay-epoch!       replay-epoch!
    :epoch/replace-frame-state! replace-frame-state!
 
    ;; ---- listener + config surface ----------------------------------

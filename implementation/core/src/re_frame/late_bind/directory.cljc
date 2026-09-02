@@ -845,6 +845,10 @@
    {:key         :epoch/restore-epoch!
     :producer-ns 're-frame.epoch
     :description "Restore app-db / schemas to a previously-captured epoch."}
+   {:key         :epoch/replay-epoch!
+    :producer-ns 're-frame.epoch
+    :design-bead "rf2-ov144"
+    :description "Re-drive a retained epoch's recorded event through the frame's own handlers in ONE call as a strict replay (Tool-Pair §Replay): the raw :trigger-event, the post-generation :rf.cofx token under :rf.cofx/mint-policy :strict, and the record's serializable :fx-overrides / :interceptor-overrides are folded into the dispatch opts in-process, so no replay material is exported or re-supplied by hand. Same frame in and out; runs against the frame's CURRENT state and code (no implicit restore) and records a new ordinary epoch. Returns a structured envelope; refuses BEFORE dispatch on an unknown / aged-out id, a drain in flight, a halted / synthetic / incomplete record, or a recorded :rf/fn-override. A declared fact absent from the token stays the canonical :rf.error/missing-required-cofx hard error (no mint)."}
    {:key         :epoch/replace-frame-state!
     :producer-ns 're-frame.epoch
     :design-bead "rf2-t3lftq"

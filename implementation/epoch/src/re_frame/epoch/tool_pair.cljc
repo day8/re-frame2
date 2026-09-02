@@ -50,6 +50,7 @@
             [re-frame.classification :as classification]
             [re-frame.projection :as projection]
             [re-frame.registrar :as registrar]
+            [re-frame.router :as router]
             [re-frame.trace :as trace]))
 
 ;; ---- restore failure-mode predicates --------------------------------------
@@ -497,6 +498,150 @@
                               (some? machine-type) (assoc :machine-type machine-type))}
 
                   {:outcome :ok :epoch epoch :incarnation-token incarnation-token})))))))))
+
+;; ---- replay-epoch! preconditions + perform (Tool-Pair §Replay) -------------
+;;
+;; The ONE-CALL replay gesture (rf2-ov144). The retained raw record is
+;; resolved in-process and its replay material — the argument-bearing
+;; `:trigger-event`, the post-generation `:rf.cofx` token, the serializable
+;; `:fx-overrides` / `:interceptor-overrides` — is folded into the strict
+;; dispatch opts HERE. No caller exports, copies or re-supplies those slots,
+;; and the off-box `:rf/redacted` projection of event args
+;; (`elide-trigger-event-slot` below) never gets in the way, because the raw
+;; ring is what is read. Refusals are decided BEFORE anything dispatches and
+;; ride back as a structured envelope; no trace is emitted for them.
+
+(def ^:private fn-override-sentinel
+  "`re-frame.router`'s stand-in for a fn-valued `:fx-overrides` entry (Spec
+  002 §Per-frame and per-call overrides). A record carrying it is
+  UNREPLAYABLE under `:strict`: the fn never rode the record, so the run
+  cannot be re-driven with the override the original had active."
+  :rf/fn-override)
+
+(defn- fn-override-fx-ids
+  "The fx-ids whose recorded `:fx-overrides` entry is the opaque
+  `:rf/fn-override` sentinel — empty for a replayable record."
+  [record]
+  (into []
+        (keep (fn [[fx-id target]] (when (= fn-override-sentinel target) fx-id)))
+        (:fx-overrides record)))
+
+(defn- non-replayable-cause
+  "Why `record` cannot be re-driven, or nil for an ordinary settled event.
+  Halted records carry partial state; the synthetic `replace-frame-state!`
+  record has no handler run behind it; a record without a trigger or a
+  replay token has nothing faithful to re-present."
+  [record]
+  (cond
+    (not= :ok (get record :outcome :ok))         :halted
+    (= :rf.epoch/db-replaced (:event-id record)) :synthetic
+    (not (vector? (:trigger-event record)))      :missing-trigger-event
+    (not (map? (:rf.cofx record)))               :missing-replay-token))
+
+(defn check-replay-preconditions!
+  "Validate the preconditions for replaying `frame-id`'s retained epoch
+  `epoch-id` through the frame's own handlers. Returns
+
+    {:outcome :ok   :epoch <record>}
+    {:outcome :fail :reason <kw> :tags <map>}
+
+  Pure data — nothing is emitted here; `replay-epoch!` folds `:reason` and
+  `:tags` into its refusal envelope, which IS the failure surface. The
+  refusal catalogue:
+
+    :rf.error/no-such-handler (kind :frame)   — frame not registered / destroyed
+    :rf.epoch/replay-during-drain             — a drain is in flight
+    :rf.epoch/replay-unknown-epoch            — id not in the frame's current
+                                                history (`:history-size`)
+    :rf.epoch/replay-non-replayable-record    — `:cause` is `:halted` (with the
+                                                record's `:outcome` /
+                                                `:halt-reason`), `:synthetic`,
+                                                `:missing-trigger-event` or
+                                                `:missing-replay-token`
+    :rf.epoch/replay-unreplayable-fx-override — a recorded `:fx-overrides` entry
+                                                is `:rf/fn-override` (`:fx-ids`)"
+  [frame-id epoch-id]
+  (let [frame-result (frame-exists-or-fail frame-id)
+        frame-record (:frame-record frame-result)]
+    (cond
+      (= :fail (:outcome frame-result))
+      {:outcome :fail :reason (:op frame-result) :tags (:tags frame-result)}
+
+      (drain-in-flight? frame-record)
+      {:outcome :fail :reason :rf.epoch/replay-during-drain :tags {}}
+
+      :else
+      (let [history (state/history-for frame-id)
+            epoch   (find-epoch-in history epoch-id)
+            cause   (when epoch (non-replayable-cause epoch))
+            fn-ids  (when epoch (fn-override-fx-ids epoch))]
+        (cond
+          (nil? epoch)
+          {:outcome :fail
+           :reason  :rf.epoch/replay-unknown-epoch
+           :tags    {:history-size (count history)}}
+
+          cause
+          {:outcome :fail
+           :reason  :rf.epoch/replay-non-replayable-record
+           :tags    (cond-> {:cause cause}
+                      (= :halted cause) (assoc :outcome     (:outcome epoch)
+                                               :halt-reason (:halt-reason epoch)))}
+
+          (seq fn-ids)
+          {:outcome :fail
+           :reason  :rf.epoch/replay-unreplayable-fx-override
+           :tags    {:fx-ids fn-ids}}
+
+          :else
+          {:outcome :ok :epoch epoch})))))
+
+(def ^:private replay-owned-opt-keys
+  "Dispatch-opts keys the replay gesture OWNS. A caller value under any of
+  them is discarded: the record is the only source of replay material, and
+  the target frame is the source frame by construction."
+  [:frame :rf.cofx :rf.cofx/mint-policy :fx-overrides :interceptor-overrides])
+
+(defn replay-dispatch-opts
+  "The strict replay dispatch opts for `record` against `frame-id`
+  (Tool-Pair §Replay): the recorded post-generation `:rf.cofx` under
+  `:rf.cofx/mint-policy :strict`, plus the record's own `:fx-overrides` /
+  `:interceptor-overrides` (absent on the record ⇒ absent here, so an
+  override-free replay's opts carry neither key). `opts` is an ordinary
+  dispatch-opts map for the slots replay does not own — `:origin`,
+  `:source`, `:trace-id` — with any value under an owned key dropped."
+  [frame-id record opts]
+  (merge (apply dissoc opts replay-owned-opt-keys)
+         {:frame               frame-id
+          :rf.cofx             (:rf.cofx record)
+          :rf.cofx/mint-policy :strict}
+         (select-keys record [:fx-overrides :interceptor-overrides])))
+
+(defn perform-replay!
+  "Re-drive `record`'s `:trigger-event` synchronously through `frame-id`'s
+  own handlers under `replay-dispatch-opts`, then report the ordinary epoch
+  the replayed dispatch recorded:
+
+    {:ok? true :frame <id> :source-epoch-id <id> :event-id <kw>
+     :epoch-id <the new record's id, nil if the ring could not retain it>}
+
+  `:epoch-id` is the FIRST record the dispatch committed — the replayed
+  event's own epoch (a queued child settles after its parent, so it lands
+  later in the ring). A declared recordable fact ABSENT from the recorded
+  token throws the canonical `:rf.error/missing-required-cofx` out of the
+  dispatch exactly as any `:strict` dispatch does — nothing here catches it,
+  and nothing mints."
+  [frame-id record opts]
+  (let [before-ids (into #{} (map :epoch-id) (state/history-for frame-id))]
+    (router/dispatch-sync! (:trigger-event record)
+                           (replay-dispatch-opts frame-id record opts))
+    (let [new-record (some (fn [r] (when-not (contains? before-ids (:epoch-id r)) r))
+                           (state/history-for frame-id))]
+      {:ok?             true
+       :frame           frame-id
+       :source-epoch-id (:epoch-id record)
+       :event-id        (:event-id record)
+       :epoch-id        (:epoch-id new-record)})))
 
 ;; ---- write-boundary liveness guard ----------------------------------------
 ;;

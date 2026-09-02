@@ -161,6 +161,11 @@ known_red=(
   re-frame.epoch-test                                    # 428 /  752
   re-frame.join-strict-mint-epoch-replay-test            #  17 /   29
   re-frame.machine-minted-cofx-replay-token-test         #   6 /    9
+  #    rf2-ov144 — `replay-epoch!` by id. Dispatches, reads the ring back
+  #    and re-dispatches from a retained record; under the gate the ring
+  #    never fills and `replay-epoch!` returns `false` by design (pinned in
+  #    `epoch-jvm-prod-gate-test` / `epoch-elision-prod-test`). Class A.
+  re-frame.epoch-replay-cljs-test
 
   # ── CLASS B · PUBLICATION ELIDED (6).  Different mechanism, same verdict, and
   #    worth separating because the failure ratios invite the wrong conclusion —
