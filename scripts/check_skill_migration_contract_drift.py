@@ -1430,7 +1430,7 @@ def m1_anchor_problems() -> list[str]:
 # Form-3 capture-once retarget invariance (rf2-aalo4n).
 #
 # The reagent-slim FORM-3.md is the ADOPTER-facing owner of the Form-3
-# capture-once recipe; guided-handlers-state.md §M-11 is the CANONICAL migration
+# capture-once recipe; guided-views-m11.md §M-11 is the CANONICAL migration
 # recipe. FORM-3.md §4 recommends capturing the frame-aware bundle *once in the
 # outer `reg-view*` callable* (`(rf/capture-frame)`), but that handle is a LOCKED
 # value: the frame is captured at mount and never re-resolves (implementation:
@@ -1476,7 +1476,7 @@ FORM3_REMEDY_RE = re.compile(
     re.IGNORECASE,
 )
 # The pointer back to the canonical migration recipe.
-FORM3_RECIPE_POINTER_RE = re.compile(r"guided-handlers-state\.md", re.IGNORECASE)
+FORM3_RECIPE_POINTER_RE = re.compile(r"guided-views-m11\.md", re.IGNORECASE)
 
 # --- Semantic teeth (rf2-gjrlz) --------------------------------------------
 # The four presence checks above prove the *vocabulary* is somewhere in the
@@ -1615,7 +1615,7 @@ def _retarget_invariance_problems(text: str, owner: str, *, adopter: bool) -> li
             "instance retargeted from provider A to provider B keeps sending "
             "render/lifecycle actions to the stale A (the locked handle does not "
             "re-resolve; the outer callable does not re-run). (rf2-aalo4n; "
-            "canonical: guided-handlers-state.md §M-11.)"
+            "canonical: guided-views-m11.md §M-11.)"
         )
     elif not any(FORM3_STALE_RELATION_RE.search(p) for p in owning):
         problems.append(
@@ -1638,7 +1638,7 @@ def _retarget_invariance_problems(text: str, owner: str, *, adopter: bool) -> li
             problems.append(
                 f"FORM3-RECIPE-POINTER-MISSING: {owner}'s capture-once paragraph "
                 "does not point at the canonical migration recipe "
-                "(guided-handlers-state.md §M-11) for the full retarget routes "
+                "(guided-views-m11.md §M-11) for the full retarget routes "
                 "(rf2-aalo4n)."
             )
     return problems
@@ -1653,14 +1653,14 @@ def _form3_capture_once_problems(f3_text: str, g_text: str | None) -> list[str]:
     The adopter owner (`f3_text`) must tie capture-once → surviving A→B retarget →
     stays-on-stale-A in one paragraph, carry an in-paragraph remedy + the
     canonical-recipe pointer, and never assert the reversal. `g_text` is the
-    canonical guided-handlers-state.md text, held to the same relationship +
+    canonical guided-views-m11.md text, held to the same relationship +
     polarity teeth (minus the pointer, which is its own target); None skips the
     cross-owner leg (a SETUP problem is reported separately)."""
     problems = _retarget_invariance_problems(f3_text, "FORM-3.md", adopter=True)
     if g_text is not None:
         problems.extend(
             _retarget_invariance_problems(
-                g_text, "guided-handlers-state.md", adopter=False
+                g_text, "guided-views-m11.md", adopter=False
             )
         )
     return problems
@@ -1671,19 +1671,19 @@ def form3_capture_once_retarget_problems() -> list[str]:
 
     The adopter owner (FORM-3.md) must state when capture-once is safe, the
     provider A→B stale-bundle case, at least one supported remedy, and a pointer
-    to the canonical recipe. The canonical recipe (guided-handlers-state.md §M-11)
+    to the canonical recipe. The canonical recipe (guided-views-m11.md §M-11)
     must still carry the aligned invariance, so the two owners cannot drift
     apart."""
     if not FORM3_MD.is_file():
         return [
             f"SETUP: Form-3 adopter owner missing: {FORM3_MD.relative_to(REPO_ROOT)}"
         ]
-    g_text = _slurp(GUIDED_HANDLERS_MD) if GUIDED_HANDLERS_MD.is_file() else None
+    g_text = _slurp(GUIDED_VIEWS_M11_MD) if GUIDED_VIEWS_M11_MD.is_file() else None
     problems = _form3_capture_once_problems(_slurp(FORM3_MD), g_text)
     if g_text is None:
         problems.append(
             f"SETUP: canonical recipe missing: "
-            f"{GUIDED_HANDLERS_MD.relative_to(REPO_ROOT)} — the Form-3 capture-once "
+            f"{GUIDED_VIEWS_M11_MD.relative_to(REPO_ROOT)} — the Form-3 capture-once "
             "cross-owner alignment leg cannot run."
         )
     return problems
@@ -1908,7 +1908,7 @@ def run(*, verbose: bool, ci: bool) -> int:
         "Form-3 lifecycle explicit-frame targeting, the exceptional imperative "
         "Form-3's per-mount `r/track!` OWNER (a bare `add-watch` on a ratom-family "
         "subscription can never fire — rf2-ynved), the Form-3 capture-once "
-        "retarget invariance (FORM-3.md + guided-handlers-state.md §M-11 aligned "
+        "retarget invariance (FORM-3.md + guided-views-m11.md §M-11 aligned "
         "— rf2-aalo4n), and the M-0 publication-route lock (author-supplied "
         "pinned route, no `\"<latest>\"`, no stop-and-wait — rf2-snjn5), to the "
         "shipped contract."
@@ -1924,7 +1924,7 @@ def run(*, verbose: bool, ci: bool) -> int:
 # corrected wording (and the unrelated live `:on-error` surfaces).
 # ---------------------------------------------------------------------------
 
-GUIDED_HANDLERS_MD = SKILL_DIR / "references" / "guided-handlers-state.md"
+GUIDED_VIEWS_M11_MD = SKILL_DIR / "references" / "guided-views-m11.md"
 
 # Live-corpus mutation teeth (rf2-vxgfnd.94.15). Each entry mutates the frame-
 # qualified form the skill actually teaches into the bare form the contract
@@ -1955,20 +1955,20 @@ def _live_corpus_mutation_problems() -> list[str]:
     drift away from it silently: re-author the real recipe into a shape the
     scanner cannot read and every fixture still passes while the live scan goes
     vacuous. These teeth close that gap from the other side — they take the
-    actual guided-handlers-state.md lifecycle recipe, break it in the exact way
+    actual guided-views-m11.md lifecycle recipe, break it in the exact way
     a careless edit would, and require the guard to catch it. If the recipe is
     re-authored, the anchors below stop matching and this reports STALE rather
     than quietly proving nothing.
     """
-    if not GUIDED_HANDLERS_MD.is_file():
+    if not GUIDED_VIEWS_M11_MD.is_file():
         return [
-            f"SETUP: {GUIDED_HANDLERS_MD.name} missing — the live Form-3 "
+            f"SETUP: {GUIDED_VIEWS_M11_MD.name} missing — the live Form-3 "
             "mutation teeth cannot run."
         ]
-    text = _slurp(GUIDED_HANDLERS_MD)
+    text = _slurp(GUIDED_VIEWS_M11_MD)
     if _rule5_dirty(text):
         return [
-            "LIVE-CORPUS-DIRTY: the shipped guided-handlers-state.md lifecycle "
+            "LIVE-CORPUS-DIRTY: the shipped guided-views-m11.md lifecycle "
             "guidance already trips Rule 5, so the mutation teeth below cannot "
             "prove the guard has bite. Fix the guidance (or the rule) first."
         ]
@@ -1976,7 +1976,7 @@ def _live_corpus_mutation_problems() -> list[str]:
     for label, qualified, bare in LIVE_FORM3_MUTATIONS:
         if qualified not in text:
             problems.append(
-                f"LIVE-MUTATION-STALE: guided-handlers-state.md no longer "
+                f"LIVE-MUTATION-STALE: guided-views-m11.md no longer "
                 f"contains `{qualified}`, so the mutation teeth for '{label}' "
                 f"are vacuous — the Form-3 recipe was re-authored. Re-point "
                 f"LIVE_FORM3_MUTATIONS at the current recipe."
@@ -1999,27 +1999,27 @@ LIVE_AMBIENT_ACQUIRE = "(let [reaction (rf/subscribe query-v)]"
 
 
 def _live_captured_subscribe_problems() -> list[str]:
-    """Run Rule 5b against a MUTATION OF THE SHIPPED guided-handlers-state.md, not
+    """Run Rule 5b against a MUTATION OF THE SHIPPED guided-views-m11.md, not
     hand-written prose (rf2-v84zn). The shipped exceptional Form-3 must be clean,
     and swapping its captured `(subscribe query-v)` acquire for the ambient
     `(rf/subscribe query-v)` — the exact false-green the bead reproduced — must
     trip the guard. If the recipe is re-authored so the anchor no longer matches,
     this reports STALE instead of quietly proving nothing."""
-    if not GUIDED_HANDLERS_MD.is_file():
+    if not GUIDED_VIEWS_M11_MD.is_file():
         return [
-            f"SETUP: {GUIDED_HANDLERS_MD.name} missing — the captured-subscribe "
+            f"SETUP: {GUIDED_VIEWS_M11_MD.name} missing — the captured-subscribe "
             "live teeth cannot run."
         ]
-    text = _slurp(GUIDED_HANDLERS_MD)
+    text = _slurp(GUIDED_VIEWS_M11_MD)
     if form3_captured_subscribe_problems(text):
         return [
-            "LIVE-CAPTURED-SUBSCRIBE-DIRTY: the shipped guided-handlers-state.md "
+            "LIVE-CAPTURED-SUBSCRIBE-DIRTY: the shipped guided-views-m11.md "
             "exceptional Form-3 already trips Rule 5b, so the mutation tooth below "
             "cannot prove the guard has bite. Fix the guidance (or the rule) first."
         ]
     if LIVE_CAPTURED_ACQUIRE not in text:
         return [
-            "LIVE-CAPTURED-SUBSCRIBE-STALE: guided-handlers-state.md no longer "
+            "LIVE-CAPTURED-SUBSCRIBE-STALE: guided-views-m11.md no longer "
             f"contains the captured acquire `{LIVE_CAPTURED_ACQUIRE}`, so the Rule "
             "5b mutation tooth is vacuous — the exceptional Form-3 recipe was "
             "re-authored. Re-point LIVE_CAPTURED_ACQUIRE at the current recipe."
@@ -2060,21 +2060,21 @@ LIVE_OWNER_MUTATIONS = (
 
 
 def _live_reactive_owner_problems() -> list[str]:
-    """Run Rule 5c against MUTATIONS OF THE SHIPPED guided-handlers-state.md
+    """Run Rule 5c against MUTATIONS OF THE SHIPPED guided-views-m11.md
     (rf2-ynved). The shipped exceptional Form-3 must own its acquired reaction
     with a per-mount `r/track!` and dispose it at unmount; deleting that owner,
     restoring the `add-watch` trap, or dropping the dispose must each trip the
     guard against the LIVE text. A re-authored recipe reports STALE instead of
     quietly proving nothing."""
-    if not GUIDED_HANDLERS_MD.is_file():
+    if not GUIDED_VIEWS_M11_MD.is_file():
         return [
-            f"SETUP: {GUIDED_HANDLERS_MD.name} missing — the reactive-owner live "
+            f"SETUP: {GUIDED_VIEWS_M11_MD.name} missing — the reactive-owner live "
             "teeth cannot run."
         ]
-    text = _slurp(GUIDED_HANDLERS_MD)
+    text = _slurp(GUIDED_VIEWS_M11_MD)
     if form3_reactive_owner_problems(text):
         return [
-            "LIVE-REACTIVE-OWNER-DIRTY: the shipped guided-handlers-state.md "
+            "LIVE-REACTIVE-OWNER-DIRTY: the shipped guided-views-m11.md "
             "exceptional Form-3 already trips Rule 5c, so the mutation teeth below "
             "cannot prove the guard has bite. Fix the guidance (or the rule) first."
         ]
@@ -2082,7 +2082,7 @@ def _live_reactive_owner_problems() -> list[str]:
     for label, present, broken in LIVE_OWNER_MUTATIONS:
         if present not in text:
             problems.append(
-                f"LIVE-REACTIVE-OWNER-STALE: guided-handlers-state.md no longer "
+                f"LIVE-REACTIVE-OWNER-STALE: guided-views-m11.md no longer "
                 f"contains `{present}`, so the Rule 5c tooth for '{label}' is "
                 f"vacuous — the exceptional Form-3 recipe was re-authored. "
                 f"Re-point LIVE_OWNER_MUTATIONS at the current recipe."
@@ -3033,7 +3033,7 @@ def _self_test() -> int:
         "is retargeted from provider A to provider B — the outer callable does "
         "not re-run, so the locked handle keeps sending to the stale A, never B. "
         "Remedy: a frame-derived React `key` remount, or the registered "
-        "`reg-view` child (route 1). See `guided-handlers-state.md` §M-11."
+        "`reg-view` child (route 1). See `guided-views-m11.md` §M-11."
     )
     K_CANON = (
         "Capture-once is locked to one frame; if a surviving instance is "
@@ -3059,7 +3059,7 @@ def _self_test() -> int:
     expect_form3(
         "It goes stale if a surviving instance is retargeted from provider A to "
         "provider B. Remedy: a frame-derived React `key` remount, or the "
-        "registered `reg-view` child (route 1). See `guided-handlers-state.md` "
+        "registered `reg-view` child (route 1). See `guided-views-m11.md` "
         "§M-11.",
         K_CANON, dirty=True, label="K3 owner without capture-once framing is dirty",
     )
@@ -3070,7 +3070,7 @@ def _self_test() -> int:
         K_CANON, dirty=True, label="K4 owner naming no supported remedy is dirty",
     )
     expect_form3(
-        K_OWNER.replace("See `guided-handlers-state.md` §M-11.", "See below."),
+        K_OWNER.replace("See `guided-views-m11.md` §M-11.", "See below."),
         K_CANON, dirty=True, label="K5 owner without the canonical pointer is dirty",
     )
     expect_form3(
@@ -3092,7 +3092,7 @@ def _self_test() -> int:
         "stale.\n\n"
         "Elsewhere, an instance can be retargeted from provider A to provider B.\n\n"
         "You might force a remount with a frame-derived React `key`.\n\n"
-        "See `guided-handlers-state.md` §M-11 for more."
+        "See `guided-views-m11.md` §M-11 for more."
     )
     expect_form3(
         K7_REVERSED_SCATTERED, K_CANON, dirty=True,
@@ -3106,7 +3106,7 @@ def _self_test() -> int:
         "surviving instance is retargeted from provider A to provider B, and it "
         "never goes stale — it keeps sending to the stale A. Remedy: a "
         "frame-derived React `key` remount, or the registered `reg-view` child "
-        "(route 1). See `guided-handlers-state.md` §M-11."
+        "(route 1). See `guided-views-m11.md` §M-11."
     )
     expect_form3(
         K8_REVERSED_TIED, K_CANON, dirty=True,
@@ -3131,7 +3131,7 @@ def _self_test() -> int:
         "sending to the stale A, never B. Or use the registered `reg-view` child "
         "(route 1), which reads its frame from React context on every render and "
         "so follows A→B with no remount and no re-capture. See "
-        "`guided-handlers-state.md` §M-11."
+        "`guided-views-m11.md` §M-11."
     )
     expect_form3(
         K10_ADAPTIVE_REMEDY_OK, K_CANON, dirty=False,
@@ -3287,12 +3287,12 @@ def _self_test() -> int:
     if not FORM3_MD.is_file():
         print(f"SELF-TEST FAIL (form3 live): {FORM3_MD.name} missing.")
         failures += 1
-    elif not GUIDED_HANDLERS_MD.is_file():
-        print(f"SELF-TEST FAIL (form3 live): {GUIDED_HANDLERS_MD.name} missing.")
+    elif not GUIDED_VIEWS_M11_MD.is_file():
+        print(f"SELF-TEST FAIL (form3 live): {GUIDED_VIEWS_M11_MD.name} missing.")
         failures += 1
     else:
         f3_live = _slurp(FORM3_MD)
-        g_live = _slurp(GUIDED_HANDLERS_MD)
+        g_live = _slurp(GUIDED_VIEWS_M11_MD)
         live = _form3_capture_once_problems(f3_live, g_live)
         if live:
             print(
@@ -3314,7 +3314,7 @@ def _self_test() -> int:
         if not _form3_capture_once_problems(f3_live, g_broken):
             print(
                 "SELF-TEST FAIL (form3 canonical mutation): dropping the provider "
-                "A→B retarget sentence from guided-handlers-state.md did not trip "
+                "A→B retarget sentence from guided-views-m11.md did not trip "
                 "the cross-owner drift leg."
             )
             failures += 1
@@ -3353,13 +3353,13 @@ def _self_test() -> int:
         if g_reversed == g_live:
             print(
                 "SELF-TEST FAIL (canonical reversal setup): no capture-once anchor "
-                "in guided-handlers-state.md to splice a polarity reversal onto."
+                "in guided-views-m11.md to splice a polarity reversal onto."
             )
             failures += 1
         elif not _form3_capture_once_problems(f3_live, g_reversed):
             print(
                 "SELF-TEST FAIL (canonical reversal): a capture-once auto-adapt "
-                "reversal spliced into guided-handlers-state.md (A/B/remount/"
+                "reversal spliced into guided-views-m11.md (A/B/remount/"
                 "pointer intact) passed the cross-owner leg."
             )
             failures += 1
