@@ -227,6 +227,22 @@
 ;; Widening to the remaining artefacts is a per-tree decision with a per-tree
 ;; cost; the point of the data-driven shape below is that each is a root plus
 ;; its classifications, never another mechanism.
+;;
+;; ROUTING AND RESOURCES joined under rf2-hjj4, executing step 2 of the
+;; rf2-qvhx ruling, and their result is worth recording because it points the
+;; OTHER WAY from hicasso's. They were chosen on blast radius — the two trees
+;; judged most likely to hide a public authoring surface an application
+;; requires directly. Fifty-one namespaces were unaccounted (routing 28,
+;; resources 23) and ALL FIFTY-ONE classified internal: no new manifest row, no
+;; new documentation page, `:var-count` unchanged. The reason the two trees
+;; differ from hicasso is structural rather than lucky. Both are FAÇADE
+;; artefacts — one enrolled door re-exporting what an app may call (27 rows for
+;; routing, 21 for resources), with the siblings holding handler bodies,
+;; `*-meta` registration maps, cofx constructors, `*-sub-fn` bodies and
+;; host-side caches. Hicasso is the opposite shape: its optional modules are
+;; separately requirable BECAUSE they are opt-in, so its door could not
+;; re-export them. That distinction is the useful predictor for the remaining
+;; trees, and it is what rf2-hjj4's verdict rests on.
 ;; ---------------------------------------------------------------------------
 
 (def roster-covered-roots
@@ -236,22 +252,32 @@
    beneath it (see this section's header)."
   ["implementation/ssr/src"
    "implementation/ssr-ring/src"
-   "implementation/hicasso/src"])
+   "implementation/hicasso/src"
+   "implementation/routing/src"
+   "implementation/resources/src"])
 
 (def internal-namespaces
   "Source namespaces under `roster-covered-roots` that are deliberately NOT a
   supported surface: SSR pipeline internals, host-adapter plumbing and
-  emitters, and the Hicasso runtime beneath its door. Nothing here is
-  published, documented or rowed in the manifest — being on this list is the
-  RECORD of that decision, not a consequence of it.
+  emitters, the Hicasso runtime beneath its door, and the per-concern siblings
+  the routing and resources façades compose. Nothing here is published,
+  documented or rowed in the manifest — being on this list is the RECORD of
+  that decision, not a consequence of it.
 
   This is not a synonym for `^:no-doc`. NONE of these carry that metadata
   (the SSR trees use it nowhere at all), so the marker cannot be the
   classifier — which is precisely why the roster is written down instead of
-  derived. The public doors of these three artefacts are `re-frame.ssr`,
-  `re-frame.ssr.ring` and `re-frame.hicasso`, plus the two crossing surfaces
-  rf2-8arzr.7 enrolled and the Hicasso modules rf2-3ne8 enrolled; everything
-  below is reached only from inside them."
+  derived. The public doors of these five artefacts are `re-frame.ssr`,
+  `re-frame.ssr.ring`, `re-frame.hicasso`, `re-frame.routing` and
+  `re-frame.resources`, plus the two crossing surfaces rf2-8arzr.7 enrolled and
+  the Hicasso modules rf2-3ne8 enrolled; everything below is reached only from
+  inside them.
+
+  READ THE GROUPING COMMENTS AS THE CLASSIFICATION. Each names what the group
+  is and the checkable reason it is not a surface — most often the artefact's
+  own docstring, a spec section, or the fact that the door already rows the
+  var. A bare name here with no reason above it would be a rubber stamp, which
+  is worse than an unenrolled tree because it looks like a decision."
   '#{;; --- implementation/ssr/src -------------------------------------------
      ;; Boot, install and the shared constant/hash/manifest plumbing.
      re-frame.ssr.boot
@@ -333,7 +359,197 @@
      re-frame.hicasso.impl.portal
      re-frame.hicasso.impl.presence
      re-frame.hicasso.impl.presence-react
-     re-frame.hicasso.impl.route-link})
+     re-frame.hicasso.impl.route-link
+     ;; --- implementation/routing/src ---------------------------------------
+     ;; The door is `re-frame.routing`, enrolled above, and it says so in its
+     ;; own docstring: "This namespace is the public boot point and facade for
+     ;; the routing artefact: apps load it with `(:require [re-frame.routing])`
+     ;; … The implementation lives in per-concern namespaces". TWENTY-FIVE of
+     ;; the twenty-eight below repeat that verbatim in their own docstrings —
+     ;; "Internal namespace; the public facade is `re-frame.routing`" — so this
+     ;; roster records the artefact's OWN published boundary rather than a
+     ;; judgement invented here. Exactly three lack that sentence —
+     ;; `readiness`, `tooling` and `test-support` — and each is given its own
+     ;; reason at its group below.
+     ;;
+     ;; What the façade re-exports is ALREADY rowed under `re-frame.routing`
+     ;; (27 rows spanning :advanced / :tooling / :implementation). Every
+     ;; remaining public below is an intra-artefact seam the façade composes:
+     ;; `*-handler` fns, their `*-meta` registration maps, `*-cofx`
+     ;; constructors, host-side cache accessors (`reset-cache!`,
+     ;; `release-frame!`) and pure projectors. None is an authoring surface,
+     ;; and none is named by spec/API.md, docs/ or skills/ as one.
+     ;;
+     ;; URL, pattern and address primitives — pure parsing/encoding beneath
+     ;; `match-url` / `route-url`, which the façade rows at :advanced.
+     re-frame.routing.address
+     re-frame.routing.match
+     re-frame.routing.resolve
+     re-frame.routing.url
+     ;; Registration and the projection-relative data classification lowered
+     ;; at route registration. `reg-route` / `route-ids` / `route-meta` are the
+     ;; façade's rows; these are the validators and the route-table cache.
+     re-frame.routing.classification
+     re-frame.routing.registry
+     ;; Navigation planning and commit: the pre-commit planning seam, the
+     ;; leave/entry decisions, the commit-time readiness projector, the shared
+     ;; nav-event helpers, and the two commands that reuse the standing plan.
+     ;; `readiness` carries no "internal namespace" sentence, but its only
+     ;; public (`project-at-commit`) takes the `:routing/on-route-entry` hook
+     ;; result and is called by the commit assembler — the façade lists it as a
+     ;; per-concern namespace, and Spec 012 §Route readiness names the
+     ;; projection, never a var.
+     re-frame.routing.decisions
+     re-frame.routing.events
+     re-frame.routing.plan
+     re-frame.routing.prefetch
+     re-frame.routing.readiness
+     re-frame.routing.replan
+     ;; Nav tokens, the monotonic host-side allocators, and the `:rf.nav/*` fx
+     ;; legs with their Malli args schemas. The consumer surface here is the
+     ;; event/fx/cofx vocabulary (`:rf.route/with-nav-token`, `:rf.nav/push-url`),
+     ;; registered by the façade; these namespaces supply the handler bodies.
+     re-frame.routing.navigate
+     re-frame.routing.nav-counters
+     re-frame.routing.nav-fx
+     re-frame.routing.nav-fx-schemas
+     re-frame.routing.nav-token
+     re-frame.routing.url-bound
+     re-frame.routing.url-change
+     ;; History strategy and scroll restoration. The two SHIPPED strategy maps
+     ;; and `with-base-path` are façade rows at :advanced and documented on
+     ;; docs/api/re-frame.routing.md; a CUSTOM strategy is a five-key map the
+     ;; app writes itself (Spec 012 §URL strategies), so the encode/decode legs
+     ;; and `url-strategy-from-config` are those maps' internals, not a
+     ;; compose-your-own kit — spec/009-Instrumentation.md's only mention of
+     ;; the latter calls it a dev-only tripwire.
+     re-frame.routing.history
+     re-frame.routing.scroll
+     re-frame.routing.strategy
+     ;; Reads: the framework-shipped subs, their off-box egress projection, and
+     ;; the `:route/link` registered view. The consumer names are the sub ids
+     ;; and the `:route/link` view id, both registered by the façade.
+     re-frame.routing.link
+     re-frame.routing.sub-egress
+     re-frame.routing.subs
+     ;; Async lowering onto the shared reply envelope. Its own docstring is
+     ;; explicit that this is "internal lowering only" and that "the PUBLIC
+     ;; routing API … is unchanged".
+     re-frame.routing.reply
+     ;; The bundle-isolated tooling sibling. Its ENTIRE public surface — both
+     ;; algebra views — is already rowed at :tooling under `re-frame.routing`
+     ;; via the JVM façade aliases, and documented on
+     ;; docs/api/re-frame.routing.md, which names the CLJS call form too.
+     ;; Enrolling the namespace as well would row the same two fns twice.
+     ;; spec/Derivations.md §Routes expose algebra views is the authority for
+     ;; the disposition: this exposure "is *internal registration metadata* …
+     ;; it ships **no public accessor**", with the public name deferred to a
+     ;; stated graduation gate.
+     re-frame.routing.tooling
+     ;; The test-only fixture namespace. REQUIRED DIRECTLY by test suites — the
+     ;; skill corpus tells authors to `(:require [re-frame.routing.test-support])`
+     ;; — but required for its LOAD EFFECT: the require registers
+     ;; `:rf.test/simulate-http-resolution`, and the consumer-facing name is
+     ;; that event id, not the one public var (`simulate-http-resolution-handler`,
+     ;; the handler body nobody calls). The manifest is one row per public VAR,
+     ;; so there is nothing here to row; see the sibling note under resources.
+     re-frame.routing.test-support
+     ;; --- implementation/resources/src -------------------------------------
+     ;; The door is `re-frame.resources`, enrolled above, whose docstring calls
+     ;; it "the **public boot point and façade** for the resources artefact:
+     ;; apps boot it with `(:require [re-frame.resources])`. Doing so
+     ;; transitively loads every concern sibling under `re-frame.resources.*`".
+     ;; Unlike routing, the siblings here carry NO per-file "internal
+     ;; namespace" sentence, so each group below states its own reason.
+     ;;
+     ;; The consumer surface is `reg-resource` / `reg-mutation` /
+     ;; `reg-resource-scope`, the `:rf.resource/*` + `:rf.mutation/*` event and
+     ;; sub vocabularies, and the registry introspection accessors — 21 rows
+     ;; already carried under `re-frame.resources`. Every public below is a
+     ;; runtime seam: durable-shape constructors and path fns, `*-handler` /
+     ;; `*-meta` pairs, `*-sub-fn` bodies, host-side cache accessors and pure
+     ;; projectors. Spec 016 names the events, subs and registration fns; it
+     ;; names none of these vars.
+     ;;
+     ;; Runtime-db paths and the durable entry / instance shapes every sibling
+     ;; agrees on. `state`'s own docstring: "the paths and shapes are pinned
+     ;; here so every sibling agrees on one home".
+     re-frame.resources.mutation-runtime
+     re-frame.resources.state
+     ;; Registration: the three registrar kinds, the shared params
+     ;; validate+canonicalize pipeline, and the durable classification lowered
+     ;; at registration. The `reg-*` / `clear-*` / `*-ids` / `*-meta` surfaces
+     ;; are the façade's rows; these hold the validators, the registrar-kind
+     ;; keywords and the scope resolvers behind them.
+     re-frame.resources.classification
+     re-frame.resources.mutation-registry
+     re-frame.resources.params
+     re-frame.resources.registry
+     re-frame.resources.scope-registry
+     ;; The causal write surface: the `:rf.resource/*` and `:rf.mutation/*`
+     ;; event handlers plus the framework-internal `*.internal/*` replies. Spec
+     ;; 016 §Public API §Events documents the EVENT IDS; these namespaces are
+     ;; the handler bodies the façade registers.
+     re-frame.resources.events
+     re-frame.resources.mutation-events
+     ;; The passive read surface: the `:rf/resource` / `:rf/mutation` sub
+     ;; families. Again the consumer names are the sub ids; the publics here
+     ;; are `*-sub-fn` bodies and their registration entry points.
+     re-frame.resources.mutation-subs
+     re-frame.resources.subs
+     ;; Async lowering and the frame work ledger: the uniform reply envelope,
+     ;; the shared stale-suppression substrate above it, the ledger records and
+     ;; host-side handles, and the transport seam. The artefact ships ONE
+     ;; built-in transport (`:rf.http/managed`); transport-neutrality is a
+     ;; design property of the core, not a published extension API — no doc,
+     ;; spec, skill or example names `managed-http-transport`,
+     ;; `default-transport` or `assert-managed-transport!`.
+     re-frame.resources.reply
+     re-frame.resources.reply-handlers
+     re-frame.resources.transport
+     re-frame.resources.transport.http
+     re-frame.resources.work-ledger
+     ;; Host-side scheduling: the stale / GC / poll timer side-table and the
+     ;; window-focus / network-reconnect listeners. Both are installed and
+     ;; torn down by the façade and by frame lifecycle; the app-facing controls
+     ;; are the policy keys on a resource spec and the two
+     ;; `install-` / `remove-revalidation-listeners!` façade rows.
+     re-frame.resources.revalidate-listeners
+     re-frame.resources.timers
+     ;; The two LATE-BOUND cross-artefact integrations. Resources never
+     ;; statically requires routing or ssr; these publish the hooks those
+     ;; artefacts resolve. `install-routing-integration!` /
+     ;; `install-ssr-integration!` are called by the façade at load (and again
+     ;; by tests after a registrar reset, the same `:reload` re-wiring the
+     ;; façade docstring describes) — never by application code.
+     re-frame.resources.route
+     re-frame.resources.ssr
+     ;; The OFF-BOX trace-row egress projector. Production-reachable rather
+     ;; than tool-only (the façade requires it on both runtimes so the
+     ;; `:resources/project-resource-trace-egress` hook is always published),
+     ;; but consumed only through that hook by the epoch tool pair.
+     re-frame.resources.trace-egress
+     ;; The bundle-isolated tooling sibling — same disposition as routing's,
+     ;; and the same authority: spec/Derivations.md §Resources expose process
+     ;; nodes says this exposure "is *internal registration metadata* … it
+     ;; ships **no public accessor**", the public name deferred to the
+     ;; graduation gate. Its two algebra views are already rowed at :tooling
+     ;; under `re-frame.resources` via the JVM façade aliases; its five other
+     ;; publics (`resource-superkind`, `resource-refined-kind`,
+     ;; `resource-storage`, `resource-lifecycle`, `resource-evaluation`) are
+     ;; module-level classification CONSTANTS read only by the two view
+     ;; builders in that same file — public by omission beside the `^:private`
+     ;; `resource-selectors` directly below them, not a surface.
+     re-frame.resources.tooling
+     ;; The test-only fixture namespace, the sibling of
+     ;; `re-frame.routing.test-support` above (its docstring names the family:
+     ;; routing, resources and http). Required directly by test suites, again
+     ;; for the LOAD EFFECT: the require publishes the
+     ;; `:resources/reset-resources!` late-bind hook, and the consumer-facing
+     ;; name is `re-frame.test-support/make-reset-runtime-fixture` — already
+     ;; rowed at :testing with a docs/api page — which FIRES the one public var
+     ;; here. No consumer calls `reset-resources!` itself.
+     re-frame.resources.test-support})
 
 (defn- repo-file
   "Resolve a `/`-joined repo-relative path against `repo-root`, portably."
