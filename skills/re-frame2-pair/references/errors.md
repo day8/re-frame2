@@ -1,6 +1,6 @@
 # Error handling
 
-Every script returns structured edn (`{:ok? false :reason ...}`) rather than raising. Translate to plain English and suggest the fix named in `:reason`.
+Every MCP tool returns structured edn (`{:ok? false :reason ...}`) rather than raising. Translate to plain English and suggest the fix named in `:reason`.
 
 ## Common cases
 
