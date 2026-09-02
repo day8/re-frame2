@@ -1182,41 +1182,21 @@ const COVERAGE_MATRIX = [
       await setMode(page, 'dev');
     },
   },
+  // rf2-6r9j.14 — this row was a `kind: 'probe'` whose body only printed
+  // `console.warn('SKIP: …')` and returned, so the matrix reported it green
+  // without touching the feature. The condition it was waiting on had already
+  // been met: rf2-8awk1's count assertions went brittle when `:script`
+  // (rf2-0wrud, PR #1726) replaced the pre-render `:play` slot and shifted the
+  // canvas counts, and the CLJS replacement named in that skip landed in the
+  // SAME commit that installed the no-op (c47f1925c3, 2026-05-20). The row is
+  // demoted per this file's own rule ("never wire a probe whose body does not
+  // exercise the row's feature"), and `validateCoverageMatrix` now rejects the
+  // shape structurally so it cannot come back.
   {
     feature: 'reg-variant',
-    kind: 'probe',
-    probe: async (_page) => {
-      // rf2-8awk1 — the count-based assertions in this probe became
-      // brittle once `:script` (rf2-0wrud, PR #1726) replaced the
-      // pre-render `:play` slot. With `:script`'s runner-event
-      // semantics, the per-variant counter values rendered in the
-      // canvas can differ from the pre-migration synchronous baseline
-      // (PR #1726 admin-merged with this probe still asserting the
-      // pre-migration counts, leaving every subsequent Browser gate
-      // failing with "expected 3 got 6" on the
-      // :story.counter/clicked-three-times variant).
-      //
-      // Per Mike's testing direction (feedback_xray_story_cljs_unit_
-      // tests_not_playwright) + the Wave 1-4 migration pattern
-      // (rf2-tglku epic), the architectural answer is a CLJS unit
-      // test that drives `story/run-variant` directly and asserts the
-      // result-map's `:lifecycle` + `:app-db` slots. That migration
-      // lives at
-      //   tools/story/test/re_frame/story/panels_e2e/
-      //     reg_variant_e2e_cljs_test.cljs
-      // which exercises the four canonical variants
-      // (`:story.counter/empty`, `:story.counter/loaded`,
-      // `:story.counter/clicked-three-times`,
-      // `:story.counter/save-stubbed`) — each variant runs end-to-end
-      // through the four-phase lifecycle and asserts the canonical
-      // counter value WITHOUT race-sensitive DOM count timing.
-      //
-      // Until the migration is merged the scenario is skipped with a
-      // visible `console.warn` rather than blocking every subsequent
-      // PR's Browser gate.
-      console.warn('SKIP: reg-variant scenario · migrating to CLJS unit per rf2-8awk1');
-      return;
-    },
+    kind: 'owned-by',
+    gate: 'npm run test:cljs',
+    why: "reg_variant_e2e_cljs_test.cljs drives story/run-variant directly for the four canonical counter variants (§empty-variant-runs-clean-count-0, §loaded-variant-runs-clean-count-7, §clicked-three-times-runs-clean-count-3, §save-stubbed-variant-runs-clean-count-5) and pins the registration shape (§reg-variant-side-table-shape); asserting the result map's :lifecycle + :app-db has no DOM-count race. Selecting every sidebar row in a browser stays owned by the live 'Sidebar navigation' row below.",
   },
   {
     feature: 'Combined reg-story Form B',
@@ -1535,6 +1515,28 @@ const COVERAGE_MATRIX = [
   },
 ];
 
+function stripJsComments(source) {
+  // Enough for a function body this file owns: block comments, then line
+  // comments. A comment marker inside a string literal would over-strip, which
+  // can only make `isUnconditionalSkip` return false — the guard fails OPEN,
+  // never red on a real probe.
+  return source.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ');
+}
+
+function isUnconditionalSkip(probe) {
+  // True when the probe's body, comments stripped, is nothing but
+  // `console.<method>(…)` calls and an optional bare `return` — i.e. it
+  // performs no browser or product operation at all. An empty body counts.
+  // A concise arrow (`(page) => assertThing(page)`) has no brace body and is
+  // never flagged; nor is a body whose shape this pattern cannot read.
+  const source = stripJsComments(Function.prototype.toString.call(probe));
+  const open = source.indexOf('{');
+  const close = source.lastIndexOf('}');
+  if (open === -1 || close <= open) return false;
+  const body = source.slice(open + 1, close).replace(/\s+/g, ' ').trim();
+  return /^(?:console\.\w+\([^;]*\);?\s*)*(?:return\s*;?)?$/.test(body);
+}
+
 function validateCoverageMatrix() {
   const seen = new Set();
   for (const row of COVERAGE_MATRIX) {
@@ -1549,6 +1551,19 @@ function validateCoverageMatrix() {
       if (typeof row.probe !== 'function') {
         throw new Error(
           `COVERAGE_MATRIX row '${row.feature}' kind=probe requires a probe function`,
+        );
+      }
+      // rf2-6r9j.14 — a probe that only warns and returns exercises nothing,
+      // so the row completes green as if the feature had been driven. That
+      // false-green shipped for months behind a console.warn nobody read.
+      // The contract at the top of this file already forbids it in prose;
+      // this makes the prose enforceable.
+      if (isUnconditionalSkip(row.probe)) {
+        throw new Error(
+          `COVERAGE_MATRIX row '${row.feature}' kind=probe has a body that only ` +
+            'warns and/or returns — it exercises nothing, so the row would report ' +
+            "green without touching the feature. Demote it to kind: 'owned-by' and " +
+            'name the gate that owns the coverage.',
         );
       }
     } else if (row.kind === 'owned-by') {
@@ -1653,6 +1668,14 @@ async function assertFeatureSet(page, phase) {
 }
 
 module.exports = {
+  // Exported so the matrix and its structural contract can be inspected
+  // without a browser: `node -e "require('./story_feature_load.cjs')
+  // .validateCoverageMatrix()"` is the whole policy witness, and
+  // COVERAGE_MATRIX is the coverage report's source of truth (rf2-6r9j.14).
+  // The runner reads `name` / `url` / `context` / `run` by name and ignores
+  // the rest.
+  COVERAGE_MATRIX,
+  validateCoverageMatrix,
   name: 'Story feature exercise + 20-event load gate',
   url: '/counter-with-stories/#/stories',
   context: storyContext,
