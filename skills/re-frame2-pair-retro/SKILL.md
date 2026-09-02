@@ -8,9 +8,10 @@ description: >
  asks for a retrospective on a recent pair session ("retro on this pair
  session", "what went wrong with my pair session", "review my
  re-frame2-pair session", "draft an issue about that"); or (b)
- **post-error within a re-frame2-pair session** — after a stack trace,
- failed dispatch, red CI, or a runtime error during live pair
- work, to post-mortem the firefight. Requires evidence: a concrete
+ **post-error within a re-frame2-pair session** — after a stack trace, a
+ pair tool returning `{:ok? false :reason <kw>}`, or an `:rf.error/*` or
+ `:rf.epoch/restore-*` trace firing during live pair work, to
+ post-mortem the firefight. Requires evidence: a concrete
  `re-frame2-pair` session in this conversation (turns where the user
  attached, dispatched, walked traces/epochs, hot-swapped, or
  time-travelled), **or** a user-supplied recap of one. **Not** for
@@ -34,7 +35,7 @@ Turns a `re-frame2-pair` session — the one happening now (post-error), a just-
 ## Two entry modes
 
 - **Explicit pull** — the user asked for a retro ("retro on this session", "draft an issue about that"). Deliver the complete retrospective in this turn. Do not stop at a list of friction candidates or ask which finding to analyse — analyse them.
-- **Post-error post-mortem** — a stack trace, failed dispatch, red CI, or an `:rf.error/*` event fired during live re-frame2-pair work and you are reaching for this skill unprompted. Fixing the runtime failure is `re-frame2-pair`'s job (route there). Once the fire is out, *offer* the retro in one line ("Want me to retro on what made that error hard to chase?") and run it only on a yes. Its subject is the workflow friction the firefight exposed, never the application bug. A post-error trigger is an offer, not an obligation; if the user declines, stop.
+- **Post-error post-mortem** — a stack trace, a pair tool that returned `{:ok? false :reason <kw>}`, or an `:rf.error/*` / `:rf.epoch/restore-*` trace fired during live re-frame2-pair work and you are reaching for this skill unprompted. Fixing the runtime failure is `re-frame2-pair`'s job (route there). Once the fire is out, *offer* the retro in one line ("Want me to retro on what made that error hard to chase?") and run it only on a yes. Its subject is the workflow friction the firefight exposed, never the application bug. A post-error trigger is an offer, not an obligation; if the user declines, stop.
 
 When you cannot tell which mode you are in, treat it as post-error: offer rather than assume.
 

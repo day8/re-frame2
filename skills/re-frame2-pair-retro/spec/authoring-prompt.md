@@ -52,7 +52,7 @@ A self-contained prompt that re-authors the `re-frame2-pair-retro` skill from th
 >
 > *Output: material content only, ordered by leverage — no fixed section set, finding count, taxonomy code, or bolder-ideas quota. Each finding carries the concrete session evidence, why `re-frame2-pair` was not enough, the smallest credible change at the correct owner, and its expected effect. A draft carries evidence, missing behaviour, one implementable desired outcome, and a completion signal in natural prose — no mandatory headings. If the evidence is too thin, say so and ask for a recap; don't pad.*
 >
-> *Post-error entry: after a stack trace / failed dispatch / red CI / `:rf.error/*` event during live pair work, the skill OFFERS the retro in one line once the fire is out and runs only on a yes — never an unsolicited retro during an active firefight, and the subject is the workflow friction, never the application bug.*
+> *Post-error entry: after a stack trace, a pair tool returning `{:ok? false :reason <kw>}`, or an `:rf.error/*` / `:rf.epoch/restore-*` trace during live pair work, the skill OFFERS the retro in one line once the fire is out and runs only on a yes — never an unsolicited retro during an active firefight, and the subject is the workflow friction, never the application bug.*
 >
 > *Voice: tight, diagnostic, conversational. Evidence-grounded findings, not vibes.*
 >
