@@ -119,7 +119,9 @@ Conformance fixtures are capability-tagged (per [conformance/README §Capability
 
 A flat-FSM-only port that declares **Q1 yes (flat FSM only)**, **Q2 no**, **Q3 no**, **Q4 yes-via-host-types**, **Q5 no**, **Q6 yes**, **Q7 no**, **Q8 yes**, **Q9 no** has a clear scope: the corpus runs all `:core/*` fixtures, the `:fsm/flat` fixtures, the `:actor/spawn-destroy` fixtures, and the `:rf.http/managed` fixtures. Routing, SSR, hierarchical FSM, `:fsm/eventless-always`, `:fsm/delayed-after`, `:spawn`, stories and `:resources/*` fixtures are reported as not-exercised.
 
-**The always-run families are not declared and cannot be opted out of.** `:core/*`, `:identity/*`, `:flow/*`, `:data-classification/*` and `:derivation/*` tag the Required rows above, so every conformant implementation runs them whatever it answers to Q1–Q9. A port scoring itself only against the families it declared is over-reporting.
+**The always-run families are not declared and cannot be opted out of.** `:core/*`, `:identity/*`, `:flow/*`, `:data-classification/*` and `:derivation/*` tag the Required rows above: a port never *declines* one, and a port scoring itself only against the families it declared is over-reporting.
+
+**But "not declinable" is not "every fixture runs".** The subset rule below is applied per *fixture*, not per family, so an always-run fixture that is **cross-tagged** with a gated capability runs only for a port that also claimed that capability. Most are not cross-tagged — `:identity/*` is wholly unconditional today, and the large majority of `:flow/*` and `:data-classification/*` fixtures are too. `:derivation/*` is the exception, and it is total: **every** current derivation fixture is cross-tagged, so a Q1=no port exercises none of the family. Its row in the [Part 3 family table](#part-3--conformance) carries the detail. Count coverage from the fixtures a claim set actually runs, never from the family list alone.
 
 ---
 
@@ -559,7 +561,7 @@ The harness (per [conformance/README §How an implementation runs the corpus](co
 | `:identity/*` | nothing — always run | The canonical-identity byte contract behind the [Required](#required-not-gated-every-implementation-ships-these) identity-primitive row; a port's encoder is pinned against a frozen token stream. |
 | `:flow/*` | nothing — always run | [013](013-Flows.md) is v1-required. |
 | `:data-classification/*` | nothing — always run | [015](015-Data-Classification.md) is v1-required. |
-| `:derivation/*` | nothing — always run | Graph inspection over the derivation/process algebra ([Derivations](Derivations.md)). |
+| `:derivation/*` | nothing declares it — but **every current fixture is cross-tagged**, so in practice Q1 | Graph inspection over the derivation/process algebra ([Derivations](Derivations.md)). The family is gated by no question, yet both fixtures also carry `:fsm/flat`, and `derivation-graph-algebra-full.edn` additionally carries `:flow/basic`, `:rf.http/managed` and two `:routing/*` tags. Under the subset rule a **Q1=no port therefore runs neither**, and a Q2/Q8=no port runs only the subs+machines one. Until a required-surface-only derivation fixture exists, do not report derivation coverage as unconditional. |
 | `:fsm/*` | Q1 yes **and** the matching capability claimed | FSM-richness axis. |
 | `:actor/*` | Q1 yes **and** the matching capability claimed | Actor-model axis. |
 | `:routing/*` | Q2 yes | |

@@ -4515,7 +4515,11 @@ The host-agnostic conformance fixture format. Per [conformance/README.md](confor
    ;; Per [conformance/README.md](conformance/README.md) §Capability tagging.
    [:fixture/capabilities [:set :keyword]]
 
+   ;; Optional: 237/247 fixtures carry a registry. A Mode-B fixture that
+   ;; only exercises pure primitives through `:fixture/calls` registers
+   ;; nothing at all.
    [:fixture/registry
+    {:optional true}
     [:map
      [:event           {:optional true} [:map-of :keyword :map]]
      [:sub             {:optional true} [:map-of :keyword :map]]
@@ -4537,8 +4541,11 @@ The host-agnostic conformance fixture format. Per [conformance/README.md](confor
      [:head            {:optional true} [:map-of :keyword :map]]]]
 
    ;; Handler bodies are expressed in the :rf/handler-body-dsl grammar
-   ;; defined above (single canonical definition).
+   ;; defined above (single canonical definition). Optional: 218/247
+   ;; fixtures carry handler bodies. A fixture whose registry entries are
+   ;; all declarative (machines, routes, flows) supplies none.
    [:fixture/handlers
+    {:optional true}
     [:map-of :keyword [:map-of :keyword HandlerBody]]]
 
    [:fixture/frame-config {:optional true} :map]
@@ -4562,8 +4569,21 @@ The host-agnostic conformance fixture format. Per [conformance/README.md](confor
    ;; Commit-plane `:sensitive` / `:large` classifications installed into
    ;; the frame's elision registry before the dispatches, per
    ;; [conformance/README.md](conformance/README.md)
-   ;; §The `:fixture/classification-effects` harness step.
-   [:fixture/classification-effects {:optional true} :map]
+   ;; §The `:fixture/classification-effects` harness step. An ORDERED
+   ;; VECTOR of op-maps, not a single map — the sequence is load-bearing,
+   ;; because a `:clear-*` op means nothing except after the op that
+   ;; classified the path (the axis-independence fixtures pin exactly
+   ;; that ordering). Each op carries EXACTLY ONE of the four
+   ;; commit-plane effect keys; each value is a vector of `:rf/path`
+   ;; vectors. The harness applies them in order.
+   [:fixture/classification-effects
+    {:optional true}
+    [:vector
+     [:map
+      [:sensitive       {:optional true} [:vector [:vector :any]]]
+      [:large           {:optional true} [:vector [:vector :any]]]
+      [:clear-sensitive {:optional true} [:vector [:vector :any]]]
+      [:clear-large     {:optional true} [:vector [:vector :any]]]]]]
 
    ;; `true` marks a fixture asserting a RUNTIME validation trace that a
    ;; statically-typed host claiming schemas through its type system
