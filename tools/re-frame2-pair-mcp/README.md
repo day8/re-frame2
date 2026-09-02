@@ -70,21 +70,24 @@ cljs-eval compile.
 
 ### Install
 
+The MCP server is **not yet published to npm** — build and run it from a re-frame2 clone:
+
 ```bash
-npm install -g @day8/re-frame2-pair-mcp
+cd tools/re-frame2-pair-mcp && npm install && npm run build
 ```
 
-(or use `npx @day8/re-frame2-pair-mcp` for one-off runs).
+That compiles the entry point to `out/server.js`, which the `mcpServers` entry below points at. Once published, `npm install -g @day8/re-frame2-pair-mcp` (or `npx @day8/re-frame2-pair-mcp` for one-off runs) becomes the shorter path.
 
 ### Configure Claude Code
 
-Add to your `~/.claude/settings.json` (or per-project `.claude/settings.json`):
+Add to your `~/.claude/settings.json` (or per-project `.claude/settings.json`). From a clone, run the compiled server with `node`:
 
 ```json
 {
   "mcpServers": {
     "re-frame2-pair": {
-      "command": "re-frame2-pair-mcp",
+      "command": "node",
+      "args": ["<repo>/tools/re-frame2-pair-mcp/out/server.js"],
       "env": {
         "SHADOW_CLJS_BUILD_ID": "app"
       }
@@ -92,6 +95,8 @@ Add to your `~/.claude/settings.json` (or per-project `.claude/settings.json`):
   }
 }
 ```
+
+Once the package is published, a global install collapses `command` + `args` back to `"command": "re-frame2-pair-mcp"`.
 
 > After `claude mcp add`, start a fresh session — not `--continue`
 > (rf2-646lr). Registering the server with `claude mcp add` (or editing
