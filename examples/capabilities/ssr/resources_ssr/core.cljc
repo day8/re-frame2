@@ -79,7 +79,6 @@
             ;; string that happens to contain `</script>` would otherwise close
             ;; the envelope early — so we escape it. Server-side only.
             #?(:clj [re-frame.ssr.html-helpers :as html])
-            #?(:cljs [reagent.dom.client :as rdc])
             #?(:cljs [re-frame.adapter.reagent :as reagent-adapter])))
 
 ;; ============================================================================
@@ -365,7 +364,7 @@
 ;; for. A stale entry quietly refetches in the background, per its policy.
 ;; See docs/ssr/concepts.md#the-client-side-hydrate-then-verify.
 
-#?(:cljs (defonce react-root (atom nil)))
+#?(:cljs (defonce app-root (reagent-adapter/client-root)))
 
 ;; The client's one app-frame. The app names its hydration target out loud and
 ;; threads the same id through two places: `ssr/hydrate!` (where the server
@@ -376,18 +375,21 @@
 ;; See docs/ssr/concepts.md#deploy-drift-checks-come-along-for-free.
 (def app-frame :rf/default)
 
-;; Re-render the current view into the RETAINED root. Tagged `^:dev/after-load`
-;; so shadow-cljs re-runs it after each hot reload — edited views re-render into
-;; the same root and the already-hydrated frame. It never creates a root and
-;; never re-hydrates: the root is established once in `run` (via `hydrate-root`
-;; when the server painted the page, `create-root` otherwise), and HYDRATE
-;; happens once there too, so a reload can't re-seed over the interactive state.
+;; Re-render the current view through the adapter's client root. Tagged
+;; `^:dev/after-load` so shadow-cljs re-runs it after each hot reload — edited
+;; views re-render into the same root and the already-hydrated frame. The
+;; handle makes the reload safe by construction: `run` performed the ONE
+;; hydrating first render (or a fresh mount on a client-only load), and every
+;; later `render!` through the same handle updates that root — never a second
+;; root, never a re-hydration, so a reload can't re-seed over the interactive
+;; state.
 #?(:cljs
    (defn ^:dev/after-load render! []
-     (when-let [root @react-root]
-       (rdc/render root
-                   [rf/frame-provider {:frame app-frame}
-                    [(rf/view :app/root)]]))))
+     (when-let [el (and (exists? js/document) (js/document.getElementById "app"))]
+       (reagent-adapter/render! app-root
+         [rf/frame-provider {:frame app-frame}
+          [(rf/view :app/root)]]
+         el))))
 
 #?(:cljs
    (defn run []
@@ -401,16 +403,11 @@
                                   :render-tree-fn (fn [] ((rf/view :app/root)))})
            tree    [rf/frame-provider {:frame app-frame} [(rf/view :app/root)]]]
        (when el
-         (if payload
-           ;; Server-rendered: ADOPT the painted DOM. `hydrate-root` reconciles
-           ;; React against the server markup — same nodes, listeners attached,
-           ;; no re-paint — and returns the retained root. `create-root` +
-           ;; `render` would throw the server HTML away and mount fresh, the bug
-           ;; this branch avoids.
-           (reset! react-root (rdc/hydrate-root el tree))
-           ;; No payload means no server render — a plain first load. Mount a
-           ;; fresh root and render; a fresh entry serves from cache, a stale or
-           ;; absent one refetches per its policy.
-           (do
-             (reset! react-root (rdc/create-root el))
-             (rdc/render @react-root tree)))))))
+         ;; The whole adopt-vs-fresh decision is one option. With a payload the
+         ;; server painted the page, so the first render HYDRATES: React
+         ;; reconciles against the server markup — same nodes, listeners
+         ;; attached, no re-paint. Without one it is a plain first load and the
+         ;; adapter mounts a fresh root; a fresh entry serves from cache, a
+         ;; stale or absent one refetches per its policy. Either way the root
+         ;; is created exactly once, here, and `render!` above reuses it.
+         (reagent-adapter/render! app-root tree el {:hydrate? (some? payload)})))))

@@ -20,8 +20,7 @@
    - `:url-bound? true` — declared on the frame; its creation automatically
      wires up Back/Forward (popstate) and the first-load URL→state sync, so
      the address bar and your app-db stay in agreement"
-  (:require [reagent.dom.client :as rdc]
-            [re-frame.core :as rf]
+  (:require [re-frame.core :as rf]
             ;; Routing lives in its own artefact (day8/re-frame2-routing), so
             ;; you opt into it with a require. The require has a side effect:
             ;; it registers the route subs that the `rf/reg-route` calls below
@@ -165,7 +164,7 @@
 ;; the test harness loads several example namespaces side by side, and if each
 ;; eagerly grabbed `#app` they'd trample one another's `create-root`. Lazy
 ;; means whoever calls `run` wins the element, and only then.
-(defonce react-root (atom nil))
+(defonce app-root (reagent-adapter/client-root))
 
 ;; The id of the one frame this whole app runs under. `:rf/default` looks
 ;; special, but it isn't — it's an ordinary id with no secret privileges, and
@@ -183,8 +182,6 @@
 (defn ^:dev/after-load mount! []
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
-    (when-not @react-root
-      (reset! react-root (rdc/create-root el)))
     ;; The frame provider is where the app frame actually comes to life — one
     ;; tidy spot for the whole setup. First mount: it creates the frame under
     ;; `app-frame`, flips on `:url-bound? true` so this frame owns the URL, and
@@ -200,12 +197,13 @@
     ;; every Back/Forward resolves whichever frame owns the URL at pop time
     ;; and updates its `:rf/route` slice. Idempotent, so hot reload never
     ;; stacks up duplicate listeners.
-    (rdc/render @react-root
-                [rf/frame-root {:id app-frame
-                                :doc "Routing demo frame."
-                                :url-bound? true
-                                :initial-events [[:routing.app/initialise]]}
-                 [root-view]])))
+    (reagent-adapter/render! app-root
+      [rf/frame-root {:id app-frame
+                      :doc "Routing demo frame."
+                      :url-bound? true
+                      :initial-events [[:routing.app/initialise]]}
+       [root-view]]
+      el)))
 
 (defn run []
   ;; Tell re-frame2 to render through Reagent. Every adapter namespace exports

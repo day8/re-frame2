@@ -166,9 +166,10 @@ ssr/
 ```
 
 `mount.cljs` is small on purpose. It holds one decision — payload
-present ⇒ `hydrate-root`, which reconciles against the server's markup
-and adopts it; payload absent ⇒ a fresh `create-root` + `render` — and
-`run` calls it instead of branching inline. The browser DOM-adoption
+present ⇒ the first render through the adapter's client root hydrates,
+reconciling against the server's markup and adopting it; payload absent ⇒
+a fresh mount — as one `{:hydrate? …}` option on `reagent-adapter/render!`,
+and `run` calls it instead of branching inline. The browser DOM-adoption
 regression (`re-frame.ssr.ssr-startup-recipe-dom-cljs-test`, over in
 `implementation/ssr/test/`) calls that same helper, so the proof
 drives the branch this example ships rather than a hand-kept copy of it

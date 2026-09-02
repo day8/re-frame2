@@ -32,13 +32,14 @@
 
   ## How this executes the canonical recipe (rf2-drq8s)
 
-  The load-bearing branch of the recipe — payload present ⇒
-  `reagent.dom.client/hydrate-root` (adopt the server DOM); payload absent ⇒
-  `create-root` + `render` (fresh) — lives in ONE place: the registration-free
-  helper `ssr.mount/mount!`. `ssr.core/run` calls it, and so does `run-recipe!`
-  below, so this proof executes the SAME mount code the copyable recipe ships —
-  not a copy of it. Regress that branch (swap `hydrate-root` for `create-root`)
-  and this proof turns red.
+  The load-bearing decision of the recipe — payload present ⇒ the first
+  render through the adapter's client root HYDRATES (adopts the server DOM);
+  payload absent ⇒ a fresh mount — lives in ONE place: the registration-free
+  helper `ssr.mount/mount!`, which passes `{:hydrate? (some? payload)}` to
+  `reagent-adapter/render!` (rf2-k5r9t). `ssr.core/run` calls it, and so does
+  `run-recipe!` below, so this proof executes the SAME mount code the copyable
+  recipe ships — not a copy of it. Regress that decision (drop the `:hydrate?`
+  option) and this proof turns red.
 
   `ssr.mount` is its own namespace rather than a private `defn-` in `ssr.core`
   on purpose: this test must reach the helper WITHOUT `:require`-ing `ssr.core`,
@@ -159,13 +160,13 @@
 
 (defn- run-recipe!
   "Drives the client boot the way `ssr.core/run` does and hands the mount to the
-  SHARED `ssr.mount/mount!` — the single home of the adopt-vs-fresh React-root
-  branch `ssr.core/run` itself calls. Install the stock Reagent adapter, stand
-  up the client frame, READ+HYDRATE+VERIFY state via `ssr/hydrate!`, then mount
-  via `mount!`: payload present ⇒ ADOPT the server DOM with `hydrate-root`;
-  payload absent ⇒ fresh `create-root` + `render`. `root-atom` stands in for the
-  example's retained `react-root`. Returns the payload `hydrate!` applied (nil on
-  a client-only load).
+  SHARED `ssr.mount/mount!` — the single home of the adopt-vs-fresh decision
+  `ssr.core/run` itself calls. Install the stock Reagent adapter, stand up the
+  client frame, READ+HYDRATE+VERIFY state via `ssr/hydrate!`, then mount via
+  `mount!` through the client-root `handle`: payload present ⇒ the first render
+  HYDRATES and ADOPTS the server DOM; payload absent ⇒ a fresh mount. `handle`
+  stands in for the example's `defonce` `app-root`. Returns the payload
+  `hydrate!` applied (nil on a client-only load).
 
   The tree is a PLAIN component (see the ns docstring), not the recipe's own
   registered `:app/root` view: a plain, annotation-free tree keeps the
@@ -174,14 +175,13 @@
   cleanly — rf2-8vi4q fixed the dev-mode annotation asymmetry — but that is
   proven separately; here the point is the mount branch, not annotation
   parity.)"
-  [root-atom]
+  [handle]
   (rf/init! reagent-adapter/adapter)
   (rf/make-frame {:id app-frame :platform :client})
   (let [el      (and (exists? js/document) (js/document.getElementById "app"))
         payload (ssr/hydrate! {:frame app-frame :render-tree-fn (fn [] [recipe-view])})
         tree    [rf/frame-provider {:frame app-frame} [recipe-view]]]
-    (when el
-      (reset! root-atom (mount/mount! el tree payload)))
+    (mount/mount! handle el tree payload)
     payload))
 
 ;; Async tests need the map-form fixture (a fn-form fixture's teardown races
@@ -240,10 +240,9 @@
     (.appendChild (.-body js/document) host)
     host))
 
-(defn- teardown! [host root-atom act-prev]
-  (when-let [root @root-atom]
-    (try (.unmount root) (catch :default _ nil)))
-  (reset! root-atom nil)
+(defn- teardown! [host handle act-prev]
+  ;; `unmount!` is idempotent and a no-op on a handle that never mounted.
+  (try (reagent-adapter/unmount! handle) (catch :default _ nil))
   (when-let [p (.-parentNode host)] (.removeChild p host))
   (restore-act-env! act-prev))
 
@@ -260,7 +259,7 @@
       (async done
         (clear-stale-apps!)
         (let [act-prev   (disable-act-env!)
-              root-atom  (atom nil)
+              handle     (reagent-adapter/client-root)
               host       (plant-host! {:inner-html server-markup :payload? true})
               app-el     (.getElementById js/document "app")
               ;; The EXACT server-rendered node, captured BEFORE startup.
@@ -269,7 +268,7 @@
           (is (= "Hide bodies" (.-textContent server-btn))
               "server node shows the server-rendered label")
           ;; Drive the recipe. Payload present ⇒ hydrate-root branch.
-          (let [payload (run-recipe! root-atom)]
+          (let [payload (run-recipe! handle)]
             (is (some? payload) "hydrate! read the payload ⇒ recipe took the adopt branch"))
           ;; Observe AFTER the render commits. React 18 commits create-root's
           ;; render asynchronously, so a synchronous identity check would still
@@ -303,7 +302,7 @@
                       "the reactive re-render updated the ADOPTED node's text in
                        place (same node, new label) — proof the handler drives
                        the server DOM, not a discarded copy")
-                  (teardown! host root-atom act-prev)
+                  (teardown! host handle act-prev)
                   (done))
                 50))
             50))))))
@@ -319,19 +318,18 @@
       (async done
         (clear-stale-apps!)
         (let [act-prev  (disable-act-env!)
-              root-atom (atom nil)
+              handle    (reagent-adapter/client-root)
               host      (plant-host!
                          {:inner-html "<div data-testid=\"stale-sentinel\">stale</div>"
                           :payload? false})
               app-el    (.getElementById js/document "app")
               sentinel  (.querySelector app-el "[data-testid=\"stale-sentinel\"]")]
           (is (some? sentinel) "sentinel present in #app pre-startup")
-          ;; No payload ⇒ fresh-root branch. A retained root is set SYNCHRONOUSLY
-          ;; inside the recipe (`reset! root-atom (create-root …)`).
-          (let [payload (run-recipe! root-atom)]
+          ;; No payload ⇒ fresh mount: the client root creates its Root
+          ;; SYNCHRONOUSLY inside the recipe; the render commits on React's
+          ;; schedule and is observed below.
+          (let [payload (run-recipe! handle)]
             (is (nil? payload) "no payload ⇒ recipe took the fresh-root branch"))
-          (is (some? @root-atom)
-              "one retained root owns the container after a client-only boot")
           ;; The fresh render commits on React's schedule — observe after a yield.
           (js/setTimeout
             (fn []
@@ -340,6 +338,6 @@
                    replaced the container content (NOT adoption)")
               (is (some? (.querySelector app-el "button.toggle-bodies"))
                   "the app mounted fresh into the container")
-              (teardown! host root-atom act-prev)
+              (teardown! host handle act-prev)
               (done))
             50))))))

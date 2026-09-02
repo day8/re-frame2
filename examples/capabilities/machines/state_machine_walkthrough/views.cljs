@@ -11,8 +11,7 @@
   trips the `:under-retry-limit` guard and the machine settles into :locked-out
   (three attempts total). For that to play out, every request has to fail, which
   is exactly why we wire in the canned-FAILURE stub here."
-  (:require [reagent.dom.client :as rdc]
-            [re-frame.core :as rf]
+  (:require [re-frame.core :as rf]
             [re-frame.adapter.reagent :as reagent-adapter]
             [state-machine-walkthrough.core]))
 
@@ -113,7 +112,7 @@
 ;; examples co-required into one page would both race to `create-root` onto the
 ;; shared `#app`, and exactly one would win. See examples/TESTING.md, "Convention:
 ;; defer DOM mount to `run`".
-(defonce react-root (atom nil))
+(defonce app-root (reagent-adapter/client-root))
 
 ;; DOM setup lives in `mount!`, tagged `^:dev/after-load` so shadow-cljs re-runs
 ;; it after each hot reload — edited views re-render into the same root and frame.
@@ -138,14 +137,13 @@
   ;; which is a confusing afternoon you can skip by seeding up front.
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
-    (when-not @react-root
-      (reset! react-root (rdc/create-root el)))
-    (rdc/render @react-root
-                [rf/frame-root {:id              :rf/default
-                                :doc             "State-machines walkthrough demo frame."
-                                :fx-overrides    {:rf.http/managed :walkthrough.login/canned-failure}
-                                :initial-events  [[:walkthrough.login/initialise-form]]}
-                 [root-view]])))
+    (reagent-adapter/render! app-root
+      [rf/frame-root {:id              :rf/default
+                      :doc             "State-machines walkthrough demo frame."
+                      :fx-overrides    {:rf.http/managed :walkthrough.login/canned-failure}
+                      :initial-events  [[:walkthrough.login/initialise-form]]}
+       [root-view]]
+      el)))
 
 (defn run []
   ;; Tell re-frame2 which substrate to render through by handing init! the

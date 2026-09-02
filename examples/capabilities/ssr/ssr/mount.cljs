@@ -1,14 +1,13 @@
 (ns ssr.mount
   "The client mount step of the SSR startup recipe, factored into a single
-  registration-free helper so a test can drive the EXACT adopt-vs-fresh React
-  root branch `ssr.core/run` ships — not a hand-kept copy of it.
+  registration-free helper so a test can drive the EXACT adopt-vs-fresh decision
+  `ssr.core/run` ships — not a hand-kept copy of it.
 
   `mount!` is the payload-vs-client-only decision, and this is the one place it
   lives. `ssr.core/run` calls it after it has READ+HYDRATE+VERIFIED state via
   `re-frame.ssr/hydrate!`; the browser DOM-adoption regression
   (`re-frame.ssr.ssr-startup-recipe-dom-cljs-test`) calls the SAME helper, so a
-  regression here — swapping `hydrate-root` for `create-root` — turns that proof
-  red.
+  regression here — dropping the `:hydrate?` option, say — turns that proof red.
 
   Why its own namespace, and not a private `defn-` inside `ssr.core`: the
   regression has to reach the helper WITHOUT `:require`-ing `ssr.core`, whose app
@@ -16,24 +15,22 @@
   assembly with the login + realworld examples already sharing the consolidated
   test bundle (`:rf.error/image-duplicate-id`). This namespace registers nothing,
   so a test loads only the mount logic and no example ids enter the bundle."
-  (:require [reagent.dom.client :as rdc]))
+  (:require [re-frame.adapter.reagent :as reagent-adapter]))
 
 (defn mount!
-  "Mount `tree` into the container `el`, adopting the server-rendered DOM when a
-  hydration `payload` is present.
+  "Mount `tree` into the container `el` through the adapter's client-root
+  `handle`, adopting the server-rendered DOM when a hydration `payload` is
+  present.
 
-  - payload present ⇒ `hydrate-root`: React reconciles against the server markup
-    (same nodes, listeners attached, no re-paint) and the retained root is
-    returned. `create-root` + `render` here would throw the server HTML away and
-    mount fresh — the adopt-vs-replace bug this branch exists to avoid.
-  - payload absent ⇒ a fresh `create-root` + `render`.
+  - payload present ⇒ the first render HYDRATES: React reconciles against the
+    server markup (same nodes, listeners attached, no re-paint). A fresh mount
+    here would throw the server HTML away — the adopt-vs-replace bug this
+    option exists to avoid.
+  - payload absent ⇒ a fresh root + render.
 
-  Returns the retained React root, or nil when `el` is absent (no container to
-  mount into)."
-  [el tree payload]
+  Either way the adapter creates the root exactly once, and every later
+  `render!` through the same handle (the `^:dev/after-load` hook) updates it.
+  Returns nil; does nothing when `el` is absent (no container to mount into)."
+  [handle el tree payload]
   (when el
-    (if payload
-      (rdc/hydrate-root el tree)
-      (let [root (rdc/create-root el)]
-        (rdc/render root tree)
-        root))))
+    (reagent-adapter/render! handle tree el {:hydrate? (some? payload)})))

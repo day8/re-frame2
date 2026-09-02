@@ -48,12 +48,11 @@
    tree at ns `re-frame.long-running-work-cljs-test`
    (implementation/adapters/reagent/test/re_frame/long_running_work_cljs_test.cljs),
    which rides `npm run test:cljs`."
-  ;; Plain Reagent here (`reagent.dom.client` + `re-frame.adapter.reagent`).
+  ;; Plain Reagent here, through the `re-frame.adapter.reagent` client root.
   ;; The trick worth watching is in views.cljs: a `r/with-let`
   ;; finally-clause that fires the `:cancel` cascade when the view
   ;; unmounts, riding on Reagent's own `reagent.core/with-let`.
-  (:require [reagent.dom.client :as rdc]
-            [re-frame.core :as rf]
+  (:require [re-frame.core :as rf]
             [re-frame.adapter.reagent :as reagent-adapter]
             ;; Requiring re-frame.machines is what installs the machine
             ;; runtime: the :spawn-all init / spawn / destroy fx handlers
@@ -84,14 +83,15 @@
 ;; MOUNT  (client-only)
 ;; ============================================================================
 ;;
-;; We call the React root `react-root` so it doesn't get confused with
-;; `root-view`. It lives in an atom and is created lazily inside `run`,
-;; never at ns-load — so merely requiring this ns touches no DOM. That
+;; We call the client-root handle `app-root` so it doesn't get confused with
+;; `root-view`. The adapter creates the React root lazily, on the first
+;; `render!` inside `run`, never at ns-load — so merely requiring this ns
+;; touches no DOM. That
 ;; buys two things: the headless fixtures can require it without a
 ;; browser, and two co-loaded examples won't race to plant rival roots
 ;; on the shared `#app` element.
 
-(defonce react-root (atom nil))
+(defonce app-root (reagent-adapter/client-root))
 
 ;; The frame comes from the `frame-root {:id app-frame …}` at the
 ;; render root below. First mount creates the frame, applies its config,
@@ -108,12 +108,11 @@
 (defn ^:dev/after-load mount! []
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
-    (when-not @react-root
-      (reset! react-root (rdc/create-root el)))
-    (rdc/render @react-root
-                [rf/frame-root {:id app-frame
-                                :initial-events [[:app/initialise]]}
-                 [views/root-view]])))
+    (reagent-adapter/render! app-root
+      [rf/frame-root {:id app-frame
+                      :initial-events [[:app/initialise]]}
+       [views/root-view]]
+      el)))
 
 (defn run []
   ;; Install the Reagent adapter, then mount the provider that stands

@@ -19,7 +19,6 @@
    exactly the shape a real server would send
    (docs/resources/glossary.md#reply-map)."
   (:require [clojure.string :as str]
-            [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             ;; `registrar/handler` looks up the framework's canonical
             ;; canned-success fx handler so the demo stub can DELEGATE to it
@@ -127,7 +126,7 @@
 ;; it there rather than at ns-load so several example namespaces can share one
 ;; browser-test bundle without two of them racing `create-root` onto the same
 ;; `#app` element.
-(defonce react-root (atom nil))
+(defonce app-root (reagent-adapter/client-root))
 
 ;; The app frame id. Every in-tree `dispatch`/`subscribe` resolves to this
 ;; frame, which the frame-root below stands up. An app always names its
@@ -139,8 +138,6 @@
 (defn ^:dev/after-load mount! []
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
-    (when-not @react-root
-      (reset! react-root (rdc/create-root el)))
     ;; One frame-root does three things — create the frame, configure it,
     ;; seed it:
     ;;
@@ -150,12 +147,13 @@
     ;; - `:initial-events` fires `:boot/initialise` once on first mount to
     ;;   kick the boot off. A hot reload reuses the frame and leaves the boot
     ;;   alone, so you don't re-run it on every save.
-    (rdc/render @react-root
-                [rf/frame-root {:id             app-frame
-                                :doc            "Boot example demo frame."
-                                :fx-overrides   {:rf.http/managed :boot.demo/http-stub}
-                                :initial-events [[:boot/initialise]]}
-                 [boot.views/root-view]])))
+    (reagent-adapter/render! app-root
+      [rf/frame-root {:id             app-frame
+                      :doc            "Boot example demo frame."
+                      :fx-overrides   {:rf.http/managed :boot.demo/http-stub}
+                      :initial-events [[:boot/initialise]]}
+       [boot.views/root-view]]
+      el)))
 
 (defn run []
   ;; Hand the adapter's spec map straight to `init!`.

@@ -11,8 +11,7 @@
   input and navigation is just an event; the router's hash strategy handles the
   `#` on both sides, so this app uses `route-link` / `rf.route/navigate` like
   every other example. See docs/core/frames.md."
-  (:require [reagent.dom.client :as rdc]
-            [re-frame.core :as rf]
+  (:require [re-frame.core :as rf]
             [re-frame.routing :as routing]
             [re-frame.adapter.reagent :as reagent-adapter]
             [todomvc.events]
@@ -26,10 +25,10 @@
 
 ;; ---- Mount -----------------------------------------------------------------
 ;;
-;; The React root lives in a `defonce` atom, created lazily on the first
-;; `mount!`. The `defonce` is deliberate: React lets you call `create-root` on a
-;; node exactly once, so we make one root and reuse it across every hot reload.
-;; We also hold off creating it until `mount!` runs, rather than at ns-load,
+;; The React root belongs to the adapter: `app-root` is a `defonce` client-root
+;; handle, and the first `mount!` creates the root through it. The `defonce` is
+;; deliberate: React lets you call `create-root` on a node exactly once, so one
+;; root serves every hot reload. The root is created inside `mount!`, not at ns-load,
 ;; because loading a namespace should never poke the DOM. And `mount!` is
 ;; `^:dev/after-load`, which is shadow's cue to re-run it on each reload so your
 ;; edited views actually re-render.
@@ -44,27 +43,26 @@
 ;; to a path on the way in. `route-url` and `match-url` stay path-form; only the
 ;; browser address-bar shape changes.
 
-(defonce react-root (atom nil))
+(defonce app-root (reagent-adapter/client-root))
 
 (defn ^:dev/after-load mount! []
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
-    (when-not @react-root
-      (reset! react-root (rdc/create-root el)))
-    (rdc/render @react-root
-                ;; The seed is just `[:todo/initialise]` — it folds the saved
-                ;; todos (via the `:todo.storage/todos` coeffect in db.cljs)
-                ;; into app-db. The initial URL sync happens automatically:
-                ;; `:url-bound? true` frame creation installs the matching
-                ;; browser listener (`hashchange`, per `:url-strategy`) and
-                ;; dispatches `:rf.route/handle-url-change` for us — see the
-                ;; boot! comment below.
-                [rf/frame-root {:id             app-frame
-                                :doc            "TodoMVC demo frame."
-                                :url-bound?     true
-                                :url-strategy   routing/hash-url-strategy
-                                :initial-events [[:todo/initialise]]}
-                 [views/root-view]])))
+    (reagent-adapter/render! app-root
+      ;; The seed is just `[:todo/initialise]` — it folds the saved
+      ;; todos (via the `:todo.storage/todos` coeffect in db.cljs)
+      ;; into app-db. The initial URL sync happens automatically:
+      ;; `:url-bound? true` frame creation installs the matching
+      ;; browser listener (`hashchange`, per `:url-strategy`) and
+      ;; dispatches `:rf.route/handle-url-change` for us — see the
+      ;; boot! comment below.
+      [rf/frame-root {:id             app-frame
+                      :doc            "TodoMVC demo frame."
+                      :url-bound?     true
+                      :url-strategy   routing/hash-url-strategy
+                      :initial-events [[:todo/initialise]]}
+       [views/root-view]]
+      el)))
 
 ;; ---- Boot ------------------------------------------------------------------
 ;;

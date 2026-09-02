@@ -69,10 +69,11 @@ which renders the tree inside the frame-root:
 
 ```clojure
 (rf/init! reagent-adapter/adapter)              ;; install the adapter (NOT a frame)
-(rdc/render @react-root
+(reagent-adapter/render! app-root
   [rf/frame-root {:id app-frame                 ;; stand the frame up: create + seed
                   :initial-events [[:counter/initialise]]}
-   [counter-app]])
+   [counter-app]]
+  el)
 ```
 
 Each step does one job:

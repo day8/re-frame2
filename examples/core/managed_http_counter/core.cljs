@@ -34,8 +34,7 @@
 
   The Fetch branches exercise managed HTTP end to end through Reagent; the
   controlled branches isolate canonical reply handling and registry abort."
-  (:require [reagent.dom.client :as rdc]
-            [re-frame.core :as rf]
+  (:require [re-frame.core :as rf]
             ;; Managed HTTP ships in its own artefact (day8/re-frame2-http).
             ;; Requiring this once at boot is what registers `:rf.http/managed`
             ;; and its family — skip it and the first fx dispatch fails loud
@@ -338,7 +337,7 @@
 ;; side effects, so that two example namespaces sharing a page can't race each
 ;; other to call `create-root` on the same `#app`.
 
-(defonce react-root (atom nil))
+(defonce app-root (reagent-adapter/client-root))
 
 ;; The app stands its frame up in exactly one place: the render root's
 ;; `frame-root {:id app-frame}`. On the first mount that provider creates
@@ -360,12 +359,11 @@
 (defn ^:dev/after-load mount! []
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
-    (when-not @react-root
-      (reset! react-root (rdc/create-root el)))
-    (rdc/render @react-root
-                [rf/frame-root {:id app-frame
-                                :initial-events [[:http-counter/initialise]]}
-                 [counter-app]])))
+    (reagent-adapter/render! app-root
+      [rf/frame-root {:id app-frame
+                      :initial-events [[:http-counter/initialise]]}
+       [counter-app]]
+      el)))
 
 (defn run []
   ;; `init!` installs the Reagent adapter — and only the adapter. You hand it

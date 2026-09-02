@@ -23,7 +23,6 @@
    - A filtered list derived from two other subscriptions
    - A schema-bound entity"
   (:require [clojure.string :as str]
-            [reagent.dom.client :as rdc]
             [re-frame.core :as rf]
             ;; Pulling in `re-frame.schemas` switches on schema validation, which
             ;; is what makes `rf/reg-app-schema` below mean anything. Guide:
@@ -231,7 +230,7 @@
 ;; example namespaces get required into one test page, and if each grabbed the
 ;; shared `#app` on load they'd trample each other. Deferring to `run` keeps them
 ;; out of each other's way. See examples/TESTING.md (Example mount-isolation).
-(defonce react-root (atom nil))
+(defonce app-root (reagent-adapter/client-root))
 
 ;; The frame's whole life happens in one place: the `frame-root {:id app-frame …}`
 ;; down in `mount!`. On the first mount it creates the frame, applies its config,
@@ -254,12 +253,11 @@
 (defn ^:dev/after-load mount! []
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
-    (when-not @react-root
-      (reset! react-root (rdc/create-root el)))
-    (rdc/render @react-root
-                [rf/frame-root {:id             app-frame
-                                :initial-events [[:crud/initialise]]}
-                 [crud-view]])))
+    (reagent-adapter/render! app-root
+      [rf/frame-root {:id             app-frame
+                      :initial-events [[:crud/initialise]]}
+       [crud-view]]
+      el)))
 
 (defn run []
   ;; `init!` tells the runtime to render through Reagent — once, for the whole
