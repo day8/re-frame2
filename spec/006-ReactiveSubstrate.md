@@ -239,6 +239,27 @@ Renders the render-tree onto the substrate's surface and returns a function that
 CLJS-Reagent: wraps `reagent.dom.client/create-root` + `reagent.dom.client/render` (React 19 client-Root API; the same `createRoot` shape React 18 introduced); the unmount-fn closes over the Root and calls `(rdc/unmount root)`. Hydrate path uses `(rdc/hydrate-root mount-point render-tree)` which returns its own Root.
 SSR-on-JVM: this function isn't called server-side — `render-to-string` is used instead. The adapter may stub `render` to throw on the JVM.
 
+**Idempotence is a property of the root's ownership, not of the thunk alone (rf2-k5r9t).** The adapter tracks every Root `render` creates or hydrates in one active set — the set [§Adapter disposal lifecycle](#adapter-disposal-lifecycle) drains — and membership in that set is the single liveness fact. The unmount-fn releases the root only while the set still holds it, so a second call is a no-op, and a root `dispose-adapter!` has already drained is not released again by its own thunk: the host unmount is reached exactly once per root, whichever of the two callers gets there first. An adapter that keeps liveness anywhere else (a flag in the thunk, say) is not conformant, because the drain cannot see it.
+
+#### The client root (adapter-owned, reusable)
+
+`render` is one-shot: it returns only an unmount-fn, so it cannot render a *new* tree through the Root it made, and an app's ordinary boot loop — create the Root once, re-render through it on every hot reload — has to be spelled with a caller-owned raw Root and a create-or-render branch. A browser adapter therefore **SHOULD** also publish, on its canonical namespace, a small reusable client-root lifecycle that rides the same Root path as `render` and the same active-root ownership:
+
+```clojure
+(client-root)                                           ;; → handle; inert — no DOM work at allocation
+(render! handle render-tree mount-point [opts])         ;; → nil
+(unmount! handle)                                       ;; → nil; idempotent
+```
+
+Semantics, each of which the reference adapters (Reagent and reagent-slim, from the shared ratom spine) prove under test:
+
+- **Ownership.** The handle owns exactly one Root at a time, created (or hydrated) by the first `render!` through it from the supplied `mount-point` and `opts`; `mount-point` is read on that first call only. The raw Root is never exposed — the handle is opaque, and no operation returns it.
+- **Update.** Every later `render!` updates that same Root with the new tree, through the substrate's plain render op: neither constructor is called again. This is what makes one call both the boot path and the `^:dev/after-load` hook, with no caller-owned root state.
+- **Hydration.** `{:hydrate? true}` on the first `render!` hydrates once (per Spec 011); a hydrated Root is thereafter updated with the plain render op, never hydrated again, whatever `opts` later calls carry.
+- **Teardown.** `unmount!` releases the Root and returns the handle to inert; it is idempotent. Because the Root sits in the same active set as every `render` root, `dispose-adapter!` releases a still-live handle's Root exactly once, an already-unmounted handle is not released again, and a `render!` after either release mounts afresh.
+
+The handle is caller-owned and explicit — allocate it under a `defonce`, hand it to `render!` — and there is no process-global registry of handles or mount points, no implicit default adapter, and no auto-mount at namespace load. It is the new door beside `render`, not a replacement: the one-shot contract keeps working for every existing caller.
+
 ### `(render-to-string render-tree opts) → string`
 
 Pure function. Renders the render-tree to an HTML string. JVM-runnable in the CLJS reference.
