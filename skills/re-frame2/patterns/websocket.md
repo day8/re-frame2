@@ -49,6 +49,16 @@ The pattern below uses `:cred-ref` as the placeholder; substitute whatever opaqu
 (def socket-invoke-id [:active])
 (defn socket-id [data] (get-in data [:rf/spawned socket-invoke-id]))
 
+;; The connection-epoch test both guards share: is this event stamped with the
+;; socket we are using RIGHT NOW? A torn-down socket reads nil, so stragglers fail free.
+(defn from-live-socket? [data source-socket-id]
+  (let [live (socket-id data)]
+    (and (some? live) (= source-socket-id live))))
+
+;; YOUR closed inbound wire union (the example's schema/InboundMessage), compiled
+;; ONCE — the machine holds a frame to the same contract the app-db ingress enforces.
+(def valid-inbound-frame? (m/validator InboundMessage))     ;; [malli.core :as m]
+
 ;; The in-flight half of losing the wire, shared by EVERY door out of :active
 ;; (the :ws/closed drop, the clean :ws/disconnect, the :ws/fatal escape hatch).
 ;; Each exit destroys the socket actor, so each must settle :in-flight on the
@@ -80,17 +90,17 @@ The pattern below uses `:cred-ref` as the placeholder; substitute whatever opaqu
     :has-queued-messages?  (fn [{data :data}] (seq (:queue data)))
     :current-socket?
     ;; Connection-epoch check: reject events from a prior socket actor that
-    ;; may dispatch in flight while the cascade tears it down. A torn-down
-    ;; socket reads nil from :rf/spawned, so stragglers drop for free.
+    ;; may dispatch in flight while the cascade tears it down. Guards EVERY
+    ;; socket-sourced event — the lifecycle transitions (:ws/opened,
+    ;; :ws/auth-ok, :ws/auth-failed, :ws/closed) as much as :ws/received.
     (fn [{data :data [_ {:keys [source-socket-id]}] :event}]
-      (let [live (socket-id data)]
-        (and (some? live) (= source-socket-id live))))
+      (from-live-socket? data source-socket-id))
     :trusted-frame?
     ;; Vouching for the SENDER is not vouching for the BYTES. One named guard,
     ;; not an :and of two — 005 ships no guard combinator data form.
     (fn [{data :data [_ {:keys [source-socket-id body]}] :event}]
-      (and (current-socket? data source-socket-id)
-           (valid-inbound-frame? body)))}   ;; a compiled closed-union validator
+      (and (from-live-socket? data source-socket-id)
+           (valid-inbound-frame? body)))}
 
    :actions
    {:record-connection-opts (fn [{data :data [_ {:keys [url cred-ref]}] :event}]
@@ -115,7 +125,28 @@ The pattern below uses `:cred-ref` as the placeholder; substitute whatever opaqu
     :flush-queue (fn [{data :data}] {:data (assoc data :queue [])
                                :fx (mapv (fn [m] [:dispatch [(socket-id data) [:send m]]])
                                          (:queue data))})
-    :enqueue-message (fn [{data :data [_ m] :event}] {:data (update data :queue conj m)})}
+    :enqueue-message (fn [{data :data [_ m] :event}] {:data (update data :queue conj m)})
+    ;; Handshake on :authenticating entry. NO token in the payload — the actor
+    ;; resolved the bearer from :cred-ref host-side and puts it on the wire itself.
+    :send-auth (fn [{data :data}] {:fx [[:dispatch [(socket-id data) [:send {:type :auth}]]]]})
+    ;; :connected overrides the parent's :ws/send — straight to the wire, no queue.
+    :send-now  (fn [{data :data [_ m] :event}] {:fx [[:dispatch [(socket-id data) [:send m]]]]})
+    ;; A vetted frame. A :reply settles the :in-flight slot it names ONLY when the
+    ;; echoed :request-token matches the REGISTRATION in it (ids are reusable — see
+    ;; §Anti-patterns); every frame goes on to your boundary-checked ingress event.
+    :receive-message
+    (fn [{data :data [_ {:keys [body]}] :event}]
+      (let [rid   (:request-id body)
+            entry (when (= :reply (:type body))
+                    (when-let [e (get-in data [:in-flight rid])]
+                      (when (= (:request-token body) (:token e)) e)))]
+        (cond-> {:fx [[:dispatch [:ws/handle-message body]]]}
+          entry                (assoc :data (update data :in-flight dissoc rid))
+          (:reply-event entry) (update :fx conj [:dispatch (conj (:reply-event entry)
+                                                                 (assoc body :origin :ws/server))]))))
+    ;; Live socket, failed contract: hand it to the ingress (which owns the
+    ;; rejection record) and return NO :data — nothing moves on unvetted bytes.
+    :refuse-frame (fn [{[_ {:keys [body]}] :event}] {:fx [[:dispatch [:ws/handle-message body]]]})}
 
    :states
    {:disconnected
@@ -136,26 +167,28 @@ The pattern below uses `:cred-ref` as the placeholder; substitute whatever opaqu
                                                    :cred-ref (-> snap :data :cred-ref)})}
      ;; Every door OUT of :active kills the wire, so every one settles
      ;; :in-flight exactly once on the way out — see the three actions above.
-     :on      {:ws/closed      {:target :reconnecting  :action :on-socket-lost}
+     ;; Lifecycle events are epoch-guarded too: a straggler :ws/closed / :ws/opened
+     ;; / :ws/auth-* from a REPLACED socket must neither advance nor tear this down.
+     :on      {:ws/closed      {:guard :current-socket? :target :reconnecting :action :on-socket-lost}
                :ws/fatal       {:target :failed        :action :on-fatal-error}
                :ws/disconnect  {:target :disconnected  :action :fail-in-flight}
                :ws/send        {:action :enqueue-message}
                :ws/rotate-cred {:action :rotate-cred}}
      :initial :connecting
      :states
-     {:connecting     {:on {:ws/opened {:target :authenticating}}}
+     {:connecting     {:on {:ws/opened {:guard :current-socket? :target :authenticating}}}
       :authenticating {:entry :send-auth
-                       :on    {:ws/auth-ok     {:target :connected}
-                               :ws/auth-failed {:target [:failed]}}}
+                       :on    {:ws/auth-ok     {:guard :current-socket? :target :connected}
+                               :ws/auth-failed {:guard :current-socket? :target [:failed]}}}
       :connected      {:entry  :on-connected
                        :always [{:guard :has-queued-messages? :action :flush-queue}]
                        :on     {;; Two candidates, first-match-wins. :trusted-frame? is
                                 ;; :current-socket? AND the closed inbound wire contract:
-                                ;; :route-message clears an :in-flight slot the frame
+                                ;; :receive-message clears an :in-flight slot the frame
                                 ;; NAMES, so vet before the branch, not just before app-db.
                                 ;; The refusal arm returns no :data at all; the ingress
                                 ;; downstream owns the rejection record.
-                                :ws/received [{:guard :trusted-frame?  :action :route-message}
+                                :ws/received [{:guard :trusted-frame?  :action :receive-message}
                                               {:guard :current-socket? :action :refuse-frame}]
                                 :ws/send     {:action :send-now}}}}}
 
@@ -219,7 +252,7 @@ The `:connected` `:ws/received` transition vets the frame first — connection e
 - **Skipping `:current-socket?` on `:ws/received`.** A slow `:message` from a torn-down socket lands in the new connection's `:in-flight` — wrong-reply at best.
 - **Settling `:in-flight` on only one door out of `:active`.** The `:ws/closed` drop is the door everyone remembers. A clean `:ws/disconnect` and an app-level `:ws/fatal` destroy the socket just as surely, and a slot stranded by `:ws/fatal` survives even a later manual `:ws/connect` out of `:failed` — its timeout carries the dead socket-id, so `:current-socket?` drops it and nothing else ever clears the slot. Route every exit through one shared fail-and-clear rather than repeating the logic per door.
 - **Treating WebSocket as Pattern-AsyncEffect.** A connection that retries, reconnects, and survives across messages is state-machine-shaped.
-- **Skipping schema validation on `:ws/received` payloads.** Inbound socket frames are an untrusted boundary. Validate against the agreed wire schema at the route-message seam before mutating app-db or branching downstream dispatches. See [`../references/fundamentals/schemas.md`](../references/fundamentals/schemas.md) §`validate-at-boundary-interceptor`.
+- **Skipping schema validation on `:ws/received` payloads.** Inbound socket frames are an untrusted boundary. Validate against the agreed wire schema at the receive-message seam before mutating app-db or branching downstream dispatches. See [`../references/fundamentals/schemas.md`](../references/fundamentals/schemas.md) §`validate-at-boundary-interceptor`.
 - **Validating at the app-db ingress only, when the machine mutates on the frame first.** "Before mutating app-db" is not the whole rule if the connection machine clears an `:in-flight` slot the frame names: the ingress refuses the body, app-db is untouched, and the correlation is already spent — the caller waits forever, and nothing on the rejection counter says so. Put the wire contract in the transition guard as well, ahead of the branch.
 - **Recognising a locally minted loss/timeout outcome by its shape.** Whatever fields that arm describes, a server holding the wire request id can send them. Stamp `:origin` on receipt and dispatch the outcome union on the stamp.
 - **Correlating a request timeout by `:request-id` alone.** The epoch guard rejects timers from an old *connection*; it says nothing about an old *registration* on the same live socket, and correlation ids are the app's and may legitimately recur (a per-feature `[:feature/load slug]` vector is a normal shape). A completed request's uncancelled timer then arrives naming an id a *later* request now holds, passes the epoch check, deletes that request's slot and hands its caller a timeout its deadline never reached. Stamp each registration with a token from a counter in `:data`, put it on the scheduled timeout, and admit the timeout only while that token still occupies the slot — which is also what lets you ship no timer-cancellation facility at all, since an obsolete timer merely fails the guard. State the duplicate-in-flight policy in the same breath: a second registration under a live id must settle the caller it displaces rather than `assoc-in` over it.
