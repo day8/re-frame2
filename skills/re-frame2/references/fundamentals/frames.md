@@ -2,7 +2,7 @@
 
 ## When to load
 
-Working with multi-frame apps: registering a non-default frame, targeting a dispatch / subscribe at a specific frame, using `frame-provider {:frame …}` to scope a React subtree to an existing frame (or `frame-root {:id …}` to ensure a named frame for a subtree), or carrying the current frame into an async callback via `capture-frame`.
+Working with multi-frame apps: registering a frame, targeting a dispatch / subscribe at a specific frame, using `frame-provider {:frame …}` to scope a React subtree to an existing frame (or `frame-root {:id …}` to ensure a named frame for a subtree), or carrying the current frame into an async callback via `capture-frame`.
 
 ## The teaching model: frame identity is carried, not found
 
@@ -89,7 +89,7 @@ If neither tier names a frame, the reader returns `nil` and a public frame-scope
 (rf/subscribe [:my-sub])                          ;; no opts → resolves the established scope (raises if none)
 ```
 
-(A frame-first `(subscribe frame-id query-v)` 2-arity still exists as **internal plumbing** — EP-0024 retired it from the taught app grammar; author with the `{:frame …}` opt. `unsubscribe` is the one exception that keeps a public `(unsubscribe frame-id query-v)` arity.) To read a non-default frame's app-db as a plain value (no reaction), use `(rf/app-db-value :frame-id)`.
+(A frame-first `(subscribe frame-id query-v)` 2-arity still exists as **internal plumbing** — EP-0024 retired it from the taught app grammar; author with the `{:frame …}` opt. `unsubscribe` is the one exception that keeps a public `(unsubscribe frame-id query-v)` arity.) To read a frame's app-db as a plain value (no reaction), use `(rf/app-db-value :frame-id)`.
 
 ## Carrying the frame into async callbacks
 
