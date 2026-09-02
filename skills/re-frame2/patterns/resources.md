@@ -108,8 +108,9 @@ When the same viewer identity (session / tenant / account / locale / impersonati
 
 ;; reference it anywhere derived scope is allowed:
 (rf/reg-resource :feed
-  {:scope   {:from-db :session}                          ;; ← reference
-   :tags    (fn [_params _value] #{[:feed] [:article-list]})}
+  {:params-schema [:map [:page :int]]                    ;; REQUIRED — see §Canonical declaration
+   :scope         {:from-db :session}                    ;; ← reference
+   :tags          (fn [_params _value] #{[:feed] [:article-list]})}
   (fn [{:keys [page]} _ctx]
     {:request {:method :get :url "/api/feed" :params {:page page}}
      :decode  :app/feed}))
