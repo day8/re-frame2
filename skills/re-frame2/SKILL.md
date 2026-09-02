@@ -116,7 +116,7 @@ Patterns compose; a screen can use Forms on submit, RemoteData for the request, 
 
 ## Testing your views
 
-"Does the screen show the right thing? Does the button dispatch the right event?" — use the **hiccup-walk pattern** (walk the view-fn's returned hiccup by `:data-testid`, not a browser-mount; state-only assertions miss the view-broken and wrong-frame-dispatch bugs the walk catches). Recipe: [`references/cross-cutting/testing.md`](references/cross-cutting/testing.md).
+"Does the screen show the right thing? Does the button dispatch the right event?" — use the **hiccup-walk pattern** (walk the view-fn's returned hiccup by `:data-testid`, not a browser-mount; state-only assertions miss the view-broken and wrong-frame-dispatch bugs the walk catches). Recipe: [`references/cross-cutting/testing-views.md`](references/cross-cutting/testing-views.md).
 
 ## Where the depth lives
 
@@ -128,7 +128,7 @@ Load at most two leaves per task. If a task seems to need three, it likely spans
 
 **Tooling — `references/tooling/`**: `stories.md`, `routing.md`, `story-recorder.md` (record canvas interactions as a `:script`), `story-mcp-loop.md` (story-mcp **author/refine** side; run-loop **handoff** to `re-frame2-pair`), `xray.md` (devtools panel mount + launch modes). Standing model for Story: think in Storybook JS, then map onto Story (`stories.md` has the concept map).
 
-**Cross-cutting — `references/cross-cutting/`**: `testing.md` (with-frame, dispatch-sync, compute-sub, view-tree walk), `api-cheatsheet.md` (one-page `reg-*` signature index), `privacy-and-elision.md` (path-based fail-open egress: owner classifies / framework projects / sinks consume; the six `:rf.egress/*` profiles), `production-observability.md` (`rf/register-listener!` on `:events`/`:errors`), `ssr-authoring.md` (`reg-head`/`render-head`/`active-head` + the `:rf.ssr/check-*` fxs), `path-and-identity.md` (the `:rf/path` algebra + canonical EDN identity).
+**Cross-cutting — `references/cross-cutting/`**: `testing.md` (with-frame, dispatch-sync, compute-sub, machine snapshots, fx stubs), `testing-views.md` (the view-tree axis: `re-frame.test-helpers`, the single-frame e2e shape, the hiccup walk), `api-cheatsheet.md` (one-page `reg-*` signature index), `privacy-and-elision.md` (path-based fail-open egress: owner classifies / framework projects / sinks consume; the six `:rf.egress/*` profiles), `production-observability.md` (`rf/register-listener!` on `:events`/`:errors`), `ssr-authoring.md` (`reg-head`/`render-head`/`active-head` + the `:rf.ssr/check-*` fxs), `path-and-identity.md` (the `:rf/path` algebra + canonical EDN identity).
 
 **Patterns — `patterns/`**: one leaf per canonical pattern (see table above). Each opens with load triggers, the canonical mini-declaration, the features it uses, trade-offs, and the worked-example link. Pattern → example app: `examples-map.md`.
 

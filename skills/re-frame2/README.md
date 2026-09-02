@@ -30,7 +30,7 @@ skills/re-frame2/
 │   ├── fundamentals/                 events, fx, cofx, subs, views, flows, frames, schemas, images, event-state-cycle, project-structure.
 │   ├── state-machines/               reg-machine, xstate-translation, machine-schemas, regions, tags, spawn, history, cancellation.
 │   ├── tooling/                      stories, routing, story-recorder, story-mcp-loop, xray.
-│   └── cross-cutting/                testing, api-cheatsheet, privacy-and-elision, production-observability, ssr-authoring, path-and-identity.
+│   └── cross-cutting/                testing, testing-views, api-cheatsheet, privacy-and-elision, production-observability, ssr-authoring, path-and-identity.
 ├── patterns/                         One leaf per canonical pattern (14 leaves).
 ├── decision-trees/                   pick-a-pattern, slice-or-machine.
 ├── spec/                             Skill-internal meta-docs (design, inputs, authoring-prompt). Not loaded at runtime.

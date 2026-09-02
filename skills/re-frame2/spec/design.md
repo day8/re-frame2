@@ -99,7 +99,7 @@ skills/re-frame2/
 │   ├── fundamentals/            (events, fx, cofx, subs, views, flows, schemas, frames, images, event-state-cycle, project-structure)
 │   ├── state-machines/          (reg-machine, xstate-translation, machine-schemas, regions, tags, spawn, history, cancellation)
 │   ├── tooling/                 (stories, routing, story-recorder, story-mcp-loop, xray)
-│   └── cross-cutting/           (testing, api-cheatsheet, privacy-and-elision, production-observability, ssr-authoring, path-and-identity)
+│   └── cross-cutting/           (testing, testing-views, api-cheatsheet, privacy-and-elision, production-observability, ssr-authoring, path-and-identity)
 ├── patterns/                    (one leaf per canonical pattern)
 ├── decision-trees/              (pick-a-pattern, slice-or-machine)
 ├── evals/                       (eval harness inputs; fixtures/ holds the existing-project fixture eval 12 runs against)
@@ -109,7 +109,7 @@ skills/re-frame2/
     └── authoring-prompt.md      (one-shot reauthor prompt)
 ```
 
-Each reference / pattern / decision-tree leaf targets ~150 lines; in practice they range ~80–260, with `testing.md` the one deliberate over-ceiling leaf (it owns the full view-test recipe SKILL.md routes to). A typical authoring session reads SKILL.md (~180) + one reference leaf + one pattern leaf ≈ ~480 LoC — well under any reasonable context budget.
+Each reference / pattern / decision-tree leaf targets ~150 lines; in practice they range ~80–320. The view-test recipe SKILL.md routes to is its own leaf (`cross-cutting/testing-views.md`), so a state-only test session no longer loads it. A typical authoring session reads SKILL.md (~170) + one reference leaf + one pattern leaf ≈ ~480 LoC — well under any reasonable context budget.
 
 ## 6. Discovery surface (frontmatter `description`)
 

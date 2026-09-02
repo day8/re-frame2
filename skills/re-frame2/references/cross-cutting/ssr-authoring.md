@@ -164,7 +164,7 @@ Worked example: `examples/capabilities/ssr/ssr_streaming/core.cljc` (a three-slo
 - API summary: [`spec/API.md §SSR (Spec 011)`](../../../../spec/API.md) — `render-head`, `active-head`, `head-model->html` row; `reg-head` row in §Registration.
 - Guide concept: [`docs/ssr/concepts.md`](../../../../docs/ssr/concepts.md) — narrative walkthrough, head/meta and hydration sections.
 - Worked example: [`examples/capabilities/ssr/ssr/core.cljc`](../../../../examples/capabilities/ssr/ssr/core.cljc) — note it registers **no** `:rf/hydrate` handler (on purpose: `:rf/hydrate` is a reserved `:rf/*` event that `re-frame.ssr` owns, handler and all). The shipped body lives in `implementation/ssr/src/re_frame/ssr/hydrate.cljc` and [`spec/011-SSR.md §The :rf/hydrate event`](../../../../spec/011-SSR.md#the-rfhydrate-event).
-- Production observability: [`production-observability.md`](production-observability.md) — the always-on event/error-emit listeners. Note `:rf.ssr/*` diagnostics do NOT ride the error-emit substrate (they elide with the trace channel unless separately promoted); instrument SSR drift via your own app event through those listeners, or the `:rf/public-error` projector server-side.
+- Production observability: [`production-observability.md`](production-observability.md) — the always-on event/error-emit listeners, and the single roster of the promoted SSR records (§The trace events you'll see says which axis carries what).
 - Trace catalogue: [`spec/009-Instrumentation.md §Error event catalogue`](../../../../spec/009-Instrumentation.md) — `:rf.ssr/*` keywords.
 
 ---

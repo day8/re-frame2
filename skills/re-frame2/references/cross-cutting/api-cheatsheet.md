@@ -111,7 +111,7 @@ Production fx surface: `re-frame.http.managed`. Test surfaces (canned-stub fxs +
 | `rf/with-fx-overrides` | `(overrides-map & body)` — **macro** on the `rf/` façade; binds `:fx-overrides` for `body`'s lexical scope, the block-shaped alternative to passing the opt on every `dispatch`. Precedence: per-call opt > lexical `with-fx-overrides` > per-frame. Composes with `with-frame` |
 | fire N events in order | `(doseq [ev evs] (rf/dispatch-sync ev))` — each drains to fixed point before the next |
 
-## View tests — `re-frame.test-helpers` (see `cross-cutting/testing.md`)
+## View tests — `re-frame.test-helpers` (see `cross-cutting/testing-views.md`)
 
 The view-tree assertion axis (commonly aliased `:as h`). Walk hiccup by `:data-testid`. The single-frame e2e shape composes `ts/make-reset-runtime-fixture` (`:adapter` + `:init-fn`) with these walkers and `ts/poll-until` — no bespoke fixture macro.
 

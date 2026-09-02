@@ -170,14 +170,7 @@ For tests that don't need a render shell, run variants headless from a JVM test 
 
 ## Test-pane dev UX — SB9-parity affordances
 
-The dev shell's Test pane and recorder ship ergonomic affordances that consume what the author writes — none are new authoring surfaces, but knowing they exist helps when recommending the right tool. All are dev-shell scoped and elided in production.
-
-- **Chrome test widget + sidebar status dots.** A Vitest-style widget at the foot of the sidebar; per-variant status dots render next to each row. Aggregates pass/fail across the `:test`-tagged set — any variant carrying `:test` participates. See `tools/story/spec/009-Test-Mode.md` §Chrome-level test widget.
-- **Watch mode.** The eye-icon chip on the test widget toggles watch mode; when on, the shell re-runs the focused `:test` variant on every hot-reload of its content. Scoped to one variant to keep noise low. See `tools/story/spec/009-Test-Mode.md` §Watch mode.
-- **`:script` step-through scrubber.** The play-stepper UI pauses between steps in a `:script` sequence, surfaces the intermediate `:assertions` list per step, and offers a re-dispatch hook — useful for diagnosing which step flipped which assertion. See `tools/story/spec/004-Assertions.md` §play-stepper.
-- **Save-as-variant modal.** When the chrome-toolbar REC chip stops a recording, the shell opens a modal that renders the captured trace as a `(reg-variant ...)` form (with `:extends` from the source variant) — one-click to paste into the stories namespace. See `tools/story/spec/005-SOTA-Features.md` §Save-as-variant.
-- **Mid-recording assertion inserter.** The recording overlay carries an `+ assert` button next to `stop` that opens a picker over the canonical seven `:rf.assert/*` ids with EDN payload prompts; inserted assertions interleave with captured dispatches in-place. Pure helpers (`make-assertion`, `append-assertion`, `insert-assertion!`) live in `re-frame.story.recorder` (JVM-testable). See `tools/story/spec/005-SOTA-Features.md` §Mid-recording assertion insertion and `story-recorder.md` (sibling leaf).
-- **Sidebar tag-as-badge.** Variant rows render their `:tags` set as small badges — fastest way to see which variants carry `:test` / `:experimental` / `:internal` at a glance. Composes with `:default-filter :exclude` on `reg-tag` to hide noisy tags by default.
+The dev shell's Test pane and recorder ship ergonomic affordances that **consume** what the author writes — a status widget and per-variant dots, watch mode, a `:script` step-through scrubber, a save-as-variant modal off the REC chip, a mid-recording assertion inserter over the seven `:rf.assert/*` ids, and tag badges on sidebar rows. None is a new authoring surface, so nothing here changes what you write; they are catalogued in `tools/story/spec/`.
 
 ## Deeper material
 
