@@ -226,10 +226,11 @@ Each skill subdir contains, at minimum:
 
 Skills release through re-frame2's own pipeline (no skill-local CI
 workflows). Deterministic structural tests for
-`re-frame2-pair/`, `re-frame2-setup/` and `re-frame2-pair-retro/` run in
-`.github/workflows/test.yml` when those skill paths change;
-behavioural replay fixtures remain manual/diagnostic and are not required
-PR coverage.
+`re-frame2-pair/`, `re-frame2-setup/`, `re-frame2-pair-retro/` and
+`reagent-migration/` run in `.github/workflows/test.yml` when those skill
+paths change; `reagent-migration`'s cold-start fixture is required PR
+coverage, and the remaining behavioural replay fixtures stay
+manual/diagnostic.
 
 ### Leaf size discipline
 
