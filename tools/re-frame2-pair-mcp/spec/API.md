@@ -376,13 +376,20 @@ analogues. Listed here for reference:
 | `:rf/epoch-record` | framework | The epoch record shape returned by trace mode. |
 | `:rf.event/origin :pair` (in event tags) | framework | The pair tool's dispatches surface in the trace stream distinguishably. |
 
-## Back-compat: the bash shims
+## The retired bash shims
 
-The bash shims under `skills/re-frame2-pair/scripts/` continue to
-work; they are not slated for removal. The op vocabulary is
-identical between the two surfaces.
+**There is no second transport.** The bash shims under
+`skills/re-frame2-pair/scripts/` were deleted on 2026-07-11 under
+rf2-dduetj (commit `31594b44c3`); that directory holds no files. MCP
+is the only way to invoke any op, and there are no shim calls to mix
+with tool calls.
 
-| Bash shim | MCP tool |
+The mapping is retained for reading old runbooks, which may still name
+a script that no longer exists. The op vocabulary was identical across
+the two surfaces, so each retired script's name reads directly as its
+MCP tool:
+
+| Retired bash shim | MCP tool |
 |---|---|
 | `discover-app.sh` | `discover-app` |
 | `eval-cljs.sh` | `eval-cljs` |
@@ -390,19 +397,14 @@ identical between the two surfaces.
 | `trace-window.sh` | `trace-window` |
 | `watch-epochs.sh` | `watch-epochs` |
 | `tail-build.sh` | `tail-build` |
-| _(none — MCP-only)_ | `snapshot` |
+| _(never had one — MCP-only)_ | `snapshot` |
 
-The `snapshot` mega-op has no bash equivalent — it's a coarse-grained
-composition of the existing per-slice runtime readers, shipped as
-part of the rf2-x70e drop to cut round-trips for investigate-X
-workflows. Agents that need its semantics under the bash shim chain
+The `snapshot` mega-op never had a bash equivalent — it's a
+coarse-grained composition of the existing per-slice runtime readers,
+shipped as part of the rf2-x70e drop to cut round-trips for
+investigate-X workflows. Under the shim chain its semantics required
 the per-op reads (`app-db/snapshot` + `subs/cache` + `machines/list`
 + `epoch/history` + `trace/buffer`) in sequence.
-
-Agents may mix shim calls and MCP tool calls in the same workflow
-during the transition. New sessions should prefer the MCP server for
-latency reasons (see
-[`Principles.md`](./Principles.md) § Single persistent nREPL socket).
 
 ## Versioning
 
