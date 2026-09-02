@@ -35,7 +35,7 @@ For interceptor- / subscription- / payload- / observer-shaped Type B rewrites, s
 1. **Intermediate render is required** (e.g. spinner-flash-before-work): restructure so the visible state is its own event; the work runs on a separate `:dispatch-later {:ms 0}`.
 2. **Animation pacing**: convert to `:dispatch-later` with the frame interval, or move to `requestAnimationFrame` via a registered fx.
 3. **Queue-peek test**: rewrite the assertion to check resulting `app-db` state or observed effects, not queue contents.
-4. **No restructuring needed**: keep the dispatch — the run-to-completion behaviour is strictly better for this site. It still rides the Type-A **M-8** fold into `:fx [[:dispatch …]]` like every other top-level `:dispatch`; v2 reads only `:db` and `:fx` at the effect-map top level and silently ignores the rest, so leaving the key literally as-is would drop the event with no error. Nothing beyond the M-8 fold changes here.
+4. **No restructuring needed**: keep the dispatch — the run-to-completion behaviour is strictly better for this site. It still rides the Type-A **M-8** fold into `:fx [[:dispatch …]]` like every other top-level `:dispatch`; the effect-map top level is a closed set of seven keys, so leaving the key literally as-is refuses the whole event pre-commit (`:rf.error/effect-map-shape`, always-on) — the `:db` write goes with it. Nothing beyond the M-8 fold changes here.
 
 Present every call site with its file:line and the four options; collect the author's choice; apply.
 

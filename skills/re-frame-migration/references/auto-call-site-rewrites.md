@@ -362,7 +362,7 @@ The single highest-impact mechanical rewrite. The transformation is structural.
 {:db   ...
  :<user-fx-id>   <args>}
 
-;; REWRITE — fold every non-:db key into :fx
+;; REWRITE — fold every key outside the closed seven into :fx
 {:db ...
  :fx [[:dispatch <event-vec>]]}
 
@@ -377,17 +377,21 @@ The single highest-impact mechanical rewrite. The transformation is structural.
 
 **Procedure** (sweep first, then per-handler rewrite):
 
-1. **Enumerate the app's OWN `reg-fx` ids first — this is what makes the sweep complete.** `rg "\(rf/reg-fx\s+:" src/` (the skill's only shell verb is `rg` — see SKILL.md `allowed-tools`) and collect the full custom fx-id set — `:datadog/log`, a toast fx, an analytics ping, an rAF helper like `::dispatch-after-paint`, anything the app ever returned as a top-level effect. These project-specific ids are the easy-to-miss half of the rule: M-8 folds **every** non-`:db`/`:fx` top-level key, not just the framework keys.
+1. **Enumerate the app's OWN `reg-fx` ids first — this is what makes the sweep complete.** `rg "\(rf/reg-fx\s+:" src/` (the skill's only shell verb is `rg` — see SKILL.md `allowed-tools`) and collect the full custom fx-id set — `:datadog/log`, a toast fx, an analytics ping, an rAF helper like `::dispatch-after-paint`, anything the app ever returned as a top-level effect. These project-specific ids are the easy-to-miss half of the rule: M-8 folds **every** top-level key outside the closed seven (`:db`, `:rf.db/runtime`, `:fx`, `:sensitive`, `:large`, `:clear-sensitive`, `:clear-large`), not just the framework keys.
 2. Add the built-ins to that set: `:dispatch`, `:dispatch-later`, `:dispatch-n`, `:http`, navigation effects.
 3. For each `reg-event-fx` body, walk the returned effect map literal.
-4. For each top-level key other than `:db`:
+4. For each top-level key outside the closed seven (`:db`, `:rf.db/runtime`, `:fx`, `:sensitive`, `:large`, `:clear-sensitive`, `:clear-large` stay where they are — folding one of those into `:fx` is itself a break):
    - In the discovered set → rewrite per the rules above.
    - Not in the set → **flag** (might be a destructure key, not an effect).
 5. If `:fx` already exists, concatenate: existing `:fx` first, new entries after.
 
 **Edge case → flag**: an unknown top-level key. Could be a destructure or a typo'd fx-id.
 
-**Why a missed custom fx is a silent break** — a registered fx left as a *top-level* key (instead of inside `:fx`) is not part of v2's closed `{:db … :fx …}` effect map; the runtime drops that one key at the commit boundary and emits a **dev-only** `:rf.error/effect-map-shape` trace entry. `:db` and `:fx` still commit and the cascade runs — but the dropped fx's side-effect (and any cascade it would have triggered) silently never happens. It does **not throw** and prints **no console warning**, and in a production build the trace emit is dead-code-eliminated, so there is zero diagnostic. The shape is valid, so the compile is clean, and a boot smoke-test misses it unless that fx fires on the boot path. The only catch is a `dispatch-sync`-then-observe test that asserts the fx's *own* effect occurred (e.g. read the `app-db` value its downstream event writes) — note that re-reading only the `:db` write passes, because `:db` commits regardless. This is why step 1 enumerates the app's own fx ids: an unrecognised custom top-level key is exactly this silent miss.
+**Why a missed custom fx breaks the whole event** — a registered fx left as a *top-level* key (instead of inside `:fx`) is not in v2's closed top-level set, and the runtime does **not** drop it and carry on. At the router's FINAL-effects boundary, immediately before the commit, a foreign top-level key **refuses the event**: no `:db`, no `:rf.db/runtime`, no classification install, **no `:fx`** — no partial commit — and `:rf.error/effect-map-shape` (recovery `:fix-effect`) is emitted **in-band** on the **always-on** error channel. It is not a throw (a throw there would abandon the rest of the drained queue), so `dispatch` returns normally and nothing reaches `window.onerror`; the record reaches your `:errors` listener, and in a **dev browser build with no listener attached** it additionally prints to the console. In a production build the record still fans out to the listener — only the trace's `:value` / `:reason` detail is dead-code-eliminated — so this is diagnosable in prod, unlike the dev-only trace it used to be.
+
+The shape is valid Clojure, so **the compile is still clean** and march-the-wall still cannot find it — but the miss is now loud at the first execution of that handler, and it takes the handler's legal siblings down with it (the `:db` write the author expected is rolled back too). A boot smoke-test catches any site on the boot path immediately; a `dispatch-sync`-then-observe test catches the rest, and re-reading the `:db` write no longer passes vacuously, because `:db` does not commit either. This is why step 1 enumerates the app's own fx ids: an unrecognised custom top-level key is exactly this refusal.
+
+**Not to be confused with a malformed entry *inside* `:fx`.** `{:fx [[:good a] :oops]}` is a well-shaped envelope with one bad row: that entry is dropped, its **siblings still run**, and the event commits. The envelope is transactional pre-commit; the do-fx plane stays best-effort post-commit.
 
 ---
 
