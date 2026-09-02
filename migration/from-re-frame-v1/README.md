@@ -1345,7 +1345,7 @@ As the second per-feature artefact split (Strategy B), Spec 005's state-machine 
 
 **What to look for** in the codebase:
 
-- Any call to `re-frame.core/reg-machine`, `re-frame.core/make-machine-handler`, `re-frame.core/machine-transition`, `re-frame.core/machines`, or `re-frame.core/machine-meta`.
+- Any call to `re-frame.core/reg-machine`, or to `make-machine-handler` / `machine-transition` / `machines` / `machine-meta` under any spelling — the pre-split `re-frame.core/make-machine-handler` included. `reg-machine` and `defmachine` stay on the façade, but the four non-registration helpers do **not** (see **Public API** below), so a `re-frame.core/`-spelled helper call site is both a detection hit *and* a site to re-point at `re-frame.machines`.
 - Any subscription to the framework-shipped `:rf/machine` reg-sub (for example `(rf/subscribe [:rf/machine machine-id])`).
 - A direct `(:require [re-frame.machines])` clause.
 
