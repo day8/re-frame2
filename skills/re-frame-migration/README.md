@@ -73,11 +73,13 @@ skills/re-frame-migration/
 │   ├── orchestrating-a-large-migration.md # Opt-in: large-migration partition + wave sequencing
 │   ├── auto-call-site-rewrites.md # Type A: per-call-site mechanical rewrites
 │   ├── auto-cross-cutting.md      # Type A: cross-cutting renames, views, init, artefacts
-│   ├── guided-handlers-state.md   # Type B: handler / view / db-seeding walkthroughs
+│   ├── guided-handlers-state.md   # Type B: handler / db-seeding / error-handler walkthroughs
+│   ├── guided-views-m11.md        # Type B: the M-11 sweep — subscribing plain fns → reg-view (+ the async listener class)
 │   ├── guided-interceptors-subs.md# Type B: interceptor / sub / payload walkthroughs
 │   ├── error-events.md            # Pointer to Spec 009's error-event catalogue (single source)
 │   ├── causal-world-inputs.md     # EP-0010 recording rule + EP-0017 reshape (M-72): ambient durable host reads → declared coeffects
-│   ├── runtime-smoke-test.md      # Phase 4: "compiles" isn't done — silent-fail checklist + live-app-db boot smoke-test
+│   ├── runtime-smoke-test.md      # Phase 4: "compiles" isn't done — the live-app-db boot smoke-test loop + done-bar gates
+│   ├── silent-runtime-failures.md # Phase 4: the nine silent-runtime-failure modes as a checklist
 │   └── output-format.md           # The migration-summary shape
 └── spec/
     ├── design.md                  # Locked design decisions

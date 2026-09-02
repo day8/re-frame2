@@ -402,7 +402,7 @@ Three variations worth knowing:
   holds its own owner, so two instances are independent by construction: there is
   nothing to key and no sibling watch to clobber. That is the *only* lifecycle
   use of the captured `:subscribe`; see
-  [`guided-handlers-state.md`](../../../skills/re-frame-migration/references/guided-handlers-state.md)
+  [`guided-views-m11.md`](../../../skills/re-frame-migration/references/guided-views-m11.md)
   §M-11 for the fully worked form — take its **structure**, not its ops. M-11 is
   written for the stock-Reagent adapter and reaches for `reagent.core/track!`,
   which `reagent2.core` deliberately does not ship (see
@@ -427,7 +427,7 @@ Three variations worth knowing:
   component and the capture re-locks to **B**; or **use the registered `reg-view`
   child** (route 1), which reads its frame from React context on **every** render
   and so follows A→B with no remount and no re-capture. See
-  `guided-handlers-state.md` §M-11 Form-3 routes 1 & 2 for the full recipe.
+  `guided-views-m11.md` §M-11 Form-3 routes 1 & 2 for the full recipe.
 - **DOM measurement during commit.** If you need to capture a measurement
   *before* React commits a re-render (typical for scroll preservation),
   use `:get-snapshot-before-update`. See §5 below.
@@ -584,7 +584,7 @@ that genuinely must dispatch from a lifecycle hook has to go through
 `re-frame.core/reg-view*`, capturing the frame's `:dispatch` **once in the
 outer callable** and closing that handle over the hook — never a fresh
 `(rf/capture-frame)` inside the hook, which fires after the scope unwinds and
-re-throws. See `guided-handlers-state.md` §M-11 Form-3 route 2. For plain
+re-throws. See `guided-views-m11.md` §M-11 Form-3 route 2. For plain
 mount-time app-state init, prefer `:initial-events`.
 
 ### Use `:ref` callbacks, not Form-3, for DOM access
@@ -692,7 +692,7 @@ is the answer, not a lossy rewrite.
   spec section that stated this, `spec/004-Views.md` §"Form-3 (class — out of
   scope for the macro)", was deleted on 2026-08-18 with the substrate it
   described (rf2-h89ri).
-- **[Migration recipe](../../../skills/re-frame-migration/references/guided-handlers-state.md)**
+- **[Migration recipe](../../../skills/re-frame-migration/references/guided-views-m11.md)**
   §M-11 Form-3 routes 1 & 2 — the full recipe for a **frame-scoped** Form-3 (one
   that subscribes or dispatches app state): extract the subscribing part into a
   `reg-view` child, or register the outer fn through `reg-view*` and capture the
