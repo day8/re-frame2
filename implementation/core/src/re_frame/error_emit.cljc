@@ -152,13 +152,63 @@
 ;; Per-category ownership, sink discovery, a formatter, deduplication and a
 ;; suppression setting all stay REJECTED as premature.
 ;;
+;; A READABLE LINE LEADS THE RECORD (rf2-6sqv). Passing the record as a
+;; value is right, and it stays — but it was the ONLY thing passed, and a
+;; CLJS map is not a JS object: Chrome renders its interior fields, so an
+;; ordinary page load showed
+;;
+;;     [re-frame2] {meta: null, cnt: 7, arr: Array(14), __hash: null, …}
+;;
+;; and nothing else. `cnt: 7` is the seven-key record itself. That teaches a
+;; reader that re-frame2's errors are unreadable — the exact opposite of what
+;; the error text achieves — and it is the first place a reader looks, before
+;; any tool is installed (Spec 009 / pilot outcome 5).
+;;
+;; So [[console-summary]] now leads with a STRING built from what the record
+;; already carries, and the record + exception follow as their own arguments
+;; exactly as before. Text first, structure still expandable, nothing lost to
+;; a structured consumer. It composes NO new error prose: every byte of the
+;; line already existed on the record or on its exception.
+;;
 ;; Everything is try/catch wrapped: observability must never abort the drain.
+
+(defn- console-summary
+  "The readable line that LEADS the dev console fallback (rf2-6sqv): the
+  category, then the human sentence the framework ALREADY composed — the
+  carried exception's `ex-message` when the category throws one, else the
+  record's own `:reason` slot.
+
+  Composes NO new error prose. Every byte comes off the record or its
+  exception; the categories that carry neither (`:rf.error/no-such-handler`
+  and its kin) yield the bare category keyword, which is still the
+  greppable discriminator a reader looks up. Leading with the keyword is
+  deliberate: `:reason` sentences do not carry the bracketed catalogue
+  token — `re-frame.error/throw-error!` appends that when it builds a THROWN
+  message — so without it a `:reason`-only line would name no category at
+  all.
+
+  Never throws: `ex-message` is guarded because `:exception` is whatever the
+  failing code threw, which need not be an `Error`. Returns a string."
+  [record]
+  (let [ex   (:exception record)
+        text (or (when (some? ex)
+                   (try (ex-message ex) (catch #?(:clj Throwable :cljs :default) _ nil)))
+                 (:reason record))]
+    (if (seq text)
+      (str (:error record) " — " text)
+      (str (:error record)))))
 
 (defn- report-unowned-error!
   "Print `record` to the browser console when NOTHING owns it. Dev builds
   only, browser hosts only, and only while the corpus-wide `:errors`
   listener registry is EMPTY — see §Unowned-error dev console fallback
   above for why each of those three conditions is load-bearing.
+
+  Arguments are `[\"[re-frame2]\" <summary-line> <record>]`, plus the
+  original `<exception>` when the category carries one. The summary leads so
+  a reader sees TEXT first (rf2-6sqv); the record and exception still ride as
+  their own arguments, so the host inspector renders the structure and the
+  real stack survives untouched.
 
   A no-op on the JVM, on Node-targeted CLJS (and CLJS SSR), and in any
   `goog.DEBUG=false` build, where the whole body constant-folds away.
@@ -172,9 +222,10 @@
                     (exists? js/document)
                     (exists? js/console)
                     (fn? (.-error js/console)))
-           (if-some [ex (:exception record)]
-             (.error js/console "[re-frame2]" record ex)
-             (.error js/console "[re-frame2]" record)))
+           (let [summary (console-summary record)]
+             (if-some [ex (:exception record)]
+               (.error js/console "[re-frame2]" summary record ex)
+               (.error js/console "[re-frame2]" summary record))))
          (catch :default _ nil))
        nil)))
 

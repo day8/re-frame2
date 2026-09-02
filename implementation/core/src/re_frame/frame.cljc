@@ -915,7 +915,21 @@
   This is the EMISSION half; callers that must also halt the operation use
   `require-current-frame!` (which emits then throws). Detection-only
   callers (frame pickers, tooling) read the nil from `current-frame` /
-  `resolve-current-frame` and never reach here."
+  `resolve-current-frame` and never reach here.
+
+  THE RECORD CARRIES THE PAYLOAD'S OWN `:reason` (rf2-6sqv). This category
+  passes no `:exception` — the operation is invalid, nothing threw — so
+  before this the always-on record was seven slots of pure metadata
+  (`{:error :event :event-id :frame :time :exception :elapsed-ms}`) and the
+  composed recovery ladder `no-frame-context-payload` had just built reached
+  the always-on axis NOWHERE. Measured, not inferred: an ordinary page load
+  printed `[re-frame2] {meta: null, cnt: 7, arr: Array(14), …}` to the
+  console and the ladder was not inside it, so no console formatter could
+  have recovered it. `:reason` / `:recovery` ride the EXISTING `attrs`
+  attribution seam `dispatch-on-error!` already provides for
+  category-specific slots — the same seam flow-eval uses — and match the
+  non-event union records (the frame-teardown report carries both). An
+  off-box shipper gains the sentence too."
   [payload]
   (let [event-id (:event-id payload)]
     ;; Always-on listener registry (survives prod elision).
@@ -929,7 +943,11 @@
         nil                              ;; no frame — that is the whole point
         nil                              ;; no exception — invalid op, not a throw
         0                                ;; elapsed-ms
-        (interop/now-ms)))               ;; time
+        (interop/now-ms)                 ;; time
+        ;; The composed ladder + machine-readable repair the payload already
+        ;; holds; nil-valued slots are dropped by the attribution merge.
+        {:reason   (:reason payload)
+         :recovery (:recovery payload)}))
     ;; Dev-only trace path — DCEs under `:advanced` + `goog.DEBUG=false`.
     (trace/emit-error! :rf.error/no-frame-context payload)
     payload))
