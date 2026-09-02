@@ -70,8 +70,7 @@ Inside a `reg-view`, `dispatch` and `subscribe` arrive as injected functions —
 
 ```clojure
 (ns my-app.core
-  (:require [reagent.dom.client :as rdc]
-            [re-frame.core :as rf]
+  (:require [re-frame.core :as rf]
             [re-frame.adapter.reagent :as reagent-adapter]))
 
 (rf/reg-event :app/initialise
@@ -83,14 +82,14 @@ Inside a `reg-view`, `dispatch` and `subscribe` arrive as injected functions —
 (rf/reg-view main-view []
   [:h1 "Screen: " (name @(subscribe [:screen]))])
 
-(defonce react-root
-  (rdc/create-root (js/document.getElementById "app")))
+(defonce app-root (reagent-adapter/client-root))
 
 (defn ^:export run []
   (rf/init! reagent-adapter/adapter)        ;; install the adapter (creates no frame)
-  (rdc/render react-root
+  (reagent-adapter/render! app-root
     [rf/frame-root {:id :app :initial-events [[:app/initialise]]}
-     [main-view]]))
+     [main-view]]
+    (js/document.getElementById "app")))
 ```
 
 Two forms do the work. `init!` installs the [substrate](glossary.md#substrate) [adapter](glossary.md#adapter) — the one-time hookup between re-frame2 and your rendering library (Reagent here) — and creates *no* frame. Then `frame-root {:id :app …}` **ensures** the `:app` frame: it creates the frame the first time the view mounts (running its `:initial-events`) and establishes it for everything underneath, so inside that subtree every `dispatch` and `subscribe` resolves to `:app` without ever naming it.
@@ -162,9 +161,10 @@ Here's the split pane, end to end. Watch how little changes from the one-frame c
    [rf/frame-root {:id :pane/right :initial-events [[::init]]} [counter-panel "Right"]]])
 
 ;; At boot — after (rf/init! ...) — the root boundary ensures the app frame.
-(rdc/render react-root
+(reagent-adapter/render! app-root
   [rf/frame-root {:id :app}
-   [split-screen]])
+   [split-screen]]
+  (js/document.getElementById "app"))
 ```
 
 Notice what *isn't* there: no pane id threaded through the view, no atom per pane, no "which counter am I" argument on the handler. The view is identical to one you'd write for a single counter. Boundaries nest — each pane's `frame-root` overrides the root scope for its own subtree.

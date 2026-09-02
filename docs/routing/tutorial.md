@@ -43,13 +43,15 @@ so you can watch every step from here on:
     [:h1 "Nothing here yet"]))   ;; any URL we haven't routed — Step 5 retires this
 
 ;; 3. Mount — standard Quickstart mount, plus one routing flag Step 6 explains.
-;;    (Also requires: [reagent.dom.client :as rdc]
-;;     [re-frame.adapter.reagent :as reagent-adapter])
+;;    (Also requires: [re-frame.adapter.reagent :as reagent-adapter])
+(defonce app-root (reagent-adapter/client-root))
+
 (defn run []
   (rf/init! reagent-adapter/adapter)
-  (rdc/render (rdc/create-root (js/document.getElementById "app"))
-              [rf/frame-root {:id :rf/default :url-bound? true}  ;; ← this flag
-               [root-view]]))
+  (reagent-adapter/render! app-root
+    [rf/frame-root {:id :rf/default :url-bound? true}  ;; ← this flag
+     [root-view]]
+    (js/document.getElementById "app")))
 ```
 
 `@(subscribe [:rf.route/id])` is the id of the route that matches the current URL.
@@ -241,10 +243,11 @@ Step 1's mount flag is what makes Back, refreshes, and shared links work:
 ```clojure
 (defn run []
   (rf/init! reagent-adapter/adapter)
-  (rdc/render (rdc/create-root (js/document.getElementById "app"))
-              [rf/frame-root {:id         :rf/default
-                              :url-bound? true}  ;; ← this frame owns the address bar
-               [root-view]]))
+  (reagent-adapter/render! app-root
+    [rf/frame-root {:id         :rf/default
+                    :url-bound? true}  ;; ← this frame owns the address bar
+     [root-view]]
+    (js/document.getElementById "app")))
 ```
 
 `:url-bound? true` says *this* [frame](../core/frames.md) owns the browser URL. When

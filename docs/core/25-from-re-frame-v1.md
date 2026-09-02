@@ -139,18 +139,23 @@ Fix at the root: ensure a frame and scope the tree to it. The usual shape is `fr
 
 ```clojure
 ;; Prefer: named seed event(s) on frame-root (same pipeline as every later change)
-(rdc/render root
+(defonce app-root (reagent-adapter/client-root))
+(def el (js/document.getElementById "app"))
+
+(reagent-adapter/render! app-root
   [rf/frame-root {:id :app/main
                   :initial-events [[:app/initialise]   ;; reg-event that returns {:db …}
                                    [:boot]]}
-   [app-root]])
+   [app-root]]
+  el)
 
 ;; Also fine: pre-create, then scope — e.g. when boot is outside React
 (rf/make-frame {:id :app/main
                 :initial-events [[:app/initialise] [:boot]]})
-(rdc/render root
+(reagent-adapter/render! app-root
   [rf/frame-provider {:frame :app/main}
-   [app-root]])
+   [app-root]]
+  el)
 ```
 
 Inside that tree, bare `dispatch` / `subscribe` resolve the frame ambiently *once the view can read the provider*. A `reg-view` can; a plain (unregistered) Reagent fn that dispatches or subscribes cannot, and fails with `:rf.error/no-frame-context` ([Views render under a frame scope](#views-render-under-a-frame-scope)). Rootless call sites also need attention: async callbacks that lost scope, top-level boot with no provider — the wrong-frame cases v1 swallowed. The skill rewrites bare top-level call sites into a root provider and flags async callbacks for explicit capture (next).

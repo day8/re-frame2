@@ -10,7 +10,7 @@ The recipes are grouped by where they sit in the life of an app — **build it**
 
 !!! note "If your views are Hicasso"
 
-    The view code in these recipes is written on a React substrate adapter and registered `reg-view` views — `rdc/create-root` to mount, `@(subscribe …)` to read, `^{:key}` metadata on list items, and Form-2 views where a value has to stay stable across renders. [Hicasso](../hicasso/index.md) accepts none of those spellings, so a recipe's view code will not run as written. What does carry over is everything below the view: the events, effects, subscriptions and frames are ordinary re-frame2 on either. For the view and the mount, read [Installation](../hicasso/00-installation.md) and [Views and reads](../hicasso/02-views-and-reads.md); for the debugging recipes, [Diagnostics](../hicasso/16-diagnostics.md) and [Performance](../hicasso/19-performance.md).
+    The view code in these recipes is written on a React substrate adapter and registered `reg-view` views — the adapter's `client-root` / `render!` to mount, `@(subscribe …)` to read, `^{:key}` metadata on list items, and Form-2 views where a value has to stay stable across renders. [Hicasso](../hicasso/index.md) accepts none of those spellings, so a recipe's view code will not run as written. What does carry over is everything below the view: the events, effects, subscriptions and frames are ordinary re-frame2 on either. For the view and the mount, read [Installation](../hicasso/00-installation.md) and [Views and reads](../hicasso/02-views-and-reads.md); for the debugging recipes, [Diagnostics](../hicasso/16-diagnostics.md) and [Performance](../hicasso/19-performance.md).
 
 ## Build it
 

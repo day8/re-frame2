@@ -93,6 +93,8 @@ On the client, opt in with `ssr/streaming-install!` (same carried `:frame` as
 `hydrate!`), and **hydrate from its `:on-ready` callback**:
 
 ```clojure
+(defonce app-root (reagent-adapter/client-root))
+
 (ssr/streaming-install!
   {:frame    :app/main
    :on-ready (fn [_outcomes]
@@ -100,10 +102,9 @@ On the client, opt in with `ssr/streaming-install!` (same carried `:frame` as
                      el      (js/document.getElementById "app")
                      tree    [rf/frame-provider {:frame :app/main}
                               [(rf/view :article/page)]]]
-                 (if payload
-                   (reset! react-root (rdc/hydrate-root el tree))
-                   (do (reset! react-root (rdc/create-root el))
-                       (rdc/render @react-root tree)))))})
+                 ;; payload ⇒ adopt the streamed markup; nil ⇒ fresh root
+                 (reagent-adapter/render! app-root tree el
+                   {:hydrate? (some? payload)})))})
 ```
 
 The runtime materialises the inert fallback `<template>`s into visible mounts,
@@ -122,9 +123,10 @@ re-renders it, and you pay for streaming without getting any.
 !!! warning "Don't guess at readiness"
 
     Don't poll for `__rf_payload`, don't hydrate on a timer, and above all don't
-    fall through to `create-root` because the payload "hasn't arrived yet" — on a
-    live stream that is true for most of the page's life, and `create-root`
-    throws away the markup the server streamed. The protocol is: progressive
+    fall through to a fresh mount — a `render!` without `:hydrate?` — because the
+    payload "hasn't arrived yet". On a live stream that is true for most of the
+    page's life, and a fresh root throws away the markup the server streamed. The
+    protocol is: progressive
     pre-hydration paint, then **one** ordinary whole-root hydration, triggered by
     readiness.
 
