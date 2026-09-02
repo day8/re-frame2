@@ -1112,7 +1112,11 @@
   "Surface `:rf.error/bad-frame-provider-arg` through the always-on error
   axis AND the dev-only trace surface, then return the payload. Mirrors
   `emit-no-frame-context!`: production-survivable so a bad provider arg is
-  observable where the dev trace is elided."
+  observable where the dev trace is elided — including carrying the
+  payload's own `:reason` / `:recovery` onto the record (rf2-6sqv), which
+  this category needs for exactly the reason its sibling does: it passes no
+  `:exception`, so without them the always-on record holds no message at all
+  and the dev console can only print the bare category."
   [payload]
   (when-let [dispatch-on-error! (late-bind/get-fn :error-emit/dispatch-on-error)]
     (dispatch-on-error!
@@ -1122,7 +1126,9 @@
       nil                                ;; no frame — the supplied target is invalid
       nil                                ;; no exception — invalid arg, not a throw
       0                                  ;; elapsed-ms
-      (interop/now-ms)))                 ;; time
+      (interop/now-ms)                   ;; time
+      {:reason   (:reason payload)
+       :recovery (:recovery payload)}))
   (trace/emit-error! :rf.error/bad-frame-provider-arg payload)
   payload)
 
