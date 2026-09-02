@@ -65,6 +65,11 @@
             ;; route key, so it's loading *both* that makes a route allowed to
             ;; declare `:resources`.
             [re-frame.routing]
+            ;; State machines are an optional artefact too, and the reader
+            ;; machine below (`rf/reg-machine :resources.app/reader`) is the
+            ;; asking's other half — without this require that call throws
+            ;; `:rf.error/machines-artefact-missing` at ns load.
+            [re-frame.machines]
             [re-frame.adapter.reagent :as reagent-adapter]))
 
 ;; ============================================================================
