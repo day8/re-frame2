@@ -1374,8 +1374,15 @@
   `drain-pending-disposals!` — and both the emitter and the JVM macro namespace
   that extracted the schema form from the Markdown went with the port. The
   catalogue row went too, so the pairing it held is gone. One schema deleted,
-  one row deleted, one pairing lost: this integer moves by exactly one."
-  92)
+  one row deleted, one pairing lost: this integer moves by exactly one.
+
+  Raised 92 -> 93 by rf2-y8jjk (`:rf.route/replan-resources`), and the addition
+  is in this same diff: `ReplanBadRequestTags` was ADDED to spec/Spec-Schemas.md
+  beside `PrefetchBadAddressTags`, and its `:rf.error/replan-bad-request`
+  catalogue row landed in spec/009 with a Tags cell naming every key the schema
+  declares. One schema added, one row added, one pairing gained: this integer
+  moves by exactly one."
+  93)
 
 (def ^:private tags-column-shrink-only-baseline
   "SHRINK-ONLY. The rows that still red when the arm is armed — pre-existing
