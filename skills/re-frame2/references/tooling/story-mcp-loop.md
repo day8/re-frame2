@@ -35,11 +35,13 @@ Per `tools/story-mcp/spec/002-Tool-Registry.md`, the story-mcp catalogue is nine
 |---|---|---|---|
 | Write | `register-variant` | Write (gated) | `re-frame.story/reg-variant*` with the agent's body |
 | Write | `unregister-variant` | Write (gated) | symmetric tear-down between iterations |
-| Preview | `preview-variant` | Dev | render one variant; returns the unified run-result PLUS the share URL + rendered view ("show me what this looks like") |
+| Preview | `preview-variant` | Dev | render one variant; returns the unified run-result PLUS the share URL + rendered view ("show me what this looks like"). **Needs an installed adapter** — it allocates a variant frame; see §Gates and prerequisites |
 | Read | `get-variant` | Docs | full variant body as canonical EDN, for the agent to read before editing |
 | Read | `explain-variant` | Docs | "why did the plan resolve this way" — the variant-plan `:explain` (source chain, merge, runner requirements); the agent's mirror of the human Explain panel |
 | Onboard | `get-story-instructions` | Dev | the EDN-first constraint, canonical body keys, the seven `:rf.assert/*` events, the four-phase lifecycle, the inclusion-tag vocabulary — one self-contained string. Call once per session, before authoring. |
-| Enumerate | `list-stories` / `get-story` / `variant->edn` / `list-tags` / `list-modes` / `list-decorators` / `list-assertions` / `list-substrates` / `get-docs-markdown` | Docs / Dev | navigate an unfamiliar Story registry (and read its docs) while authoring |
+| Enumerate | `list-stories` / `get-story` / `variant->edn` / `list-tags` / `list-modes` / `list-decorators` / `list-assertions` / `list-substrates`† / `get-docs-markdown` | Docs / Dev | navigate an unfamiliar Story registry (and read its docs) while authoring |
+
+† `list-substrates` is the one enumeration that is **browser-only**, so it is not a plain registry read. Substrate registration is CLJS-only (`re-frame.story/register-substrate!`) and the JVM stdio server has no bridge to that registry, so there it returns `isError true` with `:rf.error/story-mcp-capability-unavailable` — never an empty list. The distinction is load-bearing: an empty `:substrates` vec is reserved for a REACHED registry that genuinely holds nothing, so EMPTY means nothing is registered and UNAVAILABLE means the host could not look. Read it from a browser-local Story host. (`tools/story-mcp/spec/002-Tool-Registry.md` §Host execution model; `read-a11y-violations` on the run side behaves the same way.)
 
 What this subset is **missing** (and why): `run-variant`, `read-failures`, `snapshot-identity`, and `read-a11y-violations` are the four **Testing**-category run tools. They surface the live runtime's verdict and captured values, so they live in `re-frame2-pair`'s allow-list — not here. The drift gate (`scripts/check_skill_mcp_drift.py`) pins this split: it marks exactly those four as `intentional_server_only` for `re-frame2`, so an attempt to add them here fails the gate.
 
@@ -47,7 +49,7 @@ What this subset is **missing** (and why): `run-variant`, `read-failures`, `snap
 
 ## Worked authoring pass — then the handoff
 
-The agent has been asked to add a "user clicks delete then confirms" variant for `:story.todos/list-with-items`. Authoring side (this skill):
+The agent has been asked to add a "user clicks delete then confirms" variant for `:story.todos/list-with-items`. Authoring side (this skill) — the `preview-variant` step below assumes the host has a re-frame adapter installed; on a bare launch it refuses rather than returning a `:status` (§Gates and prerequisites):
 
 ```
 agent → register-variant
@@ -71,7 +73,9 @@ The agent reports the registered body + preview result back, and names the run-s
 
 ## Gates and prerequisites (authoring side)
 
-- **Write surface is gated.** `register-variant` / `unregister-variant` require `re-frame.story-mcp.config/allow-writes?` truthy — set via `--allow-writes` flag, `RF_STORY_MCP_ALLOW_WRITES=true` env, or `-Drf.story-mcp.allow-writes=true` JVM property. Without it, authoring is read-only (`preview-variant` + the enumerations still work against existing variants).
+- **Write surface is gated.** `register-variant` / `unregister-variant` require `re-frame.story-mcp.config/allow-writes?` truthy — set via `--allow-writes` flag, `RF_STORY_MCP_ALLOW_WRITES=true` env, or `-Drf.story-mcp.allow-writes=true` JVM property. Without it, authoring is read-only: the enumerations still work against existing variants, and so does `preview-variant` — but only once an adapter is installed (next bullet). The write gate and the adapter prerequisite are independent; clearing one does not clear the other.
+- **Previewing needs an installed adapter.** Catalogue reads work on a bare launch. *Running* one does not: `preview-variant` allocates a variant frame, and a frame takes its state substrate from an installed re-frame adapter. The server deliberately installs none — per `spec/006-ReactiveSubstrate.md` the substrate choice belongs to the app — so a consuming project that wants headless previews installs one in the namespace its launch alias preloads, `(rf/init! plain-atom/adapter)` being the renderer-free choice. With none installed `preview-variant` **refuses before any lifecycle work**: `isError true` with `:rf.error/no-adapter-installed` (core's own id for this condition), plus `:tool` and a `:recovery` naming the boot. It never returns a `:status`, so this is not a `:cannot-run` verdict to interpret — it is a host prerequisite to satisfy. The refusal exists because the alternative is a success-shaped NON-RUN: with no substrate the setup dispatches reach nothing and the script plays nothing, yet the run settles the ordinary `:status :pass` envelope over `{}` and `[]`, indistinguishable on the wire from a genuine green. (`tools/story-mcp/spec/002-Tool-Registry.md` §Running a variant needs an installed adapter; `run-variant` on the run side carries the same prerequisite.)
+- **`preview-variant` is deadline-bounded.** It accepts a tunable `:timeout-ms` — default 10 s, hard ceiling 30 s, caller values above the ceiling clamp DOWN rather than reject (the MCP stdio loop is single-threaded, so an unbounded lifecycle call would park unrelated calls). An over-budget run is cancelled and returns the canonical `:status :error` run-result, never a false `:pass`.
 - **`register-variant`'s parent story must already exist.** There is no `register-story` tool. The agent fails into a documented error when the `:story.<path>` parent isn't registered; the user lands the parent inline.
 - **Source-coord stamping survives MCP registration.** `register-variant` stamps `{:file <agent-supplied> :line <n>}` if provided in the body; without it, `:source` is omitted and downstream failure records carry no jump-to-line affordance. Agents that want clickable failures (on the run side) supply `:source` from the file they'll write the variant back into.
 
