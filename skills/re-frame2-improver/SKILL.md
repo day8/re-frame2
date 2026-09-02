@@ -69,7 +69,7 @@ Emit only sections with content — an empty heading is padding, not rigor:
 - `Scope` — the files / namespaces reviewed.
 - `Findings` — numbered, **highest consequence first**. Rank correctness / production issues above maintainability / latent smells:
   - **Correctness / production** (first) — ships a real bug: a schemaless boundary leaves `app-db` open in the deployed bundle (`schemaless-events.md`); an impure read feeding a *durable* write makes replay / SSR / epoch-restore diverge (`imperative-effects.md`); a transport-blind retry hammers a `4xx` (`manual-retry-loops.md`).
-  - **Maintainability / latent** (below) — a manual loading flag whose missing `dissoc` strands a spinner; a boolean-discriminator cluster that scales with the square of the state count.
+  - **Maintainability / latent** (below) — a manual loading flag whose missing `dissoc` strands a spinner (`manual-loading-flags.md`); a boolean-discriminator cluster that scales with the square of the state count (`boolean-discriminator-subs.md`); a view-side atom shared across siblings that no sub, event, or tool can see (`view-side-hook-state.md`).
 
   Per finding: anti-pattern name, severity, `path:line` evidence with the symptom snippet, concrete consequence, **smallest safe correction**, canonical idiom (cross-linked) — plus at most one optional-redesign sentence when the broader move earns its migration cost.
 - `Fixes applied` — only when the user asked for fixes: each `Edit` performed, with a 1-line rationale.

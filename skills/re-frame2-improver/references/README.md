@@ -22,18 +22,18 @@ A typical trigger is a short pasted snippet. Consult the signals below and open 
 | `manual-retry-loops.md` | `setTimeout` + `dispatch` together; a `:*/retries` / `:*/attempts` counter; inline `Math.pow` back-off; a failure branch re-dispatching the originating id | `imperative-effects.md` (HTTP write) |
 | `boolean-discriminator-subs.md` | 3+ `?`-suffixed subs on one `app-db` path; a view `cond` over multiple sub derefs | `manual-loading-flags.md` |
 | `manual-loading-flags.md` | `(assoc db :*/loading? true)` paired with `dissoc`; `:*/loading?` / `:*/saving?` / `:*/in-flight?` keys | `boolean-discriminator-subs.md` |
-| `schemaless-events.md` | a handler writes a Managed-HTTP reply's `(:value reply)` / `:body` / `:data`, or reads `js/localStorage` / `location.search` / `postMessage`; boundary event ids `:*/loaded` / `:*/received` / `:*/rehydrated` | — |
-| `imperative-effects.md` | `.setItem` / DOM `set!` / `js/setTimeout` / inline `rf/dispatch`; `js/Date.now` / `Math.random` / `.getItem`; `@(rf/subscribe …)` in a handler body | `manual-retry-loops.md` (HTTP write) |
+| `schemaless-events.md` | a handler writes a Managed-HTTP reply's `(:value reply)` / `:body` / `:data`, or reads `js/localStorage` / `location.search` / `postMessage`; boundary event ids `:*/loaded` / `:*/received` / `:*/rehydrated` | `imperative-effects.md` (body-read feeding durable state) |
+| `imperative-effects.md` | `.setItem` / DOM `set!` / `js/setTimeout` / inline `rf/dispatch`; `js/Date.now` / `Math.random` / `.getItem`; `@(rf/subscribe …)` in a handler body | `manual-retry-loops.md` (HTTP write); `schemaless-events.md` (storage / URL / postMessage read written to `app-db`) |
 | `view-side-hook-state.md` | `(r/atom …)` / `reagent/atom` at a view or namespace top; `use-state` / `useReducer`; an event handler derefing a view-ns atom | — |
 
 Consolidate co-occurring findings that share one refactor. When 2 leaves match the same code and resolve to the same canonical shape — most often `manual-loading-flags.md` + `boolean-discriminator-subs.md` on one screen, both replaced by the same Nine States / tags machine, or an HTTP-shaped `imperative-effects.md` write that collapses into the `manual-retry-loops.md` Managed-HTTP fix — name each diagnosis but fold their rewrites into one consolidated fix. Independent rewrites for the same machine contradict each other.
 
 ## Per-leaf format
 
-Each leaf carries 5 sections — Detection rules / Why it's an anti-pattern / The canonical fix / Worked example / Edge cases — locked in [`../spec/design.md` §L5](../spec/design.md) (`schemaless-events.md` adds a sixth additive "Regression example"). The catalogue grows only when an anti-pattern surfaces across 3+ real reviews; the growth procedure and deferred candidates live in [`../spec/design.md`](../spec/design.md).
+Each leaf carries 5 sections — Detection rules / Why it's an anti-pattern / The canonical fix / Worked example / Edge cases — locked in [`../spec/design.md` §L5](../spec/design.md) (`schemaless-events.md` adds a sixth additive "Regression example"). The catalogue grows only when an anti-pattern surfaces across 3+ real reviews; the growth procedure and deferred candidates live in [`../spec/design.md`](../spec/design.md) — not shipped in the package; reach it from a monorepo clone.
 
 ## Cross-references
 
 - [`../SKILL.md`](../SKILL.md) — the skill's top-level entry; describes when this catalogue is consulted.
 - [`skills/re-frame2/patterns/`](../../re-frame2/patterns) — the canonical-idiom leaves each anti-pattern routes to.
-- [`../spec/design.md`](../spec/design.md) — the design rationale (catalogue shape, 5-section leaf format, correction contract, growth procedure, deferred candidates).
+- [`../spec/design.md`](../spec/design.md) — the design rationale (catalogue shape, 5-section leaf format, correction contract, growth procedure, deferred candidates). Not shipped in the package; reach it from a monorepo clone.

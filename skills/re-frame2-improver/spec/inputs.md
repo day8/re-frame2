@@ -24,7 +24,7 @@ The normative source each leaf footers to. Verified-current ownership the leaves
 | Surface | Spec owner |
 |---------|-----------|
 | Managed HTTP — explicit reply addressing (`:reply-to` / `:on-success` / `:on-failure`) + the canonical reply envelope appended as the target event's last arg (`:status` ∈ `:ok` / `:error` / `:cancelled`; `:stale` suppressed) + the closed failure-category set (`:rf.http/transport` `:rf.http/cors` `:rf.http/timeout` `:rf.http/http-4xx` `:rf.http/http-5xx` `:rf.http/decode-failure` `:rf.http/accept-failure` `:rf.http/aborted`) + the retryable subset. The old co-located reply-to-origin default is retired; a targetless request throws `:rf.error/http-no-reply-target`. | [014-HTTPRequests](../../../spec/014-HTTPRequests.md) |
-| State machines + tags query layer (`reg-machine`, `:tags`, `machine-has-tag?`) | [005-StateMachines](../../../spec/005-StateMachines.md) |
+| State machines + tags query layer (`reg-machine`, `:tags`, and the `[:rf.machine/has-tag? <machine-id> <tag>]` subscription — a tag read is a subscription vector, not a fn) | [005-StateMachines](../../../spec/005-StateMachines.md) |
 | Schemas at boundaries (`:schema`, `reg-app-schema`, the `:rf.schema/at-boundary` registered interceptor ref — `validate-at-boundary-interceptor` is the registration-boundary Var, not a chain entry) | [010-Schemas](../../../spec/010-Schemas.md) |
 | Views as pure projections | [000-Vision §Pointers to per-area Specs](../../../spec/000-Vision.md#pointers-to-per-area-specs) |
 | Data-only fx convention | [Conventions](../../../spec/Conventions.md) |
