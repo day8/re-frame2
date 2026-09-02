@@ -46,8 +46,11 @@ Do **not** call `(registrar/clear-all!)` from a fixture — under CLJS, framewor
 A suite with `(async done …)` tests cannot use the fn-form fixture: `cljs.test` HARD-ERRORS with *"Async tests require fixtures to be specified as maps"*. The reason is structural — the fn-form establishes the body's ambient frame scope with a dynamic `binding`, and that binding unwinds the instant the fixture fn returns, which for an async test is *before* the body resumes on a later tick. Pass `:async? true` to get the `{:before :after}` map-form instead:
 
 ```clojure
+;; `substrate` is the alias bound by §The single import above — on CLJS it resolves
+;; to the Reagent adapter. (`plain-atom` is named only inside the JVM-only variant,
+;; and `async` is CLJS-only, so this suite is assembled from the single import.)
 (use-fixtures :each
-  (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter :async? true}))
+  (ts/make-reset-runtime-fixture {:adapter substrate/adapter :async? true}))
 
 (deftest drains-across-the-async-boundary
   (async done

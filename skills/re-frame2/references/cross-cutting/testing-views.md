@@ -25,7 +25,8 @@ This is the dominant shape for an app-developer e2e view test: one frame, one in
 
 (use-fixtures :each
   (ts/make-reset-runtime-fixture {:adapter counter/test-adapter   ;; your substrate adapter
-                                  :init-fn counter/setup!}))       ;; reg-event / reg-sub / reg-view
+                                  :init-fn counter/setup!         ;; reg-event / reg-sub / reg-view
+                                  :async?  true}))                ;; the CLJS (async done …) row below needs it
 
 ;; Synchronous — dispatch-sync drains before the assertion, so walk the
 ;; re-rendered view directly.
@@ -35,6 +36,8 @@ This is the dominant shape for an app-developer e2e view test: one frame, one in
 ```
 
 `make-reset-runtime-fixture` installs the `:adapter`, seats `:rf/default` as the ambient frame for each test (so `dispatch-sync` / `subscribe` resolve to it without a `{:frame …}` opt), and runs `:init-fn` inside that scope. Its registrations land in the global registrar and roll back around each test. `h/testid` is the **authoring** helper — standardise the `:data-testid` fragment at the view call site (`[:span (h/testid "n") @(rf/subscribe [:counter/n])]`); `find-by-testid` locates it, `text-content` reads its text, `invoke-handler` fires an attached handler.
+
+**Why `:async? true` sits on that one fixture.** The CLJS row further down is an `(async done …)` test, and `cljs.test` hard-errors on a fn-form fixture for an async row (*"Async tests require fixtures to be specified as maps"*); the opt selects the `{:before :after}` map-form, whose `:before` establishes the ambient frame with a persistent `set!` that survives the async boundary. On the JVM it is **inert** — `clojure.test` has no async rows and no map-fixture support — so one plain `:async? true` serves a `.cljc` suite on both hosts, with no reader conditional at the call site. Full contract: [`testing.md` §Async (`cljs.test`) suites](testing.md#async-cljstest-suites--async-true).
 
 For an async settle, poll the re-rendered view with `ts/poll-until` until it matches:
 
