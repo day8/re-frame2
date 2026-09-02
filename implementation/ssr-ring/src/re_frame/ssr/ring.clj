@@ -112,7 +112,10 @@
                       (head must be a CALLABLE — the Var reg-view defs, or
                       (rf/view :id); a keyword head is an HTML element, never
                       a view — rf2-j81hs)
-                      against the settled request frame.
+                      against the settled request frame. Required iff no
+                      `:renderer` is supplied — only the default JVM-local
+                      renderer reads it; with a custom `:renderer` it is
+                      optional and ignored.
                       Two spellings emit byte-identical HTML but differ on
                       the hydration hash channel (rf2-q1b96):
 
@@ -193,7 +196,9 @@
                       behaviour, rf2-q1b96). A throw is projected exactly
                       like a `:root-view` render throw. Default:
                       `re-frame.ssr.ring.pipeline/local-renderer`, the
-                      JVM-local `:root-view` render.
+                      JVM-local `:root-view` render — the only renderer
+                      that reads `:root-view`, which is why `:root-view` is
+                      required exactly when this opt is absent.
     :html-shell     — (body-html payload-edn opts) → string. Defaults
                       to `default-html-shell`. Replace to inject custom
                       <head>, scripts, JSON-LD, etc.
