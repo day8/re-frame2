@@ -37,6 +37,7 @@ const FILES = [
   'timeout.test.cjs',
   'bytes.test.cjs',
   'envelope.test.cjs',
+  'serve.test.cjs',
   'absence.test.cjs',
 ];
 
