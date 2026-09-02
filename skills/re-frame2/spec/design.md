@@ -12,7 +12,7 @@ Help an AI write working re-frame2 ClojureScript application code while spending
 
 1. **Correctness — recipes over explanations.** Operationalised guidance ("use a machine when X") over abstract principles. The AI reaches for a canonical shape, doesn't derive one. **No verification module** — no `references/verify.md`, no essay on why tests matter (Pillar 4: the AI already knows). What the skill does carry is one line of workflow: on an existing project the agent runs the project's own declared gate after it edits, and reports the result (L3).
 2. **Idiomaticness — verified against `implementation/**` + `examples/**`.** The CLJS reference is the source of truth for *what the API is*. The spec corpus is *why*; it's never quoted for surface claims.
-3. **Context economy — distillation discipline.** `SKILL.md` is a router; one-level-deep leaves carry the depth. Every line costs context every time it loads. SKILL.md targets ~180 lines (well under Anthropic's 500-line ceiling); reference / pattern leaves target ~150, ceiling 250.
+3. **Context economy — distillation discipline.** `SKILL.md` is a router; one-level-deep leaves carry the depth. Every line costs context every time it loads. SKILL.md targets ~180 lines (well under Anthropic's 500-line ceiling); reference / pattern leaves target ~150 lines. Both leaf ceilings — lines *and* bytes — are set once in [`skills/README.md` §Leaf size discipline](../../README.md#leaf-size-discipline); this file defers there rather than restating a partial figure.
 4. **Assume training knowledge — teach only the re-frame2 binding.** The AI already knows what WebSockets, FSMs, optimistic updates, and HTTP retry are. The skill's job is to bridge that to the specific re-frame2 features (`reg-machine`, `:rf.http/managed`, `:fsm/parallel-regions`, etc.). The **cut-test**: if a sentence could be written about React, Vue, or Elm unchanged, it belongs in training data, not this skill.
 
 ## 3. Locked decisions
@@ -72,8 +72,8 @@ Per Mike's standing memory rule "Findings is local-only" — design exploration 
 ### In scope
 
 - ClojureScript application authors writing re-frame2 code.
-- The `reg-*` family — `reg-event` (the one public event registrar), `reg-sub`, `reg-fx`, `reg-cofx`, `reg-flow`, `reg-interceptor`, `reg-view`, `reg-machine`, `reg-route`, `reg-story`, `reg-app-schema`, `reg-resource`, `reg-mutation`.
-- The canonical patterns — RemoteData, Forms, Boot, WebSocket, NineStates, ManagedHTTP, AsyncEffect, LongRunningWork, StaleDetection.
+- The `reg-*` family — `reg-event` (the one public event registrar), `reg-sub`, `reg-fx`, `reg-cofx`, `reg-flow`, `reg-interceptor`, `reg-view`, `reg-machine`, `reg-route`, `reg-story`, `reg-app-schema`, `reg-resource`, `reg-resource-scope`, `reg-mutation`.
+- The canonical patterns — RemoteData, Resources, ResourcesMutations, Forms, Boot, WebSocket, NineStates, ManagedHTTP, AsyncEffect, LongRunningWork, StaleDetection, ReusableComponents, StatefulComponents, FormAction — fourteen, one leaf each under `patterns/`, and the same roster `SKILL.md`'s frontmatter `description` advertises.
 - Frames, regions, tags, machine snapshots, the event-state cycle.
 - Test-authoring (`make-reset-runtime-fixture`, `dispatch-sync`, `compute-sub`, `with-frame`).
 
@@ -94,6 +94,7 @@ skills/re-frame2/
 ├── README.md                    (human-facing intro)
 ├── LICENSE                      (MIT)
 ├── package.json                 (npm metadata)
+├── .claude-plugin/              (plugin manifest — shipped, per package.json files[])
 ├── examples-map.md              (pattern → worked-example cross-ref)
 ├── references/
 │   ├── fundamentals/            (events, fx, cofx, subs, views, flows, schemas, frames, images, event-state-cycle, project-structure)
@@ -109,11 +110,11 @@ skills/re-frame2/
     └── authoring-prompt.md      (one-shot reauthor prompt)
 ```
 
-Each reference / pattern / decision-tree leaf targets ~150 lines; in practice they range ~80–320. The view-test recipe SKILL.md routes to is its own leaf (`cross-cutting/testing-views.md`), so a state-only test session no longer loads it. A typical authoring session reads SKILL.md (~170) + one reference leaf + one pattern leaf ≈ ~480 LoC — well under any reasonable context budget.
+Per-leaf size discipline — the line ceiling *and* the byte ceiling — is set once in [`skills/README.md` §Leaf size discipline](../../README.md#leaf-size-discipline) and is not restated here. In practice the 47 reference / pattern / decision-tree leaves range ~50–320 lines, and a handful currently sit over one or both ceilings. The view-test recipe SKILL.md routes to is its own leaf (`cross-cutting/testing-views.md`), so a state-only test session no longer loads it. A typical authoring session reads SKILL.md (~170) + one reference leaf + one pattern leaf ≈ ~480 LoC — well under any reasonable context budget.
 
 ## 6. Discovery surface (frontmatter `description`)
 
-The `description` is "pushy" per Anthropic best practice — it lists every re-frame2 surface that should trigger discovery: `reg-event` (the one event form — EP-0018), `reg-sub`, `reg-fx`, `reg-cofx`, `reg-flow`, `reg-view`, `reg-machine`, `reg-route`, `reg-story`, `reg-app-schema`, `dispatch`, `subscribe`, `app-db`, `flows`, `frames`, `regions`, `tags`, `managed HTTP`, `RemoteData lifecycles`, plus the natural-language framing "writing tests for a re-frame2 app". The description also explicitly carves out the adjacent skills (`re-frame2-pair`, `re-frame2-setup`) so the AI routes correctly.
+The `description` is "pushy" per Anthropic best practice — it lists every re-frame2 surface that should trigger discovery: `reg-event` (the one event form — EP-0018), `reg-sub`, `reg-fx`, `reg-cofx`, `reg-flow`, `reg-view`, `reg-machine`, `reg-route`, `reg-story`, `reg-app-schema`, `dispatch`, `subscribe`, `app-db`, `flows`, `frames`, `regions`, `tags`, `managed HTTP`, `RemoteData lifecycles`, `reg-resource`, `reg-mutation`, `the nine UI states`, cached server-state / query-cache / TanStack-Query shapes, state-machine-for-HTTP shapes, plus the natural-language framing "writing tests for a re-frame2 app". The list itself is maintained in `SKILL.md`'s frontmatter; this section describes its shape rather than holding a second copy that can drift. The description also explicitly carves out the **five** adjacent skills — `re-frame2-pair` (live-app inspection), `re-frame2-setup` (greenfield bootstrap), `re-frame-migration` (v1→v2), `reagent-migration` (porting Reagent views onto Hicasso), and `re-frame2-implementor` (porting re-frame2 itself) — so the AI routes correctly.
 
 ## 7. Anti-patterns the skill explicitly resists
 
