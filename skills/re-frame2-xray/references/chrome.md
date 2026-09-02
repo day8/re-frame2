@@ -124,7 +124,10 @@ popup controls are:
 
 - **General** — panel position (right-rail inline / fullscreen overlay),
   auto-open-on-error, epoch-history depth (slider), the per-operator
-  editor-override picker, and the show-`:ungrouped` toggle.
+  editor-override picker, the show-`:ungrouped` toggle, and the
+  "Always show unchanged subs" pin (expands the Views panel's
+  `Show N unchanged subs` memo-hit disclosure for every event-bundle;
+  default OFF).
 - **Buffer** — events-retained (writes through to `(rf/configure!
   {:trace-buffer {:events-retained N}})`) + a destructive Clear-buffer
   button.

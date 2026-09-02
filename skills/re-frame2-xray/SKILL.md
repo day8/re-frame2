@@ -143,7 +143,7 @@ Four launch surfaces ship: one mount facade with three open verbs
 | Deep-link Xray to a tab / epoch / app-db path from code | **`focus!`** | `(xray/focus! {:panel :trace})`, or the fuller `{:frame :panel :epoch-id/:dispatch-id :path}` command. **Navigates an already-installed Xray — it does not install or mount** (preload / `init!` + a mount verb first). The only programmatic tab jump. |
 | Browse what's *registered* instead of one dispatch | **Static mode** | Flip the L1 mode pill or press `Cmd/Ctrl+Shift+M`. |
 | Have an AI agent inspect the runtime | **re-frame2-pair** | Out of scope here — see §First fork above. |
-| Debug a mobile browser | Not supported | Phones refuse to mount (`spec/011-Launch-Modes.md`). |
+| Debug a mobile browser | **Out of scope at v1.0** | There is no mobile launch mode (`spec/011-Launch-Modes.md` lock #5). Nothing *refuses* a phone — the mount path carries no user-agent check; the mode simply doesn't exist. |
 
 **Most common launch failure — "the panel never appeared."** Preload in,
 page loaded, no inline panel = a **missing layout host**: nothing matched
