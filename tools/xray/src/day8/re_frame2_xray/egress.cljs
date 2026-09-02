@@ -25,6 +25,21 @@
   the defaults here makes the shortest call the safe one (rf2-rcogp)."
   (:require [re-frame.core :as rf]))
 
+(def ^:private no-frame
+  "Forwarded as `:frame` when a caller passes `:frame` EXPLICITLY as nil, so
+  `elide-wire-value` takes its unresolvable-frame arm instead of resolving
+  the ambient frame. It has to be a value no frame can be registered under,
+  and a keyword is not one: the registry is keyed by whatever `:id`
+  `make-frame` is handed, and every keyword — however it is namespaced — is
+  a public id an app can spell. The second pass used `::no-frame`, which is
+  `:day8.re-frame2-xray.egress/no-frame`; a live frame under that id made an
+  unselected copy resolve to it and egress RAW under its empty registry
+  (rf2-7htk7, third pass). A fresh host object is an IDENTITY rather than a
+  datum — nothing outside this var can produce an equal value — so no
+  registration can match it, and `frame/frame` misses on it exactly as on a
+  destroyed id."
+  (js/Object.))
+
 (defn egress-value
   "Project `value` for an off-box sink (console, clipboard) through the
   framework's wire-elision walker with the off-box defaults BAKED IN.
@@ -67,9 +82,9 @@
                                  :rf.size/include-large?     include-large?}
                           (seq path)              (assoc :path (vec path))
                           ;; An explicitly-passed `:frame` is forwarded even
-                          ;; when nil — substituting a sentinel that can never
-                          ;; be a registered frame id, so the walker takes its
-                          ;; unresolvable/fail-closed arm instead of falling
-                          ;; through to the ambient frame.
+                          ;; when nil — substituting `no-frame`, an identity
+                          ;; no registration can match, so the walker takes
+                          ;; its unresolvable/fail-closed arm instead of
+                          ;; falling through to the ambient frame.
                           (contains? opts :frame) (assoc :frame (or (:frame opts)
-                                                                    ::no-frame))))))
+                                                                    no-frame))))))
