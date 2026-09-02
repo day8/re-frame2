@@ -43,7 +43,7 @@ The walker is also dev-only by classpath: Xray's preload is `:devtools/preloads`
 
 ## React-version regression check
 
-**Each React major bump (16 → 17 → 18 → 19 → …) MUST run a smoke test that confirms the walker still reads parent/child correctly.** The smoke test lives in `tools/xray/test/day8/re_frame2_xray/views/fiber_walker_cljs_test.cljs` and stubs a minimal Fiber-shaped object graph that mirrors the React version's published structure. If the smoke breaks, the choice is binary:
+**Each React major bump (16 → 17 → 18 → 19 → …) MUST run a smoke test that confirms the walker still reads parent/child correctly.** The smoke test stubs a minimal Fiber-shaped object graph that mirrors the React version's published structure. It is **not yet written** — it lands with the Fiber-walker itself (rf2-l1hh), and until then this MUST has no home. If the smoke breaks, the choice is binary:
 
 1. **Ship a fix** — update the walker to the new Fiber slot names / shape. This is the expected path when React renames a slot but keeps the structural model.
 2. **Fall back to data-attribute tagging** — each `reg-view` mutates its first element's attribute map to include `data-rf-view="<name>"`; the walker queries `document.querySelectorAll('[data-rf-view]')` and infers parent ⊃ children by DOM containment. This is the React-version-independent escape hatch.
@@ -99,14 +99,20 @@ This capability unlocks:
 
 ## Ownership + cross-references
 
+The Fiber-walker design is **locked and wanted** (Decisions log below) but is
+**not yet built** in the CLJS reference. The only capture path that ships today
+is the `data-rf-view` fallback walker. Rows below say which is which: a row
+marked *not yet shipped* names a surface this contract still requires, not one
+that was withdrawn (rf2-l1hh).
+
 | Surface                                | Owner                                                                  |
 |----------------------------------------|------------------------------------------------------------------------|
-| Fiber-walker implementation (CLJS)     | `tools/xray/src/day8/re_frame2_xray/views/fiber_walker.cljs`         |
-| Group-by-tree renderer                 | `tools/xray/src/day8/re_frame2_xray/views/group_by_tree.cljs`        |
-| Views panel toggle wiring              | `tools/xray/src/day8/re_frame2_xray/panels/views_view.cljs`          |
-| React-version regression smoke         | `tools/xray/test/day8/re_frame2_xray/views/fiber_walker_cljs_test.cljs` |
+| Fiber-walker implementation (CLJS)     | **Not yet shipped** — no namespace implements it in the CLJS reference. Still the locked primary path (rf2-mxkq7). |
+| Group-by-tree renderer                 | **Not yet shipped** — depends on the Fiber-walker above.               |
+| Views panel toggle wiring              | **Not yet shipped** — Xray ships no Views panel today.                 |
+| React-version regression smoke         | **Not yet shipped** — see [§React-version regression check](#react-version-regression-check) for the MUST this owes. |
+| Fallback walker (`data-rf-view` path)  | `tools/xray/src/day8/re_frame2_xray/views/view_walker.cljs` — the only capture path that ships; its own docstring records its fallback status. |
 | Production DCE contract                | `implementation/scripts/check-bundle-isolation.cjs`                    |
-| Fallback (data-attribute tagging)      | Documented in findings §12.1 (deprecated to fallback status)            |
 | Reactive-substrate adapter API         | [`006-ReactiveSubstrate.md`](006-ReactiveSubstrate.md) (Fiber is the *contract*, not an adapter-side surface) |
 | Xray Views panel                      | `tools/xray/spec/012-Views.md`                                        |
 
@@ -114,3 +120,4 @@ This capability unlocks:
 
 - **2026-05-19 ~14:55 AUSEST** — Mike LOCKS Fiber-reading for parent/child hierarchy capture. Per-component metadata reads STAY REJECTED. Comments 4–5 (data-attribute tagging as primary) deprecated to fallback status. (Findings doc §11 Comment 6, §12.)
 - **2026-05-19** — Walker implementation lands behind `interop/debug-enabled?` gate; React-version smoke test seeded for React 16 + 17+. Production DCE verified via `npm run test:bundle-isolation`.
+- **2026-09-03** — Bookkeeping correction (rf2-l1hh). The Ownership table asserted four `tools/xray` paths that do not exist (`fiber_walker.cljs`, `group_by_tree.cljs`, `views_view.cljs`, `fiber_walker_cljs_test.cljs`), and §React-version regression check asserted the smoke test already lived at the last of them. Verified at source: none of the four exists, the only capture path that ships is `views/view_walker.cljs` (the `data-rf-view` fallback, whose docstring names the Fiber-walker as primary), and `__rf2_view_id__` appears in no source file. The rows now say *not yet shipped* instead of naming files. **This corrects the record only — it does not revisit the 2026-05-19 lock, and the Fiber-walker remains the wanted primary path.** Whether to build it is open and tracked separately.
