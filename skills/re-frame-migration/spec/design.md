@@ -94,31 +94,32 @@ Per Mike's standing memory rule "Findings is local-only" — any exploration of 
 ```
 skills/re-frame-migration/
 ├── SKILL.md                       (router; ~165 lines)
-├── README.md                      (human-facing intro; ~95 lines)
+├── README.md                      (human-facing intro; ~100 lines)
 ├── LICENSE                        (MIT, mirrors re-frame2-setup)
 ├── package.json                   (npm metadata for distribution)
 ├── .claude-plugin/plugin.json     (Claude Code plugin metadata)
 ├── references/
-│   ├── kickoff-prompt.md           (~75 lines)
-│   ├── inventory-and-plan.md       (~100 lines; Phase 0a — inventory add-ons + features, scan source, per-item plan)
+│   ├── kickoff-prompt.md           (~70 lines)
+│   ├── inventory-and-plan.md       (~135 lines; Phase 0a — inventory add-ons + features, scan source, per-item plan)
 │   ├── floor-gate.md               (~110 lines; Phase 0b — the React-19 / Reagent-2 floor pre-flight gate, six checks + go/no-go)
 │   ├── setup.md                    (~225 lines; M-0 — the dep-coord swap and everything keyed to it)
 │   ├── release-compile-gate.md     (~30 lines; Phase 4 — the optimized/release compile gate, -Xss for the StackOverflow class)
-│   ├── xray-replaces-10x.md        (~220 lines; devtools swap — re-frame-10x → Xray)
-│   ├── breaking-changes.md         (~240 lines; v1→v2 rule index + the loud/silent failure-visibility axis)
-│   ├── pre-rename-upgrades.md      (~40 lines; v2-pre-rename-only rule index — M-55–M-69 + data-classification retirements; never loaded on a v1→v2 migration)
-│   ├── async-flow-to-machines.md   (~30 lines; O-16 ROUTER LEAF → the corpus companion migration/from-re-frame-v1/async-flow-fx-to-reg-machine.md, which is the sole full owner)
-│   ├── http-fx-to-managed-http.md  (~30 lines; O-17 ROUTER LEAF → the corpus companion migration/from-re-frame-v1/http-fx-to-managed-http.md, which is the sole full owner)
+│   ├── xray-replaces-10x.md        (~225 lines; devtools swap — re-frame-10x → Xray)
+│   ├── breaking-changes.md         (~275 lines; v1→v2 rule index + the loud/silent failure-visibility axis)
+│   ├── pre-rename-upgrades.md      (~45 lines; v2-pre-rename-only rule index — M-44 / M-55–M-61 / M-31a / M-31b / M-63–M-65 / M-67–M-69 / M-74 + data-classification retirements; never loaded on a v1→v2 migration)
+│   ├── async-flow-to-machines.md   (~20 lines; O-16 ROUTER LEAF → the corpus companion migration/from-re-frame-v1/async-flow-fx-to-reg-machine.md, which is the sole full owner)
+│   ├── http-fx-to-managed-http.md  (~20 lines; O-17 ROUTER LEAF → the corpus companion migration/from-re-frame-v1/http-fx-to-managed-http.md, which is the sole full owner)
 │   ├── sequencing.md               (~185 lines)
-│   ├── orchestrating-a-large-migration.md (~110 lines; opt-in — large-migration partition + wave sequencing)
-│   ├── auto-call-site-rewrites.md  (~430 lines; Type A — ns / effect-map / dispatch)
-│   ├── auto-cross-cutting.md       (~395 lines; Type A — keywords / interceptors / views / init / artefacts)
-│   ├── guided-handlers-state.md    (~250 lines; Type B — handler / view / db-seeding / error-handler / machine-spawn / Reagent-surface)
-│   ├── guided-interceptors-subs.md (~400 lines; Type B — interceptor / sub / payload / observer)
-│   ├── runtime-smoke-test.md       (~55 lines; Phase 4 — "compiles" is not the done-bar; the silent-fail checklist + live-app-db boot smoke-test loop)
+│   ├── orchestrating-a-large-migration.md (~120 lines; opt-in — large-migration partition + wave sequencing)
+│   ├── auto-call-site-rewrites.md  (~560 lines; Type A — ns / effect-map / dispatch)
+│   ├── auto-cross-cutting.md       (~420 lines; Type A — keywords / interceptors / views / init / artefacts)
+│   ├── guided-handlers-state.md    (~490 lines; Type B — handler / view / db-seeding / error-handler / machine-spawn / Reagent-surface)
+│   ├── guided-interceptors-subs.md (~355 lines; Type B — interceptor / sub / payload / observer)
+│   ├── runtime-smoke-test.md       (~120 lines; Phase 4 — "compiles" is not the done-bar; the silent-fail checklist + live-app-db boot smoke-test loop)
 │   ├── error-events.md             (~110 lines; pointer to Spec 009's error-event catalogue)
-│   ├── causal-world-inputs.md      (~110 lines; EP-0010 recording rule + EP-0017 reshape (M-72) — ambient durable host reads → declared recordable coeffects)
-│   └── output-format.md            (~120 lines)
+│   ├── causal-world-inputs.md      (~125 lines; EP-0010 recording rule + EP-0017 reshape (M-72) — ambient durable host reads → declared recordable coeffects)
+│   ├── output-format.md            (~125 lines)
+│   └── issue-filing.md             (~50 lines; the shell-injection-safe upstream-issue recipe — Write the body to a file, `gh issue create --body-file`, never `--body` / stdin / here-doc; title + body redaction pass. SKILL.md's Recipes line routes here)
 └── spec/
     ├── design.md                  (this file)
     ├── inputs.md                  (the canonical inputs the skill leans on)
@@ -126,18 +127,18 @@ skills/re-frame-migration/
     └── authoring-prompt.md        (one-shot reauthor prompt)
 ```
 
-**Totals**: SKILL.md (~165) + 20 reference leaves (~3,190) + 4 spec files (~430) ≈ ~3,785 LoC across 26 markdown files. (The 4th `spec/` file, `improving.md`, is the maintenance-methodology meta-doc — the friction-loop + quality-bar for *finding* skill improvements, distinct from `inputs.md` §6's mechanical update procedure for *applying a known* corpus change.) **The two v1-add-on O-16 / O-17 leaves are short ROUTER LEAVES (~30 lines each), not full guides.** Per L1 the migration corpus is the source of truth and the skill does not duplicate it: the full O-16 / O-17 translation guides are owned **once**, in the corpus companions (`migration/from-re-frame-v1/async-flow-fx-to-reg-machine.md` / `http-fx-to-managed-http.md`, the files the README's O-16 / O-17 sections point to), and the packaged `references/async-flow-to-machines.md` / `references/http-fx-to-managed-http.md` leaves only route to them (framing + "load the author-pinned corpus" + spec/sibling links — no mappings / examples / escalation / reporting). Several leaves still run **over** the 250-line soft ceiling — the two Type A catalogues (`auto-call-site-rewrites.md` ~430, `auto-cross-cutting.md` ~395), and both Type B catalogues (`guided-interceptors-subs.md` ~400, `guided-handlers-state.md` ~250) — because their shape-catalogue / worked-example content resists further splitting (`setup.md` was on this list at ~285 until rf2-3o0uh split its Phase-0b and Phase-4 gates into `floor-gate.md` and `release-compile-gate.md`, bringing it under the line ceiling), and a layer of restated rule rationale crept into `breaking-changes.md` / `sequencing.md` / SKILL.md's Boot section before the redundancy-trim pass folded it back to single-home + pointers. SKILL.md is well under the 500-line Anthropic guideline. *(Line counts are approximate — they drift as leaves are edited; the authoritative count is `wc -l skills/re-frame-migration/{references,spec}/*.md`.)*
+**Totals**: SKILL.md (~165) + 21 reference leaves (~3,805) + 4 spec files (~440) ≈ ~4,405 LoC across 27 markdown files. (The 4th `spec/` file, `improving.md`, is the maintenance-methodology meta-doc — the friction-loop + quality-bar for *finding* skill improvements, distinct from `inputs.md` §6's mechanical update procedure for *applying a known* corpus change.) **The two v1-add-on O-16 / O-17 leaves are short ROUTER LEAVES (~30 lines each), not full guides.** Per L1 the migration corpus is the source of truth and the skill does not duplicate it: the full O-16 / O-17 translation guides are owned **once**, in the corpus companions (`migration/from-re-frame-v1/async-flow-fx-to-reg-machine.md` / `http-fx-to-managed-http.md`, the files the README's O-16 / O-17 sections point to), and the packaged `references/async-flow-to-machines.md` / `references/http-fx-to-managed-http.md` leaves only route to them (framing + "load the author-pinned corpus" + spec/sibling links — no mappings / examples / escalation / reporting). Several leaves still run **over** the 250-line soft ceiling — the two Type A catalogues (`auto-call-site-rewrites.md` ~560, `auto-cross-cutting.md` ~420), both Type B catalogues (`guided-handlers-state.md` ~490, `guided-interceptors-subs.md` ~355), and now the rule index (`breaking-changes.md` ~275) — because their shape-catalogue / worked-example content resists further splitting (`setup.md` was on this list at ~285 until rf2-3o0uh split its Phase-0b and Phase-4 gates into `floor-gate.md` and `release-compile-gate.md`, bringing it under the line ceiling), and a layer of restated rule rationale crept into `breaking-changes.md` / `sequencing.md` / SKILL.md's Boot section before the redundancy-trim pass folded it back to single-home + pointers. SKILL.md is well under the 500-line Anthropic guideline. *(Line counts are approximate — they drift as leaves are edited; the authoritative count is `wc -l skills/re-frame-migration/{references,spec}/*.md`.)*
 
 **Type A / Type B split into two leaves each.** The 365L `automated-transforms.md` and 300L `guided-checklist.md` originals violated the 250-line soft ceiling. They've been split along natural cluster boundaries: Type A divides into per-call-site rewrites (ns / effect-map / dispatch shapes) and cross-cutting (keyword renames / interceptor cleanup / views / init / artefact adds); Type B divides into handler-state-shaped (M-3, M-5, M-10, M-11, M-12, M-13, M-14, M-15) and interceptor-sub-payload-shaped (M-17, M-18, M-19, M-21, M-23, M-26). All four leaves remain one level deep from SKILL.md — no SKILL → A → B chains.
 
 ## 6. Why the leaf split
 
-The eighteen reference leaves are sized to load on demand without spending context budget on irrelevant detail. Typical migration session loads:
+The twenty-one reference leaves are sized to load on demand without spending context budget on irrelevant detail. Typical migration session loads:
 
-- **Phase 0a + 0b + Phase 2 (bump-only success)**: `inventory-and-plan.md` (the inventory umbrella) + `floor-gate.md` (Phase 0b) + `setup.md` (the coord swap) + `output-format.md`. ~455 LoC — and a Phase-0b-only session now loads `floor-gate.md` alone, which is the point of the split.
-- **Phase 3 (sweep with Type A only)**: `auto-call-site-rewrites.md` + `auto-cross-cutting.md` + `breaking-changes.md` + `sequencing.md` + `output-format.md`. ~960 LoC.
-- **Phase 3 (sweep with Type A + Type B)**: add the relevant `guided-*.md` (typically one; both for cross-surface migrations). ~1,120–1,280 LoC.
-- **Full migration (rare)**: all eighteen reference leaves. ~2,680 LoC. (`pre-rename-upgrades.md` still only loads for a pre-rename v2 codebase — a v1→v2 migration never needs it. The O-16 / O-17 leaves are now short routers, so a full-migration load is lighter than it was.)
+- **Phase 0a + 0b + Phase 2 (bump-only success)**: `inventory-and-plan.md` (the inventory umbrella) + `floor-gate.md` (Phase 0b) + `setup.md` (the coord swap) + `output-format.md`. ~590 LoC — and a Phase-0b-only session now loads `floor-gate.md` alone, which is the point of the split.
+- **Phase 3 (sweep with Type A only)**: `auto-call-site-rewrites.md` + `auto-cross-cutting.md` + `breaking-changes.md` + `sequencing.md` + `output-format.md`. ~1,570 LoC.
+- **Phase 3 (sweep with Type A + Type B)**: add the relevant `guided-*.md` (typically one; both for cross-surface migrations). ~1,925–2,420 LoC.
+- **Full migration (rare)**: all twenty-one reference leaves. ~3,805 LoC. (`pre-rename-upgrades.md` still only loads for a pre-rename v2 codebase — a v1→v2 migration never needs it. The O-16 / O-17 leaves are now short routers, so a full-migration load is lighter than it was.)
 
 Even the worst case is well under any reasonable context budget; the median case is ~25% of the total skill content. The Type A split lets a Phase-3 sweep that only trips per-call-site rules load `auto-call-site-rewrites.md` (~250L) without dragging in the cross-cutting catalogue (and vice versa). Likewise the Type B split lets a sub-only migration load just `guided-interceptors-subs.md`.
 

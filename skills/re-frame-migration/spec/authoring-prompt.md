@@ -16,22 +16,21 @@ A self-contained prompt that re-authors the `re-frame-migration` skill from this
 > *4. `skills/re-frame2/SKILL.md` + `skills/re-frame2/references/**` — the voice / density / load-bearing-rules style to mirror.*
 > *5. `skills/re-frame2-setup/SKILL.md` + `skills/re-frame2-setup/{LICENSE,package.json,.claude-plugin/plugin.json}` — the closest structural analogue (per-build-tool detail, distribution metadata triad).*
 >
-> *Then write the skill at `skills/re-frame-migration/` with the **exact file structure and LoC ranges in [`design.md` §5 File structure (locked)](design.md)** — that block is the single source of truth for the tree (it lists all 18 reference leaves, including `inventory-and-plan.md`, `xray-replaces-10x.md`, `error-events.md`, `runtime-smoke-test.md` (Phase 4 boot smoke-test), `causal-world-inputs.md` (EP-0010 recording rule + EP-0017 reshape), `orchestrating-a-large-migration.md`, `pre-rename-upgrades.md` (the v2-pre-rename-only rule index), and the two add-on conversion guides `async-flow-to-machines.md` / `http-fx-to-managed-http.md`, plus the four `spec/` meta-docs). Do not restate the tree here; read it from `design.md` so the two meta-docs cannot drift apart. The headline shape is: `SKILL.md` (router) + `README.md` + the distribution triad (`LICENSE` / `package.json` / `.claude-plugin/plugin.json`) + the `references/` leaves + the `spec/` meta-docs + `evals/evals.json`.*
+> *Then write the skill at `skills/re-frame-migration/` with the **exact file structure and LoC ranges in [`design.md` §5 File structure (locked)](design.md)** — that block is the single source of truth for the tree (it lists all 21 reference leaves, including `inventory-and-plan.md`, `floor-gate.md` (Phase 0b) and `release-compile-gate.md` (Phase 4) — both split out of `setup.md` — `xray-replaces-10x.md`, `error-events.md`, `runtime-smoke-test.md` (Phase 4 boot smoke-test), `causal-world-inputs.md` (EP-0010 recording rule + EP-0017 reshape), `orchestrating-a-large-migration.md`, `pre-rename-upgrades.md` (the v2-pre-rename-only rule index), `issue-filing.md` (the shell-injection-safe upstream-issue recipe), and the two add-on conversion guides `async-flow-to-machines.md` / `http-fx-to-managed-http.md`, plus the four `spec/` meta-docs). Do not restate the tree here; read it from `design.md` so the two meta-docs cannot drift apart. The headline shape is: `SKILL.md` (router) + `README.md` + the distribution triad (`LICENSE` / `package.json` / `.claude-plugin/plugin.json`) + the `references/` leaves + the `spec/` meta-docs + `evals/evals.json`.*
 >
 > *The Type A catalogue is split in two so neither leaf exceeds the 250-line soft ceiling: per-call-site mechanical rewrites (M-0/1/4/8/9/16/23/25/38) in `auto-call-site-rewrites.md`; cross-cutting renames + view / init / artefact infrastructure (M-20/21-mechanical/22/24/26-mechanical/27-33/35/40) in `auto-cross-cutting.md`. Type B is split the same way: handler-state-shaped rules (M-3/5/10/11/12/13/14/15) in `guided-handlers-state.md`; interceptor- / sub- / payload- / observer-shaped rules (M-17/18/19/21/23/26) in `guided-interceptors-subs.md`. The error-event vocabulary is a pointer leaf (`error-events.md`) and the 10x→Xray devtools swap is `xray-replaces-10x.md`. All leaves stay one level deep from SKILL.md.*
 >
 > *Each leaf has a single job; the leaves don't duplicate each other; SKILL.md routes between them. Every leaf is one level deep from SKILL.md (no SKILL → A → B chains).*
 >
-> *Cardinal rules to bake in (these go in SKILL.md):*
+> *Cardinal rules to bake in — **exactly these five**, in this order, under a "Cardinal rules (the invariants)" heading in SKILL.md:*
 >
-> *1. `migration/from-re-frame-v1/README.md` is the source of truth. The skill cites rule ids; it doesn't quote rule text.*
-> *2. Type A is automatic, Type B is asked-first. Never silently apply a Type B rewrite.*
-> *3. Smallest correct diff. No stylistic refactoring; no opt-in modernisations unless explicitly requested.*
-> *4. Apply rules in order (M-0 first, then walk).*
-> *5. JVM interop is in scope; don't silently CLJS-only the project.*
-> *6. Single-import contract for user code: `(:require [re-frame.core :as rf])`.*
-> *7. If a rule is ambiguous, file a GitHub issue against `day8/re-frame2` — don't edit `migration/from-re-frame-v1/README.md` inline. (`bd` is monorepo-internal and never invoked from a published skill — `skills/README.md` baseline.)*
-> *8. Don't invent migration rules.*
+> *1. `migration/from-re-frame-v1/README.md` is the source of truth — don't invent rules. Every rewrite cites a rule id; an unmatched call site that isn't on the preserved list is stopped on and flagged, never guessed. A genuinely ambiguous rule files a GitHub issue against `day8/re-frame2` rather than editing MIGRATION.md inline. (`bd` is monorepo-internal and never invoked from a published skill — `skills/README.md` baseline.)*
+> *2. Type A is automatic; Type B is asked-first. Never silently apply a Type B rewrite.*
+> *3. Smallest correct diff. No stylistic refactoring, no opt-in modernisations unless explicitly requested; apply M-rules in MIGRATION.md order (M-0 first, then walk); JVM interop is in scope — don't silently CLJS-only the project.*
+> *4. Announce, then sweep. Before a multi-file Type-A sweep, post the rule, the count of files matched, and a one-line example diff shape, then proceed — a progress update the author can scope-limit, not a second acknowledgement to wait on. Unresolved Type-B decisions are presented in ONE batch at the end.*
+> *5. The skill runs the gates it discovers (this is lock L3 below — the two are the same rule, stated once). It finds the project's own noninteractive install / compile / test commands and runs them, recording command and result; it never prints a command for the author to paste back. The Phase-4 boot smoke-test is the done-bar.*
+>
+> *Two rules that used to sit in this list are deliberately **not** cardinal rules any more, and a reauthor must not restore them as such: the single-import contract (`(:require [re-frame.core :as rf])`) is demoted to SKILL.md's "Recipes" line as part of M-1, and the upstream-issue filing procedure lives in `references/issue-filing.md`, cited from that same line.*
 >
 > *Locks to preserve verbatim:*
 >
