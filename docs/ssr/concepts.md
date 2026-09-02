@@ -591,6 +591,29 @@ allowlist vocabulary cannot express a projection, `:render-state` also accepts
 
 ### 5. Start the sidecar, and mind the skew
 
+**Where the sidecar comes from.** There is no published artefact. The
+sidecar is not on npm, it has no Clojars coordinate, and none is planned as
+of this writing — this repository publishes JVM artefacts only, and its
+package manifest is marked private, so there is nothing to `npm install` by
+name. You obtain it from a checkout of the repository, and that is the
+supported route rather than a stopgap: the package is `implementation/ssr-node`,
+self-contained CommonJS that declares no dependencies of any kind. Either
+install it into the host from that directory —
+
+```bash
+npm install /path/to/re-frame2/implementation/ssr-node
+```
+
+— or a `file:` entry in the host's `package.json` to the same effect, which
+puts the `re-frame2-ssr-node` command in the host's `node_modules/.bin`; or
+copy the directory onto the deployment host and run `node bin/serve.cjs`
+with the flags below, which is the same program. Because the manifest
+resolves nothing, copying the tree *is* the install — there is no download
+step to fail in a locked-down network, and the version you run is the
+checkout you copied. Pin that checkout the way you pin the JVM artefacts:
+the sidecar and the server bundle must move together, which is what the
+build id in this step exists to catch.
+
 ```bash
 re-frame2-ssr-node --module /srv/my-app/out/my-app-server/server.js
 ```

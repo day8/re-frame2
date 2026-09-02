@@ -589,6 +589,16 @@ The sidecar is a second production runtime, and the server-arm pricing is
 blunt that this is a real cost to a real operator. What it costs in
 practice:
 
+0. Get the package onto the host. There is no published artefact — this
+   package is not on npm, it has no Clojars coordinate, none is planned as
+   of this writing, and the repository publishes JVM artefacts only. It
+   comes from a checkout, by either route in [Using it](#using-it):
+   installed from its directory, or copied onto the host and run with
+   `node bin/serve.cjs`. Since the manifest resolves nothing, copying the
+   tree is the whole install, and the version deployed is the checkout it
+   came from — so pin that checkout as deliberately as the JVM artefact
+   versions in the same release.
+
 1. Build the server bundle with the application's own shadow-cljs
    build, targeting `:node-script` or `:node-library`, publishing the
    module contract above. It must be rebuilt and redeployed in the same
@@ -736,11 +746,34 @@ strength:
   it. There is still no allowance list — no path or string is forgiven, the
   needles were not widened by a character, and the refusal-code namespace
   `:rf.ssr-node/` keeps its absolute zero on a row of its own
-- it is on no build's source path. `implementation/shadow-cljs.edn`
-  names no build reaching it and the top-level `implementation/deps.edn`
-  has no entry for it, so it is in no module graph and there is no bundle
-  it could be in. The package also contains no `.clj`/`.cljs`/`.cljc` file
-  for a build to pick up if one ever did. This is the strong reading:
+- it is on no build's source path. `implementation/shadow-cljs.edn` and
+  the top-level `implementation/deps.edn` are read at their **loader
+  positions** — for an EDN config, the value form after each of
+  `:source-paths`, `:paths`, `:extra-paths`, `:replace-paths`, `:deps`,
+  `:extra-deps`, `:replace-deps`, `:local/root` and `:dependencies` — and
+  this package's path appears at none of them, so it is in no module graph
+  and there is no bundle it could be in. A `;;` comment is not one of
+  those keys, and `implementation/shadow-cljs.edn` does name the package
+  in one: a comment above the `:examples/login-hicasso-server` build says
+  which sidecar loads the module that build emits. That is prose about a
+  build, in the file where prose about a build belongs, and it is not a
+  way into one. This reading was once a raw-text scan of the two configs,
+  which made it a claim about *mentioning* rather than the claim its own
+  failure message states; it moved (`rf2-8arzr.9`) — the sibling of the
+  move Reading 1 made under `rf2-6ovv`, not a second and softer one.
+  Nothing was forgiven to achieve it: there is no allowance list, no path
+  or string is named as an exception, and the needles were not widened by
+  a character. The control plants a real `:source-paths` entry and a real
+  `:local/root` coordinate and requires both to be found, plants a comment
+  naming the package and requires it not to be, and then requires that
+  comment fixture to carry both needles — so the scoped scan is shown
+  walking past text a raw scan does hit, rather than passing on an empty
+  fixture. The row also fails closed on its own instrument: each config
+  must exist and must yield at least one loader position, so a missing,
+  unparseable or key-less file is not a clean scan. That is what this row
+  adds over Reading 1's repo-wide sweep, which cannot speak for a config
+  that has gone missing. The package also contains no `.clj`/`.cljs`/`.cljc`
+  file for a build to pick up if one ever did. This is the strong reading:
   absence from the graph is not a property anyone has to maintain by care
 - it adds no dependency. Every `require` in `src/` is a `node:` builtin
   or a sibling file here, and the package's own `package.json` declares no
