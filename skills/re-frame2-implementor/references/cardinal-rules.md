@@ -50,7 +50,7 @@ gh issue list --repo day8/re-frame2 --search "<agent-authored safe keywords>"
 
 **`--search` is an inline shell argument** — there is no `--search-file`, so the body-file trick cannot protect it. Author the keywords from the same restricted safe alphabet as the title (see §Title safety below); never paste transcript/evidence text (it can carry shell metacharacters the shell expands before `gh` sees argv, and it leaks raw evidence to GitHub as the query). `gh issue list` is a read (no rule-9 approval gate) — but its argument is author-it-never-paste-it all the same.
 
-**Body contents — public evidence only.** The issue body quotes `spec/` and names the EP / fixture / capability. It does NOT paste private port source, the engineer's commits, transcripts, repo-local paths, or any text the engineer hasn't seen. Re-use spec text; describe the gap; show the minimal reproduction shape; stop.
+**Body contents — public evidence only.** The issue body quotes `spec/` and names the Spec / fixture / capability — the Spec number, matching the title template, never a `docs/EP/` proposal number. It does NOT paste private port source, the engineer's commits, transcripts, repo-local paths, or any text the engineer hasn't seen. Re-use spec text; describe the gap; show the minimal reproduction shape; stop.
 
 **Shell safety for `gh issue create`.** Even the public-evidence-only body above — quoted `spec/` text, a fixture id, a sanitized minimal-reproduction shape — can carry shell metacharacters the user never inspects character by character (a `$`, a backtick, a `\` inside a quoted spec snippet). Never interpolate that text inline into the shell command (where `$`, `` ` ``, and `\` would expand). Instead, **write the body to a file with the `Write` tool**, then pass it with `gh`'s native `--body-file` flag — a single `gh issue create` invocation with no `cat` subshell, so it runs under the skill's `Bash(gh issue *)` permission. The `--body-file` path is a shell-safety mechanism only; it does **not** widen what the body may contain — the public-evidence-only boundary above still holds. This local recipe is the skill's own shell-safety core (each filing skill owns its recipe; `scripts/check_skill_mcp_drift.py` pins the load-bearing clauses):
 
@@ -73,7 +73,7 @@ gh issue list --repo day8/re-frame2 --search "<agent-authored safe keywords>"
    ```bash
    gh issue create \
      --repo day8/re-frame2 \
-     --title "spec-gap(EP-NNN): <one-line>" \
+     --title "spec-gap(Spec NNN): <one-line>" \
      --body-file '/tmp/re-frame2-issue-7f3a9c.md'
    ```
 
@@ -83,7 +83,7 @@ gh issue list --repo day8/re-frame2 --search "<agent-authored safe keywords>"
 
 `--body-file` reads the body verbatim from disk, so no shell expansion ever touches the transcript-derived text, and the only `Bash` call is a bare `gh issue create` — exactly what the skill's `allowed-tools` grants.
 
-**Title safety — the title is an inline argument; author it, never paste it.** `gh issue create` has no `--title-file` flag, so the `--body-file` trick that protects the body cannot protect the title. The `--title "spec-gap(EP-NNN): <one-line>"` argv is the one place the shell still expands text *before* `gh` receives it:
+**Title safety — the title is an inline argument; author it, never paste it.** `gh issue create` has no `--title-file` flag, so the `--body-file` trick that protects the body cannot protect the title. The `--title "spec-gap(Spec NNN): <one-line>"` argv is the one place the shell still expands text *before* `gh` receives it:
 
 - **Never paste evidence-/transcript-derived text into `--title`.** A failure string, a log line, or a suggested title can carry `$(…)`, backticks, `"`, `'`, `\`, or a newline the shell expands the moment the command runs. Engineer approval to file an issue is not approval to execute session-carried shell syntax.
 - **Author the title from a restricted safe alphabet:** letters, digits, spaces, and `- . , / ( ) :` only — no `$`, no backtick, no `"`/`'`, no `\`, no newline, no other shell metacharacter.

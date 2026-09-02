@@ -41,6 +41,8 @@ Two phases:
 2. **Phase 2 — the EP loop** ([`references/phase-2-impl-order.md`](references/phase-2-impl-order.md)): per EP — read the owner at the pin, enumerate the applicable fixtures/operators from that same pin, implement the smallest vertical slice, run the narrowest gate that covers it, repair or diagnose, update the profile only if a real choice changed. The feedback seam (the smallest conformance harness) bootstraps before or alongside the first foundation slice, and fails loud on unknown spec versions, capabilities, DSL ops, and call ops.
 
 > **Term: EP** = **Extension Point**, a numbered per-area Spec — EP 001 = [`spec/001-Registration.md`](../../spec/001-Registration.md), EP 002 = [`spec/002-Frames.md`](../../spec/002-Frames.md), etc. The spec calls these "numbered Specs"; this skill uses "EP" because the walking order, dependency graph, and conformance-fixture families are all keyed off the numbers.
+>
+> **The corpus spells a different thing "EP" too, and you will meet both.** [`docs/EP/`](../../docs/EP/README.md) holds the project's **Enhancement Proposals** — `EP-0012`, `EP-0018`, `EP-0025` and the rest — design records on the Python-PEP model, *not* Specs, and this skill cites them in that four-digit hyphenated form. The two are told apart by shape: **three digits after a space is a Spec** (`EP 012` = [`spec/012-Routing.md`](../../spec/012-Routing.md)); **four digits after a hyphen is a proposal** (`EP-0012` = the path-optics-and-canonical-forms record). A proposal is never the contract you implement against — read its normative Spec, which the citation names.
 
 ## When NOT to use this skill
 
@@ -75,7 +77,7 @@ Report at whatever granularity fits the work — no fresh-session, one-EP-per-se
 ## Done — "v1-complete against the claim"
 
 - [ ] Port profile committed and current (pin, choices, claim, score).
-- [ ] Foundation landed in order (001 → 002 → 006 → views → 009 → 015), on the shared path + identity foundation (EP-0012).
+- [ ] Foundation landed in order (001 → 002 → 006 → views → 009 → 015), on the shared path + identity foundation (`EP-0012`, a [`docs/EP/`](../../docs/EP/README.md) proposal; its normative text is [`spec/Conventions.md`](../../spec/Conventions.md)).
 - [ ] Acceptance gate 1 green: every fixture applicable to `:core/*` + `:identity/*` + `:data-classification/*` at the pin.
 - [ ] EP-006 live sub-cache witness green ([`references/phase-2-impl-order.md` §The EP-006 live sub-cache witness](references/phase-2-impl-order.md#the-ep-006-live-sub-cache-witness-port-owned)) — required whenever the cache mechanism does not intrinsically key by `rf=`: one query through two distinct host allocations, one cache-slot, exactly-once disposal, non-`rf=` negative control. Reported beside the corpus score, never folded into it; the fixtures alone cannot see a reference-keyed live cache.
 - [ ] Optional EPs per the claim; acceptance gate 2 = `claimed-applicable / claimed-applicable`.

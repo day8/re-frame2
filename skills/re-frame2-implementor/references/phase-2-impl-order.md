@@ -26,7 +26,7 @@ A loop-step-4 slice may report "not run" only while this seam does not yet exist
 
 ## The EP index — foundation (required, in dependency order)
 
-Read the shared foundation first: **EP-0012** — one `:rf/path` algebra and one canonical identity (CEDN-1), stated in [`spec/Conventions.md`](https://day8.github.io/re-frame2/spec/Conventions/) and inherited by every subsystem (cardinal rule 11); its fixtures carry the `:identity/*` family.
+Read the shared foundation first: one `:rf/path` algebra and one canonical identity (CEDN-1), stated in [`spec/Conventions.md`](https://day8.github.io/re-frame2/spec/Conventions/) and inherited by every subsystem (cardinal rule 11); its fixtures carry the `:identity/*` family. The corpus cites the design record behind it as **`EP-0012`** — a `docs/EP/` Enhancement Proposal, not a numbered Spec (see the Term box in [`SKILL.md`](../SKILL.md)); Conventions is the text you implement against.
 
 | Step | Owner (read at the pin) | Fixture families |
 |---|---|---|
