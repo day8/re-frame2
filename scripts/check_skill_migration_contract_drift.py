@@ -32,8 +32,11 @@ Two contract facts, each pinned against the shipped spec:
     `:on-error` recovery policy that earlier drafts named was REMOVED (spec/002-
     Frames.md §make-frame config grammar; spec/API.md §Error-emit; spec/009-
     Instrumentation.md §`:on-error` recovery policy — REMOVED). Error
-    observability is `register-error-listener!` (always-on) / `register-listener!`
-    (dev-only). The stale claim this gate kills: "`reg-event-error-handler` moved
+    observability is the ONE stream-parameterised verb
+    `(register-listener! :errors id f)` (always-on) / `(register-listener! :trace
+    id f)` (dev-only) — the dev/prod axis is carried by the STREAM, not by two
+    different verbs, over the closed vocabulary `:trace` / `:events` / `:errors` /
+    `:epoch`. The stale claim this gate kills: "`reg-event-error-handler` moved
     / moves to a frame-level (per-frame) `:on-error` (recovery) policy".
 
   * **M-11 (Leave-as-is variant) — a component does NOT auto-pin to
@@ -728,8 +731,12 @@ def line_problems(line: str) -> list[str]:
             "frame-level / per-frame `:on-error` recovery policy — that policy "
             "was REMOVED (rf2-hiqtk8). There is no app-steering error-recovery "
             "policy; recovery is framework-owned (typed per-category default). "
-            "Observability is `register-error-listener!` (always-on) / "
-            "`register-listener!` (dev-only). (The machine `:spawn :on-error` "
+            "Observability is ONE stream-parameterised verb: "
+            "`(register-listener! :errors id f)` (always-on) / "
+            "`(register-listener! :trace id f)` (dev-only) — the dev/prod axis "
+            "is the STREAM, not two verbs, over the closed vocabulary "
+            "`:trace` / `:events` / `:errors` / `:epoch`. (The machine "
+            "`:spawn :on-error` "
             "transition and route `:on-error` lifecycle event are unrelated "
             "live surfaces, NOT frame-level recovery policies.)"
         )
