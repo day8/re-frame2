@@ -4,7 +4,7 @@ The operator's page. It says what a pilot workspace contains, how to assemble on
 
 A pilot agent is never sent here — this page sits inside the repository the pilot is blinded to. What the agent gets is `BRIEF.md` and `FRICTION-LOG.md`, both of which land in the workspace by the procedure below.
 
-Authorized by `rf2-v04s` under [`rf2-hic-063`](README.md#what-governs-this-directory)'s ratification.
+Authorized by `rf2-v04s` under [`rf2-hic-063`](README.md#what-governs-this-directory)'s ratification; the `_shared/` line in both source manifests, under `rf2-f22y`; the documentation row in the read fence and the docs line in the layout block, under `rf2-lpfz`; the rehearsal variant of outcome 7, under `rf2-dc0c`.
 
 ## Layout
 
@@ -13,6 +13,8 @@ The published installation chapter tells a reader to clone the monorepo *beside*
 ```text
 <pilot-root>/
   re-frame2/            the checkout. A build input — see the read fence below
+    docs/core/hicasso/  the published Hicasso documentation, 29 pages. This is
+                        the pilot's reference; there is no published site yet
   app/                  the pilot's project. Everything here is the pilot's
     deps.edn
     shadow-cljs.edn
@@ -26,7 +28,7 @@ The published installation chapter tells a reader to clone the monorepo *beside*
 
 `app/deps.edn` sits one level under `<pilot-root>`, which is what makes every `:local/root "../re-frame2/…"` in the published documentation resolve without modification. Do not flatten it.
 
-**Pin the checkout.** Record the commit the workspace was built at in the log's header and do not update it mid-pilot. A pilot that silently moves onto a newer tree is measuring two things at once, and outcome 7 — upgrade across the RC — is the one place a deliberate second pin belongs.
+**Pin the checkout.** Record the commit the workspace was built at in the log's header and do not update it mid-pilot. A pilot that silently moves onto a newer tree is measuring two things at once, and outcome 7 — upgrade across the RC — is the one place a deliberate second pin belongs. On a rehearsal there is no second pin to belong there, and outcome 7 is [recorded `BLOCKED`](#rehearsal-runs-outcome-7-is-blocked) instead.
 
 ## The read fence
 
@@ -34,14 +36,16 @@ The published installation chapter tells a reader to clone the monorepo *beside*
 
 That is the whole rule, and it decides every case cleanly. Everything under `app/` is the pilot's own code, to read, run and rewrite. Hicasso — what it is, how it works, what to type, why it broke — comes from the published documentation and from nothing else.
 
-The checkout in `re-frame2/` exists because there is no published coordinate yet ([gap G1](README.md#what-the-published-documentation-does-not-answer)). It is a build input, not a reference work:
+The checkout in `re-frame2/` exists because there is no published coordinate yet ([gap G1](README.md#what-the-published-documentation-does-not-answer)). It is a build input, not a reference work — with one exception, which is that same gap wearing a second face: the published documentation has no address either. There is no site to send the pilot to, and the [installation page](../../../../core/hicasso/00-installation.md) says on its own face that nothing is published yet. Until one exists, the checkout's copy of those pages *is* the published documentation, and the pilot reads it as such. That is an exception about where the documentation is kept, not about what may be studied, and it leaves everything else on this page exactly where it was.
 
 | Allowed | Not allowed |
 | --- | --- |
-| Resolving dependencies from it via `:local/root` | Reading `implementation/` for how something works |
-| Running a tool a published page names, at the path that page gives — the migration reporter under `migration/reagent-to-hicasso/codemod` is the one that matters | Reading `spec/`, `docs/design/`, or any other example under `examples/` |
-| Reading error text and stack traces the build emits, including the file paths in them | Reading the tracker, `git log`, or any branch |
-| — | Opening a source file named in a stack trace to see what it does |
+| Reading the published documentation inside it — anything under `docs/` the site builds, which is where `docs/core/hicasso/`'s 29 pages live | Reading `implementation/` for how something works |
+| Resolving dependencies from it via `:local/root` | Reading `spec/`, `docs/design/`, or any other example under `examples/` |
+| Running a tool a published page names, at the path that page gives — the migration reporter under `migration/reagent-to-hicasso/codemod` is the one that matters | Reading the tracker, `git log`, or any branch |
+| Reading error text and stack traces the build emits, including the file paths in them | Opening a source file named in a stack trace to see what it does |
+
+**Which pages those are is decided by the site build, not by a list kept here.** Anything under `docs/` that the published site builds is documentation and is readable; anything the build leaves out is not. That is `mkdocs.yml`'s `docs_dir` minus its `exclude_docs` block, and it is worth stating as a mechanism rather than as an inventory, because an inventory drifts and this one would be read on every task. It also settles the awkward case without needing a second sentence: `docs/design/` — this page among them — is excluded from the site, so it stays out of bounds by the same rule that lets `docs/core/hicasso/` in. The repository's other trees are not under `docs/` at all and never enter the question.
 
 The last row is the one that will actually come up, and it is deliberately strict. Reading *that* a complaint came from `impl/slot.cljc` is diagnosis. Opening `impl/slot.cljc` is research, and it is the leak the programme is built to detect.
 
@@ -76,6 +80,7 @@ cp re-frame2/examples/real-apps/realworld_http/*.cljc   app/src/realworld_http/
 cp re-frame2/examples/real-apps/realworld_shared/*.cljs app/src/realworld_shared/
 cp re-frame2/examples/real-apps/realworld_http/default-avatar.svg app/public/
 cp re-frame2/examples/real-apps/realworld_http/index.html         app/public/
+cp -r re-frame2/examples/_shared                                  app/public/_shared
 cp re-frame2/examples/real-apps/realworld_http/README.md          app/
 cp re-frame2/docs/design/hicasso/product/pilots/baseline/realworld_http/baseline_test.cljs app/test/realworld_http/
 ```
@@ -86,11 +91,14 @@ Pilot 2 — LinearLite:
 mkdir -p app/src/linearlite app/public app/test/linearlite
 cp re-frame2/examples/capabilities/resources/linearlite/core.cljs  app/src/linearlite/
 cp re-frame2/examples/capabilities/resources/linearlite/index.html app/public/
+cp -r re-frame2/examples/_shared                                   app/public/_shared
 cp re-frame2/examples/capabilities/resources/linearlite/README.md  app/
 cp re-frame2/docs/design/hicasso/product/pilots/baseline/linearlite/baseline_test.cljs app/test/linearlite/
 ```
 
 The last line of each manifest is the app's behavioural baseline, and it is the one file that does not come from the app's own directory. The examples tree is test-free by policy, so each app's behavioural suite lives in the Reagent adapter's test tree and runs on the in-repo harness; [`baseline/`](baseline/README.md) carries the subset that exercises the nominated screens, rewritten as the app's own test namespace so that it stands on `cljs.test`, the core test support and the canned HTTP replies — all of which the `:local/root` route resolves — and on nothing the workspace cannot see. The pilot may read it, since it is under `app/`, which is why it names no in-tree path, bead or spec: the fence holds inside the test file as it does inside the brief. Added under `rf2-xkhul`.
+
+**The `_shared/` line is the one that is easy to leave out, and leaving it out is invisible until a browser draws the page.** Both `index.html` files link a stylesheet, a favicon and an OG image from a sibling `_shared/` directory that sits at the *root* of the examples tree, one level above each app's own folder — so a manifest written per app misses all three, and nothing in the repository ever notices, because the repository's own example runner stages that directory into each example's output as a whole-tree copy instead of serving it from where it lives. Copy the directory rather than the three files it is named for: `style.css` opens by importing `structure.css` beside it, which a file-by-file manifest drops silently and no page ever mentions. Omit the line and both workspaces serve an unstyled page — which reads as broken scaffolding, in the one place [step 5](#assemble-a-workspace) exists to stop that reading. Added under `rf2-f22y`.
 
 **3. Write the four project files** from the templates below.
 
@@ -115,6 +123,33 @@ cd app && npm test > ../baseline-reagent.log 2>&1; echo "baseline exit $?"    # 
 The runner's closing line is the count to expect — as of `rf2-xkhul` the RealWorld baseline reports `Ran 4 tests containing 123 assertions.` and the LinearLite baseline `Ran 10 tests containing 51 assertions.`, both with `0 failures, 0 errors.` — and it is the exit status that is recorded, not the count. The compile also prints a handful of `:infer-warning` lines from the framework's own source; they do not fail the run, and they are the framework's to log, not the operator's to hide. (Before `rf2-luo6` gave the test kit its own `deps.edn`, a Clojure CLI deprecation notice about the kit's external path printed here too; the coordinate route above no longer emits it.) Added under `rf2-xkhul`.
 
 **6. Copy the brief and the blank log** into `<pilot-root>/`, from [`brief-realworld.md`](brief-realworld.md) or [`brief-linearlite.md`](brief-linearlite.md), and from [`friction-log.md`](friction-log.md)'s template section.
+
+### Rehearsal runs: outcome 7 is BLOCKED
+
+A rehearsal runs on `:local/root` against a checkout, where the library has one pin and no released version behind it. Outcome 7 — upgrade across the pin — therefore cannot be attempted, and it is recorded `BLOCKED` rather than simulated by moving the checkout to a later commit. The reason is substantive rather than clerical: an upgrade on a checkout is moving a git pin, not moving a version across a release candidate, so a simulated move produces a row that *looks* like upgrade evidence, and the counted run is later read against this log. `rf2-hic-063`'s ruling of 2026-09-02 closes that reading.
+
+The briefs and [`friction-log.md`](friction-log.md) are correct as written for the counted run on a published artefact, where two pins genuinely exist, and they stay as they are. A rehearsal's difference is applied by the operator, here, to the two copies step 6 has just made — never by the pilot, who is blinded and must not be asked to work out which kind of run it is in. Two edits, both to the copies and neither to the pages they came from:
+
+**In `BRIEF.md`**, replace outcome 7 in the definition of done with:
+
+```markdown
+7. **Not part of this run.** Your project resolves the library from the
+   checkout beside it rather than from a released version, so there is no
+   released version to upgrade across and nothing here to attempt. Record
+   outcome 7 as `BLOCKED` and move on — that is the expected verdict, not a
+   failure and not a finding. Do not stand in for it by repointing the
+   checkout at a different commit.
+```
+
+**In `FRICTION-LOG.md`**, pre-fill outcome 7's row so the pilot spends nothing reaching it, and replace the attestation's two pin lines — which presuppose the move — with the single pin that is true of the run:
+
+```markdown
+| 7 | Upgrade across the pin | `BLOCKED` | Not part of this run — the library is resolved from the checkout, not a released version |
+
+Checkout pin: <sha>
+```
+
+Both replacements are written to be read alone. Neither names a rehearsal, a counted run, or this page, so the pilot meets one instruction rather than a choice between two. Added under `rf2-dc0c`.
 
 ## The four project files
 
