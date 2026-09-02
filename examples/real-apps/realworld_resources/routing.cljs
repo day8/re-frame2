@@ -25,8 +25,11 @@
    `:scope {:from-db :realworld/session}`, a named resolver reference (see
    scope.cljs) the runtime resolves against the navigation handler's app-db at
    route entry. So the route owns the feed under its nav-token and releases it on
-   leave, exactly like the public reads. Logged out, the reference resolves nil
-   and the feed entry simply isn't planned — fail-closed, nothing to load.
+   leave, exactly like the public reads. The feed is ADMITTED by route data — its
+   `:when` reads the `?feed=following` query arm — so a logged-out visitor on the
+   bare home page never asks for it. On the following-feed arm a nil session is a
+   whole-plan planning error, by design: a route `:scope` that is present and
+   resolves nil is never a silent omission (see `home-resources`).
 
    One wiring note: loading both `re-frame.resources` and `re-frame.routing` is
    what gets the `:resources` route-metadata key accepted, since resources
@@ -77,11 +80,22 @@
    ;; `{:from-db :realworld/session}` resolver. The runtime resolves the scope
    ;; against the navigation handler's app-db at route entry, owns it under the
    ;; route nav-token, and releases it on leave, just like the public reads above.
-   ;; Logged out, the reference resolves nil and the feed simply isn't planned —
-   ;; no scope, no fetch, no chance of one user's feed leaking to another. `?page=`
-   ;; flows into params here like every other paginated list.
+   ;;
+   ;; The feed is planned ONLY on the following-feed arm (`?feed=following`, the
+   ;; official-contract token), and that admission is route-derived on purpose:
+   ;; `:when` receives the resolved route and the reserved ctx — never app-db —
+   ;; so "when signed in" is not something it can ask. It doesn't need to. The
+   ;; home view shows the feed only on that arm, so the bare `/` never wants it,
+   ;; and a logged-out visitor lands on a plan that forms. On the following-feed
+   ;; arm a nil session (nobody signed in) is a whole-plan planning error, BY
+   ;; DESIGN: a route `:scope` that is present and resolves nil is never a silent
+   ;; omission — that rule is what keeps one user's feed from ever being read
+   ;; under another identity — and the route slice carries the error for the
+   ;; shell to show. `?page=` flows into params here like every other paginated
+   ;; list.
    {:resource  :realworld/feed
     :scope     {:from-db :realworld/session}
+    :when      (fn [route _ctx] (= "following" (get-in route [:query :feed])))
     ;; Default to page 1 — the feed subscription reads `(or (:page q) 1)` too, so
     ;; the route has to own `{:page 1}` on the bare URL.
     :params    (fn [route] {:page (or (get-in route [:query :page]) 1)})
@@ -90,9 +104,10 @@
 
 (rf/reg-route :realworld/home
   {:doc   "Home: the global article list and popular tags, plus the personalised
-           feed when you're signed in. `?feed=following` switches to the session
-           feed (the official-contract token — note it's `following`, not `your`)
-           and `?page=` paginates; both flow into the resources' params.
+           feed on the `?feed=following` arm (the official-contract token — note
+           it's `following`, not `your`). That arm is the only one that PLANS the
+           session feed read, so it needs a signed-in session; `?page=` paginates;
+           both flow into the resources' params.
            `:keep-previous?` keeps the current page on screen while the next loads,
            so there's no flicker. The tag filter is its own `/tag/:tag` PATH route
            below — the tag rides as a route param, matching the official Conduit

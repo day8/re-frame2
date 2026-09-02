@@ -152,8 +152,9 @@
    ;; UNKNOWN (a saved token is present but the user hasn't resolved yet), so the
    ;; `:realworld/viewer` scope resolver is fail-closed and the route's viewer-
    ;; scoped reads would raise 'scope unresolved' if rendered. Defer the route page
-   ;; for that one brief window — `:restore-session` / `:abandon-restore` resolve
-   ;; the viewer and re-ensure the route's reads the moment `GET /user` settles.
+   ;; for that one brief window — `:auth/session-restored` / `:abandon-restore`
+   ;; resolve the viewer and replan the route's reads
+   ;; (`:rf.route/replan-resources`) the moment `GET /user` settles.
    (if @(subscribe [:auth/viewer-resolving?])
      [:div.container.page {:data-testid "session-restoring"}
       [:p "Restoring your session…"]]
