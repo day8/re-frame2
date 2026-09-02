@@ -257,9 +257,23 @@
   fail-closed branch (`frame/frame` returns nil ⇒ whole value redacted to
   `:rf/redacted`). We therefore stamp this sentinel as the `:frame` opt when
   no live governing frame is known, so the walker fails closed on its own
-  dead-frame branch rather than resolving an ambient frame. The keyword is
-  namespaced into this ns so it can never collide with a real frame id."
-  ::no-egress-frame)
+  dead-frame branch rather than resolving an ambient frame.
+
+  It has to be a value NO frame can be registered under, and a keyword is not
+  one: `make-frame` validates no `:id` type and the registry is keyed by
+  whatever id it is handed, so every keyword — however it is namespaced — is
+  a public id an app can spell. This was `::no-egress-frame`, i.e.
+  `:re-frame.derivation.egress/no-egress-frame`; a live frame registered
+  under that literal made the stamp RESOLVE, so the walker took its
+  live-frame branch and shipped the graph's value-bearing fields raw under
+  that frame's empty declaration registry (rf2-g1vu — the same defect class
+  the rf2-7htk7 third pass fixed for Xray's `::no-frame`). A fresh host
+  object is an IDENTITY rather than a datum — nothing outside this var can
+  produce an equal value — so no registration can match it, and
+  `frame/frame` misses on it exactly as on a destroyed id. Pinned by the
+  derivation-conformance collision arm
+  `g-graph-egress-nil-frame-fails-closed-under-sentinel-id-collision`."
+  #?(:clj (Object.) :cljs (js/Object.)))
 
 (defn- project-resource-node-identity
   "Project ONE live resource node's secret-bearing identity fields:
