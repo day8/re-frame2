@@ -89,10 +89,13 @@ platform value:
          :on-change [:todo/set-done id ::h/checked]}]
 ```
 
-Unsupported controlled shapes are rejected rather than approximated. In
-particular, a contenteditable region has no single value that Hicasso can
-reconcile. Binding `:value` to it throws at the source. Use a declared foreign
-host or named native island so the rich-text editor can own the DOM it needs.
+Hicasso reconciles a controlled value only for the shapes in that table, and it
+approximates nothing outside them. A contenteditable region is the case worth
+naming: it has no single value Hicasso could reconcile, so it is not treated as
+a controlled field at all. A `:value` bound to one is passed through to React
+untouched — nothing refuses it, and nothing keeps it in step with your app-db,
+so the binding is silently inert rather than loud. Use a declared foreign host
+or named native island so the rich-text editor can own the DOM it needs.
 
 ## Forward caller attributes safely
 
