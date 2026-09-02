@@ -16,6 +16,8 @@ const {
   genericCoveragePaths,
   validateDedicatedGate,
   assertCanonicalInventoryCovered,
+  OPTIONAL_ARTEFACT_FACADES,
+  assertExampleCoLoadIsolation,
 } = require('./check-bundle-isolation.cjs');
 const { assertSentinelSet } = require('./lib/sentinel-scan.cjs');
 const { listPublishableRuntimes } = require('./lib/publishable-runtimes.cjs');
@@ -540,6 +542,148 @@ assert(/publishable-runtimes\.cjs/.test(LOCKSTEP),
 assert(!/grep\s+-qF\s+':clein\/build'/.test(LOCKSTEP),
   'lockstep must NOT rediscover publishability via a textual grep for the clein/build token (duplicated grep removed)');
 
+// ----- example ns-load co-load isolation (rf2-k4oe) --------------------------
+// The rule under test: an example calling an OPTIONAL artefact's registration
+// façade must `:require` that artefact ITSELF, rather than loading only because
+// a sibling app in the consolidated `:node-test` bundle already did.
+//
+// Every assertion below is a MUTATION, for the reason the whole file is written
+// this way: a rule that has only ever been seen green is indistinguishable from
+// a rule that reads nothing. resources/core.cljs was the real defect (its
+// `rf/reg-machine` call resolved only through a co-loaded sibling's
+// `re-frame.machines`), so the fixtures reproduce that exact shape rather than
+// an invented one.
+const CO_LOAD_FIXTURE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'rf2-coload-'));
+let coLoadMutations = 0;
+
+function coLoadFixture(name, source) {
+  const file = path.join(CO_LOAD_FIXTURE_DIR, name);
+  fs.writeFileSync(file, source, 'utf8');
+  return file;
+}
+
+const CO_LOAD_COMPLIANT = `(ns fixture.app
+  (:require [re-frame.core :as rf]
+            [re-frame.routing]
+            [re-frame.resources]
+            [re-frame.flows]
+            [re-frame.schemas]
+            ;; the reader machine below is why this require is here
+            [re-frame.machines]))
+(rf/reg-machine :fixture.app/reader {})
+(rf/defmachine fixture-machine {})
+(rf/reg-route :fixture.app/home {} "/")
+(rf/reg-resource :fixture/thing {})
+(rf/reg-mutation :fixture/write {})
+(rf/reg-flow {:id :fixture/flow})
+(rf/reg-app-schema :fixture/schema {})
+`;
+
+// The compliant fixture passes, and — the half that makes the rest meaningful —
+// it is seen to EXERCISE every roster row and every artefact.
+{
+  const file = coLoadFixture('compliant.cljs', CO_LOAD_COMPLIANT);
+  const res = assertExampleCoLoadIsolation([file]);
+  assert(res.ok, 'compliant fixture must pass the co-load isolation rule');
+  assert.deepStrictEqual(res.violations, []);
+  assert.deepStrictEqual(res.deadRows, [], 'every façade row must find a call site in the fixture');
+  assert.deepStrictEqual(res.unprovenArtefacts, [],
+    'every artefact must be seen REQUIRED — a reader that cannot see requires makes every row vacuous');
+  for (const row of OPTIONAL_ARTEFACT_FACADES) {
+    assert(res.callSitesByCall.get(row.call) > 0, `${row.call}: fixture must exercise this row`);
+  }
+}
+
+// Dropping any ONE require, leaving its call site in place, must be caught —
+// and must be caught by NAME, so the failure tells a maintainer which require
+// to restore rather than that "something" is wrong.
+for (const row of OPTIONAL_ARTEFACT_FACADES) {
+  const dropped = CO_LOAD_COMPLIANT
+    .split('\n')
+    .filter((line) => !new RegExp(`\\[${row.artefact.replace(/\./g, '\\.')}\\]`).test(line))
+    .join('\n');
+  assert(!dropped.includes(`[${row.artefact}]`), `fixture mutation must actually drop [${row.artefact}]`);
+  coLoadMutations += 1;
+  const res = assertExampleCoLoadIsolation([coLoadFixture(`missing-${row.call}.cljs`, dropped)]);
+  assert(!res.ok, `${row.call}: a call site with no [${row.artefact}] require must FAIL`);
+  assert(res.violations.some((v) => v.call === row.call && v.artefact === row.artefact),
+    `${row.call}: the violation must name the call and the artefact it needs`);
+}
+
+// A façade named only in PROSE is not a call site. Without this the rule would
+// demand a require for every doc comment mentioning the surface — and
+// resources/core.cljs, the real subject, names `rf/reg-machine` in a comment two
+// lines above the genuine call.
+{
+  coLoadMutations += 1;
+  const res = assertExampleCoLoadIsolation([coLoadFixture('prose-only.cljs', `(ns fixture.prose
+  (:require [re-frame.core :as rf]))
+;; This example does not use machines; \`rf/reg-machine\` and (rf/reg-route …)
+;; are named here only to explain what it does NOT do.
+(def doc "call (rf/reg-flow …) to register a flow")
+(rf/reg-event-db :fixture/noop (fn [db _] db))
+`)]);
+  assert.deepStrictEqual(res.violations, [],
+    'a façade named in a comment or a string is not a call site');
+}
+
+// And the converse, which is the one that would matter if the comment stripper
+// were ever made too eager: a REAL call sitting on the same line as a trailing
+// comment still counts.
+{
+  coLoadMutations += 1;
+  const res = assertExampleCoLoadIsolation([coLoadFixture('trailing-comment.cljs', `(ns fixture.trailing
+  (:require [re-frame.core :as rf]))
+(rf/reg-machine :fixture/m {}) ; the reader machine
+`)]);
+  assert(res.violations.some((v) => v.call === 'reg-machine'),
+    'a real call followed by a trailing comment must still be a call site');
+}
+
+// The two NON-VACUITY guards, each exercised in the direction that would
+// otherwise degrade the whole rule to a silent pass.
+{
+  coLoadMutations += 1;
+  const res = assertExampleCoLoadIsolation([coLoadFixture('no-calls.cljs', `(ns fixture.empty
+  (:require [re-frame.core :as rf]
+            [re-frame.machines]
+            [re-frame.routing]
+            [re-frame.resources]
+            [re-frame.flows]
+            [re-frame.schemas]))
+(rf/reg-event-db :fixture/noop (fn [db _] db))
+`)]);
+  assert(!res.ok, 'a corpus in which NO façade row finds a call site must fail, not pass vacuously');
+  assert.strictEqual(res.deadRows.length, OPTIONAL_ARTEFACT_FACADES.length);
+  assert.deepStrictEqual(res.unprovenArtefacts, [], 'requires were still readable here');
+}
+{
+  coLoadMutations += 1;
+  const res = assertExampleCoLoadIsolation([coLoadFixture('no-requires.cljs', `(ns fixture.bare)
+(fixture/reg-machine :x {})
+(fixture/defmachine y {})
+(fixture/reg-route :z {} "/")
+(fixture/reg-resource :r {})
+(fixture/reg-mutation :m {})
+(fixture/reg-flow {:id :f})
+(fixture/reg-app-schema :s {})
+`)]);
+  assert(!res.ok, 'a corpus in which no artefact is ever required must fail loud');
+  assert.strictEqual(res.unprovenArtefacts.length,
+    new Set(OPTIONAL_ARTEFACT_FACADES.map((r) => r.artefact)).size);
+}
+
+// The live tree must satisfy the rule — and be seen to be a real corpus, so a
+// walk that silently returned nothing cannot read as compliance.
+{
+  const live = assertExampleCoLoadIsolation();
+  assert(live.ok, `examples/ must satisfy co-load isolation: ${JSON.stringify(live.violations)}`);
+  assert(live.filesScanned > 20,
+    `co-load walk must reach the real examples corpus (scanned ${live.filesScanned})`);
+}
+
+fs.rmSync(CO_LOAD_FIXTURE_DIR, { recursive: true, force: true });
+
 console.log(
   `PASS check-bundle-isolation self-test: ${ARTEFACTS.length} artefacts; ` +
   `${sentinelMutations} sentinel-removal mutations; ` +
@@ -552,5 +696,9 @@ console.log(
   'unrelated-checker-for-new-runtime all rejected; nonexistent-root / subtree-EACCES / ' +
   'unreadable-deps.edn fail closed, missing-deps.edn is a normal non-candidate); ' +
   'lockstep consumes the shared EDN authority; ' +
-  'module-ownership and sentinel-ownership confusion rejected'
+  'module-ownership and sentinel-ownership confusion rejected; ' +
+  `${coLoadMutations} example co-load isolation mutations ` +
+  '(each dropped require caught by name; prose-only mention is not a call site; ' +
+  'trailing comment does not hide one; zero-call-site and zero-require corpora ' +
+  'fail loud rather than pass vacuously)'
 );

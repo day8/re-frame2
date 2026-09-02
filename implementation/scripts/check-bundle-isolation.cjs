@@ -1268,6 +1268,234 @@ function assertCanonicalInventoryCovered(required = discoverBrowserOptionalRunti
   };
 }
 
+// ----- example ns-load co-load isolation (rf2-k4oe) --------------------------
+
+// Every check above this line asks whether an artefact's body reached a bundle
+// it should be absent from. This one asks the ns-LOAD question underneath that,
+// and it is the question the consolidated `:node-test` bundle structurally
+// cannot answer about itself: does each example app load on its OWN, or only
+// because a SIBLING app happened to be co-loaded beside it?
+//
+// THE DEFECT THIS EXISTS FOR (rf2-k4oe). examples/capabilities/resources/resources/core.cljs
+// called `rf/reg-machine` while requiring neither `re-frame.machines` nor
+// anything pulling it in. Machines are an OPTIONAL artefact whose façade export
+// resolves through the late-bind hook table, so the call succeeds exactly when
+// some other namespace has already loaded the artefact. In the consolidated
+// bundle one always had. Alone, the example's ns-load threw
+// `:rf.error/machines-artefact-missing` before a single test ran. Every gate in
+// the repo was GREEN across that defect, and — the part that made it worth a
+// permanent control rather than a one-off fix — every gate would be green again
+// the moment somebody deleted the require that fixed it. The fifteen single-app
+// builds that found it were audit evidence, far too expensive to keep.
+//
+// WHY THIS IS A SOURCE CHECK AND NOT AN EMITTED-ARTEFACT ONE, since the roster
+// comment above rightly insists on the emitted module for every claim it makes:
+// the claim here is not about a bundle's CONTENTS, it is about an ns FORM. A
+// missing `:require` is invisible in any bundle that contains the artefact for
+// some other reason, which is precisely the co-load being ruled out — so the
+// only artefact that could witness it is a single-app build, and that is the
+// cost the audit forbade. The ns form is the honest subject, so the ns form is
+// what is read.
+//
+// THE RULE. An example that CALLS an optional artefact's registration façade
+// must `:require` that artefact in its OWN ns form. Load-time hook registration
+// is what the `:require` buys — not the Maven dep, and not a sibling's require
+// (`skills/re-frame-migration/references/auto-cross-cutting.md` states the same
+// rule for migrating apps: "Add the dep AND the `:require` in every namespace
+// that uses the surface").
+const OPTIONAL_ARTEFACT_FACADES = [
+  { call: 'reg-machine',    artefact: 're-frame.machines',  absentError: 'rf.error/machines-artefact-missing' },
+  { call: 'defmachine',     artefact: 're-frame.machines',  absentError: 'rf.error/machines-artefact-missing' },
+  { call: 'reg-route',      artefact: 're-frame.routing',   absentError: 'rf.error/routing-artefact-missing' },
+  { call: 'reg-resource',   artefact: 're-frame.resources', absentError: 'rf.error/resources-artefact-missing' },
+  { call: 'reg-mutation',   artefact: 're-frame.resources', absentError: 'rf.error/resources-artefact-missing' },
+  { call: 'reg-flow',       artefact: 're-frame.flows',     absentError: 'rf.error/flows-artefact-missing' },
+  { call: 'reg-app-schema', artefact: 're-frame.schemas',   absentError: 'rf.error/schemas-artefact-missing' },
+];
+
+const EXAMPLES_DIR = path.resolve(ROOT, '..', 'examples');
+
+// Reduce a source file to the text that is CODE: line comments removed, string
+// bodies blanked (delimiters and newlines kept, so paren balance and line
+// structure survive). Both halves are load-bearing, and each was established by
+// a fixture in the sibling self-test rather than assumed:
+//
+//   - a `;` inside a string does not start a comment, and `\;` is a character
+//     literal, so a naive line strip mangles real code;
+//   - a façade named in a comment or a docstring is PROSE, not a call. This
+//     file's own subject, resources/core.cljs, writes `rf/reg-machine` in a
+//     comment two lines above the genuine call, and blanking string bodies is
+//     what stops `(def doc "call (rf/reg-flow …)")` from demanding a require.
+//
+// Blanking rather than deleting keeps the ns-form reader's paren balance intact
+// through a docstring containing an unbalanced bracket.
+function stripCommentsAndStringBodies(source) {
+  let out = '';
+  let inString = false;
+  for (let i = 0; i < source.length; i += 1) {
+    const ch = source[i];
+    if (inString) {
+      if (ch === '\\' && i + 1 < source.length) {
+        out += source[i + 1] === '\n' ? '  \n' : '  ';
+        i += 1;
+        continue;
+      }
+      if (ch === '"') { out += ch; inString = false; continue; }
+      out += ch === '\n' ? '\n' : ' ';
+      continue;
+    }
+    if (ch === '"') { inString = true; out += ch; continue; }
+    if (ch === '\\') {
+      // character literal, e.g. \; or \" — copy it whole so it can neither open
+      // a string nor start a comment.
+      out += ch;
+      if (i + 1 < source.length) { out += source[i + 1]; i += 1; }
+      continue;
+    }
+    if (ch === ';') {
+      while (i < source.length && source[i] !== '\n') i += 1;
+      out += '\n';
+      continue;
+    }
+    out += ch;
+  }
+  return out;
+}
+
+// The `(ns …)` form, read by paren balance over comment-stripped source (the
+// form spans many lines and carries `;` comments between requires, so neither a
+// line-oriented read nor a raw brace count survives it).
+function nsForm(strippedSource) {
+  const start = strippedSource.indexOf('(ns ');
+  if (start === -1) return null;
+  let depth = 0;
+  let inString = false;
+  for (let i = start; i < strippedSource.length; i += 1) {
+    const ch = strippedSource[i];
+    if (inString) {
+      if (ch === '\\') { i += 1; } else if (ch === '"') { inString = false; }
+      continue;
+    }
+    if (ch === '"') { inString = true; continue; }
+    if (ch === '\\') { i += 1; continue; }
+    if (ch === '(' || ch === '[' || ch === '{') depth += 1;
+    else if (ch === ')' || ch === ']' || ch === '}') {
+      depth -= 1;
+      if (depth === 0) return strippedSource.slice(start, i + 1);
+    }
+  }
+  return null;
+}
+
+// Namespaces this file requires ITSELF, in any of the shapes the tree uses:
+// `[re-frame.machines]`, `[re-frame.routing :as r]`, or a bare symbol.
+function requiredNamespaces(nsFormText) {
+  if (!nsFormText) return new Set();
+  const found = new Set();
+  for (const m of nsFormText.matchAll(/[[\s]([a-z][a-z0-9.*+!_'?<>=-]*\.[a-z][a-z0-9.*+!_'?<>=-]*)/g)) {
+    found.add(m[1]);
+  }
+  return found;
+}
+
+// Call sites of `<call>` in the file BODY (outside the ns form), as an actual
+// call — a `(` immediately before the symbol, optionally alias-qualified. Prose
+// naming the symbol in backticks is not a call and does not count.
+function facadeCallSites(bodyText, call) {
+  const escaped = call.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(`\\((?:[A-Za-z0-9.*+!_'?<>=-]+/)?${escaped}(?=[\\s()\\[\\]{}])`, 'g');
+  return (bodyText.match(re) || []).length;
+}
+
+function listExampleSources(dir, acc = []) {
+  let entries;
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch (_e) {
+    return acc;
+  }
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name === 'node_modules' || entry.name === 'out' || entry.name === '.shadow-cljs') continue;
+      listExampleSources(full, acc);
+    } else if (/\.clj[sc]$/.test(entry.name)) {
+      acc.push(full);
+    }
+  }
+  return acc;
+}
+
+// Returns { ok, violations, callSitesByCall, requireSitesByArtefact, filesScanned }.
+//
+// NON-VACUITY IS BUILT IN, on both halves and for the same reason the emitted
+// positive controls above exist. A roster row whose façade was renamed would
+// find zero call sites and silently stop checking anything; an ns-form reader
+// that stopped working would report zero requires and turn every row into a
+// vacuous pass. So the contract also requires each row to FIND its call sites
+// and to find its artefact genuinely required somewhere — either reading zero
+// fails the gate LOUD.
+function assertExampleCoLoadIsolation(files = listExampleSources(EXAMPLES_DIR)) {
+  const violations = [];
+  const callSitesByCall = new Map();
+  const requireSitesByArtefact = new Map();
+  for (const row of OPTIONAL_ARTEFACT_FACADES) {
+    callSitesByCall.set(row.call, 0);
+    requireSitesByArtefact.set(row.artefact, 0);
+  }
+
+  for (const file of files) {
+    let source;
+    try {
+      source = fs.readFileSync(file, 'utf8');
+    } catch (_e) {
+      continue;
+    }
+    const stripped = stripCommentsAndStringBodies(source);
+    const ns = nsForm(stripped);
+    const requires = requiredNamespaces(ns);
+    const body = ns ? stripped.replace(ns, '') : stripped;
+
+    for (const artefact of new Set(OPTIONAL_ARTEFACT_FACADES.map((r) => r.artefact))) {
+      if (requires.has(artefact)) {
+        requireSitesByArtefact.set(artefact, requireSitesByArtefact.get(artefact) + 1);
+      }
+    }
+
+    for (const row of OPTIONAL_ARTEFACT_FACADES) {
+      const hits = facadeCallSites(body, row.call);
+      if (hits === 0) continue;
+      callSitesByCall.set(row.call, callSitesByCall.get(row.call) + hits);
+      if (!requires.has(row.artefact)) {
+        violations.push({
+          file: path.relative(path.resolve(ROOT, '..'), file).replace(/\\/g, '/'),
+          call: row.call,
+          artefact: row.artefact,
+          absentError: row.absentError,
+          hits,
+        });
+      }
+    }
+  }
+
+  const deadRows = OPTIONAL_ARTEFACT_FACADES
+    .filter((row) => callSitesByCall.get(row.call) === 0)
+    .map((row) => row.call);
+  const unprovenArtefacts = [...requireSitesByArtefact.entries()]
+    .filter(([, count]) => count === 0)
+    .map(([artefact]) => artefact);
+
+  return {
+    ok: violations.length === 0 && deadRows.length === 0 && unprovenArtefacts.length === 0,
+    violations,
+    deadRows,
+    unprovenArtefacts,
+    callSitesByCall,
+    requireSitesByArtefact,
+    filesScanned: files.length,
+  };
+}
+
 // ----- main ------------------------------------------------------------------
 
 function main() {
@@ -1306,9 +1534,14 @@ function main() {
   // so an artefact omitted from every internal table cannot be defined away.
   const coverage = assertCanonicalInventoryCovered();
 
+  // ns-load co-load isolation (rf2-k4oe): an example that CALLS an optional
+  // artefact's façade must `:require` that artefact itself, rather than loading
+  // only because a sibling app in the consolidated bundle already did.
+  const coLoad = assertExampleCoLoadIsolation();
+
   const ctx = makePositiveContext();
 
-  let allOk = completeness.ok && coverage.ok;
+  let allOk = completeness.ok && coverage.ok && coLoad.ok;
   const failures = [];
   const positiveFailures = [];
   let internalChecked = 0;
@@ -1346,6 +1579,9 @@ function main() {
         `${positiveChecked} emitted positive-control sentinels present; ` +
         `${coverage.required.length} canonical browser-optional runtimes covered ` +
         `(${coverage.genericCount} generic, ${coverage.dedicatedCount} dedicated); ` +
+        `${coLoad.filesScanned} example sources co-load isolated ` +
+        `(${[...coLoad.callSitesByCall.values()].reduce((a, b) => a + b, 0)} optional-façade ` +
+        `call sites, each backed by its own :require); ` +
         `bundle=${bundleDir} (${blob.length} chars)`
     );
     process.exit(0);
@@ -1416,6 +1652,33 @@ function main() {
       console.error('  with a reason.');
       console.error('');
     }
+    if (!coLoad.ok) {
+      console.error('Example ns-load co-load isolation (rf2-k4oe):');
+      for (const v of coLoad.violations) {
+        console.error(`  - ${v.file} calls ${v.call} (${v.hits} site(s)) but does not`);
+        console.error(`    :require ${v.artefact} in its own ns form.`);
+        console.error(`    Optional artefacts resolve through the late-bind hook table, so`);
+        console.error(`    that call succeeds ONLY while some co-loaded sibling namespace has`);
+        console.error(`    already loaded ${v.artefact}. Built alone, this example's ns-load`);
+        console.error(`    throws :${v.absentError} before a single test runs — and the`);
+        console.error(`    consolidated bundle stays green either way, which is the whole`);
+        console.error(`    reason this check reads the ns form. Fix: add [${v.artefact}] to`);
+        console.error(`    this file's :require. Never delete the call to reach green.`);
+      }
+      if (coLoad.deadRows.length) {
+        console.error(`  Façade row(s) with ZERO call sites anywhere under examples/: ${coLoad.deadRows.join(', ')}`);
+        console.error('    The rule would silently check nothing. Either the façade was');
+        console.error('    renamed (re-derive the row from the current re-frame.core export)');
+        console.error('    or the last example using it went away (drop the row).');
+      }
+      if (coLoad.unprovenArtefacts.length) {
+        console.error(`  Artefact(s) never seen REQUIRED by any example: ${coLoad.unprovenArtefacts.join(', ')}`);
+        console.error('    The ns-form reader can no longer see requires it should see, so');
+        console.error('    every row above it had degraded to a vacuous pass. Fix the reader,');
+        console.error('    never the roster.');
+      }
+      console.error('');
+    }
     if (positiveFailures.length) {
       console.error('Positive control FAILED — a sentinel is no longer PRESENT where');
       console.error('it should be (rf2-e6qmxk). The sentinel string has DRIFTED (most');
@@ -1460,4 +1723,12 @@ module.exports = {
   validateDedicatedGate,
   readPackageScripts,
   assertCanonicalInventoryCovered,
+  OPTIONAL_ARTEFACT_FACADES,
+  stripCommentsAndStringBodies,
+  nsForm,
+  requiredNamespaces,
+  facadeCallSites,
+  listExampleSources,
+  assertExampleCoLoadIsolation,
+  EXAMPLES_DIR,
 };

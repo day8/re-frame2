@@ -40,6 +40,11 @@
             [re-frame.frame :as frame]
             [re-frame.fx :as fx]
             [re-frame.registrar :as registrar]
+            ;; the provenance store behind the registrar — section 0's control
+            ;; reads it to find WHICH namespace owns each rival "/" route row,
+            ;; so it can sequester them through the provenance-safe pairing
+            ;; rather than by a raw registrar write.
+            [re-frame.source-store :as source-store]
             [re-frame.adapter.reagent :as reagent-adapter]
             [re-frame.test-support :as test-support]
             [re-frame.views]
@@ -240,6 +245,87 @@
   (rf/dispatch-sync [:rf.route/navigate {:to :linearlite.app/board}])
   (reply-success! demo-board)
   (reset! last-managed-args nil))
+
+;; ============================================================================
+;; 0. CO-LOAD ISOLATION CONTROL (rf2-k4oe) — the witness this suite lacked
+;; ============================================================================
+
+;; EVERY test below section 0 is green in this bundle whether or not `init!`
+;; makes the frame last. Seven co-loaded example apps also register a route at
+;; "/", so one of THEM answers the URL sync `make-frame` performs at
+;; construction and this app's blocking board resource is never planned there.
+;; That is the false green rf2-k4oe was filed for, and it survived the fix:
+;; measured on the pre-#9027 ordering in the consolidated `:node-test` bundle,
+;; sections 1-9 still read 10 tests / 51 assertions / 0 failures. Moving
+;; `make-frame` back up left CI green.
+;;
+;; This test is the missing witness, and it does NOT build a second bundle —
+;; the fifteen single-app builds that found the defect were audit evidence, too
+;; expensive to keep. It reproduces IN PROCESS the two facts a single-app bundle
+;; would have supplied:
+;;
+;;   (1) "/" is answered by THIS app's board route ALONE. Every rival row is
+;;       sequestered through the same provenance-safe pairing the suite already
+;;       uses for `:rf.route/not-found`, and reinstated in a `finally`.
+;;   (2) The `:resource` / `:mutation` kinds are EMPTY when `init!` starts —
+;;       the state the shared fixture's post-dispose reset hook really leaves,
+;;       and which refilling is `init!`'s whole job.
+;;
+;; It then runs the REAL `init!` against a cleared frame registry, so
+;; `make-frame` genuinely CONSTRUCTS and its post-create URL sync really runs.
+;; Register-then-make-frame lands `:linearlite.app/board` with its board
+;; resource planned; make-frame-then-register lands `:transition :error` /
+;; `:rf.error/resource-route-plan`. Calling `init!` itself rather than a copy of
+;; it is the point: a refactor that puts the frame back in front of the
+;; registrar reinstatement, by any route, fails HERE.
+;;
+;; The first assertion is the control's own positive control. If the
+;; sequestering ever silently stops working — a route row that moves, a `:path`
+;; key that is renamed — the URL sync lands on a sibling's route id and this
+;; test fails LOUD, rather than passing while checking nothing.
+
+(defn- root-path-rivals
+  "The `[route-id provenance-ns]` source slots of every OTHER app that also owns
+   \"/\" in this consolidated bundle."
+  []
+  (for [[id metadata] (registrar/registrations :route)
+        :when         (and (= "/" (:path metadata))
+                           (not= :linearlite.app/board id))
+        provenance-ns (keys (source-store/descriptors-for :route id))]
+    [id provenance-ns]))
+
+(deftest init-refills-the-registrar-before-it-makes-the-url-bound-frame
+  (testing "examples/capabilities/resources/linearlite — with \"/\" owned by this app alone and
+            the :resource/:mutation kinds cleared (a single-app bundle's two
+            conditions, reproduced in process), init!'s construction-time URL
+            sync plans the blocking :linearlite/board resource cleanly. This is
+            the assertion the consolidated bundle cannot make for itself"
+    (let [sequestered (atom [])]
+      (try
+        (doseq [[id provenance-ns] (root-path-rivals)]
+          (when-let [row (test-support/sequester-app-registration! :route id provenance-ns)]
+            (swap! sequestered conj row)))
+        (registrar/clear-kind! :resource)
+        (registrar/clear-kind! :mutation)
+        (reset! frame/frames {})
+        (init!)
+        (let [slice (get-in (runtime-db) [:rf.runtime/routing :current])]
+          (is (= :linearlite.app/board (:route-id slice))
+              "POSITIVE CONTROL: the rival \"/\" rows really are gone, so the
+               frame's construction-time URL sync lands on THIS app's board
+               route — the single-app condition the rest of this test needs")
+          (is (not= :error (:transition slice))
+              "the construction-time route-entry resource plan SUCCEEDED: init!
+               refilled the :resource registrar before it made the :url-bound?
+               frame (rf2-k4oe). A :transition :error here means make-frame ran
+               first and the plan found the kind empty")
+          (is (nil? (:rf.error/id (:error slice)))
+              "and no :rf.error/resource-route-plan is stuck on the slice — the
+               error is STICKY, which is why the suite's own navigate never
+               clears it"))
+        (finally
+          (run! test-support/reinstate-app-registration! @sequestered)
+          (reset! frame/frames {}))))))
 
 ;; ============================================================================
 ;; 1. ROUTE ENTRY ensures the board resource (the route OWNS the read)
