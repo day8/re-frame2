@@ -43,17 +43,25 @@
   fixture fails the build outright rather than reaching a runner that
   could classify it as a skip."
   [text fixture-name]
-  (let [forms (edn/read-string (str "[\n" text "\n]"))]
-    (when-not (= 1 (count forms))
-      (throw (ex-info (str "conformance fixture " fixture-name
-                           " must hold exactly ONE top-level EDN form, found "
-                           (count forms)
-                           " — clojure.edn/read-string returns only the first"
-                           " and silently discards the rest (rf2-98ni,"
-                           " rf2-5mr6)")
-                      {:fixture/file  fixture-name
-                       :fixture/forms (count forms)})))
-    (first forms)))
+  (let [eof  (Object.)
+        rdr  (java.io.PushbackReader. (java.io.StringReader. text))
+        fail (fn [why data]
+               (throw (ex-info (str "conformance fixture " fixture-name " " why
+                                    " (rf2-98ni, rf2-5mr6)")
+                               (assoc data :fixture/file fixture-name))))
+        rd   (fn []
+               (try (edn/read {:eof eof} rdr)
+                    (catch Exception e
+                      (fail (str "is not readable EDN: " (.getMessage e))
+                            {:fixture/reader-error (.getMessage e)}))))
+        form (rd)]
+    (when (identical? eof form)
+      (fail "holds no top-level EDN form" {:fixture/forms 0}))
+    (when-not (identical? eof (rd))
+      (fail (str "must hold exactly ONE top-level EDN form — a plain read"
+                 " returns the first and silently discards the rest")
+            {:fixture/forms :more-than-one}))
+    form))
 
 (defn- load-fixture-from-file
   "Read one EDN fixture file, applying the same `::name` rewrite the
