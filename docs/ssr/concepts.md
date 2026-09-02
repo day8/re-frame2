@@ -437,6 +437,221 @@ Same `:frame` on `hydrate!` and `frame-provider`. Full walk-through:
 [tutorial](tutorial.md). APIs: [re-frame.ssr](../api/re-frame.ssr.md),
 [re-frame.ssr.ring](../api/re-frame.ssr.ring.md).
 
+## Render on Node
+
+Everything above renders on the JVM, which works because Reagent hiccup is
+data a JVM can walk. A **native** view layer's components are JavaScript, and
+a JVM cannot call them — [Hicasso](../core/hicasso/index.md) roots are the
+case in point. So there is a second renderer: the JVM keeps the request and
+asks a small Node sidecar for the body markup, and nothing else.
+
+The ownership line does not move. The JVM still owns the request frame, the
+boot-event drain, the blocking-resource settle, the `<head>`, `__rf_payload`,
+the shell, the status, headers, cookies, redirects, error projection and frame
+teardown. Node returns a string. Its HTTP status is never copied to the
+browser, and because the body is rendered before any shell is assembled, there
+is no partial page to serve.
+
+The worked example is
+[`substrates/hicasso/login`](../../examples/substrates/hicasso/login) —
+`server.cljs` is the bundle, `host.clj` is the handler.
+
+### 1. Build both bundles
+
+The client bundle is the one you already ship. The server bundle is a second
+build of the same views, targeting `:node-library` and exporting a render
+module:
+
+```clojure
+:my-app/server
+{:target      :node-library
+ :output-dir  "out/my-app-server"
+ :output-to   "out/my-app-server/server.js"
+ :exports-var my-app.server/module
+ :compiler-options {:optimizations :simple
+                    :infer-externs false}}
+```
+
+Rebuild and redeploy the two together. The server bundle carries the
+application's own compiled views, so a skew between it and the JVM host is two
+different applications answering one request — which is what the build id in
+step 5 exists to catch.
+
+### 2. Write the render module
+
+The sidecar renders nothing itself; it loads your bundle. The module publishes
+a build id, an **entry table**, a once-per-isolate `boot` and a per-request
+`render`:
+
+```clojure
+(ns my-app.server
+  (:require [re-frame.core :as rf]
+            [re-frame.hicasso.server :as server]
+            [re-frame.hicasso.substrate :as substrate]
+            [re-frame.ssr.render-state :as render-state]
+            [my-app.views :as views]))
+
+(goog-define build-id "my-app-dev")
+
+(def render-state-policy
+  {:app-db     [:todos :session]
+   :runtime-db [:rf.runtime/routing :rf.runtime/machines]})
+
+(defn- allowlist [slot]
+  (into-array (map pr-str (get render-state-policy slot))))
+
+(defn- boot! []
+  (rf/init! substrate/adapter)
+  js/undefined)
+
+(defn- render! [^js call emit]
+  (let [partitions (render-state/deserialize
+                     {:rf/app-db     (js->clj (.-state call))
+                      :rf/runtime-db (js->clj (.-runtime call))})]
+    (emit (server/render-body
+            {:hiccup            [views/root-view]
+             :render-state      partitions
+             :identifier-prefix views/identifier-prefix})))
+  js/undefined)
+
+(def module
+  #js {:protocol 1
+       :buildId  build-id
+       :entries  (js-obj "my-app/root"
+                         #js {:stateAllowlist   (allowlist :app-db)
+                              :runtimeAllowlist (allowlist :runtime-db)})
+       :boot     boot!
+       :render   render!})
+```
+
+Two details are load-bearing. **The allowlists belong to the entry**, not to
+the caller, so a host cannot widen its own allowance; an entry that declares no
+list for a partition cannot be rendered at all, because absence is a refusal
+rather than a licence to read everything. And **`render` returns
+`js/undefined`, not `nil`** — `emit` is its only channel out, and the service
+refuses a module that returns a value. CLJS `nil` compiles to `null`, which is
+a value someone typed.
+
+### 3. Select the renderer
+
+One construction opt. Nothing else about the handler moves:
+
+```clojure
+(ns my-app.host
+  (:require [re-frame.ssr.ring :as ssr-ring]
+            [re-frame.ssr.ring.node :as node]))
+
+(def handler
+  (ssr-ring/ssr-handler
+    {:initial-events [[:app/init]]
+     ;; What the BROWSER may see.
+     :payload        [:todos]
+     ;; What the RENDER may see.
+     :render-state   {:app-db     [:todos :session]
+                      :runtime-db [:rf.runtime/routing :rf.runtime/machines]}
+     ;; No :root-view — only the default JVM-local renderer reads one.
+     :renderer       (node/renderer
+                       {:endpoint     "http://127.0.0.1:8148"
+                        :entry        "my-app/root"
+                        :build-id     "2026-09-02-a1b2c3"
+                        :render-state {:app-db     [:todos :session]
+                                       :runtime-db [:rf.runtime/routing
+                                                    :rf.runtime/machines]}
+                        :timeout-ms   1000})}))
+```
+
+`:renderer` is validated at construction, so a misconfigured deployment fails
+at boot rather than at the first request. Omitting it keeps the JVM-local
+render, unchanged to the byte. `stream-handler` refuses the opt outright:
+streaming renders its shell and every continuation from a server-resolved
+`:root-view`, and a body rendered whole has no continuation to straddle.
+
+### 4. Two policies, and why they differ
+
+`:payload` answers *what may the browser see?* `:render-state` answers *what
+does the render need?* They are separate because the answers genuinely differ
+in both directions.
+
+A server-only value — a deployment notice, an internal flag, an entitlement —
+belongs in `:render-state` and must stay out of `:payload`. Deriving one from
+the other would either leak it to the browser or render `nil` where the page
+expects content. Meanwhile the route slice and machine snapshots live in
+**runtime-db**, not app-db, which is why render state is a two-partition
+envelope `{:rf/app-db {…} :rf/runtime-db {…}}` rather than one map. A page
+whose face is chosen by a machine renders the wrong face without it.
+
+Both policies are fail-closed allowlists of top-level keys, and both project
+the same EDN wire domain the hydration payload already uses. Where the
+allowlist vocabulary cannot express a projection, `:render-state` also accepts
+`(fn [frame-id] → partitions)`.
+
+### 5. Start the sidecar, and mind the skew
+
+```bash
+re-frame2-ssr-node --module /srv/my-app/out/my-app-server/server.js
+```
+
+The launcher writes exactly one line to stdout once the socket is listening:
+
+```json
+{"rf.ssr-node":"ready","url":"http://127.0.0.1:8148","host":"127.0.0.1","port":8148,"buildId":"2026-09-02-a1b2c3","protocol":1}
+```
+
+Scan for the line whose `"rf.ssr-node"` key is `"ready"` rather than assuming
+it is the first — an application bundle that logs at boot writes to the same
+descriptor. A supervisor that passed `--port 0` reads the real port here.
+Everything diagnostic goes to stderr. Run it behind a supervisor that restarts
+on exit and stops it with `SIGTERM`; the service is stateless between requests,
+so a restart loses nothing but warm isolates.
+
+Set the sidecar's deadline below the JVM's own read timeout so it refuses
+before the caller gives up — the adapter already derives its HTTP timeout as
+`:timeout-ms` plus `:admission-ms` plus a wire margin, which is that rule
+applied for you.
+
+**Build skew is checked in both directions.** The sidecar refuses a request
+whose `buildId` is not its own, and the adapter refuses an answer whose
+`x-rf-ssr-build` is not the `:build-id` it was configured with
+(`:rf.error/ssr-node-build-skew`). Two artefacts from different builds cannot
+quietly serve one page between them.
+
+### 6. Hydrate
+
+Hydration is unchanged — the client reads `__rf_payload` and adopts the DOM
+exactly as it does for a JVM render. One extra rule applies to native roots:
+**the `:identifier-prefix` the server rendered with and the one the hydrating
+root is handed must be the same string.** React includes the prefix in every
+`useId`, so a mismatch diverges every generated id in the tree.
+
+### Deployment posture
+
+The default endpoint is `http://127.0.0.1:8148`, the launcher's default bind,
+and loopback is the posture the defaults assume. **The adapter accepts any
+absolute `http(s)` URL and does not refuse a non-loopback one.** That is
+deliberate — but render state may carry server-only values by design, so a
+remote sidecar is the operator's network and transport to secure. The
+framework will not decide that for you.
+
+The sidecar is a second production runtime, which is a real cost: size the
+isolate pool to the concurrency you need (one isolate renders one request at a
+time, each with its own V8 heap and its own copy of the bundle), and pin the
+runtime to Node 24 or later.
+
+### When it fails
+
+Every failure mode throws at the render call site with a live frame, so all of
+them route through the ordinary render-failure projection described in
+[When the server throws](#when-the-server-throws) — a projected 5xx, never a
+partial page. Four ids tell them apart in the trace stream:
+`:rf.error/ssr-node-unreachable` (no HTTP answer at all),
+`:rf.error/ssr-node-deadline` (the deadline passed),
+`:rf.error/ssr-node-refused` (any other non-200, carrying the sidecar's own
+refusal code) and `:rf.error/ssr-node-build-skew`.
+
+Full normative contract: [Spec 011](../../spec/011-SSR.md). The sidecar's own
+guarantees, protocol and refusal codes:
+[`implementation/ssr-node/README.md`](../../implementation/ssr-node/README.md).
+
 ## Advanced
 
 <a id="when-the-table-grows"></a>
