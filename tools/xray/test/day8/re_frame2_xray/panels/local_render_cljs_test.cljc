@@ -250,3 +250,66 @@
           {:keys [top]} (h/current-state-sections projected nil)]
       (is (= "secret-session-jwt-abc123" (get-in top [:auth :token]))
           "no sensitive decl ⇒ section model is unredacted"))))
+
+;; ---------------------------------------------------------------------------
+;; 7. THE SENTINEL-COLLISION ARM (rf2-ws60) — the dead-frame substitute must be
+;;    a value NO app can register a frame under.
+;;
+;; Third carrier of the class fixed at `day8.re-frame2-xray.egress/no-frame`
+;; (rf2-7htk7 third pass, PR #8987 commit 449bfd21c7) and at
+;; `re-frame.derivation.egress` (rf2-g1vu). A `::`-namespaced keyword reads as
+;; private but expands to an ORDINARY PUBLIC keyword — here
+;; `:day8.re-frame2-xray.panels.local-render/no-egress-frame` — and the frame
+;; registry is keyed by whatever `:id` `make-frame` is handed. So an app CAN
+;; register a live frame under the literal. The stamp then RESOLVES, the walker
+;; takes its LIVE-frame branch, and that frame's (empty) declaration registry
+;; ships the value RAW: the fail-CLOSED stamp becomes fail-OPEN.
+;;
+;; Modelled on `copy-value-with-no-observed-frame-fails-closed-under-id-collision`
+;; in `app_db_diff_cljs_test.cljs`.
+;; ---------------------------------------------------------------------------
+
+(def ^:private colliding-sentinel-id
+  "The id the `::no-egress-frame` sentinel literal expanded to before rf2-ws60.
+  Spelled out in full ON PURPOSE: `::no-egress-frame` here would read as this
+  namespace's keyword, not the panel's, and the point of the test is that the
+  literal is a public id any app can spell."
+  :day8.re-frame2-xray.panels.local-render/no-egress-frame)
+
+(deftest local-render-fails-closed-under-sentinel-id-collision
+  (testing "rf2-ws60 — an app registers a LIVE frame under the public keyword
+            the dead-frame sentinel used to expand to. A nil / unreachable
+            observed frame MUST still redact the whole value: a substitute that
+            is itself a registrable frame id resolves to that live frame, takes
+            the walker's live-frame branch, and its empty declaration registry
+            ships the secret RAW"
+    (rf/make-frame {:id colliding-sentinel-id})
+    (try
+      (testing "a NIL observed frame fails closed despite the collision"
+        (let [rendered (local-render/local-render-value app-db-value nil)]
+          (is (= :rf/redacted rendered)
+              (str "nil observed frame must redact WHOLE even with a live frame "
+                   "registered under the sentinel's id. got: " (pr-str rendered)))
+          (is (not= "secret-session-jwt-abc123" (get-in rendered [:auth :token]))
+              "the session token leaked through the colliding sentinel frame")))
+      (testing "an UNREACHABLE observed frame likewise fails closed"
+        (let [rendered (local-render/local-render-value app-db-value
+                                                        :app/does-not-exist)]
+          (is (= :rf/redacted rendered)
+              (str "unreachable observed frame must redact WHOLE under the "
+                   "collision. got: " (pr-str rendered)))
+          (is (not= "secret-session-jwt-abc123" (get-in rendered [:auth :token]))
+              "the session token leaked through the colliding sentinel frame")))
+      (testing "the stamped :frame is NOT a value the app could have registered
+                — the structural half of the fix, so a future re-spelling as a
+                keyword is caught even if the projection happens to redact"
+        (let [stamped (:frame (local-render/local-render-opts nil))]
+          (is (some? stamped) "the sentinel is still stamped, never nil/absent")
+          (is (not (keyword? stamped))
+              (str "the dead-frame sentinel must not be a keyword — every "
+                   "keyword is an id an app can register. got: " (pr-str stamped)))
+          (is (not= colliding-sentinel-id stamped)
+              "the sentinel must not be the colliding public keyword")))
+      (finally
+        ;; Never leave the colliding id live for a sibling test.
+        (rf/destroy-frame! colliding-sentinel-id)))))
