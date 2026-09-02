@@ -1,0 +1,86 @@
+;; Conformance fixture: ep-0037/replan-same-token
+;;
+;; rf2-y8jjk — [:rf.route/replan-resources {:cause <edn>}] reruns the ACTIVE
+;; route's effective parent-to-leaf resource plan under its UNCHANGED nav-token,
+;; without navigating. After a full activation of /account/a (a leaf under a
+;; parent shell — both reads BLOCKING, both in flight because the managed-HTTP
+;; fx is no-op'd), a replan:
+;;   - consults the ONE planner over the SAME composed branch: every identity the
+;;     plan still needs is KEPT (adopted, no second request — the partial-
+;;     revalidation law applies to a replan exactly as to a navigation), none is
+;;     added, none is removed;
+;;   - keeps the route where it is: the same :route/account.a, the SAME nav-token
+;;     "nav-1" (no allocation), :transition still :loading (the blocking reads are
+;;     still in flight) and :error nil;
+;;   - emits the ordinary :rf.resource/route-plan row discriminated by
+;;     :plan-cause :replan, carrying the caller cause under :replan-cause and the
+;;     nav-token PRESENT — no new trace operation, and no :rf.route/prefetched /
+;;     activation pair.
+;;
+;; Per [012 §Replanning the active route's resources](../../012-Routing.md#replanning-the-active-routes-resources)
+;; and [016 §Route-plan replan — same-token reconciliation](../../016-Resources.md#route-plan-replan--same-token-reconciliation).
+
+{:fixture/id           :ep-0037/replan-same-token
+ :fixture/spec-version "1.0"
+ :fixture/capabilities #{:routing/match-url :resources/ensure :core/event-handler}
+ :fixture/doc          "rf2-y8jjk: [:rf.route/replan-resources {:cause [:test/replan]}] reruns the active route's composed branch plan under the UNCHANGED nav-token — every identity kept (adopted, no second request), the route untouched (same id, same token \"nav-1\", :loading, no error), and the route-plan row discriminated by :plan-cause :replan with the caller cause under :replan-cause."
+
+ :fixture/registry
+ {:route
+  {:route/account   {:path      "/account"
+                     :resources [{:resource :acct/viewer :blocking? true}]}
+   :route/account.a {:path      "/account/a"
+                     :parent    :route/account
+                     :resources [{:resource :acct/a :blocking? true}]}}
+
+  :resource
+  {:acct/viewer {:scope :rf.scope/global :params-schema [:map] :url-template "/api/viewer"}
+   :acct/a      {:scope :rf.scope/global :params-schema [:map] :url-template "/api/a"}}
+
+  ;; No-op the managed-HTTP fx so the activation's ensures create :loading
+  ;; entries with live (never-settling) work — genuinely adoptable on the replan.
+  :fx {:rf.http/managed {:platforms #{:client :server}}}}
+
+ :fixture/handlers
+ {:fx {:rf.http/managed [[:noop]]}}
+
+ :fixture/dispatches
+ [;; activation → /account/a plans {viewer, a} under nav-1.
+  [:rf.route/transitioned "/account/a"]
+  ;; the replan: same route, same token, same branch.
+  [:rf.route/replan-resources {:cause [:test/replan]}]]
+
+ :fixture/expect
+ {;; SAME activation: the route, the token and the readiness are exactly what the
+  ;; activation left — a replan mints no token and moves no address.
+  :final-runtime-db
+  {:rf.runtime/routing {:current {:route-id   :route/account.a
+                                  :params     {}
+                                  :nav-token  "nav-1"
+                                  :transition :loading
+                                  :error      nil}}}
+
+  :trace-emissions
+  [;; the ACTIVATION's planner row (the activation shape: no :plan-cause).
+   {:operation :rf.resource/route-plan
+    :tags      {:route-id :route/account.a
+                :nav-token "nav-1"
+                :branch    [:route/account :route/account.a]
+                :ensured   2
+                :kept      0
+                :removed   0}}
+   ;; the REPLAN's planner row: discriminated by :plan-cause :replan, the caller
+   ;; cause under :replan-cause, the nav-token PRESENT, and the whole plan KEPT —
+   ;; adopted under the same owner, no second request, nothing added or removed.
+   {:operation :rf.resource/route-plan
+    :tags      {:route-id        :route/account.a
+                :plan-cause      :replan
+                :replan-cause    [:test/replan]
+                :nav-token       "nav-1"
+                :branch          [:route/account :route/account.a]
+                :ensured         0
+                :kept            2
+                :removed         0
+                :kept-identities [[:rf.scope/global :acct/viewer {}]
+                                  [:rf.scope/global :acct/a {}]]
+                :removed-identities []}}]}}
