@@ -76,7 +76,7 @@ This skill's view surface is the **adapters** — Reagent, reagent-slim, UIx. Hi
 5. **Match the canonical shape.** When a pattern has a worked example or reference declaration, match its shape; don't re-derive. (Repo: `examples/**`; consumer app: the relevant pattern/fundamentals leaf plus any reference views your project follows.)
 6. **Frames before globals.** Talk to a frame via `dispatch` / `subscribe`. Do not import frame internals or bypass to mutate state.
 7. **`:rf/*` is reserved.** Application keywords pick their own feature prefix (`:cart/...`, `:auth/...`).
-8. **`reg-*` macros over the runtime-fn forms.** Macros capture source coordinates that tools rely on; the functional counterparts — the `*`-suffixed twins for `reg-view*` / `reg-machine*`, or the same name in value position for everything else (`reg-event`, `reg-sub`, `reg-interceptor`, …) — are for advanced/programmatic cases only.
+8. **`reg-*` macros over the runtime-fn forms.** Macros capture source coordinates that tools rely on; the functional counterparts — the `*`-suffixed twins for `reg-view*` / `reg-machine*`, or the same name in value position for everything else (`reg-event`, `reg-sub`, `reg-interceptor`, …) — are for advanced/programmatic cases only. Naming a machine spec is the one place a plain `def` silently defeats this: `reg-machine` sees a symbol rather than a literal and captures nothing per-element, so use **`rf/defmachine`**, which stamps the value itself and does not register, then pair it with `reg-machine` ([`references/state-machines/reg-machine.md`](references/state-machines/reg-machine.md)).
 9. **Pillar 4 — assume training knowledge.** Teach the re-frame2-specific binding, not FSM theory / HTTP retry / React rendering.
 
 ## Decision shortcuts
