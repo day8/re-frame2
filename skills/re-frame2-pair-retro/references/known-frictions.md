@@ -121,7 +121,8 @@ Typical improvements:
 Signals:
 - a throwaway probe went through a live `dispatch` and took the frame's app-db with it — a handler returning `{:db <bare-map>}` REPLACES app-db wholesale
 - "what would this event do?" was answered by committing it, then undoing it
-- a write refused with `:restore-rejected` / `:reset-rejected` and a closed gate was read as a broken tool
+- a write refused with `:rf.error/writes-disabled` was read as a broken tool — that is the default-OFF `--allow-writes` gate refusing before the write reaches the runtime, and it lifts at server launch
+- a write refused with `:restore-rejected` / `:reset-rejected` was read as that same closed gate — these are post-gate runtime refusals (restore target absent, drain in flight, frame / drain / schema rejection), so the gate was already open and lifting it changes nothing
 
 Background: `dispatch-dry-run` runs the whole cascade and rolls back without firing fx — the safe primitive for "try this dispatch". The named write tools (`restore-epoch`, `replace-app-db`) sit behind the server's `--allow-writes` flag, **OFF by default**; that gate is the write boundary.
 

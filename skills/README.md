@@ -242,10 +242,14 @@ Single source of truth for the per-leaf size ceiling — per-skill
   load
 - `SKILL.md` orchestrators SHOULD be ≤500 lines (target ~300–400)
 - no SKILL → A → B chains; routing is one level deep
-- catalogue-shaped leaves (for example `re-frame2-pair/references/recipes.md`)
-  may exceed the ceiling if splitting would multiply file-handle overhead
-  without reducing tokens-per-session. Test: would splitting reduce total
-  tokens loaded per session?
+- catalogue-shaped leaves (for example `re-frame2-pair/references/recipes.md`
+  and `re-frame2-pair-retro/references/known-frictions.md`) may exceed the
+  ceiling if splitting would multiply file-handle overhead without reducing
+  tokens-per-session. Test: would splitting reduce total tokens loaded per
+  session? `known-frictions.md` is recorded exempt on that test: it loads on
+  one trigger (the retro's pattern-check step) and is scanned whole to
+  classify an unknown friction, so a reader cannot know in advance which half
+  holds their case and a split would load both.
 
 The ceilings are grounded in a May 2026 corpus audit (max 203 L, p95
 148 L, median 88 L); leaves that have since outgrown them are refactor
