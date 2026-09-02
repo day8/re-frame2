@@ -15,12 +15,16 @@ by the SCI bundle namespace, which fires the artefact's `:machines/*`
 late-bind hook installs at bundle init and registers the
 `:rf/machine` / `:rf.machine/has-tag?` framework subs +
 `:rf.machine/spawn` / `:rf.machine/destroy` (and others) reserved fxs from
-its top-level forms. The `re-frame.core` aliases `sci/copy-ns` already
-exposes (`reg-machine*` / `make-machine-handler` / `machine-transition`
-/ `machine-has-tag?` / `machines` / `machine-meta` /
-`machine-by-system-id` / `dispatch-to-system`) become live, and the SCI
-namespace also binds `reg-machine` to the `reg-machine*` fn-alias so
-cells write the same `(rf/reg-machine ...)` they would in real code.
+its top-level forms. Those hook installs are what make the machine
+helpers live — `reg-machine*` / `make-machine-handler` /
+`machine-transition` / `machines` / `machine-meta` /
+`machine-by-system-id`. They sit on `re-frame.machines`, NOT on the
+`re-frame.core` façade: the front-porch shrink (rf2-wad2fl) left the
+façade's machine surface as the `reg-machine` / `defmachine` macros
+alone, and `reg-machine` is a JVM-only macro (per-element source-coord
+stamping at expansion time). So the SCI namespace binds `reg-machine` to
+the `re-frame.machines/reg-machine*` fn-alias, and cells write the same
+`(rf/reg-machine ...)` they would in real code.
 Used by ch12 of the guide to demo a real `reg-machine` +
 `subscribe [:rf/machine …]` turnstile.
 
@@ -121,7 +125,7 @@ The Phase-3 re-frame2 eval bundle (`sci/`) pins:
 | `org.babashka/sci` | 0.11.51 (git) | the SCI interpreter — the re-frame2 cells' eval engine |
 | `day8/re-frame2` (core) | `:local/root` | the public API exposed to cells (`re-frame.core` v2) |
 | `day8/reagent-slim` | `:local/root` | reagent2 (the render substrate) + the `reagent-slim` adapter |
-| `day8/re-frame2-machines` | `:local/root` | Spec 005 state-machine artefact (rf2-ldgpd) — activates `reg-machine` / `subscribe [:rf/machine …]` / `machine-has-tag?` for ch12 live cells |
+| `day8/re-frame2-machines` | `:local/root` | Spec 005 state-machine artefact (rf2-ldgpd) — activates `reg-machine` / `subscribe [:rf/machine …]` (and the `[:rf.machine/has-tag? …]` sub) for ch12 live cells |
 | `react` + `react-dom` | 19.2.0 | **bundled** into `playground-rf2.js` (React 19 has no UMD) |
 | `shadow-cljs` | 3.4.10 | the CLJS → `:advanced` browser bundler |
 
