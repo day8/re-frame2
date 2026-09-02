@@ -28,7 +28,7 @@ const SECRET = 'rf2-hic-056-egress-sentinel-8f21c4';
 module.exports = {
   protocol: 1,
   buildId: 'leaky-build-1',
-  entries: { 'app/root': { stateAllowlist: [':todos'] } },
+  entries: { 'app/root': { stateAllowlist: [':todos'], runtimeAllowlist: [] } },
 
   SECRET,
 

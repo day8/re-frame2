@@ -6,9 +6,9 @@ module.exports = {
   protocol: 1,
   buildId: 'throws-build-1',
   entries: {
-    'app/before': { stateAllowlist: [] },
-    'app/after': { stateAllowlist: [] },
-    'app/silent': { stateAllowlist: [] },
+    'app/before': { stateAllowlist: [], runtimeAllowlist: [] },
+    'app/after': { stateAllowlist: [], runtimeAllowlist: [] },
+    'app/silent': { stateAllowlist: [], runtimeAllowlist: [] },
   },
 
   render({ entry }, emit) {

@@ -23,7 +23,7 @@
 module.exports = {
   protocol: 1,
   buildId: 'null-return-build-1',
-  entries: { 'app/root': { stateAllowlist: [':todos'] } },
+  entries: { 'app/root': { stateAllowlist: [':todos'], runtimeAllowlist: [] } },
 
   render(_call, emit) {
     emit('<p>null-return</p>');

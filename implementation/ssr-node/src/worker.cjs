@@ -32,7 +32,8 @@
 //
 // A shallow freeze is a deep freeze here, and that is by construction
 // rather than by luck: `validateRequest` has already established that
-// every value in `state` is a STRING, and strings are immutable. There is
+// every value in `state` — and in `runtime`, the other partition of the
+// same settled frame — is a STRING, and strings are immutable. There is
 // no nested object to walk, which is exactly why the wire carries EDN text
 // per key rather than decoded application data.
 //
@@ -89,7 +90,10 @@ function boot() {
     t: 'ready',
     buildId: mod.buildId,
     entries: Object.fromEntries(
-      Object.entries(mod.entries).map(([id, e]) => [id, { stateAllowlist: [...e.stateAllowlist] }]),
+      Object.entries(mod.entries).map(([id, e]) => [
+        id,
+        { stateAllowlist: [...e.stateAllowlist], runtimeAllowlist: [...e.runtimeAllowlist] },
+      ]),
     ),
   });
 }
@@ -122,13 +126,16 @@ async function render(id, request) {
     post({ t: 'chunk', id, seq: seq++, html });
   };
 
-  // Frozen before the module sees it — see the header. The request object
-  // itself is frozen too, so a module cannot rewrite its own entry id or
-  // policy and have anything downstream believe it.
+  // Frozen before the module sees it — see the header; both partitions,
+  // because each is a snapshot of the same settled frame. The request
+  // object itself is frozen too, so a module cannot rewrite its own entry
+  // id or policy and have anything downstream believe it.
   const snapshot = Object.freeze({ ...request.state });
+  const runtime = Object.freeze({ ...request.runtime });
   const call = Object.freeze({
     entry: request.entry,
     state: snapshot,
+    runtime,
     args: request.args,
   });
 
