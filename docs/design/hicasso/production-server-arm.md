@@ -155,8 +155,16 @@ closed at commit `a4e1d6f5e6`. What each gate now has:
 - **Gate 5, the end-to-end `JVM → Node → JVM` witness, is discharged.** It has
   a JVM leg to witness now: the `jvm-node-crossing` job
   (`.github/workflows/test.yml`) runs `node_crossing_test.clj` on every PR
-  against a plain fixture render module, and slice E added the native-Hicasso
-  product witness over the login example's own server bundle.
+  against a plain fixture render module, over a real socket. Slice E added the
+  application half beside it — a CLJS product witness driving the real Hicasso
+  login views and registrations through that example's own published entry
+  table, simulating only the transport the other half already proves. **The two
+  halves are complementary rather than one end-to-end run**, and the gap is
+  named rather than papered over: the login example's JVM host is annotated
+  wiring, not a runnable server, because that example's model is
+  ClojureScript-only today. That is open on `rf2-8arzr.5`, reopened by the
+  merged-PR audit of #8997; it does not affect the seam or the adapter, both of
+  which are exercised by the fixture-module job above.
 
 **The "single largest unmeasured thing on this page" line retires.** §3's
 closing sentence said the compliant shape — JVM host, JVM payload, JVM shell,

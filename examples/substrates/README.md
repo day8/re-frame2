@@ -55,19 +55,27 @@ The Hicasso login carries a fourth file the other two arms do not:
 build (`examples/login-hicasso-server`) that publishes the render module the
 [`ssr-node`](../../implementation/ssr-node/README.md) sidecar loads, plus
 [`hicasso/login/host.clj`](hicasso/login/host.clj), the JVM Ring handler that
-dials it. Together they are the product witness for the ssr-node crossing
-(`rf2-8arzr`) — a native Hicasso root rendered on Node while the JVM keeps the
-request, the `<head>`, the payload and the shell.
+dials it — the shape of a native Hicasso root rendered on Node while the JVM
+keeps the request, the `<head>`, the payload and the shell (`rf2-8arzr`).
 
-Two things it is worth knowing before opening them. The **entry allowlists in
-the bundle and the `:render-state` policy in the host are the same list read by
-two processes**, which is the clearest illustration on the tree of why render
-state is a separate policy from the hydration payload — the server notice the
-page renders is deliberately in one and not the other. And `host.clj` is
-**wiring rather than a running server**: a JVM host must load the shared
-`login.model`, which is ClojureScript-only today, so the crossing it describes
-is exercised end to end by the CLJS test rather than by starting this file. Its
-own docstring says so and says why.
+**Read the two files differently, because only one of them runs.**
+`server.cljs` is real and exercised: the CLJS product witness
+(`re-frame.hicasso.login-server-crossing-ssr-dom-cljs-test`) drives the real
+views, the real `login.model` registrations and this module's own published
+entry table through the sidecar's own request validator, simulating only the
+transport. `host.clj` is **annotated wiring rather than a running server** — it
+comments out its `login.model` require, because a JVM host must load the
+application's model and that model is ClojureScript-only today, so nothing
+starts this handler and no gate drives it. Its own docstring says so and says
+why. The transport half of the crossing is witnessed separately, by the
+`jvm-node-crossing` CI job over a real socket.
+
+What the pair is still the clearest illustration of is **why render state is a
+policy distinct from the hydration payload**: the server notice the page
+renders is deliberately in one and not the other. Note that `host.clj` today
+spells its `:render-state` map out literally rather than reading
+`server.cljs`'s `render-state-policy`, so the two halves are not yet one list
+with two readers — that, and the host's runnability, are open on `rf2-8arzr.5`.
 
 The recipe these two files illustrate is
 [Render on Node](../../docs/ssr/concepts.md#render-on-node).

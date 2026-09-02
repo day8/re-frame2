@@ -427,7 +427,10 @@ agree on the string rather than one.
 The full recipe — both builds, the module, the two state policies and why they
 differ, the serve command, build-id skew and the deployment posture — is
 [Render on Node](../../ssr/concepts.md#render-on-node). The worked example is
-[`substrates/hicasso/login`](../../../examples/substrates/hicasso/login).
+[`substrates/hicasso/login`](../../../examples/substrates/hicasso/login), whose
+`server.cljs` is a real render module driven by the test suite against the real
+views; its `host.clj` is annotated wiring rather than a server you can start,
+because that example's model is ClojureScript-only today.
 
 Whichever host you use, the service renders whole pages. Streaming, React
 Server Components, islands, and no-JavaScript progressive enhancement are
