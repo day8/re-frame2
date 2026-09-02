@@ -443,10 +443,14 @@
        "Register a `(fn [coeffects event-vec] effect-map)` event handler
        under `id` — the ONE public event-registration form (EP-0018):
        coeffects in, a closed effects map out. The effect-map is a closed
-       shape — `#{:db :rf.db/runtime :fx}` at the top level; app handlers
-       return only `:db` / `:fx`, while `:rf.db/runtime` (the runtime-db
-       partition) is reserved by convention for framework /
-       runtime-extension authority. Coeffects are declared uniformly via
+       shape of SEVEN top-level keys — `:db` / `:rf.db/runtime` / `:fx`
+       plus the four EP-0025 commit-plane classification effects
+       (`:sensitive` / `:large` / `:clear-sensitive` / `:clear-large`);
+       app handlers return only `:db` / `:fx` day to day, while
+       `:rf.db/runtime` (the runtime-db partition) is reserved by
+       convention for framework / runtime-extension authority. Any other
+       top-level key refuses the event pre-commit, nothing committed.
+       Coeffects are declared uniformly via
        `:rf.cofx/requires`. Full-context work is expressed with an
        interceptor authored via `reg-interceptor` and referenced by id from
        this registration's `:interceptors` chain (there is no public

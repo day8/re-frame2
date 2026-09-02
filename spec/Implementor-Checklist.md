@@ -29,7 +29,7 @@ These rows are **pattern-required** in [000 §Host-profile matrix](000-Vision.md
 | **Persistent data structures** | Structural sharing for `app-db` and frame state — required by [Goal 3 — Frame state revertibility](000-Vision.md#frame-state-revertibility) | [000 §Host-profile matrix](000-Vision.md#host-profile-matrix) |
 | **Registry by `(kind, id)`** | Metadata-bearing lookup for handlers, subs, fx, cofx, views, frames, routes | [001](001-Registration.md) |
 | **Event handler contract** | `(state, event) → effects-map` | [002](002-Frames.md) |
-| **Closed effect-map shape** | `:db` and `:fx` only at the top level | [002](002-Frames.md), [Spec-Schemas §`:rf/effect-map`](Spec-Schemas.md#rfeffect-map) |
+| **Closed effect-map shape** | Seven top-level keys and no others: `:db`, `:rf.db/runtime`, `:fx`, plus the four commit-plane classification effects `:sensitive` / `:large` / `:clear-sensitive` / `:clear-large` | [002](002-Frames.md), [Spec-Schemas §`:rf/effect-map`](Spec-Schemas.md#rfeffect-map) |
 | **Subscription / derivation system** | Query → value-from-state, with stable composition | [002](002-Frames.md) |
 | **Frame as isolated runtime boundary** | `{state, queue, sub-cache, id}`; multi-instance | [002](002-Frames.md) |
 | **Run-to-completion drain semantics** | Per frame; pipeline run settles before next event | [002](002-Frames.md) |

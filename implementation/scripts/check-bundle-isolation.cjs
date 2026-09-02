@@ -512,15 +512,18 @@ const ARTEFACTS = [
   //     positive control went 0/1 — which is the whole point of rf2-e6qmxk, and
   //     is how the drift was caught rather than shipped as a vacuous green.
   //
-  //   `rf.derivation.egress/sentinel:rf2-mm3y49-2026-07-10:do-not-rename` — the
-  //     `defonce ^:private bundle-isolation-sentinel` still planted at the bottom
-  //     of egress.cljc. It reads like the obvious choice and it is NOT one: the
-  //     var is private and nothing consumes its value, so Closure `:advanced`
-  //     drops it and the emitted module carries 0 occurrences (measured on
-  //     out/bundle-isolation-positive-control/derivation-egress.js). That is why
-  //     4e43784ec7 moved this entry — and its `derivation-graph` sibling, onto
-  //     `rf/family` — off the planted strings when the controls became
-  //     emitted-module greps rather than source greps.
+  //   `rf.derivation.egress/sentinel:rf2-mm3y49-2026-07-10:do-not-rename` — a
+  //     `defonce ^:private bundle-isolation-sentinel` that used to sit at the
+  //     bottom of egress.cljc. It read like the obvious choice and it was NOT
+  //     one: the var is private and nothing consumes its value, so Closure
+  //     `:advanced` drops it and the emitted module carries 0 occurrences
+  //     (measured on out/bundle-isolation-positive-control/derivation-egress.js).
+  //     That is why 4e43784ec7 moved this entry — and its `derivation-graph`
+  //     sibling, onto `rf/family` — off the planted strings when the controls
+  //     became emitted-module greps rather than source greps. rf2-yk2d then
+  //     REMOVED the var itself, because its only remaining effect was to be the
+  //     first thing a reader grepping egress.cljc for "the sentinel" would find.
+  //     Do not re-plant one: egress.cljc's own comment now points back here.
   //
   // The rule both traps teach: pick a literal a LIVE code path emits, and verify
   // the count in the emitted module, never in the .cljc.

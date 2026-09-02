@@ -109,10 +109,15 @@
   "Set the value at `k` in the context's `:effects` map. Returns the
   updated context. Use from a handler-wrapper interceptor (or an
   `:after`) to publish an effect the runtime will walk. The top-level
-  effect-map is closed — `#{:db :rf.db/runtime :fx}` are honoured (per
-  migration M-8 + EP-0001); app handlers use `:db` / `:fx`, while
-  `:rf.db/runtime` is reserved by convention for framework-authority
-  writers. See also: `get-effect`, `assoc-coeffect`."
+  effect-map is closed — SEVEN keys are honoured: `:db`,
+  `:rf.db/runtime`, `:fx` (per migration M-8 + EP-0001) plus the four
+  EP-0025 commit-plane classification effects `:sensitive`, `:large`,
+  `:clear-sensitive`, `:clear-large`. App handlers use `:db` / `:fx`,
+  while `:rf.db/runtime` is reserved by convention for
+  framework-authority writers. An `:after` interceptor that assoc's any
+  OTHER top-level key is caught by the same FINAL-effects check as a
+  handler-returned one, and the event is refused pre-commit. See also:
+  `get-effect`, `assoc-coeffect`."
   [context k v]
   (assoc-in context [:effects k] v))
 

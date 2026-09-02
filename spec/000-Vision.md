@@ -110,7 +110,7 @@ The capabilities below are partitioned by what every conformant implementation m
 | Persistent data structures with structural sharing for `app-db` and frame state (in service of [§Frame state revertibility](#frame-state-revertibility)) | yes | yes (Clojure persistent collections) | per host — TS / Squint: Immer or Immutable.js (native JS without a library has prohibitive deep-copy cost); Kotlin/JS: im.kt or kotlinx.collections.immutable; Fable / Scala.js / PureScript / Melange / ReScript / Reason: native PDS from the source language (zero ceremony) | — |
 | Registry by `(kind, id)` with metadata | yes | yes | — | — |
 | Event handler contract `(coeffects, event) → effects-map` (the first arg is the coeffects map; `(state, event)` is its `:db`-only specialisation) | yes | yes | — | — |
-| Closed effect-map shape (`:db` and `:fx` only at top level) | yes | yes | — | — |
+| Closed effect-map shape (seven top-level keys: `:db`, `:rf.db/runtime`, `:fx` + the four commit-plane classification effects) | yes | yes | — | — |
 | Subscription / derivation system | yes | yes (Reagent ratoms) | — | — |
 | Frame as isolated runtime boundary | yes | yes | — | — |
 | Run-to-completion drain semantics | yes | yes | — | — |
