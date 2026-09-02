@@ -36,28 +36,27 @@ function. Keep the process setup inline in `run`, and put the DOM work in `mount
 
 ```clojure
 (ns counter.core
-  (:require [reagent.dom.client :as rdc]
-            [re-frame.core :as rf]
+  (:require [re-frame.core :as rf]
             [re-frame.adapter.reagent :as reagent-adapter]
             ;; These namespaces are required for their registrations.
             [counter.events]
             [counter.subs]
             [counter.views :refer [counter-app]]))
 
-;; Namespace load does no DOM work. The root is created lazily by mount!.
-(defonce react-root (atom nil))
+;; Namespace load does no DOM work. The handle is inert until the first
+;; render! through it creates the React root.
+(defonce app-root (reagent-adapter/client-root))
 
 (def app-frame :rf/default)
 
 (defn ^:dev/after-load mount! []
   (when-let [el (and (exists? js/document)
                      (js/document.getElementById "app"))]
-    (when-not @react-root
-      (reset! react-root (rdc/create-root el)))
-    (rdc/render @react-root
-                [rf/frame-root {:id             app-frame
-                                :initial-events [[:counter/initialise]]}
-                 [counter-app]])))
+    (reagent-adapter/render! app-root
+      [rf/frame-root {:id             app-frame
+                      :initial-events [[:counter/initialise]]}
+       [counter-app]]
+      el)))
 
 (defn run []
   (rf/init! reagent-adapter/adapter)
@@ -116,18 +115,25 @@ design, and it will preserve it right past your edited setup event.
 Two pieces make hot reload work:
 
 ```clojure
-(defonce react-root (atom nil))
+(defonce app-root (reagent-adapter/client-root))
 
 (defn ^:dev/after-load mount! []
   ...)
 ```
 
-`defonce` keeps the same React root across reloads. React should not get a
-second `create-root` call for a live DOM node.
+`defonce` keeps the same handle across reloads, and the handle keeps the same
+React root: the first `render!` through it creates the root, every later one
+updates that root. React should not get a second `create-root` call for a live
+DOM node, and with the adapter owning the root it never does — you hold no raw
+root, and there is no create-or-render branch to get right.
 
 `^:dev/after-load` tells shadow-cljs to call `mount!` after a successful
 reload. That re-renders the edited views into the same root and the same frame.
 It does not re-run `run`.
+
+The adapter tracks that root like every other root it creates, so
+`rf/destroy-adapter!` releases it too. `reagent-adapter/unmount!` releases it
+explicitly; both are safe to repeat.
 
 ## Host listeners
 
@@ -217,8 +223,10 @@ The whole recipe, one moment per row:
 
 ## No DOM work at namespace load
 
-Keep `create-root`, `render`, and browser listener installation out of top-level
-namespace code. Requiring registration namespaces is fine; browser work is not.
+Keep `render!` and browser listener installation out of top-level namespace
+code. Requiring registration namespaces is fine; browser work is not.
+Allocating the handle is fine too — `client-root` touches nothing until the
+first `render!`.
 
 Top-level registration is fine:
 
@@ -231,7 +239,7 @@ Top-level DOM work is not:
 
 ```clojure
 ;; Avoid this at namespace load.
-(defonce root (rdc/create-root (js/document.getElementById "app")))
+(reagent-adapter/render! app-root [counter-app] (js/document.getElementById "app"))
 ```
 
 Why so strict? The namespace may be loaded by a test host, a Story tool, or
@@ -244,8 +252,9 @@ Boot is where the "did you wire it up?" mistakes surface, and each one [fails lo
 
 **You touched the substrate before `init!`.** `rf/init!` installs the
 [adapter](../glossary.md#adapter); until it runs there is nothing to render
-through. A `render` or `mount!` that beats `(rf/init! …)` throws
-`:rf.error/no-adapter-installed`, naming the call; a `dispatch` or `subscribe`
+through. A `mount!` that beats `(rf/init! …)` fails at the `frame-root`'s
+frame creation with `:rf.error/no-adapter-installed`, naming the call; a
+`dispatch` or `subscribe`
 fired from a bare top-level form fails on its missing frame scope first
 (`:rf.error/no-frame-context`). Either way the cure is the same: boot before
 anything runs — in the shapes above, `run` installs the adapter on its first
@@ -273,8 +282,8 @@ not a silent dead button. The fix is the require list in the `ns` form above.
 - [`examples/core/todomvc/core.cljs`](../../../examples/core/todomvc/core.cljs)
   adds URL routing, a `hashchange` listener, and `:url-bound? true`.
 
-The UIx examples use the same lifecycle. Only the adapter, root creation, and
-render calls change.
+The UIx examples use the same lifecycle. Only the adapter and the render call
+change — UIx apps hold a `uix.dom` root themselves.
 
 ??? info "From re-frame v1"
 

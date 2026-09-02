@@ -1,8 +1,9 @@
 # re-frame.adapter.reagent
 
-`re-frame.adapter.reagent` binds re-frame2's substrate-agnostic core to Reagent, the browser-default reactive substrate. Requiring it gives you three things:
+`re-frame.adapter.reagent` binds re-frame2's substrate-agnostic core to Reagent, the browser-default reactive substrate. Requiring it gives you four things:
 
 - the `adapter` spec you pass to `(rf/init! …)` at boot;
+- the client root — `client-root`, `render!`, `unmount!` — the one React Root your page mounts through;
 - `flush-views!`, the test helper;
 - `set-hiccup-emitter!`, the SSR render-to-string seam.
 
@@ -52,6 +53,71 @@ The slim variant is bundle-isolated: a dedicated isolation gate verifies that st
 
 The migration (a four-line swap) is in [Use UIx or reagent-slim](../core/how-to/use-uix-or-slim.md).
 
+## The client root
+
+A browser app needs one React Root for the life of the page: created once, re-rendered on every hot reload, released on teardown. These three functions own that Root so your entry namespace does not have to. Allocate the handle under a `defonce`, render through it from the `^:dev/after-load` hook, and never touch `reagent.dom.client` yourself. The whole recipe is in [Boot and mount an app](../core/how-to/boot-and-mount-an-app.md).
+
+```clojure
+(defonce app-root (reagent-adapter/client-root))
+
+(defn ^:dev/after-load mount! []
+  (when-let [el (and (exists? js/document)
+                     (js/document.getElementById "app"))]
+    (reagent-adapter/render! app-root
+      [rf/frame-root {:id :rf/default :initial-events [[:app/initialise]]}
+       [app-view]]
+      el)))
+```
+
+The Root these functions manage is tracked by the same active-root ownership as the adapter's one-shot `render` slot, so `rf/destroy-adapter!` releases it too — exactly once. The raw React Root is never exposed.
+
+### `client-root`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (client-root)
+  ```
+- **Description**: Allocate an inert client-root handle and return it. Does no DOM work, so it is safe at namespace load under a `defonce`, in tests, and on Node. The React Root is created (or hydrated) by the first `render!` through the handle.
+  - The handle is opaque: hold it, hand it to `render!` and `unmount!`, and nothing else.
+- **Example**:
+  ```clojure
+  (defonce app-root (reagent-adapter/client-root))   ;; inert until the first render!
+  ```
+
+### `render!`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (render! handle render-tree mount-point)
+  (render! handle render-tree mount-point opts)
+  ```
+- **Description**: Render `render-tree` (hiccup) through the client-root `handle` at the DOM element `mount-point`. Returns nil.
+  - The first call creates the React Root at `mount-point` and renders into it. With `{:hydrate? true}` it hydrates the server-rendered markup already inside `mount-point` instead (once; see [`re-frame.ssr`](re-frame.ssr.md)).
+  - Every later call updates that same Root with the new tree: no second `create-root`, no second hydration. That is what makes one call both the boot path and the `^:dev/after-load` hook. `mount-point` is read on the first call only.
+  - After `unmount!`, or after `rf/destroy-adapter!` has released the Root, the next `render!` mounts afresh.
+- **Example**:
+  ```clojure
+  (reagent-adapter/render! app-root [app-view] el)                   ;; first call: create + render
+  (reagent-adapter/render! app-root [app-view] el)                   ;; later calls: update the same Root
+  (reagent-adapter/render! app-root [app-view] el {:hydrate? true})  ;; SSR page: hydrate once, then update
+  ```
+
+### `unmount!`
+
+- **Kind**: function
+- **Signature**:
+  ```clojure
+  (unmount! handle)
+  ```
+- **Description**: Unmount the React Root `handle` holds and return the handle to inert. Returns nil.
+  - Idempotent: a second call, or a call after `rf/destroy-adapter!` has already released the Root, does nothing.
+- **Example**:
+  ```clojure
+  (reagent-adapter/unmount! app-root)   ;; releases the Root; a repeat call is a no-op
+  ```
+
 ## Test helpers
 
 ### `flush-views!`
@@ -98,6 +164,7 @@ The migration (a four-line swap) is in [Use UIx or reagent-slim](../core/how-to/
 ## See also
 
 - [`re-frame.core`](re-frame.core.md) — the substrate-agnostic surface (`capture-frame`, `with-frame`, `with-new-frame`, `frame-provider`, `reg-view`) and the lifecycle surface (`init!`, `install-adapter!`, `destroy-adapter!`, `current-adapter`).
+- [Boot and mount an app](../core/how-to/boot-and-mount-an-app.md) — the entry-namespace recipe built on the client root.
 - [`re-frame.adapter.uix`](re-frame.adapter.uix.md) — the hooks-first React substrate and its parallel adapter surface.
 - [`re-frame.ssr`](re-frame.ssr.md) — server-side rendering; wires `set-hiccup-emitter!` for you.
 - [Use UIx or reagent-slim](../core/how-to/use-uix-or-slim.md) — the substrate-choice how-to, including the slim swap.

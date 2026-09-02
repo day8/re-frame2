@@ -5,7 +5,8 @@
    Per TESTING.md §Test surface ownership: examples/ are for humans;
    per-adapter smoke lives with the adapter. This testbed proves the
    day8/reagent-slim substrate wires up end-to-end in a real browser —
-   mount through `reagent2.dom.client`, subscribe, dispatch, re-render —
+   mount through the adapter client root over `reagent2.dom.client`,
+   subscribe, dispatch, re-render —
    without depending on the `examples/substrates/reagent_slim/counter`
    teaching example.
 
@@ -26,8 +27,7 @@
    Minimal by design. Don't grow it. Real coverage is the framework's
    CLJS tests, the slim headless substrate tests, the bundle-isolation
    grep, and the Xray feature gate."
-  (:require [reagent2.dom.client           :as rdc]
-            [re-frame.core                 :as rf]
+  (:require [re-frame.core                 :as rf]
             [re-frame.views]
             [re-frame.adapter.reagent-slim :as reagent-slim-adapter])
   (:require-macros [re-frame.core :refer [reg-view]]))
@@ -70,8 +70,10 @@
 
 ;; -- Mount ------------------------------------------------------------------
 
-(defonce app-root
-  (rdc/create-root (js/document.getElementById "app")))
+;; The adapter-owned client root (rf2-k5r9t) — the same trio the stock
+;; Reagent adapter publishes, from the same shared spine, so the slim smoke
+;; mounts exactly the way the stock one does.
+(defonce app-root (reagent-slim-adapter/client-root))
 
 (defn ^:export init []
   ;; EP-0002 (rf2-9o48ih): the runtime never synthesises a frame from
@@ -83,4 +85,6 @@
   (rf/make-frame {:id :rf/default})
   (rf/with-frame :rf/default
     (rf/dispatch-sync [:counter/init]))
-  (rdc/render app-root [rf/frame-provider {:frame :rf/default} [root]]))
+  (reagent-slim-adapter/render! app-root
+    [rf/frame-provider {:frame :rf/default} [root]]
+    (js/document.getElementById "app")))
