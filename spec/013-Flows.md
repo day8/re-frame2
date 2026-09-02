@@ -503,9 +503,9 @@ Flows are also explicitly *not*:
 
 | v1 alpha | v2 |
 |---|---|
-| `:id` | `:id` (unchanged) |
+| `:id` | The **first positional slot** — the `flow-id` of `(reg-flow flow-id metadata derive-fn)`. Same name, but a positional slot rather than a map key. |
 | `:inputs` (map of keyword → path-or-`flow<-`) | `:inputs` (vector of paths). Map-keyed inputs that referenced other flows via `flow<-` collapse to plain paths — the topological sort handles dependency ordering automatically. |
-| `:output` (function of resolved-inputs map) | `:derive` (function of positional inputs) |
+| `:output` (function of resolved-inputs map) | The **third positional slot** — the `derive-fn` value of `(reg-flow flow-id metadata derive-fn)`, now taking its inputs positionally rather than destructuring a resolved-inputs map. It is **not** a metadata key: a `:derive` left inside the metadata map is rejected with `:rf.error/invalid-flow-metadata`. |
 | `:path` | `:output-path` |
 | `:live?`, `:live-inputs` | Dropped. Use `:rf.fx/clear-flow` to toggle off; `:rf.fx/reg-flow` to toggle on. |
 | `:cleanup` | Dropped. Default is `dissoc-in` on `:output-path`; opt-out is not provided. |
