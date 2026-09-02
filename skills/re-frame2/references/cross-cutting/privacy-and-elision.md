@@ -227,10 +227,20 @@ Propagation is machinery for an unusual case already covered by classifying the 
 Projection substitutes one of three framework-reserved sentinel forms (your app must never use them as legitimate payload values):
 
 - **`:rf/redacted` — sensitive only.** Carries *no* information about content — not type, size, hash, or prefix.
-- **`:rf.size/large-elided` / `:rf/large {:bytes N :head "…"}` — large only.** Size plus an optional `:head` (the first N chars).
-- **`:rf/redacted {:bytes N}` — sensitive + large composed.** Sensitive wins on content visibility (no `:head` ever); a size diagnostic may ride alongside.
+- **`:rf.size/large-elided {…}` — large only.** What core **emits** is a marker *map*, not a bare keyword:
 
-The rendering rule is uniform and load-bearing: a **large marker is drillable** (click-to-expand, subject to a size confirmation), but **`:rf/redacted` MUST NOT be expandable, ever** — a "show original" affordance against `:rf/redacted` is the exact leak the contract exists to prevent.
+  ```clojure
+  {:rf.size/large-elided {:path   [:reports :2026 :rows]        ; the concrete runtime path
+                          :bytes  184320                        ; printed-representation byte count
+                          :type   :vector                       ; closed: :map :vector :set :string :scalar
+                          :reason :effect                       ; the declaration source
+                          :handle [:rf.elision/at [:reports :2026 :rows]]}}   ; EDN re-fetch form
+  ```
+
+  An optional `:hint` rides alongside, and a `:digest` appears **only** under `:rf.size/include-digests?`. Match on `:rf.size/large-elided` — a sink or forwarder that matches `:rf/large` never fires, because core emits that spelling nowhere. `:rf/large {:bytes N :head "…"}` is a **display form** a tool MAY render *from* this marker; `:head` is a rendering affordance, never a slot core produces.
+- **`:rf/redacted` — sensitive + large composed.** Sensitive wins on content visibility (no `:head` ever). **Off-box the composed form MUST NOT carry `:bytes`** — size is content information about a secret, and the CLJS reference suppresses it. A trusted-local profile MAY attach `:rf/redacted {:bytes N}` as a diagnostic, so a reader must never *depend* on `:bytes` being present.
+
+The rendering rule is uniform and load-bearing: a **large marker is drillable** — click-to-expand, subject to a per-tool size confirmation, re-fetching through the marker's own `:handle` (`[:rf.elision/at <path>]`, extended to `[:rf.elision/at <path> :as-of-epoch <epoch>]` when the walk was epoch-scoped) — but **`:rf/redacted` MUST NOT be expandable, ever** — a "show original" affordance against `:rf/redacted` is the exact leak the contract exists to prevent.
 
 ## Surfaces that do not exist → use the model
 
