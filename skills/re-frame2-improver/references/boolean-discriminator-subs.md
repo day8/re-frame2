@@ -99,8 +99,8 @@ Four subs become one, the view derefs once, and the mutual exclusion is a single
               render-priority)
         :uninitialised)))                                     ;; snapshot may be nil before first run
 
-(defn article-page []
-  (case @(rf/subscribe [:article/render])
+(rf/reg-view article-page []
+  (case @(subscribe [:article/render])                        ;; injected subscribe — no rf/ prefix
     :loading [spinner] :error [error-banner]
     :empty [empty-state] :loaded [article-body]
     :uninitialised [spinner]))                                ;; lazy-init boundary — see callout
@@ -108,9 +108,11 @@ Four subs become one, the view derefs once, and the mutual exclusion is a single
 
 Adding a `:stale` state is one row in the table plus one `case` clause — no audit of mutual-exclusion across a boolean cluster. **Full machine mechanics (guards, actions, transitions), the render-priority idiom, and lazy-init handling: see [`tags.md`](../../re-frame2/references/state-machines/tags.md) and [`nine-states.md`](../../re-frame2/patterns/nine-states.md).**
 
-> **The lazy-initialisation boundary.** `:initial :loading` declares where the machine *starts*, not that a snapshot exists: until it first runs, `[:rf/machine :article]` is `nil` and the selector resolves no tag ([Spec 005](../../../spec/005-StateMachines.md) §When creation happens). Two complementary safeguards — both required — (1) dispatch the eager-start kick `(rf/dispatch [:article [:rf.machine/start]])` from app/frame init so the `:loading` snapshot is materialised before first paint, and (2) keep a `:uninitialised` default branch so the root `case` cannot throw on the nil/no-match keyword. The kick alone is insufficient: a render racing ahead of init, or a frame reverting past the machine's birth, can still present `nil`.
+> **The lazy-initialisation boundary.** `:initial :loading` declares where the machine *starts*, not that a snapshot exists: until it first runs, `[:rf/machine :article]` is `nil` and the selector resolves no tag ([Spec 005](../../../spec/005-StateMachines.md) §When creation happens). Two complementary safeguards — both required — (1) fire the eager-start kick `[:article [:rf.machine/start]]` from the frame's `:initial-events` (the atomic entry point, dispatched synchronously at frame construction) so the `:loading` snapshot is materialised before first paint — not as a bare `rf/dispatch` after `make-frame`, which runs under no frame scope, and (2) keep a `:uninitialised` default branch so the root `case` cannot throw on the nil/no-match keyword. The kick alone is insufficient: a render racing ahead of init, or a frame reverting past the machine's birth, can still present `nil`.
 
 > **`:rf.machine/has-tag?` vs the selector sub.** Reach for `@(rf/subscribe [:rf.machine/has-tag? :article :some/tag])` directly for **single one-off affordances** — disabling a button while in-flight, showing a "read-only" badge. Route **mutually-exclusive whole-page render states** through one selector sub over a priority table, as above. A `cond` over multiple `:rf.machine/has-tag?` derefs in the root view re-introduces the very multi-boolean branch this leaf exists to retire.
+
+> **Both rewrites register with `rf/reg-view`, and that is load-bearing rather than style.** A plain `(defn …)` view carries no `:contextType`, so it cannot read the surrounding `frame-provider`'s frame; under EP-0002 there is no `:rf/default` floor, so its ambient `rf/subscribe` / `rf/dispatch` resolve to nil and raise `:rf.error/no-frame-context` the moment they run — a recommended rewrite in that shape throws in the reader's app at first render. `reg-view` injects frame-bound `dispatch` / `subscribe` locals, which is why the bodies above drop the `rf/` prefix. Same rule as [`view-side-hook-state.md`](view-side-hook-state.md); the framework statement is [`views.md`](../../re-frame2/references/fundamentals/views.md) §Common gotchas. The `Before` is deliberately left a plain `defn` — it is the code under review, not a recommendation.
 
 ## Edge cases — when boolean subs are fine
 

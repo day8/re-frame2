@@ -94,8 +94,14 @@ Forgetting a terminator is now *visible* rather than silent: the status simply s
     :loaded  {:tags #{:items/loaded} :on {:load :loading}}
     :error   {:tags #{:items/error}  :on {:load :loading}}}})
 
-;; View reads one tag-question, no flag-and-data race:
-@(rf/subscribe [:rf.machine/has-tag? :items :items/loading])
+;; The view reads one tag-question, no flag-and-data race. It is an
+;; rf/reg-view, so `subscribe` is the macro's injected frame-bound local: a
+;; plain (defn …) view with a bare rf/subscribe raises
+;; :rf.error/no-frame-context under EP-0002 (see view-side-hook-state.md).
+(rf/reg-view items-panel []
+  (if @(subscribe [:rf.machine/has-tag? :items :items/loading])
+    [spinner]
+    [items-list]))
 ```
 
 ## Edge cases — when a boolean flag is fine
