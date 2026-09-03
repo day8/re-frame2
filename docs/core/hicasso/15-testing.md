@@ -88,7 +88,7 @@ is the one setup step the classpath does not cover: `hm/mount!` renders through
 classpath supplies one, and neither does Testing Library —
 `@testing-library/dom` *queries* a DOM, it does not create one. On a
 shadow-cljs `:node-test` build there is no `document` at all, so every `hm`
-name resolves, compiles, and then fails at run time.
+call compiles and then fails at run time.
 
 Two build shapes answer it, and they are not equivalent.
 
@@ -107,7 +107,7 @@ Split the two lanes by namespace suffix, so the browser-free bulk of the suite
 never pays for a browser:
 
 ```clojure
-;; shadow-cljs.edn -- :builds, beside the :deps entry above
+;; shadow-cljs.edn, continued: the :builds map
 {:builds
  {:node-test    {:target    :node-test
                  :ns-regexp "-cljs-test$"
@@ -597,7 +597,7 @@ props. The row's own test proves what a row renders.
 | Data test passes but mounted test fails | React lifecycle, effect order, StrictMode, or commit timing changed the result | Treat the mounted result as authoritative for React behaviour |
 | Tree assertion sees `nil` | A `when` returned `nil`; it renders nothing but still appears in authored data | Assert that `nil`, or filter it before comparing |
 | `(nil? (ht/tree ...))` fails on a body that renders nothing | The root is always a node; a body returning `nil` roots in an empty fragment | Assert `(empty? (:children tree))` ([The root is always a node](#the-root-is-always-a-node)) |
-| Every `hm` name resolves but nothing mounts | The test lane has no `document` | Run L3 on a `:browser-test` target ([Where L3's DOM comes from](#where-l3s-dom-comes-from)) |
+| Every `hm` call compiles but nothing mounts | The test lane has no `document` | Run L3 on a `:browser-test` target ([Where L3's DOM comes from](#where-l3s-dom-comes-from)) |
 | An `ht/intents` equality reds when an unrelated test is added | The tree holds a route link, whose navigate decision carries a per-call probe frame id | Compare by membership, or filter to the heads you own ([The intent stream carries more than your events](#the-intent-stream-carries-more-than-your-events)) |
 | A collection test remains green with an empty list | The assertion is vacuously true | Assert the count and add a sabotage twin |
 
