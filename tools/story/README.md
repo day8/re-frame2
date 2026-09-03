@@ -139,7 +139,7 @@ The substantive implementation contract is decomposed into
 
 ## Running the Story examples
 
-Four Story-enabled builds are wired into the top-level `:dev-http` map
+Five Story-enabled builds are wired into the top-level `:dev-http` map
 (`implementation/shadow-cljs.edn`) on the `804x` band, so each runs
 one-command — `npx shadow-cljs watch <build-id>` then open the URL. Each is
 hash-routed: `/#/` is the live app, `/#/stories` mounts the Story shell (the
