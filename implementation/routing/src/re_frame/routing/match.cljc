@@ -503,71 +503,73 @@
 
 (defn- tokens->nfa
   "Compile segment tokens into a tiny epsilon-NFA over the segment
-  alphabet. Returns `{:edges {state [[label to] …]} :eps {state #{to}}
+  alphabet. Returns `{:edges {state [[label to] …]}
+  :epsilon-edges {state #{to}}
   :start 0 :accept <state> :root? <bool>}` where `label` is `[:lit text]`
-  / `:param` / `:any`, `:eps` carries the optional-group skip edges, and
+  / `:param` / `:any`, `:epsilon-edges` carries the optional-group skip edges, and
   `:root?` marks the splat-only quirk (`/*` / `/*rest` additionally match
   the zero-segment root URL `/`)."
   [tokens]
-  (loop [ts    (seq tokens)
-         state 0
-         edges {}
-         eps   {}]
-    (if-not ts
-      {:edges edges :eps eps :start 0 :accept state
+  (loop [remaining-tokens (seq tokens)
+         state            0
+         edges            {}
+         epsilon-edges    {}]
+    (if-not remaining-tokens
+      {:edges edges :epsilon-edges epsilon-edges :start 0 :accept state
        :root? (= [:splat] tokens)}
-      (let [t (first ts)]
+      (let [token (first remaining-tokens)]
         (cond
-          (= :param t)
-          (recur (next ts) (inc state)
+          (= :param token)
+          (recur (next remaining-tokens) (inc state)
                  (update edges state (fnil conj []) [:param (inc state)])
-                 eps)
+                 epsilon-edges)
 
-          (= :splat t)
+          (= :splat token)
           ;; Consume ≥1 segments then accept: pre —any→ post —any→ post.
           ;; (The splat is grammatically final, so `post` becomes :accept.)
-          (let [post (inc state)]
-            (recur (next ts) post
+          (let [post-state (inc state)]
+            (recur (next remaining-tokens) post-state
                    (-> edges
-                       (update state (fnil conj []) [:any post])
-                       (update post  (fnil conj []) [:any post]))
-                   eps))
+                       (update state      (fnil conj []) [:any post-state])
+                       (update post-state (fnil conj []) [:any post-state]))
+                   epsilon-edges))
 
-          (= :lit (first t))
-          (recur (next ts) (inc state)
-                 (update edges state (fnil conj []) [t (inc state)])
-                 eps)
+          (= :lit (first token))
+          (recur (next remaining-tokens) (inc state)
+                 (update edges state (fnil conj []) [token (inc state)])
+                 epsilon-edges)
 
           :else ;; [:opt inner]
-          (let [entry state
-                [edges' exit]
-                (reduce (fn [[e s] inner-tok]
-                          [(update e s (fnil conj []) [inner-tok (inc s)])
-                           (inc s)])
-                        [edges entry]
-                        (second t))]
-            (recur (next ts) exit edges'
-                   (update eps entry (fnil conj #{}) exit))))))))
+          (let [entry-state state
+                [next-edges exit-state]
+                (reduce (fn [[current-edges current-state] inner-token]
+                          [(update current-edges current-state
+                                   (fnil conj []) [inner-token (inc current-state)])
+                           (inc current-state)])
+                        [edges entry-state]
+                        (second token))]
+            (recur (next remaining-tokens) exit-state next-edges
+                   (update epsilon-edges entry-state (fnil conj #{}) exit-state))))))))
 
-(defn- eps-closure
+(defn- epsilon-closure
   "The forward epsilon-closure of `state` under the NFA's optional-group
   skip edges."
-  [eps state]
+  [epsilon-edges state]
   (loop [seen     #{state}
          frontier [state]]
     (if (empty? frontier)
       seen
-      (let [fresh (remove seen (mapcat #(get eps % #{}) frontier))]
-        (recur (into seen fresh) (vec fresh))))))
+      (let [fresh-states (remove seen (mapcat #(get epsilon-edges % #{}) frontier))]
+        (recur (into seen fresh-states) (vec fresh-states))))))
 
 (defn- labels-compatible?
   "True when some single URL segment satisfies BOTH edge labels: `:any`
   (splat) and `:param` match every non-empty segment; two literals are
   compatible iff their canonical texts are identical."
-  [la lb]
-  (or (= :any la) (= :any lb)
-      (= :param la) (= :param lb)
-      (= la lb)))
+  [label-a label-b]
+  (or (= :any label-a) (= :any label-b)
+      (= :param label-a) (= :param label-b)
+      (= label-a label-b)))
 
 (defn patterns-intersect?
   "True when some URL path can match BOTH canonical route patterns — the
@@ -581,38 +583,41 @@
   conservatively return true. Both arguments must be CANONICAL patterns
   (as produced by `canonical-route-pattern` / stored on route metadata)."
   [pattern-a pattern-b]
-  (let [ta (segment-tokens pattern-a)
-        tb (segment-tokens pattern-b)]
-    (if (or (nil? ta) (nil? tb))
+  (let [tokens-a (segment-tokens pattern-a)
+        tokens-b (segment-tokens pattern-b)]
+    (if (or (nil? tokens-a) (nil? tokens-b))
       true
-      (let [na       (tokens->nfa ta)
-            nb       (tokens->nfa tb)
-            close-a  (memoize #(eps-closure (:eps na) %))
-            close-b  (memoize #(eps-closure (:eps nb) %))
+      (let [nfa-a    (tokens->nfa tokens-a)
+            nfa-b    (tokens->nfa tokens-b)
+            close-a  (memoize #(epsilon-closure (:epsilon-edges nfa-a) %))
+            close-b  (memoize #(epsilon-closure (:epsilon-edges nfa-b) %))
             ;; A state accepts when its closure reaches :accept — or, for
             ;; the splat-only `:root?` quirk, at the start state (the
             ;; zero-segment root URL `/` is also in the language).
-            accept-a? (fn [s] (or (contains? (close-a s) (:accept na))
-                                  (and (:root? na) (= s (:start na)))))
-            accept-b? (fn [s] (or (contains? (close-b s) (:accept nb))
-                                  (and (:root? nb) (= s (:start nb)))))
-            start     [(:start na) (:start nb)]]
+            accept-a? (fn [state]
+                        (or (contains? (close-a state) (:accept nfa-a))
+                            (and (:root? nfa-a) (= state (:start nfa-a)))))
+            accept-b? (fn [state]
+                        (or (contains? (close-b state) (:accept nfa-b))
+                            (and (:root? nfa-b) (= state (:start nfa-b)))))
+            start     [(:start nfa-a) (:start nfa-b)]]
         (loop [queue   [start]
                visited #{start}]
           (if (empty? queue)
             false
-            (let [[sa sb] (peek queue)]
-              (if (and (accept-a? sa) (accept-b? sb))
+            (let [[state-a state-b] (peek queue)]
+              (if (and (accept-a? state-a) (accept-b? state-b))
                 true
-                (let [succs (for [a'      (close-a sa)
-                                  [la ta'] (get (:edges na) a')
-                                  b'      (close-b sb)
-                                  [lb tb'] (get (:edges nb) b')
-                                  :when   (labels-compatible? la lb)]
-                              [ta' tb'])
-                      fresh (remove visited succs)]
-                  (recur (into (pop queue) fresh)
-                         (into visited fresh)))))))))))
+                (let [successors
+                      (for [closed-state-a         (close-a state-a)
+                            [label-a next-state-a] (get (:edges nfa-a) closed-state-a)
+                            closed-state-b         (close-b state-b)
+                            [label-b next-state-b] (get (:edges nfa-b) closed-state-b)
+                            :when (labels-compatible? label-a label-b)]
+                        [next-state-a next-state-b])
+                      unvisited-successors (remove visited successors)]
+                  (recur (into (pop queue) unvisited-successors)
+                         (into visited unvisited-successors)))))))))))
 
 ;; ---- match-against --------------------------------------------------------
 
@@ -635,22 +640,26 @@
   (\"\") is non-nil and survives — only the regex-unmatched (nil) case drops."
   [compiled url]
   (let [{:keys [regex names]} compiled
-        m (re-matches regex url)]
-    (when m
-      (let [groups  (if (sequential? m) (rest m) [])
+        match-result (re-matches regex url)]
+    (when match-result
+      (let [groups  (if (sequential? match-result) (rest match-result) [])
             ;; Realise into a vector once — `decoded` is consumed twice
             ;; below (validity scan + zipmap), and a lazy-seq would be
             ;; walked (and `safe-url-decode` re-invoked) on each pass.
-            decoded (mapv (fn [g] (when g (url/safe-url-decode g))) groups)]
+            decoded (mapv (fn [group]
+                            (when group (url/safe-url-decode group)))
+                          groups)]
         ;; A nil entry for a non-nil group means malformed %-encoding —
         ;; treat as no-match (route-miss, never throw).
-        (when (every? (fn [[g d]] (or (nil? g) (some? d)))
+        (when (every? (fn [[group decoded-value]]
+                        (or (nil? group) (some? decoded-value)))
                       (map vector groups decoded))
           ;; After the malformed-%-encoding guard, any remaining nil
           ;; decoded value corresponds to a nil regex group — an unmatched
           ;; optional group. Strip those keys so the param is absent, not
           ;; nil-valued (rf2-yejde).
           (into {}
-                (comp (filter (fn [[_ v]] (some? v)))
-                      (map (fn [[n v]] [(keyword n) v])))
+                (comp (filter (fn [[_ value]] (some? value)))
+                      (map (fn [[param-name value]]
+                             [(keyword param-name) value])))
                 (map vector names decoded)))))))

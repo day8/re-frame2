@@ -107,7 +107,8 @@
 
 #?(:cljs
    (defn- install-listener-for-owner!
-     "Tear down any installed listener, then install `owner`'s `strat` browser
+     "Tear down any installed listener, then install `owner-frame-id`'s
+     `url-strategy` browser
      URL-change listener, record `{:owner :strategy :teardown}`, and sync the
      current URL into the owner's route slice at `[:rf.runtime/routing
      :current]`.
@@ -124,10 +125,10 @@
      browser's macrotask loop, never nested inside a re-frame drain, so the
      run-to-completion update is safe and the slice restores synchronously
      within the same browser turn (the locked routing-history contract)."
-     [owner strat]
-     (let [w (when (exists? js/window) js/window)
-           decode (:decode strat)
-           install-listener! (:install-listener! strat)
+     [owner-frame-id url-strategy]
+     (let [browser-window (when (exists? js/window) js/window)
+           decode-url (:decode url-strategy)
+           install-listener! (:install-listener! url-strategy)
            ;; EP-0037 R0b: `:rf.route/handle-url-change` stands for three
            ;; doors, so the listener names WHICH one it is via the
            ;; runtime-internal `:rf.route/cause` rider on the event's trailing
@@ -137,11 +138,11 @@
            ;; drift.
            dispatch-to-owner!
            (fn [cause path-url]
-             (when-let [o (nav-fx/url-owner-frame-id)]
+             (when-let [current-owner-frame-id (nav-fx/url-owner-frame-id)]
                (router/dispatch-sync! [:rf.route/handle-url-change path-url
                                        {:rf.route/cause cause}]
-                                      {:frame o})))]
-       (when w
+                                      {:frame current-owner-frame-id})))]
+       (when browser-window
          ;; Failure-atomic handoff (rf2-j538f7.11): install the REPLACEMENT
          ;; listener FIRST, then tear the incumbent down only once the new one
          ;; is in hand. If `install-listener!` throws (a callable-but-throwing
@@ -154,13 +155,13 @@
          (let [new-teardown (install-listener! (partial dispatch-to-owner! :popstate))]
            (teardown-current!)
            (reset! history-listener-atom
-                   {:owner    owner
-                    :strategy strat
+                   {:owner    owner-frame-id
+                    :strategy url-strategy
                     :teardown new-teardown})))
        ;; Initial sync: hydrate the owner's slice from the current URL so a deep
        ;; link / reload / ownership transfer lands on the right route. Cause
        ;; `:initial` — this is the initial page load, not a Back/Forward.
-       (dispatch-to-owner! :initial (decode))
+       (dispatch-to-owner! :initial (decode-url))
        nil)))
 
 #?(:cljs
@@ -186,12 +187,12 @@
                                                           listener + initial
                                                           sync.
 
-     `excluded-id` (destroy path) is the frame being torn down. By the time
+     `excluded-frame-id` (destroy path) is the frame being torn down. By the time
      `:routing/on-frame-destroyed!` fires, the destroyed frame's `:destroyed?`
      flag is already flipped, so `frame-meta` reads it as absent and the
      claim-free fallback cannot resolve it — the exclusion is defence in
      depth (an explicit contract rather than a timing-derived one): a
-     resolved owner equal to `excluded-id` is treated as no owner.
+     resolved owner equal to `excluded-frame-id` is treated as no owner.
 
      Ownership-driven, so ONE op serves both lifecycle points: it installs the
      successor when the incumbent relinquishes/is destroyed while a live
@@ -200,27 +201,29 @@
      owner, so reconciliation is a no-op — the incumbent's listener instance is
      preserved. Returns `nil`."
      ([] (reconcile-url-listener! nil))
-     ([excluded-id]
-      (let [resolved  (nav-fx/url-owner-frame-id)
-            owner     (when (not= resolved excluded-id) resolved)
-            strat     (when owner (strategy/url-strategy-for-frame-id owner))
-            installed @history-listener-atom]
+     ([excluded-frame-id]
+      (let [resolved-owner-frame-id (nav-fx/url-owner-frame-id)
+            current-owner-frame-id  (when (not= resolved-owner-frame-id excluded-frame-id)
+                                      resolved-owner-frame-id)
+            current-url-strategy    (when current-owner-frame-id
+                                      (strategy/url-strategy-for-frame-id current-owner-frame-id))
+            installed-listener      @history-listener-atom]
         (cond
           ;; No declared owner (or the only resolvable candidate is the frame
           ;; being torn down) → ensure no listener remains.
-          (nil? owner)
+          (nil? current-owner-frame-id)
           (teardown-current!)
 
           ;; The installed listener already matches the current owner AND
           ;; strategy → leave the exact instance untouched.
-          (and (= owner (:owner installed))
-               (= strat (:strategy installed)))
+          (and (= current-owner-frame-id (:owner installed-listener))
+               (= current-url-strategy (:strategy installed-listener)))
           nil
 
           ;; Ownership transferred, or the same owner's strategy changed →
           ;; establish the matching listener (tears down the prior one first).
           :else
-          (install-listener-for-owner! owner strat))
+          (install-listener-for-owner! current-owner-frame-id current-url-strategy))
         nil))))
 
 #?(:cljs

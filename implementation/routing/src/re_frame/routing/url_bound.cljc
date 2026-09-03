@@ -42,8 +42,8 @@
             [re-frame.routing.nav-fx :as nav-fx]
             [re-frame.trace :as trace]))
 
-(defn- frame-id-of-existing-url-binding
-  "Scan the frames store for any live frame OTHER than `exclude-id`
+(defn- other-url-bound-frame-id
+  "Scan the frames store for any live frame OTHER than `excluded-frame-id`
   that currently carries an explicit `:url-bound? true`. Returns the
   offending frame-id or nil.
 
@@ -51,12 +51,12 @@
   no `:rf/default`-owns-by-default floor. `:rf/default` is counted here only
   when it carries an explicit `:url-bound? true` like any other frame; an
   un-annotated `:rf/default` is NOT an implicit owner."
-  [exclude-id]
-  (some (fn [other-id]
-          (when (and (not= other-id exclude-id)
+  [excluded-frame-id]
+  (some (fn [other-frame-id]
+          (when (and (not= other-frame-id excluded-frame-id)
                      (true? (nav-fx/url-bound?-from-config
-                              (frame/frame-meta other-id))))
-            other-id))
+                              (frame/frame-meta other-frame-id))))
+            other-frame-id))
         (frame/frame-ids)))
 
 (defn check-url-bound-exclusivity!
@@ -87,23 +87,23 @@
 
   Public so the façade can compose it into its
   `:routing/on-frame-registered!` hook body (both hosts)."
-  [id]
-  (if (true? (nav-fx/url-bound?-from-config (frame/frame-meta id)))
+  [frame-id]
+  (if (true? (nav-fx/url-bound?-from-config (frame/frame-meta frame-id)))
     (do
       ;; Record the claim FIRST so the incumbent keeps its claim position; a
       ;; duplicate appends after it and never steals ownership.
-      (nav-fx/record-url-claim! id)
-      (when-let [other (frame-id-of-existing-url-binding id)]
+      (nav-fx/record-url-claim! frame-id)
+      (when-let [other-frame-id (other-url-bound-frame-id frame-id)]
         (trace/emit-error! :rf.error/duplicate-url-binding
-                           {:existing-frame  other
-                            :offending-frame id
+                           {:existing-frame  other-frame-id
+                            :offending-frame frame-id
                             :reason          "Two frames carry :url-bound? true; only one frame may own the URL at a time."
                             :recovery        :no-recovery})))
     ;; A frame registration that does NOT carry `:url-bound? true`
     ;; relinquished any prior URL claim (e.g. `:rf/default {:url-bound?
     ;; false}` opting out): drop it so a stale claim cannot keep a now-unbound
     ;; frame at the head of the claim order. Idempotent.
-    (nav-fx/drop-url-claim! id)))
+    (nav-fx/drop-url-claim! frame-id)))
 
 (defn reconcile-existing-url-bindings!
   "Reconcile `:url-bound? true` frames ALREADY seated when the
