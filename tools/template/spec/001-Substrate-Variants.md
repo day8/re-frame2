@@ -8,7 +8,7 @@
 
 | Substrate | Default? | View library | Generated `core.cljs` shape |
 |---|---|---|---|
-| `:reagent` | yes | Reagent | `rf/frame-root` rendered through `reagent.dom.client` |
+| `:reagent` | yes | Reagent | `rf/frame-root` rendered through the adapter's `client-root` |
 | `:uix` | no | UIx | `uix-adapter/frame-root` rendered through `uix.dom` |
 
 Reagent is the default — the substrate every re-frame and re-frame2
@@ -68,9 +68,15 @@ Both variants emit the same project shape. The substrate choice swaps:
   `day8/re-frame2-uix`) and the view library (`reagent/reagent`, or
   `com.pitch/uix.core` + `com.pitch/uix.dom`). `day8/re-frame2` (core)
   rides both.
-- `core.cljs` — the entry point. Reagent creates its root with
-  `reagent.dom.client/create-root` and renders `[rf/frame-root …]`;
-  UIx uses `uix.dom/create-root` + `render-root` around
+- `core.cljs` — the entry point, and the one place the two substrates
+  differ on who owns the React root. Reagent holds an inert
+  `reagent-adapter/client-root` handle and renders `[rf/frame-root …]`
+  through `reagent-adapter/render!`: the adapter creates (or hydrates)
+  the underlying React Root on that first render, reuses it across hot
+  reloads, and releases it from `rf/destroy-adapter!` — direct
+  `reagent.dom.client` construction is encapsulated, so the emitted
+  scaffold never names it. UIx owns its root itself, with
+  `uix.dom/create-root` + `render-root` around
   `($ uix-adapter/frame-root …)`. Both carry the same
   `^:dev/after-load mount!` hook and the same `init`.
 - `views.cljs` — the counter view. Reagent uses `rf/reg-view` and

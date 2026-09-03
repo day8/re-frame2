@@ -690,12 +690,14 @@ test('Story macros.clj schedules BOTH CLJS lanes (rf2-eyyd2)', () => {
 test('Story macros.clj keeps its existing non-CLJS fan-out (rf2-eyyd2)', () => {
   // The arm widens; it must not narrow. macros.clj is under
   // tools/story/src/**, so the examples_compile roster and the
-  // tools_jvm / mcp_conformance / template_expensive fan-out all still fire.
+  // tools_jvm / mcp_conformance fan-out all still fire.
   const result = classify(STORY_MACROS);
   assert.equal(result.examples_compile, 'true');
   assert.equal(result.tools_jvm, 'true');
   assert.equal(result.mcp_conformance, 'true');
-  assert.equal(result.template_expensive, 'true');
+  // template_expensive is NOT in that roster (rf2-6r9j.108): the reduced
+  // scaffold compiles against no Story surface, macros.clj included.
+  assert.equal(result.template_expensive, 'false');
 });
 
 // rf2-uqf5q — the THIRD predicate. rf2-eyyd2 armed macros.clj on the two CLJS
@@ -1909,39 +1911,61 @@ test('Other spec/*.md change does NOT light cljs_node_test (scope discipline) (r
   assert.equal(result.cljs_node_test, 'false');
 });
 
-// rf2-jdj17.1 — template_expensive false-green fix. The template's
-// generated `:app` build transitively compiles against tools/xray
-// (:devtools/preloads [day8.re-frame2-xray.preload]),
-// implementation/schemas (events.cljs side-loads re-frame.schemas;
-// schema.cljs calls reg-app-schema), and tools/story (the with-story
-// scaffold requires re-frame.story). The ONLY PR-time gate that compiles
-// the emitted `:app` (emitted_test_run_test, gated on template_expensive)
-// must therefore RUN when any of those three surfaces changes — else a
-// breaking change merges GREEN at PR time and surfaces only in the
-// nightly cron. These assertions lock the classifier OR-ing
-// template_expensive into the xray/story/schemas cases.
+// rf2-6r9j.108 — template_expensive is armed by the generated app's ACTUAL
+// inputs and nothing else. rf2-jdj17.1 armed it for tools/xray, tools/story
+// and implementation/schemas because the then-current scaffold compiled
+// against all three: `:devtools/preloads [day8.re-frame2-xray.preload]` in
+// every emitted shadow-cljs.edn, a `:with-story` variant requiring
+// re-frame.story, and an events.cljs/schema.cljs pair calling reg-app-schema.
+// rf2-zq34m (18b9486664) deleted all of that. The current twelve-file
+// emission requires core, the selected adapter and the view library only —
+// and tools/template's own `template_test.clj` FORBIDS the three coordinates
+// and their marker strings in anything emitted. So none of the three can
+// break the generated `:app` compile, and arming the ~30-minute
+// jvm-tools-template job (npm ci + Playwright Chromium provisioning) for a
+// schemas-only or Story/Xray-only PR was pure cost.
+//
+// These are the NEGATIVE CONTROLS that replaced the three positive
+// assertions. Each surface keeps its own independent lanes, asserted here
+// alongside so a mistaken "narrow everything" edit reds instead of passing:
+// re-add a template_expensive arm only with a real emitted dependency and a
+// fixture that compiles it.
 
-test('Xray src change arms template_expensive (generated :app preloads xray) (rf2-jdj17.1)', () => {
+test('Xray src change does NOT arm template_expensive — not in the reduced scaffold (rf2-6r9j.108)', () => {
   const result = classify('tools/xray/src/day8/re_frame2_xray/preload.cljs');
-  assert.equal(result.template_expensive, 'true');
+  assert.equal(result.template_expensive, 'false');
+  // ...but Xray's own lanes are untouched.
+  assert.equal(result.tools_jvm, 'true');
+  assert.equal(result.mcp_conformance, 'true');
+  assert.equal(result.story_xray_browser, 'true');
 });
 
-test('Story src change arms template_expensive (with-story scaffold requires re-frame.story) (rf2-jdj17.1)', () => {
+test('Story src change does NOT arm template_expensive — the with-story variant is gone (rf2-6r9j.108)', () => {
   const result = classify('tools/story/src/re_frame/story.cljs');
-  assert.equal(result.template_expensive, 'true');
+  assert.equal(result.template_expensive, 'false');
+  // ...but Story's own lanes are untouched.
+  assert.equal(result.tools_jvm, 'true');
+  assert.equal(result.mcp_conformance, 'true');
+  assert.equal(result.story_xray_browser, 'true');
 });
 
-test('Schemas change arms template_expensive (generated events/schema compile against re-frame.schemas) (rf2-jdj17.1)', () => {
+test('Schemas change does NOT arm template_expensive — the scaffold registers no schema (rf2-6r9j.108)', () => {
   const result = classify('implementation/schemas/src/re_frame/schemas.cljc');
-  assert.equal(result.template_expensive, 'true');
+  assert.equal(result.template_expensive, 'false');
+  // ...but schemas keeps every per-feature lane of its own.
+  assert.equal(result.implementation_jvm, 'true');
+  assert.equal(result.cljs_node_test, 'true');
+  assert.equal(result.cljs_browser, 'true');
+  assert.equal(result.cljs_prod, 'true');
+  assert.equal(result.bundle_isolation, 'true');
 });
 
-test('Story spec-md-only change does NOT arm template_expensive (cannot break :app compile) (rf2-jdj17.1)', () => {
+test('Story spec-md-only change does NOT arm template_expensive (rf2-jdj17.1, rf2-6r9j.108)', () => {
   const result = classify('tools/story/spec/002-Runtime.md');
   assert.equal(result.template_expensive, 'false');
 });
 
-test('Xray spec-md-only change does NOT arm template_expensive (rf2-jdj17.1)', () => {
+test('Xray spec-md-only change does NOT arm template_expensive (rf2-jdj17.1, rf2-6r9j.108)', () => {
   const result = classify('tools/xray/spec/017-Test-Coverage-Matrix.md');
   assert.equal(result.template_expensive, 'false');
 });
@@ -2484,8 +2508,11 @@ for (const [file, keys] of [
     ['implementation_jvm', 'cljs_node_test', 'cljs_browser', 'examples_compile', 'cljs_prod', 'bundle_isolation', 'mcp_conformance', 'mcp_live'],
   ],
   [
+    // template_expensive is deliberately absent from this roster
+    // (rf2-6r9j.108): the reduced scaffold registers no schema, so schemas
+    // never armed it on merit. The negative control lives above.
     'implementation/schemas/src/re_frame/schemas.cljc',
-    ['implementation_jvm', 'cljs_node_test', 'cljs_browser', 'examples_compile', 'cljs_prod', 'bundle_isolation', 'template_expensive'],
+    ['implementation_jvm', 'cljs_node_test', 'cljs_browser', 'examples_compile', 'cljs_prod', 'bundle_isolation'],
   ],
   [
     'implementation/machines/src/re_frame/machines.cljc',
