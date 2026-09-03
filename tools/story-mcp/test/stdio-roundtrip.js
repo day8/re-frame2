@@ -7,7 +7,11 @@
 //   - notifications/initialized   (notification, no response)
 //   - tools/list                  (expect the canonical fixture from spec/002)
 //   - tools/call list-tags        (read-side smoke; seven inclusion tags present in canonical set)
-//   - tools/call list-substrates  (returns a vector, possibly empty on JVM)
+//   - tools/call list-substrates  (expect capability-unavailable error — the
+//                                  substrate registry is CLJS-only and
+//                                  unreachable from this JVM host, and a
+//                                  false-empty `[]` success is the regression
+//                                  this pins against)
 //   - tools/call get-story-instructions (text content)
 //   - tools/call preview-variant on an unregistered variant
 //                                 (expect tool-execution error — proves the

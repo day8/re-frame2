@@ -2658,8 +2658,8 @@
 ;; Derived-tree wire-egress redaction — EP-0025 FAIL-OPEN posture.
 ;;
 ;; `elide-app-db` scrubs the `:app-db` slot by PATH. When the SAME sensitive
-;; value is re-keyed into `:rendered-hiccup` / `:effective-args` / `:snapshot`
-;; — at a hiccup-tree position NOT at the declared app-db path — the
+;; value is re-keyed into `:effective-args` / `:snapshot` / an evidence tree
+;; — at a tree position NOT at the declared app-db path — the
 ;; path-based walker is structurally blind to it. EP-0025 removed the
 ;; value-match (taint-by-equality) redaction that used to scrub such re-keyed
 ;; copies (§"What is removed": value-match is propagation/taint by another
@@ -2938,7 +2938,7 @@
 ;; ---------------------------------------------------------------------------
 ;; EP-0025 FAIL-OPEN — :large derived-tree elision was ALSO removed.
 ;; EP-0025 removed value-match across BOTH egress axes. A :large blob RE-KEYED
-;; into :rendered-hiccup / :snapshot / evidence / an explain value slot at a
+;; into :snapshot / evidence / an explain value slot at a
 ;; non-app-db position is structurally invisible to the PATH walker, so it
 ;; ships RAW too — same fail-open posture as the :sensitive axis. The :app-db
 ;; PATH elision (where the blob is AT its declared path) is KEPT and tested
@@ -3037,11 +3037,16 @@
           (is (tree-contains? out blob) "the opt-out forwards the raw large value"))))))
 
 ;; The two integration tests below pin the WIRING — that `preview-variant`
-;; and `run-variant` route `:rendered-hiccup` / `:effective-args` / `:snapshot`
-;; through `scrub-rendered`. They `with-redefs` `story/run-variant` to a
-;; controlled result that embeds the secret in the derived trees, so the
-;; assertion is independent of whatever the fixture's render would actually
-;; produce (the leak exists regardless of WHICH view renders the secret).
+;; and `run-variant` route `:effective-args` / `:snapshot` through
+;; `scrub-rendered`. They `with-redefs` `story/run-variant` to a controlled
+;; result that embeds the secret in the derived trees, so the assertion is
+;; independent of whatever the fixture would actually produce (the leak exists
+;; regardless of WHICH derived tree re-surfaces the secret).
+;;
+;; The stub deliberately carries ONLY slots a real `story/run-variant` can
+;; produce. `rendered-hiccup_retirement_test.clj` drives the REAL run through
+;; the same handlers and pins that no rendered slot reaches the wire, so a
+;; stub cannot reintroduce the retired contract here (rf2-6r9j.13).
 
 (defn- secret-bearing-run-result
   "A unified-run-result-shaped value whose :app-db carries the secret at a
@@ -3057,7 +3062,6 @@
    :app-db         {:public "ok" :token "TOPSECRET"}
    :assertions     []
    :checks         []
-   :rendered-hiccup [:input {:type "password" :value "TOPSECRET"}]
    :effective-args {:label "Save" :token "TOPSECRET"}
    :snapshot       {:db {:token "TOPSECRET"}}
    ;; The three evidence slots that must be value-redacted at egress.
@@ -3074,7 +3078,7 @@
    :sub-runs       [{:sub [:auth/token] :value "TOPSECRET"}]})
 
 (deftest preview-variant-path-redacts-matching-slot-derived-trees-fail-open
-  (testing "EP-0025: preview-variant redacts a derived slot WHERE the value sits AT the classified path (:app-db, :effective-args :token), but ships values RE-KEYED to non-matching positions RAW (:rendered-hiccup, :snapshot)"
+  (testing "EP-0025: preview-variant redacts a derived slot WHERE the value sits AT the classified path (:app-db, :effective-args :token), but ships values RE-KEYED to non-matching positions RAW (:snapshot)"
     (with-clean-frame [vid :story.button/primary]
       ;; The classified path is [:token]. A derived slot is path-walked at the
       ;; frame's classification: a map carrying :token at the position the path
@@ -3091,11 +3095,8 @@
               "app-db PATH-redaction still holds — the kept guarantee")
           (is (= :rf/redacted (get-in s [:effective-args :token]))
               "PATH still works: :effective-args carries :token at the classified path, so it redacts")
-          ;; The hiccup re-keys the value to [1 :value] (no :token key) and the
-          ;; snapshot nests it under :db — neither is at the classified [:token]
-          ;; position, so the path walk is blind and they ship raw.
-          (is (tree-contains? (:rendered-hiccup s) "TOPSECRET")
-              "fail-open: rendered-hiccup re-keys the value off its path, so it ships RAW")
+          ;; The snapshot nests the value under :db — not at the classified
+          ;; [:token] position, so the path walk is blind and it ships raw.
           (is (tree-contains? (:snapshot s) "TOPSECRET")
               "fail-open: snapshot nests the value under :db (off the classified path), so it ships RAW"))))))
 
@@ -3112,12 +3113,10 @@
           (is (success? r))
           (is (= :rf/redacted (get-in s [:app-db :token]))
               "app-db PATH-redaction still holds — the kept guarantee")
-          (is (tree-contains? (:rendered-hiccup s) "TOPSECRET")
-              "fail-open: rendered-hiccup re-keys the value off its path, so it ships RAW")
           (is (tree-contains? (:snapshot s) "TOPSECRET")
               "fail-open: snapshot nests the value under :db (off the classified path), so it ships RAW"))))))
 
-(deftest run-variant-rendered-hiccup-forwards-secret-when-opted-in
+(deftest run-variant-derived-tree-forwards-secret-when-opted-in
   (testing ":include-sensitive true forwards the raw value through the derived trees"
     (config/set-allow-sensitive-reads! true)
     (with-clean-frame [vid :story.button/primary]
@@ -3130,8 +3129,8 @@
                                        :include-sensitive true})
               s (:structuredContent r)]
           (is (success? r))
-          (is (tree-contains? (:rendered-hiccup s) "TOPSECRET")
-              "opt-in surfaces the raw value in rendered-hiccup"))))))
+          (is (tree-contains? (:snapshot s) "TOPSECRET")
+              "opt-in surfaces the raw value in the derived :snapshot tree"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; run-variant's :narrative / :warnings / :sub-runs evidence slots must be

@@ -112,7 +112,7 @@
   with a derived `:status`) + `:checks`, and ADDS the preview-specific
   slots: the `:share-url` from `story/variant-share-url`, so the agent
   can hand the cell to a human
-  collaborator, plus `:rendered-hiccup` / `:effective-args`. `:lifecycle`
+  collaborator, plus `:effective-args`. `:lifecycle`
   here is the loader-lifecycle STATE (`:ready` / `:error`), not the run
   verdict — the verdict is `:status`.
 
@@ -166,8 +166,9 @@
                             :checks       (vec (:checks outcome))
                             ;; Derived trees are PATH-projected through scrub-rendered:
                             ;; a value AT a classified path redacts, a re-keyed copy
-                            ;; ships raw (EP-0025 fail-open).
-                            :rendered-hiccup (egress/scrub-rendered (:rendered-hiccup outcome) raw-db vk incl?)
+                            ;; ships raw (EP-0025 fail-open). `run-variant` produces
+                            ;; no rendered output — rendering is
+                            ;; `story/render-variant`'s (rf2-6r9j.13).
                             :snapshot     (egress/scrub-rendered (:snapshot outcome) raw-db vk incl?)
                             :effective-args (egress/scrub-rendered (:effective-args outcome) raw-db vk incl?)}]
             ;; Surface the MUST-level egress indicator counts:
@@ -221,16 +222,16 @@
 
    {:name           "preview-variant"
     :category       :dev
-    :description    (str "Given a variant id, return the canvas state (app-db, assertions, rendered-hiccup, elapsed) + a sharable URL. Runs the SAME `story/run-variant` lifecycle as `run-variant`, so it accepts the SAME tunable `:timeout-ms` blocking knob (default 10000ms, hard ceiling 30000ms; caller values clamp DOWN) and the SAME host prerequisite: with no installed re-frame adapter it REFUSES up front (`isError true`, `:rf.error :rf.error/no-adapter-installed`) rather than settling a success-shaped non-run. An explicit `:substrate` is validated, not silently dropped: it requires a REACHED substrate registry (unreachable on the JVM stdio host → `:rf.error/story-mcp-capability-unavailable`; reached-but-unknown id → `:rf.error/story-mcp-unknown-substrate`). The `:app-db` slot is routed through `re-frame.core/elide-wire-value` against the variant frame's `[:rf.runtime/elision]` runtime-db registry — declared-sensitive paths return `:rf/redacted` and oversize slots return the `:rf.size/large-elided` marker by default. The derived `:rendered-hiccup` / `:effective-args` / `:snapshot` trees are PATH-projected on BOTH egress axes against the same frame classification. EP-0025 FAIL-OPEN: a value AT a classified path within a derived slot redacts (a slot whose shape mirrors the app-db, e.g. an `:effective-args {:token …}` with `[:token]` classified), but a value RE-KEYED to a non-matching position (a token at hiccup `[1 :value]`, a snapshot nested under `:db`) ships RAW — value-match was removed; classify the app-db PATH to redact a value before a view renders it. Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
+    :description    (str "Given a variant id, return the canvas state (app-db, assertions, effective-args, elapsed) + a sharable URL. Runs the SAME `story/run-variant` lifecycle as `run-variant`, so it accepts the SAME tunable `:timeout-ms` blocking knob (default 10000ms, hard ceiling 30000ms; caller values clamp DOWN) and the SAME host prerequisite: with no installed re-frame adapter it REFUSES up front (`isError true`, `:rf.error :rf.error/no-adapter-installed`) rather than settling a success-shaped non-run. An explicit `:substrate` is validated, not silently dropped: it requires a REACHED substrate registry (unreachable on the JVM stdio host → `:rf.error/story-mcp-capability-unavailable`; reached-but-unknown id → `:rf.error/story-mcp-unknown-substrate`). The `:app-db` slot is routed through `re-frame.core/elide-wire-value` against the variant frame's `[:rf.runtime/elision]` runtime-db registry — declared-sensitive paths return `:rf/redacted` and oversize slots return the `:rf.size/large-elided` marker by default. The derived `:effective-args` / `:snapshot` trees are PATH-projected on BOTH egress axes against the same frame classification. Rendered output is NOT part of this result — `story/render-variant` owns rendering and returns it as `:rendered`. EP-0025 FAIL-OPEN: a value AT a classified path within a derived slot redacts (a slot whose shape mirrors the app-db, e.g. an `:effective-args {:token …}` with `[:token]` classified), but a value RE-KEYED to a non-matching position (a snapshot nested under `:db`) ships RAW — value-match was removed; classify the app-db PATH to redact a value before a derived tree re-surfaces it. Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
                          "Examples: "
-                         "1. Default substrate: {:variant-id \":story.cart/full\"} -> {:variant-id :story.cart/full :share-url \"...\" :status :pass :lifecycle :ready :app-db {...} :assertions [] :checks [] :rendered-hiccup [...]}. "
+                         "1. Default substrate: {:variant-id \":story.cart/full\"} -> {:variant-id :story.cart/full :share-url \"...\" :status :pass :lifecycle :ready :app-db {...} :assertions [] :checks [] :effective-args {...}}. "
                          "2. UIx substrate + a mode: {:variant-id \":story.cart/full\" :substrate \":uix\" :active-modes [\":mode/dark\"]} -> same shape, rendered under uix + dark mode. "
                          "3. Slow variant with an explicit timeout: {:variant-id \":story.slow/loader\" :timeout-ms 20000} -> runs against the 20s ceiling (clamped to 30s max); on overrun returns {:status :error :lifecycle :error :assertions [{:assertion :rf.error/run-failed :status :error ...}]}. "
                          "4. Not registered: {:variant-id \":story.no/such\"} -> {:isError true :content [{:text \"Variant not found: :story.no/such\"}]}.")
     :typicalTokens  2000
     ;; `preview-variant` ships the variant's `:app-db`
-    ;; re-keyed into `:rendered-hiccup` / `:effective-args` /
-    ;; `:snapshot`; structural dedup collapses those four references
+    ;; re-keyed into `:effective-args` / `:snapshot`; structural
+    ;; dedup collapses those three references
     ;; into one cache slot at the wire boundary. Mirrors pair-mcp's
     ;; selective `:dedup` knob on `snapshot` (descriptors_data.cljs).
     :dedup-eligible? true
