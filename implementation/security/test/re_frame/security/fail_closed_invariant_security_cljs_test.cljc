@@ -4,8 +4,9 @@
   Malformed schemas and throwing validators reject rather than validate;
   ambiguous or non-string navigation targets classify as external; and
   malformed SSR hydration payloads leave both frame-state partitions unchanged.
-  Each boundary combines named hostile inputs with deterministic generated
-  coverage."
+  The malformed-schema corpus is closed, so it is checked EXHAUSTIVELY; the URL
+  and hydration boundaries draw deterministic generated coverage on top of
+  their named hostile inputs."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
@@ -101,28 +102,6 @@
       (is (false? (schemas/validate-with-registered-fn [:int] 1))
           "throwing validator → false (fail closed), not a propagated throw, not true")
       (finally (schemas/reset-schema-validator!)))))
-
-(def ^:private gen-malformed-schema
-  (gen/gen-elem malformed-schemas))
-
-(deftest every-schema-kind-rejects-every-malformed-schema
-  (testing "across the malformed-schema corpus,
-            EVERY callable schema-validation kind returns FALSE. One kind
-            that returns true (or throws) for any draw = one fail-open."
-    (let [result
-          (gen/for-all
-            gen-malformed-schema 80 7
-            (fn [schema]
-              (every?
-                false?
-                [(try (schemas/validate-with-registered-fn schema [:x])
-                      (catch #?(:clj Throwable :cljs :default) _ :threw))
-                 (schemas/validate-event! :ev/x [:ev/x 1] {:schema schema})
-                 (schemas/validate-fx!   :fx/x :ev/x {} {:schema schema})
-                 (schemas/validate-sub!  :sub/x [:sub/x] {} {:schema schema})])))]
-      (is (nil? result)
-          (str "a schema kind coerced a malformed schema to success: "
-               (pr-str (when result (dissoc result :threw))))))))
 
 (def ^:private untrusted-url-inputs
   "Hostile / malformed URL-sink inputs. Each MUST classify EXTERNAL
