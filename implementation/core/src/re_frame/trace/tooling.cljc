@@ -908,8 +908,8 @@
      not-conveyed property the JVM ThreadLocal buys against `bound-fn` conveyance."
      (volatile! nil)))
 
-(defn- deferral-pending
-  "The `pending` vector of the post-drain deferral scope active on this thread of
+(defn- current-deferred-fanout-queue
+  "The deferred-fanout queue of the post-drain deferral scope active on this thread of
   execution, or nil when none is — i.e. nil PROVES the caller holds no frame
   `:drain-lock` (`call-with-deferred-fanout` brackets every acquire → run →
   release region). The JVM reads its `ThreadLocal`; CLJS reads the
@@ -918,11 +918,11 @@
   #?(:clj  (.get ^ThreadLocal deferred-drain-fanout)
      :cljs @deferred-drain-fanout-cljs))
 
-(defn- set-deferral-pending! [pending]
-  #?(:clj  (.set ^ThreadLocal deferred-drain-fanout pending)
-     :cljs (vreset! deferred-drain-fanout-cljs pending)))
+(defn- set-current-deferred-fanout-queue! [deferred-queue]
+  #?(:clj  (.set ^ThreadLocal deferred-drain-fanout deferred-queue)
+     :cljs (vreset! deferred-drain-fanout-cljs deferred-queue)))
 
-(defn- clear-deferral-pending! []
+(defn- clear-current-deferred-fanout-queue! []
   #?(:clj  (.remove ^ThreadLocal deferred-drain-fanout)
      :cljs (vreset! deferred-drain-fanout-cljs nil)))
 
@@ -1078,13 +1078,13 @@
 (defn- drain-deferred-batch!
   "The body of the post-drain flush (see `flush-deferred-fanout!`), factored out
   so the JVM can run it under `fanout-monitor` and CLJS can run it bare. Re-reads
-  `pending` each turn so an append that somehow raced the flush still settles here
+  `deferred-queue` each turn so an append that somehow raced the flush still settles here
   — exactly once — rather than being stranded."
-  [pending]
+  [deferred-queue]
   (loop []
-    (let [batch @pending]
+    (let [batch @deferred-queue]
       (when (seq batch)
-        (vreset! pending [])
+        (vreset! deferred-queue [])
         (if-let [ctx *fanout-ctx*]
           ;; A listener-initiated `dispatch-sync` (rf2-6t6qk): the flush runs
           ;; while an OUTER listener fan-out is still paused inside the very
@@ -1125,10 +1125,10 @@
   an outer listener fan-out is still in progress on this thread (a listener-
   initiated `dispatch-sync`, rf2-6t6qk), the JVM monitor hold is a reentrant re-
   acquire of the one the outer drive already owns."
-  [pending]
-  (when (seq @pending)
-    #?(:clj  (locking fanout-monitor (drain-deferred-batch! pending))
-       :cljs (drain-deferred-batch! pending))))
+  [deferred-queue]
+  (when (seq @deferred-queue)
+    #?(:clj  (locking fanout-monitor (drain-deferred-batch! deferred-queue))
+       :cljs (drain-deferred-batch! deferred-queue))))
 
 (defn ^:no-doc call-with-deferred-fanout
   "Run `f` as one post-drain listener-delivery region: trace events emitted inside
@@ -1175,18 +1175,18 @@
   nothing to defer regardless."
   [f flush-scope]
   (if (or (not interop/debug-enabled?)
-          (deferral-pending))
+          (current-deferred-fanout-queue))
     (f)
-    (let [pending (volatile! [])]
+    (let [deferred-queue (volatile! [])]
       (try
-        (set-deferral-pending! pending)
+        (set-current-deferred-fanout-queue! deferred-queue)
         (f)
         (finally
           ;; Clear BEFORE flushing: the flush runs listener bodies, and a
           ;; listener that dispatches must open its own scope rather than
           ;; append to the batch currently draining.
-          (clear-deferral-pending!)
-          (flush-scope #(flush-deferred-fanout! pending)))))))
+          (clear-current-deferred-fanout-queue!)
+          (flush-scope #(flush-deferred-fanout! deferred-queue)))))))
 
 (defn- deliver-to-tooling!
   "Push `event` onto its in-flight frame's run-keyed ring (when the run has a
@@ -1220,7 +1220,7 @@
   ([event continue?] (deliver-to-tooling! event continue? true))
   ([event continue? retain?]
    (when retain? (push-to-ring! event))
-   (if-let [pending (deferral-pending)]
+   (if-let [deferred-queue (current-deferred-fanout-queue)]
      ;; DEFER (rf2-wxy1c / rf2-6t6qk / rf2-uoy6m). A drain-owned emit — one raised
      ;; while the framework owns a frame's `:drain-lock` — is appended, never
      ;; fanned out, until the post-drain boundary.
@@ -1241,8 +1241,8 @@
      ;; delivery reaches exactly what an inline one would have. CLJS opens the same
      ;; scope now (rf2-uoy6m), so a single-threaded host defers too and its
      ;; listeners never observe partial state.
-     (do (vswap! pending conj [event (deferred-continue continue?)
-                               (vec (seq @listeners))])
+     (do (vswap! deferred-queue conj [event (deferred-continue continue?)
+                                      (vec (seq @listeners))])
          nil)
      (if-let [ctx *fanout-ctx*]
        ;; Reentrant emit from inside a listener body with NO drain scope open:

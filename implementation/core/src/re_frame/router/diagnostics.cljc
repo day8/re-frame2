@@ -72,9 +72,9 @@
        :kind              :event
        :recovery          :replaced-with-default})))
 
-(defn other-frame-mid-drain
+(defn find-other-draining-frame-id
   "Per Spec 002 §dispatch-sync cross-frame note. Return the
-  frame-id of any registered, non-destroyed frame OTHER than `target-id`
+  frame-id of any registered, non-destroyed frame OTHER than `target-frame-id`
   whose router currently shows `:in-sync-drain?` or `:in-drain?` true.
   Returns nil when no such frame exists.
 
@@ -89,13 +89,13 @@
 
   Dev-only — the caller gates on `interop/debug-enabled?` to skip the
   registry walk in production."
-  [target-id]
-  (some (fn [id]
-          (when (not= id target-id)
-            (when-let [fr (frame/frame id)]
-              (let [router-state @(:router fr)]
+  [target-frame-id]
+  (some (fn [frame-id]
+          (when (not= frame-id target-frame-id)
+            (when-let [frame-record (frame/frame frame-id)]
+              (let [router-state @(:router frame-record)]
                 (when (or (:in-sync-drain? router-state) (:in-drain? router-state))
-                  id)))))
+                  frame-id)))))
         (frame/frame-ids)))
 
 (def ^:const known-dispatch-opts
@@ -374,34 +374,34 @@
 
 (defn emit-cross-frame-warning!
   "Emit `:rf.warning/cross-frame-dispatch-sync-during-drain`
-  when `dispatch-sync!` lands on frame `target-id` while a different
-  frame (`other-id`) is mid-drain. The caller frame is read from
+  when `dispatch-sync!` lands on frame `target-frame-id` while a different
+  frame (`other-frame-id`) is mid-drain. The caller frame is read from
   `frame/*current-frame*`; when unbound (no frame context — e.g. a
   process-level REPL caller threading the dispatch through some unusual
   path) the field is `:rf/none`.
 
   The cross-frame case is intentional but surprising: warn, do not refuse.
   Continues with the dispatch."
-  [target-id other-id event]
-  (let [caller-id (or frame/*current-frame* :rf/none)
-        reason    (str "dispatch-sync! against `" target-id "` while frame `"
-                       other-id "` is mid-drain. The two cascades will "
-                       "interleave: `" target-id "`'s drain runs to settled "
-                       "while `" other-id "` is still in flight, then `"
-                       other-id "` continues. Frames are independent state "
-                       "machines so this does not violate either frame's "
-                       "contract (per Spec 002 §Run-to-completion §Rules "
-                       "rule 1 — no cross-frame drain), but the interleaved "
-                       "ordering is rarely the caller's intent. If the goal "
-                       "is fire-and-forget cross-frame coordination, prefer "
-                       "the async form `(rf/dispatch event {:frame other})` "
-                       "— it queues on the target frame's router and drains "
-                       "on a later cycle, after the caller's cascade settles.")]
+  [target-frame-id other-frame-id event]
+  (let [caller-frame-id (or frame/*current-frame* :rf/none)
+        reason          (str "dispatch-sync! against `" target-frame-id "` while frame `"
+                             other-frame-id "` is mid-drain. The two cascades will "
+                             "interleave: `" target-frame-id "`'s drain runs to settled "
+                             "while `" other-frame-id "` is still in flight, then `"
+                             other-frame-id "` continues. Frames are independent state "
+                             "machines so this does not violate either frame's "
+                             "contract (per Spec 002 §Run-to-completion §Rules "
+                             "rule 1 — no cross-frame drain), but the interleaved "
+                             "ordering is rarely the caller's intent. If the goal "
+                             "is fire-and-forget cross-frame coordination, prefer "
+                             "the async form `(rf/dispatch event {:frame other})` "
+                             "— it queues on the target frame's router and drains "
+                             "on a later cycle, after the caller's cascade settles.")]
     (trace/emit! :warning
                  :rf.warning/cross-frame-dispatch-sync-during-drain
-                 {:caller-frame caller-id
-                  :target-frame target-id
-                  :other-frame  other-id
+                 {:caller-frame caller-frame-id
+                  :target-frame target-frame-id
+                  :other-frame  other-frame-id
                   :event        event
                   :reason       reason
                   :recovery     :no-recovery})))

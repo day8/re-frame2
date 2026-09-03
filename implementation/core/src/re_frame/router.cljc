@@ -4549,8 +4549,8 @@
          ;; `interop/debug-enabled?` so production skips the registry
          ;; walk.
          (when (and (owner-live?) interop/debug-enabled?)
-           (when-let [other-id (diag/other-frame-mid-drain (:frame envelope))]
-             (diag/emit-cross-frame-warning! (:frame envelope) other-id event)))
+           (when-let [other-frame-id (diag/find-other-draining-frame-id (:frame envelope))]
+             (diag/emit-cross-frame-warning! (:frame envelope) other-frame-id event)))
          (let [drained?
          (when (emit-dispatched-trace! envelope true target-live?)
           (when (target-live?)
