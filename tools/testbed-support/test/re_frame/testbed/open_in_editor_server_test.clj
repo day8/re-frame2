@@ -1014,39 +1014,43 @@
                   (is (= 12 line) (str tool " kept its line"))
                   (is (= 3 column) (str tool " kept its column")))))))))))
 
-(deftest without-the-endpoint-the-same-coordinate-does-not-resolve
-  (testing "the NEGATIVE half: it is the dev-http handler, not the retired
-            checkout-root plumbing, that makes these coordinates resolve. A
+(deftest off-endpoint-request-404s-and-the-uri-fallback-stays-relative
+  (testing "the NEGATIVE half, stated as what it actually executes. A
             `:dev-http` entry with no re-frame2 handler serves static files
-            only, so the POST is answered by shadow's own 404 — a non-2xx,
-            which is exactly what sends the browser to its `editor://` URI
-            fallback (pinned client-side in
-            `re-frame.testbed.open-in-editor-client-cljs-test`). That fallback
-            composes the RAW coordinate, which is relative, so an OS editor
-            handler cannot stat it"
-    (with-testbed-source-roots*
-      (fn []
-        (doseq [{:keys [tool file]} consumer-coords]
-          ;; An unwired port never reaches this namespace at all.
-          (is (nil? (oies/handle {:uri            "/index.html"
-                                  :request-method :post
-                                  :query-string   (str "file=" file)
-                                  :headers        {"host" "localhost:8042"}}))
-              (str tool ": a request that is not the endpoint path is not
-                   handled here"))
-          (is (= 404 (:status (oies/handler {:uri            "/index.html"
-                                             :request-method :post
-                                             :query-string   (str "file=" file)
-                                             :headers        {"host" "localhost:8042"}})))
-              (str tool ": the non-endpoint answer is a non-2xx, so the client
-                   falls back"))
-          ;; …and the fallback's own input is still relative.
-          (is (not (editor-uri/absolute-path? file))
-              (str tool " coordinate is relative — the URI fallback alone
-                   cannot reach the file"))
-          (is (= file (#'editor-uri/compose-path nil file))
-              (str tool " composes to itself with no project-root — the
-                   composition step the retired pipeline used to feed")))))))
+            only, so an off-endpoint POST never reaches this namespace's
+            resolution at all: `handle` falls through and `handler` answers
+            shadow's own 404 — a non-2xx, which is exactly what sends the
+            browser to its `editor://` URI fallback (pinned client-side in
+            `re-frame.testbed.open-in-editor-client-cljs-test`). That
+            fallback composes the RAW coordinate, which is relative, so an OS
+            editor handler cannot stat it.
+
+            No source roots are installed here, deliberately: every
+            expression below is either an early fall-through or a pure
+            string/path-shape check, so a context classloader could not
+            change a single answer. The positive witness above is where the
+            real roots earn their keep"
+    (doseq [{:keys [tool file]} consumer-coords]
+      ;; An unwired port never reaches this namespace at all.
+      (is (nil? (oies/handle {:uri            "/index.html"
+                              :request-method :post
+                              :query-string   (str "file=" file)
+                              :headers        {"host" "localhost:8042"}}))
+          (str tool ": a request that is not the endpoint path is not
+               handled here"))
+      (is (= 404 (:status (oies/handler {:uri            "/index.html"
+                                         :request-method :post
+                                         :query-string   (str "file=" file)
+                                         :headers        {"host" "localhost:8042"}})))
+          (str tool ": the non-endpoint answer is a non-2xx, so the client
+               falls back"))
+      ;; …and the fallback's own input is still relative.
+      (is (not (editor-uri/absolute-path? file))
+          (str tool " coordinate is relative — the URI fallback alone
+               cannot reach the file"))
+      (is (= file (#'editor-uri/compose-path nil file))
+          (str tool " composes to itself with no project-root — the
+               composition step the retired pipeline used to feed")))))
 
 ;; ---------------------------------------------------------------------------
 ;; rf2-1i1ec (audit) — auto-detect is a capability question too
