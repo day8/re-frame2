@@ -117,7 +117,7 @@
   the ring's pointer-events for a side-rail tooltip; v1 also exposes
   the native SVG `<title>` so the tooltip works without JS wiring."
   [{:keys [cx cy r fraction color cancelled? tooltip testid node-id
-           on-hover on-leave] :as _spec}]
+           on-hover on-leave]}]
   [:g (cond-> {:data-testid (str "rf-mv-chart-after-ring-group-" node-id)
                :data-node-id node-id}
         on-hover (assoc :on-mouse-enter (fn [_] (on-hover node-id)))

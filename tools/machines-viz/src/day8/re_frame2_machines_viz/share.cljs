@@ -794,7 +794,7 @@
             cur-num (js/parseInt current-version 10)
             newer? (if (and (not (js/isNaN v-num)) (not (js/isNaN cur-num)))
                      (> v-num cur-num)
-                     (pos? (compare (str v) (str current-version))))]
+                     (pos? (compare (str v) current-version)))]
         (when newer?
           (decode-error :unknown-version
                         "share-URL was produced by a newer Machines-Viz"

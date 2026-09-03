@@ -43,6 +43,15 @@
   arrowhead size rides the density alongside the stroke (the projector
   baked literal 10 / 18 / 12 before, ignoring `:density`).
 
+  rf2-6r9j.117 — removed four more density-map keys no renderer ever
+  read: `:root-title-height` / `:root-title-px` / `:root-context-pad` (the
+  root chrome moved INTO the root-container frame in rf2-q129z8 and reads
+  the `:container-title-*` keys; the context band reads `chart.projection`'s
+  own constants) and `:action-pill-gap` (an action row paints ONE chip, so
+  no renderer has ever had adjacent action pills to space). They tuned
+  nothing — changing them changed no pixel — while their three-map
+  duplication implied a supported tuning surface.
+
   rf2-g6cig — corner-radius locked at 6px across every density. The
   React Flow default (8) reads as 'product chrome'; brutalist (0)
   reads as 'wireframe'; 6 is the sweet spot — soft enough to feel
@@ -123,7 +132,6 @@
     :action-pill-pad-x        — action pill horizontal padding
     :action-pill-px           — action pill text font-size
     :action-pill-radius       — action pill corner radius
-    :action-pill-gap          — gap between adjacent action pills
     :action-pill-row-gap      — gap from action pill row to its
                                 anchor (state label / edge event line)
     :dot-grid-spacing-px      — dot-grid background pattern spacing
@@ -161,7 +169,6 @@
    :action-pill-pad-x      6
    :action-pill-px         9
    :action-pill-radius     6
-   :action-pill-gap        4
    :action-pill-row-gap    4
 
    ;; ── structured topology grammar (rf2-az6e2) ──────────────────
@@ -199,11 +206,6 @@
    :pseudo-size            12
    :pseudo-radius          6
    :pseudo-px              8
-   ;; Root chrome (title strip + context panel).
-   :root-title-height      30
-   :root-title-px          14
-   :root-context-pad       8
-
    ;; ── dot-grid background (rf2-m4nj4) ──────────────────────────
    :dot-grid-spacing-px    16
    :dot-grid-radius-px     1.0})
@@ -254,7 +256,6 @@
    :action-pill-pad-x      5
    :action-pill-px         7
    :action-pill-radius     5
-   :action-pill-gap        3
    :action-pill-row-gap    3
 
    ;; ── structured topology grammar (rf2-az6e2 — ~25% tighter) ───
@@ -284,10 +285,6 @@
    :pseudo-size            10
    :pseudo-radius          5
    :pseudo-px              7
-   :root-title-height      26
-   :root-title-px          12
-   :root-context-pad       6
-
    ;; ── dot-grid background ──────────────────────────────────────
    :dot-grid-spacing-px    12
    :dot-grid-radius-px     0.85})
@@ -336,7 +333,6 @@
    :action-pill-pad-x      7
    :action-pill-px         11
    :action-pill-radius     8
-   :action-pill-gap        5
    :action-pill-row-gap    5
 
    ;; ── structured topology grammar (rf2-az6e2 — ~25% looser) ────
@@ -366,10 +362,6 @@
    :pseudo-size            14
    :pseudo-radius          7
    :pseudo-px              9
-   :root-title-height      34
-   :root-title-px          16
-   :root-context-pad       10
-
    ;; ── dot-grid background ──────────────────────────────────────
    :dot-grid-spacing-px    20
    :dot-grid-radius-px     1.15})

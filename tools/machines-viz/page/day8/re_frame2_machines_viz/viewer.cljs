@@ -134,7 +134,7 @@
 (defn- chart-view
   "The success path. Mounts MachineChart read-only with a 'show idle'
   toggle that clears the active-state highlight (Lock #5)."
-  [props]
+  [_props]
   (let [show-idle? (r/atom false)]
     (fn [props]
       [:div {:style (:page styles)}

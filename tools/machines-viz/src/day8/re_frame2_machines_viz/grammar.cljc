@@ -242,7 +242,7 @@
 ;; rf2-egupfk — the AI-generate, Mermaid, and SCXML emitters each project a
 ;; machine definition onto a different surface, but they must agree on which
 ;; definitions are well-formed enough to project AT ALL. Pre-fix each emitter
-;; hand-rolled its own `valid-state-tree?` / parallel check and the copies had
+;; hand-rolled its own shallow state-tree / parallel check and the copies had
 ;; DRIFTED: SCXML accepted malformed parallel region bodies (regions with no
 ;; `:initial` / `:states`) that AI + Mermaid rejected, and AI required a
 ;; KEYWORD `:initial` per the machine contract (Spec 005 §Transition table
@@ -262,17 +262,6 @@
 ;; the runtime `machines` grammar (`re-frame.machines.validate`), they re-state
 ;; the minimum projectable shape the emitters need.
 
-(defn valid-state-tree?
-  "True when `definition` is a well-formed flat / compound state tree: a map
-  carrying a KEYWORD `:initial` (a state id — Spec 005 §Transition table
-  grammar declares state ids are keywords) and a non-empty `:states` map.
-  The shared minimum-shape predicate the three emitters agree on."
-  [definition]
-  (and (map? definition)
-       (keyword? (:initial definition))
-       (map? (:states definition))
-       (seq (:states definition))))
-
 (defn parallel-definition?
   "True when `definition` is a `:type :parallel` root (Spec 005 §Parallel
   regions). nil-safe / non-map-safe."
@@ -288,7 +277,8 @@
   is valid iff it carries no structural projectability defect.
 
   This is NO LONGER a shallow minimum-shape check. Pre-fix it validated only
-  the ROOT (or parallel-region roots) as a `valid-state-tree?`, so it blessed
+  the ROOT (or parallel-region roots) as a shallow minimum-shape state tree
+  (a keyword `:initial` + a non-empty `:states` map), so it blessed
   structurally-invalid-but-shallowly-ok definitions — a nested compound
   missing `:initial`, a dangling transition target, an unknown bare node key —
   and every boundary that delegates here (share encode/decode, AI generation,

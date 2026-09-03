@@ -88,23 +88,24 @@
   would return the WRONG region's raw node and mis-attribute its `:entry` /
   `:exit` refs — and thus the surfaced `:rf.cofx/requires` — onto another
   region's node. A NON-region node (flat / compound machine, or a parallel
-  root) resolves within `(:states definition)`, with the legacy region-scan
-  fallback preserved ONLY for the no-`:region` shape. A synthetic node (the
-  machine-root / region-container — empty path, or an in-region path with no
-  raw match) resolves to nil. Used to recover a node's ORIGINAL `:entry` /
-  `:exit` keyword refs (the projection rewrote them to `name-of` strings)."
+  root) resolves STRICTLY within `(:states definition)` — rf2-6r9j.122
+  retired the cross-region fallback that used to run for that shape: every
+  node `project-parallel` mints carries `:region`, so the fallback was
+  reachable only from a hand-built node that had lost its region identity,
+  and silently borrowing the FIRST region that happens to share the path is
+  precisely the wrong-region lifecycle bug rf2-6l01c8 fixed. nil is the right
+  answer there. A synthetic node (the machine-root / region-container — empty
+  path, or an in-region path with no raw match) resolves to nil. Used to
+  recover a node's ORIGINAL `:entry` / `:exit` keyword refs (the projection
+  rewrote them to `name-of` strings)."
   [definition {:keys [path region]}]
   (when (seq path)
     (if region
       ;; region-aware: pin the node to its OWN region's states — never a
       ;; sibling region that happens to share the in-region path.
       (node-at-in-states (:states (get-in definition [:regions region])) path)
-      ;; non-region node: top-level states, with the legacy region-scan
-      ;; fallback kept for the no-`:region` shape.
-      (or (node-at-in-states (:states definition) path)
-          (some (fn [[_region region-def]]
-                  (node-at-in-states (:states region-def) path))
-                (:regions definition))))))
+      ;; non-region node: top-level states only.
+      (node-at-in-states (:states definition) path))))
 
 (defn requirement-label
   "Render one `:rf.cofx/requires` entry (Spec 002 §`parse-requires` grammar:
