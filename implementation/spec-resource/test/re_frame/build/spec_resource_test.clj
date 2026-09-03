@@ -37,7 +37,7 @@
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.build.spec-resource :as spec-resource]))
 
-(def ^:private iterations
+(def ^:private cold-load-iterations
   "Iterations per shape. Each one generates and cold-loads a fresh
   namespace, so every iteration is an independent first load — the only
   moment the race is reachable."
@@ -50,145 +50,178 @@
   bare classpath directory."
   "re-frame.build.spec-resource-test.gate")
 
-(def ^:private counter (atom 0))
+(def ^:private unique-name-sequence (atom 0))
 
-(def ^:private fixture-root
+(def ^:private fixture-classpath-root
   "Temp directory added to the classpath for the run; each iteration's
   generated namespace lands under it."
   (atom nil))
 
-(defn- generate-fixture!
+(defn- write-blocked-fixture-namespace!
   "Write a namespace whose `def` interns `probe-fn` when it is ANALYSED
   and binds it only when its initializer returns — and whose initializer
   blocks on `gate` until this test releases it. Returns the namespace
   symbol."
-  [gate-name]
-  (let [ns-name (str "re-frame.build.race-fixture-" (swap! counter inc))
-        file    (io/file @fixture-root (str (-> ns-name
-                                                (str/replace "-" "_")
-                                                (str/replace "." "/"))
-                                            ".clj"))]
-    (io/make-parents file)
-    (spit file (str "(ns " ns-name ")\n"
-                    "(def probe-fn\n"
-                    "  (do @@(clojure.lang.RT/var \"" gate-ns "\" \"" gate-name "\")\n"
-                    "      (fn [] :probe)))\n"))
-    (symbol ns-name)))
+  [release-gate-name]
+  (let [fixture-ns-name    (str "re-frame.build.race-fixture-"
+                                (swap! unique-name-sequence inc))
+        fixture-source-file (io/file @fixture-classpath-root
+                                     (str (-> fixture-ns-name
+                                              (str/replace "-" "_")
+                                              (str/replace "." "/"))
+                                          ".clj"))]
+    (io/make-parents fixture-source-file)
+    (spit fixture-source-file
+          (str "(ns " fixture-ns-name ")\n"
+               "(def probe-fn\n"
+               "  (do @@(clojure.lang.RT/var \"" gate-ns "\" \""
+               release-gate-name "\")\n"
+               "      (fn [] :probe)))\n"))
+    (symbol fixture-ns-name)))
 
-(defn- run-probe
+(defn- observe-resolver-during-load
   "Cold-load one generated namespace on a loader thread and, while its
   `probe-fn` Var is interned but still unbound, have a SECOND thread
-  reach for the same Var through `resolver`.
+  reach for the same Var through `resolve-var`.
 
-  Returns what the observer saw while the Var was unbound (`:state
-  :unbound` / `:state :bound`, or `::blocked` when the resolver made it
-  wait), plus its final answer once the load completes."
-  [resolver]
-  (let [gate-name (str "release-" (swap! counter inc))
-        gate      (promise)
-        _         (intern (create-ns (symbol gate-ns)) (symbol gate-name) gate)
-        ns-sym    (generate-fixture! gate-name)
-        sym       (symbol (name ns-sym) "probe-fn")
-        answer    (fn [] (try
-                           (let [v (resolver sym)]
-                             {:state (if (bound? v) :bound :unbound)})
-                           (catch Throwable t {:state :threw :error t})))
-        loaded    (promise)
-        armed     (promise)
-        observed  (promise)
-        loader    (doto (Thread. #(deliver loaded (answer)) "spec-resource-loader")
-                    (.setDaemon true))
-        observer  (doto (Thread. #(do (deliver armed :in) (deliver observed (answer)))
-                                 "spec-resource-observer")
-                    (.setDaemon true))]
+  Returns the probe Var symbol, what the observer saw during the held-open
+  load (`:state :unbound` / `:state :bound`, or `::blocked` when the
+  resolver made it wait), and both actors' final results after release."
+  [resolve-var]
+  (let [release-gate-name       (str "release-" (swap! unique-name-sequence inc))
+        release-gate            (promise)
+        _release-gate-var       (intern (create-ns (symbol gate-ns))
+                                        (symbol release-gate-name)
+                                        release-gate)
+        fixture-ns-symbol       (write-blocked-fixture-namespace! release-gate-name)
+        probe-var-symbol        (symbol (name fixture-ns-symbol) "probe-fn")
+        observe-var-state       (fn [] (try
+                                         (let [resolved-var (resolve-var probe-var-symbol)]
+                                           {:state (if (bound? resolved-var)
+                                                     :bound
+                                                     :unbound)})
+                                         (catch Throwable error
+                                           {:state :threw :error error})))
+        loader-result           (promise)
+        observer-started         (promise)
+        observer-result         (promise)
+        loader-thread           (doto (Thread. #(deliver loader-result
+                                                         (observe-var-state))
+                                               "spec-resource-loader")
+                                  (.setDaemon true))
+        observer-thread         (doto (Thread. #(do
+                                                 (deliver observer-started :in)
+                                                 (deliver observer-result
+                                                          (observe-var-state)))
+                                               "spec-resource-observer")
+                                  (.setDaemon true))]
     (try
-      (.start loader)
+      (.start loader-thread)
       ;; Wait for the window to open: the Var exists (its `def` has been
       ;; analysed) while its initializer is still blocked on the gate.
-      (let [interned? (loop [n 0]
-                        (cond
-                          (resolve sym) true
-                          (> n 5000)    false
-                          :else         (do (Thread/sleep 1) (recur (inc n)))))]
-        (when-not interned?
-          (throw (ex-info "Race fixture never interned its Var." {:sym sym})))
-        (.start observer)
-        (deref armed 5000 nil)
-        ;; The observer is inside the resolver with the Var still unbound.
-        ;; It either answers, or the serialized require path makes it wait.
-        (let [in-window (loop [n 0]
-                          (cond
-                            (realized? observed)
-                            (deref observed)
+      (let [probe-var-interned? (loop [attempt 0]
+                                  (cond
+                                    (resolve probe-var-symbol) true
+                                    (> attempt 5000)          false
+                                    :else                     (do
+                                                                (Thread/sleep 1)
+                                                                (recur (inc attempt)))))]
+        (when-not probe-var-interned?
+          (throw (ex-info "Race fixture never interned its Var."
+                          {:probe-var-symbol probe-var-symbol})))
+        (.start observer-thread)
+        (deref observer-started 5000 nil)
+        ;; The observer has started and is about to call the resolver while
+        ;; the Var is still unbound. It either answers, or the serialized
+        ;; require path makes it wait.
+        (let [during-load (loop [attempt 0]
+                            (cond
+                              (realized? observer-result)
+                              (deref observer-result)
 
-                            (= java.lang.Thread$State/BLOCKED (.getState observer))
-                            ::blocked
+                              (= java.lang.Thread$State/BLOCKED
+                                 (.getState observer-thread))
+                              ::blocked
 
-                            (> n 1000)
-                            ::grace-expired
+                              (> attempt 1000)
+                              ::grace-expired
 
-                            :else (do (Thread/sleep 1) (recur (inc n)))))]
-          {:sym       sym
-           :in-window in-window
-           :observed  (do (deliver gate :go) (deref observed 10000 ::timeout))
-           :loaded    (deref loaded 10000 ::timeout)}))
+                              :else (do
+                                      (Thread/sleep 1)
+                                      (recur (inc attempt)))))]
+          {:probe-var-symbol probe-var-symbol
+           :during-load     during-load
+           :observer-result (do
+                              (deliver release-gate :go)
+                              (deref observer-result 10000 ::timeout))
+           :loader-result   (deref loader-result 10000 ::timeout)}))
       (finally
         ;; Never leave the loader parked inside the require lock: it would
         ;; hang every later `require` in this JVM.
-        (deliver gate :go)))))
+        (deliver release-gate :go)))))
 
 (use-fixtures :once
-  (fn [run-tests]
-    (let [dir    (doto (io/file (System/getProperty "java.io.tmpdir")
-                                (str "rf2-spec-resource-race-" (System/nanoTime)))
-                   (.mkdirs))
-          thread (Thread/currentThread)
-          prior  (.getContextClassLoader thread)
-          loader (clojure.lang.DynamicClassLoader. prior)]
+  (fn [run-suite]
+    (let [fixture-dir            (doto (io/file (System/getProperty "java.io.tmpdir")
+                                                (str "rf2-spec-resource-race-"
+                                                     (System/nanoTime)))
+                                   (.mkdirs))
+          current-thread         (Thread/currentThread)
+          prior-context-loader   (.getContextClassLoader current-thread)
+          fixture-class-loader   (clojure.lang.DynamicClassLoader.
+                                   prior-context-loader)]
       ;; The generated namespaces must be loadable by `require`, so their
       ;; directory joins the classpath for the duration of the run. Threads
       ;; started below inherit this context loader.
-      (.addURL loader (.toURL (.toURI dir)))
-      (.setContextClassLoader thread loader)
-      (reset! fixture-root dir)
+      (.addURL fixture-class-loader (.toURL (.toURI fixture-dir)))
+      (.setContextClassLoader current-thread fixture-class-loader)
+      (reset! fixture-classpath-root fixture-dir)
       (try
-        (run-tests)
+        (run-suite)
         (finally
-          (.setContextClassLoader thread prior)
-          (reset! fixture-root nil)
-          (doseq [f (reverse (file-seq dir))] (.delete f)))))))
+          (.setContextClassLoader current-thread prior-context-loader)
+          (reset! fixture-classpath-root nil)
+          (doseq [file (reverse (file-seq fixture-dir))]
+            (.delete file)))))))
 
 (deftest requiring-resolve-hands-out-an-unbound-var
   (testing "the known-broken control: `requiring-resolve` resolves BEFORE it
             takes the require lock, so a second site reaches a Var that its
             own `def` has interned but not yet bound"
-    (dotimes [_ iterations]
-      (let [{:keys [sym in-window loaded]} (run-probe requiring-resolve)]
-        (is (= {:state :unbound} in-window)
-            (str sym ": the pre-fix shape must reproduce the defect, otherwise the "
+    (dotimes [_ cold-load-iterations]
+      (let [{:keys [probe-var-symbol during-load loader-result]}
+            (observe-resolver-during-load requiring-resolve)]
+        (is (= {:state :unbound} during-load)
+            (str probe-var-symbol
+                 ": the pre-fix shape must reproduce the defect, otherwise the "
                  "fixed assertion below proves nothing"))
-        (is (= {:state :bound} loaded)
-            (str sym ": the LOADING site is never the one that loses — which is why "
+        (is (= {:state :bound} loader-result)
+            (str probe-var-symbol
+                 ": the LOADING site is never the one that loses — which is why "
                  "a one-consumer fix reads as a fix"))))))
 
 (deftest resolve-after-require-never-hands-out-an-unbound-var
   (testing "the shipped shape enters the serialized require path first, so a
             second site cannot observe the Var until its namespace has
             finished loading"
-    (dotimes [_ iterations]
-      (let [{:keys [sym in-window observed loaded]}
-            (run-probe spec-resource/resolve-after-require)]
-        (is (= ::blocked in-window)
-            (str sym ": the observer must WAIT on the require lock rather than "
+    (dotimes [_ cold-load-iterations]
+      (let [{:keys [probe-var-symbol during-load observer-result loader-result]}
+            (observe-resolver-during-load spec-resource/resolve-after-require)]
+        (is (= ::blocked during-load)
+            (str probe-var-symbol
+                 ": the observer must WAIT on the require lock rather than "
                  "resolve into the load"))
-        (is (= {:state :bound} observed))
-        (is (= {:state :bound} loaded))))))
+        (is (= {:state :bound} observer-result))
+        (is (= {:state :bound} loader-result))))))
 
 (deftest resolve-after-require-reports-a-missing-var
   (testing "a namespace that loads without defining the Var is a version-skew
             failure, and says so rather than surfacing as a null call"
-    (let [gate-name (str "release-" (swap! counter inc))
-          _         (intern (create-ns (symbol gate-ns)) (symbol gate-name) (doto (promise) (deliver :go)))
-          ns-sym    (generate-fixture! gate-name)]
+    (let [release-gate-name (str "release-" (swap! unique-name-sequence inc))
+          _release-gate-var (intern (create-ns (symbol gate-ns))
+                                    (symbol release-gate-name)
+                                    (doto (promise) (deliver :go)))
+          fixture-ns-symbol (write-blocked-fixture-namespace! release-gate-name)]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"is not defined after loading"
-            (spec-resource/resolve-after-require (symbol (name ns-sym) "absent")))))))
+            (spec-resource/resolve-after-require
+             (symbol (name fixture-ns-symbol) "absent")))))))
