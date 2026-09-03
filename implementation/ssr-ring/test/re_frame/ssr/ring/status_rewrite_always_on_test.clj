@@ -65,10 +65,13 @@
   :rf.error/ssr-ring-response-status-invalid)
 
 (def ^:private expected-record-slots
-  "The CLOSED key set the always-on record must carry — the test-side mirror of
-  `re-frame.ssr.ring.pipeline/status-defect-record-slots` (private, so it is
-  restated here rather than reached through `requiring-resolve`; the two are
-  pinned equal by [[record-key-set-is-closed]] failing loudly on any drift).
+  "The CLOSED key set the always-on record must carry, written INDEPENDENTLY of
+  the production emit site rather than read from it. That independence is what
+  makes [[record-key-set-is-closed]] a behavioural check: a test that resolved
+  the producer's own set would agree with it by construction and could only ever
+  pass. The production side is the map literal in
+  `re-frame.ssr.ring.pipeline/report-non-integer-status!`, and this set is the
+  only thing that convicts it of drift.
 
   A slot added to the record later reaches Sentry / Datadog, so the pin is `=`
   and not `clojure.set/subset?`."
