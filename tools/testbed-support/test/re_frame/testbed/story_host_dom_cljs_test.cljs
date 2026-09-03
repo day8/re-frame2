@@ -3,7 +3,14 @@
 
   The Node suite covers listener identity with mount stubs. This suite uses a
   real DOM node and minimal real React roots to verify that each surface
-  unmounts before the other claims `#app`. Its bodies no-op under Node."
+  unmounts before the other claims `#app`. Its bodies no-op under Node.
+
+  Unlike the Node suite's fake window — which `clear-window!` throws away
+  whole between cases — `js/window` here is the SHARED browser page, so a
+  listener this suite installs outlives the test that installed it unless
+  the fixture removes it by its exact recorded identity. See
+  `unregister-host-listener!` and the census test at the bottom
+  (rf2-6r9j.116)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [reagent.dom.client :as rdc]
@@ -70,7 +77,25 @@
         (str/includes? m "already been passed")
         (str/includes? m "already mounted"))))
 
+(defn- unregister-host-listener!
+  "Remove the EXACT hashchange listener the host recorded, using the stored
+  identity — the ONLY handle able to unregister it — BEFORE that handle is
+  discarded.
+
+  Production never needs this: the host owns `#app` for the life of the page
+  and `mount-with-hash-routing!` re-registration is self-balancing, because it
+  removes `@hash-listener*` before adding the new fn. But a fixture that only
+  nils the atom strands a live listener on the shared browser page — the next
+  mount then finds `nil` where the previous handle was, so it ADDS a second
+  listener rather than replacing the first, and every later namespace on the
+  page inherits them all."
+  []
+  (when (browser?)
+    (when-let [listener @@#'host/hash-listener*]
+      (.removeEventListener js/window "hashchange" listener))))
+
 (defn- reset-host-handles! []
+  (unregister-host-listener!)
   (reset! @#'host/hash-listener* nil)
   (reset! @#'host/root-view* nil)
   (reset! @#'host/app-root nil))
@@ -167,3 +192,67 @@
               (is (not (identical? handle-1 handle-2))
                   "the stored handle advanced to the recompiled listener fn — the
                    prior one was removed, not stacked"))))))))
+
+;; ---------------------------------------------------------------------------
+;; Listener census — the probe that makes the teardown above load-bearing.
+;;
+;; The two tests above inspect the STORED HANDLE, which stays green whether or
+;; not the listener was actually unregistered from the page. `js/window`
+;; publishes no listener registry, so counting the calls is the only way to
+;; prove a mount/teardown cycle nets to zero.
+;; ---------------------------------------------------------------------------
+
+(defn- with-hashchange-census
+  "Calls `(f net)` with `js/window`'s listener API wrapped to count
+  \"hashchange\" registrations into the `net` atom (add ⇒ inc, remove ⇒ dec),
+  and returns the net still registered when `f` returns.
+
+  The wrappers are own properties on `js/window`; `addEventListener` /
+  `removeEventListener` are inherited from `EventTarget.prototype`, so
+  `js-delete` restores the page exactly."
+  [f]
+  (let [net      (atom 0)
+        orig-add (.-addEventListener js/window)
+        orig-rem (.-removeEventListener js/window)]
+    (try
+      (set! (.-addEventListener js/window)
+            (fn [type listener opts]
+              (when (= type "hashchange") (swap! net inc))
+              (.call orig-add js/window type listener opts)))
+      (set! (.-removeEventListener js/window)
+            (fn [type listener opts]
+              (when (= type "hashchange") (swap! net dec))
+              (.call orig-rem js/window type listener opts)))
+      (f net)
+      @net
+      (finally
+        (js-delete js/window "addEventListener")
+        (js-delete js/window "removeEventListener")))))
+
+(deftest fixture-teardown-leaves-no-hashchange-listener-on-the-page
+  (testing "a mount + fixture teardown cycle nets ZERO registered hashchange
+            listeners — the recorded handle is unregistered before it is
+            discarded, so the next test's mount cannot stack a second one"
+    (if-not (browser?)
+      (is true ":node-test: no DOM — :browser-test runner exercises the assertion")
+      (do
+        (ensure-app-node!)
+        (let [net (with-hashchange-census
+                    (fn [net]
+                      (with-redefs [story/mount-shell!   shell-mount!
+                                    story/unmount-shell! shell-unmount!]
+                        (set-hash! "#/")
+                        (react-dom/flushSync
+                         (fn [] (host/mount-with-hash-routing! live-view))))
+                      ;; Non-vacuity: the census saw the real registration.
+                      (is (= 1 @net)
+                          "the mount registered exactly one hashchange listener")
+                      (is (some? @@#'host/hash-listener*)
+                          "and the host recorded its handle")
+                      ;; The fixture teardown, run explicitly so its balance is
+                      ;; observable inside the census window.
+                      (reset-host-handles!)))]
+          (is (zero? net)
+              (str "every hashchange listener the host registered was removed "
+               "from js/window before its handle was discarded; net still "
+               "registered: " net)))))))
