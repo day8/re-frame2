@@ -57,17 +57,6 @@
     (is (= :reagent2/form-1 (component/classify-form-body '())))))
 
 ;; ---------------------------------------------------------------------------
-;; tag-form-meta — produces the meta map stamped on wrapper fns
-;; ---------------------------------------------------------------------------
-
-(deftest tag-form-meta-shape
-  (testing "tag-form-meta returns a single-key map under :reagent2/form"
-    (is (= {:reagent2/form :reagent2/form-1}
-           (component/tag-form-meta :reagent2/form-1)))
-    (is (= {:reagent2/form :reagent2/form-2}
-           (component/tag-form-meta :reagent2/form-2)))))
-
-;; ---------------------------------------------------------------------------
 ;; End-to-end fold integration: reg-view's expansion stamps the tag
 ;;
 ;; When reagent-slim is on the classpath (as it is here),

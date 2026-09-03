@@ -143,7 +143,7 @@
           (watch-fn watch-key watchable old-value new-value))
         (recur (+ 2 i))))))
 
-(defn- pr-atom [a writer opts type-tag body]
+(defn- pr-atom [writer opts type-tag body]
   (-write writer (str "#object[reagent2.ratom." type-tag " "))
   ;; `pr-writer` is marked private in cljs.core but is the documented
   ;; entrypoint for nested `IPrintWithWriter` dispatch (every reagent2
@@ -234,7 +234,7 @@
   (-meta [_] meta)
 
   IPrintWithWriter
-  (-pr-writer [a w opts] (pr-atom a w opts "RAtom" {:val (-deref a)}))
+  (-pr-writer [a w opts] (pr-atom w opts "RAtom" {:val (-deref a)}))
 
   IWatchable
   (-notify-watches [this old new] (notify-watches! this old new))
@@ -459,7 +459,7 @@
   (-equiv [o other] (identical? o other))
 
   IPrintWithWriter
-  (-pr-writer [a w opts] (pr-atom a w opts "Reaction" {:val (-deref a)}))
+  (-pr-writer [a w opts] (pr-atom w opts "Reaction" {:val (-deref a)}))
 
   IHash
   (-hash [this] (goog/getUid this)))
