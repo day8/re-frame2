@@ -155,9 +155,33 @@
   [raw default]
   (parse-int* raw default 1))
 
+;; rf2-6r9j.104 — disposition: KEPT, deliberately, with no in-repo caller.
+;; Verified 2026-09-03 by a fixed-string census over tracked files: every
+;; live numeric MCP arg is a positive int (`cursor/parse-limit-arg`'s
+;; `:limit`, story-mcp's `:timeout-ms`) or `cap/max-tokens`, which admits
+;; zero but REJECTS its out-of-domain values rather than defaulting and so
+;; cannot route through a defaulting parser. The floor-0 half is retained
+;; because it is the other half of ONE parser: `parse-int*`'s `floor`
+;; parameter exists precisely because both floors are offered, and the
+;; contracts an auditor might fear are being carried for a lone caller —
+;; the finite/safe-integer guard, the strict string grammar, the
+;; cross-host agreement — are `parse-int*`'s and `coerce-finite-long`'s,
+;; shared with `parse-positive-int` and tested once. What is specific to
+;; this var is the floor, and its own tests are a handful of assertions
+;; about exactly that. Deleting it would leave a `floor` parameter with a
+;; single constant argument and force any consumer whose arg admits a
+;; disabling zero to re-derive the guard by hand.
+
 (defn parse-non-negative-int
-  "Like `parse-positive-int` but admits zero (useful when zero means
-  \"disabled\" — e.g. max-tokens=0 disables the cap)."
+  "Like `parse-positive-int` but clamps to zero rather than one — the
+  parser for a numeric arg whose domain INCLUDES zero, typically as a
+  \"disabled\" sentinel. Same accepted shapes, same cross-runtime
+  finite/safe-integer guard, same fall-back-to-`default` posture for
+  everything out of domain.
+
+  Reach for `parse-positive-int` instead when zero is meaningless for the
+  arg, and for a zero-admitting arg that must REJECT rather than default
+  on bad input, see `cap/max-tokens` for the rejection-marker shape."
   [raw default]
   (parse-int* raw default 0))
 
