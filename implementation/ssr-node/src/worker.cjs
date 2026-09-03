@@ -65,9 +65,9 @@
 const { parentPort, workerData } = require('node:worker_threads');
 const { CODE, validateModule, MODULE_RETURN_REFUSAL } = require('./protocol.cjs');
 
-const post = (msg) => parentPort.postMessage(msg);
+const postMessage = (message) => parentPort.postMessage(message);
 
-let mod = null;
+let renderModule = null;
 let busy = false;
 
 function boot() {
@@ -75,10 +75,10 @@ function boot() {
     // A dynamic require, and necessarily so: the whole design is that the
     // service loads an application's bundle it was pointed at rather than
     // one it was compiled against.
-    mod = validateModule(require(workerData.modulePath), workerData.modulePath);
-    if (typeof mod.boot === 'function') mod.boot();
+    renderModule = validateModule(require(workerData.modulePath), workerData.modulePath);
+    if (typeof renderModule.boot === 'function') renderModule.boot();
   } catch (err) {
-    post({
+    postMessage({
       t: 'boot-error',
       code: err.code ?? CODE.MALFORMED_MODULE,
       message: err.message,
@@ -86,23 +86,26 @@ function boot() {
     });
     return;
   }
-  post({
+  postMessage({
     t: 'ready',
-    buildId: mod.buildId,
+    buildId: renderModule.buildId,
     entries: Object.fromEntries(
-      Object.entries(mod.entries).map(([id, e]) => [
-        id,
-        { stateAllowlist: [...e.stateAllowlist], runtimeAllowlist: [...e.runtimeAllowlist] },
+      Object.entries(renderModule.entries).map(([entryId, entryConfig]) => [
+        entryId,
+        {
+          stateAllowlist: [...entryConfig.stateAllowlist],
+          runtimeAllowlist: [...entryConfig.runtimeAllowlist],
+        },
       ]),
     ),
   });
 }
 
-async function render(id, request) {
+async function handleRender(renderId, request) {
   if (busy) {
-    post({
+    postMessage({
       t: 'error',
-      id,
+      id: renderId,
       code: CODE.SERVICE_SATURATED,
       message: 'this isolate already has a render in flight; one at a time',
       detail: {},
@@ -111,35 +114,35 @@ async function render(id, request) {
   }
   busy = true;
 
-  let seq = 0;
-  let emitted = false;
+  let chunkSeq = 0;
+  let emittedMarkup = false;
   const emit = (html) => {
     if (typeof html !== 'string') {
       throw new TypeError(
         `emit() takes body markup as a string; got ${Object.prototype.toString.call(html)}`,
       );
     }
-    emitted = true;
+    emittedMarkup = true;
     // Straight out, unjoined and unbuffered. A chunk held here so that
     // the isolate could hand back "the body" would be exactly the
     // one-complete-string assumption this protocol exists without.
-    post({ t: 'chunk', id, seq: seq++, html });
+    postMessage({ t: 'chunk', id: renderId, seq: chunkSeq++, html });
   };
 
   // Frozen before the module sees it — see the header; both partitions,
   // because each is a snapshot of the same settled frame. The request
   // object itself is frozen too, so a module cannot rewrite its own entry
   // id or policy and have anything downstream believe it.
-  const snapshot = Object.freeze({ ...request.state });
-  const runtime = Object.freeze({ ...request.runtime });
-  const call = Object.freeze({
+  const stateSnapshot = Object.freeze({ ...request.state });
+  const runtimeSnapshot = Object.freeze({ ...request.runtime });
+  const renderCall = Object.freeze({
     entry: request.entry,
-    state: snapshot,
-    runtime,
+    state: stateSnapshot,
+    runtime: runtimeSnapshot,
     args: request.args,
   });
 
-  const started = process.hrtime.bigint();
+  const renderStartedAtNs = process.hrtime.bigint();
   try {
     // `await` even for a synchronous module: a module that returns a
     // promise is the streaming shape's, and the deadline governs both
@@ -148,13 +151,13 @@ async function render(id, request) {
     // coercing it to `{}` would erase the difference between a module
     // that returned nothing and one that returned an empty object — which
     // is precisely the difference the egress door below is checking.
-    const out = await mod.render(call, emit);
-    const renderMs = Number(process.hrtime.bigint() - started) / 1e6;
+    const moduleReturnValue = await renderModule.render(renderCall, emit);
+    const renderMs = Number(process.hrtime.bigint() - renderStartedAtNs) / 1e6;
 
-    if (!emitted) {
-      post({
+    if (!emittedMarkup) {
+      postMessage({
         t: 'error',
-        id,
+        id: renderId,
         code: CODE.RENDER_THREW,
         message: 'the render module returned without emitting any body markup',
         detail: { entry: request.entry },
@@ -184,33 +187,33 @@ async function render(id, request) {
     // The refusal names the SHAPE and never the value. A diagnostic that
     // echoed what the module tried to return would be the same egress
     // wearing a different frame type.
-    if (out !== undefined) {
-      post({
+    if (moduleReturnValue !== undefined) {
+      postMessage({
         t: 'error',
-        id,
+        id: renderId,
         code: CODE.RENDER_THREW,
         message: MODULE_RETURN_REFUSAL,
         detail: {
           entry: request.entry,
-          returned: Object.prototype.toString.call(out),
+          returned: Object.prototype.toString.call(moduleReturnValue),
         },
-        afterChunks: seq,
+        afterChunks: chunkSeq,
       });
       return;
     }
 
     // Counters and clocks this file owns, and nothing else. There is no
     // field here for the module to fill in, which is the point.
-    post({
+    postMessage({
       t: 'complete',
-      id,
-      chunks: seq,
+      id: renderId,
+      chunks: chunkSeq,
       renderMs,
     });
   } catch (err) {
-    post({
+    postMessage({
       t: 'error',
-      id,
+      id: renderId,
       code: err.code ?? CODE.RENDER_THREW,
       message: err.message ?? String(err),
       detail: err.detail ?? {},
@@ -219,20 +222,20 @@ async function render(id, request) {
       // any more, and this says so rather than pretending otherwise. The
       // service turns a post-chunk failure into a torn response the
       // transport must not present as complete.
-      afterChunks: seq,
+      afterChunks: chunkSeq,
     });
   } finally {
     busy = false;
   }
 }
 
-parentPort.on('message', (msg) => {
-  if (msg && msg.t === 'render') {
-    // Deliberately not awaited: `render` posts its own frames, and an
+parentPort.on('message', (message) => {
+  if (message && message.t === 'render') {
+    // Deliberately not awaited: `handleRender` posts its own frames, and an
     // unhandled rejection here would be a second failure channel with no
     // request id on it.
-    render(msg.id, msg.request).catch((err) => {
-      post({ t: 'error', id: msg.id, code: CODE.RENDER_THREW, message: String(err) });
+    handleRender(message.id, message.request).catch((err) => {
+      postMessage({ t: 'error', id: message.id, code: CODE.RENDER_THREW, message: String(err) });
     });
   }
 });

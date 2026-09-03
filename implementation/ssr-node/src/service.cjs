@@ -66,7 +66,7 @@ class Service {
    * them, then one `{type:'complete'}`. Throws a `Refusal`.
    */
   async *renderFrames(request) {
-    const req = validateRequest(
+    const validatedRequest = validateRequest(
       request,
       { buildId: this.pool.buildId, entries: this.pool.entries },
       this.limits,
@@ -77,63 +77,65 @@ class Service {
     // A hand-rolled bridge from the isolate's callback to this generator,
     // because there is no smaller one: `onChunk` is called from a
     // 'message' handler and the consumer pulls at its own pace.
-    const queue = [];
-    let wake = null;
-    const nudge = () => {
-      if (wake) {
-        const w = wake;
-        wake = null;
-        w();
+    const pendingFrames = [];
+    let resumeConsumer = null;
+    const wakeConsumer = () => {
+      if (resumeConsumer) {
+        const resume = resumeConsumer;
+        resumeConsumer = null;
+        resume();
       }
     };
 
-    let finished = false;
-    let failure = null;
-    let terminal = null;
+    let renderFinished = false;
+    let renderFailure = null;
+    let renderResult = null;
 
-    const run = isolate
-      .render(req, {
-        timeoutMs: req.timeoutMs,
+    const renderCompletion = isolate
+      .render(validatedRequest, {
+        timeoutMs: validatedRequest.timeoutMs,
         onChunk: (frame) => {
-          queue.push(frame);
-          nudge();
+          pendingFrames.push(frame);
+          wakeConsumer();
         },
       })
       .then(
-        (done) => {
-          terminal = done;
+        (result) => {
+          renderResult = result;
         },
-        (err) => {
-          failure = err instanceof Refusal ? err : new Refusal(CODE.RENDER_THREW, String(err), {});
+        (error) => {
+          renderFailure =
+            error instanceof Refusal ? error : new Refusal(CODE.RENDER_THREW, String(error), {});
         },
       )
       .then(() => {
-        finished = true;
+        renderFinished = true;
         this.pool.release(isolate);
-        nudge();
+        wakeConsumer();
       });
 
     try {
       for (;;) {
-        while (queue.length) yield queue.shift();
-        if (finished) break;
+        while (pendingFrames.length) yield pendingFrames.shift();
+        if (renderFinished) break;
         await new Promise((resolve) => {
-          wake = resolve;
+          resumeConsumer = resolve;
         });
       }
-      await run;
-      if (failure) throw failure;
+      await renderCompletion;
+      if (renderFailure) throw renderFailure;
       yield completeFrame({
-        chunks: terminal.chunks,
-        renderMs: terminal.renderMs,
-        buildId: terminal.buildId,
-        requestId: req.requestId,
+        chunks: renderResult.chunks,
+        renderMs: renderResult.renderMs,
+        buildId: renderResult.buildId,
+        requestId: validatedRequest.requestId,
       });
     } finally {
       // A consumer that abandons the iteration must not strand the
-      // isolate. `run` releases it whichever way the render went, so this
-      // only has to make sure the promise is not left unobserved.
-      run.catch(() => {});
+      // isolate. `renderCompletion` releases it whichever way the render
+      // went, so this only has to make sure the promise is not left
+      // unobserved.
+      renderCompletion.catch(() => {});
     }
   }
 

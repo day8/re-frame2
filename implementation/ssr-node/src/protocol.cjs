@@ -247,31 +247,37 @@ const refuse = (code, message, detail) => {
   throw new Refusal(code, message, detail);
 };
 
-const isPlainObject = (x) => typeof x === 'object' && x !== null && !Array.isArray(x);
+const isPlainObject = (value) =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
 
 /**
  * One entry's allowlist for one partition: present, an array, every
  * member a top-level key in EDN spelling. Absence is a refusal — see
  * `validateModule`.
  */
-function validateAllowlist(where, id, entry, { allowlist, keys }) {
-  const list = entry[allowlist];
-  if (!Array.isArray(list)) {
+function validateAllowlist(
+  moduleLabel,
+  entryId,
+  entryConfig,
+  { allowlist: allowlistField, keys: partitionLabel },
+) {
+  const allowedKeys = entryConfig[allowlistField];
+  if (!Array.isArray(allowedKeys)) {
     refuse(
       CODE.MALFORMED_MODULE,
-      `${where} entry ${JSON.stringify(id)} declares no ${allowlist}. An entry with no ` +
-        `declared render-visibility list for the ${keys} partition cannot be rendered — ` +
+      `${moduleLabel} entry ${JSON.stringify(entryId)} declares no ${allowlistField}. An entry with no ` +
+        `declared render-visibility list for the ${partitionLabel} partition cannot be rendered — ` +
         `absence is a refusal, never a licence to read everything.`,
-      { entry: id, allowlist },
+      { entry: entryId, allowlist: allowlistField },
     );
   }
-  for (const k of list) {
-    if (typeof k !== 'string' || !KEY_TEXT.test(k)) {
+  for (const allowedKey of allowedKeys) {
+    if (typeof allowedKey !== 'string' || !KEY_TEXT.test(allowedKey)) {
       refuse(
         CODE.MALFORMED_MODULE,
-        `${where} entry ${JSON.stringify(id)} ${allowlist} carries ${JSON.stringify(k)}, ` +
-          `which is not a top-level ${keys} key in EDN spelling`,
-        { entry: id, allowlist, key: k },
+        `${moduleLabel} entry ${JSON.stringify(entryId)} ${allowlistField} carries ${JSON.stringify(allowedKey)}, ` +
+          `which is not a top-level ${partitionLabel} key in EDN spelling`,
+        { entry: entryId, allowlist: allowlistField, key: allowedKey },
       );
     }
   }
@@ -292,37 +298,42 @@ function validateAllowlist(where, id, entry, { allowlist, keys }) {
  * reads nothing from a partition declares the EMPTY list for it; that is
  * a decision, and absence is not.
  */
-function validateModule(mod, where = '<render module>') {
-  if (!isPlainObject(mod)) {
-    refuse(CODE.MALFORMED_MODULE, `${where} did not export an object`);
+function validateModule(renderModule, moduleLabel = '<render module>') {
+  if (!isPlainObject(renderModule)) {
+    refuse(CODE.MALFORMED_MODULE, `${moduleLabel} did not export an object`);
   }
-  if (mod.protocol !== PROTOCOL_VERSION) {
+  if (renderModule.protocol !== PROTOCOL_VERSION) {
     refuse(
       CODE.MALFORMED_MODULE,
-      `${where} declares protocol ${JSON.stringify(mod.protocol)}; this service speaks ${PROTOCOL_VERSION}`,
-      { declared: mod.protocol, expected: PROTOCOL_VERSION },
+      `${moduleLabel} declares protocol ${JSON.stringify(renderModule.protocol)}; this service speaks ${PROTOCOL_VERSION}`,
+      { declared: renderModule.protocol, expected: PROTOCOL_VERSION },
     );
   }
-  if (typeof mod.buildId !== 'string' || mod.buildId.length === 0) {
+  if (typeof renderModule.buildId !== 'string' || renderModule.buildId.length === 0) {
     refuse(
       CODE.MALFORMED_MODULE,
-      `${where} publishes no buildId. Build identity is how a JVM host detects that the ` +
+      `${moduleLabel} publishes no buildId. Build identity is how a JVM host detects that the ` +
         `sidecar is serving a different application than the one it deployed against.`,
     );
   }
-  if (typeof mod.render !== 'function') {
-    refuse(CODE.MALFORMED_MODULE, `${where} exports no render function`);
+  if (typeof renderModule.render !== 'function') {
+    refuse(CODE.MALFORMED_MODULE, `${moduleLabel} exports no render function`);
   }
-  if (!isPlainObject(mod.entries) || Object.keys(mod.entries).length === 0) {
-    refuse(CODE.MALFORMED_MODULE, `${where} publishes an empty entry table`);
+  if (!isPlainObject(renderModule.entries) || Object.keys(renderModule.entries).length === 0) {
+    refuse(CODE.MALFORMED_MODULE, `${moduleLabel} publishes an empty entry table`);
   }
-  for (const [id, entry] of Object.entries(mod.entries)) {
-    if (!isPlainObject(entry)) {
-      refuse(CODE.MALFORMED_MODULE, `${where} entry ${JSON.stringify(id)} is not an object`);
+  for (const [entryId, entryConfig] of Object.entries(renderModule.entries)) {
+    if (!isPlainObject(entryConfig)) {
+      refuse(
+        CODE.MALFORMED_MODULE,
+        `${moduleLabel} entry ${JSON.stringify(entryId)} is not an object`,
+      );
     }
-    for (const partition of PARTITIONS) validateAllowlist(where, id, entry, partition);
+    for (const partition of PARTITIONS) {
+      validateAllowlist(moduleLabel, entryId, entryConfig, partition);
+    }
   }
-  return mod;
+  return renderModule;
 }
 
 /**
@@ -332,50 +343,61 @@ function validateModule(mod, where = '<render module>') {
  * UTF-8 byte count of every key and value in it, so the caller can hold
  * both partitions to one ceiling. Throws `Refusal`.
  */
-function validatePartition(req, entry, entryId, { field, allowlist, keys }) {
-  if (req[field] === undefined) return { partition: {}, bytes: 0 };
-  if (!isPlainObject(req[field])) {
+function validatePartition(
+  request,
+  entryConfig,
+  entryId,
+  { field: partitionField, allowlist: allowlistField, keys: partitionLabel },
+) {
+  const partition = request[partitionField];
+  if (partition === undefined) return { partition: {}, bytes: 0 };
+  if (!isPlainObject(partition)) {
     refuse(
       CODE.BAD_REQUEST_FIELD,
-      `\`${field}\` must be an object mapping a top-level ${keys} key (EDN text) to that ` +
+      `\`${partitionField}\` must be an object mapping a top-level ${partitionLabel} key (EDN text) to that ` +
         "key's value (EDN text)",
-      { field },
+      { field: partitionField },
     );
   }
-  let bytes = 0;
-  for (const [k, v] of Object.entries(req[field])) {
-    if (!KEY_TEXT.test(k)) {
+  let partitionBytes = 0;
+  for (const [partitionKey, ednText] of Object.entries(partition)) {
+    if (!KEY_TEXT.test(partitionKey)) {
       refuse(
         CODE.BAD_REQUEST_FIELD,
-        `${field} key ${JSON.stringify(k)} is not a top-level ${keys} key in EDN spelling`,
-        { field, key: k },
+        `${partitionField} key ${JSON.stringify(partitionKey)} is not a top-level ${partitionLabel} key in EDN spelling`,
+        { field: partitionField, key: partitionKey },
       );
     }
-    if (typeof v !== 'string') {
+    if (typeof ednText !== 'string') {
       refuse(
         CODE.BAD_REQUEST_FIELD,
-        `${field} value for ${k} must be EDN text; the service does not decode application data`,
-        { field, key: k },
+        `${partitionField} value for ${partitionKey} must be EDN text; the service does not decode application data`,
+        { field: partitionField, key: partitionKey },
       );
     }
     // The allowlist belongs to the ENTRY, never to the request, so a
     // caller cannot widen its own allowance — for either partition.
-    if (!entry[allowlist].includes(k)) {
-      refuse(CODE.STATE_KEY_NOT_ALLOWED, `entry ${JSON.stringify(entryId)} may not read ${k}`, {
-        entry: entryId,
-        field,
-        key: k,
-        allowed: entry[allowlist],
-      });
+    if (!entryConfig[allowlistField].includes(partitionKey)) {
+      refuse(
+        CODE.STATE_KEY_NOT_ALLOWED,
+        `entry ${JSON.stringify(entryId)} may not read ${partitionKey}`,
+        {
+          entry: entryId,
+          field: partitionField,
+          key: partitionKey,
+          allowed: entryConfig[allowlistField],
+        },
+      );
     }
-    bytes += Buffer.byteLength(k, 'utf8') + Buffer.byteLength(v, 'utf8');
+    partitionBytes +=
+      Buffer.byteLength(partitionKey, 'utf8') + Buffer.byteLength(ednText, 'utf8');
   }
-  return { partition: req[field], bytes };
+  return { partition, bytes: partitionBytes };
 }
 
 /**
  * Validate one request against the contract and against the tables the
- * loaded bundle published (`tables` is `{ buildId, entries }`). Returns
+ * loaded bundle published (`moduleTables` is `{ buildId, entries }`). Returns
  * the request normalized — defaults applied, nothing added the caller did
  * not send. Throws `Refusal` on anything else.
  *
@@ -383,42 +405,46 @@ function validatePartition(req, entry, entryId, { field, allowlist, keys }) {
  * caller reading its first refusal wants the field it got wrong, not the
  * consequence three checks downstream.
  */
-function validateRequest(req, tables, limits = {}) {
+function validateRequest(request, moduleTables, limits = {}) {
   const { defaultTimeoutMs = 1000, maxTimeoutMs = 5000, maxRequestBytes = 1 << 20 } = limits;
 
-  if (!isPlainObject(req)) {
+  if (!isPlainObject(request)) {
     refuse(CODE.MALFORMED_REQUEST, 'a render request must be an object');
   }
 
   // ---- the field allowlist, first and without exception ------------------
-  for (const field of Object.keys(req)) {
+  for (const field of Object.keys(request)) {
     if (!REQUEST_FIELDS.includes(field)) {
-      const why = REFUSED_FIELDS[field];
+      const intentionalRefusalReason = REFUSED_FIELDS[field];
       refuse(
         CODE.UNKNOWN_REQUEST_FIELD,
         `unknown request field ${JSON.stringify(field)}. The contract carries: ` +
           `${REQUEST_FIELDS.join(', ')}.` +
-          (why ? ` ${why}` : ''),
-        { field, allowed: REQUEST_FIELDS, ...(why ? { refusedOnPurpose: true } : {}) },
+          (intentionalRefusalReason ? ` ${intentionalRefusalReason}` : ''),
+        {
+          field,
+          allowed: REQUEST_FIELDS,
+          ...(intentionalRefusalReason ? { refusedOnPurpose: true } : {}),
+        },
       );
     }
   }
 
-  if (req.protocol !== PROTOCOL_VERSION) {
+  if (request.protocol !== PROTOCOL_VERSION) {
     refuse(
       CODE.PROTOCOL_VERSION,
-      `request declares protocol ${JSON.stringify(req.protocol)}; this service speaks ${PROTOCOL_VERSION}`,
-      { declared: req.protocol, expected: PROTOCOL_VERSION },
+      `request declares protocol ${JSON.stringify(request.protocol)}; this service speaks ${PROTOCOL_VERSION}`,
+      { declared: request.protocol, expected: PROTOCOL_VERSION },
     );
   }
 
-  if (typeof req.entry !== 'string' || req.entry.length === 0) {
+  if (typeof request.entry !== 'string' || request.entry.length === 0) {
     refuse(CODE.BAD_REQUEST_FIELD, '`entry` must be a non-empty string', { field: 'entry' });
   }
-  if (req.requestId !== undefined && typeof req.requestId !== 'string') {
+  if (request.requestId !== undefined && typeof request.requestId !== 'string') {
     refuse(CODE.BAD_REQUEST_FIELD, '`requestId` must be a string', { field: 'requestId' });
   }
-  if (req.args !== undefined && typeof req.args !== 'string') {
+  if (request.args !== undefined && typeof request.args !== 'string') {
     refuse(
       CODE.BAD_REQUEST_FIELD,
       '`args` is the root arguments as EDN TEXT, not a decoded value — the service does not ' +
@@ -426,7 +452,7 @@ function validateRequest(req, tables, limits = {}) {
       { field: 'args' },
     );
   }
-  if (req.buildId !== undefined && typeof req.buildId !== 'string') {
+  if (request.buildId !== undefined && typeof request.buildId !== 'string') {
     refuse(CODE.BAD_REQUEST_FIELD, '`buildId` must be a string', { field: 'buildId' });
   }
 
@@ -435,44 +461,48 @@ function validateRequest(req, tables, limits = {}) {
   // id it deployed against turns "the two artefacts are from different
   // builds" — which otherwise has nothing to compare, and fails as two
   // different applications answering one request — into a refusal.
-  if (req.buildId !== undefined && req.buildId !== tables.buildId) {
+  if (request.buildId !== undefined && request.buildId !== moduleTables.buildId) {
     refuse(
       CODE.BUILD_IDENTITY_MISMATCH,
-      `request expects build ${JSON.stringify(req.buildId)} but this sidecar is serving ` +
-        `${JSON.stringify(tables.buildId)}`,
-      { expected: req.buildId, serving: tables.buildId },
+      `request expects build ${JSON.stringify(request.buildId)} but this sidecar is serving ` +
+        `${JSON.stringify(moduleTables.buildId)}`,
+      { expected: request.buildId, serving: moduleTables.buildId },
     );
   }
 
   // ---- the entry table ---------------------------------------------------
-  const entry = Object.prototype.hasOwnProperty.call(tables.entries, req.entry)
-    ? tables.entries[req.entry]
+  const entryConfig = Object.prototype.hasOwnProperty.call(moduleTables.entries, request.entry)
+    ? moduleTables.entries[request.entry]
     : undefined;
-  if (entry === undefined) {
-    refuse(CODE.UNKNOWN_ENTRY, `no entry named ${JSON.stringify(req.entry)} in this bundle`, {
-      entry: req.entry,
-      known: Object.keys(tables.entries),
+  if (entryConfig === undefined) {
+    refuse(CODE.UNKNOWN_ENTRY, `no entry named ${JSON.stringify(request.entry)} in this bundle`, {
+      entry: request.entry,
+      known: Object.keys(moduleTables.entries),
     });
   }
 
   // ---- the two partitions, and their render-visibility allowlists --------
-  const state = validatePartition(req, entry, req.entry, PARTITIONS[0]);
-  const runtime = validatePartition(req, entry, req.entry, PARTITIONS[1]);
+  const stateValidation = validatePartition(request, entryConfig, request.entry, PARTITIONS[0]);
+  const runtimeValidation = validatePartition(request, entryConfig, request.entry, PARTITIONS[1]);
   // ONE ceiling over both partitions: the budget is the request's EDN
   // text, and a partition is a way of naming it, not a second allowance.
-  const bytes = state.bytes + runtime.bytes;
-  if (bytes > maxRequestBytes) {
+  const requestBytes = stateValidation.bytes + runtimeValidation.bytes;
+  if (requestBytes > maxRequestBytes) {
     refuse(
       CODE.REQUEST_TOO_LARGE,
-      `state and runtime together are ${bytes} bytes, over the ${maxRequestBytes}-byte ceiling`,
-      { bytes, ceiling: maxRequestBytes },
+      `state and runtime together are ${requestBytes} bytes, over the ${maxRequestBytes}-byte ceiling`,
+      { bytes: requestBytes, ceiling: maxRequestBytes },
     );
   }
 
   // ---- the deadline ------------------------------------------------------
   let timeoutMs = defaultTimeoutMs;
-  if (req.timeoutMs !== undefined) {
-    if (typeof req.timeoutMs !== 'number' || !Number.isFinite(req.timeoutMs) || req.timeoutMs <= 0) {
+  if (request.timeoutMs !== undefined) {
+    if (
+      typeof request.timeoutMs !== 'number' ||
+      !Number.isFinite(request.timeoutMs) ||
+      request.timeoutMs <= 0
+    ) {
       refuse(CODE.BAD_REQUEST_FIELD, '`timeoutMs` must be a positive finite number', {
         field: 'timeoutMs',
       });
@@ -480,16 +510,16 @@ function validateRequest(req, tables, limits = {}) {
     // Clamped rather than refused: a caller asking for longer than the
     // service will ever wait has made a configuration mistake, and the
     // service's own ceiling is the one that binds either way.
-    timeoutMs = Math.min(req.timeoutMs, maxTimeoutMs);
+    timeoutMs = Math.min(request.timeoutMs, maxTimeoutMs);
   }
 
   return {
     protocol: PROTOCOL_VERSION,
-    entry: req.entry,
-    state: state.partition,
-    runtime: runtime.partition,
-    args: req.args,
-    requestId: req.requestId,
+    entry: request.entry,
+    state: stateValidation.partition,
+    runtime: runtimeValidation.partition,
+    args: request.args,
+    requestId: request.requestId,
     timeoutMs,
   };
 }

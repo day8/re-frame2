@@ -54,16 +54,22 @@ const FLAGS = [
 ];
 
 const OPTIONS = Object.fromEntries(
-  FLAGS.map(([name, def]) => [name, { type: 'string', ...(def === undefined ? {} : { default: def }) }]),
+  FLAGS.map(([name, defaultValue]) => [
+    name,
+    {
+      type: 'string',
+      ...(defaultValue === undefined ? {} : { default: defaultValue }),
+    },
+  ]),
 );
 OPTIONS.help = { type: 'boolean', short: 'h', default: false };
 
 const USAGE = [
   'usage: re-frame2-ssr-node --module <path> [flags]',
   '',
-  ...FLAGS.map(([name, def, help]) => {
-    const flag = `  --${name} ${help}`;
-    return def === undefined ? flag : `${flag}  [${def}]`;
+  ...FLAGS.map(([name, defaultValue, description]) => {
+    const flag = `  --${name} ${description}`;
+    return defaultValue === undefined ? flag : `${flag}  [${defaultValue}]`;
   }),
   '  -h, --help',
   '',
@@ -72,18 +78,23 @@ const USAGE = [
 const log = (line) => process.stderr.write(`[rf.ssr-node] ${line}\n`);
 
 /** A non-negative integer flag, or a usage error naming the flag. */
-function integer(flags, name, min) {
-  const text = flags[name];
-  const n = Number(text);
-  if (!/^\d+$/.test(text) || !Number.isSafeInteger(n) || n < min) {
-    throw new UsageError(`--${name} must be an integer of at least ${min}; got ${JSON.stringify(text)}`);
+function parseIntegerFlag(flags, name, minimum) {
+  const rawValue = flags[name];
+  const value = Number(rawValue);
+  if (!/^\d+$/.test(rawValue) || !Number.isSafeInteger(value) || value < minimum) {
+    throw new UsageError(
+      `--${name} must be an integer of at least ${minimum}; got ${JSON.stringify(rawValue)}`,
+    );
   }
-  return n;
+  return value;
 }
 
 class UsageError extends Error {}
 
-const describe = (err) => (err && err.code ? `${err.code} — ${err.message}` : String(err && err.message ? err.message : err));
+const describeError = (error) =>
+  error && error.code
+    ? `${error.code} — ${error.message}`
+    : String(error && error.message ? error.message : error);
 
 /** The bound address, spelled for a dialler: IPv6 gets its brackets. */
 const urlOf = (host, port) => `http://${host.includes(':') ? `[${host}]` : host}:${port}`;
@@ -102,15 +113,15 @@ async function main(argv) {
     return 2;
   }
 
-  let limits;
+  let numericOptions;
   try {
-    limits = {
-      port: integer(flags, 'port', 0),
-      isolates: integer(flags, 'isolates', 1),
-      defaultTimeoutMs: integer(flags, 'timeout-ms', 1),
-      maxTimeoutMs: integer(flags, 'max-timeout-ms', 1),
-      admissionTimeoutMs: integer(flags, 'admission-ms', 0),
-      maxRequestBytes: integer(flags, 'max-request-bytes', 1),
+    numericOptions = {
+      port: parseIntegerFlag(flags, 'port', 0),
+      isolates: parseIntegerFlag(flags, 'isolates', 1),
+      defaultTimeoutMs: parseIntegerFlag(flags, 'timeout-ms', 1),
+      maxTimeoutMs: parseIntegerFlag(flags, 'max-timeout-ms', 1),
+      admissionTimeoutMs: parseIntegerFlag(flags, 'admission-ms', 0),
+      maxRequestBytes: parseIntegerFlag(flags, 'max-request-bytes', 1),
     };
   } catch (err) {
     process.stderr.write(`${USAGE}\n[rf.ssr-node] ${err.message}\n`);
@@ -120,28 +131,33 @@ async function main(argv) {
   const modulePath = path.resolve(flags.module);
   let service;
   try {
-    service = await createService({ modulePath, ...limits });
+    service = await createService({ modulePath, ...numericOptions });
   } catch (err) {
-    log(`could not start: ${describe(err)}`);
+    log(`could not start: ${describeError(err)}`);
     return 1;
   }
 
-  let http;
+  let transport;
   try {
-    http = await serve({ service, port: limits.port, host: flags.host, maxRequestBytes: limits.maxRequestBytes });
+    transport = await serve({
+      service,
+      port: numericOptions.port,
+      host: flags.host,
+      maxRequestBytes: numericOptions.maxRequestBytes,
+    });
   } catch (err) {
-    log(`could not listen on ${flags.host}:${limits.port}: ${describe(err)}`);
+    log(`could not listen on ${flags.host}:${numericOptions.port}: ${describeError(err)}`);
     await service.close();
     return 1;
   }
 
-  const bound = http.server.address();
+  const boundAddress = transport.server.address();
   process.stdout.write(
     `${JSON.stringify({
       'rf.ssr-node': 'ready',
-      url: urlOf(bound.address, bound.port),
-      host: bound.address,
-      port: bound.port,
+      url: urlOf(boundAddress.address, boundAddress.port),
+      host: boundAddress.address,
+      port: boundAddress.port,
       buildId: service.buildId,
       protocol: service.protocol,
     })}\n`,
@@ -151,15 +167,15 @@ async function main(argv) {
     for (const sig of ['SIGTERM', 'SIGINT']) process.once(sig, () => resolve(sig));
   });
   log(`${signal}: closing`);
-  await http.close();
+  await transport.close();
   await service.close();
   return 0;
 }
 
 main(process.argv.slice(2)).then(
-  (code) => process.exit(code),
+  (exitCode) => process.exit(exitCode),
   (err) => {
-    log(describe(err));
+    log(describeError(err));
     process.exit(1);
   },
 );

@@ -31,8 +31,8 @@ class Pool {
     this.size = size;
     this.admissionTimeoutMs = admissionTimeoutMs;
     this.bootTimeoutMs = bootTimeoutMs;
-    this.idle = [];
-    this.all = new Set();
+    this.idleIsolates = [];
+    this.isolates = new Set();
     this.waiters = [];
     /**
      * Replacements currently booting. `close()` waits on these before it
@@ -48,12 +48,12 @@ class Pool {
      * thread. Measured, not theorised: the timeout witness hit exactly
      * this the first time it ran.
      */
-    this.spawning = new Set();
+    this.startingReplacements = new Set();
     this.closed = false;
     this.buildId = null;
     this.entries = null;
     /** Replacements performed. A rising count is a service killing renders. */
-    this.replacements = 0;
+    this.replacementCount = 0;
   }
 
   async start() {
@@ -62,21 +62,23 @@ class Pool {
     // while leaving its siblings' worker threads running. A boot failure
     // that leaks threads turns a red assertion into a hung test process,
     // which is a far worse thing to debug than the failure it is hiding.
-    const settled = await Promise.allSettled(
-      Array.from({ length: this.size }, () => this._spawn()),
+    const startResults = await Promise.allSettled(
+      Array.from({ length: this.size }, () => this._startIsolate()),
     );
-    const started = settled.filter((r) => r.status === 'fulfilled').map((r) => r.value);
-    const failed = settled.find((r) => r.status === 'rejected');
-    if (failed) {
-      await Promise.all(started.map((i) => i.close()));
-      this.all.clear();
-      throw failed.reason;
+    const startedIsolates = startResults
+      .filter((result) => result.status === 'fulfilled')
+      .map((result) => result.value);
+    const failedStart = startResults.find((result) => result.status === 'rejected');
+    if (failedStart) {
+      await Promise.all(startedIsolates.map((isolate) => isolate.close()));
+      this.isolates.clear();
+      throw failedStart.reason;
     }
-    this.idle.push(...started);
+    this.idleIsolates.push(...startedIsolates);
     return this;
   }
 
-  async _spawn() {
+  async _startIsolate() {
     const isolate = await new Isolate({
       modulePath: this.modulePath,
       bootTimeoutMs: this.bootTimeoutMs,
@@ -95,33 +97,33 @@ class Pool {
         { serving: this.buildId, loaded: isolate.buildId, modulePath: this.modulePath },
       );
     }
-    this.all.add(isolate);
+    this.isolates.add(isolate);
     return isolate;
   }
 
   /**
-   * `_spawn`, tracked, and self-cancelling if the service closed while it
-   * was booting. Resolves to `null` in that case — there is a fresh
-   * isolate, and it is closed rather than offered.
+   * Start one replacement, tracked and self-cancelling if the service
+   * closed while it was booting. Resolves to `null` in that case — there is
+   * a fresh isolate, and it is closed rather than offered.
    */
-  _spawnTracked() {
-    const tracked = this._spawn().then(
+  _startReplacement() {
+    const replacementStart = this._startIsolate().then(
       (isolate) => {
-        this.spawning.delete(tracked);
+        this.startingReplacements.delete(replacementStart);
         if (this.closed) {
-          this.all.delete(isolate);
+          this.isolates.delete(isolate);
           isolate.close().catch(() => {});
           return null;
         }
         return isolate;
       },
       (err) => {
-        this.spawning.delete(tracked);
+        this.startingReplacements.delete(replacementStart);
         throw err;
       },
     );
-    this.spawning.add(tracked);
-    return tracked;
+    this.startingReplacements.add(replacementStart);
+    return replacementStart;
   }
 
   /** An idle isolate, or a `Refusal`. Never a queue with no bottom. */
@@ -129,14 +131,14 @@ class Pool {
     if (this.closed) {
       return Promise.reject(new Refusal(CODE.SERVICE_CLOSED, 'the service is closed', {}));
     }
-    const ready = this.idle.pop();
-    if (ready) return Promise.resolve(ready);
+    const idleIsolate = this.idleIsolates.pop();
+    if (idleIsolate) return Promise.resolve(idleIsolate);
 
     return new Promise((resolve, reject) => {
       const waiter = { resolve, reject, timer: null };
       waiter.timer = setTimeout(() => {
-        const i = this.waiters.indexOf(waiter);
-        if (i >= 0) this.waiters.splice(i, 1);
+        const waiterIndex = this.waiters.indexOf(waiter);
+        if (waiterIndex >= 0) this.waiters.splice(waiterIndex, 1);
         reject(
           new Refusal(
             CODE.SERVICE_SATURATED,
@@ -157,20 +159,20 @@ class Pool {
    */
   release(isolate) {
     if (isolate.dead) {
-      this.all.delete(isolate);
-      this.replacements += 1;
+      this.isolates.delete(isolate);
+      this.replacementCount += 1;
       if (this.closed) return;
-      this._spawnTracked().then(
-        (fresh) => {
-          if (fresh) this._offer(fresh);
+      this._startReplacement().then(
+        (replacement) => {
+          if (replacement) this._offer(replacement);
         },
         // A pool that cannot replace an isolate is a pool that shrinks.
         // Every waiter is refused rather than left holding a promise that
         // will only ever be settled by its own admission timer.
         (err) => {
-          for (const w of this.waiters.splice(0)) {
-            clearTimeout(w.timer);
-            w.reject(
+          for (const waiter of this.waiters.splice(0)) {
+            clearTimeout(waiter.timer);
+            waiter.reject(
               err instanceof Refusal
                 ? err
                 : new Refusal(CODE.ISOLATE_LOST, `could not replace an isolate: ${err.message}`, {}),
@@ -189,34 +191,34 @@ class Pool {
       clearTimeout(waiter.timer);
       waiter.resolve(isolate);
     } else {
-      this.idle.push(isolate);
+      this.idleIsolates.push(isolate);
     }
   }
 
   stats() {
     return {
-      total: this.all.size,
-      ready: this.idle.length,
-      busy: this.all.size - this.idle.length,
+      total: this.isolates.size,
+      ready: this.idleIsolates.length,
+      busy: this.isolates.size - this.idleIsolates.length,
       waiting: this.waiters.length,
-      replacements: this.replacements,
+      replacements: this.replacementCount,
     };
   }
 
   async close() {
     this.closed = true;
-    for (const w of this.waiters.splice(0)) {
-      clearTimeout(w.timer);
-      w.reject(new Refusal(CODE.SERVICE_CLOSED, 'the service is closing', {}));
+    for (const waiter of this.waiters.splice(0)) {
+      clearTimeout(waiter.timer);
+      waiter.reject(new Refusal(CODE.SERVICE_CLOSED, 'the service is closing', {}));
     }
-    // Replacements still booting close themselves (see `_spawnTracked`),
+    // Replacements still booting close themselves (see `_startReplacement`),
     // but only once they finish booting — so wait for them before
     // believing the pool is empty.
-    await Promise.allSettled([...this.spawning]);
-    const all = [...this.all];
-    this.all.clear();
-    this.idle.length = 0;
-    await Promise.all(all.map((i) => i.close()));
+    await Promise.allSettled([...this.startingReplacements]);
+    const isolatesToClose = [...this.isolates];
+    this.isolates.clear();
+    this.idleIsolates.length = 0;
+    await Promise.all(isolatesToClose.map((isolate) => isolate.close()));
   }
 }
 

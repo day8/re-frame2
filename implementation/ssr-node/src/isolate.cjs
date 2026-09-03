@@ -50,13 +50,13 @@ class Isolate {
     this.entries = null;
     this.dead = false;
     /** The one in-flight render, or null. Guarantee 3, in one field. */
-    this.pending = null;
+    this.pendingRender = null;
     this.renders = 0;
-    this._nextRequestSeq = 0;
+    this._nextRenderId = 0;
   }
 
   get busy() {
-    return this.pending !== null;
+    return this.pendingRender !== null;
   }
 
   /** Boot the worker and wait for it to publish its tables. */
@@ -69,7 +69,7 @@ class Isolate {
       this.threadId = worker.threadId;
 
       const bootTimer = setTimeout(() => {
-        this._die();
+        this._terminateWorker();
         reject(
           new Refusal(
             CODE.MALFORMED_MODULE,
@@ -80,29 +80,33 @@ class Isolate {
       }, this.bootTimeoutMs);
       bootTimer.unref();
 
-      const onReady = (msg) => {
-        if (msg.t === 'ready') {
+      const handleBootMessage = (message) => {
+        if (message.t === 'ready') {
           clearTimeout(bootTimer);
-          worker.off('message', onReady);
-          this.buildId = msg.buildId;
-          this.entries = msg.entries;
-          worker.on('message', (m) => this._onMessage(m));
+          worker.off('message', handleBootMessage);
+          this.buildId = message.buildId;
+          this.entries = message.entries;
+          worker.on('message', (renderMessage) => this._handleRenderMessage(renderMessage));
           resolve(this);
-        } else if (msg.t === 'boot-error') {
+        } else if (message.t === 'boot-error') {
           clearTimeout(bootTimer);
-          this._die();
-          reject(new Refusal(msg.code, msg.message, { modulePath: this.modulePath }));
+          this._terminateWorker();
+          reject(new Refusal(message.code, message.message, { modulePath: this.modulePath }));
         }
       };
-      worker.on('message', onReady);
+      worker.on('message', handleBootMessage);
       worker.on('error', (err) => {
         clearTimeout(bootTimer);
-        this._fail(new Refusal(CODE.ISOLATE_LOST, err.message, { stack: err.stack }));
+        this._failPendingRender(
+          new Refusal(CODE.ISOLATE_LOST, err.message, { stack: err.stack }),
+        );
         reject(new Refusal(CODE.MALFORMED_MODULE, err.message, { stack: err.stack }));
       });
       worker.on('exit', () => {
         clearTimeout(bootTimer);
-        this._fail(new Refusal(CODE.ISOLATE_LOST, 'the isolate exited mid-render', {}));
+        this._failPendingRender(
+          new Refusal(CODE.ISOLATE_LOST, 'the isolate exited mid-render', {}),
+        );
       });
     });
   }
@@ -130,17 +134,17 @@ class Isolate {
       );
     }
 
-    const id = this._nextRequestSeq++;
+    const renderId = this._nextRenderId++;
     this.renders += 1;
 
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
+      const deadlineTimer = setTimeout(() => {
         // HARD TERMINATION. Not a cancel, not a reject-and-hope: the
         // thread is stopped, because a synchronous render cannot be asked
         // to stop.
         const isolateSeq = this.seq;
         const threadId = this.threadId;
-        this._settle(id, () =>
+        this._settlePendingRender(renderId, () =>
           reject(
             new Refusal(
               CODE.RENDER_TIMEOUT,
@@ -149,92 +153,101 @@ class Isolate {
             ),
           ),
         );
-        this._die();
+        this._terminateWorker();
       }, timeoutMs);
-      timer.unref();
+      deadlineTimer.unref();
 
-      this.pending = { id, timer, resolve, reject, onChunk, chunks: 0 };
-      this.worker.postMessage({ t: 'render', id, request });
+      this.pendingRender = {
+        renderId,
+        deadlineTimer,
+        resolve,
+        reject,
+        onChunk,
+        chunkCount: 0,
+      };
+      this.worker.postMessage({ t: 'render', id: renderId, request });
     });
   }
 
-  _onMessage(msg) {
-    const p = this.pending;
-    if (!p || msg.id !== p.id) return;
+  _handleRenderMessage(message) {
+    const pendingRender = this.pendingRender;
+    if (!pendingRender || message.id !== pendingRender.renderId) return;
 
-    if (msg.t === 'chunk') {
-      p.chunks += 1;
-      p.onChunk({ type: 'chunk', seq: msg.seq, html: msg.html });
+    if (message.t === 'chunk') {
+      pendingRender.chunkCount += 1;
+      pendingRender.onChunk({ type: 'chunk', seq: message.seq, html: message.html });
       return;
     }
-    if (msg.t === 'complete') {
-      // Named fields, never a spread of `msg`. The worker refuses to put
+    if (message.t === 'complete') {
+      // Named fields, never a spread of `message`. The worker refuses to put
       // application data on this message at all (see its header), and
       // this end declines to carry a field it was not expecting even if
       // one somehow arrived — two independent readings of the same
       // property, which is what makes it a boundary rather than a habit.
-      this._settle(msg.id, () =>
-        p.resolve({
-          chunks: msg.chunks,
-          renderMs: msg.renderMs,
+      this._settlePendingRender(message.id, () =>
+        pendingRender.resolve({
+          chunks: message.chunks,
+          renderMs: message.renderMs,
           buildId: this.buildId,
         }),
       );
       return;
     }
-    if (msg.t === 'error') {
-      this._settle(msg.id, () =>
-        p.reject(
-          new Refusal(msg.code ?? CODE.RENDER_THREW, msg.message, {
-            ...(msg.detail ?? {}),
+    if (message.t === 'error') {
+      this._settlePendingRender(message.id, () =>
+        pendingRender.reject(
+          new Refusal(message.code ?? CODE.RENDER_THREW, message.message, {
+            ...(message.detail ?? {}),
             // A caller that already saw chunks has a TORN response. It is
             // named rather than smoothed over: the transport must not
             // present a torn response as a complete one.
-            afterChunks: msg.afterChunks ?? p.chunks,
+            afterChunks: message.afterChunks ?? pendingRender.chunkCount,
           }),
         ),
       );
     }
   }
 
-  _settle(id, act) {
-    const p = this.pending;
-    if (!p || p.id !== id) return;
-    clearTimeout(p.timer);
-    this.pending = null;
-    act();
+  _settlePendingRender(renderId, settle) {
+    const pendingRender = this.pendingRender;
+    if (!pendingRender || pendingRender.renderId !== renderId) return;
+    clearTimeout(pendingRender.deadlineTimer);
+    this.pendingRender = null;
+    settle();
   }
 
   /** Reject whatever is in flight — the isolate died under it. */
-  _fail(refusal) {
-    const p = this.pending;
+  _failPendingRender(refusal) {
+    const pendingRender = this.pendingRender;
     this.dead = true;
-    if (p) {
-      clearTimeout(p.timer);
-      this.pending = null;
-      p.reject(refusal);
+    if (pendingRender) {
+      clearTimeout(pendingRender.deadlineTimer);
+      this.pendingRender = null;
+      pendingRender.reject(refusal);
     }
   }
 
-  _die() {
+  _terminateWorker() {
     this.dead = true;
-    const w = this.worker;
+    const worker = this.worker;
     this.worker = null;
-    if (w) w.terminate().catch(() => {});
+    if (worker) worker.terminate().catch(() => {});
   }
 
   /** Orderly shutdown. Nothing in flight is waited for. */
   async close() {
-    const w = this.worker;
+    const worker = this.worker;
     this.dead = true;
     this.worker = null;
-    if (this.pending) {
-      clearTimeout(this.pending.timer);
-      const p = this.pending;
-      this.pending = null;
-      p.reject(new Refusal(CODE.SERVICE_CLOSED, 'the service is shutting down', {}));
+    if (this.pendingRender) {
+      clearTimeout(this.pendingRender.deadlineTimer);
+      const pendingRender = this.pendingRender;
+      this.pendingRender = null;
+      pendingRender.reject(
+        new Refusal(CODE.SERVICE_CLOSED, 'the service is shutting down', {}),
+      );
     }
-    if (w) await w.terminate().catch(() => {});
+    if (worker) await worker.terminate().catch(() => {});
   }
 }
 

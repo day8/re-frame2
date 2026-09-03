@@ -91,50 +91,57 @@ function sendRefusal(res, refusal, requestId) {
  */
 function readBody(req, maxBytes) {
   return new Promise((resolve, reject) => {
-    const parts = [];
-    const hardCap = maxBytes * 16;
-    let bytes = 0;
-    let over = false;
-    const tooLarge = () =>
+    const bodyChunks = [];
+    const hardByteCap = maxBytes * 16;
+    let receivedBytes = 0;
+    let overLimit = false;
+    const requestTooLarge = () =>
       new Refusal(CODE.REQUEST_TOO_LARGE, `request body exceeds ${maxBytes} bytes`, {
         ceiling: maxBytes,
-        bytes,
+        bytes: receivedBytes,
       });
 
-    req.on('data', (c) => {
-      bytes += c.length;
-      if (bytes > maxBytes) {
-        if (!over) {
-          over = true;
-          parts.length = 0;
+    req.on('data', (chunk) => {
+      receivedBytes += chunk.length;
+      if (receivedBytes > maxBytes) {
+        if (!overLimit) {
+          overLimit = true;
+          bodyChunks.length = 0;
         }
-        if (bytes > hardCap) {
+        if (receivedBytes > hardByteCap) {
           req.destroy();
-          reject(tooLarge());
+          reject(requestTooLarge());
         }
         return;
       }
-      parts.push(c);
+      bodyChunks.push(chunk);
     });
     req.on('end', () => {
-      if (over) reject(tooLarge());
-      else resolve(Buffer.concat(parts).toString('utf8'));
+      if (overLimit) reject(requestTooLarge());
+      else resolve(Buffer.concat(bodyChunks).toString('utf8'));
     });
-    req.on('error', (e) => reject(new Refusal(CODE.MALFORMED_REQUEST, e.message, {})));
+    req.on('error', (error) =>
+      reject(new Refusal(CODE.MALFORMED_REQUEST, error.message, {})),
+    );
   });
 }
 
 async function handleRender(service, req, res, { maxRequestBytes }) {
-  let parsed;
+  let renderRequest;
   let requestId;
   try {
-    const text = await readBody(req, maxRequestBytes);
+    const requestText = await readBody(req, maxRequestBytes);
     try {
-      parsed = JSON.parse(text);
-    } catch (e) {
-      throw new Refusal(CODE.MALFORMED_REQUEST, `request body is not JSON: ${e.message}`, {});
+      renderRequest = JSON.parse(requestText);
+    } catch (error) {
+      throw new Refusal(
+        CODE.MALFORMED_REQUEST,
+        `request body is not JSON: ${error.message}`,
+        {},
+      );
     }
-    requestId = typeof parsed?.requestId === 'string' ? parsed.requestId : undefined;
+    requestId =
+      typeof renderRequest?.requestId === 'string' ? renderRequest.requestId : undefined;
   } catch (err) {
     sendRefusal(res, err instanceof Refusal ? err : new Refusal(CODE.MALFORMED_REQUEST, String(err), {}));
     return;
@@ -149,12 +156,12 @@ async function handleRender(service, req, res, { maxRequestBytes }) {
   // caller got could be changed by a magic header or an unpinned
   // in-process option that the operational docs did not teach. Retired
   // under rf2-6r9j.72; `test/bytes.test.cjs` pins that the header is inert.
-  const url = new URL(req.url, 'http://localhost');
-  const streaming = url.searchParams.get('stream') === '1';
+  const requestUrl = new URL(req.url, 'http://localhost');
+  const streaming = requestUrl.searchParams.get('stream') === '1';
 
-  const buffered = [];
+  const bufferedHtmlChunks = [];
   try {
-    for await (const frame of service.renderFrames(parsed)) {
+    for await (const frame of service.renderFrames(renderRequest)) {
       if (frame.type === 'chunk') {
         if (streaming) {
           if (!res.headersSent) {
@@ -169,7 +176,7 @@ async function handleRender(service, req, res, { maxRequestBytes }) {
           }
           res.write(frame.html, 'utf8');
         } else {
-          buffered.push(frame.html);
+          bufferedHtmlChunks.push(frame.html);
         }
         continue;
       }
@@ -186,7 +193,7 @@ async function handleRender(service, req, res, { maxRequestBytes }) {
         }
         res.end();
       } else {
-        const body = buffered.join('');
+        const body = bufferedHtmlChunks.join('');
         res.writeHead(200, {
           'content-type': 'text/html; charset=utf-8',
           // BYTES. See the header.
@@ -226,9 +233,11 @@ function handleHealth(service, res) {
  */
 function serve({ service, port = 8148, host = '127.0.0.1', maxRequestBytes = 1 << 20 }) {
   const server = http.createServer((req, res) => {
-    const url = new URL(req.url, 'http://localhost');
-    if (req.method === 'GET' && url.pathname === '/health') return handleHealth(service, res);
-    if (req.method === 'POST' && url.pathname === '/render') {
+    const requestUrl = new URL(req.url, 'http://localhost');
+    if (req.method === 'GET' && requestUrl.pathname === '/health') {
+      return handleHealth(service, res);
+    }
+    if (req.method === 'POST' && requestUrl.pathname === '/render') {
       return void handleRender(service, req, res, { maxRequestBytes });
     }
     const body = JSON.stringify({
