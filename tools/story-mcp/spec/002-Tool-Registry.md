@@ -165,11 +165,18 @@ The value-bearing tools (`preview-variant` / `run-variant` /
 the `:include-sensitive` opt-in slot in `tools/list` only when the
 `--allow-sensitive-reads` gate is open; the docs-discovery tools —
 `explain-variant` included, since it ships author data raw (rf2-7k5mce) —
-never advertise it (they have no value-bearing slot to gate). The egress scrubs
-keep the live and non-live cases coherent — a declared-sensitive value
-redacts and a declared-large value elides identically (i.e. neither crosses
-raw, by default) whether it reaches the wire via a live derived tree or a
-plan-resolved arg. **Non-live posture:** one surface
+never advertise it (they have no value-bearing slot to gate). Within the
+runtime/captured-VALUE class the egress scrubs are uniform — a
+declared-sensitive value redacts and a declared-large value elides
+identically (i.e. neither crosses raw, by default) across every derived
+tree those four tools return. **Classification marks do NOT reach the
+author-metadata class**, and `explain-variant` is the surface where that
+matters: its plan-RESOLVED value slots are static author data, so a
+`:sensitive?` declaration on a matching app-db path does **not** redact
+them — the whole `:explain` map ships raw, and there is no
+`:include-sensitive` escape hatch because there is nothing gated to
+release (rf2-7k5mce). A secret that must not cross the wire must not be
+written into a variant's registration. **Non-live posture:** one surface
 (`read-a11y-violations`'s axe
 DOM nodes) carries an inherently RE-KEYED runtime payload whose path-scrub is a
 no-op even live; it takes the **named, narrow re-keyed-runtime egress
