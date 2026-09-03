@@ -71,7 +71,11 @@ set -euo pipefail
 # `.github/scripts/report-changed-surfaces.sh`, invoked with the changed-file
 # list as explicit paths (it prints `key=value` to stdout when GITHUB_OUTPUT
 # is unset).  `implementation_jvm` gates the JVM artefact suites exactly as it
-# gates test.yml's per-artefact JVM jobs; `cljs_node_test` gates the npm/CLJS/JS-harness/
+# gates test.yml's per-artefact JVM jobs; `test_react_jvm` gates that same tier
+# for the one artefact carrying its OWN narrow signal (rf2-6r9j.87 — Test-React
+# is a local-only CLJC fixture, so the classifier no longer opens the broad
+# `implementation_jvm` fan-out for it, and the spine has to read the narrow
+# signal or its JVM tier goes quiet); `cljs_node_test` gates the npm/CLJS/JS-harness/
 # isolation suites exactly as it gates test.yml's cljs job.  Reusing that one
 # script — rather than re-deriving a divergent surface map here — is what keeps
 # local selection aligned with test.yml by construction.  The documentation
@@ -167,8 +171,8 @@ Usage:
 
 Runtime tiers are gated on the SAME changed-surface classifier CI uses
 (.github/scripts/report-changed-surfaces.sh): the JVM artefact suites run when
-implementation_jvm is set, and the npm/CLJS/JS-harness/isolation suites run
-when cljs_node_test is set.  The documentation gates run when the diff
+implementation_jvm or test_react_jvm is set, and the npm/CLJS/JS-harness/
+isolation suites run when cljs_node_test is set.  The documentation gates run when the diff
 touches documentation content.  The cheap static/drift checks always run.
 
 Within the JVM tier the spine runs implementation/core plus the suite of every
@@ -375,9 +379,20 @@ fi
 # ---- runtime tier, delegated to the CI classifier ----
 # Feed the changed-file list to report-changed-surfaces.sh as explicit paths;
 # it prints `key=value` for every surface when GITHUB_OUTPUT is unset.  We read
-# `implementation_jvm` (core JVM) and `cljs_node_test` (npm/CLJS/JS-harness/
-# isolation), and note whether ANY surface was recognised at all.
+# `implementation_jvm` (core JVM), `test_react_jvm` (the Test-React artefact's
+# own JVM lane) and `cljs_node_test` (npm/CLJS/JS-harness/isolation), and note
+# whether ANY surface was recognised at all.
+#
+# rf2-6r9j.87 — `test_react_jvm` is read here because the classifier no longer
+# sets `implementation_jvm` for a Test-React-only diff. The per-artefact
+# selector below is a PATH-PREFIX match over the roster in
+# scripts/test-jvm-implementation.sh (which lists
+# implementation/adapters/test-react), but it only ever runs INSIDE the
+# `run_jvm = true` branch. Without this key a Test-React-only local diff would
+# skip the JVM tier entirely and the selector would never fire — the same
+# fail-open, one level down, that the classifier narrowing exists to close.
 impl_jvm=false
+test_react_jvm=false
 cljs_node=false
 recognised_surface=false
 classifier_failed=false
@@ -393,6 +408,7 @@ if [ -n "$changed_files" ]; then
     while IFS='=' read -r key value; do
       case "$key" in
         implementation_jvm) impl_jvm="$value" ;;
+        test_react_jvm)     test_react_jvm="$value" ;;
         cljs_node_test)     cljs_node="$value" ;;
       esac
     done <<< "$classify_out"
@@ -485,7 +501,11 @@ elif [ "$recognised_surface" != true ] && [ "$doc_surface" != true ]; then
   run_node=true
   plan_reason="conservative fallback (unknown surface)"
 else
-  [ "$impl_jvm" = true ] && run_jvm=true
+  # rf2-6r9j.87 — either broad JVM signal arms the tier. `test_react_jvm` is
+  # the narrow one the classifier now sets for a Test-React-only diff; the
+  # per-artefact selector then picks implementation/adapters/test-react by
+  # prefix, so the artefact still runs exactly its own suite.
+  { [ "$impl_jvm" = true ] || [ "$test_react_jvm" = true ]; } && run_jvm=true
   [ "$cljs_node" = true ] && run_node=true
   run_docs="$doc_surface"
 fi

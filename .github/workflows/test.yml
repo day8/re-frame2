@@ -72,6 +72,13 @@ jobs:
       implementation_jvm: ${{ steps.detect.outputs.implementation_jvm }}
       cljs_node_test: ${{ steps.detect.outputs.cljs_node_test }}
       adapter_diagnostic: ${{ steps.detect.outputs.adapter_diagnostic }}
+      # rf2-6r9j.87 — Test-React's own signal. Declared HERE and not only
+      # emitted: a job reads `needs.<job>.outputs.<name>`, which resolves to
+      # the empty string unless the producing job declares it, so an
+      # emitted-but-undeclared output makes every `== 'true'` false — a gate
+      # that can never fire, and silently. Same never-fires mode rf2-9n2cv /
+      # rf2-65ajl pinned for the Story outputs.
+      test_react_jvm: ${{ steps.detect.outputs.test_react_jvm }}
       cljs_browser: ${{ steps.detect.outputs.cljs_browser }}
       examples_compile: ${{ steps.detect.outputs.examples_compile }}
       cljs_prod: ${{ steps.detect.outputs.cljs_prod }}
@@ -1753,7 +1760,14 @@ jobs:
   jvm-adapters-test-react:
     name: JVM test-react (clojure -M:test)
     needs: detect_changed_surfaces
-    if: needs.detect_changed_surfaces.outputs.adapter_diagnostic == 'true'
+    # rf2-6r9j.87 — a DISJUNCTION, and both halves are load-bearing.
+    # `adapter_diagnostic` is the REVERSE edge: the fixture depends on core, so
+    # a core change must still schedule this job, and the core arm of the
+    # classifier is what fires that output. `test_react_jvm` is the forward
+    # edge: a change to this artefact's own src/test/deps now arms this job
+    # WITHOUT arming jvm-adapters-{reagent,reagent-slim,uix}, which stay on
+    # `adapter_diagnostic` alone and cannot reach this local-only CLJC fixture.
+    if: needs.detect_changed_surfaces.outputs.adapter_diagnostic == 'true' || needs.detect_changed_surfaces.outputs.test_react_jvm == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     defaults:

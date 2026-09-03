@@ -151,6 +151,14 @@ fi
 implementation_jvm=false
 cljs_node_test=false
 adapter_diagnostic=false
+# rf2-6r9j.87 — Test-React is the documented exception to the shipped-adapter
+# population: a local-only CLJC test fixture with no Maven coordinate, no
+# production/example consumer and no browser testbed. It gets its OWN output
+# rather than riding `adapter_diagnostic`, because that output gates the OTHER
+# three adapter JVM jobs (reagent / reagent-slim / uix) as well, none of which
+# runs this artefact. The reverse edge still works: the core arm keeps setting
+# `adapter_diagnostic`, and `jvm-adapters-test-react` reads the disjunction.
+test_react_jvm=false
 cljs_browser=false
 examples_compile=false
 cljs_prod=false
@@ -225,6 +233,10 @@ mark_all() {
   implementation_jvm=true
   cljs_node_test=true
   adapter_diagnostic=true
+  # rf2-6r9j.87 — not optional. `force_all` and the workflow-file arms rely on
+  # mark_all being TOTAL; a signal missing here makes a forced full run skip
+  # `jvm-adapters-test-react` outright.
+  test_react_jvm=true
   cljs_browser=true
   examples_compile=true
   cljs_prod=true
@@ -610,6 +622,17 @@ else
       # generic feature arm that happened to set five outputs — and the toll
       # was real: security-only commit d1fa5ff493 made the ~10-minute
       # all-examples job its critical path.
+      # rf2-6r9j.87 — Test-React is carved out ABOVE the alternation below
+      # (shell `case` is first-match, so the narrowing has to precede the
+      # pattern it narrows). It is a local-only CLJC test fixture: nothing
+      # under `examples/` requires `re-frame.adapter.test-react`, so it cannot
+      # appear in any compiled example closure. Deliberately sets NO output
+      # here — the second `case` further down arms its two real lanes. Without
+      # this arm a prose-only README edit still schedules the ~10-minute
+      # all-examples compile, which is the half of the fan-out that lives in
+      # THIS case statement rather than in the adapter arm.
+      implementation/adapters/test-react/*)
+        ;;
       examples/*|implementation/adapters/*|implementation/epoch/*|implementation/schemas/*|implementation/machines/*|implementation/routing/*|implementation/flows/*|implementation/http/*|implementation/ssr/*|implementation/ssr-ring/*|implementation/resources/*|implementation/deps.edn|implementation/shadow-cljs.edn|implementation/package.json|implementation/package-lock.json|implementation/scripts/check-examples-compile.cjs)
         examples_compile=true
         ;;
@@ -913,6 +936,50 @@ else
         # there, since the example dev runner and the Story launchers
         # share them.)
         adapter_testbed_smokes=true
+        ;;
+      # rf2-6r9j.87 — Test-React, routed by the files each lane actually
+      # consumes. Sits ABOVE the generic adapter arm because `case` is
+      # first-match; the src/test/deps arm sits above the prose catch-all for
+      # the same reason. TWO owning lanes, and only two:
+      #
+      #   * `jvm-adapters-test-react` — this artefact's own `clojure -M:test`,
+      #     scheduled by the `test_react_jvm` output added here.
+      #   * the consolidated `cljs` job — Shadow's `:node-test`, whose
+      #     `cljs-test$` selector discovers both `.cljc` test namespaces
+      #     because implementation/shadow-cljs.edn lists this artefact's
+      #     `src` + `test` roots.
+      #
+      # Everything the broad arm below adds has no edge to this fixture:
+      # browser DOM, examples compile, production/release builds, bundle
+      # isolation, the `<reagent|uix>/testbed` smokes (Test-React owns no
+      # testbed), tools JVM, template, MCP. Nothing outside the artefact
+      # requires `re-frame.adapter.test-react` — the only out-of-tree mentions
+      # are a QUOTED `:producer-ns` symbol roster in
+      # implementation/core/src/re_frame/late_bind/directory.cljc (data, not a
+      # require) and prose comments. What this narrowing does NOT touch, and
+      # does not need to, are the always-on jobs: `verify-version-lockstep`,
+      # `check_jvm_lane_rosters.py` and `check_test_lane_bijection.py` all run
+      # unconditionally in test.yml, so a deps.edn edit that added a
+      # `:clein/build` alias, or a test file that no lane reaches, is still
+      # caught with no surface signal involved.
+      implementation/adapters/test-react/src/*|implementation/adapters/test-react/test/*|implementation/adapters/test-react/deps.edn)
+        test_react_jvm=true
+        case "$file" in
+          # deps.edn feeds the JVM lane only: shadow reads its own
+          # `:source-paths` from implementation/shadow-cljs.edn and its deps
+          # from implementation/deps.edn, so this file cannot change what the
+          # node lane compiles.
+          implementation/adapters/test-react/deps.edn) ;;
+          *) cljs_node_test=true ;;
+        esac
+        ;;
+      implementation/adapters/test-react/*)
+        # Prose and anything else at the artefact root — README.md is the case
+        # that matters. No gate pins its bytes or its content, so it opens no
+        # executable lane. Its markdown links are still gated: test.yml's
+        # always-on `verify-readme-links` job runs
+        # `scripts/check_readme_links.py --ci`, which covers READMEs beside
+        # source, and the README inventory validator runs in the same job.
         ;;
       implementation/adapters/*)
         # rf2-bxdk8 + rf2-cjp0i — the adapter-testbed-smokes gate is
@@ -2513,6 +2580,7 @@ emit() {
 emit implementation_jvm "$implementation_jvm"
 emit cljs_node_test "$cljs_node_test"
 emit adapter_diagnostic "$adapter_diagnostic"
+emit test_react_jvm "$test_react_jvm"
 emit cljs_browser "$cljs_browser"
 emit examples_compile "$examples_compile"
 emit cljs_prod "$cljs_prod"
