@@ -88,21 +88,12 @@
               (keyword tier-token)))
           tier-tokens)))
 
-(def ^:private var-kind-markers
-  "The closed set of var-kind markers API.md's `M/Fn` cell uses, mapped to
-   the manifest `:kind` vocabulary (`:macro` / `:fn` / `:var`) each ASSERTS.
-   `Component` is deliberately mapped to nil: a Reagent-component row is
-   carried in the manifest as `:fn` or `:var` (there is no `:component`
-   kind), so its marker pins no single manifest kind — it still classifies
-   the row as a var-row (`var-kind-marker?`), but contributes no
-   documented-kind assertion the root-verb kind guard could check
-   (rf2-e9q33)."
-  {"M" :macro, "Fn" :fn, "Var" :var, "Component" nil})
-
 (defn- var-kind-token
-  "The var-kind marker token beginning the `M/Fn` cell (`Fn`/`M`/`Var`/
-   `Component`), or nil when the cell is a keyword-registration or prose
-   cell."
+  "The var-kind marker token beginning the `M/Fn` cell, or nil when the cell
+   is a keyword-registration or prose cell. `Fn` / `M` / `Var` / `Component`
+   is the CLOSED set of var-kind markers API.md's `M/Fn` cell uses — a cell
+   whose marker drifts outside it is not recognised and the row disappears
+   from the parse, which is the collapse the non-vacuity floor catches."
   [cell]
   (second (re-find #"^(Fn|M|Var|Component)\b" (str/trim cell))))
 
@@ -111,16 +102,6 @@
    component), as opposed to a keyword-registration or prose cell."
   [cell]
   (boolean (var-kind-token cell)))
-
-(defn- documented-kind
-  "The manifest `:kind` (`:macro` / `:fn` / `:var`) a var-row's `M/Fn` cell
-   DOCUMENTS, or nil when the marker pins no single kind (`Component`) or the
-   cell is not a var-kind marker. Retained on each parsed var-row so the
-   root-verb kind guard can compare the documented kind against the manifest
-   — previously the marker was used only to classify a row, then discarded
-   (rf2-e9q33)."
-  [cell]
-  (get var-kind-markers (var-kind-token cell)))
 
 (def adapter-aliases
   "The documented `:require [<ns> :as <alias>]` adapter aliases API.md uses
@@ -177,150 +158,58 @@
              (when (= "Tier" (str/trim cell-text)) cell-index))
            cells)))
 
-(defn- namespace-shaped?
-  "True when a heading CODE SPAN NAMES a re-frame2 namespace, as opposed to an
-   ordinary API name, keyword, or other code a heading may carry. A namespace is
-   DOTTED — two or more `.`-separated lowercase identifier segments
-   (`re-frame.hicasso`, `re-frame.hicasso.test`, `re-frame.adapter.uix`). That shape
-   distinguishes it from a bare API-name span (`reg-sub`, `dispatch-*`,
-   `reg-flow` / `clear-flow`), a keyword span (`:rf.http/managed` — rejected by
-   its leading `:` and its `/`), or a wildcard (`dispatch-*` — rejected by the
-   `*`). So a heading whose only code span is an API name names NO namespace, and
-   an API-name child under it inherits its parent's namespace rather than adopting
-   the API name as a bogus namespace (rf2-etj5i)."
-  [span]
-  (boolean (re-matches #"[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+" span)))
-
-(defn- section-heading-namespace
-  "The owning namespace a Markdown SECTION HEADING names in a back-tick code
-   span — ``## Hicasso views — `re-frame.hicasso` `` -> \"re-frame.hicasso\" — or nil
-   for a non-heading line, a heading with no code span, or a heading whose code
-   span(s) name NO namespace (`## Registration`, ``### `reg-sub` input modes``).
-
-   The heading's code spans are scanned IN ORDER and the FIRST NAMESPACE-SHAPED
-   one (`namespace-shaped?` — dotted `a.b.c`) is taken; an ORDINARY API-name span
-   is NOT a namespace, so a heading whose span is an API name
-   (``### Root lifecycle — `hydrate-root` ``, ``### `reg-sub` input-production
-   modes``) is namespace-LESS and its API-name children inherit the established
-   PARENT namespace. Blindly taking the FIRST span — the original bug — read such
-   a heading as a `hydrate-root` / `reg-sub` namespace, which then mis-excluded
-   the correct bare row and made the two-sided guard report it missing: a FALSE
-   gate failure. This is not exotic syntax — the real spec/API.md already carries
-   code-span headings for `reg-sub`, `dispatch-*`, `:rf.http/managed`, and
-   `reg-flow` / `clear-flow`, none of which name a namespace (rf2-etj5i).
-
-   A BARE var-row is attributed to the namespace of the SECTION it sits under,
-   never to its bare name alone: a bare root verb belongs to a namespace only
-   inside that namespace's section, so a bare row from a SIBLING section (the
-   natural spelling once a section header already scopes the table) can no longer
-   be mis-attributed to the first section (rf2-etj5i)."
-  [line]
-  (when (str/starts-with? (str/triml line) "#")
-    (some (fn [[_ span]] (when (namespace-shaped? span) span))
-          (re-seq #"`([^`]+)`" line))))
-
-(defn- heading-level
-  "The ATX heading LEVEL — the count of leading `#`s — of a Markdown heading
-   line, or nil for a non-heading line (``## Compiled views`` -> 2,
-   ``### Root lifecycle`` -> 3). Used to decide whether a namespace-less heading
-   is a DESCENDANT of the heading that established the current owning namespace
-   (strictly deeper -> inherit) or a sibling/ancestor (same-or-shallower -> clear
-   it), so an intervening namespace-less subsection can no longer drop the owning
-   namespace a bare row is attributed to (rf2-etj5i)."
-  [line]
-  (let [trimmed-line (str/triml line)]
-    (when (str/starts-with? trimmed-line "#")
-      (count (take-while #(= \# %) trimmed-line)))))
-
 (defn parse-var-rows
   "Pure var-row parser over `[[line-no line-text] ...]` indexed API.md lines
    (rf2-asxo3 — extracted from `parse-api-md-var-rows` so parser DISAPPEARANCE
    is unit-testable with synthetic lines, mirroring the reconcile /
-   option-guard pure cores). Returns the `[{:var :qualifier :tier :doc-kind
-   :section-ns :line :raw} ...]` vector — `:section-ns` is the namespace the
-   row's Markdown SECTION HEADING names in a code span (nil before the first
-   such heading), the context a BARE row is attributed to rather than its bare
-   name (rf2-etj5i).
-
-   HEADING-LEVEL–AWARE NAMESPACE INHERITANCE (rf2-etj5i). A section heading that
-   NAMES a namespace establishes it, and records the heading LEVEL it was
-   established at. A following NAMESPACE-LESS heading (``### Root lifecycle``)
-   INHERITS that owning namespace when it is a DESCENDANT — strictly deeper than
-   the establishing heading — so a bare root verb under an ordinary nested
-   subsection stays attributed to its section's namespace; a namespace-less
-   heading at the SAME-OR-SHALLOWER level is a sibling/ancestor and CLEARS the
-   namespace (a new sibling section owns no inherited namespace). Without this, an
-   intervening namespace-less child heading dropped `section-ns` to nil and a bare
-   root verb under it was silently re-attributed to the preceding section.
+   option-guard pure cores). Returns the `[{:var :qualifier :tier :line :raw}
+   ...]` vector — exactly the fields `reconcile` reads, and nothing else.
 
    A row whose `M/Fn` cell is NOT a recognised var-kind marker (`var-kind-
    marker?` — e.g. the marker drifted to an unknown spelling like `Macro`) is
-   SKIPPED: it never becomes a var-row. That is the disappearance the two-sided
-   root-verb kind guard must not silently pass — it turns a dropped root-verb
-   row into a caught `:kind-row-missing`, not a green (rf2-asxo3)."
+   SKIPPED: it never becomes a var-row. That disappearance is silent by
+   construction, which is why `floor-violation` refuses a green once
+   extraction collapses (rf2-asxo3 / rf2-4ka7c2.2)."
   [indexed-lines]
   (loop [remaining-lines   indexed-lines
          tier-column-index nil
-         section-namespace nil
-         section-level     nil
          parsed-rows       (transient [])]
     (if-let [[[line-number line-text] & remaining] (seq remaining-lines)]
       (let [row-cells (table-row-cells line-text)]
         (cond
+          ;; A non-table line ends the current table's column context.
           (nil? row-cells)
-          ;; A non-table line ends the current table's column context. A SECTION
-          ;; HEADING additionally re-establishes the owning namespace a bare row
-          ;; is attributed to (rf2-etj5i): a heading that NAMES a namespace sets
-          ;; it (recording the level it was established at); a NAMESPACE-LESS
-          ;; heading INHERITS the current owning namespace when it is a DESCENDANT
-          ;; (strictly deeper than the establishing heading) and CLEARS it when it
-          ;; is a sibling/ancestor (same-or-shallower level). A non-heading line
-          ;; (prose, blank, blockquote) keeps the current section context.
-          (if-let [heading-level-number (heading-level line-text)]
-            (if-let [heading-namespace (section-heading-namespace line-text)]
-              (recur remaining nil heading-namespace heading-level-number parsed-rows)
-              (if (and section-namespace (> heading-level-number section-level))
-                (recur remaining nil section-namespace section-level parsed-rows)
-                (recur remaining nil nil nil parsed-rows)))
-            (recur remaining nil section-namespace section-level parsed-rows))
+          (recur remaining nil parsed-rows)
 
           (header-row? row-cells)
-          (recur remaining (tier-col-index row-cells) section-namespace section-level parsed-rows)
+          (recur remaining (tier-col-index row-cells) parsed-rows)
 
           (separator-row? row-cells)
-          (recur remaining tier-column-index section-namespace section-level parsed-rows)
+          (recur remaining tier-column-index parsed-rows)
 
           :else
-          (let [first-cell        (first row-cells)
-                kind-cell         (second row-cells)
-                identifier-match  (re-matches #"`([^`]+)`" (str/trim first-cell))]
+          (let [first-cell       (first row-cells)
+                kind-cell        (second row-cells)
+                identifier-match (re-matches #"`([^`]+)`" (str/trim first-cell))]
             (if (and tier-column-index identifier-match (var-kind-marker? kind-cell)
                      (< tier-column-index (count row-cells)))
               (if-let [documented-tier
                        (first-tier-token (nth row-cells tier-column-index))]
                 (let [[qualifier bare] (parse-first-cell-ident (second identifier-match))]
-                  (recur remaining tier-column-index section-namespace section-level
-                         (conj! parsed-rows {:var        bare
-                                              :qualifier  qualifier
-                                              :tier       documented-tier
-                                              :doc-kind   (documented-kind kind-cell)
-                                              :section-ns section-namespace
-                                              :line       line-number
-                                              :raw        (second identifier-match)})))
-                (recur remaining tier-column-index section-namespace section-level parsed-rows))
-              (recur remaining tier-column-index section-namespace section-level parsed-rows)))))
+                  (recur remaining tier-column-index
+                         (conj! parsed-rows {:var       bare
+                                             :qualifier qualifier
+                                             :tier      documented-tier
+                                             :line      line-number
+                                             :raw       (second identifier-match)})))
+                (recur remaining tier-column-index parsed-rows))
+              (recur remaining tier-column-index parsed-rows)))))
       (persistent! parsed-rows))))
 
 (defn parse-api-md-var-rows
   "Parse spec/API.md and return `[{:var <bare-name> :qualifier <ns-or-alias
-   or nil> :tier <kw> :doc-kind <:macro/:fn/:var or nil> :section-ns <ns-or-nil>
-   :line <n> :raw <first-cell>} ...]` for every VAR-row found in any table that
-   has a `Tier` column. `:doc-kind` is the manifest `:kind` the row's `M/Fn`
-   marker documents (nil for a `Component` marker, which pins no single kind), so
-   the root-verb kind guard can reconcile it against the manifest
-   (rf2-e9q33). `:section-ns` is the namespace the row's Markdown section heading
-   names in a code span — how a BARE row is attributed to a namespace rather than
-   to its bare name (rf2-etj5i). `:qualifier` is the
+   or nil> :tier <kw> :line <n> :raw <first-cell>} ...]` for every VAR-row
+   found in any table that has a `Tier` column. `:qualifier` is the
    namespace/alias prefix for a qualified row (`uix-adapter`,
    `re-frame.http`) or nil for a bare row — preserved so qualified rows can
    resolve strictly against the manifest `[namespace var]` index
@@ -336,8 +225,8 @@
    The pure loop is extracted as `parse-var-rows` (rf2-asxo3) so parser
    DISAPPEARANCE — a deleted row, or a row whose M/Fn marker drifted to an
    unknown spelling and is therefore SKIPPED — is unit-testable against
-   synthetic lines; the two-sided root-verb kind guard turns that
-   disappearance into a caught problem rather than a silent green."
+   synthetic lines; `floor-violation` turns a collapsed extraction into a
+   failure rather than a silent green."
   []
   (with-open [r (io/reader @api-md-file)]
     (parse-var-rows
