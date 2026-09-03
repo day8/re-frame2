@@ -11,7 +11,7 @@
   re-registration — rf2-h1vqa4: frames do not flow through
   `registrar/register!`, so there is no registrar registration hook for
   frames; frame config is read from the frames store via
-  `frame/frame-meta`).
+  `rf.frame/frame-meta`).
 
   The recovery is `:no-recovery` per Spec 009. The frame metadata remains
   inspectable as-written (`rf/frame-meta`), but `url-owner-frame-id` (in
@@ -38,9 +38,9 @@
   facade owns the `:routing/on-frame-registered!` publication. Late-bind
   publication is key-idempotent, so facade reloads simply re-publish;
   facade loads rerun the idempotent reconciliation."
-  (:require [re-frame.frame :as frame]
-            [re-frame.routing.nav-fx :as nav-fx]
-            [re-frame.trace :as trace]))
+  (:require [re-frame.frame :as rf.frame]
+            [re-frame.routing.nav-fx :as rf.routing.nav-fx]
+            [re-frame.trace :as rf.trace]))
 
 (defn- other-url-bound-frame-id
   "Scan the frames store for any live frame OTHER than `excluded-frame-id`
@@ -54,17 +54,17 @@
   [excluded-frame-id]
   (some (fn [other-frame-id]
           (when (and (not= other-frame-id excluded-frame-id)
-                     (true? (nav-fx/url-bound?-from-config
-                              (frame/frame-meta other-frame-id))))
+                     (true? (rf.routing.nav-fx/url-bound?-from-config
+                              (rf.frame/frame-meta other-frame-id))))
             other-frame-id))
-        (frame/frame-ids)))
+        (rf.frame/frame-ids)))
 
 (defn check-url-bound-exclusivity!
   "Frame (re-)registration lifecycle body. When the just-(re)registered
   frame's config carries `:url-bound? true` AND another frame already owns
   the URL, emit `:rf.error/duplicate-url-binding`. Per Spec 012 §Multi-frame
   routing and Spec 009 §error event catalogue. The frame's effective config
-  is read from the frames store (`frame/frame-meta`) — the engine fires the
+  is read from the frames store (`rf.frame/frame-meta`) — the engine fires the
   hook AFTER the container + config are seated, so the read is always live.
 
   Recovery per Spec 009 is `:no-recovery` — the offending frame's config is
@@ -88,13 +88,13 @@
   Public so the façade can compose it into its
   `:routing/on-frame-registered!` hook body (both hosts)."
   [frame-id]
-  (if (true? (nav-fx/url-bound?-from-config (frame/frame-meta frame-id)))
+  (if (true? (rf.routing.nav-fx/url-bound?-from-config (rf.frame/frame-meta frame-id)))
     (do
       ;; Record the claim FIRST so the incumbent keeps its claim position; a
       ;; duplicate appends after it and never steals ownership.
-      (nav-fx/record-url-claim! frame-id)
+      (rf.routing.nav-fx/record-url-claim! frame-id)
       (when-let [other-frame-id (other-url-bound-frame-id frame-id)]
-        (trace/emit-error! :rf.error/duplicate-url-binding
+        (rf.trace/emit-error! :rf.error/duplicate-url-binding
                            {:existing-frame  other-frame-id
                             :offending-frame frame-id
                             :reason          "Two frames carry :url-bound? true; only one frame may own the URL at a time."
@@ -103,7 +103,7 @@
     ;; relinquished any prior URL claim (e.g. `:rf/default {:url-bound?
     ;; false}` opting out): drop it so a stale claim cannot keep a now-unbound
     ;; frame at the head of the claim order. Idempotent.
-    (nav-fx/drop-url-claim! frame-id)))
+    (rf.routing.nav-fx/drop-url-claim! frame-id)))
 
 (defn reconcile-existing-url-bindings!
   "Reconcile `:url-bound? true` frames ALREADY seated when the
@@ -139,10 +139,10 @@
   second call (e.g. a façade `:reload`) is a no-op. Public so the façade can
   invoke it and the load-order test can drive it directly."
   []
-  (let [bound-ids (->> (frame/frame-ids)
+  (let [bound-ids (->> (rf.frame/frame-ids)
                        (filter (fn [id]
-                                 (true? (nav-fx/url-bound?-from-config
-                                          (frame/frame-meta id)))))
+                                 (true? (rf.routing.nav-fx/url-bound?-from-config
+                                          (rf.frame/frame-meta id)))))
                        vec)]
     (cond
       (empty? bound-ids)
@@ -151,7 +151,7 @@
       (= 1 (count bound-ids))
       ;; Unambiguous incumbent: order is known (sole claimant). Seed it so the
       ;; resolver returns the true first-claim rather than falling back.
-      (nav-fx/record-url-claim! (first bound-ids))
+      (rf.routing.nav-fx/record-url-claim! (first bound-ids))
 
       :else
       ;; Multiple pre-existing url-bound frames, claim order lost to load order.
@@ -159,7 +159,7 @@
       ;; binding — the resolver returns nil for this state (no id-sort steal).
       (let [[incumbent & extras] (sort-by str bound-ids)]
         (doseq [offending extras]
-          (trace/emit-error! :rf.error/duplicate-url-binding
+          (rf.trace/emit-error! :rf.error/duplicate-url-binding
                              {:existing-frame  incumbent
                               :offending-frame offending
                               :reason          "Multiple :url-bound? true frames were registered before re-frame.routing loaded; claim order is unrecoverable, so no frame owns the URL until one binding is re-registered or removed."

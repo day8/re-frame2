@@ -17,9 +17,9 @@
   is about a TRACE TAG SPELLING — that the four `:rf.nav/*` JVM skip paths
   stamp the canonical `:rf.fx/id` rather than a bare `:fx-id`. Tag spelling is
   a property of `:rf.fx/skipped-on-platform` events, emitted through
-  `trace/emit!` behind `interop/debug-enabled?`, so under the real gate there
+  `trace/emit!` behind `rf.interop/debug-enabled?`, so under the real gate there
   are no events to spell anything. Its assertions are kept VERBATIM inside
-  `(when interop/debug-enabled? …)` arms marked `rf2-o5dbf`.
+  `(when rf.interop/debug-enabled? …)` arms marked `rf2-o5dbf`.
 
   Note the five `(is (not (contains? (first tags) :fx-id)))` legs in
   particular: with no traces `(first tags)` is nil and `(contains? nil :fx-id)`
@@ -31,18 +31,18 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [malli.core :as m]
             [re-frame.core :as rf]
-            [re-frame.fx :as fx]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.routing :as routing]
-            [re-frame.routing.nav-fx :as nav-fx]
-            [re-frame.routing.nav-fx-schemas :as nav-fx-schemas]
-            [re-frame.routing.plan :as plan]
-            [re-frame.routing.scroll :as scroll]
+            [re-frame.fx :as rf.fx]
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.routing :as rf.routing]
+            [re-frame.routing.nav-fx :as rf.routing.nav-fx]
+            [re-frame.routing.nav-fx-schemas :as rf.routing.nav-fx-schemas]
+            [re-frame.routing.plan :as rf.routing.plan]
+            [re-frame.routing.scroll :as rf.routing.scroll]
             [re-frame.routing.test-support]
-            [re-frame.routing-test-support :as rts]))
+            [re-frame.routing-test-support :as rf.routing-test-support]))
 
-(use-fixtures :each rts/reset-runtime)
+(use-fixtures :each rf.routing-test-support/reset-runtime)
 
 ;; ---- Spec 012 §Scroll restoration -----------------------------------------
 
@@ -83,12 +83,12 @@
       ;; Override the spec's :platforms #{:client} default for the JVM
       ;; test — re-register :rf.nav/scroll on both server+client so the
       ;; do-fx interpreter actually invokes our capture.
-      (fx/reg-fx :rf.nav/scroll
+      (rf.fx/reg-fx :rf.nav/scroll
                  {:platforms #{:server :client}}
                  (fn [_ args] (swap! calls conj args)))
       ;; :rf.nav/push-url is :platforms #{:client} by default; suppress on
       ;; the JVM the same way the other routing tests do.
-      (fx/reg-fx :rf.nav/push-url
+      (rf.fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ _] nil))
 
@@ -170,20 +170,20 @@
   (testing "save-scroll-position then lookup-scroll-position round-trips
             the saved [x y] for the same url"
     (let [c0 nil
-          c1 (routing/save-scroll-position c0 "/articles"  [0 250])
-          c2 (routing/save-scroll-position c1 "/dashboard" [10 800])]
-      (is (= [0 250]  (routing/lookup-scroll-position c2 "/articles"))
+          c1 (rf.routing/save-scroll-position c0 "/articles"  [0 250])
+          c2 (rf.routing/save-scroll-position c1 "/dashboard" [10 800])]
+      (is (= [0 250]  (rf.routing/lookup-scroll-position c2 "/articles"))
           "saved position for /articles is retrievable")
-      (is (= [10 800] (routing/lookup-scroll-position c2 "/dashboard"))
+      (is (= [10 800] (rf.routing/lookup-scroll-position c2 "/dashboard"))
           "saved position for /dashboard is retrievable; URLs are isolated")
-      (is (nil? (routing/lookup-scroll-position c2 "/unsaved"))
+      (is (nil? (rf.routing/lookup-scroll-position c2 "/unsaved"))
           "an unseen url returns nil — no false positives"))))
 
 (deftest scroll-position-overwrites-on-resave
   (testing "save-scroll-position over an existing url replaces the saved value"
-    (let [c1 (routing/save-scroll-position nil "/page" [0 100])
-          c2 (routing/save-scroll-position c1  "/page" [0 999])]
-      (is (= [0 999] (routing/lookup-scroll-position c2 "/page"))
+    (let [c1 (rf.routing/save-scroll-position nil "/page" [0 100])
+          c2 (rf.routing/save-scroll-position c1  "/page" [0 999])]
+      (is (= [0 999] (rf.routing/lookup-scroll-position c2 "/page"))
           "second save overwrites the first under the same url"))))
 
 (deftest scroll-position-per-frame-isolation
@@ -193,13 +193,13 @@
     ;; Two frames' independent caches: each is its own cache map. The
     ;; helpers operate on cache values, so isolation is achieved by
     ;; passing the right frame's cache.
-    (let [frame-A (routing/save-scroll-position nil "/shared-url" [0 250])
-          frame-B (routing/save-scroll-position nil "/shared-url" [0 999])]
-      (is (= [0 250] (routing/lookup-scroll-position frame-A "/shared-url"))
+    (let [frame-A (rf.routing/save-scroll-position nil "/shared-url" [0 250])
+          frame-B (rf.routing/save-scroll-position nil "/shared-url" [0 999])]
+      (is (= [0 250] (rf.routing/lookup-scroll-position frame-A "/shared-url"))
           "frame A's cache carries A's saved position")
-      (is (= [0 999] (routing/lookup-scroll-position frame-B "/shared-url"))
+      (is (= [0 999] (rf.routing/lookup-scroll-position frame-B "/shared-url"))
           "frame B's cache carries B's saved position — values are not shared")
-      (is (nil? (routing/lookup-scroll-position nil "/shared-url"))
+      (is (nil? (rf.routing/lookup-scroll-position nil "/shared-url"))
           "a fresh cache (third frame, never-saved) returns nil for the same url"))))
 
 (deftest scroll-position-storage-shape
@@ -208,7 +208,7 @@
     ;; Pin the cache-map shape. The cache is host-side transient state
     ;; (NOT runtime-db) — nothing reads a [:rf.runtime/routing :scroll-positions]
     ;; path anymore, so the contract is the {:positions :order} cache map.
-    (let [c1 (routing/save-scroll-position nil "/x" [5 50])]
+    (let [c1 (rf.routing/save-scroll-position nil "/x" [5 50])]
       (is (= [5 50] (get-in c1 [:positions "/x"]))
           "the saved [x y] lives under :positions in the cache map")
       (is (= ["/x"] (:order c1))
@@ -218,7 +218,7 @@
 ;;
 ;; Per audit A12: long sessions deep-linking through `/articles/:id`-style
 ;; routes can grow the per-frame scroll cache unboundedly. It is LRU-bounded
-;; at `routing/scroll-positions-cap` (50). Re-saving a known url promotes it
+;; at `rf.routing/scroll-positions-cap` (50). Re-saving a known url promotes it
 ;; to most-recent; saves past the cap evict the LRU entry.
 
 (deftest scroll-position-lru-eviction-past-cap
@@ -227,16 +227,16 @@
             a strict per-call limit"
     ;; Hammer 60 distinct urls. Cap is 50, so the first 10 should be gone
     ;; and the last 50 should remain — in insertion order.
-    (let [cache (reduce (fn [c i] (routing/save-scroll-position c (str "/u" i) [i i]))
+    (let [cache (reduce (fn [c i] (rf.routing/save-scroll-position c (str "/u" i) [i i]))
                         nil
                         (range 60))
           positions (:positions cache)]
       (is (= 50 (count positions))
           "exactly 50 entries remain — the cap holds")
-      (is (every? nil? (map #(routing/lookup-scroll-position cache (str "/u" %))
+      (is (every? nil? (map #(rf.routing/lookup-scroll-position cache (str "/u" %))
                             (range 10)))
           "the first 10 (LRU) urls are evicted")
-      (is (every? some? (map #(routing/lookup-scroll-position cache (str "/u" %))
+      (is (every? some? (map #(rf.routing/lookup-scroll-position cache (str "/u" %))
                              (range 10 60)))
           "the most-recently-saved 50 urls all survive")))
 
@@ -244,14 +244,14 @@
             an eviction wave that would otherwise drop it"
     ;; Insert 50 urls (fills cap). Promote /u0 by re-saving. Insert one more.
     ;; /u1 (now the LRU) should evict; /u0 should survive.
-    (let [c0 (reduce (fn [c i] (routing/save-scroll-position c (str "/u" i) [i i]))
+    (let [c0 (reduce (fn [c i] (rf.routing/save-scroll-position c (str "/u" i) [i i]))
                      nil
                      (range 50))
-          c1 (routing/save-scroll-position c0 "/u0" [999 999])  ;; promote
-          c2 (routing/save-scroll-position c1 "/u50" [50 50])]  ;; force evict
-      (is (= [999 999] (routing/lookup-scroll-position c2 "/u0"))
+          c1 (rf.routing/save-scroll-position c0 "/u0" [999 999])  ;; promote
+          c2 (rf.routing/save-scroll-position c1 "/u50" [50 50])]  ;; force evict
+      (is (= [999 999] (rf.routing/lookup-scroll-position c2 "/u0"))
           "the re-saved url survives and carries its new value")
-      (is (nil? (routing/lookup-scroll-position c2 "/u1"))
+      (is (nil? (rf.routing/lookup-scroll-position c2 "/u1"))
           "/u1 — the new LRU after the promotion — was evicted instead")
       (is (= 50 (count (:positions c2)))
           "cap is still 50"))))
@@ -268,17 +268,17 @@
 (deftest scroll-cache-host-side-roundtrip
   (testing "save-scroll-position! writes the frame's host cache and
             frame-scroll-cache reads it back; lookups are per-frame isolated"
-    (routing/reset-scroll-cache!)
-    (routing/save-scroll-position! :frame/a "/articles" [0 250])
-    (routing/save-scroll-position! :frame/b "/articles" [0 999])
-    (is (= [0 250] (routing/lookup-scroll-position
-                     (routing/frame-scroll-cache :frame/a) "/articles"))
+    (rf.routing/reset-scroll-cache!)
+    (rf.routing/save-scroll-position! :frame/a "/articles" [0 250])
+    (rf.routing/save-scroll-position! :frame/b "/articles" [0 999])
+    (is (= [0 250] (rf.routing/lookup-scroll-position
+                     (rf.routing/frame-scroll-cache :frame/a) "/articles"))
         "frame :frame/a's host cache carries A's saved position")
-    (is (= [0 999] (routing/lookup-scroll-position
-                     (routing/frame-scroll-cache :frame/b) "/articles"))
+    (is (= [0 999] (rf.routing/lookup-scroll-position
+                     (rf.routing/frame-scroll-cache :frame/b) "/articles"))
         "frame :frame/b's host cache is isolated from A")
-    (is (nil? (routing/lookup-scroll-position
-                (routing/frame-scroll-cache :frame/never) "/articles"))
+    (is (nil? (rf.routing/lookup-scroll-position
+                (rf.routing/frame-scroll-cache :frame/never) "/articles"))
         "a never-saved frame returns nil — no cross-frame leakage")))
 
 (deftest scroll-cache-not-in-runtime-db
@@ -286,55 +286,55 @@
             carries NO scroll-position keys after a capture (rf2-1hncp2)"
     ;; The acceptance point: scroll positions no longer sit under
     ;; [:rf.runtime/routing ...], so they cannot egress to trace/epoch/SSR.
-    (routing/reset-scroll-cache!)
+    (rf.routing/reset-scroll-cache!)
     (rf/reg-route :route/home {} "/")
-    (fx/reg-fx :rf.nav/scroll        {:platforms #{:server :client}} (fn [_ _] nil))
-    (fx/reg-fx :rf.nav/push-url      {:platforms #{:server :client}} (fn [_ _] nil))
+    (rf.fx/reg-fx :rf.nav/scroll        {:platforms #{:server :client}} (fn [_ _] nil))
+    (rf.fx/reg-fx :rf.nav/push-url      {:platforms #{:server :client}} (fn [_ _] nil))
     ;; Capture a position for the :rf/default frame via the production fx.
-    (fx/reg-fx :rf.nav/capture-scroll {:platforms #{:server :client}}
+    (rf.fx/reg-fx :rf.nav/capture-scroll {:platforms #{:server :client}}
                (fn [ctx args]
                  ;; mirror the handler but supply an explicit position (no
                  ;; window on the JVM) so the save path is exercised here.
-                 (routing/save-scroll-position! (:frame ctx) (:url args) [0 321])))
+                 (rf.routing/save-scroll-position! (:frame ctx) (:url args) [0 321])))
     (rf/dispatch-sync [:rf.route/navigate {:to :route/home}])
-    (routing/save-scroll-position! :rf/default "/" [0 321])
-    (let [rdb (frame/frame-runtime-db-value :rf/default)]
+    (rf.routing/save-scroll-position! :rf/default "/" [0 321])
+    (let [rdb (rf.frame/frame-runtime-db-value :rf/default)]
       (is (nil? (get-in rdb [:rf.runtime/routing :scroll-positions]))
           "runtime-db carries no :scroll-positions key")
       (is (nil? (get-in rdb [:rf.runtime/routing :scroll-positions-order]))
           "runtime-db carries no :scroll-positions-order key"))
-    (is (= [0 321] (routing/lookup-scroll-position
-                     (routing/frame-scroll-cache :rf/default) "/"))
+    (is (= [0 321] (rf.routing/lookup-scroll-position
+                     (rf.routing/frame-scroll-cache :rf/default) "/"))
         "the position is held in the host cache instead")))
 
 (deftest scroll-cache-released-on-frame-destroy
   (testing "destroy-frame! releases the destroyed frame's host scroll cache
             entry via the :routing/on-frame-destroyed! teardown hook"
-    (routing/reset-scroll-cache!)
+    (rf.routing/reset-scroll-cache!)
     (rf/make-frame {:id :frame/scrollee})
-    (routing/save-scroll-position! :frame/scrollee "/x" [0 100])
-    (is (some? (routing/frame-scroll-cache :frame/scrollee))
+    (rf.routing/save-scroll-position! :frame/scrollee "/x" [0 100])
+    (is (some? (rf.routing/frame-scroll-cache :frame/scrollee))
         "precondition: the frame has a host cache entry")
-    (frame/destroy-frame! :frame/scrollee)
-    (is (nil? (routing/frame-scroll-cache :frame/scrollee))
+    (rf.frame/destroy-frame! :frame/scrollee)
+    (is (nil? (rf.routing/frame-scroll-cache :frame/scrollee))
         "the frame's scroll cache entry is dropped on destroy — no leak")))
 
 (deftest scroll-restore-end-to-end-across-navigation
   (testing "a captured position is restored on a later :restore navigation
             back to the same url — save/restore survives the storage move"
     ;; Acceptance point 1: no behavioral regression in scroll save/restore.
-    (routing/reset-scroll-cache!)
+    (rf.routing/reset-scroll-cache!)
     (rf/reg-route :route/home    {} "/")
     (rf/reg-route :route/article {:params [:map [:id :string]]
                                   :scroll :restore} "/articles/:id")
     (let [calls (atom [])]
-      (fx/reg-fx :rf.nav/scroll {:platforms #{:server :client}}
+      (rf.fx/reg-fx :rf.nav/scroll {:platforms #{:server :client}}
                  (fn [_ args] (swap! calls conj args)))
-      (fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}}
+      (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}}
                  (fn [_ _] nil))
       ;; Seed a saved position for "/articles/intro" in the host cache,
       ;; as a prior visit's capture would have.
-      (routing/save-scroll-position! :rf/default "/articles/intro" [0 640])
+      (rf.routing/save-scroll-position! :rf/default "/articles/intro" [0 640])
       ;; Land on home first, then navigate to the :restore article route.
       (rf/dispatch-sync [:rf.route/navigate {:to :route/home}])
       (reset! calls [])
@@ -362,18 +362,18 @@
   (rf/reg-route :route/other  {} "/other")
   (let [;; Cache keys built via route-url — exactly the CANONICAL keys capture
         ;; would write for the leaving slice.
-        cart-key   (routing/route-url {:to :route/cart :params {} :query {}})            ;; "/cart"
-        search-key (routing/route-url {:to :route/search :params {} :query {:a "1" :b "2"}}) ;; canonical order
+        cart-key   (rf.routing/route-url {:to :route/cart :params {} :query {}})            ;; "/cart"
+        search-key (rf.routing/route-url {:to :route/search :params {} :query {:a "1" :b "2"}}) ;; canonical order
         cache      (-> nil
-                       (scroll/save-scroll-position cart-key   [0 640])
-                       (scroll/save-scroll-position search-key [0 810]))
+                       (rf.routing.scroll/save-scroll-position cart-key   [0 640])
+                       (rf.routing.scroll/save-scroll-position search-key [0 810]))
         rdb        {:rf.runtime/routing {:current {:route-id :route/home}}}
         ;; Drive the restore leg exactly as a popstate would: resolve the target
         ;; from the RAW incoming url via match-url, then plan the scroll.
         restore    (fn [raw-url]
-                     (let [m (routing/match-url raw-url)
+                     (let [m (rf.routing/match-url raw-url)
                            {:keys [scroll-fx]}
-                           (plan/scroll-plan {:rdb rdb :scroll-cache cache
+                           (rf.routing.plan/scroll-plan {:rdb rdb :scroll-cache cache
                                               :route-meta nil :opts {:scroll :restore}
                                               :default-strategy :restore
                                               :route-id (:route-id m) :params (:params m)
@@ -413,10 +413,10 @@
     (rf/reg-route :route/silent  {:scroll false} "/silent")
     (rf/reg-route :route/silent2 {:scroll false} "/silent2")
     (let [calls (atom [])]
-      (fx/reg-fx :rf.nav/scroll
+      (rf.fx/reg-fx :rf.nav/scroll
                  {:platforms #{:server :client}}
                  (fn [_ args] (swap! calls conj args)))
-      (fx/reg-fx :rf.nav/push-url
+      (rf.fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ _] nil))
       ;; Without an opts override the route's :scroll false suppresses.
@@ -434,10 +434,10 @@
             concrete :scroll strategy"
     (rf/reg-route :route/loud {:scroll :restore} "/loud")
     (let [calls (atom [])]
-      (fx/reg-fx :rf.nav/scroll
+      (rf.fx/reg-fx :rf.nav/scroll
                  {:platforms #{:server :client}}
                  (fn [_ args] (swap! calls conj args)))
-      (fx/reg-fx :rf.nav/push-url
+      (rf.fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ _] nil))
       (rf/dispatch-sync [:rf.route/navigate {:to :route/loud :scroll false}])
@@ -455,22 +455,22 @@
             (schema) and routing_nav_fx_schemas_cljs_test (handler + gate)"
     (rf/reg-route :route/custom {:scroll {:behavior :smooth :block :center}} "/custom")
     (let [calls (atom [])]
-      (fx/reg-fx :rf.nav/scroll
+      (rf.fx/reg-fx :rf.nav/scroll
                  {:platforms #{:server :client}}
                  (fn [_ args] (swap! calls conj args)))
-      (fx/reg-fx :rf.nav/push-url
+      (rf.fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ _] nil))
       (rf/dispatch-sync [:rf.route/navigate {:to :route/custom}])
       (is (= {:behavior :smooth :block :center} (-> @calls first :strategy))
           "the resolver neither coerces nor drops an unsupported strategy")
-      (is (not (m/validate nav-fx-schemas/scroll-args (first @calls)))
+      (is (not (m/validate rf.routing.nav-fx-schemas/scroll-args (first @calls)))
           "…and the args it produced do NOT satisfy the fx's own :schema —
            the value is carried to the boundary that rejects it, not past it"))))
 
 ;; ---- rf2-ukv4ck: nav-fx identity trace tags use canonical :rf.fx/id -------
 ;;
-;; The routing/nav fx skip & failure traces stamp the fx identity under the
+;; The rf.routing/nav fx skip & failure traces stamp the fx identity under the
 ;; CANONICAL `:rf.fx/id` tag — the same spelling core `re-frame.fx` uses for
 ;; `:rf.fx/skipped-on-platform` / `:rf.error/fx-handler-exception` and that
 ;; Spec 009's error catalogue + Spec-Schemas' `FxSkippedOnPlatformTags`
@@ -498,12 +498,12 @@
 (deftest nav-fx-skip-traces-use-canonical-rf-fx-id-tag
   (testing ":rf.nav/scroll's JVM skip-on-platform trace stamps :rf.fx/id, not bare :fx-id"
     (let [tags (capture-fx-traces
-                 #(scroll/scroll-fx-handler nil {:strategy :top}))]
+                 #(rf.routing.scroll/scroll-fx-handler nil {:strategy :top}))]
       ;; SEMANTIC, posture-independent (rf2-o5dbf): the skip's always-on cause.
       (is (= #{:client} (:platforms (rf/handler-meta :fx :rf.nav/scroll)))
           ":rf.nav/scroll is declared :client-only — that is what makes the JVM skip")
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (= 1 (count tags))
             "the JVM :rf.nav/scroll handler emits exactly one skip trace")
         (is (= :rf.nav/scroll (:rf.fx/id (first tags)))
@@ -513,13 +513,13 @@
 
   (testing ":rf.nav/capture-scroll's JVM skip-on-platform trace stamps :rf.fx/id"
     (let [tags (capture-fx-traces
-                 #(scroll/capture-scroll-handler {:frame :rf/default}
+                 #(rf.routing.scroll/capture-scroll-handler {:frame :rf/default}
                                                  {:url "/articles/intro"}))]
       ;; SEMANTIC, posture-independent (rf2-o5dbf): the skip's always-on cause.
       (is (= #{:client} (:platforms (rf/handler-meta :fx :rf.nav/capture-scroll)))
           ":rf.nav/capture-scroll is declared :client-only")
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (= 1 (count tags))
             "the JVM :rf.nav/capture-scroll handler emits exactly one skip trace")
         (is (= :rf.nav/capture-scroll (:rf.fx/id (first tags)))
@@ -532,12 +532,12 @@
     ;; {:url-bound? true}); the owner path hits the JVM :clj skip branch
     ;; (history.pushState is browser-only), emitting :rf.fx/skipped-on-platform.
     (let [tags (capture-fx-traces
-                 #(nav-fx/push-url-handler {:frame :rf/default} "/articles"))]
+                 #(rf.routing.nav-fx/push-url-handler {:frame :rf/default} "/articles"))]
       ;; SEMANTIC, posture-independent (rf2-o5dbf): the skip's always-on cause.
       (is (= #{:client} (:platforms (rf/handler-meta :fx :rf.nav/push-url)))
           ":rf.nav/push-url is declared :client-only")
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (= 1 (count tags))
             "the JVM :rf.nav/push-url handler emits exactly one skip trace")
         (is (= :rf.nav/push-url (:rf.fx/id (first tags)))
@@ -547,12 +547,12 @@
 
   (testing ":rf.nav/replace-url's JVM owner-skip trace stamps :rf.fx/id"
     (let [tags (capture-fx-traces
-                 #(nav-fx/replace-url-handler {:frame :rf/default} "/articles"))]
+                 #(rf.routing.nav-fx/replace-url-handler {:frame :rf/default} "/articles"))]
       ;; SEMANTIC, posture-independent (rf2-o5dbf): the skip's always-on cause.
       (is (= #{:client} (:platforms (rf/handler-meta :fx :rf.nav/replace-url)))
           ":rf.nav/replace-url is declared :client-only")
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (= 1 (count tags))
             "the JVM :rf.nav/replace-url handler emits exactly one skip trace")
         (is (= :rf.nav/replace-url (:rf.fx/id (first tags)))
@@ -566,14 +566,14 @@
     ;; the canonical identity tag too.
     (rf/make-frame {:id :story/variant})              ;; no :url-bound?
     (let [tags (capture-fx-traces
-                 #(nav-fx/push-url-handler {:frame :story/variant} "/articles"))]
+                 #(rf.routing.nav-fx/push-url-handler {:frame :story/variant} "/articles"))]
       ;; SEMANTIC, posture-independent (rf2-o5dbf): the OTHER skip path's
       ;; always-on cause — :story/variant is not the URL owner, so the push
       ;; has nothing to push to whatever the posture.
-      (is (= :rf/default (routing/url-owner-frame-id))
+      (is (= :rf/default (rf.routing/url-owner-frame-id))
           ":story/variant is not the URL owner — the frame-not-url-bound skip path")
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (= 1 (count tags))
             "a non-URL-bound frame's :rf.nav/push-url emits exactly one skip trace")
         (is (= :rf.nav/push-url (:rf.fx/id (first tags)))

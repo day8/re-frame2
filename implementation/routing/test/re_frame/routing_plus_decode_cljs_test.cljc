@@ -24,9 +24,9 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.routing :as routing]
-   [re-frame.routing.url :as url]
-   [re-frame.test-support :as test-support]
+   [re-frame.routing :as rf.routing]
+   [re-frame.routing.url :as rf.routing.url]
+   [re-frame.test-support :as rf.test-support]
    #?(:clj  [re-frame.substrate.plain-atom :as substrate]
       :cljs [re-frame.adapter.reagent :as substrate])))
 
@@ -36,28 +36,28 @@
 ;; per-host substrate adapter, and reset the routing id-counters so the
 ;; nav-token / pending-nav allocators are deterministic.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
+  (rf.test-support/make-reset-runtime-fixture
     {:adapter substrate/adapter
-     :init-fn routing/reset-counters!}))
+     :init-fn rf.routing/reset-counters!}))
 
 ;; ---- url-decode: `+` is a literal on BOTH hosts --------------------------
 
 (deftest url-decode-plus-is-literal-host-symmetric
   (testing "url-decode leaves a bare `+` as a LITERAL `+` on every host
             (NOT a space) — JVM matches decodeURIComponent (rf2-9a9ix)"
-    (is (= "a+b" (url/url-decode "a+b"))
+    (is (= "a+b" (rf.routing.url/url-decode "a+b"))
         "a bare `+` decodes to a literal `+`, not a space")
-    (is (= "+" (url/url-decode "+"))
+    (is (= "+" (rf.routing.url/url-decode "+"))
         "a lone `+` decodes to a literal `+`")
-    (is (= "1+2=3" (url/url-decode "1%2B2%3D3"))
+    (is (= "1+2=3" (rf.routing.url/url-decode "1%2B2%3D3"))
         "`%2B` decodes to `+` and `%3D` to `=` (the percent-escaped forms)"))
   (testing "real spaces still decode from %20 (and a literal space) on
             every host — only the `+`→space form-urlencoded swap is removed"
-    (is (= "a b" (url/url-decode "a%20b"))
+    (is (= "a b" (rf.routing.url/url-decode "a%20b"))
         "`%20` decodes to a space")
-    (is (= "a b" (url/url-decode "a b"))
+    (is (= "a b" (rf.routing.url/url-decode "a b"))
         "a literal space stays a space")
-    (is (= "a + b" (url/url-decode "a%20%2B%20b"))
+    (is (= "a + b" (rf.routing.url/url-decode "a%20%2B%20b"))
         "mixed: %20 → space, %2B → literal +")))
 
 ;; ---- match-url: `+` literal in path captures + query ---------------------
@@ -66,7 +66,7 @@
   (testing "a `+` in a path-capture segment decodes to a literal `+`
             on every host (RFC-3986 path semantics) — rf2-9a9ix"
     (rf/reg-route :route/files {} "/files/:name")
-    (let [m (routing/match-url "/files/a+b")]
+    (let [m (rf.routing/match-url "/files/a+b")]
       (is (some? m) "the route matches")
       (is (= "a+b" (get-in m [:params :name]))
           "the `+` is preserved as a literal in the captured param"))))
@@ -75,7 +75,7 @@
   (testing "a `+` in a query value decodes to a literal `+` on every
             host (NOT a space) — rf2-9a9ix"
     (rf/reg-route :route/search {} "/search")
-    (let [m (routing/match-url "/search?q=a+b")]
+    (let [m (rf.routing/match-url "/search?q=a+b")]
       (is (some? m) "the route matches")
       (is (= "a+b" (get-in m [:query "q"]))
           "the `+` is preserved as a literal in the query value"))))
@@ -84,7 +84,7 @@
   (testing "`%20` still decodes to a real space in a query value on every
             host — the fix removes only the `+`→space swap, not %20 decode"
     (rf/reg-route :route/search {} "/search")
-    (let [m (routing/match-url "/search?q=a%20b")]
+    (let [m (rf.routing/match-url "/search?q=a%20b")]
       (is (some? m) "the route matches")
       (is (= "a b" (get-in m [:query "q"]))
           "`%20` decodes to a space"))))
@@ -95,7 +95,7 @@
   (testing "a trailing `?` yields an EMPTY :query, not `{\"\" \"\"}`
             (rf2-9a9ix finding 2)"
     (rf/reg-route :route/search {} "/search")
-    (let [m (routing/match-url "/search?")]
+    (let [m (rf.routing/match-url "/search?")]
       (is (some? m) "the route matches")
       (is (= {} (:query m))
           "a trailing `?` produces an empty query map, no spurious key"))))
@@ -104,11 +104,11 @@
   (testing "a doubled `&&` / leading `&` does not inject a `{\"\" \"\"}`
             pair (rf2-9a9ix finding 2)"
     (rf/reg-route :route/search {} "/search")
-    (let [m (routing/match-url "/search?a=1&&b=2")]
+    (let [m (rf.routing/match-url "/search?a=1&&b=2")]
       (is (some? m) "the route matches")
       (is (= {"a" "1" "b" "2"} (:query m))
           "the empty pair from `&&` is dropped — only real pairs survive"))
-    (let [m (routing/match-url "/search?&a=1")]
+    (let [m (rf.routing/match-url "/search?&a=1")]
       (is (= {"a" "1"} (:query m))
           "a leading `&` empty pair is dropped"))))
 
@@ -117,7 +117,7 @@
             key survives with an empty-string value (distinct from the
             blank-pair filter above) — rf2-9a9ix regression guard"
     (rf/reg-route :route/search {} "/search")
-    (let [m (routing/match-url "/search?foo=")]
+    (let [m (rf.routing/match-url "/search?foo=")]
       (is (some? m) "the route matches")
       (is (= {"foo" ""} (:query m))
           "`?foo=` keeps the key with an empty-string value"))))

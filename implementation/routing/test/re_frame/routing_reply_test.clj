@@ -10,23 +10,23 @@
   end-to-end gate behaviour is exercised by
   `re-frame.routing-nav-token-test`."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.reply :as reply]
-            [re-frame.routing.reply :as route-reply]))
+            [re-frame.reply :as rf.reply]
+            [re-frame.routing.reply :as rf.routing.reply]))
 
 ;; ---- §Work-id correlation -------------------------------------------------
 
 (deftest route-work-id-tuple-shape
   (testing "the route-loader work-id head is [:rf.work/route route-id nav-token loader-id]"
     (is (= [:rf.work/route :route/article "nav-1" :article/loaded]
-           (route-reply/work-id {:route-id  :route/article
+           (rf.routing.reply/work-id {:route-id  :route/article
                                  :nav-token "nav-1"
                                  :loader-id :article/loaded}))
         "the four-element route head per Managed-Effects §Work-id correlation")
     (is (= [:rf.work/route nil nil nil]
-           (route-reply/work-id {}))
+           (rf.routing.reply/work-id {}))
         "nil components keep a valid, distinct work id (a loader that named nothing)"))
   (testing "the work id is =-comparable and EDN-serializable"
-    (let [wid (route-reply/work-id {:route-id :r :nav-token "n" :loader-id :l})]
+    (let [wid (rf.routing.reply/work-id {:route-id :r :nav-token "n" :loader-id :l})]
       (is (= wid (read-string (pr-str wid)))
           "round-trips through EDN unchanged"))))
 
@@ -34,28 +34,28 @@
 
 (deftest nav-token-gate-shape
   (testing "the carried/current gates are the data-only {:route/nav-token <t>} map"
-    (is (= {:route/nav-token "nav-1"} (route-reply/gate "nav-1")))
-    (is (= {:route/nav-token "nav-2"} (route-reply/current-gate "nav-2")))))
+    (is (= {:route/nav-token "nav-1"} (rf.routing.reply/gate "nav-1")))
+    (is (= {:route/nav-token "nav-2"} (rf.routing.reply/current-gate "nav-2")))))
 
 (deftest suppress?-delegates-to-shared-reply-stale?
   (testing "suppress? is exactly re-frame.reply/stale? over the :route/nav-token gate
             — the route family does NOT re-implement the comparison"
     (doseq [[carried current] [["nav-1" "nav-2"] ["nav-2" "nav-2"] [nil "nav-2"] ["nav-1" nil]]]
-      (is (= (reply/stale? (route-reply/gate carried) (route-reply/current-gate current))
-             (route-reply/suppress? carried current))
+      (is (= (rf.reply/stale? (rf.routing.reply/gate carried) (rf.routing.reply/current-gate current))
+             (rf.routing.reply/suppress? carried current))
           (str "suppress? matches the shared stale? for carried=" carried " current=" current))))
   (testing "stale when the epoch advanced; live when it matches"
-    (is (true?  (route-reply/suppress? "nav-1" "nav-2")) "superseded → stale")
-    (is (false? (route-reply/suppress? "nav-2" "nav-2")) "current → live")
+    (is (true?  (rf.routing.reply/suppress? "nav-1" "nav-2")) "superseded → stale")
+    (is (false? (rf.routing.reply/suppress? "nav-2" "nav-2")) "current → live")
     ;; A nil CAPTURED token while a navigation is live is suppressed: the
     ;; gate is present (`{:route/nav-token nil}`) with a nil value, which
     ;; never equals the active token. This matches the original
     ;; `(= nav-token current)` semantics and is the regression guard for
     ;; the pre-fix bug where a cofx threaded nil and was silently eaten —
     ;; nil is now suppressed (not committed) exactly as before.
-    (is (true? (route-reply/suppress? nil "nav-2"))
+    (is (true? (rf.routing.reply/suppress? nil "nav-2"))
         "a nil captured token under a live navigation is stale (never matches)")
-    (is (false? (route-reply/suppress? nil nil))
+    (is (false? (rf.routing.reply/suppress? nil nil))
         "nil captured against a nil current (no navigation) matches — both gates equal")))
 
 ;; ---- §Stale suppression — the suppress outcome ----------------------------
@@ -65,7 +65,7 @@
             reply carrying the route :work/id + :work/kind :route, and trace facts
             joined to :work/id with both carried + current gates"
     (let [{:keys [deliver? reply trace] :as outcome}
-          (route-reply/suppress {:route-id  :route/article
+          (rf.routing.reply/suppress {:route-id  :route/article
                                  :nav-token "nav-1"
                                  :loader-id :article/loaded
                                  :frame     :rf/default}
@@ -74,7 +74,7 @@
       (is (= :suppressed (:rf.reply/work-status outcome)) "ledger terminal for a stale route load")
 
       (testing "the reply map is a valid, app-state-safe :status :stale reply"
-        (is (reply/valid-reply? reply) "conforms to the reply-map contract")
+        (is (rf.reply/valid-reply? reply) "conforms to the reply-map contract")
         (is (= :stale (:status reply)))
         (is (true? (:stale? reply)))
         (is (= :rf.route/nav-token-stale (:rf.reply/stale-reason reply)))
@@ -99,7 +99,7 @@
             pins the production lane the pure substrate exposes — the stale
             route reply is tied to the actual replayed completion token."
     (let [{:keys [reply]}
-          (route-reply/suppress {:route-id     :route/article
+          (rf.routing.reply/suppress {:route-id     :route/article
                                  :nav-token    "nav-1"
                                  :loader-id    :article/loaded
                                  :frame        :rf/default
@@ -111,7 +111,7 @@
       (is (not (contains? reply :value)) "still app-state-safe (no :value)"))
     (testing "absence omits the slot — a loader that sourced no completion time"
       (let [{:keys [reply]}
-            (route-reply/suppress {:route-id  :route/article
+            (rf.routing.reply/suppress {:route-id  :route/article
                                    :nav-token "nav-1"
                                    :loader-id :article/loaded}
                                   "nav-2")]
@@ -120,17 +120,17 @@
 
 (deftest suppress-is-universally-non-delivering
   (testing "rf2-j538f7.14 — a stale route completion is UNIVERSALLY non-delivering
-            through route-reply/suppress: no reply target, app or otherwise,
+            through rf.routing.reply/suppress: no reply target, app or otherwise,
             receives it (delegated to re-frame.reply/suppress)"
-    (is (false? (:deliver? (route-reply/suppress {:nav-token "nav-1"} "nav-2" nil)))
+    (is (false? (:deliver? (rf.routing.reply/suppress {:nav-token "nav-1"} "nav-2" nil)))
         "no target → not delivered")
-    (is (false? (:deliver? (route-reply/suppress {:nav-token "nav-1"} "nav-2"
+    (is (false? (:deliver? (rf.routing.reply/suppress {:nav-token "nav-1"} "nav-2"
                                                  {:event [:t]})))
         "a plain descriptor → not delivered")
-    (is (false? (:deliver? (route-reply/suppress {:nav-token "nav-1"} "nav-2"
+    (is (false? (:deliver? (rf.routing.reply/suppress {:nav-token "nav-1"} "nav-2"
                                                  {:event [:t] :dispatch-stale? true})))
         "an inert :dispatch-stale? flag grants nothing → not delivered")
-    (is (false? (:deliver? (route-reply/suppress {:nav-token "nav-1"} "nav-2"
+    (is (false? (:deliver? (rf.routing.reply/suppress {:nav-token "nav-1"} "nav-2"
                                                  {:event [:t] :dispatch-stale? true
                                                   :re-frame.reply/stale-authority true})))
         "a forged authority datum grants nothing → not delivered")))
@@ -140,13 +140,13 @@
 (deftest live-reply-builds-status-ok-with-route-work-id
   (testing "live-reply builds the :status :ok route-loader reply joined to the
             complete route :work/id, carrying :value / frame / completed-at"
-    (let [reply (route-reply/live-reply {:route-id     :route/article
+    (let [reply (rf.routing.reply/live-reply {:route-id     :route/article
                                          :nav-token    "nav-1"
                                          :loader-id    :article/load-replied
                                          :frame        :rf/default
                                          :completed-at 1717000000000}
                                         {:title "Welcome"})]
-      (is (reply/valid-reply? reply) "conforms to the reply-map contract")
+      (is (rf.reply/valid-reply? reply) "conforms to the reply-map contract")
       (is (= :ok (:status reply)))
       (is (= :completed (:rf.reply/work-status reply)))
       (is (= :route (:rf.reply/work-kind reply)))
@@ -157,10 +157,10 @@
       (is (= 1717000000000 (:completed-at reply))))
     (testing "frame / completed-at are omitted when absent; :value rides as nil
               for a successful load with no payload (:ok REQUIRES :value present)"
-      (let [reply (route-reply/live-reply {:route-id  :route/article
+      (let [reply (rf.routing.reply/live-reply {:route-id  :route/article
                                            :nav-token "nav-1"
                                            :loader-id :article/load-replied})]
-        (is (reply/valid-reply? reply) ":ok with :value nil is valid")
+        (is (rf.reply/valid-reply? reply) ":ok with :value nil is valid")
         (is (contains? reply :value) ":value rides even when nil (:ok requires it)")
         (is (nil? (:value reply)))
         (is (not (contains? reply :completed-at)))
@@ -172,26 +172,26 @@
     (let [ctx    {:route-id :route/article :nav-token "nav-1"
                   :loader-id :article/load-replied :frame :rf/default}
           target [:article/load-replied {:id "A"}]
-          ev     (route-reply/complete-live ctx target {:title "Welcome"})]
+          ev     (rf.routing.reply/complete-live ctx target {:title "Welcome"})]
       (is (= :article/load-replied (first ev)) "the target event id leads")
       (is (= {:id "A"} (second ev)) "the target's leading args are intact")
       (let [reply (last ev)]
         (is (map? reply) "the reply map is the appended final argument")
         (is (= :ok (:status reply)))
         (is (= {:title "Welcome"} (:value reply))))
-      (is (= ev (reply/complete target (route-reply/live-reply ctx {:title "Welcome"})))
+      (is (= ev (rf.reply/complete target (rf.routing.reply/live-reply ctx {:title "Welcome"})))
           "complete-live IS re-frame.reply/complete over live-reply — no bespoke path"))
     (testing "the EP-0011 functor law holds at the route surface: complete-live
               composes with re-frame.reply/map-completed-event"
       (let [ctx    {:route-id :r :nav-token "n" :loader-id :l}
             target [:article/load-replied {:id "A"}]
             f      (fn [event] [:wrapped event])
-            reply  (route-reply/live-reply ctx {:title "Welcome"})]
-        (is (= (reply/complete (reply/map-completed-event f target) reply)
-               (f (reply/complete target reply)))
+            reply  (rf.routing.reply/live-reply ctx {:title "Welcome"})]
+        (is (= (rf.reply/complete (rf.reply/map-completed-event f target) reply)
+               (f (rf.reply/complete target reply)))
             "complete(map-completed-event(f, t), reply) == f(complete(t, reply))")))
     (testing "a nil target yields nil — no continuation to complete"
-      (is (nil? (route-reply/complete-live {:nav-token "n"} nil {:title "x"}))))))
+      (is (nil? (rf.routing.reply/complete-live {:nav-token "n"} nil {:title "x"}))))))
 
 ;; ---- §Tracing -------------------------------------------------------------
 
@@ -200,8 +200,8 @@
             ride verbatim; wire slots elide through the one shared walker"
     (let [r {:status :ok :rf.reply/work-id [:rf.work/route :r "n" :l] :rf.reply/work-kind :route
              :rf.frame/id :rf/default :value {:title "Welcome"}}
-          summary (route-reply/trace-reply r {:frame :rf/default})]
-      (is (= (reply/trace-summary r {:frame :rf/default}) summary)
+          summary (rf.routing.reply/trace-reply r {:frame :rf/default})]
+      (is (= (rf.reply/trace-summary r {:frame :rf/default}) summary)
           "delegates to the shared trace-summary — never a family-private elider")
       (is (= :ok (:status summary)) "identity facts ride verbatim")
       (is (= [:rf.work/route :r "n" :l] (:rf.reply/work-id summary))))))

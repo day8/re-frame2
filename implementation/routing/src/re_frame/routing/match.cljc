@@ -8,8 +8,8 @@
   and §Bidirectional URL ↔ params.
 
   Internal namespace; the public facade is `re-frame.routing`."
-  (:require [re-frame.error :as error]
-            [re-frame.routing.url :as url]))
+  (:require [re-frame.error :as rf.error]
+            [re-frame.routing.url :as rf.routing.url]))
 
 ;; ---- registration ---------------------------------------------------------
 
@@ -55,7 +55,7 @@
   ;; the pattern at registration), :recovery + :reason complete the
   ;; required slots. Per-site :route-id / :pattern / :index merge on top.
   [route-id pattern reason index]
-  (error/throw-error!
+  (rf.error/throw-error!
     :rf.error/invalid-route-pattern
     'rf/reg-route
     reason
@@ -252,16 +252,16 @@
   preserved. `reg-route` runs this before parsing so the stored pattern
   is already canonical; the incoming-URL side normalises identically via
   `registry/normalize-match-path` (both are thin wrappers over the
-  shared `url/strip-trailing-slashes`, so the two surfaces cannot
+  shared `rf.routing.url/strip-trailing-slashes`, so the two surfaces cannot
   drift). A non-string `pattern` is returned unchanged — the type error
   is caught downstream by `validate-route-pattern!`, which names the
   route."
   [pattern]
   ;; Gate on `string?` before delegating to the shared
-  ;; `url/strip-trailing-slashes` (a non-string :path is caught by
+  ;; `rf.routing.url/strip-trailing-slashes` (a non-string :path is caught by
   ;; `validate-route-pattern!`).
   (if (string? pattern)
-    (url/strip-trailing-slashes pattern)
+    (rf.routing.url/strip-trailing-slashes pattern)
     pattern))
 
 ;; ---- single-pass pattern parser ------------------------------------------
@@ -647,7 +647,7 @@
             ;; below (validity scan + zipmap), and a lazy-seq would be
             ;; walked (and `safe-url-decode` re-invoked) on each pass.
             decoded (mapv (fn [group]
-                            (when group (url/safe-url-decode group)))
+                            (when group (rf.routing.url/safe-url-decode group)))
                           groups)]
         ;; A nil entry for a non-nil group means malformed %-encoding —
         ;; treat as no-match (route-miss, never throw).

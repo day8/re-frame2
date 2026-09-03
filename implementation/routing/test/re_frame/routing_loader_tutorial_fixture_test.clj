@@ -17,11 +17,11 @@
      reach app delivery or app-db when the documented nav-token pattern is followed."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.fx :as fx]
+            [re-frame.fx :as rf.fx]
             [re-frame.routing.test-support]
-            [re-frame.routing-test-support :as rts]))
+            [re-frame.routing-test-support :as rf.routing-test-support]))
 
-(use-fixtures :each rts/reset-runtime)
+(use-fixtures :each rf.routing-test-support/reset-runtime)
 
 ;; ---- rf2-1lu666 (1): reg-route is full replacement — Step 7 keeps the loader ----
 
@@ -59,7 +59,7 @@
   (testing "A-load → navigate B → late-A: the documented nav-token loader suppresses
             A's stale reply; only B reaches app delivery and app-db"
     (rf/reg-route :app/article {:params [:map [:id :string]]} "/articles/:id")
-    (fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
+    (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
 
     ;; The concepts.md §A hand-rolled async loader program, verbatim in shape:
     ;; terminal delivery …

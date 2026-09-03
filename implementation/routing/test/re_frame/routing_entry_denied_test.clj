@@ -22,8 +22,8 @@
 
   1. Trace-PAYLOAD assertions — the `:rf.error/can-enter-non-boolean` tags,
      the `:rf.error/navigate-bad-request` `:reason` / `:keys` — sit behind
-     `trace/emit-error!`, gated on `interop/debug-enabled?` and read once at
-     load time. Kept VERBATIM inside `(when interop/debug-enabled? …)` arms
+     `trace/emit-error!`, gated on `rf.interop/debug-enabled?` and read once at
+     load time. Kept VERBATIM inside `(when rf.interop/debug-enabled? …)` arms
      marked `rf2-o5dbf`. In every case the SEMANTICS beside them (the deny
      held; the malformed request navigated nowhere) stay posture-independent.
 
@@ -38,18 +38,18 @@
   Nothing was deleted or weakened."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.events :as events]
-            [re-frame.frame :as frame]
-            [re-frame.fx :as fx]
-            [re-frame.interop :as interop]
-            [re-frame.registrar :as registrar]
-            [re-frame.routing :as routing]
-            [re-frame.routing.address :as address]
+            [re-frame.events :as rf.events]
+            [re-frame.frame :as rf.frame]
+            [re-frame.fx :as rf.fx]
+            [re-frame.interop :as rf.interop]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.routing :as rf.routing]
+            [re-frame.routing.address :as rf.routing.address]
             [re-frame.routing.test-support]
-            [re-frame.routing-test-support :as rts]
-            [re-frame.ssr :as ssr]))
+            [re-frame.routing-test-support :as rf.routing-test-support]
+            [re-frame.ssr :as rf.ssr]))
 
-(use-fixtures :each rts/reset-runtime)
+(use-fixtures :each rf.routing-test-support/reset-runtime)
 
 (defn- register-common!
   "A `:home` route, an `:account` target guarded by `:can-enter`
@@ -61,8 +61,8 @@
   (rf/reg-route :login   {} "/login")
   (rf/reg-event :auth/set (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:auth :signed-in?] v)}))
   (rf/reg-sub :auth/signed-in? (fn [db _] (boolean (get-in db [:auth :signed-in?]))))
-  (fx/reg-fx :rf.nav/push-url    {:platforms #{:server :client}} (fn [_ _] nil))
-  (fx/reg-fx :rf.nav/replace-url {:platforms #{:server :client}} (fn [_ _] nil)))
+  (rf.fx/reg-fx :rf.nav/push-url    {:platforms #{:server :client}} (fn [_ _] nil))
+  (rf.fx/reg-fx :rf.nav/replace-url {:platforms #{:server :client}} (fn [_ _] nil)))
 
 (defn- rdb [] (:rf.db/runtime (rf/frame-state-value :rf/default)))
 (defn- current-id [] (get-in (rdb) [:rf.runtime/routing :current :route-id]))
@@ -76,7 +76,7 @@
   Registers through the PUBLIC `rf/reg-event` — the spelling every doc, example
   and skill teaches — so the suite exercises the documented recipe rather than a
   framework-internal back door. Before rf2-0r6q4 this had to use the internal
-  `events/reg-event`: the public macro stamps the calling namespace as
+  `rf.events/reg-event`: the public macro stamps the calling namespace as
   `:rf.provenance/ns`, and the default image then selected BOTH this
   registration and the framework's own no-provenance default, so the next
   `rf/make-frame` failed with `:rf.error/image-duplicate-id`."
@@ -108,7 +108,7 @@
     (rf/dispatch-sync [:rf.route/handle-url-change "/home"])
     (let [seen   (capture-denials!)
           pushed (atom [])]
-      (fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}}
+      (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
       (rf/dispatch-sync [:rf.route/url-requested {:url "/account"}])
       (is (= 1 (count @seen))
@@ -125,7 +125,7 @@
     (rf/dispatch-sync [:rf.route/handle-url-change "/home"])
     (let [seen     (capture-denials!)
           replaced (atom [])]
-      (fx/reg-fx :rf.nav/replace-url {:platforms #{:server :client}}
+      (rf.fx/reg-fx :rf.nav/replace-url {:platforms #{:server :client}}
                  (fn [_ url] (swap! replaced conj url)))
       (rf/dispatch-sync [:rf.route/handle-url-change "/account"])
       (is (= 1 (count @seen)) "exactly one denial")
@@ -153,7 +153,7 @@
             still holds. This is the ZERO-times half of exactly-once."
     (register-common!)
     (rf/dispatch-sync [:rf.route/handle-url-change "/home"])
-    (is (some? (registrar/lookup :event :rf.route/entry-denied))
+    (is (some? (rf.registrar/lookup :event :rf.route/entry-denied))
         "the framework default handler is registered")
     (let [traces (atom [])]
       (rf/register-listener! :trace ::d (fn [ev] (swap! traces conj ev)))
@@ -163,7 +163,7 @@
       ;; read the trace ring, and the second is NEGATIVE: under
       ;; -Dre-frame.debug=false the ring is empty by design, so `not-any?`
       ;; would pass without the framework resolving anything.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (= 1 (count (filter #(= :rf.route/entry-denied (:operation %)) @traces)))
             "exactly one :rf.route/entry-denied trace — counted independently of
              any application handler")
@@ -190,7 +190,7 @@
     (let [calls (atom 0)]
       (rf/reg-event :rf.route/entry-denied (fn [_ _] (swap! calls inc) {}))
       (is (= 1 (count (filter #(= :rf.route/entry-denied %)
-                              (keys (registrar/registrations :event)))))
+                              (keys (rf.registrar/registrations :event)))))
           "one :event registration for the id — the app's replaced the default")
       ;; The reported failure order IS the ordinary one: an app's namespaces
       ;; load and register, and THEN frames are built.
@@ -249,8 +249,8 @@
     (rf/reg-route :home    {} "/home")
     (rf/reg-route :account {:can-enter [:auth/weird?]} "/account")
     (rf/reg-sub :auth/weird? (fn [_ _] "yes"))
-    (fx/reg-fx :rf.nav/push-url    {:platforms #{:server :client}} (fn [_ _] nil))
-    (fx/reg-fx :rf.nav/replace-url {:platforms #{:server :client}} (fn [_ _] nil))
+    (rf.fx/reg-fx :rf.nav/push-url    {:platforms #{:server :client}} (fn [_ _] nil))
+    (rf.fx/reg-fx :rf.nav/replace-url {:platforms #{:server :client}} (fn [_ _] nil))
     (rf/dispatch-sync [:rf.route/handle-url-change "/home"])
     (let [traces (atom [])
           seen   (capture-denials!)]
@@ -260,7 +260,7 @@
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring). The
       ;; fail-CLOSED semantics are pinned posture-independently below, through
       ;; the PUBLIC :rf.route/entry-denied handler `capture-denials!` seats.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (some (fn [ev] (and (= :rf.error/can-enter-non-boolean (:operation ev))
                                 (= :account (-> ev :tags :route-id))))
                   @traces)
@@ -278,7 +278,7 @@
     (let [seen (atom nil)]
       (rf/reg-sub :auth/target-aware?
                   (fn [_ [_ target]] (reset! seen target) (= "/account" (:url target))))
-      (fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
+      (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
       (rf/dispatch-sync [:rf.route/handle-url-change "/home"])
       (rf/dispatch-sync [:rf.route/navigate {:to :account}])
       (is (= :account (:route-id @seen)))
@@ -336,10 +336,10 @@
                 "/page")
   (rf/reg-sub :page/can-leave? (fn [_ _] (swap! leave-calls inc) true))
   (rf/reg-sub :page/can-enter? (fn [_ _] (swap! enter-calls inc) true))
-  (fx/reg-fx :rf.nav/push-url    {:platforms #{:server :client}} (fn [_ _] nil))
-  (fx/reg-fx :rf.nav/replace-url {:platforms #{:server :client}} (fn [_ _] nil))
-  (fx/reg-fx :rf.nav/scroll         {:platforms #{:server :client}} (fn [_ _] nil))
-  (fx/reg-fx :rf.nav/capture-scroll {:platforms #{:server :client}} (fn [_ _] nil)))
+  (rf.fx/reg-fx :rf.nav/push-url    {:platforms #{:server :client}} (fn [_ _] nil))
+  (rf.fx/reg-fx :rf.nav/replace-url {:platforms #{:server :client}} (fn [_ _] nil))
+  (rf.fx/reg-fx :rf.nav/scroll         {:platforms #{:server :client}} (fn [_ _] nil))
+  (rf.fx/reg-fx :rf.nav/capture-scroll {:platforms #{:server :client}} (fn [_ _] nil)))
 
 (deftest exact-no-op-runs-neither-guard
   (testing "an EXACT no-op evaluates NEITHER guard — nothing is being left or
@@ -397,7 +397,7 @@
 ;; ===========================================================================
 
 (defn- server-frame! []
-  (frame/make-anon-frame-record! {:platform :server}))
+  (rf.frame/make-anon-frame-record! {:platform :server}))
 
 (deftest ssr-hard-deny-stamps-403
   (testing "on a server frame a denial stamps the default 403 BEFORE the
@@ -406,7 +406,7 @@
     (register-common!)
     (let [f (server-frame!)]
       (rf/dispatch-sync [:rf.route/handle-url-change "/account"] {:frame f})
-      (is (= 403 (:status (ssr/get-response f)))
+      (is (= 403 (:status (rf.ssr/get-response f)))
           "hard deny with no replacement → 403")
       (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value f))
                         [:rf.runtime/routing :current]))
@@ -420,7 +420,7 @@
             :rf.server/set-status at all"
     (register-common!)
     (let [statuses (atom [])]
-      (fx/reg-fx :rf.server/set-status {:platforms #{:server :client}}
+      (rf.fx/reg-fx :rf.server/set-status {:platforms #{:server :client}}
                  (fn [_ s] (swap! statuses conj s)))
       (rf/dispatch-sync [:rf.route/handle-url-change "/home"])
       (rf/dispatch-sync [:rf.route/navigate {:to :account}])
@@ -434,7 +434,7 @@
       (fn [_ _] {:fx [[:rf.server/redirect {:location "/login"}]]}))
     (let [f (server-frame!)]
       (rf/dispatch-sync [:rf.route/handle-url-change "/account"] {:frame f})
-      (let [resp (ssr/get-response f)]
+      (let [resp (rf.ssr/get-response f)]
         (is (= "/login" (get-in resp [:redirect :location]))
             "the app redirect landed")
         (is (= 302 (:status resp))
@@ -448,7 +448,7 @@
       (fn [_ _] {:fx [[:rf.server/set-status 404]]}))
     (let [f (server-frame!)]
       (rf/dispatch-sync [:rf.route/handle-url-change "/account"] {:frame f})
-      (is (= 404 (:status (ssr/get-response f)))
+      (is (= 404 (:status (rf.ssr/get-response f)))
           "last write wins — the app's explicit status supersedes the 403 floor"))))
 
 ;; ===========================================================================
@@ -459,7 +459,7 @@
   (testing "the R4 retirement roster: no :rf.route/entry-blocked event, no
             enter bypass, no :bypass-guards? policy key, no :enter-attempts"
     (register-common!)
-    (is (nil? (registrar/lookup :event :rf.route/entry-blocked))
+    (is (nil? (rf.registrar/lookup :event :rf.route/entry-blocked))
         ":rf.route/entry-blocked is no longer a registered event")
     (rf/dispatch-sync [:rf.route/handle-url-change "/home"])
     ;; the retired set-valued policy key is now an UNKNOWN request key
@@ -468,17 +468,17 @@
       (rf/dispatch-sync [:rf.route/navigate {:to :account :bypass-guards? #{:enter}}])
       (rf/unregister-listener! :trace ::bad)
       ;; SEMANTIC, posture-independent (rf2-o5dbf): the REJECTION is the
-      ;; always-on structural gate (`address/classify`; navigate.cljc
+      ;; always-on structural gate (`rf.routing.address/classify`; navigate.cljc
       ;; §236-250), so a retired key really does buy nothing under the
       ;; production gate — `:bypass-guards? #{:enter}` did NOT get past the
       ;; `:can-enter` guard, and the slice never moved.
       (is (= :home (current-id))
           ":bypass-guards? bought no entry — the malformed request navigated nowhere")
       (is (= [:bypass-guards?]
-             (:keys (address/classify {:to :account :bypass-guards? #{:enter}} nil)))
+             (:keys (rf.routing.address/classify {:to :account :bypass-guards? #{:enter}} nil)))
           "the always-on gate names :bypass-guards? as the unknown key")
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (some (fn [ev] (and (= :rf.error/navigate-bad-request (:operation ev))
                                 (= :unknown-keys (-> ev :tags :reason))
                                 (= [:bypass-guards?] (-> ev :tags :keys))))
@@ -491,10 +491,10 @@
       (rf/unregister-listener! :trace ::rider)
       ;; SEMANTIC, posture-independent (rf2-o5dbf): same always-on gate.
       (is (= :unknown-keys
-             (:reason (address/classify {:to :home :rf.route/enter-attempts 2} nil)))
+             (:reason (rf.routing.address/classify {:to :home :rf.route/enter-attempts 2} nil)))
           ":rf.route/enter-attempts is not an exemption in the always-on gate")
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (some (fn [ev] (and (= :rf.error/navigate-bad-request (:operation ev))
                                 (= :unknown-keys (-> ev :tags :reason))))
                   @traces)
@@ -517,7 +517,7 @@
       ;; vacuously. The production-visible half of "cannot spin" — 12 attempts
       ;; produced exactly 12 terminal denials and no pending accumulation —
       ;; is asserted outside the arm.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (not-any? #(= :rf.error/route-guard-loop (:operation %)) @traces)
             ":rf.error/route-guard-loop is retired"))
       (is (nil? (pending)) "no pending value ever accumulated")
@@ -534,8 +534,8 @@
     (rf/reg-sub :editor/clean? (fn [db _] (not (get-in db [:editor :dirty?]))))
     (let [enter-ran (atom false)]
       (rf/reg-sub :auth/signed-in? (fn [_ _] (reset! enter-ran true) false))
-      (fx/reg-fx :rf.nav/push-url    {:platforms #{:server :client}} (fn [_ _] nil))
-      (fx/reg-fx :rf.nav/replace-url {:platforms #{:server :client}} (fn [_ _] nil))
+      (rf.fx/reg-fx :rf.nav/push-url    {:platforms #{:server :client}} (fn [_ _] nil))
+      (rf.fx/reg-fx :rf.nav/replace-url {:platforms #{:server :client}} (fn [_ _] nil))
       (rf/dispatch-sync [:rf.route/handle-url-change "/editor"])
       (rf/dispatch-sync [:editor/dirty true])
       (rf/dispatch-sync [:rf.route/navigate {:to :account}])

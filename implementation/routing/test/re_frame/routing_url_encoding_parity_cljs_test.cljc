@@ -50,16 +50,16 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.routing :as routing]
-   [re-frame.routing.url :as url]
-   [re-frame.test-support :as test-support]
+   [re-frame.routing :as rf.routing]
+   [re-frame.routing.url :as rf.routing.url]
+   [re-frame.test-support :as rf.test-support]
    #?(:clj  [re-frame.substrate.plain-atom :as substrate]
       :cljs [re-frame.adapter.reagent :as substrate])))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
+  (rf.test-support/make-reset-runtime-fixture
     {:adapter substrate/adapter
-     :init-fn routing/reset-counters!}))
+     :init-fn rf.routing/reset-counters!}))
 
 ;; ---- the encodeURIComponent boundary ------------------------------------
 ;;
@@ -100,28 +100,28 @@
   (testing "the complete encodeURIComponent unescaped boundary is literal
             on JVM and CLJS alike (rf2-j3tud)"
     (doseq [[ch why] unescaped-marks]
-      (is (= ch (url/url-encode ch)) why)))
+      (is (= ch (rf.routing.url/url-encode ch)) why)))
   (testing "the whole mark set at once, as one component"
-    (is (= "!'()~*-._" (url/url-encode "!'()~*-._"))
+    (is (= "!'()~*-._" (rf.routing.url/url-encode "!'()~*-._"))
         "no character in the mark set is escaped on this host")
-    (is (= "draft~1" (url/url-encode "draft~1"))
+    (is (= "draft~1" (rf.routing.url/url-encode "draft~1"))
         "the failure scenario from the finding: a `~`-bearing slug")))
 
 (deftest url-encode-still-escapes-the-structural-characters-on-both-hosts
   (testing "the controls: characters that must NOT go literal, so the
             boundary test above cannot pass by disabling encoding"
     (doseq [[ch expected why] escaped-controls]
-      (is (= expected (url/url-encode ch)) why)))
+      (is (= expected (rf.routing.url/url-encode ch)) why)))
   (testing "non-ASCII still percent-encodes as UTF-8 on both hosts"
-    (is (= "%C3%A9" (url/url-encode "é"))
+    (is (= "%C3%A9" (rf.routing.url/url-encode "é"))
         "`é` is two UTF-8 bytes, uppercase hex on both hosts")))
 
 (deftest url-encode-splat-inherits-the-boundary-per-segment
   (testing "splat encoding preserves structural `/` while each segment
             gets the same literal mark set (Spec 012 §Splat)"
-    (is (= "a~b/c!d/e(f)" (url/url-encode-splat "a~b/c!d/e(f)"))
+    (is (= "a~b/c!d/e(f)" (rf.routing.url/url-encode-splat "a~b/c!d/e(f)"))
         "marks stay literal inside each chunk; separators stay raw")
-    (is (= "my%20file/50%25.txt" (url/url-encode-splat "my file/50%.txt"))
+    (is (= "my%20file/50%25.txt" (rf.routing.url/url-encode-splat "my file/50%.txt"))
         "the controls still escape per chunk")))
 
 ;; ---- unpaired surrogates: the fail-LOUD half of the boundary -------------
@@ -208,15 +208,15 @@
             too (rf2-j3tud)"
     (doseq [[codes why] unpaired-surrogates]
       (is (thrown? #?(:clj Throwable :cljs :default)
-                   (url/url-encode (code-units codes)))
+                   (rf.routing.url/url-encode (code-units codes)))
           why)))
   (testing "the aliasing itself, stated directly: whatever `url-encode`
             does with a lone surrogate, it must not be what it does with
             a literal `?` — those two inputs are different strings"
-    (is (= "%3F" (url/url-encode (code-units [0x003F])))
+    (is (= "%3F" (rf.routing.url/url-encode (code-units [0x003F])))
         "a literal `?` still encodes to %3F on both hosts")
     (is (thrown? #?(:clj Throwable :cljs :default)
-                 (url/url-encode (code-units [0xD800])))
+                 (rf.routing.url/url-encode (code-units [0xD800])))
         "while the lone surrogate that used to produce the SAME bytes is
          now refused on both hosts")))
 
@@ -226,26 +226,26 @@
             is legitimate input and still encodes to its astral code
             point's UTF-8 bytes"
     (doseq [[codes expected why] well-formed-code-unit-strings]
-      (is (= expected (url/url-encode (code-units codes))) why)))
+      (is (= expected (rf.routing.url/url-encode (code-units codes))) why)))
   (testing "the whole ASCII mark set and the escaped controls are
             untouched by the surrogate guard"
-    (is (= "!'()~*-._" (url/url-encode "!'()~*-._")))
-    (is (= "a%20b%26c" (url/url-encode "a b&c")))))
+    (is (= "!'()~*-._" (rf.routing.url/url-encode "!'()~*-._")))
+    (is (= "a%20b%26c" (rf.routing.url/url-encode "a b&c")))))
 
 (deftest url-encode-splat-refuses-unpaired-surrogates-per-chunk
   (testing "the splat encoder composes `url-encode` per chunk, so the
             refusal arrives per segment — it used to emit `a/%3F`"
     (is (thrown? #?(:clj Throwable :cljs :default)
-                 (url/url-encode-splat (str "a/" (code-units [0xD800]))))
+                 (rf.routing.url/url-encode-splat (str "a/" (code-units [0xD800]))))
         "a lone surrogate in a LATER segment still fails the whole call")
     (is (thrown? #?(:clj Throwable :cljs :default)
-                 (url/url-encode-splat (str (code-units [0xDFFF]) "/b")))
+                 (rf.routing.url/url-encode-splat (str (code-units [0xDFFF]) "/b")))
         "and in the FIRST segment"))
   (testing "the control: a well-formed pair is NOT split apart by the
             per-segment encoding — U+002F is outside the surrogate range,
             so no split point can fall between the halves of a pair"
     (is (= "a/%F0%9F%98%80/b"
-           (url/url-encode-splat (str "a/" (code-units [0xD83D 0xDE00]) "/b")))
+           (rf.routing.url/url-encode-splat (str "a/" (code-units [0xD83D 0xDE00]) "/b")))
         "the pair survives the split and encodes as one astral code point")))
 
 ;; ---- production route-url: one canonical URL on both hosts ---------------
@@ -256,22 +256,22 @@
             and CLJS — this is the production prism, not a re-derivation"
     (rf/reg-route :parity/probe {:params [:map [:slug :string]]} "/p/:slug")
     (is (= "/p/~?!=()#~!"
-           (routing/route-url {:to     :parity/probe
+           (rf.routing/route-url {:to     :parity/probe
                                :params {:slug "~"}
                                :query  {"!" "()"}
                                :fragment "~!"}))
         "the finding's own reproduction: JVM used to emit /p/%7E?%21=%28%29#%7E%21")
     (is (= "/p/draft~1"
-           (routing/route-url {:to :parity/probe :params {:slug "draft~1"}}))
+           (rf.routing/route-url {:to :parity/probe :params {:slug "draft~1"}}))
         "the failure scenario: SSR used to emit /p/draft%7E1")
     (is (= "/p/it's~a(test)!"
-           (routing/route-url {:to :parity/probe :params {:slug "it's~a(test)!"}}))
+           (rf.routing/route-url {:to :parity/probe :params {:slug "it's~a(test)!"}}))
         "the whole divergent set inside one ordinary path param"))
   (testing "the structural controls still escape inside the production
             prism, so this case cannot pass by disabling encoding"
     (rf/reg-route :parity/probe2 {:params [:map [:slug :string]]} "/p/:slug")
     (is (= "/p/a%20b?q=x%26y%3Dz#50%25%20done"
-           (routing/route-url {:to     :parity/probe2
+           (rf.routing/route-url {:to     :parity/probe2
                                :params {:slug "a b"}
                                :query  {"q" "x&y=z"}
                                :fragment "50% done"}))
@@ -284,13 +284,13 @@
     (rf/reg-route :parity/round {:params [:map [:slug :string]]} "/r/:slug")
     (let [slug  "it's~a(test)!*-._"
           frag  "~sec!(1)"
-          built (routing/route-url {:to       :parity/round
+          built (rf.routing/route-url {:to       :parity/round
                                     :params   {:slug slug}
                                     :query    {"q!" "a(b)~c"}
                                     :fragment frag})]
       (is (= "/r/it's~a(test)!*-._?q!=a(b)~c#~sec!(1)" built)
           "the built URL is the literal canonical form on this host")
-      (let [parsed (routing/match-url built)]
+      (let [parsed (rf.routing/match-url built)]
         (is (some? parsed)
             "the canonical URL is NOT a malformed-URL route-miss")
         (is (= :parity/round (:route-id parsed))
@@ -313,25 +313,25 @@
     (let [high (code-units [0xD800])
           low  (code-units [0xDFFF])]
       (is (thrown? #?(:clj Throwable :cljs :default)
-                   (routing/route-url {:to :parity/surrogate :params {:slug high}}))
+                   (rf.routing/route-url {:to :parity/surrogate :params {:slug high}}))
           "path param — the JVM used to emit /p/%3F")
       (is (thrown? #?(:clj Throwable :cljs :default)
-                   (routing/route-url {:to     :parity/surrogate
+                   (rf.routing/route-url {:to     :parity/surrogate
                                        :params {:slug "ok"}
                                        :query  {"q" low}}))
           "query VALUE — the JVM used to emit /p/ok?q=%3F")
       (is (thrown? #?(:clj Throwable :cljs :default)
-                   (routing/route-url {:to     :parity/surrogate
+                   (rf.routing/route-url {:to     :parity/surrogate
                                        :params {:slug "ok"}
                                        :query  {high "v"}}))
           "query KEY")
       (is (thrown? #?(:clj Throwable :cljs :default)
-                   (routing/route-url {:to       :parity/surrogate
+                   (rf.routing/route-url {:to       :parity/surrogate
                                        :params   {:slug "ok"}
                                        :fragment high}))
           "fragment")
       (is (thrown? #?(:clj Throwable :cljs :default)
-                   (routing/route-url {:to     :parity/surrogate
+                   (rf.routing/route-url {:to     :parity/surrogate
                                        :params {:slug (str "draft" high "1")}}))
           "embedded mid-slug, where a substituting encoder is least visible")))
   (testing "the control: the SAME route emits one canonical URL for an
@@ -339,10 +339,10 @@
             breaking the prism. A surrogate PAIR is legitimate route data"
     (rf/reg-route :parity/surrogate2 {:params [:map [:slug :string]]} "/p/:slug")
     (let [emoji (code-units [0xD83D 0xDE00])
-          built (routing/route-url {:to :parity/surrogate2 :params {:slug emoji}})]
+          built (rf.routing/route-url {:to :parity/surrogate2 :params {:slug emoji}})]
       (is (= "/p/%F0%9F%98%80" built)
           "the literal canonical URL, identical on JVM and CLJS")
-      (let [parsed (routing/match-url built)]
+      (let [parsed (rf.routing/match-url built)]
         (is (some? parsed) "it is not a malformed-URL route-miss")
         (is (= emoji (get-in parsed [:params :slug]))
             "and round-trips back to the same string")
@@ -351,7 +351,7 @@
                  [(code-unit-at s 0) (code-unit-at s 1)]))
             "asserted as CODE UNITS, so a U+FFFD substitution anywhere in
              the round trip cannot read as a pass")))
-    (let [built (routing/route-url {:to :parity/surrogate2 :params {:slug "?"}})]
+    (let [built (rf.routing/route-url {:to :parity/surrogate2 :params {:slug "?"}})]
       (is (= "/p/%3F" built)
           "and a literal `?` still emits %3F — the alias target stays
            reachable by the legitimate input that owns it"))))

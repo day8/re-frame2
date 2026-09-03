@@ -31,11 +31,11 @@
        frame-lifecycle hooks are a graceful no-op server-side."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.routing :as routing]
-            [re-frame.routing-test-support :as rts]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.routing :as rf.routing]
+            [re-frame.routing-test-support :as rf.routing-test-support]))
 
-(use-fixtures :each rts/reset-runtime)
+(use-fixtures :each rf.routing-test-support/reset-runtime)
 
 (defn- outcome
   "Run `thunk`, returning `:ok` on normal return or the thrown Throwable — so a
@@ -50,9 +50,9 @@
             no-throw leg is asserted STRUCTURALLY (rf2-sy7zr): a CLJS-only
             definition of current-url would make every .cljc caller blow up
             server-side, which is the regression this guards"
-    (is (= :ok (outcome #(routing/current-url)))
+    (is (= :ok (outcome #(rf.routing/current-url)))
         "current-url must not throw on the JVM")
-    (is (= "/" (routing/current-url))
+    (is (= "/" (rf.routing/current-url))
         "current-url reads the SSR root on the JVM")))
 
 (deftest url-bound-frame-lifecycle-is-a-noop-on-jvm-rf2-j1p1fv
@@ -67,8 +67,8 @@
     (is (= :ok (outcome #(rf/make-frame {:id :zz/jvm-url-owner :url-bound? true})))
         "make-frame of a url-bound frame returns normally on the JVM — the
          listener-install leg is CLJS-only and skipped server-side")
-    (is (= "/" (routing/current-url))
+    (is (= "/" (rf.routing/current-url))
         "current-url still reads the SSR root while a url-bound frame is live")
-    (is (= :ok (outcome #(frame/destroy-frame! :zz/jvm-url-owner)))
+    (is (= :ok (outcome #(rf.frame/destroy-frame! :zz/jvm-url-owner)))
         "destroy-frame! of the url-bound frame returns normally on the JVM — the
          listener-teardown branch is CLJS-only and skipped server-side")))

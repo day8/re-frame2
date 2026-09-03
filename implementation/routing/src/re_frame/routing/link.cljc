@@ -9,11 +9,11 @@
   Internal namespace; the public facade is `re-frame.routing`. The
   facade owns the `views/reg-view*` (CLJS) / `registrar/register!`
   (JVM/SSR) wiring so a `:reload` re-wires both on a fresh registrar."
-  (:require [re-frame.router :as router]
-            [re-frame.frame :as frame]
-            [re-frame.routing.address :as address]
-            [re-frame.routing.registry :as registry]
-            [re-frame.routing.strategy :as strategy]))
+  (:require [re-frame.router :as rf.router]
+            [re-frame.frame :as rf.frame]
+            [re-frame.routing.address :as rf.routing.address]
+            [re-frame.routing.registry :as rf.routing.registry]
+            [re-frame.routing.strategy :as rf.routing.strategy]))
 
 (def prefetch-intent-value
   "The ONE accepted `:prefetch` behaviour value on a route-link (Spec 012
@@ -26,7 +26,7 @@
   "The CLOSED class of DOM positions a `:prefetch :intent` link warms from —
   pointer hover, focus, touch-start, the credible-intent triggers Spec 012
   §Route-plan prefetch names. Held here, beside `prefetch-intent-value`, for the
-  same reason `address/link-behavior-keys` is held in `address`: it is a closed
+  same reason `rf.routing.address/link-behavior-keys` is held in `address`: it is a closed
   key class of routing's law, and a link surface that writes its own copy can
   drift from it silently — a view artefact's route-link would lack a trigger
   `rf/route-link` installs, with nothing failing to say so.
@@ -73,7 +73,7 @@
   (when (contains? props :prefetch)
     (let [v (:prefetch props)]
       (when-not (= prefetch-intent-value v)
-        (throw (registry/route-error
+        (throw (rf.routing.registry/route-error
                  :rf.error/route-link-bad-prefetch
                  'rf/route-link
                  (str "route-link :prefetch accepts only " prefetch-intent-value
@@ -112,7 +112,7 @@
   effects are CLJS-only; its pure `:encode` is not."
   [props encode]
   ;; EP-0037 R0b: select the address through the ONE shared extractor
-  ;; (`address/extract-address`, the closed `:to`/`:params`/`:query`/`:fragment`
+  ;; (`rf.routing.address/extract-address`, the closed `:to`/`:params`/`:query`/`:fragment`
   ;; key class) rather than a bespoke destructuring, and strip the address +
   ;; behaviour keys via the shared key-class constants — so route-link cannot
   ;; drift from what an address IS, and a policy / DOM attr can never leak into
@@ -138,10 +138,10 @@
   ;; but if a shared home appears for another reason, collapse both onto it.
   ;; (The same wall rf2-wzqtu hit for the readiness projectors.)
   (validate-prefetch! props)
-  (let [{:keys [to params query fragment] :as addr} (address/extract-address props)
-        path-url (registry/route-url {:to to :params (or params {}) :query (or query {}) :fragment fragment})]
+  (let [{:keys [to params query fragment] :as addr} (rf.routing.address/extract-address props)
+        path-url (rf.routing.registry/route-url {:to to :params (or params {}) :query (or query {}) :fragment fragment})]
     [path-url
-     (-> (apply dissoc props (concat address/address-keys address/link-behavior-keys))
+     (-> (apply dissoc props (concat rf.routing.address/address-keys rf.routing.address/link-behavior-keys))
          (assoc :href (encode path-url)))
      addr]))
 
@@ -151,7 +151,7 @@
   hosts — the routing calculation a view artefact's route-link
   consumes through the `:routing/prefetch-payload` seam so it
   reimplements none of the prefetch law. The address is selected through the ONE
-  shared extractor (`address/extract-address`), so it is byte-identical to the
+  shared extractor (`rf.routing.address/extract-address`), so it is byte-identical to the
   link's own destination (path `:params` + `:query`); `:fragment` is omitted — a
   prefetch is resource-only and a `#fragment` is never a resource input.
 
@@ -161,7 +161,7 @@
   [props]
   (validate-prefetch! props)
   (when (= prefetch-intent-value (:prefetch props))
-    (let [{:keys [to params query]} (address/extract-address props)]
+    (let [{:keys [to params query]} (rf.routing.address/extract-address props)]
       [:rf.route/prefetch
        (cond-> {:to to}
          (seq params) (assoc :params params)
@@ -173,7 +173,7 @@
   `link-model` seam a view artefact's route-link consumes, so the navigation
   identity the two surfaces dispatch cannot drift.
 
-  `address` is the EXTRACTED address (`address/extract-address`), never a
+  `address` is the EXTRACTED address (`rf.routing.address/extract-address`), never a
   bespoke destructuring of the caller's props, so the payload names the same
   destination the rendered `:href` was built from; `path-url` is the PATH-FORM
   url `route-url` built from it (the cascade is path-form throughout, so a
@@ -196,7 +196,7 @@
      [caller-handler render-frame payload]
      (fn [e]
        (when caller-handler (caller-handler e))
-       (router/dispatch! payload {:source :router :frame render-frame}))))
+       (rf.router/dispatch! payload {:source :router :frame render-frame}))))
 
 #?(:cljs
    (defn- prefetch-intent-attrs
@@ -296,7 +296,7 @@
                 (not (.-defaultPrevented e))
                 (plain-left-click? e))
        (.preventDefault e)
-       (router/dispatch! payload {:source :router :frame render-frame}))))
+       (rf.router/dispatch! payload {:source :router :frame render-frame}))))
 
 #?(:cljs
    (defn route-link-render
@@ -348,7 +348,7 @@
            ;; `make-capture-frame` do for view bodies. `require-current-frame!`
            ;; raises at the RENDER site if a link is rendered outside any frame
            ;; scope — fail with the render stack, not a detached click.
-           render-frame (frame/require-current-frame!
+           render-frame (rf.frame/require-current-frame!
                           :route-link
                           {:where 're-frame.routing.link/route-link-render})
            ;; The rendered `:href` is encoded
@@ -357,7 +357,7 @@
            ;; `/active`. `url` is the PATH-FORM navigation identity carried on
            ;; the click dispatch — the cascade is path-form throughout, so the
            ;; encode touches ONLY the href. One of the four consult points.
-           encode (:encode (strategy/url-strategy-for-frame-id render-frame))
+           encode (:encode (rf.routing.strategy/url-strategy-for-frame-id render-frame))
            [url base-attrs address] (href-attrs props encode)
            ;; The click payload comes from the ONE synthesiser
            ;; (`url-requested-payload`) over the address `href-attrs` already
@@ -379,7 +379,7 @@
            ;; the SAME render-time-captured frame the click handler targets, so a
            ;; prefetch warms the frame that rendered the link, never a sibling.
            ;; `:prefetch` is stripped from `base-attrs` as a link-behaviour key
-           ;; (`href-attrs` / `address/link-behavior-keys`), so it never reaches
+           ;; (`href-attrs` / `rf.routing.address/link-behavior-keys`), so it never reaches
            ;; the `<a>`. Per Spec 012 §Route-plan prefetch.
            intent-attrs (prefetch-intent-attrs props render-frame)
            attrs (merge
@@ -413,7 +413,7 @@
   `identity`, so a based server shell rendered `/active` and left its
   deployment mount when followed before hydration).
 
-  The frame is READ, not required: `frame/resolve-current-frame` answers
+  The frame is READ, not required: `rf.frame/resolve-current-frame` answers
   the frame the SSR pipeline pins with `rf/with-frame` around its render
   walk (normalised to its id, so a `with-new-frame` VALUE resolves too),
   and nil outside any scope — which `url-strategy-for-frame-id` resolves to
@@ -421,8 +421,8 @@
   (The CLJS render REQUIRES its frame because it must capture one for the
   click dispatch; the server shell dispatches nothing.)"
   [props & children]
-  (let [render-frame          (frame/resolve-current-frame)
-        encode                (:encode (strategy/url-strategy-for-frame-id render-frame))
+  (let [render-frame          (rf.frame/resolve-current-frame)
+        encode                (:encode (rf.routing.strategy/url-strategy-for-frame-id render-frame))
         [_url attrs _address] (href-attrs props encode)]
     (into [:a attrs] children)))
 
@@ -480,7 +480,7 @@
   ruling."
   [target render-frame]
   ;; EP-0037 R0b: select the address through the ONE shared extractor
-  ;; (`address/extract-address`) — the same closed key class `rf/route-link`,
+  ;; (`rf.routing.address/extract-address`) — the same closed key class `rf/route-link`,
   ;; `route-url`, and `:rf.route/navigate` resolve through. `native-anchor?`
   ;; still reads the FULL `target` (the `:target` / `:download` DOM attrs live
   ;; outside the address class) — the same side `route-link-render` reads, so
@@ -507,9 +507,9 @@
   ;; collapse both onto it. (The same wall rf2-wzqtu hit for the readiness
   ;; projectors.)
   (validate-prefetch! target)
-  (let [{:keys [to params query fragment] :as addr} (address/extract-address target)
-        path-url (registry/route-url {:to to :params (or params {}) :query (or query {}) :fragment fragment})
-        encode   (:encode (strategy/url-strategy-for-frame-id render-frame))]
+  (let [{:keys [to params query fragment] :as addr} (rf.routing.address/extract-address target)
+        path-url (rf.routing.registry/route-url {:to to :params (or params {}) :query (or query {}) :fragment fragment})
+        encode   (:encode (rf.routing.strategy/url-strategy-for-frame-id render-frame))]
     {:href    (encode path-url)
      :payload (url-requested-payload addr path-url)
      :native? (native-anchor? target)}))
@@ -530,7 +530,7 @@
      [e caller-handler render-frame payload]
      (when caller-handler (caller-handler e))
      (when payload
-       (router/dispatch! payload {:source :router :frame render-frame}))))
+       (rf.router/dispatch! payload {:source :router :frame render-frame}))))
 
 ;; The façade owns the `:route/link` registration:
 ;;

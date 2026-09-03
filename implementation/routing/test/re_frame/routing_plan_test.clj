@@ -19,35 +19,35 @@
   the `:current` slice + an explicit host-side scroll-cache map for the
   `:saved-pos` lookup, rf2-1hncp2)."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.routing.plan :as plan]))
+            [re-frame.routing.plan :as rf.routing.plan]))
 
 ;; ---- empty-string fragment normalisation (rf2-zmcq6) ---------------------
 
 (deftest normalize-fragment-collapses-empty-string
   (testing "an explicit empty-string fragment collapses to nil (route-url emits no trailing #)"
-    (is (nil? (plan/normalize-fragment ""))
+    (is (nil? (rf.routing.plan/normalize-fragment ""))
         "\"\" → nil so the slice :fragment matches the pushed (fragment-less) URL"))
   (testing "a non-empty fragment passes through unchanged"
-    (is (= "section-2" (plan/normalize-fragment "section-2"))))
+    (is (= "section-2" (rf.routing.plan/normalize-fragment "section-2"))))
   (testing "nil passes through unchanged"
-    (is (nil? (plan/normalize-fragment nil)))))
+    (is (nil? (rf.routing.plan/normalize-fragment nil)))))
 
 ;; ---- not-found fallback shape + reason vocabulary ------------------------
 
 (deftest not-found-params-bare-miss-carries-only-url
   (testing "an unmatched URL fallback carries {:url url} with no :reason"
-    (is (= {:url "/nope"} (plan/not-found-params "/nope" nil)))))
+    (is (= {:url "/nope"} (rf.routing.plan/not-found-params "/nope" nil)))))
 
 (deftest not-found-params-stamps-each-reason
   (testing "the shared :reason vocabulary — both entry points stamp identical fallback params"
     (is (= {:url "/x" :reason :malformed-url}
-           (plan/not-found-params "/x" :malformed-url))
+           (rf.routing.plan/not-found-params "/x" :malformed-url))
         "malformed percent-encoding fallback")
     (is (= {:url "/x" :reason :validation}
-           (plan/not-found-params "/x" :validation))
+           (rf.routing.plan/not-found-params "/x" :validation))
         "schema-validation miss fallback")
     (is (= {:url "/x" :reason :match-error}
-           (plan/not-found-params "/x" :match-error))
+           (rf.routing.plan/not-found-params "/x" :match-error))
         "unexpected match-url throw fallback")))
 
 ;; ---- identical navigation (Spec 012 §Per-route data loading rule 3) ------
@@ -55,49 +55,49 @@
 (deftest identical-route-target-detects-complete-no-op
   (let [slice {:route-id :route/cart :params {} :query {:q "a"} :fragment "f"}]
     (testing "id/params/query/fragment all equal → identical (complete no-op)"
-      (is (true? (plan/identical-route-target? slice :route/cart {} {:q "a"} "f"))))
+      (is (true? (rf.routing.plan/identical-route-target? slice :route/cart {} {:q "a"} "f"))))
     (testing "a differing query is NOT identical"
-      (is (false? (plan/identical-route-target? slice :route/cart {} {:q "b"} "f"))))
+      (is (false? (rf.routing.plan/identical-route-target? slice :route/cart {} {:q "b"} "f"))))
     (testing "a differing fragment is NOT identical (that's the fragment-only case)"
-      (is (false? (plan/identical-route-target? slice :route/cart {} {:q "a"} "g"))))
+      (is (false? (rf.routing.plan/identical-route-target? slice :route/cart {} {:q "a"} "g"))))
     (testing "no prior slice → never identical (first nav)"
-      (is (false? (plan/identical-route-target? nil :route/cart {} {:q "a"} "f"))))))
+      (is (false? (rf.routing.plan/identical-route-target? nil :route/cart {} {:q "a"} "f"))))))
 
 ;; ---- fragment-only navigation (Spec 012 §Fragments rules 3-4) ------------
 
 (deftest fragment-only-detects-same-page-anchor-change
   (let [slice {:route-id :route/docs :params {:p 1} :query {:q "a"} :fragment "intro"}]
     (testing "same id/params/query, differing fragment → fragment-only"
-      (is (true? (plan/fragment-only? slice :route/docs {:p 1} {:q "a"} "details"))))
+      (is (true? (rf.routing.plan/fragment-only? slice :route/docs {:p 1} {:q "a"} "details"))))
     (testing "identical fragment is NOT fragment-only (that's the complete no-op)"
-      (is (false? (plan/fragment-only? slice :route/docs {:p 1} {:q "a"} "intro"))))
+      (is (false? (rf.routing.plan/fragment-only? slice :route/docs {:p 1} {:q "a"} "intro"))))
     (testing "a differing route-id is NOT fragment-only (full transition)"
-      (is (false? (plan/fragment-only? slice :route/cart {:p 1} {:q "a"} "details"))))
+      (is (false? (rf.routing.plan/fragment-only? slice :route/cart {:p 1} {:q "a"} "details"))))
     (testing "a differing query is NOT fragment-only (full transition)"
-      (is (false? (plan/fragment-only? slice :route/docs {:p 1} {:q "b"} "details"))))
+      (is (false? (rf.routing.plan/fragment-only? slice :route/docs {:p 1} {:q "b"} "details"))))
     (testing "no prior slice → never fragment-only (nothing to be a fragment of)"
-      (is (false? (plan/fragment-only? nil :route/docs {:p 1} {:q "a"} "details"))))
+      (is (false? (rf.routing.plan/fragment-only? nil :route/docs {:p 1} {:q "a"} "details"))))
     (testing "fragment-only and identical-route-target? are mutually exclusive"
       (let [params {:p 1} query {:q "a"}]
-        (is (not (and (plan/fragment-only? slice :route/docs params query "details")
-                      (plan/identical-route-target? slice :route/docs params query "details")))
+        (is (not (and (rf.routing.plan/fragment-only? slice :route/docs params query "details")
+                      (rf.routing.plan/identical-route-target? slice :route/docs params query "details")))
             "differing fragment → fragment-only true, identical false")
-        (is (not (and (plan/fragment-only? slice :route/docs params query "intro")
-                      (plan/identical-route-target? slice :route/docs params query "intro")))
+        (is (not (and (rf.routing.plan/fragment-only? slice :route/docs params query "intro")
+                      (rf.routing.plan/identical-route-target? slice :route/docs params query "intro")))
             "equal fragment → fragment-only false, identical true")))))
 
 ;; ---- fail-closed telemetry intents (parity across both entry points) -----
 
 (deftest fallback-telemetry-intents-clean-nav-emits-nothing
   (testing "a matched route with no fail-closed condition produces no telemetry intents"
-    (is (= [] (plan/fallback-telemetry-intents
+    (is (= [] (rf.routing.plan/fallback-telemetry-intents
                 {:throw-reason nil :malformed? false :no-not-found? false
                  :url "/cart" :frame nil})))))
 
 (deftest fallback-telemetry-intents-malformed-url
   (testing "malformed percent-encoding emits :rf.warning/malformed-url {:url}"
     (is (= [[:emit :warning :rf.warning/malformed-url {:url "/a%2"}]]
-           (plan/fallback-telemetry-intents
+           (rf.routing.plan/fallback-telemetry-intents
              {:throw-reason nil :malformed? true :no-not-found? false
               :url "/a%2" :frame nil})))))
 
@@ -105,7 +105,7 @@
   (testing "a match-url throw emits :rf.warning/malformed-url carrying the throw :reason"
     (is (= [[:emit :warning :rf.warning/malformed-url
              {:url "/x" :reason :match-error}]]
-           (plan/fallback-telemetry-intents
+           (rf.routing.plan/fallback-telemetry-intents
              {:throw-reason :match-error :malformed? false :no-not-found? false
               :url "/x" :frame nil}))
         "an unexpected match-url throw — surfaced regardless of which nav event it arrived on")))
@@ -113,7 +113,7 @@
 (deftest fallback-telemetry-intents-missing-not-found-route
   (testing "a not-found fallback with no registered not-found route emits :rf.warning/no-not-found-route"
     (is (= [[:emit :warning :rf.warning/no-not-found-route {:url "/gone"}]]
-           (plan/fallback-telemetry-intents
+           (rf.routing.plan/fallback-telemetry-intents
              {:throw-reason nil :malformed? false :no-not-found? true
               :url "/gone" :frame nil})))))
 
@@ -123,13 +123,13 @@
              {:url "/x" :reason :match-error :frame :worker}]
             [:emit :warning :rf.warning/no-not-found-route
              {:url "/x" :frame :worker}]]
-           (plan/fallback-telemetry-intents
+           (rf.routing.plan/fallback-telemetry-intents
              {:throw-reason :match-error :malformed? false :no-not-found? true
               :url "/x" :frame :worker})))))
 
 (deftest fallback-telemetry-intents-ordering-is-stable
   (testing "malformed/throw warning precedes the no-not-found warning"
-    (let [intents (plan/fallback-telemetry-intents
+    (let [intents (rf.routing.plan/fallback-telemetry-intents
                     {:throw-reason :match-error :malformed? false
                      :no-not-found? true :url "/x" :frame nil})]
       (is (= 2 (count intents)))
@@ -147,7 +147,7 @@
                     (fn [level op tags] (swap! emits conj [level op tags]))
                     re-frame.trace/emit-error!
                     (fn [op tags] (swap! emit-errors conj [op tags]))]
-        (plan/emit-intents!
+        (rf.routing.plan/emit-intents!
           [[:emit :warning :rf.warning/malformed-url {:url "/x"}]
            [:emit-error :rf.error/no-such-handler {:url "/x" :kind :route}]]))
       (is (= [[:warning :rf.warning/malformed-url {:url "/x"}]] @emits))
@@ -167,7 +167,7 @@
     ;; strategy + descriptors. We assert the scroll-fx shape directly.
     (let [rdb  {:rf.runtime/routing {:current {:route-id :route/home}}}
           {:keys [scroll-fx]}
-          (plan/scroll-plan {:rdb rdb :route-meta nil :opts nil
+          (rf.routing.plan/scroll-plan {:rdb rdb :route-meta nil :opts nil
                              :default-strategy :top
                              :route-id :route/cart :params {} :query {}
                              :fragment nil :url "/cart"})]
@@ -182,7 +182,7 @@
   (testing ":scroll false in opts suppresses the scroll-fx (nil)"
     (let [rdb {:rf.runtime/routing {:current {:route-id :route/home}}}
           {:keys [scroll-fx]}
-          (plan/scroll-plan {:rdb rdb :route-meta nil :opts {:scroll false}
+          (rf.routing.plan/scroll-plan {:rdb rdb :route-meta nil :opts {:scroll false}
                              :default-strategy :top
                              :route-id :route/cart :params {} :query {}
                              :fragment nil :url "/cart"})]
@@ -194,7 +194,7 @@
     (let [rdb          {:rf.runtime/routing {:current {:route-id :route/home}}}
           scroll-cache {:positions {"/cart" [0 320]} :order ["/cart"]}
           {:keys [scroll-fx]}
-          (plan/scroll-plan {:rdb rdb :scroll-cache scroll-cache
+          (rf.routing.plan/scroll-plan {:rdb rdb :scroll-cache scroll-cache
                              :route-meta nil :opts {:scroll :restore}
                              :default-strategy :top
                              :route-id :route/cart :params {} :query {}
@@ -210,7 +210,7 @@
                                     ;; NOT be consulted — storage moved out.
                                     :scroll-positions {"/cart" [9 9]}}}
           {:keys [scroll-fx]}
-          (plan/scroll-plan {:rdb rdb :scroll-cache nil
+          (rf.routing.plan/scroll-plan {:rdb rdb :scroll-cache nil
                              :route-meta nil :opts {:scroll :restore}
                              :default-strategy :top
                              :route-id :route/cart :params {} :query {}

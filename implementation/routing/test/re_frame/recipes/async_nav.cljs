@@ -77,7 +77,7 @@
             ;; passive `:rf/mutation` / `:rf/resource` subscriptions, and
             ;; the resource cache this application's recipe 2 reads.
             [re-frame.resources]
-            [re-frame.routing :as routing])
+            [re-frame.routing :as rf.routing])
   ;; The `reg-view` MACRO rather than `reg-view*`, and the reason is the
   ;; whole of recipe 3's confirm UI. An `:on-*` handler runs LATER — on the
   ;; user's click, on a fresh JS stack, after the render that built it has
@@ -413,11 +413,11 @@
   "Register the two routes. See the routes comment above for why this is
   a function."
   []
-  (routing/reg-route list-route
+  (rf.routing/reg-route list-route
     {:doc      "The article list."
      :on-match [[::pane-shown]]}
     list-url)
-  (routing/reg-route editor-route
+  (rf.routing/reg-route editor-route
     {:doc       "The editor for one article."
      :params    [:map [:slug :string]]
      ;; THE WIRING POINT. One key on the route, naming the sub above.

@@ -19,7 +19,7 @@
   That is not a hypothetical. rf2-9c2jf was a total `dispatch-sync` failure
   under the documented production gate that stayed green for as long as it
   existed, because every suite calling itself a \"production gate\" test
-  rebinds `interop/debug-enabled?` with `with-redefs` AFTER the framework has
+  rebinds `rf.interop/debug-enabled?` with `with-redefs` AFTER the framework has
   loaded — and the flag is read ONCE, at namespace-load time, so `with-redefs`
   cannot reach what the gate decided at load. `-Dre-frame.debug=false` on the
   command line is the only thing that can.
@@ -43,7 +43,7 @@
   PROPERTY did not arrive; the second when it arrived but the framework did not
   read it. They are different defects and they get different messages."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.interop :as interop]))
+            [re-frame.interop :as rf.interop]))
 
 (deftest ^:prod-gate the-property-really-reached-this-jvm
   (testing "rf2-hnrwo — `-Dre-frame.debug=false` is on THIS JVM's command line.
@@ -60,5 +60,5 @@
             assertion above green means the property arrived but
             `re-frame.interop` did not honour it, which is the load-order defect
             class rf2-9c2jf belonged to."
-    (is (false? interop/debug-enabled?)
+    (is (false? rf.interop/debug-enabled?)
         "re-frame.interop/debug-enabled? must be false under the production gate")))

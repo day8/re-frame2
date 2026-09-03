@@ -63,11 +63,11 @@
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             ["react-dom" :as react-dom]
             [reagent.dom.client :as rdc]
-            [re-frame.adapter.reagent :as reagent-adapter]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.core :as rf]
-            [re-frame.routing :as routing]
-            [re-frame.substrate.adapter :as substrate]
-            [re-frame.test-support :as test-support]))
+            [re-frame.routing :as rf.routing]
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
+            [re-frame.test-support :as rf.test-support]))
 
 (defn- browser? []
   (and (exists? js/document) (some? (.-createElement js/document))))
@@ -176,11 +176,11 @@
   namespace in it. The `/rf2-nav-conduct` leading segment is this
   witness's own either way (TESTING.md §Test authoring policy)."
   []
-  (routing/reg-route list-route
+  (rf.routing/reg-route list-route
     {:doc      "The article list."
      :on-match [[::pane-shown]]}
     list-url)
-  (routing/reg-route article-route
+  (rf.routing/reg-route article-route
     {:doc      "One article, by slug."
      :on-match [[::pane-shown]]}
     (article-url ":slug"))
@@ -215,8 +215,8 @@
 ;; ---------------------------------------------------------------------------
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       reagent-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.reagent/adapter
      ;; This suite creates its own top-level url-bound frame, so it needs a
      ;; clear ambient scope: the frame's `:initial-events` (and routing's
      ;; synchronous initial URL sync) must drain as a top-level cascade
@@ -225,11 +225,11 @@
      :async?        true
      :init-fn       (fn []
                       (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
-                      (routing/reset-counters!)
+                      (rf.routing/reset-counters!)
                       ;; The scroll cache is a module-level `defonce` and
                       ;; survives the runtime reset, so a position saved by
                       ;; one row would still be there for the next.
-                      (routing/reset-scroll-cache!)
+                      (rf.routing/reset-scroll-cache!)
                       (register-routes!))}))
 
 ;; ---------------------------------------------------------------------------
@@ -333,7 +333,7 @@
   landing never arrived and a frame count reports only that a line was
   false."
   [m label]
-  (-> (test-support/poll-until
+  (-> (rf.test-support/poll-until
         #(let [h (app-heading m)]
            (and (some? h) (identical? h (active))))
         {:label label})
@@ -343,8 +343,8 @@
   "Wait until the route slice reads `expected`, then flush the render so
   the pane the assertions read is the pane the route names."
   [frame-id expected label]
-  (-> (test-support/poll-until #(= expected (route-id frame-id)) {:label label})
-      (.then (fn [_] (substrate/flush-render!) true))))
+  (-> (rf.test-support/poll-until #(= expected (route-id frame-id)) {:label label})
+      (.then (fn [_] (rf.substrate.adapter/flush-render!) true))))
 
 (defn- scroll-y [] (js/Math.round (.-scrollY js/window)))
 
@@ -424,7 +424,7 @@
                                                       {:frame frame-id})))
                     "including its path parameter")))
             (.then (fn [_]
-                     (substrate/flush-render!)
+                     (rf.substrate.adapter/flush-render!)
                      (testing "a document-wide lookup does NOT answer this
                                application's heading — the near-miss is live"
                        (is (some? (app-heading m))
@@ -486,7 +486,7 @@
                   (rf/dispatch-sync [:rf.route/navigate
                                      {:to article-route :params {:slug slug}}]
                                     {:frame frame-id})
-                  (substrate/flush-render!)
+                  (rf.substrate.adapter/flush-render!)
                   (is (= article-route (route-id frame-id)))
                   (is (= (article-url slug) (path))
                       (str "`:rf.nav/push-url` is a real `history.pushState`, so"

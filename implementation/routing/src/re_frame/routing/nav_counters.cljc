@@ -89,7 +89,7 @@
   by a later event without violating token uniqueness.
 
   Internal namespace; the public facade is `re-frame.routing`."
-  (:require [re-frame.frame :as frame]))
+  (:require [re-frame.frame :as rf.frame]))
 
 ;; ---- host-side per-frame transient cache ----------------------------------
 
@@ -172,7 +172,7 @@
 ;; TWO recordable, generator-backed allocation coeffects — one per allocator
 ;; (rf2-oosjmh: two distinct allocators ⇒ two distinct facts). Each generator
 ;; reads the in-flight cascade's frame host snapshot (the same
-;; `frame/*current-frame*` the retired ambient `:rf.route/nav-counters` cofx
+;; `rf.frame/*current-frame*` the retired ambient `:rf.route/nav-counters` cofx
 ;; read) and mints the next id, returning the allocation map carrying BOTH the
 ;; id AND the allocator high-water `:counter`. Being RECORDABLE
 ;; (`:recordable? true`, NOT `:provided?`), the cofx machinery writes the
@@ -211,7 +211,7 @@ Recorded so record+replay re-presents the same nav-token verbatim
 (defn nav-allocation-cofx
   "Value-returning generator for the RECORDABLE `:rf.route/nav-allocation`
   cofx (EP-0017 §5, rf2-vcop6y). Reads the in-flight cascade's frame
-  (`frame/*current-frame*`, bound by the router during processing), mints
+  (`rf.frame/*current-frame*`, bound by the router during processing), mints
   the next nav-token from the host high-water snapshot, and returns
   `{:token \"nav-N\" :counter N}`. Runs at processing-start under the
   router `:live` policy; the produced allocation is written back into the
@@ -219,7 +219,7 @@ Recorded so record+replay re-presents the same nav-token verbatim
   Strict mode (replay) does not run it — an absent recorded allocation is
   `:rf.error/missing-required-cofx`."
   []
-  (let [[n token] (next-nav-token (counter-snapshot frame/*current-frame*))]
+  (let [[n token] (next-nav-token (counter-snapshot rf.frame/*current-frame*))]
     {:token token :counter n}))
 
 (def pending-nav-allocation-cofx-meta
@@ -253,12 +253,12 @@ the `:rf.route/commit-nav-counter` fx. Recorded so a recorded
 (defn pending-nav-allocation-cofx
   "Value-returning generator for the RECORDABLE
   `:rf.route/pending-nav-allocation` cofx (EP-0017 §5, rf2-vcop6y). Reads
-  the in-flight cascade's frame (`frame/*current-frame*`), mints the next
+  the in-flight cascade's frame (`rf.frame/*current-frame*`), mints the next
   pending-nav id from the host high-water snapshot, and returns
   `{:id \"pn-N\" :counter N}`. Recorded + replay-stable like
   `nav-allocation-cofx`; a distinct allocator (rf2-oosjmh)."
   []
-  (let [[n id] (next-pending-nav-id (counter-snapshot frame/*current-frame*))]
+  (let [[n id] (next-pending-nav-id (counter-snapshot rf.frame/*current-frame*))]
     {:id id :counter n}))
 
 ;; ---- the :rf.route/commit-nav-counter fx ---------------------------------
@@ -288,7 +288,7 @@ from the recorded `:counter` and can never rewind the allocator. Per Spec
   (let [;; EP-0002 carried invariant — the fx context carries the cascade
         ;; envelope frame as `:frame`; a nil stamp is an invariant failure
         ;; (`:rf.error/no-frame-context`), never a synthesised `:rf/default`.
-        frame-id (frame/require-frame-stamp!
+        frame-id (rf.frame/require-frame-stamp!
                    frame :rf.route/commit-nav-counter
                    {:where 'rf.route/commit-nav-counter-handler})]
     (when (and counter-key (number? value))

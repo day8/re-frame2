@@ -8,7 +8,7 @@
   `routing-navigation-test`, `routing-can-leave-test`,
   `routing-nav-token-test`, `routing-scroll-test`, `routing-url-bound-test`,
   `routing-subs-test`, and the pure `routing-plan-test`. Each requires this namespace for the shared
-  `reset-runtime` fixture so the registrar/runtime reset + façade `:reload`
+  `reset-runtime` fixture so the rf.registrar/runtime reset + façade `:reload`
   recovery lives in ONE place rather than copied per file.
 
   Per the long-established consumer-test pattern: `reset-runtime` wipes the
@@ -19,27 +19,27 @@
   (`re-frame.routing.test-support`) and `re-frame.ssr`'s ns-load
   registrations are re-seated the same way."
   (:require [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.routing :as routing]
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.routing :as rf.routing]
             [re-frame.routing.test-support]
-            [re-frame.schemas :as schemas]
-            [re-frame.flows :as flows]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.flows :as rf.flows]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (defn reset-runtime
   "`:each` fixture: wipe the registrar + runtime state, re-init the
   plain-atom substrate, and re-`require` the routing / ssr / test-support
   namespaces with `:reload` so their ns-load-time registrations resurrect
-  after `(registrar/clear-all!)`."
+  after `(rf.registrar/clear-all!)`."
   [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  (rf/init! plain-atom/adapter)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.flows/reset-flows!)
+  (rf.schemas/clear-schemas-by-frame!)
+  (rf/init! rf.substrate.plain-atom/adapter)
   ;; EP-0002 (rf2-nn0jqa): `init!` no longer synthesises `:rf/default`, and
-  ;; routing/nav fxs now require a carried frame stamp. Register `:rf/default`
+  ;; rf.routing/nav fxs now require a carried frame stamp. Register `:rf/default`
   ;; explicitly as the conventional single app frame. URL ownership is now an
   ;; EXPLICIT declaration (no `:rf/default`-owns-by-default floor — `url-owner-
   ;; frame-id` returns nil from absence), so this suite's URL-owning frame opts
@@ -57,13 +57,13 @@
   ;; fixture event after clear-all! (it lives in the test-support ns, not
   ;; the production façade).
   (require 're-frame.routing.test-support :reload)
-  (routing/reset-counters!)
+  (rf.routing/reset-counters!)
   ;; rf2-1hncp2 / rf2-oosjmh: the scroll-position cache AND the nav-counter
   ;; high-water marks are module-level host atoms (not runtime-db), so
   ;; `clear-all!` / frame reset does not touch them — drop them explicitly so
   ;; a saved position / counter value never leaks across tests.
-  (routing/reset-scroll-cache!)
-  (routing/reset-nav-counters!)
+  (rf.routing/reset-scroll-cache!)
+  (rf.routing/reset-nav-counters!)
   ;; rf2-3l7xxz: the URL-ownership claim-order vector is process-global state
   ;; (re-frame.routing.nav-fx/url-claim-order) that `clear-all!` / the `frames`
   ;; reset above does NOT touch (the late-bind `:routing/on-frame-registered!`
@@ -74,7 +74,7 @@
   ;; (and thus resolved) owner for this test. Tests that hand ownership to a
   ;; different frame re-register `:rf/default {:url-bound? false}` in their body,
   ;; which drops this claim.
-  (routing/reset-url-claims!)
+  (rf.routing/reset-url-claims!)
   (rf/make-frame {:id :rf/default :url-bound? true
                   :doc "Routing-suite default app frame (explicit URL owner)."})
   (rf/with-frame :rf/default
@@ -105,7 +105,7 @@
   schemas (`fn?` — the predicate schemas these tests install) and PASSES
   any other (Malli vector / map) schema. The explainer is symmetric."
   []
-  (let [snap     (schemas/snapshot-schema-fns)
+  (let [snap     (rf.schemas/snapshot-schema-fns)
         validate (fn [schema value]
                    (if (fn? schema)
                      (boolean (schema value))
@@ -113,5 +113,5 @@
         explain  (fn [schema value]
                    (when (fn? schema)
                      {:reason :stub-explainer :value value}))]
-    (schemas/set-schema-fns! {:validate validate :explain explain})
-    (fn [] (schemas/restore-schema-fns! snap))))
+    (rf.schemas/set-schema-fns! {:validate validate :explain explain})
+    (fn [] (rf.schemas/restore-schema-fns! snap))))

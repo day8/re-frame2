@@ -82,16 +82,16 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.routing :as routing]
-   [re-frame.routing.url :as url]
-   [re-frame.test-support :as test-support]
+   [re-frame.routing :as rf.routing]
+   [re-frame.routing.url :as rf.routing.url]
+   [re-frame.test-support :as rf.test-support]
    #?(:clj  [re-frame.substrate.plain-atom :as substrate]
       :cljs [re-frame.adapter.reagent :as substrate])))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
+  (rf.test-support/make-reset-runtime-fixture
     {:adapter substrate/adapter
-     :init-fn routing/reset-counters!}))
+     :init-fn rf.routing/reset-counters!}))
 
 ;; ---- code-unit instruments ----------------------------------------------
 ;;
@@ -168,25 +168,25 @@
   (testing "invalid UTF-8 yields the nil sentinel on JVM and CLJS alike —
             the JVM used to return a U+FFFD-bearing string here (rf2-k2d2t)"
     (doseq [[in why] invalid-utf8]
-      (is (nil? (url/safe-url-decode in)) why)))
+      (is (nil? (rf.routing.url/safe-url-decode in)) why)))
   (testing "structurally malformed escapes stay nil on both hosts, as they
             already did — the fix must not disturb this half"
     (doseq [[in why] structurally-malformed]
-      (is (nil? (url/safe-url-decode in)) why))))
+      (is (nil? (rf.routing.url/safe-url-decode in)) why))))
 
 (deftest safe-url-decode-still-decodes-every-valid-input-on-both-hosts
   (testing "the controls: valid input must NOT be rejected, so the
             fail-closed table above cannot pass by nil-ing everything"
     (doseq [[in expected why] valid-decodes]
-      (is (= expected (url/safe-url-decode in)) why)))
+      (is (= expected (rf.routing.url/safe-url-decode in)) why)))
   (testing "a legitimately-encoded U+FFFD survives, stated on its own
             because conflating it with a SUBSTITUTED one is the specific
             fresh bug a naive fix introduces"
-    (is (= "�" (url/safe-url-decode "%EF%BF%BD"))
+    (is (= "�" (rf.routing.url/safe-url-decode "%EF%BF%BD"))
         "the valid encoding of U+FFFD decodes to U+FFFD")
-    (is (= 1 (count (url/safe-url-decode "%EF%BF%BD")))
+    (is (= 1 (count (rf.routing.url/safe-url-decode "%EF%BF%BD")))
         "exactly one character — not an escape that leaked through raw")
-    (is (nil? (url/safe-url-decode "%FF"))
+    (is (nil? (rf.routing.url/safe-url-decode "%FF"))
         "while the sequence whose U+FFFD would be INVENTED by the decoder
          is refused — the two are character-identical on output, so this
          pair is what proves the check is made over bytes")))
@@ -200,13 +200,13 @@
                       ["日本"     "literal three-byte characters"]
                       ["a©b"     "a literal latin-1-range character between ASCII"]
                       ["%41é"    "a valid escape ADJACENT to a literal — decodeURIComponent yields \"Aé\""]]]
-      (is (= (if (= in "%41é") "Aé" in) (url/safe-url-decode in)) why)))
+      (is (= (if (= in "%41é") "Aé" in) (rf.routing.url/safe-url-decode in)) why)))
   (testing "a literal adjacent to a TRUNCATED escape still fails closed —
             the literal's UTF-8 begins with a lead byte, so it can never
             complete the truncated run"
-    (is (nil? (url/safe-url-decode "%C3é"))
+    (is (nil? (rf.routing.url/safe-url-decode "%C3é"))
         "decodeURIComponent throws here on both hosts")
-    (is (nil? (url/safe-url-decode "%E2%82é"))
+    (is (nil? (rf.routing.url/safe-url-decode "%E2%82é"))
         "same, with a two-byte truncation")))
 
 ;; ---- literal UTF-16 code units: the surrogate seam ------------------------
@@ -241,19 +241,19 @@
             with `?` on the JVM (rf2-k2d2t)"
     (doseq [[in-units expected-units why] literal-code-unit-passthrough]
       (is (= expected-units
-             (code-units (url/safe-url-decode (apply from-code-units in-units))))
+             (code-units (rf.routing.url/safe-url-decode (apply from-code-units in-units))))
           why)))
 
   (testing "a literal lone surrogate ADJACENT to a valid escape run: the
             seam keeps them apart, so neither corrupts the other"
     (is (= [55296 233]
-           (code-units (url/safe-url-decode (str (from-code-units 0xD800) "%C3%A9"))))
+           (code-units (rf.routing.url/safe-url-decode (str (from-code-units 0xD800) "%C3%A9"))))
         "literal U+D800 then %C3%A9 — the escape still decodes to é")
     (is (= [233 55296]
-           (code-units (url/safe-url-decode (str "%C3%A9" (from-code-units 0xD800)))))
+           (code-units (rf.routing.url/safe-url-decode (str "%C3%A9" (from-code-units 0xD800)))))
         "and in the other order")
     (is (= [65 55296]
-           (code-units (url/safe-url-decode (str "%41" (from-code-units 0xD800)))))
+           (code-units (rf.routing.url/safe-url-decode (str "%41" (from-code-units 0xD800)))))
         "an ASCII escape beside one, too"))
 
   (testing "THE COUNTERWEIGHT. A PERCENT-ENCODED lone surrogate must
@@ -261,18 +261,18 @@
             those bytes are malformed however they arrived. A fix that
             preserved literals by weakening the escaped-byte check would
             red here"
-    (is (nil? (url/safe-url-decode "%ED%A0%80"))
+    (is (nil? (rf.routing.url/safe-url-decode "%ED%A0%80"))
         "escaped lone HIGH surrogate stays nil")
-    (is (nil? (url/safe-url-decode "%ED%BF%BF"))
+    (is (nil? (rf.routing.url/safe-url-decode "%ED%BF%BF"))
         "escaped lone LOW surrogate stays nil")
-    (is (nil? (url/safe-url-decode "%ED%A0%BD%ED%B8%80"))
+    (is (nil? (rf.routing.url/safe-url-decode "%ED%A0%BD%ED%B8%80"))
         "and CESU-8 — U+1F600's halves escaped individually — stays nil")
-    (is (= [55357 56832] (code-units (url/safe-url-decode "%F0%9F%98%80")))
+    (is (= [55357 56832] (code-units (rf.routing.url/safe-url-decode "%F0%9F%98%80")))
         "while the SAME code point escaped properly, as one four-byte
          UTF-8 sequence, decodes to the same pair the literal control
          carries — so the three rows above are refusing the encoding, not
          the code point")
-    (is (nil? (url/safe-url-decode (str "%C3" (from-code-units 0xD800))))
+    (is (nil? (rf.routing.url/safe-url-decode (str "%C3" (from-code-units 0xD800))))
         "a TRUNCATED escape run flushed against a literal surrogate is
          still malformed — the seam does not rescue it"))
 
@@ -280,11 +280,11 @@
             in a path segment. It reads FALSE on both — a lone surrogate
             is not malformed PERCENT-ENCODING — where the escaped form
             reads TRUE on both"
-    (is (false? (routing/malformed-url? (str "/p/" (from-code-units 0xD800))))
+    (is (false? (rf.routing/malformed-url? (str "/p/" (from-code-units 0xD800))))
         "literal lone surrogate in a path segment: decodable on both hosts")
-    (is (false? (routing/malformed-url? (str "/p/x?q=" (from-code-units 0xDFFF))))
+    (is (false? (rf.routing/malformed-url? (str "/p/x?q=" (from-code-units 0xDFFF))))
         "and in a query value")
-    (is (true? (routing/malformed-url? "/p/%ED%A0%80"))
+    (is (true? (rf.routing/malformed-url? "/p/%ED%A0%80"))
         "while the percent-encoded form is malformed on both hosts")))
 
 ;; ---- the public predicate, in all four URL positions ---------------------
@@ -301,7 +301,7 @@
                      ["/p/x#%FF"        "fragment"]
                      ["/p/%ED%A0%80"    "path segment, lone surrogate"]
                      ["/a/b/%E0%80%80"  "a later path segment"]]]
-      (is (true? (routing/malformed-url? u)) why)))
+      (is (true? (rf.routing/malformed-url? u)) why)))
   (testing "the controls: a URL whose escapes are all VALID is not
             malformed, in the same four positions — so the assertions
             above cannot pass by flagging every URL"
@@ -312,9 +312,9 @@
                      ["/p/x#%EF%BF%BD"  "fragment carrying a legitimate U+FFFD"]
                      ["/search?q=clojure&page=2" "an ordinary URL"]
                      ["/p/café"         "a literal non-ASCII path segment"]]]
-      (is (false? (routing/malformed-url? u)) why)))
+      (is (false? (rf.routing/malformed-url? u)) why)))
   (testing "the structural case still flips it, unchanged (rf2-4ic0f)"
-    (is (true? (routing/malformed-url? "/p/%")))))
+    (is (true? (rf.routing/malformed-url? "/p/%")))))
 
 ;; ---- production prism: the SSR/browser disagreement itself ---------------
 
@@ -328,17 +328,17 @@
     (doseq [[u why] [["/p/%FF"       "invalid lead byte in the capture"]
                      ["/p/%C0%80"    "overlong NUL in the capture"]
                      ["/p/%ED%A0%80" "lone surrogate in the capture"]]]
-      (is (nil? (routing/match-url u))
+      (is (nil? (rf.routing/match-url u))
           (str why " — fails the whole match closed, per Spec 012 §Route-miss ¶5"))))
   (testing "the control: the SAME route matches when the escape is valid,
             so the case above cannot pass by breaking the route table"
     (rf/reg-route :decode-parity/probe2 {:params [:map [:slug :string]]} "/p/:slug")
-    (let [matched (routing/match-url "/p/%EF%BF%BD")]
+    (let [matched (rf.routing/match-url "/p/%EF%BF%BD")]
       (is (some? matched)
           "a legitimately-encoded U+FFFD is a MATCH, not a route-miss")
       (is (= "�" (get-in matched [:params :slug]))
           "and the capture is the one replacement character it encodes"))
-    (let [matched (routing/match-url "/p/caf%C3%A9")]
+    (let [matched (rf.routing/match-url "/p/caf%C3%A9")]
       (is (some? matched) "an ordinary non-ASCII capture still matches")
       (is (= "café" (get-in matched [:params :slug]))
           "decoded byte-exactly"))))
@@ -354,8 +354,8 @@
                   ;; four UTF-8 bytes and the segmenting decoder must
                   ;; read those back as the same two code units.
                   (from-code-units 0xD83D 0xDE00)]]
-      (let [built  (routing/route-url {:to :decode-parity/round :params {:slug slug}})
-            parsed (routing/match-url built)]
+      (let [built  (rf.routing/route-url {:to :decode-parity/round :params {:slug slug}})
+            parsed (rf.routing/match-url built)]
         (is (some? parsed)
             (str "the URL re-frame2 itself emitted for " (pr-str slug)
                  " must not be a malformed-URL route-miss"))

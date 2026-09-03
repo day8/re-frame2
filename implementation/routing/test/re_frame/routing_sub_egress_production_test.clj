@@ -15,7 +15,7 @@
 
   BUT SUB CLASSIFICATION DOES EGRESS IN PRODUCTION, from two sites outside
   core, and this is one of them: the `:routing/route-sub-egress-path` hook,
-  which re-seeds `elision/elide-wire-value` at a route sub's runtime-db storage
+  which re-seeds `rf.elision/elide-wire-value` at a route sub's runtime-db storage
   position so the route's re-rooted `:sensitive` / `:large` declarations match
   the BARE slice value the sub returns. Nothing on that path reads
   `interop/debug-enabled?` — not route activation's classification lowering, not
@@ -52,14 +52,14 @@
   reach. The lane recommendation is recorded on rf2-u2x6w."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.elision :as elision]
-            [re-frame.frame :as frame]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.privacy :as privacy]
-            [re-frame.routing.sub-egress :as sub-egress]
-            [re-frame.routing-test-support :as rts]))
+            [re-frame.elision :as rf.elision]
+            [re-frame.frame :as rf.frame]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.privacy :as rf.privacy]
+            [re-frame.routing.sub-egress :as rf.routing.sub-egress]
+            [re-frame.routing-test-support :as rf.routing-test-support]))
 
-(use-fixtures :each rts/reset-runtime)
+(use-fixtures :each rf.routing-test-support/reset-runtime)
 
 (def ^:private token-secret "secret-oauth-token-u2x6w")
 (def ^:private param-secret "topsecret-upload-key")
@@ -103,7 +103,7 @@
             would be withheld, and a value-shaped assertion cannot tell that
             apart from a clean walk. This is the non-vacuity pin that can."
     (navigate-to-classified-route!)
-    (let [reg (:rf.runtime/elision (frame/frame-runtime-db-value :rf/default))]
+    (let [reg (:rf.runtime/elision (rf.frame/frame-runtime-db-value :rf/default))]
       (is (contains? (:sensitive-declarations reg)
                      [:rf.runtime/routing :current :query :token])
           "the `:sensitive [[:query :token]]` decl re-rooted to its absolute
@@ -112,7 +112,7 @@
                      [:rf.runtime/routing :current :query :payload])
           "and the `:large` one alongside it"))
     (testing "and the routing artefact really published the seam core consults"
-      (is (some? (late-bind/get-fn :routing/route-sub-egress-path))
+      (is (some? (rf.late-bind/get-fn :routing/route-sub-egress-path))
           "`:routing/route-sub-egress-path` is bound — core reaches routing
            through this hook and nothing else"))))
 
@@ -130,9 +130,9 @@
     (navigate-to-classified-route!)
     (let [wire (rf/elide-wire-value (route-slice)
                                     {:query-v [:rf/route] :frame :rf/default})]
-      (is (= privacy/redacted-sentinel (get-in wire [:query :token]))
+      (is (= rf.privacy/redacted-sentinel (get-in wire [:query :token]))
           "the `:sensitive` query value redacts off-box")
-      (is (elision/marker? (get-in wire [:query :payload]))
+      (is (rf.elision/marker? (get-in wire [:query :payload]))
           "the `:large` one elides to the size marker")
       (is (= :route/oauth (:route-id wire))
           "unclassified structural facts ride verbatim — the walk is
@@ -161,13 +161,13 @@
     (navigate-to-classified-route!)
     (let [wire (rf/elide-wire-value (:query (route-slice))
                                     {:query-v [:rf.route/query] :frame :rf/default})]
-      (is (= privacy/redacted-sentinel (:token wire))
+      (is (= rf.privacy/redacted-sentinel (:token wire))
           "`:rf.route/query`'s bare query map redacts through its own seed"))
     (rf/reg-route :route/upload {:sensitive [[:params :secret]]} "/upload/:secret")
     (rf/dispatch-sync [:rf.route/transitioned (str "/upload/" param-secret)])
     (let [wire (rf/elide-wire-value (:params (route-slice))
                                     {:query-v [:rf.route/params] :frame :rf/default})]
-      (is (= privacy/redacted-sentinel (:secret wire))
+      (is (= rf.privacy/redacted-sentinel (:secret wire))
           "`:rf.route/params`' bare params map redacts through its own seed"))))
 
 ;; ===========================================================================
@@ -193,10 +193,10 @@
             seed and no projection."
     (navigate-to-classified-route!)
     (is (= {:query {:token token-secret}}
-           (sub-egress/project-route-sub-egress
+           (rf.routing.sub-egress/project-route-sub-egress
              :some-app/sub {:query {:token token-secret}} {:frame :rf/default}))
         "a non-route sub-id rides verbatim through the projector")
-    (is (nil? (sub-egress/route-sub-seed-path :rf.route/id))
+    (is (nil? (rf.routing.sub-egress/route-sub-seed-path :rf.route/id))
         "and a route sub OUTSIDE the classification contract resolves no seed")))
 
 (deftest frameless-route-sub-egress-fails-closed-in-production
@@ -208,11 +208,11 @@
             walk that would ship every route slot verbatim."
     (navigate-to-classified-route!)
     (let [slice (route-slice)]
-      (is (= privacy/redacted-sentinel
+      (is (= rf.privacy/redacted-sentinel
              (rf/elide-wire-value slice {:query-v [:rf/route] :frame :no/such-frame}))
           "an explicit frame id that resolves to no LIVE frame redacts the
            whole slice — a stale carried scope is treated exactly like no
            scope at all")
-      (is (= privacy/redacted-sentinel
+      (is (= rf.privacy/redacted-sentinel
              (rf/elide-wire-value slice {:query-v [:rf/route] :frame :rf/destroyed}))
           "and the same holds for any id the frame registry does not know"))))

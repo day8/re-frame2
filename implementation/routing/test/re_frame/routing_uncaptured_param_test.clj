@@ -51,11 +51,11 @@
   What is dev-only is how the rejection is ANNOUNCED on the two EVENT doors:
   `:rf.error/schema-validation-failure` and `:rf.error/prefetch-bad-address`
   reach the caller through `trace/emit-error!`, gated on
-  `interop/debug-enabled?` and read once at load time. (The comment `the
+  `rf.interop/debug-enabled?` and read once at load time. (The comment `the
   always-on channel` beside one of them means always-on with respect to the
   SCHEMAS ARTEFACT — the diagnostic does not require it to be loaded — not
   with respect to the production gate.) Those assertions are kept VERBATIM
-  inside `(when interop/debug-enabled? …)` arms marked `rf2-o5dbf`.
+  inside `(when rf.interop/debug-enabled? …)` arms marked `rf2-o5dbf`.
 
   Two of them are NEGATIVE over the recorder — `(is (empty? rejected))` on the
   positive control and `(is (empty? prefetched))` on the rejection case — and
@@ -64,25 +64,25 @@
   with the captured-param plan / was never consulted at all) sits outside it."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.fx :as fx]
-            [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.routing :as routing]
-            [re-frame.routing.link :as link]
-            [re-frame.routing.registry :as registry]
-            [re-frame.routing-test-support :as rts]
+            [re-frame.fx :as rf.fx]
+            [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.routing :as rf.routing]
+            [re-frame.routing.link :as rf.routing.link]
+            [re-frame.routing.registry :as rf.routing.registry]
+            [re-frame.routing-test-support :as rf.routing-test-support]
             [re-frame.test-support :refer [with-trace-recorder!]]))
 
-(use-fixtures :each rts/reset-runtime)
+(use-fixtures :each rf.routing-test-support/reset-runtime)
 
 ;; ---- fixtures --------------------------------------------------------------
 
 (defn- register-routes! []
-  (routing/reg-route :route/elsewhere {} "/elsewhere")
-  (routing/reg-route :route/probe     {} "/probe/:id")
-  (routing/reg-route :route/plain     {} "/plain")
-  (routing/reg-route :route/docs      {} "/docs{/:section}?")
-  (routing/reg-route :route/files     {} "/files/*rest"))
+  (rf.routing/reg-route :route/elsewhere {} "/elsewhere")
+  (rf.routing/reg-route :route/probe     {} "/probe/:id")
+  (rf.routing/reg-route :route/plain     {} "/plain")
+  (rf.routing/reg-route :route/docs      {} "/docs{/:section}?")
+  (rf.routing/reg-route :route/files     {} "/files/*rest"))
 
 (defn- current-slice []
   (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
@@ -102,17 +102,17 @@
   (register-routes!)
 
   (testing "POSITIVE CONTROL — a param the pattern DOES capture builds its URL"
-    (is (= "/probe/7" (registry/route-url {:to :route/probe :params {:id "7"}})))
-    (is (= "/plain"   (registry/route-url {:to :route/plain :params {}})))
-    (is (= "/plain"   (registry/route-url {:to :route/plain})))
+    (is (= "/probe/7" (rf.routing.registry/route-url {:to :route/probe :params {:id "7"}})))
+    (is (= "/plain"   (rf.routing.registry/route-url {:to :route/plain :params {}})))
+    (is (= "/plain"   (rf.routing.registry/route-url {:to :route/plain})))
     (testing "including an optional-group inner name, present or elided"
-      (is (= "/docs/api" (registry/route-url {:to :route/docs :params {:section "api"}})))
-      (is (= "/docs"     (registry/route-url {:to :route/docs :params {}}))))
+      (is (= "/docs/api" (rf.routing.registry/route-url {:to :route/docs :params {:section "api"}})))
+      (is (= "/docs"     (rf.routing.registry/route-url {:to :route/docs :params {}}))))
     (testing "and a splat name"
-      (is (= "/files/a/b" (registry/route-url {:to :route/files :params {:rest "a/b"}})))))
+      (is (= "/files/a/b" (rf.routing.registry/route-url {:to :route/files :params {:rest "a/b"}})))))
 
   (testing "a param the pattern does not capture is rejected LOUD"
-    (let [data (thrown-data #(registry/route-url {:to     :route/probe
+    (let [data (thrown-data #(rf.routing.registry/route-url {:to     :route/probe
                                                   :params {:id "7" :extra "x"}}))]
       (is (some? data) "route-url threw rather than silently building /probe/7")
       (is (= :rf.error/route-url-validation (:rf.error/id data)))
@@ -123,15 +123,15 @@
       (is (= 'rf.routing/route-url (:where data)))))
 
   (testing "a route with NO path params at all rejects any param"
-    (let [data (thrown-data #(registry/route-url {:to :route/plain :params {:anything 1}}))]
+    (let [data (thrown-data #(rf.routing.registry/route-url {:to :route/plain :params {:anything 1}}))]
       (is (= :uncaptured-params (:reason data)))
       (is (= [:anything] (:keys data)))
       (is (= :route/plain (:route-id data)))))
 
   (testing "an optional group's inner name is CAPTURED even when the group
             elides — the typo beside it is what rejects"
-    (is (= "/docs" (registry/route-url {:to :route/docs :params {}})))
-    (let [data (thrown-data #(registry/route-url {:to :route/docs :params {:sction "x"}}))]
+    (is (= "/docs" (rf.routing.registry/route-url {:to :route/docs :params {}})))
+    (let [data (thrown-data #(rf.routing.registry/route-url {:to :route/docs :params {:sction "x"}}))]
       (is (= :uncaptured-params (:reason data))
           "the misspelling `:sction` is caught — route-url's own
            :rf.error/missing-route-param never could, because the group simply
@@ -140,13 +140,13 @@
 
   (testing "every uncaptured key is named, in the total canonical order the
             rest of routing reports key sets in"
-    (let [data (thrown-data #(registry/route-url {:to     :route/probe
+    (let [data (thrown-data #(rf.routing.registry/route-url {:to     :route/probe
                                                  :params {:id "7" :zeta 1 :alpha 2}}))]
       (is (= [:alpha :zeta] (:keys data)))))
 
   (testing "the rejection names STRUCTURE only — it carries no param VALUE, so
             a secret in an uncaptured key never reaches an error surface"
-    (let [data (thrown-data #(registry/route-url {:to     :route/probe
+    (let [data (thrown-data #(rf.routing.registry/route-url {:to     :route/probe
                                                  :params {:id "7" :token "SECRET-100"}}))]
       (is (not (contains? data :value)))
       (is (not (re-find #"SECRET-100" (pr-str data))))
@@ -161,13 +161,13 @@
   ;; CURRENT slice through route-url) would silently stop rebuilding a
   ;; registered not-found route's URL.
   (register-routes!)
-  (routing/reg-route :rf.route/not-found {} "/404")
-  (is (= "/404" (registry/route-url {:to     :rf.route/not-found
+  (rf.routing/reg-route :rf.route/not-found {} "/404")
+  (is (= "/404" (rf.routing.registry/route-url {:to     :rf.route/not-found
                                      :params {:url "/nope" :reason :malformed-url}}))
       "the miss record rides through rather than rejecting")
   (testing "and the exemption is scoped to that ONE reserved id — an ordinary
             route with the same-shaped params still rejects"
-    (let [data (thrown-data #(registry/route-url {:to     :route/plain
+    (let [data (thrown-data #(rf.routing.registry/route-url {:to     :route/plain
                                                   :params {:url "/nope"}}))]
       (is (= :uncaptured-params (:reason data)))
       (is (= [:url] (:keys data)))))
@@ -193,7 +193,7 @@
 (deftest both-activation-doors-agree-on-an-uncaptured-param
   (register-routes!)
   (let [pushed (atom [])]
-    (fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}}
+    (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}}
                (fn [_ url] (swap! pushed conj url)))
 
     (testing "POSITIVE CONTROL — the well-formed sibling address commits the
@@ -201,7 +201,7 @@
       (rf/dispatch-sync [:rf.route/navigate {:to :route/probe :params {:id "7"}}])
       (is (= {:id "7"} (:params (current-slice))) "programmatic door")
       (rf/dispatch-sync [:rf.route/navigate {:to :route/elsewhere}])
-      (rf/dispatch-sync (:payload (link/link-model {:to :route/probe :params {:id "7"}}
+      (rf/dispatch-sync (:payload (rf.routing.link/link-model {:to :route/probe :params {:id "7"}}
                                                    :rf/default)))
       (is (= :route/probe (:route-id (current-slice))))
       (is (= {:id "7"} (:params (current-slice))) "link door"))
@@ -219,7 +219,7 @@
           ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring). The
           ;; REJECTION itself is asserted immediately below, on the slice and
           ;; on the push log, posture-independently.
-          (when interop/debug-enabled?
+          (when rf.interop/debug-enabled?
             (is (= 1 (count @traces)) "the caller bug surfaces on the always-on channel")
             (is (= :route/probe (:route-id (:tags (first @traces)))))))
         (is (= before (current-slice)) "slice unchanged — nothing was committed")
@@ -229,7 +229,7 @@
     (testing "the LINK door rejects the same address at href synthesis, so the
               click payload that used to commit :params {:id \"7\"} can never be
               built — the two doors no longer disagree, they agree to refuse"
-      (let [data (thrown-data #(link/link-model {:to     :route/probe
+      (let [data (thrown-data #(rf.routing.link/link-model {:to     :route/probe
                                                  :params {:id "7" :extra "x"}}
                                                 :rf/default))]
         (is (= :rf.error/route-url-validation (:rf.error/id data)))
@@ -243,7 +243,7 @@
 (deftest prefetch-rejects-the-address-both-activation-doors-refuse
   (register-routes!)
   (let [calls (atom [])]
-    (late-bind/set-fn! :routing/on-route-prefetch
+    (rf.late-bind/set-fn! :routing/on-route-prefetch
                        (fn [plan] (swap! calls conj (select-keys plan [:route-id :params]))
                          {:warmed 1 :fx []}))
     (try
@@ -263,7 +263,7 @@
             ;; `(empty? rejected)` leg is vacuous under the gate.
             (is (= [{:route-id :route/probe :params {:id "7"}}] @calls))
             ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
-            (when interop/debug-enabled?
+            (when rf.interop/debug-enabled?
               (is (empty? rejected))
               (is (= 1 (count prefetched))))))
 
@@ -277,7 +277,7 @@
             ;; refused BEFORE planning, so nothing was warmed.
             (is (empty? @calls) "the warm hook was never consulted — no ensures")
             ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
-            (when interop/debug-enabled?
+            (when rf.interop/debug-enabled?
               (is (empty? prefetched) "no success summary trace")
               (is (= 1 (count rejected)))
               (let [tags (:tags (first rejected))]
@@ -285,4 +285,4 @@
                     "the bare name of the boundary's error id, as Spec 009 specifies")
                 (is (= [:params] (:keys tags)) "the offending SLOT is named")
                 (is (= :route/probe (:route-id tags))))))))
-      (finally (late-bind/set-fn! :routing/on-route-prefetch nil)))))
+      (finally (rf.late-bind/set-fn! :routing/on-route-prefetch nil)))))

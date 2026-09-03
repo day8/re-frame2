@@ -36,7 +36,7 @@
    #?(:clj  [clojure.test :refer [deftest is testing]]
       :cljs [cljs.test :refer-macros [deftest is testing]])
    [clojure.string :as str]
-   [re-frame.routing.match :as match]))
+   [re-frame.routing.match :as rf.routing.match]))
 
 ;; ---- 1. the overlap table --------------------------------------------------
 
@@ -79,17 +79,17 @@
 (deftest patterns-intersect-overlap-table
   (testing "intersecting pairs — some URL matches both patterns"
     (doseq [[pa pb note] intersecting-pairs]
-      (is (true? (match/patterns-intersect? pa pb))
+      (is (true? (rf.routing.match/patterns-intersect? pa pb))
           (str pa " ∩ " pb " expected NON-empty — " note))
-      (is (true? (match/patterns-intersect? pb pa))
+      (is (true? (rf.routing.match/patterns-intersect? pb pa))
           (str "symmetric: " pb " ∩ " pa " — " note))))
 
   (testing "disjoint pairs — no URL matches both patterns, so an equal
             structural rank alone MUST NOT warn"
     (doseq [[pa pb note] disjoint-pairs]
-      (is (false? (match/patterns-intersect? pa pb))
+      (is (false? (rf.routing.match/patterns-intersect? pa pb))
           (str pa " ∩ " pb " expected EMPTY — " note))
-      (is (false? (match/patterns-intersect? pb pa))
+      (is (false? (rf.routing.match/patterns-intersect? pb pa))
           (str "symmetric: " pb " ∩ " pa " — " note))))
 
   (testing "degenerate non-segment-aligned patterns fall back to
@@ -98,8 +98,8 @@
     ;; `/a/{/x}?` — the group opens right after a top-level `/`, so its
     ;; elided branch leaves an empty segment; the language is not a union
     ;; of whole segments and the tokenizer refuses it.
-    (is (true? (match/patterns-intersect? "/a/{/x}?" "/a/y")))
-    (is (true? (match/patterns-intersect? "/a/y" "/a/{/x}?")))))
+    (is (true? (rf.routing.match/patterns-intersect? "/a/{/x}?" "/a/y")))
+    (is (true? (rf.routing.match/patterns-intersect? "/a/y" "/a/{/x}?")))))
 
 ;; ---- 2. property: predicate vs brute-force URL enumeration ------------------
 
@@ -230,15 +230,15 @@
                            (conj "zz")
                            vec)
               max-len  (inc (max (max-consume ta) (max-consume tb)))
-              ra       (:regex (match/parse-pattern pa))
-              rb       (:regex (match/parse-pattern pb))
+              ra       (:regex (rf.routing.match/parse-pattern pa))
+              rb       (:regex (rf.routing.match/parse-pattern pb))
               brute    (boolean
                          (some (fn [segs]
                                  (let [url (url-of segs)]
                                    (and (re-matches ra url)
                                         (re-matches rb url))))
                                (paths-upto alphabet max-len)))
-              pred     (match/patterns-intersect? pa pb)]
+              pred     (rf.routing.match/patterns-intersect? pa pb)]
           (is (= brute pred)
               (str "iter " iter ": predicate disagrees with brute force on "
                    pa " vs " pb " (brute=" brute " predicate=" pred ")"))

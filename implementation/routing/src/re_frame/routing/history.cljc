@@ -66,9 +66,9 @@
   reconciliation is a no-op and the incumbent listener instance is untouched.
 
   Internal namespace; the public facade is `re-frame.routing`."
-  (:require [re-frame.router :as router]
-            [re-frame.routing.nav-fx :as nav-fx]
-            [re-frame.routing.strategy :as strategy]))
+  (:require [re-frame.router :as rf.router]
+            [re-frame.routing.nav-fx :as rf.routing.nav-fx]
+            [re-frame.routing.strategy :as rf.routing.strategy]))
 
 (defn current-url
   "Read the current browser URL as an app-relative string
@@ -81,7 +81,7 @@
   the lifecycle listener uses the URL owner's strategy `:decode`; this
   function specifically exposes the history strategy's projection."
   []
-  (strategy/history-decode))
+  (rf.routing.strategy/history-decode))
 
 #?(:cljs
    (defonce ^:private history-listener-atom
@@ -138,8 +138,8 @@
            ;; drift.
            dispatch-to-owner!
            (fn [cause path-url]
-             (when-let [current-owner-frame-id (nav-fx/url-owner-frame-id)]
-               (router/dispatch-sync! [:rf.route/handle-url-change path-url
+             (when-let [current-owner-frame-id (rf.routing.nav-fx/url-owner-frame-id)]
+               (rf.router/dispatch-sync! [:rf.route/handle-url-change path-url
                                        {:rf.route/cause cause}]
                                       {:frame current-owner-frame-id})))]
        (when browser-window
@@ -202,11 +202,11 @@
      preserved. Returns `nil`."
      ([] (reconcile-url-listener! nil))
      ([excluded-frame-id]
-      (let [resolved-owner-frame-id (nav-fx/url-owner-frame-id)
+      (let [resolved-owner-frame-id (rf.routing.nav-fx/url-owner-frame-id)
             current-owner-frame-id  (when (not= resolved-owner-frame-id excluded-frame-id)
                                       resolved-owner-frame-id)
             current-url-strategy    (when current-owner-frame-id
-                                      (strategy/url-strategy-for-frame-id current-owner-frame-id))
+                                      (rf.routing.strategy/url-strategy-for-frame-id current-owner-frame-id))
             installed-listener      @history-listener-atom]
         (cond
           ;; No declared owner (or the only resolvable candidate is the frame

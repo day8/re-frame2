@@ -35,11 +35,11 @@
   strategies."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.routing :as routing]
-            [re-frame.routing.strategy :as strategy]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.routing :as rf.routing]
+            [re-frame.routing.strategy :as rf.routing.strategy]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]
             ;; rf2-y6e2zb: the browser history/location/document stub,
             ;; `*history-state*`, `current-url`, and `with-window-stub-fixture`
             ;; are the SUPERSET fixture shared with routing_history_cljs_test.
@@ -60,9 +60,9 @@
 
 (use-fixtures :each
   with-window-stub-fixture
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter
-     :init-fn (fn [] (routing/reset-counters!) (routing/reset-scroll-cache!))}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter
+     :init-fn (fn [] (rf.routing/reset-counters!) (rf.routing/reset-scroll-cache!))}))
 
 ;; ---- routes --------------------------------------------------------------
 
@@ -91,7 +91,7 @@
             router builds path-form /active, the strategy encodes it to
             #/active at the push-url fx"
     (rf/make-frame {:id :rf/default :url-bound?   true
-                    :url-strategy strategy/hash-url-strategy})
+                    :url-strategy rf.routing.strategy/hash-url-strategy})
     (register-routes!)
     ;; :rf.route/url-requested resolves in-app, pushes, and synthesises the transition.
     (rf/dispatch-sync [:rf.route/url-requested {:url "/active"}])
@@ -114,7 +114,7 @@
   (testing "a HASH-strategy owner's :rf.nav/replace-url overwrites the current
             entry with the `#` href (no new entry)"
     (rf/make-frame {:id :rf/default :url-bound?   true
-                    :url-strategy strategy/hash-url-strategy})
+                    :url-strategy rf.routing.strategy/hash-url-strategy})
     (register-routes!)
     (rf/dispatch-sync [:rf.route/url-requested {:url "/active"}])
     (let [before (count (:entries @*history-state*))]
@@ -134,7 +134,7 @@
             location.hash to path-form, and dispatches handle-url-change to
             the owner — the browser→app leg of the seam, zero install call"
     (rf/make-frame {:id :rf/default :url-bound?   true
-                    :url-strategy strategy/hash-url-strategy})
+                    :url-strategy rf.routing.strategy/hash-url-strategy})
     (register-routes!)
     ;; Push two hash routes (forward nav via the owner).
     (rf/dispatch-sync [:rf.route/url-requested {:url "/active"}])
@@ -182,8 +182,8 @@
     (rf/make-frame {:id :rf/default :url-bound? true})
     (register-routes!)
     (doseq [p ["/" "/active" "/completed"]]
-      (.pushState js/globalThis.window.history nil "" (strategy/hash-encode p))
-      (is (= p (strategy/hash-decode))
+      (.pushState js/globalThis.window.history nil "" (rf.routing.strategy/hash-encode p))
+      (is (= p (rf.routing.strategy/hash-decode))
           (str "round-trip through window.location.hash recovers " (pr-str p))))))
 
 ;; ==========================================================================
@@ -195,10 +195,10 @@
             fails closed to a route-miss — never a crash — exactly as a
             malformed path-URL does (adversarial: a hostile / broken deep link)"
     (rf/make-frame {:id :rf/default :url-bound?   true
-                    :url-strategy strategy/hash-url-strategy})
+                    :url-strategy rf.routing.strategy/hash-url-strategy})
     (register-routes!)
     ;; hash-decode of #/%  →  /%  ; match-url must return nil (no throw).
-    (is (nil? (routing/match-url "/%"))
+    (is (nil? (rf.routing/match-url "/%"))
         "a bare `%` (the decoded malformed hash tail) route-misses, not throws")
     ;; End-to-end: navigate the owner to the malformed decoded path — it lands
     ;; on :rf.route/not-found with the malformed reason, never crashing.
@@ -212,8 +212,8 @@
 ;; href does not corrupt the pushed entry.
 (deftest hash-encode-idempotent-on-raw-hash-href-cljs
   (testing "hash-encode does not double-hash an already-`#`-prefixed input"
-    (is (= "#/active" (strategy/hash-encode "#/active")))
-    (is (= "#/active" (strategy/hash-encode (strategy/hash-encode "/active"))))))
+    (is (= "#/active" (rf.routing.strategy/hash-encode "#/active")))
+    (is (= "#/active" (rf.routing.strategy/hash-encode (rf.routing.strategy/hash-encode "/active"))))))
 
 ;; ==========================================================================
 ;; 5. with-base-path (rf2-g8pbwg / rf2-33uv27 / rf2-irygd6) — the CLJS-only
@@ -238,7 +238,7 @@
             drives window.history with that final href unchanged — every pushed
             entry carries the real /realworld mount-point href (base outside the
             wrapped form), mirroring how the nav fx drives it"
-    (let [wrapped (strategy/with-base-path strategy/history-url-strategy "/realworld")
+    (let [wrapped (rf.routing.strategy/with-base-path rf.routing.strategy/history-url-strategy "/realworld")
           drive!  (fn [p] ((:push! wrapped) ((:encode wrapped) p)))]
       (drive! "/active")
       (drive! "/completed")
@@ -252,7 +252,7 @@
   (testing "rf2-irygd6: the RAW :replace! leg overwrites the current history
             entry (no new entry) with the encode-once base-prefixed href —
             mirroring the shipped strategy's replace semantics under the base"
-    (let [wrapped (strategy/with-base-path strategy/history-url-strategy "/realworld")]
+    (let [wrapped (rf.routing.strategy/with-base-path rf.routing.strategy/history-url-strategy "/realworld")]
       ((:push! wrapped) ((:encode wrapped) "/active"))
       (let [before (count (:entries @*history-state*))]
         ((:replace! wrapped) ((:encode wrapped) "/completed"))
@@ -269,7 +269,7 @@
             Back/Forward navs reach the router app-relative (/active), never the
             base-prefixed /realworld/active that would route-miss on every
             back-button"
-    (let [wrapped  (strategy/with-base-path strategy/history-url-strategy "/realworld")
+    (let [wrapped  (rf.routing.strategy/with-base-path rf.routing.strategy/history-url-strategy "/realworld")
           received (atom [])
           teardown ((:install-listener! wrapped) (fn [p] (swap! received conj p)))]
       ;; Drive the browser to base-prefixed URLs and fire popstate: the inner
@@ -294,7 +294,7 @@
             /realworld) the wrapped listener delivers `/` — the app root — not
             an empty string, exactly as strip-base-path's mount-root case
             specifies"
-    (let [wrapped  (strategy/with-base-path strategy/history-url-strategy "/realworld")
+    (let [wrapped  (rf.routing.strategy/with-base-path rf.routing.strategy/history-url-strategy "/realworld")
           received (atom nil)
           teardown ((:install-listener! wrapped) (fn [p] (reset! received p)))]
       (.pushState js/globalThis.window.history nil "" "/realworld")
@@ -319,12 +319,12 @@
             /demos#/…-shaped (base OUTSIDE the fragment), inbound decode returns
             the app-relative path-form, and no URL is double-hashed"
     (rf/make-frame {:id :rf/default :url-bound?   true
-                    :url-strategy (strategy/with-base-path
-                                    strategy/hash-url-strategy "/demos")})
+                    :url-strategy (rf.routing.strategy/with-base-path
+                                    rf.routing.strategy/hash-url-strategy "/demos")})
     (register-routes!)
     ;; (a) route-link href — the :encode egress leg.
     (let [[_ attrs] (rf/with-frame :rf/default
-                      (routing/route-link-render {:to :s/active}))]
+                      (rf.routing/route-link-render {:to :s/active}))]
       (is (= "/demos#/active" (:href attrs))
           "route-link href puts the base OUTSIDE the fragment (:encode authority)")
       (is (not (double-hash? (:href attrs))) "route-link href is not double-hashed"))
@@ -346,7 +346,7 @@
       (is (not (double-hash? (current-url *history-state*)))
           "the replaced URL is not double-hashed"))
     ;; (d) inbound decode returns the app-relative path-form.
-    (let [strat (strategy/url-strategy-for-frame-id :rf/default)]
+    (let [strat (rf.routing.strategy/url-strategy-for-frame-id :rf/default)]
       (is (= "/completed" ((:decode strat)))
           "decode of the live /demos#/completed address bar is app-relative /completed"))))
 
@@ -355,11 +355,11 @@
             push + replace all read /demos/…-shaped, decode is app-relative
             (behaviour unchanged by the seam, pinned for parity with the hash case)"
     (rf/make-frame {:id :rf/default :url-bound?   true
-                    :url-strategy (strategy/with-base-path
-                                    strategy/history-url-strategy "/demos")})
+                    :url-strategy (rf.routing.strategy/with-base-path
+                                    rf.routing.strategy/history-url-strategy "/demos")})
     (register-routes!)
     (let [[_ attrs] (rf/with-frame :rf/default
-                      (routing/route-link-render {:to :s/active}))]
+                      (rf.routing/route-link-render {:to :s/active}))]
       (is (= "/demos/active" (:href attrs))
           "route-link href re-adds the base to the path-form href"))
     (rf/dispatch-sync [:rf.route/url-requested {:url "/active"}])
@@ -373,7 +373,7 @@
           "replace did not add a history entry")
       (is (= "/demos/completed" (current-url *history-state*))
           "the replaced entry is base-prefixed, agreeing with :encode"))
-    (let [strat (strategy/url-strategy-for-frame-id :rf/default)]
+    (let [strat (rf.routing.strategy/url-strategy-for-frame-id :rf/default)]
       (is (= "/completed" ((:decode strat)))
           "decode strips the base — app-relative /completed"))))
 
@@ -383,7 +383,7 @@
             :encode-produced href. (History-without-base is pinned by
             `history-frame-push-url-pushes-path-href-cljs`.)"
     (rf/make-frame {:id :rf/default :url-bound?   true
-                    :url-strategy strategy/hash-url-strategy})
+                    :url-strategy rf.routing.strategy/hash-url-strategy})
     (register-routes!)
     (rf/dispatch-sync [:rf.route/url-requested {:url "/active"}])
     (is (= ["/" "#/active"] (:entries @*history-state*))
@@ -441,9 +441,9 @@
             with :rf.error/routing-artefact-missing (no config commit); the
             hook is restored afterwards"
     (try
-      (late-bind/set-fn! :routing/preflight-frame-config! nil)
+      (rf.late-bind/set-fn! :routing/preflight-frame-config! nil)
       (let [ex (try (rf/make-frame {:id :ktmto9/no-artefact :url-bound?   true
-                                    :url-strategy strategy/history-url-strategy})
+                                    :url-strategy rf.routing.strategy/history-url-strategy})
                     nil
                     (catch :default e e))]
         (is (some? ex) "declaring :url-strategy without the hook throws")
@@ -452,5 +452,5 @@
         (is (nil? (rf/frame-meta :ktmto9/no-artefact))
             "no frame config was seated"))
       (finally
-        (late-bind/set-fn! :routing/preflight-frame-config!
-                           strategy/preflight-frame-config!)))))
+        (rf.late-bind/set-fn! :routing/preflight-frame-config!
+                           rf.routing.strategy/preflight-frame-config!)))))

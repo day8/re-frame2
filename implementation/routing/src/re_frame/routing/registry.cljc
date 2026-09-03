@@ -16,16 +16,16 @@
   facade's re-exports. Per the rf2-2yabr cohesion split: REGISTRY +
   MATCH/EMIT seam."
   (:require [clojure.string :as str]
-            [re-frame.error :as error]
-            [re-frame.identity :as identity]
-            [re-frame.registrar :as registrar]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.routing.address :as address]
-            [re-frame.routing.classification :as classification]
-            [re-frame.routing.match :as match]
-            [re-frame.routing.url :as url]
-            [re-frame.source-coords :as source-coords]
-            [re-frame.trace :as trace]))
+            [re-frame.error :as rf.error]
+            [re-frame.identity :as rf.identity]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.routing.address :as rf.routing.address]
+            [re-frame.routing.classification :as rf.routing.classification]
+            [re-frame.routing.match :as rf.routing.match]
+            [re-frame.routing.url :as rf.routing.url]
+            [re-frame.source-coords :as rf.source-coords]
+            [re-frame.trace :as rf.trace]))
 
 ;; ---- canonical thrown-error shape ----------------------------------------
 ;; Per Spec 009 §The thrown-error shape — the :rf.error/id ex-data
@@ -49,7 +49,7 @@
   greppability token); `extras` merges per-site slots."
   ([error-kw where-sym reason] (route-error error-kw where-sym reason nil))
   ([error-kw where-sym reason extras]
-   (error/thrown-ex-info error-kw where-sym reason {:extra extras})))
+   (rf.error/thrown-ex-info error-kw where-sym reason {:extra extras})))
 
 ;; ---- registration counter + table cache ----------------------------------
 
@@ -72,7 +72,7 @@
   "Read the current `:route` kind from the registrar, sort descending by
   rank, and replace the cache. Returns the new pairs vector."
   []
-  (let [source (registrar/registrations :route)
+  (let [source (rf.registrar/registrations :route)
         pairs  (->> source
                     (sort-by (fn [[_id route-meta]]
                                (or (:rf.route/rank route-meta) [0 0 0 0 0 0]))
@@ -90,7 +90,7 @@
   changes on every mutation)."
   []
   (let [cache  @route-table-cache
-        source (registrar/registrations :route)]
+        source (rf.registrar/registrations :route)]
     (if (and cache (identical? source (:source-id cache)))
       (:pairs cache)
       (rebuild-route-table-cache!))))
@@ -98,7 +98,7 @@
 ;; ---- url encoding / decoding facade --------------------------------------
 ;; The public predicate `malformed-url?` is re-exported here so the
 ;; routing facade has a stable entry point; internal callers within
-;; this ns use the `url/` alias directly.
+;; this ns use the `rf.routing.url/` alias directly.
 
 (defn malformed-url?
   "Public predicate: true when `url`'s percent-encoding is malformed in
@@ -116,7 +116,7 @@
   (rf2-4ic0f). Thin facade over `re-frame.routing.url/malformed-url?`
   (rf2-icrxv Phase-2 — URL seam)."
   [url]
-  (url/malformed-url? url))
+  (rf.routing.url/malformed-url? url))
 
 (declare compile-schema-coercions)
 
@@ -181,7 +181,7 @@
   is absent and the set is exactly the routing-owned reserved keys, so an
   app without resources/SSR sees no behaviour change."
   []
-  (if-let [extra (late-bind/get-fn :routing/extra-route-keys)]
+  (if-let [extra (rf.late-bind/get-fn :routing/extra-route-keys)]
     (into reserved-route-keys (extra))
     reserved-route-keys))
 
@@ -235,7 +235,7 @@
 ;; means a `:double` route breaks the route prism (EP-0012 §Route Prism Laws):
 ;; `match-url` would coerce a URL segment to a FLOAT (`parse-double`), but
 ;; `route-url` REFUSES to emit that same float — `assert-url-value!` routes it
-;; through `identity/canonical-bytes`, which throws `:rf.error/non-edn-identity`
+;; through `rf.identity/canonical-bytes`, which throws `:rf.error/non-edn-identity`
 ;; (the `[:float 1.5]` case pinned in routing_url_non_edn_cljs_test). So
 ;; `route-url(match-url(url))` throws instead of returning `url` — a URL-driven
 ;; vs programmatic-navigation split. It also diverges across hosts (a JVM
@@ -475,9 +475,9 @@
         ;; segment throws `:rf.error/invalid-route-classification`), so it never
         ;; reaches activation. The result is discarded here — lowering re-derives
         ;; it from the stored route-meta at activation (`re-frame.routing.
-        ;; classification/lower-for-route`), keeping the stored meta a pure
+        ;; rf.routing.classification/lower-for-route`), keeping the stored meta a pure
         ;; reflection map. Runs only when the route declares a classification key.
-        _            (classification/validate+extract id metadata)
+        _            (rf.routing.classification/validate+extract id metadata)
         ;; rf2-5s7l6d: reject a :double / decimal-typed :params or :query key
         ;; at the authoring boundary. A float has no canonical-EDN identity, so
         ;; a decimal route breaks the match-url/route-url prism (match-url would
@@ -494,14 +494,14 @@
         ;; :string. [:enum …] keyword slots round-trip and are admitted. See
         ;; `reject-keyword-route-schema!`.
         _            (reject-keyword-route-schema! id metadata)
-        pattern      (match/canonical-route-pattern (:path metadata))
+        pattern      (rf.routing.match/canonical-route-pattern (:path metadata))
         metadata     (assoc metadata :path pattern)
         idx          (swap! reg-counter inc)
-        _            (match/validate-route-pattern! id pattern)
+        _            (rf.routing.match/validate-route-pattern! id pattern)
         ;; Single-pass parse: rank + regex + capture names +
         ;; per-optional-group lookup all derive from one left-to-right
         ;; walk (rf2-uovh5).
-        parsed       (match/parse-pattern pattern)
+        parsed       (rf.routing.match/parse-pattern pattern)
         structural   (when parsed (:rank parsed))
         rank         (when structural (conj structural (- idx)))
         compiled     (when parsed (select-keys parsed [:regex :names :pattern :groups]))
@@ -519,7 +519,7 @@
         ;; the `:query-defaults` keys. EP-0037 R5 shrank this from three sources
         ;; to two — `:query-retain` is retired, so it no longer widens the
         ;; promoted vocabulary and no longer suppresses this advisory.
-        _            (classification/advise-query-promotion!
+        _            (rf.routing.classification/advise-query-promotion!
                        id metadata
                        (into (set (keys query-coerce))
                              (keys (:query-defaults metadata))))
@@ -529,7 +529,7 @@
         ;; before validation — without it a non-`:string` path-param type
         ;; makes every valid URL fail :params validation → 404.
         params-coerce (compile-schema-coercions (:params metadata))
-        meta'        (cond-> (source-coords/merge-coords metadata)
+        meta'        (cond-> (rf.source-coords/merge-coords metadata)
                        rank          (assoc :rf.route/rank rank)
                        compiled      (assoc :rf.route/compiled compiled)
                        query-coerce  (assoc :rf.route/query-coerce query-coerce)
@@ -541,7 +541,7 @@
     ;; regardless of literals (/home vs /about; /x/:id vs /y/:slug), and
     ;; warning on the tie alone floods every ordinary multi-page app with
     ;; spurious warnings. The real rule-6 condition is co-matchability
-    ;; ("the same URL family"): after the tie, `match/patterns-intersect?`
+    ;; ("the same URL family"): after the tie, `rf.routing.match/patterns-intersect?`
     ;; decides exactly whether some URL matches both patterns via
     ;; product-automaton reachability over the two segment automata.
     ;; The match-time tuple (`:rf.route/rank`) carries `(- reg-index)` as
@@ -558,22 +558,22 @@
     ;; 6-tuple — is named.
     (when structural
       (when-let [winner
-                 (->> (registrar/registrations :route)
+                 (->> (rf.registrar/registrations :route)
                       (filter (fn [[other-id other-meta]]
                                 (when-let [other-rank (:rf.route/rank other-meta)]
                                   (and (not= other-id id)
                                        (= structural (subvec other-rank 0 5))
-                                       (match/patterns-intersect?
+                                       (rf.routing.match/patterns-intersect?
                                          pattern (:path other-meta))))))
                       (sort-by (fn [[_ m]] (:rf.route/rank m))
                                #(compare %2 %1))
                       ffirst)]
-        (trace/emit! :warning :rf.warning/route-shadowed-by-equal-score
+        (rf.trace/emit! :warning :rf.warning/route-shadowed-by-equal-score
                      {:route-id    id
                       :shadowed-by winner
                       :rank        structural})))
-    (let [previous (registrar/lookup :route id)]
-      (registrar/register! :route id meta')
+    (let [previous (rf.registrar/lookup :route id)]
+      (rf.registrar/register! :route id meta')
       ;; Cache invalidation is automatic — the registrar's `:route` map
       ;; gets a new identity on every register!, and `route-table` checks
       ;; identity equality before reusing the cached pairs vector.
@@ -582,11 +582,11 @@
       ;; FIRST-TIME registration so tools subscribing to "all route
       ;; lifecycle events" see one event per fresh route.
       ;; Re-registration rides the cross-kind `:rf.registry/handler-
-      ;; replaced` trace (emitted by `registrar/register!` per Spec 001
+      ;; replaced` trace (emitted by `rf.registrar/register!` per Spec 001
       ;; §Hot-reload trace surface); not re-emitted here. Mirrors the
       ;; `:rf.flow/registered` symmetry.
       (when (nil? previous)
-        (trace/emit! :rf.event :rf.route/registered
+        (rf.trace/emit! :rf.event :rf.route/registered
                      {:route-id id
                       :path     pattern})))
     id))
@@ -597,10 +597,10 @@
   `:rf.flow/cleared`. Per Spec 012 §Trace events. No-op
   when the route id was not registered."
   [id]
-  (let [previous (registrar/lookup :route id)]
+  (let [previous (rf.registrar/lookup :route id)]
     (when previous
-      (registrar/unregister! :route id)
-      (trace/emit! :rf.event :rf.route/cleared
+      (rf.registrar/unregister! :route id)
+      (rf.trace/emit! :rf.event :rf.route/cleared
                    {:route-id id
                     :path     (:path previous)})))
   nil)
@@ -610,7 +610,7 @@
 ;; carries (`resource-ids`/`resource-meta`, `machines`/`machine-meta`) — the
 ;; static-registry read a tool or AI inspector walks to answer "which routes
 ;; are registered, and what is route X's spec?" without re-stating the
-;; `registrar/registrations :route` walk at each call site.
+;; `rf.registrar/registrations :route` walk at each call site.
 
 (defn route-ids
   "Return a vector of every registered route id. The static-registry
@@ -618,7 +618,7 @@
   slice is read through the `:rf.route/*` subs). Mirrors the sibling
   `resource-ids` / machines `machines` introspection accessors."
   []
-  (vec (registrar/ids :route)))
+  (vec (rf.registrar/ids :route)))
 
 (defn route-meta
   "Return the registered route's metadata map (`:path` pattern, `:on-match`,
@@ -628,7 +628,7 @@
   `resource-meta` / machines `machine-meta` introspection accessors. Per Spec
   012 §Reserved route-metadata keys."
   [route-id]
-  (registrar/lookup :route route-id))
+  (rf.registrar/lookup :route route-id))
 
 ;; ---- match + coerce ------------------------------------------------------
 
@@ -906,7 +906,7 @@
   For a declared keyword-enum slot whose value is a keyword in the
   allowlist, this is the keyword's NAME (`:asc` -> `\"asc\"`) — the exact
   token `match-url` decodes back to the canonical enum keyword. Without
-  this, `url/url-encode` would host-`(str :asc)` to `\":asc\"` and emit
+  this, `rf.routing.url/url-encode` would host-`(str :asc)` to `\":asc\"` and emit
   `%3Aasc`, which `match-url`'s enum decoder does not recognise (it reads
   only the declared names), so the prism would not round-trip
   (EP-0012 §Route Prism Laws; Spec 012 §924-936 — `:enum :asc :desc` is
@@ -944,7 +944,7 @@
   `(subs (str k) 1)` strips the leading `:` from `(str :user/id)` =>
   `\":user/id\"`, yielding `\"user/id\"` — which `(keyword \"user/id\")`
   reads back to the identical `:user/id`. The `/` is percent-encoded by
-  `url/url-encode` on emission and decoded by the match-side parse, so the
+  `rf.routing.url/url-encode` on emission and decoded by the match-side parse, so the
   token survives the wire (`user%2Fid=u`) and decodes back to `\"user/id\"`
   before the declared-key lookup."
   [k]
@@ -1045,7 +1045,7 @@
   key ORDER, never its membership or values."
   [query]
   (into (array-map)
-        (sort-by (comp identity/canonical-bytes key) query)))
+        (sort-by (comp rf.identity/canonical-bytes key) query)))
 
 ;; ---- `:query-defaults`: the ONE fill rule and its emission inverse ---------
 ;;
@@ -1184,7 +1184,7 @@
 
       :else
       (let [raw     (subs url (inc hash-idx))
-            decoded (url/safe-url-decode raw)]
+            decoded (rf.routing.url/safe-url-decode raw)]
         [(subs url 0 hash-idx) (or decoded ::malformed-fragment)]))))
 
 (defn validate-route-shape
@@ -1204,12 +1204,12 @@
   (let [schema (get route-meta slot)]
     (if-not schema
       [false nil]
-      (let [validate (late-bind/get-fn-cached :schemas/validate-with-registered-fn)]
+      (let [validate (rf.late-bind/get-fn-cached :schemas/validate-with-registered-fn)]
         (if-not validate
           [false nil]
           (if (validate schema value)
             [false nil]
-            (let [explain  (late-bind/get-fn-cached :schemas/explain-with-registered-fn)
+            (let [explain  (rf.late-bind/get-fn-cached :schemas/explain-with-registered-fn)
                   details  (when explain (explain schema value))]
               [true details])))))))
 
@@ -1217,11 +1217,11 @@
   "Spec 012 trailing-slash normalisation for incoming URLs. `/cart` and
   `/cart/` are equivalent; root remains `/`, and the no-leading-slash
   leniency remains (`cart/` → `cart`). Coerces nil to `\"\"` then
-  delegates to the shared `url/strip-trailing-slashes` — the same loop
-  `match/canonical-route-pattern` runs on author patterns, so the
+  delegates to the shared `rf.routing.url/strip-trailing-slashes` — the same loop
+  `rf.routing.match/canonical-route-pattern` runs on author patterns, so the
   incoming-URL and route-pattern surfaces normalise identically."
   [path]
-  (url/strip-trailing-slashes (or path "")))
+  (rf.routing.url/strip-trailing-slashes (or path "")))
 
 (defn match-url
   "Per Spec 012 §Bidirectional URL ↔ params. Try each registered route's
@@ -1295,8 +1295,8 @@
                               ;; route had no required keys). The empty-value
                               ;; branch (`v` is nil → "") is distinct from a
                               ;; malformed value and must not be conflated.
-                              kstr  (url/safe-url-decode k)
-                              vstr  (if v (url/safe-url-decode v) "")]
+                              kstr  (rf.routing.url/safe-url-decode k)
+                              vstr  (if v (rf.routing.url/safe-url-decode v) "")]
                           (if (or (nil? kstr) (nil? vstr))
                             (reduced ::malformed-query)
                             (assoc acc kstr vstr)))))
@@ -1309,8 +1309,8 @@
         (reduce
           (fn [_ [id route-meta]]
             (when-let [compiled (or (:rf.route/compiled route-meta)
-                                    (some-> (:path route-meta) match/parse-pattern))]
-              (when-let [raw-params (match/match-against compiled path)]
+                                    (some-> (:path route-meta) rf.routing.match/parse-pattern))]
+              (when-let [raw-params (rf.routing.match/match-against compiled path)]
                 (let [;; rf2-cylse.5: coerce PATH captures against the
                       ;; route's `:params` schema (precompiled to
                       ;; `:rf.route/params-coerce`) BEFORE validation —
@@ -1446,7 +1446,7 @@
   keyword."
   [^String pattern n i]
   (let [start (inc i)
-        end   (match/segment-end pattern n start)]
+        end   (rf.routing.match/segment-end pattern n start)]
     [end (keyword (subs pattern start end))]))
 
 (defn- literal-run-end
@@ -1476,12 +1476,12 @@
   (`url-encode`)."
   [splat? v]
   (if splat?
-    (url/url-encode-splat v)
-    (url/url-encode v)))
+    (rf.routing.url/url-encode-splat v)
+    (rf.routing.url/url-encode v)))
 
 ;; ---- fail-closed URL-scalar guard (rf2-94o54l.1, EP-0012) ----------------
 ;; A route path-param value and a (non-nil) query value reach the URL string
-;; only through `url/url-encode` / `url/url-encode-splat`, both of which call
+;; only through `rf.routing.url/url-encode` / `rf.routing.url/url-encode-splat`, both of which call
 ;; host `(str v)`. For a URL scalar (string / keyword / symbol / boolean /
 ;; portable integer / UUID) host `(str v)` produces a stable, decodable,
 ;; HOST-IDENTICAL segment that round-trips through `match-url`. But two
@@ -1507,12 +1507,12 @@
 ;; (docs/EP/EP-0012 §893-896; Conventions §Canonical EDN identity §584-592).
 ;;
 ;; The query KEY side is already guarded: every surviving key is run through
-;; `identity/canonical-bytes` by the canonical-order sort above, which throws
+;; `rf.identity/canonical-bytes` by the canonical-order sort above, which throws
 ;; `:rf.error/non-edn-identity` on a host key. The path-param and query-VALUE
 ;; sides were NOT — they went straight to `(str v)`. This helper closes that
 ;; gap with a DOCUMENTED NARROWER URL-SCALAR predicate (the second option the
 ;; bead's smallest-fix offers): it routes class (a) through
-;; `identity/canonical-bytes` (the same CEDN-1 boundary, the same fail-closed
+;; `rf.identity/canonical-bytes` (the same CEDN-1 boundary, the same fail-closed
 ;; posture the resources cache key uses via `state/reject-non-edn!`) and
 ;; additionally rejects class (b) at the URL boundary — because a URL segment
 ;; has no round-trippable instant form and no host-stable instant `(str v)`.
@@ -1543,7 +1543,7 @@
   identity domain (function / atom / promise / raw JS object / DOM node /
   non-portable number) OR an instant / host `Date` (a portable identity, but
   not a round-trippable URL segment). Either would otherwise be
-  host-stringified by `url/url-encode` into a fabricated or host-divergent
+  host-stringified by `rf.routing.url/url-encode` into a fabricated or host-divergent
   route identity (EP-0012 §Canonical EDN identity). `slot` is `:params` or
   `:query`; `k` is the offending param / query key. Raises
   `:rf.error/route-url-non-edn-value` (for the host-value class, the underlying
@@ -1555,7 +1555,7 @@
   ;; building the value's whole CEDN-1 token string and throwing it away, once
   ;; per path param per href, on the render path. For the four kinds below the
   ;; answer is unconditionally YES and is decidable by TYPE: none is a host
-  ;; instant, and `identity/encode` cannot reject any of them (string / keyword
+  ;; instant, and `rf.identity/encode` cannot reject any of them (string / keyword
   ;; / symbol route through `pr-str`, boolean through a literal). Every other
   ;; value — integers, whose safe-range check is the whole point; UUIDs;
   ;; instants; host objects — takes the identical encode-and-catch path it
@@ -1578,7 +1578,7 @@
                   :param    k
                   :value    v})))
       (try
-        (identity/canonical-bytes v)
+        (rf.identity/canonical-bytes v)
         v
         (catch #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) ex
           (if (= :rf.error/non-edn-identity (:rf.error/id (ex-data ex)))
@@ -1603,7 +1603,7 @@
   `nil`, the empty string, or a string is accepted. Returns `fragment`
   unchanged when admitted; raises `:rf.error/route-url-non-edn-value` for
   EVERY other value (a function, atom, host object, number, keyword, boolean,
-  …) BEFORE `url/url-encode` host-stringifies it into a fabricated URL
+  …) BEFORE `rf.routing.url/url-encode` host-stringifies it into a fabricated URL
   identity.
 
   The fragment is part of EP-0012 canonical route data and requires
@@ -1639,11 +1639,11 @@
   "The `:params` keys whose route PATTERN has no `:name` / `*name` segment to
   put them in — the address keys `route-url` would otherwise ignore in silence
   (rf2-0iuh3). Returns them in the total canonical order
-  (`identity/canonical-bytes`) the rest of routing reports key sets in, or nil
+  (`rf.identity/canonical-bytes`) the rest of routing reports key sets in, or nil
   when every supplied key is captured.
 
   The capture vocabulary is the compiled pattern's `:names`
-  (`match/parse-pattern`, precomputed at registration into
+  (`rf.routing.match/parse-pattern`, precomputed at registration into
   `:rf.route/compiled`) — the SAME left-to-right capture list `match-against`
   zips a matched URL's groups onto, so what counts as a path param on the
   emission side is exactly what counts on the matching side. An optional
@@ -1667,7 +1667,7 @@
              (seq path-params)
              (not= :rf.route/not-found route-id))
     (let [names      (or (:names (:rf.route/compiled route-meta))
-                         (:names (match/parse-pattern pattern)))
+                         (:names (rf.routing.match/parse-pattern pattern)))
           ;; rf2-cno31: membership WITHOUT building a keyword set per call.
           ;; This runs once per href synthesis and the capture vocabulary is a
           ;; short vector of NAME STRINGS, so the test reads a keyword's stored
@@ -1690,7 +1690,7 @@
                                   :else                (recur (inc i)))))))
           uncaptured (remove captured? (keys path-params))]
       (when (seq uncaptured)
-        (vec (sort-by identity/canonical-bytes uncaptured))))))
+        (vec (sort-by rf.identity/canonical-bytes uncaptured))))))
 
 (defn route-url
   "Per Spec 012 §Bidirectional URL ↔ params. Build a URL string from a
@@ -1793,10 +1793,10 @@
    ;; silently ignoring them. The navigate handler select-keys'es its request
    ;; and link-model projects its target map, so the framework callers never
    ;; trip this; a direct misuse of the public `route-url` fails fast. Bad
-   ;; keys are reported in TOTAL canonical order (`identity/canonical-bytes`)
+   ;; keys are reported in TOTAL canonical order (`rf.identity/canonical-bytes`)
    ;; so a heterogeneous EDN-key set never trips `compare`.
    ;; EP-0037 R0b: the address-only key class is the ONE shared
-   ;; `address/address-keys` constant every door measures the address against
+   ;; `rf.routing.address/address-keys` constant every door measures the address against
    ;; (Spec 012 §The extraction law). route-url takes an already-extracted
    ;; address, so a non-address key here (`:url` / `:query-merge` / policy /
    ;; unknown) is a direct-misuse caller bug and rejects LOUD.
@@ -1807,10 +1807,10 @@
    ;; throw is already the outcome. `reduce-kv` is safe here: the `map?` guard
    ;; above has already run.
    (when-let [bad (seq (reduce-kv (fn [acc k _]
-                                    (if (address/address-keys k) acc (conj acc k)))
+                                    (if (rf.routing.address/address-keys k) acc (conj acc k)))
                                   nil
                                   address))]
-     (let [bad (vec (sort-by identity/canonical-bytes bad))]
+     (let [bad (vec (sort-by rf.identity/canonical-bytes bad))]
        (throw (route-error
                 :rf.error/route-url-validation
                 'rf.routing/route-url
@@ -1862,10 +1862,10 @@
          emitted-query (if (empty? query-params)
                          query-params
                          (into (array-map)
-                               (sort-by (comp identity/canonical-bytes key)
+                               (sort-by (comp rf.identity/canonical-bytes key)
                                         (remove (fn [[_ v]] (nil? v))
                                                 query-params))))
-         route-meta   (registrar/lookup :route route-id)
+         route-meta   (rf.registrar/lookup :route route-id)
          pattern      (:path route-meta)
          ;; The same precompiled coercion tables `match-url` uses let the
          ;; emission side invert enum-keyword decode: a declared keyword-enum
@@ -1945,7 +1945,7 @@
            ;; <pos-after-}?>}` — `route-url` consults it instead of
            ;; re-walking the pattern body.
            groups (or (:groups (:rf.route/compiled route-meta))
-                      (:groups (match/parse-pattern pattern)))
+                      (:groups (rf.routing.match/parse-pattern pattern)))
            ;; Resolve a REQUIRED path-param value or throw. Per Spec 012
            ;; §Bidirectional URL ↔ params: an absent or `nil` value
            ;; raises; a present-but-falsy value (`false`, `0`) is a
@@ -2213,8 +2213,8 @@
            url-query (query-without-defaults route-meta emitted-query)
            ;; Query keys are already CEDN-guarded by the
            ;; canonical-order sort that built `emitted-query` (it runs each
-           ;; surviving key through `identity/canonical-bytes`, which throws
-           ;; on a host key). The VALUES went straight to `url/url-encode`'s
+           ;; surviving key through `rf.identity/canonical-bytes`, which throws
+           ;; on a host key). The VALUES went straight to `rf.routing.url/url-encode`'s
            ;; `(str v)` — a host value would have been host-stringified into
            ;; the URL. Guard each non-nil value through `assert-url-value!`
            ;; (nil values are already elided out of `emitted-query`) so the
@@ -2237,11 +2237,11 @@
                      (clojure.string/join "&"
                        (map (fn [[k v]]
                               (assert-url-value! route-id :query k v)
-                              (str (url/url-encode (if (keyword? k)
+                              (str (rf.routing.url/url-encode (if (keyword? k)
                                                      (query-key->url-token k)
                                                      k))
                                    "="
-                                   (url/url-encode (enum-keyword-token
+                                   (rf.routing.url/url-encode (enum-keyword-token
                                                      (get query-coerce k) v))))
                             url-query))))
            ;; Per Spec 012 §Fragments §Programmatic navigation with
@@ -2250,8 +2250,8 @@
            ;;
            ;; Percent-encode the fragment symmetrically with
            ;; `match-url`/`split-fragment`, which decode the
-           ;; `#fragment` portion through `url/safe-url-decode`
-           ;; (decodeURIComponent semantics). `url/url-encode` is the exact
+           ;; `#fragment` portion through `rf.routing.url/safe-url-decode`
+           ;; (decodeURIComponent semantics). `rf.routing.url/url-encode` is the exact
            ;; inverse, so the round-trip is byte-exact: a fragment value
            ;; carrying a literal `%` (e.g. `"50% done"`) emits as
            ;; `#50%25%20done` and decodes back to `"50% done"`. Appending
@@ -2268,7 +2268,7 @@
            ;; percent-encoded and appended.
            fragment (assert-fragment! route-id fragment)
            frag (when (and fragment (not= "" fragment))
-                  (str "#" (url/url-encode fragment)))]
+                  (str "#" (rf.routing.url/url-encode fragment)))]
        (str path-out qs frag)))))
 
 (defn reset-counters!

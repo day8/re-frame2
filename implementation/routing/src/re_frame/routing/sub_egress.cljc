@@ -66,7 +66,7 @@
   there is no route slice to leak anyway.
 
   Internal namespace; the public facade is `re-frame.routing`."
-  (:require [re-frame.elision :as elision]))
+  (:require [re-frame.elision :as rf.elision]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -122,5 +122,5 @@
   (the walk is path-precise, not a blanket scrub)."
   [sub-id value opts]
   (if-let [seed (route-sub-seed-path sub-id)]
-    (elision/elide-wire-value value (assoc opts :path seed))
+    (rf.elision/elide-wire-value value (assoc opts :path seed))
     value))

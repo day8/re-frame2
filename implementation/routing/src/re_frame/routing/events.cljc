@@ -23,11 +23,11 @@
 
   Internal namespace; the public facade is `re-frame.routing`. Per the
   rf2-2yabr cohesion split: SHARED-EVENT-HELPERS seam."
-  (:require [re-frame.late-bind :as late-bind]
-            [re-frame.registrar :as registrar]
-            [re-frame.routing.classification :as classification]
-            [re-frame.routing.readiness :as readiness]
-            [re-frame.trace :as trace]))
+  (:require [re-frame.late-bind :as rf.late-bind]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.routing.classification :as rf.routing.classification]
+            [re-frame.routing.readiness :as rf.routing.readiness]
+            [re-frame.trace :as rf.trace]))
 
 ;; Per Spec 012 §Multi-frame routing: nav-token and pending-nav id
 ;; counters are per-frame, monotone, and unbounded — see Spec 012
@@ -80,11 +80,11 @@
   the tag rather than synthesising `:rf/default`."
   [frame prev-id next-id]
   (when (and prev-id (not= prev-id next-id))
-    (trace/emit! :rf.event :rf.route/deactivated
+    (rf.trace/emit! :rf.event :rf.route/deactivated
                  (cond-> {:route-id prev-id}
                    frame (assoc :frame frame))))
   (when (and next-id (not= prev-id next-id))
-    (trace/emit! :rf.event :rf.route/activated
+    (rf.trace/emit! :rf.event :rf.route/activated
                  (cond-> {:route-id next-id}
                    frame (assoc :frame frame)))))
 
@@ -99,7 +99,7 @@
 ;; in ONE place so the two writers and the layer-1 read
 ;; (`re-frame.routing.subs/route-sub-fn`) stay symmetric. `:error` starts nil
 ;; here; `commit-navigation` then projects readiness (`:transition` / `:error`)
-;; from the resource plan via `readiness/project-at-commit`.
+;; from the resource plan via `rf.routing.readiness/project-at-commit`.
 ;;
 ;; The merge targets `:current`, not the routing root, so sibling state is
 ;; untouched. Siblings include `:pending-navigation` and, when the resources
@@ -114,7 +114,7 @@
   `slice` is a map of `{:route-id :params :query :fragment :transition
   :nav-token}`. `:error` is forced to `nil` here; `commit-navigation`
   overwrites `:transition` / `:error` with the resource-derived readiness
-  projection (`readiness/project-at-commit`) after building the plan."
+  projection (`rf.routing.readiness/project-at-commit`) after building the plan."
   [db {:keys [route-id params query fragment transition nav-token]}]
   (update-in db [:rf.runtime/routing :current] merge
              {:route-id   route-id
@@ -147,7 +147,7 @@
     (if (contains? seen cur)
       {:branch-error {:kind :parent-cycle :route-id* cur
                       :chain (vec (reverse (conj acc cur)))}}
-      (let [meta (registrar/lookup :route cur)]
+      (let [meta (rf.registrar/lookup :route cur)]
         (if (and (nil? meta) (not first?))
           {:branch-error {:kind :unknown-parent :route-id* cur}}
           (let [acc'   (conj acc {:route-id cur :route-meta meta})
@@ -244,7 +244,7 @@
         ;; (a fail-closed params/scope throw) is recorded on the slice's
         ;; `:error`, visible to the `:rf/route` sub + Xray. No-op when no
         ;; Resources artefact / no `:resources` route metadata.
-        route-meta (registrar/lookup :route route-id)
+        route-meta (rf.registrar/lookup :route route-id)
         ;; EP-0037 R2: read the SUPERSEDED nav-token's owned identities — the
         ;; plan diff's previous membership (`[:rf.runtime/routing :resource-plan
         ;; <token>]`, a resources-written sibling of `:resource-blocking`; both
@@ -254,7 +254,7 @@
         ;; `route-plan` and threaded in as `branch-contributors` /
         ;; `branch-error`); the Resources plan composes + diffs.
         prev-identities (get-in rdb [:rf.runtime/routing :resource-plan prev-nav-token])
-        plan       (when-let [on-entry (late-bind/get-fn :routing/on-route-entry)]
+        plan       (when-let [on-entry (rf.late-bind/get-fn :routing/on-route-entry)]
                      (on-entry {:route-meta      route-meta
                                 :route-id        route-id
                                 :params          params
@@ -284,14 +284,14 @@
         ;; EP-0037 R1: route readiness is the PURE resource projection over
         ;; the (leaf-only, until R2) plan — NEVER driven by `:on-match`. Seed
         ;; `:transition` / `:error` from the freshly-built plan through the one
-        ;; projector (`readiness/project-at-commit`): a planning failure →
+        ;; projector (`rf.routing.readiness/project-at-commit`): a planning failure →
         ;; `:error`, a pending blocking first load → `:loading`, otherwise
         ;; `:idle`. A blocking route resource additionally records its scoped
         ;; keys under the nav-token so the Resources reply handlers reconcile
         ;; `:loading` → `:idle` / `:error` (its SSR wait point) as each settles
         ;; through the same table. Per Spec 012 §Route readiness is a resource
         ;; projection + Spec 016 §Route integration.
-        {r-transition :transition r-error :error} (readiness/project-at-commit plan)
+        {r-transition :transition r-error :error} (rf.routing.readiness/project-at-commit plan)
         committed  (-> committed
                        (assoc-in [:rf.runtime/routing :current :transition] r-transition)
                        (assoc-in [:rf.runtime/routing :current :error] r-error)
@@ -315,11 +315,11 @@
         ;; route-sourced entries. The declared query/params paths redact those
         ;; projections at egress for as long as the route is active;
         ;; frame teardown drops the whole runtime-db elision slot with the frame.
-        committed (classification/lower-for-route committed route-id route-meta)]
+        committed (rf.routing.classification/lower-for-route committed route-id route-meta)]
     ;; rf2-dbmj6x — stamp the carried `:frame` so the nav-token-allocated
     ;; trace enters epoch capture + obeys the frame trace-disable gate
     ;; (the lifecycle pair below carries it via `emit-activation-traces!`).
-    (trace/emit! :rf.event :rf.route.nav-token/allocated
+    (rf.trace/emit! :rf.event :rf.route.nav-token/allocated
                  (cond-> {:route-id route-id :nav-token token}
                    frame (assoc :frame frame)))
     (emit-activation-traces! frame prev-id route-id)

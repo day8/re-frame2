@@ -57,29 +57,29 @@
   guarding; the studio page carries the measurement."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.routing :as routing]
-            [re-frame.routing.registry :as registry]
-            [re-frame.routing.strategy :as strategy]
-            [re-frame.routing-test-support :as rts]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.routing :as rf.routing]
+            [re-frame.routing.registry :as rf.routing.registry]
+            [re-frame.routing.strategy :as rf.routing.strategy]
+            [re-frame.routing-test-support :as rf.routing-test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
-(use-fixtures :each rts/reset-runtime)
+(use-fixtures :each rf.routing-test-support/reset-runtime)
 
 (defn- register-routes! []
-  (routing/reg-route :eq/root    {} "/")
-  (routing/reg-route :eq/plain   {} "/plain")
-  (routing/reg-route :eq/profile {} "/profile/:username")
-  (routing/reg-route :eq/pair    {} "/a/:x/b/:y/c")
-  (routing/reg-route :eq/only    {} "/:only")
-  (routing/reg-route :eq/files   {} "/files/*rest")
-  (routing/reg-route :eq/docs    {} "/docs{/:section}?")
-  (routing/reg-route :eq/chain   {} "/docs{/:section}?{/:page}?")
-  (routing/reg-route :eq/base    {} "{/:base}?")
-  (routing/reg-route :eq/sorted  {:query [:map [:sort {:optional true} :string]
+  (rf.routing/reg-route :eq/root    {} "/")
+  (rf.routing/reg-route :eq/plain   {} "/plain")
+  (rf.routing/reg-route :eq/profile {} "/profile/:username")
+  (rf.routing/reg-route :eq/pair    {} "/a/:x/b/:y/c")
+  (rf.routing/reg-route :eq/only    {} "/:only")
+  (rf.routing/reg-route :eq/files   {} "/files/*rest")
+  (rf.routing/reg-route :eq/docs    {} "/docs{/:section}?")
+  (rf.routing/reg-route :eq/chain   {} "/docs{/:section}?{/:page}?")
+  (rf.routing/reg-route :eq/base    {} "{/:base}?")
+  (rf.routing/reg-route :eq/sorted  {:query [:map [:sort {:optional true} :string]
                                           [:page {:optional true} :string]]}
                      "/search")
-  (routing/reg-route :eq/enum    {:params [:map [:dir [:enum :asc :desc]]]}
+  (rf.routing/reg-route :eq/enum    {:params [:map [:dir [:enum :asc :desc]]]}
                      "/by/:dir"))
 
 (defn- thrown-data [f]
@@ -93,33 +93,33 @@
   (register-routes!)
 
   (testing "patterns with NO optional group — the specialised walk"
-    (is (= "/"                (registry/route-url {:to :eq/root})))
-    (is (= "/plain"           (registry/route-url {:to :eq/plain})))
-    (is (= "/plain"           (registry/route-url {:to :eq/plain :params {}})))
-    (is (= "/profile/jane"    (registry/route-url {:to :eq/profile :params {:username "jane"}})))
-    (is (= "/a/1/b/2/c"       (registry/route-url {:to :eq/pair :params {:x "1" :y "2"}})))
-    (is (= "/solo"            (registry/route-url {:to :eq/only :params {:only "solo"}})))
+    (is (= "/"                (rf.routing.registry/route-url {:to :eq/root})))
+    (is (= "/plain"           (rf.routing.registry/route-url {:to :eq/plain})))
+    (is (= "/plain"           (rf.routing.registry/route-url {:to :eq/plain :params {}})))
+    (is (= "/profile/jane"    (rf.routing.registry/route-url {:to :eq/profile :params {:username "jane"}})))
+    (is (= "/a/1/b/2/c"       (rf.routing.registry/route-url {:to :eq/pair :params {:x "1" :y "2"}})))
+    (is (= "/solo"            (rf.routing.registry/route-url {:to :eq/only :params {:only "solo"}})))
     (testing "a splat keeps its literal separators; a named param does not"
-      (is (= "/files/a/b/c.txt" (registry/route-url {:to :eq/files :params {:rest "a/b/c.txt"}})))
-      (is (= "/profile/a%2Fb"   (registry/route-url {:to :eq/profile :params {:username "a/b"}}))))
+      (is (= "/files/a/b/c.txt" (rf.routing.registry/route-url {:to :eq/files :params {:rest "a/b/c.txt"}})))
+      (is (= "/profile/a%2Fb"   (rf.routing.registry/route-url {:to :eq/profile :params {:username "a/b"}}))))
     (testing "percent-encoding is the param's, never the literal run's"
-      (is (= "/profile/a%20b"   (registry/route-url {:to :eq/profile :params {:username "a b"}})))
+      (is (= "/profile/a%20b"   (rf.routing.registry/route-url {:to :eq/profile :params {:username "a b"}})))
       (is (= "/profile/a%26b%3Fc"
-             (registry/route-url {:to :eq/profile :params {:username "a&b?c"}}))))
+             (rf.routing.registry/route-url {:to :eq/profile :params {:username "a&b?c"}}))))
     (testing "falsy-but-present path values round-trip"
-      (is (= "/profile/false" (registry/route-url {:to :eq/profile :params {:username false}})))
-      (is (= "/profile/0"     (registry/route-url {:to :eq/profile :params {:username 0}})))))
+      (is (= "/profile/false" (rf.routing.registry/route-url {:to :eq/profile :params {:username false}})))
+      (is (= "/profile/0"     (rf.routing.registry/route-url {:to :eq/profile :params {:username 0}})))))
 
   (testing "patterns WITH an optional group — the general walk, untouched"
-    (is (= "/docs/api" (registry/route-url {:to :eq/docs :params {:section "api"}})))
-    (is (= "/docs"     (registry/route-url {:to :eq/docs :params {}})))
-    (is (= "/docs"     (registry/route-url {:to :eq/docs})))
-    (is (= "/docs/api/2" (registry/route-url {:to :eq/chain :params {:section "api" :page "2"}})))
-    (is (= "/docs/api"   (registry/route-url {:to :eq/chain :params {:section "api"}})))
-    (is (= "/docs"       (registry/route-url {:to :eq/chain :params {}})))
+    (is (= "/docs/api" (rf.routing.registry/route-url {:to :eq/docs :params {:section "api"}})))
+    (is (= "/docs"     (rf.routing.registry/route-url {:to :eq/docs :params {}})))
+    (is (= "/docs"     (rf.routing.registry/route-url {:to :eq/docs})))
+    (is (= "/docs/api/2" (rf.routing.registry/route-url {:to :eq/chain :params {:section "api" :page "2"}})))
+    (is (= "/docs/api"   (rf.routing.registry/route-url {:to :eq/chain :params {:section "api"}})))
+    (is (= "/docs"       (rf.routing.registry/route-url {:to :eq/chain :params {}})))
     (testing "the whole path is one leading optional group"
-      (is (= "/x" (registry/route-url {:to :eq/base :params {:base "x"}})))
-      (is (= "/"  (registry/route-url {:to :eq/base :params {}}))
+      (is (= "/x" (rf.routing.registry/route-url {:to :eq/base :params {:base "x"}})))
+      (is (= "/"  (rf.routing.registry/route-url {:to :eq/base :params {}}))
           "an elided leading group normalises the empty string to the root"))))
 
 (deftest every-emitted-url-matches-back-to-the-address-it-came-from
@@ -139,8 +139,8 @@
       ;; `/:only` also matches and out-ranks, so a round trip through the whole
       ;; table would be asserting this fixture's ranking rather than the prism.
       ;; Its emission is asserted above, where ranking cannot reach it.
-      (let [url (registry/route-url {:to to :params params})
-            m   (registry/match-url url)]
+      (let [url (rf.routing.registry/route-url {:to to :params params})
+            m   (rf.routing.registry/match-url url)]
         (is (= to (:route-id m)) (str "round trip of " url))
         (is (= params (:params m)) (str "round trip of " url))))))
 
@@ -149,7 +149,7 @@
 ;; ===========================================================================
 
 (deftest literal-run-end-stops-at-every-sigil
-  (let [run-end #'registry/literal-run-end
+  (let [run-end #'rf.routing.registry/literal-run-end
         end     (fn [s i] (run-end s (count s) i))]
     (testing "a run ends at the next : * { or }, and nowhere else"
       (is (= 9  (end "/profile/:username" 0)) ":")
@@ -169,23 +169,23 @@
 
   (testing "an absent or empty path param"
     (is (= :rf.error/missing-route-param
-           (:rf.error/id (thrown-data #(registry/route-url {:to :eq/profile :params {}})))))
+           (:rf.error/id (thrown-data #(rf.routing.registry/route-url {:to :eq/profile :params {}})))))
     (is (= :rf.error/missing-route-param
-           (:rf.error/id (thrown-data #(registry/route-url {:to :eq/profile :params {:username nil}})))))
+           (:rf.error/id (thrown-data #(rf.routing.registry/route-url {:to :eq/profile :params {:username nil}})))))
     (is (= :rf.error/missing-route-param
-           (:rf.error/id (thrown-data #(registry/route-url {:to :eq/profile :params {:username ""}})))))
+           (:rf.error/id (thrown-data #(rf.routing.registry/route-url {:to :eq/profile :params {:username ""}})))))
     (testing "inside an optional group too"
       (is (= :rf.error/missing-route-param
-             (:rf.error/id (thrown-data #(registry/route-url {:to :eq/docs :params {:section ""}})))))))
+             (:rf.error/id (thrown-data #(rf.routing.registry/route-url {:to :eq/docs :params {:section ""}})))))))
 
   (testing "a param the pattern does not capture — the set-free membership test"
-    (let [bare (thrown-data #(registry/route-url {:to :eq/profile
+    (let [bare (thrown-data #(rf.routing.registry/route-url {:to :eq/profile
                                                   :params {:username "j" :extra "x"}}))]
       (is (= :rf.error/route-url-validation (:rf.error/id bare)))
       (is (= :uncaptured-params (:reason bare)))
       (is (= [:extra] (:keys bare))))
     (testing "a NAMESPACED key is not the bare capture of the same name"
-      (let [ns-keyed (thrown-data #(registry/route-url {:to :eq/profile
+      (let [ns-keyed (thrown-data #(rf.routing.registry/route-url {:to :eq/profile
                                                         :params {:username "j"
                                                                  :a/username "x"}}))]
         (is (= :uncaptured-params (:reason ns-keyed)))
@@ -193,50 +193,50 @@
             "`(name :a/username)` is \"username\" — it must NOT count as captured")))
     (testing "a NON-keyword key was never a capture either"
       (is (= :uncaptured-params
-             (:reason (thrown-data #(registry/route-url {:to :eq/profile
+             (:reason (thrown-data #(rf.routing.registry/route-url {:to :eq/profile
                                                          :params {:username "j"
                                                                   "username" "x"}})))))))
 
   (testing "a non-address key — the reject scan"
-    (let [d (thrown-data #(registry/route-url {:to :eq/plain :replace? true}))]
+    (let [d (thrown-data #(rf.routing.registry/route-url {:to :eq/plain :replace? true}))]
       (is (= :bad-address-keys (:reason d)))
       (is (= [:replace?] (:keys d))))
     (testing "bad keys are still reported in TOTAL canonical order"
       (is (= [:replace? "url"]
-             (:keys (thrown-data #(registry/route-url {:to :eq/plain
+             (:keys (thrown-data #(rf.routing.registry/route-url {:to :eq/plain
                                                        :replace? true
                                                        "url" "/x"}))))
           "a heterogeneous key set must not reach a compare-based sort")))
 
   (testing "a value outside the URL-scalar domain — the guard's slow leg"
     (is (= :rf.error/route-url-non-edn-value
-           (:rf.error/id (thrown-data #(registry/route-url
+           (:rf.error/id (thrown-data #(rf.routing.registry/route-url
                                          {:to :eq/profile :params {:username (fn [])}})))))
     (is (= :rf.error/route-url-non-edn-value
-           (:rf.error/id (thrown-data #(registry/route-url
+           (:rf.error/id (thrown-data #(rf.routing.registry/route-url
                                          {:to :eq/profile
                                           :params {:username (java.util.Date.)}}))))
         "a host instant is a portable identity but not a URL segment")
     (is (= :rf.error/route-url-non-edn-value
-           (:rf.error/id (thrown-data #(registry/route-url
+           (:rf.error/id (thrown-data #(rf.routing.registry/route-url
                                          {:to :eq/profile :params {:username 1.5}}))))
         "a non-integer number has no canonical EDN identity")
     (is (= :rf.error/route-url-non-edn-value
-           (:rf.error/id (thrown-data #(registry/route-url
+           (:rf.error/id (thrown-data #(rf.routing.registry/route-url
                                          {:to :eq/profile
                                           :params {:username (inc 9007199254740991)}}))))
         "an integer outside the safe range is rejected on the slow leg"))
 
   (testing "the four kinds the guard now answers by type still EMIT"
-    (is (= "/profile/jane"  (registry/route-url {:to :eq/profile :params {:username "jane"}})))
+    (is (= "/profile/jane"  (rf.routing.registry/route-url {:to :eq/profile :params {:username "jane"}})))
     (is (= "/profile/%3Ajane"
-           (registry/route-url {:to :eq/profile :params {:username :jane}}))
+           (rf.routing.registry/route-url {:to :eq/profile :params {:username :jane}}))
         "an UNDECLARED keyword value host-stringifies, exactly as before")
-    (is (= "/profile/jane"  (registry/route-url {:to :eq/profile :params {:username 'jane}})))
-    (is (= "/profile/true"  (registry/route-url {:to :eq/profile :params {:username true}}))))
+    (is (= "/profile/jane"  (rf.routing.registry/route-url {:to :eq/profile :params {:username 'jane}})))
+    (is (= "/profile/true"  (rf.routing.registry/route-url {:to :eq/profile :params {:username true}}))))
 
   (testing "a DECLARED keyword enum still emits its token, not %3A"
-    (is (= "/by/desc" (registry/route-url {:to :eq/enum :params {:dir :desc}})))))
+    (is (= "/by/desc" (rf.routing.registry/route-url {:to :eq/enum :params {:dir :desc}})))))
 
 ;; ===========================================================================
 ;; The query side — the empty short-circuit, and the sorted path it skips
@@ -245,17 +245,17 @@
 (deftest the-query-string-is-what-it-was
   (register-routes!)
   (testing "no query — the short-circuit"
-    (is (= "/search" (registry/route-url {:to :eq/sorted})))
-    (is (= "/search" (registry/route-url {:to :eq/sorted :query {}})))
-    (is (= "/search" (registry/route-url {:to :eq/sorted :query {:sort nil}}))
+    (is (= "/search" (rf.routing.registry/route-url {:to :eq/sorted})))
+    (is (= "/search" (rf.routing.registry/route-url {:to :eq/sorted :query {}})))
+    (is (= "/search" (rf.routing.registry/route-url {:to :eq/sorted :query {:sort nil}}))
         "a nil-valued key is elided, not emitted as a bare key"))
   (testing "a query — the canonical-order sort, untouched"
-    (is (= "/search?sort=asc" (registry/route-url {:to :eq/sorted :query {:sort "asc"}})))
+    (is (= "/search?sort=asc" (rf.routing.registry/route-url {:to :eq/sorted :query {:sort "asc"}})))
     (is (= "/search?page=2&sort=asc"
-           (registry/route-url {:to :eq/sorted :query {:sort "asc" :page "2"}}))
+           (rf.routing.registry/route-url {:to :eq/sorted :query {:sort "asc" :page "2"}}))
         "keys emit in canonical order, not insertion order")
     (is (= "/search?page=2&sort=asc"
-           (registry/route-url {:to :eq/sorted :query (array-map :page "2" :sort "asc")}))
+           (rf.routing.registry/route-url {:to :eq/sorted :query (array-map :page "2" :sort "asc")}))
         "and the SAME URL whichever order the caller spelled them in")))
 
 ;; ===========================================================================
@@ -264,27 +264,27 @@
 
 (deftest frame-config-answers-the-strategy-question-frame-meta-answered
   (testing "the narrowed read is the same read for every frame shape"
-    (rf/init! plain-atom/adapter)
+    (rf/init! rf.substrate.plain-atom/adapter)
     (try
-      (frame/upsert-frame! :eq/hash {:url-bound? true
-                                     :url-strategy strategy/hash-url-strategy})
-      (frame/upsert-frame! :eq/plainframe {:url-bound? true})
+      (rf.frame/upsert-frame! :eq/hash {:url-bound? true
+                                     :url-strategy rf.routing.strategy/hash-url-strategy})
+      (rf.frame/upsert-frame! :eq/plainframe {:url-bound? true})
       (doseq [id [:eq/hash :eq/plainframe :eq/never-made]]
-        (is (= (:url-strategy (frame/frame-meta id))
-               (:url-strategy (frame/frame-config id)))
+        (is (= (:url-strategy (rf.frame/frame-meta id))
+               (:url-strategy (rf.frame/frame-config id)))
             (str "frame-config and frame-meta must agree on :url-strategy for " id))
-        (is (identical? (strategy/url-strategy-from-config (frame/frame-meta id))
-                        (strategy/url-strategy-for-frame-id id))
+        (is (identical? (rf.routing.strategy/url-strategy-from-config (rf.frame/frame-meta id))
+                        (rf.routing.strategy/url-strategy-for-frame-id id))
             (str "the consult must resolve what frame-meta's config would, for " id)))
-      (is (identical? strategy/hash-url-strategy
-                      (strategy/url-strategy-for-frame-id :eq/hash)))
-      (is (identical? strategy/history-url-strategy
-                      (strategy/url-strategy-for-frame-id :eq/plainframe)))
-      (is (identical? strategy/history-url-strategy
-                      (strategy/url-strategy-for-frame-id nil)))
+      (is (identical? rf.routing.strategy/hash-url-strategy
+                      (rf.routing.strategy/url-strategy-for-frame-id :eq/hash)))
+      (is (identical? rf.routing.strategy/history-url-strategy
+                      (rf.routing.strategy/url-strategy-for-frame-id :eq/plainframe)))
+      (is (identical? rf.routing.strategy/history-url-strategy
+                      (rf.routing.strategy/url-strategy-for-frame-id nil)))
       (testing "and frame-config does not leak the lifecycle keys frame-meta merges"
-        (is (contains? (frame/frame-meta :eq/hash) :created-at))
-        (is (not (contains? (frame/frame-config :eq/hash) :created-at))))
+        (is (contains? (rf.frame/frame-meta :eq/hash) :created-at))
+        (is (not (contains? (rf.frame/frame-config :eq/hash) :created-at))))
       (finally
-        (frame/destroy-frame! :eq/hash)
-        (frame/destroy-frame! :eq/plainframe)))))
+        (rf.frame/destroy-frame! :eq/hash)
+        (rf.frame/destroy-frame! :eq/plainframe)))))

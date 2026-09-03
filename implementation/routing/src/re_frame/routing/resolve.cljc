@@ -42,12 +42,12 @@
 
   Everything here is PURE. Internal namespace; the public facade is
   `re-frame.routing`."
-  (:require [re-frame.identity :as identity]
-            [re-frame.privacy.url :as url-egress]
-            [re-frame.registrar :as registrar]
-            [re-frame.routing.events :as routing-events]
-            [re-frame.routing.plan :as plan]
-            [re-frame.routing.registry :as registry]))
+  (:require [re-frame.identity :as rf.identity]
+            [re-frame.privacy.url :as rf.privacy.url]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.routing.events :as rf.routing.events]
+            [re-frame.routing.plan :as rf.routing.plan]
+            [re-frame.routing.registry :as rf.routing.registry]))
 
 ;; ---- the R0 causes --------------------------------------------------------
 
@@ -75,7 +75,7 @@
   Returns `query` IDENTICALLY when it holds no nil value, which is the common
   case: the URL doors' query comes from `match-url`, whose coercions are total
   passthroughs (never nil-producing), and rebuilding it would discard the
-  canonical KEY ORDER `registry/canonical-query-order` just established. When a
+  canonical KEY ORDER `rf.routing.registry/canonical-query-order` just established. When a
   nil IS present the surviving entries are poured back into `(empty query)`, so
   an array-map's order survives the strip too."
   [query]
@@ -103,14 +103,14 @@
   every spelling of one destination lowers to one target.
 
     - `:query` — the route's declared `:query-defaults` are filled into absent
-      keys (`registry/query-with-defaults`), because that is the \"defaults\"
+      keys (`rf.routing.registry/query-with-defaults`), because that is the \"defaults\"
       step Spec 012's own definition of a `ResolvedTarget` names; and
       nil-valued keys are dropped first (`without-nil-query-values`), because
       `route-url` elides them from the URL. Stripping BEFORE filling is what the
       programmatic door already did inline, preserved exactly: a route that
       declares a nil DEFAULT still gets it.
     - `:fragment` — an empty-string fragment collapses to nil
-      (`plan/normalize-fragment`), because `route-url` emits no trailing `#` for
+      (`rf.routing.plan/normalize-fragment`), because `route-url` emits no trailing `#` for
       it. `\"\"` is truthy, so an un-normalised one made the slice say
       `:fragment \"\"` while the address bar said `/docs`.
 
@@ -134,7 +134,7 @@
   entries with the warm one orphaned).
 
   Filling HERE rather than per-door is the point: `route-url`'s emission
-  inverse (`registry/query-without-defaults`) keeps the URL free of a key
+  inverse (`rf.routing.registry/query-without-defaults`) keeps the URL free of a key
   already at its default, so no href changes and each target still has exactly
   one canonical URL. The fill is idempotent, so a door whose query `match-url`
   already filled lowers through unchanged, and it is membership-only — no
@@ -144,7 +144,7 @@
   The nil-query and empty-fragment rules moved here for the same reason and by
   the same evidence (rf2-kqxe6.7). Both were written down and applied at ONE
   door: the programmatic handler stripped nil query values inline and called
-  `plan/normalize-fragment` itself, and `normalize-fragment`'s own docstring
+  `rf.routing.plan/normalize-fragment` itself, and `normalize-fragment`'s own docstring
   says the rule exists to \"keep the programmatic and URL-driven paths in
   agreement\". `[:rf.route/prefetch …]` reaches this seam directly, so it got
   neither: prefetching `{:to :probe :params {:id \"7\"} :query {:drop nil}}`
@@ -158,9 +158,9 @@
   [{:keys [route-id params query fragment url]}]
   {:route-id route-id
    :params   params
-   :query    (registry/query-with-defaults (registrar/lookup :route route-id)
+   :query    (rf.routing.registry/query-with-defaults (rf.registrar/lookup :route route-id)
                                            (without-nil-query-values query))
-   :fragment (plan/normalize-fragment fragment)
+   :fragment (rf.routing.plan/normalize-fragment fragment)
    :url      url})
 
 ;; ---- the URL -> ResolvedTarget extraction (ONE definition) ----------------
@@ -207,13 +207,13 @@
   returned `:url` preserves the caller's spelling; `match-url` normalises the
   semantic route fields."
   [url]
-  (let [{:keys [match throw-reason]} (registry/match-url-fail-closed url)
+  (let [{:keys [match throw-reason]} (rf.routing.registry/match-url-fail-closed url)
         ;; Discriminate the bare-miss case from the malformed-URL case only
         ;; when `match-url` already missed (the happy path pays nothing); a
         ;; throw already discriminated via `throw-reason` short-circuits the
         ;; predicate, so the URL is never scanned twice.
         malformed?       (boolean (and (nil? match) (nil? throw-reason)
-                                       (registry/malformed-url? url)))
+                                       (rf.routing.registry/malformed-url? url)))
         ;; A malformed URL surfaces no fragment — the fragment was (or may
         ;; have been) the decode-fail site.
         fragment         (when-not malformed? (:fragment match))
@@ -222,10 +222,10 @@
         fallback?        (or (not matched?) validation-fail?)
         route-id         (if fallback? :rf.route/not-found (:route-id match))
         params           (cond
-                           throw-reason     (plan/not-found-params url throw-reason)
-                           malformed?       (plan/not-found-params url :malformed-url)
-                           validation-fail? (plan/not-found-params url :validation)
-                           (not matched?)   (plan/not-found-params url nil)
+                           throw-reason     (rf.routing.plan/not-found-params url throw-reason)
+                           malformed?       (rf.routing.plan/not-found-params url :malformed-url)
+                           validation-fail? (rf.routing.plan/not-found-params url :validation)
+                           (not matched?)   (rf.routing.plan/not-found-params url nil)
                            :else            (:params match))
         query            (if fallback? {} (:query match))]
     {:target           (resolved-target {:route-id route-id
@@ -254,7 +254,7 @@
 ;; Two `:parent` walks exist deliberately. The DISPLAY walk behind the
 ;; `:rf.route/chain` sub (`re-frame.routing.subs/chain-from-meta`) is defensive:
 ;; it swallows cycles and INCLUDES an unregistered parent id in the chain it
-;; returns. `routing-events/resolve-branch` is the PLANNING walk: fail-loud, reporting
+;; returns. `rf.routing.events/resolve-branch` is the PLANNING walk: fail-loud, reporting
 ;; `{:branch-error {:kind :unknown-parent | :parent-cycle …}}` rather than a
 ;; silently-truncated branch — and `events.cljc` says so in as many words, that
 ;; the display sub "is not a substitute here".
@@ -288,7 +288,7 @@
   readiness projection graduates in EP-0037 R1; R0 reflects the loaders that
   already fire, unchanged. Empty vector when the route declares no `:on-match`."
   [route-id]
-  (vec (or (:on-match (registrar/lookup :route route-id)) [])))
+  (vec (or (:on-match (rf.registrar/lookup :route route-id)) [])))
 
 ;; ---- the route plan -------------------------------------------------------
 
@@ -306,7 +306,7 @@
   `plan-projection`.
 
   The parent-to-leaf `:branch` is the FAIL-LOUD walk
-  (`routing-events/resolve-branch`), resolved ONCE per navigation here:
+  (`rf.routing.events/resolve-branch`), resolved ONCE per navigation here:
 
     - `:branch` — `[parent-most … leaf]` route ids, the R0 diagnostic field.
       EMPTY when the chain does not resolve, so the plan can never name a route
@@ -321,7 +321,7 @@
       `:parent` chain a second time."
   [{:keys [source cause target]}]
   (let [route-id (:route-id target)
-        {:keys [branch branch-error]} (routing-events/resolve-branch route-id)]
+        {:keys [branch branch-error]} (rf.routing.events/resolve-branch route-id)]
     (cond-> {:source              source
              :cause               cause
              :target              target
@@ -356,11 +356,11 @@
 
 (defn- bound-keys
   "The KEY SET of a resolved `:params` / `:query` map, as a vector in the total
-  canonical order (`identity/canonical-bytes`) the rest of routing reports key
+  canonical order (`rf.identity/canonical-bytes`) the rest of routing reports key
   sets in — so a heterogeneous EDN-key map never trips a `compare`-based `sort`.
   Empty vector for nil / `{}`."
   [m]
-  (vec (sort-by identity/canonical-bytes (keys m))))
+  (vec (sort-by rf.identity/canonical-bytes (keys m))))
 
 (defn plan-trace-tags
   "Project a route `plan` into the `:rf.route/planned` trace tags. ONE
@@ -384,7 +384,7 @@
   That is local emit-site hygiene, not a boundary the route classification
   enforces on the trace bus. It is lossy in exactly two ways, and only those two:
 
-    - the URL rides the EXISTING `url-egress/redact-url-tag` path — the ONE
+    - the URL rides the EXISTING `rf.privacy.url/redact-url-tag` path — the ONE
       URL-carrier redactor routing already sends its route-miss and
       blocked-navigation URL slots through. It keeps the structured PATH (what a
       consumer branches on) and redacts the query-string and `#fragment` carrier
@@ -428,4 +428,4 @@
        :leaf-plan-ids (mapv #(if (sequential? %) (first %) %) leaf-plan)}
       (cond-> branch-error
         (assoc :branch-error (select-keys branch-error [:kind :route-id*])))
-      (url-egress/redact-url-tag :url)))
+      (rf.privacy.url/redact-url-tag :url)))

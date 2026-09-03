@@ -27,32 +27,32 @@
   ordering a late arrival by hand is also strictly more precise than
   racing two timers and hoping."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.adapter.reagent :as reagent-adapter]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.core :as rf]
-            [re-frame.fx :as fx]
+            [re-frame.fx :as rf.fx]
             ;; The production managed-HTTP fx surface, so the recipes'
             ;; requests lower. The fetch never happens — `capture-transport!`
             ;; replaces the effect with a recorder and the rows replay the
             ;; transport's own reply shape.
             [re-frame.http.managed]
-            [re-frame.recipes.async-nav :as app]
-            [re-frame.routing :as routing]
-            [re-frame.test-support :as test-support]))
+            [re-frame.recipes.async-nav :as rf.recipes.async-nav]
+            [re-frame.routing :as rf.routing]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       reagent-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.reagent/adapter
      :ambient-frame nil
      :init-fn       (fn []
-                      (app/register-routes!)
-                      (app/register-resources!)
+                      (rf.recipes.async-nav/register-routes!)
+                      (rf.recipes.async-nav/register-resources!)
                       ;; No browser here, so routing's URL effects have
                       ;; nothing to drive. Registering no-ops keeps the
                       ;; navigation cascade whole without pretending the
                       ;; address bar moved.
-                      (fx/reg-fx :rf.nav/push-url
+                      (rf.fx/reg-fx :rf.nav/push-url
                                  {:platforms #{:server :client}} (fn [_ _] nil))
-                      (fx/reg-fx :rf.nav/replace-url
+                      (rf.fx/reg-fx :rf.nav/replace-url
                                  {:platforms #{:server :client}} (fn [_ _] nil)))}))
 
 ;; ---------------------------------------------------------------------------
@@ -72,15 +72,15 @@
   fetch is missing, and a row supplies the reply."
   []
   (reset! !requests [])
-  (fx/reg-fx :rf.http/managed (fn [_ctx args] (swap! !requests conj args) nil)))
+  (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (swap! !requests conj args) nil)))
 
 (defn- with-app [f]
-  (rf/with-new-frame [frame (rf/make-frame {:initial-events [[::app/seed]]})]
+  (rf/with-new-frame [frame (rf/make-frame {:initial-events [[::rf.recipes.async-nav/seed]]})]
     (f frame)))
 
 (defn- send! [frame event-v] (rf/dispatch-sync event-v {:frame frame}))
 (defn- read-sub [frame query-v] (rf/subscribe-once query-v {:frame frame}))
-(defn- editor-of [frame] (read-sub frame [::app/editor]))
+(defn- editor-of [frame] (read-sub frame [::rf.recipes.async-nav/editor]))
 
 (defn- reply-ok! [frame args value]
   (send! frame (conj (:on-success args) {:status :ok :value value})))
@@ -97,21 +97,21 @@
 
 (deftest settle-merge-seeds-only-the-fields-nobody-touched
   (testing "an untouched draft takes the whole payload"
-    (is (= welcome (app/settle-merge {} welcome #{}))))
+    (is (= welcome (rf.recipes.async-nav/settle-merge {} welcome #{}))))
 
   (testing "a touched field keeps what the user typed"
     (is (= {:title "My own title" :body (:body welcome)}
-           (app/settle-merge {:title "My own title"} welcome #{:title}))))
+           (rf.recipes.async-nav/settle-merge {:title "My own title"} welcome #{:title}))))
 
   (testing "every field touched — the payload seeds nothing at all"
     (is (= {:title "mine" :body "also mine"}
-           (app/settle-merge {:title "mine" :body "also mine"}
+           (rf.recipes.async-nav/settle-merge {:title "mine" :body "also mine"}
                              welcome
                              #{:title :body}))))
 
   (testing "a field the payload does not carry is left exactly as it is"
     (is (= {:title (:title welcome) :body "typed" :tags "kept"}
-           (app/settle-merge {:body "typed" :tags "kept"} welcome #{:body}))
+           (rf.recipes.async-nav/settle-merge {:body "typed" :tags "kept"} welcome #{:body}))
         "the merge walks the PAYLOAD, so a draft key the server said
          nothing about is neither seeded nor cleared")))
 
@@ -121,11 +121,11 @@
   ;; not. Without this row, `settle-merge-seeds-only-the-fields-nobody-touched`
   ;; could be green against a defect that never had a chance to fire.
   (let [typed {:title "My own title"}]
-    (is (= (app/settle-merge typed welcome #{})
+    (is (= (rf.recipes.async-nav/settle-merge typed welcome #{})
            (merge typed welcome))
         "with nothing touched the recipe IS the naive write — which is why
          the defect survives every load that beats the user to the keyboard")
-    (is (not= (app/settle-merge typed welcome #{:title})
+    (is (not= (rf.recipes.async-nav/settle-merge typed welcome #{:title})
               (merge typed welcome))
         "and with the field touched they part company")
     (is (= (:title welcome) (:title (merge typed welcome)))
@@ -143,12 +143,12 @@
   (capture-transport!)
   (with-app
     (fn [frame]
-      (send! frame [::app/open-editor "welcome"])
+      (send! frame [::rf.recipes.async-nav/open-editor "welcome"])
       (is (= 1 (count @!requests)))
       (let [args (last @!requests)]
-        (is (= [::app/article-arrived "welcome"] (:on-success args)))
-        (is (= [::app/article-failed "welcome"] (:on-failure args)))
-        (is (= [::app/article "welcome"] (:request-id args))
+        (is (= [::rf.recipes.async-nav/article-arrived "welcome"] (:on-success args)))
+        (is (= [::rf.recipes.async-nav/article-failed "welcome"] (:on-failure args)))
+        (is (= [::rf.recipes.async-nav/article "welcome"] (:request-id args))
             "and the request id is per-slug, so re-opening the same article
              supersedes its own earlier request inside the runtime")))))
 
@@ -156,11 +156,11 @@
   (capture-transport!)
   (with-app
     (fn [frame]
-      (send! frame [::app/open-editor "welcome"])
+      (send! frame [::rf.recipes.async-nav/open-editor "welcome"])
       (reply-ok! frame (last @!requests) welcome)
       (is (= welcome (:draft (editor-of frame))))
       (is (= welcome (:baseline (editor-of frame))))
-      (is (false? (read-sub frame [::app/dirty?]))
+      (is (false? (read-sub frame [::rf.recipes.async-nav/dirty?]))
           "and it arrives clean — a freshly-seeded editor the user has not
            touched must not hold the navigation guard shut"))))
 
@@ -169,9 +169,9 @@
   (capture-transport!)
   (with-app
     (fn [frame]
-      (send! frame [::app/open-editor "welcome"])
+      (send! frame [::rf.recipes.async-nav/open-editor "welcome"])
       (let [args (last @!requests)]
-        (send! frame [::app/edit :title "My own title"])
+        (send! frame [::rf.recipes.async-nav/edit :title "My own title"])
         (reply-ok! frame args welcome)
         (is (= "My own title" (get-in (editor-of frame) [:draft :title]))
             "the keystrokes survived the settle — the whole recipe")
@@ -182,7 +182,7 @@
             "the baseline took the payload WHOLE — it is what the server
              said, and a half-updated baseline would report saved work as
              dirty for the rest of the session")
-        (is (true? (read-sub frame [::app/dirty?]))
+        (is (true? (read-sub frame [::rf.recipes.async-nav/dirty?]))
             "so the editor is now legitimately dirty: there is one field of
              unsaved work in it, and the guard should hold")))))
 
@@ -195,8 +195,8 @@
   (capture-transport!)
   (with-app
     (fn [frame]
-      (send! frame [::app/open-editor "welcome"])
-      (send! frame [::app/edit :title "My own title"])
+      (send! frame [::rf.recipes.async-nav/open-editor "welcome"])
+      (send! frame [::rf.recipes.async-nav/edit :title "My own title"])
       (let [typed  (:draft (editor-of frame))
             naive  (merge typed welcome)]
         (is (= "My own title" (:title typed))
@@ -213,9 +213,9 @@
   (capture-transport!)
   (with-app
     (fn [frame]
-      (send! frame [::app/open-editor "welcome"])
+      (send! frame [::rf.recipes.async-nav/open-editor "welcome"])
       (let [first-args (last @!requests)]
-        (send! frame [::app/open-editor "second"])
+        (send! frame [::rf.recipes.async-nav/open-editor "second"])
         (let [second-args (last @!requests)]
           (is (not= (:request-id first-args) (:request-id second-args))
               "precondition: two articles are two request ids, so the
@@ -236,9 +236,9 @@
   (capture-transport!)
   (with-app
     (fn [frame]
-      (send! frame [::app/open-editor "welcome"])
+      (send! frame [::rf.recipes.async-nav/open-editor "welcome"])
       (let [args (last @!requests)]
-        (send! frame [::app/edit :title "My own title"])
+        (send! frame [::rf.recipes.async-nav/edit :title "My own title"])
         (reply-error! frame args {:message "boom"})
         (is (= "My own title" (get-in (editor-of frame) [:draft :title]))
             "losing a draft to a failed GET is the clobber defect wearing a
@@ -250,7 +250,7 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- status [frame slug]
-  (read-sub frame [:rf/mutation {:instance (app/favourite-instance slug)}]))
+  (read-sub frame [:rf/mutation {:instance (rf.recipes.async-nav/favourite-instance slug)}]))
 
 (deftest two-rows-in-flight-do-not-share-a-status
   ;; R-C5. A shared instance makes every row spin because any row is, and
@@ -258,9 +258,9 @@
   (capture-transport!)
   (with-app
     (fn [frame]
-      (send! frame [::app/toggle-favourite "welcome" true])
+      (send! frame [::rf.recipes.async-nav/toggle-favourite "welcome" true])
       (let [welcome-args (last @!requests)]
-        (send! frame [::app/toggle-favourite "second" true])
+        (send! frame [::rf.recipes.async-nav/toggle-favourite "second" true])
         (is (= 2 (count @!requests)) "two writes, two requests")
         (is (true? (:pending? (status frame "welcome"))))
         (is (true? (:pending? (status frame "second"))))
@@ -282,7 +282,7 @@
   (capture-transport!)
   (with-app
     (fn [frame]
-      (send! frame [::app/toggle-favourite "welcome" true])
+      (send! frame [::rf.recipes.async-nav/toggle-favourite "welcome" true])
       (let [s (status frame "welcome")]
         (is (true? (:pending? s)))
         (is (true? (:optimistic? s))
@@ -293,7 +293,7 @@
   (capture-transport!)
   (with-app
     (fn [frame]
-      (send! frame [::app/toggle-favourite "welcome" true])
+      (send! frame [::rf.recipes.async-nav/toggle-favourite "welcome" true])
       (reply-error! frame (last @!requests) {:message "rejected"})
       (let [s (status frame "welcome")]
         (is (true? (:error? s)))
@@ -320,8 +320,8 @@
 (defn- open-dirty-editor!
   "Land on the editor and leave one field of unsaved work in it."
   [frame]
-  (send! frame [:rf.route/navigate {:to app/editor-route :params {:slug "welcome"}}])
-  (send! frame [::app/edit :title "My own title"])
+  (send! frame [:rf.route/navigate {:to rf.recipes.async-nav/editor-route :params {:slug "welcome"}}])
+  (send! frame [::rf.recipes.async-nav/edit :title "My own title"])
   frame)
 
 (deftest the-guard-and-the-badge-read-one-definition
@@ -329,31 +329,31 @@
   ;; drifting apart. The fix is one DEFINITION, not one cached value.
   (with-app
     (fn [frame]
-      (send! frame [:rf.route/navigate {:to app/editor-route :params {:slug "welcome"}}])
-      (is (true? (read-sub frame [::app/can-leave?])))
-      (is (false? (read-sub frame [::app/dirty?])))
-      (send! frame [::app/edit :title "My own title"])
-      (is (false? (read-sub frame [::app/can-leave?])))
-      (is (true? (read-sub frame [::app/dirty?])))
+      (send! frame [:rf.route/navigate {:to rf.recipes.async-nav/editor-route :params {:slug "welcome"}}])
+      (is (true? (read-sub frame [::rf.recipes.async-nav/can-leave?])))
+      (is (false? (read-sub frame [::rf.recipes.async-nav/dirty?])))
+      (send! frame [::rf.recipes.async-nav/edit :title "My own title"])
+      (is (false? (read-sub frame [::rf.recipes.async-nav/can-leave?])))
+      (is (true? (read-sub frame [::rf.recipes.async-nav/dirty?])))
       (testing "the guard is STRICTLY boolean in both positions"
         ;; A non-boolean fails closed and raises
         ;; `:rf.error/can-leave-non-boolean`, so a guard answering `nil`
         ;; for "no editor open" would deny every navigation in the app.
-        (is (boolean? (read-sub frame [::app/can-leave?])))
-        (send! frame [::app/save])
-        (is (boolean? (read-sub frame [::app/can-leave?])))))))
+        (is (boolean? (read-sub frame [::rf.recipes.async-nav/can-leave?])))
+        (send! frame [::rf.recipes.async-nav/save])
+        (is (boolean? (read-sub frame [::rf.recipes.async-nav/can-leave?])))))))
 
 (deftest a-dirty-editor-blocks-the-leave-and-parks-it
   (with-app
     (fn [frame]
       (open-dirty-editor! frame)
-      (send! frame [:rf.route/navigate {:to app/list-route}])
-      (is (= app/editor-route (route frame))
+      (send! frame [:rf.route/navigate {:to rf.recipes.async-nav/list-route}])
+      (is (= rf.recipes.async-nav/editor-route (route frame))
           "the navigation did not commit — the user is still in the editor")
       (let [p (pending frame)]
         (is (some? p) "and the attempt was PARKED rather than dropped")
-        (is (= app/editor-route (:rejecting-route p)))
-        (is (= ::app/can-leave? (:rejecting-guard p))
+        (is (= rf.recipes.async-nav/editor-route (:rejecting-route p)))
+        (is (= ::rf.recipes.async-nav/can-leave? (:rejecting-guard p))
             "the pending value names the guard that rejected, so a confirm
              dialog can say which one and a tool can attribute it")
         (is (some? (:id p))
@@ -363,18 +363,18 @@
   (with-app
     (fn [frame]
       (open-dirty-editor! frame)
-      (send! frame [:rf.route/navigate {:to app/list-route}])
+      (send! frame [:rf.route/navigate {:to rf.recipes.async-nav/list-route}])
       (send! frame [:rf.route/continue (:id (pending frame))])
-      (is (= app/list-route (route frame)) "the reader confirmed, so it went")
+      (is (= rf.recipes.async-nav/list-route (route frame)) "the reader confirmed, so it went")
       (is (nil? (pending frame)) "and the slot cleared"))))
 
 (deftest cancel-stays-put-and-clears-the-slot
   (with-app
     (fn [frame]
       (open-dirty-editor! frame)
-      (send! frame [:rf.route/navigate {:to app/list-route}])
+      (send! frame [:rf.route/navigate {:to rf.recipes.async-nav/list-route}])
       (send! frame [:rf.route/cancel (:id (pending frame))])
-      (is (= app/editor-route (route frame)))
+      (is (= rf.recipes.async-nav/editor-route (route frame)))
       (is (nil? (pending frame)))
       (is (= "My own title" (get-in (editor-of frame) [:draft :title]))
           "and the work is still there — cancelling the leave must not
@@ -386,17 +386,17 @@
   (with-app
     (fn [frame]
       (open-dirty-editor! frame)
-      (send! frame [::app/save])
-      (send! frame [:rf.route/navigate {:to app/list-route}])
-      (is (= app/list-route (route frame)))
+      (send! frame [::rf.recipes.async-nav/save])
+      (send! frame [:rf.route/navigate {:to rf.recipes.async-nav/list-route}])
+      (is (= rf.recipes.async-nav/list-route (route frame)))
       (is (nil? (pending frame)) "no prompt was raised at all"))))
 
 (deftest save-and-close-bypasses-the-prompt
   (with-app
     (fn [frame]
       (open-dirty-editor! frame)
-      (send! frame [::app/save-and-close])
-      (is (= app/list-route (route frame)))
+      (send! frame [::rf.recipes.async-nav/save-and-close])
+      (is (= rf.recipes.async-nav/list-route (route frame)))
       (is (nil? (pending frame))
           "`:bypass-leave? true` states the intent explicitly; saving would
            have released the guard anyway, and a reader of the handler can
@@ -407,9 +407,9 @@
   ;; sub plus this key. If the key were dropped the four rows above would
   ;; all go red, but they would go red saying "the navigation committed",
   ;; which reads like a routing bug rather than a missing declaration.
-  (let [meta* (routing/route-meta app/editor-route)]
-    (is (= [::app/can-leave?] (:can-leave meta*))
+  (let [meta* (rf.routing/route-meta rf.recipes.async-nav/editor-route)]
+    (is (= [::rf.recipes.async-nav/can-leave?] (:can-leave meta*))
         "the editor route declares the guard, naming the sub")
-    (is (nil? (:can-leave (routing/route-meta app/list-route)))
+    (is (nil? (:can-leave (rf.routing/route-meta rf.recipes.async-nav/list-route)))
         "and the list does not — a guard on every route is a guard nobody
          reads")))

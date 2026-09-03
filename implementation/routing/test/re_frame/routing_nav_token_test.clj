@@ -21,9 +21,9 @@
   `:rf.trace/event-id` tag, `:completed-at`, the `:rf.reply/work-id` join key
   and the EP-0011 `:rf.reply/status` / `:rf.reply/work-status` /
   `:rf.reply/stale-reason` envelope vocabulary. All of it rides `trace/emit!`,
-  gated on `interop/debug-enabled?` and read once at load time, so under the
+  gated on `rf.interop/debug-enabled?` and read once at load time, so under the
   real gate there is no trace to carry it. Those assertions are kept VERBATIM
-  inside `(when interop/debug-enabled? …)` arms marked `rf2-o5dbf`.
+  inside `(when rf.interop/debug-enabled? …)` arms marked `rf2-o5dbf`.
 
   Four are NEGATIVE over the trace and would pass vacuously under the gate —
   `(not (contains? (:tags stale) :event-id))`, `(not (contains? (:tags stale)
@@ -34,13 +34,13 @@
   reached app-db. Nothing was deleted or weakened."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.fx :as fx]
-            [re-frame.interop :as interop]
-            [re-frame.routing :as routing]
+            [re-frame.fx :as rf.fx]
+            [re-frame.interop :as rf.interop]
+            [re-frame.routing :as rf.routing]
             [re-frame.routing.test-support]
-            [re-frame.routing-test-support :as rts]))
+            [re-frame.routing-test-support :as rf.routing-test-support]))
 
-(use-fixtures :each rts/reset-runtime)
+(use-fixtures :each rf.routing-test-support/reset-runtime)
 
 ;; ---- Spec 012 §Navigation tokens — stale-result suppression --------------
 
@@ -94,7 +94,7 @@
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring). The
       ;; SUPPRESSION itself is pinned by the app-db assertion above, which is
       ;; posture-independent: A's payload never landed.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
        (is (some (fn [ev]
                   (and (= :rf.route.nav-token/stale-suppressed (:operation ev))
                        (= "nav-1" (-> ev :tags :carried-token))
@@ -177,7 +177,7 @@
       ;; is a trace-only correlation key, and the second leg is NEGATIVE over
       ;; the ring. The suppression they annotate is pinned by the app-db
       ;; assertion above, posture-independently.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         ;; The work-id carries route A's CAPTURED id, NOT route B's live id.
         (is (some (fn [ev]
                     (and (= :rf.route.nav-token/stale-suppressed (:operation ev))
@@ -272,7 +272,7 @@
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring). Everything
       ;; from here to the end of this deftest is spelled ON the trace; the
       ;; enforcement it annotates is pinned by the app-db assertion above.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
       (is (some (fn [ev]
                   (and (= :rf.route.nav-token/stale-suppressed (:operation ev))
                        (= "nav-1" (-> ev :tags :carried-token))
@@ -394,7 +394,7 @@
       (is (nil? (:article (rf/app-db-value :rf/default)))
           "the stale completion was suppressed — no app-db write")
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [stale (some (fn [ev]
                             (when (= :rf.route.nav-token/stale-suppressed
                                      (:operation ev))
@@ -436,7 +436,7 @@
       (is (nil? (:article (rf/app-db-value :rf/default)))
           "the stale completion was suppressed — no app-db write")
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [stale (some (fn [ev]
                             (when (= :rf.route.nav-token/stale-suppressed
                                      (:operation ev))
@@ -472,7 +472,7 @@
       (is (nil? (:article (rf/app-db-value :rf/default)))
           "the fixture's stale completion was suppressed — no app-db write")
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [stale (some (fn [ev]
                             (when (= :rf.route.nav-token/stale-suppressed
                                      (:operation ev))
@@ -498,7 +498,7 @@
     ;; The minimal contract: a handler declaring the cofx sees the live
     ;; navigation epoch. Pre-fix this was nil (no reg-cofx :rf.route/nav-token).
     (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
-    (fx/reg-fx :rf.nav/push-url
+    (rf.fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     (let [seen (atom :unset)]
@@ -531,7 +531,7 @@
     ;; which validates against the current slice: stale → suppressed,
     ;; fresh → applied.
     (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
-    (fx/reg-fx :rf.nav/push-url
+    (rf.fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     ;; Terminal commit handler.
@@ -586,7 +586,7 @@
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring). The
       ;; documented stale/fresh outcome is pinned by the app-db assertion
       ;; above, posture-independently: only B committed.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (some (fn [ev]
                     (and (= :rf.route.nav-token/stale-suppressed (:operation ev))
                          (= :article/loaded (-> ev :tags :rf.trace/event-id))))
@@ -616,7 +616,7 @@
             COMPLETE [:rf.work/route route-id nav-token loader-id] tuple
             (pre-fix: route-id was nil)"
     (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
-    (fx/reg-fx :rf.nav/push-url
+    (rf.fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     (rf/reg-event :article/loaded
@@ -666,7 +666,7 @@
       (is (nil? (:article (rf/app-db-value :rf/default)))
           "A's stale completion was suppressed — no app-db write")
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [stale (some (fn [ev]
                             (when (= :rf.route.nav-token/stale-suppressed (:operation ev)) ev))
                           @traces)]
@@ -764,7 +764,7 @@
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring). The
       ;; enforcement — the app target did NOT run — is pinned by the app-db
       ;; assertion above, posture-independently.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [stale (some (fn [ev]
                             (when (= :rf.route.nav-token/stale-suppressed (:operation ev)) ev))
                           @traces)]
@@ -829,7 +829,7 @@
           ;; unchanged — are the AC4 property itself and are
           ;; posture-independent. The second leg here is NEGATIVE over the
           ;; ring, so outside the arm it would pass vacuously.
-          (when interop/debug-enabled?
+          (when rf.interop/debug-enabled?
             (is (some (fn [ev] (= :rf.route.nav-token/stale-suppressed (:operation ev))) @traces)
                 (str "a stale-suppressed trace fired for " (pr-str target)))
             (is (not-any? (fn [ev] (= :rf.error/fx-handler-exception (:operation ev))) @traces)
@@ -864,7 +864,7 @@
                          {:db (assoc db :load/next-ran? true)}))
       (rf/reg-route :route/two-loaders
                     {:on-match [[:load/fail] [:load/next]]} "/two-loaders")
-      (fx/reg-fx :rf.nav/push-url
+      (rf.fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ _] nil))
       (rf/dispatch-sync [:rf.route/transitioned "/two-loaders"])

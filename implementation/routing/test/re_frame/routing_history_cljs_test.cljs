@@ -39,17 +39,17 @@
             ;; rf2-ktmto9: the first-registration/re-registration atomicity
             ;; tests read the frames registry record + the trace-policy
             ;; predicate directly to prove zero residue.
-            [re-frame.frame :as frame]
-            [re-frame.trace :as trace]
+            [re-frame.frame :as rf.frame]
+            [re-frame.trace :as rf.trace]
             ;; rf2-qwm0a: listener / buffer surface lives in re-frame.trace.tooling.
-            [re-frame.trace.tooling :as trace-tooling]
-            [re-frame.routing :as routing]
+            [re-frame.trace.tooling :as rf.trace.tooling]
+            [re-frame.routing :as rf.routing]
             ;; rf2-w3qgc: internal URL-classifier namespace — `external-url?`
             ;; / `request-url->app-url` are not facade-exported, so the
             ;; non-string fail-closed test calls them directly.
-            [re-frame.routing.url :as routing-url]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]
+            [re-frame.routing.url :as rf.routing.url]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]
             ;; rf2-y6e2zb: the browser history/location/document stub,
             ;; `*history-state*`, `current-url`, and `with-window-stub-fixture`
             ;; are the SUPERSET fixture shared with routing_url_strategy_cljs_test.
@@ -67,14 +67,14 @@
 
 (use-fixtures :each
   with-window-stub-fixture
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter
      ;; rf2-1hncp2: the scroll-position cache is a module-level host atom
      ;; (not runtime-db), so the runtime reset does not touch it — drop it
      ;; explicitly so a captured position never leaks across tests.
      :init-fn (fn []
-                (routing/reset-counters!)
-                (routing/reset-scroll-cache!))}))
+                (rf.routing/reset-counters!)
+                (rf.routing/reset-scroll-cache!))}))
 
 ;; ---- trace-capture helper ------------------------------------------------
 
@@ -84,7 +84,7 @@
   [thunk]
   (let [captured (atom [])
         cb-key   (keyword (gensym "route-trace-"))]
-    (trace-tooling/register-listener!
+    (rf.trace.tooling/register-listener!
       cb-key
       (fn [ev]
         (when (= :rf.route.nav-token/allocated (:operation ev))
@@ -93,7 +93,7 @@
       (let [r (thunk)]
         [r @captured])
       (finally
-        (trace-tooling/unregister-listener! cb-key)))))
+        (rf.trace.tooling/unregister-listener! cb-key)))))
 
 ;; ---- routes used across the suite ---------------------------------------
 
@@ -198,11 +198,11 @@
           index-before   (:index @*history-state*)]
       (doseq [bad [nil 123 true false (js-obj "toString" (fn [] "/checkout")) #js {} []]]
         ;; external-url? classifies the raw value as external (fail closed).
-        (is (true? (routing-url/external-url? bad))
+        (is (true? (rf.routing.url/external-url? bad))
             (str "non-string url " (pr-str bad) " classes EXTERNAL"))
         ;; request-url->app-url must NOT canonicalise a non-string (gate is
         ;; external? → returns the value unchanged, never touching js/URL).
-        (is (= bad (routing-url/request-url->app-url bad))
+        (is (= bad (rf.routing.url/request-url->app-url bad))
             (str "request-url->app-url leaves non-string " (pr-str bad) " unchanged"))
         ;; End-to-end: the :rf.route/url-requested sink does not push or rewrite.
         (rf/dispatch-sync [:rf.route/url-requested {:url bad}])
@@ -256,7 +256,7 @@
                 blob: URL (matching origin, non-http(s) scheme) is EXTERNAL
                 ONLY via clause A; a dropped allowlist would class it in-app
                 (the exact silent open-redirect / scheme-smuggling regression)"
-        (is (true? (routing-url/external-url? (str "blob:" doc-origin "/1234-uuid")))
+        (is (true? (rf.routing.url/external-url? (str "blob:" doc-origin "/1234-uuid")))
             "blob:<same-origin> classes EXTERNAL — origins MATCH here, so the
              protocol-allowlist clause is the sole gate that catches it"))
 
@@ -264,7 +264,7 @@
         (doseq [u ["javascript:alert(1)"
                    "data:text/html,<script>alert(1)</script>"
                    "file:///etc/passwd"]]
-          (is (true? (routing-url/external-url? u))
+          (is (true? (rf.routing.url/external-url? u))
               (str "non-http(s) scheme " (pr-str u)
                    " classes EXTERNAL via the protocol allowlist (clause A)"))))
 
@@ -272,13 +272,13 @@
         (doseq [u ["//evil.example/x"                ;; protocol-relative → https://evil.example
                    "http://other-host.example/x"     ;; different host + scheme
                    "https://good@evil.example/x"]]    ;; userinfo-confusion → origin evil.example
-          (is (true? (routing-url/external-url? u))
+          (is (true? (rf.routing.url/external-url? u))
               (str "off-origin URL " (pr-str u)
                    " classes EXTERNAL via the origin-compare clause (clause B)"))))
 
       (testing "a SAME-ORIGIN ABSOLUTE http(s) URL is the one in-app case —
                 proving the browser gate is not blanket-true"
-        (is (false? (routing-url/external-url? (str doc-origin "/cart?q=1#frag")))
+        (is (false? (rf.routing.url/external-url? (str doc-origin "/cart?q=1#frag")))
             "same-origin absolute URL passes BOTH clauses → in-app (false)")))))
 
 (deftest request-url->app-url-canonicalizes-same-origin-absolute-cljs-rf2-aftbmz
@@ -290,13 +290,13 @@
     (register-routes!)
     (let [doc-origin (.-origin (.-location js/globalThis.window))]
       (is (= "/cart?q=1#frag"
-             (routing-url/request-url->app-url (str doc-origin "/cart?q=1#frag")))
+             (rf.routing.url/request-url->app-url (str doc-origin "/cart?q=1#frag")))
           "a same-origin ABSOLUTE URL is reduced to pathname+search+hash")
       (is (= "/cart?q=1#frag"
-             (routing-url/request-url->app-url "/cart?q=1#frag"))
+             (rf.routing.url/request-url->app-url "/cart?q=1#frag"))
           "an already-relative in-app URL canonicalizes to itself")
       (is (= "https://evil.example/x"
-             (routing-url/request-url->app-url "https://evil.example/x"))
+             (rf.routing.url/request-url->app-url "https://evil.example/x"))
           "an EXTERNAL URL is passed through unchanged — the external? gate
            short-circuits the canonicalize (canonicalising it could fabricate
            an in-app-looking path)"))))
@@ -310,8 +310,8 @@
     ;; rf2-1hncp2: scroll-position caches are a HOST-SIDE TRANSIENT cache
     ;; (not runtime-db) — read the frame's host cache, not the runtime-db.
     (is (= [12 345]
-           (routing/lookup-scroll-position
-             (routing/frame-scroll-cache :rf/default)
+           (rf.routing/lookup-scroll-position
+             (rf.routing/frame-scroll-cache :rf/default)
              "/cart"))
         "scroll position for the route being left is saved before the scroll strategy runs")
     (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
@@ -459,7 +459,7 @@
     ;; installs the listener for it (rf2-g8pbwg).
     (rf/make-frame {:id :rf/default :url-bound? false})
     (rf/make-frame {:id :sd/owner :url-bound? true})
-    (is (= :sd/owner (routing/url-owner-frame-id))
+    (is (= :sd/owner (rf.routing/url-owner-frame-id))
         "the non-default :url-bound? true frame owns the URL after default opts out")
     ;; :rf/default briefly resolved as the URL owner during register-routes!
     ;; above (before opting out on the very next line), so its OWN
@@ -505,7 +505,7 @@
             stolen-ownership resolution would have driven the WRONG frame."
     (register-routes!)               ;; :rf/default claims the URL first + auto-installs
     (rf/make-frame {:id :aaa-early :url-bound? true})   ;; sorts before :rf/default — a losing duplicate, never installs (rf2-g8pbwg)
-    (is (= :rf/default (routing/url-owner-frame-id))
+    (is (= :rf/default (rf.routing/url-owner-frame-id))
         "incumbent :rf/default is still the owner despite the earlier-sorting duplicate")
     ;; Incumbent forward-navigates (it owns push), building a history stack.
     (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
@@ -528,7 +528,7 @@
     (register-routes!)
     ;; register-routes! explicitly declares :rf/default as URL-bound, so its
     ;; frame registration installed the listener.
-    (is (= :rf/default (routing/url-owner-frame-id))
+    (is (= :rf/default (rf.routing/url-owner-frame-id))
         ":rf/default is the explicitly declared URL owner")
 
     (rf/dispatch-sync [:rf.route/url-requested {:url "/cart"}])
@@ -616,14 +616,14 @@
     ;; retains and orders AFTER A).
     (rf/make-frame {:id :owner/a :url-bound? true})
     (rf/make-frame {:id :owner/b :url-bound? true})
-    (is (= :owner/a (routing/url-owner-frame-id))
+    (is (= :owner/a (rf.routing/url-owner-frame-id))
         "A is the first-claimed URL owner")
     (is (= 1 (count (get-in @*history-state* [:listeners "popstate"])))
         "A's popstate listener installed automatically on create")
 
     ;; Destroy A: ownership transfers to the live claimant B; the listener rebinds.
     (rf/destroy-frame! :owner/a)
-    (is (= :owner/b (routing/url-owner-frame-id))
+    (is (= :owner/b (rf.routing/url-owner-frame-id))
         "ownership resolved to the surviving claimant B")
     (is (= 1 (count (get-in @*history-state* [:listeners "popstate"])))
         "exactly one popstate listener remains, rebound to B (was ZERO under the bug)")
@@ -649,15 +649,15 @@
     (rf/reg-route :hist/active {} "/active")
     ;; A = history owner (popstate); B = hash claimant (hashchange).
     (rf/make-frame {:id :owner/a :url-bound? true})
-    (rf/make-frame {:id :owner/b :url-bound? true :url-strategy routing/hash-url-strategy})
-    (is (= :owner/a (routing/url-owner-frame-id)))
+    (rf/make-frame {:id :owner/b :url-bound? true :url-strategy rf.routing/hash-url-strategy})
+    (is (= :owner/a (rf.routing/url-owner-frame-id)))
     (is (= 1 (count (get-in @*history-state* [:listeners "popstate"])))
         "A installed a popstate listener")
     (is (empty? (get-in @*history-state* [:listeners "hashchange"]))
         "no hashchange listener yet — A is a history owner")
 
     (rf/destroy-frame! :owner/a)
-    (is (= :owner/b (routing/url-owner-frame-id))
+    (is (= :owner/b (rf.routing/url-owner-frame-id))
         "ownership resolved to the hash claimant B")
     (is (empty? (get-in @*history-state* [:listeners "popstate"]))
         "the history owner's popstate listener was torn down on transfer")
@@ -681,14 +681,14 @@
     (rf/reg-route :hist/home   {} "/")
     (rf/reg-route :hist/active {} "/active")
     (rf/make-frame {:id :owner/a :url-bound? true})   ;; history owner, popstate
-    (rf/make-frame {:id :owner/b :url-bound? true :url-strategy routing/hash-url-strategy})
-    (is (= :owner/a (routing/url-owner-frame-id)))
+    (rf/make-frame {:id :owner/b :url-bound? true :url-strategy rf.routing/hash-url-strategy})
+    (is (= :owner/a (rf.routing/url-owner-frame-id)))
     (is (= 1 (count (get-in @*history-state* [:listeners "popstate"]))))
     (is (empty? (get-in @*history-state* [:listeners "hashchange"])))
 
     ;; A opts out; B (hash) becomes owner without re-registering.
     (rf/make-frame {:id :owner/a :url-bound? false})
-    (is (= :owner/b (routing/url-owner-frame-id))
+    (is (= :owner/b (rf.routing/url-owner-frame-id))
         "ownership fell through to the still-bound hash claimant B")
     (is (empty? (get-in @*history-state* [:listeners "popstate"]))
         "A's stale popstate listener was torn down (history→hash handoff)")
@@ -710,8 +710,8 @@
     (rf/make-frame {:id :owner/a :url-bound? true})   ;; history → popstate
     (is (= 1 (count (get-in @*history-state* [:listeners "popstate"]))))
     ;; Same owner re-registers with the hash strategy (hot-reload strategy swap).
-    (rf/make-frame {:id :owner/a :url-bound? true :url-strategy routing/hash-url-strategy})
-    (is (= :owner/a (routing/url-owner-frame-id))
+    (rf/make-frame {:id :owner/a :url-bound? true :url-strategy rf.routing/hash-url-strategy})
+    (is (= :owner/a (rf.routing/url-owner-frame-id))
         "A is still the owner across the strategy change")
     (is (empty? (get-in @*history-state* [:listeners "popstate"]))
         "the old history popstate listener was torn down")
@@ -734,7 +734,7 @@
       (is (some? incumbent) "A's popstate listener is installed")
       ;; Destroy the NON-owner duplicate B — A keeps the URL.
       (rf/destroy-frame! :owner/b)
-      (is (= :owner/a (routing/url-owner-frame-id))
+      (is (= :owner/a (rf.routing/url-owner-frame-id))
           "A is still the owner after the non-owner B is destroyed")
       (is (identical? incumbent (first (get-in @*history-state* [:listeners "popstate"])))
           "the incumbent's popstate listener instance was NOT torn down + reinstalled")
@@ -757,14 +757,14 @@
     (rf/make-frame {:id :owner/a :url-bound? true})       ;; history owner → popstate
     (let [incumbent       (first (get-in @*history-state* [:listeners "popstate"]))
           ;; SNAPSHOT the committed state before the malformed attempt.
-          record-before   (get @frame/frames :owner/a)
+          record-before   (get @rf.frame/frames :owner/a)
           meta-before     (rf/frame-meta :owner/a)
           captured        (atom [])
           cb-key          (keyword (gensym "ktmto9-rereg-trace-"))]
       (is (some? incumbent) "A's popstate listener is installed")
       (is (= 1 (count (get-in @*history-state* [:listeners "popstate"]))))
       (is (some? record-before) "A's frames-registry record exists")
-      (trace-tooling/register-listener! cb-key (fn [ev] (swap! captured conj ev)))
+      (rf.trace.tooling/register-listener! cb-key (fn [ev] (swap! captured conj ev)))
       (try
         ;; Re-register A with an invalid strategy: shape-valid on the JVM
         ;; (encode+decode) but MISSING the required CLJS browser legs
@@ -782,12 +782,12 @@
           (is (= :owner/a (:frame (ex-data ex)))
               "the ex-data names the offending frame"))
         ;; EVERY previously committed value is unchanged.
-        (is (identical? record-before (get @frame/frames :owner/a))
+        (is (identical? record-before (get @rf.frame/frames :owner/a))
             "the frames-registry record (config + generation + containers) is
              the SAME object — the frames swap never ran")
         (is (= meta-before (rf/frame-meta :owner/a))
             "the frame-meta introspection surface is unchanged — no config commit")
-        (is (= :owner/a (routing/url-owner-frame-id))
+        (is (= :owner/a (rf.routing/url-owner-frame-id))
             "A still owns the URL — the claim order is unchanged")
         (is (empty? (filter #(= :rf.frame/re-registered (:operation %)) @captured))
             "no :rf.frame/re-registered trace fired for the failed attempt")
@@ -806,7 +806,7 @@
                                   [:rf.runtime/routing :current])))
             "Back drove A's slice back to / via the surviving popstate listener")
         (finally
-          (trace-tooling/unregister-listener! cb-key))))))
+          (rf.trace.tooling/unregister-listener! cb-key))))))
 
 ;; ---- rf2-ktmto9: FIRST-registration preflight — zero residue on failure ----
 ;;
@@ -835,7 +835,7 @@
   [frame-id attempt! probe]
   (let [captured (atom [])
         cb-key   (keyword (gensym "ktmto9-first-trace-"))]
-    (trace-tooling/register-listener! cb-key (fn [ev] (swap! captured conj ev)))
+    (rf.trace.tooling/register-listener! cb-key (fn [ev] (swap! captured conj ev)))
     (try
       (let [ex (try (attempt!) nil (catch :default e e))]
         (is (some? ex) "the malformed first registration throws")
@@ -849,19 +849,19 @@
           "no frame record was created")
       (is (nil? (rf/frame-meta frame-id))
           "no frame config was seated (rf2-h1vqa4 — frames have no registrar rows)")
-      (is (nil? (routing/url-owner-frame-id))
+      (is (nil? (rf.routing/url-owner-frame-id))
           "no URL claim was recorded")
       (is (empty? (get-in @*history-state* [:listeners "popstate"]))
           "no popstate listener was installed")
       (is (empty? (get-in @*history-state* [:listeners "hashchange"]))
           "no hashchange listener was installed")
-      (is (not (trace/frame-trace-disabled? frame-id))
+      (is (not (rf.trace/frame-trace-disabled? frame-id))
           "no trace-policy residue — the :rf.trace/frame-no-emit? flag was
            never written for the failed frame")
       (is (empty? (filter #(= frame-id (get-in % [:tags :frame])) @captured))
           "no trace event (incl. :rf.frame/created) mentions the failed frame")
       (finally
-        (trace-tooling/unregister-listener! cb-key)))))
+        (rf.trace.tooling/unregister-listener! cb-key)))))
 
 (deftest first-registration-preflight-zero-residue-make-frame-1-arity-cljs-rf2-ktmto9
   (testing "rf2-ktmto9: a URL owner's FIRST rf/make-frame — the 1-arity
@@ -921,7 +921,7 @@
     (let [incumbent (first (get-in @*history-state* [:listeners "popstate"]))
           ;; Every leg callable (so the preflight passes) and behaviourally the
           ;; history strategy — EXCEPT the installer, which throws.
-          throwing  (merge routing/history-url-strategy
+          throwing  (merge rf.routing/history-url-strategy
                            {:install-listener! (fn [_on-change]
                                                  (throw (ex-info "installer boom" {})))})]
       (is (some? incumbent) "A's popstate listener is installed")
@@ -1182,7 +1182,7 @@
       (let [fragment-changed (atom [])
             allocations      (atom [])
             cb-key           (keyword (gensym "hashchange-"))]
-        (trace-tooling/register-listener!
+        (rf.trace.tooling/register-listener!
           cb-key
           (fn [ev]
             (case (:operation ev)
@@ -1194,7 +1194,7 @@
         (try
           (rf/dispatch-sync [:rf.route/transitioned "/articles/intro#section-2"])
           (finally
-            (trace-tooling/unregister-listener! cb-key)))
+            (rf.trace.tooling/unregister-listener! cb-key)))
 
         (is (= 1 (count @fragment-changed))
             "fragment-only nav emits :rf.route/fragment-changed exactly once")
@@ -1252,26 +1252,26 @@
     (register-routes!)
     (rf/reg-route :hist/search {} "/search")
     ;; Path segment — bare `%`, incomplete pair, non-hex pair.
-    (is (nil? (routing/match-url "/articles/%"))
+    (is (nil? (rf.routing/match-url "/articles/%"))
         "bare `%` in path → route-miss (no decodeURIComponent throw escapes)")
-    (is (nil? (routing/match-url "/articles/x%a"))
+    (is (nil? (rf.routing/match-url "/articles/x%a"))
         "incomplete %-pair in path → route-miss")
-    (is (nil? (routing/match-url "/articles/x%XX"))
+    (is (nil? (rf.routing/match-url "/articles/x%XX"))
         "non-hex %-pair in path → route-miss")
     ;; Query value + key — whole URL fails closed (no partial slice).
-    (is (nil? (routing/match-url "/search?x=%"))
+    (is (nil? (rf.routing/match-url "/search?x=%"))
         "malformed query VALUE → whole URL is a route-miss")
-    (is (nil? (routing/match-url "/search?%=v"))
+    (is (nil? (rf.routing/match-url "/search?%=v"))
         "malformed query KEY → whole URL is a route-miss")
     ;; Fragment.
-    (is (nil? (routing/match-url "/search#%"))
+    (is (nil? (rf.routing/match-url "/search#%"))
         "malformed `#fragment` → route-miss")
     ;; No registered route: even a bare `%` URL must not throw.
-    (is (nil? (routing/match-url "/%"))
+    (is (nil? (rf.routing/match-url "/%"))
         "bare `%` with no matching route → route-miss, not an exception"))
   (testing "well-formed %-encoding still decodes on the CLJS path"
     (register-routes!)
-    (let [m (routing/match-url "/articles/hello%20world")]
+    (let [m (rf.routing/match-url "/articles/hello%20world")]
       (is (some? m) "well-formed %-encoded path segment matches")
       (is (= "hello world" (get-in m [:params :id]))
           "decodeURIComponent decodes the well-formed segment into the slice"))))
@@ -1293,18 +1293,18 @@
             client agrees with the JVM"
     (register-routes!)
     (rf/reg-route :hist/list {:query [:map [:page :int]]} "/list")
-    (is (= 12 (get-in (routing/match-url "/list?page=12") [:query :page]))
+    (is (= 12 (get-in (rf.routing/match-url "/list?page=12") [:query :page]))
         "clean integer literal coerces to a number")
-    (is (= -7 (get-in (routing/match-url "/list?page=-7") [:query :page]))
+    (is (= -7 (get-in (rf.routing/match-url "/list?page=-7") [:query :page]))
         "signed integer literal coerces")
-    (is (= "12abc" (get-in (routing/match-url "/list?page=12abc") [:query :page]))
+    (is (= "12abc" (get-in (rf.routing/match-url "/list?page=12abc") [:query :page]))
         "partial-numeric input stays a STRING (was 12 under js/parseInt) —
          the cross-host asymmetry rf2-oyw04 closes")
-    (is (= "0x10" (get-in (routing/match-url "/list?page=0x10") [:query :page]))
+    (is (= "0x10" (get-in (rf.routing/match-url "/list?page=0x10") [:query :page]))
         "radix-prefixed input stays a string, matching the JVM")
-    (is (= " 12" (get-in (routing/match-url "/list?page=%2012") [:query :page]))
+    (is (= " 12" (get-in (rf.routing/match-url "/list?page=%2012") [:query :page]))
         "leading-whitespace input stays a string, matching the JVM")
-    (is (= "abc" (get-in (routing/match-url "/list?page=abc") [:query :page]))
+    (is (= "abc" (get-in (rf.routing/match-url "/list?page=abc") [:query :page]))
         "fully non-numeric input stays a string (already symmetric)")))
 
 ;; rf2-cylse.1: :int coercion must be HOST-SYMMETRIC and TOTAL on OVERSIZED
@@ -1324,23 +1324,23 @@
     (register-routes!)
     (rf/reg-route :hist/items {:query [:map [:page :int]]} "/items")
     (testing "within the safe-integer range still coerces"
-      (is (= 42 (get-in (routing/match-url "/items?page=42") [:query :page])))
+      (is (= 42 (get-in (rf.routing/match-url "/items?page=42") [:query :page])))
       (is (= 9007199254740991
-             (get-in (routing/match-url "/items?page=9007199254740991") [:query :page]))
+             (get-in (rf.routing/match-url "/items?page=9007199254740991") [:query :page]))
           "2^53-1 (MAX_SAFE_INTEGER) coerces — inclusive ceiling, exact on both hosts"))
     (testing "above the ceiling passes through as a string (both hosts agree)"
       (is (= "9007199254740992"
-             (get-in (routing/match-url "/items?page=9007199254740992") [:query :page]))
+             (get-in (rf.routing/match-url "/items?page=9007199254740992") [:query :page]))
           "2^53 exceeds MAX_SAFE_INTEGER → string (js/parseInt would round)")
       (is (= "9007199254740993"
-             (get-in (routing/match-url "/items?page=9007199254740993") [:query :page]))
+             (get-in (rf.routing/match-url "/items?page=9007199254740993") [:query :page]))
           "the canonical lossy-double case → string on CLJS too (was ...92)")
       (is (= "-9007199254740993"
-             (get-in (routing/match-url "/items?page=-9007199254740993") [:query :page]))
+             (get-in (rf.routing/match-url "/items?page=-9007199254740993") [:query :page]))
           "negative oversized literal also passes through"))
     (testing "a literal beyond 2^63 does NOT coerce (parse-long is total, returns nil)"
       (is (= "99999999999999999999999"
-             (get-in (routing/match-url "/items?page=99999999999999999999999") [:query :page]))
+             (get-in (rf.routing/match-url "/items?page=99999999999999999999999") [:query :page]))
           "string passthrough, matching the JVM (no throw / no lossy float)"))))
 
 ;; rf2-cylse.5: PATH params coerce against the :params schema on CLJS too —
@@ -1352,10 +1352,10 @@
     (register-routes!)
     (rf/reg-route :hist/page    {:params [:map [:n :int]]} "/page/:n")
     (rf/reg-route :hist/article {:params [:map [:id :uuid]]} "/articles/:id")
-    (is (= 42 (get-in (routing/match-url "/page/42") [:params :n]))
+    (is (= 42 (get-in (rf.routing/match-url "/page/42") [:params :n]))
         ":int path param coerced to a number")
     (let [uuid-str "550e8400-e29b-41d4-a716-446655440000"
-          m        (routing/match-url (str "/articles/" uuid-str))]
+          m        (rf.routing/match-url (str "/articles/" uuid-str))]
       (is (= (parse-uuid uuid-str) (get-in m [:params :id]))
           ":uuid path param coerced to a #uuid object")
       (is (uuid? (get-in m [:params :id])) "the slice carries a UUID object, not a string"))))
@@ -1376,7 +1376,7 @@
                            [:id [:uuid {}]]
                            [:archived [:boolean {}]]]} "/items")
     (let [uuid-str "550e8400-e29b-41d4-a716-446655440000"
-          m (routing/match-url
+          m (rf.routing/match-url
               (str "/items?page=2&id=" uuid-str "&archived=true"))]
       (is (= 2 (get-in m [:query :page]))
           "[:int {:min 1}] coerces \"2\" to 2 (was string → 404)")
@@ -1389,10 +1389,10 @@
   (testing "optioned :params (path) scalars coerce equivalently on CLJS"
     (rf/reg-route :hist/opt-page    {:params [:map [:n [:int {:min 1}]]]} "/op/:n")
     (rf/reg-route :hist/opt-article {:params [:map [:id [:uuid {}]]]} "/oa/:id")
-    (is (= 2 (get-in (routing/match-url "/op/2") [:params :n]))
+    (is (= 2 (get-in (rf.routing/match-url "/op/2") [:params :n]))
         "[:int {:min 1}] path param coerces to 2")
     (let [uuid-str "550e8400-e29b-41d4-a716-446655440000"
-          m        (routing/match-url (str "/oa/" uuid-str))]
+          m        (rf.routing/match-url (str "/oa/" uuid-str))]
       (is (= (parse-uuid uuid-str) (get-in m [:params :id]))
           "[:uuid {}] path param coerces to a UUID object")
       (is (false? (:validation-failed? m)))))
@@ -1400,15 +1400,15 @@
   (testing "optioned `[:enum {...} :a :b]` keeps the keyword allowlist gate"
     (rf/reg-route :hist/sorted
                   {:query [:map [:sort [:enum {:default :asc} :asc :desc]]]} "/sorted")
-    (is (= :asc (get-in (routing/match-url "/sorted?sort=asc") [:query :sort]))
+    (is (= :asc (get-in (rf.routing/match-url "/sorted?sort=asc") [:query :sort]))
         "declared enum value interns even with an opts map")
-    (is (= "nope" (get-in (routing/match-url "/sorted?sort=nope") [:query :sort]))
+    (is (= "nope" (get-in (rf.routing/match-url "/sorted?sort=nope") [:query :sort]))
         "value outside the allowlist stays a string"))
 
   (testing "[:maybe inner] coerces the present value against the inner type"
     (rf/reg-route :hist/maybe
                   {:query [:map [:page [:maybe [:int {:min 1}]]]]} "/maybe")
-    (let [m (routing/match-url "/maybe?page=7")]
+    (let [m (rf.routing/match-url "/maybe?page=7")]
       (is (= 7 (get-in m [:query :page]))
           "[:maybe [:int {:min 1}]] coerces through wrapper + option")
       (is (false? (:validation-failed? m))))))
@@ -1548,7 +1548,7 @@
   [thunk]
   (let [captured (atom [])
         cb-key   (keyword (gensym "fx-failure-"))]
-    (trace-tooling/register-listener!
+    (rf.trace.tooling/register-listener!
       cb-key
       (fn [ev]
         (when (#{:rf.fx/push-url-failed :rf.fx/replace-url-failed}
@@ -1557,7 +1557,7 @@
     (try
       [(thunk) @captured]
       (finally
-        (trace-tooling/unregister-listener! cb-key)))))
+        (rf.trace.tooling/unregister-listener! cb-key)))))
 
 (deftest replace-url-throwing-replacestate-fails-closed-cljs
   (testing ":rf.nav/replace-url downgrades a throwing replaceState to a :rf.fx/replace-url-failed trace; no exception escapes the drain"

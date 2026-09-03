@@ -14,17 +14,17 @@
   Internal namespace; the public facade is `re-frame.routing`. The
   facade owns the two `events/reg-event` calls so a `:reload`
   re-wires them on a fresh registrar."
-  (:require [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.privacy.url :as url-egress]
-            [re-frame.registrar :as registrar]
-            [re-frame.routing.decisions :as decisions]
-            [re-frame.routing.events :as routing-events]
-            [re-frame.routing.plan :as plan]
-            [re-frame.routing.resolve :as resolver]
-            [re-frame.routing.scroll :as scroll]
-            [re-frame.trace :as trace]))
+  (:require [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.privacy.url :as rf.privacy.url]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.routing.decisions :as rf.routing.decisions]
+            [re-frame.routing.events :as rf.routing.events]
+            [re-frame.routing.plan :as rf.routing.plan]
+            [re-frame.routing.resolve :as rf.routing.resolve]
+            [re-frame.routing.scroll :as rf.routing.scroll]
+            [re-frame.trace :as rf.trace]))
 
 (defn- route-miss-tags
   "The `:rf.error/no-such-handler` `:kind :route` tag map for a URL-driven
@@ -45,7 +45,7 @@
   production-survivable / off-box-observable category EP-0015 requires to
   FAIL CLOSED. A route-miss URL has no matched route → no schema to
   consult, and is the class most likely to carry secret carriers
-  (`?token=…`, `#access_token=…`). `url-egress/redact-url-tag` scrubs the
+  (`?token=…`, `#access_token=…`). `rf.privacy.url/redact-url-tag` scrubs the
   query / fragment carrier VALUES (keeping the structured path + `:reason`)
   HERE, before the tags reach either axis — so the redaction covers the
   always-on production record exactly as it covers the dev trace."
@@ -56,15 +56,15 @@
         frame        (assoc :frame frame)
         throw-reason (assoc :reason throw-reason)
         malformed?   (assoc :reason :malformed-url))
-      (url-egress/redact-url-tag :url)))
+      (rf.privacy.url/redact-url-tag :url)))
 
 (defn- emit-route-miss-error!
   "Fan the URL-driven route miss out on the ALWAYS-ON error axis (rf2-ov56u,
   ruling rf2-rqje9) — the production-survivable sibling of the dev
-  `trace/emit-error!` the caller emits alongside it.
+  `rf.trace/emit-error!` the caller emits alongside it.
 
   WHY. Until this promotion the miss reached the wire ONLY through
-  `trace/emit-error!`, gated on `interop/debug-enabled?`. Under the
+  `rf.trace/emit-error!`, gated on `rf.interop/debug-enabled?`. Under the
   documented production gate (`-Dre-frame.debug=false`, `:advanced` +
   `goog.DEBUG=false`) nothing buffered, the SSR error projector had nothing
   to project, and a request for an unroutable URL answered HTTP 200 — a
@@ -89,11 +89,11 @@
   `router.diagnostics` uses. A no-op when the hook is unbound. Returns nil."
   [tags]
   (when-let [dispatch-error-record!
-             (late-bind/get-fn-cached :error-emit/dispatch-error-record)]
+             (rf.late-bind/get-fn-cached :error-emit/dispatch-error-record)]
     (dispatch-error-record!
       (assoc tags
              :error :rf.error/no-such-handler
-             :time  (interop/now-ms))))
+             :time  (rf.interop/now-ms))))
   nil)
 
 (defn- fragment-only-fx
@@ -115,7 +115,7 @@
   Scroll (rf2-p1aipi — the URL-driven counterpart to rf2-k4exp1's
   programmatic `navigate.cljc` fragment-only door): capture the LEAVING
   position, THEN emit the resolved `:rf.nav/scroll`. Both fx are the
-  entry-point's already-resolved `plan/scroll-plan` outputs, threaded in
+  entry-point's already-resolved `rf.routing.plan/scroll-plan` outputs, threaded in
   by the caller (`capture-fx` / `scroll-fx`) — the SAME pair the full-
   commit sibling in `url-change-fx` uses — so the fragment-only door and
   the full-commit door resolve scroll identically. Before this fix the
@@ -129,10 +129,10 @@
   programmatic door — it emits NO `:rf.nav/push-url`; but `pushState` /
   popstate do NOT scroll to a fragment natively, so `:rf.nav/scroll` IS
   required. `:scroll false` on the route meta suppresses it: `scroll-fx`
-  arrives nil (`plan/scroll-plan` → `::suppress`) and no scroll fx is
+  arrives nil (`rf.routing.plan/scroll-plan` → `::suppress`) and no scroll fx is
   emitted."
   [rdb prev next-fragment capture-fx scroll-fx frame]
-  (trace/emit! :rf.event :rf.route/fragment-changed
+  (rf.trace/emit! :rf.event :rf.route/fragment-changed
                {:route-id      (:route-id prev)
                 :prev-fragment (:fragment prev)
                 :next-fragment next-fragment
@@ -196,8 +196,8 @@
 
    rf2-szp11 — ONE argument map, keys named exactly as the destructuring
    names them, which is the shape every other function in this seam already
-   takes (`decisions/decide`, `plan/scroll-plan`, `resolve/route-plan`,
-   `plan/fallback-telemetry-intents`, `commit-navigation`'s opts,
+   takes (`rf.routing.decisions/decide`, `rf.routing.plan/scroll-plan`, `resolve/route-plan`,
+   `rf.routing.plan/fallback-telemetry-intents`, `commit-navigation`'s opts,
    `navigate/fragment-only-nav-fx`). This was the seam's one positional
    outlier, and it had grown to NINE positions — the last two (`cause` at
    R0b, `opts` at R4) one slice at a time, each addition individually
@@ -217,7 +217,7 @@
         ;; `:rf.route/not-found` fallback normalisation and its `:reason`
         ;; vocabulary — is the ONE shared definition in
         ;; `re-frame.routing.resolve/url-resolution`, the same seam the LINK
-        ;; door's stage 3 + guards resolve through (`resolver/target-of-url`).
+        ;; door's stage 3 + guards resolve through (`rf.routing.resolve/target-of-url`).
         ;; Deriving it here as well is what let the two disagree: the link door
         ;; decided against an incomplete target while this hop committed the
         ;; canonical not-found one.
@@ -231,7 +231,7 @@
         ;; scan, run only when `match-url` already missed.
         {:keys [match throw-reason malformed? fallback?]
          resolved-target :target}
-        (resolver/url-resolution url)
+        (rf.routing.resolve/url-resolution url)
         fragment          (:fragment resolved-target)
         ;; Spec 012 §Fragments rules 3-4: when the new URL differs from
         ;; the current slice ONLY in its `#fragment` (same route-id,
@@ -245,12 +245,12 @@
         ;; data (rf2-8oxj6).
         prev              (get-in rdb [:rf.runtime/routing :current])
         ;; rf2-u8qe7y: fragment-only classification (Spec 012 §Fragments
-        ;; rules 3-4) is shared pre-commit policy — `plan/fragment-only?`.
+        ;; rules 3-4) is shared pre-commit policy — `rf.routing.plan/fragment-only?`.
         ;; The fragment-only comparison is the PRE-fallback view: Spec 012
         ;; §Fragments rules 3-4 compares against the MATCHED route's id /
         ;; params / query, not against the not-found fallback the target
         ;; normalises to — hence the raw `match` the seam also returns.
-        fragment-only?    (and match (plan/fragment-only? prev (:route-id match)
+        fragment-only?    (and match (rf.routing.plan/fragment-only? prev (:route-id match)
                                                           (:params match) (:query match)
                                                           fragment))
         route-id          (:route-id resolved-target)
@@ -264,8 +264,8 @@
         ;; also skip. Sits alongside `fragment-only?` (the id/params/query
         ;; equal, fragment-changed sibling); the two are mutually
         ;; exclusive (fragment-only requires the fragment to differ).
-        identical-nav?    (plan/identical-route-target? prev route-id params query fragment)
-        route-meta        (registrar/lookup :route route-id)
+        identical-nav?    (rf.routing.plan/identical-route-target? prev route-id params query fragment)
+        route-meta        (rf.registrar/lookup :route route-id)
         on-match-vec      (vec (or (:on-match route-meta) []))
         ;; EP-0037 R1: :on-match never drives readiness. The base transition
         ;; is :idle; commit-navigation projects :loading / :error from the
@@ -277,16 +277,16 @@
         ;; (the prior eager alloc was discarded on both), so the
         ;; observable counter behaviour is unchanged.
         ;; rf2-u8qe7y: the capture-fx + scroll-fx assembly is shared
-        ;; pre-commit policy — `plan/scroll-plan` (URL-driven path passes
+        ;; pre-commit policy — `rf.routing.plan/scroll-plan` (URL-driven path passes
         ;; no opts; default strategy is the caller-supplied `default-scroll`).
         {:keys [capture-fx scroll-fx]}
-        (plan/scroll-plan {:rdb              rdb
+        (rf.routing.plan/scroll-plan {:rdb              rdb
                            ;; rf2-1hncp2: saved scroll positions are a
                            ;; host-side transient cache (not runtime-db) —
                            ;; read the active frame's cache and thread it in
                            ;; explicitly so the planner stays pure. `:restore`
                            ;; (the popstate / Back-button default) reads it.
-                           :scroll-cache     (scroll/frame-scroll-cache frame)
+                           :scroll-cache     (rf.routing.scroll/frame-scroll-cache frame)
                            :route-meta       route-meta
                            :opts             nil
                            :default-strategy default-scroll
@@ -302,7 +302,7 @@
         ;; target and synthesised this event (`:rf.route/decided?`).
         decision (delay
                    (when-not (:rf.route/decided? opts)
-                     (decisions/decide
+                     (rf.routing.decisions/decide
                        {:rdb                    rdb
                         :frame                  frame
                         ;; rf2-2gna9: the guards decide against the ResolvedTarget
@@ -353,7 +353,7 @@
       ;; `:rf.route/fragment-changed` trace is frame-attributed (rf2-n0851k),
       ;; consistent with the commit-path lifecycle traces below.
       ;; rf2-p1aipi: pass the already-resolved scroll pair (`capture-fx` +
-      ;; `scroll-fx` from the shared `plan/scroll-plan` above) so the
+      ;; `scroll-fx` from the shared `rf.routing.plan/scroll-plan` above) so the
       ;; fragment-only door EMITS the resolved `:rf.nav/scroll` (capture →
       ;; scroll), matching the programmatic `navigate.cljc` door
       ;; (rf2-k4exp1). No push-fx — the URL-driven door never drives the
@@ -370,7 +370,7 @@
       ;; copy. Its `:cause` / `:branch` / `:leaf-plan` are the R0 diagnostic
       ;; projection (Spec 012 §Resolved target and the plan diagnostic
       ;; projection). The raw URL IS the source here.
-      (let [route-plan (resolver/route-plan {:cause  cause
+      (let [route-plan (rf.routing.resolve/route-plan {:cause  cause
                                              :source {:url url}
                                              :target resolved-target})
             ;; rf2-ov56u: ONE redacted tag map, TWO error axes. Built here
@@ -395,14 +395,14 @@
         ;; registered route — rf2-0zr2o / Spec 012 §Route-not-found §3) is
         ;; shared pre-commit policy with the programmatic path. Both build the
         ;; SAME intent list from the same inputs via
-        ;; `plan/fallback-telemetry-intents`, so the two paths cannot drift
+        ;; `rf.routing.plan/fallback-telemetry-intents`, so the two paths cannot drift
         ;; (the drift navigate.cljc:426-437 documents). The
         ;; `:rf.error/no-such-handler` error is URL-driven-specific (every
         ;; URL-driven fallback is a handler-miss; the programmatic `{:url}`
         ;; miss is the documented not-found escape hatch, not a
         ;; handler-resolution error) so it stays a call-site intent.
-        (plan/emit-intents!
-          (cond-> (plan/fallback-telemetry-intents
+        (rf.routing.plan/emit-intents!
+          (cond-> (rf.routing.plan/fallback-telemetry-intents
                     {:throw-reason  throw-reason
                      :malformed?    malformed?
                      :no-not-found? (and fallback? (nil? route-meta))
@@ -415,12 +415,12 @@
         ;; rather than only from a tool holding a plan value. This door stands for
         ;; FOUR of the five causes (`:link` / `:popstate` / `:initial` / `:ssr`),
         ;; so the `cause` it was handed is what distinguishes them on the stream.
-        ;; `resolver/plan-trace-tags` is the ONE projection-to-tags mapping (the
+        ;; `rf.routing.resolve/plan-trace-tags` is the ONE projection-to-tags mapping (the
         ;; programmatic door emits through it too) and it is what keeps the trace
         ;; from becoming a carrier: the URL rides the existing `redact-url-tag`
         ;; path and `:params` / `:query` contribute KEY SETS, not values.
-        (trace/emit! :rf.event :rf.route/planned
-                     (cond-> (resolver/plan-trace-tags route-plan)
+        (rf.trace/emit! :rf.event :rf.route/planned
+                     (cond-> (rf.routing.resolve/plan-trace-tags route-plan)
                        frame (assoc :frame frame)))
         ;; rf2-g8tzb / commit-navigation: nav-token alloc, the
         ;; allocated/activation traces, the slice publish (targeting
@@ -428,7 +428,7 @@
         ;; and the fx assembly are the shared commit shape. The
         ;; URL-driven path passes NO `push-fx` — the browser URL already
         ;; changed (popstate / initial / link-click pushState).
-        (routing-events/commit-navigation
+        (rf.routing.events/commit-navigation
           rdb
           (assoc (:target route-plan) :transition transition)
           on-match-vec
@@ -479,7 +479,7 @@
         ;; cascade event, so the cofx carries the frame stamp under
         ;; `:rf.frame/id`; a nil stamp is an invariant failure
         ;; (`:rf.error/no-frame-context`), never a synthesised `:rf/default`.
-        frame   (frame/require-frame-stamp!
+        frame   (rf.frame/require-frame-stamp!
                   frame :rf.route/transitioned
                   {:where 'rf.route/transitioned-handler})
         opts    (or opts {})
@@ -521,7 +521,7 @@
      browser-driven `popstate` / `hashchange` callback stamps `:popstate`, and
      the same listener's initial URL -> slice sync stamps `:initial` (Spec 012
      §popstate drives the URL-owner frame). Only a member of
-     `resolver/causes` is honoured; anything else falls through, so a stray
+     `rf.routing.resolve/causes` is honoured; anything else falls through, so a stray
      value cannot invent a sixth cause. Like `:rf.route/decided?` this is a
      runtime-internal rider on the trailing opts map, NOT a member of the
      closed `:rf.route/navigate` request roster (Spec 012 §The request
@@ -539,8 +539,8 @@
   [frame opts]
   (let [riden (:rf.route/cause opts)]
     (cond
-      (contains? resolver/causes riden)  riden
-      (decisions/server-frame? frame)    :ssr
+      (contains? rf.routing.resolve/causes riden)  riden
+      (rf.routing.decisions/server-frame? frame)    :ssr
       :else                              :initial)))
 
 (defn handle-url-change-handler
@@ -569,7 +569,7 @@
         ;; the frame stamp under `:rf.frame/id`; a nil stamp is an invariant
         ;; failure (`:rf.error/no-frame-context`), never a synthesised
         ;; `:rf/default`.
-        frame   (frame/require-frame-stamp!
+        frame   (rf.frame/require-frame-stamp!
                   frame :rf.route/handle-url-change
                   {:where 'rf.route/handle-url-change-handler})
         opts    (or opts {})

@@ -44,20 +44,20 @@
   `scripts/test-routing-prod-gate.sh` (the `-Dre-frame.debug=false` lane).
 
   The single exception is the `:rf.route.nav-token/stale-suppressed` TRACE,
-  dev instrumentation behind `interop/debug-enabled?`; it is kept VERBATIM
-  inside a `(when interop/debug-enabled? …)` arm marked `rf2-o5dbf`, beside
+  dev instrumentation behind `rf.interop/debug-enabled?`; it is kept VERBATIM
+  inside a `(when rf.interop/debug-enabled? …)` arm marked `rf2-o5dbf`, beside
   the app-db assertion that already proves the same suppression happened."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.fx :as fx]
-            [re-frame.interop :as interop]
-            [re-frame.cofx :as cofx]
-            [re-frame.routing :as routing]
-            [re-frame.routing.nav-counters :as nav-counters]
+            [re-frame.fx :as rf.fx]
+            [re-frame.interop :as rf.interop]
+            [re-frame.cofx :as rf.cofx]
+            [re-frame.routing :as rf.routing]
+            [re-frame.routing.nav-counters :as rf.routing.nav-counters]
             [re-frame.routing.test-support]
-            [re-frame.routing-test-support :as rts]))
+            [re-frame.routing-test-support :as rf.routing-test-support]))
 
-(use-fixtures :each rts/reset-runtime)
+(use-fixtures :each rf.routing-test-support/reset-runtime)
 
 (defn- block-fixture!
   "Register an editor route with a blocking `:can-leave`, a home target, and
@@ -67,8 +67,8 @@
   (rf/reg-route :route/editor {:can-leave [:editor/can-leave?]} "/editor")
   (rf/reg-route :route/home   {} "/home")
   (rf/reg-sub :editor/can-leave? (fn [_ _] false))           ;; dirty → block
-  (fx/reg-fx :rf.nav/push-url    {:platforms #{:server :client}} (fn [_ _] nil))
-  (fx/reg-fx :rf.nav/replace-url {:platforms #{:server :client}} (fn [_ _] nil))
+  (rf.fx/reg-fx :rf.nav/push-url    {:platforms #{:server :client}} (fn [_ _] nil))
+  (rf.fx/reg-fx :rf.nav/replace-url {:platforms #{:server :client}} (fn [_ _] nil))
   (rf/dispatch-sync [:rf.route/transitioned "/editor"]))
 
 (defn- pending-id []
@@ -119,7 +119,7 @@
     ;; A PRIOR block already advanced the host pending-nav high-water to 1, so a
     ;; fresh ambient re-mint (the retired behaviour) yields \"pn-2\", NOT the
     ;; recorded \"pn-1\".
-    (nav-counters/commit-counter! :rf/default :pending-nav-counter 1)
+    (rf.routing.nav-counters/commit-counter! :rf/default :pending-nav-counter 1)
     ;; LIVE re-mint (mirrors the ambient hole — no recorded allocation supplied).
     (rf/dispatch-sync [:rf.route/url-requested {:url "/home"}])
     (is (= "pn-2" (pending-id))
@@ -136,7 +136,7 @@
             matches and the navigation proceeds"
     (block-fixture!)
     ;; Same advanced host counter as the failing case — a re-mint WOULD give pn-2.
-    (nav-counters/commit-counter! :rf/default :pending-nav-counter 1)
+    (rf.routing.nav-counters/commit-counter! :rf/default :pending-nav-counter 1)
     ;; REPLAY: the recorded allocation rides the causal token; strict mode
     ;; (replay) re-presents it verbatim — the generator does NOT run.
     (rf/dispatch-sync [:rf.route/url-requested {:url "/home"}]
@@ -180,7 +180,7 @@
       (rf/register-listener! :trace ::flip (fn [ev] (swap! traces conj ev)))
       ;; A PRIOR navigation advanced the host nav-token high-water to 5, so a
       ;; fresh ambient re-mint (the retired behaviour) yields \"nav-6\".
-      (nav-counters/commit-counter! :rf/default :nav-token-counter 5)
+      (rf.routing.nav-counters/commit-counter! :rf/default :nav-token-counter 5)
       ;; LIVE re-mint (the hole) — the slice gets nav-6, NOT the recorded nav-1.
       (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])
       (is (= "nav-6" (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
@@ -200,7 +200,7 @@
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring). The FLIP
       ;; itself — the recorded continuation was suppressed and never reached
       ;; app-db — is asserted immediately above, posture-independently.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (some #(= :rf.route.nav-token/stale-suppressed (:operation %)) @traces)
             "a stale-suppressed trace fired — the flipped decision")))))
 
@@ -213,7 +213,7 @@
     (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
     (rf/reg-event :article/loaded (fn [{:keys [db]} [_ id payload]] {:db (assoc db :article {:id id :payload payload})}))
     ;; Same advanced host counter as the failing case — a re-mint WOULD give nav-6.
-    (nav-counters/commit-counter! :rf/default :nav-token-counter 5)
+    (rf.routing.nav-counters/commit-counter! :rf/default :nav-token-counter 5)
     ;; REPLAY: the recorded token carries BOTH allocations (a `transitioned`
     ;; event records both — both generate live; only nav-allocation is used on
     ;; the commit branch, but strict replay re-presents the full record).
@@ -263,7 +263,7 @@
                       {:rf.cofx {:rf.route/nav-allocation         {:token "nav-9" :counter 9}
                                  :rf.route/pending-nav-allocation {:id "pn-1" :counter 1}}
                        :rf.cofx/mint-policy :strict})
-    (is (= 9 (:nav-token-counter (nav-counters/counter-snapshot :rf/default)))
+    (is (= 9 (:nav-token-counter (rf.routing.nav-counters/counter-snapshot :rf/default)))
         "the commit fx advanced the host high-water to the recorded :counter (9) via max")
     ;; A subsequent LIVE navigation mints strictly past the re-established mark.
     (rf/dispatch-sync [:rf.route/transitioned "/articles/B"])
@@ -291,7 +291,7 @@
         "three live navigations mint nav-1 → nav-2 → nav-3 (monotone)")
     ;; A clean commit (no block) leaves the pending-nav counter untouched — the
     ;; pending-nav generator runs but its commit fx only fires on a block.
-    (is (nil? (:pending-nav-counter (nav-counters/counter-snapshot :rf/default)))
+    (is (nil? (:pending-nav-counter (rf.routing.nav-counters/counter-snapshot :rf/default)))
         "a clean commit never advances the pending-nav allocator (no block branch taken)")))
 
 ;; ===========================================================================

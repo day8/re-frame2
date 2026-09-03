@@ -57,7 +57,7 @@
   (rf2-bv2qqm wired the exclude — it was previously inert)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.registrar :as registrar]
+            [re-frame.registrar :as rf.registrar]
             ;; rf2-k682: this test lives in the routing artefact's test
             ;; classpath, so requiring re-frame.routing here is the
             ;; primary trigger that loads the namespace, fires its
@@ -66,18 +66,18 @@
             ;; `:rf.nav/*` fxs. Without this require the rf/reg-route
             ;; calls below would throw :rf.error/routing-artefact-missing.
             [re-frame.routing]
-            [re-frame.routing-test-support :as rts]
-            [re-frame.trace :as trace])
+            [re-frame.routing-test-support :as rf.routing-test-support]
+            [re-frame.trace :as rf.trace])
   (:import [java.util.concurrent CountDownLatch]
            [java.util.concurrent.atomic AtomicLong]))
 
 ;; rf2-6qclsc: wrap the shared `reset-runtime` fixture rather than keeping a
 ;; drifting local copy. This suite's only extra is clearing trace listeners
 ;; (the stress invariants register/deref listeners), so layer that on top of
-;; the shared registrar/runtime/cache reset.
+;; the shared rf.registrar/runtime/cache reset.
 (defn- reset-runtime [test-fn]
-  (trace/clear-listeners!)
-  (rts/reset-runtime test-fn))
+  (rf.trace/clear-listeners!)
+  (rf.routing-test-support/reset-runtime test-fn))
 
 (use-fixtures :each reset-runtime)
 
@@ -165,7 +165,7 @@
       ;; on-match event id. Each thread's :rf.route/transitioned dispatch
       ;; matches that thread's URL pattern and fires its own
       ;; on-match → per-thread counter bump.
-      (registrar/clear-kind! :route)
+      (rf.registrar/clear-kind! :route)
       (doseq [{:keys [idx tick-event]} per-thread]
         (rf/reg-route (keyword "ksbur.stress" (str "route-" idx))
                       {:on-match [[tick-event]]} (str "/p" idx "/:slug")))
@@ -405,7 +405,7 @@
       ;; would fan all N out to the dispatching thread's frame — wrong.
       ;; Use per-thread routes again, with the stable route as the
       ;; *shape*; the churn thread targets `noise-ids` exclusively.
-      (registrar/clear-kind! :route)
+      (rf.registrar/clear-kind! :route)
       (doseq [{:keys [idx tick-event]} per-thread]
         (rf/reg-route (keyword "ksbur.race" (str "stable-" idx))
                       {:on-match [[tick-event]]} (str "/r" idx "/:slug")))
@@ -434,7 +434,7 @@
                                         {} (str "/noise-"
                                                     (mod p (count noise-ids))
                                                     "/:x"))
-                          (registrar/unregister! :route id)))
+                          (rf.registrar/unregister! :route id)))
                       (Thread/yield)))
                   (catch Throwable t
                     (swap! errors conj {:thread :churn :error t})))))
@@ -481,7 +481,7 @@
                    "registry churn); got " per-thread-totals)))
 
         ;; --- Invariant 3: sentinel route still registered ------------
-        (is (some? (registrar/lookup :route stable-route))
+        (is (some? (rf.registrar/lookup :route stable-route))
             (str "Sentinel route " stable-route " must still be "
                  "registered post-test (the churn thread never "
                  "touches its id)"))

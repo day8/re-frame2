@@ -16,10 +16,10 @@
   Internal namespace; the public facade is `re-frame.routing`. The
   facade owns the two `fx/reg-fx` calls so a `:reload` re-wires them on
   a fresh registrar."
-  (:require [re-frame.frame :as frame]
-            [re-frame.routing.nav-fx-schemas :as nav-fx-schemas]
-            [re-frame.routing.strategy :as strategy]
-            [re-frame.trace :as trace]))
+  (:require [re-frame.frame :as rf.frame]
+            [re-frame.routing.nav-fx-schemas :as rf.routing.nav-fx-schemas]
+            [re-frame.routing.strategy :as rf.routing.strategy]
+            [re-frame.trace :as rf.trace]))
 
 (defn url-bound?-from-config
   "Read `:url-bound?` from a frame's stored config map. `nil` when
@@ -139,7 +139,7 @@
   (order is trivially known), but TWO OR MORE bound frames with unknowable
   claim order fails closed to nil rather than id-sorting.
 
-  Frame config is read from the frames store (`frame/frame-meta` — nil for a
+  Frame config is read from the frames store (`rf.frame/frame-meta` — nil for a
   destroyed / absent frame, so a dead claim reads as not-bound; rf2-h1vqa4:
   frames have no registrar rows).
 
@@ -149,7 +149,7 @@
   regression in THIS resolution; the test must reach the real fn."
   []
   (let [bound? (fn [frame-id]
-                 (true? (url-bound?-from-config (frame/frame-meta frame-id))))]
+                 (true? (url-bound?-from-config (rf.frame/frame-meta frame-id))))]
     ;; Walk the claim order; the first frame whose binding is still live owns
     ;; the URL. A claimed-but-since-relinquished/destroyed frame is skipped
     ;; (self-healing).
@@ -171,7 +171,7 @@
     ;; in `url-claim-order`, so the first `some` branch resolves the incumbent.
     (or (some (fn [frame-id] (when (bound? frame-id) frame-id))
               @url-claim-order)
-        (let [bound (filterv bound? (frame/frame-ids))]
+        (let [bound (filterv bound? (rf.frame/frame-ids))]
           (when (= 1 (count bound))
             (first bound))))))
 
@@ -223,7 +223,7 @@
      (try
        (mutate!)
        (catch :default e
-         (trace/emit! :rf.fx failed-trace-id
+         (rf.trace/emit! :rf.fx failed-trace-id
                       (cond-> {:rf.fx/id fx-id :url url :error (.-message e)}
                         frame (assoc :frame frame)))))))
 
@@ -248,7 +248,7 @@
   `:rf.fx/skipped-on-platform` trace (there is no `window` to drive)."
   [fx-id failed-trace-id frame url strategy-op]
   (if (url-bound-frame? frame)
-    #?(:cljs (let [strat  (strategy/url-strategy-for-frame-id frame)
+    #?(:cljs (let [strat  (rf.routing.strategy/url-strategy-for-frame-id frame)
                    drive! (get strat strategy-op)
                    ;; Single outbound-encoding authority: encode
                    ;; the path-form url to its final href ONCE here, then hand
@@ -259,9 +259,9 @@
                    href   ((:encode strat) url)]
                (run-history-mutation! failed-trace-id fx-id frame url
                                       #(drive! href)))
-       :clj  (trace/emit! :rf.fx :rf.fx/skipped-on-platform
+       :clj  (rf.trace/emit! :rf.fx :rf.fx/skipped-on-platform
                           {:rf.fx/id fx-id :url url}))
-    (trace/emit! :rf.fx :rf.fx/skipped-on-platform
+    (rf.trace/emit! :rf.fx :rf.fx/skipped-on-platform
                  {:rf.fx/id fx-id
                   :url      url
                   :frame    frame
@@ -292,7 +292,7 @@
   skipped BEFORE `window.history` is touched — instead of reaching
   `pushState`."
   {:platforms #{:client}
-   :schema    nav-fx-schemas/push-url-args
+   :schema    rf.routing.nav-fx-schemas/push-url-args
    :doc       "Push the URL to the browser history (HTML5 pushState).
 Honours the calling frame's `:url-bound?` metadata: non-URL-bound frames
 no-op the fx so they don't race with the URL-owning frame (per Spec 012
@@ -332,7 +332,7 @@ no-op the fx so they don't race with the URL-owning frame (per Spec 012
   two history fxs must not have asymmetric args-validation any more than
   they have asymmetric drain-survival (rf2-u8qe7y finding 2)."
   {:platforms #{:client}
-   :schema    nav-fx-schemas/replace-url-args
+   :schema    rf.routing.nav-fx-schemas/replace-url-args
    :doc       "Replace the URL in the browser history (HTML5 replaceState).
 Honours the calling frame's `:url-bound?` metadata: non-URL-bound frames
 no-op the fx so they don't race with the URL-owning frame (per Spec 012
