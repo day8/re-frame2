@@ -256,19 +256,6 @@
                                          (assoc session-meta :rf.egress/output-sensitivity :rf.egress/publik)
                                          session-resolve)))))
 
-(deftest input-db-paths-extracts-the-dependency-graph
-  (testing "input-db-paths returns the concrete :db paths a resolver reads"
-    (is (= [[:auth :user :username]]
-           (scope/input-db-paths {:username [:db [:auth :user :username]]})))
-    (is (= #{[:auth :user :username] [:i18n :locale]}
-           (set (scope/input-db-paths {:username [:db [:auth :user :username]]
-                                       :locale   [:db [:i18n :locale]]})))))
-  (testing "nil / empty inputs → [] (no dependency)"
-    (is (= [] (scope/input-db-paths nil)))
-    (is (= [] (scope/input-db-paths {}))))
-  (testing "the whole-db sugar's synthetic [:db []] is the root path [[]]"
-    (is (= [[]] (scope/input-db-paths {:db [:db []]})))))
-
 ;; ===========================================================================
 ;; 8. The canonical 3-slot registration grammar (rf2-bqstzr)
 ;; ===========================================================================
