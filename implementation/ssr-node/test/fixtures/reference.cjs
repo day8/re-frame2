@@ -25,6 +25,22 @@ const seen = new WeakSet();
 let inFlight = 0;
 let overlapMax = 0;
 
+/**
+ * Boots observed in THIS isolate, counted on the isolate's own global
+ * rather than in module scope — and that placement is the measurement.
+ *
+ * The contract is *the module boots once per ISOLATE, not once per
+ * request*, so a counter that a re-require resets could not tell the two
+ * apart: a per-request `require` + `boot()` would report 1 every time,
+ * which is exactly the reading the row is supposed to refuse. A worker
+ * thread has its own `globalThis`, so this survives a re-require, cannot
+ * see another isolate's boots, and cannot be contaminated by the main
+ * process's copy of this module — the in-process controls require this
+ * file directly, and they increment a different global.
+ */
+const BOOTS = Symbol.for('rf2.ssr-node.test.boots');
+globalThis[BOOTS] ??= 0;
+
 /** What a render of this module observed. Shared with its in-process control. */
 // `runtime` defaults for the in-process CONTROLS that call `render`
 // directly with a state-only call; through the service it always arrives.
@@ -55,6 +71,9 @@ function observe({ entry, state, runtime = {}, args }) {
     readRuntimeRoute: runtime[':rf.runtime/routing'] ?? null,
     runtimeFrozen: Object.isFrozen(runtime),
     overlapMax,
+    // How many times this isolate has booted the module. The boot-once
+    // row reads it; nothing else should need to.
+    boots: globalThis[BOOTS],
     threadId: require('node:worker_threads').threadId,
   };
 }
@@ -70,9 +89,8 @@ module.exports = {
     'app/other': { stateAllowlist: [':route'], runtimeAllowlist: [] },
   },
 
-  booted: false,
   boot() {
-    module.exports.booted = true;
+    globalThis[BOOTS] += 1;
   },
 
   async render(call, emit) {
