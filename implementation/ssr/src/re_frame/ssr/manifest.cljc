@@ -20,8 +20,13 @@
   stays `1` across both shapes (additive keys never bump the integer,
   004C §2 rule 3), so there is no migration step, no negotiation
   handshake, and no second schema to keep in sync. `problems` below is
-  the executable statement of the property; the subset-property test
-  pins it.
+  the executable statement of the property, and it is checked over
+  HAND-BUILT manifests only. `re-frame.ui` was retired (rf2-0yp7w) and no
+  remaining substrate emits a Root Descriptor, so the compiler-backed
+  subset-property suite that once fed real descriptor output to the
+  validator has no producer left; it was deleted rather than re-expressed
+  over a transcribed fixture, and `re-frame.ssr.root-manifest-cljs-test`
+  records that gap.
 
   Readers ignore unknown keys (004C §2 rule 2). `problems` therefore
   validates only the keys it KNOWS, and only for SHAPE — it never
@@ -82,7 +87,7 @@
                :cljs [cljs.reader :as reader])))
 
 ;; ---------------------------------------------------------------------------
-;; The key sets (004C §2)
+;; The schema version, the dev-only key set, and the wire type (004C §2)
 ;; ---------------------------------------------------------------------------
 
 (def ^:const schema-version
@@ -90,30 +95,6 @@
   descriptor and the manifest extending it declare the SAME value —
   additive keys never bump it (004C §2 rule 3)."
   1)
-
-(def descriptor-keys
-  "Root Descriptor v1 — the compile-time static key set a view compiler's
-  root descriptor emits (004C §2). Listed here
-  as DATA so the subset property is checkable rather than asserted."
-  #{:rf.root/schema-version
-    :root-id
-    :root-id-provenance
-    :view-id
-    :props-shape
-    :static-props
-    :frame-plans
-    :template-fingerprint})
-
-(def extension-keys
-  "The six render-time keys Root Manifest v1 ADDS to the descriptor
-  (004C §2). Every one is OPTIONAL — that optionality IS the subset
-  property."
-  #{:element-locator
-    :props
-    :frame-payload-ids
-    :render-fingerprint
-    :identifier-prefix
-    :phase})
 
 (def dev-only-keys
   "Descriptor keys that are dev-only and MUST NOT ride a shipped
@@ -152,7 +133,9 @@
   and is shape-checked ONLY when present. Unknown keys are ignored
   (004C §2 rule 2). An unmodified S1 Root Descriptor therefore validates
   unchanged — making any extension key mandatory here would break that,
-  which is exactly what the subset-property test watches."
+  which is exactly what this namespace's validation tests watch — over
+  hand-built manifests, there being no live descriptor producer left to
+  check it against (see the ns docstring)."
   [m]
   (cond
     (not (map? m))
