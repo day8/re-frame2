@@ -78,11 +78,16 @@ function boot() {
     renderModule = validateModule(require(workerData.modulePath), workerData.modulePath);
     if (typeof renderModule.boot === 'function') renderModule.boot();
   } catch (err) {
+    // NO `stack`. The parent's boot receiver builds its `Refusal` from
+    // `code` and `message` and names the module path itself; a stack
+    // posted here was serialised across the thread boundary and dropped,
+    // while reading as though the application's trace survived into the
+    // refusal. The live diagnostic is the parent's `worker.on('error')`
+    // handler, which has the real `Error` and keeps its stack.
     postMessage({
       t: 'boot-error',
       code: err.code ?? CODE.MALFORMED_MODULE,
       message: err.message,
-      stack: err.stack,
     });
     return;
   }
@@ -217,7 +222,12 @@ async function handleRender(renderId, request) {
       code: err.code ?? CODE.RENDER_THREW,
       message: err.message ?? String(err),
       detail: err.detail ?? {},
-      stack: err.stack,
+      // NO `stack`, for the reason the boot path gives: the render
+      // receiver reads `code`, `message`, `detail` and `afterChunks`, so a
+      // stack posted here crossed the boundary only to be dropped — a
+      // path-bearing application trace serialised on every render throw,
+      // and a field that made it look as though the trace reached the
+      // refusal. It does not, and the egress rows are why it must not.
       // A caller that already received chunks cannot be told "instead of"
       // any more, and this says so rather than pretending otherwise. The
       // service turns a post-chunk failure into a torn response the
