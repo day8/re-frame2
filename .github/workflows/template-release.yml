@@ -191,8 +191,8 @@ jobs:
         working-directory: implementation
         run: npm ci
 
-      # rf2-qa5ty — the emitted-app tier's two Chromium proofs (SSR
-      # DOM-adoption, emitted dev-page boot) need a browser BINARY; `npm ci`
+      # rf2-qa5ty — the emitted-app tier's Chromium proof (the emitted
+      # dev-page boot proof) needs a browser BINARY; `npm ci`
       # only installs the playwright package. Without this step a
       # `template-v…` tag could cut a Release whose gate never loaded the
       # emitted `index.html` in any browser — precisely the page a consumer
