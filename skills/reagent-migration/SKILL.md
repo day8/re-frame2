@@ -5,7 +5,7 @@ description: >
   — re-frame2's re-frame-native view layer: a view becomes an `h/defview`
   mounted in brackets, `@(subscribe …)` becomes `(h/sub …)`, handlers become
   event vectors, Form-2/Form-3 state moves out of the component. **First
-  establish whether the user needs this at all**: re-frame2's Reagent adapter
+  establish whether the user needs Hicasso**: re-frame2's Reagent adapter
   is first-class and supported, so a v1 app keeps its view code and needs NO
   rewrite to land on re-frame2 — that is `re-frame-migration`, and it finishes
   the job. This is an OPTIONAL second step, and Hicasso is pre-publication
