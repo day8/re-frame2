@@ -140,34 +140,36 @@
 (defn sample
   "Draw `n` values from generator `g` starting at `seed`. Returns a vector
   of the drawn values (state threaded internally). Deterministic in
-  `(seed, g, n)`."
-  ([g n] (sample g n 0))
-  ([g n seed]
-   (loop [draw-index 0, current-rng (make-rng seed), accumulated-values []]
-     (if (< draw-index n)
-       (let [[drawn-value next-rng] (g current-rng)]
-         (recur (inc draw-index) next-rng (conj accumulated-values drawn-value)))
-       accumulated-values))))
+  `(seed, g, n)`. `seed` is always explicit - there is no default, so a
+  drawn corpus can never depend on an invisible global."
+  [g n seed]
+  (loop [draw-index 0, current-rng (make-rng seed), accumulated-values []]
+    (if (< draw-index n)
+      (let [[drawn-value next-rng] (g current-rng)]
+        (recur (inc draw-index) next-rng (conj accumulated-values drawn-value)))
+      accumulated-values)))
 
 (defn for-all
-  "Run `pred` over `n` draws of generator `g` (seeded at `seed`, default
-  0). Returns `nil` when every draw satisfied `pred`, else a map
+  "Run `pred` over `n` draws of generator `g`, seeded at `seed`. Returns
+  `nil` when every draw satisfied `pred`, else a map
   `{:fail value :index i :seed seed}` describing the first counter-example
   - the seed + index reproduce it exactly. `pred` may throw; a throw is
-  treated as a failure and the exception is captured under `:threw`."
-  ([g n pred] (for-all g n 0 pred))
-  ([g n seed pred]
-   (loop [draw-index 0, current-rng (make-rng seed)]
-     (if (< draw-index n)
-       (let [[drawn-value next-rng] (g current-rng)
-             [ok? thrown-exception] (try [(boolean (pred drawn-value)) nil]
-                              (catch #?(:clj Throwable :cljs :default) e
-                                [false e]))]
-         (if ok?
-           (recur (inc draw-index) next-rng)
-           (cond-> {:fail drawn-value :index draw-index :seed seed}
-             thrown-exception (assoc :threw thrown-exception))))
-       nil))))
+  treated as a failure and the exception is captured under `:threw`.
+
+  `seed` is always explicit - there is no default, so a property can never
+  silently share an invisible global seed with its siblings."
+  [g n seed pred]
+  (loop [draw-index 0, current-rng (make-rng seed)]
+    (if (< draw-index n)
+      (let [[drawn-value next-rng] (g current-rng)
+            [ok? thrown-exception] (try [(boolean (pred drawn-value)) nil]
+                             (catch #?(:clj Throwable :cljs :default) e
+                               [false e]))]
+        (if ok?
+          (recur (inc draw-index) next-rng)
+          (cond-> {:fail drawn-value :index draw-index :seed seed}
+            thrown-exception (assoc :threw thrown-exception))))
+      nil)))
 
 ;; ---------------------------------------------------------------------------
 ;; Shared egress-scan helpers - lifted from the per-surface security test
