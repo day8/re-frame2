@@ -40,7 +40,6 @@
             [re-frame.schemas :as schemas]
             [re-frame.schemas.malli]
             [re-frame.schemas.test-fixture :as tf]
-            [re-frame.schemas.validator :as validator]
             [re-frame.test-support :refer [with-trace-recorder!]]))
 
 (use-fixtures :each tf/reset-runtime)
@@ -166,7 +165,7 @@
   (testing "rf2-a5kzs (finding 2) — a malformed sub :schema yields the default
             (nil) per :replaced-with-default recovery instead of returning the
             unvalidated value via throw-as-pass; a malformed-schema trace fires."
-    (rf/reg-event :sub/init (fn [{:keys [db]} _] {:db {:items [1 2 3]}}))
+    (rf/reg-event :sub/init (fn [_ _] {:db {:items [1 2 3]}}))
     (rf/reg-sub :sub/malformed
       {:schema [:vector]}                          ;; childless — throws at validate-time
       (fn [db _] (:items db)))
@@ -174,16 +173,16 @@
                    (fn []
                      (rf/dispatch-sync [:sub/init])
                      (is (nil? (rf/subscribe-once [:sub/malformed]))
-                         "malformed sub schema → nil (replaced-with-default), not the raw value")))]
-      (let [mal (malformed-traces traces)]
-        (is (pos? (count mal)) "a malformed-schema trace fired")
-        (is (= :sub-return (-> (first mal) :tags :where)))
-        ;; rf2-mxs7a — the malformed sub trace must report
-        ;; :replaced-with-default (the sub yielded nil), NOT the
-        ;; previous unconditional :no-recovery lie. `:recovery` hoists
-        ;; to the top-level envelope.
-        (is (= :replaced-with-default (:recovery (first mal)))
-            "malformed sub trace reports :replaced-with-default (yielded the default)")))))
+                         "malformed sub schema → nil (replaced-with-default), not the raw value")))
+          mal    (malformed-traces traces)]
+      (is (pos? (count mal)) "a malformed-schema trace fired")
+      (is (= :sub-return (-> (first mal) :tags :where)))
+      ;; rf2-mxs7a — the malformed sub trace must report
+      ;; :replaced-with-default (the sub yielded nil), NOT the
+      ;; previous unconditional :no-recovery lie. `:recovery` hoists
+      ;; to the top-level envelope.
+      (is (= :replaced-with-default (:recovery (first mal)))
+          "malformed sub trace reports :replaced-with-default (yielded the default)"))))
 
 (deftest boundary-seam-malformed-schema-returns-false
   (testing "rf2-a5kzs (finding 2, boundary seam) — validate-with-registered-fn
@@ -229,11 +228,11 @@
       (let [traces (capture
                      (fn []
                        (is (false? (schemas/validate-app-schema! {:n "bad"} :n/bad))
-                           "fail-closed: false (rollback) — the explainer throw did not flip the verdict")))]
-        (let [v (first (validation-failures traces))]
-          (is (some? v) "the failure trace still fired")
-          (is (= :app-db (-> v :tags :where)))
-          (is (nil? (-> v :tags :explain)) ":explain degraded to nil — explainer threw")))
+                           "fail-closed: false (rollback) — the explainer throw did not flip the verdict")))
+            v      (first (validation-failures traces))]
+        (is (some? v) "the failure trace still fired")
+        (is (= :app-db (-> v :tags :where)))
+        (is (nil? (-> v :tags :explain)) ":explain degraded to nil — explainer threw"))
       (finally (schemas/reset-schema-validator!)))))
 
 (deftest sub-return-explainer-throw-preserves-failure
@@ -243,7 +242,7 @@
     (schemas/set-schema-fns! {:validate (fn [_ _] false)
                               :explain  throwing-explainer})
     (try
-      (rf/reg-event :s/init (fn [{:keys [db]} _] {:db {:v [1 2 3]}}))
+      (rf/reg-event :s/init (fn [_ _] {:db {:v [1 2 3]}}))
       (rf/reg-sub :s/strict
         {:schema [:vector :string]}
         (fn [db _] (:v db)))
@@ -251,11 +250,11 @@
                      (fn []
                        (rf/dispatch-sync [:s/init])
                        (is (nil? (rf/subscribe-once [:s/strict]))
-                           "sub yields default — the explainer throw did not become a pass")))]
-        (let [v (first (validation-failures traces))]
-          (is (some? v) "the sub-return failure trace fired")
-          (is (= :sub-return (-> v :tags :where)))
-          (is (nil? (-> v :tags :explain)) ":explain degraded to nil")))
+                           "sub yields default — the explainer throw did not become a pass")))
+            v      (first (validation-failures traces))]
+        (is (some? v) "the sub-return failure trace fired")
+        (is (= :sub-return (-> v :tags :where)))
+        (is (nil? (-> v :tags :explain)) ":explain degraded to nil"))
       (finally (schemas/reset-schema-validator!)))))
 
 (deftest direct-validate-event-explainer-throw-preserves-false
@@ -269,11 +268,11 @@
                        (is (false? (schemas/validate-event!
                                      :ev/x [:ev/x "bad"]
                                      {:schema [:cat [:= :ev/x] :int]}))
-                           "false despite the explainer throwing")))]
-        (let [v (first (validation-failures traces))]
-          (is (some? v))
-          (is (= :event (-> v :tags :where)))
-          (is (nil? (-> v :tags :explain)))))
+                           "false despite the explainer throwing")))
+            v      (first (validation-failures traces))]
+        (is (some? v))
+        (is (= :event (-> v :tags :where)))
+        (is (nil? (-> v :tags :explain))))
       (finally (schemas/reset-schema-validator!)))))
 
 (deftest boundary-explain-seam-isolates-explainer-throw

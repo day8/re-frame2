@@ -1158,20 +1158,19 @@
 (deftest event-validation-redacts-container-level-sensitive-payload
   (testing "rf2-a5kzs — a container-level {:sensitive? true} on the event
             payload schema also drives redaction"
-    (let [secret "TOKEN-leak-check"]
-      (rf/reg-event :auth/token
-        ;; The whole payload (element 1 of the :cat) is sensitive; supply an
-        ;; int where :string is expected so it fails.
-        {:schema [:cat [:= :auth/token] [:string {:sensitive? true}]]}
-        (fn [{:keys [db]} _] {:db db}))
-      (with-trace-recorder! [traces]
-        (rf/dispatch-sync [:auth/token 12345])
-        (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
-                               @traces))]
-          (is (some? v))
-          (is (true? (:sensitive? v)) "container-level :sensitive? triggers redaction")
-          (is (= :rf/redacted (-> v :tags :received)))
-          (is (= :rf/redacted (-> v :tags :value))))))))
+    (rf/reg-event :auth/token
+      ;; The whole payload (element 1 of the :cat) is sensitive; supply an
+      ;; int where :string is expected so it fails.
+      {:schema [:cat [:= :auth/token] [:string {:sensitive? true}]]}
+      (fn [{:keys [db]} _] {:db db}))
+    (with-trace-recorder! [traces]
+      (rf/dispatch-sync [:auth/token 12345])
+      (let [v (first (filter #(= :rf.error/schema-validation-failure (:operation %))
+                             @traces))]
+        (is (some? v))
+        (is (true? (:sensitive? v)) "container-level :sensitive? triggers redaction")
+        (is (= :rf/redacted (-> v :tags :received)))
+        (is (= :rf/redacted (-> v :tags :value)))))))
 
 (deftest event-validation-non-sensitive-cat-still-verbatim
   (testing "rf2-a5kzs — no over-redaction: an event schema with a payload map
@@ -1558,7 +1557,7 @@
             [:string {:sensitive? true}]`) drives sub-return redaction
             now that the handler/sub-meta `:sensitive?` annotation has
             been removed."
-    (rf/reg-event :secrets/init (fn [{:keys [db]} _] {:db {:secrets ["a-secret"]}}))
+    (rf/reg-event :secrets/init (fn [_ _] {:db {:secrets ["a-secret"]}}))
     (rf/reg-event :secrets/break (fn [{:keys [db]} _] {:db (assoc db :secrets [1 2 3])}))
     (rf/reg-sub :secrets
       {:schema [:vector [:string {:sensitive? true}]]}
@@ -1594,7 +1593,7 @@
             gating — user ids, auth tokens, document ids); without
             redaction the failure trace re-leaks it alongside the
             return value the existing clauses scrub."
-    (rf/reg-event :tokens/init  (fn [{:keys [db]} _]   {:db {:tokens {"user-42-token" "ok"}}}))
+    (rf/reg-event :tokens/init  (fn [_ _]   {:db {:tokens {"user-42-token" "ok"}}}))
     (rf/reg-event :tokens/break (fn [{:keys [db]} _] {:db (assoc-in db
                                                        [:tokens "user-42-token"]
                                                        99)})) ; int — fails :string
@@ -1629,7 +1628,7 @@
   (testing "Backward-compat — a sub without :sensitive? emits :rf.sub/query-v
             verbatim on the validation-failure trace (legacy behaviour
             preserved for non-sensitive subs). Redaction is opt-in."
-    (rf/reg-event :widgets/init  (fn [{:keys [db]} _]   {:db {:widgets {:w1 "ok"}}}))
+    (rf/reg-event :widgets/init  (fn [_ _]   {:db {:widgets {:w1 "ok"}}}))
     (rf/reg-event :widgets/break (fn [{:keys [db]} _] {:db (assoc-in db [:widgets :w1] 99)}))
     (rf/reg-sub :widget
       {:schema :string}                                  ; no :sensitive?
@@ -1725,7 +1724,7 @@
             omitted) on a sensitive failure, and the raw value never
             surfaces in the humanized slot"
     (let [secret "sub-secret-deadbeef"]
-      (rf/reg-event :secrets/init  (fn [{:keys [db]} _] {:db {:secrets [secret]}}))
+      (rf/reg-event :secrets/init  (fn [_ _] {:db {:secrets [secret]}}))
       (rf/reg-event :secrets/break (fn [{:keys [db]} _] {:db (assoc db :secrets [1 2 3])}))
       (rf/reg-sub :secrets
         {:schema [:vector [:string {:sensitive? true}]]}
@@ -1750,7 +1749,7 @@
 (deftest non-sensitive-sub-return-failure-carries-humanized-payload
   (testing "rf2-qhq3f — backward-compat on the sub-return surface: a
             non-sensitive sub keeps the real humanized payload"
-    (rf/reg-event :widgets/init  (fn [{:keys [db]} _] {:db {:widgets {:w1 "ok"}}}))
+    (rf/reg-event :widgets/init  (fn [_ _] {:db {:widgets {:w1 "ok"}}}))
     (rf/reg-event :widgets/break (fn [{:keys [db]} _] {:db (assoc-in db [:widgets :w1] 99)}))
     (rf/reg-sub :widget
       {:schema :string}                                  ;; no :sensitive?

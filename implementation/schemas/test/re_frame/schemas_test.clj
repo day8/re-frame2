@@ -38,10 +38,8 @@
             ;; Reuse the shared empty-set digest fixture.
             [re-frame.schemas.digest-parity-fixtures :as digest-fixtures]
             [re-frame.schemas.test-fixture :as tf]
-            [re-frame.registrar :as registrar]
             [re-frame.spec :as spec]
-            [re-frame.test-support :refer [with-trace-recorder!]]
-            [re-frame.trace :as trace]))
+            [re-frame.test-support :refer [with-trace-recorder!]]))
 
 (use-fixtures :each tf/reset-runtime)
 
@@ -94,7 +92,7 @@
   (testing "live dispatch through the runtime validates the candidate :db
             before install (rf2-uhk9ko)"
     (rf/reg-app-schema [:n] [:int])
-    (rf/reg-event :n/init (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :n/init (fn [_ _] {:db {:n 0}}))
     (rf/reg-event :n/break (fn [{:keys [db]} _] {:db (assoc db :n "boom")}))
     (with-trace-recorder! [traces]
       (rf/dispatch-sync [:n/init])
@@ -121,7 +119,7 @@
             — app-db keeps its pre-handler value. The dispatch is treated
             as failed; the bad candidate never stands."
     (rf/reg-app-schema [:n] [:int])
-    (rf/reg-event :n/init  (fn [{:keys [db]} _]  {:db {:n 0}}))
+    (rf/reg-event :n/init  (fn [_ _]  {:db {:n 0}}))
     (rf/reg-event :n/ok    (fn [{:keys [db]} _] {:db (assoc db :n 42)}))
     (rf/reg-event :n/break (fn [{:keys [db]} _] {:db (assoc db :n "boom")}))
     (rf/dispatch-sync [:n/init])
@@ -162,7 +160,7 @@
             (Supersedes the retired commit-then-rollback pair: forward
             db-changed → failure → :phase :rollback db-changed.)"
     (rf/reg-app-schema [:n] [:int])
-    (rf/reg-event :n/init  (fn [{:keys [db]} _]  {:db {:n 0}}))
+    (rf/reg-event :n/init  (fn [_ _]  {:db {:n 0}}))
     (rf/reg-event :n/break (fn [{:keys [db]} _] {:db (assoc db :n "boom")}))
     ;; rf2-bhh8my: deliberately NOT migrated to `with-trace-recorder!` — this
     ;; listener PROJECTS each event to an `[operation phase]` tuple on capture
@@ -294,7 +292,7 @@
   (testing "Per Spec 010 §step 6 (rf2-wcam): a sub whose return value fails
             its :schema emits :rf.error/schema-validation-failure :where :sub-return
             and the caller sees nil (default :replaced-with-default recovery)"
-    (rf/reg-event :items/init (fn [{:keys [db]} _] {:db {:items ["a" "b" "c"]}}))
+    (rf/reg-event :items/init (fn [_ _] {:db {:items ["a" "b" "c"]}}))
     (rf/reg-event :items/break (fn [{:keys [db]} _] {:db (assoc db :items [1 2 3])}))
     (rf/reg-sub :items
       {:schema [:vector :string]}
