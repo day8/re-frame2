@@ -129,22 +129,26 @@
   scope), which is what makes this agree with the durable side by construction
   rather than by coincidence. Pure / value-independent."
   [spec]
-  (let [marks (:params (classification/spec-declaration-marks spec))
-        axis  (fn [k]
-                (reduce (fn [acc p]
-                          (let [p (vec p)]
-                            (if (= :scope (first p))
-                              (update acc 0 conj (subvec p 1))
-                              (update acc 2 conj p))))
-                        {0 [] 2 []}
-                        (keys (get marks k))))
-        s     (axis :sensitive)
-        l     (axis :large)]
+  (let [declaration-marks (:params (classification/spec-declaration-marks spec))
+        paths-by-component
+        (fn [classification-axis]
+          (reduce (fn [component-paths declaration-path]
+                    (let [normalized-path (vec declaration-path)]
+                      (if (= :scope (first normalized-path))
+                        (update component-paths 0 conj (subvec normalized-path 1))
+                        (update component-paths 2 conj normalized-path))))
+                  {0 [] 2 []}
+                  (keys (get declaration-marks classification-axis))))
+        sensitive-paths   (paths-by-component :sensitive)
+        large-paths       (paths-by-component :large)]
     (not-empty
       (into {}
-            (keep (fn [i]
-                    (when (or (seq (get s i)) (seq (get l i)))
-                      [i {:sensitive (get s i) :large (get l i)}])))
+            (keep (fn [component-index]
+                    (when (or (seq (get sensitive-paths component-index))
+                              (seq (get large-paths component-index)))
+                      [component-index
+                       {:sensitive (get sensitive-paths component-index)
+                        :large     (get large-paths component-index)}])))
             [0 2]))))
 
 (defn redact-key-declarations
@@ -210,12 +214,12 @@
                (vector? scoped-key)
                (= 3 (count scoped-key)))
     scoped-key
-    (if-let [decls (key-slot-declarations spec)]
-      (reduce-kv (fn [k i {:keys [sensitive large]}]
-                   (update k i core-classification/redact-with-paths
-                           sensitive large {:index-free? true}))
+    (if-let [declarations (key-slot-declarations spec)]
+      (reduce-kv (fn [projected-key component-index {:keys [sensitive large]}]
+                   (update projected-key component-index core-classification/redact-with-paths
+                            sensitive large {:index-free? true}))
                  scoped-key
-                 decls)
+                 declarations)
       scoped-key)))
 
 (defn- coarse-key-projection
@@ -449,7 +453,8 @@
 
   ## …which is why `:error` IS NOT IN `reply-payload-slot`
 
-  That set is consumed under `(and owner-redacts? …)` in `project-embedded-keys`
+  That set is consumed under `(and owner-requires-redaction? …)` in
+  `project-embedded-keys`
   below, so dropping `:error` into it is a one-token edit that LOOKS like
   reusing the proven rf2-xx4ty pattern and in fact implements the
   owner-conditional remedy the paragraph above rejects. The two sets differ in
@@ -516,7 +521,7 @@
   ## …which is why `:correlation` IS NOT IN `reply-payload-slot`
 
   Same trap `reply-error-slot` records. That set is consumed under
-  `(and owner-redacts? …)`, so dropping `:correlation` into it is a one-token
+  `(and owner-requires-redaction? …)`, so dropping `:correlation` into it is a one-token
   edit that LOOKS like reusing the proven rf2-xx4ty pattern and in fact makes
   the scope's carriers disagree again for any `:serialize` owner — and it would
   tokenize the whole correlation map, destroying the `:generation` /
@@ -669,28 +674,29 @@
   The invariant this buys, statable and testable: NO map-shaped value under an
   unrecognised resource-family trace tag egresses off-box raw, at ANY depth.
   Pure."
-  [v frame-id]
+  [value frame-id]
   (cond
-    (redacted-token? v)   [v true]
-    (scoped-key-shape? v) (project-trace-scoped-key v frame-id)
-    (map? v)              [(ssr/redact-value v) true]
+    (redacted-token? value)   [value true]
+    (scoped-key-shape? value) (project-trace-scoped-key value frame-id)
+    (map? value)              [(ssr/redact-value value) true]
 
-    (coll? v)
-    (let [sens?* (volatile! false)
-          proj   (fn [x]
-                   (let [[pv s] (project-unknown-slot-value x frame-id)]
-                     (when s (vreset! sens?* true))
-                     pv))]
+    (coll? value)
+    (let [sensitive-found? (volatile! false)
+          project-value    (fn [nested-value]
+                             (let [[projected-value sensitive?]
+                                   (project-unknown-slot-value nested-value frame-id)]
+                               (when sensitive? (vreset! sensitive-found? true))
+                               projected-value))]
       [(cond
-         (set? v)    (into #{} (map proj) v)
-         (vector? v) (mapv proj v)
+         (set? value)    (into #{} (map project-value) value)
+         (vector? value) (mapv project-value value)
          ;; a list / lazy seq must stay a seq — `mapv` would print it as a
          ;; vector and erase the kind distinction described above.
-         (seq? v)    (apply list (map proj v))
-         :else       (mapv proj v))
-       @sens?*])
+         (seq? value)    (apply list (map project-value value))
+         :else           (mapv project-value value))
+       @sensitive-found?])
 
-    :else [v false]))
+    :else [value false]))
 
 (def ^:private work-id-marker
   "The reserved head keyword of a resource WORK-ID vector —
@@ -1159,20 +1165,25 @@
   copy but the ONLY off-box copy: that settle row (`:rf.resource/failed` /
   `:rf.resource/refresh-failed`) stamps `:status-before` / `:status-after` and
   no `:error` at all."
-  [v frame-id named?]
+  [value frame-id named?]
   (cond
-    (redacted-token? v) [v true]
+    (redacted-token? value) [value true]
 
     ;; a scoped key the family can PROVE is its own — see `carrier-family-value?`
-    (carrier-family-value? v named?)
-    (project-trace-scoped-key v frame-id)
+    (carrier-family-value? value named?)
+    (project-trace-scoped-key value frame-id)
 
-    (coll? v)
-    (let [sens?*   (volatile! false)
-          note!    (fn [s pv] (when s (vreset! sens?* true)) pv)
-          proj     (fn [x named?]
-                     (let [[pv s] (project-embedded-keys x frame-id named?)]
-                       (note! s pv)))
+    (coll? value)
+    (let [sensitive-found?            (volatile! false)
+          record-sensitive-projection!
+          (fn [sensitive? projected-value]
+            (when sensitive? (vreset! sensitive-found? true))
+            projected-value)
+          project-value
+          (fn [nested-value nested-named?]
+            (let [[projected-value sensitive?]
+                  (project-embedded-keys nested-value frame-id nested-named?)]
+              (record-sensitive-projection! sensitive? projected-value)))
           ;; rf2-xx4ty — a read continuation reply's `:value` / `:params`, read
           ;; through the owner its own `:resource/key` names (ONCE per map,
           ;; exactly as `project-tags*` reads it once per row for the cursor).
@@ -1182,9 +1193,10 @@
           ;; each arm below takes only the proof it needs: the `:value` /
           ;; `:params` arm is a READ reply PLUS the owner's coarse claim, the
           ;; `:error` arm (rf2-rnsv2) is the FAMILY marker alone.
-          reply?         (and (map? v) (resource-reply? v))
-          fam-reply?     (and (map? v) (family-reply? v))
-          owner-redacts? (and reply? (row-owner-redacts? v frame-id))
+          resource-reply-carrier? (and (map? value) (resource-reply? value))
+          family-reply-carrier?   (and (map? value) (family-reply? value))
+          owner-requires-redaction?
+          (and resource-reply-carrier? (row-owner-redacts? value frame-id))
           ;; rf2-ko5lm — …and, when that COARSE read says nothing (a
           ;; `:serialize` owner, which is what a spec declaring only
           ;; projection-relative paths classifies as), the owner's DECLARED
@@ -1194,24 +1206,31 @@
           ;; `:rf/redacted` / size-marker sentinels ride out as the scalars they
           ;; are. Reference-preserving — and stamp-precise: a declaration that
           ;; matched nothing in THIS reply leaves the row unstamped.
-          v        (if (and reply? (not owner-redacts?))
-                     (let [v' (redact-reply-declarations v)]
-                       (if (= v' v) v (note! true v')))
-                     v)
+          declaration-projected-value
+          (if (and resource-reply-carrier? (not owner-requires-redaction?))
+            (let [redacted-value (redact-reply-declarations value)]
+              (if (= redacted-value value)
+                value
+                (record-sensitive-projection! true redacted-value)))
+            value)
           ;; position 1 of a `[:rf.work/resource …]` vector is family-planted by
           ;; construction, so the key there is NAMED however unregistered its
           ;; resource-id has become.
-          work-id? (family-work-id? v)
+          work-id-carrier? (family-work-id? declaration-projected-value)
           ;; rf2-425mm — the family's own resolved scope, planted in a foreign
           ;; payload by the runtime, projected by the FAMILY rule so the carrier
           ;; cannot drift from the row. Gated on the payload being provably the
           ;; runtime's (audit #7054): `:scope` is a word apps use too.
-          payload? (and (map? v) (carrier-family-payload? v))
-          entry    (fn [k x]
+          runtime-payload?
+          (and (map? declaration-projected-value)
+               (carrier-family-payload? declaration-projected-value))
+          project-map-value
+          (fn [map-key map-value]
                      (cond
-                       (and payload? (= :scope k))
-                       (let [[pv s] (project-unknown-slot-value x frame-id)]
-                         (note! s pv))
+                       (and runtime-payload? (= :scope map-key))
+                       (let [[projected-value sensitive?]
+                             (project-unknown-slot-value map-value frame-id)]
+                         (record-sensitive-projection! sensitive? projected-value))
 
                        ;; rf2-l6wjl — that same resolved scope's SECOND
                        ;; spelling, inside the reply's `:correlation` facts.
@@ -1231,15 +1250,21 @@
                        ;; `:rf.reply/resource-key` projecting exactly as before.
                        ;; The keys themselves are `base-reply`'s literal
                        ;; keywords, so they ride as-is.
-                       (and fam-reply? (= reply-correlation-slot k) (map? x))
+                       (and family-reply-carrier?
+                            (= reply-correlation-slot map-key)
+                            (map? map-value))
                        (reduce-kv
-                         (fn [m ck cx]
-                           (assoc m ck
-                                  (if (= :scope ck)
-                                    (let [[pv s] (project-unknown-slot-value cx frame-id)]
-                                      (note! s pv))
-                                    (proj cx (family-named-key? ck)))))
-                         {} x)
+                          (fn [projected-correlation correlation-key correlation-value]
+                            (assoc projected-correlation correlation-key
+                                   (if (= :scope correlation-key)
+                                     (let [[projected-value sensitive?]
+                                           (project-unknown-slot-value correlation-value frame-id)]
+                                       (record-sensitive-projection!
+                                         sensitive? projected-value))
+                                     (project-value correlation-value
+                                                    (family-named-key? correlation-key)))))
+                          {}
+                          map-value)
 
                        ;; rf2-rnsv2 — the TRANSPORT FAILURE ENVELOPE of a family
                        ;; reply (read OR mutation). Tokenized UNCONDITIONALLY
@@ -1251,30 +1276,63 @@
                        ;; owner-conditional and this must not be (see the
                        ;; `reply-error-slot` docstring). Placed FIRST so the
                        ;; precedence is explicit.
-                       (and fam-reply? (reply-error-slot k) (some? x))
-                       (note! true (if (redacted-token? x) x (ssr/redact-value x)))
+                       (and family-reply-carrier?
+                            (reply-error-slot map-key)
+                            (some? map-value))
+                       (record-sensitive-projection!
+                         true
+                         (if (redacted-token? map-value)
+                           map-value
+                           (ssr/redact-value map-value)))
 
                        ;; the owner's own reply data — tokenized
                        ;; content-FREE (rf2-hzcv8) iff THIS reply's owner redacts, so a
                        ;; plain resource's reply stays fully readable. Idempotent
                        ;; (an opaque token stays sensitive and is not re-digested).
-                       (and owner-redacts? (reply-payload-slot k) (some? x))
-                       (note! true (if (redacted-token? x) x (ssr/redact-value x)))
+                       (and owner-requires-redaction?
+                            (reply-payload-slot map-key)
+                            (some? map-value))
+                       (record-sensitive-projection!
+                         true
+                         (if (redacted-token? map-value)
+                           map-value
+                           (ssr/redact-value map-value)))
 
                        ;; every other entry takes the walk, NAMED iff the family
                        ;; reserved the key it sits under.
-                       :else (proj x (family-named-key? k))))]
+                       :else
+                       (project-value map-value (family-named-key? map-key))))]
       [(cond
-         (map? v)    (reduce-kv (fn [m k x] (assoc m (proj k named?) (entry k x))) {} v)
-         (set? v)    (into #{} (map #(proj % named?)) v)
-         (vector? v) (if work-id?
-                       (into [] (map-indexed (fn [i x] (proj x (or named? (= 1 i))))) v)
-                       (mapv #(proj % named?) v))
-         (seq? v)    (apply list (map #(proj % named?) v))
-         :else       (mapv #(proj % named?) v))
-       @sens?*])
+         (map? declaration-projected-value)
+         (reduce-kv
+           (fn [projected-map map-key map-value]
+             (assoc projected-map
+                    (project-value map-key named?)
+                    (project-map-value map-key map-value)))
+           {}
+           declaration-projected-value)
 
-    :else [v false]))
+         (set? declaration-projected-value)
+         (into #{} (map #(project-value % named?)) declaration-projected-value)
+
+         (vector? declaration-projected-value)
+         (if work-id-carrier?
+           (into []
+                 (map-indexed
+                   (fn [component-index component-value]
+                     (project-value component-value
+                                    (or named? (= 1 component-index)))))
+                 declaration-projected-value)
+           (mapv #(project-value % named?) declaration-projected-value))
+
+         (seq? declaration-projected-value)
+         (apply list (map #(project-value % named?) declaration-projected-value))
+
+         :else
+         (mapv #(project-value % named?) declaration-projected-value))
+       @sensitive-found?])
+
+    :else [value false]))
 
 (declare project-tags*)
 
@@ -1287,8 +1345,11 @@
   [row frame-id]
   (if-not (map? row)
     [row false]
-    (let [[k sens?] (project-trace-scoped-key (:resource/key row) frame-id)]
-      [(cond-> row (contains? row :resource/key) (assoc :resource/key k)) sens?])))
+    (let [[projected-key sensitive?]
+          (project-trace-scoped-key (:resource/key row) frame-id)]
+      [(cond-> row
+         (contains? row :resource/key) (assoc :resource/key projected-key))
+       sensitive?])))
 
 (defn- project-tags*
   "Core slot-keyed projection of a `tags` map — returns `[tags' sensitive?]`
@@ -1298,8 +1359,10 @@
   [tags frame-id]
   (if-not (map? tags)
     [tags false]
-    (let [sens?* (volatile! false)
-          note!  (fn [s] (when s (vreset! sens?* true)))
+    (let [sensitive-found?  (volatile! false)
+          record-sensitive! (fn [sensitive?]
+                              (when sensitive?
+                                (vreset! sensitive-found? true)))
           ;; the load-more cursor (`:page-param` / `:next-page-param`) is a FREE
           ;; tag, not a scoped key, so its classification rides the ROW's owner
           ;; (named by `:resource/key`): tokenize the cursor iff that owner is
@@ -1307,40 +1370,51 @@
           ;; computed ONCE here so the per-slot walk just consults it
           ;; (rf2-3tysyj). A plain feed's cursor rides verbatim.
           cursor-redacts? (row-owner-redacts? tags frame-id)
-          tags'
+          projected-tags
           (reduce-kv
-            (fn [m k v]
+            (fn [projected-tags tag-name tag-value]
               (cond
-                (and (scoped-key-slot k) (some? v))
-                (let [[pk s] (project-trace-scoped-key v frame-id)]
-                  (note! s) (assoc m k pk))
+                (and (scoped-key-slot tag-name) (some? tag-value))
+                (let [[projected-key sensitive?]
+                      (project-trace-scoped-key tag-value frame-id)]
+                  (record-sensitive! sensitive?)
+                  (assoc projected-tags tag-name projected-key))
 
-                (and (scoped-keys-slot k) (sequential? v))
-                (assoc m k (mapv (fn [sk]
-                                   (let [[pk s] (project-trace-scoped-key sk frame-id)]
-                                     (note! s) pk))
-                                 v))
+                (and (scoped-keys-slot tag-name) (sequential? tag-value))
+                (assoc projected-tags tag-name
+                       (mapv (fn [scoped-key]
+                               (let [[projected-key sensitive?]
+                                     (project-trace-scoped-key scoped-key frame-id)]
+                                 (record-sensitive! sensitive?)
+                                 projected-key))
+                             tag-value))
 
-                (and (disposition-rows-slot k) (sequential? v))
-                (assoc m k (mapv (fn [row]
-                                   (let [[pr s] (project-disposition-row row frame-id)]
-                                     (note! s) pr))
-                                 v))
+                (and (disposition-rows-slot tag-name) (sequential? tag-value))
+                (assoc projected-tags tag-name
+                       (mapv (fn [row]
+                               (let [[projected-row sensitive?]
+                                     (project-disposition-row row frame-id)]
+                                 (record-sensitive! sensitive?)
+                                 projected-row))
+                             tag-value))
 
-                (and (nested-map-slot k) (map? v))
-                (let [[mv s] (project-tags* v frame-id)]
-                  (note! s) (assoc m k mv))
+                (and (nested-map-slot tag-name) (map? tag-value))
+                (let [[projected-map sensitive?] (project-tags* tag-value frame-id)]
+                  (record-sensitive! sensitive?)
+                  (assoc projected-tags tag-name projected-map))
 
                 ;; cursor: a non-nil free cursor tag tokenizes (content-FREE, rf2-hzcv8)
                 ;; iff the row's owner redacts; idempotent (an opaque token stays
                 ;; sensitive + is not re-hashed — `redact-value` of an already
                 ;; redacted token would re-digest, so guard it).
-                (and (cursor-slot k) (some? v))
-                (if (redacted-token? v)
-                  (do (note! true) (assoc m k v))
+                (and (cursor-slot tag-name) (some? tag-value))
+                (if (redacted-token? tag-value)
+                  (do (record-sensitive! true)
+                      (assoc projected-tags tag-name tag-value))
                   (if cursor-redacts?
-                    (do (note! true) (assoc m k (ssr/redact-value v)))
-                    (assoc m k v)))
+                    (do (record-sensitive! true)
+                        (assoc projected-tags tag-name (ssr/redact-value tag-value)))
+                    (assoc projected-tags tag-name tag-value)))
 
                 ;; HTTP failure envelope (`:error` / `:page-error`): the raw
                 ;; `:rf.http/*` reply map (`:body` / `:body-text` / `:detail`)
@@ -1351,17 +1425,20 @@
                 ;; status/category attribution survives on the row's sibling
                 ;; scalar tags. Idempotent (an already-redacted token rides
                 ;; as-is). A nil / non-payload envelope rides verbatim.
-                (and (error-envelope-slot k) (some? v))
-                (if (redacted-token? v)
-                  (do (note! true) (assoc m k v))
-                  (do (note! true) (assoc m k (ssr/redact-value v))))
+                (and (error-envelope-slot tag-name) (some? tag-value))
+                (if (redacted-token? tag-value)
+                  (do (record-sensitive! true)
+                      (assoc projected-tags tag-name tag-value))
+                  (do (record-sensitive! true)
+                      (assoc projected-tags tag-name (ssr/redact-value tag-value))))
 
                 ;; An already-projected token rides as-is and still marks the row
                 ;; sensitive — guarded BEFORE `sibling-owned-slot` so a
                 ;; pre-redacted `:input-values` does not lose the row's
                 ;; `:sensitive?` stamp.
-                (redacted-token? v)
-                (do (note! true) (assoc m k v))
+                (redacted-token? tag-value)
+                (do (record-sensitive! true)
+                    (assoc projected-tags tag-name tag-value))
 
                 ;; SIBLING-OWNED slots ride verbatim: the scope-resolved sibling
                 ;; projector already classified `:input-values` upstream on the
@@ -1373,8 +1450,8 @@
                 ;; resolved scope classified by nobody on every OTHER row type
                 ;; that stamps one. The `sibling-owned-slot` docstring rosters
                 ;; them.
-                (sibling-owned-slot k)
-                (assoc m k v)
+                (sibling-owned-slot tag-name)
+                (assoc projected-tags tag-name tag-value)
 
                 ;; FAIL-CLOSED default — SHAPE-DRIVEN (rf2-7qbxbm gave it the
                 ;; map arm; rf2-wd9im made it read shape rather than only
@@ -1402,11 +1479,13 @@
                 ;; named arm above requires `sequential?`, so the int count
                 ;; falls to this default and rides verbatim as the scalar it is.
                 :else
-                (let [[pv s] (project-unknown-slot-value v frame-id)]
-                  (note! s) (assoc m k pv))))
+                (let [[projected-value sensitive?]
+                      (project-unknown-slot-value tag-value frame-id)]
+                  (record-sensitive! sensitive?)
+                  (assoc projected-tags tag-name projected-value))))
             {}
             tags)]
-      [tags' @sens?*])))
+      [projected-tags @sensitive-found?])))
 
 (defn project-resource-trace-egress
   "Project a resource / mutation trace row's `tags` for OFF-BOX egress against
@@ -1473,8 +1552,8 @@
   [tags frame-id]
   (if-not (map? tags)
     tags
-    (let [[tags' sens?] (project-tags* tags frame-id)]
-      (cond-> tags' sens? (assoc :sensitive? true)))))
+    (let [[projected-tags sensitive?] (project-tags* tags frame-id)]
+      (cond-> projected-tags sensitive? (assoc :sensitive? true)))))
 
 (defn project-fx-args-egress
   "Project the FX-ARGS trace tag slots of ANY trace row for OFF-BOX egress, so a
@@ -1534,15 +1613,21 @@
   [tags frame-id]
   (if-not (map? tags)
     tags
-    (let [sens?* (volatile! false)
-          tags'  (reduce (fn [m slot]
-                           (if-not (contains? m slot)
-                             m
-                             ;; `named? false` — the slot root is the FX
-                             ;; family's own value; nothing above it named it.
-                             (let [[pv s] (project-embedded-keys (get m slot) frame-id false)]
-                               (when s (vreset! sens?* true))
-                               (assoc m slot pv))))
-                         tags
-                         fx-carrier-slot)]
-      (cond-> tags' @sens?* (assoc :sensitive? true)))))
+    (let [sensitive-found? (volatile! false)
+          projected-tags
+          (reduce (fn [projected-tags carrier-slot]
+                    (if-not (contains? projected-tags carrier-slot)
+                      projected-tags
+                      ;; `named? false` — the slot root is the FX
+                      ;; family's own value; nothing above it named it.
+                      (let [[projected-value sensitive?]
+                            (project-embedded-keys
+                              (get projected-tags carrier-slot)
+                              frame-id
+                              false)]
+                        (when sensitive?
+                          (vreset! sensitive-found? true))
+                        (assoc projected-tags carrier-slot projected-value))))
+                  tags
+                  fx-carrier-slot)]
+      (cond-> projected-tags @sensitive-found? (assoc :sensitive? true)))))

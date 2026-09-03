@@ -70,13 +70,13 @@
   names the dispatch surface; `resource-key` carries the scoped key for the
   diagnostic. Returns `http-args` unchanged when it conforms."
   [http-args resource-key where]
-  (let [offending (filter #(contains? http-args %) reserved-reply-keys)]
-    (when (seq offending)
+  (let [offending-keys (filter #(contains? http-args %) reserved-reply-keys)]
+    (when (seq offending-keys)
       (error/throw-error!
         :rf.error/resource-reserved-request-key where
         (str "a resource :request supplied the "
              "runtime-owned reply-addressing key(s) "
-             (pr-str (vec offending))
+             (pr-str (vec offending-keys))
              " — :request-id / :on-success / "
              ":on-failure are supplied by resource "
              "lowering from the scoped resource key "
@@ -86,7 +86,7 @@
              "from the :request return. Per Spec 016 "
              "§Transport.")
         {:recovery :fix-registration
-         :extra    {:keys         (vec offending)
+         :extra    {:keys         (vec offending-keys)
                     :resource/key resource-key}}))
     http-args))
 

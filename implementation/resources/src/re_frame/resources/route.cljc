@@ -493,15 +493,15 @@
   cache key (rf2-ac71vm). Per Spec 016 §Route integration."
   [{params-fn :params :keys [resource]} route]
   (if params-fn
-    (let [p (params-fn route)]
-      (if (nil? p)
+    (let [resolved-params (params-fn route)]
+      (if (nil? resolved-params)
         (throw (planning-error
                  (str "route resource " resource " :params resolver returned "
                       "nil — a planning error, not a silent empty-param read. "
                       "Gate a conditional resource with :when (NOT nil params). "
                       "Per Spec 016 §Route integration.")
                  {:resource-id resource :recovery :fix-params}))
-        p))
+        resolved-params))
     {}))
 
 (defn- resolve-entry-scope
@@ -528,9 +528,9 @@
   (cond
     ;; a {:from-db …} reference — db-derived route-resource scope (slice 3)
     (scope-registry/from-db-reference? scope-fn)
-    (let [s (scope-registry/resolve-from-db-reference
-              scope-fn (or app-db {}) 'rf.resource/route-entry)]
-      (if (nil? s)
+    (let [resolved-scope (scope-registry/resolve-from-db-reference
+                           scope-fn (or app-db {}) 'rf.resource/route-entry)]
+      (if (nil? resolved-scope)
         (throw (planning-error
                  (str "route resource " resource " :scope {:from-db "
                       (pr-str (:from-db scope-fn)) "} resolved nil against the "
@@ -540,11 +540,11 @@
                       "logged-in user). Per Spec 016 §Resolver references / "
                       "§Scope resolution.")
                  {:resource-id resource :recovery :fix-scope :from-db (:from-db scope-fn)}))
-        s))
+        resolved-scope))
     ;; a (fn [route ctx] …) resolver — the route-resource resolver form
     (fn? scope-fn)
-    (let [s (scope-fn route ctx)]
-      (if (nil? s)
+    (let [resolved-scope (scope-fn route ctx)]
+      (if (nil? resolved-scope)
         (throw (planning-error
                  (str "route resource " resource " :scope resolver returned "
                       "nil — a planning error, not a silent fallback to the "
@@ -552,7 +552,7 @@
                       "scope is the tenant / user / leak boundary and MUST "
                       "fail closed. Per Spec 016 §Scope resolution.")
                  {:resource-id resource :recovery :fix-scope}))
-        s))
+        resolved-scope))
     ;; no route `:scope` — the spec policy governs (resolve-scope-for-event)
     :else nil))
 
@@ -591,57 +591,60 @@
   (surfaced on the route slice + Xray, never silent declaration-order
   degradation). Returns the ordered vector."
   [entries]
-  (let [local-id  (fn [e] (:id e))
-        deps      (fn [e] (set (:after e)))
-        known-ids (into #{} (keep local-id) entries)
+  (let [entry-id           (fn [entry] (:id entry))
+        entry-dependencies (fn [entry] (set (:after entry)))
+        known-entry-ids     (into #{} (keep entry-id) entries)
         ;; missing-target validation: every :after id MUST name a declared
         ;; route-local :id (the same resource may appear under several ids).
-        _ (doseq [e entries]
-            (when-let [missing (seq (remove known-ids (deps e)))]
+        _ (doseq [entry entries]
+            (when-let [missing (seq (remove known-entry-ids
+                                            (entry-dependencies entry)))]
               (throw (planning-error
-                       (str "route resource " (:resource e) " (local id "
-                            (pr-str (local-id e)) ") declares :after " (pr-str (set missing))
+                       (str "route resource " (:resource entry) " (local id "
+                            (pr-str (entry-id entry)) ") declares :after " (pr-str (set missing))
                             " — no route-local :id matches. `:after` MUST target a "
                             "route-local :id declared on another entry. A typo'd "
                             "dependency is a planning error, not silent ordering. "
                             "Per Spec 016 §Route integration.")
-                       {:resource-id (:resource e) :recovery :fix-after
-                        :missing-after (vec missing) :local-id (local-id e)}))))
+                       {:resource-id (:resource entry) :recovery :fix-after
+                        :missing-after (vec missing) :local-id (entry-id entry)}))))
         ;; iterative stable settle: emit any entry whose deps are all already
         ;; emitted, declaration order within a pass. A pass that emits nothing
         ;; while entries REMAIN means a cycle (every remaining dep is unmet) —
         ;; fail closed.
-        n         (count entries)]
+        max-pass-count (count entries)]
     (loop [remaining (vec entries)
            emitted   []
            seen-ids  #{}
-           guard     0]
+           pass-count 0]
       (cond
         (empty? remaining) emitted
-        (> guard n)
+        (> pass-count max-pass-count)
         (throw (planning-error
                  (str "route resources have a cyclic :after dependency among "
-                      (pr-str (into #{} (keep local-id) remaining))
+                      (pr-str (into #{} (keep entry-id) remaining))
                       " — a planning error, not silent declaration-order "
                       "fallthrough. Per Spec 016 §Route integration.")
                  {:recovery :fix-after
-                  :cycle (into #{} (keep local-id) remaining)}))
+                  :cycle (into #{} (keep entry-id) remaining)}))
         :else
         (let [{ready true held false}
-              (group-by (fn [e] (every? #(contains? seen-ids %) (deps e)))
+              (group-by (fn [entry]
+                          (every? #(contains? seen-ids %)
+                                  (entry-dependencies entry)))
                         remaining)]
           (if (empty? ready)
             (throw (planning-error
                      (str "route resources have a cyclic :after dependency among "
-                          (pr-str (into #{} (keep local-id) remaining))
+                          (pr-str (into #{} (keep entry-id) remaining))
                           " — a planning error, not silent declaration-order "
                           "fallthrough. Per Spec 016 §Route integration.")
                      {:recovery :fix-after
-                      :cycle (into #{} (keep local-id) remaining)}))
+                      :cycle (into #{} (keep entry-id) remaining)}))
             (recur (vec held)
                    (into emitted ready)
-                   (into seen-ids (keep local-id ready))
-                   (inc guard))))))))
+                   (into seen-ids (keep entry-id ready))
+                   (inc pass-count))))))))
 
 ;; ---- EP-0037 R2 — effective parent-chain composition ----------------------
 ;;
@@ -655,10 +658,10 @@
 ;; then collapsed by resolved `[scope resource-id canonical-params]` identity
 ;; and stable-topologically ordered; a collapse-created cycle fails the plan.
 ;; A per-contributor failure carries the CONTRIBUTING route + local declaration
-;; id out with it (`attributed`) — every contributor's resolvers run against
+;; id out with it (`with-contributor-attribution`) — every contributor's resolvers run against
 ;; the LEAF target, so the leaf id alone cannot say WHICH declaration failed.
 
-(defn- attributed
+(defn- with-contributor-attribution
   "The per-contributor planning failure `ex`, with the CONTRIBUTING route id
   (and the local declaration id, when the failure is entry-scoped) attached to
   its ex-data under `:contributor`. The caller re-throws it.
@@ -700,17 +703,18 @@
   identity (plus its byte `key-id`, the grouping key everything downstream
   uses). A validation/`:when`/params/scope THROW propagates to the plan
   boundary (a committed failed activation), CARRYING the contributing route +
-  local declaration id (`attributed`). EP-0037 R2 rules 2-4."
+  local declaration id (`with-contributor-attribution`). EP-0037 R2 rules 2-4."
   [branch route ctx app-db]
   (first
     (reduce
-      (fn [acc-n [branch-index {:keys [route-meta]
-                                contributor-id :route-id}]]
+      (fn [occurrences-and-next-sequence
+           [branch-index {:keys [route-meta]
+                          contributor-id :route-id}]]
         (reduce
-          (fn [[acc n] entry]
+          (fn [[occurrences next-sequence] entry]
             (try
               (if-not (when-passes? entry route ctx)
-                [acc n]
+                [occurrences next-sequence]
                 (let [resource-id (:resource entry)
                       spec        (registry/require-resource-spec!
                                     resource-id 'rf.resource/route-entry)
@@ -719,43 +723,47 @@
                       scope       (registry/resolve-scope-for-event
                                     resource-id spec {:route-scope route-scope :db app-db}
                                     'rf.resource/route-entry)
-                      cparams     (registry/validate+canonicalize-params
-                                    resource-id spec raw-params
-                                    'rf.resource/route-entry)
-                      scoped-key  (state/scoped-resource-key* scope resource-id cparams)]
-                  [(conj acc {:occ-id         [contributor-id (:id entry) n]
-                              :seq            n
-                              :branch-index   branch-index
-                              :route-id       contributor-id
-                              :local-id       (:id entry)
-                              :after          (set (:after entry))
-                              :resource       resource-id
-                              :scope          scope
-                              :cparams        cparams
-                              :scoped-key     scoped-key
-                              ;; rf2-btdl1 — the CEDN-1 byte identity, computed
-                              ;; ONCE here and used as the grouping / carrier
-                              ;; key everywhere downstream. `=` is coarser than
-                              ;; this (vector-vs-list params), so grouping on
-                              ;; the scoped key itself collapses a supported
-                              ;; pair before any ensure is dispatched.
-                              :key-id         (state/key-id scoped-key)
-                              :blocking?      (boolean (:blocking? entry))
-                              :keep-previous? (boolean (:keep-previous? entry))})
-                   (inc n)]))
+                      canonical-params (registry/validate+canonicalize-params
+                                         resource-id spec raw-params
+                                         'rf.resource/route-entry)
+                      scoped-key       (state/scoped-resource-key*
+                                         scope resource-id canonical-params)]
+                  [(conj occurrences
+                         {:occ-id         [contributor-id (:id entry) next-sequence]
+                          :seq            next-sequence
+                          :branch-index   branch-index
+                          :route-id       contributor-id
+                          :local-id       (:id entry)
+                          :after          (set (:after entry))
+                          :resource       resource-id
+                          :scope          scope
+                          :cparams        canonical-params
+                          :scoped-key     scoped-key
+                          ;; rf2-btdl1 — the CEDN-1 byte identity, computed
+                          ;; ONCE here and used as the grouping / carrier
+                          ;; key everywhere downstream. `=` is coarser than
+                          ;; this (vector-vs-list params), so grouping on
+                          ;; the scoped key itself collapses a supported
+                          ;; pair before any ensure is dispatched.
+                          :key-id         (state/key-id scoped-key)
+                          :blocking?      (boolean (:blocking? entry))
+                          :keep-previous? (boolean (:keep-previous? entry))})
+                   (inc next-sequence)]))
               (catch #?(:clj Throwable :cljs :default) ex
-                (throw (attributed ex {:route-id contributor-id
-                                       :local-id (:id entry)})))))
-          acc-n
+                (throw (with-contributor-attribution
+                         ex {:route-id contributor-id
+                             :local-id (:id entry)})))))
+          occurrences-and-next-sequence
           ;; rule 2: validate + locally order the WHOLE declared vector. A
           ;; missing / cyclic local `:after` names its own local id, but only
           ;; this frame knows WHICH contributor declared it.
           (try
             (order-by-after (:resources route-meta))
             (catch #?(:clj Throwable :cljs :default) ex
-              (throw (attributed ex (cond-> {:route-id contributor-id}
-                                      (:local-id (ex-data ex))
-                                      (assoc :local-id (:local-id (ex-data ex))))))))))
+              (throw (with-contributor-attribution
+                       ex (cond-> {:route-id contributor-id}
+                            (:local-id (ex-data ex))
+                            (assoc :local-id (:local-id (ex-data ex))))))))))
       [[] 0]
       (map-indexed vector branch))))
 
@@ -764,17 +772,23 @@
   occurrences: the branch-order constraint (every ancestor occurrence precedes
   every descendant occurrence) plus admitted local `:after` (a dependency in
   the SAME contributor precedes its dependent). EP-0037 R2 rule 5."
-  [occs]
+  [occurrences]
   (into #{}
         (concat
-          (for [a occs, b occs
-                :when (< (:branch-index a) (:branch-index b))]
-            [(:occ-id a) (:occ-id b)])
-          (for [this occs, dep occs
-                :when (and (= (:route-id this) (:route-id dep))
-                           (not= (:occ-id this) (:occ-id dep))
-                           (contains? (:after this) (:local-id dep)))]
-            [(:occ-id dep) (:occ-id this)]))))
+          (for [ancestor-occurrence occurrences
+                descendant-occurrence occurrences
+                :when (< (:branch-index ancestor-occurrence)
+                         (:branch-index descendant-occurrence))]
+            [(:occ-id ancestor-occurrence) (:occ-id descendant-occurrence)])
+          (for [dependent-occurrence occurrences
+                dependency-occurrence occurrences
+                :when (and (= (:route-id dependent-occurrence)
+                              (:route-id dependency-occurrence))
+                           (not= (:occ-id dependent-occurrence)
+                                 (:occ-id dependency-occurrence))
+                           (contains? (:after dependent-occurrence)
+                                      (:local-id dependency-occurrence)))]
+            [(:occ-id dependency-occurrence) (:occ-id dependent-occurrence)]))))
 
 (defn- redundant-child-advisories
   "The redundant-child advisories: a group whose occurrences span more than one
@@ -785,18 +799,21 @@
   [groups]
   (into []
         (mapcat
-          (fn [[_key-id occs]]
-            (let [by-seq (sort-by :seq occs)]
-              (when (> (count (into #{} (map :route-id) occs)) 1)
-                (let [ancestor (first by-seq)]
-                  (for [child (rest by-seq)
-                        :when (not= (:route-id child) (:route-id ancestor))]
-                    {:resource   (:resource ancestor)
+          (fn [[_key-id occurrences]]
+            (let [ordered-occurrences (sort-by :seq occurrences)]
+              (when (> (count (into #{} (map :route-id) occurrences)) 1)
+                (let [ancestor-occurrence (first ordered-occurrences)]
+                  (for [child-occurrence (rest ordered-occurrences)
+                        :when (not= (:route-id child-occurrence)
+                                    (:route-id ancestor-occurrence))]
+                    {:resource   (:resource ancestor-occurrence)
                      ;; the advisory names the KIND-PRESERVING scoped key, not
                      ;; the byte `key-id` the group is keyed on (rf2-btdl1).
-                     :scoped-key (:scoped-key ancestor)
-                     :ancestor   {:route-id (:route-id ancestor) :local-id (:local-id ancestor)}
-                     :child      {:route-id (:route-id child)    :local-id (:local-id child)}}))))))
+                     :scoped-key (:scoped-key ancestor-occurrence)
+                     :ancestor   {:route-id (:route-id ancestor-occurrence)
+                                  :local-id (:local-id ancestor-occurrence)}
+                     :child      {:route-id (:route-id child-occurrence)
+                                  :local-id (:local-id child-occurrence)}}))))))
         groups))
 
 (defn- collapse-and-order
@@ -817,47 +834,72 @@
   That is a DISPATCH defect, not a diagnostic one. The dedup-req still carries
   the kind-preserving `:scoped-key` — that is what consumers join on — beside
   the `:key-id` the carriers are keyed on."
-  [occs]
-  (let [occ-by-id  (into {} (map (juxt :occ-id identity)) occs)
-        group-of   (fn [oid] (:key-id (occ-by-id oid)))
-        groups     (group-by :key-id occs)
-        gkeys      (set (keys groups))
-        gedges     (into #{}
-                         (comp (map (fn [[u v]] [(group-of u) (group-of v)]))
-                               (remove (fn [[gu gv]] (= gu gv))))
-                         (occurrence-edges occs))
-        group-rank (into {} (map (fn [[gk os]] [gk (reduce min (map :seq os))])) groups)
-        succ       (reduce (fn [m [gu gv]] (update m gu (fnil conj #{}) gv)) {} gedges)
-        indeg0     (reduce (fn [m [_ gv]] (update m gv inc))
-                           (zipmap gkeys (repeat 0)) gedges)]
-    (loop [indeg indeg0, emitted []]
-      (if (empty? indeg)
+  [occurrences]
+  (let [occurrence-by-id        (into {} (map (juxt :occ-id identity)) occurrences)
+        group-id-for-occurrence (fn [occurrence-id]
+                                  (:key-id (occurrence-by-id occurrence-id)))
+        occurrences-by-group-id (group-by :key-id occurrences)
+        group-ids               (set (keys occurrences-by-group-id))
+        group-edges             (into #{}
+                                      (comp
+                                        (map (fn [[from-occurrence-id to-occurrence-id]]
+                                               [(group-id-for-occurrence from-occurrence-id)
+                                                (group-id-for-occurrence to-occurrence-id)]))
+                                        (remove (fn [[from-group-id to-group-id]]
+                                                  (= from-group-id to-group-id))))
+                                      (occurrence-edges occurrences))
+        rank-by-group-id        (into {}
+                                      (map (fn [[group-id group-occurrences]]
+                                             [group-id (reduce min (map :seq group-occurrences))]))
+                                      occurrences-by-group-id)
+        successors-by-group-id  (reduce
+                                  (fn [successors [from-group-id to-group-id]]
+                                    (update successors from-group-id (fnil conj #{}) to-group-id))
+                                  {}
+                                  group-edges)
+        initial-in-degree-by-group-id
+        (reduce (fn [in-degree-by-group-id [_from-group-id to-group-id]]
+                  (update in-degree-by-group-id to-group-id inc))
+                (zipmap group-ids (repeat 0))
+                group-edges)]
+    (loop [in-degree-by-group-id initial-in-degree-by-group-id
+           ordered-group-ids    []]
+      (if (empty? in-degree-by-group-id)
         {:ordered
-         (mapv (fn [gk]
-                 (let [os     (sort-by :seq (groups gk))
-                       rep    (first os)]
-                   {:scoped-key     (:scoped-key rep)
-                    :key-id         gk
-                    :resource       (:resource rep)
-                    :scope          (:scope rep)
-                    :cparams        (:cparams rep)
-                    :blocking?      (boolean (some :blocking? os))
-                    :keep-previous? (boolean (some :keep-previous? os))
-                    :contributors   (mapv (fn [o] {:route-id     (:route-id o)
-                                                   :local-id     (:local-id o)
-                                                   :branch-index (:branch-index o)})
-                                          os)}))
-               emitted)
-         :advisories (redundant-child-advisories groups)}
-        (let [ready (keep (fn [[g d]] (when (zero? d) g)) indeg)]
-          (if (empty? ready)
+         (mapv (fn [group-id]
+                  (let [group-occurrences         (sort-by :seq (occurrences-by-group-id group-id))
+                        representative-occurrence (first group-occurrences)]
+                    {:scoped-key     (:scoped-key representative-occurrence)
+                     :key-id         group-id
+                     :resource       (:resource representative-occurrence)
+                     :scope          (:scope representative-occurrence)
+                     :cparams        (:cparams representative-occurrence)
+                     :blocking?      (boolean (some :blocking? group-occurrences))
+                     :keep-previous? (boolean (some :keep-previous? group-occurrences))
+                     :contributors   (mapv
+                                       (fn [occurrence]
+                                         {:route-id     (:route-id occurrence)
+                                          :local-id     (:local-id occurrence)
+                                          :branch-index (:branch-index occurrence)})
+                                       group-occurrences)}))
+                ordered-group-ids)
+         :advisories (redundant-child-advisories occurrences-by-group-id)}
+        (let [ready-group-ids (keep (fn [[group-id in-degree]]
+                                      (when (zero? in-degree) group-id))
+                                    in-degree-by-group-id)]
+          (if (empty? ready-group-ids)
             ;; the cycle is REPORTED in scoped keys — a byte `key-id` blob
             ;; names nothing an author could act on.
-            {:cycle (mapv (comp :scoped-key first groups) (keys indeg))}
-            (let [g      (first (sort-by group-rank ready))
-                  indeg' (reduce (fn [m s] (update m s dec))
-                                 (dissoc indeg g) (succ g))]
-              (recur indeg' (conj emitted g)))))))))
+            {:cycle (mapv (comp :scoped-key first occurrences-by-group-id)
+                          (keys in-degree-by-group-id))}
+            (let [next-group-id (first (sort-by rank-by-group-id ready-group-ids))
+                  next-in-degree-by-group-id
+                  (reduce (fn [remaining-in-degrees successor-group-id]
+                            (update remaining-in-degrees successor-group-id dec))
+                          (dissoc in-degree-by-group-id next-group-id)
+                          (successors-by-group-id next-group-id))]
+              (recur next-in-degree-by-group-id
+                     (conj ordered-group-ids next-group-id)))))))))
 
 (defn- branch-plan-error
   "Build the route/resource PLANNING error MAP for a fail-loud branch-resolution
@@ -1074,13 +1116,13 @@
             {:plan-error err})
           :else
           (try
-            (let [occs      (materialize-occurrences branch route ctx app-db)
-                  collapsed (collapse-and-order occs)]
-              (if-let [cyclic (:cycle collapsed)]
+            (let [occurrences    (materialize-occurrences branch route ctx app-db)
+                  collapse-result (collapse-and-order occurrences)]
+              (if-let [cyclic (:cycle collapse-result)]
                 (let [err (stamp (collapse-cycle-error route-id nav-token cyclic))]
                   (trace/emit-error! :rf.error/resource-route-plan err)
                   {:plan-error err})
-                collapsed))
+                collapse-result))
             (catch #?(:clj Throwable :cljs :default) ex
               ;; when / params / scope / :after PLANNING failure — surface on
               ;; the route slice + Xray, never a silent cache miss. The error
@@ -1475,13 +1517,13 @@
             {:plan-error err})
           :else
           (try
-            (let [occs      (materialize-occurrences branch route {} app-db)
-                  collapsed (collapse-and-order occs)]
-              (if-let [cyclic (:cycle collapsed)]
+            (let [occurrences     (materialize-occurrences branch route {} app-db)
+                  collapse-result (collapse-and-order occurrences)]
+              (if-let [cyclic (:cycle collapse-result)]
                 (let [err (warm-err (collapse-cycle-error route-id nil cyclic))]
                   (trace/emit-error! :rf.error/resource-route-plan err)
                   {:plan-error err})
-                collapsed))
+                collapse-result))
             (catch #?(:clj Throwable :cljs :default) ex
               (let [err (warm-err (plan-error route-id nil
                                               (:resource-id (ex-data ex)) ex))]

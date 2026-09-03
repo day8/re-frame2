@@ -91,8 +91,8 @@
   `state/entry-path`-by-`:resource/key`, or the mutation
   `mstate/instance-path`-by-`:instance-id`)."
   [runtime-db receiving-frame-id path-fn {work-id :work/id :keys [generation] :as payload}]
-  (let [reply-frame (:rf.frame/id payload)]
-    (when (or (nil? reply-frame) (= reply-frame receiving-frame-id))
+  (let [reply-frame-id (:rf.frame/id payload)]
+    (when (or (nil? reply-frame-id) (= reply-frame-id receiving-frame-id))
       (when-let [slot (get-in runtime-db (path-fn payload))]
         (when (and (= work-id (:current-work slot))
                    (= generation (:generation slot)))
@@ -144,17 +144,17 @@
   `:scope` for a mutation). `extra` threads diagnostic facts (e.g. `:outcome`)
   onto the stale reply."
   [runtime-db path-fn {work-id :work/id :as payload} {:keys [work-kind stale-reason correlation-fn]} extra]
-  (let [carried-gen (:generation payload)
-        current-gen (current-generation runtime-db path-fn payload)]
+  (let [carried-generation      (:generation payload)
+        current-slot-generation (current-generation runtime-db path-fn payload)]
     (rreply/stale-reply
-      {:carried {:work/id work-id :generation carried-gen}
-       :current {:generation current-gen}
+      {:carried {:work/id work-id :generation carried-generation}
+       :current {:generation current-slot-generation}
        :extra   (merge {:rf.reply/work-id      work-id
                         :rf.reply/work-kind    work-kind
                         :rf.reply/stale-reason stale-reason
                         :correlation  (assoc (correlation-fn payload)
-                                             :generation {:carried carried-gen
-                                                          :current current-gen})}
+                                             :generation {:carried carried-generation
+                                                          :current current-slot-generation})}
                        extra)})))
 
 ;; ---------------------------------------------------------------------------
@@ -179,18 +179,18 @@
   spelling of `:rf.frame/id` + the durable key + `:generation` / `:outcome`);
   the additive `:rf.reply/*` facts are MERGED on top."
   [trace-id bespoke-facts stale]
-  (let [summary (rreply/trace-reply (:reply stale))]
+  (let [trace-summary (rreply/trace-reply (:reply stale))]
     (trace/emit! :rf.event trace-id
                  (merge bespoke-facts
                         {;; reply-envelope vocabulary (Managed-Effects §9) — the
                          ;; canonical :status :stale reply produced via the
                          ;; shared substrate, recorded ADDITIVELY (the bespoke
                          ;; facts above are preserved).
-                         :rf.reply/status      (:status summary)
-                         :rf.reply/work-status (:rf.reply/work-status summary)
-                         :rf.reply/work-id     (:rf.reply/work-id summary)
-                         :rf.reply/stale-reason (:rf.reply/stale-reason summary)
-                         :rf.reply/correlation (:correlation summary)
+                         :rf.reply/status      (:status trace-summary)
+                         :rf.reply/work-status (:rf.reply/work-status trace-summary)
+                         :rf.reply/work-id     (:rf.reply/work-id trace-summary)
+                         :rf.reply/stale-reason (:rf.reply/stale-reason trace-summary)
+                         :rf.reply/correlation (:correlation trace-summary)
                          ;; rf2-waawic — the SHARED carried/current stale-gate
                          ;; facts `re-frame.reply/suppress` already computed on
                          ;; `(:trace stale)`. Projecting them here lets the

@@ -198,26 +198,32 @@
   mutation). Optional facts are omitted when absent rather than filled with
   nil sentinels (Managed-Effects §The reply map).
 
-  `vp` is the runtime-owned verification payload the lowering stamped
+  `verification-payload` is the runtime-owned verification payload the lowering stamped
   (`:work/id` / `:resource/key` / `:scope` / `:generation` / `:rf.frame/id`
   for a resource; `:work/id` / `:instance-id` / `:mutation-id` / `:scope`
-  / `:generation` / `:rf.frame/id` for a mutation). `opts` carries the
+  / `:generation` / `:rf.frame/id` for a mutation). The options map carries the
   family `:work/kind` and the host `:completed-at`."
-  [vp {:keys [work-kind completed-at]}]
-  (let [wid (:work/id vp)
+  [verification-payload {:keys [work-kind completed-at]}]
+  (let [work-id (:work/id verification-payload)
         ;; the correlation map carries the public / diagnostic identities
         ;; (scope, generation, resource-key or mutation+instance) — never a
         ;; second stale-suppression key (EP-0007: the work-id is the single
         ;; suppression identity; everything else is :correlation metadata).
         correlation (cond-> {}
-                      (contains? vp :scope)        (assoc :scope (:scope vp))
-                      (contains? vp :generation)   (assoc :generation (:generation vp))
-                      (some? (:resource/key vp))   (assoc :rf.reply/resource-key (:resource/key vp))
-                      (some? (:mutation-id vp))    (assoc :mutation/id (:mutation-id vp))
-                      (some? (:instance-id vp))    (assoc :instance/id (:instance-id vp)))]
-    (cond-> {:rf.reply/work-id     wid
+                      (contains? verification-payload :scope)
+                      (assoc :scope (:scope verification-payload))
+                      (contains? verification-payload :generation)
+                      (assoc :generation (:generation verification-payload))
+                      (some? (:resource/key verification-payload))
+                      (assoc :rf.reply/resource-key (:resource/key verification-payload))
+                      (some? (:mutation-id verification-payload))
+                      (assoc :mutation/id (:mutation-id verification-payload))
+                      (some? (:instance-id verification-payload))
+                      (assoc :instance/id (:instance-id verification-payload)))]
+    (cond-> {:rf.reply/work-id     work-id
              :rf.reply/work-kind   work-kind}
-      (some? (:rf.frame/id vp)) (assoc :rf.frame/id (:rf.frame/id vp))
+      (some? (:rf.frame/id verification-payload))
+      (assoc :rf.frame/id (:rf.frame/id verification-payload))
       (some? completed-at)      (assoc :completed-at completed-at)
       (seq correlation)         (assoc :correlation correlation))))
 

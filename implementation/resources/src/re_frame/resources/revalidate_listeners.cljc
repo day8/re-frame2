@@ -110,13 +110,13 @@
     (dispatch! [event-id] {:frame frame-id :source :revalidate})))
 
 #?(:cljs
-   (defn- window-obj
+   (defn- browser-window
      "The `js/window` object, or nil when no DOM is present (node / SSR)."
      []
      (when (exists? js/window) js/window)))
 
 #?(:cljs
-   (defn- document-obj
+   (defn- browser-document
      "The `js/document` object, or nil when no DOM is present (node / SSR).
      `visibilitychange` is a `document` event (it never fires on `window`),
      so the visibility listener attaches/detaches HERE."
@@ -131,12 +131,13 @@
      only event target)."
      [frame-id]
      (when-let [{:keys [focus visibility online]} (get @listener-table frame-id)]
-       (try (when-let [w (window-obj)]
-              (when focus  (.removeEventListener w "focus" focus))
-              (when online (.removeEventListener w "online" online)))
-            (when-let [d (document-obj)]
-              (when visibility (.removeEventListener d "visibilitychange" visibility)))
-            (catch :default _ nil)))
+       (try (when-let [window-target (browser-window)]
+               (when focus  (.removeEventListener window-target "focus" focus))
+               (when online (.removeEventListener window-target "online" online)))
+             (when-let [document-target (browser-document)]
+               (when visibility
+                 (.removeEventListener document-target "visibilitychange" visibility)))
+             (catch :default _ nil)))
      (swap! listener-table dissoc frame-id)
      nil))
 
@@ -168,10 +169,10 @@
   call site. Returns nil."
   [frame-id]
   #?(:cljs
-     (when-let [w (window-obj)]
+     (when-let [window-target (browser-window)]
        ;; replace, don't stack (hot-reload safe)
        (remove-frame-listeners! frame-id)
-       (let [d                  (document-obj)
+       (let [document-target    (browser-document)
              focus-handler      (fn [_e] (dispatch-revalidation! frame-id window-focused-event))
              visibility-handler (fn [_e]
                                   ;; `visibilitychange` fires on BOTH the
@@ -179,14 +180,16 @@
                                   ;; transitions; revalidate ONLY on the
                                   ;; tab-return (document becomes VISIBLE),
                                   ;; never when the tab is hidden.
-                                  (when (and d (= "visible" (.-visibilityState d)))
+                                  (when (and document-target
+                                             (= "visible" (.-visibilityState document-target)))
                                     (dispatch-revalidation! frame-id window-focused-event)))
              online-handler     (fn [_e] (dispatch-revalidation! frame-id network-reconnected-event))]
-         (.addEventListener w "focus" focus-handler)
+         (.addEventListener window-target "focus" focus-handler)
          ;; `visibilitychange` is a `document` event — attach it to `document`,
          ;; not `window` (the handler reads `document.visibilityState`).
-         (when d (.addEventListener d "visibilitychange" visibility-handler))
-         (.addEventListener w "online" online-handler)
+         (when document-target
+           (.addEventListener document-target "visibilitychange" visibility-handler))
+         (.addEventListener window-target "online" online-handler)
          (swap! listener-table assoc frame-id
                 {:focus focus-handler :visibility visibility-handler :online online-handler})
          nil))

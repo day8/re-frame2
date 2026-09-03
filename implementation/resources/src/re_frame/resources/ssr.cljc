@@ -211,57 +211,64 @@
 
 #?(:cljs
    (defn- utf8-bytes
-     "UTF-8 encode the string `s` to a JS array of byte values, byte-identical to
-     the JVM's `(.getBytes s \"UTF-8\")`. A JS string is a sequence of UTF-16
+     "UTF-8 encode the string `text` to a JS array of byte values, byte-identical to
+     the JVM's `(.getBytes text \"UTF-8\")`. A JS string is a sequence of UTF-16
      CODE UNITS, so this is not a per-character walk: a surrogate PAIR is one
      code point and encodes as four bytes, and an UNPAIRED surrogate encodes as
      `?` (0x3f) — which is what `String.getBytes` does with a malformed input,
      verified against the JVM rather than assumed. Pure."
-     [s]
-     (let [out #js []
-           n   (.-length s)]
-       (loop [i 0]
-         (if (>= i n)
-           out
-           (let [c (.charCodeAt s i)]
+     [text]
+     (let [output-bytes    #js []
+           code-unit-count (.-length text)]
+       (loop [code-unit-index 0]
+         (if (>= code-unit-index code-unit-count)
+           output-bytes
+           (let [code-unit (.charCodeAt text code-unit-index)]
              (cond
                ;; a HIGH surrogate: one code point if a low surrogate follows.
-               (and (>= c 0xd800) (<= c 0xdbff))
-               (let [c2 (when (< (inc i) n) (.charCodeAt s (inc i)))]
-                 (if (and c2 (>= c2 0xdc00) (<= c2 0xdfff))
-                   (let [cp (+ 0x10000
-                               (bit-shift-left (- c 0xd800) 10)
-                               (- c2 0xdc00))]
-                     (doto out
-                       (.push (bit-or 0xf0 (bit-shift-right cp 18)))
-                       (.push (bit-or 0x80 (bit-and (bit-shift-right cp 12) 0x3f)))
-                       (.push (bit-or 0x80 (bit-and (bit-shift-right cp 6) 0x3f)))
-                       (.push (bit-or 0x80 (bit-and cp 0x3f))))
-                     (recur (+ i 2)))
-                   (do (.push out 0x3f) (recur (inc i)))))
+               (and (>= code-unit 0xd800) (<= code-unit 0xdbff))
+               (let [next-code-unit
+                     (when (< (inc code-unit-index) code-unit-count)
+                       (.charCodeAt text (inc code-unit-index)))]
+                 (if (and next-code-unit
+                          (>= next-code-unit 0xdc00)
+                          (<= next-code-unit 0xdfff))
+                   (let [code-point (+ 0x10000
+                                       (bit-shift-left (- code-unit 0xd800) 10)
+                                       (- next-code-unit 0xdc00))]
+                     (doto output-bytes
+                       (.push (bit-or 0xf0 (bit-shift-right code-point 18)))
+                       (.push (bit-or 0x80 (bit-and (bit-shift-right code-point 12) 0x3f)))
+                       (.push (bit-or 0x80 (bit-and (bit-shift-right code-point 6) 0x3f)))
+                       (.push (bit-or 0x80 (bit-and code-point 0x3f))))
+                     (recur (+ code-unit-index 2)))
+                   (do (.push output-bytes 0x3f)
+                       (recur (inc code-unit-index)))))
 
                ;; an unpaired LOW surrogate.
-               (and (>= c 0xdc00) (<= c 0xdfff))
-               (do (.push out 0x3f) (recur (inc i)))
+               (and (>= code-unit 0xdc00) (<= code-unit 0xdfff))
+               (do (.push output-bytes 0x3f)
+                   (recur (inc code-unit-index)))
 
-               (< c 0x80)
-               (do (.push out c) (recur (inc i)))
+               (< code-unit 0x80)
+               (do (.push output-bytes code-unit)
+                   (recur (inc code-unit-index)))
 
-               (< c 0x800)
-               (do (doto out
-                     (.push (bit-or 0xc0 (bit-shift-right c 6)))
-                     (.push (bit-or 0x80 (bit-and c 0x3f))))
-                   (recur (inc i)))
+               (< code-unit 0x800)
+               (do (doto output-bytes
+                     (.push (bit-or 0xc0 (bit-shift-right code-unit 6)))
+                     (.push (bit-or 0x80 (bit-and code-unit 0x3f))))
+                   (recur (inc code-unit-index)))
 
                :else
-               (do (doto out
-                     (.push (bit-or 0xe0 (bit-shift-right c 12)))
-                     (.push (bit-or 0x80 (bit-and (bit-shift-right c 6) 0x3f)))
-                     (.push (bit-or 0x80 (bit-and c 0x3f))))
-                   (recur (inc i))))))))))
+               (do (doto output-bytes
+                     (.push (bit-or 0xe0 (bit-shift-right code-unit 12)))
+                     (.push (bit-or 0x80 (bit-and (bit-shift-right code-unit 6) 0x3f)))
+                     (.push (bit-or 0x80 (bit-and code-unit 0x3f))))
+                   (recur (inc code-unit-index))))))))))
 
 (defn- fnv-1a-32
-  "The 32-bit FNV-1a hash of `s` (a string) as an 8-char lower-case hex.
+  "The 32-bit FNV-1a hash of `text` as an 8-char lower-case hex.
   Content-addresses a redacted scope / params value so distinct keys stay
   distinct without the raw value riding. Self-contained (no dep on the SSR
   artefact's hash).
@@ -286,20 +293,23 @@
 
   The two branches are pinned equal by a shared fixture (ASCII, non-ASCII, a
   surrogate pair, and an unpaired surrogate) in `resources-ssr-cljs-test`. Pure."
-  [^String s]
-  (let [bytes #?(:clj (.getBytes s "UTF-8") :cljs (utf8-bytes s))
-        n     #?(:clj (alength ^bytes bytes) :cljs (.-length bytes))]
-    (loop [i 0
-           h fnv-offset-basis]
-      (if (< i n)
-        (let [b  #?(:clj (bit-and (aget ^bytes bytes i) 0xff)
-                    :cljs (aget bytes i))
-              h' #?(:clj  (-> (bit-xor h b) (* fnv-prime) (bit-and 0xffffffff))
-                    :cljs (js/Math.imul (bit-xor h b) fnv-prime))]
-          (recur (inc i) h'))
-        #?(:clj  (format "%08x" (bit-and h 0xffffffff))
-           :cljs (let [hx (.toString (unsigned-bit-shift-right h 0) 16)]
-                   (str (subs "00000000" 0 (max 0 (- 8 (count hx)))) hx)))))))
+  [^String text]
+  (let [bytes      #?(:clj (.getBytes text "UTF-8") :cljs (utf8-bytes text))
+        byte-count #?(:clj (alength ^bytes bytes) :cljs (.-length bytes))]
+    (loop [byte-index 0
+           hash       fnv-offset-basis]
+      (if (< byte-index byte-count)
+        (let [byte      #?(:clj (bit-and (aget ^bytes bytes byte-index) 0xff)
+                           :cljs (aget bytes byte-index))
+              next-hash #?(:clj  (-> (bit-xor hash byte)
+                                     (* fnv-prime)
+                                     (bit-and 0xffffffff))
+                           :cljs (js/Math.imul (bit-xor hash byte) fnv-prime))]
+          (recur (inc byte-index) next-hash))
+        #?(:clj  (format "%08x" (bit-and hash 0xffffffff))
+           :cljs (let [hex (.toString (unsigned-bit-shift-right hash 0) 16)]
+                   (str (subs "00000000" 0 (max 0 (- 8 (count hex))))
+                        hex)))))))
 
 (defn- shape-token
   "The CONTENT-FREE payload of a `{:rf/redacted …}` token: `value`'s shape,
@@ -1413,16 +1423,19 @@
   Per Spec 016 §SSR and hydration (server clock skew surfaced when it makes
   freshness ambiguous)."
   [entry clock-ms]
-  (when-let [sa (:stale-at entry)]
-    (let [la (:loaded-at entry)
+  (when-let [stale-at-ms (:stale-at entry)]
+    (let [loaded-at-ms (:loaded-at entry)
           ;; the entry's own freshness window (loaded-at..stale-at). A
           ;; :stale-at more than one whole window ahead of `now` (relative to
           ;; when it loaded) is implausible against the live clock — the
           ;; server's clock was ahead. nil window (no :stale-after-ms) can't
           ;; be checked.
-          window (when (and la sa) (- sa la))]
-      (when (and window (pos? window) (> sa (+ clock-ms window)))
-        (- sa clock-ms)))))
+          freshness-window-ms (when (and loaded-at-ms stale-at-ms)
+                                (- stale-at-ms loaded-at-ms))]
+      (when (and freshness-window-ms
+                 (pos? freshness-window-ms)
+                 (> stale-at-ms (+ clock-ms freshness-window-ms)))
+        (- stale-at-ms clock-ms)))))
 
 (defn hydrate-runtime-db
   "Reconcile a freshly-INSTALLED resource subtree on `:rf/hydrate` (the body
