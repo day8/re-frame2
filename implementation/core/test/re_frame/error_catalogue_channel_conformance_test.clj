@@ -1279,7 +1279,7 @@
   mentioned. So `cell-tag-keys` is the reading, and a multi-token back-ticked
   span survives: the closed record slot sets
   (`` `#{:frame :recovery :reason :scheme-class}` `` on the three safe-redirect
-  rows, `status-defect-record-slots`' set on
+  rows, the closed always-on record slot set on
   `:rf.error/ssr-ring-response-status-invalid`) and the axis-asymmetry
   sentences (`` `:recovery :no-scroll` ``). Those cells STATE a contract about
   the slot instead of restating a universal, and a mention-wide rule would

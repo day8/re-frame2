@@ -59,33 +59,42 @@
 ;; is a documented host-adapter surface — so the arm is a backstop, not dead code,
 ;; and a backstop that fires silently is the one thing it must not be.
 
-(def ^:private status-defect-record-slots
-  "The CLOSED key set of the always-on
-  `:rf.error/ssr-ring-response-status-invalid` record — the only keys
-  [[report-non-integer-status!]] builds it FROM.
-
-  BUILT FROM, never filtered down to. A deny-list scrub stays one component
-  away from the next leak (rf2-6jqa8 shipped four URL secrets before that
-  lesson landed); a closed allow-list means a slot someone adds upstream has no
-  route to Sentry even in principle. Pinned closed by
-  `pipeline-materialiser-test`, which also asserts the ABSENCE of `:status` by
-  name — the offending VALUE is the one thing this record must never carry.
-
-    :error       the category (union-record shape)
-    :frame       ALWAYS nil — see [[report-non-integer-status!]]
-    :time        the emit instant (union-record shape)
-    :where       the call site; a constant keyword, and the slot the three
-                 sibling `:rf.ssr/*` materialiser diagnostics already carry
-    :status-type the offending value's CLASS NAME — program structure, not app
-                 data (the documented `:ex-class` residual class), and the one
-                 lead that turns \"a 500 happened\" into \"something `str`-ed
-                 the status\"
-    :reason      a closed framework keyword, never prose (rf2-6jqa8: free prose
-                 on this axis is how raw material finds its way back into a
-                 record). The sentence stays on the dev trace, where a reader
-                 who needs it is already standing
-    :recovery    the fail-closed disposition"
-  #{:error :frame :time :where :status-type :reason :recovery})
+;; THE ALWAYS-ON RECORD IS CLOSED AT ITS ONE CONSTRUCTION SITE. The map literal
+;; in [[report-non-integer-status!]] below IS the record's key set. There is no
+;; separate allow-list constant to consult, and deliberately isn't one: this
+;; namespace carried such a constant from the day the promotion landed and
+;; nothing ever read it (rf2-6r9j.47), so it advertised a mechanical guarantee
+;; the code did not perform while quietly becoming a third spelling that could
+;; drift on its own.
+;;
+;; BUILT CLOSED, never filtered down to. A deny-list scrub stays one component
+;; away from the next leak (rf2-6jqa8 shipped four URL secrets before that
+;; lesson landed); a literal assembled key-by-key means a slot someone adds
+;; upstream has no route to Sentry even in principle.
+;;
+;; WHAT ACTUALLY ENFORCES IT is behavioural, and it is the reason the constant
+;; was never missed. In `status_rewrite_always_on_test`,
+;; `record-key-set-is-closed` pins the EMITTED record's key set with `=` (never
+;; `subset?`) against its own independently written expectation, and
+;; `the-record-never-carries-the-offending-value` asserts the ABSENCE of
+;; `:status` by name — the offending VALUE is the one thing this record must
+;; never carry. The independence is the point: a test that read the production
+;; set would agree with it by construction and could only ever pass.
+;;
+;;   :error       the category (union-record shape)
+;;   :frame       ALWAYS nil — see [[report-non-integer-status!]]
+;;   :time        the emit instant (union-record shape)
+;;   :where       the call site; a constant keyword, and the slot the three
+;;                sibling `:rf.ssr/*` materialiser diagnostics already carry
+;;   :status-type the offending value's CLASS NAME — program structure, not app
+;;                data (the documented `:ex-class` residual class), and the one
+;;                lead that turns "a 500 happened" into "something `str`-ed the
+;;                status"
+;;   :reason      a closed framework keyword, never prose (rf2-6jqa8: free prose
+;;                on this axis is how raw material finds its way back into a
+;;                record). The sentence stays on the dev trace, where a reader
+;;                who needs it is already standing
+;;   :recovery    the fail-closed disposition
 
 (defn ^:private report-non-integer-status!
   "Report ONE non-integer response `:status` on BOTH observability axes and
@@ -94,9 +103,10 @@
 
   Axis 1 is the ALWAYS-ON error-emit record (surface #4) — the half that
   reaches an off-box shipper on a `-Dre-frame.debug=false` JVM SSR host, built
-  from the closed [[status-defect-record-slots]]. Axis 2 is the dev trace,
-  which keeps the diagnostics whole, INCLUDING the offending value: it is
-  DCE'd/gated, and a developer staring at a 500 wants to see the `\"404\"` that
+  as the CLOSED seven-key literal below (the comment above this fn carries the
+  per-slot reasoning and names what enforces the closure). Axis 2 is the dev
+  trace, which keeps the diagnostics whole, INCLUDING the offending value: it
+  is DCE'd/gated, and a developer staring at a 500 wants to see the `\"404\"` that
   caused it.
 
   `:frame` is ALWAYS nil, and that is a deliberate constant rather than a
