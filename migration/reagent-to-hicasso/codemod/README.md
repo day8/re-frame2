@@ -43,19 +43,24 @@ consumer's code needs a human decision is a tool that gets run once.
 
 Everything below this section is about the fixer, whose population is the
 `[:>]`-family crossing. That population is not a Reagent codebase, and the
-difference is not small. Run over this repository's own 88-file example corpus
-the fixer reports zero entries — the corpus crosses into React nowhere — and
-a migrator reading that report sees eighty-eight files that are not mentioned.
+difference is not small. Run over this repository's own example corpus — 83
+files at `39a7a339a2` — the fixer reports zero entries, because the corpus
+crosses into React nowhere, and a migrator reading that report sees
+eighty-three files that are not mentioned.
 
 So the same run also produces a census, under `:census` in the report, whose
 population is the view-substrate API call site: `r/atom`, `r/with-let`,
 `r/create-class`, `r/as-element`, `r/cursor`, `r/reactify-component`, root
-mounting, and the rest of the two rosters in
-`src/re_frame/migration/hicasso/census.clj`. On that same corpus it reports
-59 sites across 28 files, one of them the `with-let` whose teardown no
+mounting, static-markup export, cell teardown, and the rest of the two rosters
+in `src/re_frame/migration/hicasso/census.clj`. On that corpus it reports
+75 sites across 33 files, one of them the `with-let` whose teardown no
 mechanical edit can carry. Both are measurements of a corpus that keeps
-growing, taken here at `e337a1d`; the corpus was 81 files when the census
-landed.
+growing, and of a roster that grows with it: the corpus was 81 files when the
+census landed and 83 at `39a7a339a2`, where these were taken. The site count
+moved 74 → 75 in the same commit as this sentence, and the extra one is worth
+naming — a file that had been counted RECOGNISED AND CLEAN turned out to be
+calling `render-to-static-markup`, which the roster had no row for. See *Two
+rosters*, below.
 
 | Half | Population | Addressed at | Verdicts |
 |---|---|---|---|
@@ -129,7 +134,7 @@ Reagent adapter is the single most likely thing to be migrated to Hicasso.
 There are two rosters now, and the rule for both is **identity, not spelling: a
 namespace is classified when this project can vouch for what it is.**
 
-- **Reagent's API** — stock Reagent's four namespaces, plus the `reagent2.*`
+- **Reagent's API** — stock Reagent's five namespaces, plus the `reagent2.*`
   four that the reagent-slim adapter ships. That is the same API authored a
   second time in this repository, under names the how-to guide teaches
   consumers to call, so one roster classifies both. Omitting it was the same
@@ -164,7 +169,41 @@ zero:
   is wrong is a warning nobody can tell from a missing key;
 - the verdict is **hoisted to the top of the report**, beside `:tool`, because
   the reader who gets misled is the one who reads the first summary and stops;
-- the CLI's last line leads with it, for the same reason.
+- the CLI's last line leads with it, for the same reason, and marks a zero
+  rather than printing it bare.
+
+### The zero came back through the widening itself
+
+Recognition is decided per **file**, off the `ns` form. Entries are found per
+**name**, off the roster. Widening the namespace family without widening the
+roster moves those two apart, and the gap between them is exactly a confident
+zero: the file is recognised, no rostered name matches, so it is counted
+`:files-clean` and `:recognition` reads `:full`. **A recognised-and-unrostered
+file is a strictly worse answer than an unrecognised one** — the unrecognised
+file is a bucket the caveat names out loud, and this one is a clean bill of
+health.
+
+That is not hypothetical. The change that added the `reagent2.*` four did not
+add `render-to-static-markup`, which is `reagent2.dom.server`'s only public
+function, and a one-line file calling it reported `files-recognised 1,
+files-clean 1, entries 0, :recognition :full` under the sentence *A zero below
+is a measurement*. Three things answer it, and they are different in kind:
+
+- the roster was reconciled against every recognised namespace's supported
+  public calls, which is where `render-to-string`, `unmount`, `flush-views!`,
+  `flush!`, `activate!`, `reactive?`, `dispose!` and the rest arrived from;
+- the coupling is now a **law with a ratchet**. `reagent-namespaces` says a
+  namespace joins it only together with the roster rows for the names it
+  publishes, and `census_test` holds one known public call per recognised
+  namespace and reds when a namespace is added without one. The same probe
+  covers the adapters shipping today, where `mount!` / `trigger-update!` were
+  the identical hole at a second address;
+- the `:full` caveat was **weakened to the claim it can support**. It said the
+  zero was a measurement; it says instead that recognition is about the files
+  while the count is bounded by a fixed roster. The substrate roster binds by
+  an open prefix, so a residual survives every list — an adapter recognised
+  the day it ships, before this roster has rows for it — and admitting that is
+  the only honest thing the `:full` sentence can do.
 
 ## The two laws
 
@@ -349,11 +388,19 @@ the census never RECOGNISED, which wears the first one's face exactly — every
 count zero, nothing red. It is gated on the tool's inability to report that zero
 without saying which of the two it is, and the assertion comes with a control
 that has to fire: the same machinery over a corpus the census does have a
-population in reports `:full`, whose caveat says the zero would be a
-measurement. Beside it sit the roster controls, which are the same lesson in
+population in reports `:full`, whose caveat says what recognition measured and
+what it did not. Beside it sit the roster controls, which are the same lesson in
 both families — a vendored `…reagent.v1v2v0.reagent.core` binds nothing, and
 neither does a `my.vendored.re-frame.adapter.reagent`, because the prefix rule
 is anchored at the start of the namespace and containment is not identity.
+
+The same bead's merged-PR audit added the **fourth**, and it is the third one
+inverted: answering nothing over a corpus the census DID recognise, because the
+namespace family was widened and the roster was not. It is gated by a table
+holding one known public call per recognised namespace, asserting for each that
+`:recognition :full` and zero entries cannot co-occur — and, more importantly,
+that the table is COMPLETE against `reagent-namespaces`, so a namespace added
+without a sample reds on the ratchet rather than on somebody's migration.
 
 ## One dependency, deliberately
 
