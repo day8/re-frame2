@@ -215,7 +215,11 @@
 (defn- evaluate-flow!
   "Evaluate one flow against the pending frame-state.
 
-  Returns `[db dirty?]`. A failure is rethrown with the failing flow id AND the
+  Returns the transformed db, or `stale-incarnation` when the owning
+  incarnation died mid-visit — the same two-outcome discrimination
+  `run-flows-on-db*` itself returns to its own caller.
+
+  A failure is rethrown with the failing flow id AND the
   failing PHASE for router attribution — `:derive` for the authored callback,
   `:output-write` for the framework's install of its returned value (see
   [[flow-eval-failure!]]); `run-flows-on-db` restores dirty-check state and the
@@ -240,7 +244,7 @@
                           :input-paths-unchanged (:inputs flow)
                           :frame                 frame-id}))
           (if (owner-live? frame-id owner-token exact-owner?)
-            [db false]
+            db
             stale-incarnation))
         ;; The authored `:derive` callback and the framework's own output
         ;; installation are caught by SEPARATE `try` forms.  The split is the
@@ -291,7 +295,7 @@
                     (if (or (not interop/debug-enabled?)
                             (validate-output! frame-id owner-token exact-owner?
                                               flow new-output))
-                      [new-db true]
+                      new-db
                       stale-incarnation)))
                 (catch #?(:clj Throwable :cljs :default) e
                   (flow-eval-failure! frame-id owner-token exact-owner?
@@ -334,7 +338,7 @@
                                                    runtime-db flow)]
                         (if (= stale-incarnation result)
                           stale-incarnation
-                          (recur (rest remaining) (first result))))))
+                          (recur (rest remaining) result)))))
                   (catch #?(:clj Throwable :cljs :default) e
                     ;; Exact loss detached A's cells during destroy; restoring
                     ;; through the bare id would corrupt B.  When A is still
