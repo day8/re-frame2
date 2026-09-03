@@ -142,8 +142,10 @@ data, so the egress classifies each payload as runtime/captured VALUE
   redacts the WHOLE payload to `:rf/redacted` rather than ship it raw off-box
   — the earlier carve-out that shipped the raw tree on a non-live frame was
   retired. The live-state tools (`run-variant` / `preview-variant` /
-  `read-failures` / `explain-variant`) always hold a live variant frame, so
-  they redact-by-path / fail-closed accordingly.
+  `read-failures`) always hold a live variant frame, so
+  they redact-by-path / fail-closed accordingly. (`explain-variant` is NOT
+  one of them — it runs nothing, allocates no frame, and does not reach
+  this boundary at all; see the author-metadata bullet below.)
   **One surface —
   `read-a11y-violations` (browser-panel axe-core nodes) — scrubs against a
   routinely NON-LIVE variant frame, and its payload is inherently
@@ -166,12 +168,10 @@ data, so the egress classifies each payload as runtime/captured VALUE
   opt-in is the deliberate way to cross any payload raw.
   This path-projection covers the live-state tools' `:app-db` /
   `:rendered-hiccup` / `:snapshot` / evidence slots and assertion records
-  (`preview-variant` / `run-variant` / `read-failures`),
-  `read-a11y-violations`'s `:violations` (axe-core nodes), AND the
-  non-live value-bearing slots: `explain-variant`'s plan-RESOLVED
-  `:effective-args` / `:args` / `:substitutions` / `:network` /
-  `:db-seed` / `:sub-overrides` / `:setup-order` / `:script-order`.
-  Plan step STRUCTURE is always preserved. The shared
+  (`preview-variant` / `run-variant` / `read-failures`) and
+  `read-a11y-violations`'s `:violations` (axe-core nodes). Those FOUR
+  tools are the whole of the runtime-value class; no other tool reaches
+  this boundary. The shared
   `--allow-sensitive-reads` + per-call `:include-sensitive` opt-in is the
   one documented escape hatch (gate closed ⇒ the opt-in is omitted from
   `tools/list` and silently ignored at egress); note that the opt-in only
@@ -180,19 +180,31 @@ data, so the egress classifies each payload as runtime/captured VALUE
   scrubbed.** The docs-discovery surfaces return the catalogue an author
   publishes: `get-story` / `get-variant` / `variant->edn` bodies,
   `list-stories` / `list-modes` / `list-decorators` / `list-tags` /
-  `list-assertions` enumerations, the markdown render, and the
-  `explain` map's plan-STRUCTURE slots (`:source-chain` /
-  `:parent-chain` / `:compose` / `:merge` / `:strict-conflicts` /
-  `:tags` / `:platforms` / …). These
+  `list-assertions` enumerations, the markdown render, and
+  `explain-variant`'s **ENTIRE** `explain` map — the plan-STRUCTURE slots
+  (`:source-chain` / `:parent-chain` / `:compose` / `:merge` /
+  `:strict-conflicts` / `:tags` / `:platforms` / …) AND the plan-RESOLVED
+  value slots (`:effective-args` / `:args` / `:substitutions` /
+  `:network` / `:db-seed` / `:sub-overrides` / `:setup-order` /
+  `:script-order`). These
   are registration-time authoring prose, not runtime/user state, so they
   cross unredacted by design — scrubbing them would only degrade the
-  discovery UX without protecting any secret. NOTE: `:setup-order` /
-  `:script-order` are NOT in this list — although their step STRUCTURE
-  (which fx ids, in which order) is discovery metadata, `substitute-args`
-  injects resolved arg VALUES into the step payloads at plan-compile
-  time, so the post-substitution sequences are value-bearing and scrubbed
-  (rf2-q8ebq.1). The value-only redaction preserves the public structure
-  while redacting the embedded secrets. Registry-wide enumerations
+  discovery UX without protecting any secret. NOTE on `:setup-order` /
+  `:script-order`: `substitute-args` injects resolved arg VALUES into the
+  step payloads at plan-compile time, and those post-substitution
+  sequences **still ship raw** — they are the author's own registered
+  arguments, resolved, not observed user state. `explain-variant` is a
+  NO-RUN projection over the registry side-table (rf2-7k5mce, Mike
+  2026-07-08): it allocates no frame, so the whole map ships raw exactly
+  like `get-variant` / `variant->edn` and like the human Explain panel it
+  mirrors. The earlier posture — path-scrubbing the resolved slots
+  (rf2-q8ebq.1) — is **RETIRED**: it over-redacted the tool's most useful
+  output on the common static-inspection path. **A `:sensitive?` or
+  `:large` classification does NOT scrub authored registration values
+  exposed by `explain-variant`, and there is no `:include-sensitive` gate
+  on it** (nothing is withheld, so nothing can be released). Keep secrets
+  out of a variant's registration; classification marks protect the
+  OBSERVED runtime only. Registry-wide enumerations
   (modes, decorators) are not frame-keyed and carry no runtime values;
   their `:args` / `:app-db-patch` / `:response` slots are the author's
   own published fixture data.
