@@ -244,8 +244,6 @@
 
 ;; ---- frame resolution at render time -------------------------------------
 
-(def ^:dynamic *current-frame* nil)
-
 (defn current-frame
   "Resolution chain (READER) per Spec 002 §Frame target resolution — the
   carried invariant (EP-0002). Returns the scope frame, or **nil** when no
