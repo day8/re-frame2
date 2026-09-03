@@ -17,7 +17,7 @@
   256)
 
 (defn bound-conj
-  "Append `x` to ring vector `buf`, retaining at most `cap` (default
+  "Append `entry` to ring vector `buffer`, retaining at most `capacity` (default
   `warn-buffer-cap`) NEWEST entries.
 
   The trimmed window is MATERIALISED into a fresh vector rather than
@@ -28,11 +28,12 @@
   alone would keep every discarded warning (and its arg vectors) alive
   until process exit, silently defeating the bound. `into
   []` copies only the window into a new `PersistentVector`, dropping the
-  discarded head so retained entry count stays bounded to `cap`."
-  ([buf x] (bound-conj buf x warn-buffer-cap))
-  ([buf x cap]
-   (let [buf' (conj buf x)
-         n    (count buf')]
-     (if (> n cap)
-       (into [] (subvec buf' (- n cap)))
-       buf'))))
+  discarded head so retained entry count stays bounded to `capacity`."
+  ([buffer entry]
+   (bound-conj buffer entry warn-buffer-cap))
+  ([buffer entry capacity]
+   (let [appended-buffer (conj buffer entry)
+         entry-count     (count appended-buffer)]
+     (if (> entry-count capacity)
+       (into [] (subvec appended-buffer (- entry-count capacity)))
+       appended-buffer))))

@@ -37,28 +37,35 @@
   "The runner's private ring cap (256 KiB, characters)."
   @#'re-frame.test-quiet.runner/stderr-buffer-cap)
 
-(defn- make-wiring
+(defn- make-stderr-wiring
   "Reconstruct `-main`'s stderr wiring over a fresh ring: returns
-  `{:sb :err-channel :sys-channel}` where `:err-channel` is the
-  `*err*`-side `PrintWriter` and `:sys-channel` is the `System.err`-side
+  `{:stderr-ring :dynamic-err-writer :system-err-stream}` where
+  `:dynamic-err-writer` is the `*err*`-side `PrintWriter` and
+  `:system-err-stream` is the `System.err`-side
   UTF-8 `PrintStream` over the identical `OutputStream` bridge `-main`
   installs. Both funnel into the same private `buffering-stderr-writer`
-  over `:sb`."
+  over `:stderr-ring`."
   []
-  (let [sb         (StringBuilder.)
-        buffered-w (#'re-frame.test-quiet.runner/buffering-stderr-writer sb)
+  (let [stderr-ring (StringBuilder.)
+        buffered-stderr-writer
+        (#'re-frame.test-quiet.runner/buffering-stderr-writer stderr-ring)
         ;; `*err*` channel — a PrintWriter, exactly as `-main` binds `*err*`.
-        err-channel (java.io.PrintWriter. buffered-w)
+        dynamic-err-writer (java.io.PrintWriter. buffered-stderr-writer)
         ;; `System.err` channel — the same OutputStream->PrintStream(UTF-8)
         ;; bridge `-main` installs via `System/setErr`.
-        sys-bridge  (proxy [java.io.OutputStream] []
-                      (write
-                        ([b]
-                         (.write buffered-w (String. (byte-array [(unchecked-byte b)]))))
-                        ([b off len]
-                         (.write buffered-w (String. ^bytes b (int off) (int len))))))
-        sys-channel (java.io.PrintStream. sys-bridge true "UTF-8")]
-    {:sb sb :err-channel err-channel :sys-channel sys-channel}))
+        system-err-bridge
+        (proxy [java.io.OutputStream] []
+          (write
+            ([byte-value]
+             (.write buffered-stderr-writer
+                     (String. (byte-array [(unchecked-byte byte-value)]))))
+            ([byte-buffer offset length]
+             (.write buffered-stderr-writer
+                     (String. ^bytes byte-buffer (int offset) (int length))))))
+        system-err-stream (java.io.PrintStream. system-err-bridge true "UTF-8")]
+    {:stderr-ring       stderr-ring
+     :dynamic-err-writer dynamic-err-writer
+     :system-err-stream system-err-stream}))
 
 (def ^:private big-line
   "A single write comfortably larger than the 256 KiB ring cap, so every
@@ -71,42 +78,51 @@
     (let [trials       30
           writes-each  3
           failures     (atom [])]
-      (dotimes [t trials]
-        (let [{:keys [sb err-channel sys-channel]} (make-wiring)
-              gate (promise)
+      (dotimes [trial-index trials]
+        (let [{:keys [stderr-ring dynamic-err-writer system-err-stream]}
+              (make-stderr-wiring)
+              start-gate (promise)
               ;; Release both channels together so their writes overlap
               ;; inside the shared ring's append+trim.
-              f-err (future @gate
-                            (dotimes [_ writes-each] (.println err-channel big-line)))
-              f-sys (future @gate
-                            (dotimes [_ writes-each] (.println sys-channel big-line)))]
-          (deliver gate :go)
-          (let [thrown (try @f-err @f-sys nil
+              dynamic-err-future
+              (future @start-gate
+                      (dotimes [_ writes-each]
+                        (.println dynamic-err-writer big-line)))
+              system-err-future
+              (future @start-gate
+                      (dotimes [_ writes-each]
+                        (.println system-err-stream big-line)))]
+          (deliver start-gate :go)
+          (let [thrown (try @dynamic-err-future @system-err-future nil
                             (catch Throwable e e))]
             (when thrown
-              (swap! failures conj [t (.getMessage ^Throwable thrown)])))
+              (swap! failures conj
+                     [trial-index (.getMessage ^Throwable thrown)])))
           ;; After the concurrent flood, write ONE distinct newest marker per
           ;; channel (sequentially — no race on the markers themselves) and
           ;; prove each channel's newest write survives inside a bounded ring.
-          (.println err-channel (str "ERR-TAIL-" t))
-          (.println sys-channel (str "SYS-TAIL-" t))
+          (.println dynamic-err-writer (str "ERR-TAIL-" trial-index))
+          (.println system-err-stream (str "SYS-TAIL-" trial-index))
           ;; Bind booleans / the length BEFORE asserting so clojure.test's
           ;; `actual:` form never embeds the up-to-256-KiB ring string — a
           ;; failing trial stays readable rather than dumping the whole ring.
-          (let [ring      (locking sb (.toString sb))
-                ring-len  (.length sb)
-                err-tail? (str/includes? ring (str "ERR-TAIL-" t))
-                sys-tail? (str/includes? ring (str "SYS-TAIL-" t))]
-            (is (<= ring-len stderr-buffer-cap)
+          (let [ring-text        (locking stderr-ring (.toString stderr-ring))
+                ring-length      (.length stderr-ring)
+                dynamic-err-tail? (str/includes? ring-text
+                                                 (str "ERR-TAIL-" trial-index))
+                system-err-tail? (str/includes? ring-text
+                                                (str "SYS-TAIL-" trial-index))]
+            (is (<= ring-length stderr-buffer-cap)
                 (str "the ring must stay at or below the " stderr-buffer-cap
-                     "-char cap after a concurrent flood; got " ring-len
-                     " chars on trial " t))
-            (is err-tail?
+                     "-char cap after a concurrent flood; got " ring-length
+                     " chars on trial " trial-index))
+            (is dynamic-err-tail?
                 (str "the *err* channel's newest write must survive the ring on"
-                     " trial " t " (ring-len=" ring-len ")"))
-            (is sys-tail?
+                     " trial " trial-index " (ring-length=" ring-length ")"))
+            (is system-err-tail?
                 (str "the System.err channel's newest write must survive the"
-                     " ring on trial " t " (ring-len=" ring-len ")")))))
+                     " ring on trial " trial-index
+                     " (ring-length=" ring-length ")")))))
       (is (empty? @failures)
           (str "concurrent writes through the two JVM stderr channels must"
                " never throw (a torn StringBuilder is a reporter bug that"
@@ -115,42 +131,56 @@
 
 (deftest summary-snapshot-during-concurrent-writes-is-consistent
   (testing "a locking-coordinated ring snapshot taken concurrently with writers never tears"
-    (let [{:keys [sb err-channel sys-channel]} (make-wiring)
-          gate         (promise)
-          writer-errs  (atom [])
-          snap-errs    (atom [])
-          snaps        (atom [])
-          writes-each  40
-          f-err (future @gate
-                        (try (dotimes [_ writes-each] (.println err-channel big-line))
-                             (catch Throwable e (swap! writer-errs conj (.getMessage e)))))
-          f-sys (future @gate
-                        (try (dotimes [_ writes-each] (.println sys-channel big-line))
-                             (catch Throwable e (swap! writer-errs conj (.getMessage e)))))
+    (let [{:keys [stderr-ring dynamic-err-writer system-err-stream]}
+          (make-stderr-wiring)
+          start-gate       (promise)
+          writer-errors    (atom [])
+          snapshot-errors  (atom [])
+          snapshot-lengths (atom [])
+          writes-each      40
+          dynamic-err-future
+          (future @start-gate
+                  (try (dotimes [_ writes-each]
+                         (.println dynamic-err-writer big-line))
+                       (catch Throwable error
+                         (swap! writer-errors conj (.getMessage error)))))
+          system-err-future
+          (future @start-gate
+                  (try (dotimes [_ writes-each]
+                         (.println system-err-stream big-line))
+                       (catch Throwable error
+                         (swap! writer-errors conj (.getMessage error)))))
           ;; The snapshotter mirrors EXACTLY what `make-summary-replay-method`
-          ;; does: read the ring under `sb`'s monitor. It must never observe a
-          ;; half-applied append+trim, so every snapshot is a valid String
-          ;; bounded by the cap.
-          f-snap (future
-                   @gate
+          ;; does: read the ring under `stderr-ring`'s monitor. It must never
+          ;; observe a half-applied append+trim, so every snapshot is a valid
+          ;; String bounded by `stderr-buffer-cap`.
+          snapshot-future (future
+                   @start-gate
                    (loop []
-                     (when (or (not (realized? f-err)) (not (realized? f-sys)))
+                     (when (or (not (realized? dynamic-err-future))
+                               (not (realized? system-err-future)))
                        (try
-                         (let [captured (locking sb
-                                          (when (pos? (.length sb)) (.toString sb)))]
-                           (when captured (swap! snaps conj (.length ^String captured))))
-                         (catch Throwable e (swap! snap-errs conj (.getMessage e))))
+                         (let [captured-stderr
+                               (locking stderr-ring
+                                 (when (pos? (.length stderr-ring))
+                                   (.toString stderr-ring)))]
+                           (when captured-stderr
+                             (swap! snapshot-lengths conj
+                                    (.length ^String captured-stderr))))
+                         (catch Throwable error
+                           (swap! snapshot-errors conj (.getMessage error))))
                        (recur))))]
-      (deliver gate :go)
-      @f-err @f-sys @f-snap
-      (is (empty? @writer-errs)
-          (str "concurrent writers must not throw; got: " (pr-str @writer-errs)))
-      (is (empty? @snap-errs)
+      (deliver start-gate :go)
+      @dynamic-err-future @system-err-future @snapshot-future
+      (is (empty? @writer-errors)
+          (str "concurrent writers must not throw; got: " (pr-str @writer-errors)))
+      (is (empty? @snapshot-errors)
           (str "a locking-coordinated snapshot must never tear on a concurrent"
-               " write; got: " (pr-str @snap-errs)))
-      (is (pos? (count @snaps))
+               " write; got: " (pr-str @snapshot-errors)))
+      (is (pos? (count @snapshot-lengths))
           "the snapshotter must have observed the ring at least once mid-flood")
-      (is (every? #(<= % stderr-buffer-cap) @snaps)
+      (is (every? #(<= % stderr-buffer-cap) @snapshot-lengths)
           (str "every mid-flood snapshot must be bounded by the cap; got a"
                " snapshot over " stderr-buffer-cap ": "
-               (pr-str (remove #(<= % stderr-buffer-cap) @snaps)))))))
+               (pr-str (remove #(<= % stderr-buffer-cap)
+                               @snapshot-lengths)))))))

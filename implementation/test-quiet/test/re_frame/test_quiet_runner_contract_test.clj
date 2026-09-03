@@ -90,9 +90,9 @@
   10000)
 
 (defn- drain-process
-  "Drain `proc`'s stdout AND stderr concurrently, then `waitFor` UNDER A
+  "Drain `process`'s stdout AND stderr concurrently, then `waitFor` UNDER A
   TIMEOUT.  Returns {:exit :out :err :timed-out?}.  The concurrent drain
-  is what `run-runner` relies on to avoid a pipe deadlock;
+  is what `invoke-quiet-runner` relies on to avoid a pipe deadlock;
   this helper is the shared primitive every subprocess path uses, so the
   deadlock regression proves the EXACT drain order the real harness
   ships.
@@ -104,59 +104,68 @@
   the kill — so an assertion sees a structured failure with command
   context, not a hung suite.  `:exit` is -1 on a timeout (no real exit
   code).  Pass `timeout-ms` to override the default ceiling."
-  ([^Process proc] (drain-process proc default-drain-timeout-ms))
-  ([^Process proc timeout-ms]
-   (let [out-f (future (slurp (.getInputStream proc)))
-         err-f (future (slurp (.getErrorStream proc)))
-         done? (.waitFor proc timeout-ms java.util.concurrent.TimeUnit/MILLISECONDS)]
-     (if done?
-       {:exit (.exitValue proc) :out @out-f :err @err-f :timed-out? false}
+  ([^Process process]
+   (drain-process process default-drain-timeout-ms))
+  ([^Process process timeout-ms]
+   (let [stdout-future (future (slurp (.getInputStream process)))
+         stderr-future (future (slurp (.getErrorStream process)))
+         exited?       (.waitFor process timeout-ms
+                                 java.util.concurrent.TimeUnit/MILLISECONDS)]
+     (if exited?
+       {:exit       (.exitValue process)
+        :out        @stdout-future
+        :err        @stderr-future
+        :timed-out? false}
        (do
          ;; The child outlived the ceiling — force-kill it and interrupt
          ;; the drain threads so neither this helper nor the futures hang.
-         (.destroyForcibly proc)
+         (.destroyForcibly process)
          ;; `destroyForcibly` only REQUESTS termination; block (bounded)
          ;; for the OS to reap an ordinary child before returning. The wait
          ;; remains bounded for a pathological child.
-         (.waitFor proc force-kill-reap-timeout-ms
+         (.waitFor process force-kill-reap-timeout-ms
                    java.util.concurrent.TimeUnit/MILLISECONDS)
-         (future-cancel out-f)
-         (future-cancel err-f)
+         (future-cancel stdout-future)
+         (future-cancel stderr-future)
          {:exit       -1
-          :out        (try @out-f (catch Throwable _ ""))
-          :err        (try @err-f (catch Throwable _ ""))
+          :out        (try @stdout-future (catch Throwable _ ""))
+          :err        (try @stderr-future (catch Throwable _ ""))
           :timed-out? true})))))
 
-(defn- run-runner-with-env
+(defn- invoke-quiet-runner-with-env
   "Relaunch a fresh JVM that runs `re-frame.test-quiet.runner/-main` with
-  `extra-args`, putting `fixture-dir` on both the classpath and the
-  runner's `-d` discovery set.  `env` is a map of extra environment
+  `runner-args`, putting `fixture-dir` on both the classpath and the
+  runner's `-d` discovery set. `extra-environment` is a map of environment
   variables layered over the inherited environment (`{}` for none) — used by
   the `RF2_MIN_TESTS` floor pins.  Returns {:exit :out :err}."
-  [^java.io.File fixture-dir env extra-args]
-  (let [java-bin (str (io/file (System/getProperty "java.home") "bin"
-                               (if (str/includes?
-                                     (str/lower-case (System/getProperty "os.name"))
-                                     "win")
-                                 "java.exe" "java")))
-        sep      (System/getProperty "path.separator")
-        cp       (str (System/getProperty "java.class.path") sep
-                      (.getAbsolutePath fixture-dir))
-        cmd      (into [java-bin "-cp" cp "clojure.main"
+  [^java.io.File fixture-dir extra-environment runner-args]
+  (let [java-executable (str (io/file (System/getProperty "java.home") "bin"
+                                      (if (str/includes?
+                                            (str/lower-case
+                                              (System/getProperty "os.name"))
+                                            "win")
+                                        "java.exe" "java")))
+        path-separator (System/getProperty "path.separator")
+        classpath      (str (System/getProperty "java.class.path")
+                            path-separator
+                            (.getAbsolutePath fixture-dir))
+        command        (into [java-executable "-cp" classpath "clojure.main"
                         "-m" "re-frame.test-quiet.runner"
                         "-d" (.getAbsolutePath fixture-dir)]
-                       extra-args)
-        builder  (doto (ProcessBuilder. ^java.util.List cmd)
-                   (.redirectErrorStream false))
-        child-env (.environment builder)
+                       runner-args)
+        process-builder (doto (ProcessBuilder. ^java.util.List command)
+                          (.redirectErrorStream false))
+        child-environment (.environment process-builder)
         ;; Strip the floor variable from the INHERITED environment first, so
         ;; an outer shell that exported `RF2_MIN_TESTS` (for a different lane)
         ;; cannot perturb any pin here. Each floor pin then sets exactly the
         ;; value it means to test.
-        _        (.remove child-env "RF2_MIN_TESTS")
-        _        (doseq [[k v] env]
-                   (.put child-env (str k) (str v)))
-        proc     (.start builder)]
+        _        (.remove child-environment "RF2_MIN_TESTS")
+        _        (doseq [[environment-name environment-value] extra-environment]
+                   (.put child-environment
+                         (str environment-name)
+                         (str environment-value)))
+        process  (.start process-builder)]
     ;; Drain stdout and stderr concurrently: with separate
     ;; pipes, slurping stdout fully and only THEN reading stderr can
     ;; deadlock — a child that fills the stderr pipe blocks on write (so
@@ -164,12 +173,12 @@
     ;; EOF and never reaches the stderr drain or `waitFor`.
     ;; `drain-process` reads both on their own threads, so both pipes keep
     ;; flowing regardless of which stream the child writes to.
-    (drain-process proc)))
+    (drain-process process)))
 
-(defn- run-runner
-  "`run-runner-with-env` over the inherited environment."
+(defn- invoke-quiet-runner
+  "`invoke-quiet-runner-with-env` over the inherited environment."
   [^java.io.File fixture-dir & extra-args]
-  (run-runner-with-env fixture-dir {} extra-args))
+  (invoke-quiet-runner-with-env fixture-dir {} extra-args))
 
 (defn- with-fixture-dir
   "Make a fresh temp dir, run `f` with it, then delete it."
@@ -192,7 +201,7 @@
       (fn [dir]
         (write-fixture! dir "green_jvm_fixture_test" "green-jvm-fixture-test"
                         "(deftest a-passing-test (is (= 1 1)))")
-        (let [{:keys [exit out err]} (run-runner dir)
+        (let [{:keys [exit out err]} (invoke-quiet-runner dir)
               non-blank (->> (str/split-lines out)
                              (remove str/blank?))]
           (is (zero? exit)
@@ -225,7 +234,7 @@
       (fn [dir]
         (write-fixture! dir "exact_green_fixture_test" "exact-green-fixture-test"
                         "(deftest a-passing-test (is (= 1 1)))")
-        (let [{:keys [exit out err]} (run-runner dir)
+        (let [{:keys [exit out err]} (invoke-quiet-runner dir)
               ;; Normalise CRLF and split keeping empties so we can assert
               ;; on leading-blank position, not just non-blank count.
               lines (-> out (str/replace "\r" "") (str/split #"\n" -1))]
@@ -266,7 +275,7 @@
       (fn [dir]
         (write-fixture! dir "red_jvm_fixture_test" "red-jvm-fixture-test"
                         "(deftest a-failing-test (is (= :exp :act)))")
-        (let [{:keys [exit out err]} (run-runner dir)]
+        (let [{:keys [exit out err]} (invoke-quiet-runner dir)]
           (is (= 1 exit)
               (str "failing suite must exit 1; got " exit
                    "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
@@ -293,7 +302,7 @@
         (write-fixture! dir "error_jvm_fixture_test" "error-jvm-fixture-test"
                         (str "(deftest an-erroring-test"
                              " (is (= 1 (throw (ex-info \"boom-marker\" {})))))"))
-        (let [{:keys [exit out err]} (run-runner dir)]
+        (let [{:keys [exit out err]} (invoke-quiet-runner dir)]
           (is (= 1 exit)
               (str "erroring suite must exit 1; got " exit
                    "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
@@ -335,7 +344,7 @@
                ;; so clojure.test never tallies it.
                "(throw (ex-info \"LOAD-THROW-MARKER\" {}))"))
         (let [{:keys [exit out err timed-out?]}
-              (run-runner dir "-n" "probe.load-throw-test")]
+              (invoke-quiet-runner dir "-n" "probe.load-throw-test")]
           (is (not timed-out?)
               "the load-throw run must terminate, not hang")
           ;; The CORE pin: a load-time exception is not a counted test
@@ -363,7 +372,7 @@
                "(use-fixtures :once (fn [f] (throw (ex-info \"FIXTURE-THROW-MARKER\" {}))))\n"
                "(deftest a-test (is (= 1 1)))"))
         (let [{:keys [exit out err timed-out?]}
-              (run-runner dir "-n" "probe.fixture-throw-test")]
+              (invoke-quiet-runner dir "-n" "probe.fixture-throw-test")]
           (is (not timed-out?)
               "the fixture-throw run must terminate, not hang")
           (is (not (zero? exit))
@@ -408,7 +417,7 @@
                "  (run-tests 'probe.nested-green-inner-suite)\n"
                "  (is (= :outer-exp :outer-act)))"))
         (let [{:keys [exit out err]}
-              (run-runner dir "-n" "probe.nested-green-outer-test")]
+              (invoke-quiet-runner dir "-n" "probe.nested-green-outer-test")]
           (is (= 1 exit)
               (str "outer fail must exit 1; got " exit
                    "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
@@ -442,7 +451,7 @@
                "  (run-tests 'probe.nested-red-inner-suite)\n"
                "  (is (= :outer-exp :outer-act)))"))
         (let [{:keys [exit out err]}
-              (run-runner dir "-n" "probe.nested-red-outer-test")]
+              (invoke-quiet-runner dir "-n" "probe.nested-red-outer-test")]
           (is (= 1 exit)
               (str "outer fail must exit 1; got " exit
                    "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
@@ -502,7 +511,7 @@
                "  (run-tests 'probe.tally-green-inner-suite)\n"
                "  (is (= :outer-exp :outer-act)))"))
         (let [{:keys [exit out err]}
-              (run-runner dir "-n" "probe.tally-green-outer-test")]
+              (invoke-quiet-runner dir "-n" "probe.tally-green-outer-test")]
           (is (= 1 exit)
               (str "the outer failure MUST drive exit 1 — a regression that"
                    " dropped it would be a false GREEN; got " exit
@@ -533,7 +542,7 @@
                "  (run-tests 'probe.scope-red-inner-suite)\n"
                "  (is (= 1 1)))"))
         (let [{:keys [exit out err]}
-              (run-runner dir "-n" "probe.scope-red-outer-test")]
+              (invoke-quiet-runner dir "-n" "probe.scope-red-outer-test")]
           (is (zero? exit)
               (str "the outer run is green — the inner failure the outer"
                    " ignores must NOT leak into the exit code; got " exit
@@ -575,7 +584,7 @@
                "(deftest a-discovery-anchor (is (= 1 1)))\n"
                "(defn test-ns-hook []\n"
                "  (is (= :hook-expected :hook-actual)))"))
-        (let [{:keys [exit out err]} (run-runner dir)]
+        (let [{:keys [exit out err]} (invoke-quiet-runner dir)]
           (is (= 1 exit)
               (str "the failing test-ns-hook must exit 1; got " exit
                    "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
@@ -583,7 +592,7 @@
           ;; banner.
           (is (str/includes? out "Testing probe.ns-hook-fail-test")
               (str "a failing test-ns-hook must still carry its ns banner —"
-                   " the var-derived ns is nil, so the ns-stack fallback must"
+                   " the var-derived ns is nil, so the open-namespace stack fallback must"
                    " supply it; got:\n" out))
           (is (str/includes? out "FAIL in")
               (str "the FAIL block must reach stdout; got:\n" out))
@@ -603,7 +612,7 @@
   (testing "-H prints cognitect usage and exits 0 (was swallowed by the old *out* sink)"
     (with-fixture-dir
       (fn [dir]
-        (let [{:keys [exit out err]} (run-runner dir "-H")]
+        (let [{:keys [exit out err]} (invoke-quiet-runner dir "-H")]
           (is (zero? exit)
               (str "-H must exit 0; got " exit
                    "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
@@ -620,7 +629,7 @@
     (with-fixture-dir
       (fn [dir]
         (let [{:keys [exit out err]}
-              (run-runner dir "--definitely-not-a-runner-option")]
+              (invoke-quiet-runner dir "--definitely-not-a-runner-option")]
           (is (= 1 exit)
               (str "an unknown flag must exit 1; got " exit
                    "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
@@ -639,7 +648,7 @@
                         (str "(deftest a-talking-test"
                              " (println \"BARE-STDOUT-MARKER\")"
                              " (is (= 1 1)))"))
-        (let [{:keys [exit out err]} (run-runner dir)]
+        (let [{:keys [exit out err]} (invoke-quiet-runner dir)]
           (is (zero? exit)
               (str "the talking suite is green; must exit 0; got " exit
                    "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
@@ -671,7 +680,7 @@
                         (str "(deftest a-lookalike-test"
                              " (println \"Running tests in local fixture LOOKALIKE-MARKER\")"
                              " (is (= 1 1)))"))
-        (let [{:keys [exit out err]} (run-runner dir)]
+        (let [{:keys [exit out err]} (invoke-quiet-runner dir)]
           (is (zero? exit)
               (str "the lookalike suite is green; must exit 0; got " exit
                    "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
@@ -705,7 +714,7 @@
                         (str "(deftest an-overdrop-test"
                              " (println \"Running tests in #{:fixture :phase} OVERDROP-MARKER\")"
                              " (is (= 1 1)))"))
-        (let [{:keys [exit out err]} (run-runner dir)]
+        (let [{:keys [exit out err]} (invoke-quiet-runner dir)]
           (is (zero? exit)
               (str "the overdrop suite is green; must exit 0; got " exit
                    "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
@@ -729,7 +738,7 @@
         ;; dropping the genuine banner while it gained the overdrop guard.
         (write-fixture! dir "banner_still_dropped_test" "banner-still-dropped-test"
                         "(deftest a-passing-test (is (= 1 1)))")
-        (let [{:keys [exit out err]} (run-runner dir)]
+        (let [{:keys [exit out err]} (invoke-quiet-runner dir)]
           (is (zero? exit)
               (str "green suite must exit 0; got " exit
                    "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
@@ -760,7 +769,7 @@
                         (str "(deftest an-exact-shape-test"
                              " (println \"Running tests in #{:fixture}\")"
                              " (is (= 1 1)))"))
-        (let [{:keys [exit out err]} (run-runner dir)]
+        (let [{:keys [exit out err]} (invoke-quiet-runner dir)]
           (is (zero? exit)
               (str "the exact-shape suite is green; must exit 0; got " exit
                    "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
@@ -786,7 +795,7 @@
                         (str "(deftest a-neg-test"
                              " (println \"Running tests in #{:user-only}\")"
                              " (is (= 1 1)))"))
-        (let [{:keys [exit out err]} (run-runner dir)
+        (let [{:keys [exit out err]} (invoke-quiet-runner dir)
               hits (count (re-seq #"Running tests in #\{" out))]
           (is (zero? exit)
               (str "green suite must exit 0; got " exit
@@ -818,7 +827,7 @@
                              " (println)"
                              " (println \"Running tests in #{:user-diagnostic}\")"
                              " (is (= 1 1)))"))
-        (let [{:keys [exit out err]} (run-runner dir)]
+        (let [{:keys [exit out err]} (invoke-quiet-runner dir)]
           (is (zero? exit)
               (str "the fixture is green; must exit 0; got " exit
                    "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
@@ -861,7 +870,7 @@
                         (str "(deftest a-partial-test"
                              " (print \"PARTIAL-EXIT-MARKER\")"
                              " (is (= 1 1)))"))
-        (let [{:keys [exit out err]} (run-runner dir)]
+        (let [{:keys [exit out err]} (invoke-quiet-runner dir)]
           (is (zero? exit)
               (str "the partial-print suite is green; must exit 0; got " exit
                    "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
@@ -900,7 +909,7 @@
                              " (binding [*out* *err*]"
                              "   (println \"EXPECTED-WARN-MARKER-GREEN\"))"
                              " (is (= 1 1)))"))
-        (let [{:keys [exit out err]} (run-runner dir)]
+        (let [{:keys [exit out err]} (invoke-quiet-runner dir)]
           (is (zero? exit)
               (str "the warning-but-passing suite is green; must exit 0; got "
                    exit "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
@@ -925,7 +934,7 @@
                              " (binding [*out* *err*]"
                              "   (println \"EXPECTED-WARN-MARKER-RED diagnostic context\"))"
                              " (is (= :exp :act)))"))
-        (let [{:keys [exit out err]} (run-runner dir)]
+        (let [{:keys [exit out err]} (invoke-quiet-runner dir)]
           (is (= 1 exit)
               (str "the warning-and-failing suite is red; must exit 1; got "
                    exit "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
@@ -947,7 +956,7 @@
 ;; Subprocess-harness pipe-deadlock guard.
 ;;
 ;; The harness drains a child's stdout and stderr on separate threads
-;; (see `drain-process` / `run-runner`). A sequential stdout-then-stderr
+;; (see `drain-process` / `invoke-quiet-runner`). A sequential stdout-then-stderr
 ;; drain deadlocks when a child fills the stderr pipe
 ;; buffer (~64 KB on most OSes) blocks on its stderr write before
 ;; closing stdout, so the parent — still blocked on stdout EOF — never
@@ -985,26 +994,31 @@
                      "    (.print (System/err) chunk)))\n"
                      "(.flush (System/err))\n"
                      "(System/exit 3)\n"))
-          (let [os-win   (str/includes? (str/lower-case (System/getProperty "os.name")) "win")
-                java-bin (str (io/file (System/getProperty "java.home") "bin"
-                                       (if os-win "java.exe" "java")))
-                cmd      [java-bin "-cp" (System/getProperty "java.class.path")
-                          "clojure.main" (.getAbsolutePath flood-file)]
-                result-f (future
-                           (-> (ProcessBuilder. ^java.util.List cmd)
+          (let [windows?        (str/includes?
+                                  (str/lower-case
+                                    (System/getProperty "os.name"))
+                                  "win")
+                java-executable (str (io/file (System/getProperty "java.home")
+                                              "bin"
+                                              (if windows? "java.exe" "java")))
+                command         [java-executable
+                                 "-cp" (System/getProperty "java.class.path")
+                                 "clojure.main" (.getAbsolutePath flood-file)]
+                result-future   (future
+                           (-> (ProcessBuilder. ^java.util.List command)
                                (.redirectErrorStream false)
                                (.start)
                                (drain-process)))
                 ;; A correctly draining harness returns in well under a
                 ;; second; 60s is a generous ceiling that still FAILS (not
                 ;; hangs) if the sequential-drain deadlock is reintroduced.
-                result   (deref result-f 60000 ::timed-out)]
-            (is (not= ::timed-out result)
+                process-result  (deref result-future 60000 ::timed-out)]
+            (is (not= ::timed-out process-result)
                 (str "the harness deadlocked: a >pipe-buffer stderr flood with a"
                      " sequential (stdout-then-stderr) drain hangs forever"
                      " - it must drain both streams concurrently"))
-            (when (not= ::timed-out result)
-              (let [{:keys [exit out err timed-out?]} result]
+            (when (not= ::timed-out process-result)
+              (let [{:keys [exit out err timed-out?]} process-result]
                 (is (false? timed-out?)
                     "the flood child exits, so the helper must NOT time out")
                 (is (= 3 exit)
@@ -1023,7 +1037,7 @@
 ;; Shared drain timeout/kill policy.
 ;;
 ;; `drain-process` carries the timeout/kill policy so EVERY subprocess
-;; path (the real `run-runner`, the deadlock regression, future helpers)
+;; path (the real `invoke-quiet-runner`, the deadlock regression, future helpers)
 ;; fails fast on a wedged child instead of hanging the suite.  This pins
 ;; that fail-fast behaviour directly: a child that NEVER exits must be
 ;; force-killed at the ceiling and the helper must return `:timed-out?
@@ -1039,47 +1053,53 @@
         ;; the same cross-platform arg-quoting reason as the flood child.
         (let [hang-file (io/file dir "hang_forever.clj")]
           (spit hang-file "@(promise)\n") ; deref an unfulfilled promise → blocks forever
-          (let [os-win   (str/includes? (str/lower-case (System/getProperty "os.name")) "win")
-                java-bin (str (io/file (System/getProperty "java.home") "bin"
-                                       (if os-win "java.exe" "java")))
-                cmd      [java-bin "-cp" (System/getProperty "java.class.path")
-                          "clojure.main" (.getAbsolutePath hang-file)]
-                proc     (-> (ProcessBuilder. ^java.util.List cmd)
+          (let [windows?        (str/includes?
+                                  (str/lower-case
+                                    (System/getProperty "os.name"))
+                                  "win")
+                java-executable (str (io/file (System/getProperty "java.home")
+                                              "bin"
+                                              (if windows? "java.exe" "java")))
+                command         [java-executable
+                                 "-cp" (System/getProperty "java.class.path")
+                                 "clojure.main" (.getAbsolutePath hang-file)]
+                process         (-> (ProcessBuilder. ^java.util.List command)
                              (.redirectErrorStream false)
                              (.start))
                 ;; A SHORT explicit ceiling keeps the test fast; the outer
                 ;; deref is the belt-and-suspenders so even a regressed
                 ;; helper fails as a TIMEOUT, never an infinite hang.
-                result-f (future (drain-process proc 1500))
-                result   (deref result-f 30000 ::outer-timeout)]
-            (is (not= ::outer-timeout result)
+                result-future   (future (drain-process process 1500))
+                process-result  (deref result-future 30000 ::outer-timeout)]
+            (is (not= ::outer-timeout process-result)
                 (str "the helper itself hung: `drain-process` must enforce its"
                      " own `.waitFor` timeout and return promptly"))
-            (when (not= ::outer-timeout result)
-              (is (true? (:timed-out? result))
+            (when (not= ::outer-timeout process-result)
+              (is (true? (:timed-out? process-result))
                   (str "a never-exiting child must be flagged `:timed-out? true`;"
-                       " got " (pr-str (dissoc result :out :err))))
-              (is (= -1 (:exit result))
+                       " got " (pr-str (dissoc process-result :out :err))))
+              (is (= -1 (:exit process-result))
                   "a timed-out drain reports exit -1 (no real exit code)")
-              (is (not (.isAlive proc))
+              (is (not (.isAlive process))
                   "the child must be force-killed on the timeout, not left alive"))
             ;; Cleanup belt: ensure the child is gone regardless.
-            (.destroyForcibly proc)))))))
+            (.destroyForcibly process)))))))
 
 ;; ----------------------------------------------------------------------
 ;; Stderr ring is bounded: front trimming keeps the newest characters.
 ;;
 ;; `stderr-buffer-cap` is 256 KB and `buffering-stderr-writer` front-trims
-;; (`(.delete sb 0 (- n cap))`) so the ring retains the NEWEST `cap`
+;; `(.delete stderr-ring 0 (- ring-length stderr-buffer-capacity))` so the
+;; ring retains the NEWEST `stderr-buffer-capacity`
 ;; characters and drops older ones (runner.clj `stderr-buffer-cap` +
 ;; `buffering-stderr-writer`).  The CLJS analogue is rigorously pinned
-;; (`warn-buffer-is-bounded-and-materialised` drives 4x cap); the JVM ring
+;; (`warn-buffer-is-bounded-and-materialised` drives 4x capacity); the JVM ring
 ;; had NO equivalent — the green/red stderr pins write tiny payloads, so a
 ;; broken trim (wrong end, off-by-one, dropped) was uncaught and could OOM
 ;; a chatty red suite.  This drives a RED run that floods `*err*` with
 ;; ~600 KB (well past the 256 KB cap), then asserts the newest tail marker
 ;; is REPLAYED, the oldest head marker is DROPPED, and the replayed volume
-;; is bounded to ~cap — proving the ring capped rather than merely that a
+;; is bounded to ~capacity — proving the ring capped rather than merely that a
 ;; marker happened to be absent.
 
 (deftest stderr-ring-front-trims-to-newest-cap-on-red
@@ -1097,8 +1117,8 @@
                              "   (dotimes [_ 2000] (println (apply str (repeat 300 \"F\"))))"
                              "   (println \"TAIL-MARKER-NEWEST-MUST-SURVIVE\"))"
                              " (is (= :exp :act)))"))
-        (let [{:keys [exit out err]} (run-runner dir)
-              cap (* 256 1024)]
+        (let [{:keys [exit out err]} (invoke-quiet-runner dir)
+              stderr-buffer-capacity (* 256 1024)]
           (is (= 1 exit)
               (str "the flooding-and-failing suite is red; must exit 1; got "
                    exit "\n--- stdout ---\n" out
@@ -1114,14 +1134,15 @@
           ;; OLDEST dropped: the head marker written first is trimmed away.
           (is (not (str/includes? err "HEAD-MARKER-OLDEST-MUST-BE-DROPPED"))
               (str "the OLDEST bytes must be front-trimmed once past the "
-                   cap "-char cap; the head marker leaked, so"
+                   stderr-buffer-capacity "-char cap; the head marker leaked, so"
                    " the ring either did not trim or trimmed the WRONG end."
                    " stderr length=" (count err)))
-          ;; BOUNDED: the replay is ~cap + the fixed label, NOT the full
+          ;; BOUNDED: the replay is ~capacity + the fixed label, NOT the full
           ;; ~600 KB stream — proving the ring actually capped. Without the
           ;; front-trim, (count err) would be ~600 KB.
-          (is (< (count err) (+ cap 4096))
-              (str "the replayed stderr must be bounded to ~" cap " chars +"
+          (is (< (count err) (+ stderr-buffer-capacity 4096))
+              (str "the replayed stderr must be bounded to ~"
+                   stderr-buffer-capacity " chars +"
                    " the replay label; an unbounded ring would"
                    " replay the whole ~600 KB flood. got " (count err)
                    " chars")))))))
@@ -1142,7 +1163,7 @@
                         (str "(deftest a-raw-syserr-but-passing-test"
                              " (.println System/err \"RAW-SYSERR-MARKER-GREEN\")"
                              " (is (= 1 1)))"))
-        (let [{:keys [exit out err]} (run-runner dir)]
+        (let [{:keys [exit out err]} (invoke-quiet-runner dir)]
           (is (zero? exit)
               (str "the raw-System.err-but-passing suite is green; must exit 0; got "
                    exit "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
@@ -1164,7 +1185,7 @@
                         (str "(deftest a-raw-syserr-and-failing-test"
                              " (.println System/err \"RAW-SYSERR-MARKER-RED diagnostic context\")"
                              " (is (= :exp :act)))"))
-        (let [{:keys [exit out err]} (run-runner dir)]
+        (let [{:keys [exit out err]} (invoke-quiet-runner dir)]
           (is (= 1 exit)
               (str "the raw-System.err-and-failing suite is red; must exit 1; got "
                    exit "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
@@ -1225,7 +1246,7 @@
                              "     (println \"ERR-TAIL-CONCURRENT-MARKER\"))"
                              "   (.join t)"
                              "   (is (= :expected-marker :actual-marker))))"))
-        (let [{:keys [exit out err timed-out?]} (run-runner dir)
+        (let [{:keys [exit out err timed-out?]} (invoke-quiet-runner dir)
               both (str out err)]
           (is (not timed-out?)
               "the concurrent dual-channel run must terminate, not hang")
@@ -1290,7 +1311,8 @@
                         "(deftest a-passing-test (is (= 1 1)))")
         ;; `-r` is cognitect's namespace-regex selector; this one matches
         ;; nothing on the fixture classpath, so `run-tests` runs 0 tests.
-        (let [{:keys [exit out err]} (run-runner dir "-r" "^zzz-matches-nothing$")]
+        (let [{:keys [exit out err]}
+              (invoke-quiet-runner dir "-r" "^zzz-matches-nothing$")]
           (is (= 1 exit)
               (str "a 0-test run must exit 1 — a discovery set that collapsed"
                    " to nothing is a configuration error, not a green suite;"
@@ -1309,7 +1331,7 @@
       (fn [dir]
         (write-fixture! dir "floor_ordinary_fixture_test" "floor-ordinary-fixture-test"
                         "(deftest a-passing-test (is (= 1 1)))")
-        (let [{:keys [exit out err]} (run-runner dir)]
+        (let [{:keys [exit out err]} (invoke-quiet-runner dir)]
           (is (zero? exit)
               (str "a suite that ran tests must still exit 0; got " exit
                    "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
@@ -1326,7 +1348,8 @@
         ;; The fixture runs exactly ONE test; a floor of 2 must fire. This is
         ;; the "prove it can red at N-1" half: without it, a floor that never
         ;; fires would pass the zero-test pin by accident of some other exit.
-        (let [{:keys [exit out err]} (run-runner-with-env dir {"RF2_MIN_TESTS" "2"} [])]
+        (let [{:keys [exit out err]}
+              (invoke-quiet-runner-with-env dir {"RF2_MIN_TESTS" "2"} [])]
           (is (= 1 exit)
               (str "a suite below its configured floor must exit 1 even with a"
                    " clean tally; got " exit "\n--- stdout ---\n" out
@@ -1347,7 +1370,7 @@
         ;; the contract ("the cognitect test-runner returns 0 when there are
         ;; no test namespaces") and names the jobs "Diagnostic skip-ok". This
         ;; fixture dir has NO JVM test file at all — the same shape.
-        (let [{:keys [exit out err]} (run-runner dir "--probe")]
+        (let [{:keys [exit out err]} (invoke-quiet-runner dir "--probe")]
           (is (zero? exit)
               (str "a declared classpath probe must exit 0 on zero tests: a"
                    " lane that claims resolution, not coverage, has nothing"
@@ -1377,7 +1400,7 @@
         ;; declaration and lose the floor silently.
         (write-fixture! dir "probe_gained_fixture_test" "probe-gained-fixture-test"
                         "(deftest a-passing-test (is (= 1 1)))")
-        (let [{:keys [exit out err]} (run-runner dir "--probe")]
+        (let [{:keys [exit out err]} (invoke-quiet-runner dir "--probe")]
           (is (= 1 exit)
               (str "a probe lane that executed tests must exit 1; got " exit
                    "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
@@ -1399,7 +1422,8 @@
         ;; A leaked `--probe` would surface as a cognitect parse error.
         (write-fixture! dir "probe_strip_fixture_test" "probe-strip-fixture-test"
                         "(deftest a-passing-test (is (= 1 1)))")
-        (let [{:keys [exit out err]} (run-runner dir "-r" "^zzz-matches-nothing$" "--probe")
+        (let [{:keys [exit out err]}
+              (invoke-quiet-runner dir "-r" "^zzz-matches-nothing$" "--probe")
               both (str out err)]
           (is (zero? exit)
               (str "a probe whose selector matches nothing is still a green"
@@ -1417,7 +1441,8 @@
                         "(deftest a-passing-test (is (= 1 1)))")
         ;; `1O` (letter O) silently falling back to the default would disable
         ;; the very gate that catches silent non-execution.
-        (let [{:keys [exit out err]} (run-runner-with-env dir {"RF2_MIN_TESTS" "1O"} [])]
+        (let [{:keys [exit out err]}
+              (invoke-quiet-runner-with-env dir {"RF2_MIN_TESTS" "1O"} [])]
           (is (= 2 exit)
               (str "a malformed floor must exit 2 (configuration error),"
                    " distinct from 1 (red); got " exit
@@ -1453,7 +1478,7 @@
       (fn [dir]
         (write-fixture! dir "discovery_fixture_test" "discovery-fixture-test"
                         "(deftest a-passing-test (is (= 1 1)))")
-        (let [{:keys [exit out err]} (run-runner dir)]
+        (let [{:keys [exit out err]} (invoke-quiet-runner dir)]
           (is (zero? exit)
               (str "BEFORE: the fixture alone is green, so the red below"
                    " belongs to the broken file and not to the guard; got "
@@ -1469,7 +1494,7 @@
                "  (:require [clojure.test :refer [deftest is]]))\n"
                "(deftest silently-dropped (is (= 1 1)))"))
 
-        (let [{:keys [exit out err]} (run-runner dir)]
+        (let [{:keys [exit out err]} (invoke-quiet-runner dir)]
           (is (= 1 exit)
               (str "AFTER: an undiscoverable file must red the run; exit 0"
                    " here is the bug — the suite would report `0 failures`"

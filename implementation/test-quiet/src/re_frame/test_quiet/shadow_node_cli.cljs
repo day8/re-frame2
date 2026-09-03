@@ -32,22 +32,22 @@
       leaking a non-summary line on a green run."
   [args]
   (reduce
-    (fn [opts arg]
+    (fn [parsed-args argument]
       (cond
-        (= "--help" arg)
-        (assoc opts :help true)
+        (= "--help" argument)
+        (assoc parsed-args :help true)
 
-        (= "--list" arg)
-        (assoc opts :list true)
+        (= "--list" argument)
+        (assoc parsed-args :list true)
 
-        (str/starts-with? arg "--test=")
-        (let [test-arg  (subs arg 7)
-              test-syms (->> (str/split test-arg ",")
-                             (map symbol))]
-          (update opts :test-syms into test-syms))
+        (str/starts-with? argument "--test=")
+        (let [selector-text  (subs argument 7)
+              test-selectors (->> (str/split selector-text ",")
+                                  (map symbol))]
+          (update parsed-args :test-syms into test-selectors))
 
         :else
-        (update opts :unknown-args (fnil conj []) arg)))
+        (update parsed-args :unknown-args (fnil conj []) argument)))
     {:test-syms []}
     args))
 
@@ -81,13 +81,16 @@
   [raw]
   (if (or (nil? raw) (str/blank? raw))
     default-min-tests
-    (let [n (js/Number (str/trim raw))]
-      (if (and (js/Number.isInteger n) (not (neg? n))) n ::invalid))))
+    (let [parsed-floor (js/Number (str/trim raw))]
+      (if (and (js/Number.isInteger parsed-floor)
+               (not (neg? parsed-floor)))
+        parsed-floor
+        ::invalid))))
 
 (defn unmatched-selectors
-  "The subset of `test-syms` that matched no var in `matched-vars`.
+  "The subset of `test-selectors` that matched no var in `matched-test-vars`.
 
-  `matched-vars` is the seq `find-matching-test-vars` returns — each var
+  `matched-test-vars` is the seq `find-matching-test-vars` returns — each var
   carries `{:ns :name}` metadata.  A simple symbol (namespace selector)
   is satisfied if any matched var lives in that ns; a qualified symbol
   (single-var selector) is satisfied if a matched var has that
@@ -99,14 +102,19 @@
   cycle. This guards against a `--test=<typo>` false green: a selection
   that matches nothing must be rejected, not
   reported as a 0-test success."
-  [test-syms matched-vars]
-  (let [matched-ns  (->> matched-vars (map (comp :ns meta)) set)
-        matched-fqn (->> matched-vars
-                         (map (fn [v] (let [{:keys [ns name]} (meta v)]
-                                        (symbol ns name))))
-                         set)]
-    (remove (fn [sym]
-              (if (qualified-symbol? sym)
-                (contains? matched-fqn sym)
-                (contains? matched-ns sym)))
-            test-syms)))
+  [test-selectors matched-test-vars]
+  (let [matched-namespaces (->> matched-test-vars
+                                (map (comp :ns meta))
+                                set)
+        matched-var-symbols (->> matched-test-vars
+                                 (map (fn [test-var]
+                                        (let [{test-namespace :ns
+                                               test-name      :name}
+                                              (meta test-var)]
+                                          (symbol test-namespace test-name))))
+                                 set)]
+    (remove (fn [selector]
+              (if (qualified-symbol? selector)
+                (contains? matched-var-symbols selector)
+                (contains? matched-namespaces selector)))
+            test-selectors)))

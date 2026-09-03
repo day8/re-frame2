@@ -27,46 +27,53 @@
 ;; ----------------------------------------------------------------------
 ;; Fresh-JVM program harness.
 
-(defn- drain
-  "Drain `proc`'s stdout + stderr concurrently, then `waitFor` under a
+(defn- drain-process
+  "Drain `process`'s stdout + stderr concurrently, then `waitFor` under a
   timeout.  Returns {:exit :out :err :timed-out?}.  Concurrent drain avoids a
   pipe deadlock; the timeout force-kills a wedged child so a regression fails
   fast instead of hanging the suite."
-  [^Process proc timeout-ms]
-  (let [out-f (future (slurp (.getInputStream proc)))
-        err-f (future (slurp (.getErrorStream proc)))
-        done? (.waitFor proc timeout-ms java.util.concurrent.TimeUnit/MILLISECONDS)]
-    (if done?
-      {:exit (.exitValue proc) :out @out-f :err @err-f :timed-out? false}
+  [^Process process timeout-ms]
+  (let [stdout-future (future (slurp (.getInputStream process)))
+        stderr-future (future (slurp (.getErrorStream process)))
+        exited?       (.waitFor process timeout-ms
+                                java.util.concurrent.TimeUnit/MILLISECONDS)]
+    (if exited?
+      {:exit       (.exitValue process)
+       :out        @stdout-future
+       :err        @stderr-future
+       :timed-out? false}
       (do
-        (.destroyForcibly proc)
-        (.waitFor proc 5000 java.util.concurrent.TimeUnit/MILLISECONDS)
-        (future-cancel out-f)
-        (future-cancel err-f)
+        (.destroyForcibly process)
+        (.waitFor process 5000 java.util.concurrent.TimeUnit/MILLISECONDS)
+        (future-cancel stdout-future)
+        (future-cancel stderr-future)
         {:exit -1
-         :out (try @out-f (catch Throwable _ ""))
-         :err (try @err-f (catch Throwable _ ""))
+         :out (try @stdout-future (catch Throwable _ ""))
+         :err (try @stderr-future (catch Throwable _ ""))
          :timed-out? true}))))
 
-(defn- run-program
+(defn- run-lifecycle-program
   "Spawn a fresh JVM on THIS test's classpath running `clojure.main` over
-  `src` (spat to a temp file).  Reusing `java.class.path` keeps the child on
+  `program-source` (spat to a temp file). Reusing `java.class.path` keeps the child on
   the same classpath (runner src + cognitect + clojure) without re-resolving
   deps or shelling the `clojure` launcher (dodging Windows `-Sdeps` escaping)."
-  [src]
-  (let [tmp (java.io.File/createTempFile "tq-lifecycle" ".clj")
-        os-win (str/includes? (str/lower-case (System/getProperty "os.name")) "win")
-        java-bin (str (io/file (System/getProperty "java.home") "bin"
-                               (if os-win "java.exe" "java")))
-        cmd [java-bin "-cp" (System/getProperty "java.class.path")
-             "clojure.main" (.getAbsolutePath tmp)]]
-    (spit tmp src)
+  [program-source]
+  (let [program-file    (java.io.File/createTempFile "tq-lifecycle" ".clj")
+        windows?        (str/includes?
+                          (str/lower-case (System/getProperty "os.name"))
+                          "win")
+        java-executable (str (io/file (System/getProperty "java.home") "bin"
+                                      (if windows? "java.exe" "java")))
+        command         [java-executable "-cp"
+                         (System/getProperty "java.class.path")
+                         "clojure.main" (.getAbsolutePath program-file)]]
+    (spit program-file program-source)
     (try
-      (drain (-> (ProcessBuilder. ^java.util.List cmd)
-                 (.redirectErrorStream false)
-                 (.start))
-             60000)
-      (finally (.delete tmp)))))
+      (drain-process (-> (ProcessBuilder. ^java.util.List command)
+                         (.redirectErrorStream false)
+                         (.start))
+                     60000)
+      (finally (.delete program-file)))))
 
 (def ^:private program-preamble
   (str "(require '[re-frame.test-quiet.runner :as r]\n"
@@ -79,7 +86,7 @@
 ;; still emits its summary (criteria 1, 2).
 ;;
 ;; The core defect: `install-summary-replay-hook!` installed a global
-;; `:summary` defmethod closing over this run's ring + real-err and NEVER
+;; `:summary` defmethod closing over this run's ring + original-err and NEVER
 ;; restored it.  After a returning `-main` (help/embedded), an unrelated
 ;; `clojure.test` summary saw the stale ring and replayed a previous run's
 ;; stderr, and the reporter method was permanently the wrapper.  The fix makes
@@ -114,7 +121,8 @@
 
 (deftest returning-invocation-restores-summary-reporter
   (testing "a returning -main restores the prior :summary; a later run still emits its summary with no stale replay"
-    (let [{:keys [exit out err timed-out?]} (run-program returning-restores-summary-program)]
+    (let [{:keys [exit out err timed-out?]}
+          (run-lifecycle-program returning-restores-summary-program)]
       (is (not timed-out?) "the probe must terminate, not hang")
       (is (zero? exit)
           (str "the returning invocation must restore the reporter (RESTORED? true),"
@@ -157,7 +165,8 @@
 
 (deftest two-returning-invocations-do-not-chain-summary-methods
   (testing "sequential returning invocations restore the reporter each time — no wrapper chain, no accumulated replay"
-    (let [{:keys [exit out err timed-out?]} (run-program no-chain-program)]
+    (let [{:keys [exit out err timed-out?]}
+          (run-lifecycle-program no-chain-program)]
       (is (not timed-out?) "the probe must terminate, not hang")
       (is (zero? exit)
           (str "two returning invocations must not chain reporters (RESTORED? true,"
@@ -176,7 +185,7 @@
 (def ^:private throwing-restores-program
   (str program-preamble
        "(let [initial (get-method t/report :summary)\n"
-       "      sys-err System/err\n"
+       "      original-system-err System/err\n"
        "      threw? (atom false)]\n"
        "  (with-redefs [ctr/-main (fn [& _]\n"
        "                            (.println ^java.io.PrintWriter *err* \"ERR-CHANNEL\")\n"
@@ -188,18 +197,19 @@
        "        (when (s/includes? (str (.getMessage e)) \"BOOM-DELEGATE\")\n"
        "          (reset! threw? true)))))\n"
        "  (let [restored? (identical? initial (get-method t/report :summary))\n"
-       "        syserr-back? (identical? sys-err System/err)]\n"
+       "        system-err-restored? (identical? original-system-err System/err)]\n"
        "    (println \"PROPAGATED?\" @threw?)\n"
        "    (println \"RESTORED?\" restored?)\n"
-       "    (println \"SYSERR-RESTORED?\" syserr-back?)\n"
+       "    (println \"SYSERR-RESTORED?\" system-err-restored?)\n"
        "    (flush)\n"
-       "    (if (and @threw? restored? syserr-back?)\n"
+       "    (if (and @threw? restored? system-err-restored?)\n"
        "      (do (println \"THROW-OK\") (flush) (System/exit 0))\n"
        "      (do (println \"THROW-FAIL\") (flush) (System/exit 1)))))\n"))
 
 (deftest throwing-invocation-restores-state-and-propagates
   (testing "a throwing delegate restores System.err + the prior :summary in finally, and the exception propagates"
-    (let [{:keys [exit out err timed-out?]} (run-program throwing-restores-program)]
+    (let [{:keys [exit out err timed-out?]}
+          (run-lifecycle-program throwing-restores-program)]
       (is (not timed-out?) "the probe must terminate, not hang")
       (is (zero? exit)
           (str "a throwing delegate must propagate (PROPAGATED? true) AND restore"
@@ -235,7 +245,8 @@
 
 (deftest returning-invocation-preserves-custom-summary-method
   (testing "a pre-existing custom :summary is delegated exactly once during the run and re-installed afterward"
-    (let [{:keys [exit out err timed-out?]} (run-program custom-summary-preserved-program)]
+    (let [{:keys [exit out err timed-out?]}
+          (run-lifecycle-program custom-summary-preserved-program)]
       (is (not timed-out?) "the probe must terminate, not hang")
       (is (zero? exit)
           (str "a pre-existing custom :summary must be delegated exactly once"
@@ -270,7 +281,8 @@
 
 (deftest returning-invocations-do-not-accumulate-shutdown-hooks
   (testing "each returning -main deregisters its flush hook — five help calls net zero registered hooks"
-    (let [{:keys [exit out err timed-out?]} (run-program hook-lifecycle-program)]
+    (let [{:keys [exit out err timed-out?]}
+          (run-lifecycle-program hook-lifecycle-program)]
       (is (not timed-out?) "the probe must terminate, not hang")
       (is (zero? exit)
           (str "repeated returning invocations must net zero registered flush hooks"

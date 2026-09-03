@@ -66,8 +66,8 @@
   `warn-buffer/warn-buffer-cap` entries and materialises the trimmed
   window into a fresh vector — so discarded warnings are not retained via
   a shared `subvec` backing."
-  [args]
-  (swap! warn-buffer wb/bound-conj args))
+  [warning-args]
+  (swap! warn-buffer wb/bound-conj warning-args))
 
 (defn- replay-buffered-warnings!
   "Replay the buffered warnings to stderr, prefixed so they are
@@ -89,15 +89,15 @@
   `fs.writeSync` blocks until the bytes reach the fd, so the exit cannot drop
   them. This matches the JVM runner's blocking stderr replay."
   []
-  (let [buffered @warn-buffer]
-    (when (seq buffered)
+  (let [buffered-warnings @warn-buffer]
+    (when (seq buffered-warnings)
       (let [fs (js/require "fs")]
         (binding [*print-fn* (fn [s] (.writeSync fs 2 s))]
-          (println (str "[test-quiet] " (count buffered)
+          (println (str "[test-quiet] " (count buffered-warnings)
                         " console.warn message(s) buffered during this run"
                         " (replayed because the run was RED):"))
-          (doseq [args buffered]
-            (apply println "[test-quiet] console.warn:" args)))))))
+          (doseq [warning-args buffered-warnings]
+            (apply println "[test-quiet] console.warn:" warning-args)))))))
 
 ;; The stub carries an `rf-test-quiet-silenced` marker property so a
 ;; contract test can assert the live `console.warn` is
@@ -108,7 +108,9 @@
            (fn? (.-warn js/console)))
   ;; `nil` is the local stub contract. Native `console.warn` returns
   ;; JavaScript `undefined`; callers must not use either return value.
-  (let [stub (fn [& args] (buffer-warning! (vec args)) nil)]
+  (let [stub (fn [& warning-args]
+               (buffer-warning! (vec warning-args))
+               nil)]
     (set! (.-rf-test-quiet-silenced stub) true)
     (set! (.-warn js/console) stub)))
 
@@ -132,8 +134,8 @@
 ;;      to drain its event loop and exit with the seeded 1, failing loudly
 ;;      instead of a silent false-green.
 
-(defmethod ct/report [:cljs.test/default :end-run-tests] [m]
-  (if (ct/successful? m)
+(defmethod ct/report [:cljs.test/default :end-run-tests] [summary]
+  (if (ct/successful? summary)
     (js/process.exit 0)
     (do (try
           (replay-buffered-warnings!)
@@ -170,14 +172,15 @@
 ;; can be unit-pinned without a compile cycle (this ns is `:dev/always`
 ;; + expands the `env/get-test-data` test-ns-enumeration macro).
 
-(defn find-matching-test-vars [test-syms]
-  (let [test-namespaces (->> test-syms (filter simple-symbol?) (set))
-        test-var-syms   (->> test-syms (filter qualified-symbol?) (set))]
+(defn find-matching-test-vars [test-selectors]
+  (let [test-namespaces  (->> test-selectors (filter simple-symbol?) set)
+        test-var-symbols (->> test-selectors (filter qualified-symbol?) set)]
     (->> (env/get-test-vars)
-         (filter (fn [the-var]
-                   (let [{:keys [name ns]} (meta the-var)]
-                     (or (contains? test-namespaces ns)
-                         (contains? test-var-syms (symbol ns name)))))))))
+         (filter (fn [test-var]
+                   (let [{test-name :name test-namespace :ns} (meta test-var)]
+                     (or (contains? test-namespaces test-namespace)
+                         (contains? test-var-symbols
+                                    (symbol test-namespace test-name)))))))))
 
 (def ^:private min-tests-env-var
   "Environment variable naming this lane's test-count floor. ONE name across
@@ -195,7 +198,7 @@
     (when (exists? js/process)
       (unchecked-get js/process.env min-tests-env-var))))
 
-(defn- reject-empty-suite!
+(defn- reject-below-test-floor!
   "The whole-suite counterpart to the `--test=` unmatched-selector guard: a
   build whose `:ns-regexp` selected fewer than `min-tests` test vars must not
   report a 0-test success. Returns true (and prints + exits nonzero) when the
@@ -205,7 +208,7 @@
   `:end-run-tests` reporter, because the count is already known and a
   configuration error should not first pretend to run a suite. Exit 2 marks a
   malformed floor (configuration), 1 an under-floor lane (red)."
-  [min-tests available]
+  [min-tests discovered-test-count]
   (cond
     (= ::cli/invalid min-tests)
     (do (println (str "ERROR: " min-tests-env-var " is not a non-negative"
@@ -216,8 +219,8 @@
         (js/process.exit 2)
         true)
 
-    (< available min-tests)
-    (do (println (str "ERROR: this build discovered " available
+    (< discovered-test-count min-tests)
+    (do (println (str "ERROR: this build discovered " discovered-test-count
                       " test var(s), below the floor of " min-tests
                       " (" min-tests-env-var ")."))
         (println (str "  A build whose :ns-regexp selects no tests is a"
@@ -230,7 +233,8 @@
 
     :else false))
 
-(defn execute-cli [{:keys [test-syms help list unknown-args] :as _opts}]
+(defn execute-cli
+  [{:keys [help list unknown-args] test-selectors :test-syms :as _cli-options}]
   ;; Unknown args are a fatal parse error. The pure
   ;; `cli/parse-args` collects them into `:unknown-args` (without printing,
   ;; so it can be unit-pinned without leaking a non-summary line on a green
@@ -243,7 +247,7 @@
       (println (str "Unknown arg: " arg)))
     (println "Use --help to see known options.")
     (js/process.exit 1))
-  (let [test-env (ct/empty-env)]
+  (let [test-environment (ct/empty-env)]
     (cond
       help
       (do (println "Usage:")
@@ -251,41 +255,43 @@
           (println "  --test=<ns-to-test>,<fqn-symbol-to-test> (run test for namespace or single var, separated by comma)"))
 
       list
-      (doseq [[ns ns-info] (->> (env/get-tests) (sort-by first))]
-        (println "Namespace:" ns)
-        (doseq [var (:vars ns-info)
-                :let [m (meta var)]]
-          (println (str "  " (:ns m) "/" (:name m))))
+      (doseq [[test-namespace namespace-info]
+              (->> (env/get-tests) (sort-by first))]
+        (println "Namespace:" test-namespace)
+        (doseq [test-var (:vars namespace-info)
+                :let [test-var-meta (meta test-var)]]
+          (println (str "  " (:ns test-var-meta) "/" (:name test-var-meta))))
         (println "---------------------------------"))
 
-      (seq test-syms)
-      (let [test-vars (find-matching-test-vars test-syms)
-            unmatched (cli/unmatched-selectors test-syms test-vars)]
+      (seq test-selectors)
+      (let [matched-test-vars    (find-matching-test-vars test-selectors)
+            unmatched-selectors (cli/unmatched-selectors test-selectors
+                                                         matched-test-vars)]
         ;; A `--test=` selection that matches no test var must not be a
         ;; false green: `run-test-vars` over an empty set reports a 0-test
         ;; success. Reject any unmatched selector: print
         ;; the offenders and exit nonzero before running anything.
-        (if (seq unmatched)
+        (if (seq unmatched-selectors)
           (do
             (println "ERROR: no tests matched --test= selector(s):"
-                     (str/join ", " (map str unmatched)))
+                     (str/join ", " (map str unmatched-selectors)))
             (println "Use --list to see known test names.")
             (js/process.exit 1))
           (do (seed-failure-exit!)
-              (st/run-test-vars test-env test-vars))))
+              (st/run-test-vars test-environment matched-test-vars))))
 
       :else
       ;; Whole-suite path. `run-all-tests` over an empty test-var set reports
       ;; a 0-test success exactly as `run-test-vars` does, so it gets the same
       ;; guard the `--test=` branch above has had all along (rf2-qqzmf).
-      (when-not (reject-empty-suite! (resolve-min-tests)
-                                     (count (env/get-test-vars)))
+      (when-not (reject-below-test-floor! (resolve-min-tests)
+                                          (count (env/get-test-vars)))
         (seed-failure-exit!)
-        (st/run-all-tests test-env nil)))))
+        (st/run-all-tests test-environment nil)))))
 
 (defn main [& args]
   (reset-test-data!)
   (if env/UI-DRIVEN
     (js/console.log "Waiting for UI ...")
-    (let [opts (cli/parse-args args)]
-      (execute-cli opts))))
+    (let [cli-options (cli/parse-args args)]
+      (execute-cli cli-options))))

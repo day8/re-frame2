@@ -88,82 +88,85 @@
 ;; resets the printed set between sibling namespaces, and supplies the
 ;; fallback for `test-ns-hook` failures that have no current var.
 
-(def ^:private printed-banners
+(def ^:private printed-banner-namespaces
   (atom #{}))
 
-(def ^:private ns-stack
+(def ^:private open-test-namespace-stack
   (atom []))
 
-(defn- on-begin-test-ns!
-  "Push `ns-sym` onto the open-namespace stack and clear the printed-banner
+(defn- open-test-namespace!
+  "Push `namespace-symbol` onto the open-namespace stack and clear the printed-banner
   set on entry to an outermost namespace (empty stack) so each top-level
   run and each sibling ns within it re-flushes its banner. Nested-run
   entries (non-empty stack) preserve the outer run's printed set."
-  [ns-sym]
-  (when (empty? @ns-stack)
-    (reset! printed-banners #{}))
-  (swap! ns-stack conj ns-sym))
+  [namespace-symbol]
+  (when (empty? @open-test-namespace-stack)
+    (reset! printed-banner-namespaces #{}))
+  (swap! open-test-namespace-stack conj namespace-symbol))
 
-(defn- on-end-test-ns!
+(defn- close-test-namespace!
   []
-  (swap! ns-stack (fn [s] (if (seq s) (pop s) s))))
+  (swap! open-test-namespace-stack
+         (fn [namespace-stack]
+           (if (seq namespace-stack) (pop namespace-stack) namespace-stack))))
 
-(defn- current-test-ns
+(defn- current-test-namespace
   "The namespace of the innermost currently-open `test-ns` (top of the
   begin/end stack), or nil if none is open. The fallback banner ns for a
-  failure with no failing var in scope (see `banner-ns`)."
+  failure with no failing var in scope (see `failure-banner-namespace`)."
   []
-  (peek @ns-stack))
+  (peek @open-test-namespace-stack))
 
-(defn- ns-banner-printed?
-  [ns-sym]
-  (contains? @printed-banners ns-sym))
+(defn- namespace-banner-printed?
+  [namespace-symbol]
+  (contains? @printed-banner-namespaces namespace-symbol))
 
-(defn- mark-ns-printed!
-  [ns-sym]
-  (swap! printed-banners conj ns-sym))
+(defn- mark-namespace-banner-printed!
+  [namespace-symbol]
+  (swap! printed-banner-namespaces conj namespace-symbol))
 
-(defn- print-banner!
-  "Flush the `Testing <ns>` banner for `ns-sym` exactly once.  No-op if
-  `ns-sym` is nil or its banner was already printed."
-  [ns-sym]
-  (when (and ns-sym (not (ns-banner-printed? ns-sym)))
+(defn- print-namespace-banner!
+  "Flush the `Testing <ns>` banner for `namespace-symbol` exactly once. No-op
+  if `namespace-symbol` is nil or its banner was already printed."
+  [namespace-symbol]
+  (when (and namespace-symbol
+             (not (namespace-banner-printed? namespace-symbol)))
     (println)
-    (println "Testing" (name ns-sym))
-    (mark-ns-printed! ns-sym)))
+    (println "Testing" (name namespace-symbol))
+    (mark-namespace-banner-printed! namespace-symbol)))
 
 ;; ----------------------------------------------------------------------
 ;; JVM overrides — clojure.test/report dispatches on (:type m).
 
 #?(:clj
-   (defn- failing-ns
+   (defn- failing-test-namespace
      "The namespace symbol of the var that is currently failing/erroring,
      read off `clojure.test/*testing-vars*` (the same stack
      `testing-vars-str` renders).  Returns nil if no var is in scope.
 
      The var-derived namespace remains correct across nested runs."
      []
-     (when-let [v (first clojure.test/*testing-vars*)]
-       (when-let [ns (:ns (meta v))]
-         (ns-name ns)))))
+     (when-let [test-var (first clojure.test/*testing-vars*)]
+       (when-let [test-namespace (:ns (meta test-var))]
+         (ns-name test-namespace)))))
 
 #?(:clj
-   (defn- event-ns
-     "The namespace symbol carried by a `:begin-test-ns` report `m`.
+   (defn- report-event-namespace
+     "The namespace symbol carried by a `:begin-test-ns` `report-event`.
      clojure.test passes the `clojure.lang.Namespace`; normalise to its
-     `ns-name` symbol so it matches `failing-ns` and prints cleanly."
-     [m]
-     (when-let [ns (:ns m)]
-       (if (instance? clojure.lang.Namespace ns)
-         (ns-name ns)
-         (symbol (name ns))))))
+     `ns-name` symbol so it matches `failing-test-namespace` and prints cleanly."
+     [report-event]
+     (when-let [test-namespace (:ns report-event)]
+       (if (instance? clojure.lang.Namespace test-namespace)
+         (ns-name test-namespace)
+         (symbol (name test-namespace))))))
 
 #?(:clj
-   (defn- banner-ns
+   (defn- failure-banner-namespace
      "The namespace to head the failure banner: the failing var's ns when a
      var is in scope, otherwise the innermost open `test-ns`."
      []
-     (or (failing-ns) (current-test-ns))))
+     (or (failing-test-namespace) (current-test-namespace))))
 
 ;; `defonce` (not `def`) so a namespace RELOAD does not re-capture: on a
 ;; first load `get-method` returns clojure.test's default (our override is
@@ -180,28 +183,28 @@
 
 #?(:clj
    (do
-     (defmethod clojure.test/report :begin-test-ns [m]
+     (defmethod clojure.test/report :begin-test-ns [report-event]
        ;; Default behaviour prints "\nTesting <ns>"; we suppress and defer
-       ;; to print-banner! on first failure/error.  The banner ns is
-       ;; normally derived from the failing var (failing-ns), not this
+       ;; to print-namespace-banner! on first failure/error. The banner ns is
+       ;; normally derived from the failing var (failing-test-namespace), not this
        ;; event, so a nested run-tests can't clobber it; we push this ns
        ;; onto the open-ns stack (for nesting-depth tracking + the
        ;; test-ns-hook no-var banner fallback) and clear the printed-banner
        ;; set on an outermost entry.
-       (on-begin-test-ns! (event-ns m)))
+       (open-test-namespace! (report-event-namespace report-event)))
 
-     (defmethod clojure.test/report :end-test-ns [_m]
-       (on-end-test-ns!))
+     (defmethod clojure.test/report :end-test-ns [_report-event]
+       (close-test-namespace!))
 
-     (defmethod clojure.test/report :begin-test-var [_m]
+     (defmethod clojure.test/report :begin-test-var [_report-event]
        ;; No-op (also the default).
        )
 
-     (defmethod clojure.test/report :end-test-var [_m]
+     (defmethod clojure.test/report :end-test-var [_report-event]
        ;; No-op (also the default).
        )
 
-     (defmethod clojure.test/report :fail [m]
+     (defmethod clojure.test/report :fail [report-event]
        ;; Flush the withheld banner, then DELEGATE to clojure.test's
        ;; default `:fail` reporter so the FAIL block + expected/actual
        ;; lines stay byte-for-byte the library's own output (failure
@@ -209,45 +212,45 @@
        ;; under the SAME `with-test-out` the default uses, so both land
        ;; on `*test-out*` in order.
        (clojure.test/with-test-out
-         (print-banner! (banner-ns)))
-       (jvm-default-fail m))
+         (print-namespace-banner! (failure-banner-namespace)))
+       (jvm-default-fail report-event))
 
-     (defmethod clojure.test/report :error [m]
+     (defmethod clojure.test/report :error [report-event]
        (clojure.test/with-test-out
-         (print-banner! (banner-ns)))
-       (jvm-default-error m))))
+         (print-namespace-banner! (failure-banner-namespace)))
+       (jvm-default-error report-event))))
 
 ;; ----------------------------------------------------------------------
 ;; CLJS overrides — cljs.test/report dispatches on
 ;; [(:reporter env) (:type m)] with default ::cljs.test/default.
 
 #?(:cljs
-   (defn- failing-ns
+   (defn- failing-test-namespace
      "The namespace symbol of the var currently failing/erroring, read
      off the env's `:testing-vars` stack (the same stack
      `testing-vars-str` renders).  Derived from the var that actually
      failed so a nested run-tests can't mislabel/orphan the outer
      banner. Returns nil if no var is in scope."
      []
-     (when-let [v (first (:testing-vars (cljs.test/get-current-env)))]
-       (let [ns (:ns (meta v))]
-         (when ns (symbol (name ns)))))))
+     (when-let [test-var (first (:testing-vars (cljs.test/get-current-env)))]
+       (let [test-namespace (:ns (meta test-var))]
+         (when test-namespace (symbol (name test-namespace)))))))
 
 #?(:cljs
-   (defn- event-ns
-     "The namespace symbol carried by a `:begin-test-ns` report `m`.
+   (defn- report-event-namespace
+     "The namespace symbol carried by a `:begin-test-ns` `report-event`.
      cljs.test passes the ns symbol; normalise via `name`/`symbol` so it
-     matches `failing-ns`."
-     [m]
-     (when-let [ns (:ns m)]
-       (symbol (name ns)))))
+     matches `failing-test-namespace`."
+     [report-event]
+     (when-let [test-namespace (:ns report-event)]
+       (symbol (name test-namespace)))))
 
 #?(:cljs
-   (defn- banner-ns
+   (defn- failure-banner-namespace
      "The namespace to head the failure banner: the failing var's ns when a
      var is in scope, otherwise the innermost open `test-ns`."
      []
-     (or (failing-ns) (current-test-ns))))
+     (or (failing-test-namespace) (current-test-namespace))))
 
 ;; `defonce` for the same reload-safety reason as the JVM capture above:
 ;; pin cljs.test's ORIGINAL default reporters so a reload (e.g. shadow
@@ -262,34 +265,35 @@
 
 #?(:cljs
    (do
-     (defmethod cljs.test/report [:cljs.test/default :begin-test-ns] [m]
-       ;; Suppress the default "Testing <ns>"; defer to print-banner! on
+     (defmethod cljs.test/report [:cljs.test/default :begin-test-ns] [report-event]
+       ;; Suppress the default "Testing <ns>"; defer to
+       ;; print-namespace-banner! on
        ;; first failure/error (banner ns normally derived from the failing
        ;; var, not this event).  Push this ns onto the open-ns stack (for
        ;; nesting-depth tracking + the no-current-var banner fallback) and
        ;; clear the printed-banner set on an outermost entry.
-       (on-begin-test-ns! (event-ns m)))
+       (open-test-namespace! (report-event-namespace report-event)))
 
-     (defmethod cljs.test/report [:cljs.test/default :end-test-ns] [_m]
-       (on-end-test-ns!))
+     (defmethod cljs.test/report [:cljs.test/default :end-test-ns] [_report-event]
+       (close-test-namespace!))
 
-     (defmethod cljs.test/report [:cljs.test/default :begin-test-var] [_m]
+     (defmethod cljs.test/report [:cljs.test/default :begin-test-var] [_report-event]
        ;; No-op (also the default).
        )
 
-     (defmethod cljs.test/report [:cljs.test/default :end-test-var] [_m]
+     (defmethod cljs.test/report [:cljs.test/default :end-test-var] [_report-event]
        ;; No-op (also the default).
        )
 
-     (defmethod cljs.test/report [:cljs.test/default :fail] [m]
+     (defmethod cljs.test/report [:cljs.test/default :fail] [report-event]
        ;; Flush the withheld banner, then DELEGATE to cljs.test's default
        ;; `:fail` reporter so the FAIL block + expected/actual lines stay
        ;; the library's own output (formatter handling, counters, etc. are
        ;; not forked here).  Both write through `*out*`, so the banner and
        ;; the delegated block stay in order.
-       (print-banner! (banner-ns))
-       (cljs-default-fail m))
+       (print-namespace-banner! (failure-banner-namespace))
+       (cljs-default-fail report-event))
 
-     (defmethod cljs.test/report [:cljs.test/default :error] [m]
-       (print-banner! (banner-ns))
-       (cljs-default-error m))))
+     (defmethod cljs.test/report [:cljs.test/default :error] [report-event]
+       (print-namespace-banner! (failure-banner-namespace))
+       (cljs-default-error report-event))))

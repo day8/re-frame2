@@ -167,27 +167,27 @@
   yet reached its own newline — handled as a still-open candidate by the
   caller)."
   [^String remainder]
-  (let [n (.length remainder)]
-    (loop [i 0, depth 1, in-str? false]
-      (if (>= i n)
+  (let [remainder-length (.length remainder)]
+    (loop [index 0, brace-depth 1, inside-string? false]
+      (if (>= index remainder-length)
         false ; never closed the set on this line → not a complete banner
-        (let [c (.charAt remainder i)]
+        (let [character (.charAt remainder index)]
           (cond
-            in-str?
+            inside-string?
             (cond
-              (= c \\)        (recur (+ i 2) depth in-str?) ; skip escaped char
-              (= c \")        (recur (inc i) depth false)
-              :else           (recur (inc i) depth in-str?))
+              (= character \\) (recur (+ index 2) brace-depth inside-string?)
+              (= character \") (recur (inc index) brace-depth false)
+              :else            (recur (inc index) brace-depth inside-string?))
 
-            (= c \")          (recur (inc i) depth true)
-            (= c \{)          (recur (inc i) (inc depth) in-str?)
-            (= c \})          (let [d (dec depth)]
-                                (if (zero? d)
+            (= character \") (recur (inc index) brace-depth true)
+            (= character \{) (recur (inc index) (inc brace-depth) inside-string?)
+            (= character \}) (let [next-depth (dec brace-depth)]
+                                (if (zero? next-depth)
                                   ;; Set closed — banner iff only whitespace
                                   ;; (a `\r` before the `\n`, say) follows.
-                                  (str/blank? (subs remainder (inc i)))
-                                  (recur (inc i) d in-str?)))
-            :else             (recur (inc i) depth in-str?)))))))
+                                  (str/blank? (subs remainder (inc index)))
+                                  (recur (inc index) next-depth inside-string?)))
+            :else (recur (inc index) brace-depth inside-string?)))))))
 
 (defn- banner-filtering-writer
   "A `java.io.Writer` that forwards every character to `target` EXCEPT
@@ -258,21 +258,21 @@
   Clojure's `proxy` dispatches `write` by arity rather than by Java's
   static overload set, so the single-arg form must itself branch on the
   argument type (int char, `String`, or char[]).  Each arity feeds the
-  same `consume-char!` watcher, so the banner-detection logic lives in
+  same `consume-character!` watcher, so the banner-detection logic lives in
   exactly one place."
   ^java.io.Writer [^java.io.Writer target]
-  (let [prefix-len (.length ^String discovery-banner-prefix)
-        ;; `buf` holds the live candidate for the current line — the
+  (let [banner-prefix-length (.length ^String discovery-banner-prefix)
+        ;; `line-candidate` holds the live candidate for the current line — the
         ;; banner-prefix run while `:watching`, extended with the
-        ;; post-prefix remainder while `:banner-candidate`. `state` is one
+        ;; post-prefix remainder while `:banner-candidate`. `line-mode` is one
         ;; of:
-        ;;   :watching         — buf is a viable prefix of the banner-so-far;
-        ;;   :banner-candidate — buf reached the full prefix; keep buffering
+        ;;   :watching         — line-candidate is a viable banner prefix;
+        ;;   :banner-candidate — line-candidate reached the full prefix; buffer
         ;;                       the remainder, decide drop/forward at the
         ;;                       line's newline;
         ;;   :passthrough      — this line diverged; forward chars verbatim.
-        buf   (StringBuilder.)
-        state (volatile! :watching)
+        line-candidate (StringBuilder.)
+        line-mode      (volatile! :watching)
         ;; cognitect emits its discovery banner EXACTLY ONCE, via `println`
         ;; before any test runs (`cognitect.test-runner/test`), so it is the
         ;; first — and only — blank-led `Running tests in #{...}` line on the
@@ -286,7 +286,8 @@
         ;; is resolved at the next line's first character: dropped if that
         ;; line confirms the banner, emitted otherwise.
         pending-blank? (volatile! false)
-        emit! (fn [^String s] (when (pos? (.length s)) (.write target s)))
+        emit-text! (fn [^String text]
+                     (when (pos? (.length text)) (.write target text)))
         flush-pending-blank! (fn []
                                ;; The held blank was NOT the banner's
                                ;; lead-in after all — emit it as a real
@@ -306,16 +307,16 @@
                            ;; shutdown hook, so a genuine trailing blank
                            ;; line and a bare partial both survive exit.
                            (flush-pending-blank!)
-                           (when (pos? (.length buf))
-                             (.write target (.toString buf))
-                             (.setLength buf 0)))
+                           (when (pos? (.length line-candidate))
+                             (.write target (.toString line-candidate))
+                             (.setLength line-candidate 0)))
         reset-line! (fn []
-                      (.setLength buf 0)
-                      (vreset! state :watching))
-        consume-char! (fn [c]
+                      (.setLength line-candidate 0)
+                      (vreset! line-mode :watching))
+        consume-character! (fn [character]
                         (cond
-                          (= c \newline)
-                          (do (case @state
+                          (= character \newline)
+                          (do (case @line-mode
                                 ;; Empty watched run → a blank line. It may
                                 ;; be the banner's leading newline, so hold
                                 ;; it pending instead of forwarding now. A
@@ -326,11 +327,11 @@
                                 ;; that never reached the banner prefix —
                                 ;; any pending blank preceded real content,
                                 ;; so flush it, then forward the run.
-                                :watching    (if (zero? (.length buf))
+                                :watching    (if (zero? (.length line-candidate))
                                                (do (flush-pending-blank!)
                                                    (vreset! pending-blank? true))
                                                (do (flush-pending-blank!)
-                                                   (emit! (.toString buf))
+                                                   (emit-text! (.toString line-candidate))
                                                    (.write target (int \newline))))
                                 ;; Reached the full prefix — DECIDE now that
                                 ;; the line is complete. The
@@ -364,33 +365,34 @@
                                 ;; as a second "banner". Gate the
                                 ;; drop on `banner-dropped?` and latch it here.
                                 :banner-candidate
-                                (let [remainder (subs (.toString buf) prefix-len)]
+                                (let [remainder (subs (.toString line-candidate)
+                                                      banner-prefix-length)]
                                   (if (and (not @banner-dropped?)
                                            @pending-blank?
                                            (banner-line-remainder? remainder))
                                     (do (vreset! banner-dropped? true)
                                         (drop-pending-blank!))
                                     (do (flush-pending-blank!)
-                                        (.write target (.toString buf))
+                                        (.write target (.toString line-candidate))
                                         (.write target (int \newline)))))
                                 ;; Diverged line — its chars already went
                                 ;; straight through; terminate it.
                                 :passthrough (.write target (int \newline)))
                               (reset-line!))
 
-                          (= @state :passthrough)
-                          (.write target (int c))
+                          (= @line-mode :passthrough)
+                          (.write target (int character))
 
                           ;; A full-prefix candidate keeps accreting its
                           ;; remainder; the drop/forward call is deferred to
                           ;; the newline above.
-                          (= @state :banner-candidate)
-                          (.append buf c)
+                          (= @line-mode :banner-candidate)
+                          (.append line-candidate character)
 
                           :else ; :watching — extend the candidate
                           (do
-                            (.append buf c)
-                            (let [s (.toString buf)]
+                            (.append line-candidate character)
+                            (let [candidate-text (.toString line-candidate)]
                               (cond
                                 ;; Reached (or passed) the full prefix AND it
                                 ;; really IS the prefix → banner CANDIDATE
@@ -398,40 +400,43 @@
                                 ;; trailing content). Keep the pending blank
                                 ;; held — it stands or falls with this line at
                                 ;; the newline decision.
-                                (and (>= (.length buf) prefix-len)
-                                     (.startsWith s ^String discovery-banner-prefix))
-                                (vreset! state :banner-candidate)
+                                (and (>= (.length line-candidate)
+                                         banner-prefix-length)
+                                     (.startsWith candidate-text
+                                                  ^String discovery-banner-prefix))
+                                (vreset! line-mode :banner-candidate)
                                 ;; Still a viable prefix of the banner — keep
                                 ;; holding (and keep any pending blank held;
                                 ;; it stands or falls with this line).
-                                (.startsWith ^String discovery-banner-prefix s)
+                                (.startsWith ^String discovery-banner-prefix
+                                             candidate-text)
                                 nil
                                 ;; Diverged → this line is not the banner, so
                                 ;; the pending blank preceded real content;
                                 ;; flush it, then forward the diverged run.
                                 :else
                                 (do (flush-pending-blank!)
-                                    (emit! s)
-                                    (.setLength buf 0)
-                                    (vreset! state :passthrough)))))))
-        consume-str! (fn [^String s]
-                       (dotimes [i (.length s)]
-                         (consume-char! (.charAt s i))))]
+                                    (emit-text! candidate-text)
+                                    (.setLength line-candidate 0)
+                                    (vreset! line-mode :passthrough)))))))
+        consume-string! (fn [^String text]
+                          (dotimes [index (.length text)]
+                            (consume-character! (.charAt text index))))]
     (proxy [java.io.Writer] []
       (write
-        ([x]
+        ([value]
          (cond
-           (string? x)               (consume-str! x)
-           (integer? x)              (consume-char! (char x))
-           (instance? (Class/forName "[C") x)
-           (consume-str! (String. ^chars x))
+           (string? value)               (consume-string! value)
+           (integer? value)              (consume-character! (char value))
+           (instance? (Class/forName "[C") value)
+           (consume-string! (String. ^chars value))
            :else (throw (IllegalArgumentException.
-                          (str "unexpected write arg: " (class x))))))
-        ([cbuf off len]
-         (let [s (if (string? cbuf)
-                   (subs cbuf off (+ off len))
-                   (String. ^chars cbuf (int off) (int len)))]
-           (consume-str! s))))
+                          (str "unexpected write arg: " (class value))))))
+        ([char-buffer offset length]
+         (let [text (if (string? char-buffer)
+                      (subs char-buffer offset (+ offset length))
+                      (String. ^chars char-buffer (int offset) (int length)))]
+           (consume-string! text))))
       (flush []
         ;; A bare flush with a partial (unterminated) line must not lose
         ;; it; forward it now. A line that turns out to be the banner is
@@ -468,15 +473,15 @@
   (* 256 1024))
 
 (defn- buffering-stderr-writer
-  "A `java.io.Writer` over the shared `sb` ring that captures everything
-  written to it (trimming `sb` to the newest `stderr-buffer-cap`
+  "A `java.io.Writer` over the shared `stderr-ring` that captures everything
+  written to it (trimming `stderr-ring` to the newest `stderr-buffer-cap`
   characters) and forwards NOTHING to the real stderr.  The runner reads
-  `sb` back at `:summary` time and replays it only on red
+  `stderr-ring` back at `:summary` time and replays it only on red
   (`make-summary-replay-method`); on green the buffer is dropped."
-  ^java.io.Writer [^StringBuilder sb]
-  (let [append! (fn [^String s]
+  ^java.io.Writer [^StringBuilder stderr-ring]
+  (let [append-to-ring! (fn [^String text]
                   ;; Serialize the WHOLE append-plus-front-trim transaction on
-                  ;; `sb`'s own monitor. Both JVM stderr channels funnel here —
+                  ;; `stderr-ring`'s monitor. Both JVM stderr channels funnel here —
                   ;; `*err*` via one PrintWriter and raw `System.err` via the
                   ;; `System/setErr` PrintStream bridge (see `-main`) — and those
                   ;; two wrappers serialize only their OWN calls under DISTINCT
@@ -487,30 +492,33 @@
                   ;; otherwise-valid test. StringBuilder (unlike StringBuffer) has
                   ;; no synchronized methods, so nothing else contends for this
                   ;; monitor; the summary snapshot in
-                  ;; `make-summary-replay-method` locks on the SAME `sb`, so a
+                  ;; `make-summary-replay-method` locks on the SAME ring, so a
                   ;; red replay never reads a half-applied mutation.
-                  (locking sb
-                    (.append sb s)
+                  (locking stderr-ring
+                    (.append stderr-ring text)
                     ;; Trim from the front once past the cap so the ring
                     ;; keeps the most-recent context (the characters nearest a
                     ;; failure), matching the CLJS ring's newest-N policy.
-                    (let [n (.length sb)]
-                      (when (> n stderr-buffer-cap)
-                        (.delete sb 0 (- n stderr-buffer-cap))))))]
+                    (let [ring-length (.length stderr-ring)]
+                      (when (> ring-length stderr-buffer-cap)
+                        (.delete stderr-ring 0
+                                 (- ring-length stderr-buffer-cap))))))]
     (proxy [java.io.Writer] []
       (write
-        ([x]
+        ([value]
          (cond
-           (string? x)  (append! x)
-           (integer? x) (append! (String. (char-array [(char x)])))
-           (instance? (Class/forName "[C") x)
-           (append! (String. ^chars x))
+           (string? value)  (append-to-ring! value)
+           (integer? value) (append-to-ring!
+                              (String. (char-array [(char value)])))
+           (instance? (Class/forName "[C") value)
+           (append-to-ring! (String. ^chars value))
            :else (throw (IllegalArgumentException.
-                          (str "unexpected write arg: " (class x))))))
-        ([cbuf off len]
-         (append! (if (string? cbuf)
-                    (subs cbuf off (+ off len))
-                    (String. ^chars cbuf (int off) (int len))))))
+                          (str "unexpected write arg: " (class value))))))
+        ([char-buffer offset length]
+         (append-to-ring!
+           (if (string? char-buffer)
+             (subs char-buffer offset (+ offset length))
+             (String. ^chars char-buffer (int offset) (int length))))))
       (flush [])
       (close []))))
 
@@ -872,8 +880,8 @@
 
 (defn- make-summary-replay-method
   "Build the `clojure.test/report :summary` method for ONE `-main`
-  invocation.  On a RED run it replays the buffered stderr ring `sb` to
-  `real-err`, then delegates to `prior` (the `:summary` method installed
+  invocation. On a RED run it replays `stderr-ring` to `original-err`, then
+  delegates to `prior-summary-method` (the `:summary` method installed
   before this invocation) so the canonical summary line still prints, and
   finally enforces this lane's claim — the `min-tests` floor for a suite
   lane, or the zero-test expectation for a `--probe` lane (see the ns
@@ -901,9 +909,9 @@
 
   This method is INVOCATION-SCOPED, not a permanent global override: `-main`
   installs it via `install-summary-method!` before the delegated run and
-  RESTORES `prior` on every returning/throwing path (its `finally`). A
+  RESTORES `prior-summary-method` on every returning/throwing path (its `finally`). A
   returning `-main` — notably `-H` help, or an embedded/REPL/in-process
-  call — therefore leaves no global closure over this run's ring/`real-err`
+  call — therefore leaves no global closure over this run's ring/`original-err`
   installed for a later, unrelated `clojure.test` run to trip over, and
   repeated invocations never chain wrapper-over-wrapper.
 
@@ -919,62 +927,70 @@
   `*err*`/`System.err` noise preceded the parse failure (in practice none;
   arg parsing does not log to stderr).
 
-  The replay goes to `real-err` — the ORIGINAL stderr writer captured before
+  The replay goes to `original-err` — the ORIGINAL stderr writer captured before
   the `*err*` ring was bound — so it is never fed back into the buffer. Each
   captured chunk is written verbatim under a red-run header, mirroring the
   CLJS replay's `[test-quiet]` prefix.  On green the buffer is dropped."
-  [^StringBuilder sb ^java.io.Writer real-err prior {:keys [probe? min-tests]}]
-  (fn summary-replay [m]
-    (let [{:keys [fail error]} m]
+  [^StringBuilder stderr-ring
+   ^java.io.Writer original-err
+   prior-summary-method
+   {:keys [probe? min-tests]}]
+  (fn summary-replay [summary]
+    (let [{:keys [fail error]} summary]
       (when (pos? (+ (or fail 0) (or error 0)))
-        ;; Snapshot the ring under `sb`'s monitor — the SAME lock every
+        ;; Snapshot `stderr-ring` under its monitor — the SAME lock every
         ;; writer in `buffering-stderr-writer` takes — so the `.length`
         ;; guard and the `.toString` copy observe a consistent ring rather
         ;; than a mutation half-applied by a still-live background writer.
-        ;; Copy out under the lock, then do the (unbounded) real-err replay
+        ;; Copy out under the lock, then do the (unbounded) original-err replay
         ;; I/O OUTSIDE it so a writer is never blocked on the replay. An
         ;; empty ring yields `nil` and replays nothing, exactly as the prior
-        ;; `(pos? (.length sb))` guard did.
-        (let [captured (locking sb
-                         (when (pos? (.length sb))
-                           (.toString sb)))]
-          (when captured
-            (.write real-err
+        ;; `(pos? (.length stderr-ring))` guard did.
+        (let [captured-stderr (locking stderr-ring
+                                (when (pos? (.length stderr-ring))
+                                  (.toString stderr-ring)))]
+          (when captured-stderr
+            (.write original-err
                     (str "\n[test-quiet] buffered stderr replayed"
                          " because the run was RED:\n"))
-            (.write real-err captured)
-            (when-not (.endsWith captured "\n")
-              (.write real-err "\n"))
-            (.flush real-err)))))
+            (.write original-err captured-stderr)
+            (when-not (.endsWith captured-stderr "\n")
+              (.write original-err "\n"))
+            (.flush original-err)))))
     ;; Delegate to the prior :summary so the canonical
     ;; "Ran N tests…/K failures, J errors." line still prints.
-    (when prior (prior m))
+    (when prior-summary-method
+      (prior-summary-method summary))
     ;; Then this lane's own claim (rf2-qqzmf). A suite lane claims coverage
     ;; and must prove it RAN; a probe lane claims resolution and must prove
     ;; it resolved WITHOUT running. Diagnostics are ASCII only: they go
     ;; through the platform-default stderr encoding, where an em dash renders
     ;; as a replacement char on a Windows console.
-    (let [ran   (or (:test m) 0)
-          fail! (fn [message]
-                  (.write real-err (str "\n[test-quiet] ERROR: " message))
-                  (.flush real-err)
-                  (System/exit 1))]
+    (let [test-count (or (:test summary) 0)
+          exit-for-claim-mismatch!
+          (fn [message]
+            (.write original-err (str "\n[test-quiet] ERROR: " message))
+            (.flush original-err)
+            (System/exit 1))]
       (cond
         ;; A probe reaching this hook has already proved what it claims:
         ;; deps resolved and the discovery dirs were scanned. All that is
         ;; left is that it really is a probe.
         probe?
-        (when (pos? ran)
-          (fail! (str "this lane is declared a classpath probe (" probe-flag
-                      ") but executed " ran " test(s).\n"
+        (when (pos? test-count)
+          (exit-for-claim-mismatch!
+            (str "this lane is declared a classpath probe (" probe-flag
+                      ") but executed " test-count " test(s).\n"
                       "A lane with tests claims COVERAGE, not resolution:"
                       " drop " probe-flag " from its `:test` alias"
                       " `:main-opts`\n"
                       "so the test-count floor applies to it (rf2-qqzmf).\n")))
 
-        (< ran min-tests)
-        (fail! (str "this run executed " ran " test(s), below the floor of "
-                    min-tests " (" min-tests-env-var ").\n"
+        (< test-count min-tests)
+        (exit-for-claim-mismatch!
+          (str "this run executed " test-count
+                    " test(s), below the floor of " min-tests
+                    " (" min-tests-env-var ").\n"
                     "A suite lane that discovered no tests is a"
                     " configuration error: a `-r`/`-n` selector matching"
                     " nothing, a `:test` alias\n"
@@ -1045,36 +1061,40 @@
         ;; buffered one (rf2-qqzmf). `--probe` is ours and is stripped from
         ;; what cognitect sees.
         [{:keys [probe?]} forwarded-args] (split-runner-args args)
-        claim      {:probe? probe? :min-tests (resolve-min-tests!)}
+        lane-claim {:probe? probe? :min-tests (resolve-min-tests!)}
         ;; And what this lane will DISCOVER, resolved from the same args
         ;; cognitect is about to parse (rf2-vruo9). Also before anything is
         ;; rebound, and before a single test runs: a file the reader cannot
         ;; read is invisible to discovery, so no later hook — not the floor,
         ;; not the summary — has anything left to notice.
         _          (verify-discovery! forwarded-args)
-        real-out   *out*
-        real-err   *err*
-        sys-err    System/err
-        filtering  (java.io.PrintWriter. (banner-filtering-writer real-out))
-        stderr-sb  (StringBuilder.)
-        buffered-w (buffering-stderr-writer stderr-sb)
-        buffered-e (java.io.PrintWriter. buffered-w)
+        original-out        *out*
+        original-err        *err*
+        original-system-err System/err
+        filtered-stdout     (java.io.PrintWriter.
+                              (banner-filtering-writer original-out))
+        stderr-ring         (StringBuilder.)
+        buffered-stderr-writer (buffering-stderr-writer stderr-ring)
+        buffered-stderr     (java.io.PrintWriter. buffered-stderr-writer)
         ;; The flush-on-`System/exit` hook for the stdout filtering writer,
         ;; registered through the `*register-flush-hook!*` seam. Its
         ;; `deregister-flush-hook!` is called on every returning/throwing path
         ;; so repeated in-process/help invocations don't accumulate a
         ;; filtering-writer hook apiece.
-        flush-hook (Thread. ^Runnable #(.flush filtering))
-        deregister-flush-hook! (*register-flush-hook!* flush-hook)
+        stdout-flush-hook (Thread. ^Runnable #(.flush filtered-stdout))
+        deregister-flush-hook! (*register-flush-hook!* stdout-flush-hook)
         ;; Capture the `:summary` method installed before us, then install
         ;; THIS invocation's replay method. The override is invocation-scoped:
-        ;; we DELEGATE to `prior-summary` during the run and RESTORE it on exit
+        ;; we DELEGATE to `prior-summary-method` during the run and restore it
         ;; (see the `finally`), never leaving a global closure over this run's
-        ;; ring/`real-err` behind.
-        prior-summary (get-method clojure.test/report :summary)
-        summary-fn    (make-summary-replay-method stderr-sb real-err prior-summary
-                                                  claim)]
-    (install-summary-method! summary-fn)
+        ;; ring/`original-err` behind.
+        prior-summary-method (get-method clojure.test/report :summary)
+        summary-method (make-summary-replay-method
+                         stderr-ring
+                         original-err
+                         prior-summary-method
+                         lane-claim)]
+    (install-summary-method! summary-method)
     ;; Route raw `System/err` bytes into the same ring as `*err*` so a
     ;; library that writes `System.err` directly is buffered too. Each chunk
     ;; is decoded to a `String` and appended to the ring (this buffer is the
@@ -1097,33 +1117,40 @@
     ;;     at replay is not a clean fit here — the ring is a shared char
     ;;     `Writer` that `*err*` also writes into directly, so there is no
     ;;     single byte stream to defer-decode.
-    (let [sys-bridge (proxy [java.io.OutputStream] []
+    (let [system-err-bridge (proxy [java.io.OutputStream] []
                        (write
-                         ([b]
+                         ([byte-value]
                           ;; proxy dispatches by arity; the 1-arg form is
                           ;; write(int) — the low 8 bits are the byte (0-255),
                           ;; so use `unchecked-byte` (a plain `byte` cast
                           ;; throws for 128-255). Best-effort/ASCII (see above).
-                          (.write buffered-w (String. (byte-array [(unchecked-byte b)]))))
-                         ([b off len]
-                          (.write buffered-w (String. ^bytes b (int off) (int len))))))]
-      (System/setErr (java.io.PrintStream. sys-bridge true "UTF-8")))
-    (binding [*out* filtering
-              *err* buffered-e]
+                          (.write buffered-stderr-writer
+                                  (String.
+                                    (byte-array
+                                      [(unchecked-byte byte-value)]))))
+                         ([byte-buffer offset length]
+                          (.write buffered-stderr-writer
+                                  (String. ^bytes byte-buffer
+                                           (int offset)
+                                           (int length))))))]
+      (System/setErr (java.io.PrintStream. system-err-bridge true "UTF-8")))
+    (binding [*out* filtered-stdout
+              *err* buffered-stderr]
       (try
         (apply cognitect.test-runner/-main forwarded-args)
         (finally
-          (.flush filtering)
+          (.flush filtered-stdout)
           ;; Returning paths (notably help) restore System/err + the prior
           ;; `:summary` reporter and deregister the flush hook. `System/exit`
           ;; paths terminate WITHOUT running this `finally`, which is correct:
           ;; the summary replay already fired during the run, and the flush
           ;; hook must survive to flush stdout at shutdown.
-          (System/setErr sys-err)
+          (System/setErr original-system-err)
           ;; Restore the prior `:summary` method — but ONLY if ours is still
           ;; the installed one. If an unrelated run replaced it during this
           ;; invocation, that run now owns the method and must not be
           ;; clobbered by a blind restore.
-          (when (identical? summary-fn (get-method clojure.test/report :summary))
-            (install-summary-method! prior-summary))
+          (when (identical? summary-method
+                            (get-method clojure.test/report :summary))
+            (install-summary-method! prior-summary-method))
           (deregister-flush-hook!))))))

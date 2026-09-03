@@ -105,74 +105,97 @@
     ;; hold the NEWEST ones, and — the core pin — its backing must NOT be a
     ;; Subvec (which would retain the full discarded history via its shared
     ;; underlying vector).
-    (let [cap 4
-          buf (reduce (fn [b i] (wb/bound-conj b [i] cap)) [] (range 1000))]
-      (is (= cap (count buf))
+    (let [capacity 4
+          buffer   (reduce (fn [current-buffer entry]
+                             (wb/bound-conj current-buffer [entry] capacity))
+                           []
+                           (range 1000))]
+      (is (= capacity (count buffer))
           "the ring is bounded to cap entries no matter how many are appended")
-      (is (= [[996] [997] [998] [999]] buf)
+      (is (= [[996] [997] [998] [999]] buffer)
           "the ring retains the NEWEST cap entries, dropping the oldest")
-      (is (not (instance? cljs.core/Subvec buf))
+      (is (not (instance? cljs.core/Subvec buffer))
           (str "the trimmed ring must NOT be a Subvec — a Subvec shares and"
                " retains its full underlying vector, so the bound would leak"
                " every discarded warning until process exit"))
-      (is (instance? cljs.core/PersistentVector buf)
+      (is (instance? cljs.core/PersistentVector buffer)
           "the trimmed ring is a materialised PersistentVector, not a view")))
   (testing "below the cap the ring is a plain growing vector (no trim, no Subvec)"
-    (let [buf (reduce (fn [b i] (wb/bound-conj b [i] 10)) [] (range 3))]
-      (is (= [[0] [1] [2]] buf))
-      (is (not (instance? cljs.core/Subvec buf))
+    (let [buffer (reduce (fn [current-buffer entry]
+                           (wb/bound-conj current-buffer [entry] 10))
+                         []
+                         (range 3))]
+      (is (= [[0] [1] [2]] buffer))
+      (is (not (instance? cljs.core/Subvec buffer))
           "an untrimmed ring is never a Subvec")))
   (testing "under the REAL default cap the ring never exceeds warn-buffer-cap"
     ;; Drive several multiples of the real cap through the real default arity
     ;; so a regression that dropped the materialisation (or the cap) is caught
     ;; against the production constant, not just a synthetic tiny cap.
-    (let [buf (reduce (fn [b i] (wb/bound-conj b [i]))
-                      []
-                      (range (* 4 wb/warn-buffer-cap)))]
-      (is (= wb/warn-buffer-cap (count buf))
+    (let [buffer (reduce (fn [current-buffer entry]
+                           (wb/bound-conj current-buffer [entry]))
+                         []
+                         (range (* 4 wb/warn-buffer-cap)))]
+      (is (= wb/warn-buffer-cap (count buffer))
           "the ring stays capped at the production warn-buffer-cap")
-      (is (not (instance? cljs.core/Subvec buf))
+      (is (not (instance? cljs.core/Subvec buffer))
           "the production-cap ring must not degrade into a retaining Subvec"))))
 
 ;; ----------------------------------------------------------------------
-;; Var filtering — simple symbols match by ns, qualified by fully-qualified
-;; name.  Driven against synthetic var-like maps so the pin does not depend
+;; Var filtering — simple symbols match by namespace, qualified by fully-qualified
+;; var name. Driven against synthetic var-like maps so the pin does not depend
 ;; on the live test-data registry.
 
 (defn- fake-var
-  "A stand-in for a test var: `meta` returns {:ns :name}, matching what
-  `find-matching-test-vars` reads."
-  [ns name]
-  (with-meta (fn []) {:ns ns :name name}))
+  "A stand-in for a test var: `meta` returns namespace/name metadata, matching
+  what `find-matching-test-vars` reads."
+  [test-namespace test-name]
+  (with-meta (fn []) {:ns test-namespace :name test-name}))
 
 (deftest find-matching-test-vars-filtering
   ;; find-matching-test-vars reads (env/get-test-vars); we cannot inject
   ;; that registry here, but we CAN pin the selection predicate it builds
-  ;; — the (or (contains? namespaces ns) (contains? fqns (symbol ns name)))
+  ;; — the (or (contains? selected-namespaces test-namespace)
+  ;;           (contains? selected-var-symbols
+  ;;                      (symbol test-namespace test-name)))
   ;; rule — by reproducing it over fake vars. This locks the documented
-  ;; "simple symbol = whole ns, qualified symbol = single var" contract.
-  (let [vars        [(fake-var 'my.ns 'a-test)
-                     (fake-var 'my.ns 'b-test)
-                     (fake-var 'other.ns 'c-test)]
-        select      (fn [test-syms]
-                      (let [namespaces (->> test-syms (filter simple-symbol?) set)
-                            fqns       (->> test-syms (filter qualified-symbol?) set)]
-                        (->> vars
-                             (filter (fn [v]
-                                       (let [{:keys [name ns]} (meta v)]
-                                         (or (contains? namespaces ns)
-                                             (contains? fqns (symbol ns name))))))
-                             (map (fn [v] (let [{:keys [ns name]} (meta v)]
-                                            (symbol ns name)))))))]
+  ;; "simple symbol = whole namespace, qualified symbol = single var" contract.
+  (let [test-vars         [(fake-var 'my.ns 'a-test)
+                           (fake-var 'my.ns 'b-test)
+                           (fake-var 'other.ns 'c-test)]
+        select-test-vars  (fn [test-selectors]
+                            (let [selected-namespaces (->> test-selectors
+                                                           (filter simple-symbol?)
+                                                           set)
+                                  selected-var-symbols (->> test-selectors
+                                                            (filter qualified-symbol?)
+                                                            set)]
+                              (->> test-vars
+                                   (filter (fn [test-var]
+                                             (let [{test-name :name
+                                                    test-namespace :ns}
+                                                   (meta test-var)]
+                                               (or (contains? selected-namespaces
+                                                              test-namespace)
+                                                   (contains? selected-var-symbols
+                                                              (symbol test-namespace
+                                                                      test-name))))))
+                                   (map (fn [test-var]
+                                          (let [{test-namespace :ns
+                                                 test-name :name}
+                                                (meta test-var)]
+                                            (symbol test-namespace test-name)))))))]
     (testing "a simple symbol selects every var in that namespace"
-      (is (= '[my.ns/a-test my.ns/b-test] (select '[my.ns]))))
+      (is (= '[my.ns/a-test my.ns/b-test]
+             (select-test-vars '[my.ns]))))
     (testing "a qualified symbol selects exactly that var"
-      (is (= '[my.ns/b-test] (select '[my.ns/b-test]))))
-    (testing "ns + fqn selectors combine"
+      (is (= '[my.ns/b-test]
+             (select-test-vars '[my.ns/b-test]))))
+    (testing "namespace + fully-qualified selectors combine"
       (is (= '[my.ns/a-test my.ns/b-test other.ns/c-test]
-             (select '[my.ns other.ns/c-test]))))
+             (select-test-vars '[my.ns other.ns/c-test]))))
     (testing "an unmatched selector yields nothing"
-      (is (= '[] (select '[absent.ns]))))))
+      (is (= '[] (select-test-vars '[absent.ns]))))))
 
 ;; ----------------------------------------------------------------------
 ;; Unmatched-selector guard: a `--test=<selector>` that
@@ -416,7 +439,7 @@
 
 (defn- spawn-runner
   "Re-spawn the SAME built `out/node-test.js` shadow-node runner this
-  process is executing, with `argv` (a CLJS vector of string args), and
+  process is executing, with `runner-args` (a CLJS vector of string args), and
   return `{:status :stdout :stderr :error :signal :timed-out?}`.
 
   `process.argv[1]` is the runner script path and `process.argv[0]` the
@@ -425,35 +448,39 @@
   way to observe the `js/process.exit` codes the false-green guards branch
   on (calling `execute-cli` in-process would tear down this runner).
 
-  `opts` is an optional CLJS map:
+  `cli-options` is an optional CLJS map:
    - `:env` — extra environment entries (merged over the parent env) the
      child runs with;
   A shared `:timeout`/`:maxBuffer` policy is applied to EVERY spawn so a
   wedged or runaway child fails fast with a diagnostic rather than
   stranding the suite. `:timed-out?` is derived from a SIGTERM result; callers
   inspect `:error` to distinguish timeout and output-buffer failures."
-  ([argv] (spawn-runner argv {}))
-  ([argv {:keys [env]}]
-   (let [self     (aget js/process.argv 1)
-         child-env (when env
-                     (let [merged (js/Object.assign #js {} js/process.env)]
-                       (doseq [[k v] env]
-                         (aset merged (name k) v))
-                       merged))
-         res  (.spawnSync node-child-process
-                          (aget js/process.argv 0) ; the node binary
-                          (apply array self argv)
-                          (cond-> #js {:encoding  "utf8"
-                                       :timeout   spawn-timeout-ms
-                                       :maxBuffer spawn-max-buffer-bytes}
-                            child-env (doto (aset "env" child-env))))
-         signal (.-signal res)]
-     {:status     (.-status res)
-      :stdout     (or (.-stdout res) "")
-      :stderr     (or (.-stderr res) "")
+  ([runner-args] (spawn-runner runner-args {}))
+  ([runner-args {:keys [env]}]
+   (let [runner-script (aget js/process.argv 1)
+         child-environment (when env
+                     (let [merged-environment
+                           (js/Object.assign #js {} js/process.env)]
+                       (doseq [[environment-name environment-value] env]
+                         (aset merged-environment
+                               (name environment-name)
+                               environment-value))
+                       merged-environment))
+         spawn-result (.spawnSync node-child-process
+                                  (aget js/process.argv 0) ; the node binary
+                                  (apply array runner-script runner-args)
+                                  (cond-> #js {:encoding  "utf8"
+                                               :timeout   spawn-timeout-ms
+                                               :maxBuffer spawn-max-buffer-bytes}
+                                    child-environment
+                                    (doto (aset "env" child-environment))))
+         signal (.-signal spawn-result)]
+     {:status     (.-status spawn-result)
+      :stdout     (or (.-stdout spawn-result) "")
+      :stderr     (or (.-stderr spawn-result) "")
       ;; cljs.test spawn errors (e.g. ENOENT, ETIMEDOUT, ENOBUFS) surface
-      ;; on res.error.
-      :error      (.-error res)
+      ;; on spawn-result.error.
+      :error      (.-error spawn-result)
       :signal     signal
        ;; A timeout normally yields SIGTERM. This flag is intentionally only
        ;; a signal shorthand; `:error` carries the precise spawn failure.
@@ -772,19 +799,19 @@
   (testing "spawnSync timeout terminates a child that never exits"
     (let [;; A child that blocks forever: an idle interval keeps the event
           ;; loop alive with no exit path.
-          res (.spawnSync node-child-process
-                          (aget js/process.argv 0) ; node binary
-                          #js ["-e" "setInterval(function(){}, 1000)"]
-                          #js {:encoding  "utf8"
-                               :timeout   1500
-                               :maxBuffer (* 1024 1024)})]
+          spawn-result (.spawnSync node-child-process
+                                   (aget js/process.argv 0) ; node binary
+                                   #js ["-e" "setInterval(function(){}, 1000)"]
+                                   #js {:encoding  "utf8"
+                                        :timeout   1500
+                                        :maxBuffer (* 1024 1024)})]
       ;; The CORE pin: spawnSync must have KILLED the child on timeout
       ;; (SIGTERM), proving the shared policy fails fast instead of
       ;; hanging. A regression that dropped `:timeout` would block here
       ;; forever (the child never exits on its own).
-      (is (= "SIGTERM" (.-signal res))
+      (is (= "SIGTERM" (.-signal spawn-result))
           (str "a hanging child must be SIGTERM-killed on the spawnSync"
-               " timeout; got signal " (pr-str (.-signal res))
-               " status " (pr-str (.-status res))))
-      (is (some? (.-error res))
+               " timeout; got signal " (pr-str (.-signal spawn-result))
+               " status " (pr-str (.-status spawn-result))))
+      (is (some? (.-error spawn-result))
           "spawnSync must surface an ETIMEDOUT-class error on the timeout"))))

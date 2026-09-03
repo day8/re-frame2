@@ -18,17 +18,17 @@
   quiet on every green run."
   (:require [cljs.test :refer-macros [deftest is]]))
 
-(def ^:private armed?
+(def ^:private red-warning-fixture-armed?
   (boolean (some-> (.. js/process -env -RF2_TQ_RED_WARN_FIXTURE)
                    (= "1"))))
 
 (deftest warns-then-fails-when-armed
-  (when armed?
+  (when red-warning-fixture-armed?
     ;; A stray runtime warning of exactly the class the green-path stub
     ;; withholds. It must survive to the RED output via the buffer replay.
     (js/console.warn "RED-WARN-FIXTURE-MARKER diagnostic context"))
   ;; GREEN unless armed: the consolidated whole-suite run keeps passing.
-  (is (or (not armed?) (= :expected :actual))
+  (is (or (not red-warning-fixture-armed?) (= :expected :actual))
       "armed fixture fails so the run is RED and the buffer replays"))
 
 ;; ---- large-replay truncation fixture -------------------------------------
@@ -42,12 +42,12 @@
 ;; flag so the consolidated whole-suite run (and the small-warning fixture
 ;; above) are unaffected — unarmed it is trivially GREEN and emits nothing.
 
-(def ^:private replay-volume-armed?
+(def ^:private large-replay-fixture-armed?
   (boolean (some-> (.. js/process -env -RF2_TQ_RED_REPLAY_VOLUME)
                    (= "1"))))
 
 (deftest large-replay-warns-then-fails-when-armed
-  (when replay-volume-armed?
+  (when large-replay-fixture-armed?
     (let [chunk (apply str (repeat 1024 "x"))] ; ~1 KiB padding per warning
       ;; 255 padding warnings + 1 tail marker = 256 = warn-buffer-cap, so the
       ;; ring is filled exactly to cap with nothing evicted; the total replay
@@ -58,5 +58,5 @@
       ;; `process.stderr` + `process.exit` truncation would drop.
       (js/console.warn (str "RED-REPLAY-TAIL-MARKER " chunk))))
   ;; GREEN unless armed.
-  (is (or (not replay-volume-armed?) (= :expected :actual))
+  (is (or (not large-replay-fixture-armed?) (= :expected :actual))
       "armed volume fixture fails so the run is RED and the full ring replays"))
