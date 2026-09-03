@@ -70,8 +70,8 @@
   (try
     (t)
     (finally
-      ;; Restore the shipped epoch-ring default so a story namespace running
-      ;; after this one in the aggregate sees the normal depth-50 posture.
+      ;; Restore the shipped epoch-ring default so any namespace running after
+      ;; this one in the same JVM sees the normal depth-50 posture.
       (rf/configure! {:epoch-history {:depth 50}}))))
 
 (use-fixtures :each reset-story)

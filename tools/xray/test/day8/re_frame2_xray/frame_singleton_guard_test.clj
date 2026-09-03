@@ -127,13 +127,18 @@
 
 (defn- src-root []
   ;; Resolve `src/day8/re_frame2_xray` on disk so the guard reads the
-  ;; on-disk source text. The per-tool `:test` alias runs from
-  ;; `tools/xray` (cwd-relative `src` works), but the tools-root
-  ;; aggregate (`tools/deps.edn :test`, rf2-f2tkbt) runs from `tools/`,
-  ;; where a bare `(io/file "src" …)` would miss. `src` is a classpath
-  ;; `:paths` root, so a known `.cljs` source is a classpath resource on
-  ;; the JVM regardless of cwd; its parent dir is the src-root. Fall back
-  ;; to the cwd-relative path if the resource is absent (e.g. a jar).
+  ;; on-disk source text. Every shipped invocation runs from `tools/xray`
+  ;; (`clojure -M:test`, typed by hand or driven by
+  ;; `scripts/test-jvm-tools.sh`, which cds into the artefact), so a
+  ;; cwd-relative `(io/file "src" …)` would happen to work there — but
+  ;; keying the walk to cwd makes this guard fail OPEN anywhere else, and
+  ;; silently: from any other working directory (a REPL or editor rooted at
+  ;; the repo root) the path resolves to a non-directory, the walk yields no
+  ;; files, and every `(is (empty? …))` below passes having scanned nothing.
+  ;; `src` is a classpath `:paths` root, so a known `.cljs` source is a
+  ;; classpath resource on the JVM regardless of cwd; its parent dir is the
+  ;; src-root. Fall back to the cwd-relative path if the resource is absent
+  ;; (e.g. a jar).
   (let [marker (io/resource "day8/re_frame2_xray/defaults.cljs")]
     (if (and marker (= "file" (.getProtocol marker)))
       (.getParentFile (io/file (.toURI marker)))

@@ -80,8 +80,10 @@
   (story/install-canonical-vocabulary!)
   ;; Every test here exercises the write surface; the gate is default-off.
   (config/set-allow-writes! true)
-  ;; Mirrors `tools-test`: keep the epoch ring out of the wire payload so a
-  ;; tools-root aggregate run doesn't balloon a result past the token cap.
+  ;; Mirrors `tools-test`: keep the epoch ring out of the wire payload so any
+  ;; JVM that puts `re-frame.epoch` on this suite's classpath — its capture
+  ;; hooks install process-wide at ns-load — can't balloon a result past the
+  ;; token cap.
   (rf/configure! {:epoch-history {:depth 0}})
   (t)
   (config/set-allow-writes! false))

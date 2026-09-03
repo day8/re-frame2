@@ -28,14 +28,18 @@
 ;; ----- helpers ------------------------------------------------------------
 
 (defn- src-root
-  "Resolve `tools/story/src/` on disk, cwd-independently. The per-tool
-  `:test` alias runs from `tools/story` (a cwd-relative `(io/file \"src\")`
-  works), but the tools-root aggregate (`tools/deps.edn :test`, rf2-f2tkbt)
-  runs from `tools/`, where a bare `src` would miss. `src` is a classpath
-  `:paths` root, so a known story source (`re_frame/story.cljc`) is a
-  classpath resource on the JVM regardless of cwd; its `src`-relative parent
-  chain is the src-root. Falls back to the cwd-relative path if the resource
-  is absent (e.g. a jar). Mirrors the xray guard tests' `src-root`."
+  "Resolve `tools/story/src/` on disk, cwd-independently. Every shipped
+  invocation runs from `tools/story` (`clojure -M:test`, typed by hand or
+  driven by `scripts/test-jvm-tools.sh`, which cds into the artefact), so a
+  cwd-relative `(io/file \"src\")` would happen to work there — but keying
+  the walk to cwd makes it wrong from any other working directory (a REPL or
+  editor rooted at the repo root). `src` is a classpath `:paths` root, so a
+  known story source (`re_frame/story.cljc`) is a classpath resource on the
+  JVM regardless of cwd; its `src`-relative parent chain is the src-root.
+  Falls back to the cwd-relative path if the resource is absent (e.g. a jar);
+  the companion `(is (seq files) …)` assertion below turns a mis-resolved
+  root into a loud failure rather than a vacuous pass. Mirrors the xray guard
+  tests' `src-root`."
   []
   (let [marker (io/resource "re_frame/story.cljc")]
     (if (and marker (= "file" (.getProtocol marker)))
@@ -46,7 +50,8 @@
 (defn- src-files
   "Walk tools/story/src/ and return every .cljc / .cljs / .clj file as
   a `java.io.File`, resolving the src root via `src-root` so the walk is
-  cwd-independent (per-tool `clojure -M:test` AND the tools-root aggregate)."
+  cwd-independent rather than tied to the artefact directory the shipped
+  `clojure -M:test` happens to run from."
   []
   (let [root (src-root)]
     (when (.isDirectory root)

@@ -163,8 +163,8 @@
   (try
     (t)
     (finally
-      ;; Restore the shipped epoch-ring default so a story namespace running
-      ;; after this one in the aggregate sees the normal depth-50 posture.
+      ;; Restore the shipped epoch-ring default so any namespace running after
+      ;; this one in the same JVM sees the normal depth-50 posture.
       (rf/configure! {:epoch-history {:depth 50}}))))
 
 (use-fixtures :each reset-story-and-config)
@@ -390,12 +390,14 @@
 
 (defn- artefact-root
   "Resolve the `tools/story-mcp/` artefact root on disk, cwd-independently.
-  The per-tool `:test` alias runs from `tools/story-mcp` (a cwd-relative
-  `(io/file …)` works), but the tools-root aggregate (`tools/deps.edn :test`)
-  runs from `tools/`, where a cwd-relative `spec/API.md` /
-  `../../skills/…` would miss. The repo-tree files `spec/API.md` and the
-  consuming skill leaf are NOT on the classpath (story-mcp ships only `src`
-  + `test`), so we anchor off a known classpath SOURCE resource
+  Every shipped invocation runs from `tools/story-mcp` (`clojure -M:test`,
+  typed by hand or driven by `scripts/test-jvm-tools.sh`, which cds into the
+  artefact), so cwd-relative `spec/API.md` / `../../skills/…` paths would
+  happen to work there — but keying the walk to cwd makes them wrong from any
+  other working directory (a REPL or editor rooted at the repo root). The
+  repo-tree files `spec/API.md` and the consuming skill leaf are NOT on the
+  classpath (story-mcp ships only `src` + `test`), so we anchor off a known
+  classpath SOURCE resource
   (`re_frame/story_mcp/protocol.cljc` under the `src` `:paths` root) and walk
   its parent chain up to the artefact root. Falls back to the JVM cwd if the
   resource is absent (e.g. a jar). Mirrors the xray guard tests' src-root
