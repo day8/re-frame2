@@ -25,7 +25,8 @@ for the cross-substrate builds (browser tests, elision probe, examples).
 
 There are 2 top-level groupings:
 
-- `adapters/` — substrate adapters (rf2-zha9 directory introduction;
+- `adapters/` — adapter artefacts that bridge the reactive substrates
+  (rf2-zha9 directory introduction;
   rf2-0imy canonical naming, "adapters" not "substrates"). One directory
   per adapter (`reagent`, `uix`, `reagent-slim`).
 - per-feature artefacts — one flat directory per feature
