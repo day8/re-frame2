@@ -34,7 +34,7 @@ adapter contract, React root calls, disposal, source coordinates, and the
 Each adapter implements the surface defined in [Spec 006 §The adapter API contract](../../spec/006-ReactiveSubstrate.md):
 
 - required (6): `make-state-container`, `read-container`, `replace-container!`, `make-derived-value`, `render`, `render-to-string`
-- optional (3): `subscribe-container`, `register-context-provider`, `flush-render!` — the core falls back (or no-ops) when these are absent. `flush-render!` is the production-grade synchronous render-commit (distinct from the `flush-views!` test helper). 3 of the 6 shipped adapter kinds install it — Reagent, reagent-slim and UIx. The other 3 omit it deliberately: `plain-atom` (in core) and the SSR substrate render without a live commit, so there is nothing to flush, and the test-react fixture hands the render clock to the test.
+- optional (3): `subscribe-container`, `register-context-provider`, `flush-render!` — the core falls back (or no-ops) when these are absent. `flush-render!` is the production-grade synchronous render-commit (distinct from the `flush-views!` test helper). 4 of the 6 shipped adapter kinds install it — Reagent, reagent-slim, UIx and Hicasso (the last two through `spine/make-react-adapter`, which wires the React spine's slot unconditionally). The other 2 omit it deliberately: `plain-atom` (in core) and the SSR substrate render without a live commit, so there is nothing to flush. The test-react fixture is not one of the 6 shipped kinds — it has no `:kind` in the shipped set, per the [canonical inventory](../../spec/006-ReactiveSubstrate.md#cljs-reference-scope) — and provides none either, handing the render clock to the test.
 - lifecycle (1): `dispose-adapter!`
 
 An adapter is a Clojure map carrying these fns under the matching keys plus a `:kind` discriminator keyword (for example `:rf.adapter/reagent-slim`). See [`re-frame.substrate.adapter`](../core/src/re_frame/substrate/adapter.cljc) for the live contract.
@@ -76,7 +76,7 @@ substrate-specific public helpers because they delegate shared mechanics into
 core artefact. There are 2 factory families:
 
 - ratom family — [`make-ratom-spine`](../core/src/re_frame/substrate/spine.cljs) + [`make-ratom-adapter`](../core/src/re_frame/substrate/spine.cljs) (Reagent + reagent-slim)
-- React-hook family — [`make-react-spine`](../core/src/re_frame/substrate/spine.cljs) + [`make-react-adapter`](../core/src/re_frame/substrate/spine.cljs) (UIx)
+- React-hook family — [`make-react-spine`](../core/src/re_frame/substrate/spine.cljs) + [`make-react-adapter`](../core/src/re_frame/substrate/spine.cljs) (UIx here; Hicasso's own substrate, at `implementation/hicasso/`, uses the same pair — which is why both carry `:flush-render!`)
 
 Each adapter file builds a config map and hands it to the appropriate factory pair. The spine carries the epoch scheduler (glitch-freedom), the container quartet, `useSyncExternalStore` hooks, source-coord wrapping, the after-render sentinel, the unmount sentinel, and the nine-/five-hook routed late-bind tables. Reading the spine ns is the fastest path to understanding how the adapters work end-to-end.
 

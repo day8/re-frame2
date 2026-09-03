@@ -85,10 +85,14 @@
 (deftest route-link-raises-when-routing-artefact-missing
   (testing "rf/route-link raises :rf.error/routing-artefact-missing when the :routing/route-link hook is nil"
     ;; Per rf2-uhv2 the route-link surface is published through the
-    ;; :routing/route-link late-bind hook (CLJS → Reagent-wrapped render
-    ;; fn; JVM → SSR render fn). Consumers without the routing artefact
-    ;; see the hook unregistered; the wrapper in re-frame.core-routing
-    ;; raises the documented missing-artefact error.
+    ;; :routing/route-link late-bind hook. CLJS publishes the ELEMENT-
+    ;; emitting `routing/route-link-element`, NOT the registered view head:
+    ;; `rf/route-link` is a `defwrapper`, so the hook value is CALLED, and a
+    ;; head that is called never becomes a component that can read the frame
+    ;; context (rf2-nvcp). JVM publishes the SSR render fn directly. Either
+    ;; way, consumers without the routing artefact see the hook unregistered
+    ;; and the wrapper in re-frame.core-routing raises the documented
+    ;; missing-artefact error — which is what this JVM test pins.
     (with-hook-as-nil :routing/route-link
       (fn []
         (let [thrown (try (rf/route-link {:to :route/probe})

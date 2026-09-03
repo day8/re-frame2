@@ -640,11 +640,15 @@
   production-grade contract surface, not a test helper.
 
   Optional contract fn — returns nil and is a no-op when the installed
-  adapter ships no `:flush-render!`. Three of the six shipped adapter kinds
-  install one — Reagent, reagent-slim and UIx. The other three omit it, each
-  for its own reason: plain-atom and SSR render without a live React commit,
-  so there is nothing to flush, and test-react hands the render clock to the
-  test through `trigger-update!`, so it provides none by design. Calling it
+  adapter ships no `:flush-render!`. Four of the six shipped adapter kinds
+  install one — Reagent, reagent-slim, UIx and Hicasso; the last two get it
+  from `spine/make-react-adapter`, which wires the React spine's slot
+  unconditionally. The other two omit it for one shared reason: plain-atom
+  and SSR render without a live React commit, so there is nothing to flush.
+  The test-react fixture is NOT one of the six shipped kinds (it has no
+  `:kind` in the shipped set — Spec 006 §CLJS reference scope) and provides
+  none either: it hands the render clock to the test through
+  `trigger-update!`, by design. Calling it
   before `(rf/init! ...)` raises `:rf.error/no-adapter-installed`
   (rf2-zdfi1) — the optional-fn nil return is reserved for `adapter
   installed, fn absent`, not for `no adapter installed at all`."
