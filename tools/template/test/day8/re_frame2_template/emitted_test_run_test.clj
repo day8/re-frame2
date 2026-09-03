@@ -68,7 +68,7 @@
 
 ;; --- Gating ----------------------------------------------------------------
 
-(def ^:private enabled?
+(def ^:private emitted-tests-enabled?
   (delay (= "1" (System/getenv "RF2_TEMPLATE_RUN_EMITTED_TESTS"))))
 
 ;; --- deps.edn local-root rewrite ------------------------------------------
@@ -113,14 +113,14 @@
   [^java.io.File src ^java.io.File dst]
   (when (string/starts-with? (string/lower-case (System/getProperty "os.name")) "windows")
     (try
-      (let [pb (ProcessBuilder.
+      (let [process-builder (ProcessBuilder.
                  ^java.util.List ["cmd" "/c" "mklink" "/J"
                                   (.getPath dst)
                                   (.getCanonicalPath src)])]
-        (.redirectErrorStream pb true)
-        (let [p (.start pb)]
-          (slurp (.getInputStream p))
-          (zero? (.waitFor p))))
+        (.redirectErrorStream process-builder true)
+        (let [process (.start process-builder)]
+          (slurp (.getInputStream process))
+          (zero? (.waitFor process))))
       (catch Throwable _ false))))
 
 (defn- link-node-modules!
@@ -154,31 +154,31 @@
   into stdout. Inherits the parent's environment plus `env-overrides`."
   ([cmd ^java.io.File dir] (run-process! cmd dir {}))
   ([cmd ^java.io.File dir env-overrides]
-   (let [pb (ProcessBuilder. ^java.util.List cmd)]
-     (.directory pb dir)
-     (.redirectErrorStream pb true)
-     (let [env (.environment pb)]
+   (let [process-builder (ProcessBuilder. ^java.util.List cmd)]
+     (.directory process-builder dir)
+     (.redirectErrorStream process-builder true)
+     (let [process-environment (.environment process-builder)]
        (doseq [[k v] env-overrides]
-         (.put env k v)))
-     (let [p   (.start pb)
-           out (slurp (.getInputStream p))
-           ec  (.waitFor p)]
-       {:exit ec :out out}))))
+         (.put process-environment k v)))
+     (let [process        (.start process-builder)
+           process-output (slurp (.getInputStream process))
+           exit-code      (.waitFor process)]
+       {:exit exit-code :out process-output}))))
 
 (def ^:private clojure-cli-available?
   (delay
     (try
-      (let [pb (ProcessBuilder. ^java.util.List ["clojure" "--help"])]
-        (.redirectErrorStream pb true)
-        (zero? (.waitFor (.start pb))))
+      (let [process-builder (ProcessBuilder. ^java.util.List ["clojure" "--help"])]
+        (.redirectErrorStream process-builder true)
+        (zero? (.waitFor (.start process-builder))))
       (catch Throwable _ false))))
 
 (def ^:private node-available?
   (delay
     (try
-      (let [pb (ProcessBuilder. ^java.util.List ["node" "--version"])]
-        (.redirectErrorStream pb true)
-        (zero? (.waitFor (.start pb))))
+      (let [process-builder (ProcessBuilder. ^java.util.List ["node" "--version"])]
+        (.redirectErrorStream process-builder true)
+        (zero? (.waitFor (.start process-builder))))
       (catch Throwable _ false))))
 
 ;; --- emitted package.json completeness ------------------------------------
@@ -233,12 +233,12 @@
     (if-let [pkg (first queue)]
       (if (seen pkg)
         (recur seen (subvec queue 1))
-        (let [pj   (io/file node-modules pkg "package.json")
-              next (when (.isFile pj)
-                     (let [t (slurp pj)]
-                       (into (or (json-string-map-keys t "dependencies") #{})
-                             (or (json-string-map-keys t "peerDependencies") #{}))))]
-          (recur (conj seen pkg) (into (subvec queue 1) next))))
+        (let [package-json      (io/file node-modules pkg "package.json")
+              dependencies-next (when (.isFile package-json)
+                                  (let [package-json-text (slurp package-json)]
+                                    (into (or (json-string-map-keys package-json-text "dependencies") #{})
+                                          (or (json-string-map-keys package-json-text "peerDependencies") #{}))))]
+          (recur (conj seen pkg) (into (subvec queue 1) dependencies-next))))
       seen)))
 
 (defn- assert-emitted-package-json-complete!
@@ -256,9 +256,9 @@
           (str "the scaffold must emit a package.json for " label))
       (when (and (.isFile manifest) (.isFile pkg-json))
         (let [resolved  (manifest-npm-packages manifest)
-              pj-text   (slurp pkg-json)
-              declared  (into (or (json-string-map-keys pj-text "dependencies") #{})
-                              (or (json-string-map-keys pj-text "devDependencies") #{}))
+              package-json-text (slurp pkg-json)
+              declared  (into (or (json-string-map-keys package-json-text "dependencies") #{})
+                              (or (json-string-map-keys package-json-text "devDependencies") #{}))
               installed (npm-install-closure (io/file root "implementation/node_modules")
                                              declared)
               missing   (sort (remove installed resolved))]
@@ -297,14 +297,14 @@
   (delay (not (string/blank? (System/getenv "CI")))))
 
 (defn- announce-browser-skip!
-  [what out]
+  [what driver-output]
   (println)
   (println "!!! ================================================================")
   (println (str "!!! NOT PROVEN -- SKIPPED: " what))
   (println "!!! Chromium is not launchable here, so this browser proof did NOT run.")
   (println "!!! This run stays green, but NOTHING about the emitted page is proven.")
   (println "!!! (Under CI this is a hard failure — see browser-proofs-required?.)")
-  (when-let [line (first (remove string/blank? (string/split-lines (str out))))]
+  (when-let [line (first (remove string/blank? (string/split-lines (str driver-output))))]
     (println (str "!!! driver: " (string/trim line))))
   (println "!!! ================================================================")
   (println))
@@ -313,22 +313,22 @@
   "Turn the driver's exit code into a verdict. 0 passes and echoes the
   driver's own verdict line; 2 is a local skip or a CI failure; anything
   else failed with `failure-msg`."
-  [what echo-tag exit out failure-msg]
+  [what echo-tag exit driver-output failure-msg]
   (cond
     (and (= 2 exit) (not @browser-proofs-required?))
-    (do (announce-browser-skip! what out)
-        (is true (str "Chromium unavailable — " what " did not run. Output:\n" out)))
+    (do (announce-browser-skip! what driver-output)
+        (is true (str "Chromium unavailable — " what " did not run. Output:\n" driver-output)))
 
     (= 2 exit)
     (is false
         (str what " did NOT run: Chromium was not launchable, and `CI` is set. "
              "Every job that sets RF2_TEMPLATE_RUN_EMITTED_TESTS=1 also runs "
              "`npx playwright install --with-deps chromium`, so a CI job that "
-             "finds no browser is BROKEN, not excused. Output:\n" out))
+             "finds no browser is BROKEN, not excused. Output:\n" driver-output))
 
     :else
     (do (when (zero? exit)
-          (when-let [line (last (remove string/blank? (string/split-lines (str out))))]
+          (when-let [line (last (remove string/blank? (string/split-lines (str driver-output))))]
             (println (str "  [" echo-tag "] " (string/trim line)))))
         (is (zero? exit) failure-msg))))
 
@@ -517,7 +517,7 @@
   (testing "the emitted Reagent app compiles, its focused test runs green, the
             real page boots and moves 0 -> 1 (and the proof bites), and the
             :advanced release build is clean"
-    (if-not @enabled?
+    (if-not @emitted-tests-enabled?
       (skip-if-disabled! :reagent)
       (do (is @clojure-cli-available?
               "`clojure` CLI must be on PATH when RF2_TEMPLATE_RUN_EMITTED_TESTS=1")
@@ -529,7 +529,7 @@
 (deftest uix-emitted-tests-run-test
   (testing "the emitted UIx app compiles, its focused test runs green, and the
             real page boots and moves 0 -> 1"
-    (if-not @enabled?
+    (if-not @emitted-tests-enabled?
       (skip-if-disabled! :uix)
       (do (is @clojure-cli-available?
               "`clojure` CLI must be on PATH when RF2_TEMPLATE_RUN_EMITTED_TESTS=1")
@@ -584,15 +584,15 @@
        "skills/re-frame2-setup/ — the bodies inside a leaf's generated region "
        "are this template's emission and are never hand-edited."))
 
-(defn- lf [s]
-  (-> s (string/replace "\r\n" "\n") (string/replace "\r" "\n")))
+(defn- normalize-line-endings [text]
+  (-> text (string/replace "\r\n" "\n") (string/replace "\r" "\n")))
 
 (defn- leaf-files
   "path → body from a leaf's generated region: each `### `path`` heading
    followed by a 3- or 4-backtick fenced block. The same shape the skill's
    derivation script writes and its bb suite reads back."
   [md-text]
-  (let [text   (lf md-text)
+  (let [text   (normalize-line-endings md-text)
         start  (string/index-of text generated-begin)
         end    (string/index-of text generated-end)
         region (if (and start end) (subs text start end) "")]
@@ -610,7 +610,7 @@
   (into (sorted-map)
         (for [f (file-seq root) :when (.isFile f)]
           [(-> (.relativize (.toPath root) (.toPath f)) str (string/replace "\\" "/"))
-           (lf (slurp f))])))
+           (normalize-line-endings (slurp f))])))
 
 (defn- emit-reference-project!
   "A real deps-new emission of `acme/my-app` for `substrate`, as path → body."
@@ -666,9 +666,9 @@
   "Write `files` (path → body) under `proj-dir` exactly as shipped."
   [^java.io.File proj-dir files]
   (doseq [[path body] files]
-    (let [f (io/file proj-dir path)]
-      (.mkdirs (.getParentFile f))
-      (spit f body)))
+    (let [target-file (io/file proj-dir path)]
+      (.mkdirs (.getParentFile target-file))
+      (spit target-file body)))
   proj-dir)
 
 (def ^:private reduced-day-one-coords
@@ -833,7 +833,7 @@
   (testing "the setup skill's shipped default scaffold resolves, compiles, boots in
             Chromium with the heading and 0, moves to 1 on click, runs its starter
             test, and the proof goes red when the mount node or the click path breaks"
-    (if-not @enabled?
+    (if-not @emitted-tests-enabled?
       (skip-if-disabled! "setup-skill default scaffold")
       (do (is @clojure-cli-available?
               "`clojure` CLI must be on PATH when RF2_TEMPLATE_RUN_EMITTED_TESTS=1")
