@@ -363,10 +363,10 @@
         sensitive?'  (privacy/request-sensitive? args-map')
         ;; rf2-hp772l — `check-cljs-only-keys!` is JVM per-row degradation
         ;; tracing (a no-op on CLJS), owned by the JVM platform adapter.
-        ;; The frame is threaded for the warning-path trace stamp; HTTP carrier
-        ;; redaction is now process-global (resolved from the :rf.http/managed
-        ;; `:carriers` registration, EP-0025), so it no longer depends on the
-        ;; emitting frame.
+        ;; No frame is threaded: HTTP carrier redaction is process-global
+        ;; (resolved from the :rf.http/managed `:carriers` registration,
+        ;; EP-0025), so the warning path never depends on the emitting
+        ;; frame.
         _            (transport-jvm/check-cljs-only-keys! args-map' sensitive?')
         ;; rf2-uheqq — carry the post-:before middleware-ctx forward so
         ;; the response-side `:after` chain sees the EXACT same ctx its
