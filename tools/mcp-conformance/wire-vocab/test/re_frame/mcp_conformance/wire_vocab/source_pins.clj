@@ -48,8 +48,8 @@
   source. The renderer prints with the `:` prefix and the full
   namespaced form — that's what `clojure.core/pr-str` emits and what
   the source files use verbatim."
-  [k]
-  (pr-str k))
+  [marker-key]
+  (pr-str marker-key))
 
 (defn near-miss-variants
   "Generate near-miss spellings of a marker keyword. A rename to any
@@ -62,15 +62,15 @@
   - underscore-in-ns (`:rf_mcp/overflow`)
   The list is conservative — false positives here would block
   legitimate text in surrounding docs."
-  [k]
-  (let [s (pr-str k)
-        ns* (namespace k)
-        nm  (name k)]
+  [marker-key]
+  (let [serialized-key (pr-str marker-key)
+        key-namespace  (namespace marker-key)
+        key-name       (name marker-key)]
     (cond-> []
-      (str/includes? nm "-")
-      (conj (str ":" ns* "/" (str/replace nm #"-" "_"))) ;; snake_case
-      (str/includes? ns* ".")
-      (conj (str ":" (str/replace ns* #"\." "_") "/" nm)) ;; ns dots -> underscores
+      (str/includes? key-name "-")
+      (conj (str ":" key-namespace "/" (str/replace key-name #"-" "_"))) ;; snake_case
+      (str/includes? key-namespace ".")
+      (conj (str ":" (str/replace key-namespace #"\." "_") "/" key-name)) ;; ns dots -> underscores
       true
-      (into [(str s "s")                                   ;; pluralised
-             (str s "?")]))))                              ;; predicate form
+      (into [(str serialized-key "s")                       ;; pluralised
+             (str serialized-key "?")]))))                  ;; predicate form

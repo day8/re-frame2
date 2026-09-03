@@ -139,46 +139,46 @@
   inside it, and those cases don't occur in the repo source under
   conformance."
   (fn [src]
-    (let [n  (count src)
-          sb (StringBuilder. n)]
-    (loop [i 0, in-string? false, in-comment? false]
-      (if (>= i n)
-        (.toString sb)
-        (let [c (.charAt ^String src i)]
+    (let [source-length (count src)
+          output        (StringBuilder. source-length)]
+    (loop [index 0, in-string? false, in-comment? false]
+      (if (>= index source-length)
+        (.toString output)
+        (let [current-char (.charAt ^String src index)]
           (cond
             in-comment?
-            (do (.append sb (if (= c \newline) c \space))
-                (recur (inc i) false (not= c \newline)))
+            (do (.append output (if (= current-char \newline) current-char \space))
+                (recur (inc index) false (not= current-char \newline)))
 
             in-string?
             (cond
               ;; escape: skip the next char (consume both as space, preserving newlines)
-              (= c \\)
-              (do (.append sb \space)
-                  (when (< (inc i) n)
-                    (let [nx (.charAt ^String src (inc i))]
-                      (.append sb (if (= nx \newline) nx \space))))
-                  (recur (+ i 2) true false))
+              (= current-char \\)
+              (do (.append output \space)
+                  (when (< (inc index) source-length)
+                    (let [next-char (.charAt ^String src (inc index))]
+                      (.append output (if (= next-char \newline) next-char \space))))
+                  (recur (+ index 2) true false))
 
-              (= c \")
-              (do (.append sb \space)
-                  (recur (inc i) false false))
+              (= current-char \")
+              (do (.append output \space)
+                  (recur (inc index) false false))
 
               :else
-              (do (.append sb (if (= c \newline) c \space))
-                  (recur (inc i) true false)))
+              (do (.append output (if (= current-char \newline) current-char \space))
+                  (recur (inc index) true false)))
 
-            (= c \;)
-            (do (.append sb \space)
-                (recur (inc i) false true))
+            (= current-char \;)
+            (do (.append output \space)
+                (recur (inc index) false true))
 
-            (= c \")
-            (do (.append sb \space)
-                (recur (inc i) true false))
+            (= current-char \")
+            (do (.append output \space)
+                (recur (inc index) true false))
 
             :else
-            (do (.append sb c)
-                (recur (inc i) false false)))))))))
+            (do (.append output current-char)
+                (recur (inc index) false false)))))))))
 
 (def strip-comments-and-strings
   "Memoised wrapper over `strip-comments-and-strings*` (rf2-re2tv).
