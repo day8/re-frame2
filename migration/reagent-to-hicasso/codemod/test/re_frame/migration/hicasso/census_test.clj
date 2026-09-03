@@ -38,7 +38,8 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [re-frame.migration.hicasso.census :as census]
-            [re-frame.migration.hicasso.codemod :as cm]))
+            [re-frame.migration.hicasso.codemod :as cm]
+            [re-frame.migration.hicasso.rewrite :as rw]))
 
 (defn- classes [src file] (mapv :class (:entries (census/scan src file))))
 
@@ -509,12 +510,42 @@
                                             "a.cljs")))))
           "a class the roster can produce but the notes cannot describe"))))
 
-(deftest the-two-rosters-do-not-overlap
-  (testing "`scan` tries Reagent first, so a shared name would classify a
-            substrate call under a Reagent class and a Reagent recovery
-            sentence — a wrong answer wearing the right shape."
-    (is (empty? (clojure.set/intersection (set (keys census/surface))
-                                          (set (keys census/substrate-surface)))))))
+(deftest a-shared-roster-name-resolves-by-require
+  (testing "this used to assert the two rosters were DISJOINT, on the reasoning
+            that `scan` tries Reagent first so an overlap would classify a
+            substrate call under a Reagent class. `bound-call?` is what actually
+            decides, and it consults a SEPARATE `ns` context per roster, so the
+            require decides the arm and the name order decides nothing. The
+            emptiness assertion was pinning a proxy; this pins the property
+            (rf2-xoal). An UNINTENDED overlap still reds here — only the
+            deliberate one is allowed through."
+    (is (= '#{flush-views!}
+           (clojure.set/intersection (set (keys census/surface))
+                                     (set (keys census/substrate-surface))))))
+
+  (testing "through `reagent2.dom.client` the shared name is Reagent's — and the
+            file counts as one that NAMES Reagent, which is the flag the migration
+            skill reads to decide whether a Reagent coordinate may be dropped"
+    (let [src (str "(ns app.t\n"
+                   "  (:require [reagent2.dom.client :as rdc]))\n"
+                   "\n"
+                   "(defn settle [] (rdc/flush-views!))\n")
+          {:keys [entries reagent? substrate?]} (census/scan src "app/t.cljs")]
+      (is (true? reagent?))
+      (is (false? substrate?))
+      (is (= [:substrate-test-seam] (mapv :class entries)))))
+
+  (testing "and through an adapter it is the substrate's, with the two flags the
+            other way round — same class, because it is the same seam at two
+            addresses, and one recovery sentence answers for both"
+    (let [src (str "(ns app.t\n"
+                   "  (:require [re-frame.adapter.uix :as ad]))\n"
+                   "\n"
+                   "(defn settle [] (ad/flush-views!))\n")
+          {:keys [entries reagent? substrate?]} (census/scan src "app/t.cljs")]
+      (is (false? reagent?))
+      (is (true? substrate?))
+      (is (= [:substrate-test-seam] (mapv :class entries))))))
 
 (deftest the-prefix-rule-is-anchored-at-the-start
   (testing "the substrate roster binds by PREFIX so the adapter set can grow,
@@ -566,6 +597,131 @@
                    "\n"
                    "(defn f [] (r/atom 0))\n")]
       (is (= [:unresolved-reagent-require :unresolved-alias] (classes src "app/p.cljs"))))))
+
+;; ---------------------------------------------------------------------------
+;; RECOGNISED BUT UNCOUNTABLE — the confident zero that came back through the
+;; widening itself (rf2-xoal, merged-PR audit of #9132)
+;; ---------------------------------------------------------------------------
+
+(def ^:private recognised-namespace-calls
+  "One known PUBLIC call per namespace `rewrite/reagent-namespaces`
+  recognises, written as it would be called through the alias `x`.
+
+  **This table is the ratchet, and the assertion below that it is
+  COMPLETE is the half that matters.** Recognition is decided per FILE and
+  entries are found per NAME, so widening the namespace set without
+  widening `census/surface` converts an honest *I did not recognise this
+  file* into `:recognition :full` with `entries 0` — a confident zero, and
+  a strictly worse answer than the one it replaced. PR #9132 did exactly
+  that: it added the `reagent2.*` four and left `reagent2.dom.server`'s
+  only public function off the roster.
+
+  Every call here is a real public Var of the namespace it sits under, read
+  off `implementation/adapters/reagent-slim/src/` for the `reagent2` half
+  and Reagent's own published API for the stock half. A sample that named
+  something no namespace defines would pass this test while proving
+  nothing about the tool."
+  '{reagent.core        "(x/atom 0)"
+    reagent.dom         "(x/render [:div] el)"
+    reagent.dom.client  "(x/unmount root)"
+    reagent.ratom       "(x/reactive?)"
+    reagent.dom.server  "(x/render-to-string [:div])"
+    reagent2.core       "(x/as-element h)"
+    reagent2.ratom      "(x/activate! rx)"
+    reagent2.dom.client "(x/flush-views!)"
+    reagent2.dom.server "(x/render-to-static-markup [:div])"})
+
+(def ^:private substrate-namespace-calls
+  "The same probe for the adapters shipping today. There is no
+  completeness assertion to pair with it: `substrate-ns-prefix` binds an
+  OPEN set on purpose, so no list here could be exhaustive, and the
+  residual — an adapter recognised before this roster has rows for it — is
+  what `caveat`'s weakened `:full` sentence now admits to."
+  '{re-frame.adapter.reagent      "(x/render! root view opts)"
+    re-frame.adapter.reagent-slim "(x/client-root el)"
+    re-frame.adapter.uix          "(x/use-subscribe [:q])"
+    re-frame.adapter.test-react   "(x/mount! [:div])"})
+
+(defn- probe
+  "Scan a one-call file that requires `ns*` as `x`, and return the census
+  summary over it."
+  [ns* call]
+  (:summary (census/build [(census/scan (str "(ns app.probe\n"
+                                             "  (:require [" ns* " :as x]))\n"
+                                             "\n"
+                                             "(defn f [] " call ")\n")
+                                        "app/probe.cljs")])))
+
+(deftest every-recognised-namespace-has-a-rostered-call
+  (testing "the ratchet: a namespace cannot join `reagent-namespaces` without a
+            sample here, so the next widening cannot reach main half-done the way
+            #9132's did"
+    (is (= (set (keys recognised-namespace-calls)) rw/reagent-namespaces)
+        "a recognised namespace with no known-public-call sample, or a sample for
+         a namespace the tool does not recognise"))
+
+  (doseq [[ns* call] recognised-namespace-calls]
+    (testing (str ns* " " call)
+      (let [s (probe ns* call)]
+        (is (= :full (:recognition s))
+            "the probe file must be recognised, or it is testing the wrong thing")
+        (is (not (and (= :full (:recognition s)) (zero? (:entries s))))
+            (str "CONFIDENT ZERO: " ns* " is recognised, " call " is one of its public "
+                 "calls, and the census scored it :full with zero entries — which is the "
+                 "sentence `a zero below is a measurement` over a roster that has no row "
+                 "for it (rf2-xoal)"))
+        (is (= 0 (:files-clean s))
+            "a file whose only call is on the roster is not a clean file")
+        (is (= 1 (:files-recognised s))))))
+
+  (doseq [[ns* call] substrate-namespace-calls]
+    (testing (str ns* " " call)
+      (let [s (probe ns* call)]
+        (is (= :full (:recognition s)))
+        (is (not (and (= :full (:recognition s)) (zero? (:entries s))))
+            (str "CONFIDENT ZERO through the prefix rule: " ns* " " call))
+        (is (= 0 (:files-clean s)))))))
+
+(deftest the-audits-reproduction
+  (testing "the exact file the merged-PR audit of #9132 built, and the four numbers
+            it reported. `reagent2.dom.server` was added to the namespace roster and
+            `render-to-static-markup` — its ONLY public function — was not added to
+            the call roster, so the census recognised the file, found nothing in it,
+            counted it CLEAN, and told its reader the zero was a measurement."
+    (let [src (str "(ns app.ssr\n"
+                   "  (:require [reagent2.dom.server :as rds]))\n"
+                   "\n"
+                   "(defn page-html []\n"
+                   "  (rds/render-to-static-markup [:div \"hello\"]))\n")
+          s   (:summary (census/build [(census/scan src "app/ssr.cljs")]))]
+      (is (= 1 (:files-recognised s)))
+      (is (= :full (:recognition s)))
+      (is (= 1 (:entries s))         "was 0")
+      (is (= 0 (:files-clean s))     "was 1")
+      (is (= 1 (get-in s [:by-verdict :human-decision])))
+      (is (= {:static-markup 1} (:by-class s)))
+      (testing "and the sentence that made the zero confident is gone, replaced by one
+                that says what recognition actually measures"
+        (is (not (str/includes? (:caveat s) "A zero below is a measurement")))
+        (is (str/includes? (:caveat s) "NOT ABOUT THE ROSTER"))))))
+
+(deftest a-full-zero-still-says-the-roster-bounds-it
+  (testing "recognition can be `:full` and the count still zero — a recognised file
+            whose only call is a shape no roster names. That is legal and honest;
+            what it must not do is present the zero as a measurement of the corpus.
+            This is the residual no roster closes, so the WORDING is the gate."
+    (let [src (str "(ns app.v\n"
+                   "  (:require [reagent.core :as r]))\n"
+                   "\n"
+                   "(defn v [] [:div \"no rostered call in this file\"])\n")
+          s   (:summary (census/build [(census/scan src "app/v.cljs")]))]
+      (is (= :full (:recognition s)))
+      (is (= 0 (:entries s)))
+      (is (str/includes? (:caveat s) "fixed roster"))
+      (is (str/includes? (:caveat s) "not that these files hold no migration work"))
+      (testing "and the CLI tail — the last line of the run, read by whoever reads
+                nothing else — marks the zero rather than printing it bare"
+        (is (str/includes? (census/describe {:summary s}) "ZERO ENTRIES"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; A zero the tool CANNOT report confidently (rf2-xoal)

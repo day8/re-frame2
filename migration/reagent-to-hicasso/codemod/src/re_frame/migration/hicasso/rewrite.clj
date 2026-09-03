@@ -337,13 +337,13 @@
 ;; Reagent alias resolution
 ;; ---------------------------------------------------------------------------
 
-(def ^:private reagent-namespaces
+(def reagent-namespaces
   "Reagent's API, and the namespaces that ARE it.
 
   **The rule is IDENTITY, not spelling: a namespace binds when this project
   can vouch for what it is.** Two families qualify and nothing else does.
 
-  * Stock Reagent's four public namespaces.
+  * Stock Reagent's five public namespaces.
   * The `reagent2.*` four that `implementation/adapters/reagent-slim/`
     ships. That is the SAME API authored a second time IN THIS REPOSITORY:
     `reagent2.core` defines `atom`, `create-class`, `as-element`,
@@ -356,12 +356,45 @@
   `reagent2.core` and scored ZERO, with nothing on screen to say the tool
   had not recognised it.
 
+  ## THE COUPLING LAW, and why it is written here rather than next door
+
+  **A namespace joins this set only together with the
+  [[re-frame.migration.hicasso.census/surface]] rows for the names it
+  publishes.** This set answers a per-FILE question — *is this file's `ns`
+  form reaching for Reagent* — and the census roster answers a per-NAME
+  one. Widening this set alone therefore does not widen what the tool can
+  find; it widens what the tool claims to UNDERSTAND, and those move in
+  opposite directions. A file that binds a namespace on this list and
+  calls a name the census roster has no row for is counted RECOGNISED and
+  scored zero, and `:recognition :full` then tells its reader the zero is
+  a measurement.
+
+  That is strictly worse than leaving the namespace off. An unrecognised
+  file is a bucket the caveat names out loud; a recognised-and-unrostered
+  one is a confident zero, which is the exact fail-open shape the census's
+  whole design is against. It is not hypothetical: PR #9132 added the
+  `reagent2.*` four to this set without adding
+  `render-to-static-markup` — `reagent2.dom.server`'s ONLY public fn — to
+  the roster, and a one-line file calling it reported `files-recognised 1,
+  files-clean 1, entries 0, :recognition :full` under the caveat *A zero
+  below is a measurement* (rf2-xoal, merged-PR audit of #9132).
+
+  `census_test/every-recognised-namespace-has-a-rostered-call` is the
+  ratchet: it holds one known public call per namespace on this list and
+  fails on any namespace added without one, so the next widening cannot
+  reach main half-done.
+
+  `reagent.dom.server` is here for that reason and no other — it was added
+  in the same change as its two roster rows, `render-to-string` and
+  `render-to-static-markup`, whose absence was the identical hole in the
+  stock family.
+
   A namespace that merely SPELLS one of these is still not one and still
   binds nothing — re-frame-10x's vendored
   `day8.re-frame-10x.inlined-deps.reagent.v1v2v0.reagent.core` is the
   standing example, and [[names-reagent?]] reports it rather than guessing.
   Vouching is not spelling in either direction."
-  '#{reagent.core  reagent.dom    reagent.dom.client  reagent.ratom
+  '#{reagent.core  reagent.dom    reagent.dom.client  reagent.ratom  reagent.dom.server
      reagent2.core reagent2.ratom reagent2.dom.client reagent2.dom.server})
 
 (defn reagent-namespace?
