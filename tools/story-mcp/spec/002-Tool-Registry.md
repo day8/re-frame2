@@ -157,7 +157,7 @@ data, so each payload is one of two classes:
 
 | Class | Tools / slots | Egress |
 |---|---|---|
-| **Runtime / captured VALUE** (scrubbed by default) | `preview-variant` / `run-variant` / `read-failures` (`:app-db`, `:rendered-hiccup`, `:snapshot`, evidence slots, assertion records); `read-a11y-violations` (`:violations` — axe-core node `:html` is rendered runtime DOM) | path-based `elide-wire-value` for `:app-db`; the derived / non-live trees project through the SINGLE record-level boundary `re-frame.core/project-egress` — the `:rf.observe/derived-tree` record kind (EP-0025 B4, rf2-ojp8pi) — naming the off-box `:rf.egress/profile`, which resolves to the egress floor and PATH-walks against the variant frame's classification on BOTH egress axes (EP-0015 peer axes, rf2-9o5ixx): a value AT a declared-`:sensitive?` path becomes `:rf/redacted`, a value AT a declared-`:large` path becomes the `:rf.size/large-elided` marker (sensitive wins where both apply; the derived-slot large markers feed the `:elided-large` count). `project-egress` reads the SAME per-frame classification registry the path walker reads — frame- AND EP-0025-commit-plane-effect-sourced declarations (`:effect` / `:flow` / subsystem), unioned at lookup. **EP-0025 FAIL-OPEN:** a value AT a classified path within a slot whose shape mirrors the app-db (a `:db-seed`, an `:effective-args {:token …}` with `[:token]` classified) redacts, but a value RE-KEYED to a non-matching position (a token at a hiccup leaf, a snapshot nested under `:db`, a `:network` reply) ships RAW — value-match was removed; classify the app-db PATH to redact a value before a derived tree re-surfaces it. `--allow-sensitive-reads` + per-call `:include-sensitive` (the `:rf.egress/local-raw` boundary) is the one opt-in (covers both axes). |
+| **Runtime / captured VALUE** (scrubbed by default) | `preview-variant` / `run-variant` / `read-failures` (`:app-db`, `:snapshot`, `:effective-args`, evidence slots, assertion records); `read-a11y-violations` (`:violations` — axe-core node `:html` is rendered runtime DOM) | path-based `elide-wire-value` for `:app-db`; the derived / non-live trees project through the SINGLE record-level boundary `re-frame.core/project-egress` — the `:rf.observe/derived-tree` record kind (EP-0025 B4, rf2-ojp8pi) — naming the off-box `:rf.egress/profile`, which resolves to the egress floor and PATH-walks against the variant frame's classification on BOTH egress axes (EP-0015 peer axes, rf2-9o5ixx): a value AT a declared-`:sensitive?` path becomes `:rf/redacted`, a value AT a declared-`:large` path becomes the `:rf.size/large-elided` marker (sensitive wins where both apply; the derived-slot large markers feed the `:elided-large` count). `project-egress` reads the SAME per-frame classification registry the path walker reads — frame- AND EP-0025-commit-plane-effect-sourced declarations (`:effect` / `:flow` / subsystem), unioned at lookup. **EP-0025 FAIL-OPEN:** a value AT a classified path within a slot whose shape mirrors the app-db (a `:db-seed`, an `:effective-args {:token …}` with `[:token]` classified) redacts, but a value RE-KEYED to a non-matching position (a token at a hiccup leaf, a snapshot nested under `:db`, a `:network` reply) ships RAW — value-match was removed; classify the app-db PATH to redact a value before a derived tree re-surfaces it. `--allow-sensitive-reads` + per-call `:include-sensitive` (the `:rf.egress/local-raw` boundary) is the one opt-in (covers both axes). |
 | **Author-published STATIC metadata** (intentionally public) | `get-story` / `get-variant` / `variant->edn` bodies; `list-stories` / `list-modes` / `list-decorators` / `list-tags` / `list-assertions`; `get-docs-markdown`; `explain-variant`'s ENTIRE `:explain` map — plan-STRUCTURE (`:source-chain` / `:parent-chain` / `:compose` / `:merge` / `:strict-conflicts` / `:tags` / `:platforms` / …) AND the plan-RESOLVED value slots (`:effective-args` / `:args` / `:substitutions` / `:network` / `:db-seed` / `:sub-overrides` / `:setup-order` / `:script-order`) | none — registration-time authoring prose, not runtime/user state; scrubbing would only degrade the discovery UX without protecting a secret. `explain-variant` is a NO-RUN projection over the registry side-table (rf2-7k5mce, Mike 2026-07-08): even its plan-RESOLVED value slots are static author data resolved from the variant's own registration, so the WHOLE `:explain` map ships raw like `get-variant` / `variant->edn` — the over-redaction of resolved args / setup-order / network stubs to `:rf/redacted` on the common no-run inspection path is retired. Registry-wide enumerations (modes/decorators) are not frame-keyed and carry no runtime values; their `:args` / `:app-db-patch` / `:response` slots are the author's own published fixtures. |
 
 The value-bearing tools (`preview-variant` / `run-variant` /
@@ -260,7 +260,6 @@ disallows it).
  :app-db         {...}
  :assertions     [...]   ; unified records, each with a derived :status
  :checks         [...]
- :rendered-hiccup [...]
  :snapshot       {...}
  :elapsed-ms     ...
  :effective-args {...}}
@@ -268,7 +267,7 @@ disallows it).
 
 Differs from `run-variant` in EXTRA slots, not in result vocabulary:
 `preview-variant` is the "show me what this would look like" call (it
-adds `:share-url` / `:rendered-hiccup` / `:effective-args`); `run-variant`
+adds `:share-url` / `:effective-args`); `run-variant`
 (in the Testing category) is the "execute and report the verdict" call.
 Both speak the same unified run-result — `preview-variant` does NOT ship a
 third result dialect (rf2-ba86n.17).
@@ -472,7 +471,6 @@ Full lifecycle invocation; returns the unified run-result (see
  :renders            [...]
  :narrative          {...}
  :app-db             {...}
- :rendered-hiccup    [...]
  :snapshot           {...}
  :elapsed-ms         ...}
 ```

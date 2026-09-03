@@ -106,7 +106,6 @@ form disallows it.
  :app-db         map
  :assertions     [map]    ; unified records, each with a derived :status
  :checks         [map]
- :rendered-hiccup [vector]
  :snapshot       {:variant-id ..., :mode ..., :substrate ..., :content-hash ...}
  :elapsed-ms     number
  :effective-args map}
@@ -381,7 +380,6 @@ shape the human Story UI reads; `re-frame.story.result/run-result`):
  :renders            [map]
  :narrative          map
  :app-db             map
- :rendered-hiccup    [vector]
  :snapshot           map
  :elapsed-ms         number}
 ```

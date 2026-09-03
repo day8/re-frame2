@@ -95,7 +95,10 @@
 (defn- invoke [tool-name args]
   (wire-pipeline/invoke-tool tool-name (merge {:dedup false} args)))
 
-(defn- run! [opts]
+(defn- run-real!
+  "Settle a REAL story/run-variant on the fixture variant. Named away from
+   clojure.core/run! deliberately."
+  [opts]
   (deref (story/run-variant :story.cart/full opts) 15000 ::timed-out))
 
 ;; ===========================================================================
@@ -105,7 +108,7 @@
 
 (deftest real-run-variant-emits-no-rendering-slot
   (testing "a real story/run-variant result carries no rendering slot"
-    (let [outcome (run! nil)]
+    (let [outcome (run-real! nil)]
       (is (not= ::timed-out outcome) "the real run must settle")
       (is (map? outcome) "the real run returns a result map")
       (is (not (contains? outcome retired-result-slot))
@@ -120,7 +123,7 @@
     ;; The option is not merely ignored — the point is that no branch can
     ;; resurrect the slot from it. Feeding it the truthy value the old docs
     ;; advertised is the strongest form of that check.
-    (let [outcome (run! {retired-run-opt true})]
+    (let [outcome (run-real! {retired-run-opt true})]
       (is (not= ::timed-out outcome) "the real run must settle")
       (is (not (contains? outcome retired-result-slot))
           (str "run-variant MUST NOT populate " retired-result-slot
@@ -142,6 +145,12 @@
             (str tool " must succeed against the booted plain-atom host; got "
                  (pr-str r)))
         (is (map? s) (str tool " returns a structured payload"))
+        ;; Non-vacuity: the absence assertion below must be read off a REAL
+        ;; run payload, never an empty or error-shaped map.
+        (is (contains? s :app-db)
+            (str tool " payload must be a real run projection (carries :app-db)"))
+        (is (some? (:status s))
+            (str tool " payload must carry the unified :status verdict"))
         (is (not (contains? s retired-result-slot))
             (str tool " MUST NOT project " retired-result-slot
                  " — Story emits no rendering slot, so projecting one could only "
