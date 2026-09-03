@@ -252,7 +252,6 @@
    ;; framework-internal reply handlers (user code MUST NOT dispatch)
    :rf.resource.internal/succeeded
    :rf.resource.internal/failed
-   :rf.resource.internal/aborted
    :rf.resource.internal/stale-fired      ;; landed; prior smoke omitted
    :rf.resource.internal/gc-fired
    :rf.resource.internal/stale-suppressed])

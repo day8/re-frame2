@@ -320,8 +320,9 @@
       ;; rf2-rl27r2: a cancellation is a completion — script the reply token's
       ;; causal `:rf/time-ms` and assert the terminal :cancelled outcome carries
       ;; the same :completed-at.
-      (rf/dispatch-sync [:rf.resource.internal/aborted
-                         {:resource/key scoped-key :work/id wid :generation 1}]
+      (rf/dispatch-sync [:rf.resource.internal/failed
+                         {:resource/key scoped-key :work/id wid :generation 1
+                          :error {:kind :rf.http/aborted :reason :aborted}}]
                         {:rf.cofx {:rf/time-ms completed-at}})
       (testing "an aborted attempt settles the work row terminal :cancelled
                 (carrying the causal :completed-at, rf2-rl27r2) + clears the
@@ -332,13 +333,13 @@
                (:outcome (record wid))))
         (is (nil? (work-ledger/get-handle :rf/default wid)))))))
 
-(deftest stale-aborted-event-suppressed-not-cancelled
-  ;; rf2-iu0z8t (EP-0011): the legacy `:rf.resource.internal/aborted` event
-  ;; must honour the SAME stale-suppression boundary as succeeded/failed —
-  ;; a STALE / superseded aborted event (its carried work-id + generation no
-  ;; longer correlate with the live entry) settles the row :suppressed, NOT
-  ;; an accepted :cancelled. Stale validation wins over the natural
-  ;; cancellation status (Managed-Effects §Stale suppression).
+(deftest stale-aborted-reply-suppressed-not-cancelled
+  ;; rf2-iu0z8t (EP-0011): an ABORT reply must honour the SAME
+  ;; stale-suppression boundary as an ordinary failure — a STALE /
+  ;; superseded abort (its carried work-id + generation no longer correlate
+  ;; with the live entry) settles the row :suppressed, NOT an accepted
+  ;; :cancelled. Stale validation wins over the natural cancellation status
+  ;; (Managed-Effects §Stale suppression).
   (rf/reg-resource :sa/article (article-spec) article-spec-request)
   (let [scoped-key (state/scoped-resource-key :rf.scope/global :sa/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :sa/article :scope :rf.scope/global
@@ -348,24 +349,25 @@
       ;; :suppressed (superseded) and the entry advances to generation 2.
       (rf/dispatch-sync [:rf.resource/refetch {:resource :sa/article :scope :rf.scope/global
                                                :params {:slug "w"}}])
-      (testing "the OLD-generation aborted event NEVER overrides the :suppressed
+      (testing "the OLD-generation abort reply NEVER overrides the :suppressed
                 row with an accepted :cancelled (stale wins over cancellation)"
-        (rf/dispatch-sync [:rf.resource.internal/aborted
-                           {:resource/key scoped-key :work/id wid1 :generation 1}])
+        (rf/dispatch-sync [:rf.resource.internal/failed
+                           {:resource/key scoped-key :work/id wid1 :generation 1
+                            :error {:kind :rf.http/aborted :reason :aborted}}])
         (is (= :suppressed (:status (record wid1)))
             "the superseded row stays :suppressed, not flipped to :cancelled")
         (is (= 2 (:generation (entry scoped-key)))
             "the live entry's generation is untouched by the stale abort")))))
 
-(deftest cross-frame-aborted-event-rejected
-  ;; rf2-iu0z8t (EP-0011): the legacy `:rf.resource.internal/aborted` event
-  ;; must verify the carried :rf.frame/id against the receiving frame, like
-  ;; succeeded/failed (rf2-jzh5gq / rf2-eu2ifi). A cross-frame aborted event
-  ;; (payload stamped with another frame's id) is REJECTED: it can never
-  ;; settle the receiving frame's live ENTRY to an accepted cancellation
-  ;; (the durable user-visible state is the correctness boundary — the work-
-  ;; ledger row, like succeeded/failed cross-frame, lowers to :suppressed at
-  ;; the colliding work-id, never an accepted :cancelled).
+(deftest cross-frame-aborted-reply-rejected
+  ;; rf2-iu0z8t (EP-0011): an ABORT reply must verify the carried
+  ;; :rf.frame/id against the receiving frame, like an ordinary failure
+  ;; (rf2-jzh5gq / rf2-eu2ifi). A cross-frame abort reply (payload stamped
+  ;; with another frame's id) is REJECTED: it can never settle the receiving
+  ;; frame's live ENTRY to an accepted cancellation (the durable user-visible
+  ;; state is the correctness boundary — the work-ledger row, like
+  ;; succeeded/failed cross-frame, lowers to :suppressed at the colliding
+  ;; work-id, never an accepted :cancelled).
   (rf/reg-resource :cfa/article (article-spec) article-spec-request)
   (let [fa :cfa/frame-a
         fb :cfa/frame-b
@@ -377,20 +379,21 @@
                       {:frame fb})
     (let [wid-b      (:current-work (entry fb scoped-key))
           before     (entry fb scoped-key)]
-      (testing "an aborted event STAMPED with frame A, dispatched into frame B,
+      (testing "an abort reply STAMPED with frame A, dispatched into frame B,
                 does NOT abort-settle frame B's live entry (no cross-frame
                 durable write even at the same work-id / generation)"
         ;; payload carries :rf.frame/id = fa (the wrong frame); the work-id +
         ;; generation happen to match frame B's live attempt.
-        (rf/dispatch-sync [:rf.resource.internal/aborted
+        (rf/dispatch-sync [:rf.resource.internal/failed
                            {:resource/key scoped-key :work/id wid-b :generation 1
-                            :rf.frame/id fa}]
+                            :rf.frame/id fa
+                            :error {:kind :rf.http/aborted :reason :aborted}}]
                           {:frame fb})
         (is (= (:status before) (:status (entry fb scoped-key)))
-            "frame B's entry status untouched by the cross-frame aborted event")
+            "frame B's entry status untouched by the cross-frame abort reply")
         (is (= wid-b (:current-work (entry fb scoped-key)))
-            "frame B's :current-work pointer not cleared by the cross-frame event"))
-      (testing "the rejected cross-frame event NEVER settles an accepted
+            "frame B's :current-work pointer not cleared by the cross-frame reply"))
+      (testing "the rejected cross-frame reply NEVER settles an accepted
                 :cancelled work row (stale / cross-frame validation wins)"
         (is (not= :cancelled (:status (record fb wid-b))))))))
 

@@ -3920,33 +3920,6 @@
   (is (= [] (secret-leak-paths (epoch/projected-record raw)))
       "ACCEPTANCE — the canary survives at zero paths of the projected record"))
 
-(defn- drive-aborted-event-reply-to-read!
-  "Drive a REAL `[:rf.resource/ensure … :reply-to …]` and settle it through the
-  LEGACY `:rf.resource.internal/aborted` event rather than a transport failure.
-  That handler synthesises its own `{:kind :rf.http/aborted :reason :aborted}`
-  envelope, so the canary here is not the envelope but the OWNER'S data the
-  continuation reply carries beside it — `:params`, the resolved `:scope`, the
-  `:resource/key`. Which is the point of a whole-record sweep: the branch is
-  covered whatever slot the leak would land in."
-  [resource-id]
-  (rf/configure! {:epoch-history {:trace-events-keep 80}})
-  (let [captured (atom nil)]
-    (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! captured args) nil))
-    (rf/reg-event :app/read-loaded (fn [_ _ev] {}))
-    (frame/swap-runtime-db! :test/rt
-      (fn [rt] (elision/apply-classification-effects
-                 rt {:sensitive [[:auth :user :username]]})))
-    (frame/swap-frame-db! :test/rt assoc-in [:auth :user :username] secret)
-    (rf/dispatch-sync [:rf.resource/ensure
-                       {:resource resource-id :params reply-params
-                        :owner    real-owner  :reply-to read-reply-target}]
-                      {:frame :test/rt})
-    ;; the verification payload the lowering stamped — the second element of the
-    ;; `:on-failure` target, which the legacy abort event takes as its only arg.
-    (rf/dispatch-sync [:rf.resource.internal/aborted (second (:on-failure @captured))]
-                      {:frame :test/rt})
-    (rf/epoch-history :test/rt)))
-
 (defn- drive-session-feed-reply-to!
   "Drive a REAL `[:rf.resource/ensure … :reply-to …]` against an INFINITE FEED
   and settle its page-0 fetch with `outcome`, the canonical transport reply.
@@ -4050,7 +4023,13 @@
    {:why "`failed-handler`, which is TWO branches: an ordinary error, and an
           `:rf.http/aborted` envelope it lowers to `:status :cancelled` while
           still carrying the abort under `:error`. `:status` is not the gate,
-          which is exactly why both arms are driven"
+          which is exactly why both arms are driven. Since rf2-6r9j.52 retired
+          the unreachable legacy `:rf.resource.internal/aborted` event, the
+          second arm is the family's ONLY accepted-cancellation settle, and it
+          is strictly the stronger drive: the legacy event synthesised its own
+          envelope, so `:error` was an exempted `:unplantable` slot on that
+          branch, while here the abort envelope comes from the drive and the
+          slot carries a real canary"
     :drives [{:drive  #(record-carrying-reply
                          (drive-failing-reply-to-read! :derived/profile
                                                        reply-params
@@ -4063,23 +4042,6 @@
                                                        abort-envelope)
                          false)
               :expect {:status :cancelled :rf.reply/work-status :cancelled}}]}
-
-   :rf.resource.internal/aborted
-   {:why "the LEGACY accepted-cancellation event. It synthesises its own
-          envelope, so its canary is the owner data the reply carries beside
-          it — which is why the sweep is whole-record and not `:error`-shaped"
-    :drives [{:drive  #(record-carrying-reply (drive-aborted-event-reply-to-read! :derived/profile) false)
-              :expect {:status :cancelled :resource :derived/profile}
-              ;; the ONE slot on the ONE branch no drive can reach. An
-              ;; exemption here is not the hand-list §(rf2-k8vyi) retired: the
-              ;; polarity is inverted — the derived union is the default and an
-              ;; exemption has to be written down with its reason, so a slot
-              ;; nobody thought about is COVERED rather than omitted.
-              :unplantable {:error "the legacy abort event SYNTHESISES its
-                                    `{:kind :rf.http/aborted :reason :aborted}`
-                                    envelope from nothing the caller supplies —
-                                    there is no input through which a drive
-                                    could plant a canary in it"}}]}
 
    :rf.resource.internal/page-succeeded
    {:why "the infinite feed's page settle. A DIFFERENT handler from the scalar
