@@ -47,7 +47,7 @@
 ;; HELPERS
 ;; ============================================================================
 
-(defn- snapshot
+(defn- parent-machine-snapshot
   "Read the parent's machine snapshot from a frame's app-db."
   [frame]
   (get-in (rf/frame-state-value frame) [:rf.db/runtime :rf.runtime/machines :snapshots :work/flow]))
@@ -69,7 +69,7 @@
   []
   (frame/make-anon-frame-record! {:initial-events [[:work/flow [:reset]]]}))
 
-(defn- synth-child-done!
+(defn- dispatch-synthetic-child-completion!
   "Synthesise one child's :on-child-done arrival, carrying the SAME
    exact-attempt coordinate the member child's own handler boundary would
    have stamped (rf2-nvxehu). The join interceptor checks every completion
@@ -83,16 +83,16 @@
    coordinate slot; the metadata slot is not read). An exact-current
    coordinate is accepted regardless of source, including this deliberate
    test authoring."
-  [f shard]
-  (let [js (join-state f)]
+  [test-frame shard]
+  (let [join-snapshot (join-state test-frame)]
     (rf/dispatch-sync
       [:work/flow [:work/child-done shard]]
-      {:frame   f
+      {:frame   test-frame
        :rf.cofx {:rf.machine/join-attempt {:parent-id  :work/flow
-                                        :invoke-id  [:working]
-                                        :child-id   shard
-                                        :spawned-id (get-in js [:children shard])
-                                        :attempt    (:rf/attempt js)}}})))
+                                         :invoke-id  [:working]
+                                         :child-id   shard
+                                         :spawned-id (get-in join-snapshot [:children shard])
+                                         :attempt    (:rf/attempt join-snapshot)}}})))
 
 ;; ============================================================================
 ;; (1) SPAWN CASCADE — :start spawns 3 children
@@ -101,9 +101,9 @@
 (defn- test-spawn-cascade []
   (with-new-frame [f (new-frame)]
     ;; After :app/initialise, the parent is :idle with progress all-zero.
-    (let [snap (snapshot f)]
-      (is (= :idle (:state snap)))
-      (is (= {:s1 0 :s2 0 :s3 0} (-> snap :data :progress)))
+    (let [parent-snapshot (parent-machine-snapshot f)]
+      (is (= :idle (:state parent-snapshot)))
+      (is (= {:s1 0 :s2 0 :s3 0} (-> parent-snapshot :data :progress)))
       (is (nil? (join-state f))))                            ;; not yet allocated
 
     ;; :start transitions :idle → :working; the runtime emits
@@ -113,16 +113,16 @@
     ;; each user-supplied id (:s1/:s2/:s3) to the gensym'd
     ;; spawned-id (:work/processor#N).
     (rf/dispatch-sync [:work/flow [:start]] {:frame f})
-    (let [snap (snapshot f)
-          js   (join-state f)]
-      (is (= :working (:state snap)))
+    (let [parent-snapshot (parent-machine-snapshot f)
+          join-snapshot   (join-state f)]
+      (is (= :working (:state parent-snapshot)))
       ;; The runtime allocated a join-state slot at
       ;; [:rf.db/runtime :rf.runtime/machines :spawned :work/flow [:working]] keyed by user id.
-      (is (map? js))
-      (is (= #{:s1 :s2 :s3} (set (keys (:children js)))))
-      (is (false? (:resolved? js)))
-      (is (empty?  (:done js)))
-      (is (empty?  (:failed js))))))
+      (is (map? join-snapshot))
+      (is (= #{:s1 :s2 :s3} (set (keys (:children join-snapshot)))))
+      (is (false? (:resolved? join-snapshot)))
+      (is (empty?  (:done join-snapshot)))
+      (is (empty?  (:failed join-snapshot))))))
 
 ;; ============================================================================
 ;; (2) HAPPY-PATH JOIN COMPLETION — synthesised :on-child-done events
@@ -138,33 +138,33 @@
     ;; timers, so for the headless test we synthesise the
     ;; child-done events directly — carrying the exact-attempt
     ;; stamp the member child's boundary would have stamped
-    ;; (rf2-nvxehu; see synth-child-done!). With the stamp, the
+    ;; (rf2-nvxehu; see dispatch-synthetic-child-completion!). With the stamp, the
     ;; runtime's join interceptor treats them identically to live
     ;; child completions.
 
-    (synth-child-done! f :s1)
+    (dispatch-synthetic-child-completion! f :s1)
     ;; After the first :work/child-done, the join state's :done
     ;; carries :s1; the join condition (:all of 3) hasn't resolved
     ;; yet so :resolved? stays false and the parent is still :working.
-    (let [snap (snapshot f)
-          js   (join-state f)]
-      (is (= :working   (:state snap)))
-      (is (= #{:s1}     (:done js)))
-      (is (false?       (:resolved? js))))
+    (let [parent-snapshot (parent-machine-snapshot f)
+          join-snapshot   (join-state f)]
+      (is (= :working   (:state parent-snapshot)))
+      (is (= #{:s1}     (:done join-snapshot)))
+      (is (false?       (:resolved? join-snapshot))))
 
-    (synth-child-done! f :s2)
+    (dispatch-synthetic-child-completion! f :s2)
     (is (= #{:s1 :s2} (:done (join-state f))))
-    (is (= :working   (:state (snapshot f))))
+    (is (= :working   (:state (parent-machine-snapshot f))))
 
     ;; Third child done — :all resolves. The runtime sets :resolved?
     ;; true, builds per-sibling cancel fx for survivors (none, since
     ;; this was the last child), and dispatches [:work/flow
     ;; [:work/all-done]]. The parent's :working :on table catches
     ;; :work/all-done → :complete (with :stamp-outcome action).
-    (synth-child-done! f :s3)
-    (let [snap (snapshot f)]
-      (is (= :complete (:state snap)))
-      (is (= :complete (-> snap :data :outcome)))
+    (dispatch-synthetic-child-completion! f :s3)
+    (let [parent-snapshot (parent-machine-snapshot f)]
+      (is (= :complete (:state parent-snapshot)))
+      (is (= :complete (-> parent-snapshot :data :outcome)))
       ;; The cascade tore down the invoke-all slot: after the exit
       ;; from :working, the destroy fx clears [:rf.db/runtime :rf.runtime/machines :spawned
       ;; :work/flow [:working]].
@@ -185,9 +185,9 @@
     (rf/dispatch-sync [:work/flow [:progress :s2 50 100]] {:frame f})
     (rf/dispatch-sync [:work/flow [:progress :s3 10 100]] {:frame f})
 
-    (let [snap (snapshot f)]
-      (is (= :working (:state snap)))
-      (is (= {:s1 30 :s2 50 :s3 10} (-> snap :data :progress)))
+    (let [parent-snapshot (parent-machine-snapshot f)]
+      (is (= :working (:state parent-snapshot)))
+      (is (= {:s1 30 :s2 50 :s3 10} (-> parent-snapshot :data :progress)))
       ;; The aggregate-progress sub: (30+50+10)/(3*100) = 90/300.
       (is (= 90  (rf/compute-sub [:work/items-done]   (rf/frame-state-value f))))
       (is (= 300 (rf/compute-sub [:work/total-items] (rf/frame-state-value f)))))
@@ -199,9 +199,9 @@
     ;; and tears each surviving child down, then clears the
     ;; [:rf.db/runtime :rf.runtime/machines :spawned :work/flow [:working]] slot.
     (rf/dispatch-sync [:work/flow [:cancel]] {:frame f})
-    (let [snap (snapshot f)]
-      (is (= :cancelled (:state snap)))
-      (is (= :cancelled (-> snap :data :outcome)))
+    (let [parent-snapshot (parent-machine-snapshot f)]
+      (is (= :cancelled (:state parent-snapshot)))
+      (is (= :cancelled (-> parent-snapshot :data :outcome)))
       ;; The destroy cascade cleared the join-state slot.
       (is (nil? (join-state f)))
       ;; Partial :progress is preserved on the parent's :data
@@ -209,7 +209,7 @@
       ;; do with the partial result). The view shows where each
       ;; shard got to at the moment of cancel.
       (is (= {:s1 30 :s2 50 :s3 10}
-             (-> snap :data :progress))))))
+             (-> parent-snapshot :data :progress))))))
 
 ;; ============================================================================
 ;; (4) VIEW-CLEANUP CANCEL — :cancel dispatched from the view cleanup
@@ -226,16 +226,16 @@
 (defn- test-view-cleanup-cancel []
   (with-new-frame [f (new-frame)]
     (rf/dispatch-sync [:work/flow [:start]] {:frame f})
-    (is (= :working (:state (snapshot f))))
+    (is (= :working (:state (parent-machine-snapshot f))))
 
     ;; The work-bench component's with-let finally clause runs on
     ;; React unmount. The headless test bypasses React and dispatches
     ;; the same event the cleanup would dispatch.
     (rf/dispatch-sync [:work/flow [:cancel]] {:frame f})
 
-    (let [snap (snapshot f)]
-      (is (= :cancelled (:state snap)))
-      (is (= :cancelled (-> snap :data :outcome)))
+    (let [parent-snapshot (parent-machine-snapshot f)]
+      (is (= :cancelled (:state parent-snapshot)))
+      (is (= :cancelled (-> parent-snapshot :data :outcome)))
       (is (nil? (join-state f))))))
 
 ;; ============================================================================
@@ -249,10 +249,10 @@
     (rf/dispatch-sync [:work/flow [:cancel]]              {:frame f})
 
     (rf/dispatch-sync [:work/flow [:reset]] {:frame f})
-    (let [snap (snapshot f)]
-      (is (= :idle (:state snap)))
-      (is (= {:s1 0 :s2 0 :s3 0} (-> snap :data :progress)))
-      (is (nil? (-> snap :data :outcome))))))
+    (let [parent-snapshot (parent-machine-snapshot f)]
+      (is (= :idle (:state parent-snapshot)))
+      (is (= {:s1 0 :s2 0 :s3 0} (-> parent-snapshot :data :progress)))
+      (is (nil? (-> parent-snapshot :data :outcome))))))
 
 (deftest long-running-work-spawn-cascade
   (testing ":start spawns 3 children via :spawn-all and seeds the join-state"

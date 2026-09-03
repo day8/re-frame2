@@ -52,7 +52,7 @@
   [_js-props]
   nil)
 
-(defn- emitted
+(defn- emitted-props
   "The props object the foreign component would receive for `hiccup`.
   Reagent hands `convert-props`' result straight to `createElement`, so
   the element's own props are that object minus React's two reserved
@@ -67,7 +67,7 @@
   `reduce-kv` order is ClojureScript's business and not a contract (see
   the `className` collision below)."
   [k v slot]
-  (aget (emitted [:> a-foreign-component {k v}]) slot))
+  (aget (emitted-props [:> a-foreign-component {k v}]) slot))
 
 (defn- crossed-same?
   "Did two crossings answer the same thing? Functions by identity — which
@@ -81,9 +81,9 @@
 ;; `conversion-parity-with-the-door-on-one-prop-corpus` runs. The two
 ;; function slots are bound by the caller so identity rows can be
 ;; asserted.
-(defn- corpus [f ref-fn]
-  {:on-thing   f
-   :plain-fn   f
+(defn- corpus [plain-fn ref-fn]
+  {:on-thing   plain-fn
+   :plain-fn   plain-fn
    :menu-items [{:day-of-week 1}]
    :options    {:pageSize 10}
    :variant    :compact
@@ -110,44 +110,45 @@
             custom flag are all nil, and thence into `convert-props` →
             `convert-prop-value` → `kv-conv`. This is what comes out the
             far end. (§3's conversion table, donor column.)"
-    (let [f      (fn [_])
-          ref-fn (fn [_node])
-          p      (emitted [:> a-foreign-component (corpus f ref-fn)])]
+    (let [plain-fn    (fn [_])
+          ref-fn      (fn [_node])
+          react-props (emitted-props
+                        [:> a-foreign-component (corpus plain-fn ref-fn)])]
       (testing "the emitted slot roster — SIXTEEN props, FIFTEEN slots"
         (is (= ["aria-label" "className" "count" "data-kind" "id" "label"
                 "menuItems" "onThing" "open" "options" "plainFn" "ref"
                 "role" "theme" "variant"]
-               (vec (sort (js/Object.keys p))))
+               (vec (sort (js/Object.keys react-props))))
             "`cached-prop-name` spells BOTH `:class` and `:className` as
              `className`, so one `gobj/set` overwrites the other and the
              corpus loses a slot on the way across"))
       (testing "which of the two survives is `reduce-kv` order over a
                 sixteen-entry map — ClojureScript's business, not
                 Reagent's — so the pin is that exactly one does"
-        (is (contains? #{"btn on" "wide"} (aget p "className"))))
+        (is (contains? #{"btn on" "wide"} (aget react-props "className"))))
       (testing "functions cross by identity: `js-val?` is
                 `(not (identical? \"object\" (goog/typeOf x)))` and
                 `goog/typeOf` answers \"function\" for a function, so the
                 first `cond` arm returns it untouched"
-        (is (identical? f (aget p "onThing")))
-        (is (identical? f (aget p "plainFn")))
-        (is (identical? ref-fn (aget p "ref"))))
+        (is (identical? plain-fn (aget react-props "onThing")))
+        (is (identical? plain-fn (aget react-props "plainFn")))
+        (is (identical? ref-fn (aget react-props "ref"))))
       (testing "scalars verbatim, by the same arm"
-        (is (= "due date" (aget p "label")))
-        (is (= 7 (aget p "count")))
-        (is (true? (aget p "open"))))
+        (is (= "due date" (aget react-props "label")))
+        (is (= 7 (aget react-props "count")))
+        (is (true? (aget react-props "open"))))
       (testing "named values answer `(name x)` at every slot, HTML
                 attribute or not"
-        (is (= "compact" (aget p "variant")))
-        (is (= "dark" (aget p "theme")))
-        (is (= "close" (aget p "aria-label")))
-        (is (= "row" (aget p "data-kind")))
-        (is (= "greeting" (aget p "id")))
-        (is (= "dialog" (aget p "role"))))
+        (is (= "compact" (aget react-props "variant")))
+        (is (= "dark" (aget react-props "theme")))
+        (is (= "close" (aget react-props "aria-label")))
+        (is (= "row" (aget react-props "data-kind")))
+        (is (= "greeting" (aget react-props "id")))
+        (is (= "dialog" (aget react-props "role"))))
       (testing "a nested map literal is walked and its keys respelled; a
                 map reached through a VECTOR is not"
-        (is (= {"pageSize" 10} (js->clj (aget p "options"))))
-        (is (= [{"day-of-week" 1}] (js->clj (aget p "menuItems")))
+        (is (= {"pageSize" 10} (js->clj (aget react-props "options"))))
+        (is (= [{"day-of-week" 1}] (js->clj (aget react-props "menuItems")))
             "`:day-of-week` kept the author's spelling — the `coll?` arm
              is `clj->js`, which does not camelCase")))))
 
@@ -169,13 +170,13 @@
             `(name :foo)` — and React then consumes it off the config.
             That is §9.3's whole argument: `:foo` reached React as
             \"foo\" under the donor."
-    (let [e (r/as-element [:> a-foreign-component {:key :foo :label "x"}])]
-      (is (= "foo" (.-key e)))
+    (let [element (r/as-element [:> a-foreign-component {:key :foo :label "x"}])]
+      (is (= "foo" (.-key element)))
       ;; `js/Object.keys` rather than a read of `.-key`: React 19 installs
       ;; a non-enumerable DEV warning getter at that name on any props
       ;; object it built from a config carrying a key, so reading it would
       ;; put React's "`key` is not a prop" line in the shared test log.
-      (is (= ["label"] (vec (sort (js/Object.keys (.-props e)))))
+      (is (= ["label"] (vec (sort (js/Object.keys (.-props element)))))
           "and React keeps it off the props, so the component never sees it")))
   (testing "and where both are present the METADATA wins, because its
             `set!` runs last — the premise under the design's
@@ -195,52 +196,54 @@
             `cached-prop-name` — which is `dash-to-prop-name`'s
             kebab→camel rule. W2 exists to write that spelling into the
             source, so the rule is the rewrite."
-    (let [o (donor-prop :options {:page-size 10 :first-name "a"} "options")]
-      (is (= ["firstName" "pageSize"] (vec (sort (js/Object.keys o)))))
-      (is (= 10 (aget o "pageSize")))))
+    (let [converted-options (donor-prop :options {:page-size 10 :first-name "a"} "options")]
+      (is (= ["firstName" "pageSize"] (vec (sort (js/Object.keys converted-options)))))
+      (is (= 10 (aget converted-options "pageSize")))))
   (testing "the three seeded renames in `prop-name-cache`, and they apply
             INSIDE a nested map as well as at the top — one key function,
             one cache"
-    (let [o (donor-prop :cfg {:class "c" :for "f" :charset "utf-8"} "cfg")]
-      (is (= ["charSet" "className" "htmlFor"] (vec (sort (js/Object.keys o)))))))
+    (let [converted-config (donor-prop :cfg {:class "c" :for "f" :charset "utf-8"} "cfg")]
+      (is (= ["charSet" "className" "htmlFor"]
+             (vec (sort (js/Object.keys converted-config)))))))
   (testing "`aria` and `data` are exempt — `dash-to-prop-name` returns the
             name whole when the first dash-segment is in
             `dont-camel-case`"
-    (let [o (donor-prop :cfg {:aria-label "x" :data-kind "y" :other-key "z"} "cfg")]
-      (is (= ["aria-label" "data-kind" "otherKey"] (vec (sort (js/Object.keys o)))))))
+    (let [converted-config (donor-prop :cfg {:aria-label "x" :data-kind "y" :other-key "z"} "cfg")]
+      (is (= ["aria-label" "data-kind" "otherKey"]
+             (vec (sort (js/Object.keys converted-config)))))))
   (testing "a STRING key is verbatim: `cached-prop-name` hands back any
             non-`named?` key untouched"
-    (let [o (donor-prop :cfg {"first-name" 1} "cfg")]
-      (is (= ["first-name"] (vec (js/Object.keys o))))))
+    (let [converted-config (donor-prop :cfg {"first-name" 1} "cfg")]
+      (is (= ["first-name"] (vec (js/Object.keys converted-config))))))
   (testing "WHERE THE RECURSION STOPS, which is the half of W2 that is a
             fence rather than a rule. Reagent recurses through the `map?`
             arm only; a map inside a vector is reached by the `coll?` arm,
             which is `clj->js` and does not camelCase. W2 walks map values
             through maps and stops at the first non-map collection because
             that is exactly where the donor stopped."
-    (let [arr (donor-prop :menu-items [{:day-of-week 1}] "menuItems")]
-      (is (array? arr))
-      (is (= ["day-of-week"] (vec (js/Object.keys (aget arr 0))))
+    (let [converted-items (donor-prop :menu-items [{:day-of-week 1}] "menuItems")]
+      (is (array? converted-items))
+      (is (= ["day-of-week"] (vec (js/Object.keys (aget converted-items 0))))
           "no camelCasing below a vector"))
-    (let [arr (donor-prop :menu-items #{{:day-of-week 1}} "menuItems")]
-      (is (array? arr))
-      (is (= ["day-of-week"] (vec (js/Object.keys (aget arr 0))))
+    (let [converted-items (donor-prop :menu-items #{{:day-of-week 1}} "menuItems")]
+      (is (array? converted-items))
+      (is (= ["day-of-week"] (vec (js/Object.keys (aget converted-items 0))))
           "nor below a set")))
   (testing "and it never descends into a `#js {…}` node: that value is
             not `map?`, not `coll?` and not `ifn?`, so it falls to
             `clj->js`, whose `:else` arm returns a foreign value UNCHANGED
             — the same object, not a copy"
-    (let [o   #js {:first-name "a"}
-          out (donor-prop :opts o "opts")]
-      (is (identical? o out))
-      (is (= ["first-name"] (vec (js/Object.keys out))))))
+    (let [js-options        #js {:first-name "a"}
+          converted-options (donor-prop :opts js-options "opts")]
+      (is (identical? js-options converted-options))
+      (is (= ["first-name"] (vec (js/Object.keys converted-options))))))
   (testing "THE ONE CELL WHERE W2 REFUSES TO PRESERVE (§4.2). A CSS custom
             property is mangled by `dash-to-prop-name` into a style key
             nothing reads, which is why the design reports
             `:css-var-repair` and lets the site start working instead."
-    (let [st (donor-prop :style {:--brand-color "red" :font-size 12} "style")]
-      (is (= ["BrandColor" "fontSize"] (vec (sort (js/Object.keys st)))))
-      (is (= "red" (aget st "BrandColor"))
+    (let [converted-style (donor-prop :style {:--brand-color "red" :font-size 12} "style")]
+      (is (= ["BrandColor" "fontSize"] (vec (sort (js/Object.keys converted-style)))))
+      (is (= "red" (aget converted-style "BrandColor"))
           "`--brand-color` splits to (\"\" \"\" \"brand\" \"color\"), and the
            empty leading segments capitalize to nothing"))))
 
@@ -291,16 +294,17 @@
             false — and it reaches that arm. Hicasso has no such arm, so
             the object crosses opaque and a working handler stops firing;
             W4 spells the donor's own wrapper at the call site."
-    (let [f   (fn [a b] [a b])
-          p   (r/partial f 1)
-          out (donor-prop :on-pick p "onPick")]
-      (is (fn? out) "a real function came out")
-      (is (not (identical? p out))
+    (let [plain-fn          (fn [a b] [a b])
+          partial-fn        (r/partial plain-fn 1)
+          converted-handler (donor-prop :on-pick partial-fn "onPick")]
+      (is (fn? converted-handler) "a real function came out")
+      (is (not (identical? partial-fn converted-handler))
           "and it is NOT the PartialFn — the donor wrapped rather than passed")
-      (is (= [1 2] (out 2))
-          "RETURN-TRANSPARENT, which is Law 2: whatever `f` returned
+      (is (= [1 2] (converted-handler 2))
+          "RETURN-TRANSPARENT, which is Law 2: whatever `plain-fn` returned
            before, the wrapper returns now")
-      (is (not (identical? out (donor-prop :on-pick p "onPick")))
+      (is (not (identical? converted-handler
+                            (donor-prop :on-pick partial-fn "onPick")))
           "§4.4's non-obvious half: the wrapper is minted FRESH on every
            conversion, so the prop's identity already changed on every
            render and no downstream memo bail-out was getting a stable
@@ -308,8 +312,8 @@
            none.")))
   (testing "the contrast that makes the row mean something: a PLAIN
             function is not wrapped, because `js-val?` catches it first"
-    (let [f (fn [_])]
-      (is (identical? f (donor-prop :on-pick f "onPick"))))))
+    (let [plain-fn (fn [_])]
+      (is (identical? plain-fn (donor-prop :on-pick plain-fn "onPick"))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The arm ORDER — `coll?` before `ifn?` (§4.6's first guard, §5.3)
@@ -325,15 +329,15 @@
     (is (ifn? [:boom])
         "precondition: the row is only meaningful because the `ifn?` arm
          WOULD have matched")
-    (let [v (donor-prop :on-click [:boom] "onClick")]
-      (is (array? v))
-      (is (not (fn? v)) "an array, not a handler — nothing fires")
-      (is (= ["boom"] (js->clj v)))))
+    (let [converted-carrier (donor-prop :on-click [:boom] "onClick")]
+      (is (array? converted-carrier))
+      (is (not (fn? converted-carrier)) "an array, not a handler — nothing fires")
+      (is (= ["boom"] (js->clj converted-carrier)))))
   (testing "and a key-map at an event slot takes the `map?` arm, which is
             equally inert"
-    (let [m (donor-prop :on-key-down {"Enter" [:boom]} "onKeyDown")]
-      (is (not (fn? m)))
-      (is (= {"Enter" ["boom"]} (js->clj m)))))
+    (let [converted-keymap (donor-prop :on-key-down {"Enter" [:boom]} "onKeyDown")]
+      (is (not (fn? converted-keymap)))
+      (is (= {"Enter" ["boom"]} (js->clj converted-keymap)))))
   (testing "which is what makes the migration an IMPROVEMENT and a
             hazard at once: Hicasso refuses these loudly at render, so a
             silently dead handler becomes a page that throws — possibly
@@ -351,9 +355,9 @@
             same nil id/className/custom — two spellings of one path with
             the props slot at a different index. That is the whole licence
             for respelling one as the other."
-    (let [f         (fn [_])
+    (let [plain-fn  (fn [_])
           ref-fn    (fn [_node])
-          props     (corpus f ref-fn)
+          props     (corpus plain-fn ref-fn)
           adapted   (r/adapt-react-class a-foreign-component)
           via-adapt (r/as-element [adapted props])
           via-arrow (r/as-element [:> a-foreign-component props])]
@@ -402,14 +406,16 @@
             `UnsafeHTML` instance. Hicasso passes the prop through, so the
             migration RESURRECTS a prop the donor had been silently
             dropping — which is a decision for a person, not a rewrite."
-    (let [p (emitted [:> a-foreign-component
-                      {:dangerouslySetInnerHTML {:__html "<b>x</b>"} :label "x"}])]
-      (is (= ["label"] (vec (sort (js/Object.keys p))))
+    (let [react-props (emitted-props
+                        [:> a-foreign-component
+                         {:dangerouslySetInnerHTML {:__html "<b>x</b>"} :label "x"}])]
+      (is (= ["label"] (vec (sort (js/Object.keys react-props))))
           "the slot is gone entirely, with no diagnostic")))
   (testing "the one spelling the donor honoured"
-    (let [p (emitted [:> a-foreign-component
-                      {:dangerouslySetInnerHTML (r/unsafe-html "<b>x</b>")}])]
-      (is (= "<b>x</b>" (.-__html (aget p "dangerouslySetInnerHTML")))))))
+    (let [react-props (emitted-props
+                        [:> a-foreign-component
+                         {:dangerouslySetInnerHTML (r/unsafe-html "<b>x</b>")}])]
+      (is (= "<b>x</b>" (.-__html (aget react-props "dangerouslySetInnerHTML")))))))
 
 (deftest codemod-contract-donor-the-ampersand-key-is-just-a-prop
   (testing "THE `:amp-key` REFUSAL (§5.2). `dash-to-prop-name` leaves `:&`
@@ -417,9 +423,10 @@
             Hicasso reads the same key as its one attribute merge. Two
             unrelated meanings for one literal, and the author's intent is
             unrecoverable from the text — so the design refuses the site."
-    (let [p (emitted [:> a-foreign-component {:& {:a 1} :label "x"}])]
-      (is (= ["&" "label"] (vec (sort (js/Object.keys p)))))
-      (is (= {"a" 1} (js->clj (aget p "&")))))))
+    (let [react-props (emitted-props
+                        [:> a-foreign-component {:& {:a 1} :label "x"}])]
+      (is (= ["&" "label"] (vec (sort (js/Object.keys react-props)))))
+      (is (= {"a" 1} (js->clj (aget react-props "&")))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The class slot (§3's class row, §5.4's first bullet)

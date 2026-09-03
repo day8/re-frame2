@@ -30,7 +30,7 @@
 ;; callback can register, so on the first disposal — whichever side
 ;; initiates it, the adapter's disposers or a stock-internal auto-dispose —
 ;; the marker runs before every later callback: it stamps the terminal
-;; disposed mark (so a re-entry through the routed `dispose!` mid-firing
+;; disposed marker (so a re-entry through the routed `dispose!` mid-firing
 ;; sees it) and nils both callback holders. Stock `dispose!` captures
 ;; `on-dispose-arr` into a local before iterating, so the first firing
 ;; still completes in registration order; any LATER `dispose!` — including
@@ -38,28 +38,28 @@
 ;; holders and re-fires nothing. `dispose-once!` is the single disposal
 ;; boundary both the claimed-generation disposer (`make-ratom-spine`'s
 ;; `:dispose!`) and the routed `:adapter/dispose!` hook delegate through:
-;; it consults the same mark and no-ops outright on a marked Reaction.
+;; it consults the same marker and no-ops outright on a marked Reaction.
 ;;
-;; The mark is a string-keyed expando property: never renamed under
+;; The marker key is a string-keyed expando property: never renamed under
 ;; `:advanced`, colliding with no Reagent field. The holder writes use the
 ;; `^clj` field-access idiom this ns already relies on for `.-watching`.
 
-(def ^:private disposed-mark "re-frame.adapter.reagent/disposed")
+(def ^:private disposed-marker-key "re-frame.adapter.reagent/disposed")
 
-(defn- marked-disposed? [rx]
-  (true? (unchecked-get rx disposed-mark)))
+(defn- disposed-marker-set? [reaction]
+  (true? (unchecked-get reaction disposed-marker-key)))
 
 (defn- install-dispose-guard!
-  "Arm `rx` with the exactly-once disposal marker (see the section comment
+  "Arm `reaction` with the exactly-once disposal marker (see the section comment
   above). MUST run at construction, before any other callback registers,
-  so the marker is first in `on-dispose-arr`. Returns `rx`."
-  [rx]
-  (ratom/add-on-dispose! rx
-    (fn mark-disposed! [r]
-      (unchecked-set r disposed-mark true)
-      (set! (.-on-dispose ^clj r) nil)
-      (set! (.-on-dispose-arr ^clj r) nil)))
-  rx)
+  so the marker is first in `on-dispose-arr`. Returns `reaction`."
+  [reaction]
+  (ratom/add-on-dispose! reaction
+    (fn mark-disposed! [reaction]
+      (unchecked-set reaction disposed-marker-key true)
+      (set! (.-on-dispose ^clj reaction) nil)
+      (set! (.-on-dispose-arr ^clj reaction) nil)))
+  reaction)
 
 (defn- make-guarded-reaction
   "Stock `ratom/make-reaction` plus the exactly-once disposal guard. The
@@ -70,13 +70,13 @@
   (install-dispose-guard! (ratom/make-reaction thunk)))
 
 (defn- dispose-once!
-  "Dispose `a` through stock `ratom/dispose!` unless its exactly-once
+  "Dispose `reaction` through stock `ratom/dispose!` unless its exactly-once
   marker shows it already disposed (explicitly, or by stock auto-disposal).
   A Reaction without the marker — one not created through this adapter —
   delegates unconditionally, preserving raw stock behaviour."
-  [a]
-  (when-not (marked-disposed? a)
-    (ratom/dispose! a))
+  [reaction]
+  (when-not (disposed-marker-set? reaction)
+    (ratom/dispose! reaction))
   nil)
 
 ;; ---- shared ratom-spine wiring --------------------------------------------
@@ -107,7 +107,7 @@
      ;; Cleanup owns this exact substrate dispatch even after the process
      ;; lifecycle's terminal claim closes every public routed hook.
      :disposable?   (fn [a] (satisfies? ratom/IDisposable a))
-     :dispose!      (fn [a] (dispose-once! a))
+     :dispose!      (fn [reaction] (dispose-once! reaction))
      ;; Drain Reagent synchronously after `f`; unlike its normal next-tick path,
      ;; this works in backgrounded and headless tabs.
      :flush-render! (fn [f] (f) (r/flush))}))
@@ -227,11 +227,11 @@
      ;; JS-object property, so externs inference must not be asked to
      ;; reason about it (an inferred extern would also defeat the very
      ;; renaming that keeps the read correct under `:advanced`).
-     :activate-reaction! (fn [rx]
-                           (when (and (satisfies? ratom/IRunnable rx)
-                                      (nil? (.-watching ^clj rx)))
-                             (ratom/run rx))
-                           nil)
+     :activate-reaction! (fn [reaction]
+                            (when (and (satisfies? ratom/IRunnable reaction)
+                                       (nil? (.-watching ^clj reaction)))
+                              (ratom/run reaction))
+                            nil)
      :disposable?       (fn [a] (satisfies? ratom/IDisposable a))
      :add-on-dispose!   ratom/add-on-dispose!
      :dispose!          dispose-once!
