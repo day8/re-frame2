@@ -98,9 +98,9 @@
 ;; The map schemas are deliberately OPEN (`{:closed false}`): the load-bearing
 ;; contract slots (`:status` + the judgement / evidence slots) are pinned, but
 ;; a runner / MCP / artifact layer MAY carry additional provenance slots
-;; (`:frame`, `:decorators`, `:snapshot`, …) without
-;; breaking the contract. What is frozen is the SHARED vocabulary every
-;; surface reads, not an exhaustive key list.
+;; (`:frame`, `:decorators`, `:snapshot`, …) without breaking the contract.
+;; What is frozen is the SHARED vocabulary every surface reads, not an
+;; exhaustive key list.
 
 (def Status
   "The frozen verdict enum (spec/017 §Run result). The ONE field every
