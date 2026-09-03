@@ -180,6 +180,33 @@ test('renderToString returns the body and the roster, and nothing besides', asyn
   });
 });
 
+test('every CHUNK frame carries EXACTLY the three body-frame fields', async () => {
+  // The chunk half of the roster above, and the row that makes
+  // `protocol.cjs`'s `chunkFrame` a live constructor rather than a second
+  // written-down copy of a shape the boundary also spells by hand
+  // (rf2-6r9j.74). The worker's own message carries `t` and `id` as well,
+  // so a boundary that spread it — or that grew a field on one side of the
+  // pair only — arrives here as a fourth key rather than as a quietly
+  // wider public frame.
+  //
+  // Multi-chunk on purpose: `seq` is a field the constructor is given and
+  // a single-chunk response would read 0 whether it was carried or not.
+  await withService('chunked', { isolates: 1 }, async (service) => {
+    const parts = ['<a>', '<b>', '<c/>'];
+    const { chunks } = await collect(service, {
+      protocol: 1,
+      entry: 'app/root',
+      state: { ':bytes': JSON.stringify(parts) },
+    });
+    assert.strictEqual(chunks.length, parts.length, 'the fixture really did emit three');
+    for (const frame of chunks) {
+      assert.deepStrictEqual(Object.keys(frame).sort(), ['html', 'seq', 'type']);
+    }
+    assert.deepStrictEqual(chunks.map((c) => c.seq), [0, 1, 2], 'and seq crossed intact');
+    assert.deepStrictEqual(chunks.map((c) => c.html), parts, 'and so did the markup');
+  });
+});
+
 // ---------------------------------------------------------------------------
 // 2. The scan
 // ---------------------------------------------------------------------------
