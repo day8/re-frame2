@@ -91,8 +91,8 @@ inline helper because it was called with function syntax.
 
 Every member of a sequence of children needs a key. Put `:key` in that child's
 props map. Hicasso does not read Reagent-style `^{:key id}` metadata, and `for`
-does not invent a key. Missing keys produce React's own development warning;
-a key that is a map or other entity value produces
+does not invent a key. Missing keys produce React's own development warning; a
+map or other entity value at the `:key` of a view-boundary child produces
 `:rf.warning/hicasso-entity-key`, naming the child.
 
 This page owns the spelling. [Lists and collections](06-lists-and-collections.md)

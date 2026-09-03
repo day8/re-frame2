@@ -220,6 +220,88 @@ route entry, an explicit cancel and a successful save reply each need to say so:
 
 Chapter: [Forms](05-forms.md).
 
+## A reusable control the caller parameterises
+
+A pager, a tab strip, a sort header: one control, several screens, and each
+screen decides where its own selection lands. In Reagent that prop was a
+one-argument closure. Here it is an **intent prefix** — the caller passes the
+event vector short of its last argument, and the control appends the argument it
+owns.
+
+`forms/buffered-field` above is this contract already: `:on-commit` arrives as
+`[::events/title-committed id]` and is dispatched as
+`[::events/title-committed 7 "Buy oat milk"]`. Write your own controls the same
+way.
+
+```clojure
+(ns my.app.views
+  (:require [re-frame.core :as rf]
+            [re-frame.hicasso :as h]
+            [my.app.subs :as subs]))
+
+(h/defview pager
+  "Page numbers. `:on-select` is an intent PREFIX; this control appends the
+   page that was clicked."
+  [{:keys [page page-count on-select]}]
+  [:nav.pager {:aria-label "Pagination"}
+   (for [n (range 1 (inc page-count))]
+     [:button.page
+      {:key           n
+       :type          "button"
+       :aria-current  (when (= n page) "page")
+       :disabled      (= n page)
+       :on-click      (conj on-select n)}
+      n])])
+```
+
+Each caller supplies its own prefix, carrying whatever arguments it needs:
+
+```clojure
+(h/defview home-feed [_]
+  [pager {:page       (h/sub [::subs/home-page])
+          :page-count (h/sub [::subs/home-page-count])
+          :on-select  [:home/show-page]}])
+
+(h/defview profile-feed [{:keys [username]}]
+  [pager {:page       (h/sub [::subs/profile-page username])
+          :page-count (h/sub [::subs/profile-page-count username])
+          :on-select  [:profile/show-page username]}])
+```
+
+Clicking page 3 dispatches `[:home/show-page 3]` from one and
+`[:profile/show-page "alice" 3]` from the other. The control never learns which.
+
+**Append in the body when the argument is a render-time fact**, as above: the
+page number is known when the button is written, so `conj` there and the prop is
+an ordinary intent vector.
+
+**Append in the handler when the argument is only known when the event fires.**
+Pass the prefix through as an argument and let the handler finish it:
+
+```clojure
+(rf/reg-event :combo/committed
+  (fn [{:keys [db]} [_ id on-select]]
+    (let [active (get-in db [:ui :combo id :active])]
+      {:db (assoc-in db [:ui :combo id :open?] false)
+       :fx [[:dispatch (conj on-select active)]]})))
+```
+
+**When the argument is the DOM value**, no `conj` is needed at all — the
+substitution markers are the argument: `(conj on-search ::h/value)` dispatches
+the prefix with the field's value appended at dispatch time.
+
+**Why a prefix rather than a function prop.** A vector compares by value, so an
+unchanged `:on-select` is `=` to last render's and the child keeps its
+equal-props bail-out. A fresh `#(rf/dispatch [:home/show-page %])` is a new
+object on every parent render and defeats that bail-out permanently. It is also
+the wrong door: the browser invokes it after the rendering extent has gone, so
+its ambient `rf/dispatch` raises `:rf.error/no-frame-context`. Reach for
+`h/event` only when the callback's own arguments matter — geometry, a foreign
+SDK's payload — rather than for parameterisation, which this shape covers.
+
+Chapters: [Events as data](03-events-as-data.md), [Views and
+reads](02-views-and-reads.md).
+
 ## Fetch, show progress, and keep the last good answer
 
 A panel that paints `nil` while a request for new data is out blanks itself on
