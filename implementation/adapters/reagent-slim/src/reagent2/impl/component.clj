@@ -11,19 +11,19 @@
   macro is shipped — `reg-view` is the single canonical view-registration
   surface (per the rf2-yfbx decision).
 
-  Public fns (compile-time helpers, consumed by `reg-view`'s expansion):
+  Public fn (the one compile-time helper, consumed by `reg-view`'s
+  expansion):
 
     classify-form-body — return a keyword form-tag for the body.
-    tag-form-meta      — wrap a form-tag in the `{:reagent2/form ...}`
-                         metadata map `reg-view` stamps onto the
-                         wrapper fn so the runtime can read it.
 
-  These run at macroexpansion time (CLJ), not at runtime — the macro
-  invoking them folds the result into the emitted CLJS. They are plain
-  `defn`s (the classification logic is pure-data), so any macro that
-  wants to amortise the runtime detection — `re-frame.core/reg-view`
-  or otherwise — can call them directly. No CLJS-side runtime code
-  lives in this ns.")
+  It runs at macroexpansion time (CLJ), not at runtime — the macro
+  invoking it folds the result into the emitted CLJS. It is a plain
+  `defn` (the classification logic is pure-data), which is how
+  `re-frame.core/expand-reg-view` can reach it through
+  `requiring-resolve` without core carrying a static reagent-slim
+  dep. The `{:reagent2/form ...}` metadata map itself is built at
+  the macro's own expansion site, not here. No CLJS-side runtime
+  code lives in this ns.")
 
 ;; ---------------------------------------------------------------------------
 ;; Compile-time form classification
@@ -67,10 +67,3 @@
                (or (= "fn" n) (= "fn*" n))))
       :reagent2/form-2
       :reagent2/form-1)))
-
-(defn tag-form-meta
-  "Return a metadata map carrying the form-tag for runtime consumption.
-  Stamped onto wrapper fns so `wrap-render` can short-circuit the
-  classification cond on the hot path."
-  [form-tag]
-  {:reagent2/form form-tag})

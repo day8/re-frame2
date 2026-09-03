@@ -450,3 +450,35 @@
       (ratom/add-on-dispose! r (fn [_] (reset! fired true)))
       (ratom/dispose! r)
       (is (true? @fired)))))
+
+;; ---------------------------------------------------------------------------
+;; IPrintWithWriter — RAtom / Reaction printed representation
+;;
+;; The shared `pr-atom` helper writes `#object[reagent2.ratom.<Type> `,
+;; delegates the value to `pr-writer` for recursive printing, then closes
+;; the bracket. Both print methods deref their receiver at the call site to
+;; build the `{:val ...}` map, so the helper only ever formats a supplied
+;; type tag and body. These pin the exact strings.
+;; ---------------------------------------------------------------------------
+
+(deftest ratom-printed-representation
+  (testing "an RAtom prints as #object[reagent2.ratom.RAtom {:val <v>}]"
+    (is (= "#object[reagent2.ratom.RAtom {:val 1}]"
+           (pr-str (ratom/atom 1)))))
+
+  (testing "the value is printed recursively, not as a summary"
+    (is (= "#object[reagent2.ratom.RAtom {:val {:a [1 2], :b \"s\"}}]"
+           (pr-str (ratom/atom {:a [1 2] :b "s"})))))
+
+  (testing "a nested RAtom prints through the same helper"
+    (is (= "#object[reagent2.ratom.RAtom {:val {:inner #object[reagent2.ratom.RAtom {:val 7}]}}]"
+           (pr-str (ratom/atom {:inner (ratom/atom 7)}))))))
+
+(deftest reaction-printed-representation
+  (testing "a Reaction prints as #object[reagent2.ratom.Reaction {:val <v>}]"
+    (is (= "#object[reagent2.ratom.Reaction {:val 42}]"
+           (pr-str (ratom/make-reaction (fn [] 42))))))
+
+  (testing "the Reaction's value is printed recursively too"
+    (is (= "#object[reagent2.ratom.Reaction {:val [:p 1]}]"
+           (pr-str (ratom/make-reaction (fn [] [:p 1])))))))
