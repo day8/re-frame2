@@ -59,7 +59,7 @@
 (deftest live-dispatch-validates-app-db-under-reagent
   (testing "a malformed :db commit emits :rf.error/schema-validation-failure under the Reagent adapter"
     (rf/reg-app-schema [:n] [:int])
-    (rf/reg-event :n/init  (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :n/init  (fn [_ _] {:db {:n 0}}))
     (rf/reg-event :n/break (fn [{:keys [db]} _] {:db (assoc db :n "boom")}))
     (with-trace-recorder! [traces]
       (rf/dispatch-sync [:n/init])
@@ -82,7 +82,7 @@
 (deftest live-dispatch-well-typed-passes-silently
   (testing "well-typed :db commits trigger no schema-validation-failure trace"
     (rf/reg-app-schema [:n] [:int])
-    (rf/reg-event :n/init (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :n/init (fn [_ _] {:db {:n 0}}))
     (rf/reg-event :n/inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (with-trace-recorder! [traces]
       (rf/dispatch-sync [:n/init])
@@ -339,7 +339,7 @@
       (schemas/set-schema-validator! custom)
       (try
         (rf/reg-app-schema [:n] :int)
-        (rf/reg-event :n/init  (fn [{:keys [db]} _] {:db {:n 42}}))
+        (rf/reg-event :n/init  (fn [_ _] {:db {:n 42}}))
         (rf/reg-event :n/break (fn [{:keys [db]} _] {:db (assoc db :n 99)}))
         (with-trace-recorder! [traces]
           (rf/dispatch-sync [:n/init])

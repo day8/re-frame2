@@ -37,7 +37,6 @@
             [re-frame.schemas :as schemas]
             [re-frame.schemas.malli]
             [re-frame.schemas.test-fixture :as tf]
-            [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.test-support :refer [with-trace-recorder!]]))
 
 (use-fixtures :each tf/reset-runtime)

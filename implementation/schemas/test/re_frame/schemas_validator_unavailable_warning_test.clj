@@ -29,8 +29,7 @@
             [re-frame.late-bind :as late-bind]
             [re-frame.schemas :as schemas]
             [re-frame.schemas.test-fixture :as tf]
-            [re-frame.test-support :refer [with-trace-recorder!]]
-            [re-frame.trace :as trace]))
+            [re-frame.test-support :refer [with-trace-recorder!]]))
 
 (use-fixtures :each tf/reset-runtime)
 

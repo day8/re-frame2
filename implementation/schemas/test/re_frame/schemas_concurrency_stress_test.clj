@@ -81,7 +81,6 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.schemas :as schemas]
-            [re-frame.schemas.digest :as digest]
             [re-frame.schemas.storage :as storage]
             ;; Explicit test dependency; the facade also loads this adapter.
             [re-frame.schemas.malli]
