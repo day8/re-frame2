@@ -66,29 +66,29 @@
   8)
 
 (defn- poly-path
-  "Build an SVG path string that runs THROUGH `pts` (a JS array of
+  "Build an SVG path string that runs THROUGH `points` (a JS array of
   `#js {:x :y}` points) with small rounded corners at each interior
-  bend. `pts` has ≥ 2 entries (the projector / layout filter degenerate
+  bend. `points` has ≥ 2 entries (the projector / layout filter degenerate
   routes out). Mirrors the rounded-orthogonal look of a hand-routed
   statechart edge without depending on a layout-engine path string."
-  [pts]
-  (let [point-count (alength pts)]
+  [points]
+  (let [point-count (alength points)]
     (if (<= point-count 2)
       ;; A straight start→end run — no interior bend to round.
-      (let [start-point (aget pts 0)
-            end-point   (aget pts (dec point-count))]
+      (let [start-point (aget points 0)
+            end-point   (aget points (dec point-count))]
         (str "M " (.-x start-point) "," (.-y start-point)
              " L " (.-x end-point) "," (.-y end-point)))
       (let [path-commands (js/Array.)
-            start-point   (aget pts 0)]
+            start-point   (aget points 0)]
         (.push path-commands (str "M " (.-x start-point) "," (.-y start-point)))
         ;; For each interior point, draw a line up TO a point shy of the
         ;; corner, then a quadratic curve THROUGH the corner to a point
         ;; just past it — rounding the bend.
         (dotimes [point-index (- point-count 2)]
-          (let [incoming-point  (aget pts point-index)
-                corner-point    (aget pts (inc point-index))
-                outgoing-point  (aget pts (+ point-index 2))
+          (let [incoming-point  (aget points point-index)
+                corner-point    (aget points (inc point-index))
+                outgoing-point  (aget points (+ point-index 2))
                 incoming-dx     (- (.-x corner-point) (.-x incoming-point))
                 incoming-dy     (- (.-y corner-point) (.-y incoming-point))
                 outgoing-dx     (- (.-x outgoing-point) (.-x corner-point))
@@ -125,19 +125,19 @@
             (.push path-commands (str "L " entry-x "," entry-y))
             (.push path-commands (str "Q " (.-x corner-point) ","
                                       (.-y corner-point) " " exit-x "," exit-y))))
-        (let [end-point (aget pts (dec point-count))]
+        (let [end-point (aget points (dec point-count))]
           (.push path-commands (str "L " (.-x end-point) "," (.-y end-point))))
         (.join path-commands " ")))))
 
 (defn- path-midpoint
   "The label anchor for a routed edge: the midpoint of the path's
   middle segment (so the label sits ON the route, not floating at the
-  bezier midpoint). `pts` is the JS points array (≥ 2)."
-  [pts]
-  (let [point-count       (alength pts)
+  bezier midpoint). `points` is the JS points array (≥ 2)."
+  [points]
+  (let [point-count       (alength points)
         middle-index      (quot point-count 2)
-        before-middle     (aget pts (max 0 (dec middle-index)))
-        middle-point      (aget pts middle-index)]
+        before-middle     (aget points (max 0 (dec middle-index)))
+        middle-point      (aget points middle-index)]
     [(/ (+ (.-x before-middle) (.-x middle-point)) 2)
      (/ (+ (.-y before-middle) (.-y middle-point)) 2)]))
 
@@ -156,22 +156,22 @@
 
 (defn- cross-hierarchy-label-anchor
   "Return `[lx ly]` for a cross-hierarchy edge's label, anchored near
-  the source-side bend point of the routed path. `pts` is the JS points
+  the source-side bend point of the routed path. `points` is the JS points
   array (≥ 2). Falls back to the midpoint of the first segment for
   degenerate two-point routes (no bend to anchor on)."
-  [pts]
-  (let [point-count (alength pts)]
+  [points]
+  (let [point-count (alength points)]
     (if (< point-count 3)
       ;; No interior bend — anchor on the midpoint of the only segment.
-      (let [start-point (aget pts 0)
-            end-point   (aget pts (dec point-count))]
+      (let [start-point (aget points 0)
+            end-point   (aget points (dec point-count))]
         [(/ (+ (.-x start-point) (.-x end-point)) 2)
          (/ (+ (.-y start-point) (.-y end-point)) 2)])
       ;; Anchor at the first bend after the source handle. With a slight
       ;; bias along the incoming segment so the label sits just past the
       ;; corner, not on top of it.
-      (let [source-point     (aget pts 0)
-            first-bend-point (aget pts 1)
+      (let [source-point     (aget points 0)
+            first-bend-point (aget points 1)
             segment-dx       (- (.-x first-bend-point) (.-x source-point))
             segment-dy       (- (.-y first-bend-point) (.-y source-point))
             segment-length   (js/Math.hypot segment-dx segment-dy)
