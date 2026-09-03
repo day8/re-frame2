@@ -16,6 +16,20 @@
 ;; `hicasso/test` for the witness applications under
 ;; `re-frame.hicasso.examples.*` that the slice and ledger clocks drive.
 ;;
+;; The COMPILE is what derives them, and there is no roster test to keep in
+;; step: `npm run check`'s first arm walks `src/` and compiles every namespace
+;; under it warnings-fatal from a cleared cache, so a root the closure does
+;; not reach cannot change the build, and one it does reach reds the gate by
+;; name. MEASURED both ways when rf2-6r9j.82 dropped `spec-resource/src` and
+;; `spec` from this list: dropping `hicasso/src` instead fails with
+;; `re-frame.hicasso is not available`, while dropping those two left the same
+;; 155 namespaces compiling warnings-free to the same 931 output files. The
+;; comparison is that file SET and not its bytes: two compiles of one
+;; unchanged tree do not agree byte for byte. Neither root had ever been
+;; reached — `re-frame.build.spec-resource` inlines committed `spec/` data at
+;; macro-expansion time and the lane inlines none, its only `spec/` mentions
+;; being prose in comments.
+;;
 ;; No `node_modules` of its own. `package.json` beside this file declares the
 ;; shadow-cljs pin so the CLI does not warn; the CLI is spawned from the
 ;; implementation install by `lane_build.cjs`, and `:node-modules-dir` points
@@ -34,9 +48,7 @@
                 "../../implementation/resources/test"
                 "../../implementation/routing/src"
                 "../../implementation/schemas/src"
-                "../../implementation/ssr/src"
-                "../../implementation/spec-resource/src"
-                "../../spec"]
+                "../../implementation/ssr/src"]
 
  :dependencies [[reagent            "2.0.1"]
                 [metosin/malli      "0.20.1"]
