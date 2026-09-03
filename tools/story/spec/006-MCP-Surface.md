@@ -167,7 +167,7 @@ data, so the egress classifies each payload as runtime/captured VALUE
   The `--allow-sensitive-reads` + per-call `:include-sensitive`
   opt-in is the deliberate way to cross any payload raw.
   This path-projection covers the live-state tools' `:app-db` /
-  `:rendered-hiccup` / `:snapshot` / evidence slots and assertion records
+  `:snapshot` / evidence slots and assertion records
   (`preview-variant` / `run-variant` / `read-failures`) and
   `read-a11y-violations`'s `:violations` (axe-core nodes). Those FOUR
   tools are the whole of the runtime-value class; no other tool reaches

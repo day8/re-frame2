@@ -404,7 +404,7 @@
                                          :tool        "snapshot"
                                          :hint        :narrow-scope}}
                ;; story-mcp emission (rf2-yxgcsz) — the `run-variant`
-               ;; payload (`:app-db` + `:rendered-hiccup` + `:snapshot`)
+               ;; payload (`:app-db` + `:snapshot` + the evidence slots)
                ;; can blow the cap; `wire_pipeline/invoke-tool` replaces it
                ;; via `base-cap/apply-cap`, whose `build-overflow-result`
                ;; surfaces the `overflow/overflow-payload` marker as the
@@ -417,7 +417,7 @@
                             :token-count 9300
                             :cap-tokens  5000
                             :tool        "run-variant"
-                            :hint        "Tighten scope: pass `:cell-overrides` to shrink the run, or omit `:active-modes`. The :app-db / :rendered-hiccup slots dominate; raise `max-tokens` (0 disables) if the full payload is genuinely needed."}}}}
+                            :hint        "Tighten scope: pass `:cell-overrides` to shrink the run, or omit `:active-modes`. The :app-db / :snapshot slots dominate; raise `max-tokens` (0 disables) if the full payload is genuinely needed."}}}}
 
    {:key      :rf.mcp/summary
     :schema   Summary
@@ -485,7 +485,7 @@
                ;; pin that the schema refuses it.
                ;; story-mcp emission (rf2-90eft) — the `run-variant`
                ;; payload re-keys the same `:app-db` value into
-               ;; `:rendered-hiccup` and `:snapshot`; dedup collapses
+               ;; `:snapshot` and the evidence slots; dedup collapses
                ;; those into a single cache slot referenced thrice. The
                ;; fixture pins that exact shape so a regression in the
                ;; cap-pipeline wiring (`tools/story-mcp/src/.../cap.cljc
@@ -493,7 +493,7 @@
                :story-mcp        {:rf.mcp/dedup-table
                                    {:de-dupe.cache/cache-0 {:frame :story.cart/full
                                                             :app-db :de-dupe.cache/cache-1
-                                                            :rendered-hiccup [:div.cart {:data-state :de-dupe.cache/cache-1}]
+                                                            :narrative [{:db-after :de-dupe.cache/cache-1}]
                                                             :snapshot {:body :de-dupe.cache/cache-1}}
                                     :de-dupe.cache/cache-1 {:cart {:items [] :total 0}}}}}}
 
