@@ -201,26 +201,23 @@
     (reset! (:render-tree mount) nil)
     (swap! active-mounts disj mount)))
 
-(defn- roll-back-speculative-children!
-  "Roll back every mount `parent` speculatively mounted during a render that
-  then threw. Each such child completed its own mount (so it is registered in
-  `active-mounts` with `mounted?` true) and was appended to `parent`'s
-  `:children`, but `parent` itself never registered — leaving the children
-  unreachable via the public unmount surface. Walk that recorded `:children`
-  subtree GRANDCHILDREN-first (mirroring React's leaf-upward teardown) and
-  force-tear each record down — the DESCENDANTS only, never `parent` itself.
-  Used by `mount-tree!`'s failed-INITIAL-mount rollback (which discards the
-  whole never-committed parent, so it drains just the children here and drops
-  the parent by never registering it) and by `force-teardown-subtree!` (which
-  adds the root record on top to unmount a whole live subtree)."
+(defn- force-teardown-descendants!
+  "Force-tear every descendant of `parent` down GRANDCHILDREN-first, mirroring
+  React's leaf-upward teardown. The descendants may be speculative mounts from
+  a render that threw or pre-existing children of an already-committed mount;
+  this function deliberately leaves `parent` itself untouched.
+
+  Used by `mount-tree!`'s failed-INITIAL-mount rollback (where the parent never
+  registers) and by `force-teardown-subtree!` (which tears the live subtree
+  root down after its descendants)."
   [parent]
   (doseq [child @(:children parent)]
-    (roll-back-speculative-children! child)
+    (force-teardown-descendants! child)
     (force-teardown-record! child)))
 
 (defn- force-teardown-subtree!
   "Force-tear a whole LIVE subtree down GRANDCHILDREN-first: drain every
-  descendant of `mount` via `roll-back-speculative-children!`, then force-tear
+  descendant of `mount` via `force-teardown-descendants!`, then force-tear
   the subtree root record itself via `force-teardown-record!`. Every node — the
   root AND all descendants (pre-existing children as well as any a failed render
   speculatively mounted) — leaves `active-mounts` with its render tree cleared.
@@ -230,10 +227,10 @@
   `trigger-update!`'s failed-UPDATE path: an uncaught update render error
   unmounts the whole already-committed root, mirroring React 18+ (see
   `run-render!`'s docstring — a throwing render propagates and React unmounts
-  the root). Contrast `roll-back-speculative-children!`, which drains DESCENDANTS
-  only because its caller's parent never committed."
+  the root). By contrast, `force-teardown-descendants!` deliberately drains
+  DESCENDANTS only and leaves the supplied parent for its caller to handle."
   [mount]
-  (roll-back-speculative-children! mount)
+  (force-teardown-descendants! mount)
   (force-teardown-record! mount))
 
 (defn- mount-tree!
@@ -281,7 +278,7 @@
         ;; Run the rollback in its OWN try so a defect there can never MASK the
         ;; render exception — the render error is what the caller must see.
         (try
-          (roll-back-speculative-children! mount)
+          (force-teardown-descendants! mount)
           (catch #?(:clj Throwable :cljs :default) _rollback-error
             nil))
         (throw render-error)))
@@ -536,7 +533,7 @@
   [mount]
   @(:render-tree mount))
 
-(defn mounted-roots
+(defn mounted-components
   "Return all currently-mounted `MountedComponent`s under this adapter — the
   whole live forest, parents AND recursively-mounted children (every mount,
   child or not, is registered in `active-mounts`). Useful for tests asserting
@@ -546,12 +543,28 @@
   []
   (filter (comp deref :mounted?) @active-mounts))
 
-(defn children
+(defn ^:deprecated mounted-roots
+  "Deprecated compatibility alias for `mounted-components`.
+
+  Despite its historical name, the result includes descendants as well as
+  roots. New callers should use `mounted-components`."
+  []
+  (mounted-components))
+
+(defn mounted-children
   "Return the live (still-mounted) child `MountedComponent`s a `mount` mounted
   from inside its own render body via `mount-child!`, in mount order. Useful
   for tests that walk the tree or assert a parent tore its children down."
   [mount]
   (filterv (comp deref :mounted?) @(:children mount)))
+
+(defn ^:deprecated children
+  "Deprecated compatibility alias for `mounted-children`.
+
+  Despite its historical name, the result contains only children that remain
+  mounted; the record's retained `:children` field can also contain dead mounts."
+  [mount]
+  (mounted-children mount))
 
 ;; ---- late-bind hook routing -----------------------------------------------
 ;; The Test-React adapter publishes only the React-context-tier fallback for

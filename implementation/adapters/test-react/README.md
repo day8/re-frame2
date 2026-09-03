@@ -60,13 +60,18 @@ timing, stay on Playwright.
          (mapv :phase (test-react/lifecycle-log mount)))))
 ```
 
+Use `test-react/mounted-components` to inspect the complete live forest (roots
+and descendants), and `test-react/mounted-children` to inspect one mount's live
+immediate children. The historical `mounted-roots` and `children` names remain
+as deprecated compatibility aliases.
+
 The `mount!` / `trigger-update!` / `unmount!` trio drive the simulator. The test owns the clock — there is no auto-re-render on app-db change (tests call `trigger-update!` explicitly after a dispatch settles). The adapter's own tests (`test/re_frame/adapter/test_react_cljs_test.cljc`) install/dispose the adapter directly via `re-frame.substrate.adapter` in a per-test `:each` fixture. Nothing forces you to use `re-frame.test-support/make-reset-runtime-fixture`, though that helper works here just as it does for the production adapters.
 
 ### Render bodies and recursive children
 
 A render tree may be plain opaque data (`[:div "hi"]` — most tests) or declare an imperative render body via the node shape `{:rf/component (fn [mount] ...)}`. The body runs during the render phase, while a render is in flight. From inside it you can:
 
-- mount children with `(test-react/mount-child! child-tree)` — the child runs its own `constructor → render → did-mount` lifecycle, is recorded under the parent (`test-react/children`), and is torn down children-first when the parent unmounts
+- mount children with `(test-react/mount-child! child-tree)` — the child runs its own `constructor → render → did-mount` lifecycle, is recorded under the parent (`test-react/mounted-children`), and is torn down children-first when the parent unmounts
 - issue an `unmount!` of any root — and if you unmount an ancestor or a separately-tracked sibling while the render is in flight, the guard fires `:rf.error/sync-unmount-during-render`
 
 ```clojure

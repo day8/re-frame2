@@ -100,20 +100,24 @@
              (mapv :phase (test-react/lifecycle-log mount)))
           "the simulated lifecycle records constructor, mount-render+did-mount, update-render+did-update, will-unmount"))))
 
-(deftest mounted-roots-and-current-render-tree
-  (testing "mounted-roots tracks live mounts; current-render-tree returns the latest hiccup"
+(deftest mounted-components-and-current-render-tree
+  (testing "mounted-components tracks live mounts; current-render-tree returns the latest hiccup"
     (let [mount (test-react/mount! [:div "initial"])]
-      (is (= 1 (count (test-react/mounted-roots))))
+      (is (= 1 (count (test-react/mounted-components))))
       (is (= [:div "initial"] (test-react/current-render-tree mount)))
       (test-react/trigger-update! mount [:div "updated"])
       (is (= [:div "updated"] (test-react/current-render-tree mount)))
       (test-react/unmount! mount)
-      (is (zero? (count (test-react/mounted-roots))))
+      ;; Exercise the compatibility alias after canonical-name coverage above.
+      (let [legacy-mounted-roots (deref #'test-react/mounted-roots)]
+        #_{:clj-kondo/ignore [:deprecated-var]}
+        (is (and (true? (:deprecated (meta #'test-react/mounted-roots)))
+                 (zero? (count (legacy-mounted-roots))))))
       (is (nil? (test-react/current-render-tree mount))))))
 
 (deftest unmount-actually-evicts-from-the-raw-active-set
   (testing "unmount! removes the mount from the RAW active-mounts set, not just
-            flips its :mounted? flag. mounted-roots filters by :mounted?, so it
+            flips its :mounted? flag. mounted-components filters by :mounted?, so it
             reports zero even if the dead record were left in the backing set —
             this pins the eviction directly. Regression for the
             base/mount record-identity disj mismatch: the unmount thunk must
@@ -166,14 +170,14 @@
           latest  (test-react/mount! [:div "SENTINEL-LATEST"])]
       (is (= [:div "SENTINEL-LATEST"] (test-react/current-render-tree latest))
           "mount! returned the record for the mount it just created")
-      (is (= 13 (count (test-react/mounted-roots)))
+      (is (= 13 (count (test-react/mounted-components)))
           "all thirteen mounts are live")
       ;; The unmount thunk on the returned record tears down the SENTINEL
       ;; mount specifically — not a neighbour.
       (test-react/unmount! latest)
       (is (nil? (test-react/current-render-tree latest))
           "unmounting the returned record tore down the correct (latest) mount")
-      (is (= 12 (count (test-react/mounted-roots)))
+      (is (= 12 (count (test-react/mounted-components)))
           "exactly one mount torn down; the other twelve remain live")
       ;; Drain the 12 still-live earlier mounts so the fixture's
       ;; dispose-adapter! has nothing surprising to forcibly tear down.
@@ -331,13 +335,17 @@
              (mapv :phase (test-react/lifecycle-log @child-ref)))
           "child recursed through its own class-3 mount lifecycle")
       ;; The forest holds both mounts; the parent records the child.
-      (is (= 2 (count (test-react/mounted-roots)))
+      (is (= 2 (count (test-react/mounted-components)))
           "parent + child are both live in the forest")
-      (is (= [@child-ref] (test-react/children parent))
-          "the child is recorded under the parent")
+      ;; Exercise the compatibility alias; later checks use mounted-children.
+      (let [legacy-children (deref #'test-react/children)]
+        #_{:clj-kondo/ignore [:deprecated-var]}
+        (is (and (true? (:deprecated (meta #'test-react/children)))
+                 (= [@child-ref] (legacy-children parent)))
+            "the deprecated alias remains callable and returns the live child"))
       ;; Unmounting the parent cascades to the child, children-first.
       (test-react/unmount! parent)
-      (is (zero? (count (test-react/mounted-roots)))
+      (is (zero? (count (test-react/mounted-components)))
           "parent unmount cascaded to the child — nothing leaks")
       (is (some #{:will-unmount} (mapv :phase (test-react/lifecycle-log @child-ref)))
           "the child saw its own :will-unmount during the cascade")
@@ -371,7 +379,7 @@
             in-flight state) — the rf2-4l7t2 bug condition, reproduced"
     ;; Mount panel A as a standalone root (the host's current child).
     (let [panel-a (test-react/mount! [:div.panel "A"])]
-      (is (= 1 (count (test-react/mounted-roots))))
+      (is (= 1 (count (test-react/mounted-components))))
       ;; The host re-renders to switch to panel B. The BUGGY render body
       ;; synchronously unmounts panel A's root mid-render (the senbl pattern
       ;; before the microtask-defer fix).
@@ -399,7 +407,7 @@
       ;; mount-tree! registers into active-mounts only AFTER run-render!
       ;; returns, so a throw mid-render never registers the host — the
       ;; partially-constructed root cannot leak into the live forest.
-      (is (= 1 (count (test-react/mounted-roots)))
+      (is (= 1 (count (test-react/mounted-components)))
           "only panel A is live — the throwing host never registered, no leak")
       ;; Panel A is still mounted — the guard short-circuited the unmount
       ;; before it could tear the root down (matching React: it refuses the
@@ -416,13 +424,13 @@
     (let [panel-a (test-react/mount! [:div.panel "A"])
           ;; Host re-renders to switch to B WITHOUT unmounting A mid-render.
           host    (test-react/mount! {:rf/component (fn [_host] :switched-to-B)})]
-      (is (= 2 (count (test-react/mounted-roots))))
+      (is (= 2 (count (test-react/mounted-components))))
       ;; Now that no render is in flight, unmounting panel A is safe (this is
       ;; what queueMicrotask buys you in the production fix).
       (is (false? (test-react/rendering?))
           "no render in flight after the host's render completed")
       (test-react/unmount! panel-a)        ; must NOT throw
-      (is (= 1 (count (test-react/mounted-roots)))
+      (is (= 1 (count (test-react/mounted-components)))
           "deferred unmount tore down panel A cleanly")
       (test-react/unmount! host))))
 
@@ -453,15 +461,15 @@
                   (fn [_host]
                     (test-react/mount-child! [:section "tracked-child"])
                     (reset! orphan-ref (test-react/mount! [:section "ORPHAN"])))})]
-      (is (= 3 (count (test-react/mounted-roots)))
+      (is (= 3 (count (test-react/mounted-components)))
           "host + tracked child + orphaned root are all live")
-      (is (= 1 (count (test-react/children host)))
+      (is (= 1 (count (test-react/mounted-children host)))
           "the host only KNOWS about the one tracked child (the orphan is untracked)")
       ;; Correct-looking teardown: unmount the host. Its cascade tears down the
       ;; tracked child — but cannot reach the untracked orphan.
       (test-react/unmount! host)
       ;; Symptom: the orphan is still mounted; the count never returned to zero.
-      (is (= 1 (count (test-react/mounted-roots)))
+      (is (= 1 (count (test-react/mounted-components)))
           "the orphaned root leaks — subscribe/dispose imbalance detected")
       (is (true? @(:mounted? @orphan-ref))
           "the specific leaked root is the orphan the host forgot to track")
@@ -477,19 +485,19 @@
                     (fn [_parent]
                       (test-react/mount-child! [:li "a"])
                       (test-react/mount-child! [:li "b"]))})]
-      (is (= 3 (count (test-react/mounted-roots))))
-      (is (= 2 (count (test-react/children parent)))
+      (is (= 3 (count (test-react/mounted-components))))
+      (is (= 2 (count (test-react/mounted-children parent)))
           "both children are tracked under the parent before teardown")
       ;; Correct teardown: just unmount the parent; the cascade tears every
       ;; child down leaf-first — no per-resource bookkeeping needed.
       (test-react/unmount! parent)
-      (is (zero? (count (test-react/mounted-roots)))
+      (is (zero? (count (test-react/mounted-components)))
           "cascade tore every child down — nothing leaks")
-      ;; `children` returns only STILL-MOUNTED children, so an empty result
+      ;; `mounted-children` returns only STILL-MOUNTED children, so an empty result
       ;; after teardown is a REAL framework property: the cascade set every
       ;; tracked child's mounted? false. A child the cascade failed to reach
       ;; would still read as mounted and show up here.
-      (is (empty? (test-react/children parent))
+      (is (empty? (test-react/mounted-children parent))
           "the parent's live-child set drained — the cascade reached every child"))))
 
 ;; ----------------------------------------------------------------------------
@@ -568,7 +576,7 @@
           "the ORIGINAL render exception propagates — rollback never masks it")
       (is (false? (test-react/rendering?))
           "run-render!'s finally restored render-depth to zero on unwind")
-      (is (zero? (count (test-react/mounted-roots)))
+      (is (zero? (count (test-react/mounted-components)))
           "the live forest is empty — the child mounted before the throw was
            rolled back, not leaked as a phantom live mount (this FAILS pre-fix)")
       (is (false? @(:mounted? @child-ref))
@@ -600,7 +608,7 @@
                                       (test-react/mount-child! [:span "leaf"])))}))
                  (throw (ex-info "boom-nested-parent" {})))}))
           "the original render exception escapes")
-      (is (zero? (count (test-react/mounted-roots)))
+      (is (zero? (count (test-react/mounted-components)))
           "no descendant leaks — child AND grandchild both left the forest
            (pre-fix this is 2)")
       (is (and (false? @(:mounted? @child-ref))
@@ -637,7 +645,7 @@
           "the child's render exception propagates out through the parent")
       (is (false? (test-react/rendering?))
           "every nested run-render! finally unwound render-depth to zero")
-      (is (zero? (count (test-react/mounted-roots)))
+      (is (zero? (count (test-react/mounted-components)))
           "the grandchild the failing child mounted was rolled back — no
            orphaned descendant survives the nested failure")
       (is (false? @(:mounted? @grandchild-ref))
@@ -650,7 +658,7 @@
     (let [survivor  (test-react/mount! [:div "survivor"])
           parent-ref (atom nil)
           child-ref  (atom nil)]
-      (is (= 1 (count (test-react/mounted-roots)))
+      (is (= 1 (count (test-react/mounted-components)))
           "precondition: exactly the survivor root is live")
       (is (thrown-with-msg?
             #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
@@ -665,7 +673,7 @@
       (is (zero? (phase-count @parent-ref :did-mount))
           "the throwing parent never reached :did-mount — a failed render does
            NOT emit the mount-completed phase")
-      (is (= [survivor] (test-react/mounted-roots))
+      (is (= [survivor] (test-react/mounted-components))
           "the ONLY live root is the pre-existing survivor: the parent never
            registered and the child was rolled back — no hidden leaked record
            remains in the live forest for a later test to trip over")
@@ -688,7 +696,7 @@
             child the same body mounted IS rolled back"
     (let [target    (test-react/mount! [:div.panel "target"])
           child-ref (atom nil)]
-      (is (= 1 (count (test-react/mounted-roots)))
+      (is (= 1 (count (test-react/mounted-components)))
           "precondition: only the guard's target root is live")
       (is (thrown-with-msg?
             #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
@@ -704,7 +712,7 @@
            not swallow or replace the render body's exception")
       (is (true? @(:mounted? target))
           "the guard refused the synchronous unmount — the target root survives")
-      (is (= [target] (test-react/mounted-roots))
+      (is (= [target] (test-react/mounted-components))
           "only the target is live: the host never registered and its tracked
            child was rolled back despite the render failing via the guard")
       (is (false? @(:mounted? @child-ref))
@@ -744,7 +752,7 @@
             the forest with cleared render trees, and NO :did-update is logged"
     (let [child-ref (atom nil)
           mount     (test-react/mount! [:div "committed-v1"])]
-      (is (= 1 (count (test-react/mounted-roots)))
+      (is (= 1 (count (test-react/mounted-components)))
           "precondition: the root is live on its committed tree")
       (is (thrown-with-msg?
             #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
@@ -764,7 +772,7 @@
       (is (nil? (test-react/current-render-tree mount))
           "the root's render tree was CLEARED — the throwing candidate is not
            exposed as committed (pre-fix the candidate leaked as current tree)")
-      (is (zero? (count (test-react/mounted-roots)))
+      (is (zero? (count (test-react/mounted-components)))
           "the live forest is empty — root AND its speculative child both left
            (pre-fix this is 2: candidate root + leaked child)")
       (is (false? @(:mounted? @child-ref))
@@ -794,9 +802,9 @@
                          (fn [_parent]
                            (reset! child-a-ref
                                    (test-react/mount-child! [:span "child-a"])))})]
-      (is (= 2 (count (test-react/mounted-roots)))
+      (is (= 2 (count (test-react/mounted-components)))
           "precondition: parent + pre-existing child A are live")
-      (is (= [@child-a-ref] (test-react/children parent))
+      (is (= [@child-a-ref] (test-react/mounted-children parent))
           "precondition: A is the parent's only tracked child")
       ;; Update fails after mounting a second child (B).
       (is (thrown-with-msg?
@@ -821,7 +829,7 @@
       (is (and (= 1 (phase-count @child-a-ref :forced-teardown))
                (= 1 (phase-count @child-b-ref :forced-teardown)))
           "each child recorded exactly one :forced-teardown")
-      (is (zero? (count (test-react/mounted-roots)))
+      (is (zero? (count (test-react/mounted-components)))
           "the live forest is empty — parent + both children all gone")
       (let [a-seq      (phase-first-seq @child-a-ref :forced-teardown)
             b-seq      (phase-first-seq @child-b-ref :forced-teardown)
@@ -856,7 +864,7 @@
           "the root was unmounted whole")
       (is (nil? (test-react/current-render-tree parent))
           "the root's render tree was cleared")
-      (is (zero? (count (test-react/mounted-roots)))
+      (is (zero? (count (test-react/mounted-components)))
           "no node leaks — root, child AND grandchild all left the forest
            (pre-fix this is 3)")
       (is (and (false? @(:mounted? @child-ref))
@@ -875,7 +883,7 @@
             the sibling and its committed tree are untouched"
     (let [sibling (test-react/mount! [:div "sibling"])
           target  (test-react/mount! [:div "target-v1"])]
-      (is (= 2 (count (test-react/mounted-roots)))
+      (is (= 2 (count (test-react/mounted-components)))
           "precondition: sibling + target both live")
       (is (thrown-with-msg?
             #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
@@ -897,7 +905,7 @@
           "the target root was unmounted whole by its failed update")
       (is (nil? (test-react/current-render-tree target))
           "the target's render tree was cleared")
-      (is (= [sibling] (test-react/mounted-roots))
+      (is (= [sibling] (test-react/mounted-components))
           "only the sibling remains live — the target and its speculative child
            are gone, the sibling is scoped out")
       (test-react/unmount! sibling))))
@@ -922,7 +930,7 @@
           "the root is unmounted after the failed update")
       (is (nil? (test-react/current-render-tree mount))
           "its render tree was cleared")
-      (is (zero? (count (test-react/mounted-roots)))
+      (is (zero? (count (test-react/mounted-components)))
           "the forest is empty")
       ;; The mount is genuinely dead — a later update must be rejected, not
       ;; silently re-render a torn-down root.
@@ -944,7 +952,7 @@
     (let [target    (test-react/mount! [:div.panel "target"])
           host      (test-react/mount! [:div "host-v1"])
           child-ref (atom nil)]
-      (is (= 2 (count (test-react/mounted-roots)))
+      (is (= 2 (count (test-react/mounted-components)))
           "precondition: guard target + host both live")
       (is (thrown-with-msg?
             #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
@@ -964,7 +972,7 @@
           "the host's render tree was cleared")
       (is (false? @(:mounted? @child-ref))
           "the child the host mounted before the guard tripped was torn down too")
-      (is (= [target] (test-react/mounted-roots))
+      (is (= [target] (test-react/mounted-components))
           "only the guard's target is live — host + its speculative child are gone")
       (test-react/unmount! target))))
 
@@ -1017,7 +1025,7 @@
           "second unmount! returns nil without throwing")
       (is (= 1 (phase-count mount :will-unmount))
           "second unmount! recorded NO additional :will-unmount — idempotent")
-      (is (zero? (count (test-react/mounted-roots)))
+      (is (zero? (count (test-react/mounted-components)))
           "the forest stays empty across the redundant teardown"))))
 
 ;; ---- mount-child! outside a render body throws ----------------------------
@@ -1034,7 +1042,7 @@
           #":rf.error/mount-child-outside-render"
           (test-react/mount-child! [:span "orphan"]))
         "mount-child! demands an in-flight render body")
-    (is (zero? (count (test-react/mounted-roots)))
+    (is (zero? (count (test-react/mounted-components)))
         "the failed mount-child! left nothing in the forest")))
 
 ;; ---- mount! under the wrong installed adapter throws ----------------------
@@ -1122,10 +1130,10 @@
     (let [thunk (substrate-adapter/render [:div "via-render"] nil nil)]
       (is (fn? thunk)
           ":render returns a callable unmount thunk")
-      (is (= 1 (count (test-react/mounted-roots)))
+      (is (= 1 (count (test-react/mounted-components)))
           "the :render entry point mounted exactly one root")
       (thunk)
-      (is (zero? (count (test-react/mounted-roots)))
+      (is (zero? (count (test-react/mounted-components)))
           "calling the returned thunk tore that root down")
       ;; The thunk is idempotent too — same contract as unmount!.
       (is (nil? (thunk))
@@ -1163,14 +1171,14 @@
       (is (false? (test-react/rendering?))
           "render-depth restored to zero after a two-level nested render
            unwound — the counter decrements each nested level independently")
-      (is (= 3 (count (test-react/mounted-roots)))
+      (is (= 3 (count (test-react/mounted-components)))
           "parent + child + grandchild all live")
-      (is (= [@child-ref] (test-react/children parent))
+      (is (= [@child-ref] (test-react/mounted-children parent))
           "child recorded under parent")
-      (is (= [@grandchild-ref] (test-react/children @child-ref))
+      (is (= [@grandchild-ref] (test-react/mounted-children @child-ref))
           "grandchild recorded under child — the tree is two levels deep")
       (test-react/unmount! parent)
-      (is (zero? (count (test-react/mounted-roots)))
+      (is (zero? (count (test-react/mounted-components)))
           "the whole forest drained — no orphaned descendant")
       (let [gc-seq     (phase-first-seq @grandchild-ref :will-unmount)
             child-seq  (phase-first-seq @child-ref :will-unmount)
