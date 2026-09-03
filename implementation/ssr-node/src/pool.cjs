@@ -145,7 +145,7 @@ class Pool {
           ),
         );
       }, this.admissionTimeoutMs);
-      waiter.timer.unref?.();
+      waiter.timer.unref();
       this.waiters.push(waiter);
     });
   }
