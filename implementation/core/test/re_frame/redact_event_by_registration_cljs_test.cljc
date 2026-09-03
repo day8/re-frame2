@@ -30,25 +30,25 @@
   runner both run it. Plain CLJC; no DOM dependency."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
-            [re-frame.classification :as classification]
-            [re-frame.privacy :as privacy]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as ts]))
+            [re-frame.classification :as rf.classification]
+            [re-frame.privacy :as rf.privacy]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (def ^:private eid :rf.i5su5y/login)
 
 (deftest payload-field-path-redacts
   (testing "a [[:password]] registration path redacts the payload's :password —
             payload-rooted, not outer-event-rooted"
-    (registrar/register! :event eid {:sensitive [[:password]]})
-    (let [out (classification/redact-event-by-registration
+    (rf.registrar/register! :event eid {:sensitive [[:password]]})
+    (let [out (rf.classification/redact-event-by-registration
                 [eid {:password "hunter2" :user "ann"}])]
       (is (= eid (first out)) "the event id is untouched")
-      (is (= privacy/redacted-sentinel (get-in out [1 :password]))
+      (is (= rf.privacy/redacted-sentinel (get-in out [1 :password]))
           "the declared payload path redacts")
       (is (= "ann" (get-in out [1 :user]))
           "an undeclared sibling payload field rides raw"))))
@@ -56,19 +56,19 @@
 (deftest whole-payload-mark-preserves-event-id
   (testing "the [[]] whole-shape mark redacts the ENTIRE payload while the
             event id is preserved — index 0 is never addressable"
-    (registrar/register! :event eid {:sensitive [[]]})
-    (let [out (classification/redact-event-by-registration
+    (rf.registrar/register! :event eid {:sensitive [[]]})
+    (let [out (rf.classification/redact-event-by-registration
                 [eid {:password "hunter2" :user "ann"}])]
-      (is (= [eid privacy/redacted-sentinel] out)
+      (is (= [eid rf.privacy/redacted-sentinel] out)
           "the whole payload redacts to the sentinel; the id survives"))))
 
 (deftest trailing-positional-arg-rides-raw
   (testing "outer positions 2+ pass through RAW — the documented positional
             fail-open; only the payload (second element) is path-addressable"
-    (registrar/register! :event eid {:sensitive [[:password]]})
-    (let [out (classification/redact-event-by-registration
+    (rf.registrar/register! :event eid {:sensitive [[:password]]})
+    (let [out (rf.classification/redact-event-by-registration
                 [eid {:password "hunter2"} "positional-secret"])]
-      (is (= privacy/redacted-sentinel (get-in out [1 :password]))
+      (is (= rf.privacy/redacted-sentinel (get-in out [1 :password]))
           "the payload path still redacts")
       (is (= "positional-secret" (nth out 2))
           "the trailing positional arg rides raw (fail-open, per Spec 015)"))))

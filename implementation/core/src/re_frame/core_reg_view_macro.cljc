@@ -16,8 +16,8 @@
 
   The expander helpers stay plain CLJ fns so CLJS test files can also
   exercise them JVM-side."
-  (:require [re-frame.error :as error]
-            [re-frame.source-coords :as source-coords]))
+  (:require [re-frame.error :as rf.error]
+            [re-frame.source-coords :as rf.source-coords]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -99,7 +99,7 @@
            ;; the view SYMBOL, and that `:file` is CLASSPATH-RELATIVE
            ;; (`"standard_epochs/core.cljs"`). If we let those ride into the
            ;; registry slot they become `user-meta` in
-           ;; `source-coords/merge-coords`, where user keys WIN over the
+           ;; `rf.source-coords/merge-coords`, where user keys WIN over the
            ;; pending coords — so the relative reader `:file` clobbers the
            ;; rf2-wvsxg-absolutised value bound into `*pending-coords*` (see
            ;; `coord-form` below), shipping a relative `:file` into
@@ -116,7 +116,7 @@
                              :rf/id
                              :file :line :column :source :end-line :end-column)]
        (when (nil? parsed)
-         (error/throw-error!
+         (rf.error/throw-error!
            :rf.error/reg-view-bad-args
            'rf/reg-view
            (str "reg-view's second argument must be an args vector "
@@ -151,16 +151,16 @@
              ;; unconditionally by `dispatch!` (router.cljc) — so the prod
              ;; branch still carries `{:source :ui}`, just no call-site.
              coord-form `(if re-frame.interop/debug-enabled?
-                           ~(source-coords/coords-form      form-meta current-file current-ns-sym)
-                           ~(source-coords/prod-coords-form form-meta current-file current-ns-sym))
+                           ~(rf.source-coords/coords-form      form-meta current-file current-ns-sym)
+                           ~(rf.source-coords/prod-coords-form form-meta current-file current-ns-sym))
              dispatch-opts-form
              `(if re-frame.interop/debug-enabled?
                 {:source :ui :rf.trace/call-site
-                 ~(source-coords/coords-form form-meta current-file current-ns-sym)}
+                 ~(rf.source-coords/coords-form form-meta current-file current-ns-sym)}
                 {:source :ui})
              sub-coord-form
              `(if re-frame.interop/debug-enabled?
-                ~(source-coords/coords-form form-meta current-file current-ns-sym)
+                ~(rf.source-coords/coords-form form-meta current-file current-ns-sym)
                 nil)
              ;; Wrapper fn carries form-tag on its own meta so renderers
              ;; reaching it via `(rf/view :id)` see the tag without a
@@ -237,7 +237,7 @@
      [frame-id body]
      (cond
        (vector? frame-id)
-       (error/throw-error!
+       (rf.error/throw-error!
          :rf.error/with-frame-vector-form
          'rf/with-frame
          (str "with-frame pins to an existing frame-id (keyword). "
@@ -268,7 +268,7 @@
        ;; Common mistake: passed a keyword instead of `[sym expr]`. The
        ;; caller meant `with-frame` (pin form). Reject loudly.
        (keyword? bindings)
-       (error/throw-error!
+       (rf.error/throw-error!
          :rf.error/with-new-frame-keyword-form
          'rf/with-new-frame
          (str "with-new-frame evals, binds, runs, and destroys. "
@@ -285,7 +285,7 @@
        ;; carries the offending value. Reject at compile time per Spec 002
        ;; §with-frame.
        :else
-       (error/throw-error!
+       (rf.error/throw-error!
          :rf.error/with-new-frame-bad-binding
          'rf/with-new-frame
          (str "with-new-frame's binding must be [sym expr]; got "

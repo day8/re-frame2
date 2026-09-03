@@ -29,11 +29,11 @@
   CLJS build, whose source paths include `../examples/core`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.reply :as reply]
-            [re-frame.http.registry :as http-registry]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]
+            [re-frame.frame :as rf.frame]
+            [re-frame.reply :as rf.reply]
+            [re-frame.http.registry :as rf.http.registry]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]
             ;; Requiring the entry ns fires the example's ns-load
             ;; reg-event / reg-fx / reg-sub / reg-view forms (and,
             ;; transitively, the managed-HTTP fx family) against the live
@@ -43,8 +43,8 @@
 ;; `:ambient-frame nil` — these tests create + drive their own anon frames with
 ;; an explicit `{:frame f}`; no ambient `:rf/default` scope is wanted.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       reagent-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.reagent/adapter
      :ambient-frame nil}))
 
 (defn- start-long-frame!
@@ -53,14 +53,14 @@
   fires `:http-counter/seed-long-request` to record a request-id-keyed handle
   in the in-flight registry. Returns the frame."
   []
-  (let [f (frame/make-anon-frame-record! {:doc "managed-http-counter test frame"})]
+  (let [f (rf.frame/make-anon-frame-record! {:doc "managed-http-counter test frame"})]
     (rf/dispatch-sync [:http-counter/start-long] {:frame f})
     f))
 
 (deftest cancellation-reply-satisfies-uniform-reply-contract
   (let [f         (start-long-frame!)
         delivered (atom [])]
-    (is (some? (http-registry/lookup-in-flight mhc/long-request-id))
+    (is (some? (rf.http.registry/lookup-in-flight mhc/long-request-id))
         "Start long seeds the request-id-keyed handle into the in-flight registry")
 
     ;; Swap in a capturing handler so the reply the example's abort closure
@@ -81,14 +81,14 @@
 
     (is (= 1 (count @delivered))
         "exactly one cancellation reply is delivered")
-    (is (nil? (http-registry/lookup-in-flight mhc/long-request-id))
+    (is (nil? (rf.http.registry/lookup-in-flight mhc/long-request-id))
         "the in-flight registry slot is cleared by the abort closure")
 
     (let [reply (first @delivered)]
       (testing "the hand-built reply satisfies the uniform reply contract"
-        (is (reply/valid-reply? reply)
+        (is (rf.reply/valid-reply? reply)
             (str "re-frame.reply/validate-reply must accept the reply; problems="
-                 (pr-str (reply/validate-reply reply)))))
+                 (pr-str (rf.reply/validate-reply reply)))))
       (testing "it carries the canonical cancellation facts"
         (is (= :cancelled (:status reply)))
         (is (true? (:cancelled? reply)))
@@ -108,9 +108,9 @@
                         (-> reply
                             (dissoc :rf.reply/cancel-reason)
                             (assoc :cancel/reason :user))]]
-          (is (not (reply/valid-reply? broken)))
+          (is (not (rf.reply/valid-reply? broken)))
           (is (= :rf.reply/cancelled-missing-reason
-                 (:rf.reply/problem (first (reply/validate-reply broken))))))))))
+                 (:rf.reply/problem (first (rf.reply/validate-reply broken))))))))))
 
 (deftest cancel-restores-idle-and-records-the-aborted-error
   (testing "the real reply path returns the UI to :idle and records the :rf.http/aborted error"
@@ -124,5 +124,5 @@
             "the abort reply eases the UI back to :idle")
         (is (= :rf.http/aborted (get-in db [:http-counter/error :kind]))
             "the classified :rf.http/aborted error is recorded for the view")
-        (is (nil? (http-registry/lookup-in-flight mhc/long-request-id))
+        (is (nil? (rf.http.registry/lookup-in-flight mhc/long-request-id))
             "the in-flight registry slot is cleared")))))

@@ -23,29 +23,29 @@
   remains a no-op (the validator is never consulted)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.cofx :as cofx]
-            [re-frame.error-emit :as error-emit]
-            [re-frame.event-emit :as event-emit]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
+            [re-frame.cofx :as rf.cofx]
+            [re-frame.error-emit :as rf.error-emit]
+            [re-frame.event-emit :as rf.event-emit]
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.schemas :as rf.schemas]
             [re-frame.schemas.malli]
-            [re-frame.subs.memo :as memo]
-            [re-frame.subs.override-schema :as override-schema]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace])
+            [re-frame.subs.memo :as rf.subs.memo]
+            [re-frame.subs.override-schema :as rf.subs.override-schema]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace :as rf.trace])
   (:import [clojure.lang ExceptionInfo]))
 
 (defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (schemas/clear-schemas-by-frame!)
-  (schemas/reset-schema-validator!)
-  (trace/clear-listeners!)
-  (error-emit/clear-error-listeners!)
-  (event-emit/clear-event-listeners!)
-  (rf/init! plain-atom/adapter)
-  ;; `registrar/clear-all!` drops the framework-standard registrations;
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.schemas/clear-schemas-by-frame!)
+  (rf.schemas/reset-schema-validator!)
+  (rf.trace/clear-listeners!)
+  (rf.error-emit/clear-error-listeners!)
+  (rf.event-emit/clear-event-listeners!)
+  (rf/init! rf.substrate.plain-atom/adapter)
+  ;; `rf.registrar/clear-all!` drops the framework-standard registrations;
   ;; `init!` re-seeds them. Reloading the schemas artefact republishes the
   ;; late-bind validation hooks these seams reach through (mirrors
   ;; `re-frame.always-on-validation-production-test`).
@@ -55,7 +55,7 @@
     (rf/with-frame :rf/default
       (test-fn))
     (finally
-      (schemas/reset-schema-validator!))))
+      (rf.schemas/reset-schema-validator!))))
 
 (use-fixtures :each reset-runtime)
 
@@ -64,7 +64,7 @@
   returns false. Returns the recording atom."
   []
   (let [seen (atom [])]
-    (schemas/set-schema-validator!
+    (rf.schemas/set-schema-validator!
       (fn [schema _value] (swap! seen conj schema) false))
     seen))
 
@@ -72,7 +72,7 @@
 ;; surface is the EP-0017 satisfaction pipeline); reach it through its var
 ;; for the focused seam pin.
 (def ^:private validate-recordable-value!
-  @#'cofx/validate-recordable-value!)
+  @#'rf.cofx/validate-recordable-value!)
 
 ;; ===========================================================================
 ;; Recordable cofx — present falsey token delegated; the hard error fires
@@ -111,7 +111,7 @@
                   "sub's metadata is delegated verbatim; the false verdict "
                   "recovers to nil (:replaced-with-default)")
       (let [seen (spy-validator!)]
-        (is (nil? (override-schema/validate-sub-override!
+        (is (nil? (rf.subs.override-schema/validate-sub-override!
                     {:pinned :state} [:sub/x] {:schema token} nil))
             "override value replaced with nil on the false verdict")
         (is (= [token] @seen)
@@ -121,7 +121,7 @@
   (testing "an ABSENT :schema key passes the override value through unchecked"
     (let [seen (spy-validator!)]
       (is (= {:pinned :state}
-             (override-schema/validate-sub-override!
+             (rf.subs.override-schema/validate-sub-override!
                {:pinned :state} [:sub/x] {:doc "no schema"} nil)))
       (is (= [] @seen) "the validator was never consulted"))))
 
@@ -140,7 +140,7 @@
                   "seam for a present " (pr-str token) " :schema; the false "
                   "verdict recovers to nil")
       (let [seen (spy-validator!)]
-        (is (nil? (memo/maybe-validate-sub! 42 [:sub/x] :sub/x
+        (is (nil? (rf.subs.memo/maybe-validate-sub! 42 [:sub/x] :sub/x
                                             {:schema token} nil))
             "sub return replaced with nil on the false verdict")
         (is (= [token] @seen)
@@ -149,8 +149,8 @@
 (deftest memo-gate-omitted-key-is-a-no-op
   (testing "an ABSENT :schema key returns the sub value unchecked"
     (let [seen (spy-validator!)]
-      (is (= 42 (memo/maybe-validate-sub! 42 [:sub/x] :sub/x {:doc "x"} nil)))
-      (is (= 42 (memo/maybe-validate-sub! 42 [:sub/x] :sub/x nil nil))
+      (is (= 42 (rf.subs.memo/maybe-validate-sub! 42 [:sub/x] :sub/x {:doc "x"} nil)))
+      (is (= 42 (rf.subs.memo/maybe-validate-sub! 42 [:sub/x] :sub/x nil nil))
           "nil sub-meta is 'no declaration' too")
       (is (= [] @seen) "the validator was never consulted"))))
 

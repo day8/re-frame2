@@ -34,7 +34,7 @@
   postures.
 
   What the trace genuinely owns, and what therefore sits inside
-  `(when interop/debug-enabled? ...)` arms, is the CAPTURE: the tag rides
+  `(when rf.interop/debug-enabled? ...)` arms, is the CAPTURE: the tag rides
   `:rf.event/run-start`, and a fn-valued override is MARKER-IZED to
   `:rf/fn-override` at the emission site so the fn never reaches the tag. That
   marker-ization exists only on the emit path; the envelope holds the raw fn,
@@ -48,19 +48,19 @@
   claim that survives."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.interop :as interop]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]))
+            [re-frame.interop :as rf.interop]
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace :as rf.trace]))
 
 (defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (schemas/clear-schemas-by-frame!)
-  (trace/clear-listeners!)
-  (rf/init! plain-atom/adapter)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.schemas/clear-schemas-by-frame!)
+  (rf.trace/clear-listeners!)
+  (rf/init! rf.substrate.plain-atom/adapter)
   (require 're-frame.routing :reload)
   (rf/make-frame {:id :rf/default})
   (rf/with-frame :rf/default
@@ -80,7 +80,7 @@
 
 (defn- run-start-tags
   "Register the shared `:ovc/run` handler (each `:each` fixture wipes the
-  registrar via `registrar/clear-all!`, so this must be re-registered per call,
+  registrar via `rf.registrar/clear-all!`, so this must be re-registered per call,
   not once at namespace load), dispatch `event-v` (with optional
   `dispatch-opts`), and return the single `:rf.event/run-start` trace event's
   `:tags` map — nil in production posture, where nothing is emitted.
@@ -100,7 +100,7 @@
          (rf/dispatch-sync event-v dispatch-opts)
          (rf/dispatch-sync event-v))
        (let [run-starts (filterv #(= :rf.event/run-start (:operation %)) @acc)]
-         (when interop/debug-enabled?
+         (when rf.interop/debug-enabled?
            (is (= 1 (count run-starts))
                "exactly one :rf.event/run-start emit per dispatch"))
          (:tags (first run-starts)))
@@ -120,7 +120,7 @@
       ;; ---- rf2-d2841 dev arm. VACUOUS OUTSIDE IT: under the gate `tags` is
       ;;      nil and `(contains? nil k)` is false for every key, so both rows
       ;;      would certify "absent" over an emit that never happened.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (not (contains? tags :rf.event/fx-overrides)))
         (is (not (contains? tags :rf.event/interceptor-overrides)))))))
 
@@ -132,7 +132,7 @@
       ;; ALWAYS-ON (rf2-d2841): the composed envelope IS the thing captured.
       (is (= {:ovc/real :ovc/stub} (:fx-overrides @captured-envelope))
           "the id-redirect composes onto the dispatch envelope")
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (= {:ovc/real :ovc/stub} (:rf.event/fx-overrides tags)))))))
 
 (deftest fn-valued-fx-override-is-marker-ized
@@ -145,7 +145,7 @@
       (is (fn? (:ovc/real (:fx-overrides @captured-envelope)))
           "the envelope carries the fn value itself")
       ;; rf2-d2841 — the marker-ization exists only on the emit path.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (= {:ovc/real :rf/fn-override} (:rf.event/fx-overrides tags)))))))
 
 (deftest lexical-with-fx-overrides-merges-under-per-call
@@ -158,7 +158,7 @@
       (is (= {:ovc/lexical :ovc/lexical-stub}
              (:fx-overrides @captured-envelope))
           "the lexical binding merges onto the dispatch envelope")
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (= {:ovc/lexical :ovc/lexical-stub} (:rf.event/fx-overrides tags)))))
     (testing "per-call wins over lexical on key collision"
       (let [tags (rf/with-fx-overrides {:ovc/dual :ovc/from-lexical}
@@ -166,7 +166,7 @@
                                    {:fx-overrides {:ovc/dual :ovc/from-call}}))]
         (is (= {:ovc/dual :ovc/from-call} (:fx-overrides @captured-envelope))
             "per-call wins over lexical on the envelope itself")
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (= {:ovc/dual :ovc/from-call} (:rf.event/fx-overrides tags))))))))
 
 (deftest interceptor-override-rides-verbatim
@@ -178,7 +178,7 @@
       ;; ALWAYS-ON (rf2-d2841).
       (is (= expected (:interceptor-overrides @captured-envelope))
           "the parameterized [id arg] key rides the envelope verbatim")
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (= expected (:rf.event/interceptor-overrides tags)))))))
 
 (deftest per-frame-only-fx-override-is-not-captured
@@ -199,10 +199,10 @@
         (is (empty? (:fx-overrides @captured-envelope))
             "the per-frame tier does not compose onto the envelope")
         (is (= {:ovc/real :ovc/stub}
-               (:fx-overrides (:config (frame/frame :ovc/framed))))
+               (:fx-overrides (:config (rf.frame/frame :ovc/framed))))
             "...while the frame really does declare it (the contrast that makes
              the row above a discrimination rather than an empty read)")
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (let [run-starts (filterv #(= :rf.event/run-start (:operation %)) @acc)
                 tags       (:tags (first run-starts))]
             (is (= 1 (count run-starts)))

@@ -10,7 +10,7 @@
 
   The warning is observational: the dispatch proceeds unchanged
   (`:recovery :no-recovery`). It is dev-only — gated on
-  `interop/debug-enabled?`, so production (`:advanced` +
+  `rf.interop/debug-enabled?`, so production (`:advanced` +
   `goog.DEBUG=false`) DCEs the whole surface (the elision probe verifies
   that separately).
 
@@ -26,7 +26,7 @@
 
   The warning surface is dev-only BY DESIGN (see the paragraph above), so
   every assertion ABOUT the warning — positive and negative alike — is kept
-  verbatim inside a `(when interop/debug-enabled? …)` arm marked `rf2-d2841`.
+  verbatim inside a `(when rf.interop/debug-enabled? …)` arm marked `rf2-d2841`.
   The negatives move with the positives and that is the point, not tidiness:
   `(is (empty? (unknown-opt-warnings recorded)))` over an empty trace stream
   passes under `-Dre-frame.debug=false` whatever the opts map contained, so
@@ -41,23 +41,23 @@
   envelope-reads` is pure data and needs no posture at all."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.registrar :as registrar]
-            [re-frame.router.diagnostics :as diag]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as ts]
-            [re-frame.trace :as trace]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.router.diagnostics :as rf.router.diagnostics]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.trace :as rf.trace]))
 
 ;; ---- fixtures -------------------------------------------------------------
 
 (defn reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (trace/clear-listeners!)
-  (rf/init! plain-atom/adapter)
-  (frame/ensure-default-frame!)
-  (binding [frame/*current-frame* :rf/default]
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.trace/clear-listeners!)
+  (rf/init! rf.substrate.plain-atom/adapter)
+  (rf.frame/ensure-default-frame!)
+  (binding [rf.frame/*current-frame* :rf/default]
     (test-fn)))
 
 (use-fixtures :each reset-runtime)
@@ -110,7 +110,7 @@
           "the unknown opt is OBSERVATIONAL — the dispatch still reached the handler")
 
       ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [warns (unknown-opt-warnings recorded)]
           (is (= 1 (count warns))
               (str "expected exactly one unknown-opt warning, got "
@@ -141,7 +141,7 @@
           "two unknown opts alongside a legitimate :origin still dispatch")
 
       ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [warns (unknown-opt-warnings recorded)]
           (is (= 1 (count warns)) "one warning for the whole call, not one per bad key")
           (let [t (:tags (first warns))]
@@ -164,7 +164,7 @@
       ;; rf2-d2841 — dev-instrumentation arm. A NEGATIVE over the trace
       ;; stream: under the gate it is empty for every opts map, so outside the
       ;; arm this would certify :frame as recognised for free.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (empty? (unknown-opt-warnings recorded))
             ":frame is a recognised opt — no warning")))))
 
@@ -182,7 +182,7 @@
           "a dispatch carrying every known opt still reaches the handler")
       ;; rf2-d2841 — dev-instrumentation arm. Same wholesale-empty-stream
       ;; false-green shape as `no-warning-for-known-opts`.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (empty? (unknown-opt-warnings recorded))
             "every key here is in known-dispatch-opts")))))
 
@@ -195,7 +195,7 @@
       (is (landed? :rf/default :app/noop)
           "the no-opts dispatch path reaches the handler")
       ;; rf2-d2841 — dev-instrumentation arm. Same false-green shape as above.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (empty? (unknown-opt-warnings recorded))
             "empty opts map has no unknown keys")))))
 
@@ -210,14 +210,14 @@
       ;; ALWAYS-ON WITNESS (rf2-d2841): the queued path is observational too —
       ;; the unknown key does not stop the enqueued event from draining. The
       ;; ENQUEUE is synchronous (build-envelope, where the check lives, runs on
-      ;; the caller's thread); the DRAIN is not — `interop/next-tick` submits
+      ;; the caller's thread); the DRAIN is not — `rf.interop/next-tick` submits
       ;; to a single-thread executor with no return-before-start guarantee — so
       ;; the marker is polled rather than read straight back.
-      (is (ts/poll-until #(landed? :rf/default :app/noop)
+      (is (rf.test-support/poll-until #(landed? :rf/default :app/noop)
                          {:label "queued dispatch drains despite the unknown opt"})
           "the queued dispatch drained despite the unknown opt")
       ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (= 1 (count (unknown-opt-warnings recorded)))
             "build-envelope is the single chokepoint — both dispatch paths funnel through it")))))
 
@@ -239,7 +239,7 @@
           "both :initial-events setup steps dispatched and landed, last-wins")
       ;; rf2-d2841 — dev-instrumentation arm. Same false-green shape as the
       ;; other negatives in this file.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (empty? (unknown-opt-warnings recorded))
             ":step-index is an honoured build-envelope opt, not an unknown key")))))
 
@@ -267,4 +267,4 @@
              :source-detail :origin :rf.cofx :rf.cofx/mint-policy
              :rf.trace/call-site :rf.machine/internal? :rf.flow/settle?
              :step-index :rf.frame/expected-incarnation}
-           diag/known-dispatch-opts))))
+           rf.router.diagnostics/known-dispatch-opts))))

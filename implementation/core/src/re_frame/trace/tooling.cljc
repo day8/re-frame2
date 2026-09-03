@@ -61,8 +61,8 @@
   short-circuit cleanly.
 
   Per Spec 009 §Per-frame trace rings."
-  (:require [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
+  (:require [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
             ;; rf2-ih437c: `event-bundle` reuses the six-domino fold
             ;; (`absorb` over `empty-event-bundle`) from the projection ns
             ;; rather than re-inlining the classification cond. Both nss
@@ -70,7 +70,7 @@
             ;; `trace-tooling` bundle-isolation entry pins tooling's
             ;; absence from the counter bundle); projection carries no
             ;; requires of its own, so this edge introduces no cycle.
-            [re-frame.trace.projection :as projection]))
+            [re-frame.trace.projection :as rf.trace.projection]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -198,7 +198,7 @@
   publication around it. This makes the store respect the frame registry's
   winner without a second ownership registry."
   [frame-id override? retained current?]
-  (when (and interop/debug-enabled?
+  (when (and rf.interop/debug-enabled?
              (or (not override?)
                  (and (number? retained) (not (neg? retained)))))
     (swap! trace-rings
@@ -220,7 +220,7 @@
   ring state in memory. Per Spec 002 §Destroy and Spec 009 §Per-frame
   trace rings."
   [frame-id]
-  (when interop/debug-enabled?
+  (when rf.interop/debug-enabled?
     (swap! trace-rings dissoc frame-id))
   nil)
 
@@ -247,7 +247,7 @@
 
   No-op in production (production never reaches the emit site)."
   [ev]
-  (when interop/debug-enabled?
+  (when rf.interop/debug-enabled?
     (let [dispatch-id (get-in ev [:tags :rf.trace/dispatch-id])
           frame-id    (get-in ev [:tags :frame])]
       ;; Frameless emits (no in-flight run) skip the ring. The B3
@@ -356,13 +356,13 @@
     re-clear is suppressed.
 
   Dev-only — no-op (returns true, allow-by-default) in production. The
-  registrar's emit sites stay gated on `interop/debug-enabled?` so prod
+  registrar's emit sites stay gated on `rf.interop/debug-enabled?` so prod
   never reaches this fn at all.
 
   Per Spec 009 §Hot-reload dedup."
   [operation kind id meta]
   (cond
-    (not interop/debug-enabled?) true
+    (not rf.interop/debug-enabled?) true
 
     (or (= operation :rf.registry/handler-registered)
         (= operation :rf.registry/handler-replaced))
@@ -405,15 +405,15 @@
   (the `group-by-event` shape, per run / dequeued event).
 
   rf2-ih437c: folds with `re-frame.trace.projection/absorb` over
-  `projection/empty-event-bundle` — the canonical six-domino classification
+  `rf.trace.projection/empty-event-bundle` — the canonical six-domino classification
   + slot set — rather than re-inlining the bucketing cond + the six
   `*-bucket?`/`*-marker?` predicates a second time. The seed map carries
   the extra `:trace-events` slot the event-bundle wire shape needs;
   `absorb` only writes the domino slots, so `:trace-events` (and the
   pre-seeded `:dispatch-id` / `:frame`) survive the fold untouched."
   [frame-id dispatch-id events]
-  (reduce projection/absorb
-          (assoc projection/empty-event-bundle
+  (reduce rf.trace.projection/absorb
+          (assoc rf.trace.projection/empty-event-bundle
                  :dispatch-id  dispatch-id
                  :frame        frame-id
                  :trace-events events)
@@ -547,7 +547,7 @@
   Per Spec 009 §`trace-buffer` API."
   ([frame-id] (trace-buffer frame-id {}))
   ([frame-id opts]
-   (if-not interop/debug-enabled?
+   (if-not rf.interop/debug-enabled?
      []
      (let [rings @trace-rings]
        (if (:flat opts)
@@ -559,7 +559,7 @@
   sessions. No-op for an unknown frame, no-op in production. Per Spec
   009 §`trace-buffer` API."
   [frame-id]
-  (when interop/debug-enabled?
+  (when rf.interop/debug-enabled?
     (swap! trace-rings
            (fn [rings]
              (if (contains? rings frame-id)
@@ -578,7 +578,7 @@
   table. Test-fixture / `clear-all!`-shaped helper — symmetric with
   the listener registry's `clear-listeners!`. Production no-op."
   []
-  (when interop/debug-enabled?
+  (when rf.interop/debug-enabled?
     (reset! trace-rings {})
     (reset! process-events-retained default-events-retained)
     (clear-dedup-table!))
@@ -608,7 +608,7 @@
 
   No-op in production. Returns nil."
   [{:keys [events-retained] :as opts}]
-  (when (and interop/debug-enabled?
+  (when (and rf.interop/debug-enabled?
              (not (and (number? events-retained)
                        (not (neg? events-retained)))))
     ;; Loud-not-silent: a config call that supplied opts we can't apply
@@ -621,7 +621,7 @@
     ;; `{:severity :warning}` `trace-buffer` filter must catch this
     ;; emit, which `match-event?`'s `:severity` key matches against
     ;; `(:op-type ev)` (rf2-ho20xj).
-    (when-let [emit! (late-bind/get-fn :trace/emit!)]
+    (when-let [emit! (rf.late-bind/get-fn :trace/emit!)]
       (emit! :warning :rf.warning/trace-buffer-unrecognised-opts
              {:category :rf.warning/trace-buffer-unrecognised-opts
               :opts     opts
@@ -630,7 +630,7 @@
                               "integer; got " (pr-str opts) ". Retention is "
                               "unchanged. The retired {:depth N} shape is not "
                               "supported — use {:events-retained N}.")})))
-  (when (and interop/debug-enabled?
+  (when (and rf.interop/debug-enabled?
              (number? events-retained)
              (not (neg? events-retained)))
     (reset! process-events-retained events-retained)
@@ -1174,7 +1174,7 @@
   the whole deferral machinery — and there, with no listener registry, there is
   nothing to defer regardless."
   [f flush-scope]
-  (if (or (not interop/debug-enabled?)
+  (if (or (not rf.interop/debug-enabled?)
           (current-deferred-fanout-queue))
     (f)
     (let [deferred-queue (volatile! [])]
@@ -1265,7 +1265,7 @@
        #?(:clj  (locking fanout-monitor (run-outermost-fanout! [[event continue?]]))
           :cljs (run-outermost-fanout! [[event continue?]]))))))
 
-(late-bind/set-fn! :trace.tooling/deliver! deliver-to-tooling!)
+(rf.late-bind/set-fn! :trace.tooling/deliver! deliver-to-tooling!)
 
 ;; rf2-uoy6m: the drain seam reaches the post-drain deferral wrapper through this
 ;; hook on CLJS. `re-frame.trace/call-with-deferred-listener-delivery` is called
@@ -1274,7 +1274,7 @@
 ;; body out of the counter bundle (`check-bundle-isolation.cjs`). Late-bind carries
 ;; no static edge — identical isolation posture to `:trace.tooling/deliver!` above.
 ;; The JVM drain calls `call-with-deferred-fanout` directly (no DCE concern there).
-(late-bind/set-fn! :trace.tooling/call-with-deferred-fanout call-with-deferred-fanout)
+(rf.late-bind/set-fn! :trace.tooling/call-with-deferred-fanout call-with-deferred-fanout)
 
 ;; `re-frame.core/configure!`'s `:trace-buffer` key routes through this hook so
 ;; consumer call sites don't have to thread the tooling-ns require
@@ -1286,7 +1286,7 @@
 ;; `configure` is a low-traffic op so the extra indirection costs
 ;; nothing on the hot path.
 
-(late-bind/set-fn! :trace.tooling/configure-trace-buffer! configure-trace-buffer!)
+(rf.late-bind/set-fn! :trace.tooling/configure-trace-buffer! configure-trace-buffer!)
 
 ;; Per rf2-r1ciy: `re-frame.frame/fire-on-destroy-event!` installs a one-
 ;; shot trace listener around the `:on-destroy` dispatch so it can
@@ -1297,17 +1297,17 @@
 ;; nothing to observe), so we route through late-bind here — identical
 ;; pattern to `:trace.tooling/deliver!` above.
 
-(late-bind/set-fn! :trace.tooling/register-listener!   register-listener!)
-(late-bind/set-fn! :trace.tooling/unregister-listener! unregister-listener!)
+(rf.late-bind/set-fn! :trace.tooling/register-listener!   register-listener!)
+(rf.late-bind/set-fn! :trace.tooling/unregister-listener! unregister-listener!)
 
 ;; Per rf2-g1b2m / rf2-8uwce — published hooks for B4 dedup-by-shape
 ;; (consulted by the registrar at emit time) and frame-destroy ring
 ;; cleanup (consulted by `destroy-frame!` per Spec 002 §Destroy).
 
-(late-bind/set-fn! :trace.tooling/dedup-allow?        dedup-allow?)
-(late-bind/set-fn! :trace.tooling/clear-dedup-table!  clear-dedup-table!)
-(late-bind/set-fn! :trace.tooling/release-frame-ring! release-frame-ring!)
-(late-bind/set-fn! :trace.tooling/apply-frame-events-retained-policy!
+(rf.late-bind/set-fn! :trace.tooling/dedup-allow?        dedup-allow?)
+(rf.late-bind/set-fn! :trace.tooling/clear-dedup-table!  clear-dedup-table!)
+(rf.late-bind/set-fn! :trace.tooling/release-frame-ring! release-frame-ring!)
+(rf.late-bind/set-fn! :trace.tooling/apply-frame-events-retained-policy!
                    apply-frame-events-retained-policy!)
 
 ;; ---- bundle-isolation sentinel ------------------------------------------
@@ -1319,7 +1319,7 @@
 ;; counter bundle proves that the tooling sibling's body got pulled in
 ;; (most likely via a stray `:require` from a core/* ns). The sentinel
 ;; survives `:advanced` because string literals are not renamed; it
-;; sits outside any `interop/debug-enabled?` gate so DCE cannot drop
+;; sits outside any `rf.interop/debug-enabled?` gate so DCE cannot drop
 ;; the literal independently of the surrounding ns body.
 
 (defonce ^:private bundle-isolation-sentinel

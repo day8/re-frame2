@@ -18,12 +18,12 @@
 
   ## Posture split (rf2-d2841)
 
-  The GUARD is production behaviour; its REPORT is not. `subs/emit-sub-cycle!`
+  The GUARD is production behaviour; its REPORT is not. `rf.subs/emit-sub-cycle!`
   is a bare `trace/emit-error!` and says so in its own docstring — the
   DIAGNOSTIC trace channel, dev-only, DCE'd under `:advanced` +
   `goog.DEBUG=false` — with no always-on leg. Every row reading the structured
   event's `:cycle` / `:where` / count therefore sits inside a
-  `(when interop/debug-enabled? ...)` arm.
+  `(when rf.interop/debug-enabled? ...)` arm.
 
   Everything that made this bead worth fixing stays OUTSIDE those arms and now
   runs under `scripts/test-core-prod-gate.sh`: the cyclic subscribe RECOVERS to
@@ -44,14 +44,14 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core           :as rf]
-            [re-frame.frame          :as frame]
-            [re-frame.interop        :as interop]
-            [re-frame.subs           :as subs]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support   :as test-support]))
+            [re-frame.frame          :as rf.frame]
+            [re-frame.interop        :as rf.interop]
+            [re-frame.subs           :as rf.subs]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support   :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (def ^:private fid :rf/default)
 
@@ -83,11 +83,11 @@
             :rf.error/sub-cycle carrying the cycle path and recovers to a
             nil-yielding reaction — NOT a raw StackOverflowError (rf2-x76af2.24)"
     (register-cyclic-subs!)
-    (let [[reaction events] (capture-sub-cycles #(subs/subscribe [:a] {:frame fid}))]
+    (let [[reaction events] (capture-sub-cycles #(rf.subs/subscribe [:a] {:frame fid}))]
       (is (nil? (deref reaction))
           "the cyclic subscription recovered to a nil-yielding reaction")
       ;; rf2-d2841 - the structured REPORT is diagnostic-channel only.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (= 1 (count events))
             "exactly one structured :rf.error/sub-cycle was emitted")
         (let [ev (first events)]
@@ -101,11 +101,11 @@
   (testing "subscribing a self-edge (:self <- [:self]) emits :rf.error/sub-cycle
             with a [:self :self] path and recovers to nil (rf2-x76af2.24)"
     (register-cyclic-subs!)
-    (let [[reaction events] (capture-sub-cycles #(subs/subscribe [:self] {:frame fid}))]
+    (let [[reaction events] (capture-sub-cycles #(rf.subs/subscribe [:self] {:frame fid}))]
       (is (nil? (deref reaction))
           "the self-cyclic subscription recovered to a nil-yielding reaction")
       ;; rf2-d2841 - diagnostic-channel report.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (= 1 (count events)))
         (is (= [:self :self] (:cycle (:tags (first events))))
             "a self-cycle repeats the one id, e.g. [:self :self]")))))
@@ -115,11 +115,11 @@
             a second subscribe re-detects + re-emits rather than silently
             handing back a broken cached reaction (rf2-x76af2.24)"
     (register-cyclic-subs!)
-    (let [cache      (:sub-cache (frame/frame fid))
+    (let [cache      (:sub-cache (rf.frame/frame fid))
           [_ events] (capture-sub-cycles
                        (fn []
-                         (subs/subscribe [:a] {:frame fid})
-                         (subs/subscribe [:a] {:frame fid})))]
+                         (rf.subs/subscribe [:a] {:frame fid})
+                         (rf.subs/subscribe [:a] {:frame fid})))]
       ;; ALWAYS-ON (rf2-d2841): "not cached" is a statement about the sub-cache,
       ;; and the cache is production state. This IS the claim; the re-emission
       ;; below is only how it used to be inferred, on a channel a production
@@ -129,7 +129,7 @@
            rather than being handed a broken cached reaction")
       (is (nil? (get @cache [:b]))
           "nor did the other node of the cycle get cached mid-build")
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (= 2 (count events))
             "each subscribe of the uncached cyclic sub re-emits the structured error")))))
 
@@ -148,15 +148,15 @@
     ;; :multi — TWO inputs; the FIRST (:leaf) resolves cleanly, the SECOND
     ;; (:cyc) cycles back to :multi. This is the multi-input edge .24 left.
     (rf/reg-sub :multi :<- [:leaf] :<- [:cyc] (fn [[l c] _] [l c]))
-    (let [cache (:sub-cache (frame/frame fid))]
+    (let [cache (:sub-cache (rf.frame/frame fid))]
       ;; Baseline: :leaf is not yet in the cache.
       (is (nil? (get @cache [:leaf]))
           "precondition: :leaf has no cache entry before the cyclic subscribe")
-      (let [[reaction events] (capture-sub-cycles #(subs/subscribe [:multi] {:frame fid}))]
+      (let [[reaction events] (capture-sub-cycles #(rf.subs/subscribe [:multi] {:frame fid}))]
         (is (nil? (deref reaction))
             "the cyclic multi-input subscription recovered to a nil-yielding reaction")
         ;; rf2-d2841 - diagnostic-channel report; the TEETH below are always-on.
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (= 1 (count events))
               "exactly one structured :rf.error/sub-cycle was emitted")
           (is (= [:multi :cyc :multi] (:cycle (:tags (first events))))
@@ -180,7 +180,7 @@
     (let [[v events] (capture-sub-cycles #(rf/compute-sub [:a] {}))]
       (is (nil? v) "compute-sub recovered the cyclic sub to nil")
       ;; rf2-d2841 - diagnostic-channel report.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (= 1 (count events)))
         (let [ev (first events)]
           (is (= :compute-sub (:where (:tags ev))))
@@ -193,7 +193,7 @@
     (let [[v events] (capture-sub-cycles #(rf/compute-sub [:self] {}))]
       (is (nil? v))
       ;; rf2-d2841 - diagnostic-channel report.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (= 1 (count events)))
         (is (= [:self :self] (:cycle (:tags (first events)))))))))
 
@@ -209,15 +209,15 @@
     (rf/reg-sub :a :<- [:root] (fn [r _] (inc r)))
     (rf/reg-sub :b :<- [:root] (fn [r _] (dec r)))
     (rf/reg-sub :c :<- [:a] :<- [:b] (fn [[a b] _] [a b]))
-    (let [[reaction events] (capture-sub-cycles #(subs/subscribe [:c] {:frame fid}))]
+    (let [[reaction events] (capture-sub-cycles #(rf.subs/subscribe [:c] {:frame fid}))]
       (is (= [42 40] (deref reaction)) "the diamond computed correctly")
       ;; rf2-d2841 - VACUOUS UNDER THE GATE. `events` is empty for EVERY graph
       ;; when the diagnostic channel emits nothing, so outside the arm this row
       ;; would certify "no spurious cycle error" having never been able to see
       ;; one. Kept verbatim beside the positive that gives it teeth.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (empty? events) "no spurious :rf.error/sub-cycle for an acyclic graph")))
     (let [[v events] (capture-sub-cycles #(rf/compute-sub [:c] {:root 41}))]
       (is (= [42 40] v) "compute-sub diamond computed correctly")
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (empty? events) "no spurious cycle from the compute-sub memo path")))))

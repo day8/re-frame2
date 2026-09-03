@@ -33,20 +33,20 @@
   derived value untouched and the underlying adapter's `replace-container!` is
   never invoked. Those run under `scripts/test-core-prod-gate.sh` unchanged.
 
-  The `:rf.error/derived-container-replaced` TRACE is a bare `trace/emit!`
+  The `:rf.error/derived-container-replaced` TRACE is a bare `rf.trace/emit!`
   site with no always-on twin, so it is elided under
   `-Dre-frame.debug=false`. Its assertions are kept verbatim inside a
-  `(when interop/debug-enabled? …)` arm marked `rf2-d2841`, with the throw
+  `(when rf.interop/debug-enabled? …)` arm marked `rf2-d2841`, with the throw
   itself kept outside as the always-on witness — the trace and the throw come
   off the SAME detection, so proving the detection fired is what the
   production lane can still say."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
-            [re-frame.interop :as interop]
-            [re-frame.substrate.adapter :as adapter]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace :as trace]
+            [re-frame.interop :as rf.interop]
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.trace :as rf.trace]
             ;; Load the tooling sibling so the late-bind hooks behind the
             ;; listener API resolve on both runtimes (mirrors
             ;; trace-listener-test).
@@ -65,7 +65,7 @@
 ;; routing test that relies on ns-load registration.
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- helpers --------------------------------------------------------------
 
@@ -75,32 +75,32 @@
   [body-fn]
   (let [seen (atom [])
         k    ::derived-replaced-capture]
-    (trace/register-listener! k (fn [ev]
+    (rf.trace/register-listener! k (fn [ev]
                                   (when (= :error (:op-type ev))
                                     (swap! seen conj ev))))
     (try (body-fn)
-         (finally (trace/unregister-listener! k)))
+         (finally (rf.trace/unregister-listener! k)))
     @seen))
 
 ;; ---- tests ----------------------------------------------------------------
 
 (deftest replace-on-base-container-succeeds
   (testing "the happy path is untouched: writing to a base container still works"
-    (let [c (adapter/make-state-container {:n 0})]
-      (is (= {:n 0} (adapter/read-container c)) "precondition")
-      (is (nil? (adapter/replace-container! c {:n 1}))
+    (let [c (rf.substrate.adapter/make-state-container {:n 0})]
+      (is (= {:n 0} (rf.substrate.adapter/read-container c)) "precondition")
+      (is (nil? (rf.substrate.adapter/replace-container! c {:n 1}))
           "replace-container! on a base container returns nil")
-      (is (= {:n 1} (adapter/read-container c))
+      (is (= {:n 1} (rf.substrate.adapter/read-container c))
           "the base container holds the new value"))))
 
 (deftest replace-on-derived-container-throws
   (testing "replace-container! on a derived container throws the canonical ex-info"
-    (let [src     (adapter/make-state-container {:n 7})
-          derived (adapter/make-derived-value [src] (fn [v] (:n v)))]
-      (is (= 7 (adapter/read-container derived))
+    (let [src     (rf.substrate.adapter/make-state-container {:n 7})
+          derived (rf.substrate.adapter/make-derived-value [src] (fn [v] (:n v)))]
+      (is (= 7 (rf.substrate.adapter/read-container derived))
           "precondition: the derived container reads its computed value")
       (let [thrown (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
-                                (adapter/replace-container! derived 42))
+                                (rf.substrate.adapter/replace-container! derived 42))
                        "writing to a derived container throws")]
         (is (= :rf.error/derived-container-replaced
                (:rf.error/id (ex-data thrown)))
@@ -120,15 +120,15 @@
 
 (deftest replace-on-derived-container-emits-error-trace
   (testing "replace-container! on a derived container emits the :rf.error/derived-container-replaced trace"
-    (let [src     (adapter/make-state-container {:n 1})
-          derived (adapter/make-derived-value [src] (fn [v] (:n v)))
+    (let [src     (rf.substrate.adapter/make-state-container {:n 1})
+          derived (rf.substrate.adapter/make-derived-value [src] (fn [v] (:n v)))
           thrown  (atom nil)
           errs    (capture-errors
                     (fn []
                       ;; The choke point emits the trace BEFORE it throws;
                       ;; swallow the throw so we can inspect the captured
                       ;; trace event.
-                      (try (adapter/replace-container! derived 99)
+                      (try (rf.substrate.adapter/replace-container! derived 99)
                            (catch #?(:clj Throwable :cljs :default) e
                              (reset! thrown e)))))
           ev      (first (filter #(= :rf.error/derived-container-replaced (:operation %)) errs))]
@@ -142,7 +142,7 @@
              (:rf.error/id (ex-data @thrown)))
           "the same detection that would emit the trace carries the category on the throw")
       ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (some? ev)
             "a :rf.error/derived-container-replaced error trace was emitted")
         (is (= :error (:op-type ev))
@@ -158,15 +158,15 @@
 
 (deftest derived-container-value-unchanged-after-rejected-write
   (testing "the rejected write does NOT mutate the derived container — the adapter replace-container! is never invoked"
-    (let [src     (adapter/make-state-container {:n 5})
-          derived (adapter/make-derived-value [src] (fn [v] (:n v)))]
-      (try (adapter/replace-container! derived 1000)
+    (let [src     (rf.substrate.adapter/make-state-container {:n 5})
+          derived (rf.substrate.adapter/make-derived-value [src] (fn [v] (:n v)))]
+      (try (rf.substrate.adapter/replace-container! derived 1000)
            (catch #?(:clj Throwable :cljs :default) _ nil))
-      (is (= 5 (adapter/read-container derived))
+      (is (= 5 (rf.substrate.adapter/read-container derived))
           "the derived value still reflects its source — the write was rejected")
       ;; Writing to the SOURCE still flows through to the derived value,
       ;; proving the source container itself remains a normal writable
       ;; container and the guard fires only on the derived shape.
-      (adapter/replace-container! src {:n 6})
-      (is (= 6 (adapter/read-container derived))
+      (rf.substrate.adapter/replace-container! src {:n 6})
+      (is (= 6 (rf.substrate.adapter/read-container derived))
           "writing to the source recomputes the derived value normally"))))

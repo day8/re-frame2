@@ -62,8 +62,13 @@
 (def ^:private raw-chain-re
   "Match a direct `chain-fn!` (qualified or not) on the warn-once-clear
   key. The chokepoint `register-warn-once-clear-fn!` (in re-frame.late-bind)
-  is the ONLY legitimate such call site."
-  #"\((?:late-bind/)?chain-fn!\s+:adapter/clear-warn-once-caches!")
+  is the ONLY legitimate such call site.
+
+  Both alias spellings match — the canonical `rf.late-bind`
+  (spec/Conventions.md §Require-alias dialect) and the pre-migration
+  `late-bind` the unswept artefacts still carry. This gate FORBIDS a call
+  shape, so a spelling it cannot see is an offender it would wave through."
+  #"\((?:(?:rf\.)?late-bind/)?chain-fn!\s+:adapter/clear-warn-once-caches!")
 
 (deftest only-the-chokepoint-chains-the-warn-once-clear-key
   (testing "no source file other than re-frame.late-bind calls

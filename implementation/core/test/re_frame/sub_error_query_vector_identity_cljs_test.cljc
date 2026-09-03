@@ -12,7 +12,7 @@
   scrubs `:rf.sub/query-v` in `re-frame.schemas.validate`) — a different path,
   untouched here.
 
-  THE DEFECT this file pins closed: `error-emit/dispatch-on-error!` ran every
+  THE DEFECT this file pins closed: `rf.error-emit/dispatch-on-error!` ran every
   `:event` argument through the frame's durable app-db elision registry. For a
   dispatched event that is payload hygiene; for a SUB error `:event` is the
   query vector, so a COINCIDENTAL concrete integer app-db path (`[1]`) redacted
@@ -38,21 +38,21 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
-            [re-frame.elision :as elision]
-            [re-frame.error-emit :as error-emit]
-            [re-frame.event-emit :as event-emit]
-            [re-frame.frame :as frame]
-            [re-frame.observability :as observability]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as ts]))
+            [re-frame.elision :as rf.elision]
+            [re-frame.error-emit :as rf.error-emit]
+            [re-frame.event-emit :as rf.event-emit]
+            [re-frame.frame :as rf.frame]
+            [re-frame.observability :as rf.observability]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (ts/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.substrate.plain-atom/adapter
      :init-fn (fn []
-                (event-emit/clear-event-listeners!)
-                (error-emit/clear-error-listeners!)
-                (observability/clear-observability-sinks!))}))
+                (rf.event-emit/clear-event-listeners!)
+                (rf.error-emit/clear-error-listeners!)
+                (rf.observability/clear-observability-sinks!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; Shared harness. A LIVE frame `:probe` that (a) classifies the concrete
@@ -84,18 +84,18 @@
                                :rf.egress/profile :rf.egress/off-box-observability}]}})
     ;; Durable app-db classification at the CONCRETE integer path `[1]` — the
     ;; coordinate that coincidentally matches query-vector position 1.
-    (frame/swap-runtime-db! :probe
-      (fn [rt] (elision/apply-classification-effects rt {:sensitive [[1]]})))
+    (rf.frame/swap-runtime-db! :probe
+      (fn [rt] (rf.elision/apply-classification-effects rt {:sensitive [[1]]})))
     [listener-seen sink-seen]))
 
 (defn- emit!
-  "Drive `error-emit/dispatch-on-error!` exactly as a production error site
+  "Drive `rf.error-emit/dispatch-on-error!` exactly as a production error site
   does — positional `[error-kw event event-id frame exception elapsed-ms time
   attrs]`. `:time` is a fixed literal (never asserted — it is performance.now()
   on CLJS, variable-length)."
   ([error-kw event event-id] (emit! error-kw event event-id nil))
   ([error-kw event event-id attrs]
-   (error-emit/dispatch-on-error!
+   (rf.error-emit/dispatch-on-error!
      error-kw event event-id :probe nil 0 1000 attrs)))
 
 (defn- only [xs] (is (= 1 (count xs))) (first xs))
@@ -113,7 +113,7 @@
       ;; The generic walker redacts the coincidental integer coordinate — this
       ;; is the value dispatch-on-error! USED to ship (and must no longer).
       (is (= [:patient/record :rf/redacted]
-             (elision/elide-wire-value query-v {:frame :probe}))
+             (rf.elision/elide-wire-value query-v {:frame :probe}))
           "the walker still redacts `[1]` — position-precise app-db elision is
            intact (elision_test.clj); the fix is the CALLER skipping it")
       (emit! :rf.error/sub-exception query-v :patient/record)
@@ -157,7 +157,7 @@
             (str cat " — observability sink :event VERBATIM"))
         ;; isolate the sinks/listeners between categories
         (rf/unregister-observability-sink! :px0i9/sink)
-        (error-emit/clear-error-listeners!)
+        (rf.error-emit/clear-error-listeners!)
         (rf/destroy-frame! :probe)))))
 
 ;; ---------------------------------------------------------------------------
@@ -212,5 +212,5 @@
             vector."
     (let [_ (install-probe!)]
       (is (= [:some/event :rf/redacted]
-             (elision/elide-wire-value [:some/event secret] {:frame :probe}))
+             (rf.elision/elide-wire-value [:some/event secret] {:frame :probe}))
           "the walker redacts position 1 against decl `[1]` — unchanged"))))

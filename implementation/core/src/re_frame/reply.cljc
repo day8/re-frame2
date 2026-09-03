@@ -39,9 +39,9 @@
   through `re-frame.spec`'s best-effort `(resolve 'malli.core/validate)`
   seam, which no-ops when the schemas artefact is absent (same posture as
   `re-frame.epoch` / `re-frame.http.managed`)."
-  (:require [re-frame.elision :as elision]
-            [re-frame.error :as error]
-            [re-frame.privacy :as privacy]))
+  (:require [re-frame.elision :as rf.elision]
+            [re-frame.error :as rf.error]
+            [re-frame.privacy :as rf.privacy]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -194,7 +194,7 @@
                                     "reply-category->error-id table AND spec/009-Instrumentation.md "
                                     "§Error event catalogue (the co-edit invariant).")
                                {:category category})))]
-     (error/thrown-ex-info error-id :rf/reply-to reason
+     (rf.error/thrown-ex-info error-id :rf/reply-to reason
                            {:extra (merge {:rf.error/kind category} extras)}))))
 
 (defn normalize-target
@@ -657,8 +657,8 @@
      (reduce (fn [m slot]
                (if (contains? m slot)
                  (if force-redact?
-                   (assoc m slot privacy/redacted-sentinel)
-                   (update m slot #(elision/elide-wire-value % opts)))
+                   (assoc m slot rf.privacy/redacted-sentinel)
+                   (update m slot #(rf.elision/elide-wire-value % opts)))
                  m))
              reply
              wire-slots))))

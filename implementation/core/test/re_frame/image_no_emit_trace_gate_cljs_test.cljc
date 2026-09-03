@@ -33,7 +33,7 @@
   The `:rf.event/dispatched` assertions are DEV-ONLY: `:rf.trace/no-emit?`
   gates a `trace/emit!` site, and under `-Dre-frame.debug=false` nothing is
   emitted at all. BOTH of them move inside the
-  `(when interop/debug-enabled? …)` arm marked `rf2-d2841`, the negative
+  `(when rf.interop/debug-enabled? …)` arm marked `rf2-d2841`, the negative
   included — and the negative is the point rather than tidiness. Left outside,
   `(not (contains? ops :rf.event/dispatched))` over an EMPTY `ops` would report
   that the no-emit flag correctly suppressed the enqueue trace when in fact
@@ -43,14 +43,14 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core           :as rf]
-            [re-frame.image          :as image]
-            [re-frame.interop        :as interop]
-            [re-frame.live-frame     :as lf]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support   :as test-support]))
+            [re-frame.image          :as rf.image]
+            [re-frame.interop        :as rf.interop]
+            [re-frame.live-frame     :as rf.live-frame]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support   :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter        plain-atom/adapter
+  (rf.test-support/make-reset-runtime-fixture {:adapter        rf.substrate.plain-atom/adapter
                                             :ambient-frame  nil}))
 
 (defn- dispatched-ops-for
@@ -83,13 +83,13 @@
     (rf/make-frame {:id :img/main :doc "image-loaded no-emit frame"})
     ;; The handler exists ONLY in the frame's image (never globally registered),
     ;; so a bare enqueue-time lookup would miss it entirely — the pre-fix bug.
-    (let [img (image/image
+    (let [img (rf.image/image
                 {:id :img/no-emit
                  :registrations
                  {:reg-event [[:bookkeeping/internal {:rf.trace/no-emit? true}
                                (fn [{:keys [db]} _]
                                  {:db (assoc db :bookkeeping/ran? true)})]]}})]
-      (lf/make-frame {:id :img/main :images [img]} [])
+      (rf.live-frame/make-frame {:id :img/main :images [img]} [])
       (let [ops (dispatched-ops-for :img/main [:bookkeeping/internal]
                                     :bookkeeping/internal)]
         ;; The handler body still ran (opt-out is of TRACE EMISSION, not
@@ -100,7 +100,7 @@
         ;; split). A NEGATIVE over the trace stream: under the production gate
         ;; `ops` is empty for EVERY handler, so this would pass without the
         ;; no-emit flag doing anything at all.
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           ;; The bug: :rf.event/dispatched was emitted for a no-emit handler.
           (is (not (contains? ops :rf.event/dispatched))
               (str "the :rf.trace/no-emit? image handler must NOT emit "
@@ -112,18 +112,18 @@
             suppression above is the flag's effect, not that image-frame
             dispatches never emit (rf2-x76af2.25)"
     (rf/make-frame {:id :img/main :doc "image-loaded normal frame"})
-    (let [img (image/image
+    (let [img (rf.image/image
                 {:id :img/normal
                  :registrations
                  {:reg-event [[:normal/event {:doc "no no-emit flag"}
                                (fn [{:keys [db]} _]
                                  {:db (assoc db :normal/ran? true)})]]}})]
-      (lf/make-frame {:id :img/main :images [img]} [])
+      (rf.live-frame/make-frame {:id :img/main :images [img]} [])
       (let [ops (dispatched-ops-for :img/main [:normal/event] :normal/event)]
         (is (true? (:normal/ran? (rf/app-db-value :img/main)))
             "the inline image handler executed")
         ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture
         ;; split).
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (contains? ops :rf.event/dispatched)
               ":rf.event/dispatched fired for the un-flagged image handler"))))))

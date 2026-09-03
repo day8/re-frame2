@@ -8,7 +8,7 @@
   `:rf.error/*` record routes to the owning frame's declared
   `:observability :errors` sinks ALONGSIDE the corpus-wide
   `register-error-listener!` fan-out. The EVENT-centric path
-  (`dispatch-on-error!`) already did this via `observability/route-error!`.
+  (`dispatch-on-error!`) already did this via `rf.observability/route-error!`.
   But the EP-0008 NON-EVENT records — the frame-teardown report
   (`:rf.error/frame-teardown-failed`, carrying `:hook-failures`) and the
   promoted SSR categories — fanned out ONLY to the corpus-wide listener
@@ -16,8 +16,8 @@
   flagship teardown report was invisible to the NORMAL production Datadog /
   Sentry sink model.
 
-  `error-emit/dispatch-error-record!` now ALSO calls
-  `observability/route-error-record!` (a NEW non-event route): a pre-built
+  `rf.error-emit/dispatch-error-record!` now ALSO calls
+  `rf.observability/route-error-record!` (a NEW non-event route): a pre-built
   union record carrying a resolvable `:frame` is projected into a canonical
   `:rf.observe/error` shape and routed through `project-egress` to that
   frame's `:errors` sinks.
@@ -54,22 +54,22 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
-            [re-frame.elision :as elision]
-            [re-frame.error-emit :as error-emit]
-            [re-frame.event-emit :as event-emit]
-            [re-frame.frame :as frame]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.observability :as observability]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as ts]))
+            [re-frame.elision :as rf.elision]
+            [re-frame.error-emit :as rf.error-emit]
+            [re-frame.event-emit :as rf.event-emit]
+            [re-frame.frame :as rf.frame]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.observability :as rf.observability]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (ts/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.substrate.plain-atom/adapter
      :init-fn (fn []
-                (event-emit/clear-event-listeners!)
-                (error-emit/clear-error-listeners!)
-                (observability/clear-observability-sinks!))}))
+                (rf.event-emit/clear-event-listeners!)
+                (rf.error-emit/clear-error-listeners!)
+                (rf.observability/clear-observability-sinks!))}))
 
 (defn- redacted? [v] (= :rf/redacted v))
 
@@ -94,7 +94,7 @@
                                  :rf.egress/profile :rf.egress/off-box-observability}]}})
       ;; Drive the SHARED non-event helper directly (the same fn frame.cljc
       ;; reaches via the :error-emit/dispatch-frame-teardown-report hook).
-      (error-emit/dispatch-frame-teardown-report!
+      (rf.error-emit/dispatch-frame-teardown-report!
         :obs/teardown
         [{:hook :ssr/on-frame-destroyed :exception (ex-info "x" {}) :where :safe-call-hook!}]
         12345)
@@ -143,10 +143,10 @@
                                  :rf.egress/profile :rf.egress/off-box-observability}]}})
       ;; EP-0025: classify the path via the commit-plane effect path (the
       ;; durable frame annotation is removed) so the projector redacts it.
-      (frame/swap-runtime-db! :obs/sensitive
-        (fn [rt] (elision/apply-classification-effects rt
+      (rf.frame/swap-runtime-db! :obs/sensitive
+        (fn [rt] (rf.elision/apply-classification-effects rt
                    {:sensitive [[:hook-failures :exception-data :token]]})))
-      (error-emit/dispatch-frame-teardown-report!
+      (rf.error-emit/dispatch-frame-teardown-report!
         :obs/sensitive
         [{:hook           :flows/teardown-on-frame-destroy!
           :exception      (ex-info "boom" {})
@@ -183,7 +183,7 @@
                       {:errors [{:sink :test.sinks/public
                                  :rf.egress/profile :rf.egress/public-error}]}})
       ;; An SSR-shaped non-event record carrying a top-level :exception.
-      (error-emit/dispatch-error-record!
+      (rf.error-emit/dispatch-error-record!
         {:error     :rf.error/ssr-render-failed
          :frame     :obs/public
          :time      7
@@ -211,7 +211,7 @@
       (rf/register-listener! :errors :test/listener
                                    (fn [record] (swap! listener-seen conj record)))
       (rf/make-frame {:id :obs/nopolicy})
-      (error-emit/dispatch-frame-teardown-report!
+      (rf.error-emit/dispatch-frame-teardown-report!
         :obs/nopolicy
         [{:hook :ssr/on-frame-destroyed :exception (ex-info "x" {}) :where :safe-call-hook!}]
         1)
@@ -232,7 +232,7 @@
                                   (fn [record] (swap! sink-seen conj record)))
       (rf/register-listener! :errors :test/listener
                                    (fn [record] (swap! listener-seen conj record)))
-      (error-emit/dispatch-error-record!
+      (rf.error-emit/dispatch-error-record!
         {:error      :rf.error/malformed-hydration-payload
          :frame      nil
          :time       3
@@ -257,7 +257,7 @@
                                   (fn [record] (swap! sink-seen conj record)))
       (rf/register-listener! :errors :test/listener
                                    (fn [record] (swap! listener-seen conj record)))
-      (error-emit/dispatch-error-record!
+      (rf.error-emit/dispatch-error-record!
         {:error :rf.error/frame-teardown-failed
          :frame :obs/ghost
          :time  1
@@ -290,7 +290,7 @@
                                 {:sink :test.sinks/good
                                  :rf.egress/profile :rf.egress/off-box-observability}]}})
       ;; Must not throw out of the emit.
-      (is (nil? (error-emit/dispatch-frame-teardown-report!
+      (is (nil? (rf.error-emit/dispatch-frame-teardown-report!
                   :obs/sib
                   [{:hook :ssr/on-frame-destroyed
                     :exception (ex-info "x" {}) :where :safe-call-hook!}]
@@ -308,7 +308,7 @@
 (deftest route-error-record-late-bind-hook-is-published
   (testing "rf2-ntv9i9.1 — observability publishes the
             `:observability/route-error-record` late-bind hook so
-            error-emit/dispatch-error-record! reaches the frame-sink route
+            rf.error-emit/dispatch-error-record! reaches the frame-sink route
             without a static require (load-cycle break)."
-    (is (some? (late-bind/get-fn :observability/route-error-record))
+    (is (some? (rf.late-bind/get-fn :observability/route-error-record))
         "the hook is registered at observability ns-load")))

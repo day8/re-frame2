@@ -19,7 +19,7 @@
   `make-derived-value-fn` so the assertions stay focused on the
   arity-spec contract."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.substrate.spine :as spine]))
+            [re-frame.substrate.spine :as rf.substrate.spine]))
 
 ;; ---- helpers --------------------------------------------------------------
 
@@ -36,7 +36,7 @@
 (deftest build-recompute-fn-zero-arity-picks-0-branch
   (testing "0 sources → 0-arity closure that calls compute-fn with no args"
     (let [calls (atom 0)
-          f     (spine/build-recompute-fn []
+          f     (rf.substrate.spine/build-recompute-fn []
                   (fn [] (swap! calls inc) ::seed))]
       (is (re-find #"recompute_0" (recompute-name f))
           "0-source case selects the recompute-0 branch")
@@ -48,7 +48,7 @@
 (deftest build-recompute-fn-one-arity-picks-1-branch
   (testing "1 source → 1-arity closure that derefs s0 and calls compute-fn"
     (let [s0   (atom 7)
-          f    (spine/build-recompute-fn [s0] (fn [a] (* 2 a)))]
+          f    (rf.substrate.spine/build-recompute-fn [s0] (fn [a] (* 2 a)))]
       (is (re-find #"recompute_1" (recompute-name f))
           "1-source case selects the recompute-1 branch")
       (is (= 14 (f)) "derefs source 0, applies compute-fn directly")
@@ -59,7 +59,7 @@
   (testing "2 sources → 2-arity closure that derefs s0 + s1 and calls compute-fn"
     (let [s0 (atom 3)
           s1 (atom 4)
-          f  (spine/build-recompute-fn [s0 s1] +)]
+          f  (rf.substrate.spine/build-recompute-fn [s0 s1] +)]
       (is (re-find #"recompute_2" (recompute-name f))
           "2-source case selects the recompute-2 branch")
       (is (= 7 (f)) "derefs both sources, calls compute-fn directly")
@@ -69,7 +69,7 @@
 (deftest build-recompute-fn-three-arity-picks-n-branch
   (testing "3 sources → N-arity closure that mapv-derefs and applies compute-fn"
     (let [s0 (atom 1) s1 (atom 2) s2 (atom 3)
-          f  (spine/build-recompute-fn [s0 s1 s2]
+          f  (rf.substrate.spine/build-recompute-fn [s0 s1 s2]
                (fn [a b c] (+ a b c)))]
       (is (re-find #"recompute_n" (recompute-name f))
           "3-source case selects the recompute-n fallback")
@@ -90,7 +90,7 @@
     ;; gives compute-fn each value already realised and apply-able.
     (let [s0 (atom :a) s1 (atom :b) s2 (atom :c) s3 (atom :d)
           received-args (atom nil)
-          f (spine/build-recompute-fn [s0 s1 s2 s3]
+          f (rf.substrate.spine/build-recompute-fn [s0 s1 s2 s3]
               (fn [& args]
                 (reset! received-args args)
                 (vec args)))]
@@ -104,7 +104,7 @@
 (deftest build-recompute-fn-fresh-recompute-per-call
   (testing "thunk does not cache — every call rederefs sources"
     (let [s0  (atom 0)
-          f   (spine/build-recompute-fn [s0] identity)]
+          f   (rf.substrate.spine/build-recompute-fn [s0] identity)]
       (is (= 0 (f)))
       (reset! s0 1) (is (= 1 (f)))
       (reset! s0 2) (is (= 2 (f)))
@@ -114,7 +114,7 @@
   (testing "1-arity: s0 is the single source; 2-arity: order is s0 then s1"
     (let [s0 (atom 100)
           s1 (atom 1)
-          f  (spine/build-recompute-fn [s0 s1] -)]
+          f  (rf.substrate.spine/build-recompute-fn [s0 s1] -)]
       ;; `-` is non-commutative: (- @s0 @s1) = 99, (- @s1 @s0) = -99.
       (is (= 99 (f)) "argument order matches source-vector order"))))
 
@@ -126,7 +126,7 @@
     ;; rf2-eoy63 wiring: spine's IDeref body MUST route through
     ;; build-recompute-fn, not its old naive (apply compute-fn (map
     ;; deref ...)) shape.
-    (let [make-derived (spine/make-derived-value-fn "rf-test-" (spine/make-scheduler))
+    (let [make-derived (rf.substrate.spine/make-derived-value-fn "rf-test-" (rf.substrate.spine/make-scheduler))
           s0           (atom 5)
           derived      (make-derived [s0] (fn [a] (* a 10)))]
       (is (= 50 @derived) "1-arity recompute fires through the spine")

@@ -75,7 +75,7 @@
   of host-transient state (a `defonce` atom), exactly as the machines
   `after-timers` table is — the registry holds the opaque host cancel
   token, never durable reply data."
-  (:require [re-frame.reply :as reply]))
+  (:require [re-frame.reply :as rf.reply]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -301,7 +301,7 @@
   `re-frame.reply/stale?` over the `:generation` gate — the probe does NOT
   re-implement the comparison."
   [carried-gen current-gen]
-  (reply/stale? (gate carried-gen) (gate current-gen)))
+  (rf.reply/stale? (gate carried-gen) (gate current-gen)))
 
 (defn suppress
   "Produce the stale-suppression outcome for a timer completion whose carried
@@ -321,7 +321,7 @@
                     non-delivering)."
   ([args current-gen times] (suppress args current-gen times nil))
   ([{:keys [generation frame] :as args} current-gen {:keys [completed-at]} target]
-   (reply/suppress target
+   (rf.reply/suppress target
                    (gate generation)
                    (gate current-gen)
                    (cond-> {:status       :stale
@@ -405,7 +405,7 @@
   ride verbatim; wire slots elide through the one shared walker. `opts` is
   forwarded (e.g. `:frame`). Never a family-private elider."
   ([reply] (trace-reply reply nil))
-  ([reply opts] (reply/trace-summary reply opts)))
+  ([reply opts] (rf.reply/trace-summary reply opts)))
 
 ;; ---------------------------------------------------------------------------
 ;; Property 1 + 9 — the (test-only) fx handler. A real managed-timer fx would

@@ -12,7 +12,7 @@
   server that churns frames continuously) that is a real leak surface.
 
   The fix carries the callbacks ON the reaction object (an
-  `interop/make-reaction` `Reaction` deftype with a mutable callbacks
+  `rf.interop/make-reaction` `Reaction` deftype with a mutable callbacks
   field), mirroring the CLJS plain-atom adapter. An orphaned reaction
   is therefore GC-reclaimable along with its callbacks.
 
@@ -21,52 +21,52 @@
    (b) an un-disposed (orphaned) reaction is reclaimed by GC — the
        behavioural delta the weak storage exists to deliver."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.interop :as interop])
+            [re-frame.interop :as rf.interop])
   (:import [java.lang.ref WeakReference]))
 
 ;; ---- dispose symmetry / ordering / idempotency ----------------------------
 
 (deftest callbacks-fire-on-dispose-in-registration-order
   (testing "add-on-dispose! callbacks fire in registration order on dispose!"
-    (let [r     (interop/make-reaction (fn [] :v))
+    (let [r     (rf.interop/make-reaction (fn [] :v))
           fired (atom [])]
-      (interop/add-on-dispose! r (fn [] (swap! fired conj :a)))
-      (interop/add-on-dispose! r (fn [] (swap! fired conj :b)))
-      (interop/add-on-dispose! r (fn [] (swap! fired conj :c)))
+      (rf.interop/add-on-dispose! r (fn [] (swap! fired conj :a)))
+      (rf.interop/add-on-dispose! r (fn [] (swap! fired conj :b)))
+      (rf.interop/add-on-dispose! r (fn [] (swap! fired conj :c)))
       (is (= :v @r) "the reaction still derefs to its computed value")
-      (interop/dispose! r)
+      (rf.interop/dispose! r)
       (is (= [:a :b :c] @fired)
           "callbacks fired in registration order"))))
 
 (deftest dispose-is-idempotent
   (testing "a second dispose! is a no-op — callbacks cleared on first dispose"
-    (let [r     (interop/make-reaction (fn [] nil))
+    (let [r     (rf.interop/make-reaction (fn [] nil))
           fired (atom 0)]
-      (interop/add-on-dispose! r (fn [] (swap! fired inc)))
-      (interop/dispose! r)
-      (interop/dispose! r)
-      (interop/dispose! r)
+      (rf.interop/add-on-dispose! r (fn [] (swap! fired inc)))
+      (rf.interop/dispose! r)
+      (rf.interop/dispose! r)
+      (rf.interop/dispose! r)
       (is (= 1 @fired)
           "callback fired exactly once across three dispose! calls"))))
 
 (deftest dispose-clears-before-fire
   (testing "callbacks are cleared BEFORE firing — a re-entrant dispose! from
             inside a callback does not re-fire the set"
-    (let [r     (interop/make-reaction (fn [] nil))
+    (let [r     (rf.interop/make-reaction (fn [] nil))
           fired (atom 0)]
-      (interop/add-on-dispose! r (fn []
+      (rf.interop/add-on-dispose! r (fn []
                                    (swap! fired inc)
                                    ;; Re-entrant dispose of the same reaction
                                    ;; must find an empty callback set.
-                                   (interop/dispose! r)))
-      (interop/dispose! r)
+                                   (rf.interop/dispose! r)))
+      (rf.interop/dispose! r)
       (is (= 1 @fired)
           "the re-entrant dispose! did not re-fire the callback"))))
 
 (deftest dispose-with-no-callbacks-is-a-noop
   (testing "dispose! on a reaction that never registered a callback is safe"
-    (let [r (interop/make-reaction (fn [] 1))]
-      (is (nil? (interop/dispose! r))
+    (let [r (rf.interop/make-reaction (fn [] 1))]
+      (is (nil? (rf.interop/dispose! r))
           "dispose! returns nil and does not throw"))))
 
 ;; ---- fallback path for non-Reaction deref-ables ---------------------------
@@ -76,13 +76,13 @@
             dispose! via the weak-keyed fallback registry"
     (let [bare  (reify clojure.lang.IDeref (deref [_] nil))
           fired (atom [])]
-      (interop/add-on-dispose! bare (fn [] (swap! fired conj :x)))
-      (interop/add-on-dispose! bare (fn [] (swap! fired conj :y)))
-      (interop/dispose! bare)
+      (rf.interop/add-on-dispose! bare (fn [] (swap! fired conj :x)))
+      (rf.interop/add-on-dispose! bare (fn [] (swap! fired conj :y)))
+      (rf.interop/dispose! bare)
       (is (= [:x :y] @fired)
           "fallback registry fires callbacks in registration order")
       ;; idempotent on the fallback path too
-      (interop/dispose! bare)
+      (rf.interop/dispose! bare)
       (is (= [:x :y] @fired)
           "second dispose! on the fallback path is a no-op"))))
 
@@ -109,13 +109,13 @@
             CLOSES OVER the reaction) but NEVER explicitly disposed is still
             reclaimed by GC. Pre-fix the global strong-ref registry pinned it
             forever; on-object storage ties its lifetime to the reaction."
-    (let [wref (let [r (interop/make-reaction (fn [] :leaky))]
+    (let [wref (let [r (rf.interop/make-reaction (fn [] :leaky))]
                  ;; Register a callback that closes over the reaction itself
                  ;; — the exact shape `re-frame.subs`'s sub-cache disposal
                  ;; closure has (it captures `reaction` for an identity
                  ;; guard). Under the old global strong-ref registry this
                  ;; pinned the reaction: registry value -> closure -> reaction.
-                 (interop/add-on-dispose! r (fn [] (identical? r r)))
+                 (rf.interop/add-on-dispose! r (fn [] (identical? r r)))
                  ;; Deliberately DO NOT dispose! — simulate an orphaned
                  ;; reaction (partial-teardown bug / exception before the
                  ;; eventual dispose!). Hand back only a weak reference.
@@ -130,9 +130,9 @@
   (testing "control: while a strong reference is retained, the reaction is
             NOT reclaimed — confirms `gc-reclaimed?` actually observes
             reachability rather than always reporting reclamation."
-    (let [r    (interop/make-reaction (fn [] :held))
+    (let [r    (rf.interop/make-reaction (fn [] :held))
           wref (WeakReference. r)]
-      (interop/add-on-dispose! r (fn [] nil))
+      (rf.interop/add-on-dispose! r (fn [] nil))
       (is (false? (gc-reclaimed? wref))
           "a live reaction is retained across GC")
       ;; Keep `r` strongly reachable past the assertion.

@@ -13,7 +13,7 @@
   discriminator was event-shape inference: a `:frame` tag / caller-supplied
   dispatch-id / ambient frame / `retain? false` opted an emit out of the monitor
   even when the emitting thread was NOT actually inside a held drain-lock. A
-  public/manual/stale `:frame`-tagged `trace/emit!` — issued from an ordinary
+  public/manual/stale `:frame`-tagged `rf.trace/emit!` — issued from an ordinary
   thread that owns no drain-lock — was therefore driven inline and LOST the
   whole-fanout serial law: two such emits could enter the same listener callback
   concurrently.
@@ -38,13 +38,13 @@
   JVM-only (`.clj`): CLJS is single-threaded, has no monitor, and cannot race two
   emits — the overlap cannot manifest there."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace :as trace])
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.trace :as rf.trace])
   (:import [java.util.concurrent CountDownLatch TimeUnit]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (def ^:private probe-a :trace.rakqk/a)
 (def ^:private probe-b :trace.rakqk/b)
@@ -56,7 +56,7 @@
       50))
 
 ;; ---- Posture: dev-only, declared by `^:requires-debug` (rf2-d2841) ---------
-;; Trace machinery end to end: under `-Dre-frame.debug=false` `trace/emit` is a
+;; Trace machinery end to end: under `-Dre-frame.debug=false` `rf.trace/emit` is a
 ;; no-op, so there is no semantic residue to run under that posture, and a
 ;; `(when interop/debug-enabled? ...)` split -- the shape the rest of rf2-d2841
 ;; used -- would leave EMPTY deftests reporting green (class 2).  Every deftest
@@ -84,7 +84,7 @@
             a-entered (CountDownLatch. 1)
             b-entered (CountDownLatch. 1)
             release-a (CountDownLatch. 1)]
-        (trace/register-listener! ::probe
+        (rf.trace/register-listener! ::probe
           (fn [ev]
             (let [op (:operation ev)]
               (when (or (= op probe-a) (= op probe-b))
@@ -107,9 +107,9 @@
         ;; owns no drain-lock. This is exactly the emit the shape heuristic
         ;; mis-routed inline.
         (let [t1 (Thread. ^Runnable
-                          (fn [] (trace/emit! :info probe-a {:frame :rf/default})))
+                          (fn [] (rf.trace/emit! :info probe-a {:frame :rf/default})))
               t2 (Thread. ^Runnable
-                          (fn [] (trace/emit! :info probe-b {:frame :rf/default})))]
+                          (fn [] (rf.trace/emit! :info probe-b {:frame :rf/default})))]
           (.start t1)
           ;; A is now inside L, blocked on release-a.
           (.await a-entered 5 TimeUnit/SECONDS)
@@ -130,7 +130,7 @@
           (.countDown release-a)
           (.join t1 5000)
           (.join t2 5000))
-        (trace/unregister-listener! ::probe)
+        (rf.trace/unregister-listener! ::probe)
         (is (= 1 @max-conc)
             (str "iter " iter ": a frame-tagged public emit that owns no "
                  "drain-lock overlapped the listener callback with itself (max "

@@ -43,7 +43,7 @@
   machinery) because tests read it via `re-frame.views/*render-key*`
   from inside a render-fn while the wrapper below binds the same Var.
   Putting the canonical Var here makes the read and the binding hit
-  identical Vars — a `(def ^:dynamic *render-key* provider/*render-key*)`
+  identical Vars — a `(def ^:dynamic *render-key* rf.views.provider/*render-key*)`
   re-export would create a SECOND Var whose binding the test wouldn't
   observe.
 
@@ -51,15 +51,15 @@
   `record-view-deref!`, `first-render?!`, `clear-seen-render-keys!`)
   introduced in rf2-9hoos — see the per-block sections below for
   contract detail."
-  (:require [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.performance :as performance :include-macros true]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.adapter :as substrate-adapter]
-            [re-frame.trace :as trace :include-macros true]
-            [re-frame.views.provider :as provider]
-            [re-frame.views.source-coord-annotation :as source-coord]
-            [re-frame.views.warn-once :as warn-once]))
+  (:require [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.performance :as rf.performance :include-macros true]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
+            [re-frame.trace :as rf.trace :include-macros true]
+            [re-frame.views.provider :as rf.views.provider]
+            [re-frame.views.source-coord-annotation :as rf.views.source-coord-annotation]
+            [re-frame.views.warn-once :as rf.views.warn-once]))
 
 ;; ---- *render-key* --------------------------------------------------------
 ;;
@@ -118,7 +118,7 @@
 ;; Bound per render by `build-frame-aware-view` to a fresh volatile set;
 ;; nil outside a render (a handler that subscribes, an SSR walk) so the
 ;; sink-push is a no-op there. The binding site rides
-;; `interop/debug-enabled?` and the consumer push is gated at the
+;; `rf.interop/debug-enabled?` and the consumer push is gated at the
 ;; `re-frame.subs/subscribe` call site, so production DCEs the whole
 ;; surface.
 
@@ -126,7 +126,7 @@
   "Per-render volatile holding the set of subscription query-vectors the
   in-flight view render has deref'd so far. Bound by the
   `build-frame-aware-view` wrapper for the duration of each render under
-  `interop/debug-enabled?`; nil otherwise."
+  `rf.interop/debug-enabled?`; nil otherwise."
   nil)
 
 (defn record-view-deref!
@@ -135,7 +135,7 @@
   handler-side subscribe, an SSR walk, a direct read). Published through
   late-bind under `:views/record-view-deref!` so `re-frame.subs/subscribe`
   records the edge without a static require on this CLJS-only ns. The
-  caller gates the invocation on `interop/debug-enabled?`."
+  caller gates the invocation on `rf.interop/debug-enabled?`."
   [query-v]
   (when-let [sink *view-deref-sink*]
     (vswap! sink conj query-v))
@@ -159,7 +159,7 @@
   "Return `true` the FIRST time `render-key` is seen this process run,
   `false` thereafter — the mount-vs-rerender discriminator.
   Side-effecting: records the key on first sighting. Caller gates on
-  `interop/debug-enabled?`."
+  `rf.interop/debug-enabled?`."
   [render-key]
   (let [[old _new] (swap-vals! seen-render-keys conj render-key)]
     (not (contains? old render-key))))
@@ -181,21 +181,21 @@
 ;; `#'re-frame.views/<name>` resolves under this ns — `:refer` does
 ;; not surface a Var under the consuming ns.
 
-(def frame-provider provider/frame-provider)
-(def frame-root provider/frame-root)
-(def build-frame-provider provider/build-frame-provider)
-(def current-frame provider/current-frame)
-(def mint-instance-token! provider/mint-instance-token!)
+(def frame-provider rf.views.provider/frame-provider)
+(def frame-root rf.views.provider/frame-root)
+(def build-frame-provider rf.views.provider/build-frame-provider)
+(def current-frame rf.views.provider/current-frame)
+(def mint-instance-token! rf.views.provider/mint-instance-token!)
 
-(def format-source-coord source-coord/format-source-coord)
+(def format-source-coord rf.views.source-coord-annotation/format-source-coord)
 
-(def clear-warned-non-dom-roots! warn-once/clear-warned-non-dom-roots!)
+(def clear-warned-non-dom-roots! rf.views.warn-once/clear-warned-non-dom-roots!)
 
 ;; The React-context object is consumed by `reg-view*` below (the
 ;; `:contextType` static-field) and by the warn-once helpers in
 ;; `re-frame.views.warn-once`. Aliased privately here for parity with
 ;; the pre-split shape — no external caller reaches for it.
-(def ^:private frame-context provider/frame-context)
+(def ^:private frame-context rf.views.provider/frame-context)
 
 ;; rf2-25zo2: per-run cap on :rf.view/rendered emits (per-event-run — the
 ;; event-pipeline sense, rf2-p4cd9c). The Xray Reactive panel needs
@@ -214,22 +214,22 @@
   `:render-key` and `:frame` (Spec 009 §Trace ops). Fires at the START
   of each render (before the user render-fn runs). Goes through late-bind
   so this ns doesn't depend on re-frame.trace (which itself routes
-  through late-bind for registrar/views ordering reasons). Production
-  builds elide via the `interop/debug-enabled?` gate the trace surface
+  through late-bind for rf.registrar/views ordering reasons). Production
+  builds elide via the `rf.interop/debug-enabled?` gate the trace surface
   itself rides.
 
   Substrate-agnostic — every adapter composes `views.cljs`'s
   frame-aware-view wrapper around its user render-fn, so this emit rides
   Reagent / UIx renders. `frame-id` is resolved once by the
   caller and threaded into both this and the post-render
-  `:rf.view/rendered` emit, so there is one `provider/current-frame`
+  `:rf.view/rendered` emit, so there is one `rf.views.provider/current-frame`
   resolution per render."
   [render-key frame-id]
-  (when interop/debug-enabled?
+  (when rf.interop/debug-enabled?
     ;; Sticky hook (rf2-f72pd) — `:trace/emit!` is published once at
     ;; re-frame.trace load and never withdrawn; this fires per render
     ;; under dev builds.
-    (when-let [emit! (late-bind/get-fn-cached :trace/emit!)]
+    (when-let [emit! (rf.late-bind/get-fn-cached :trace/emit!)]
       (emit! :rf.view :rf.view/render
              {:rf.view/render-key render-key
               :frame              frame-id}))))
@@ -281,7 +281,7 @@
                       render, in fractional milliseconds (rf2-8wrzz.1).
                       Threaded in from the wrapper (measured around the
                       `mark-and-measure` bracket). Always present in dev
-                      builds; the timing reads ride `interop/debug-enabled?`
+                      builds; the timing reads ride `rf.interop/debug-enabled?`
                       so production DCEs them with the rest of the emit.
     :cause-event-id — (when in-cascade) the dispatching cascade's event-id.
     :cause-subs     — (when in-cascade) distinct sub-ids that ran in the
@@ -295,12 +295,12 @@
   `:rf.view/rendered-cap-reached` marker (carries `:frame` +
   `:dropped-after`)."
   [view-id render-key frame-id mount? deref-subs elapsed-ms render-args]
-  (when interop/debug-enabled?
-    (when-let [emit! (late-bind/get-fn-cached :trace/emit!)]
+  (when rf.interop/debug-enabled?
+    (when-let [emit! (rf.late-bind/get-fn-cached :trace/emit!)]
       ;; rf2-25zo2: :rf.view/rendered carries run-attribution (event-run sense).
       ;; Resolved via the epoch capture's in-flight buffer; absent
       ;; (or returns nil) when re-frame.epoch is not on the classpath.
-      (let [cause-fn (late-bind/get-fn-cached :epoch/run-cause)
+      (let [cause-fn (rf.late-bind/get-fn-cached :epoch/run-cause)
             cause    (when cause-fn (cause-fn frame-id))
             n-so-far (long (or (:rendered-so-far cause) 0))
             ;; rf2-8wrzz.1 — the per-view re-render cause: the first sub in
@@ -338,7 +338,7 @@
                    ;; rf2-rpgq8: the view's positional render args/props. Stamped
                    ;; raw here (dev-only emit); the marks-projection chokepoint
                    ;; (`re-frame.classification/project-trace-event`, gated by the same
-                   ;; `interop/debug-enabled?` upstream in `trace/emit!`) routes
+                   ;; `rf.interop/debug-enabled?` upstream in `rf.trace/emit!`) routes
                    ;; this slot through `elide-wire-value` against the frame's
                    ;; app-db elision registry BEFORE delivery — the identical
                    ;; emit-time treatment `:rf.event/db` gets — so sensitive /
@@ -366,12 +366,12 @@
 ;; mechanism — the same one `r/with-let`'s `finally` arm uses: a
 ;; reaction created in the wrapper, deref'd inside the render so the
 ;; substrate's per-component render reaction tracks it as a dependency,
-;; with an `interop/add-on-dispose!` callback that fires
+;; with an `rf.interop/add-on-dispose!` callback that fires
 ;; `:rf.view/unmounted` when the reaction is disposed. On the Reagent
 ;; family (stock + reagent-slim) the component's render reaction disposes
 ;; its tracked dependencies on `componentWillUnmount`, so the callback
 ;; fires exactly once per instance teardown. The whole surface rides
-;; `interop/debug-enabled?` so production DCEs it (the reaction is never
+;; `rf.interop/debug-enabled?` so production DCEs it (the reaction is never
 ;; created, the deref never happens, the emit never fires).
 
 (defn emit-view-unmounted!
@@ -379,11 +379,11 @@
   named by `render-key` in `frame-id` (rf2-9hoos). Carries at least
   `:view-id` + `:frame` (plus the `:render-key` instance tuple). Goes
   through the `:trace/emit!` late-bind hook so this ns stays free of a
-  static re-frame.trace require. Gated on `interop/debug-enabled?` so
+  static re-frame.trace require. Gated on `rf.interop/debug-enabled?` so
   production DCEs the body."
   [view-id render-key frame-id]
-  (when interop/debug-enabled?
-    (when-let [emit! (late-bind/get-fn-cached :trace/emit!)]
+  (when rf.interop/debug-enabled?
+    (when-let [emit! (rf.late-bind/get-fn-cached :trace/emit!)]
       (emit! :rf.view :rf.view/unmounted
              {:rf.view/render-key render-key
               :rf.view/id         view-id
@@ -392,7 +392,7 @@
 (defn install-unmount-hook!
   "Wire `:rf.view/unmounted` emission to the teardown of the view
   instance named by `render-key` (rf2-9hoos). Creates a per-instance
-  lifecycle reaction via `interop/make-reaction`, registers the unmount
+  lifecycle reaction via `rf.interop/make-reaction`, registers the unmount
   emit as an on-dispose callback, and returns the reaction so the caller
   can deref it inside the render — that deref registers the reaction as a
   dependency of the substrate's per-component render reaction, which
@@ -401,16 +401,16 @@
   Returns nil when no reaction primitive is available (the active adapter
   did not publish `:adapter/make-reaction` — e.g. a React-hook substrate
   or a headless build); in that case no unmount hook is installed and the
-  caller skips the deref. Gated on `interop/debug-enabled?`.
+  caller skips the deref. Gated on `rf.interop/debug-enabled?`.
 
   Idempotent per instance: the wrapper installs at most one lifecycle
   reaction per `:render-key`, cached on the substrate component instance,
   so re-renders of the same mounted instance reuse the same reaction and
   the unmount emit fires exactly once."
   [view-id render-key frame-id]
-  (when interop/debug-enabled?
-    (when-let [rea (interop/make-reaction (fn [] render-key))]
-      (interop/add-on-dispose! rea
+  (when rf.interop/debug-enabled?
+    (when-let [rea (rf.interop/make-reaction (fn [] render-key))]
+      (rf.interop/add-on-dispose! rea
         (fn [] (emit-view-unmounted! view-id render-key frame-id)))
       rea)))
 
@@ -420,7 +420,7 @@
 ;;
 ;;   1. `apply-adapter-wrap-view`         — consult the substrate hook
 ;;   2. `view-coord-attr`                 — debug-only source-coord stamp
-;;   3. `trace/handler-scope-from-meta`   — pre-compute view's HandlerScope
+;;   3. `rf.trace/handler-scope-from-meta`   — pre-compute view's HandlerScope
 ;;   4. `build-frame-aware-view`          — assemble the per-render wrapped fn
 ;;   5. `apply-adapter-componentize-view` — substrate's mountable head
 ;;
@@ -450,7 +450,7 @@
   applied\" — keep render-fn unchanged and let the inline walk run.
 
   The adapter's wrap-view body itself sits inside
-  `(when interop/debug-enabled? ...)`, so under :advanced +
+  `(when rf.interop/debug-enabled? ...)`, so under :advanced +
   goog.DEBUG=false the wrapped fn collapses to the bare user-fn (no
   cloneElement) — keeping the elision contract.
 
@@ -462,12 +462,12 @@
   exists, so it always declined and the substrate wrap was silently skipped)."
   [id metadata render-fn]
   ;; Per rf2-f72pd sticky-hook convention: `:adapter/wrap-view` is
-  ;; published once at adapter ns-load via `substrate-adapter/route-hook!`
+  ;; published once at adapter ns-load via `rf.substrate.adapter/route-hook!`
   ;; and never withdrawn in production, so the resolution is cacheable.
-  ;; `route-hook!` calls `late-bind/set-fn!` which invalidates the
+  ;; `route-hook!` calls `rf.late-bind/set-fn!` which invalidates the
   ;; cache, so dev-time hot-reload of an adapter re-resolves on the
   ;; next derivation.
-  (let [hook    (late-bind/get-fn-cached :adapter/wrap-view)
+  (let [hook    (rf.late-bind/get-fn-cached :adapter/wrap-view)
         wrapped (when hook (hook id metadata render-fn))]
     (if (some? wrapped)
       [wrapped true]
@@ -496,7 +496,7 @@
   `:adapter/wrap-view` above: nil means \"this substrate needs no
   componentization\" — keep the wrapper as the head."
   [id metadata wrapped]
-  (let [hook (late-bind/get-fn-cached :adapter/componentize-view)
+  (let [hook (rf.late-bind/get-fn-cached :adapter/componentize-view)
         head (when hook (hook id metadata wrapped))]
     (if (some? head) head wrapped)))
 
@@ -507,25 +507,25 @@
   also nil when the substrate hook has already wrapped render-fn
   (its own cloneElement path supersedes the hiccup walk)."
   [id metadata wrap-applied?]
-  (when (and interop/debug-enabled? (not wrap-applied?))
-    (source-coord/format-source-coord id metadata)))
+  (when (and rf.interop/debug-enabled? (not wrap-applied?))
+    (rf.views.source-coord-annotation/format-source-coord id metadata)))
 
 (defn- maybe-arm-unmount!
   "Install (once per mounted instance) the `:rf.view/unmounted` teardown
   hook for `render-key` and deref its lifecycle reaction so the
   substrate's per-component render reaction tracks it (rf2-9hoos). The
   reaction is cached on the component instance via
-  `provider/component-lifecycle-reaction` so re-renders reuse it and the
+  `rf.views.provider/component-lifecycle-reaction` so re-renders reuse it and the
   unmount emit fires exactly once. Returns nil; called for side effect
-  inside the render under `interop/debug-enabled?`.
+  inside the render under `rf.interop/debug-enabled?`.
 
   No-op when the active adapter publishes no `:adapter/make-reaction`
   primitive (`install-unmount-hook!` returns nil) — a React-hook
   substrate or a headless build — or when there is no component instance
   to cache against (a direct headless invocation of the wrapper)."
   [id render-key frame-id]
-  (when interop/debug-enabled?
-    (let [rea (provider/component-lifecycle-reaction
+  (when rf.interop/debug-enabled?
+    (let [rea (rf.views.provider/component-lifecycle-reaction
                 (fn [] (install-unmount-hook! id render-key frame-id)))]
       ;; Deref so the per-component render reaction registers `rea` as a
       ;; dependency and disposes it (firing the unmount emit) on teardown.
@@ -555,33 +555,33 @@
   (let [wrapped
         (with-meta
           (fn frame-aware-view [& args]
-            (let [tok        (provider/reagent-component-token)
+            (let [tok        (rf.views.provider/reagent-component-token)
                   render-key [id tok]
                   ;; rf2-9hoos: fresh per-render deref sink (dev-only). The
                   ;; volatile is bound below so `re-frame.subs/subscribe`'s
                   ;; gated `record-view-deref!` call unions each deref'd
                   ;; query-v into it; read back AFTER the render to stamp
                   ;; `:deref-subs` onto `:rf.view/rendered`.
-                  sink       (when interop/debug-enabled? (volatile! []))]
+                  sink       (when rf.interop/debug-enabled? (volatile! []))]
               (binding [*render-key*     render-key
                         *view-deref-sink* sink]
-                (trace/with-handler-scope view-scope
+                (rf.trace/with-handler-scope view-scope
                   ;; Resolve the frame once per render — threaded into the
                   ;; unmount hook + both render emits (rf2-9hoos).
-                  (let [frame-id (when interop/debug-enabled? (provider/current-frame))]
+                  (let [frame-id (when rf.interop/debug-enabled? (rf.views.provider/current-frame))]
                     ;; rf2-9hoos: arm the unmount hook + compute the mount flag
                     ;; BEFORE the render so `first-render?!` reflects whether
                     ;; this is the instance's first render (the seen-set is
                     ;; updated here, not in the post-render emit).
-                    (when interop/debug-enabled?
+                    (when rf.interop/debug-enabled?
                       (maybe-arm-unmount! id render-key frame-id))
-                    (let [mount? (when interop/debug-enabled? (first-render?! render-key))
+                    (let [mount? (when rf.interop/debug-enabled? (first-render?! render-key))
                           ;; rf2-8wrzz.1: wall-clock the user render-fn (dev-only)
                           ;; so `:rf.view/rendered` can carry `:elapsed-ms` — the
                           ;; per-view render timing Xray's Views panel shows. The
-                          ;; read rides `interop/debug-enabled?` so production
+                          ;; read rides `rf.interop/debug-enabled?` so production
                           ;; DCEs it alongside the rest of the emit; nil in prod.
-                          t0     (when interop/debug-enabled? (interop/now-ms))]
+                          t0     (when rf.interop/debug-enabled? (rf.interop/now-ms))]
                       (emit-view-render-trace! render-key frame-id)
                       ;; Per Spec 009 §Performance instrumentation (rf2-du3i):
                       ;; every render of a registered view brackets the user
@@ -591,10 +591,10 @@
                       ;; `re-frame.performance/enabled?=false` the bracket DCEs
                       ;; and the form collapses to the bare `(apply render-fn
                       ;; args)` call.
-                      (let [out        (performance/mark-and-measure :render id
+                      (let [out        (rf.performance/mark-and-measure :render id
                                          (apply render-fn args))
-                            elapsed-ms (when interop/debug-enabled?
-                                         (- (interop/now-ms) t0))]
+                            elapsed-ms (when rf.interop/debug-enabled?
+                                         (- (rf.interop/now-ms) t0))]
                         ;; rf2-9hoos: emit AFTER the render so the deref sink is
                         ;; populated; carry the mount flag + the view's read-set.
                         ;; rf2-8wrzz.1: also carry the render's `:elapsed-ms`.
@@ -603,14 +603,14 @@
                         ;; is the OUTERMOST fn every adapter composes, so `args`
                         ;; are the same values reaching the user render-fn on
                         ;; Reagent / UIx alike). Gated on
-                        ;; `interop/debug-enabled?` so production passes nil and
+                        ;; `rf.interop/debug-enabled?` so production passes nil and
                         ;; DCEs the capture with the rest of the emit; the marks
                         ;; chokepoint elides the slot before delivery.
                         (emit-view-rendered-trace! id render-key frame-id mount?
                                                    (when sink @sink) elapsed-ms
-                                                   (when interop/debug-enabled? args))
-                        (if (and interop/debug-enabled? (not wrap-applied?))
-                          (source-coord/inject-source-coord-attr id coord-attr
+                                                   (when rf.interop/debug-enabled? args))
+                        (if (and rf.interop/debug-enabled? (not wrap-applied?))
+                          (rf.views.source-coord-annotation/inject-source-coord-attr id coord-attr
                                                                  out)
                           out))))))))
           {:contextType frame-context})]
@@ -622,7 +622,7 @@
     ;; `.-displayName` off the input fn and forwards it to the constructed
     ;; React component.
     ;;
-    ;; THE SPELLING IS `performance/entry-id`, NOT `(str id)`. Spec 009
+    ;; THE SPELLING IS `rf.performance/entry-id`, NOT `(str id)`. Spec 009
     ;; §Naming convention makes the `<id>` in the `rf:render:<id>` measure and
     ;; the id the substrate publishes to the developer ONE identifier, so a
     ;; name read off the User-Timing stream is directly jumpable in the
@@ -644,15 +644,15 @@
     ;; production bundle. The bundle-isolation gate pins absence (the elision
     ;; contract is broader — `displayName` itself is a React surface, but
     ;; assigning it from a user-derived string belongs behind
-    ;; `interop/debug-enabled?`).
-    (when interop/debug-enabled?
-      (set! (.-displayName ^js wrapped) (performance/entry-id id)))
+    ;; `rf.interop/debug-enabled?`).
+    (when rf.interop/debug-enabled?
+      (set! (.-displayName ^js wrapped) (rf.performance/entry-id id)))
     wrapped))
 
 ;; ---- the head is (registration × substrate) (rf2-oz7wr, rf2-8mkmb) --------
 ;;
 ;; BOTH substrate hooks in the pipeline above — `:adapter/wrap-view` and
-;; `:adapter/componentize-view` — are ROUTED (`substrate-adapter/route-hook!`):
+;; `:adapter/componentize-view` — are ROUTED (`rf.substrate.adapter/route-hook!`):
 ;; each answers only while ITS adapter is the `rf/init!`-installed one, and
 ;; returns nil otherwise. Registration is therefore the wrong moment to ask
 ;; either, because the repository's canonical boot order
@@ -673,7 +673,7 @@
 ;;     went unstamped, the React-hook unmount sentinel was never appended
 ;;     (rf2-te71r), and the walk emitted a one-shot "root element is …" warning
 ;;     that was simply untrue. Dev-only in every direction — the whole surface
-;;     rides `interop/debug-enabled?` and elides in production — but wrong, and
+;;     rides `rf.interop/debug-enabled?` and elides in production — but wrong, and
 ;;     the false warning points the reader at their own view.
 ;;
 ;; So the head is not a property of the registration. It is a property of
@@ -696,9 +696,9 @@
 ;;     in the registrar slot, compared by identity against what the slot holds
 ;;     now. A re-registration (hot-reload, or a different fn under the same id)
 ;;     writes a new one and invalidates the entry. A `:view` slot this ns did
-;;     not build (a hand-rolled `registrar/register!`, or a JVM-shaped slot)
+;;     not build (a hand-rolled `rf.registrar/register!`, or a JVM-shaped slot)
 ;;     never matches and is handed back untouched.
-;;   * the ADAPTER — `substrate-adapter/same-adapter?` against the spec the
+;;   * the ADAPTER — `rf.substrate.adapter/same-adapter?` against the spec the
 ;;     entry was derived for, so a dispose → install of a DIFFERENT substrate
 ;;     re-derives rather than serving (say) a UIx-marked shell to Reagent.
 ;;     Nil (no adapter installed) is its own distinct key.
@@ -711,7 +711,7 @@
 ;; back the very object registration built, in every ordering.
 ;;
 ;; The registrar slot is deliberately NOT rewritten on the lazy upgrade.
-;; `registrar/register!` fires every replacement hook and emits
+;; `rf.registrar/register!` fires every replacement hook and emits
 ;; `:rf.registry/handler-replaced` on each call (Spec 001 §Hot-reload trace
 ;; surface), so re-registering here would publish a phantom hot-reload to
 ;; devtools on the first lookup after boot. The slot keeps what registration
@@ -748,12 +748,12 @@
                          (:wrapper prev)
                          (build-frame-aware-view
                            id render-fn*
-                           (trace/handler-scope-from-meta :view id metadata)
+                           (rf.trace/handler-scope-from-meta :view id metadata)
                            (view-coord-attr id metadata wrap-applied?)
                            wrap-applied?))]
     {:render-fn     render-fn
      :metadata      metadata
-     :adapter       (substrate-adapter/current-adapter-spec)
+     :adapter       (rf.substrate.adapter/current-adapter-spec)
      :wrap-applied? wrap-applied?
      :wrapper       wrapper
      :head          (apply-adapter-componentize-view id metadata wrapper)}))
@@ -763,10 +763,10 @@
   the installed one. Nil records a derivation made with no adapter installed,
   and matches only a still-empty slot."
   [adapter]
-  (let [current (substrate-adapter/current-adapter-spec)]
+  (let [current (rf.substrate.adapter/current-adapter-spec)]
     (if (nil? current)
       (nil? adapter)
-      (substrate-adapter/same-adapter? current adapter))))
+      (rf.substrate.adapter/same-adapter? current adapter))))
 
 (defn ^:no-doc view-head
   "The value `(re-frame.core/view id)` hands back — the installed substrate's
@@ -784,12 +784,12 @@
 
   A `:view` slot this namespace did not build is returned exactly as stored."
   [id]
-  (when-let [slot (registrar/lookup :view id)]
+  (when-let [slot (rf.registrar/lookup :view id)]
     (let [handler-fn (:handler-fn slot)
           entry      (get @view-head-cache id)]
       (cond
         ;; Not a registration this ns composed — a hand-rolled
-        ;; `registrar/register!`, or one since replaced by another route.
+        ;; `rf.registrar/register!`, or one since replaced by another route.
         (not (and (some? entry) (identical? handler-fn (:registered entry))))
         handler-fn
 
@@ -851,7 +851,7 @@
   (let [entry (compose-view id metadata render-fn nil)
         head  (:head entry)]
     (swap! view-head-cache assoc id (assoc entry :registered head))
-    (registrar/register! :view id (assoc metadata :handler-fn head))
+    (rf.registrar/register! :view id (assoc metadata :handler-fn head))
     head))
 
 ;; ---- late-bind publication (rf2-vh1k3) ------------------------------------
@@ -864,9 +864,9 @@
 ;; static require on this CLJS-only views ns (subs is .cljc + must not
 ;; hard-couple to the substrate). Sticky-hook shape (rf2-f72pd): set once
 ;; at views ns-load, never withdrawn. Whole stamp rides
-;; `interop/debug-enabled?` at the consumer so production DCEs it.
+;; `rf.interop/debug-enabled?` at the consumer so production DCEs it.
 
-(late-bind/set-fn! :views/reading-render-key reading-render-key)
+(rf.late-bind/set-fn! :views/reading-render-key reading-render-key)
 
 ;; ---- late-bind publication (rf2-9hoos) ------------------------------------
 ;;
@@ -876,17 +876,17 @@
 ;; (.cljc, must not hard-couple to the substrate) free of a static
 ;; require on this CLJS-only views ns. Sticky-hook shape (rf2-f72pd): set
 ;; once at views ns-load, never withdrawn. The subscribe-side call is
-;; gated on `interop/debug-enabled?` so production never resolves the
+;; gated on `rf.interop/debug-enabled?` so production never resolves the
 ;; hook.
 
-(late-bind/set-fn! :views/record-view-deref! record-view-deref!)
+(rf.late-bind/set-fn! :views/record-view-deref! record-view-deref!)
 
 ;; ---- late-bind publication (rf2-te71r) -----------------------------------
 ;;
 ;; React-hook substrates (UIx) run this ns's frame-aware-view
 ;; wrapper inside a function component with no tracked render reaction, so
 ;; the phase-A (rf2-9hoos) reaction-dispose unmount hook no-ops there
-;; (`interop/make-reaction` returns nil). The shared React-hook spine
+;; (`rf.interop/make-reaction` returns nil). The shared React-hook spine
 ;; (`re-frame.substrate.spine/make-wrap-view`) arms a `React.useEffect`
 ;; empty-deps cleanup that emits `:rf.view/unmounted` on instance
 ;; teardown — restoring unmount parity. Reaching `emit-view-unmounted!`
@@ -894,10 +894,10 @@
 ;; of a static require on this CLJS-only views ns (the same edge-avoidance
 ;; rationale as `:views/record-view-deref!` and `:views/reading-render-
 ;; key`). Sticky-hook shape (rf2-f72pd): set once at views ns-load, never
-;; withdrawn. The spine-side call is gated on `interop/debug-enabled?` (as
+;; withdrawn. The spine-side call is gated on `rf.interop/debug-enabled?` (as
 ;; is `emit-view-unmounted!` itself) so production never resolves the hook.
 
-(late-bind/set-fn! :views/emit-view-unmounted! emit-view-unmounted!)
+(rf.late-bind/set-fn! :views/emit-view-unmounted! emit-view-unmounted!)
 
 ;; ---- chained fixture-reset step (rf2-9hoos) -------------------------------
 ;;
@@ -912,7 +912,7 @@
 ;; (rf2-z79p8) so this cache is enrolled in the warn-once-clear registry
 ;; the governance assertion checks.
 
-(late-bind/register-warn-once-clear-fn!
+(rf.late-bind/register-warn-once-clear-fn!
   {:label    :views/seen-render-keys
    :clear-fn clear-seen-render-keys!
    :arm      (fn [] (swap! seen-render-keys conj ::governance-sentinel))

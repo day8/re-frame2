@@ -75,30 +75,30 @@
   whatever this record carries ships to Sentry / Datadog, and a rejected
   boundary payload is attacker-controlled by definition.
 
-  Deliberately NOT used: `with-redefs` on `interop/debug-enabled?`. The flag is
+  Deliberately NOT used: `with-redefs` on `rf.interop/debug-enabled?`. The flag is
   read once at namespace-load time; a rebind cannot reach it (rf2-f7qj4)."
   (:require [clojure.set :as set]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.error-emit :as error-emit]
-            [re-frame.event-emit :as event-emit]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]))
+            [re-frame.error-emit :as rf.error-emit]
+            [re-frame.event-emit :as rf.event-emit]
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace :as rf.trace]))
 
 (defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (schemas/clear-schemas-by-frame!)
-  (trace/clear-listeners!)
-  (error-emit/clear-error-listeners!)
-  (event-emit/clear-event-listeners!)
-  (rf/init! plain-atom/adapter)
-  ;; `registrar/clear-all!` drops the framework-standard interceptor
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.schemas/clear-schemas-by-frame!)
+  (rf.trace/clear-listeners!)
+  (rf.error-emit/clear-error-listeners!)
+  (rf.event-emit/clear-event-listeners!)
+  (rf/init! rf.substrate.plain-atom/adapter)
+  ;; `rf.registrar/clear-all!` drops the framework-standard interceptor
   ;; registrations; `init!` re-seeds them, including `:rf.schema/at-boundary`
   ;; (`re-frame.spec/register-schema-interceptors!`). Reloading the schemas
   ;; artefact republishes the late-bind validation hooks the two surfaces
@@ -116,9 +116,9 @@
   These records are what an off-box shipper receives from a production build."
   [body-fn]
   (let [seen (atom [])]
-    (error-emit/register-error-listener! ::rec (fn [r] (swap! seen conj r)))
+    (rf.error-emit/register-error-listener! ::rec (fn [r] (swap! seen conj r)))
     (try (body-fn)
-         (finally (error-emit/unregister-error-listener! ::rec)))
+         (finally (rf.error-emit/unregister-error-listener! ::rec)))
     @seen))
 
 (defn- record-of [records error-kw]
@@ -131,19 +131,19 @@
 
   Together these two records are the WHOLE of what an off-box shipper receives
   from a production build: the dev trace surface is gated on
-  `interop/debug-enabled?` and sees nothing here. rf2-mwv4e's defect lived
+  `rf.interop/debug-enabled?` and sees nothing here. rf2-mwv4e's defect lived
   precisely in the gap between them — the `:errors` axis carried no record and
   the `:events` axis reported `:outcome :ok` — so a test that reads one axis
   alone cannot see it."
   [body-fn]
   (let [errors (atom [])
         events (atom [])]
-    (error-emit/register-error-listener! ::rec (fn [r] (swap! errors conj r)))
-    (event-emit/register-event-listener! ::rec (fn [r] (swap! events conj r)))
+    (rf.error-emit/register-error-listener! ::rec (fn [r] (swap! errors conj r)))
+    (rf.event-emit/register-event-listener! ::rec (fn [r] (swap! events conj r)))
     (try (body-fn)
          (finally
-           (error-emit/unregister-error-listener! ::rec)
-           (event-emit/unregister-event-listener! ::rec)))
+           (rf.error-emit/unregister-error-listener! ::rec)
+           (rf.event-emit/unregister-event-listener! ::rec)))
     {:errors @errors :events @events}))
 
 (defn- boundary-records [{:keys [errors]}]
@@ -330,8 +330,8 @@
 (deftest at-boundary-rejection-fans-one-structural-record-in-every-posture
   (testing "rf2-mwv4e — the refusal reaches an off-box shipper. Before this,
             a production boundary rejection emitted NOTHING: the check ran, the
-            handler was skipped, and `trace/emit-error!` — its only report —
-            sits behind `interop/debug-enabled?`. An opt-in production security
+            handler was skipped, and `rf.trace/emit-error!` — its only report —
+            sits behind `rf.interop/debug-enabled?`. An opt-in production security
             gate was invisible to the person who opted in.
 
             It now fans exactly ONE always-on record. `EXACTLY ONE` is
@@ -505,7 +505,7 @@
             every-posture` meaningful under the gate: the rejection cannot be
             step-1 doing the work, because step-1 demonstrably is not running
             in this JVM."
-    (is (false? interop/debug-enabled?)
+    (is (false? rf.interop/debug-enabled?)
         "precondition: this JVM really is under the production gate")
     (let [calls (atom 0)]
       (rf/reg-event :prod/unguarded

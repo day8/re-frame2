@@ -18,10 +18,10 @@
   `rf/path` and `rf/unwrap-interceptor` survive only as `^:no-doc` throwing
   stubs that provide migration guidance. Coeffects are declared with
   `:rf.cofx/requires`, not represented as interceptors."
-  (:require [re-frame.interceptor :as interceptor]
-            [re-frame.interceptor-registry :as icpt-reg]
-            [re-frame.image-assembly :as image-assembly]
-            [re-frame.error :as error]))
+  (:require [re-frame.interceptor :as rf.interceptor]
+            [re-frame.interceptor-registry :as rf.interceptor-registry]
+            [re-frame.image-assembly :as rf.image-assembly]
+            [re-frame.error :as rf.error]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -80,8 +80,8 @@
   (let [{:keys [error-kw where msg extra]} row
         ex (extra args)]
     (if (some? ex)
-      (error/throw-error! error-kw where (msg args) {:extra ex})
-      (error/throw-error! error-kw where (msg args)))))
+      (rf.error/throw-error! error-kw where (msg args) {:extra ex})
+      (rf.error/throw-error! error-kw where (msg args)))))
 
 ;; The removed standard values survive as thin `^:no-doc` facade stubs — each
 ;; body is a one-line lookup into `removed-std-interceptor-values`, so the
@@ -125,7 +125,7 @@
   the `[:rf.interceptor/path <path-vector>]` ref carries a non-vector or
   otherwise malformed path argument."
   [path-vector reason]
-  (error/throw-error!
+  (rf.error/throw-error!
     :rf.error/path-interceptor-bad-path
     :rf.interceptor/path
     reason
@@ -154,7 +154,7 @@
   the whole app-db (`get-in db [] = db`, `assoc-in db [] x = x` via the empty-
   path special-case below)."
   [path-vector]
-  (interceptor/->interceptor*
+  (rf.interceptor/->interceptor*
     :id    :rf.interceptor/path
     :path  path-vector
     :before
@@ -242,7 +242,7 @@
 ;; widens back to the ORIGINAL full app-db OBJECT so the frame-commit
 ;; `identical?` no-op is preserved. The invariant-coupled lock keeps the
 ;; standard non-replaceable until a conformance profile proves a replacement
-;; preserves it (`image-assembly/standard-replaceable?`); see EP-0023 §Image
+;; preserves it (`rf.image-assembly/standard-replaceable?`); see EP-0023 §Image
 ;; Patching And Overrides and `image_assembly.cljc`'s `:rf.standard/*` keys.
 (def ^:private path-conformance-invariant
   :rf.interceptor.path/commit-identical-no-op)
@@ -262,7 +262,7 @@
       no-generation resolution path, where `registrar/lookup` reads the
       registrar atom directly;
 
-    * the EP-0023 FRAMEWORK-STANDARD registry (`image-assembly/register-standard!`)
+    * the EP-0023 FRAMEWORK-STANDARD registry (`rf.image-assembly/register-standard!`)
       — so the standard descriptor is unioned into EVERY resolved image
       generation. Without this, an image-loaded frame whose event references
       `[:rf.interceptor/path …]` under a bound `*generation*` could not resolve
@@ -280,10 +280,10 @@
   (`:rf.error/image-standard-replacement-forbidden`). EP-0026 §Framework Standard
   Registrations: standards are protected, and there is NO public
   `:replace-standard` opt-in; the standard owner's internal define/revise path
-  reads `image-assembly/standard-replaceable?` and a conformance profile would
+  reads `rf.image-assembly/standard-replaceable?` and a conformance profile would
   lift the invariant-coupled lock."
   []
-  (icpt-reg/reg-interceptor*
+  (rf.interceptor-registry/reg-interceptor*
     :rf.interceptor/path
     path-interceptor-metadata
     path-interceptor-descriptor)
@@ -293,7 +293,7 @@
   ;; generation-routed `interceptor-registry/resolve-ref` reads it identically to
   ;; the registrar path. Marked invariant-coupled (non-replaceable until a
   ;; conformance profile exists — rf2-32siq3.41).
-  (image-assembly/register-standard!
+  (rf.image-assembly/register-standard!
     :interceptor :rf.interceptor/path
     (assoc path-interceptor-metadata
            :rf/interceptor-descriptor path-interceptor-descriptor

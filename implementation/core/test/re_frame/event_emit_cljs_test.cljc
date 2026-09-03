@@ -11,15 +11,15 @@
   `goog.DEBUG=false`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.event-emit :as event-emit]
-            [re-frame.flows :as flows]
-            [re-frame.frame :as frame]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace :as trace]))
+            [re-frame.event-emit :as rf.event-emit]
+            [re-frame.flows :as rf.flows]
+            [re-frame.frame :as rf.frame]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.trace :as rf.trace]))
 
 ;; The schema-validation and flow-run hooks are published by the optional
 ;; `re-frame.schemas` / `re-frame.flows` artefacts (on the core test
@@ -35,31 +35,31 @@
 ;; bundle (rf2-ezbzvm) that also drops sibling namespaces' ns-load view /
 ;; sub registrations. Snapshot the registrar first and restore it in the
 ;; `finally` so the clean-slate is scoped to this test and cross-namespace
-;; registrations survive (test-support/{snapshot,restore}-registrar!).
+;; registrations survive (rf.test-support/{snapshot,restore}-registrar!).
 (defn- reset-runtime [test-fn]
-  (let [registrar-before (test-support/snapshot-registrar)]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (schemas/clear-schemas-by-frame!)
-  (flows/reset-flows!)
-  (trace/clear-listeners!)
-  (event-emit/clear-event-listeners!)
-  (rf/init! plain-atom/adapter)
+  (let [registrar-before (rf.test-support/snapshot-registrar)]
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.schemas/clear-schemas-by-frame!)
+  (rf.flows/reset-flows!)
+  (rf.trace/clear-listeners!)
+  (rf.event-emit/clear-event-listeners!)
+  (rf/init! rf.substrate.plain-atom/adapter)
   ;; EP-0002 (rf2-9o48ih): `init!` no longer synthesises `:rf/default`;
   ;; framework operation surfaces require a carried frame stamp. Register
   ;; `:rf/default` + pin it as the body's ambient scope (the carried-
   ;; invariant equivalent of `(with-frame :rf/default …)`); explicit
   ;; `{:frame …}` opts in the test bodies still win.
   (rf/make-frame {:id :rf/default})
-  (let [hooks-before @late-bind/hooks]
+  (let [hooks-before @rf.late-bind/hooks]
     (try
       (rf/with-frame :rf/default
         (test-fn))
       (finally
-        (reset! late-bind/hooks hooks-before)
-        (late-bind/invalidate-cache! :schemas/validate-app-schema!)
-        (late-bind/invalidate-cache! :flows/run-flows-on-db)
-        (test-support/restore-registrar! registrar-before))))))
+        (reset! rf.late-bind/hooks hooks-before)
+        (rf.late-bind/invalidate-cache! :schemas/validate-app-schema!)
+        (rf.late-bind/invalidate-cache! :flows/run-flows-on-db)
+        (rf.test-support/restore-registrar! registrar-before))))))
 
 (use-fixtures :each reset-runtime)
 
@@ -125,7 +125,7 @@
     (let [seen (atom [])]
       ;; Stub the schema-validate hook to reject every candidate, driving
       ;; commit-frame-effects! down its rejection branch.
-      (late-bind/set-fn! :schemas/validate-app-schema!
+      (rf.late-bind/set-fn! :schemas/validate-app-schema!
                          (fn [_db-after _event-id _frame _continue?] false))
       (rf/register-listener! :events
         :test/recorder
@@ -156,7 +156,7 @@
       ;; partitions); on throw it carries only :rf.flow/failed-id for
       ;; attribution — there is no partial-db (no partial commit per the
       ;; atomicity contract).
-      (late-bind/set-fn! :flows/run-flows-on-db
+      (rf.late-bind/set-fn! :flows/run-flows-on-db
                          (fn [_frame _db _runtime-db _exact-owner]
                            (throw (ex-info "flow output blew up"
                                            {:rf.flow/failed-id :flow/derived}))))
@@ -182,9 +182,9 @@
             reported :ok — the widened outcome contract does not regress
             the success path."
     (let [seen (atom [])]
-      (late-bind/set-fn! :schemas/validate-app-schema!
+      (rf.late-bind/set-fn! :schemas/validate-app-schema!
                          (fn [_db-after _event-id _frame _continue?] true))
-      (late-bind/set-fn! :flows/run-flows-on-db
+      (rf.late-bind/set-fn! :flows/run-flows-on-db
                          (fn [_frame db _runtime-db _exact-owner] db))
       (rf/register-listener! :events
         :test/recorder

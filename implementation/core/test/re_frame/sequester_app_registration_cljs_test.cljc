@@ -10,7 +10,7 @@
   requested `[kind id provenance-ns]` source row was absent, or when the live
   registrar slot belonged to a SIBLING provenance namespace. Either way it
   returned nil yet clobbered another namespace's live registration and left a
-  registrar/source-store divergence behind.
+  rf.registrar/source-store divergence behind.
 
   These rows pin the repaired contract, cross-platform (JVM + CLJS), against a
   snapshot/restore of both stores so the shared `:node-test` bundle is
@@ -26,9 +26,9 @@
   `sequester-app-registration!` docstring."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
-            [re-frame.registrar :as registrar]
-            [re-frame.source-store :as source-store]
-            [re-frame.test-support :as test-support]))
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.source-store :as rf.source-store]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; ---- isolation: snapshot/restore BOTH stores ------------------------------
 ;;
@@ -40,35 +40,35 @@
 
 (use-fixtures :each
   (fn [test-fn]
-    (let [reg-snap @registrar/kind->id->metadata
-          src-snap @source-store/kind->id->ns->descriptor]
+    (let [reg-snap @rf.registrar/kind->id->metadata
+          src-snap @rf.source-store/kind->id->ns->descriptor]
       (try
         (test-fn)
         (finally
-          (reset! registrar/kind->id->metadata reg-snap)
-          (reset! source-store/kind->id->ns->descriptor src-snap))))))
+          (reset! rf.registrar/kind->id->metadata reg-snap)
+          (reset! rf.source-store/kind->id->ns->descriptor src-snap))))))
 
 ;; ---- helpers --------------------------------------------------------------
 
 (defn- reg-slot
   "The live registrar metadata for (kind, id), or nil."
   [kind id]
-  (get-in @registrar/kind->id->metadata [kind id]))
+  (get-in @rf.registrar/kind->id->metadata [kind id]))
 
 (defn- src-row
   "The source-store descriptor for the exact (kind, id, provenance-ns) slot,
   or nil."
   [kind id provenance-ns]
-  (get-in @source-store/kind->id->ns->descriptor [kind id provenance-ns]))
+  (get-in @rf.source-store/kind->id->ns->descriptor [kind id provenance-ns]))
 
 (defn- reg!
   "Register (kind, id) authored in `provenance-ns` through the real
-  `registrar/register!` path — registrar resolver map + provenance source store
+  `rf.registrar/register!` path — registrar resolver map + provenance source store
   in lockstep, exactly as a `reg-*` macro would in dev. `provenance-ns` is a
   string; it is stamped into the descriptor's macro-captured `:ns` symbol so the
   source store keys the row under it. Returns the stored source descriptor."
   [kind id provenance-ns]
-  (registrar/register! kind id
+  (rf.registrar/register! kind id
                        {:ns         (symbol provenance-ns)
                         :handler-fn (fn [& _] [kind id provenance-ns])})
   (src-row kind id provenance-ns))
@@ -80,18 +80,18 @@
             removed from BOTH stores, returned, and reinstated exactly once by
             reinstate-app-registration! (rf2-22vzb acceptance 3)"
     (reg! :route :rf2-22vzb/not-found-route "rf2-22vzb.app-a")
-    (let [captured (test-support/sequester-app-registration!
+    (let [captured (rf.test-support/sequester-app-registration!
                      :route :rf2-22vzb/not-found-route "rf2-22vzb.app-a")]
       (is (some? captured)
           "the captured source descriptor is returned")
-      (is (= "rf2-22vzb.app-a" (get captured source-store/provenance-ns-key))
+      (is (= "rf2-22vzb.app-a" (get captured rf.source-store/provenance-ns-key))
           "the captured row carries app-a's provenance")
       (is (nil? (reg-slot :route :rf2-22vzb/not-found-route))
           "removed from the live registrar")
       (is (nil? (src-row :route :rf2-22vzb/not-found-route "rf2-22vzb.app-a"))
           "removed from the source store")
       ;; Reinstate — registrar + source store back in lockstep.
-      (test-support/reinstate-app-registration! captured)
+      (rf.test-support/reinstate-app-registration! captured)
       (is (some? (reg-slot :route :rf2-22vzb/not-found-route))
           "reinstated into the live registrar")
       (is (= captured (src-row :route :rf2-22vzb/not-found-route "rf2-22vzb.app-a"))
@@ -106,7 +106,7 @@
     (reg! :route :rf2-22vzb/mismatch-probe "rf2-22vzb.app-a")
     (let [reg-before (reg-slot :route :rf2-22vzb/mismatch-probe)
           src-before (src-row :route :rf2-22vzb/mismatch-probe "rf2-22vzb.app-a")
-          returned   (test-support/sequester-app-registration!
+          returned   (rf.test-support/sequester-app-registration!
                        :sub :rf2-22vzb/mismatch-probe "rf2-22vzb.app-a")]
       (is (nil? returned)
           "no :sub source row for the id → returns nil")
@@ -127,7 +127,7 @@
     (reg! :route :rf2-22vzb/audit-same "rf2-22vzb.app-b")
     (let [reg-before (reg-slot :route :rf2-22vzb/audit-same)
           src-before (src-row :route :rf2-22vzb/audit-same "rf2-22vzb.app-b")
-          returned   (test-support/sequester-app-registration!
+          returned   (rf.test-support/sequester-app-registration!
                        :route :rf2-22vzb/audit-same "rf2-22vzb.missing-app")]
       (is (nil? returned)
           "absent provenance row → returns nil")
@@ -136,7 +136,7 @@
       (is (= reg-before (reg-slot :route :rf2-22vzb/audit-same))
           "the live registrar still holds app-b's registration — NOT clobbered")
       (is (= src-before (src-row :route :rf2-22vzb/audit-same "rf2-22vzb.app-b"))
-          "app-b's source-store row survives — no registrar/source divergence"))))
+          "app-b's source-store row survives — no rf.registrar/source divergence"))))
 
 ;; ---- 4. same-id sibling provenance cannot clobber the sibling -------------
 
@@ -154,15 +154,15 @@
         "precondition: app-a's source row present")
     (is (some? (src-row :route :rf2-22vzb/shared-id "rf2-22vzb.app-b"))
         "precondition: app-b's source row present (sibling)")
-    (let [captured (test-support/sequester-app-registration!
+    (let [captured (rf.test-support/sequester-app-registration!
                      :route :rf2-22vzb/shared-id "rf2-22vzb.app-a")]
       (is (some? captured)
           "app-a's own present row is captured + returned")
-      (is (= "rf2-22vzb.app-a" (get captured source-store/provenance-ns-key))
+      (is (= "rf2-22vzb.app-a" (get captured rf.source-store/provenance-ns-key))
           "the captured row is app-a's, not the sibling's")
       (is (some? (reg-slot :route :rf2-22vzb/shared-id))
           "app-b's live registrar slot is NOT clobbered by app-a's sequester")
       (is (nil? (src-row :route :rf2-22vzb/shared-id "rf2-22vzb.app-a"))
           "app-a's own source row is forgotten")
       (is (some? (src-row :route :rf2-22vzb/shared-id "rf2-22vzb.app-b"))
-          "app-b's source row survives — registrar/source authority coherent"))))
+          "app-b's source row survives — rf.registrar/source authority coherent"))))

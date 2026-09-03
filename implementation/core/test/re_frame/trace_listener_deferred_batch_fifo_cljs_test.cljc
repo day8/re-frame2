@@ -9,7 +9,7 @@
   fan-out schedule. It took the captured `pending` batch but appended and drove
   one item at a time — both when integrating into an active `*fanout-ctx*` and
   when opening fresh outermost fan-outs. While driving the FIRST deferred event,
-  a listener could synchronously `trace/emit!`; that later trace was appended to
+  a listener could synchronously `rf.trace/emit!`; that later trace was appended to
   the current schedule and delivered BEFORE the flush loop had inserted the older
   deferred events still sitting in the batch.
 
@@ -53,12 +53,12 @@
   (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
             [re-frame.core                 :as rf]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support         :as test-support]
-            [re-frame.trace                :as trace]))
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support         :as rf.test-support]
+            [re-frame.trace                :as rf.trace]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (def ^:private nested-op :audit/listener-nested)
 
@@ -73,7 +73,7 @@
   (first (keep-indexed (fn [i y] (when (= x y) i)) xs)))
 
 ;; ---- Posture: dev-only, declared by `^:requires-debug` (rf2-d2841) ---------
-;; Trace machinery end to end: under `-Dre-frame.debug=false` `trace/emit` is a
+;; Trace machinery end to end: under `-Dre-frame.debug=false` `rf.trace/emit` is a
 ;; no-op, so there is no semantic residue to run under that posture, and a
 ;; `(when interop/debug-enabled? ...)` split -- the shape the rest of rf2-d2841
 ;; used -- would leave EMPTY deftests reporting green (class 2).  Every deftest
@@ -92,14 +92,14 @@
     (rf/reg-event :t6vs3/noop (fn [{:keys [db]} _] {:db db}))
     ;; EMITTER (registered first): on THIS event's run-start, author exactly one
     ;; nested trace. Emitted at flush time, so its `:id` exceeds run-end's.
-    (trace/register-listener! ::emitter
+    (rf.trace/register-listener! ::emitter
       (fn [ev]
         (when (and (= :rf.event/run-start (:operation ev))
                    (= :t6vs3/noop (first (-> ev :tags :rf.event/v)))
                    (compare-and-set! emitted? false true))
-          (trace/emit! :info nested-op {}))))
+          (rf.trace/emit! :info nested-op {}))))
     ;; OBSERVER: record every event's operation + id, in the order delivered.
-    (trace/register-listener! ::observer
+    (rf.trace/register-listener! ::observer
       (fn [ev] (swap! seen conj [(:operation ev) (:id ev)])))
     (try
       (rf/dispatch-sync [:t6vs3/noop] {:frame :rf/default})
@@ -125,8 +125,8 @@
                    "already-captured run-end. Ops in delivery order: "
                    (pr-str ops)))))
       (finally
-        (trace/unregister-listener! ::emitter)
-        (trace/unregister-listener! ::observer)))))
+        (rf.trace/unregister-listener! ::emitter)
+        (rf.trace/unregister-listener! ::observer)))))
 
 (deftest ^:requires-debug deferred-batch-outranks-listener-authored-trace-when-integrated
   ;; INTEGRATE seam: a `::trigger` listener reacts to a clean, frameless emit (so
@@ -141,23 +141,23 @@
     (rf/reg-event :t6vs3/inner (fn [{:keys [db]} _] {:db db}))
     ;; TRIGGER (registered first): reentrant dispatch-sync from inside the outer
     ;; fan-out — opens the nested drain whose batch integrates on flush.
-    (trace/register-listener! ::trigger
+    (rf.trace/register-listener! ::trigger
       (fn [ev]
         (when (and (= :t6vs3/trigger (:operation ev))
                    (compare-and-set! fired? false true))
           (rf/dispatch-sync [:t6vs3/inner] {:frame :rf/default}))))
     ;; EMITTER: on the INNER event's run-start, author one nested trace.
-    (trace/register-listener! ::emitter
+    (rf.trace/register-listener! ::emitter
       (fn [ev]
         (when (and (= :rf.event/run-start (:operation ev))
                    (= :t6vs3/inner (first (-> ev :tags :rf.event/v)))
                    (compare-and-set! emitted? false true))
-          (trace/emit! :info nested-op {}))))
+          (rf.trace/emit! :info nested-op {}))))
     ;; OBSERVER: record the delivery order of every event.
-    (trace/register-listener! ::observer
+    (rf.trace/register-listener! ::observer
       (fn [ev] (swap! seen conj [(:operation ev) (:id ev)])))
     (try
-      (trace/emit! :info :t6vs3/trigger {})
+      (rf.trace/emit! :info :t6vs3/trigger {})
       (let [stream @seen
             ids    (mapv second stream)
             ops    (mapv first stream)]
@@ -180,6 +180,6 @@
                    "drain's already-captured run-end. Ops in delivery order: "
                    (pr-str ops)))))
       (finally
-        (trace/unregister-listener! ::trigger)
-        (trace/unregister-listener! ::emitter)
-        (trace/unregister-listener! ::observer)))))
+        (rf.trace/unregister-listener! ::trigger)
+        (rf.trace/unregister-listener! ::emitter)
+        (rf.trace/unregister-listener! ::observer)))))

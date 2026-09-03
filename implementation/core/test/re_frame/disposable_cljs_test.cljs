@@ -22,10 +22,10 @@
 
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.disposable :as rf-disposable]))
+            [re-frame.disposable :as rf.disposable]))
 
 (defn- make-toy-disposable
-  "Build a minimal reify of `rf-disposable/IDisposable` that records
+  "Build a minimal reify of `rf.disposable/IDisposable` that records
   every registered on-dispose callback in a per-instance vector atom
   and fires them in registration order on `-dispose`. After firing,
   `:disposed?` flips true and subsequent `-dispose` calls no-op (the
@@ -38,7 +38,7 @@
   (let [callbacks  (atom [])
         fire-log   (atom [])
         disposed?  (atom false)
-        obj        (reify rf-disposable/IDisposable
+        obj        (reify rf.disposable/IDisposable
                      (-add-on-dispose [_ f]
                        (swap! callbacks conj f))
                      (-dispose [_]
@@ -54,30 +54,30 @@
 (deftest add-on-dispose-then-dispose-fires-callback
   (testing "a single registered on-dispose callback fires when -dispose is called"
     (let [{:keys [obj fire-log]} (make-toy-disposable)]
-      (rf-disposable/-add-on-dispose obj #(swap! fire-log conj :cb-1))
+      (rf.disposable/-add-on-dispose obj #(swap! fire-log conj :cb-1))
       (is (= [] @fire-log)
           "precondition: no callback fired yet")
-      (rf-disposable/-dispose obj)
+      (rf.disposable/-dispose obj)
       (is (= [:cb-1] @fire-log)
           "the registered callback fired exactly once on -dispose"))))
 
 (deftest multiple-callbacks-fire-in-registration-order
   (testing "multiple on-dispose callbacks fire in registration order"
     (let [{:keys [obj fire-log]} (make-toy-disposable)]
-      (rf-disposable/-add-on-dispose obj #(swap! fire-log conj :cb-a))
-      (rf-disposable/-add-on-dispose obj #(swap! fire-log conj :cb-b))
-      (rf-disposable/-add-on-dispose obj #(swap! fire-log conj :cb-c))
-      (rf-disposable/-dispose obj)
+      (rf.disposable/-add-on-dispose obj #(swap! fire-log conj :cb-a))
+      (rf.disposable/-add-on-dispose obj #(swap! fire-log conj :cb-b))
+      (rf.disposable/-add-on-dispose obj #(swap! fire-log conj :cb-c))
+      (rf.disposable/-dispose obj)
       (is (= [:cb-a :cb-b :cb-c] @fire-log)
           "all three callbacks fired in registration order"))))
 
 (deftest dispose-is-idempotent
   (testing "a second -dispose is a no-op: callbacks do not fire again"
     (let [{:keys [obj fire-log]} (make-toy-disposable)]
-      (rf-disposable/-add-on-dispose obj #(swap! fire-log conj :only-once))
-      (rf-disposable/-dispose obj)
+      (rf.disposable/-add-on-dispose obj #(swap! fire-log conj :only-once))
+      (rf.disposable/-dispose obj)
       (is (= [:only-once] @fire-log)
           "first -dispose fired the callback")
-      (rf-disposable/-dispose obj)
+      (rf.disposable/-dispose obj)
       (is (= [:only-once] @fire-log)
           "second -dispose did NOT re-fire the callback (idempotent per docstring)"))))

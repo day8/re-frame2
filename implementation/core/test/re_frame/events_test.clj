@@ -22,11 +22,11 @@
   Every assertion here is posture-independent — it holds in the ordinary
   `clojure -M:test` suite AND under the real production gate
   (`scripts/test-core-prod-gate.sh`, `-Dre-frame.debug=false`) — UNLESS it sits
-  inside a `(when interop/debug-enabled? …)` arm marked `rf2-d2841`.
+  inside a `(when rf.interop/debug-enabled? …)` arm marked `rf2-d2841`.
 
   Two things this namespace observes are dev-only BY DESIGN and therefore live
-  in such arms: the `:trace` stream (every `trace/emit-error!` site is gated on
-  `interop/debug-enabled?`) and `:doc` reflection metadata on a registry entry
+  in such arms: the `:trace` stream (every `rf.trace/emit-error!` site is gated on
+  `rf.interop/debug-enabled?`) and `:doc` reflection metadata on a registry entry
   (retained for tooling / agent inspection in dev, elided in production — see
   `re-frame.doc-metadata-prod-elision-test`).
 
@@ -37,24 +37,24 @@
   effects vector."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.events :as events]
-            [re-frame.frame :as frame]
-            [re-frame.interceptor :as interceptor]
-            [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]))
+            [re-frame.events :as rf.events]
+            [re-frame.frame :as rf.frame]
+            [re-frame.interceptor :as rf.interceptor]
+            [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace :as rf.trace]))
 
 ;; ---- fixtures -------------------------------------------------------------
 
 (defn reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (when-let [clear-schemas! (late-bind/get-fn :schemas/clear-by-frame!)]
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (when-let [clear-schemas! (rf.late-bind/get-fn :schemas/clear-by-frame!)]
     (clear-schemas!))
-  (trace/clear-listeners!)
-  (rf/init! plain-atom/adapter)
+  (rf.trace/clear-listeners!)
+  (rf/init! rf.substrate.plain-atom/adapter)
   ;; EP-0002 (rf2-9o48ih): `init!` no longer synthesises `:rf/default`;
   ;; framework operation surfaces require a carried frame stamp. Register
   ;; `:rf/default` + pin it as the body's ambient scope (the carried-
@@ -147,7 +147,7 @@
         ;; retained for tooling in dev and ELIDED in production; the chain
         ;; threading this deftest is named for is asserted below, in both
         ;; postures.
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (= "Superset form." (:doc meta))
               "the reflection metadata is retained on the registry entry"))
         (is (not (contains? meta :interceptors-as-raw))
@@ -200,7 +200,7 @@
            [noop-icpt-value]
            (fn [{:keys [db]} _] {:db db}))
          (catch clojure.lang.ExceptionInfo _ nil))
-    (is (nil? (registrar/lookup :event :test.bpmszk/vector-no-side-effect))
+    (is (nil? (rf.registrar/lookup :event :test.bpmszk/vector-no-side-effect))
         "registry slot is untouched when the vector-middle guard throws"))
 
   (testing "metadata plus positional vector is the retired three-tail shape"
@@ -289,7 +289,7 @@
            {:interceptors :nope}
            (fn [{:keys [db]} _] {:db db}))
          (catch clojure.lang.ExceptionInfo _ nil))
-    (is (nil? (registrar/lookup :event :test.bpmszk/bad-no-side-effect))
+    (is (nil? (rf.registrar/lookup :event :test.bpmszk/bad-no-side-effect))
         "registry slot is untouched when the malformed guard throws"))
 
   (testing "an empty :interceptors vector is legitimate (no chain), not malformed"
@@ -319,7 +319,7 @@
 ;; ---- clear-event round-trip (rf2-6z20) -----------------------------------
 ;;
 ;; Per Spec 002 / API.md row §Lifecycle: `rf/clear-event` is the public
-;; alias of `events/clear-event` (re-exported at `core.cljc:867`), used
+;; alias of `rf.events/clear-event` (re-exported at `core.cljc:867`), used
 ;; by hot-reload tooling and per-test isolation fixtures. Two arities:
 ;;
 ;;   (rf/clear-event)        ;; clear every registered :event
@@ -340,8 +340,8 @@
       (rf/reg-event :test.6z20/foo
         (fn [{:keys [db]} _] (swap! runs inc) {:db (assoc db :touched? true)}))
       ;; Pre-clear: reachable via lookup AND dispatch.
-      (is (some? (registrar/lookup :event :test.6z20/foo))
-          "the event handler is reachable via registrar/lookup pre-clear")
+      (is (some? (rf.registrar/lookup :event :test.6z20/foo))
+          "the event handler is reachable via rf.registrar/lookup pre-clear")
       (rf/dispatch-sync [:test.6z20/foo])
       (is (true? (:touched? (rf/app-db-value :rf/default)))
           "the handler ran when registered")
@@ -351,14 +351,14 @@
       (rf/clear-event :test.6z20/foo)
 
       ;; Post-clear: gone from the registry, dispatch traces no-such-handler.
-      (is (nil? (registrar/lookup :event :test.6z20/foo))
+      (is (nil? (rf.registrar/lookup :event :test.6z20/foo))
           "registry slot is gone after clear-event")
       (let [recorded (record-traces! ::post-clear)]
         (rf/dispatch-sync [:test.6z20/foo])
         (is (= 1 @runs)
             "the cleared handler did NOT run on the subsequent dispatch")
         ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (let [errs (filterv #(= :rf.error/no-such-handler (:operation %))
                               @recorded)]
             (is (= 1 (count errs))
@@ -369,21 +369,21 @@
 (deftest clear-event-no-arg-clears-every-event
   (testing "(rf/clear-event) with no args clears every registered :event id"
     ;; Per events.cljc:227, the no-arg form is documented:
-    ;;   ([] (registrar/clear-kind! :event))
+    ;;   ([] (rf.registrar/clear-kind! :event))
     ;; This tests confirms the contract.
     (rf/reg-event :test.6z20/a (fn [{:keys [db]} _] {:db db}))
     (rf/reg-event :test.6z20/b (fn [{:keys [db]} _] {:db db}))
     (rf/reg-event :test.6z20/c (fn [_ _] {}))
-    (is (some? (registrar/lookup :event :test.6z20/a)))
-    (is (some? (registrar/lookup :event :test.6z20/b)))
-    (is (some? (registrar/lookup :event :test.6z20/c)))
+    (is (some? (rf.registrar/lookup :event :test.6z20/a)))
+    (is (some? (rf.registrar/lookup :event :test.6z20/b)))
+    (is (some? (rf.registrar/lookup :event :test.6z20/c)))
 
     (rf/clear-event)
 
-    (is (nil? (registrar/lookup :event :test.6z20/a))
+    (is (nil? (rf.registrar/lookup :event :test.6z20/a))
         "all :event slots cleared by no-arg form")
-    (is (nil? (registrar/lookup :event :test.6z20/b)))
-    (is (nil? (registrar/lookup :event :test.6z20/c)))))
+    (is (nil? (rf.registrar/lookup :event :test.6z20/b)))
+    (is (nil? (rf.registrar/lookup :event :test.6z20/c)))))
 
 (deftest clear-event-leaves-other-kinds-untouched
   (testing "clear-event only touches :event; :sub, :fx, :cofx are preserved"
@@ -393,13 +393,13 @@
     (rf/reg-fx :test.6z20/fx (fn [_ _] nil))
     (rf/reg-cofx :test.6z20/cofx (fn [] :stub))
     (rf/clear-event)
-    (is (nil? (registrar/lookup :event :test.6z20/ev))
+    (is (nil? (rf.registrar/lookup :event :test.6z20/ev))
         ":event was cleared")
-    (is (some? (registrar/lookup :sub :test.6z20/sub))
+    (is (some? (rf.registrar/lookup :sub :test.6z20/sub))
         ":sub kind is untouched")
-    (is (some? (registrar/lookup :fx :test.6z20/fx))
+    (is (some? (rf.registrar/lookup :fx :test.6z20/fx))
         ":fx kind is untouched")
-    (is (some? (registrar/lookup :cofx :test.6z20/cofx))
+    (is (some? (rf.registrar/lookup :cofx :test.6z20/cofx))
         ":cofx kind is untouched")))
 
 ;; ---- reg-event bad return (rf2-k3bj) -------------------------------------
@@ -422,7 +422,7 @@
         ;; production-real half is the RECOVERY, asserted below in both
         ;; postures: nothing is extracted from a non-map return, so app-db is
         ;; untouched.
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (let [errs (error-events recorded :rf.error/effect-handler-bad-return)]
             (is (= 1 (count errs))
                 (str "expected exactly one :rf.error/effect-handler-bad-return, got " (count errs)))
@@ -446,7 +446,7 @@
       (is (= db-before (rf/app-db-value :rf/default))
           "app-db is unchanged — nothing is extracted from a number return")
       ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [errs (error-events recorded :rf.error/effect-handler-bad-return)]
           (is (= 1 (count errs)))
           (is (= 42 (:returned (:tags (first errs)))))))))
@@ -469,7 +469,7 @@
       (is (= db-before (rf/app-db-value :rf/default))
           "app-db is unchanged — nothing is extracted from a vector return")
       ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [errs (error-events recorded :rf.error/effect-handler-bad-return)]
           (is (= 1 (count errs)))
           (is (= [[:dispatch [:other]]] (:returned (:tags (first errs))))))))))
@@ -536,7 +536,7 @@
         ;; tooling metadata, retained in dev and elided in production. That the
         ;; SHAPE was accepted at all is the `:test.fuudi/touched-2?` assertion
         ;; above, which runs in both postures.
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (= "metadata-only middle slot" (:doc meta))
               ":doc from the metadata-map is retained on the registry entry"))
         (is (= 1 (count (:interceptors meta)))
@@ -562,7 +562,7 @@
       (let [meta (rf/handler-meta :event :test.fuudi/shape-4)
             ids  (chain-ids (:interceptors meta))]
         ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (= "metadata AND interceptors" (:doc meta))
               ":doc from the metadata-map is retained on the registry entry"))
         (is (= [:test.fuudi/marker :rf/event-handler] ids)
@@ -584,8 +584,8 @@
   (testing "an interceptor :before reads :db coeffect and sets the :db effect"
     (rf/reg-interceptor :test.fuudi/ctx-marker
       {:before (fn [ctx]
-                 (let [db (interceptor/get-coeffect ctx :db)]
-                   (interceptor/assoc-coeffect
+                 (let [db (rf.interceptor/get-coeffect ctx :db)]
+                   (rf.interceptor/assoc-coeffect
                      ctx :db (assoc db :test.fuudi/ctx-touched? true))))
        :after  identity})
     (rf/reg-event :test.fuudi/ctx-shape-4
@@ -598,7 +598,7 @@
           ids  (chain-ids (:interceptors meta))]
       (is (not (contains? meta :event/kind)))
       ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (= "interceptor, metadata interceptors" (:doc meta))))
       (is (= [:test.fuudi/ctx-marker :rf/event-handler] ids)))))
 
@@ -760,14 +760,14 @@
     (testing "rejection happens BEFORE the registry slot is written"
       ;; Belt-and-braces: a failed registration must leave no partial
       ;; trace in the registrar. The `reject-...!` call is sequenced
-      ;; before `registrar/register!` in `register-event!`, so the
+      ;; before `rf.registrar/register!` in `register-event!`, so the
       ;; handler-id should be absent from the :event kind after the throw.
       (let [at-boundary (reg-at-boundary-stub!)]
         (try (rf/reg-event :test.iftj4/no-side-effect
                {:interceptors [at-boundary]}
                (fn [_ _] {}))
              (catch clojure.lang.ExceptionInfo _ nil))
-        (is (nil? (registrar/lookup :event :test.iftj4/no-side-effect))
+        (is (nil? (rf.registrar/lookup :event :test.iftj4/no-side-effect))
             "registry slot is untouched when the validate-at-boundary-interceptor check throws")))))
 
 (deftest at-boundary-with-schema-registers-cleanly
@@ -848,7 +848,7 @@
              {:interceptors [:rf.schema/at-boundary]}
              (fn [_ _] {}))
            (catch clojure.lang.ExceptionInfo _ nil))
-      (is (nil? (registrar/lookup :event :test.i3uxo2/ref-no-side-effect))
+      (is (nil? (rf.registrar/lookup :event :test.i3uxo2/ref-no-side-effect))
           "no partial registry trace after the ref-form rejection"))))
 
 ;; ---- rf2-48ypb6 / rf2-48ypb6.1 — at-boundary-entry? detects the bare keyword (unit) ----------
@@ -879,7 +879,7 @@
             arm was removed (rf2-48ypb6.1, rf2-wjr8ow) as vestigial — a static
             interceptor's `[id arg]` ref is rejected at validate-refs-registered!
             with :rf.error/interceptor-factory-arity before this predicate runs."
-    (let [at-boundary-entry? @#'events/at-boundary-entry?]
+    (let [at-boundary-entry? @#'rf.events/at-boundary-entry?]
       (testing "bare-keyword ref"
         (is (true? (boolean (at-boundary-entry? :rf.schema/at-boundary)))
             "the bare keyword is detected"))
@@ -962,7 +962,7 @@
              bare-icpt
              (fn [{:keys [db]} _] {:db db}))
            (catch clojure.lang.ExceptionInfo _ nil))
-      (is (nil? (registrar/lookup :event :test.3ut12/no-side-effect))
+      (is (nil? (rf.registrar/lookup :event :test.3ut12/no-side-effect))
           "registry slot is untouched when the bare-interceptor check throws"))))
 
 (deftest legitimate-interceptor-forms-still-work
@@ -1051,9 +1051,9 @@
          (catch clojure.lang.ExceptionInfo _ nil))
     (try (rf/reg-event-ctx :test.slice-z/ctx-noreg (fn [_ _] nil))
          (catch clojure.lang.ExceptionInfo _ nil))
-    (is (nil? (registrar/lookup :event :test.slice-z/db-noreg)))
-    (is (nil? (registrar/lookup :event :test.slice-z/fx-noreg)))
-    (is (nil? (registrar/lookup :event :test.slice-z/ctx-noreg))))
+    (is (nil? (rf.registrar/lookup :event :test.slice-z/db-noreg)))
+    (is (nil? (rf.registrar/lookup :event :test.slice-z/fx-noreg)))
+    (is (nil? (rf.registrar/lookup :event :test.slice-z/ctx-noreg))))
 
   (testing "the removal errors name the replacement surface in :reason"
     (let [db-reason  (try (rf/reg-event-db :test.slice-z/r-db (fn [_ _] nil))

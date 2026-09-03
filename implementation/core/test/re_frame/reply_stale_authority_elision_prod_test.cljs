@@ -13,7 +13,7 @@
   `{goog.DEBUG false}`), via the shared `re-frame.prod-elision-runner`. Pure
   substrate — no runtime fixture needed."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.reply :as reply]))
+            [re-frame.reply :as rf.reply]))
 
 (def ^:private carried {:g 1})
 (def ^:private current {:g 2})
@@ -27,7 +27,7 @@
     (doseq [target [[:app/replied]
                     {:event [:app/replied] :dispatch-stale? true}
                     {:event [:app/replied] :dispatch-stale? true :re-frame.reply/stale-authority true}]]
-      (let [{:keys [deliver? reply]} (reply/suppress target carried current)]
+      (let [{:keys [deliver? reply]} (rf.reply/suppress target carried current)]
         (is (false? deliver?)
             "the stale outcome is non-delivering under advanced compilation")
         (is (= :stale (:status reply)) "still a well-formed stale reply")
@@ -38,14 +38,14 @@
             stale :reply on its OWN authority under prod — observation is
             ordinary `complete` + dispatch, structurally separate from the
             (universally non-delivering) suppress boundary"
-    (let [{:keys [reply]} (reply/suppress [:app/replied] carried current)]
-      (is (= [:tool/observed reply] (reply/complete [:tool/observed] reply))
+    (let [{:keys [reply]} (rf.reply/suppress [:app/replied] carried current)]
+      (is (= [:tool/observed reply] (rf.reply/complete [:tool/observed] reply))
           "the observer builds the completed event from the stale reply itself"))))
 
 (deftest durable-target-strips-ephemeral-under-prod
   (testing "rf2-j538f7.14: durable projection strips the ephemeral ::post slot
             under prod — a mapped target becomes data-only when persisted"
-    (let [mapped (reply/map-completed-event (fn [e] e) [:x 1])]
-      (is (false? (reply/data-only-target? mapped)))
-      (is (true? (reply/data-only-target? (reply/durable-target mapped)))
+    (let [mapped (rf.reply/map-completed-event (fn [e] e) [:x 1])]
+      (is (false? (rf.reply/data-only-target? mapped)))
+      (is (true? (rf.reply/data-only-target? (rf.reply/durable-target mapped)))
           "durable-target strips ::post under advanced compilation"))))

@@ -33,9 +33,9 @@
    schedule."
   (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]
+            [re-frame.frame :as rf.frame]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]
             ;; timer.core registers an app-schema on :rf/default at ns-load via
             ;; `with-frame`; it pulls re-frame.schemas transitively. Require here
             ;; so the ns is self-sufficient.
@@ -44,8 +44,8 @@
   (:require-macros [re-frame.core :refer [with-new-frame]]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter}))
 
 ;; ---------------------------------------------------------------------------
 ;; Helpers
@@ -74,7 +74,7 @@
             the old chain and arms exactly ONE fresh chain"
     (let [captured      (atom [])
           capture-later (fn [_ctx args] (swap! captured conj args))]
-      (with-new-frame [f (frame/make-anon-frame-record!
+      (with-new-frame [f (rf.frame/make-anon-frame-record!
                            {:fx-overrides {:dispatch-later capture-later}})]
 
         ;; ---- boot: :initialise arms exactly one chain under gen 0 ----

@@ -58,20 +58,20 @@
   counterpart here: `#?(:clj …)` in `report-unowned-error!` is `nil`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.error-emit :as error-emit]
-            [re-frame.frame :as frame]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.error-emit :as rf.error-emit]
+            [re-frame.frame :as rf.frame]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.substrate.plain-atom/adapter
      :init-fn (fn []
                 ;; The listener registry is a `defonce` atom that survives
                 ;; test re-runs, and EMPTINESS is the whole condition under
                 ;; test here — a listener leaked from a sibling test would
                 ;; silently invert every assertion below.
-                (error-emit/clear-error-listeners!))}))
+                (rf.error-emit/clear-error-listeners!))}))
 
 (defn- browser?
   "True only on a real DOM host. `js/document` presence is the same
@@ -202,7 +202,7 @@
       (let [{:keys [console report-error]}
             (capture-console
               (fn []
-                (error-emit/dispatch-frame-teardown-report!
+                (rf.error-emit/dispatch-frame-teardown-report!
                   :rf/default
                   [{:hook :fu75/step :exception (ex-info "teardown" {})
                     :where :safe-call-hook!}]
@@ -239,7 +239,7 @@
 
 (deftest no-frame-context-carries-its-ladder-to-the-console
   (when (browser?)
-    (let [payload (frame/no-frame-context-payload :subscribe
+    (let [payload (rf.frame/no-frame-context-payload :subscribe
                                                   {:where 'rf/subscribe})]
       (is (string? (:reason payload))
           "premise: the payload composes the ladder in the first place")
@@ -250,7 +250,7 @@
         (let [seen (atom [])]
           (rf/register-listener! :errors :fu75/ladder
                                  (fn [record] (swap! seen conj record)))
-          (frame/emit-no-frame-context! payload)
+          (rf.frame/emit-no-frame-context! payload)
           (rf/unregister-listener! :errors :fu75/ladder)
           (let [record (first @seen)]
             (is (= :rf.error/no-frame-context (:error record)))
@@ -261,9 +261,9 @@
 
       (testing "and the console line leads with the category and the ladder,
                 so a reader who opens devtools sees the text FIRST"
-        (error-emit/clear-error-listeners!)
+        (rf.error-emit/clear-error-listeners!)
         (let [{:keys [console report-error]}
-              (capture-console #(frame/emit-no-frame-context! payload))]
+              (capture-console #(rf.frame/emit-no-frame-context! payload))]
           (is (= 1 (count console)))
           (let [args (first console)
                 [prefix summary record] args]
@@ -286,11 +286,11 @@
               same reason — no exception, a composed :reason on the payload.
               Pinned so the two cannot drift into one carrying its message
               and the other not"
-      (error-emit/clear-error-listeners!)
-      (let [payload (frame/bad-frame-provider-arg-payload
+      (rf.error-emit/clear-error-listeners!)
+      (let [payload (rf.frame/bad-frame-provider-arg-payload
                       "not-a-frame" {:where 'rf/frame-provider})
             {:keys [console]}
-            (capture-console #(frame/emit-bad-frame-provider-arg! payload))]
+            (capture-console #(rf.frame/emit-bad-frame-provider-arg! payload))]
         (is (= 1 (count console)))
         (let [[_ summary record] (first console)]
           (is (re-find #"^:rf\.error/bad-frame-provider-arg\b" summary))
@@ -325,7 +325,7 @@
         (let [{:keys [console]}
               (capture-console
                 (fn []
-                  (error-emit/dispatch-frame-teardown-report!
+                  (rf.error-emit/dispatch-frame-teardown-report!
                     :rf/default
                     [{:hook :fu75/step :where :safe-call-hook!}]
                     1234)))]
@@ -345,7 +345,7 @@
     (testing "and so does one that THROWS — the substrate swallows the
               listener throw, and the fallback must not read that as
               nobody-owns-it"
-      (error-emit/clear-error-listeners!)
+      (rf.error-emit/clear-error-listeners!)
       (rf/register-listener! :errors :fu75/broken
                             (fn [_record] (throw (ex-info "listener boom" {}))))
       (let [{:keys [console]}

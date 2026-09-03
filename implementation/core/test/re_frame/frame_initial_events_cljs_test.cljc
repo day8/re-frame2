@@ -56,7 +56,7 @@
   PROVENANCE is not. `:source :frame-init` and `:rf.frame/init-step-index`
   both ride the `:rf.event/dispatched` trace and are gone under
   `-Dre-frame.debug=false`, so `initial-events-carry-construction-provenance`
-  keeps its assertions verbatim inside a `(when interop/debug-enabled? …)` arm
+  keeps its assertions verbatim inside a `(when rf.interop/debug-enabled? …)` arm
   marked `rf2-d2841` — the two negatives about the ordinary runtime dispatch
   included, since over an empty stream `(first @dispatched)` is nil and both
   pass without anything having been classified. The always-on witness kept
@@ -65,13 +65,13 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core         :as rf]
-            [re-frame.interop      :as interop]
-            [re-frame.frame        :as frame]
-            [re-frame.image        :as image]
-            [re-frame.late-bind    :as late-bind]
-            [re-frame.live-frame   :as lf]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.interop      :as rf.interop]
+            [re-frame.frame        :as rf.frame]
+            [re-frame.image        :as rf.image]
+            [re-frame.late-bind    :as rf.late-bind]
+            [re-frame.live-frame   :as rf.live-frame]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; ---------------------------------------------------------------------------
 ;; Fixture — reset the runtime (registrar, frames, trace listeners) and install
@@ -79,7 +79,7 @@
 ;; ---------------------------------------------------------------------------
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---------------------------------------------------------------------------
 ;; Helpers
@@ -160,7 +160,7 @@
   (testing "top-level make-frame :initial-events settles synchronously — an
             immediate app-db read sees the constructed state"
     (reg-test-events!)
-    (lf/make-frame {:id :mk/main
+    (rf.live-frame/make-frame {:id :mk/main
                     :initial-events [[:test/set-db {:n 5}]
                                      [:test/inc]]})
     (is (= 6 (:n (rf/app-db-value :mk/main)))
@@ -212,7 +212,7 @@
       ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
       ;; :source and :rf.frame/init-step-index ride the :rf.event/dispatched
       ;; TRACE, which is elided under -Dre-frame.debug=false.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [sources (->> @dispatched (map :source) (filter #{:frame-init}))]
           (is (= 2 (count sources))
               "both setup dispatches carried :source :frame-init"))
@@ -252,7 +252,7 @@
     (is (= :rf.error/initial-events-bare-event
            (err-id #(rf/make-frame {:id :bad/bare :initial-events [:test/set-db {:n 0}]})))
         "[:test/set-db {…}] at top level is rejected (wrap as [[…]])")
-    (is (nil? (frame/frame :bad/bare))
+    (is (nil? (rf.frame/frame :bad/bare))
         "no frame is left registered when preflight validation throws")))
 
 (deftest frame-in-step-opts-is-rejected
@@ -262,7 +262,7 @@
            (err-id #(rf/make-frame {:id :bad/frame-opt :initial-events [{:event [:test/set-db {}]
                                                       :opts  {:frame :somewhere-else}}]})))
         ":frame is forced to the constructed frame and may not be supplied")
-    (is (nil? (frame/frame :bad/frame-opt)) "no frame left registered")))
+    (is (nil? (rf.frame/frame :bad/frame-opt)) "no frame left registered")))
 
 (deftest non-map-step-opts-is-rejected
   (testing "a non-map :opts fails :rf.error/initial-events-bad-opts"
@@ -279,7 +279,7 @@
     (is (= :rf.error/initial-events-bad-step
            (err-id #(rf/make-frame {:id :bad/step2 :initial-events :not-a-vector})))
         "a non-vector top-level value is rejected as bad-step")
-    (is (nil? (frame/frame :bad/step)) "no frame left registered")))
+    (is (nil? (rf.frame/frame :bad/step)) "no frame left registered")))
 
 (deftest empty-step-event-is-rejected
   (testing "an empty step vector / a map step with missing-or-empty :event fails
@@ -306,9 +306,9 @@
            (err-id #(rf/make-frame {:id :ret/oc :on-create [:test/inc]})))
         "make-frame rejects :on-create")
     (is (= :rf.error/on-create-retired
-           (err-id #(lf/make-frame {:id :ret/oc2 :on-create [:test/inc]})))
+           (err-id #(rf.live-frame/make-frame {:id :ret/oc2 :on-create [:test/inc]})))
         "make-frame rejects :on-create (it flows through to make-frame's guard)")
-    (is (nil? (frame/frame :ret/oc)) "no frame left registered")))
+    (is (nil? (rf.frame/frame :ret/oc)) "no frame left registered")))
 
 (deftest initial-db-is-retired
   (testing ":initial-db supplied to construction fails :rf.error/initial-db-retired"
@@ -317,9 +317,9 @@
            (err-id #(rf/make-frame {:id :ret/idb :initial-db {:n 0}})))
         "make-frame rejects :initial-db")
     (is (= :rf.error/initial-db-retired
-           (err-id #(lf/make-frame {:id :ret/idb2 :initial-db {:n 0}})))
+           (err-id #(rf.live-frame/make-frame {:id :ret/idb2 :initial-db {:n 0}})))
         "make-frame rejects :initial-db (no longer an image-selection key)")
-    (is (nil? (frame/frame :ret/idb)) "no frame left registered")))
+    (is (nil? (rf.frame/frame :ret/idb)) "no frame left registered")))
 
 ;; ===========================================================================
 ;; 5. Reset — destroy-frame! + re-make-frame replays the recorded :initial-events
@@ -341,7 +341,7 @@
       (rf/dispatch-sync [:test/inc] {:frame :reset/main})
       (is (= 3 (:n (rf/app-db-value :reset/main))) "runtime moved it to n=3")
       ;; Reset re-runs the recorded setup: seed {:n 0} then one :test/inc ⇒ n=1.
-      (frame/destroy-frame! :reset/main)
+      (rf.frame/destroy-frame! :reset/main)
       (rf/make-frame (assoc config :id :reset/main))
       (is (= 1 (:n (rf/app-db-value :reset/main)))
           "destroy + re-make-frame replayed the recorded :initial-events, back to n=1"))))
@@ -356,7 +356,7 @@
     (reg-test-events!)
     (let [config {:initial-events [[:test/set-db {:n 0}]
                                    [:test/inc]]}
-          reset! (fn [] (frame/destroy-frame! :reset/idem) (rf/make-frame (assoc config :id :reset/idem)))]
+          reset! (fn [] (rf.frame/destroy-frame! :reset/idem) (rf/make-frame (assoc config :id :reset/idem)))]
       (rf/make-frame (assoc config :id :reset/idem))
       (is (= 1 (:n (rf/app-db-value :reset/idem))) "construction settled to n=1")
       ;; Mutate away, then reset TWICE in a row.
@@ -396,7 +396,7 @@
     ;; DISTINCT marker so a degrade is unambiguous, NOT merely an empty db.
     (rf/reg-event :counter/seed
       (fn [_ [_ _new]] {:db {:written-by :global}}))
-    (let [img (image/image
+    (let [img (rf.image/image
                 {:id :reset/inline-counter
                  :registrations
                  ;; INLINE-only handlers — they exist ONLY in the generation, so
@@ -408,13 +408,13 @@
       ;; Construct the image-loaded frame. Its :initial-events seed + inc both
       ;; resolve through the INLINE image generation (no explicit pool — inline
       ;; descriptors are selected because the image was supplied).
-      (lf/make-frame {:id :reset/inline
+      (rf.live-frame/make-frame {:id :reset/inline
                       :images [img]
                       :initial-events [[:counter/seed 0]
                                        [:counter/inc]]}
                      [])
       ;; Sanity: construction ran the INLINE handlers (the generation is live).
-      (is (some? (frame/frame-generation :reset/inline))
+      (is (some? (rf.frame/frame-generation :reset/inline))
           "the frame is image-loaded — its record carries a resolved generation")
       (let [db0 (rf/app-db-value :reset/inline)]
         (is (= :inline (:written-by db0)) "construction ran the INLINE seed, not the global")
@@ -426,14 +426,14 @@
       ;; THE RESET — destroy + re-`make-frame`, re-supplying the SAME `:images`
       ;; the caller already holds (`img`), so the recreated frame keeps the
       ;; image generation.
-      (frame/destroy-frame! :reset/inline)
-      (lf/make-frame {:id :reset/inline
+      (rf.frame/destroy-frame! :reset/inline)
+      (rf.live-frame/make-frame {:id :reset/inline
                       :images [img]
                       :initial-events [[:counter/seed 0]
                                        [:counter/inc]]}
                      [])
       ;; (1) the generation survived — the recreated record still carries it.
-      (is (some? (frame/frame-generation :reset/inline))
+      (is (some? (rf.frame/frame-generation :reset/inline))
           "(1) reset preserved the resolved image generation — the recreated frame
            is still image-loaded, NOT degraded to a registrar-resolved frame")
       ;; (2) the :initial-events replay resolved the INLINE handlers, not the
@@ -470,7 +470,7 @@
           "re-registration did NOT replay the new setup — durable app-db preserved")
       ;; The recording IS replaced: a subsequent destroy + re-make-frame replays
       ;; the NEW setup.
-      (frame/destroy-frame! :remount/main)
+      (rf.frame/destroy-frame! :remount/main)
       (rf/make-frame (assoc new-config :id :remount/main))
       (is (= 999 (:n (rf/app-db-value :remount/main)))
           "destroy + re-make-frame after re-reg replays the RE-RECORDED setup (n=999)"))))
@@ -499,7 +499,7 @@
           "the throwing step raises :rf.error/initial-events-step-failed")
       (is (= 1 (:step-index data)) "the error names the failing step's 0-based index")
       (is (= [:test/needs-missing-cofx] (:event data)) "the error names the failing event")
-      (is (nil? (frame/frame :teardown/main))
+      (is (nil? (rf.frame/frame :teardown/main))
           "the partially-created frame was torn down — no live half-frame is left"))))
 
 (deftest set-db-bad-arg-setup-step-tears-down-partial-frame
@@ -514,7 +514,7 @@
             captured in-band error on the always-on error-emit axis, tears down,
             and raises :rf.error/initial-events-step-failed. CONFIRM-BY-REVERT:
             reverting run-setup-events! to the old try/catch-only form makes
-            (frame/frame :set-db-bad/main) NON-nil here — the frame survives — and
+            (rf.frame/frame :set-db-bad/main) NON-nil here — the frame survives — and
             no :rf.error/initial-events-step-failed is raised."
     (reg-test-events!)
     ;; :rf/set-db is the FRAMEWORK-STANDARD seed event (re-seeded by the reset
@@ -529,7 +529,7 @@
           "the in-band-captured handler-exception raises :rf.error/initial-events-step-failed")
       (is (= 1 (:step-index data)) "the error names the failing step's 0-based index")
       (is (= [:rf/set-db :not-a-map] (:event data)) "the error names the failing event")
-      (is (nil? (frame/frame :set-db-bad/main))
+      (is (nil? (rf.frame/frame :set-db-bad/main))
           "the partially-created frame was TORN DOWN — the bug left it ALIVE wrongly-seeded"))))
 
 (deftest handler-body-throw-setup-step-tears-down-partial-frame
@@ -550,7 +550,7 @@
           "the in-band handler-body throw raises :rf.error/initial-events-step-failed")
       (is (= 1 (:step-index data)) "the error names the failing step's 0-based index")
       (is (= [:test/boom] (:event data)) "the error names the failing event")
-      (is (nil? (frame/frame :boom/main))
+      (is (nil? (rf.frame/frame :boom/main))
           "the partially-created frame was TORN DOWN — no live half-frame is left"))))
 
 (deftest runner-unavailable-fails-loud-not-silent-drop
@@ -563,33 +563,33 @@
     (reg-test-events!)
     ;; Simulate the standalone re-frame.frame require (no router) by removing the
     ;; runner hook for the duration of the construction, restoring it after.
-    (let [orig (late-bind/get-fn :router/dispatch-sync!)]
+    (let [orig (rf.late-bind/get-fn :router/dispatch-sync!)]
       (try
-        (late-bind/set-fn! :router/dispatch-sync! nil)
-        (late-bind/invalidate-cache! :router/dispatch-sync!)
+        (rf.late-bind/set-fn! :router/dispatch-sync! nil)
+        (rf.late-bind/invalidate-cache! :router/dispatch-sync!)
         (let [data (err-data
                      #(rf/make-frame {:id :unavailable/main :initial-events [[:test/set-db {:n 0}]
                                                        [:test/inc]]}))]
           (is (= :rf.error/initial-events-runner-unavailable (:rf.error/id data))
               "an unbound runner with steps to run fails loud, not a silent drop")
           (is (= 2 (:step-count data)) "the error reports the dropped step count")
-          (is (nil? (frame/frame :unavailable/main))
+          (is (nil? (rf.frame/frame :unavailable/main))
               "the partial frame was torn down — no empty, never-setup frame left live"))
         (finally
-          (late-bind/set-fn! :router/dispatch-sync! orig)
-          (late-bind/invalidate-cache! :router/dispatch-sync!))))
+          (rf.late-bind/set-fn! :router/dispatch-sync! orig)
+          (rf.late-bind/invalidate-cache! :router/dispatch-sync!))))
     ;; And the no-steps case is unaffected — an empty :initial-events never
     ;; touches the runner, so an unavailable hook there is a genuine no-op.
-    (let [orig (late-bind/get-fn :router/dispatch-sync!)]
+    (let [orig (rf.late-bind/get-fn :router/dispatch-sync!)]
       (try
-        (late-bind/set-fn! :router/dispatch-sync! nil)
-        (late-bind/invalidate-cache! :router/dispatch-sync!)
+        (rf.late-bind/set-fn! :router/dispatch-sync! nil)
+        (rf.late-bind/invalidate-cache! :router/dispatch-sync!)
         (rf/make-frame {:id :unavailable/empty :initial-events []})
-        (is (some? (frame/frame :unavailable/empty))
+        (is (some? (rf.frame/frame :unavailable/empty))
             "no steps ⇒ the runner is never consulted; an unbound hook is a no-op")
         (finally
-          (late-bind/set-fn! :router/dispatch-sync! orig)
-          (late-bind/invalidate-cache! :router/dispatch-sync!))))))
+          (rf.late-bind/set-fn! :router/dispatch-sync! orig)
+          (rf.late-bind/invalidate-cache! :router/dispatch-sync!))))))
 
 (deftest construction-rollback-keeps-same-id-admission-closed
   (testing "a setup-step-failure rollback retains the construction reservation
@@ -600,18 +600,18 @@
             released only when the failed outer construction settles."
     (reg-test-events!)
     (let [id           :rollback/token-fence
-          real-destroy frame/destroy-frame!
+          real-destroy rf.frame/destroy-frame!
           b-outcome    (atom ::not-called)
           injected?    (atom false)]
       ;; Intercept the FIRST exact rollback. Remove A, then attempt B while A's
       ;; construction transaction is still on the stack and owns the id.
       (with-redefs
-        [frame/destroy-frame!
+        [rf.frame/destroy-frame!
          (fn [& args]
            (if (and (= id (first args)) (not @injected?))
              (do
                 (reset! injected? true)
-                (real-destroy id (frame/frame-incarnation-token id)) ; remove failed A
+                (real-destroy id (rf.frame/frame-incarnation-token id)) ; remove failed A
                 (reset! b-outcome (err-id #(rf/make-frame {:id id})))
                 (apply real-destroy args))                           ; resume A's rollback
               (apply real-destroy args)))]
@@ -620,7 +620,7 @@
                                                    [:test/boom]]})))
       (is (= :rf.error/frame-construction-in-progress @b-outcome)
           "B cannot enter between provisional removal and transaction release")
-      (is (nil? (frame/frame id)) "the failed A leaves no live frame")
+      (is (nil? (rf.frame/frame id)) "the failed A leaves no live frame")
       (is (some? (rf/make-frame {:id id}))
           "a clean retry succeeds after A's reservation is released"))))
 
@@ -645,7 +645,7 @@
       (rf/dispatch-sync [:handler/makes-frame] {:frame :parent/main})
       (is (= :rf.error/frame-construction-in-handler @caught)
           "a make-frame inside a handler fails loud")
-      (is (nil? (frame/frame :child/in-handler))
+      (is (nil? (rf.frame/frame :child/in-handler))
           "no half-registered child frame is left behind"))))
 
 (deftest frame-construction-in-fx-dispatch-re-entry-fails-loud
@@ -683,7 +683,7 @@
            the guard keys on *handler-scope*, which the router keeps bound
            across :fx-driven nested dispatch (the body-only test would not
            catch a regression here)")
-      (is (nil? (frame/frame :child/via-fx))
+      (is (nil? (rf.frame/frame :child/via-fx))
           "no half-registered child frame is left behind"))))
 
 (deftest frame-construction-in-nested-dispatch-fails-loud
@@ -713,5 +713,5 @@
       (rf/dispatch-sync [:nested/parent] {:frame :parent/nested})
       (is (= :rf.error/frame-construction-in-handler @caught)
           "a make-frame inside a nested mid-cascade dispatch fails loud")
-      (is (nil? (frame/frame :child/via-nested))
+      (is (nil? (rf.frame/frame :child/via-nested))
           "no half-registered child frame is left behind"))))

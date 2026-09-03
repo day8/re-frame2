@@ -10,11 +10,11 @@
 
     * re-`make-frame` swaps the generation but PRESERVES frame memory — EP-0024
       (rf2-tu2vr7): the generation lives on the frame record in the ONE
-      `frame/frames` registry (the `:generation` slot), swapped by id via
-      `frame/set-generation!` (reached through `make-frame`'s surgical-update
+      `rf.frame/frames` registry (the `:generation` slot), swapped by id via
+      `rf.frame/set-generation!` (reached through `make-frame`'s surgical-update
       path); app-db / durable state continue, the id keeps naming the same
       live context, and the returned frame VALUE names that id (compare by
-      `frame/frame-value->id`, not `identical?`);
+      `rf.frame/frame-value->id`, not `identical?`);
     * resolution AFTER reload uses the NEW image (the swapped generation resolves
       the new descriptor; the old is gone / changed);
     * the added/changed/removed/retained `[kind id]` diff is a READ
@@ -37,33 +37,33 @@
   (`make-frame`'s 2-arity), so there is no live source-store wiring — the
   same decoupling idiom `live-frame-cljs-test` / `image-assembly-cljs-test` use.
   The reprojection test exercises the LIVE source store and so SNAPSHOTS +
-  RESTORES it around the case (NOT `registrar/clear-all!`, which would wipe the
+  RESTORES it around the case (NOT `rf.registrar/clear-all!`, which would wipe the
   shared node-test-bundle registrations — slice .9's note). `.cljc` ends
   `-cljs-test` so it rides `npm run test:cljs` AND `clojure -M:test`."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core         :as rf]
-            [re-frame.events       :as events]
-            [re-frame.frame        :as frame]
-            [re-frame.image        :as image]
-            [re-frame.image-assembly :as asm]
-            [re-frame.interop      :as interop]
-            [re-frame.registrar    :as registrar]
-            [re-frame.source-store :as source-store]
-            [re-frame.live-frame   :as lf]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.events       :as rf.events]
+            [re-frame.frame        :as rf.frame]
+            [re-frame.image        :as rf.image]
+            [re-frame.image-assembly :as rf.image-assembly]
+            [re-frame.interop      :as rf.interop]
+            [re-frame.registrar    :as rf.registrar]
+            [re-frame.source-store :as rf.source-store]
+            [re-frame.live-frame   :as rf.live-frame]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; ---------------------------------------------------------------------------
 ;; Fixture — clear the framework-standard registry per case. The runtime fixture
 ;; (`make-reset-runtime-fixture`) snapshots/restores the registrar and resets
-;; `frame/frames`, so image-loaded frame records do not leak across cases; the
+;; `rf.frame/frames`, so image-loaded frame records do not leak across cases; the
 ;; source-store reprojection test snapshots + restores the source store locally.
 ;;
 ;; EP-0024 (rf2-tu2vr7): the two-registry model collapsed to ONE — the resolved
-;; image GENERATION lives ON the frame record in the single `frame/frames`
+;; image GENERATION lives ON the frame record in the single `rf.frame/frames`
 ;; registry (the `:generation` slot), and the former second live-frame registry
-;; dissolved, so the runtime fixture's `(reset! frame/frames {})` clears every
+;; dissolved, so the runtime fixture's `(reset! rf.frame/frames {})` clears every
 ;; record AND its generation — no separate live-frame index to clear
 ;; (rf2-ji3tvy). `make-frame` creates/updates a RUNNABLE record (app-db / queue /
 ;; sub-cache) via `make-frame`, which needs a substrate adapter — so the
@@ -73,11 +73,11 @@
 ;; ---------------------------------------------------------------------------
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter})
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})
   (fn [t]
-    (asm/clear-standards!)
+    (rf.image-assembly/clear-standards!)
     (t)
-    (asm/clear-standards!)))
+    (rf.image-assembly/clear-standards!)))
 
 ;; ---------------------------------------------------------------------------
 ;; Helpers
@@ -121,7 +121,7 @@
 ;; (the source store), not the image composition — exactly as a same-namespace
 ;; reg-* re-eval does. (Re-`make-frame`-ing also replaces composition; the diff
 ;; is over the resolved generations either way.)
-(def ^:private img (image/image {:id :counter/img :select-ns {:include ["counter.core"]}}))
+(def ^:private img (rf.image/image {:id :counter/img :select-ns {:include ["counter.core"]}}))
 
 ;; ===========================================================================
 ;; 1. Re-`make-frame` swaps the generation but PRESERVES frame memory
@@ -139,22 +139,22 @@
     ;; blanket `clear-standards!` keeps the OTHER generation-diff cases isolated,
     ;; so seed the one standard THIS case needs locally (cache cleared so the
     ;; generation it builds unions the freshly-seeded standard).
-    (events/register-set-db-standard!)
-    (asm/clear-generation-cache!)
-    (let [frame-val (lf/make-frame {:id :counter/main
+    (rf.events/register-set-db-standard!)
+    (rf.image-assembly/clear-generation-cache!)
+    (let [frame-val (rf.live-frame/make-frame {:id :counter/main
                                     :images [img]
                                     :initial-events [[:rf/set-db {:count 7}]]
                                     :adapter ::reagent}
                                    pool-v1)
-          old-gen (lf/frame-generation frame-val)
-          reloaded (lf/make-frame {:id :counter/main :images [img]} pool-v2)]
+          old-gen (rf.live-frame/frame-generation frame-val)
+          reloaded (rf.live-frame/make-frame {:id :counter/main :images [img]} pool-v2)]
       (testing "a NEW generation is on the record (read by id) after the swap"
-        (is (not (identical? old-gen (lf/frame-generation reloaded))))
-        (is (not= old-gen (lf/frame-generation reloaded))))
+        (is (not (identical? old-gen (rf.live-frame/frame-generation reloaded))))
+        (is (not= old-gen (rf.live-frame/frame-generation reloaded))))
       (testing "the reloaded handle is a frame VALUE naming the SAME id (the id
                 keeps naming the same live context)"
-        (is (lf/frame-object? reloaded))
-        (is (= :counter/main (frame/frame-value->id reloaded))))
+        (is (rf.live-frame/frame-object? reloaded))
+        (is (= :counter/main (rf.frame/frame-value->id reloaded))))
       (testing "durable frame memory continues: the app-db seeded at creation
                 survives the reload (only the generation moved, the record was
                 NOT torn down and recreated)"
@@ -168,25 +168,25 @@
   (testing "the swapped generation resolves the NEW descriptor; the v1 impl is
             gone and v2's added id is present (EP-0023 — code changed, the VM
             kept its memory)"
-    (let [frame    (lf/make-frame {:id :counter/main :images [img]} pool-v1)
-          gen-v1   (lf/frame-generation frame)
-          reloaded (lf/make-frame {:id :counter/main :images [img]} pool-v2)
-          gen-v2   (lf/frame-generation reloaded)]
+    (let [frame    (rf.live-frame/make-frame {:id :counter/main :images [img]} pool-v1)
+          gen-v1   (rf.live-frame/frame-generation frame)
+          reloaded (rf.live-frame/make-frame {:id :counter/main :images [img]} pool-v2)
+          gen-v2   (rf.live-frame/frame-generation reloaded)]
       (testing "the v1 generation resolved the v1 impl (control)"
-        (is (= ::inc-v1 (:handler-fn (asm/resolve-descriptor gen-v1 :event :counter/inc)))))
+        (is (= ::inc-v1 (:handler-fn (rf.image-assembly/resolve-descriptor gen-v1 :event :counter/inc)))))
       (testing "after reload, :counter/inc resolves the v2 impl"
-        (is (= ::inc-v2 (:handler-fn (asm/resolve-descriptor gen-v2 :event :counter/inc)))))
+        (is (= ::inc-v2 (:handler-fn (rf.image-assembly/resolve-descriptor gen-v2 :event :counter/inc)))))
       (testing "the v2-only :counter/reset is now resolvable"
-        (is (some? (asm/resolve-descriptor gen-v2 :event :counter/reset))))
+        (is (some? (rf.image-assembly/resolve-descriptor gen-v2 :event :counter/reset))))
       (testing "registry lookup resolves the reloaded frame (id keeps naming the
                 same live context, now on the new generation — EP-0024:
                 live-frame reconstructs a fresh value from the record, so compare
                 by id)"
-        (is (= :counter/main (frame/frame-value->id (lf/live-frame :counter/main))))
-        (is (= (frame/frame-value->id reloaded)
-               (frame/frame-value->id (lf/live-frame :counter/main))))
-        (is (= ::inc-v2 (:handler-fn (asm/resolve-descriptor
-                                       (lf/frame-generation (lf/live-frame :counter/main))
+        (is (= :counter/main (rf.frame/frame-value->id (rf.live-frame/live-frame :counter/main))))
+        (is (= (rf.frame/frame-value->id reloaded)
+               (rf.frame/frame-value->id (rf.live-frame/live-frame :counter/main))))
+        (is (= ::inc-v2 (:handler-fn (rf.image-assembly/resolve-descriptor
+                                       (rf.live-frame/frame-generation (rf.live-frame/live-frame :counter/main))
                                        :event :counter/inc))))))))
 
 ;; ===========================================================================
@@ -199,11 +199,11 @@
   (testing "generation-diff over the pre/post-reload generations names a diff of
             [kind id] sets (EP-0023 §Hot Reload — \"A good reload result should
             be a concrete diff\")"
-    (let [frame  (lf/make-frame {:id :counter/main :images [img]} pool-v1)
-          before (lf/frame-generation frame)
-          _      (lf/make-frame {:id :counter/main :images [img]} pool-v2)
-          after  (lf/frame-generation :counter/main)
-          diff   (lf/generation-diff before after)]
+    (let [frame  (rf.live-frame/make-frame {:id :counter/main :images [img]} pool-v1)
+          before (rf.live-frame/frame-generation frame)
+          _      (rf.live-frame/make-frame {:id :counter/main :images [img]} pool-v2)
+          after  (rf.live-frame/frame-generation :counter/main)
+          diff   (rf.live-frame/generation-diff before after)]
       (testing ":added names the v2-only id"
         (is (contains? (:added diff) [:event :counter/reset])))
       (testing ":changed names the id whose impl changed (v1 → v2)"
@@ -218,13 +218,13 @@
 
 (deftest reload-report-names-removed-ids
   (testing "reloading to a NARROWER image reports the dropped ids as :removed"
-    (let [narrow (image/image {:id :counter/narrow :select-ns {:include ["counter.narrow"]}})
+    (let [narrow (rf.image/image {:id :counter/narrow :select-ns {:include ["counter.narrow"]}})
           pool-n [(reg-desc "counter.narrow" :event :counter/inc ::inc-n)]
-          frame  (lf/make-frame {:id :counter/main :images [img]} pool-v1)
-          before (lf/frame-generation frame)
-          _      (lf/make-frame {:id :counter/main :images [narrow]} pool-n)
-          after  (lf/frame-generation :counter/main)
-          diff   (lf/generation-diff before after)]
+          frame  (rf.live-frame/make-frame {:id :counter/main :images [img]} pool-v1)
+          before (rf.live-frame/frame-generation frame)
+          _      (rf.live-frame/make-frame {:id :counter/main :images [narrow]} pool-n)
+          after  (rf.live-frame/frame-generation :counter/main)
+          diff   (rf.live-frame/generation-diff before after)]
       (is (contains? (:removed diff) [:sub :counter/value])
           ":counter/value is gone after reloading to the narrower image")
       (is (contains? (:changed diff) [:event :counter/inc])
@@ -234,19 +234,19 @@
   (testing "after a reload, frame-shadows reads the NEW generation's cross-image
             SHADOW REPORT (EP-0026 §Shadow Report, rf2-ke7w5j) — an ordinary
             read, not a bespoke reload-report field"
-    (let [override (image/image {:id :counter/override
+    (let [override (rf.image/image {:id :counter/override
                                  :registrations {:reg-event [[:counter/inc (fn [_ _] {})]]}})
-          frame    (lf/make-frame {:id :counter/main :images [img]} pool-v1)]
+          frame    (rf.live-frame/make-frame {:id :counter/main :images [img]} pool-v1)]
       (testing "the pre-reload composition had no shadows"
-        (is (empty? (lf/frame-shadows :counter/main))))
+        (is (empty? (rf.live-frame/frame-shadows :counter/main))))
       ;; Reload to a composition where a later override image shadows img's
       ;; selected :counter/inc.
-      (lf/make-frame {:id :counter/main :images [img override]} pool-v1)
+      (rf.live-frame/make-frame {:id :counter/main :images [img override]} pool-v1)
       (testing "post-reload frame-shadows names the one cross-image override"
         (is (= [{:registration [:event :counter/inc]
                  :image        :counter/img
                  :shadowed-by  :counter/override}]
-               (lf/frame-shadows :counter/main)))))))
+               (rf.live-frame/frame-shadows :counter/main)))))))
 
 ;; ===========================================================================
 ;; 4. Reload is FRAME-TARGETED — it does not move a sibling frame
@@ -256,18 +256,18 @@
   (testing "two frames created from the SAME image inputs; reloading one does
             NOT move the other (EP-0023 §Image — reload is frame-targeted; a
             reload of :counter/left must not move :counter/right)"
-    (let [left  (lf/make-frame {:id :counter/left  :images [img]} pool-v1)
-          right (lf/make-frame {:id :counter/right :images [img]} pool-v1)
-          right-gen-before (lf/frame-generation right)]
-      (lf/make-frame {:id :counter/left :images [img]} pool-v2)
+    (let [left  (rf.live-frame/make-frame {:id :counter/left  :images [img]} pool-v1)
+          right (rf.live-frame/make-frame {:id :counter/right :images [img]} pool-v1)
+          right-gen-before (rf.live-frame/frame-generation right)]
+      (rf.live-frame/make-frame {:id :counter/left :images [img]} pool-v2)
       (testing "right's generation is UNTOUCHED (still resolves v1)"
-        (is (identical? right-gen-before (lf/frame-generation (lf/live-frame :counter/right))))
-        (is (= ::inc-v1 (:handler-fn (asm/resolve-descriptor
-                                       (lf/frame-generation (lf/live-frame :counter/right))
+        (is (identical? right-gen-before (rf.live-frame/frame-generation (rf.live-frame/live-frame :counter/right))))
+        (is (= ::inc-v1 (:handler-fn (rf.image-assembly/resolve-descriptor
+                                       (rf.live-frame/frame-generation (rf.live-frame/live-frame :counter/right))
                                        :event :counter/inc)))))
       (testing "left moved to v2"
-        (is (= ::inc-v2 (:handler-fn (asm/resolve-descriptor
-                                       (lf/frame-generation (lf/live-frame :counter/left))
+        (is (= ::inc-v2 (:handler-fn (rf.image-assembly/resolve-descriptor
+                                       (rf.live-frame/frame-generation (rf.live-frame/live-frame :counter/left))
                                        :event :counter/inc))))))))
 
 ;; ===========================================================================
@@ -293,9 +293,9 @@
   (testing "re-`make-frame`-ing with a non-vector :images (the one spelling)
             throws the SAME :rf.error/make-frame-bad-images make-frame always
             enforces — reload is just re-construction, not a separate guard"
-    (let [_ (lf/make-frame {:id :counter/main :images [img]} pool-v1)]
+    (let [_ (rf.live-frame/make-frame {:id :counter/main :images [img]} pool-v1)]
       (is (= :rf.error/make-frame-bad-images
-             (err-id #(lf/make-frame {:id :counter/main :images img} pool-v2)))))))
+             (err-id #(rf.live-frame/make-frame {:id :counter/main :images img} pool-v2)))))))
 
 ;; ===========================================================================
 ;; 7. generation-diff is pure and correct in isolation
@@ -304,16 +304,16 @@
 (deftest generation-diff-is-pure-and-correct
   (testing "generation-diff classifies every [kind id] as added/changed/removed
             /retained by descriptor value equality"
-    (let [gen-a (asm/assemble [img] pool-v1)
-          gen-b (asm/assemble [img] pool-v2)
-          diff  (lf/generation-diff gen-a gen-b)]
+    (let [gen-a (rf.image-assembly/assemble [img] pool-v1)
+          gen-b (rf.image-assembly/assemble [img] pool-v2)
+          diff  (rf.live-frame/generation-diff gen-a gen-b)]
       (is (= #{[:event :counter/reset]} (:added diff)))
       (is (= #{[:event :counter/inc]}   (:changed diff)))
       (is (= #{[:sub :counter/value]}   (:retained diff)))
       (is (= #{} (:removed diff))))
     (testing "two equal generations diff to all-retained, nothing else"
-      (let [g (asm/assemble [img] pool-v1)
-            d (lf/generation-diff g g)]
+      (let [g (rf.image-assembly/assemble [img] pool-v1)
+            d (rf.live-frame/generation-diff g g)]
         (is (empty? (:added d)))
         (is (empty? (:changed d)))
         (is (empty? (:removed d)))
@@ -328,60 +328,60 @@
             reprojects THAT frame's generation (EP-0023 §Default Image Semantics
             — reproject affected EXPLICIT-image frames, not only default-image
             frames). Uses the LIVE source store; snapshot + restore around the
-            case (NOT registrar/clear-all!)."
-    (let [snapshot @source-store/kind->id->ns->descriptor]
+            case (NOT rf.registrar/clear-all!)."
+    (let [snapshot @rf.source-store/kind->id->ns->descriptor]
       (try
         ;; A registration authored in an explicit namespace, recorded into the
         ;; LIVE source store (the same path reg-* writes through).
-        (source-store/record-descriptor!
+        (rf.source-store/record-descriptor!
           :event :explicit/inc
           {:rf.provenance/ns "explicit.feature" :kind :event :id :explicit/inc
            :handler-fn ::inc-original})
-        (let [img   (image/image {:id :explicit/img :select-ns {:include ["explicit.feature"]}})
-              frame (lf/make-frame {:id :explicit/main :images [img]})
-              gen-before (lf/frame-generation frame)]
+        (let [img   (rf.image/image {:id :explicit/img :select-ns {:include ["explicit.feature"]}})
+              frame (rf.live-frame/make-frame {:id :explicit/main :images [img]})
+              gen-before (rf.live-frame/frame-generation frame)]
           (testing "the frame resolves the original impl against the live store"
             (is (= ::inc-original
-                   (:handler-fn (asm/resolve-descriptor gen-before :event :explicit/inc)))))
+                   (:handler-fn (rf.image-assembly/resolve-descriptor gen-before :event :explicit/inc)))))
           ;; Hot reload of that source: re-eval the SAME (kind,id,namespace) slot
           ;; with a new impl (the same-namespace replacement path).
-          (source-store/record-descriptor!
+          (rf.source-store/record-descriptor!
             :event :explicit/inc
             {:rf.provenance/ns "explicit.feature" :kind :event :id :explicit/inc
              :handler-fn ::inc-reloaded})
-          (let [moved (lf/reproject-live-frames!)]
+          (let [moved (rf.live-frame/reproject-live-frames!)]
             (testing "reproject reports the EXPLICIT-image frame as moved"
               (is (contains? moved :explicit/main))
               (is (contains? (:changed (get moved :explicit/main)) [:event :explicit/inc])))
             (testing "the live frame now resolves the RELOADED impl through its
                       swapped generation"
               (is (= ::inc-reloaded
-                     (:handler-fn (asm/resolve-descriptor
-                                    (lf/frame-generation (lf/live-frame :explicit/main))
+                     (:handler-fn (rf.image-assembly/resolve-descriptor
+                                    (rf.live-frame/frame-generation (rf.live-frame/live-frame :explicit/main))
                                     :event :explicit/inc)))))))
         (finally
-          (reset! source-store/kind->id->ns->descriptor snapshot))))))
+          (reset! rf.source-store/kind->id->ns->descriptor snapshot))))))
 
 (deftest reproject-leaves-unchanged-frames-untouched
   (testing "reproject-live-frames! does NOT swap a frame whose composition
             re-resolves byte-for-byte — no spurious movement"
-    (let [snapshot @source-store/kind->id->ns->descriptor]
+    (let [snapshot @rf.source-store/kind->id->ns->descriptor]
       (try
-        (source-store/record-descriptor!
+        (rf.source-store/record-descriptor!
           :event :stable/inc
           {:rf.provenance/ns "stable.feature" :kind :event :id :stable/inc
            :handler-fn ::stable})
-        (let [img   (image/image {:id :stable/img :select-ns {:include ["stable.feature"]}})
-              frame (lf/make-frame {:id :stable/main :images [img]})
-              gen-before (lf/frame-generation frame)
+        (let [img   (rf.image/image {:id :stable/img :select-ns {:include ["stable.feature"]}})
+              frame (rf.live-frame/make-frame {:id :stable/main :images [img]})
+              gen-before (rf.live-frame/frame-generation frame)
               ;; No source change between creation and reproject.
-              moved (lf/reproject-live-frames!)]
+              moved (rf.live-frame/reproject-live-frames!)]
           (testing "no frame moved"
             (is (empty? moved)))
           (testing "the frame's generation is the SAME object (untouched)"
-            (is (identical? gen-before (lf/frame-generation (lf/live-frame :stable/main))))))
+            (is (identical? gen-before (rf.live-frame/frame-generation (rf.live-frame/live-frame :stable/main))))))
         (finally
-          (reset! source-store/kind->id->ns->descriptor snapshot))))))
+          (reset! rf.source-store/kind->id->ns->descriptor snapshot))))))
 
 ;; ---- the REMOVED leg (rf2-32siq3.40 minor a) ------------------------------
 ;;
@@ -400,27 +400,27 @@
             names the dropped id under :removed (EP-0023 §Default Image Semantics
             — a source-store change reprojects affected frames; the removed leg).
             Uses the LIVE source store; snapshot + restore (NOT clear-all!)."
-    (let [snapshot @source-store/kind->id->ns->descriptor]
+    (let [snapshot @rf.source-store/kind->id->ns->descriptor]
       (try
         ;; Two registrations the explicit image selects: one will be forgotten.
-        (source-store/record-descriptor!
+        (rf.source-store/record-descriptor!
           :event :rm/inc
           {:rf.provenance/ns "removal.feature" :kind :event :id :rm/inc
            :handler-fn ::rm-inc})
-        (source-store/record-descriptor!
+        (rf.source-store/record-descriptor!
           :sub :rm/value
           {:rf.provenance/ns "removal.feature" :kind :sub :id :rm/value
            :handler-fn ::rm-value})
-        (let [img   (image/image {:id :rm/img :select-ns {:include ["removal.feature"]}})
-              frame (lf/make-frame {:id :rm/main :images [img]})
-              gen-before (lf/frame-generation frame)]
+        (let [img   (rf.image/image {:id :rm/img :select-ns {:include ["removal.feature"]}})
+              frame (rf.live-frame/make-frame {:id :rm/main :images [img]})
+              gen-before (rf.live-frame/frame-generation frame)]
           (testing "both selected ids resolve before the forget (control)"
-            (is (some? (asm/resolve-descriptor gen-before :event :rm/inc)))
-            (is (some? (asm/resolve-descriptor gen-before :sub :rm/value))))
+            (is (some? (rf.image-assembly/resolve-descriptor gen-before :event :rm/inc)))
+            (is (some? (rf.image-assembly/resolve-descriptor gen-before :sub :rm/value))))
           ;; Forget exactly the selected :sub slot (targeted removal, mirrors a
-          ;; registrar/unregister! of a registration the image was selecting).
-          (source-store/forget-descriptor! :sub :rm/value "removal.feature")
-          (let [moved (lf/reproject-live-frames!)]
+          ;; rf.registrar/unregister! of a registration the image was selecting).
+          (rf.source-store/forget-descriptor! :sub :rm/value "removal.feature")
+          (let [moved (rf.live-frame/reproject-live-frames!)]
             (testing "reproject reports the frame as moved, naming the dropped id
                       under :removed (the removed leg — not :changed/:added)"
               (is (contains? moved :rm/main))
@@ -432,13 +432,13 @@
                 (is (contains? (:retained diff) [:event :rm/inc])
                     ":rm/inc was untouched → retained, not removed")))
             (testing "the swapped generation no longer resolves the forgotten id"
-              (let [gen-after (lf/frame-generation (lf/live-frame :rm/main))]
-                (is (nil? (asm/resolve-descriptor gen-after :sub :rm/value))
+              (let [gen-after (rf.live-frame/frame-generation (rf.live-frame/live-frame :rm/main))]
+                (is (nil? (rf.image-assembly/resolve-descriptor gen-after :sub :rm/value))
                     "the forgotten descriptor is gone from the reprojected generation")
-                (is (some? (asm/resolve-descriptor gen-after :event :rm/inc))
+                (is (some? (rf.image-assembly/resolve-descriptor gen-after :event :rm/inc))
                     ":rm/inc still resolves — the frame narrowed, it did not empty")))))
         (finally
-          (reset! source-store/kind->id->ns->descriptor snapshot))))))
+          (reset! rf.source-store/kind->id->ns->descriptor snapshot))))))
 
 ;; ---- composed multi-image reproject, one member ns changes (minor b) ------
 ;;
@@ -456,32 +456,32 @@
             both still resolve in the swapped generation (EP-0023 §Default Image
             Semantics — composed images containing the changed slot reproject).
             Uses the LIVE source store; snapshot + restore (NOT clear-all!)."
-    (let [snapshot @source-store/kind->id->ns->descriptor]
+    (let [snapshot @rf.source-store/kind->id->ns->descriptor]
       (try
         ;; Member A and member B live in DIFFERENT namespaces; the composed
         ;; frame selects both via two images.
-        (source-store/record-descriptor!
+        (rf.source-store/record-descriptor!
           :event :compose.a/go
           {:rf.provenance/ns "compose.member-a" :kind :event :id :compose.a/go
            :handler-fn ::a-original})
-        (source-store/record-descriptor!
+        (rf.source-store/record-descriptor!
           :event :compose.b/go
           {:rf.provenance/ns "compose.member-b" :kind :event :id :compose.b/go
            :handler-fn ::b-stable})
-        (let [img-a (image/image {:id :compose/a :select-ns {:include ["compose.member-a"]}})
-              img-b (image/image {:id :compose/b :select-ns {:include ["compose.member-b"]}})
-              frame (lf/make-frame {:id :compose/main :images [img-a img-b]})
-              gen-before (lf/frame-generation frame)]
+        (let [img-a (rf.image/image {:id :compose/a :select-ns {:include ["compose.member-a"]}})
+              img-b (rf.image/image {:id :compose/b :select-ns {:include ["compose.member-b"]}})
+              frame (rf.live-frame/make-frame {:id :compose/main :images [img-a img-b]})
+              gen-before (rf.live-frame/frame-generation frame)]
           (testing "both members resolve in the composed generation (control)"
-            (is (= ::a-original (:handler-fn (asm/resolve-descriptor gen-before :event :compose.a/go))))
-            (is (= ::b-stable   (:handler-fn (asm/resolve-descriptor gen-before :event :compose.b/go)))))
+            (is (= ::a-original (:handler-fn (rf.image-assembly/resolve-descriptor gen-before :event :compose.a/go))))
+            (is (= ::b-stable   (:handler-fn (rf.image-assembly/resolve-descriptor gen-before :event :compose.b/go)))))
           ;; Re-eval ONLY member A's namespace (the same (kind,id,ns) slot, new impl).
           ;; Member B's source slot is untouched.
-          (source-store/record-descriptor!
+          (rf.source-store/record-descriptor!
             :event :compose.a/go
             {:rf.provenance/ns "compose.member-a" :kind :event :id :compose.a/go
              :handler-fn ::a-reloaded})
-          (let [moved (lf/reproject-live-frames!)]
+          (let [moved (rf.live-frame/reproject-live-frames!)]
             (testing "the composed frame is reported as moved"
               (is (contains? moved :compose/main)))
             (let [diff (get moved :compose/main)]
@@ -492,11 +492,11 @@
                 (is (not (contains? (:changed diff) [:event :compose.b/go])))))
             (testing "the swapped generation resolves BOTH members — A reloaded,
                       B preserved (composition kept, only the changed slice moved)"
-              (let [gen-after (lf/frame-generation (lf/live-frame :compose/main))]
-                (is (= ::a-reloaded (:handler-fn (asm/resolve-descriptor gen-after :event :compose.a/go))))
-                (is (= ::b-stable   (:handler-fn (asm/resolve-descriptor gen-after :event :compose.b/go))))))))
+              (let [gen-after (rf.live-frame/frame-generation (rf.live-frame/live-frame :compose/main))]
+                (is (= ::a-reloaded (:handler-fn (rf.image-assembly/resolve-descriptor gen-after :event :compose.a/go))))
+                (is (= ::b-stable   (:handler-fn (rf.image-assembly/resolve-descriptor gen-after :event :compose.b/go))))))))
         (finally
-          (reset! source-store/kind->id->ns->descriptor snapshot))))))
+          (reset! rf.source-store/kind->id->ns->descriptor snapshot))))))
 
 ;; The NON-DEFAULT-REALM reproject leg (rf2-vnduo9) was RETIRED under the
 ;; realm-substrate collapse (rf2-9w37t2 / rf2-afdlyr): every frame lives in the
@@ -515,10 +515,10 @@
 ;; guarantee but NOTHING called it — no hook fired on `reg-*`, so a hot-reload of
 ;; an `:include-ns`-selected namespace left the running frame on its STALE
 ;; generation until some external reproject/reload ran. rf2-h4q6cy wires
-;; `registrar/add-registration-hook!` → mark-dirty + coalesced `next-tick`
+;; `rf.registrar/add-registration-hook!` → mark-dirty + coalesced `next-tick`
 ;; flush, so an ordinary `reg-*` re-eval swaps the affected frame automatically.
 ;;
-;; These tests drive the change through `registrar/register!` (the path every
+;; These tests drive the change through `rf.registrar/register!` (the path every
 ;; `reg-*` macro funnels through — and the path that FIRES the hook), and they
 ;; NEVER call `reproject-live-frames!` manually. The deferred flush is forced
 ;; deterministically via the synchronous `flush-pending-reprojection!` (the same
@@ -528,7 +528,7 @@
 ;; flush reprojects, and the frame resolves ::auto-v2 — GREEN.
 
 (deftest reg-star-change-auto-reprojects-explicit-image-frame
-  (testing "a reg-* re-eval (via registrar/register!) in a namespace an explicit
+  (testing "a reg-* re-eval (via rf.registrar/register!) in a namespace an explicit
             :include-ns image selects marks the projection dirty and the coalesced
             flush reprojects + swaps THAT frame's generation — WITHOUT a manual
             reproject-live-frames! call (EP-0023 §Default Image Semantics — the
@@ -538,50 +538,50 @@
             frame resolves the new impl), never the internal dirty flag.
 
             DETERMINISM (rf2-roou7s): the shared `pending-reprojection?` flag and
-            the `interop/next-tick` schedule are process-wide (a `defonce` hook).
+            the `rf.interop/next-tick` schedule are process-wide (a `defonce` hook).
             The register!s below schedule a REAL deferred `next-tick` flush that
             races this case's synchronous `flush-pending-reprojection!`: were a
             scheduled tick (this case's own, or one a prior case left in flight on
             the JVM executor thread / a CLJS next-turn task) to fire first, it would
             DRAIN the pending flag and the assert-time synchronous flush would
             return `{}` — the observed intermittent `(not (contains? {} :auto/main))`.
-            So redef `interop/next-tick` to a NO-OP for the whole case: no async
+            So redef `rf.interop/next-tick` to a NO-OP for the whole case: no async
             flush ever runs, the ONLY flush is the explicit synchronous one this
             case drives, and the dirty flag is set by `register!` and drained
             ONLY by that synchronous flush. This is the same `next-tick`-isolation
             every sibling auto-reprojection case below already uses; the assertions
             are unchanged (still the register!-armed synchronous flush)."
-    (let [snapshot @source-store/kind->id->ns->descriptor]
+    (let [snapshot @rf.source-store/kind->id->ns->descriptor]
       (try
         ;; The next-tick no-op makes the coalesced flush deterministic: no
         ;; scheduled tick can fire and drain the shared pending flag out from
         ;; under the synchronous flush this case asserts on (rf2-roou7s).
-        (with-redefs [interop/next-tick (fn [_f] nil)]
+        (with-redefs [rf.interop/next-tick (fn [_f] nil)]
           ;; Start from a clean slate: drain any reprojection a prior case left
           ;; pending (the hook is a process-defonce, shared across cases).
-          (lf/flush-pending-reprojection!)
+          (rf.live-frame/flush-pending-reprojection!)
           ;; First registration of the selected id, via the SAME register! path a
           ;; reg-* macro funnels through (so the auto-reprojection hook is exercised
           ;; end to end). The hook fires here too (first-time); no frame is live yet,
           ;; so we drain the resulting (move-empty) pending flush to start clean.
-          (registrar/register! :event :auto/inc
+          (rf.registrar/register! :event :auto/inc
             {:rf.provenance/ns "auto.feature" :handler-fn ::auto-v1})
-          (lf/flush-pending-reprojection!)
-          (let [img   (image/image {:id :auto/img :select-ns {:include ["auto.feature"]}})
-                frame (lf/make-frame {:id :auto/main :images [img]})
-                gen-before (lf/frame-generation frame)]
+          (rf.live-frame/flush-pending-reprojection!)
+          (let [img   (rf.image/image {:id :auto/img :select-ns {:include ["auto.feature"]}})
+                frame (rf.live-frame/make-frame {:id :auto/main :images [img]})
+                gen-before (rf.live-frame/frame-generation frame)]
             (testing "the frame resolves the ORIGINAL impl before any re-eval (control)"
               (is (= ::auto-v1
-                     (:handler-fn (asm/resolve-descriptor gen-before :event :auto/inc)))))
+                     (:handler-fn (rf.image-assembly/resolve-descriptor gen-before :event :auto/inc)))))
             ;; The reg-* RE-EVAL — a new impl for the same (kind,id,ns) slot, through
             ;; register!. This FIRES the registration hook → marks dirty + schedules
             ;; (the schedule is the redef'd no-op, so nothing drains the flag early).
-            (registrar/register! :event :auto/inc
+            (rf.registrar/register! :event :auto/inc
               {:rf.provenance/ns "auto.feature" :handler-fn ::auto-v2})
             ;; Force the COALESCED flush synchronously (the same flush the next-tick
             ;; tick arms). NO manual reproject-live-frames! — this is the wired path:
             ;; a flush only does work because the register! above marked it pending.
-            (let [moved (lf/flush-pending-reprojection!)]
+            (let [moved (rf.live-frame/flush-pending-reprojection!)]
               (testing "the register!-armed flush reprojects the affected
                         explicit-image frame (the hook fired and marked it dirty)"
                 (is (contains? moved :auto/main))
@@ -589,8 +589,8 @@
             (testing "the live frame now resolves the RE-EVAL'd impl through its
                       swapped generation — automatically, no re-`make-frame` call"
               (is (= ::auto-v2
-                     (:handler-fn (asm/resolve-descriptor
-                                    (lf/frame-generation (lf/live-frame :auto/main))
+                     (:handler-fn (rf.image-assembly/resolve-descriptor
+                                    (rf.live-frame/frame-generation (rf.live-frame/live-frame :auto/main))
                                     :event :auto/inc)))))))
         (finally
           ;; Clean the shared registrar slot we wrote + drain any residual pending
@@ -600,16 +600,16 @@
           ;; synchronous and no stray real tick can be left scheduled to fire
           ;; mid-sibling and drain its pending flag (the same rf2-roou7s race,
           ;; just relocated to teardown).
-          (with-redefs [interop/next-tick (fn [_f] nil)]
+          (with-redefs [rf.interop/next-tick (fn [_f] nil)]
             ;; rf2-h1vqa4: `unregister!` now MARKS DIRTY too (the removal twin
             ;; of the reg-* hook). Clear the live frame BEFORE draining, or the
             ;; drain would reproject :auto/main against the just-forgotten
             ;; descriptor — a zero-match throw in teardown (the same
             ;; frame-first order the reentry sibling's finally documents).
-            (reset! frame/frames {})
-            (registrar/unregister! :event :auto/inc)
-            (lf/flush-pending-reprojection!))
-          (reset! source-store/kind->id->ns->descriptor snapshot))))))
+            (reset! rf.frame/frames {})
+            (rf.registrar/unregister! :event :auto/inc)
+            (rf.live-frame/flush-pending-reprojection!))
+          (reset! rf.source-store/kind->id->ns->descriptor snapshot))))))
 
 (deftest reg-star-burst-coalesces-to-one-flush
   (testing "a BURST of reg-* (a hot-reloaded namespace re-evaluating N
@@ -619,7 +619,7 @@
             explicit-image frame over the reloaded ns must exist for the schedule
             to arm at all (the no-live-frame short-circuit — see the burst-with-no-
             live-frame test below); make-frame it first."
-    (let [snapshot  @source-store/kind->id->ns->descriptor
+    (let [snapshot  @rf.source-store/kind->id->ns->descriptor
           scheduled (atom 0)
           captured  (atom nil)]
       (try
@@ -630,13 +630,13 @@
         ;; image construction); construct the image AFTER. make-frame's own backing
         ;; make-frame fires the hook, so drain afterwards to start the burst from a
         ;; clean (un-pending) flag — the first burst reg-* is then the false→true edge.
-        (source-store/record-descriptor!
+        (rf.source-store/record-descriptor!
           :event :burst/seed
           {:rf.provenance/ns "burst.feature" :kind :event :id :burst/seed
            :handler-fn ::burst-seed})
-        (let [img (image/image {:id :burst/img :select-ns {:include ["burst.feature"]}})]
-          (lf/make-frame {:id :burst/main :images [img]})
-          (lf/flush-pending-reprojection!)
+        (let [img (rf.image/image {:id :burst/img :select-ns {:include ["burst.feature"]}})]
+          (rf.live-frame/make-frame {:id :burst/main :images [img]})
+          (rf.live-frame/flush-pending-reprojection!)
           ;; Redef next-tick to COUNT schedules and CAPTURE (defer) the flush —
           ;; deliberately NOT run inline, so the dirty flag stays set through the
           ;; whole burst exactly as a real deferred tick would leave it. If the
@@ -644,11 +644,11 @@
           ;; other four observe the flag already set and add no second tick. The
           ;; re-arm step below stays INSIDE this redef so its schedule hits the same
           ;; counting next-tick (outside, the real next-tick would not be counted).
-          (with-redefs [interop/next-tick (fn [f] (swap! scheduled inc)
+          (with-redefs [rf.interop/next-tick (fn [f] (swap! scheduled inc)
                                             (reset! captured f) nil)]
             ;; A burst of 5 reg-* in one synchronous run (a namespace re-eval).
             (doseq [n (range 5)]
-              (registrar/register! :event (keyword "burst" (str "e" n))
+              (rf.registrar/register! :event (keyword "burst" (str "e" n))
                 {:rf.provenance/ns "burst.feature" :handler-fn (keyword "impl" (str n))}))
             (testing "the 5-reg-* burst scheduled exactly ONE flush (coalesced) —
                       the deferred tick was never run during the burst.
@@ -659,16 +659,16 @@
                   "compare-and-set! gates: only the false→true transition schedules"))
             (testing "running the single captured tick drains the whole burst at once,
                       and a post-drain reg-* re-arms a fresh tick (flag re-armable)"
-              (if-let [tick @captured] (tick) (lf/flush-pending-reprojection!))
+              (if-let [tick @captured] (tick) (rf.live-frame/flush-pending-reprojection!))
               ;; The drain (`tick` → flush) cleared the dirty flag; a new reg-* is the
               ;; next false→true edge, so it schedules again — proving the flag is not
               ;; stuck-set after a flush. (Inside the redef, so this counts here.)
-              (registrar/register! :event :burst/e0
+              (rf.registrar/register! :event :burst/e0
                 {:rf.provenance/ns "burst.feature" :handler-fn ::e0-again})
               (is (= #?(:cljs 2 :clj 0) @scheduled)
                   "a post-drain reg-* re-arms a new tick (flag cleared, re-armable;
                    JVM schedules none — flag-only)")
-              #?(:clj (is (seq (lf/flush-pending-reprojection!))
+              #?(:clj (is (seq (rf.live-frame/flush-pending-reprojection!))
                           "JVM: the post-drain reg-* re-armed the FLAG — the
                            sync flush finds pending work")))))
         (finally
@@ -676,11 +676,11 @@
           ;; finally): a pending reproject of :burst/main must not re-assemble its
           ;; image after the burst descriptors are unregistered. The ONE registry
           ;; reset clears the record AND its generation (rf2-ji3tvy).
-          (reset! frame/frames {})
-          (lf/flush-pending-reprojection!)
+          (reset! rf.frame/frames {})
+          (rf.live-frame/flush-pending-reprojection!)
           (doseq [n (range 5)]
-            (registrar/unregister! :event (keyword "burst" (str "e" n))))
-          (reset! source-store/kind->id->ns->descriptor snapshot))))))
+            (rf.registrar/unregister! :event (keyword "burst" (str "e" n))))
+          (reset! rf.source-store/kind->id->ns->descriptor snapshot))))))
 
 ;; ---- the HANG GUARD: a burst with NO live frame schedules ZERO flushes -----
 ;;
@@ -702,40 +702,40 @@
             short-circuits, so a hot-reloaded namespace re-evaluating N
             registrations costs no next-tick scheduling at all — bounding the
             flush work that previously hung CI's node-test/browser jobs."
-    (let [snapshot  @source-store/kind->id->ns->descriptor
+    (let [snapshot  @rf.source-store/kind->id->ns->descriptor
           scheduled (atom 0)]
       (try
         ;; No live frame: clear the registry and drain any residual pending flush a
         ;; prior case left, so the flag starts clean and live-frame-ids is empty.
         ;; The ONE registry reset clears every record AND its generation (rf2-ji3tvy).
-        (reset! frame/frames {})
-        (lf/flush-pending-reprojection!)
-        (with-redefs [interop/next-tick (fn [_f] (swap! scheduled inc) nil)]
+        (reset! rf.frame/frames {})
+        (rf.live-frame/flush-pending-reprojection!)
+        (with-redefs [rf.interop/next-tick (fn [_f] (swap! scheduled inc) nil)]
           ;; A 50-reg-* burst with no reprojectable frame — the worst-case flood
           ;; the hang guard suppresses. EVERY one fires the hook.
           (doseq [n (range 50)]
-            (registrar/register! :event (keyword "noframe" (str "e" n))
+            (rf.registrar/register! :event (keyword "noframe" (str "e" n))
               {:rf.provenance/ns "noframe.feature" :handler-fn (keyword "impl" (str n))}))
           (testing "no live frame ⇒ the hook short-circuits ⇒ ZERO flushes scheduled"
             (is (= 0 @scheduled)
                 "no PUBLIC-id live frame is reprojectable, so nothing is marked or scheduled"))
           (testing "the dirty flag was never set (nothing pending to drain)"
-            (is (empty? (lf/flush-pending-reprojection!))
+            (is (empty? (rf.live-frame/flush-pending-reprojection!))
                 "flush is a no-op — the burst marked nothing dirty")))
         (finally
           (doseq [n (range 50)]
-            (registrar/unregister! :event (keyword "noframe" (str "e" n))))
-          (lf/flush-pending-reprojection!)
-          (reset! source-store/kind->id->ns->descriptor snapshot))))))
+            (rf.registrar/unregister! :event (keyword "noframe" (str "e" n))))
+          (rf.live-frame/flush-pending-reprojection!)
+          (reset! rf.source-store/kind->id->ns->descriptor snapshot))))))
 
 ;; ---- a flush never re-arms: reprojection swaps generations, never reg-* -----
 ;;
 ;; EP-0024 (rf2-tu2vr7) DISSOLVED the former `reprojecting?` re-entrancy guard.
 ;; It existed only because the EP-0023 two-registry `make-frame` created its
-;; backing record via `frame/make-frame` (a `register!`), raising the defensive
+;; backing record via `rf.frame/make-frame` (a `register!`), raising the defensive
 ;; worry that a reproject flush might provoke a registration and re-arm itself.
 ;; Under the unified model reprojection swaps the generation onto the ONE record
-;; via `frame/set-generation!` — a plain `swap!`, NOT a `register!` — so the
+;; via `rf.frame/set-generation!` — a plain `swap!`, NOT a `register!` — so the
 ;; flush can never fire the registration hook and never schedules its own
 ;; successor. This test proves that property directly: a REAL flush (which does
 ;; genuine generation-swapping work) arms no extra tick, and a fresh reg-* after
@@ -747,7 +747,7 @@
             former reprojecting? guard dissolved with the second registry
             (EP-0024). A fresh reg-* AFTER the flush still re-arms (the flag is
             cleared and re-armable)."
-    (let [snapshot  @source-store/kind->id->ns->descriptor
+    (let [snapshot  @rf.source-store/kind->id->ns->descriptor
           scheduled (atom 0)]
       (try
         ;; A live frame so a flush actually runs reproject-live-frames! (and so
@@ -755,18 +755,18 @@
         ;; the descriptor FIRST so the image's :include-ns selector matches a loaded
         ;; registration (a zero-match is fail-loud at image construction); construct
         ;; the image AFTER.
-        (source-store/record-descriptor!
+        (rf.source-store/record-descriptor!
           :event :reentry/inc
           {:rf.provenance/ns "reentry.feature" :kind :event :id :reentry/inc
            :handler-fn ::v1})
-        (let [img (image/image {:id :reentry/img :select-ns {:include ["reentry.feature"]}})]
-          (lf/make-frame {:id :reentry/main :images [img]})
-          (lf/flush-pending-reprojection!)
-          (with-redefs [interop/next-tick (fn [_f] (swap! scheduled inc) nil)]
+        (let [img (rf.image/image {:id :reentry/img :select-ns {:include ["reentry.feature"]}})]
+          (rf.live-frame/make-frame {:id :reentry/main :images [img]})
+          (rf.live-frame/flush-pending-reprojection!)
+          (with-redefs [rf.interop/next-tick (fn [_f] (swap! scheduled inc) nil)]
             ;; A real reg-* (with the live frame present) marks dirty + schedules
             ;; ONE flush (count → 1). The re-eval changes :reentry/inc's impl, so
             ;; the flush below does GENUINE swap work (the frame moves to v2).
-            (registrar/register! :event :reentry/inc
+            (rf.registrar/register! :event :reentry/inc
               {:rf.provenance/ns "reentry.feature" :handler-fn ::v2})
             (testing "the live-frame reg-* armed exactly one flush (CLJS;
                       JVM marks the flag only — rf2-h1vqa4)"
@@ -774,11 +774,11 @@
             ;; Run the flush: it re-resolves + swaps :reentry/main's generation
             ;; via set-generation! (a plain swap!). That cannot fire the
             ;; registration hook, so no successor tick is armed.
-            (let [moved (lf/flush-pending-reprojection!)]
+            (let [moved (rf.live-frame/flush-pending-reprojection!)]
               (testing "the flush did real work (the frame reprojected to v2)"
                 (is (contains? moved :reentry/main))
-                (is (= ::v2 (:handler-fn (asm/resolve-descriptor
-                                           (lf/frame-generation (lf/live-frame :reentry/main))
+                (is (= ::v2 (:handler-fn (rf.image-assembly/resolve-descriptor
+                                           (rf.live-frame/frame-generation (rf.live-frame/live-frame :reentry/main))
                                            :event :reentry/inc)))))
               (testing "the generation swap (set-generation!, not reg-*) scheduled
                         NO successor flush — there is no re-entrancy to guard"
@@ -786,13 +786,13 @@
                     "a flush swaps generations only; it never fires the hook"))))
           (testing "after the flush a fresh reg-* re-arms (the flag is cleared and
                     re-armable — no stuck-set guard)"
-            (with-redefs [interop/next-tick (fn [_f] (swap! scheduled inc) nil)]
-              (registrar/register! :event :reentry/inc
+            (with-redefs [rf.interop/next-tick (fn [_f] (swap! scheduled inc) nil)]
+              (rf.registrar/register! :event :reentry/inc
                 {:rf.provenance/ns "reentry.feature" :handler-fn ::v3})
               (is (= #?(:cljs 2 :clj 0) @scheduled)
                   "a reg-* with a live frame re-arms normally after the flush
                    (CLJS; JVM re-arms the flag only)")
-              #?(:clj (is (seq (lf/flush-pending-reprojection!))
+              #?(:clj (is (seq (rf.live-frame/flush-pending-reprojection!))
                           "JVM: the fresh reg-* re-armed the FLAG")))))
         (finally
           ;; Clear the live frame BEFORE draining: the body may leave a flush
@@ -800,10 +800,10 @@
           ;; re-assemble its :select-ns {:include ["reentry.feature"]} image AFTER we forget
           ;; the descriptors below — a zero-match. Forgetting the frame first makes
           ;; the drain a no-op (nothing reprojectable).
-          (reset! frame/frames {})
-          (lf/flush-pending-reprojection!)
-          (registrar/unregister! :event :reentry/inc)
-          (reset! source-store/kind->id->ns->descriptor snapshot))))))
+          (reset! rf.frame/frames {})
+          (rf.live-frame/flush-pending-reprojection!)
+          (rf.registrar/unregister! :event :reentry/inc)
+          (reset! rf.source-store/kind->id->ns->descriptor snapshot))))))
 
 ;; ===========================================================================
 ;; 10. Generation PROVENANCE — reprojection resolves an EXPLICIT-POOL frame
@@ -827,20 +827,20 @@
             store would :rf.error/image-zero-match fail-loud here — proving
             the fix threads the ORIGINAL pool through, not nil/live."
     (let [pool  [(reg-desc "rpf-pool.provenance.ns" :event :rpf-pool/inc ::pool-v1)]
-          img   (image/image {:id :rpf-pool/img :select-ns {:include ["rpf-pool.provenance.ns"]}})
-          frame (lf/make-frame {:id :rpf-pool/main :images [img]} pool)
-          gen-before (lf/frame-generation frame)]
+          img   (rf.image/image {:id :rpf-pool/img :select-ns {:include ["rpf-pool.provenance.ns"]}})
+          frame (rf.live-frame/make-frame {:id :rpf-pool/main :images [img]} pool)
+          gen-before (rf.live-frame/frame-generation frame)]
       (testing "control: resolves against the explicit pool at creation"
-        (is (= ::pool-v1 (:handler-fn (asm/resolve-descriptor gen-before :event :rpf-pool/inc)))))
+        (is (= ::pool-v1 (:handler-fn (rf.image-assembly/resolve-descriptor gen-before :event :rpf-pool/inc)))))
       (testing "reprojecting does NOT throw and reports the frame UNCHANGED —
                 the live store has NOTHING under \"rpf-pool.provenance.ns\", so
                 a fall-through-to-live bug would zero-match fail-loud here"
-        (is (nil? (lf/reproject-live-frame! :rpf-pool/main))))
+        (is (nil? (rf.live-frame/reproject-live-frame! :rpf-pool/main))))
       (testing "the frame's generation is untouched and still resolves through
                 the explicit pool"
-        (is (identical? gen-before (lf/frame-generation (lf/live-frame :rpf-pool/main))))
-        (is (= ::pool-v1 (:handler-fn (asm/resolve-descriptor
-                                         (lf/frame-generation (lf/live-frame :rpf-pool/main))
+        (is (identical? gen-before (rf.live-frame/frame-generation (rf.live-frame/live-frame :rpf-pool/main))))
+        (is (= ::pool-v1 (:handler-fn (rf.image-assembly/resolve-descriptor
+                                         (rf.live-frame/frame-generation (rf.live-frame/live-frame :rpf-pool/main))
                                          :event :rpf-pool/inc))))))))
 
 (deftest failed-re-construction-preserves-generation-provenance-rf2-ktmto9
@@ -859,27 +859,27 @@
           ;; (pool → other-pool) is observable: reprojection against other-pool
           ;; would zero-match the frame's :include-ns composition.
           other-pool [(reg-desc "ktmto9-other.provenance.ns" :event :ktmto9-other/inc ::other)]
-          img        (image/image {:id        :ktmto9-pool/img
+          img        (rf.image/image {:id        :ktmto9-pool/img
                                    :select-ns {:include ["ktmto9-pool.provenance.ns"]}})
-          frame-val  (lf/make-frame {:id :ktmto9-pool/main :images [img]} pool)
-          gen-before (lf/frame-generation frame-val)]
+          frame-val  (rf.live-frame/make-frame {:id :ktmto9-pool/main :images [img]} pool)
+          gen-before (rf.live-frame/frame-generation frame-val)]
       (testing "control: the creation resolved against the explicit pool"
-        (is (= ::pool-v1 (:handler-fn (asm/resolve-descriptor gen-before :event :ktmto9-pool/inc)))))
+        (is (= ::pool-v1 (:handler-fn (rf.image-assembly/resolve-descriptor gen-before :event :ktmto9-pool/inc)))))
       (testing "a re-`make-frame` that FAILS in the engine (retired :on-create
                 config key) leaves the record untouched"
         (is (= :rf.error/on-create-retired
-               (err-id #(lf/make-frame {:id :ktmto9-pool/main :on-create [:boom]}
+               (err-id #(rf.live-frame/make-frame {:id :ktmto9-pool/main :on-create [:boom]}
                                        other-pool)))
             "the re-construction failed loud in the engine (control)")
-        (is (identical? gen-before (lf/frame-generation (lf/live-frame :ktmto9-pool/main)))
+        (is (identical? gen-before (rf.live-frame/frame-generation (rf.live-frame/live-frame :ktmto9-pool/main)))
             "the frame's generation is untouched by the failed re-construction"))
       (testing "reprojection still resolves against the ORIGINAL pool — the
                 provenance row was NOT clobbered by the failed re-construction
                 (pre-fix this threw :rf.error/image-zero-match)"
-        (is (nil? (lf/reproject-live-frame! :ktmto9-pool/main))
+        (is (nil? (rf.live-frame/reproject-live-frame! :ktmto9-pool/main))
             "reprojection reports the explicit-pool frame UNCHANGED, no throw")
-        (is (= ::pool-v1 (:handler-fn (asm/resolve-descriptor
-                                        (lf/frame-generation (lf/live-frame :ktmto9-pool/main))
+        (is (= ::pool-v1 (:handler-fn (rf.image-assembly/resolve-descriptor
+                                        (rf.live-frame/frame-generation (rf.live-frame/live-frame :ktmto9-pool/main))
                                         :event :ktmto9-pool/inc)))
             "the frame still resolves through the explicit pool")))))
 
@@ -891,11 +891,11 @@
                read of the private provenance table)"
        (let [pool [(reg-desc "ktmto9-first.provenance.ns" :event :ktmto9-first/inc ::pool-v1)]]
          (is (= :rf.error/on-create-retired
-               (err-id #(lf/make-frame {:id :ktmto9-first/never :on-create [:boom]} pool)))
+               (err-id #(rf.live-frame/make-frame {:id :ktmto9-first/never :on-create [:boom]} pool)))
              "the first construction failed loud in the engine (control)")
-         (is (not (contains? (set (frame/frame-ids)) :ktmto9-first/never))
+         (is (not (contains? (set (rf.frame/frame-ids)) :ktmto9-first/never))
              "no frame record was created")
-         (is (not (contains? (deref @#'lf/frame-generation-pool) :ktmto9-first/never))
+         (is (not (contains? (deref @#'rf.live-frame/frame-generation-pool) :ktmto9-first/never))
              "no provenance row was recorded for the never-created frame")))))
 
 (deftest reproject-live-frames-mixes-explicit-pool-and-live-store-frames-safely
@@ -907,43 +907,43 @@
 
             DETERMINISM (rf2-roou7s idiom): creating the SECOND live frame
             below (once the first is already live) fires the process-defonce
-            auto-reprojection hook for real — `interop/next-tick` is redef'd
+            auto-reprojection hook for real — `rf.interop/next-tick` is redef'd
             to a no-op for the whole case so no background tick can race this
             case's own manual `reproject-live-frames!` call and drain the
             dirty flag out from under it."
-    (let [snapshot @source-store/kind->id->ns->descriptor]
+    (let [snapshot @rf.source-store/kind->id->ns->descriptor]
       (try
-        (with-redefs [interop/next-tick (fn [_f] nil)]
-          (lf/flush-pending-reprojection!))
-        (source-store/record-descriptor!
+        (with-redefs [rf.interop/next-tick (fn [_f] nil)]
+          (rf.live-frame/flush-pending-reprojection!))
+        (rf.source-store/record-descriptor!
           :event :rpf-live/inc
           {:rf.provenance/ns "rpf-live.provenance.ns" :kind :event :id :rpf-live/inc
            :handler-fn ::live-v1})
-        (with-redefs [interop/next-tick (fn [_f] nil)]
+        (with-redefs [rf.interop/next-tick (fn [_f] nil)]
           (let [pool       [(reg-desc "rpf-mix-pool.provenance.ns" :event :rpf-mix-pool/inc ::pool-v1)]
-                live-img   (image/image {:id :rpf-live/img :select-ns {:include ["rpf-live.provenance.ns"]}})
-                pool-img   (image/image {:id :rpf-mix-pool/img :select-ns {:include ["rpf-mix-pool.provenance.ns"]}})
-                live-frame (lf/make-frame {:id :rpf-live/main :images [live-img]})
-                pool-frame (lf/make-frame {:id :rpf-mix-pool/main :images [pool-img]} pool)
-                pool-gen-before (lf/frame-generation pool-frame)]
-            (source-store/record-descriptor!
+                live-img   (rf.image/image {:id :rpf-live/img :select-ns {:include ["rpf-live.provenance.ns"]}})
+                pool-img   (rf.image/image {:id :rpf-mix-pool/img :select-ns {:include ["rpf-mix-pool.provenance.ns"]}})
+                live-frame (rf.live-frame/make-frame {:id :rpf-live/main :images [live-img]})
+                pool-frame (rf.live-frame/make-frame {:id :rpf-mix-pool/main :images [pool-img]} pool)
+                pool-gen-before (rf.live-frame/frame-generation pool-frame)]
+            (rf.source-store/record-descriptor!
               :event :rpf-live/inc
               {:rf.provenance/ns "rpf-live.provenance.ns" :kind :event :id :rpf-live/inc
                :handler-fn ::live-v2})
-            (let [moved (lf/reproject-live-frames!)]
+            (let [moved (rf.live-frame/reproject-live-frames!)]
               (testing "the live-store frame moved (picked up the reg-* re-eval)"
                 (is (contains? moved :rpf-live/main)))
               (testing "the explicit-pool frame did NOT move and was not corrupted"
                 (is (not (contains? moved :rpf-mix-pool/main)))
-                (is (identical? pool-gen-before (lf/frame-generation (lf/live-frame :rpf-mix-pool/main))))
+                (is (identical? pool-gen-before (rf.live-frame/frame-generation (rf.live-frame/live-frame :rpf-mix-pool/main))))
                 (is (= ::pool-v1
                        (:handler-fn
-                         (asm/resolve-descriptor
-                           (lf/frame-generation (lf/live-frame :rpf-mix-pool/main))
+                         (rf.image-assembly/resolve-descriptor
+                           (rf.live-frame/frame-generation (rf.live-frame/live-frame :rpf-mix-pool/main))
                            :event :rpf-mix-pool/inc))))))))
         (finally
-          (reset! frame/frames {})
-          (reset! source-store/kind->id->ns->descriptor snapshot))))))
+          (reset! rf.frame/frames {})
+          (reset! rf.source-store/kind->id->ns->descriptor snapshot))))))
 
 ;; ===========================================================================
 ;; 11. Deferred-flush resilience — no mid-sweep abort, failure DIAGNOSED, not
@@ -959,7 +959,7 @@
 ;; (`reproject-live-frames-resiliently!`) isolates each frame's reprojection
 ;; so ONE failure does not stop the sweep from reaching the rest, and
 ;; diagnoses the failure on the trace channel (`:rf.warning/reprojection-failed`)
-;; instead of a silent black hole. `frame/image-loaded-frame-ids` is redef'd
+;; instead of a silent black hole. `rf.frame/image-loaded-frame-ids` is redef'd
 ;; to a FIXED order so the regression is pinned deterministically — the real
 ;; registry enumerates a hash-set whose natural iteration order this test must
 ;; not depend on (an ordering where the good frame happened to process BEFORE
@@ -971,41 +971,41 @@
             the sweep from reaching + reprojecting the REMAINING frames (the
             mid-sweep-abort defect), and the failure is DIAGNOSED rather than
             silently swallowed."
-    (let [snapshot  @source-store/kind->id->ns->descriptor
+    (let [snapshot  @rf.source-store/kind->id->ns->descriptor
           diagnosed (atom [])]
       (try
         ;; Start from a clean slate: drain any reprojection a prior case left
         ;; pending on the shared process-defonce flag (under a next-tick
         ;; no-op so draining cannot itself arm a stray real tick).
-        (with-redefs [interop/next-tick (fn [_f] nil)]
-          (lf/flush-pending-reprojection!))
-        (registrar/register! :event :rpf-good/inc
+        (with-redefs [rf.interop/next-tick (fn [_f] nil)]
+          (rf.live-frame/flush-pending-reprojection!))
+        (rf.registrar/register! :event :rpf-good/inc
           {:rf.provenance/ns "rpf-good.provenance.ns" :handler-fn ::good-v1})
-        (registrar/register! :event :rpf-bad/inc
+        (rf.registrar/register! :event :rpf-bad/inc
           {:rf.provenance/ns "rpf-bad.provenance.ns" :handler-fn ::bad-v1})
-        (let [good-img (image/image {:id :rpf-good/img :select-ns {:include ["rpf-good.provenance.ns"]}})
-              bad-img  (image/image {:id :rpf-bad/img  :select-ns {:include ["rpf-bad.provenance.ns"]}})
+        (let [good-img (rf.image/image {:id :rpf-good/img :select-ns {:include ["rpf-good.provenance.ns"]}})
+              bad-img  (rf.image/image {:id :rpf-bad/img  :select-ns {:include ["rpf-bad.provenance.ns"]}})
               tick     (atom nil)]
           ;; Capture (never run) every scheduled tick for the rest of the case
           ;; — including the ones make-frame's own make-frame calls arm — so no
           ;; real async tick can race this case's manual drive (the same
           ;; rf2-roou7s determinism idiom the auto-reprojection tests above
-          ;; use). `frame/image-loaded-frame-ids` is ALSO fixed for the whole
+          ;; use). `rf.frame/image-loaded-frame-ids` is ALSO fixed for the whole
           ;; case: `mark-dirty-and-schedule!`'s guard only checks non-empty,
           ;; so the fixed answer is harmless during setup and DETERMINISTIC at
           ;; the sweep itself (bad frame first).
-          (with-redefs [interop/next-tick (fn [f] (reset! tick f) nil)
-                        frame/image-loaded-frame-ids
+          (with-redefs [rf.interop/next-tick (fn [f] (reset! tick f) nil)
+                        rf.frame/image-loaded-frame-ids
                         (fn [] [:rpf-bad/main :rpf-good/main])]
-            (lf/make-frame {:id :rpf-good/main :images [good-img]})
-            (lf/make-frame {:id :rpf-bad/main  :images [bad-img]})
+            (rf.live-frame/make-frame {:id :rpf-good/main :images [good-img]})
+            (rf.live-frame/make-frame {:id :rpf-bad/main  :images [bad-img]})
             ;; A legitimate re-eval for the good frame — this is the change
             ;; the sweep must still pick up despite the bad frame's failure.
-            (registrar/register! :event :rpf-good/inc
+            (rf.registrar/register! :event :rpf-good/inc
               {:rf.provenance/ns "rpf-good.provenance.ns" :handler-fn ::good-v2})
             ;; Forget the bad frame's ENTIRE selected namespace so its
             ;; reprojection zero-match fails loud.
-            (registrar/unregister! :event :rpf-bad/inc)
+            (rf.registrar/unregister! :event :rpf-bad/inc)
             (rf/register-listener! :trace ::rpf-rec
               (fn [ev] (when (= :rf.warning/reprojection-failed (:operation ev))
                          (swap! diagnosed conj ev))))
@@ -1013,14 +1013,14 @@
               (testing "running the captured deferred tick does not throw even
                         though the bad frame's reprojection fails (JVM captures
                         no tick — drive the deferred body directly)"
-                (is (nil? (if-let [f @tick] (f) (#'lf/deferred-flush!)))))
+                (is (nil? (if-let [f @tick] (f) (#'rf.live-frame/deferred-flush!)))))
               (finally
                 (rf/unregister-listener! :trace ::rpf-rec))))
           (testing "the GOOD frame still reprojected — the sweep reached it
                     despite the bad frame's failure earlier in the fixed order"
             (is (= ::good-v2
-                   (:handler-fn (asm/resolve-descriptor
-                                  (lf/frame-generation (lf/live-frame :rpf-good/main))
+                   (:handler-fn (rf.image-assembly/resolve-descriptor
+                                  (rf.live-frame/frame-generation (rf.live-frame/live-frame :rpf-good/main))
                                   :event :rpf-good/inc)))))
           ;; rf2-d2841 — `:rf.warning/reprojection-failed` rides the DIAGNOSTIC
           ;; channel and emits nothing under -Dre-frame.debug=false. The
@@ -1028,18 +1028,18 @@
           ;; the sweep REACHED the good frame despite the bad frame throwing,
           ;; which is the mid-sweep-abort defect this case exists for. Kept
           ;; verbatim.
-          (when interop/debug-enabled?
+          (when rf.interop/debug-enabled?
             (testing "the bad frame's failure was DIAGNOSED (not a silent black
                       hole) via a :rf.warning/reprojection-failed trace event
                       naming the frame"
               (is (= 1 (count @diagnosed)))
               (is (= :rpf-bad/main (get-in (first @diagnosed) [:tags :frame]))))))
         (finally
-          (with-redefs [interop/next-tick (fn [_f] nil)]
-            (reset! frame/frames {})
-            (lf/flush-pending-reprojection!))
-          (registrar/unregister! :event :rpf-good/inc)
-          (reset! source-store/kind->id->ns->descriptor snapshot))))))
+          (with-redefs [rf.interop/next-tick (fn [_f] nil)]
+            (reset! rf.frame/frames {})
+            (rf.live-frame/flush-pending-reprojection!))
+          (rf.registrar/unregister! :event :rpf-good/inc)
+          (reset! rf.source-store/kind->id->ns->descriptor snapshot))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Read-time coalesced flush (rf2-h1vqa4) — a `reg-*` issued AFTER `make-frame`
@@ -1056,7 +1056,7 @@
             late registration through the freshly reprojected generation —
             with the deferred tick DISABLED, so only the read-time flush in
             the resolution seam can have reprojected"
-    (with-redefs [interop/next-tick (fn [_f] nil)]
+    (with-redefs [rf.interop/next-tick (fn [_f] nil)]
       (rf/make-frame {:id :rtf/main})
       (rf/reg-event :rtf/hit (fn [{:keys [db]} _] {:db (assoc db :hit? true)}))
       (rf/dispatch-sync [:rtf/hit] {:frame :rtf/main})

@@ -17,7 +17,7 @@
   The 'context' is a map with :coeffects (inputs) and :effects (outputs).
   The chain runs :before in order, then the handler, then :after in
   reverse order."
-  (:require [re-frame.interop :as interop]))
+  (:require [re-frame.interop :as rf.interop]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -261,11 +261,11 @@
 (defn- invoke-after [context interceptor]
   (if-let [f (:after interceptor)]
     (let [;; Dev-only ctx-delta capture. The snapshot ride
-          ;; the same `interop/debug-enabled?` gate as the trace surface
+          ;; the same `rf.interop/debug-enabled?` gate as the trace surface
           ;; so production CLJS bundles DCE the capture. Framework
           ;; defaults (`:rf/default?`) are skipped — they are not
           ;; user-meaningful interceptors on the AFTER INTERCEPTORS surface.
-          capture? (and interop/debug-enabled?
+          capture? (and rf.interop/debug-enabled?
                         (not (framework-default-interceptor? interceptor)))
           before   (when capture? context)]
       (try

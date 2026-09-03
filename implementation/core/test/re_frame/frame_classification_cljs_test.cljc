@@ -30,14 +30,14 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
-            [re-frame.elision :as elision]
-            [re-frame.frame :as frame]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as ts]))
+            [re-frame.elision :as rf.elision]
+            [re-frame.frame :as rf.frame]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (ts/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- bad-classification-ex
   "Run thunk and return the caught ex-data when it throws
@@ -64,7 +64,7 @@
       (is (= :rf.error/bad-frame-classification (:rf.error/id data)))
       (is (= :sensitive (:bad-key data))
           "the retired :sensitive frame key is the offending slot"))
-    (is (nil? (frame/frame :app/retired-sens-appdb))
+    (is (nil? (rf.frame/frame :app/retired-sens-appdb))
         "the retired annotation threw before any frame state mutated")
     ;; The retired `:http` carrier block (now lives on :rf.http/managed).
     (let [data (bad-classification-ex
@@ -72,7 +72,7 @@
       (is (= :rf.error/bad-frame-classification (:rf.error/id data)))
       (is (= :sensitive (:bad-key data))
           "the retired :sensitive frame key (carrying :http) is the offending slot"))
-    (is (nil? (frame/frame :app/retired-sens-http))
+    (is (nil? (rf.frame/frame :app/retired-sens-http))
         "the retired carrier annotation threw before any frame state mutated")))
 
 (deftest retired-large-frame-key-fails-loud
@@ -89,16 +89,16 @@
       (is (= :large (:bad-key data))
           "the retired top-level :large key is the offending slot"))
     ;; The frame must NOT have been registered (fail-loud is transactional).
-    (is (nil? (frame/frame :app/retired-large))
+    (is (nil? (rf.frame/frame :app/retired-large))
         "the retired annotation threw before any frame state mutated")
     ;; And nothing leaked into the elision registry.
-    (is (empty? (elision/declarations :app/retired-large)))
-    (is (empty? (elision/sensitive-declarations :app/retired-large)))))
+    (is (empty? (rf.elision/declarations :app/retired-large)))
+    (is (empty? (rf.elision/sensitive-declarations :app/retired-large)))))
 
 ;; ---------------------------------------------------------------------------
 ;; (b) :observability rides the frame config (the surviving surface).
 ;;     Durable app-db classification is asserted via the commit-plane effect
-;;     path (`elision/apply-classification-effects`); HTTP carriers now ride
+;;     path (`rf.elision/apply-classification-effects`); HTTP carriers now ride
 ;;     the :rf.http/managed registration (covered in the http artefact).
 ;; ---------------------------------------------------------------------------
 
@@ -121,12 +121,12 @@
     (rf/make-frame {:id :app/effects})
     ;; The same registry write a reg-event returning `:sensitive` / `:large`
     ;; alongside `:db` performs.
-    (frame/swap-runtime-db! :app/effects
-      (fn [rt] (elision/apply-classification-effects rt
+    (rf.frame/swap-runtime-db! :app/effects
+      (fn [rt] (rf.elision/apply-classification-effects rt
                  {:sensitive [[:auth :token]]
                   :large     [[:documents :csv-upload]]})))
-    (let [sens  (elision/sensitive-declarations :app/effects)
-          large (elision/declarations :app/effects)]
+    (let [sens  (rf.elision/sensitive-declarations :app/effects)
+          large (rf.elision/declarations :app/effects)]
       (is (contains? sens [:auth :token])
           "the :sensitive effect classified [:auth :token]")
       (is (= #{{:source :effect}} (get sens [:auth :token]))
@@ -208,6 +208,6 @@
 (deftest no-policy-keys-is-a-no-op
   (testing "a frame with no policy keys installs no classification + registers cleanly"
     (rf/make-frame {:id :app/plain :doc "no classification"})
-    (is (some? (frame/frame :app/plain)) "the frame registered")
-    (is (empty? (elision/sensitive-declarations :app/plain)))
-    (is (empty? (elision/declarations :app/plain)))))
+    (is (some? (rf.frame/frame :app/plain)) "the frame registered")
+    (is (empty? (rf.elision/sensitive-declarations :app/plain)))
+    (is (empty? (rf.elision/declarations :app/plain)))))

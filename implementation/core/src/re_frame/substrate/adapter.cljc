@@ -37,10 +37,10 @@
   explicitly via `(rf/init! reagent/adapter)`. Explicit > implicit
   at the call site, and an app requiring only the adapter it needs
   ships only that adapter's code."
-  (:require [re-frame.error :as error]
-            [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.trace :as trace]))
+  (:require [re-frame.error :as rf.error]
+            [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.trace :as rf.trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -117,8 +117,8 @@
   inside its failure-atomic transaction, so a throwing arm rolls the install
   back rather than half-installing."
   []
-  (when-let [emitter (late-bind/get-fn :ssr/current-hiccup-emitter)]
-    (when-let [arm-if-unarmed! (late-bind/get-fn :adapter/arm-hiccup-emitter-if-unarmed!)]
+  (when-let [emitter (rf.late-bind/get-fn :ssr/current-hiccup-emitter)]
+    (when-let [arm-if-unarmed! (rf.late-bind/get-fn :adapter/arm-hiccup-emitter-if-unarmed!)]
       (arm-if-unarmed! emitter))))
 
 (defn install-adapter!
@@ -149,7 +149,7 @@
     (swap! adapter-lifecycle-state
            (fn [{:keys [installed] :as state}]
              (when installed
-               (error/throw-error!
+               (rf.error/throw-error!
                 :rf.error/adapter-already-installed
                 'rf/init!
                 "A second install-adapter! was called without an intervening (rf/destroy-adapter!); the existing adapter remains installed (per Spec 006 §Single adapter per process)."
@@ -328,7 +328,7 @@
   (let [{:keys [installed disposed?]} @adapter-lifecycle-state]
     (or (when-not (:disposing? installed) (:adapter installed))
       (if disposed?
-        (error/throw-error!
+        (rf.error/throw-error!
           :rf.error/adapter-disposed
           where-sym
           (str where-sym " was called after"
@@ -337,7 +337,7 @@
                " Install a fresh adapter via"
                " (rf/init! <adapter>) before calling.")
           {:recovery :install-a-fresh-adapter})
-        (error/throw-error!
+        (rf.error/throw-error!
           :rf.error/no-adapter-installed
           where-sym
           (str where-sym " was called before (rf/init! ...);"
@@ -475,7 +475,7 @@
   The hook lives in the late-bind table (not the adapter spec map) so the
   ten-fn adapter contract shape is preserved."
   [container]
-  (let [hook (late-bind/get-fn :adapter/derived-container?)
+  (let [hook (rf.late-bind/get-fn :adapter/derived-container?)
         verdict (when hook (hook container))]
     (cond
       ;; Installed adapter says DERIVED — authoritative reject.
@@ -546,7 +546,7 @@
     ;; loads at boot, so the lookup never misses in production. The dev error
     ;; trace below stays for the in-process tooling surface (DCE'd in prod).
     (let [reason "replace-container! called with nil container; the frame was likely destroyed mid-drain or before a scheduled write fired"]
-      (when-let [dispatch-on-error! (late-bind/get-fn :error-emit/dispatch-on-error)]
+      (when-let [dispatch-on-error! (rf.late-bind/get-fn :error-emit/dispatch-on-error)]
         (dispatch-on-error!
           :rf.error/write-after-destroy
           nil                              ;; no event vector — a dropped write, not a throw on a dispatch
@@ -554,8 +554,8 @@
           nil                              ;; no frame — it was destroyed (the whole point)
           nil                              ;; no exception — a suppressed write, not a throw
           0                                ;; elapsed-ms
-          (interop/now-ms)))               ;; time
-      (trace/emit-error! :rf.error/write-after-destroy
+          (rf.interop/now-ms)))               ;; time
+      (rf.trace/emit-error! :rf.error/write-after-destroy
                          {:category :rf.error/write-after-destroy
                           :reason   reason
                           :recovery :ignored}))
@@ -567,11 +567,11 @@
     (let [a (require-adapter! 'rf/replace-container!)]
       (if (derived-container? container)
         (let [reason "replace-container! is not supported on a derived container; derived containers are read-only (per Spec 006 §make-derived-value). Write to the source container(s) the derived value is computed from instead."]
-          (trace/emit-error! :rf.error/derived-container-replaced
+          (rf.trace/emit-error! :rf.error/derived-container-replaced
                              {:category  :rf.error/derived-container-replaced
                               :recovery  :no-recovery
                               :reason    reason})
-          (error/throw-error!
+          (rf.error/throw-error!
             :rf.error/derived-container-replaced
             'rf/replace-container!
             reason))
@@ -768,7 +768,7 @@
 ;; late-bind hooks at ns-load time so consumers in core (subs, views,
 ;; interop) reach the installed adapter's substrate-specific impls
 ;; without a static :require. In test bundles that load multiple adapter
-;; ns's, a plain (late-bind/set-fn! k impl) means only the LAST-LOADED
+;; ns's, a plain (rf.late-bind/set-fn! k impl) means only the LAST-LOADED
 ;; adapter's impl survives — and an app installed via
 ;; `(rf/init! reagent/adapter)` then silently uses (say) UIx's impl,
 ;; breaking adapter-specific contracts.
@@ -809,8 +809,8 @@
   ([adapter-spec hook-key impl-fn]
    (route-hook! adapter-spec hook-key impl-fn (constantly nil)))
   ([adapter-spec hook-key impl-fn fallback-fn]
-   (let [previous (late-bind/get-fn hook-key)]
-     (late-bind/set-fn! hook-key
+   (let [previous (rf.late-bind/get-fn hook-key)]
+     (rf.late-bind/set-fn! hook-key
        ;; EXPLICIT ARITIES, and the repetition is the mechanism (rf2-2ix22).
        ;; The obvious spelling is one variadic body forwarding with
        ;; `(apply impl-fn args)` — but `route-hook!` publishes ~11 hook keys

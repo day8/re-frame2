@@ -8,22 +8,22 @@
   regression."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.router :as router]
-            [re-frame.subs :as subs]
+            [re-frame.router :as rf.router]
+            [re-frame.subs :as rf.subs]
             ;; rf2-qwm0a: listener / buffer surface lives in re-frame.trace.tooling.
-            [re-frame.trace.tooling :as trace-tooling]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.trace.tooling :as rf.trace.tooling]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
-(use-fixtures :each (test-support/make-reset-runtime-fixture
-                      {:adapter plain-atom/adapter}))
+(use-fixtures :each (rf.test-support/make-reset-runtime-fixture
+                      {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- record-traces
   [body-fn]
   (let [seen (atom [])]
-    (trace-tooling/register-listener! ::rec (fn [ev] (swap! seen conj ev)))
+    (rf.trace.tooling/register-listener! ::rec (fn [ev] (swap! seen conj ev)))
     (try (body-fn)
-         (finally (trace-tooling/unregister-listener! ::rec)))
+         (finally (rf.trace.tooling/unregister-listener! ::rec)))
     @seen))
 
 (defn- errors-of [evs op]
@@ -50,7 +50,7 @@
    NOT stamp"
     (let [evs (record-traces
                (fn []
-                 (router/dispatch-sync! [:rf2-ts1a/missing])))
+                 (rf.router/dispatch-sync! [:rf2-ts1a/missing])))
           [miss] (errors-of evs :rf.error/no-such-handler)]
       (is (some? miss))
       (is (not (contains? miss :rf.trace/call-site))))))
@@ -69,7 +69,7 @@
    stamp"
     (let [evs (record-traces
                (fn []
-                 (subs/subscribe [:rf2-ts1a/missing-sub])))
+                 (rf.subs/subscribe [:rf2-ts1a/missing-sub])))
           [miss] (errors-of evs :rf.error/no-such-sub)]
       (is (some? miss))
       (is (not (contains? miss :rf.trace/call-site))))))

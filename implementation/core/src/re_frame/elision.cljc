@@ -26,15 +26,15 @@
   hydration so an off-box projection redacts consistently), so it lives in
   the frame's **runtime-db** partition at `[:rf.runtime/elision …]`, not in
   app-db. Per Conventions §Reserved runtime-db keys. Reads come off the
-  runtime-db projection; writes go through `frame/swap-runtime-db!` (the
+  runtime-db projection; writes go through `rf.frame/swap-runtime-db!` (the
   runtime-db partition write surface)."
-  (:require [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.path :as path]
-            [re-frame.privacy :as privacy]
-            [re-frame.substrate.adapter :as adapter]
-            [re-frame.trace :as trace]))
+  (:require [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.path :as rf.path]
+            [re-frame.privacy :as rf.privacy]
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
+            [re-frame.trace :as rf.trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -88,8 +88,8 @@
 
 (defn- registry-of
   [frame-id]
-  (when-let [container (frame/runtime-db-container frame-id)]
-    (get-in (adapter/read-container container) [:rf.runtime/elision])))
+  (when-let [container (rf.frame/runtime-db-container frame-id)]
+    (get-in (rf.substrate.adapter/read-container container) [:rf.runtime/elision])))
 
 (defn ^:no-doc write-elision-slot
   "Set or clear the per-frame elision registry inside `runtime-db`. When
@@ -266,7 +266,7 @@
   would otherwise DROP the registry on commit, silently losing every
   flow-sourced / effect-sourced elision declaration — so the
   post-commit frame would emit raw values that were correctly redacted
-  pre-commit (the durable privacy/trace contract breaks after any
+  pre-commit (the durable rf.privacy/trace contract breaks after any
   runtime-db-writing event).
 
   This preserves the existing `:rf.runtime/elision` sub-tree from
@@ -317,22 +317,22 @@
   effects and `re-frame.flows.registry` share a single source of truth for the
   read-transform-write skeleton. Not part of the public API.
 
-  EP-0001: writes through `frame/swap-runtime-db!` (the
+  EP-0001: writes through `rf.frame/swap-runtime-db!` (the
   runtime-db partition of the one physical frame-state container) — the
   elision registry is durable framework state and lives in runtime-db.
 
   rf2-vxgfnd.155 — the 3-arity is the EXACT-INCARNATION variant the flow
   lifecycle ops (`clear-flow` / `reg-flow`) issue while an event owns the
-  frame: it routes through `frame/swap-runtime-db-exact!` so a synchronous
+  frame: it routes through `rf.frame/swap-runtime-db-exact!` so a synchronous
   container watch that destroys A and publishes same-id B during this durable-
   registry write cannot bump B's commit epoch or write B's runtime-db. The
   2-arity is the historical bare-id write (EP-0025 classification effects,
   machine / routing subsystem claims)."
   ([frame-id f]
-   (frame/swap-runtime-db! frame-id #(apply-elision-transform f %))
+   (rf.frame/swap-runtime-db! frame-id #(apply-elision-transform f %))
    nil)
   ([frame-id owner-token f]
-   (frame/swap-runtime-db-exact! frame-id owner-token
+   (rf.frame/swap-runtime-db-exact! frame-id owner-token
                                  #(apply-elision-transform f %))
    nil))
 
@@ -420,7 +420,7 @@
                                    "must be a path vector; got " (pr-str p))}
               :else
               (try
-                (path/normalize-concrete p)
+                (rf.path/normalize-concrete p)
                 nil
                 (catch #?(:clj Throwable :cljs :default) e
                   {:offending-key k
@@ -487,7 +487,7 @@
             (if-not (contains? effects k)
               reg
               (let [{:keys [slot set?]} (classification-effect-axis k)
-                    paths (map #(vec (path/normalize-concrete %)) (get effects k))]
+                    paths (map #(vec (rf.path/normalize-concrete %)) (get effects k))]
                 (if set?
                   (add-claims reg slot effect-owner paths)
                   (remove-claims reg slot effect-owner paths)))))
@@ -503,10 +503,10 @@
   `:source :effect`, `reg-flow` outputs under `:source :flow`, subsystem
   projection-relative declarations).
   EP-0002 — the zero-arity ambient form resolves the frame through the
-  carried-invariant scope chain (`frame/require-current-frame!`); under no
+  carried-invariant scope chain (`rf.frame/require-current-frame!`); under no
   established scope it raises `:rf.error/no-frame-context` rather than
   reading a synthesised `:rf/default` registry."
-  ([] (declarations (frame/require-current-frame!
+  ([] (declarations (rf.frame/require-current-frame!
                       :elision-declarations
                       {:where 're-frame.elision/declarations})))
   ([frame-id]
@@ -518,10 +518,10 @@
   under `:source :effect`, `reg-flow` outputs under `:source :flow`,
   subsystem projection-relative declarations).
   EP-0002 — the zero-arity ambient form resolves the frame through the
-  carried-invariant scope chain (`frame/require-current-frame!`); under no
+  carried-invariant scope chain (`rf.frame/require-current-frame!`); under no
   established scope it raises `:rf.error/no-frame-context` rather than
   reading a synthesised `:rf/default` registry."
-  ([] (sensitive-declarations (frame/require-current-frame!
+  ([] (sensitive-declarations (rf.frame/require-current-frame!
                                 :elision-sensitive-declarations
                                 {:where 're-frame.elision/sensitive-declarations})))
   ([frame-id]
@@ -657,11 +657,11 @@
 
 (defn- warn-large-unschema'd!
   [frame-id path bytes]
-  (when interop/debug-enabled?
+  (when rf.interop/debug-enabled?
     (let [k [frame-id (vec path)]]
       (when-not (contains? @warned-unschema'd k)
         (swap! warned-unschema'd conj k)
-        (trace/emit! :warning :rf.warning/large-value-unschema'd
+        (rf.trace/emit! :warning :rf.warning/large-value-unschema'd
                      {:frame    frame-id
                       :path     (vec path)
                       :bytes    bytes
@@ -961,7 +961,7 @@
              sensitive? (decl-sensitive? decl-paths sensitive-tbl)]
          (cond
            (and sensitive? (not include-s?))
-           privacy/redacted-sentinel
+           rf.privacy/redacted-sentinel
 
            ;; NESTED-AXIS SUPPRESSION (rf2-izlr7f): a `:large`-matched node
            ;; whose matched large coordinate shadows a `:sensitive` descendant
@@ -1075,7 +1075,7 @@
 
   EP-0002 — the wire-egress frame resolves from the CARRIED
   stamp: the explicit `:frame` opt (*override*) wins, else the in-effect
-  carried-invariant scope (`frame/resolve-current-frame` — a `with-frame`
+  carried-invariant scope (`rf.frame/resolve-current-frame` — a `with-frame`
   binding, or the closest enclosing frame boundary: a `frame-provider`
   (SCOPE) or a `frame-root` (ENSURE)). There is NO `:rf/default` floor:
   a frame's elision policy may be applied only when that frame is KNOWN
@@ -1090,7 +1090,7 @@
   be an EMPTY-policy identity transform — shipping every value verbatim under
   NO policy, a silent leak. An unknown / destroyed frame therefore FAILS
   CLOSED here too, identically to the frameless case: it is validated against
-  the live registry (`frame/frame`) before being treated as policy-bearing.
+  the live registry (`rf.frame/frame`) before being treated as policy-bearing.
   Spec 015
   §Direct reads and fail-closed frame resolution: an unresolved frame must
   fail closed — it must not fall through to a permissive walk, and never
@@ -1119,19 +1119,19 @@
          ;; decls live (mirroring the SSR `project-routing-egress` offset). A
          ;; non-route sub-id resolves nil and `opts` is untouched.
          opts       (if-let [qv (:query-v opts)]
-                      (if-let [seed-fn (late-bind/get-fn :routing/route-sub-egress-path)]
+                      (if-let [seed-fn (rf.late-bind/get-fn :routing/route-sub-egress-path)]
                         (if-let [seed (seed-fn (when (sequential? qv) (first qv)))]
                           (assoc opts :path seed)
                           opts)
                         opts)
                       opts)
-         frame-id   (or (:frame opts) (frame/resolve-current-frame))
+         frame-id   (or (:frame opts) (rf.frame/resolve-current-frame))
          ;; A frame-id alone is not policy-bearing — it must resolve to a
-         ;; LIVE frame. `frame/frame` returns nil for an unknown /
+         ;; LIVE frame. `rf.frame/frame` returns nil for an unknown /
          ;; never-registered / destroyed id, so an explicit `:frame` opt or
          ;; a stale carried scope that names a dead frame is treated exactly
          ;; like the frameless case below (fail closed).
-         live-frame? (and (some? frame-id) (some? (frame/frame frame-id)))]
+         live-frame? (and (some? frame-id) (some? (rf.frame/frame frame-id)))]
      (cond
        ;; Known + LIVE carried frame ⇒ apply that frame's elision policy.
        live-frame?
@@ -1149,7 +1149,7 @@
        ;; rather than borrow another frame's classification or pass it through under
        ;; an empty policy.
        :else
-       privacy/redacted-sentinel))))
+       rf.privacy/redacted-sentinel))))
 
 (defn marker?
   [v]
@@ -1180,5 +1180,5 @@
 ;; EP-0015 §8: there is no `:elision/populate-from-schemas!` hook — the
 ;; commit-plane classification effects own the app-db egress registry;
 ;; schemas describe shape only.
-(late-bind/set-fn! :elision/sensitive-declarations sensitive-declarations)
-(late-bind/set-fn! :elision/clear-warning-cache! clear-warning-cache!)
+(rf.late-bind/set-fn! :elision/sensitive-declarations sensitive-declarations)
+(rf.late-bind/set-fn! :elision/clear-warning-cache! clear-warning-cache!)

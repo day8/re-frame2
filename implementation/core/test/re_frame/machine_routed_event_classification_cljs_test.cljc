@@ -41,7 +41,7 @@
 
   The LIVE TRACE assertions are dev-only: the stream they police does not
   exist under `-Dre-frame.debug=false`. They are kept verbatim inside a
-  `(when interop/debug-enabled? …)` arm marked `rf2-d2841`, and the two
+  `(when rf.interop/debug-enabled? …)` arm marked `rf2-d2841`, and the two
   assertions that look like opposites go in TOGETHER. `(not (some #(leaks?
   pw-sentinel %) @seen))` over an empty `@seen` passes because nothing was
   emitted — a redaction suite must never report green on that basis — and its
@@ -51,23 +51,23 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [clojure.string :as str]
-            [re-frame.classification :as classification]
+            [re-frame.classification :as rf.classification]
             [re-frame.core :as rf]
-            [re-frame.interop :as interop]
+            [re-frame.interop :as rf.interop]
             ;; Boot the optional machines artefact so `rf/reg-machine`
             ;; resolves through the spec-005 implementation (the late-bind
             ;; hooks install on load — see machine_handler_meta_test.clj).
             [re-frame.machines]
-            [re-frame.privacy :as privacy]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as ts]))
+            [re-frame.privacy :as rf.privacy]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; The reset fixture auto-registers + scope-pins a default frame (the ambient
 ;; scope a bare `dispatch-sync` cascades into), so the live round-trip below
 ;; runs with a frame context.
 (use-fixtures :each
-  (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; A UNIQUE sentinel that must never appear in any projected trace echo slot.
 (def ^:private pw-sentinel "rf2-ghgbqi-PW-4f3a91")
@@ -84,12 +84,12 @@
 (def ^:private mid :rf.ghgbqi/auth)
 
 (defn- register-machine-event-classification! []
-  (registrar/register! :event mid
+  (rf.registrar/register! :event mid
                        {:sensitive [[1 :password] [:data :token]]}))
 
 (defn- inner-event [] [:auth/login {:email email :password pw-sentinel}])
 
-(defn- project [ev] (:tags (classification/project-trace-event ev)))
+(defn- project [ev] (:tags (rf.classification/project-trace-event ev)))
 
 ;; =====================================================================
 ;; A. Deterministic projector teeth — hand-built machine trace shapes
@@ -112,9 +112,9 @@
                       :after    {:state :done :data {:token token-sentinel}}}}
           t   (project ev)]
       ;; --- the fix: routed-event echo slots redact the password ---
-      (is (= privacy/redacted-sentinel (get-in t [:event 1 :password]))
+      (is (= rf.privacy/redacted-sentinel (get-in t [:event 1 :password]))
           "top-level :event password redacted by the machine's event classification")
-      (is (= privacy/redacted-sentinel (get-in t [:input :event 1 :password]))
+      (is (= rf.privacy/redacted-sentinel (get-in t [:input :event 1 :password]))
           "[:input :event] password redacted too")
       (is (not (leaks? pw-sentinel t))
           "the password sentinel appears NOWHERE in the projected transition trace")
@@ -124,7 +124,7 @@
       ;; --- durable :data still redacts (unchanged pre-existing behaviour) ---
       (is (not (leaks? token-sentinel t))
           "durable :data token still redacted in :before / :after / [:input :data]")
-      (is (= privacy/redacted-sentinel (get-in t [:before :data :token]))
+      (is (= rf.privacy/redacted-sentinel (get-in t [:before :data :token]))
           ":before snapshot data token redacted")
       ;; --- non-destructive: the RAW routed event the machine control flow
       ;;     read locally is untouched (projection is trace-EGRESS only) ---
@@ -140,7 +140,7 @@
                      :frame      :rf/default
                      :event      (inner-event)}}
           t  (project ev)]
-      (is (= privacy/redacted-sentinel (get-in t [:event 1 :password])))
+      (is (= rf.privacy/redacted-sentinel (get-in t [:event 1 :password])))
       (is (= email (get-in t [:event 1 :email])))
       (is (not (leaks? pw-sentinel t))))))
 
@@ -154,7 +154,7 @@
                        :frame    :rf/default
                        :input    {:data {:token token-sentinel} :event (inner-event)}}}
             t  (project ev)]
-        (is (= privacy/redacted-sentinel (get-in t [:input :event 1 :password]))
+        (is (= rf.privacy/redacted-sentinel (get-in t [:input :event 1 :password]))
             (str op " [:input :event] password redacted"))
         (is (not (leaks? pw-sentinel t)) (str op " leaks no password"))
         (is (not (leaks? token-sentinel t)) (str op " leaks no [:input :data] token"))))))
@@ -164,7 +164,7 @@
             unclassified machine leaves the echoed event untouched"
     ;; (1) A machine that declares ONLY a durable :data path does NOT touch
     ;;     the echoed event vector (a :data-prefixed key never indexes a vector).
-    (registrar/register! :event mid {:sensitive [[:data :token]]})
+    (rf.registrar/register! :event mid {:sensitive [[:data :token]]})
     (let [t (project {:operation :rf.machine/transition
                       :tags {:actor-id mid :frame :rf/default
                              :event    (inner-event)
@@ -175,17 +175,17 @@
           "…but the durable :data token still redacts"))
     ;; (2) A machine that declares ONLY an event path does NOT touch the
     ;;     durable snapshot (an integer index never matches a snapshot key).
-    (registrar/register! :event mid {:sensitive [[1 :password]]})
+    (rf.registrar/register! :event mid {:sensitive [[1 :password]]})
     (let [t (project {:operation :rf.machine/transition
                       :tags {:actor-id mid :frame :rf/default
                              :event    (inner-event)
                              :before   {:state :idle :data {:token token-sentinel}}}})]
-      (is (= privacy/redacted-sentinel (get-in t [:event 1 :password]))
+      (is (= rf.privacy/redacted-sentinel (get-in t [:event 1 :password]))
           "the event-path machine redacts the echoed event password")
       (is (leaks? token-sentinel (:before t))
           "…and leaves the durable snapshot untouched (no cross-root bleed)"))
     ;; (3) An UNCLASSIFIED machine (no :event registration) is a clean no-op.
-    (registrar/clear-all!)
+    (rf.registrar/clear-all!)
     (let [raw (inner-event)
           t   (project {:operation :rf.machine/transition
                         :tags {:actor-id :rf.ghgbqi/unclassified
@@ -232,7 +232,7 @@
       ;; together: the transition fired, the secret is absent from it, and the
       ;; non-secret survives. Split apart, point 3 passes over an empty
       ;; `@seen` for the wrong reason.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         ;; 2. A machine transition trace actually fired (teeth — the echo
         ;;    surface exists to protect).
         (let [ops (into #{} (map :operation) @seen)]

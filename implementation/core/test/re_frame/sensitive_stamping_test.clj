@@ -9,29 +9,29 @@
   longer a frame annotation."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.elision :as elision]
-            [re-frame.frame :as frame]
-            [re-frame.privacy :as privacy]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]))
+            [re-frame.elision :as rf.elision]
+            [re-frame.frame :as rf.frame]
+            [re-frame.privacy :as rf.privacy]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace :as rf.trace]))
 
 (defn- install-sensitive!
   "Seed the frame's sensitive app-db classification via the EP-0025
-  commit-plane classification effect path (`elision/apply-classification-
+  commit-plane classification effect path (`rf.elision/apply-classification-
   effects`, `:source :effect`) — the same registry write a `reg-event`
   returning `:sensitive` performs."
   [frame-id paths]
-  (frame/swap-runtime-db! frame-id
-    (fn [rt] (elision/apply-classification-effects rt {:sensitive (mapv vec paths)}))))
+  (rf.frame/swap-runtime-db! frame-id
+    (fn [rt] (rf.elision/apply-classification-effects rt {:sensitive (mapv vec paths)}))))
 
 (defn reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (schemas/clear-schemas-by-frame!)
-  (trace/clear-listeners!)
-  (rf/init! plain-atom/adapter)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.schemas/clear-schemas-by-frame!)
+  (rf.trace/clear-listeners!)
+  (rf/init! rf.substrate.plain-atom/adapter)
   (require 're-frame.elision :reload)
   (require 're-frame.schemas :reload)
   ;; EP-0002 (rf2-9o48ih): `init!` no longer synthesises `:rf/default`;
@@ -166,4 +166,4 @@
   (is (false? (rf/sensitive? {:sensitive? false})))
   (is (false? (rf/sensitive? {})))
   (is (false? (rf/sensitive? nil)))
-  (is (identical? rf/sensitive? privacy/sensitive?)))
+  (is (identical? rf/sensitive? rf.privacy/sensitive?)))

@@ -24,7 +24,7 @@
     - Each `make-derived-value` is internally failure-atomic: a throw before
       it returns has removed any watches/host resources it installed.
     - Every successfully returned projection is disposable through the existing
-      `interop/dispose!` seam.
+      `rf.interop/dispose!` seam.
     - `new-frame-record` constructs into locals under a failure boundary and
       disposes successfully returned projections in REVERSE acquisition order if
       a later construction step throws.
@@ -42,12 +42,12 @@
   FAILS."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.adapter :as substrate]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace :as rf.trace]))
 
 ;; ---------------------------------------------------------------------------
 ;; The custom tracking adapter — a conforming, ten-fn adapter that models the
@@ -135,11 +135,11 @@
            (remove-watch source pid)
            (swap! watched disj pid)
            (throw (ex-info "make-derived-value armed to throw" {:pos pos})))
-         ;; A disposable derived value: `interop/dispose!` fires the registered
+         ;; A disposable derived value: `rf.interop/dispose!` fires the registered
          ;; on-dispose callback, which releases the watch + tracking.
          (let [dv (reify clojure.lang.IDeref
                     (deref [_] (apply compute-fn (map deref source-containers))))]
-           (interop/add-on-dispose! dv
+           (rf.interop/add-on-dispose! dv
              (fn []
                (remove-watch source pid)
                (swap! watched disj pid)
@@ -150,15 +150,15 @@
    :dispose-adapter! (fn [] nil)})
 
 (defn reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (trace/clear-listeners!)
-  (trace/clear-frame-no-emit!)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.trace/clear-listeners!)
+  (rf.trace/clear-frame-no-emit!)
   ;; Cold the process-owned adapter slot so each test installs its OWN tracking
   ;; adapter (NOT a global dispose used as rollback — this is fixture setup;
   ;; `rf/init!` is idempotent, so without the cold reset the previous test's
   ;; adapter would linger and each test would silently reuse it).
-  (substrate/reset-lifecycle-state-for-tests!)
+  (rf.substrate.adapter/reset-lifecycle-state-for-tests!)
   (try
     (test-fn)
     (finally
@@ -167,8 +167,8 @@
       ;; seated), so a custom tracking adapter left installed here would leak
       ;; into later namespaces and be silently reused. Cold + reinstall
       ;; plain-atom leaves the process exactly as neighbouring fixtures assume.
-      (substrate/reset-lifecycle-state-for-tests!)
-      (rf/init! plain-atom/adapter))))
+      (rf.substrate.adapter/reset-lifecycle-state-for-tests!)
+      (rf/init! rf.substrate.plain-atom/adapter))))
 
 (use-fixtures :each reset-runtime)
 
@@ -190,11 +190,11 @@
   (let [state (fresh-state)]
     (rf/init! (tracking-adapter state))
     (reset! (:throw-at state) :state)
-    (is (= :state (err #(frame/upsert-frame! :atomic/state-throw
+    (is (= :state (err #(rf.frame/upsert-frame! :atomic/state-throw
                                              {:rf.trace/frame-no-emit? true})))
         "construction surfaces the make-state-container throw")
-    (is (nil? (frame/frame :atomic/state-throw)) "no frame row installed")
-    (is (nil? (frame/frame-state-container :atomic/state-throw)))
+    (is (nil? (rf.frame/frame :atomic/state-throw)) "no frame row installed")
+    (is (nil? (rf.frame/frame-state-container :atomic/state-throw)))
     (is (empty? @(:watched state)) "no projection watch was installed")
     (is (empty? (residual-watches state)) "no residual watch on any container")
     (is (empty? @(:pinned state))
@@ -202,13 +202,13 @@
          before the throw escaped — nothing else could have released it, since
          the core never received the container (rf2-vxgfnd.292)")
     (is (zero? @(:derived-count state)) "make-derived-value was never reached")
-    (is (false? (trace/frame-trace-disabled? :atomic/state-throw))
+    (is (false? (rf.trace/frame-trace-disabled? :atomic/state-throw))
         "no trace-policy residue — the no-emit flag the failed config requested
          was never published (construction threw before policy publication)")
     (testing "clean retry through the SAME adapter"
       (reset! (:throw-at state) nil)
-      (is (= :atomic/state-throw (frame/upsert-frame! :atomic/state-throw {})))
-      (is (some? (frame/frame-state-container :atomic/state-throw))
+      (is (= :atomic/state-throw (rf.frame/upsert-frame! :atomic/state-throw {})))
+      (is (some? (rf.frame/frame-state-container :atomic/state-throw))
           "the retry installs a full, live record"))))
 
 ;; ===========================================================================
@@ -222,16 +222,16 @@
     (rf/init! (tracking-adapter state))
     (reset! (:throw-at state) :state)
     (reset! (:leak-state-pin? state) true)
-    (is (= :state (err #(frame/upsert-frame! :atomic/state-leak {})))
+    (is (= :state (err #(rf.frame/upsert-frame! :atomic/state-leak {})))
         "construction still surfaces the throw")
-    (is (nil? (frame/frame :atomic/state-leak)) "still no frame row installed")
+    (is (nil? (rf.frame/frame :atomic/state-leak)) "still no frame row installed")
     (is (= 1 (count @(:pinned state)))
         "a non-conformant constructor strands its pin, and the fixture's residue
          check SEES it — so the conformant case's `empty?` assertion is a real
          test, not a vacuous one. Nothing in core can clean this up: the pin
          outlives the process's interest in the container")
     (testing "and each retry strands another — the leak accumulates"
-      (is (= :state (err #(frame/upsert-frame! :atomic/state-leak-2 {}))))
+      (is (= :state (err #(rf.frame/upsert-frame! :atomic/state-leak-2 {}))))
       (is (= 2 (count @(:pinned state)))))))
 
 ;; ===========================================================================
@@ -244,10 +244,10 @@
     (rf/init! (tracking-adapter state))
     (reset! (:throw-at state) :first-derived)
     (is (= :first-derived
-           (err #(frame/upsert-frame! :atomic/first-throw
+           (err #(rf.frame/upsert-frame! :atomic/first-throw
                                       {:rf.trace/frame-no-emit? true})))
         "construction surfaces the first make-derived-value throw")
-    (is (nil? (frame/frame :atomic/first-throw)) "no frame row installed")
+    (is (nil? (rf.frame/frame :atomic/first-throw)) "no frame row installed")
     (is (= 1 @(:derived-count state)) "only the first projection constructor ran")
     (is (empty? @(:watched state))
         "the throwing make-derived-value unwound its OWN unreturned partial work
@@ -255,13 +255,13 @@
     (is (empty? (residual-watches state)) "no residual watch on any container")
     (is (empty? @(:disposed-order state))
         "new-frame-record disposed nothing — no projection had been RETURNED yet")
-    (is (false? (trace/frame-trace-disabled? :atomic/first-throw))
+    (is (false? (rf.trace/frame-trace-disabled? :atomic/first-throw))
         "no trace-policy residue")
     (testing "clean retry"
       (reset! (:throw-at state) nil)
       (reset! (:derived-count state) 0)
-      (is (= :atomic/first-throw (frame/upsert-frame! :atomic/first-throw {})))
-      (is (some? (frame/frame-state-container :atomic/first-throw))))))
+      (is (= :atomic/first-throw (rf.frame/upsert-frame! :atomic/first-throw {})))
+      (is (some? (rf.frame/frame-state-container :atomic/first-throw))))))
 
 ;; ===========================================================================
 ;; The SECOND projection throws — the FIRST (already returned) projection must
@@ -274,11 +274,11 @@
     (rf/init! (tracking-adapter state))
     (reset! (:throw-at state) :second-derived)
     (is (= :second-derived
-           (err #(frame/upsert-frame! :atomic/second-throw
+           (err #(rf.frame/upsert-frame! :atomic/second-throw
                                       {:rf.trace/frame-no-emit? true})))
         "construction surfaces the second make-derived-value throw")
-    (is (nil? (frame/frame :atomic/second-throw)) "no frame row installed")
-    (is (nil? (frame/frame-state-container :atomic/second-throw)))
+    (is (nil? (rf.frame/frame :atomic/second-throw)) "no frame row installed")
+    (is (nil? (rf.frame/frame-state-container :atomic/second-throw)))
     (is (= 2 @(:derived-count state)) "both projection constructors ran")
     (is (= [:proj/p1] @(:disposed-order state))
         "the ONE successfully-returned projection (:proj/p1) was disposed exactly
@@ -289,15 +289,15 @@
          watch is stranded and this set is #{:proj/p1}")
     (is (empty? (residual-watches state))
         "no residual watch on any container — the leak surface is clean")
-    (is (false? (trace/frame-trace-disabled? :atomic/second-throw))
+    (is (false? (rf.trace/frame-trace-disabled? :atomic/second-throw))
         "no trace-policy residue")
     (testing "the partial allocation did not grow live state — a clean retry
               installs exactly one full frame"
       (reset! (:throw-at state) nil)
       (reset! (:derived-count state) 0)
       (reset! (:disposed-order state) [])
-      (is (= :atomic/second-throw (frame/upsert-frame! :atomic/second-throw {})))
-      (is (some? (frame/frame-state-container :atomic/second-throw)))
+      (is (= :atomic/second-throw (rf.frame/upsert-frame! :atomic/second-throw {})))
+      (is (some? (rf.frame/frame-state-container :atomic/second-throw)))
       (is (= #{:proj/p1 :proj/p2} @(:watched state))
           "the live frame owns exactly its two partition-projection watches"))))
 
@@ -308,8 +308,8 @@
 (deftest successful-construction-installs-both-projections
   (let [state (fresh-state)]
     (rf/init! (tracking-adapter state))
-    (is (= :atomic/ok (frame/upsert-frame! :atomic/ok {})))
-    (is (some? (frame/frame-state-container :atomic/ok)) "a full record installed")
+    (is (= :atomic/ok (rf.frame/upsert-frame! :atomic/ok {})))
+    (is (some? (rf.frame/frame-state-container :atomic/ok)) "a full record installed")
     (is (= 2 @(:derived-count state)))
     (is (= #{:proj/p1 :proj/p2} @(:watched state))
         "both partition projections are live and own their watches")

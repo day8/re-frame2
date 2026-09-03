@@ -26,7 +26,7 @@
 
   ## Production gate
 
-  The whole wrapper sits behind `interop/debug-enabled?` (the JVM
+  The whole wrapper sits behind `rf.interop/debug-enabled?` (the JVM
   dev/prod gate — true by default, disabled by `-Dre-frame.debug=false`
   / `RE_FRAME_DEBUG=false`, the counterpart to CLJS `goog.DEBUG`). In a
   production SSR build the handler-fn is stored UNWRAPPED, so server
@@ -46,8 +46,8 @@
   recurse through Form-2 fns, skip fragment / callable-head roots. The
   `source-coord-parity` tests (JVM + CLJS) pin the shared formatters to one
   canonical literal and assert both hosts resolve to the neutral owner."
-  (:require [re-frame.interop :as interop]
-            [re-frame.source-coords :as source-coords]))
+  (:require [re-frame.interop :as rf.interop]
+            [re-frame.source-coords :as rf.source-coords]))
 
 (set! *warn-on-reflection* true)
 
@@ -60,7 +60,7 @@
   `re-frame.source-coords/format-source-coord` (rf2-5q0jv) — the single
   implementation both hosts share, pinned to one canonical literal by the
   `source-coord-parity` tests so it cannot drift."
-  source-coords/format-source-coord)
+  rf.source-coords/format-source-coord)
 
 (def format-view-id
   "Render a registry id keyword as the `data-rf-view` attribute value —
@@ -68,7 +68,7 @@
   included). Per Spec 006 §View tagging contract. JVM-side alias of the
   neutral cross-host owner `re-frame.source-coords/format-view-id`
   (rf2-5q0jv)."
-  source-coords/format-view-id)
+  rf.source-coords/format-view-id)
 
 (defn- dom-tag-head?
   "True when `head` is a Hiccup DOM-tag keyword. The React-fragment marker
@@ -136,16 +136,16 @@
 
 (defn wrap-handler-fn
   "Return `render-fn` wrapped so its render output is annotated at the
-  root per `annotate-root`, when `interop/debug-enabled?` is true.
+  root per `annotate-root`, when `rf.interop/debug-enabled?` is true.
 
   The gate is read ONCE, at registration time — mirroring the client
   `re-frame.substrate.spine/make-wrap-view`, which decides whether to
   wrap when the view is registered rather than per render. In a
-  production SSR build (`interop/debug-enabled?` false) the ORIGINAL
+  production SSR build (`rf.interop/debug-enabled?` false) the ORIGINAL
   `render-fn` is returned unwrapped, so server markup carries no
   annotation."
   [id coords render-fn]
-  (if interop/debug-enabled?
+  (if rf.interop/debug-enabled?
     (let [coord-attr (format-source-coord id coords)
           view-attr  (format-view-id id)]
       (fn annotated-view [& args]

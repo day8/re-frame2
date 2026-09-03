@@ -73,9 +73,9 @@
   frame carried no matching classified `:sensitive` app-db declaration (the
   wrong owner). Sentinels the registration pass writes survive the
   subsequent frame-policy walk (a redacted leaf is inert)."
-  (:require [re-frame.elision :as elision]
-            [re-frame.error :as error]
-            [re-frame.late-bind :as late-bind]))
+  (:require [re-frame.elision :as rf.elision]
+            [re-frame.error :as rf.error]
+            [re-frame.late-bind :as rf.late-bind]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -107,11 +107,11 @@
   `[:rf.error/unknown-egress-profile]` token never drift between the two
   sites (rf2-krrv87). Each caller passes its own `where-sym`; the bad
   `profile` value + the valid `profiles` enum land in ex-data. Routes
-  through `error/thrown-ex-info`, so the message LEADS with the human
+  through `rf.error/thrown-ex-info`, so the message LEADS with the human
   sentence and TRAILS with the greppability token. Returns the `ex-info`;
   the caller throws."
   [where-sym profile]
-  (error/thrown-ex-info
+  (rf.error/thrown-ex-info
     :rf.error/unknown-egress-profile
     where-sym
     (str "unknown :rf.egress/profile " profile
@@ -237,7 +237,7 @@
   the record's frame. Delegates entirely to the walker — the size /
   sensitive policy is the frame's, NOT reimplemented here (EP-0015 §11)."
   [v elision-opts]
-  (elision/elide-wire-value v elision-opts))
+  (rf.elision/elide-wire-value v elision-opts))
 
 (defn- redact-event-by-registration
   "Apply the event handler's REGISTRATION-OWNED `:sensitive` / `:large`
@@ -248,7 +248,7 @@
   FRAME-policy `walk-slot`: event args are registration-owned (the handler's
   `:sensitive`), not app-db-owned (the frame's classification)."
   [event]
-  (if-let [redact (late-bind/get-fn-cached :classification/redact-event-by-registration)]
+  (if-let [redact (rf.late-bind/get-fn-cached :classification/redact-event-by-registration)]
     (redact event)
     event))
 
@@ -455,7 +455,7 @@
         ;; dropped (a derived tree is walked whole / per named slot, not at an
         ;; app-db offset) and `:frame` set to the seeded owning frame.
         wire-opts (assoc (dissoc elision-opts :path) :frame frame-id)
-        walk      (fn [v] (elision/elide-wire-value v wire-opts))
+        walk      (fn [v] (rf.elision/elide-wire-value v wire-opts))
         slot-keys (:slot-keys record)]
     (if (empty? slot-keys)
       ;; SINGLE-TREE form: walk the whole tree. Under no live frame +

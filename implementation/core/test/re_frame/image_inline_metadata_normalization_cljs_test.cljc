@@ -38,10 +38,10 @@
 
   Section 1's SUBJECT is the dev half of the contract — authored `:doc`
   surviving for tooling — and it is unreachable under
-  `scripts/test-core-prod-gate.sh`, where `interop/debug-enabled?` is already
+  `scripts/test-core-prod-gate.sh`, where `rf.interop/debug-enabled?` is already
   false at load and `registrar/strip-pure-documentation` has removed `:doc`
   before the descriptor is built. The two `:doc` rows are therefore kept
-  verbatim inside a `(when interop/debug-enabled? …)` arm.
+  verbatim inside a `(when rf.interop/debug-enabled? …)` arm.
 
   Everything else in section 1 is posture-independent and STAYS OUTSIDE it —
   the `:kind` echo, the load-bearing `[:audit]` witness key nested and (for the
@@ -50,13 +50,13 @@
   would also be satisfied by a lowering that produced nothing at all.
 
   Sections 2 and 3 run in BOTH postures unchanged. Their
-  `with-redefs [interop/debug-enabled? false]` is a no-op under the real gate
+  `with-redefs [rf.interop/debug-enabled? false]` is a no-op under the real gate
   (the var is already false) and the assertions are the production claim
   itself, so they are load-bearing on both sides."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.image          :as image]
-            [re-frame.image-assembly :as asm]
-            [re-frame.interop        :as interop]
+            [re-frame.image          :as rf.image]
+            [re-frame.image-assembly :as rf.image-assembly]
+            [re-frame.interop        :as rf.interop]
             ;; Required so the late-bind lowering publishers are installed
             ;; (each ns calls (late-bind/set-fn! :image/lower-inline-<kind> …) at
             ;; load); exercised through image-assembly/lower-inline-descriptor.
@@ -87,12 +87,12 @@
   assembly-side lowering and return the runnable descriptor a frame resolves.
   `metadata` nil uses the 2-tuple `[id body]` form."
   [section id metadata body]
-  (-> (image/image
+  (-> (rf.image/image
         {:id            :mt1cvi/inline-image
          :registrations {section [(if (nil? metadata) [id body] [id metadata body])]}})
       :rf.image/inline
       first
-      asm/lower-inline-descriptor))
+      rf.image-assembly/lower-inline-descriptor))
 
 ;; ===========================================================================
 ;; 1. DEV — authored documentation survives for every kind (tooling / agent
@@ -107,14 +107,14 @@
         (is (= kind (:kind d)) "kind is preserved")
         ;; rf2-d2841 — `:doc` retention is the DEV half of the contract, elided
         ;; at source under -Dre-frame.debug=false. Kept verbatim.
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (= "author note" (get-in d [:metadata :doc]))
               "nested [:metadata :doc] retained in dev"))
         (is (= [:audit] (get-in d [:metadata :tags]))
             "the load-bearing witness key is nested")
         (is (fn? (:handler-fn d)) "the runnable :handler-fn slot is installed")
         (when spreads-meta?
-          (when interop/debug-enabled?
+          (when rf.interop/debug-enabled?
             (is (= "author note" (:doc d))
                 "kinds that spread metadata carry :doc at the top level too in dev"))
           (is (= [:audit] (:tags d))
@@ -127,7 +127,7 @@
 ;; ===========================================================================
 
 (deftest production-strips-doc-everywhere-across-every-kind
-  (with-redefs [interop/debug-enabled? false]
+  (with-redefs [rf.interop/debug-enabled? false]
     (doseq [{:keys [label kind section spreads-meta? body]} supported-kinds]
       (testing (str "inline " label " — production carries NO :doc anywhere")
         (let [d (assemble section (keyword "counter" (str label "-prod"))
@@ -152,7 +152,7 @@
 ;; ===========================================================================
 
 (deftest production-doc-only-metadata-drops-the-nested-map-across-every-kind
-  (with-redefs [interop/debug-enabled? false]
+  (with-redefs [rf.interop/debug-enabled? false]
     (doseq [{:keys [label section body]} supported-kinds]
       (testing (str "inline " label " — a doc-ONLY inline entry drops :metadata")
         (let [d (assemble section (keyword "counter" (str label "-doc-only"))

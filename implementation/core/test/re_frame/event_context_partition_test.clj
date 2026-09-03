@@ -63,24 +63,24 @@
   of the contract, not a gap in the test."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.interop :as interop]
-            [re-frame.events :as events]
-            [re-frame.frame :as frame]
-            [re-frame.interceptor :as interceptor]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]))
+            [re-frame.interop :as rf.interop]
+            [re-frame.events :as rf.events]
+            [re-frame.frame :as rf.frame]
+            [re-frame.interceptor :as rf.interceptor]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace :as rf.trace]))
 
 ;; ---- fixtures -------------------------------------------------------------
 
 (defn reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (when-let [clear-schemas! (late-bind/get-fn :schemas/clear-by-frame!)]
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (when-let [clear-schemas! (rf.late-bind/get-fn :schemas/clear-by-frame!)]
     (clear-schemas!))
-  (trace/clear-listeners!)
-  (rf/init! plain-atom/adapter)
+  (rf.trace/clear-listeners!)
+  (rf/init! rf.substrate.plain-atom/adapter)
   (test-fn))
 
 (use-fixtures :each reset-runtime)
@@ -179,7 +179,7 @@
       (is (= {:rf.runtime/machines {}}
              (:rf.db/runtime (rf/frame-state-value :ctx/runtime-fx)))
           "the :rf.db/runtime effect committed — it was not policed away")
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (empty? (error-events recorded :rf.error/effect-map-shape))
             ":rf.db/runtime is inside the widened closed set — no shape error")))))
 
@@ -196,7 +196,7 @@
       ;; `:db` committed while `:http` vanished: the partial-success disguise.
       (is (nil? (:ok? (rf/app-db-value :ctx/foreign-fx)))
           "no partial commit — the legal :db did NOT land alongside the refusal")
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [errs (error-events recorded :rf.error/effect-map-shape)]
           (is (= 1 (count errs))
               "exactly one shape error for the foreign :http key")
@@ -222,7 +222,7 @@
       (is (= {:rf.runtime/routing {}}
              (:rf.db/runtime (rf/frame-state-value :ctx/app-runtime)))
           "the effect applied anyway — the diagnostic is a warning, not a gate")
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [warns (warning-events recorded :rf.warning/app-handler-runtime-effect)]
           (is (= 1 (count warns))
               "exactly one :rf.warning/app-handler-runtime-effect for the non-framework writer")
@@ -252,7 +252,7 @@
       (is (= {:rf.runtime/machines {}}
              (:rf.db/runtime (rf/frame-state-value :ctx/fw-authority)))
           "the framework-authority runtime write committed")
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (empty? (warning-events recorded :rf.warning/app-handler-runtime-effect))
             "the framework-authority path is in-bounds — no diagnostic")))))
 
@@ -267,7 +267,7 @@
       (is (true? (:touched? (rf/app-db-value :ctx/plain)))
           "the :db effect committed normally")
       ;; rf2-d2841 — class-1 vacuous under the gate.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (empty? (warning-events recorded :rf.warning/app-handler-runtime-effect))
             "no :rf.db/runtime effect ⇒ no diagnostic")))))
 
@@ -284,7 +284,7 @@
 (deftest reject-legacy-runtime-root-throws-on-stray-key
   (testing "the guard fn throws :rf.error/legacy-runtime-root when app-db carries :rf/runtime"
     (let [thrown (try
-                   (events/reject-legacy-runtime-root!
+                   (rf.events/reject-legacy-runtime-root!
                      {:user/id 1 :rf/runtime {:rf.runtime/machines {}}}
                      [:some/event])
                    ::no-throw
@@ -301,9 +301,9 @@
 (deftest reject-legacy-runtime-root-is-a-noop-for-clean-app-db
   (testing "the guard fn returns the value unchanged (no throw) when :rf/runtime is absent"
     (let [clean {:user/id 1 :cart {:items []}}]
-      (is (= clean (events/reject-legacy-runtime-root! clean [:ok/event]))
+      (is (= clean (rf.events/reject-legacy-runtime-root! clean [:ok/event]))
           "a clean app-db passes through untouched")
-      (is (= nil (events/reject-legacy-runtime-root! nil [:ok/event]))
+      (is (= nil (rf.events/reject-legacy-runtime-root! nil [:ok/event]))
           "nil (no :db effect) is a no-op"))))
 
 (deftest db-handler-returning-legacy-runtime-root-surfaces-hard-error
@@ -318,11 +318,11 @@
       (let [errs (error-events recorded :rf.error/handler-exception)
             ex   (some-> errs first :tags :exception)]
         ;; ALWAYS-ON (rf2-d2841): the REJECTION is production behaviour —
-        ;; `events/reject-legacy-runtime-root!` is an ungated `throw`. Only the
+        ;; `rf.events/reject-legacy-runtime-root!` is an ungated `throw`. Only the
         ;; trace that reports it is dev-only.
         (is (not (contains? (rf/app-db-value :ctx/legacy-db) :rf/runtime))
             "the legacy :rf/runtime root never lands in app-db (hard-error rejects the write)")
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (= 1 (count errs))
               "exactly one handler-exception trace for the legacy-root write")
           (is (= :rf.error/legacy-runtime-root (:rf.error/id (ex-data ex)))
@@ -340,7 +340,7 @@
         ;; ALWAYS-ON (rf2-d2841): the rejection holds on the `:fx` path too.
         (is (not (contains? (rf/app-db-value :ctx/legacy-fx) :rf/runtime))
             "the legacy root never commits")
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (= :rf.error/legacy-runtime-root (:rf.error/id (ex-data ex)))
               "the :fx-path :db effect with a legacy root is rejected too"))))))
 
@@ -357,7 +357,7 @@
       ;; class-1 vacuous under the gate.
       (is (= {:rf.runtime/machines {:m 1}} (:rf.db/runtime (rf/frame-state-value :ctx/new-runtime)))
           "the runtime-db partition committed normally")
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (empty? (error-events recorded :rf.error/handler-exception))
             "writing the :rf.db/runtime partition is legitimate — no legacy-root throw")))))
 
@@ -385,7 +385,7 @@
 (defn- after-icpt
   "A user `:after` interceptor (id `id`) applying `f` to the context."
   [id f]
-  (interceptor/->interceptor*
+  (rf.interceptor/->interceptor*
     :id     id
     :after  (fn [ctx] (f ctx))))
 
@@ -399,7 +399,7 @@
           ;; exists only in the FINAL effects map — the one boundary that checks.
           bad-fx   (after-icpt ::bad-fx
                                (fn [ctx]
-                                 (interceptor/assoc-effect ctx :fx :oops)))]
+                                 (rf.interceptor/assoc-effect ctx :fx :oops)))]
       (rf/reg-interceptor ::bad-fx bad-fx)
       (rf/reg-event :ctx/writes-db
         {:interceptors [::bad-fx]}
@@ -419,7 +419,7 @@
             "no partial commit — the :db write did NOT land beside the refused :fx")
         (is (true? (:downstream? db))
             "the downstream event still drained — the refusal did not abandon the queue"))
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [errs (error-events recorded :rf.error/effect-map-shape)]
           (is (= 1 (count errs))
               "exactly one shape error for the non-sequential :fx value")
@@ -432,7 +432,7 @@
     (let [recorded (record-traces! ::after-foreign)
           foreign  (after-icpt ::foreign
                                (fn [ctx]
-                                 (interceptor/assoc-effect ctx :http {:url "/api"})))]
+                                 (rf.interceptor/assoc-effect ctx :http {:url "/api"})))]
       (rf/reg-interceptor ::foreign foreign)
       (rf/reg-event :ctx/writes-db2
         {:interceptors [::foreign]}
@@ -443,7 +443,7 @@
       ;; never passed through the handler return, and gets the same verdict.
       (is (nil? (:ok? (rf/app-db-value :ctx/after-foreign)))
           "no partial commit — the legal :db did NOT land beside the foreign key")
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [errs (error-events recorded :rf.error/effect-map-shape)]
           (is (= 1 (count errs))
               "exactly one shape error for the foreign :http key")
@@ -458,8 +458,8 @@
           ;; AFTER the in-chain `reject-legacy-runtime-root!` :before guard ran.
           legacy   (after-icpt ::legacy
                                (fn [ctx]
-                                 (let [db (interceptor/get-effect ctx :db)]
-                                   (interceptor/assoc-effect
+                                 (let [db (rf.interceptor/get-effect ctx :db)]
+                                   (rf.interceptor/assoc-effect
                                      ctx :db (assoc db :rf/runtime {:rf.runtime/machines {}})))))]
       (rf/reg-interceptor ::legacy legacy)
       (rf/reg-event :ctx/clean-db
@@ -481,7 +481,7 @@
             "no partial commit — the rejected :db effect is dropped entirely")
         (is (true? (:downstream? db))
             "the drain survived the in-band rejection — downstream event still ran"))
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [errs (error-events recorded :rf.error/legacy-runtime-root)]
           (is (= 1 (count errs))
               "exactly one legacy-runtime-root error at the final boundary")
@@ -503,8 +503,8 @@
         {:before
          (fn [ctx]
            (-> ctx
-               (interceptor/assoc-effect :db (assoc (interceptor/get-coeffect ctx :db) :committed? true))
-               (interceptor/assoc-effect :fx {:dispatch [:nope]})))})
+               (rf.interceptor/assoc-effect :db (assoc (rf.interceptor/get-coeffect ctx :db) :committed? true))
+               (rf.interceptor/assoc-effect :fx {:dispatch [:nope]})))})
       (rf/reg-event :ctx/ctx-writes
         {:interceptors [:ctx/ctx-writes-probe]}
         (fn [_ _] {}))
@@ -514,7 +514,7 @@
       ;; bad `:fx` still did not throw.
       (is (nil? (:committed? (rf/app-db-value :ctx/ctx-bad-fx)))
           "no partial commit — the :db write did NOT land beside the refused :fx")
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [errs (error-events recorded :rf.error/effect-map-shape)]
           (is (= 1 (count errs))
               "the full-context interceptor's malformed :fx is refused — the reg-event handler return is not the only path the boundary governs")
@@ -528,8 +528,8 @@
         {:before
          (fn [ctx]
            (-> ctx
-               (interceptor/assoc-effect :db (assoc (interceptor/get-coeffect ctx :db) :ok? true))
-               (interceptor/assoc-effect :dispatch [:legacy/event])))})
+               (rf.interceptor/assoc-effect :db (assoc (rf.interceptor/get-coeffect ctx :db) :ok? true))
+               (rf.interceptor/assoc-effect :dispatch [:legacy/event])))})
       (rf/reg-event :ctx/ctx-foreign-writes
         {:interceptors [:ctx/ctx-foreign-writes-probe]}
         (fn [_ _] {}))
@@ -537,7 +537,7 @@
       ;; ALWAYS-ON (rf2-d2841 / rf2-04tx).
       (is (nil? (:ok? (rf/app-db-value :ctx/ctx-foreign)))
           "no partial commit — the legal :db did NOT land beside the foreign key")
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [errs (error-events recorded :rf.error/effect-map-shape)]
           (is (= 1 (count errs))
               "the full-context interceptor's foreign :dispatch key is policed")
@@ -564,6 +564,6 @@
             "the :db effect committed normally")
         (is (= 1 @fx-ran)
             "the well-shaped :fx ran — nothing was dropped at the boundary")
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (empty? (error-events recorded :rf.error/effect-map-shape))
               "well-shaped effects pass the final boundary untouched — no spurious / double shape error"))))))

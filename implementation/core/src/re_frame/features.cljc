@@ -42,17 +42,17 @@
   into EVERY production bundle, breaking the bundle-isolation contract.
 
   `feature-loaded?` therefore detects presence by a pure keyword lookup
-  in the always-loaded `late-bind/hooks` atom — `(some? (get-fn
+  in the always-loaded `rf.late-bind/hooks` atom — `(some? (get-fn
   probe-key))` — which the impl artefact populates from its own ns-load.
   No reach into the optional namespace; just an atom read.
 
   The coordinate strings here are the single source of truth the per-
   feature `re-frame.core-<feature>` wrappers' `:reason` throws mirror
-  (via `late-bind/require-fn!`); every artefact-missing error in the
+  (via `rf.late-bind/require-fn!`); every artefact-missing error in the
   framework carries the same copy-pasteable require/coordinate this
   table holds."
-  (:require [re-frame.error :as error]
-            [re-frame.late-bind :as late-bind]))
+  (:require [re-frame.error :as rf.error]
+            [re-frame.late-bind :as rf.late-bind]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -72,7 +72,7 @@
 
   The `:probe-key` for each feature is a stable, always-published hook —
   the artefact registers it unconditionally from its ns-load `set-fn!` /
-  `set-fns!` block, so its presence in `late-bind/hooks` is a faithful
+  `set-fns!` block, so its presence in `rf.late-bind/hooks` is a faithful
   loaded?-signal. Renaming a probe key here without keeping it in step
   with the producing artefact's publication would silently report a
   loaded feature as absent; the keys are chosen from the feature's
@@ -116,9 +116,9 @@
   `feature` is not a known optional feature keyword).
 
   Detection is a pure keyword lookup in the always-loaded
-  `late-bind/hooks` atom against the feature's representative
+  `rf.late-bind/hooks` atom against the feature's representative
   `:probe-key` — the artefact publishes that key from its own ns-load,
-  so `(some? (late-bind/get-fn probe-key))` faithfully signals presence
+  so `(some? (rf.late-bind/get-fn probe-key))` faithfully signals presence
   WITHOUT a static require into the optional namespace (which would
   break bundle-isolation). Ships to production — NOT elided.
 
@@ -127,7 +127,7 @@
   `:resources`. Per spec/API.md §Feature inspection."
   [feature]
   (if-let [{:keys [probe-key]} (get feature-registry feature)]
-    (some? (late-bind/get-fn probe-key))
+    (some? (rf.late-bind/get-fn probe-key))
     false))
 
 (defn features
@@ -185,7 +185,7 @@
   (let [entry (get feature-registry feature)]
     (cond
       (nil? entry)
-      (error/throw-error!
+      (rf.error/throw-error!
         :rf.error/unknown-feature
         'rf/require-feature!
         (str feature " is not a known optional feature. "
@@ -200,7 +200,7 @@
 
       :else
       (let [{:keys [maven require]} entry]
-        (error/throw-error!
+        (rf.error/throw-error!
           :rf.error/feature-not-loaded
           'rf/require-feature!
           (str "The " feature " feature's implementation artefact "

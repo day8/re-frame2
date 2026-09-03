@@ -27,7 +27,7 @@
   helper is reused from `re-frame.source-coords` so the literal map
   carries the same `{:ns :file :line :column}` shape as registration-
   site coords."
-  (:require [re-frame.source-coords :as source-coords]))
+  (:require [re-frame.source-coords :as rf.source-coords]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -38,7 +38,7 @@
      interop/debug-enabled? ... ...)` so the entire branch (binding
      scope or opts-key assoc) DCEs under `goog.DEBUG=false`."
      [form-meta ns-sym file]
-     (source-coords/coords-form form-meta file ns-sym)))
+     (rf.source-coords/coords-form form-meta file ns-sym)))
 
 #?(:clj
    (defn- gate

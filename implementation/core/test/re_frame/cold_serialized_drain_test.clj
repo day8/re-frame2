@@ -1,5 +1,5 @@
 (ns re-frame.cold-serialized-drain-test
-  "JVM-only concurrency tests for the COLD `frame/call-serialized-with-drain!`
+  "JVM-only concurrency tests for the COLD `rf.frame/call-serialized-with-drain!`
   critical section's interaction with the single-drainer release protocol
   (rf2-x76af2.22). A cold section (out-of-drain flows lifecycle ops,
   `destroy-frame!`'s liveness flip, Tool-Pair state writes) takes the SAME
@@ -33,38 +33,38 @@
   Pattern follows `router_drain_race_test.clj` / `sub_cache_concurrency_test.clj`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.schemas :as schemas]
-            [re-frame.flows :as flows]
-            [re-frame.registrar :as registrar]
-            [re-frame.interop :as interop]
-            [re-frame.substrate.plain-atom :as plain-atom])
+            [re-frame.frame :as rf.frame]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.flows :as rf.flows]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.interop :as rf.interop]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom])
   (:import [java.util.concurrent CountDownLatch TimeUnit]))
 
 (defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  (rf/init! plain-atom/adapter)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.flows/reset-flows!)
+  (rf.schemas/clear-schemas-by-frame!)
+  (rf/init! rf.substrate.plain-atom/adapter)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)
   (require 're-frame.machines :reload)
-  (frame/ensure-default-frame!)
-  (binding [frame/*current-frame* :rf/default]
+  (rf.frame/ensure-default-frame!)
+  (binding [rf.frame/*current-frame* :rf/default]
     (test-fn)))
 
 (use-fixtures :each reset-runtime)
 
 ;; A barrier over the runtime executor: submit a countdown task via the SAME
-;; `interop/next-tick` seam the router schedules `drain-try!` through. The JVM
+;; `rf.interop/next-tick` seam the router schedules `drain-try!` through. The JVM
 ;; executor is single-threaded FIFO, so this task runs strictly AFTER any
 ;; `drain-try!` already submitted — awaiting it deterministically proves the
 ;; earlier `drain-try!` completed (no wall-clock sleep). The 5s bound is only a
 ;; test-hang guard, never the coordination mechanism.
 (defn- executor-barrier! []
   (let [latch (CountDownLatch. 1)]
-    (interop/next-tick (fn [] (.countDown latch)))
+    (rf.interop/next-tick (fn [] (.countDown latch)))
     (is (.await latch 5 TimeUnit/SECONDS) "executor barrier task ran")))
 
 ;; ---- (a) PERMANENT QUEUE STRAND -------------------------------------------
@@ -77,12 +77,12 @@
         (fn [{:keys [db]} _]
           (swap! ran inc)
           {:db (update db :n (fnil inc 0))}))
-      (let [router (:router (frame/frame frame-id))]
+      (let [router (:router (rf.frame/frame frame-id))]
         ;; Cold serialized section on THIS thread. Inside it (holding
         ;; :drain-lock), dispatch! an event: enqueue + ensure-drain-scheduled!
         ;; sets :scheduled? true and schedules a drain-try! on the executor,
         ;; which CAS-loses to us and gives up.
-        (frame/call-serialized-with-drain! frame-id
+        (rf.frame/call-serialized-with-drain! frame-id
           (fn []
             (rf/dispatch [:bump] {:frame frame-id})
             ;; Force the scheduled drain-try! to have FIRED and CAS-LOST.
@@ -122,7 +122,7 @@
       (let [worker (Thread.
                      ^Runnable
                      (fn []
-                       (frame/call-serialized-with-drain! frame-id
+                       (rf.frame/call-serialized-with-drain! frame-id
                          (fn []
                            ;; SAME thread already holds :drain-lock via the cold
                            ;; section. Pre-fix: dispatch-sync! → drain-block! →

@@ -29,15 +29,15 @@
   Every assertion here is posture-independent — it holds in the ordinary
   `clojure -M:test` suite AND under the real production gate
   (`scripts/test-core-prod-gate.sh`, `-Dre-frame.debug=false`) — UNLESS it sits
-  inside a `(when interop/debug-enabled? …)` arm marked `rf2-d2841`. That is
+  inside a `(when rf.interop/debug-enabled? …)` arm marked `rf2-d2841`. That is
   what lets the bulk of this namespace — chain composition, before-order /
   after-reverse-order, the `:rf.interceptor/path` ref, ctx-delta — run in the
   production lane.
 
   Two surfaces are dev-only BY DESIGN and live in such arms:
 
-    * The `:trace` stream. Every `trace/emit-error!` site is gated on
-      `interop/debug-enabled?`, so `capture-error-traces` returns `[]` under
+    * The `:trace` stream. Every `rf.trace/emit-error!` site is gated on
+      `rf.interop/debug-enabled?`, so `capture-error-traces` returns `[]` under
       the gate. NOTE that this makes the NEGATIVE controls (`(empty? (filterv
       …))`) vacuous there, which is why they sit inside the arm too rather than
       standing outside it looking load-bearing.
@@ -55,23 +55,23 @@
   separately; it is deliberately NOT bolted on here."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.schemas :as schemas]
-            [re-frame.flows :as flows]
-            [re-frame.interceptor :as interceptor]
-            [re-frame.interceptor-registry :as icpt-reg]
-            [re-frame.interop :as interop]
-            [re-frame.std-interceptors :as std-interceptors]
-            [re-frame.trace :as trace]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.flows :as rf.flows]
+            [re-frame.interceptor :as rf.interceptor]
+            [re-frame.interceptor-registry :as rf.interceptor-registry]
+            [re-frame.interop :as rf.interop]
+            [re-frame.std-interceptors :as rf.std-interceptors]
+            [re-frame.trace :as rf.trace]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (defn reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  (rf/init! plain-atom/adapter)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.flows/reset-flows!)
+  (rf.schemas/clear-schemas-by-frame!)
+  (rf/init! rf.substrate.plain-atom/adapter)
   ;; Framework-shipped registrations live in routing.cljc / ssr.cljc /
   ;; machines.cljc and are wiped by clear-all!. None of these tests need
   ;; them, so we skip the require-reload dance — keeps the fixture cheap.
@@ -254,15 +254,15 @@
 (deftest path-interceptor-after-no-ops-when-before-short-circuited
   (testing "the path interceptor's :after does not throw and preserves the
             original error when an upstream interceptor's :before throws first"
-    (let [boom    (interceptor/->interceptor*
+    (let [boom    (rf.interceptor/->interceptor*
                     :id     :path-short/boom
                     :before (fn [_ctx]
                               (throw (ex-info "before blew up"
                                               {:src :path-short/boom}))))
           ;; Order: boom (throws in :before) → path interceptor (its :before is
           ;; short-circuited, but its :after still runs in reverse).
-          chain   [boom (std-interceptors/standard-path-interceptor [:foo :bar])]
-          final   (interceptor/execute-chain
+          chain   [boom (rf.std-interceptors/standard-path-interceptor [:foo :bar])]
+          final   (rf.interceptor/execute-chain
                     chain
                     {:coeffects {:db {:foo {:bar 10}}} :effects {}})
           errs    (:rf/interceptor-errors final)]
@@ -301,28 +301,28 @@
   can restore it for downstream consumers. On a bad shape it emits the
   project-owned `:test.app/unwrap-bad-event-shape` diagnostic and returns ctx
   unchanged. This is the shape an application registers as `:app/unwrap`."
-  (interceptor/->interceptor*
+  (rf.interceptor/->interceptor*
     :id    :app/unwrap
     :before
     (fn [ctx]
-      (let [event (interceptor/get-coeffect ctx :event)]
+      (let [event (rf.interceptor/get-coeffect ctx :event)]
         (if-not (and (vector? event)
                      (= 2 (count event))
                      (map? (second event)))
-          (do (trace/emit-error! :test.app/unwrap-bad-event-shape
+          (do (rf.trace/emit-error! :test.app/unwrap-bad-event-shape
                                  {:event event
                                   :expected "[event-id payload-map]"
                                   :recovery :no-recovery})
               ctx)
           (-> ctx
               (assoc :rf/unwrap-stash event)
-              (interceptor/assoc-coeffect :event (second event))))))
+              (rf.interceptor/assoc-coeffect :event (second event))))))
     :after
     (fn [ctx]
       (if-let [original (:rf/unwrap-stash ctx)]
         (-> ctx
             (dissoc :rf/unwrap-stash)
-            (interceptor/assoc-coeffect :event original))
+            (rf.interceptor/assoc-coeffect :event original))
         ctx))))
 
 (deftest project-unwrap-rewrites-event-coeffect
@@ -376,7 +376,7 @@
       ;; rf2-d2841 — dev-instrumentation arm (see ns docstring). The
       ;; "keeps-event-unchanged" half of this deftest's name is the
       ;; `@seen-event` assertion above, which runs in both postures.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [bad-shape (filterv #(= :test.app/unwrap-bad-event-shape (:operation %))
                                  @traces)]
           (is (= 1 (count bad-shape))
@@ -406,7 +406,7 @@
       (rf/dispatch-sync [:unwrap-bad-test/arity {:ok :map} :extra])
       (rf/unregister-listener! :trace ::unwrap-arity)
       ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (some #(= :test.app/unwrap-bad-event-shape (:operation %)) @traces)
             ":test.app/unwrap-bad-event-shape fires for arity mismatch too"))
       (is (= [:unwrap-bad-test/arity {:ok :map} :extra] @seen-event)
@@ -505,7 +505,7 @@
 
 ;; ---- chain composition ----------------------------------------------------
 ;;
-;; Driven directly through interceptor/execute-chain so the test pins the
+;; Driven directly through rf.interceptor/execute-chain so the test pins the
 ;; chain runtime's contract without leaning on the dispatch path. This is
 ;; the level the bead's "chain composition" deliverable refers to.
 
@@ -514,7 +514,7 @@
             reverse; the captured order matches the standard pattern."
     (let [trail (atom [])
           mk    (fn [tag]
-                  (interceptor/->interceptor*
+                  (rf.interceptor/->interceptor*
                     :id     tag
                     :before (fn [ctx]
                               (swap! trail conj [:before tag])
@@ -522,13 +522,13 @@
                     :after  (fn [ctx]
                               (swap! trail conj [:after tag])
                               ctx)))
-          handler (interceptor/->interceptor*
+          handler (rf.interceptor/->interceptor*
                     :id :handler
                     :before (fn [ctx]
                               (swap! trail conj :handler)
                               ctx))
           chain   [(mk :a) (mk :b) (mk :c) handler]
-          final   (interceptor/execute-chain chain {:coeffects {} :effects {}})]
+          final   (rf.interceptor/execute-chain chain {:coeffects {} :effects {}})]
       (is (= [[:before :a] [:before :b] [:before :c]
               :handler
               [:after :c] [:after :b] [:after :a]]
@@ -550,7 +550,7 @@
     (let [trail (atom [])
           ran-handler? (atom false)
           mk-good (fn [tag]
-                    (interceptor/->interceptor*
+                    (rf.interceptor/->interceptor*
                       :id     tag
                       :before (fn [ctx]
                                 (swap! trail conj [:before tag])
@@ -559,7 +559,7 @@
                                 (swap! trail conj [:after tag])
                                 ctx)))
           mk-bad-after (fn [tag]
-                         (interceptor/->interceptor*
+                         (rf.interceptor/->interceptor*
                            :id     tag
                            :before (fn [ctx]
                                      (swap! trail conj [:before tag])
@@ -568,7 +568,7 @@
                                      (swap! trail conj [:after tag])
                                      (throw (ex-info "after blew up"
                                                      {:tag tag})))))
-          handler (interceptor/->interceptor*
+          handler (rf.interceptor/->interceptor*
                     :id :handler
                     :before (fn [ctx]
                               (reset! ran-handler? true)
@@ -577,7 +577,7 @@
           ;; Order in declaration:  a (good) → boom (bad-after) → c (good) → handler
           ;; :after order (reverse): handler → c → boom (throws) → a
           chain   [(mk-good :a) (mk-bad-after :boom) (mk-good :c) handler]
-          final   (interceptor/execute-chain chain {:coeffects {} :effects {}})]
+          final   (rf.interceptor/execute-chain chain {:coeffects {} :effects {}})]
       (is @ran-handler?
           "handler completed even though a downstream :after throws")
       (is (= :after (get-in final [:rf/interceptor-error :phase]))
@@ -602,12 +602,12 @@
           ;; The short-circuit means :before-bad's :before fires, but
           ;; subsequent :before stages are skipped. All :after stages
           ;; run (teardown contract), so :after-bad's :after will fire.
-          before-bad (interceptor/->interceptor*
+          before-bad (rf.interceptor/->interceptor*
                        :id :before-bad
                        :before (fn [_ctx]
                                  (throw (ex-info "before blew up"
                                                  {:src :before-bad}))))
-          after-bad  (interceptor/->interceptor*
+          after-bad  (rf.interceptor/->interceptor*
                        :id :after-bad
                        :after  (fn [_ctx]
                                  (throw (ex-info "after blew up"
@@ -617,7 +617,7 @@
           ;; context. That way we exercise the "later error doesn't
           ;; overwrite earlier" guarantee.
           chain [after-bad before-bad]
-          final (interceptor/execute-chain chain {:coeffects {} :effects {}})
+          final (rf.interceptor/execute-chain chain {:coeffects {} :effects {}})
           errs  (:rf/interceptor-errors final)
           first-err (:rf/interceptor-error final)]
       (is (vector? errs)
@@ -644,7 +644,7 @@
             :before claimed."
     (let [trail (atom [])
           mk-good (fn [tag]
-                    (interceptor/->interceptor*
+                    (rf.interceptor/->interceptor*
                       :id     tag
                       :before (fn [ctx]
                                 (swap! trail conj [:before tag])
@@ -652,7 +652,7 @@
                       :after  (fn [ctx]
                                 (swap! trail conj [:after tag])
                                 ctx)))
-          boom    (interceptor/->interceptor*
+          boom    (rf.interceptor/->interceptor*
                     :id     :boom
                     :before (fn [_ctx]
                               (swap! trail conj [:before :boom])
@@ -664,7 +664,7 @@
           ;; a's :before runs, boom's :before throws, c's :before MUST
           ;; be skipped (short-circuit). All :after stages run.
           chain   [(mk-good :a) boom (mk-good :c)]
-          final   (interceptor/execute-chain chain {:coeffects {} :effects {}})]
+          final   (rf.interceptor/execute-chain chain {:coeffects {} :effects {}})]
       (is (= [[:before :a]
               [:before :boom]
               ;; NO [:before :c] — short-circuited.
@@ -697,61 +697,61 @@
   (let [ctx {:coeffects {:db {:n 1} :event [:e 7] :now 42} :effects {}}]
     (testing "1-arity returns the whole :coeffects map"
       (is (= {:db {:n 1} :event [:e 7] :now 42}
-             (interceptor/get-coeffect ctx))))
+             (rf.interceptor/get-coeffect ctx))))
     (testing "2-arity returns the value at k, nil when absent"
-      (is (= {:n 1} (interceptor/get-coeffect ctx :db)))
-      (is (= [:e 7] (interceptor/get-coeffect ctx :event)))
-      (is (nil? (interceptor/get-coeffect ctx :missing))
+      (is (= {:n 1} (rf.interceptor/get-coeffect ctx :db)))
+      (is (= [:e 7] (rf.interceptor/get-coeffect ctx :event)))
+      (is (nil? (rf.interceptor/get-coeffect ctx :missing))
           "absent key yields nil under the 2-arity form"))
     (testing "3-arity returns not-found when the key is absent, the value when present"
-      (is (= ::sentinel (interceptor/get-coeffect ctx :missing ::sentinel))
+      (is (= ::sentinel (rf.interceptor/get-coeffect ctx :missing ::sentinel))
           "absent key yields the not-found arg")
-      (is (= {:n 1} (interceptor/get-coeffect ctx :db ::sentinel))
+      (is (= {:n 1} (rf.interceptor/get-coeffect ctx :db ::sentinel))
           "present key wins over not-found"))
     (testing "3-arity distinguishes a stored nil from absence"
       (let [ctx-nil {:coeffects {:maybe nil} :effects {}}]
-        (is (nil? (interceptor/get-coeffect ctx-nil :maybe ::sentinel))
+        (is (nil? (rf.interceptor/get-coeffect ctx-nil :maybe ::sentinel))
             "a key present with value nil returns nil, NOT the not-found arg")
-        (is (= ::sentinel (interceptor/get-coeffect ctx-nil :absent ::sentinel))
+        (is (= ::sentinel (rf.interceptor/get-coeffect ctx-nil :absent ::sentinel))
             "a genuinely absent key still returns the not-found arg")))))
 
 (deftest get-effect-arities
   (let [ctx {:coeffects {} :effects {:db {:n 2} :fx [[:do-thing]]}}]
     (testing "1-arity returns the whole :effects map"
-      (is (= {:db {:n 2} :fx [[:do-thing]]} (interceptor/get-effect ctx))))
+      (is (= {:db {:n 2} :fx [[:do-thing]]} (rf.interceptor/get-effect ctx))))
     (testing "2-arity returns the value at k, nil when absent"
-      (is (= {:n 2} (interceptor/get-effect ctx :db)))
-      (is (= [[:do-thing]] (interceptor/get-effect ctx :fx)))
-      (is (nil? (interceptor/get-effect ctx :missing))))
+      (is (= {:n 2} (rf.interceptor/get-effect ctx :db)))
+      (is (= [[:do-thing]] (rf.interceptor/get-effect ctx :fx)))
+      (is (nil? (rf.interceptor/get-effect ctx :missing))))
     (testing "3-arity returns not-found when absent"
-      (is (= ::none (interceptor/get-effect ctx :missing ::none)))
-      (is (= {:n 2} (interceptor/get-effect ctx :db ::none))))
+      (is (= ::none (rf.interceptor/get-effect ctx :missing ::none)))
+      (is (= {:n 2} (rf.interceptor/get-effect ctx :db ::none))))
     (testing "3-arity distinguishes a stored nil from absence"
       (let [ctx-nil {:coeffects {} :effects {:db nil}}]
-        (is (nil? (interceptor/get-effect ctx-nil :db ::none)))
-        (is (= ::none (interceptor/get-effect ctx-nil :fx ::none)))))))
+        (is (nil? (rf.interceptor/get-effect ctx-nil :db ::none)))
+        (is (= ::none (rf.interceptor/get-effect ctx-nil :fx ::none)))))))
 
 (deftest assoc-coeffect-writes-and-is-readable
   (testing "assoc-coeffect sets k in :coeffects and returns the updated ctx;
             the round-trip is observable via get-coeffect"
     (let [ctx  {:coeffects {:db {:n 1}} :effects {}}
-          ctx' (interceptor/assoc-coeffect ctx :now 99)]
-      (is (= 99 (interceptor/get-coeffect ctx' :now))
+          ctx' (rf.interceptor/assoc-coeffect ctx :now 99)]
+      (is (= 99 (rf.interceptor/get-coeffect ctx' :now))
           "the assoc'd value reads back through get-coeffect")
-      (is (= {:n 1} (interceptor/get-coeffect ctx' :db))
+      (is (= {:n 1} (rf.interceptor/get-coeffect ctx' :db))
           "sibling coeffects are preserved")
       (is (= {} (:effects ctx'))
           ":effects is untouched by a coeffect write")
-      (is (nil? (interceptor/get-coeffect ctx :now))
+      (is (nil? (rf.interceptor/get-coeffect ctx :now))
           "the original ctx is unchanged (persistent — no in-place mutation)"))))
 
 (deftest assoc-effect-writes-and-is-readable
   (testing "assoc-effect sets k in :effects and returns the updated ctx"
     (let [ctx  {:coeffects {:db {:n 1}} :effects {}}
-          ctx' (interceptor/assoc-effect ctx :db {:n 2})]
-      (is (= {:n 2} (interceptor/get-effect ctx' :db))
+          ctx' (rf.interceptor/assoc-effect ctx :db {:n 2})]
+      (is (= {:n 2} (rf.interceptor/get-effect ctx' :db))
           "the assoc'd effect reads back through get-effect")
-      (is (= {:n 1} (interceptor/get-coeffect ctx' :db))
+      (is (= {:n 1} (rf.interceptor/get-coeffect ctx' :db))
           ":coeffects :db is independent of :effects :db")
       (is (= {} (:effects ctx))
           "the original ctx's :effects is unchanged (persistent)"))))
@@ -759,32 +759,32 @@
 (deftest update-coeffect-applies-fn-with-trailing-args
   (testing "update-coeffect applies f to the value at k, threading trailing args"
     (let [ctx {:coeffects {:n 10} :effects {}}]
-      (is (= 11 (interceptor/get-coeffect
-                  (interceptor/update-coeffect ctx :n inc) :n))
+      (is (= 11 (rf.interceptor/get-coeffect
+                  (rf.interceptor/update-coeffect ctx :n inc) :n))
           "no-arg fn form: inc applied to the value at :n")
-      (is (= 13 (interceptor/get-coeffect
-                  (interceptor/update-coeffect ctx :n + 3) :n))
+      (is (= 13 (rf.interceptor/get-coeffect
+                  (rf.interceptor/update-coeffect ctx :n + 3) :n))
           "single trailing arg threaded after the current value")
-      (is (= 16 (interceptor/get-coeffect
-                  (interceptor/update-coeffect ctx :n + 3 2 1) :n))
+      (is (= 16 (rf.interceptor/get-coeffect
+                  (rf.interceptor/update-coeffect ctx :n + 3 2 1) :n))
           "multiple trailing args threaded in order")))
   (testing "update-coeffect on an absent key applies f to nil"
     ;; A fn that records the arg it was handed for the absent key, then
     ;; returns a deterministic value. Confirms f is invoked with nil
     ;; (clojure.core/update-in semantics) — not skipped.
     (let [seen-arg (atom ::unset)
-          result   (interceptor/update-coeffect
+          result   (rf.interceptor/update-coeffect
                      {:coeffects {} :effects {}}
                      :missing
                      (fn [v] (reset! seen-arg v) :computed))]
       (is (nil? @seen-arg)
           "f saw nil for the absent key (matches clojure.core/update-in semantics)")
-      (is (= :computed (interceptor/get-coeffect result :missing))
+      (is (= :computed (rf.interceptor/get-coeffect result :missing))
           "f's return value is written back at the previously-absent key")))
   (testing "update-coeffect preserves siblings and leaves :effects untouched"
     (let [ctx  {:coeffects {:n 10 :keep :me} :effects {:db {}}}
-          ctx' (interceptor/update-coeffect ctx :n inc)]
-      (is (= :me (interceptor/get-coeffect ctx' :keep))
+          ctx' (rf.interceptor/update-coeffect ctx :n inc)]
+      (is (= :me (rf.interceptor/get-coeffect ctx' :keep))
           "sibling coeffects preserved")
       (is (= {:db {}} (:effects ctx'))
           ":effects untouched"))))
@@ -802,7 +802,7 @@
 ;;
 ;; PRODUCTION TWIN (rf2-mlh1h). The attribution below is read off the DEV
 ;; TRACE, which emits nothing under -Dre-frame.debug=false — hence the
-;; `(when interop/debug-enabled? …)` arms. The contract itself is
+;; `(when rf.interop/debug-enabled? …)` arms. The contract itself is
 ;; production-real: `error-emit/emit-error-both!` lifts `:failing-id` +
 ;; `:reason` onto the ALWAYS-ON record whenever the failing id differs from
 ;; `:event-id`. That half is witnessed in `re-frame.on-error-cljs-test`
@@ -837,7 +837,7 @@
       ;; rf2-d2841 — dev-instrumentation arm (see ns docstring). The negative
       ;; control is inside the arm too: under the gate `errs` is empty, so
       ;; `empty?` would pass for the wrong reason.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [hx (filterv #(= :rf.error/handler-exception (:operation %)) errs)]
           (is (= 1 (count hx)) "exactly one handler-exception")
           (let [ev (first hx)]
@@ -870,7 +870,7 @@
       (is (= db-before (rf/app-db-value :rf/default))
           "a throwing :before interrupts the chain; nothing is committed")
       ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [ix (filterv #(= :rf.error/interceptor-exception (:operation %)) errs)]
           (is (= 1 (count ix)) "exactly one interceptor-exception")
           (let [ev (first ix)]
@@ -892,7 +892,7 @@
                      (fn [{:keys [db]} _] {:db db}))
     (let [errs (capture-error-traces [:mszrz/after-boom])]
       ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [ix (filterv #(= :rf.error/interceptor-exception (:operation %)) errs)]
           (is (= 1 (count ix)) "exactly one interceptor-exception")
           (let [ev (first ix)]
@@ -909,7 +909,7 @@
 ;; captures no coord of its own — there is no syntactic call site to
 ;; attribute — but a `:source-coord` passed to it stays on the interceptor
 ;; map. When that interceptor throws, the coord rides the error-record
-;; (interceptor/error-record) → the router threads it onto the
+;; (rf.interceptor/error-record) → the router threads it onto the
 ;; `:rf.error/interceptor-exception` trace's `:source-coord` tag, so the Xray
 ;; Epoch INTERCEPTOR row can render a jump-to-source chip (parity with EVENT
 ;; HANDLER / SUBSCRIPTIONS / VIEWS). The facade's coord-capturing
@@ -923,10 +923,10 @@
 (deftest lowering-constructor-keeps-an-explicit-source-coord
   (testing "an interceptor built with an explicit :source-coord carries it;
             one built without carries none"
-    (let [with-coord (interceptor/->interceptor* :id           :siheh/probe
+    (let [with-coord (rf.interceptor/->interceptor* :id           :siheh/probe
                                                  :before       identity
                                                  :source-coord probe-coord)
-          bare       (interceptor/->interceptor* :id :siheh/fn-probe :before identity)]
+          bare       (rf.interceptor/->interceptor* :id :siheh/fn-probe :before identity)]
       (is (= :siheh/probe (:id with-coord))
           "the constructor carries the requested :id")
       (is (fn? (:before with-coord))
@@ -945,7 +945,7 @@
     ;; so the :source-coord it carries rides through resolution onto the
     ;; trace. Then reference it by id.
     (rf/reg-interceptor :siheh/before-icpt
-                        (interceptor/->interceptor*
+                        (rf.interceptor/->interceptor*
                           :id           :siheh/before-icpt
                           :before       (fn [_] (throw (ex-info "before blew up" {})))
                           :source-coord probe-coord))
@@ -955,7 +955,7 @@
     (let [errs (capture-error-traces [:siheh/before-boom])]
       ;; rf2-d2841 — dev-instrumentation arm (see ns docstring): the trace is
       ;; not emitted in production.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [ix (filterv #(= :rf.error/interceptor-exception (:operation %)) errs)]
           (is (= 1 (count ix)) "exactly one interceptor-exception")
           (is (= probe-coord (get-in (first ix) [:tags :source-coord]))
@@ -970,8 +970,8 @@
     ;; MACRO registration now stamps its registration-site coord onto the
     ;; resolved value — rf2-tq26u — so the no-coord degradation is pinned on
     ;; the programmatic path, the one Xray spec 021 documents as plain-text.)
-    (icpt-reg/reg-interceptor* :siheh/fn-before-icpt
-                         (interceptor/->interceptor*
+    (rf.interceptor-registry/reg-interceptor* :siheh/fn-before-icpt
+                         (rf.interceptor/->interceptor*
                            :id     :siheh/fn-before-icpt
                            :before (fn [_] (throw (ex-info "fn before blew up" {})))))
     (rf/reg-event :siheh/fn-before-boom
@@ -979,7 +979,7 @@
                      (fn [{:keys [db]} _] {:db db}))
     (let [errs (capture-error-traces [:siheh/fn-before-boom])]
       ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [ix (filterv #(= :rf.error/interceptor-exception (:operation %)) errs)]
           (is (= 1 (count ix)) "exactly one interceptor-exception")
           (is (nil? (get-in (first ix) [:tags :source-coord]))
@@ -996,7 +996,7 @@
   ;; an explicit `(contains? ks-b %)` membership test that keeps falsy keys.
   ;; `compute-ctx-delta` is private (a dev-only trace projection); reach it via
   ;; its var. Pure fn — no runtime needed.
-  (let [compute (deref #'interceptor/compute-ctx-delta)]
+  (let [compute (deref #'rf.interceptor/compute-ctx-delta)]
     (testing "a changed value under a false / nil coeffect key lands in :changed"
       (let [delta (compute {:coeffects {false :old, nil :n-old, :ok 1}}
                            {:coeffects {false :new, nil :n-new, :ok 1}})]

@@ -19,8 +19,8 @@
   `-cljs-test` rides `npm run test:cljs` AND `clojure -M:test`."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])
-            [re-frame.image          :as image]
-            [re-frame.image-assembly :as asm]))
+            [re-frame.image          :as rf.image]
+            [re-frame.image-assembly :as rf.image-assembly]))
 
 (defn- err-id
   [thunk]
@@ -43,41 +43,41 @@
 (deftest each-retired-image-key-fails-loud
   (testing ":include-ns is RETIRED (superseded by :select-ns :include)"
     (is (= :rf.error/invalid-image
-           (err-id #(image/image {:id :x :include-ns ["docs.counter.v2"]}))))
+           (err-id #(rf.image/image {:id :x :include-ns ["docs.counter.v2"]}))))
     (is (= :include-ns
-           (retired-key? #(image/image {:id :x :include-ns ["docs.counter.v2"]})))))
+           (retired-key? #(rf.image/image {:id :x :include-ns ["docs.counter.v2"]})))))
   (testing ":exclude-ns is RETIRED (superseded by :select-ns :exclude)"
     (is (= :rf.error/invalid-image
-           (err-id #(image/image {:id :x :exclude-ns ["docs.counter.dev.**"]}))))
+           (err-id #(rf.image/image {:id :x :exclude-ns ["docs.counter.dev.**"]}))))
     (is (= :exclude-ns
-           (retired-key? #(image/image {:id :x :exclude-ns ["docs.counter.dev.**"]})))))
+           (retired-key? #(rf.image/image {:id :x :exclude-ns ["docs.counter.dev.**"]})))))
   (testing ":replace is RETIRED (composition resolves by image order)"
     (is (= :rf.error/invalid-image
-           (err-id #(image/image {:id :x :replace {[:event :counter/inc]
+           (err-id #(rf.image/image {:id :x :replace {[:event :counter/inc]
                                                    {:ns "docs.counter.v3"}}}))))
     (is (= :replace
-           (retired-key? #(image/image {:id :x :replace {[:event :counter/inc]
+           (retired-key? #(rf.image/image {:id :x :replace {[:event :counter/inc]
                                                          {:ns "docs.counter.v3"}}})))))
   (testing ":replace-standard is RETIRED (standards are protected)"
     (is (= :rf.error/invalid-image
-           (err-id #(image/image {:id :x :replace-standard
+           (err-id #(rf.image/image {:id :x :replace-standard
                                   {[:interceptor :rf.interceptor/path] {:standard true}}}))))
     (is (= :replace-standard
-           (retired-key? #(image/image {:id :x :replace-standard
+           (retired-key? #(rf.image/image {:id :x :replace-standard
                                         {[:interceptor :rf.interceptor/path] {:standard true}}})))))
   (testing ":rf.image/requires is RETIRED (image-declared host capabilities removed)"
     (is (= :rf.error/invalid-image
-           (err-id #(image/image {:id :x :rf.image/requires #{:rf.capability/http}}))))
+           (err-id #(rf.image/image {:id :x :rf.image/requires #{:rf.capability/http}}))))
     (is (= :rf.image/requires
-           (retired-key? #(image/image {:id :x :rf.image/requires #{:rf.capability/http}}))))))
+           (retired-key? #(rf.image/image {:id :x :rf.image/requires #{:rf.capability/http}}))))))
 
 (deftest a-retired-key-is-not-a-silent-alias
   (testing "a retired key is REJECTED, never silently lowered to its successor"
     ;; :include-ns must NOT be quietly accepted as :select-ns :include — it fails.
     (is (= :rf.error/invalid-image
-           (err-id #(image/image {:id :x :include-ns ["a.b"]}))))
+           (err-id #(rf.image/image {:id :x :include-ns ["a.b"]}))))
     ;; The clean three-key surface still works.
-    (let [v (image/image {:id :x :select-ns {:include ["a.b"]}})]
+    (let [v (rf.image/image {:id :x :select-ns {:include ["a.b"]}})]
       (is (= ["a.b"] (:rf.image/include-ns v))))))
 
 ;; ===========================================================================
@@ -87,7 +87,7 @@
 (deftest image-value-carries-no-requires-slot
   (testing "EP-0026 removed the :rf.image/requires slot — a constructed image
             value does NOT carry it"
-    (let [v (image/image {:id :app/main :select-ns {:include ["a.b"]}})]
+    (let [v (rf.image/image {:id :app/main :select-ns {:include ["a.b"]}})]
       (is (not (contains? v :rf.image/requires))
           "the image value no longer carries an :rf.image/requires slot"))))
 
@@ -96,8 +96,8 @@
             :rf.gen/resolver / :rf.gen/images / :rf.gen/kinds (+ the additive
             :rf.gen/shadows report, rf2-ke7w5j), but no :rf.gen/requires"
     (let [pool [{:rf.provenance/ns "a.b" :kind :event :id :foo/x :handler-fn (fn [_ _])}]
-          img  (image/image {:id :app/main :select-ns {:include ["a.b"]}})
-          gen  (asm/assemble [img] pool)]
+          img  (rf.image/image {:id :app/main :select-ns {:include ["a.b"]}})
+          gen  (rf.image-assembly/assemble [img] pool)]
       (is (not (contains? gen :rf.gen/requires))
           "the sealed generation no longer carries :rf.gen/requires")
       (is (contains? gen :rf.gen/resolver))
@@ -128,7 +128,7 @@
        ;; the JVM branch above. Assert the behavioural counterpart instead:
        ;; assembling needs no capability inputs and produces no requires slot.
        (let [pool [{:rf.provenance/ns "a.b" :kind :event :id :foo/x :handler-fn (fn [_ _])}]
-             gen  (asm/assemble [(image/image {:id :a :select-ns {:include ["a.b"]}})] pool)]
+             gen  (rf.image-assembly/assemble [(rf.image/image {:id :a :select-ns {:include ["a.b"]}})] pool)]
          ;; :rf.gen/requires was RETIRED with the image-capability feature.
          (is (not (contains? gen :rf.gen/requires)))))))
 

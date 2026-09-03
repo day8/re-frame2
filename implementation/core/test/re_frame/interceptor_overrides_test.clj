@@ -22,25 +22,25 @@
   it back. This test pins the consume-side wiring."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.identity :as identity]
-            [re-frame.interceptor :as interceptor]
-            [re-frame.interceptor-registry :as icpt-reg]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
-            [re-frame.flows :as flows]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.identity :as rf.identity]
+            [re-frame.interceptor :as rf.interceptor]
+            [re-frame.interceptor-registry :as rf.interceptor-registry]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.flows :as rf.flows]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace :as rf.trace]))
 
 ;; ---- fixtures -------------------------------------------------------------
 
 (defn reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  (trace/clear-listeners!)
-  (rf/init! plain-atom/adapter)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.flows/reset-flows!)
+  (rf.schemas/clear-schemas-by-frame!)
+  (rf.trace/clear-listeners!)
+  (rf/init! rf.substrate.plain-atom/adapter)
   (require 're-frame.routing :reload)
   ;; EP-0002 (rf2-9o48ih): `init!` no longer synthesises `:rf/default`;
   ;; framework operation surfaces require a carried frame stamp. Register
@@ -111,7 +111,7 @@
             #":rf\.error/interceptor-override-invalid"
             (rf/dispatch-sync [:test/run]
                               {:interceptor-overrides
-                               {::log-y (interceptor/->interceptor*
+                               {::log-y (rf.interceptor/->interceptor*
                                           :id ::inline :before identity)}}))))))
 
 ;; ---- per-frame :interceptor-overrides --------------------------------------
@@ -191,7 +191,7 @@
     (let [log (atom [])]
       (reg-logger! log ::log-pf)
       (rf/make-frame {:id :test/bad-frame-override :interceptor-overrides
-                      {::log-pf (interceptor/->interceptor*
+                      {::log-pf (rf.interceptor/->interceptor*
                                   :id ::pf-inline :before identity)}})
       (rf/reg-event :test/run
         {:interceptors [::log-pf]}
@@ -208,45 +208,45 @@
 ;; `:interceptor-overrides` map entry against a resolved chain entry per Spec
 ;; 002 §`:interceptor-overrides` exact-reference matching. The override walk
 ;; exercises it indirectly; this pins every arm directly. The entry carries its
-;; AUTHORED ref under `icpt-reg/authored-ref-key` (`:rf/interceptor-ref`).
+;; AUTHORED ref under `rf.interceptor-registry/authored-ref-key` (`:rf/interceptor-ref`).
 
 (deftest override-key-matches?-all-arms
-  (let [K icpt-reg/authored-ref-key]
+  (let [K rf.interceptor-registry/authored-ref-key]
     (testing "Per rf2-nnpimw — override-key-matches? for every documented arm"
 
       (testing "bare-keyword key"
-        (is (true? (icpt-reg/override-key-matches? :my/ic {:id :my/ic K :my/ic}))
+        (is (true? (rf.interceptor-registry/override-key-matches? :my/ic {:id :my/ic K :my/ic}))
             "matches a bare-keyword AUTHORED ref")
-        (is (true? (icpt-reg/override-key-matches? :my/ic {:id :my/ic}))
+        (is (true? (rf.interceptor-registry/override-key-matches? :my/ic {:id :my/ic}))
             "matches the entry :id when there is no authored ref (inline / resolver-stamped)")
-        (is (true? (icpt-reg/override-key-matches? :my/ic {:id :my/ic K [:my/ic [:cart]]}))
+        (is (true? (rf.interceptor-registry/override-key-matches? :my/ic {:id :my/ic K [:my/ic [:cart]]}))
             "matches the :id even when the authored ref is a vector (factory-built)")
-        (is (false? (icpt-reg/override-key-matches? :my/ic {:id :other K :other}))
+        (is (false? (rf.interceptor-registry/override-key-matches? :my/ic {:id :other K :other}))
             "does not match a different id / authored ref"))
 
       (testing "[id arg] 2-vector key"
-        (is (true? (icpt-reg/override-key-matches? [:my/ic [:cart]]
+        (is (true? (rf.interceptor-registry/override-key-matches? [:my/ic [:cart]]
                                                    {:id :my/ic K [:my/ic [:cart]]}))
             "matches the entry whose authored ref is ref= to the exact [id arg]")
-        (is (false? (icpt-reg/override-key-matches? [:my/ic [:cart]]
+        (is (false? (rf.interceptor-registry/override-key-matches? [:my/ic [:cart]]
                                                     {:id :my/ic K [:my/ic [:cart :items]]}))
             "does NOT match a sibling [id arg] with a different arg")
-        (is (true? (icpt-reg/override-key-matches? [:my/ic {:a 1 :z 2}]
+        (is (true? (rf.interceptor-registry/override-key-matches? [:my/ic {:a 1 :z 2}]
                                                    {:id :my/ic K [:my/ic {:z 2 :a 1}]}))
             "matches canonically — key-reordered map args are ref=")
-        (is (false? (icpt-reg/override-key-matches? [:my/ic [:cart]] {:id :my/ic}))
+        (is (false? (rf.interceptor-registry/override-key-matches? [:my/ic [:cart]] {:id :my/ic}))
             "does NOT match an entry with no authored ref (a vector key needs one)"))
 
       (testing ":else arm — a structurally-invalid key never matches"
-        (is (false? (icpt-reg/override-key-matches? "not-a-ref" {:id :my/ic}))
+        (is (false? (rf.interceptor-registry/override-key-matches? "not-a-ref" {:id :my/ic}))
             "a non-keyword non-2-vector key falls through to false")
-        (is (false? (icpt-reg/override-key-matches? [:my/ic :a :b] {:id :my/ic}))
+        (is (false? (rf.interceptor-registry/override-key-matches? [:my/ic :a :b] {:id :my/ic}))
             "a 3-vector key is not an [id arg] ref and falls through to false")))))
 
 ;; ---- rf2-iz3v0r — ref= canonical-bytes fallback + fail-soft catch (unit) -----
 ;;
 ;; `ref=` (interceptor_registry.cljc) has two undertested arms: (1) the
-;; canonical-bytes fallback (via `identity/identical-identity?`) that makes two
+;; canonical-bytes fallback (via `rf.identity/identical-identity?`) that makes two
 ;; arg spellings differing only in map-key order match — exercised end-to-end by
 ;; the override walk but not pinned at the unit level; (2) the fail-soft catch
 ;; that returns false (not throws) when canonicalization throws on a non-EDN
@@ -255,19 +255,19 @@
 (deftest ref=-fast-structural-and-canonical-fallback
   (testing "Per rf2-iz3v0r — the fast `=` path and the canonical-bytes fallback"
     (testing "fast structural `=` short-circuit"
-      (is (true? (icpt-reg/ref= :my/ic :my/ic))
+      (is (true? (rf.interceptor-registry/ref= :my/ic :my/ic))
           "two identical bare-keyword refs are =")
-      (is (true? (icpt-reg/ref= [:my/ic [:cart]] [:my/ic [:cart]]))
+      (is (true? (rf.interceptor-registry/ref= [:my/ic [:cart]] [:my/ic [:cart]]))
           "two identical [id arg] vectors are ="))
 
     (testing "canonical-bytes fallback — map-key order is irrelevant"
-      (is (true? (icpt-reg/ref= [:my/ic {:a 1 :z 2}] [:my/ic {:z 2 :a 1}]))
+      (is (true? (rf.interceptor-registry/ref= [:my/ic {:a 1 :z 2}] [:my/ic {:z 2 :a 1}]))
           "two [id arg] refs differing ONLY in map-key order are ref= via canonical bytes"))
 
     (testing "genuinely different args are NOT equal"
-      (is (false? (icpt-reg/ref= [:my/ic {:a 1}] [:my/ic {:a 2}]))
+      (is (false? (rf.interceptor-registry/ref= [:my/ic {:a 1}] [:my/ic {:a 2}]))
           "different arg values are not ref=")
-      (is (false? (icpt-reg/ref= :my/ic :other/ic))
+      (is (false? (rf.interceptor-registry/ref= :my/ic :other/ic))
           "different bare keywords are not ref="))))
 
 (deftest ref=-fail-soft-on-non-edn-arg
@@ -279,8 +279,8 @@
       ;; Sanity: the raw canonical-identity check DOES throw on a function arg
       ;; (an unsupported host value), so the catch arm is genuinely exercised.
       (is (thrown? clojure.lang.ExceptionInfo
-            (identity/identical-identity? f1 f2))
+            (rf.identity/identical-identity? f1 f2))
           "identical-identity? throws on a non-EDN (function) arg")
       ;; ref= must NOT propagate that throw — it fail-softs to false.
-      (is (false? (icpt-reg/ref= [:my/ic f1] [:my/ic f2]))
+      (is (false? (rf.interceptor-registry/ref= [:my/ic f1] [:my/ic f2]))
           "ref= returns false (fail-soft) rather than propagating the canonicalization throw"))))

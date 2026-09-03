@@ -17,7 +17,7 @@
 
   `.cljc` so the suite runs under BOTH the bounded core JVM gate and
   `npm run test:cljs`. Harness mirrors `cofx_cljs_test.cljc` — the shared
-  `test-support/make-reset-runtime-fixture` wraps every body in
+  `rf.test-support/make-reset-runtime-fixture` wraps every body in
   `(with-frame :rf/default …)` so the ambient `dispatch-sync` calls resolve.
 
   ## Posture split (rf2-d2841)
@@ -29,22 +29,22 @@
 
   The single exception is `:doc` on the stored registry entry: `:doc` is the
   one PURE-documentation registration-metadata key, stripped at the
-  `registrar/register!` chokepoint in production (Spec 001 §Production
+  `rf.registrar/register!` chokepoint in production (Spec 001 §Production
   elision contract; `re-frame.doc-metadata-prod-elision-test` owns that
   contract). Its assertion is kept verbatim inside a
-  `(when interop/debug-enabled? …)` arm marked `rf2-d2841`."
+  `(when rf.interop/debug-enabled? …)` arm marked `rf2-d2841`."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
-            [re-frame.events :as events]
-            [re-frame.image-assembly :as image-assembly]
-            [re-frame.interop :as interop]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.events :as rf.events]
+            [re-frame.image-assembly :as rf.image-assembly]
+            [re-frame.interop :as rf.interop]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ===========================================================================
 ;; 1. Registration shape — registers under :event with the fx wrapper
@@ -77,7 +77,7 @@
       ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
       ;; `:doc` is pure-documentation metadata, stripped at the `register!`
       ;; chokepoint under `-Dre-frame.debug=false`.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (= "doc" (:doc meta))
             "the reflection metadata is retained on the registry entry"))
       ;; The stored chain holds the AUTHORED ref (a keyword) for the user entry;
@@ -260,7 +260,7 @@
   throw is captured by the cascade as `:rf.error/handler-exception` and
   recovered, so it would not surface to the `dispatch-sync` caller)."
   [event]
-  (try (events/set-db-handler {} event)
+  (try (rf.events/set-db-handler {} event)
        :no-throw
        (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
          (:rf.error/id (ex-data e)))))
@@ -314,9 +314,9 @@
         "[:rf/set-db nil :x] (extra arg, non-map primary) fails :rf.error/set-db-bad-value"))
   (testing "a valid map argument (including {}) does NOT throw and returns the
             {:db new-db} effect"
-    (is (= {:db {:n 0}} (events/set-db-handler {} [:rf/set-db {:n 0}]))
+    (is (= {:db {:n 0}} (rf.events/set-db-handler {} [:rf/set-db {:n 0}]))
         "a map argument returns {:db new-db}")
-    (is (= {:db {}} (events/set-db-handler {} [:rf/set-db {}]))
+    (is (= {:db {}} (rf.events/set-db-handler {} [:rf/set-db {}]))
         "the empty map is valid — returns {:db {}}")))
 
 (deftest set-db-resolves-in-both-registrars
@@ -325,38 +325,38 @@
             §:rf/set-db) — so it resolves whether or not a frame's image
             generation is in scope"
     ;; Re-seed idempotently (mirrors `init!`): sibling test nses may have called
-    ;; `image-assembly/clear-standards!` and re-seeded only `:rf.interceptor/path`
+    ;; `rf.image-assembly/clear-standards!` and re-seeded only `:rf.interceptor/path`
     ;; — in the shared cljs.test bundle that would strand `:rf/set-db` from the
     ;; standard registry by the time this test runs. `register-set-db-standard!`
     ;; restores BOTH registrars, so this assertion is run-order-independent.
-    (events/register-set-db-standard!)
+    (rf.events/register-set-db-standard!)
     ;; Regular registrar: the runnable descriptor is present with the
     ;; :rf/event-handler wrapper at the tail of its :interceptors chain.
-    (let [meta (registrar/handler-meta :event :rf/set-db)]
+    (let [meta (rf.registrar/handler-meta :event :rf/set-db)]
       (is (some? meta)
           ":rf/set-db resolves in the regular registrar")
-      (is (= events/set-db-handler (:handler-fn meta))
+      (is (= rf.events/set-db-handler (:handler-fn meta))
           "the regular registrar carries the framework set-db handler-fn")
       (is (= [:rf/event-handler] (mapv :id (:interceptors meta)))
           "the runnable :rf/event-handler wrapper is the chain tail"))
     ;; Image standard registry: the same descriptor is unioned into every
     ;; resolved image generation (stamped :standard true). Read through the
     ;; public `standard-descriptors` seq and find the [:event :rf/set-db] entry.
-    (let [std (->> (image-assembly/standard-descriptors)
+    (let [std (->> (rf.image-assembly/standard-descriptors)
                    (filter #(and (= :event (:kind %)) (= :rf/set-db (:id %))))
                    first)]
       (is (some? std)
           ":rf/set-db resolves in the image standard registry")
       (is (true? (:standard std))
           "the standard descriptor is stamped :standard true")
-      (is (= events/set-db-handler (:handler-fn std))
+      (is (= rf.events/set-db-handler (:handler-fn std))
           "the standard descriptor carries the same framework set-db handler-fn"))))
 
 (deftest set-db-app-reregistration-is-reserved-id-collision
   (testing "re-registering :rf/set-db in app code via the public reg-event is a
             RESERVED-ID COLLISION that fails loud (:rf.error/reserved-event-id,
             EP-0027 §:rf/set-db) — the :rf/* single-root is framework-owned"
-    (let [thrown (try (events/reg-event :rf/set-db (fn [_ _] {:db {:hijacked true}}))
+    (let [thrown (try (rf.events/reg-event :rf/set-db (fn [_ _] {:db {:hijacked true}}))
                       :no-throw
                       (catch #?(:clj clojure.lang.ExceptionInfo
                                 :cljs cljs.core/ExceptionInfo) e
@@ -365,6 +365,6 @@
           "an app reg-event of :rf/set-db raises :rf.error/reserved-event-id"))
     ;; The framework's own :rf/set-db registration is intact — the app attempt
     ;; registered nothing (the guard fires before any registrar write).
-    (is (= events/set-db-handler
-           (:handler-fn (registrar/handler-meta :event :rf/set-db)))
+    (is (= rf.events/set-db-handler
+           (:handler-fn (rf.registrar/handler-meta :event :rf/set-db)))
         "the framework :rf/set-db handler is unchanged after the rejected app re-registration")))

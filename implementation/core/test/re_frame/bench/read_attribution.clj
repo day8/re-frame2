@@ -24,7 +24,7 @@
     S2-TGTID   + `frame-target->id`
     S3-CWFR    + `call-with-frame-resolution` around an empty thunk —
                the flush consult, the generation read, the `binding`
-    S4-PRELOOK + `(frame/frame id)` + `(get @cache q)` inside the thunk:
+    S4-PRELOOK + `(rf.frame/frame id)` + `(get @cache q)` inside the thunk:
                everything up to the ref-count attach
     RGSUB      + the ref-count attach and the post-swap re-check
 
@@ -45,7 +45,7 @@
 
     RC-ATTACH  the PRE-rf2-j8ls2 `swap-vals!` form (the `update-in`
                spelling), kept as the paired control
-    RC-CAND    the form that replaced it in `subs/bump-ref-count-fn`
+    RC-CAND    the form that replaced it in `rf.subs/bump-ref-count-fn`
     RC-GUARD   the same `swap-vals!` whose fn returns `m` UNCHANGED —
                swap machinery + the identity guard, no update
     RC-SWAPID  `(swap-vals! cache identity)` — the machinery alone
@@ -57,7 +57,7 @@
 
   The `N-*` arms open the pre-node lookups the same way: the throwaway
   frame VALUE the retired `frame-resolution-target` minted, the late-bind
-  flush consult, the generation read, the `binding` alone, and `registrar/
+  flush consult, the generation read, the `binding` alone, and `rf.registrar/
   lookup` on both its branches (generation-bound and registrar-atom).
 
   ## The instrument, and why its controls are the shape they are
@@ -133,16 +133,16 @@
   relative-median tolerance, default 0.10 — TLAB accounting is exact, so a
   real arm reproduces to a fraction of a percent), RM_ORDER=rev (reverse the
   base plan before scheduling — a knob now, not the mitigation)."
-  (:require [re-frame.bench.order-guard :as guard]
+  (:require [re-frame.bench.order-guard :as rf.bench.order-guard]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.live-frame :as live-frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.subs :as subs]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support])
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.live-frame :as rf.live-frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.subs :as rf.subs]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support])
   (:import [java.lang.management ManagementFactory]))
 
 (set! *warn-on-reflection* true)
@@ -197,20 +197,20 @@
 ;; in the same process, against the same live frame — so a claimed saving is a
 ;; prediction the instrument can falsify rather than a before/after story.
 
-;; rf2-8gb3t. `live-frame/frame-resolution-target`, as it stood before the
+;; rf2-8gb3t. `rf.live-frame/frame-resolution-target`, as it stood before the
 ;; wrapper was retired: a frame VALUE verbatim, a frame-id keyword through
 ;; `live-frame` (which MINTS a fresh frame value), anything else nil.
 (defn- retired-resolution-target [target]
   (cond
-    (live-frame/frame-value? target) target
-    (keyword? target)                (live-frame/live-frame target)
+    (rf.live-frame/frame-value? target) target
+    (keyword? target)                (rf.live-frame/live-frame target)
     :else                            nil))
 
 ;; rf2-a8bw0. `subscribe`'s 1-arity, as it stood before the payload was
 ;; deferred: the `{:where :event-id}` extra map built on EVERY call, read only
 ;; on the `:rf.error/no-frame-context` path.
 (defn- retired-current-frame! [query-v]
-  (frame/require-current-frame!
+  (rf.frame/require-current-frame!
     :subscribe
     {:where    're-frame.subs/subscribe
      :event-id (first query-v)}))
@@ -219,8 +219,8 @@
 ;; with `require-current-frame!` building it — only when the reader found
 ;; nothing. Same error, same content, same call site; built lazily.
 (defn- shipped-current-frame! [query-v]
-  (or (frame/resolve-current-frame)
-      (frame/require-current-frame!
+  (or (rf.frame/resolve-current-frame)
+      (rf.frame/require-current-frame!
         :subscribe
         {:where    're-frame.subs/subscribe
          :event-id (first query-v)})))
@@ -234,12 +234,12 @@
 (defn- arm-rgsub [n]
   (let [qs (:qs @rig)]
     (dotimes [k n]
-      (vreset! sink (if (subs/subscribe (nth qs k)) 1 0)))))
+      (vreset! sink (if (rf.subs/subscribe (nth qs k)) 1 0)))))
 
 ;; ---------------------------------------------------------------------------
 ;; rf2-j8ls2 — INSIDE `subscribe`'s cache-HIT path.
 ;;
-;; S1..S4 re-walk `subs/subscribe`'s 1-arity through public functions only,
+;; S1..S4 re-walk `rf.subs/subscribe`'s 1-arity through public functions only,
 ;; each a strict prefix of the next and of `RGSUB`. If they do not bracket
 ;; `RGSUB` they are not tracking `subscribe` and must not be quoted.
 
@@ -258,14 +258,14 @@
 (defn- arm-s2-tgtid [n]
   (let [qs (:qs @rig)]
     (dotimes [k n]
-      (let [fid* (frame/frame-target->id (shipped-current-frame! (nth qs k)))]
+      (let [fid* (rf.frame/frame-target->id (shipped-current-frame! (nth qs k)))]
         (vreset! sink (if fid* 1 0))))))
 
 (defn- arm-s3-cwfr [n]
   (let [qs (:qs @rig)]
     (dotimes [k n]
-      (let [fid* (frame/frame-target->id (shipped-current-frame! (nth qs k)))]
-        (live-frame/call-with-frame-resolution
+      (let [fid* (rf.frame/frame-target->id (shipped-current-frame! (nth qs k)))]
+        (rf.live-frame/call-with-frame-resolution
           fid*
           (fn [] (vreset! sink 1)))))))
 
@@ -273,11 +273,11 @@
   (let [qs (:qs @rig)]
     (dotimes [k n]
       (let [q    (nth qs k)
-            fid* (frame/frame-target->id (shipped-current-frame! q))]
-        (live-frame/call-with-frame-resolution
+            fid* (rf.frame/frame-target->id (shipped-current-frame! q))]
+        (rf.live-frame/call-with-frame-resolution
           fid*
           (fn []
-            (let [cache* (:sub-cache (frame/frame fid*))]
+            (let [cache* (:sub-cache (rf.frame/frame fid*))]
               (vreset! sink (if (get @cache* q) 1 0)))))))))
 
 ;; ---- the ref-count attach, part by part -----------------------------------
@@ -289,7 +289,7 @@
 
 ;; The PRE-rf2-j8ls2 attach, held here verbatim as the paired control for the
 ;; form that replaced it (RC-CAND). It is deliberately NOT a call into
-;; `subs/bump-ref-count-fn`: the whole point is to keep the retired expression
+;; `rf.subs/bump-ref-count-fn`: the whole point is to keep the retired expression
 ;; measurable beside the shipped one, in the same process, on the same map.
 (defn- arm-rc-attach [n]
   (let [{:keys [qs cache reactions]} @rig]
@@ -353,7 +353,7 @@
     (dotimes [k n]
       (vreset! sink (if (assoc (get snap (nth qs k)) :ref-count 2) 1 0)))))
 
-;; The SHIPPED attach (rf2-j8ls2 — `subs/bump-ref-count-fn`): the same
+;; The SHIPPED attach (rf2-j8ls2 — `rf.subs/bump-ref-count-fn`): the same
 ;; `swap-vals!` under the same CAS-after-snapshot discipline and the same
 ;; identity guard, with the two-level `update-in` written out. Same result,
 ;; same semantics; measured beside RC-ATTACH so the difference is the whole
@@ -381,7 +381,7 @@
 ;; `binding`. S3-CWFR minus this is the dynamic binding, isolated.
 (defn- arm-n-cwfr-nogen [n]
   (dotimes [_ n]
-    (live-frame/call-with-frame-resolution nil (fn [] (vreset! sink 1)))))
+    (rf.live-frame/call-with-frame-resolution nil (fn [] (vreset! sink 1)))))
 
 (defn- arm-n-restgt [n]
   (dotimes [_ n]
@@ -393,40 +393,40 @@
 ;; nothing else.
 (defn- arm-n-cwfr-wrap [n]
   (dotimes [_ n]
-    (live-frame/call-with-frame-resolution
+    (rf.live-frame/call-with-frame-resolution
       (retired-resolution-target fid)
       (fn [] (vreset! sink 1)))))
 
 (defn- arm-n-cwfr-raw [n]
   (dotimes [_ n]
-    (live-frame/call-with-frame-resolution fid (fn [] (vreset! sink 1)))))
+    (rf.live-frame/call-with-frame-resolution fid (fn [] (vreset! sink 1)))))
 
 (defn- arm-n-genread [n]
   (dotimes [_ n]
-    (vreset! sink (if (live-frame/frame-resolution-generation fid) 1 0))))
+    (vreset! sink (if (rf.live-frame/frame-resolution-generation fid) 1 0))))
 
 (defn- arm-n-flush [n]
   (dotimes [_ n]
-    (when-let [flush! (late-bind/get-fn-cached :live-frame/flush-projection!)]
+    (when-let [flush! (rf.late-bind/get-fn-cached :live-frame/flush-projection!)]
       (flush!))
     (vreset! sink 1)))
 
 (defn- arm-n-bindonly [n]
   (let [gen (:gen @rig)]
     (dotimes [_ n]
-      (binding [registrar/*generation* gen]
-        (vreset! sink (if registrar/*generation* 1 0))))))
+      (binding [rf.registrar/*generation* gen]
+        (vreset! sink (if rf.registrar/*generation* 1 0))))))
 
 (defn- arm-n-lookgen [n]
   (let [{:keys [qs gen]} @rig]
-    (binding [registrar/*generation* gen]
+    (binding [rf.registrar/*generation* gen]
       (dotimes [k n]
-        (vreset! sink (if (registrar/lookup :sub (first (nth qs k))) 1 0))))))
+        (vreset! sink (if (rf.registrar/lookup :sub (first (nth qs k))) 1 0))))))
 
 (defn- arm-n-lookatom [n]
   (let [qs (:qs @rig)]
     (dotimes [k n]
-      (vreset! sink (if (registrar/lookup :sub (first (nth qs k))) 1 0)))))
+      (vreset! sink (if (rf.registrar/lookup :sub (first (nth qs k))) 1 0)))))
 
 ;; ---------------------------------------------------------------------------
 
@@ -440,7 +440,7 @@
   ;; Ahead of everything: a broken guard makes every figure below
   ;; unpublishable, and the checks are fixtures replayed from recorded
   ;; readings, so this is deterministic and costs nothing.
-  (when-not (guard/print-self-test!)
+  (when-not (rf.bench.order-guard/print-self-test!)
     (throw (ex-info "order guard self-test FAILED — nothing may be measured" {})))
   (.setThreadAllocatedMemoryEnabled tmx true)
   (let [sub-ids (mapv #(keyword "ra" (str "s" %)) (range n))
@@ -449,21 +449,21 @@
         gen     (volatile! 0)]
     (doseq [[i id] (map-indexed vector sub-ids)]
       (rf/reg-sub id (fn [db _] (get-in db [:items i]))))
-    (live-frame/make-frame {:id fid})
-    (frame/replace-app-db! fid (db-of 0))
+    (rf.live-frame/make-frame {:id fid})
+    (rf.frame/replace-app-db! fid (db-of 0))
     (println (format ";; debug-enabled? = %s  n=%d iters=%d warmup=%d alloc-iters=%d rounds=%d base order=%s"
-                     interop/debug-enabled? n iters warmup alloc-iters rounds
+                     rf.interop/debug-enabled? n iters warmup alloc-iters rounds
                      (if reverse-order? "REVERSED" "forward")))
     (println (format ";; arm order ROTATES AND REFLECTS with the round (rf2-88pie); guard tolerance %.0f%%"
                      (* 100.0 tolerance)))
-    (binding [frame/*current-frame* fid]
+    (binding [rf.frame/*current-frame* fid]
       ;; Hold n subscriptions the way a mounted application holds them, so
       ;; every node is live for the whole run — which is what makes
       ;; `subscribe` take its cache-HIT path rather than building.
-      (let [held  (mapv subs/subscribe qs)
-            src   (frame/app-db-container fid)
-            cache (:sub-cache (frame/frame fid))
-            raw   (mapv (fn [i] (interop/make-reaction (fn [] (get-in @src [:items i]))))
+      (let [held  (mapv rf.subs/subscribe qs)
+            src   (rf.frame/app-db-container fid)
+            cache (:sub-cache (rf.frame/frame fid))
+            raw   (mapv (fn [i] (rf.interop/make-reaction (fn [] (get-in @src [:items i]))))
                         (range n))]
         (vreset! rig {:qs           qs
                       :cache        cache
@@ -477,13 +477,13 @@
                       :reactions    (mapv #(:reaction (get @cache %)) qs)
                       :snap         @cache
                       :bumped       (mapv #(update (get @cache %) :ref-count inc) qs)
-                      :gen          (live-frame/frame-resolution-generation fid)}))
+                      :gen          (rf.live-frame/frame-resolution-generation fid)}))
       (vswap! gen inc)
-      (frame/replace-app-db! fid (db-of @gen))
+      (rf.frame/replace-app-db! fid (db-of @gen))
       ;; Every reader must return the value the writer just wrote, or the
       ;; arms are not reading the same thing and nothing below is comparable.
       (let [g       @gen
-            rg-v    (deref (subs/subscribe (nth qs 7)))
+            rg-v    (deref (rf.subs/subscribe (nth qs 7)))
             dr-v    (deref (nth (:held @rig) 7))
             raw-v   (deref (nth (:raw @rig) 7))
             agree?  (= [g 7] rg-v dr-v raw-v)]
@@ -494,7 +494,7 @@
           (throw (ex-info "arms disagree; measurement is meaningless"
                           {:gen g :rgread rg-v :deref dr-v :raw raw-v}))))
       (let [advance! (fn [] (vswap! gen inc)
-                       (frame/replace-app-db! fid (db-of @gen)))
+                       (rf.frame/replace-app-db! fid (db-of @gen)))
             ;; ONE round of one arm. Split out of the old `measure` so the
             ;; plan can be walked several times in several orders — a figure
             ;; taken from a plan run in one order has not been checked
@@ -568,7 +568,7 @@
                              (assoc :prev label))))
                      {:us {} :bytes {} :order [] :prev nil}
                      (vec (for [round (range rounds)
-                                j     (guard/slot-order k round)]
+                                j     (rf.bench.order-guard/slot-order k round)]
                             [round j])))
             res  (into {}
                        (map (fn [[l _]]
@@ -645,8 +645,8 @@
         ;; measurement away, so the figures are printed either way and the
         ;; exit code carries the verdict.
         (println ";;")
-        (let [v (guard/verdict (:order walked) {:tolerance tolerance})]
-          (doseq [line (guard/report-lines v "the per-arm allocation figure, one round-mean per round")]
+        (let [v (rf.bench.order-guard/verdict (:order walked) {:tolerance tolerance})]
+          (doseq [line (rf.bench.order-guard/report-lines v "the per-arm allocation figure, one round-mean per round")]
             (println line))
           (when (:refuse? v)
             (println ";;")
@@ -661,7 +661,7 @@
 
 (defn -main [& _]
   (let [refused? (volatile! false)]
-    ((test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter})
+    ((rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})
      (fn []
        (vreset! refused?
                 (::refused?

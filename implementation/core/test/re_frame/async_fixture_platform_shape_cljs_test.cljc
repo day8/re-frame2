@@ -37,14 +37,14 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures join-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core                 :as rf]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support         :as test-support]))
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support         :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- async-capable-fixture []
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter
                                             :async?  true}))
 
 ;; ---- 1. `:async? true` returns the shape THIS host can actually run -------
@@ -94,7 +94,7 @@
 
 (deftest default-shape-is-still-the-fn-form-on-both-hosts
   (testing "omitting :async? still yields a callable fn-form fixture on every host (rf2-pn3d)"
-    (let [fx (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter})]
+    (let [fx (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})]
       (is (fn? fx)
           "the default shape did not flip — sibling fn-fixture composition and fixture-as-a-function call sites still hold")
       (let [ran? (atom false)]

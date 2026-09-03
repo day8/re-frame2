@@ -69,12 +69,12 @@
   what closes the wart, and it stays exactly as it is."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.events :as events]
-            [re-frame.image :as image]
-            [re-frame.image-assembly :as asm]
-            [re-frame.live-frame :as lf]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.events :as rf.events]
+            [re-frame.image :as rf.image]
+            [re-frame.image-assembly :as rf.image-assembly]
+            [re-frame.live-frame :as rf.live-frame]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; ---------------------------------------------------------------------------
 ;; White-box handles. The whole defect lives in the relationship between two
@@ -83,13 +83,13 @@
 ;; exactly as `make-frame-generation-seal-race-jvm-test` does.
 ;; ---------------------------------------------------------------------------
 
-(def ^:private dirty-flag #'lf/pending-reprojection?)
-(def ^:private provenance #'lf/frame-generation-pool)
+(def ^:private dirty-flag #'rf.live-frame/pending-reprojection?)
+(def ^:private provenance #'rf.live-frame/frame-generation-pool)
 
 (defn- pool-row [id] (get (deref @provenance) id))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter})
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})
   (fn [t]
     ;; A flag left dirty by an earlier case would have this case's FIRST
     ;; resolution flush — repairing (or provoking) the staleness for the wrong
@@ -126,7 +126,7 @@
    (reg-desc "pool.window.core" :event :pool-window/reset ::reset)])
 
 (def ^:private img
-  (image/image {:id :pool-window/img :select-ns {:include ["pool.window.core"]}}))
+  (rf.image/image {:id :pool-window/img :select-ns {:include ["pool.window.core"]}}))
 
 (defn- inc-impl
   "The `:pool-window/inc` implementation the frame's CURRENT generation resolves
@@ -134,7 +134,7 @@
   one-line discriminator between the pool the constructor asked for and the pool
   a stale provenance row reprojected it onto."
   [id]
-  (:handler-fn (asm/resolve-descriptor (lf/frame-generation id) :event :pool-window/inc)))
+  (:handler-fn (rf.image-assembly/resolve-descriptor (rf.live-frame/frame-generation id) :event :pool-window/inc)))
 
 ;; ---------------------------------------------------------------------------
 ;; 1. THE REPRODUCTION.
@@ -148,7 +148,7 @@
     ;; `:initial-events` dispatches `:rf/set-db`, which must resolve through the
     ;; frame's OWN sealed generation (the framework-standard registry is unioned
     ;; into every assembly). Idempotent.
-    (events/register-set-db-standard!)
+    (rf.events/register-set-db-standard!)
 
     ;; A standing image-loaded frame, so the registration hook below does NOT
     ;; take `mark-dirty-and-schedule!`'s no-image-loaded-frame skip (rf2-h4q6cy).
@@ -157,7 +157,7 @@
     ;; The id's FIRST incarnation, against pool V1. Destroying it now RELEASES
     ;; the row (rf2-cq0yi) — see the control below for what that does to the
     ;; window under test.
-    (lf/make-frame {:id :pool-window/target :images [img]} pool-v1)
+    (rf.live-frame/make-frame {:id :pool-window/target :images [img]} pool-v1)
     (is (= ::inc-v1 (inc-impl :pool-window/target))
         "control: the first incarnation resolved against pool V1")
     (rf/destroy-frame! :pool-window/target)
@@ -206,7 +206,7 @@
     ;; `upsert-frame!`, whose `call-with-frame-resolution` consult flushes the
     ;; pending reprojection while the frame is published but its provenance row
     ;; is (pre-fix) still the destroyed incarnation's.
-    (lf/make-frame {:id             :pool-window/target
+    (rf.live-frame/make-frame {:id             :pool-window/target
                     :images         [img]
                     :initial-events [[:rf/set-db {:seeded true}]]}
                    pool-v2)
@@ -216,7 +216,7 @@
              "cascade — pre-fix the cascade's flush reprojected the frame "
              "against the PREVIOUS incarnation's pool (V1) and swapped that "
              "over the V2 generation the constructor had just installed"))
-    (is (some? (asm/resolve-descriptor (lf/frame-generation :pool-window/target)
+    (is (some? (rf.image-assembly/resolve-descriptor (rf.live-frame/frame-generation :pool-window/target)
                                        :event :pool-window/reset))
         "the V2-only registration is resolvable — the frame is running V2")
     (is (= pool-v2 (pool-row :pool-window/target))
@@ -238,12 +238,12 @@
             the pending reprojection, so the constructor's generation stands —
             the trigger is the setup cascade, not re-construction itself"
     (rf/make-frame {:id :pool-window/decoy})
-    (lf/make-frame {:id :pool-window/target :images [img]} pool-v1)
+    (rf.live-frame/make-frame {:id :pool-window/target :images [img]} pool-v1)
     (rf/destroy-frame! :pool-window/target)
     (reset! @dirty-flag false)
     (rf/reg-event :pool-window/armer-2 (fn [{:keys [db]} _] {:db db}))
     (is (true? @@dirty-flag) "control: a reprojection is pending")
-    (lf/make-frame {:id :pool-window/target :images [img]} pool-v2)
+    (rf.live-frame/make-frame {:id :pool-window/target :images [img]} pool-v2)
     (is (= ::inc-v2 (inc-impl :pool-window/target)))))
 
 ;; ---------------------------------------------------------------------------
@@ -260,13 +260,13 @@
   (testing "a re-make-frame that fails in the engine leaves the provenance row
             exactly as the successful creation left it — the early write is
             rolled back, not merely overwritten later"
-    (lf/make-frame {:id :pool-window/rollback :images [img]} pool-v1)
+    (rf.live-frame/make-frame {:id :pool-window/rollback :images [img]} pool-v1)
     (is (= pool-v1 (pool-row :pool-window/rollback)) "control: V1 recorded")
     (is (thrown? clojure.lang.ExceptionInfo
                  ;; `:on-create` is retired and fails loud INSIDE the engine —
                  ;; i.e. after the early provenance write, which is the branch
                  ;; the rollback exists for.
-                 (lf/make-frame {:id :pool-window/rollback :on-create [:boom]} pool-v2)))
+                 (rf.live-frame/make-frame {:id :pool-window/rollback :on-create [:boom]} pool-v2)))
     (is (= pool-v1 (pool-row :pool-window/rollback))
         "the failed re-construction preserved the ORIGINAL provenance row")))
 
@@ -277,6 +277,6 @@
     (is (not (contains? (deref @provenance) :pool-window/never))
         "control: the id has no row")
     (is (thrown? clojure.lang.ExceptionInfo
-                 (lf/make-frame {:id :pool-window/never :on-create [:boom]} pool-v1)))
+                 (rf.live-frame/make-frame {:id :pool-window/never :on-create [:boom]} pool-v1)))
     (is (not (contains? (deref @provenance) :pool-window/never))
         "the failed creation recorded nothing")))

@@ -18,10 +18,10 @@
 
   The `:trace` stream those semantics were previously observed THROUGH is not
   production-real: every `trace/emit-error!` site sits behind
-  `interop/debug-enabled?`, which the JVM reads once at load time, so under the
+  `rf.interop/debug-enabled?`, which the JVM reads once at load time, so under the
   real gate the framework emits nothing here BY DESIGN. Those assertions are
   correct dev-posture coverage and are kept verbatim — each simply sits inside
-  a `(when interop/debug-enabled? …)` arm marked `rf2-d2841` so it declares the
+  a `(when rf.interop/debug-enabled? …)` arm marked `rf2-d2841` so it declares the
   posture it is about instead of dragging its semantic neighbours out of the
   production lane with it.
 
@@ -32,24 +32,24 @@
   the gate rather than merely guarded away."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.error-emit :as error-emit]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.schemas :as schemas]
-            [re-frame.flows :as flows]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.error-emit :as rf.error-emit]
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.flows :as rf.flows]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.flows/reset-flows!)
+  (rf.schemas/clear-schemas-by-frame!)
   ;; rf2-fcbrjo: the always-on error-emit listener registry is a `defonce`
   ;; atom — clear it so an `:errors` listener from one test cannot leak into
   ;; the next (the drain-depth always-on assertion below registers one).
-  (error-emit/clear-error-listeners!)
-  (rf/init! plain-atom/adapter)
+  (rf.error-emit/clear-error-listeners!)
+  (rf/init! rf.substrate.plain-atom/adapter)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)
   (require 're-frame.machines :reload)
@@ -151,7 +151,7 @@
       (is (= 8 @runs)
           "the drain-depth bound halted the runaway after exactly 8 handler bodies")
       ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [hit (some (fn [ev]
                           (when (= :rf.error/drain-depth-exceeded
                                    (:operation ev))
@@ -179,7 +179,7 @@
           {:fx [[:dispatch [:loop2]]]}))
       (rf/dispatch-sync [:loop2] {:frame :drain.test/loop2})
       (rf/unregister-listener! :trace ::depth-2)
-      (let [router (:router (frame/frame :drain.test/loop2))]
+      (let [router (:router (rf.frame/frame :drain.test/loop2))]
         (is (zero? (count (:queue @router)))
             "the router queue is drained empty after the depth-exceeded abort")
         (is (false? (:scheduled? @router))
@@ -225,7 +225,7 @@
       ;; rf2-d2841 — dev-instrumentation arm (see ns docstring). The
       ;; no-rollback SEMANTICS are already pinned above, posture-independently,
       ;; by the surviving `{:step :mid-drain :counter 4}` app-db value.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [hit (some (fn [ev]
                           (when (= :rf.error/drain-depth-exceeded
                                    (:operation ev))
@@ -294,7 +294,7 @@
         ;; off-by-one this deftest exists to catch is pinned by `(= n @runs)`
         ;; above, which is posture-independent; the `:depth` tag is the
         ;; dev-trace restatement of the same number.
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (let [hit (some (fn [ev]
                             (when (= :rf.error/drain-depth-exceeded
                                      (:operation ev))
@@ -336,7 +336,7 @@
       (is (nil? (:leaf? (rf/app-db-value :rf/default)))
           "the rejected inner event's handler never ran — no :db write landed")
       ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [err (some (fn [ev]
                           (when (and (= :rf.error/dispatch-sync-in-handler (:operation ev))
                                      (= :error (:op-type ev))
@@ -385,7 +385,7 @@
       (is (nil? (:leaf2? (rf/app-db-value :rf/default)))
           "the transitive (via-fx) dispatch-sync was rejected — no :db write landed")
       ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (some (fn [ev]
                     (= :rf.error/dispatch-sync-in-handler (:operation ev)))
                   @traces)
@@ -422,7 +422,7 @@
 
   (testing "rf/dispatch (the async API) defers to AFTER the current dispatch-sync drain"
     ;; Calling rf/dispatch from outside any drain doesn't run the event
-    ;; synchronously — it goes through interop/next-tick (the JVM
+    ;; synchronously — it goes through rf.interop/next-tick (the JVM
     ;; executor). The dispatch-sync below only sees its own work; the
     ;; async-queued event arrives on a later drain.
     ;;
@@ -435,7 +435,7 @@
     ;; and drop another. That race produced
     ;;   actual: (not (some #{:outside-async} [:sync-only :sync-only]))
     ;; intermittently on CI. Same family as rf2-iosc — stabilise it the
-    ;; same way: intercept interop/next-tick so the executor never sees
+    ;; same way: intercept rf.interop/next-tick so the executor never sees
     ;; the drain thunk concurrent with the sync drain, then invoke the
     ;; captured thunk synchronously on the main thread once the sync
     ;; drain has settled. The semantics under test are unchanged: the
@@ -452,7 +452,7 @@
         (fn [{:keys [db]} _]
           (swap! order conj :sync-only)
           {:db db}))
-      (with-redefs [interop/next-tick (fn [f]
+      (with-redefs [rf.interop/next-tick (fn [f]
                                         (swap! captured-ticks conj f)
                                         nil)]
         ;; Queue an async dispatch first. Its drain thunk is captured
@@ -590,7 +590,7 @@
       ;; rf2-d2841 — dev-instrumentation arm (see ns docstring). The isolation
       ;; CONTRACT is (a) + (b) above, both posture-independent; the trace's
       ;; `:frame` tag is the dev restatement of which frame overflowed.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [hit (some (fn [ev]
                           (when (= :rf.error/drain-depth-exceeded
                                    (:operation ev))
@@ -613,7 +613,7 @@
   ;; production build shipped NOTHING when a runaway drain halted. This pins
   ;; the promotion: the halt ALSO fans a STRUCTURAL-ONLY record out through the
   ;; ALWAYS-ON error-emit axis (`rf/register-listener! :errors`, surface #4 —
-  ;; production-survivable, NOT gated on `interop/debug-enabled?`), carrying
+  ;; production-survivable, NOT gated on `rf.interop/debug-enabled?`), carrying
   ;; the CYCLE EVIDENCE (`:tail-event-ids`, the last K settled event-ids — the
   ;; repeating suffix IS the runaway cycle).
   (testing "a runaway drain fans a structural always-on record with cycle evidence"

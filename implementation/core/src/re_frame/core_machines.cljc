@@ -8,9 +8,9 @@
   plain-fn surface raise with their own faithful `:where` symbol). Machine
   reads use the `[:rf.machine/has-tag? …]` and `[:rf/machine …]`
   subscription vectors."
-  (:require [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.registrar :as registrar]))
+  (:require [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.registrar :as rf.registrar]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -51,7 +51,7 @@
   (`:ns` / `:line` / `:file` / `:column`) — or nil.
 
   `re-frame.core/handler-meta` dispatches the two machine kinds here; all
-  other kinds fall through to `registrar/handler-meta`. The Xray lens +
+  other kinds fall through to `rf.registrar/handler-meta`. The Xray lens +
   re-frame-pair source-jump call sites are unchanged — they still call
   `(rf/handler-meta :machine-guard [machine-id guard-id])`.
 
@@ -63,16 +63,16 @@
       `reg-machine*` surface, a let-bound fn the macro walker skipped, or a
       production build where the `:source-*` slots are elided).
 
-  Production-elided per Spec 009: under `interop/debug-enabled? false` the
+  Production-elided per Spec 009: under `rf.interop/debug-enabled? false` the
   derivation returns nil immediately (the `:event` spec carries no
   `:source-*` slots in `:advanced` + `goog.DEBUG=false` bundles anyway, so
   there is nothing to derive)."
   [kind id]
-  (when interop/debug-enabled?
+  (when rf.interop/debug-enabled?
     (when-let [{:keys [slot marker-key]} (machine-kind->slot kind)]
       (when (and (vector? id) (= 2 (count id)))
         (let [[machine-id element-id] id
-              spec  (:rf/machine (registrar/lookup :event machine-id))
+              spec  (:rf/machine (rf.registrar/lookup :event machine-id))
               entry (get-in spec [slot element-id])]
           (when (and (map? entry) (:source-code entry))
             (cond-> {marker-key         element-id
@@ -106,13 +106,13 @@
   form (no opts) keeps the bare 2-arity so programmatic callers / hooks that
   only implement the 2-arity still resolve."
   ([where-sym machine-id machine]
-   ((late-bind/require-fn! :machines/reg-machine
+   ((rf.late-bind/require-fn! :machines/reg-machine
                            where-sym
                            machines-artefact
                            {:machine-id machine-id})
     machine-id machine))
   ([where-sym machine-id opts machine]
-   ((late-bind/require-fn! :machines/reg-machine
+   ((rf.late-bind/require-fn! :machines/reg-machine
                            where-sym
                            machines-artefact
                            {:machine-id machine-id})

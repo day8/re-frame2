@@ -55,10 +55,10 @@
   returns nil and the React-context tier of the resolution chain is
   skipped (equivalent to a non-Reagent render context — JVM /
   headless tests rely on this)."
-  (:require [re-frame.adapter.context :as adapter-context]
-            [re-frame.frame :as frame]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.views.frame-boundary :as boundary]))
+  (:require [re-frame.adapter.context :as rf.adapter.context]
+            [re-frame.frame :as rf.frame]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.views.frame-boundary :as rf.views.frame-boundary]))
 
 ;; ---- the React context for frame propagation -----------------------------
 ;;
@@ -67,7 +67,7 @@
 ;; parallel one. The Reagent code below references it via the alias
 ;; rather than minting a new createContext call.
 
-(def frame-context adapter-context/frame-context)
+(def frame-context rf.adapter.context/frame-context)
 
 (defn- frame-provider-component
   "The single Reagent component that backs the SCOPE-ONLY provide tier. It
@@ -150,16 +150,16 @@
   Reagent adapter installs at `:register-context-provider`."
   [props & children]
   (when (contains? props :id)
-    (boundary/reject-frame-provider-id!
+    (rf.views.frame-boundary/reject-frame-provider-id!
       (:id props)
       're-frame.views.provider/frame-provider))
   ;; SCOPE: validate the `:frame` target (keyword id or live frame value,
   ;; normalized to the id), fail loud if the frame is absent, then scope via
   ;; the shared scope-only provide tier.
-  (let [frame-kw (frame/require-frame-provider-target!
+  (let [frame-kw (rf.frame/require-frame-provider-target!
                    (:frame props)
                    're-frame.views.provider/frame-provider)]
-    (boundary/require-live-frame-for-scope!
+    (rf.views.frame-boundary/require-live-frame-for-scope!
       frame-kw
       're-frame.views.provider/frame-provider)
     (into [(build-frame-provider) frame-kw] children)))
@@ -201,7 +201,7 @@
   `create-class`.
 
   The ENSURE lifecycle is realised through the shared React function component
-  `boundary/frame-root-fc`, embedded here via Reagent's `:r>` interop head:
+  `rf.views.frame-boundary/frame-root-fc`, embedded here via Reagent's `:r>` interop head:
   the `#js {:rfOpts …}` prop reaches React untouched (bypassing
   `convert-prop-value`, so the CLJS opts map survives intact), and the TRAILING
   HICCUP children are translated by Reagent's renderer into React children —
@@ -209,18 +209,18 @@
   `props.children` and the opts from `:rfOpts`."
   [props & children]
   (when (contains? props :frame)
-    (boundary/reject-frame-root-frame!
+    (rf.views.frame-boundary/reject-frame-root-frame!
       (:frame props)
       're-frame.views.provider/frame-root))
   ;; Validate `:id` here (so the diagnostic names this fn), then embed the
   ;; shared two-pass FC via `:r>`. `:r>` passes the `#js {:rfOpts …}` prop
   ;; through as a raw JS object (no `convert-prop-value`), and the trailing
   ;; hiccup children become React children.
-  (boundary/require-frame-root-id!
+  (rf.views.frame-boundary/require-frame-root-id!
     (:id props)
     're-frame.views.provider/frame-root)
-  (into [:r> boundary/frame-root-fc
-         #js {:rfOpts (boundary/frame-root-opts props)}]
+  (into [:r> rf.views.frame-boundary/frame-root-fc
+         #js {:rfOpts (rf.views.frame-boundary/frame-root-opts props)}]
         children))
 
 ;; ---- in-flight Reagent component -----------------------------------------
@@ -239,7 +239,7 @@
   ;; Sticky hook (rf2-f72pd) — published once per loaded React-shaped
   ;; adapter; called per Reagent render path that consults its
   ;; component identity.
-  (when-let [hook (late-bind/get-fn-cached :adapter/current-component)]
+  (when-let [hook (rf.late-bind/get-fn-cached :adapter/current-component)]
     (hook)))
 
 ;; ---- frame resolution at render time -------------------------------------
@@ -262,7 +262,7 @@
   so `(.-context cmp)` is React's empty default — the no-provider
   sentinel — and coercion returns nil (no scope). A public frame-scoped
   operation reading nil then fails loudly via
-  `frame/require-current-frame!`; the `:rf.warning/plain-fn-under-non-
+  `rf.frame/require-current-frame!`; the `:rf.warning/plain-fn-under-non-
   default-frame-once` narrowness contract (which the later EP-0002 view
   bead sharpens into a no-frame-context path) keys off this same nil.
 
@@ -284,11 +284,11 @@
   frame keywords / prop-stringified keywords), so a plain-fn read with no
   enclosing Provider falls through to the trailing nil cleanly."
   []
-  (or frame/*current-frame*
+  (or rf.frame/*current-frame*
       (when-let [cmp (current-component)]
         (let [v (.-context cmp)]
-          (when-not (= v adapter-context/no-provider-sentinel)
-            (adapter-context/coerce-context-value v))))))
+          (when-not (= v rf.adapter.context/no-provider-sentinel)
+            (rf.adapter.context/coerce-context-value v))))))
 
 ;; ---- per-render identity --------------------------------------------------
 ;;

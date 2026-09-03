@@ -40,17 +40,17 @@
   (:require ["react"             :as React]
             ["react-dom"         :as react-dom]
             ["react-dom/client"  :as react-dom-client]
-            [re-frame.disposable :as rf-disposable]
-            [re-frame.error      :as rf-error]
-            [re-frame.frame      :as frame]
-            [re-frame.interop    :as interop]
-            [re-frame.late-bind  :as late-bind]
-            [re-frame.movement   :as movement]
-            [re-frame.performance :as performance]
-            [re-frame.subs       :as subs]
-            [re-frame.trace      :as trace]
-            [re-frame.substrate.adapter :as substrate-adapter]
-            [re-frame.adapter.context :as adapter-context]))
+            [re-frame.disposable :as rf.disposable]
+            [re-frame.error      :as rf.error]
+            [re-frame.frame      :as rf.frame]
+            [re-frame.interop    :as rf.interop]
+            [re-frame.late-bind  :as rf.late-bind]
+            [re-frame.movement   :as rf.movement]
+            [re-frame.performance :as rf.performance]
+            [re-frame.subs       :as rf.subs]
+            [re-frame.trace      :as rf.trace]
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
+            [re-frame.adapter.context :as rf.adapter.context]))
 
 ;; ---- epoch scheduler (glitch-freedom; Spec 006 §Invalidation algorithm) ----
 ;;
@@ -638,7 +638,7 @@
           own-keys       (atom [])           ;; vector of [source key]
           ;; Disposed guard (rf2-1bzlai). `-dispose` MUST be idempotent and
           ;; re-entrant safe: a second `-dispose`, or a re-entrant
-          ;; `interop/dispose!` fired from inside an on-dispose callback
+          ;; `rf.interop/dispose!` fired from inside an on-dispose callback
           ;; (e.g. a cleanup path that defensively disposes the same derived
           ;; value), must be a no-op after the first pass. The flag flips
           ;; true on the first call BEFORE callbacks run, so a re-entrant
@@ -649,7 +649,7 @@
           disposed?      (volatile! false)
           ;; The MOVEMENT WITNESS this container publishes (rf2-gncxk.1) —
           ;; the value its most recent COMPLETED movement departed FROM, or
-          ;; `movement/no-witness` when it cannot presently answer. Read by
+          ;; `rf.movement/no-witness` when it cannot presently answer. Read by
           ;; `re-frame.subs.memo`'s fixed-arity-1 wrappers to skip a
           ;; structural `=` walk whose answer the witness already
           ;; determines; see `re-frame.movement` for the protocol, its two
@@ -684,7 +684,7 @@
           ;; only the nodes the last write replaced. Not a new class of
           ;; retention: every layer-1 memo cell already holds a full app-db
           ;; in its `last-db`.
-          last-moved-from (volatile! movement/no-witness)
+          last-moved-from (volatile! rf.movement/no-witness)
           ;; Movement-gated, failure-contained fan-out (rf2-vxgfnd.203).
           ;; Two disciplines at this one boundary:
           ;;
@@ -849,7 +849,7 @@
                              ;; answering until the next `notify` re-arms
                              ;; (rf2-gncxk.1). Inside the 0->1 branch, so a
                              ;; re-mark within the same epoch costs nothing.
-                             (vreset! last-moved-from movement/no-witness)
+                             (vreset! last-moved-from rf.movement/no-witness)
                              (schedule-flush! scheduler flush!)))]
       ;; Wire this derived value to each source so a source change MARKS it
       ;; dirty — the actual recompute + notify is deferred to the scheduler
@@ -920,10 +920,10 @@
         ;; or they have no notify step at all. Consumers resolve the
         ;; capability once, by `satisfies?`, and fall back to the
         ;; comparison they would have made anyway.
-        movement/IMovementWitness
+        rf.movement/IMovementWitness
         (-moved-from [_] @last-moved-from)
-        ;; Re-frame-owned IDisposable — `interop/add-on-dispose!` /
-        ;; `interop/dispose!` route into this protocol via the
+        ;; Re-frame-owned IDisposable — `rf.interop/add-on-dispose!` /
+        ;; `rf.interop/dispose!` route into this protocol via the
         ;; adapter's `:adapter/add-on-dispose!` / `:adapter/dispose!`
         ;; hooks (per Spec 006 §subscription-cache). The spine
         ;; deliberately uses `re-frame.disposable/IDisposable` (re-
@@ -931,7 +931,7 @@
         ;; `reagent.ratom/IDisposable` so UIx bundles don't pay
         ;; ~9KB optimised / 2-3KB gzipped of `reagent.ratom` +
         ;; `reagent.impl.batching` for one protocol.
-        rf-disposable/IDisposable
+        rf.disposable/IDisposable
         (-dispose [_]
           ;; Idempotent + re-entrant safe (rf2-1bzlai). Flip the guard
           ;; FIRST so a re-entrant `-dispose` from inside a callback (or a
@@ -951,9 +951,9 @@
             ;; another movement) and the hygienic answer — the one extra
             ;; generation it held is dropped here rather than pinned for
             ;; the lifetime of whatever still references the reify.
-            (vreset! last-moved-from movement/no-witness)
+            (vreset! last-moved-from rf.movement/no-witness)
             ;; Snapshot-and-clear callbacks before firing: a callback that
-            ;; re-enters `interop/dispose!` on this same object hits the
+            ;; re-enters `rf.interop/dispose!` on this same object hits the
             ;; guard above (no-op) and never sees the callbacks again, so
             ;; the set fires exactly once in registration order.
             (let [fns @on-dispose-fns]
@@ -1073,13 +1073,13 @@
   ;; no native-tier structural hash to report).
   ;;
   ;; Rides the diagnostic channel via `re-frame.trace/emit!`; the
-  ;; `interop/debug-enabled?` gate DCEs the whole call under `:advanced` +
+  ;; `rf.interop/debug-enabled?` gate DCEs the whole call under `:advanced` +
   ;; `goog.DEBUG=false` (Spec 009 §Production builds).
   ;; It is NOT an event and mints no epoch — it fires from a React root-error
   ;; callback, outside any dispatch/handler scope.
   [error]
-  (when interop/debug-enabled?
-    (trace/emit! :warning :rf.ssr/hydration-mismatch
+  (when rf.interop/debug-enabled?
+    (rf.trace/emit! :warning :rf.ssr/hydration-mismatch
                  {:error    (some-> error .-message)
                   :where    're-frame.substrate.spine/make-render
                   :recovery :warned-and-replaced})))
@@ -1124,7 +1124,7 @@
   precedent)."
   [opts adoption-ref]
   (let [authored (:on-recoverable-error opts)]
-    (when (or (fn? authored) interop/debug-enabled?)
+    (when (or (fn? authored) rf.interop/debug-enabled?)
       #js {:onRecoverableError (native-hydration-reporter adoption-ref authored)})))
 
 (defn adoption-window-closer
@@ -1216,14 +1216,14 @@
     ;; the raw tree (hiccup can carry app-owned sensitive/large values;
     ;; mirrors `make-render-to-string`'s rf2-uwqale treatment).
     (when (cljs-data-render-tree? render-tree)
-      (rf-error/throw-error!
+      (rf.error/throw-error!
         :rf.error/hiccup-on-element-render-slot
         'rf/render
         (str "this substrate's render slot takes a React ELEMENT, but "
              "received CLJS data (a hiccup vector / seq / map); build the "
              "tree with this substrate's element macro (e.g. uix.core/$) — "
              "hiccup mounts only on the ratom-family (Reagent) substrates")
-        {:extra {:render-tree/summary (rf-error/diag-value-summary render-tree)}}))
+        {:extra {:render-tree/summary (rf.error/diag-value-summary render-tree)}}))
     ;; Spec 006 §`render` types `:hydrate?` as a boolean; non-bool
     ;; truthy values are undefined-behaviour (no defensive coercion).
     (let [hydrate?     (:hydrate? opts)
@@ -1262,7 +1262,7 @@
 ;;
 ;; `:adapter/after-render` for React-only substrates (UIx) per
 ;; rf2-334d9 (Mike decision rf2-neiqf 2026-05-19: publish via
-;; useLayoutEffect) — without this `(interop/after-render f)` under those
+;; useLayoutEffect) — without this `(rf.interop/after-render f)` under those
 ;; adapters would be a silent no-op.
 ;;
 ;; Architecture. Per-adapter queue cell + a sentinel function component
@@ -1280,7 +1280,7 @@
 ;; root`, Helix's `(.render root …)`), which bypasses `make-render` —
 ;; so a natively-mounted UIx app NEVER has a sentinel in its tree.
 ;; Reagent's `r/after-render` is a global post-flush hook that works
-;; regardless of mount path; without parity, the SAME `(interop/after-render
+;; regardless of mount path; without parity, the SAME `(rf.interop/after-render
 ;; f)` call has correct post-commit timing on Reagent but degraded
 ;; microtask timing on natively-mounted UIx — a silent substrate
 ;; divergence in a public primitive.
@@ -1303,7 +1303,7 @@
 ;; pure-node runner (no jsdom) there is no DOM to mount into. In that
 ;; case — and in the historical pre-DOM-API path — fall through to
 ;; `queueMicrotask` so `f` still fires once the current microtask
-;; boundary completes. Honest under the "tests poke `interop/after-
+;; boundary completes. Honest under the "tests poke `rf.interop/after-
 ;; render` without a DOM" path.
 
 (defn make-after-render-queue-cell
@@ -1392,7 +1392,7 @@
             (compare-and-set! set-tick-ref set-tick nil)))
         #js [set-tick])
       ;; No deps array — fires every commit, which is the contract
-      ;; (interop/after-render bumps the tick to force a commit, so the
+      ;; (rf.interop/after-render bumps the tick to force a commit, so the
       ;; useLayoutEffect fires and drains).
       (React/useLayoutEffect
         (fn layout-effect []
@@ -1487,7 +1487,7 @@
 
     1. Dispose the cached `:reaction` through the supplied disposer.
        Adapter teardown supplies the exact claimed generation's disposer;
-       the direct/test arity routes through `interop/dispose!`.
+       the direct/test arity routes through `rf.interop/dispose!`.
     2. After draining each frame's entries, `reset!` its sub-cache
        atom to `{}`.
 
@@ -1505,12 +1505,12 @@
   The one-arg form is the adapter-cleanup path: `dispose-reaction!` is the
   exact claimed generation's substrate disposer, captured before terminal
   teardown hides that generation from every public/routed lookup. The zero-arg
-  form remains the direct/test seam and routes through `interop/dispose!` while
+  form remains the direct/test seam and routes through `rf.interop/dispose!` while
   an adapter is publicly live."
   ([]
-   (dispose-frame-sub-caches! interop/dispose!))
+   (dispose-frame-sub-caches! rf.interop/dispose!))
   ([dispose-reaction!]
-   (doseq [[_ frame-record] @frame/frames]
+   (doseq [[_ frame-record] @rf.frame/frames]
      (when-let [cache (:sub-cache frame-record)]
        (doseq [[_k entry] @cache]
          (when-let [r (:reaction entry)]
@@ -1561,7 +1561,7 @@
        internal caches.
 
   MUST (4) (subsequent calls return `:rf.error/adapter-disposed`) is
-  enforced one level up by `substrate-adapter/dispose-adapter!` via
+  enforced one level up by `rf.substrate.adapter/dispose-adapter!` via
   the `disposed?` breadcrumb (rf2-6wxys).
 
   Best-effort drains. React's `.unmount` is idempotent / no-op on
@@ -1580,7 +1580,7 @@
     ;; rf2-w1g0d2: the substrate-common subset (sub-cache walk + active-roots
     ;; drain-with-swallow + emitter clear) is the shared core; the React-hook
     ;; spine layers warn-cache + driver-root + set-tick teardown on top.
-    (dispose-active-roots-and-caches! rf-disposable/-dispose
+    (dispose-active-roots-and-caches! rf.disposable/-dispose
                                       (fn [r] (.unmount r))
                                       active-roots-cell emitter-cell)
     (when warn-cache (reset! warn-cache #{}))
@@ -1619,11 +1619,11 @@
       ;; ex-data is captured by SSR/static-export error handlers and
       ;; host logs before the record projector can classify it, and a
       ;; hiccup tree can carry app-owned sensitive/large values.
-      (rf-error/throw-error!
+      (rf.error/throw-error!
         :rf.error/no-hiccup-emitter-bound
         'rf/render-to-string
         "require re-frame.ssr (the SSR ns-load resolves the :reagent/set-hiccup-emitter! late-bind hook automatically), or call set-hiccup-emitter! directly"
-        {:extra {:render-tree/summary (rf-error/diag-value-summary render-tree)}}))))
+        {:extra {:render-tree/summary (rf.error/diag-value-summary render-tree)}}))))
 
 ;; ---- context provider — substrate-agnostic CORE ---------------------------
 ;;
@@ -1705,12 +1705,12 @@
   ;; delegate the clean frame-kw here, so this is the single validating seam
   ;; for both function-component substrates (mirrors the Reagent-side
   ;; `re-frame.views.provider/frame-provider` contract).
-  (frame/require-frame-provider-target!
+  (rf.frame/require-frame-provider-target!
     frame-kw
     're-frame.substrate.spine/build-frame-provider-element)
-  (apply adapter-context/provider-element
+  (apply rf.adapter.context/provider-element
          frame-kw
-         (adapter-context/normalize-children children)))
+         (rf.adapter.context/normalize-children children)))
 
 ;; ---- render flush for tests ----------------------------------------------
 ;;
@@ -1789,14 +1789,14 @@
 ;;
 ;; Every React-shaped substrate adapter MUST inject
 ;; `data-rf2-source-coord="<ns>:<sym>:<line>:<col>"` on each registered
-;; view's root DOM element when `interop/debug-enabled?` is true. The
+;; view's root DOM element when `rf.interop/debug-enabled?` is true. The
 ;; React-element-walking path uses `React.cloneElement` (rather than the
 ;; hiccup-walk path views.cljs takes) because React elements are opaque
 ;; — we can clone the root with the extra prop, but we cannot peek
 ;; inside a fragment / function-component head.
 ;;
 ;; Production-elision contract (rf2-z7f7 / Spec 009): the entire branch
-;; sits inside `(when interop/debug-enabled? ...)` so the closure
+;; sits inside `(when rf.interop/debug-enabled? ...)` so the closure
 ;; compiler constant-folds the wrapper away under :advanced +
 ;; goog.DEBUG=false. Each adapter ships a bundle-grep elision test that
 ;; confirms the `data-rf2-source-coord` literal is absent from
@@ -1809,8 +1809,8 @@
 ;; emit byte-identical `data-rf2-source-coord` / `data-rf-view` values
 ;; across substrates (rf2-t9s6p6). Aliased to the spine's historical names
 ;; so call sites in `make-wrap-view` are unchanged.
-(def format-source-coord adapter-context/format-source-coord)
-(def format-view-id       adapter-context/format-view-id)
+(def format-source-coord rf.adapter.context/format-source-coord)
+(def format-view-id       rf.adapter.context/format-view-id)
 
 (defn make-warn-once-cache
   "Return an `(atom #{})` for tracking per-id warn-once emission. Each
@@ -1840,7 +1840,7 @@
     (when-not (contains? @cache-atom id)
       (swap! cache-atom conj id)
       (.warn js/console
-        (adapter-context/non-dom-root-warning id type-tag substrate-name)))))
+        (rf.adapter.context/non-dom-root-warning id type-tag substrate-name)))))
 
 (defn- dom-element?
   "True if the React element's `type` is a string (a DOM tag like
@@ -1905,7 +1905,7 @@
 ;; React-hook substrates (UIx) run the same `views.cljs`
 ;; frame-aware-view wrapper inside a function component with NO tracked
 ;; render reaction (they intentionally don't publish
-;; `:adapter/make-reaction`, so `interop/make-reaction` returns nil and
+;; `:adapter/make-reaction`, so `rf.interop/make-reaction` returns nil and
 ;; the views-side arm no-ops). This spine seam restores parity: the
 ;; React-hook wrap-view arms a `React.useEffect` empty-deps cleanup that
 ;; emits `:rf.view/unmounted` on instance teardown.
@@ -1923,7 +1923,7 @@
 ;; carry the values resolved in-render; `:render-key` carries the stable
 ;; per-instance tuple.
 ;;
-;; Production elision. The whole arm sits inside `interop/debug-enabled?`
+;; Production elision. The whole arm sits inside `rf.interop/debug-enabled?`
 ;; — under :advanced + goog.DEBUG=false the wrap collapses to the bare
 ;; `user-fn` (no hooks, no emit), so the `rf.view/unmounted` sentinel
 ;; (already present from phase-A) stays absent in prod bundles.
@@ -1933,7 +1933,7 @@
   tokens minted by the React-hook wrap-view's unmount sentinel
   (rf2-te71r). Dev-only — the only call site sits inside the sentinel
   component, which only runs when React renders it under
-  `interop/debug-enabled?`, so this and its `swap!` DCE in production
+  `rf.interop/debug-enabled?`, so this and its `swap!` DCE in production
   builds. Distinct from the views-side `provider/instance-counter` (the
   spine carries no spine→views dependency edge); both are in-run
   discriminators with no cross-run correlation guarantee."
@@ -1945,11 +1945,11 @@
   `re-frame.views`, rf2-te71r). Reaching the emit through late-bind keeps
   the spine (core/substrate) free of a static require on the CLJS-only
   views ns. No-op when the hook is unresolved (views not on the
-  classpath) or when `interop/debug-enabled?` is false. The views-side
-  impl is itself gated on `interop/debug-enabled?`."
+  classpath) or when `rf.interop/debug-enabled?` is false. The views-side
+  impl is itself gated on `rf.interop/debug-enabled?`."
   [view-id render-key frame-id]
-  (when interop/debug-enabled?
-    (when-let [emit! (late-bind/get-fn-cached :views/emit-view-unmounted!)]
+  (when rf.interop/debug-enabled?
+    (when-let [emit! (rf.late-bind/get-fn-cached :views/emit-view-unmounted!)]
       (emit! view-id render-key frame-id))))
 
 (defn make-unmount-sentinel
@@ -2105,8 +2105,8 @@
   root DOM element, AND appends a no-DOM unmount-sentinel child so the
   view instance fires `:rf.view/unmounted` on teardown (rf2-te71r —
   React-hook parity for the phase-A reaction-dispose unmount hook), all
-  when `interop/debug-enabled?` is true. Production builds elide via
-  `interop/debug-enabled?` per Spec 009 §Production builds.
+  when `rf.interop/debug-enabled?` is true. Production builds elide via
+  `rf.interop/debug-enabled?` per Spec 009 §Production builds.
 
   The sentinel is appended as a CHILD (via `cloneElement`) rather than
   hooks called inline in the wrapped fn: the wrapped fn is also INVOKED
@@ -2118,7 +2118,7 @@
   [warn-fn]
   (let [unmount-sentinel (make-unmount-sentinel)]
     (fn wrap-view [id metadata user-fn]
-      (if interop/debug-enabled?
+      (if rf.interop/debug-enabled?
         (let [coord-attr (format-source-coord id metadata)
               view-attr  (format-view-id id)
               wrapped    (fn wrapped-user-fn [& args]
@@ -2130,7 +2130,7 @@
                            ;; invocation this read falls through the dynamic-var /
                            ;; :rf/default chain — harmless; the sentinel ELEMENT is built
                            ;; but its hooks only run if React actually renders it.
-                           (let [frame-id  (adapter-context/function-component-current-frame)
+                           (let [frame-id  (rf.adapter.context/function-component-current-frame)
                                  out       (apply user-fn args)
                                  annotated (inject-source-coord-attr warn-fn id coord-attr
                                                                      view-attr out)]
@@ -2139,7 +2139,7 @@
           ;; the registered view-id so React DevTools shows `<cart/total-line>`
           ;; rather than the CLJS-munged fn name or an anonymous wrapper.
           ;;
-          ;; ONE SPELLING, `performance/entry-id` — the same fn `build-name`
+          ;; ONE SPELLING, `rf.performance/entry-id` — the same fn `build-name`
           ;; calls to build `rf:render:<id>`. Spec 009 §Naming convention makes
           ;; the measure's `<id>` and the id the substrate publishes to the
           ;; developer one identifier; `(str id)` kept a keyword's colon and so
@@ -2155,9 +2155,9 @@
           ;; is the stamp React DevTools reads. `wrap-view` is published for
           ;; exactly that use (`re-frame.adapter.uix/wrap-view`).
           ;;
-          ;; The assignment sits inside the `interop/debug-enabled?` arm so the
+          ;; The assignment sits inside the `rf.interop/debug-enabled?` arm so the
           ;; name and the assignment elide in production builds.
-          (set! (.-displayName ^js wrapped) (performance/entry-id id))
+          (set! (.-displayName ^js wrapped) (rf.performance/entry-id id))
           wrapped)
         user-fn))))
 
@@ -2235,20 +2235,20 @@
   in its own idiom. Nothing in this path converts props, so a nested
   namespaced keyword survives the mount by construction.
 
-  `displayName` is stamped from `performance/entry-id` — the same single
+  `displayName` is stamped from `rf.performance/entry-id` — the same single
   source `wrap-view` and `build-name` use, so the name React DevTools shows
   for the mounted registry head is the `<id>` of its own `rf:render:<id>`
   measure (Spec 009 §Naming convention, rf2-976bw). Dev-only: the shell
   itself is a CORRECTNESS seam and is built in production too, but the name
-  string rides `interop/debug-enabled?` and elides with the rest."
+  string rides `rf.interop/debug-enabled?` and elides with the rest."
   []
   (fn componentize-view [id _metadata wrapped]
     (let [shell (fn view-component [& args]
                   (if (react-props? (first args))
                     (wrapped (first args))
                     (apply wrapped args)))]
-      (when interop/debug-enabled?
-        (set! (.-displayName ^js shell) (performance/entry-id id)))
+      (when rf.interop/debug-enabled?
+        (set! (.-displayName ^js shell) (rf.performance/entry-id id)))
       shell)))
 
 (defn install-clear-warn-once-step!
@@ -2258,7 +2258,7 @@
   the chain and every contributor's reset runs.
 
   Delegates to the canonical governance chokepoint
-  `late-bind/register-warn-once-clear-fn!` (rf2-z79p8) so the cache is
+  `rf.late-bind/register-warn-once-clear-fn!` (rf2-z79p8) so the cache is
   BOTH chained AND enrolled in the warn-once-clear governance registry the
   governance assertion checks. Callers don't need to know the chain key.
 
@@ -2275,7 +2275,7 @@
   ([clear-fn]
    (install-clear-warn-once-step! clear-fn {:label :adapter/warned-non-dom-roots}))
   ([clear-fn governance]
-   (late-bind/register-warn-once-clear-fn!
+   (rf.late-bind/register-warn-once-clear-fn!
      (assoc governance :clear-fn clear-fn))))
 
 ;; ---- subscription hook ----------------------------------------------------
@@ -2348,7 +2348,7 @@
 ;;   * ONE-SHOT. `spent?` (slot 3) is flipped before the decrement, so
 ;;     adoption and the drain cannot both release the same token.
 ;;   * REACTION-GUARDED. The release goes through
-;;     `subs/unsubscribe-if-reaction`, which decrements only while the slot
+;;     `rf.subs/unsubscribe-if-reaction`, which decrements only while the slot
 ;;     still holds the token's reaction. Hot reload, `clear-sub-cache!` and
 ;;     `destroy-frame!` evict slots out from under live holders; that eviction
 ;;     took the +1 with it, so a stale release must no-op rather than
@@ -2432,7 +2432,7 @@
   [token]
   (when (and (some? token) (not (aget token 3)))
     (aset token 3 true)
-    (subs/unsubscribe-if-reaction (aget token 1) (aget token 2) (aget token 0)))
+    (rf.subs/unsubscribe-if-reaction (aget token 1) (aget token 2) (aget token 0)))
   nil)
 
 (def ^:private no-provisional
@@ -2632,7 +2632,7 @@
         active-roots-cell  (make-active-roots-cell)
         ;; rf2-334d9: after-render queue + sentinel component + the
         ;; routed-hook impl. The adapter publishes the hook by passing
-        ;; `:after-render-hook` to `substrate-adapter/route-hook!`.
+        ;; `:after-render-hook` to `rf.substrate.adapter/route-hook!`.
         after-render-queue-cell       (make-after-render-queue-cell)
         after-render-set-tick-ref     (make-after-render-set-tick-ref)
         ;; rf2-t0x90: holds the lazily-mounted singleton driver root so
@@ -2694,7 +2694,7 @@
                               :after-render-set-tick-ref     after-render-set-tick-ref})
         use-current-frame
         (fn use-current-frame []
-          (use-context adapter-context/frame-context))
+          (use-context rf.adapter.context/frame-context))
         ;; Two-arity body extracted so the 1-arg arm can call into it
         ;; without a self-reference on the let-bound `use-subscribe`
         ;; (CLJS let-bound fns cannot name themselves).
@@ -2711,7 +2711,7 @@
         ;; render boundary by identity even though both survive by `=`.
         ;; The deps array `#js [frame-kw query-v]` therefore mismatches
         ;; every render and useMemo / useCallback / useEffect re-fire
-        ;; their factories — driving cache-hit `subs/subscribe`,
+        ;; their factories — driving cache-hit `rf.subs/subscribe`,
         ;; watch add/remove, and cache-entry ref-count churn even when
         ;; the subscription is unchanged.
         ;;
@@ -2798,7 +2798,7 @@
                 ;;
                 ;; THE INVARIANT: a render that never commits MUST NOT retain a
                 ;; sub-cache ref-count. The earlier design (rf2-879fe ledger) put
-                ;; the durable `subs/subscribe` (+1) in the render-phase `useMemo`
+                ;; the durable `rf.subs/subscribe` (+1) in the render-phase `useMemo`
                 ;; factory and reclaimed it from commit-owned effects. That is
                 ;; unsound for a FIRST-MOUNT render abandoned before commit
                 ;; (Suspense / concurrent interrupt): React discards the whole
@@ -2823,8 +2823,8 @@
                 ;;
                 ;; COMMITTED STEADY STATE — `committed-ref` already holds THIS
                 ;; key's reaction, so `subscribe-fn` is holding a durable +1. A
-                ;; BALANCED, net-zero round trip (`subs/subscribe`, deref,
-                ;; `subs/unsubscribe`) bumps 1 → 2 and drops back to 1, never
+                ;; BALANCED, net-zero round trip (`rf.subs/subscribe`, deref,
+                ;; `rf.subs/unsubscribe`) bumps 1 → 2 and drops back to 1, never
                 ;; crossing the disposal edge, and the render retains nothing.
                 ;; React may DISCARD a memo and re-run this factory on unchanged
                 ;; deps whenever it likes (rf2-8u8tx.2) — each re-run is its own
@@ -2891,16 +2891,16 @@
                               (if (some? committed)
                                 ;; Durably backed: balanced, net-zero, no escrow
                                 ;; to take — the disposal edge is unreachable.
-                                (let [r (subs/subscribe stable-query-v {:frame stable-frame-kw})
+                                (let [r (rf.subs/subscribe stable-query-v {:frame stable-frame-kw})
                                       v (when r @r)]
-                                  (subs/unsubscribe stable-frame-kw stable-query-v)
+                                  (rf.subs/unsubscribe stable-frame-kw stable-query-v)
                                   v)
                                 ;; Cold: keep the +1 for the commit. The token is
                                 ;; queued and its reaper armed INSIDE `escrow!`,
                                 ;; before anything below can throw — a sub body
                                 ;; that throws on the deref must still leave a
                                 ;; reapable reference, never a stranded one.
-                                (let [r    (subs/subscribe stable-query-v {:frame stable-frame-kw})
+                                (let [r    (rf.subs/subscribe stable-query-v {:frame stable-frame-kw})
                                       prev (.-current provisional-ref)]
                                   (set! (.-current provisional-ref)
                                         (when (some? r)
@@ -3035,8 +3035,8 @@
                 ;; pair. React calls it (once) only AFTER a commit, passing a
                 ;; force-update callback; its returned cleanup runs on unmount,
                 ;; on a subscribe-identity change, and on teardown. This is where
-                ;; the DURABLE sub-cache ref-count is taken (`subs/subscribe`) and
-                ;; released (`subs/unsubscribe`) — never in render — so a render
+                ;; the DURABLE sub-cache ref-count is taken (`rf.subs/subscribe`) and
+                ;; released (`rf.subs/unsubscribe`) — never in render — so a render
                 ;; abandoned before commit owns nothing beyond the reaper's
                 ;; horizon. We re-subscribe by (frame, query) here rather than
                 ;; trust a handle carried out of the render phase; since
@@ -3062,7 +3062,7 @@
                     ;; the ONLY place a lasting +1 is acquired. The returned
                     ;; reaction is the live cached one and its value `=` the
                     ;; `render-snapshot` the render phase read.
-                    (let [committed (subs/subscribe stable-query-v {:frame stable-frame-kw})]
+                    (let [committed (rf.subs/subscribe stable-query-v {:frame stable-frame-kw})]
                       ;; rf2-2rtt6.25 — THE ADOPTION, when it happens. If the
                       ;; render phase's escrowed +1 is still unspent, the entry
                       ;; was live when the subscribe above ran: it HIT, and
@@ -3137,9 +3137,9 @@
                             (when (and stored (identical? (aget stored 1) committed))
                               (set! (.-current committed-ref) nil)))
                           ;; Release the durable committed ref — symmetric with
-                          ;; the `subs/subscribe` above. Runs on unmount /
+                          ;; the `rf.subs/subscribe` above. Runs on unmount /
                           ;; key change / teardown.
-                          (subs/unsubscribe stable-frame-kw stable-query-v)))))
+                          (rf.subs/unsubscribe stable-frame-kw stable-query-v)))))
                   #js [stable-key])]
             (React/useSyncExternalStore subscribe-fn get-snap get-snap)))
         use-subscribe
@@ -3147,9 +3147,9 @@
           ;; ---- 1-arg ambient form — full frame-resolution chain (rf2-4mi2zj) ----
           ;;
           ;; The ambient `(use-subscribe [:q …])` form MUST resolve the
-          ;; frame through the SAME carried-invariant chain `subs/subscribe`'s
+          ;; frame through the SAME carried-invariant chain `rf.subs/subscribe`'s
           ;; own 1-arity uses (Spec 006 §Frame resolution (1-arg form), :734,
-          ;; :1058; EP-0002): dynamic-var tier (`frame/*current-frame*`, set by
+          ;; :1058; EP-0002): dynamic-var tier (`rf.frame/*current-frame*`, set by
           ;; `with-frame` / `bind-fn`) FIRST, the React-context tier
           ;; (the surrounding `frame-provider`) SECOND, and **nil → a loud
           ;; `:rf.error/no-frame-context`** with NO `:rf/default` floor.
@@ -3176,14 +3176,14 @@
           ;; or `frame-root`) swaps frames —
           ;; a hook-safe, unconditional top-of-body call — but DISCARD its raw
           ;; value for resolution. Resolve the real frame via
-          ;; `frame/require-current-frame!`, which delegates to
+          ;; `rf.frame/require-current-frame!`, which delegates to
           ;; `resolve-current-frame` → the live `:adapter/current-frame`
           ;; late-bind hook (`function-component-current-frame`: dynamic-var →
           ;; the renderer's active context slot — `_currentValue`, falling back
           ;; to `_currentValue2` under `react-dom/server` (rf2-5rqn) — with
           ;; sentinel→nil and corrupted-value detection)
           ;; and emits + throws `:rf.error/no-frame-context` on nil. This
-          ;; single-sources resolution with `subs/subscribe`'s 1-arity — the
+          ;; single-sources resolution with `rf.subs/subscribe`'s 1-arity — the
           ;; hook and the imperative read can never diverge — and then hands
           ;; the now-EXPLICIT resolved frame to the 2-arg path. The 2-arg
           ;; EXPLICIT form is unchanged (it bypasses the chain by design).
@@ -3193,7 +3193,7 @@
            ;; frame — resolution runs through the chain below.
            (use-current-frame)
            (use-subscribe-2
-             (frame/require-current-frame!
+             (rf.frame/require-current-frame!
                :subscribe
                {:where    're-frame.substrate.spine/use-subscribe
                 :event-id (first query-v)})
@@ -3244,7 +3244,7 @@
      :componentize-view           componentize-fn
      :clear-warned-non-dom-roots! clear-warned
      ;; rf2-334d9 — :adapter/after-render impl. Each adapter publishes
-     ;; this via substrate-adapter/route-hook!.
+     ;; this via rf.substrate.adapter/route-hook!.
      :after-render-hook           after-render-hook}))
 
 ;; ---- React-hook adapter assembly (UIx) ----------------------------
@@ -3263,7 +3263,7 @@
 ;; carries zero per-adapter variation; the ONLY input is the spine-fns map
 ;; (already built per-substrate) and the `:kind` discriminator keyword.
 ;;
-;; Hook routing (per rf2-0d35 — see `substrate-adapter/route-hook!` for
+;; Hook routing (per rf2-0d35 — see `rf.substrate.adapter/route-hook!` for
 ;; the routing contract): each impl runs ONLY when this adapter is the
 ;; (rf/init!)-installed one; otherwise chains to the previously-registered
 ;; handler.
@@ -3289,7 +3289,7 @@
 ;;     lifecycle question (when does the next commit complete?), not a
 ;;     reactive-atom one — so the "no reactive primitive" rationale that
 ;;     excludes the four hooks above does NOT apply. Without this hook
-;;     `(interop/after-render f)` under these adapters would be a silent
+;;     `(rf.interop/after-render f)` under these adapters would be a silent
 ;;     no-op.
 ;;   :adapter/componentize-view — rf2-oz7wr. Turns the composed registration
 ;;     wrapper into a head the substrate can MOUNT: a genuine JS function
@@ -3302,7 +3302,7 @@
 ;;   :adapter/wrap-view — rf2-00li. Substrate-side source-coord injection
 ;;     via React.cloneElement (the views.cljs inline hiccup-walk would
 ;;     mis-classify React-element output as a non-DOM root). Production-
-;;     elided via `interop/debug-enabled?` per Spec 009 §Production builds.
+;;     elided via `rf.interop/debug-enabled?` per Spec 009 §Production builds.
 
 (defn make-react-adapter
   "Assemble a React-hook adapter (UIx) from a
@@ -3336,7 +3336,7 @@
                         from the provider seam.
 
   Builds the 9-key substrate adapter map, routes the five React-hook
-  late-bind hooks against it (`substrate-adapter/route-hook!`), and wires
+  late-bind hooks against it (`rf.substrate.adapter/route-hook!`), and wires
   the two chained installs (warn-once clear + SSR hiccup-emitter). The
   `:register-context-provider` substrate slot returns the native
   `frame-provider` component (the frame-keyword arg is ignored — the
@@ -3370,14 +3370,14 @@
                  ;; renders without waiting on React's rAF-scheduled lane.
                  :flush-render!             (:flush-render! spine-fns)
                  :dispose-adapter!          (:dispose-adapter!          spine-fns)}]
-    (substrate-adapter/route-hook! adapter :adapter/current-frame
-      adapter-context/function-component-current-frame
-      #(frame/current-frame))
-    (substrate-adapter/route-hook! adapter :adapter/add-on-dispose!
-      rf-disposable/-add-on-dispose)
-    (substrate-adapter/route-hook! adapter :adapter/dispose!
-      rf-disposable/-dispose)
-    (substrate-adapter/route-hook! adapter :adapter/wrap-view
+    (rf.substrate.adapter/route-hook! adapter :adapter/current-frame
+      rf.adapter.context/function-component-current-frame
+      #(rf.frame/current-frame))
+    (rf.substrate.adapter/route-hook! adapter :adapter/add-on-dispose!
+      rf.disposable/-add-on-dispose)
+    (rf.substrate.adapter/route-hook! adapter :adapter/dispose!
+      rf.disposable/-dispose)
+    (rf.substrate.adapter/route-hook! adapter :adapter/wrap-view
       (:wrap-view spine-fns))
     ;; rf2-oz7wr — the registered-view component head. Routed (not chained by
     ;; identity) like every other `:adapter/*` hook, so a loaded-but-inactive
@@ -3392,9 +3392,9 @@
     ;; must be left with the hook UNPUBLISHED so `reg-view*`'s absent-hook
     ;; fallback returns the wrapper unchanged, exactly as on Reagent.
     (when componentize-view
-      (substrate-adapter/route-hook! adapter :adapter/componentize-view
+      (rf.substrate.adapter/route-hook! adapter :adapter/componentize-view
         componentize-view))
-    (substrate-adapter/route-hook! adapter :adapter/after-render
+    (rf.substrate.adapter/route-hook! adapter :adapter/after-render
       (:after-render-hook spine-fns))
     ;; Chained warn-once clear (rf2-4edk): chained (NOT routed by installed-
     ;; adapter identity) — every loaded adapter's per-process defonce must
@@ -3414,7 +3414,7 @@
     ;; `(require '[re-frame.ssr])` auto-wires every adapter's render-to-
     ;; string slot. Hook key is historical (Reagent published it first per
     ;; rf2-uo7v); behaviour is adapter-agnostic.
-    (late-bind/chain-fn! :reagent/set-hiccup-emitter!
+    (rf.late-bind/chain-fn! :reagent/set-hiccup-emitter!
                          (:set-hiccup-emitter! spine-fns))
     ;; rf2-h9szm — routed precedence-safe install-replay arm. Unlike the
     ;; broadcast `:reagent/set-hiccup-emitter!` chain above (which every loaded
@@ -3422,7 +3422,7 @@
     ;; use — one throwing setter would break the active boot), this hook is
     ;; ROUTED via `route-hook!` so `install-adapter!`'s replay re-arms ONLY the
     ;; installed adapter's slot, and only when it is otherwise unarmed.
-    (substrate-adapter/route-hook! adapter :adapter/arm-hiccup-emitter-if-unarmed!
+    (rf.substrate.adapter/route-hook! adapter :adapter/arm-hiccup-emitter-if-unarmed!
                                    (:arm-hiccup-emitter-if-unarmed! spine-fns))
     adapter))
 
@@ -3463,7 +3463,7 @@
   [disposable? dispose!]
   (fn dispose!-dispatch [a]
     (cond
-      (satisfies? rf-disposable/IDisposable a) (rf-disposable/-dispose a)
+      (satisfies? rf.disposable/IDisposable a) (rf.disposable/-dispose a)
       (disposable? a)                          (dispose! a)
       :else                                    nil)))
 
@@ -3542,7 +3542,7 @@
     flush-render-op :flush-render!}]
   (let [active-roots-cell (make-active-roots-cell)
         emitter-cell      (make-hiccup-emitter-cell)
-        ;; Terminal cleanup cannot route through `interop/dispose!`: the
+        ;; Terminal cleanup cannot route through `rf.interop/dispose!`: the
         ;; process lifecycle deliberately hides the claimed generation before
         ;; invoking its cleanup. Capture this generation's dual-protocol
         ;; disposer in the adapter closure instead.
@@ -3851,22 +3851,22 @@
     ;; loaded React-shaped adapter contributes its install step so a single
     ;; `(require '[re-frame.ssr])` auto-wires every adapter's render-to-
     ;; string slot. `chain-fn!` (not `set-fn!`) is load-order-independent.
-    (late-bind/chain-fn! :reagent/set-hiccup-emitter!
+    (rf.late-bind/chain-fn! :reagent/set-hiccup-emitter!
                          (:set-hiccup-emitter! spine-fns))
     ;; rf2-h9szm — routed precedence-safe install-replay arm (twin of the
     ;; `make-react-adapter` publication). ROUTED so `install-adapter!`'s replay
     ;; re-arms ONLY the installed adapter's slot, and only when otherwise
     ;; unarmed — NOT the broadcast `:reagent/set-hiccup-emitter!` chain above.
-    (substrate-adapter/route-hook! adapter :adapter/arm-hiccup-emitter-if-unarmed!
+    (rf.substrate.adapter/route-hook! adapter :adapter/arm-hiccup-emitter-if-unarmed!
                                    (:arm-hiccup-emitter-if-unarmed! spine-fns))
-    ;; Each hook routes through `(substrate-adapter/current-adapter)` per
+    ;; Each hook routes through `(rf.substrate.adapter/current-adapter)` per
     ;; rf2-0d35 via `route-hook!`: this adapter's impl runs ONLY when it is
     ;; the (rf/init!)-installed one; otherwise it chains to the previously-
     ;; registered handler.
     ;;   :adapter/current-frame — rf2-d4sf. The React-context tier of the
     ;;     3-tier chain; the ratom family uses the class-component
     ;;     (.-context cmp) shape via `views/current-frame`. Chain-bottom
-    ;;     fallback is `frame/current-frame` so headless / pre-init shape is
+    ;;     fallback is `rf.frame/current-frame` so headless / pre-init shape is
     ;;     preserved.
     ;;   :adapter/current-component — rf2-wbnl. Reads the substrate's
     ;;     in-flight component without hard-binding re-frame.views to it.
@@ -3878,17 +3878,17 @@
     ;;     handles BOTH shapes — the re-frame-owned IDisposable (spine
     ;;     derived values, checked first) and the substrate's own
     ;;     IDisposable.
-    (substrate-adapter/route-hook! adapter :adapter/current-frame
+    (rf.substrate.adapter/route-hook! adapter :adapter/current-frame
       current-frame
-      #(frame/current-frame))
-    (substrate-adapter/route-hook! adapter :adapter/current-component
+      #(rf.frame/current-frame))
+    (rf.substrate.adapter/route-hook! adapter :adapter/current-component
       current-component)
-    (substrate-adapter/route-hook! adapter :adapter/ratom
+    (rf.substrate.adapter/route-hook! adapter :adapter/ratom
       atom)
-    (substrate-adapter/route-hook! adapter :adapter/ratom?
+    (rf.substrate.adapter/route-hook! adapter :adapter/ratom?
       ratom?
       (constantly false))
-    (substrate-adapter/route-hook! adapter :adapter/make-reaction
+    (rf.substrate.adapter/route-hook! adapter :adapter/make-reaction
       make-reaction)
     ;; rf2-8cnxg / rf2-jt8vz — the ratom family's derived values are
     ;; DEMAND-driven, and Spec 006 §`make-derived-value` requires PUSH ("the
@@ -3915,19 +3915,19 @@
     ;; app-db `reset!`, discarding the batching this spine's
     ;; `replace-container!` comment relies on. Activation is per-acquire and
     ;; idempotent, so an unobserved subscription is never made eager.
-    (substrate-adapter/route-hook! adapter :adapter/activate-derived-value!
+    (rf.substrate.adapter/route-hook! adapter :adapter/activate-derived-value!
       activate-reaction!)
-    (substrate-adapter/route-hook! adapter :adapter/add-on-dispose!
+    (rf.substrate.adapter/route-hook! adapter :adapter/add-on-dispose!
       (fn add-on-dispose!-dispatch [a f]
         (cond
-          (satisfies? rf-disposable/IDisposable a) (rf-disposable/-add-on-dispose a f)
+          (satisfies? rf.disposable/IDisposable a) (rf.disposable/-add-on-dispose a f)
           (disposable? a)                          (add-on-dispose! a f)
           :else                                    nil)))
-    (substrate-adapter/route-hook! adapter :adapter/dispose! dispose-dispatch)
-    (substrate-adapter/route-hook! adapter :adapter/reactive?
+    (rf.substrate.adapter/route-hook! adapter :adapter/dispose! dispose-dispatch)
+    (rf.substrate.adapter/route-hook! adapter :adapter/reactive?
       reactive?
       (constantly false))
-    (substrate-adapter/route-hook! adapter :adapter/after-render
+    (rf.substrate.adapter/route-hook! adapter :adapter/after-render
       after-render)
     ;; rf2-8wrzz.3 — the derived-container discriminator the core's
     ;; `replace-container!` choke point consults to reject writes to a
@@ -3941,7 +3941,7 @@
     ;; inherited through a cross-substrate test bundle, rf2-jicu2) then the
     ;; substrate's own `:disposable?`. Routed (not an adapter-map key) so
     ;; the ten-fn adapter contract shape is preserved; the choke point reads
-    ;; it via `late-bind/get-fn :adapter/derived-container?`. The ratom
+    ;; it via `rf.late-bind/get-fn :adapter/derived-container?`. The ratom
     ;; impl is exhaustive over ratom containers — truthy for a `Reaction`
     ;; (derived), `false` for a base `r/atom` (the choke point trusts that
     ;; `false` and skips its atom-marker heuristic, rf2-oitw37). The
@@ -3951,9 +3951,9 @@
     ;; atom-marker heuristic — a bare `false` would instead read as "this
     ;; ratom adapter classifies it as base", wrongly forcing the
     ;; non-ratom-adapter path through the ratom verdict (rf2-oitw37).
-    (substrate-adapter/route-hook! adapter :adapter/derived-container?
+    (rf.substrate.adapter/route-hook! adapter :adapter/derived-container?
       (fn derived-container?-dispatch [a]
-        (or (satisfies? rf-disposable/IDisposable a)
+        (or (satisfies? rf.disposable/IDisposable a)
             (boolean (disposable? a))))
-      (constantly substrate-adapter/container-class-unknown))
+      (constantly rf.substrate.adapter/container-class-unknown))
     adapter))

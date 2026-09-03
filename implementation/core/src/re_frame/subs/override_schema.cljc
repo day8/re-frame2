@@ -23,8 +23,8 @@
   `goog.DEBUG=false`. It is reached ONLY from those gated consults, so no
   production build retains it (its containing `(when interop/debug-enabled?
   …)` blocks fold away, dropping the last reference)."
-  (:require [re-frame.late-bind :as late-bind]
-            [re-frame.trace :as trace
+  (:require [re-frame.late-bind :as rf.late-bind]
+            [re-frame.trace :as rf.trace
              #?@(:cljs [:include-macros true])]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -60,16 +60,16 @@
   (if-not (contains? sub-meta :schema)
     value
     (let [schema (:schema sub-meta)]
-      (if-let [validate (late-bind/get-fn-cached :schemas/validate-with-registered-fn)]
+      (if-let [validate (rf.late-bind/get-fn-cached :schemas/validate-with-registered-fn)]
         (if (try (validate schema value)
                  (catch #?(:clj Throwable :cljs :default) _ true))
           value
           (let [sub-id  (first query-v)
-                explain (when-let [exp (late-bind/get-fn-cached
+                explain (when-let [exp (rf.late-bind/get-fn-cached
                                          :schemas/explain-with-registered-fn)]
                           (try (exp schema value)
                                (catch #?(:clj Throwable :cljs :default) _ nil)))
-                redact  (late-bind/get-fn-cached :schemas/redact-validation-tags)
+                redact  (rf.late-bind/get-fn-cached :schemas/redact-validation-tags)
                 tags    (cond-> {:where          :sub-override
                                  :rf.sub/id      sub-id
                                  :failing-id     sub-id
@@ -83,7 +83,7 @@
                                                       (pr-str schema) ".")
                                  :recovery       :replaced-with-default}
                           frame-id (assoc :frame frame-id))]
-            (trace/emit-error! :rf.error/schema-validation-failure
+            (rf.trace/emit-error! :rf.error/schema-validation-failure
                                (cond-> tags
                                  redact (->> (redact schema))))
             nil))

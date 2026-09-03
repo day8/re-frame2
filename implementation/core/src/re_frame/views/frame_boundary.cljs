@@ -90,10 +90,10 @@
   `re-frame.substrate.spine/build-frame-provider-element` factors the scope-only
   element-build. The plain-atom (JVM-runnable) build never loads this ns."
   (:require ["react"               :as React]
-            [re-frame.adapter.context :as adapter-context]
-            [re-frame.error        :as rf-error]
-            [re-frame.frame        :as frame]
-            [re-frame.live-frame   :as live-frame]))
+            [re-frame.adapter.context :as rf.adapter.context]
+            [re-frame.error        :as rf.error]
+            [re-frame.frame        :as rf.frame]
+            [re-frame.live-frame   :as rf.live-frame]))
 
 ;; ---- ENSURE: create-if-absent / reuse-if-present (no re-seed) -------------
 ;;
@@ -120,12 +120,12 @@
   `opts` must carry an explicit `:id` keyword — a frame-root names the frame it
   ensures, so the id is the addressing token. `make-frame`'s own validation fails
   loud on a bad shape. Returns the frame id (read off the returned frame value
-  via `frame/frame-value->id`).
+  via `rf.frame/frame-value->id`).
 
   CALLED FROM COMMIT PHASE (`frame-root-fc`'s `useLayoutEffect`), never from a
   render body — that is the whole point of the rf2-nyea0r split."
   [opts]
-  (frame/frame-value->id (live-frame/make-frame opts)))
+  (rf.frame/frame-value->id (rf.live-frame/make-frame opts)))
 
 (defn ^:no-doc frame-root-opts
   "Normalise the frame-root's prop map into the `make-frame` opts the ENSURE
@@ -155,7 +155,7 @@
   [id where-sym]
   (if (keyword? id)
     id
-    (rf-error/throw-error!
+    (rf.error/throw-error!
       :rf.error/frame-root-missing-id
       where-sym
       (str "frame-root is the ENSURE component (rf2-nyea0r): it CREATES the frame "
@@ -181,7 +181,7 @@
   Covers the both-keys case too: a `{:frame … :id …}` prop map on a provider is
   still an `:id`-on-a-provider error. Never returns (always throws)."
   [id where-sym]
-  (rf-error/throw-error!
+  (rf.error/throw-error!
     :rf.error/frame-provider-given-id
     where-sym
     (str "frame-provider is the SCOPE-only component (rf2-nyea0r): it provides an "
@@ -200,7 +200,7 @@
   (rf2-nyea0r). Covers the both-keys case too: a `{:id … :frame …}` prop map on a
   frame-root is still a `:frame`-on-a-root error. Never returns (always throws)."
   [frame-val where-sym]
-  (rf-error/throw-error!
+  (rf.error/throw-error!
     :rf.error/frame-root-given-frame
     where-sym
     (str "frame-root is the ENSURE component (rf2-nyea0r): it CREATES / REUSES a "
@@ -224,7 +224,7 @@
   of `:children` / `:fallback`). Called from `frame-root-fc`'s render guard only
   when the two differ. Never returns (always throws)."
   [committed current where-sym]
-  (rf-error/throw-error!
+  (rf.error/throw-error!
     :rf.error/frame-root-reconfigured
     where-sym
     (str "frame-root's `:id` / opts changed after it mounted (rf2-nyea0r): a "
@@ -258,9 +258,9 @@
   is the already-validated keyword frame id; `where-sym` names the calling shell
   for the diagnostic. Returns the keyword when the frame is live."
   [frame-kw where-sym]
-  (if (some? (frame/frame frame-kw))
+  (if (some? (rf.frame/frame frame-kw))
     frame-kw
-    (rf-error/throw-error!
+    (rf.error/throw-error!
       :rf.error/frame-provider-frame-absent
       where-sym
       (str "frame-provider {:frame " (pr-str frame-kw) "} is the SCOPE-only "
@@ -361,9 +361,9 @@
         js/undefined)
       #js [])
     (if ready?
-      (apply adapter-context/provider-element
+      (apply rf.adapter.context/provider-element
              (:id opts)
-             (adapter-context/normalize-children children))
+             (rf.adapter.context/normalize-children children))
       ;; PASS 1 / SSR / pre-commit: emit no descendant subtree.
       nil)))
 
@@ -389,4 +389,4 @@
   (apply React/createElement
          frame-root-fc
          #js {:rfOpts (frame-root-opts props)}
-         (adapter-context/normalize-children children)))
+         (rf.adapter.context/normalize-children children)))

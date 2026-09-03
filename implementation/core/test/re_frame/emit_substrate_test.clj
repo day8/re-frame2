@@ -22,9 +22,9 @@
        `defonce` their atom and pass it through).
     8. Idempotent re-register on the same id replaces the listener fn."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.emit-substrate :as emit]))
+            [re-frame.emit-substrate :as rf.emit-substrate]))
 
-(defn- fresh-registry [] (emit/make-listener-registry {}))
+(defn- fresh-registry [] (rf.emit-substrate/make-listener-registry {}))
 
 (deftest register-installs-listener
   (testing ":register stores the listener and returns the id"
@@ -100,7 +100,7 @@
     ;; Production consumers `defonce` their atom and pass it through so
     ;; hot reload of the consuming ns doesn't drop registrations.
     (let [external (atom {})
-          {:keys [register listeners]} (emit/make-listener-registry
+          {:keys [register listeners]} (rf.emit-substrate/make-listener-registry
                                           {:listeners external})]
       (is (identical? external listeners)
           "the surfaced :listeners atom IS the externally-supplied one")

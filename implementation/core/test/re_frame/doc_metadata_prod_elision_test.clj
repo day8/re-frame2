@@ -4,7 +4,7 @@
 
   `:doc` is the one PURE-documentation registration-metadata key — zero
   production runtime use, zero production observability use. Under the
-  JVM debug-gate-off posture (`interop/debug-enabled?` rebound to `false`,
+  JVM debug-gate-off posture (`rf.interop/debug-enabled?` rebound to `false`,
   semantically equivalent to CLJS `:advanced` + `goog.DEBUG=false`),
   `(rf/handler-meta kind id)` MUST NOT carry `:doc`; in dev (default gate
   on) `:doc` is retained for tooling / agent inspection.
@@ -21,7 +21,7 @@
   (`scripts/check-elision.cjs`, the `rf2-9wwkcm-doc-elision-sentinel`
   sentinel): a runtime strip cannot DCE a user-authored call-site string,
   so the reg-* macros gate any LITERAL doc-bearing metadata-map under
-  `interop/debug-enabled?` and the bundle grep pins that the dev `:doc`
+  `rf.interop/debug-enabled?` and the bundle grep pins that the dev `:doc`
   string DCEs. This file pins the SEMANTIC handler-meta contract.
 
   ## Posture split (rf2-d2841)
@@ -43,26 +43,26 @@
   `strip-pure-documentation`'s dev identity — is a claim about the gate
   being ON. Under `-Dre-frame.debug=false` there is nothing to retain, by
   design, so those assertions are kept verbatim inside a
-  `(when interop/debug-enabled? …)` arm marked `rf2-d2841`."
+  `(when rf.interop/debug-enabled? …)` arm marked `rf2-d2841`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.interop :as interop]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.interop :as rf.interop]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- runtime strip: :doc absent from handler-meta in prod ---------------
 
 (deftest doc-stripped-from-handler-meta-under-disabled-debug-gate
   (testing "Per rf2-9wwkcm: under `:advanced + goog.DEBUG=false` (modelled
-            as `with-redefs [interop/debug-enabled? false]`) `:doc` is
+            as `with-redefs [rf.interop/debug-enabled? false]`) `:doc` is
             stripped from the stored registration metadata, so
             `(rf/handler-meta ...)` carries no `:doc` in production."
-    (with-redefs [interop/debug-enabled? false]
+    (with-redefs [rf.interop/debug-enabled? false]
       (rf/reg-event :rf2-9wwkcm/prod-event
                        {:doc "elided in prod" :schema :int :tags #{:probe}}
                        (fn [{:keys [db]} _] {:db db}))
@@ -77,7 +77,7 @@
             ":tags retained in prod (runtime: containment subs / invalidation)")))))
 
 (deftest doc-retained-in-handler-meta-under-enabled-debug-gate
-  (testing "Per rf2-9wwkcm: the dev posture (default `interop/debug-enabled?`
+  (testing "Per rf2-9wwkcm: the dev posture (default `rf.interop/debug-enabled?`
             = true) retains `:doc` for tooling / agent inspection."
     (rf/reg-event :rf2-9wwkcm/dev-event
                      {:doc "kept in dev"}
@@ -101,7 +101,7 @@
       ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture
       ;; split). `:doc` is pure-documentation metadata, stripped at the
       ;; `register!` chokepoint under the production gate.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (= "kept in dev" (:doc meta))
             ":doc retained in dev for tooling / agent inspection")))))
 
@@ -111,7 +111,7 @@
   (testing "Per rf2-9wwkcm: the strip lives at the single `register!`
             chokepoint, so it covers EVERY reg-* surface uniformly — subs,
             fx, cofx, … not just events."
-    (with-redefs [interop/debug-enabled? false]
+    (with-redefs [rf.interop/debug-enabled? false]
       (rf/reg-sub :rf2-9wwkcm/prod-sub
                   {:doc "sub doc elided"}
                   (fn [db _] db))
@@ -134,21 +134,21 @@
   (testing "Per rf2-9wwkcm: `strip-pure-documentation` drops `:doc` (and
             only the pure-documentation keys) in prod, and is an identity
             in dev. A non-map passes through untouched."
-    (with-redefs [interop/debug-enabled? false]
+    (with-redefs [rf.interop/debug-enabled? false]
       (is (= {:schema :int :tags #{:a}}
-             (registrar/strip-pure-documentation
+             (rf.registrar/strip-pure-documentation
                {:doc "x" :schema :int :tags #{:a}}))
           "prod: only :doc stripped; load-bearing keys retained")
-      (is (= {} (registrar/strip-pure-documentation {:doc "x"}))
+      (is (= {} (rf.registrar/strip-pure-documentation {:doc "x"}))
           "prod: doc-only map strips to empty")
-      (is (nil? (registrar/strip-pure-documentation nil))
+      (is (nil? (rf.registrar/strip-pure-documentation nil))
           "non-map (nil) passes through"))
     ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture
     ;; split). "Identity in dev" is a claim about the gate being ON;
     ;; under `-Dre-frame.debug=false` the helper is the strip, by design.
-    (when interop/debug-enabled?
+    (when rf.interop/debug-enabled?
       (is (= {:doc "x" :schema :int}
-             (registrar/strip-pure-documentation {:doc "x" :schema :int}))
+             (rf.registrar/strip-pure-documentation {:doc "x" :schema :int}))
           "dev: full map retained (identity)"))))
 
 ;; Note (rf2-tfiutq): the `reg-machine` LITERAL opts-map `:doc` elision lands
@@ -168,10 +168,10 @@
             elidable (pure-documentation) set is exactly `#{:doc}`. Every
             other standard registration-metadata key is load-bearing in
             production and MUST NOT be in this set."
-    (is (= #{:doc} registrar/pure-documentation-keys)
+    (is (= #{:doc} rf.registrar/pure-documentation-keys)
         "the elidable set is exactly #{:doc}")
     (doseq [load-bearing [:schema :data-schema :tags :interceptors :sensitive?
                           :large? :rf/id :handler-fn :request :transport
                           :scope :params-schema :invalidates :populates]]
-      (is (not (contains? registrar/pure-documentation-keys load-bearing))
+      (is (not (contains? rf.registrar/pure-documentation-keys load-bearing))
           (str load-bearing " is load-bearing — must NOT be elidable")))))

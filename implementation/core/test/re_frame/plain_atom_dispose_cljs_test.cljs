@@ -18,22 +18,22 @@
   :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.disposable :as rf-disposable]
-            [re-frame.frame :as frame]
-            [re-frame.subs :as subs]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.disposable :as rf.disposable]
+            [re-frame.frame :as rf.frame]
+            [re-frame.subs :as rf.subs]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; Per rf2-cmfln: sub-cache disposal is synchronous on derefer-count → 0;
 ;; no grace-period to configure.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- cache-keys []
-  (set (keys @(:sub-cache (frame/frame :rf/default)))))
+  (set (keys @(:sub-cache (rf.frame/frame :rf/default)))))
 
 (defn- entry-ref-count [query-v]
-  (get-in @(:sub-cache (frame/frame :rf/default)) [query-v :ref-count]))
+  (get-in @(:sub-cache (rf.frame/frame :rf/default)) [query-v :ref-count]))
 
 (deftest layer-2-disposal-decrements-input-ref-counts-on-cljs-plain-atom
   (testing "rf2-uatcy — disposing a layer-2 sub on the CLJS-plain-atom
@@ -50,10 +50,10 @@
 
     ;; Subscribe to the parent layer-2 sub — recursively subscribes both
     ;; inputs, bumping each to ref-count 1. Use the explicit-frame
-    ;; `subs/subscribe` so the test drives the reactive cache path
+    ;; `rf.subs/subscribe` so the test drives the reactive cache path
     ;; directly (the macro `rf/subscribe` resolves a render-time frame
     ;; context that headless node tests do not establish).
-    (let [r (subs/subscribe [:sum] {:frame :rf/default})]
+    (let [r (rf.subs/subscribe [:sum] {:frame :rf/default})]
       (is (= 5 @r))
       (is (= 1 (entry-ref-count [:sum])) "parent ref-count = 1")
       (is (= 1 (entry-ref-count [:a])) "input :a ref-count = 1 after layer-2 build")
@@ -63,7 +63,7 @@
     ;; Pre-fix the input-release callback never registered (no published
     ;; :adapter/dispose! hook, no IDisposable on the derived value) so
     ;; :a / :b leaked here.
-    (subs/unsubscribe :rf/default [:sum])
+    (rf.subs/unsubscribe :rf/default [:sum])
 
     (is (not (contains? (cache-keys) [:sum])) "parent disposed")
     (is (not (contains? (cache-keys) [:a]))
@@ -83,13 +83,13 @@
     (rf/reg-sub :ac :<- [:a] :<- [:c] (fn [[a c] _] (+ a c)))
     (rf/dispatch-sync [:init])
 
-    (subs/subscribe [:ab] {:frame :rf/default})
-    (subs/subscribe [:ac] {:frame :rf/default})
+    (rf.subs/subscribe [:ab] {:frame :rf/default})
+    (rf.subs/subscribe [:ac] {:frame :rf/default})
     (is (= 2 (entry-ref-count [:a])) "shared input :a has ref-count 2")
     (is (= 1 (entry-ref-count [:b])))
     (is (= 1 (entry-ref-count [:c])))
 
-    (subs/unsubscribe :rf/default [:ab])
+    (rf.subs/unsubscribe :rf/default [:ab])
     (is (not (contains? (cache-keys) [:ab])) ":ab disposed")
     (is (contains? (cache-keys) [:a]) ":a survives — still referenced by :ac")
     (is (= 1 (entry-ref-count [:a]))
@@ -97,7 +97,7 @@
     (is (not (contains? (cache-keys) [:b]))
         ":b was held only by :ab — disposed via cascade")
 
-    (subs/unsubscribe :rf/default [:ac])
+    (rf.subs/unsubscribe :rf/default [:ac])
     (is (not (contains? (cache-keys) [:a]))
         ":a finally disposed after the last layer-2 holder dropped")
     (is (not (contains? (cache-keys) [:c]))
@@ -112,13 +112,13 @@
     (rf/reg-sub :a*4 :<- [:a*2] (fn [a2 _] (* 2 a2)))
     (rf/dispatch-sync [:init])
 
-    (let [r (subs/subscribe [:a*4] {:frame :rf/default})]
+    (let [r (rf.subs/subscribe [:a*4] {:frame :rf/default})]
       (is (= 8 @r))
       (is (= 1 (entry-ref-count [:a*4])))
       (is (= 1 (entry-ref-count [:a*2])))
       (is (= 1 (entry-ref-count [:a]))))
 
-    (subs/unsubscribe :rf/default [:a*4])
+    (rf.subs/unsubscribe :rf/default [:a*4])
     (is (not (contains? (cache-keys) [:a*4])))
     (is (not (contains? (cache-keys) [:a*2])))
     (is (not (contains? (cache-keys) [:a])))))
@@ -136,7 +136,7 @@
     ;; decrementing a still-referenced input's ref-count one extra time →
     ;; premature eviction. The fix flips the guard FIRST and snapshots-and-
     ;; clears the callbacks before firing (mirroring the spine).
-    (let [make-dv (:make-derived-value plain-atom/adapter)
+    (let [make-dv (:make-derived-value rf.substrate.plain-atom/adapter)
           dv      (make-dv [(atom 0)] identity)
           fires   (atom 0)]
       (is (= 0 @dv) "sanity: derived value recomputes from its source")
@@ -144,11 +144,11 @@
       ;; Callbacks fire in registration order, so the re-entrant call happens
       ;; while the counter callback is still pending — the exact double-fire
       ;; window the guard must close.
-      (rf-disposable/-add-on-dispose dv (fn [] (rf-disposable/-dispose dv)))
-      (rf-disposable/-add-on-dispose dv (fn [] (swap! fires inc)))
-      (rf-disposable/-dispose dv)
+      (rf.disposable/-add-on-dispose dv (fn [] (rf.disposable/-dispose dv)))
+      (rf.disposable/-add-on-dispose dv (fn [] (swap! fires inc)))
+      (rf.disposable/-dispose dv)
       (is (= 1 @fires)
           "counting callback fired exactly once despite the re-entrant dispose")
       ;; A plain sequential second call stays a no-op too (idempotency).
-      (rf-disposable/-dispose dv)
+      (rf.disposable/-dispose dv)
       (is (= 1 @fires) "a subsequent plain -dispose does not re-fire callbacks"))))

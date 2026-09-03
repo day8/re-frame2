@@ -42,31 +42,31 @@
   establishes exists — so they now hold in BOTH postures. The trace-shape
   half (`:origin` under `:tags`, `:source` hoisted to the top level per Spec
   009 §Core fields) is a claim about the trace EVENT rather than about
-  propagation, and that half alone stays in a `(when interop/debug-enabled? …)`
+  propagation, and that half alone stays in a `(when rf.interop/debug-enabled? …)`
   arm marked `rf2-d2841`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
-            [re-frame.flows :as flows]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.flows :as rf.flows]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace :as rf.trace]))
 
 ;; ---- fixtures -------------------------------------------------------------
 
 (defn reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  (trace/clear-listeners!)
-  (rf/init! plain-atom/adapter)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.flows/reset-flows!)
+  (rf.schemas/clear-schemas-by-frame!)
+  (rf.trace/clear-listeners!)
+  (rf/init! rf.substrate.plain-atom/adapter)
   (require 're-frame.routing :reload)
   ;; EP-0002: establish an explicit frame scope (no synthesised default).
-  (frame/ensure-default-frame!)
-  (binding [frame/*current-frame* :rf/default]
+  (rf.frame/ensure-default-frame!)
+  (binding [rf.frame/*current-frame* :rf/default]
     (test-fn)))
 
 (use-fixtures :each reset-runtime)
@@ -180,7 +180,7 @@
         ;; `:origin` rides under `:tags` while `:source` is hoisted to the top
         ;; level per Spec 009 §Core fields — rather than about propagation,
         ;; which the envelope assertions above now carry in both postures.
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (let [dispatched   (->> @seen
                                   (filter #(= :rf.event/dispatched (:operation %))))
                 parent-ev    (first (filter #(= [:test/parent] (get-in % [:tags :rf.event/v])) dispatched))
@@ -224,7 +224,7 @@
 ;; eventual :router/dispatch! call would receive by stubbing set-timeout!
 ;; semantics. Easier path: register a fixture timer that runs the inner
 ;; fn synchronously via a custom :dispatch-later shape — but the existing
-;; reserved-fx body is platform-coupled (interop/set-timeout!). For JVM
+;; reserved-fx body is platform-coupled (rf.interop/set-timeout!). For JVM
 ;; the timer fires on a future; we use a CountDownLatch coordinated stub
 ;; to keep the test deterministic.
 

@@ -39,13 +39,13 @@
   *frame annotation* is REMOVED (a frame is not app-db's definition site), and
   classification does NOT propagate — you redact exactly the paths you classify;
   nothing is inherited (no derived-output sensitivity, no value-match)."
-  (:require [re-frame.elision :as elision]
-            [re-frame.error :as error]
-            [re-frame.frame :as frame]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.path :as path]
-            [re-frame.privacy :as privacy]
-            [re-frame.registrar :as registrar]))
+  (:require [re-frame.elision :as rf.elision]
+            [re-frame.error :as rf.error]
+            [re-frame.frame :as rf.frame]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.path :as rf.path]
+            [re-frame.privacy :as rf.privacy]
+            [re-frame.registrar :as rf.registrar]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -56,7 +56,7 @@
 ;; time. Every reg-* path already stores the author meta on its
 ;; `re-frame.registrar` entry, so `registration-classification` DERIVES it at
 ;; read time by running `normalise-classification` over
-;; `registrar/handler-meta` — the SAME validation path the registration ran. The
+;; `rf.registrar/handler-meta` — the SAME validation path the registration ran. The
 ;; registrar is the single source of truth, snapshot/restored by the test-
 ;; isolation runtime fixture for free.
 
@@ -83,9 +83,9 @@
   (`re-frame.path/segment?` — the shared segment domain). The EMPTY vector `[]`
   is legal — it marks the whole value (the `[[]]` convention). A composite
   element (a nested vector / map) is not a concrete segment and signals a caller
-  bug; `path/segment?` rejects it."
+  bug; `rf.path/segment?` rejects it."
   [x]
-  (and (vector? x) (every? path/segment? x)))
+  (and (vector? x) (every? rf.path/segment? x)))
 
 (defn- classification-error
   "Build the malformed-classification ex-info with the canonical thrown-error
@@ -94,7 +94,7 @@
   offending classification key; `extras` merges the offending-value slot
   (`:bad-value` for a non-vector whole, `:bad-entries` for malformed entries)."
   [class-key reason extras]
-  (error/thrown-ex-info
+  (rf.error/thrown-ex-info
     :rf.error/bad-classification
     'rf/reg-classification
     reason
@@ -188,14 +188,14 @@
 
 (defn registration-classification
   "Return the classification declaration for `(kind, id)`, or nil — DERIVED at
-  read time from `registrar/handler-meta` (rf2-ehexnw), NOT a duplicated
+  read time from `rf.registrar/handler-meta` (rf2-ehexnw), NOT a duplicated
   side-table.
 
   The returned shape is `{:sensitive [paths] :large [paths] :large? bool}` —
   slots are present only when the registration declared them. EP-0025: there is
   no derived-output sensitivity (no propagation)."
   [kind id]
-  (normalise-classification (registrar/handler-meta kind id)))
+  (normalise-classification (rf.registrar/handler-meta kind id)))
 
 ;; ---- emit-time projection ------------------------------------------------
 
@@ -208,7 +208,7 @@
   (`re-frame.epoch.tool-pair/projected-record`) reuses it to substitute the
   marker for a whole-output `:large?`-stamped sub's `:value` / `:prev-value`."
   [v path]
-  (elision/->marker v path {:reason :classification}))
+  (rf.elision/->marker v path {:reason :classification}))
 
 (defn- strict-prefix?
   "True when path `a` is a STRICT prefix of `b` — `b` is `a` extended by at
@@ -306,21 +306,21 @@
           prefixes      (decl-prefix-set sensitive-set large-set)
           shadow-set    (large-shadow-set sensitive-set large-set)
           matches?      (fn [tbl candidates] (boolean (some #(contains? tbl %) candidates)))]
-      (elision/walk-tree
+      (rf.elision/walk-tree
         v [[] #{[]}]
         {:decide  (fn [[path candidates] v]
                     (cond
-                      (matches? sensitive-set candidates) privacy/redacted-sentinel
+                      (matches? sensitive-set candidates) rf.privacy/redacted-sentinel
                       ;; NESTED-AXIS SUPPRESSION (rf2-izlr7f): a large-marked
                       ;; node that shadows a sensitive descendant descends so
                       ;; the descendant redacts in place — no size marker.
                       (and (matches? large-set candidates)
                            (seq shadow-set)
                            (matches? shadow-set candidates))
-                      elision/walk-recur
+                      rf.elision/walk-recur
 
                       (matches? large-set candidates)     (large-marker v path)
-                      :else                               elision/walk-recur))
+                      :else                               rf.elision/walk-recur))
          :map-key (fn [[path candidates] k]
                     [(conj path k) (fork-segment candidates k prefixes)])
          :index   (fn [[path candidates] i]
@@ -413,7 +413,7 @@
   absent) ⇒ pass-through: without the artefact the event has no handler at
   all, the documented fail-open. Identity-preserving when nothing applies."
   [event]
-  (if-let [project (late-bind/get-fn :resources/project-execute-event-args)]
+  (if-let [project (rf.late-bind/get-fn :resources/project-execute-event-args)]
     (if (>= (count event) 2)
       (let [payload  (nth event 1)
             payload' (project payload)]
@@ -527,7 +527,7 @@
     (case fx-id
       :dispatch        (redact-event-by-registration args)
       :dispatch-later  (project-dispatch-later-args args)
-      :rf.http/managed (if-let [project (late-bind/get-fn :http/project-managed-fx-args)]
+      :rf.http/managed (if-let [project (rf.late-bind/get-fn :http/project-managed-fx-args)]
                          (project args)
                          args)
       args)))
@@ -647,7 +647,7 @@
   elision registry is reachable (the projector inherits `elide-wire-value`'s
   fail-closed posture on a nil / unresolvable frame)."
   [v sub-id frame-id]
-  (if-let [project (late-bind/get-fn :routing/project-route-sub-egress)]
+  (if-let [project (rf.late-bind/get-fn :routing/project-route-sub-egress)]
     (project sub-id v {:frame frame-id})
     v))
 
@@ -697,8 +697,8 @@
         has-prev? (contains? tags :rf.sub/prev-value)]
     (cond
       (nil? frame-id)
-      (cond-> (assoc tags :rf.sub/value privacy/redacted-sentinel :sensitive? true)
-        has-prev? (assoc :rf.sub/prev-value privacy/redacted-sentinel))
+      (cond-> (assoc tags :rf.sub/value rf.privacy/redacted-sentinel :sensitive? true)
+        has-prev? (assoc :rf.sub/prev-value rf.privacy/redacted-sentinel))
 
       :else
       ;; Registration classification (none for the route subs) first, then the
@@ -729,8 +729,8 @@
   whole projection path is dev/JVM-only (DCE-elided in production CLJS). The
   explicit gate stays readable as-is; clarity wins over a dev-only read count."
   [frame-id]
-  (boolean (or (seq (elision/sensitive-declarations frame-id))
-               (seq (elision/declarations frame-id)))))
+  (boolean (or (seq (rf.elision/sensitive-declarations frame-id))
+               (seq (rf.elision/declarations frame-id)))))
 
 (defn- project-db-tags
   "Walk the `:rf.event/db` slot carried by the `:rf.event/db-pending` (t1) and
@@ -748,11 +748,11 @@
     tags
 
     (nil? frame-id)
-    (assoc tags :rf.event/db privacy/redacted-sentinel)
+    (assoc tags :rf.event/db rf.privacy/redacted-sentinel)
 
     (frame-has-declarations? frame-id)
     (assoc tags :rf.event/db
-           (elision/elide-wire-value (:rf.event/db tags) {:frame frame-id}))
+           (rf.elision/elide-wire-value (:rf.event/db tags) {:frame frame-id}))
 
     :else
     tags))
@@ -771,12 +771,12 @@
 
     (nil? frame-id)
     (assoc tags :rf.view/render-args
-           (mapv (constantly privacy/redacted-sentinel)
+           (mapv (constantly rf.privacy/redacted-sentinel)
                  (:rf.view/render-args tags)))
 
     (frame-has-declarations? frame-id)
     (assoc tags :rf.view/render-args
-           (mapv #(elision/elide-wire-value % {:frame frame-id})
+           (mapv #(rf.elision/elide-wire-value % {:frame frame-id})
                  (:rf.view/render-args tags)))
 
     :else
@@ -815,8 +815,8 @@
   the CHILD-owned `<error>` payload (3rd element, plus any further args) with the
   `:rf/redacted` sentinel."
   [event]
-  (into [(nth event 0) (nth event 1) privacy/redacted-sentinel]
-        (repeat (max 0 (- (count event) 3)) privacy/redacted-sentinel)))
+  (into [(nth event 0) (nth event 1) rf.privacy/redacted-sentinel]
+        (repeat (max 0 (- (count event) 3)) rf.privacy/redacted-sentinel)))
 
 (defn- project-spawn-synthetic-payloads
   "Summarize the two CHILD-owned / unclassifiable spawn payloads that egress
@@ -832,7 +832,7 @@
   [tags]
   (cond-> tags
     (contains? tags :start)
-    (assoc :start privacy/redacted-sentinel)
+    (assoc :start rf.privacy/redacted-sentinel)
 
     (spawn-error-event? (:event tags))
     (assoc :event (summarize-spawn-error-event (:event tags)))
@@ -872,8 +872,8 @@
                                              (= prefix (subvec (vec %) 0 n))))
                                (map #(subvec (vec %) n)))
                          (keys decls)))
-          sens   (under (elision/sensitive-declarations frame-id))
-          large  (under (elision/declarations frame-id))]
+          sens   (under (rf.elision/sensitive-declarations frame-id))
+          large  (under (rf.elision/declarations frame-id))]
       (when (or (seq sens) (seq large))
         (cond-> {}
           (seq sens)  (assoc :sensitive sens)
@@ -912,7 +912,7 @@
       (assoc tags :outcome
              (cond-> outcome
                (vector? (:fx outcome)) (update :fx #(mapv project-event-fx-entry %))
-               (contains? outcome :db) (assoc :db privacy/redacted-sentinel))))))
+               (contains? outcome :db) (assoc :db rf.privacy/redacted-sentinel))))))
 
 (defn- project-machine-tags
   "Walk machine `:data`-bearing trace tag shapes. Paths are rooted at the
@@ -1015,7 +1015,7 @@
   projectors: replace the WHOLE `:exception-data` slot with the `:rf/redacted`
   sentinel and stamp `:sensitive? true`."
   [tags]
-  (assoc tags :exception-data privacy/redacted-sentinel :sensitive? true))
+  (assoc tags :exception-data rf.privacy/redacted-sentinel :sensitive? true))
 
 (defn- project-machine-error-tags
   "Walk the `:rf.error/machine-action-exception` tag shape. The trace carries
@@ -1055,7 +1055,7 @@
     (if (and (contains? tags :exception-data)
              (some? (:exception-data tags))
              (or (nil? frame-id)
-                 (seq (elision/sensitive-declarations frame-id))))
+                 (seq (rf.elision/sensitive-declarations frame-id))))
       (redact-exception-data-slot tags)
       tags)))
 
@@ -1066,7 +1066,7 @@
   `:offending-value` slot is summarized to `:rf/redacted` UNCONDITIONALLY."
   [tags]
   (if (contains? tags :offending-value)
-    (assoc tags :offending-value privacy/redacted-sentinel)
+    (assoc tags :offending-value rf.privacy/redacted-sentinel)
     tags))
 
 (defn- resource-failure-op?
@@ -1084,8 +1084,8 @@
   form fields. Each present envelope slot is summarized to `:rf/redacted`."
   [tags]
   (cond-> tags
-    (some? (:error tags))      (assoc :error      privacy/redacted-sentinel)
-    (some? (:page-error tags)) (assoc :page-error privacy/redacted-sentinel)))
+    (some? (:error tags))      (assoc :error      rf.privacy/redacted-sentinel)
+    (some? (:page-error tags)) (assoc :page-error rf.privacy/redacted-sentinel)))
 
 (defn- machine-op?
   [operation]
@@ -1118,7 +1118,7 @@
                           (cond
                             (keyword? x)            x
                             (interceptor-ref-id? x) (first x)
-                            :else                   privacy/redacted-sentinel))
+                            :else                   rf.privacy/redacted-sentinel))
             sanitize-vec (fn [v]
                            (when (sequential? v)
                              (mapv sanitize-id v)))
@@ -1247,6 +1247,6 @@
 ;; `re-frame.classification` would cycle since this ns requires elision which
 ;; requires trace).
 
-(late-bind/set-fn! :classification/project-trace-event project-trace-event)
-(late-bind/set-fn! :classification/redact-event-by-registration redact-event-by-registration)
-(late-bind/set-fn! :classification/registration-classification registration-classification)
+(rf.late-bind/set-fn! :classification/project-trace-event project-trace-event)
+(rf.late-bind/set-fn! :classification/redact-event-by-registration redact-event-by-registration)
+(rf.late-bind/set-fn! :classification/registration-classification registration-classification)

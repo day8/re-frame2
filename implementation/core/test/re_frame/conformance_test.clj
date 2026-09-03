@@ -11,7 +11,7 @@
     - FIXTURE LOADING — `slurp` + `clojure.edn/read-string` over the on-disk
       `spec/conformance/fixtures/*.edn` corpus (CLJS inlines them at
       compile time instead).
-    - RESET / ISOLATION — `registrar/clear-all!` + `(require … :reload)` to
+    - RESET / ISOLATION — `rf.registrar/clear-all!` + `(require … :reload)` to
       re-establish framework registrations between fixtures (CLJS has no
       `:reload`, so it snapshots/restores the registrar instead).
     - TRACE-LISTENER registry access — `re-frame.trace` on the JVM (CLJS
@@ -26,11 +26,11 @@
             [clojure.edn :as edn]
             [clojure.string :as string]
             [re-frame.core :as rf]
-            [re-frame.error-emit :as error-emit]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.flows :as flows]
-            [re-frame.schemas :as schemas]
+            [re-frame.error-emit :as rf.error-emit]
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.flows :as rf.flows]
+            [re-frame.schemas :as rf.schemas]
             ;; Per rf2-t0hq + rf2-qyfie — the Malli adapter ns must be
             ;; required at boot to publish the late-bind hook the default
             ;; validator routes through. Absent the require the validator
@@ -38,9 +38,9 @@
             ;; Malli-backed outcomes wouldn't surface. JVM-specific: the CLJS
             ;; leaf reaches the same outcomes without it.
             [re-frame.schemas.malli]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]
-            [re-frame.late-bind :as late-bind]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace :as rf.trace]
+            [re-frame.late-bind :as rf.late-bind]
             ;; Side-effect requires — publish registrations the fixtures
             ;; reference. reset-runtime! `:reload`s these between fixtures.
             [re-frame.http.managed]
@@ -57,7 +57,7 @@
             [re-frame.resources]
             [re-frame.resources.test-support]
             ;; The shared, host-neutral runner (rf2-xurchk).
-            [re-frame.conformance-runner :as runner]))
+            [re-frame.conformance-runner :as rf.conformance-runner]))
 
 ;; ---- fixture loader (JVM-specific: fs) ------------------------------------
 
@@ -167,21 +167,21 @@
 ;; ---- runtime reset (JVM-specific: clear-all! + require :reload) ------------
 
 (defn- reset-runtime! []
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.flows/reset-flows!)
+  (rf.schemas/clear-schemas-by-frame!)
   ;; rf2-wxe9t — drop every corpus-wide error-emit listener so a recorder
   ;; installed for one fixture can't fire against the next fixture's drains.
-  (error-emit/clear-error-listeners!)
+  (rf.error-emit/clear-error-listeners!)
   ;; rf2-v0jwt — drop the per-frame epoch ring buffer (and the in-flight
   ;; capture buffer) between fixtures so `:epoch-records` assertions observe
   ;; THIS fixture's recorded epochs only.
-  (when-let [f (late-bind/get-fn :epoch/clear-history!)]
+  (when-let [f (rf.late-bind/get-fn :epoch/clear-history!)]
     (f))
-  (when-let [f (late-bind/get-fn :epoch/clear-epoch-listeners!)]
+  (when-let [f (rf.late-bind/get-fn :epoch/clear-epoch-listeners!)]
     (f))
-  (rf/init! plain-atom/adapter)
+  (rf/init! rf.substrate.plain-atom/adapter)
   ;; The framework's provided recordable coeffect `:rf/time-ms` is registered
   ;; at `re-frame.cofx` ns-load; clear-all! wiped it. Re-seat it.
   (require 're-frame.cofx :reload)
@@ -233,14 +233,14 @@
   :reload)`), matching the pre-consolidation JVM behaviour."
   {:reset-runtime!             reset-runtime!
    :register-trace-listener!   (fn [fixture-id listener]
-                                 (trace/register-listener! [fixture-id] listener))
+                                 (rf.trace/register-listener! [fixture-id] listener))
    :unregister-trace-listener! (fn [_fixture-id]
-                                 (trace/clear-listeners!))})
+                                 (rf.trace/clear-listeners!))})
 
 ;; ---- the test entrypoint --------------------------------------------------
 
 (deftest run-conformance-corpus
-  (runner/run-corpus (all-fixtures) host "JVM"))
+  (rf.conformance-runner/run-corpus (all-fixtures) host "JVM"))
 
 ;; ---- rf2-98ni acceptance: the one-form guard cannot be escaped ------------
 ;;
@@ -304,7 +304,7 @@
                :outcome  :rf.test/DELIBERATELY-WRONG}}]}})
 
 (deftest epoch-records-checked-on-jvm
-  (let [result (runner/run-fixture epoch-mismatch-fixture host)]
+  (let [result (rf.conformance-runner/run-fixture epoch-mismatch-fixture host)]
     (is (not (:passed? result))
         "a deliberately-mismatched :epoch-records expectation MUST fail the runner on JVM")
     (is (seq (:epoch-failures result))
@@ -313,10 +313,10 @@
 (deftest unknown-expect-key-fails-loud
   ;; A runnable fixture whose :fixture/expect names a key the runner neither
   ;; checks nor delegates MUST be reported as unknown — not silently ignored.
-  (is (seq (runner/unknown-expect-keys
+  (is (seq (rf.conformance-runner/unknown-expect-keys
              {:fixture/expect {:rf.test/no-such-expectation 1}}))
       "an unrecognised :fixture/expect key must be flagged unknown")
-  (is (empty? (runner/unknown-expect-keys
+  (is (empty? (rf.conformance-runner/unknown-expect-keys
                 {:fixture/expect {:final-app-db {} :epoch-records []}}))
       "corpus-checked expectation keys must NOT be flagged unknown"))
 
@@ -344,7 +344,7 @@
 
 (deftest door-parity-fixture-bites
   (let [fixture (door-parity-fixture)
-        passes? (fn [f] (:passed? (runner/run-fixture f host)))]
+        passes? (fn [f] (:passed? (rf.conformance-runner/run-fixture f host)))]
     (is (passes? fixture)
         "the door-parity fixture must pass as shipped")
     (doseq [[door idx] [["named-address" 0] ["raw-URL" 1] ["URL-driven" 2]]]
@@ -370,7 +370,7 @@
 ;; FAIL the runner, otherwise the fixture's live-mode assertion is a no-op.
 (deftest derivation-graph-expect-graph-guard
   (reset-runtime!)
-  (let [run (fn [call] (runner/run-call call))]
+  (let [run (fn [call] (rf.conformance-runner/run-call call))]
     (is (:passed? (run {:call :derivation-graph :mode :live
                         :expect-graph {:mode :live :frame :rf/default}}))
         "the true live graph shape must pass")

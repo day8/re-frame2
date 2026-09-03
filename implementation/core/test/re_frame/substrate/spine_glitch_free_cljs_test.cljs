@@ -30,8 +30,8 @@
 
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.disposable :as rf-disposable]
-            [re-frame.substrate.spine :as spine]))
+            [re-frame.disposable :as rf.disposable]
+            [re-frame.substrate.spine :as rf.substrate.spine]))
 
 ;; ---- harness --------------------------------------------------------------
 ;;
@@ -42,10 +42,10 @@
 ;; wires them per adapter.
 
 (defn- build-graph []
-  (let [scheduler    (spine/make-scheduler)
-        make-derived (spine/make-derived-value-fn "rf-glitch-" scheduler)
-        replace!     (spine/make-replace-container-fn scheduler)
-        root         (spine/make-state-container {:a 1 :b 10})]
+  (let [scheduler    (rf.substrate.spine/make-scheduler)
+        make-derived (rf.substrate.spine/make-derived-value-fn "rf-glitch-" scheduler)
+        replace!     (rf.substrate.spine/make-replace-container-fn scheduler)
+        root         (rf.substrate.spine/make-state-container {:a 1 :b 10})]
     {:scheduler    scheduler
      :make-derived make-derived
      :replace!     replace!
@@ -140,10 +140,10 @@
 (deftest layer-2-three-input-recomputes-once
   (testing "the single-recompute contract holds for a 3-input layer-2
             derived value (≥3 sources exercise the recompute-n fallback)"
-    (let [scheduler    (spine/make-scheduler)
-          make-derived (spine/make-derived-value-fn "rf-glitch3-" scheduler)
-          replace!     (spine/make-replace-container-fn scheduler)
-          root         (spine/make-state-container {:a 1 :b 2 :c 3})
+    (let [scheduler    (rf.substrate.spine/make-scheduler)
+          make-derived (rf.substrate.spine/make-derived-value-fn "rf-glitch3-" scheduler)
+          replace!     (rf.substrate.spine/make-replace-container-fn scheduler)
+          root         (rf.substrate.spine/make-state-container {:a 1 :b 2 :c 3})
           l1a    (make-derived [root] (fn [db] (:a db)))
           l1b    (make-derived [root] (fn [db] (:b db)))
           l1c    (make-derived [root] (fn [db] (:c db)))
@@ -226,7 +226,7 @@
       ;; AFTER l2 is already queued but BEFORE l2's own flush drains — and
       ;; disposes l2. The queued l2 flush then runs against a disposed
       ;; reaction.
-      (add-watch l1b :dispose-l2 (fn [_ _ _ _] (rf-disposable/-dispose l2)))
+      (add-watch l1b :dispose-l2 (fn [_ _ _ _] (rf.disposable/-dispose l2)))
       ;; ONE app-db write changes BOTH inputs, so both l1a and l1b flush and
       ;; the dispose lands between l2's mark-dirty and its queued flush.
       (replace! root {:a 2 :b 20})
@@ -252,10 +252,10 @@
       ;; Open an epoch, mark l1 dirty (enqueues its flush), dispose l1 while
       ;; the epoch is still open (queue not yet drained), then let the epoch
       ;; close and drain. The queued l1 flush must skip the recompute.
-      (#'spine/with-epoch scheduler
+      (#'rf.substrate.spine/with-epoch scheduler
         (fn []
           (reset! root {:a 99 :b 10})   ;; marks l1 dirty, enqueues flush
-          (rf-disposable/-dispose l1))) ;; dispose before the drain
+          (rf.disposable/-dispose l1))) ;; dispose before the drain
       (is (= 0 @body-runs)
           "the disposed reaction's flush did not recompute on drain"))))
 
@@ -357,8 +357,8 @@
   (testing "a direct source mutation OUTSIDE replace-container! (test /
             tooling reset!) still flushes the single affected derived
             value synchronously"
-    (let [scheduler    (spine/make-scheduler)
-          make-derived (spine/make-derived-value-fn "rf-direct-" scheduler)
+    (let [scheduler    (rf.substrate.spine/make-scheduler)
+          make-derived (rf.substrate.spine/make-derived-value-fn "rf-direct-" scheduler)
           src          (atom 5)
           l1     (make-derived [src] (fn [x] (* x 10)))
           notes  (atom [])]
@@ -386,8 +386,8 @@
             recovers cleanly. (Before rf2-2u4rw the depth-zero drain re-raised
             inline and stranded the later sibling; #6210's deferral fixed the
             exactly-two case only — rf2-7ryt0 gives every arity a real terminal.)"
-    (let [scheduler    (spine/make-scheduler)
-          make-derived (spine/make-derived-value-fn "rf-b1-" scheduler)
+    (let [scheduler    (rf.substrate.spine/make-scheduler)
+          make-derived (rf.substrate.spine/make-derived-value-fn "rf-b1-" scheduler)
           src          (atom 1)
           boom?        (atom false)
           later-ran    (atom 0)
@@ -434,8 +434,8 @@
             escape is the one surfaced (presence capture across the single
             coordinator-bracketed drain) — the later dependent's own throw is
             dropped in favour of the first. (rf2-2u4rw + rf2-7ryt0)"
-    (let [scheduler    (spine/make-scheduler)
-          make-derived (spine/make-derived-value-fn "rf-b1b-" scheduler)
+    (let [scheduler    (rf.substrate.spine/make-scheduler)
+          make-derived (rf.substrate.spine/make-derived-value-fn "rf-b1b-" scheduler)
           src          (atom 1)
           boom?        (atom false)
           first-err    (js/Error. "first boom")
@@ -471,8 +471,8 @@
             returned successfully and the failure was lost until an unrelated
             mutation. The per-source coordinator gives the bare reset a real
             with-epoch terminal. (rf2-7ryt0 — RED against #6210: parked.)"
-    (let [scheduler    (spine/make-scheduler)
-          make-derived (spine/make-derived-value-fn "rf-sole-" scheduler)
+    (let [scheduler    (rf.substrate.spine/make-scheduler)
+          make-derived (rf.substrate.spine/make-derived-value-fn "rf-sole-" scheduler)
           src          (atom 1)
           boom?        (atom false)
           sentinel     (js/Error. "sole boom")
@@ -500,8 +500,8 @@
             falsey value, never masked by a truthiness test (rf2-7ryt0 +
             rf2-2u4rw)."
     (doseq [thrown-val [false nil]]
-      (let [scheduler    (spine/make-scheduler)
-            make-derived (spine/make-derived-value-fn "rf-solef-" scheduler)
+      (let [scheduler    (rf.substrate.spine/make-scheduler)
+            make-derived (rf.substrate.spine/make-derived-value-fn "rf-solef-" scheduler)
             src          (atom 1)
             boom?        (atom false)
             d            (make-derived [src] (fn [x] (when @boom? (throw thrown-val)) x))]
@@ -527,8 +527,8 @@
             per-source coordinator brackets the whole fan-out in one with-epoch
             so all attempt, then the earliest surfaces. (rf2-7ryt0)"
     (doseq [throw-at [:first :middle :last]]
-      (let [scheduler    (spine/make-scheduler)
-            make-derived (spine/make-derived-value-fn "rf-3-" scheduler)
+      (let [scheduler    (rf.substrate.spine/make-scheduler)
+            make-derived (rf.substrate.spine/make-derived-value-fn "rf-3-" scheduler)
             src          (atom 1)
             boom?        (atom false)
             ran          (atom {:first 0 :middle 0 :last 0})
@@ -563,8 +563,8 @@
             (first-registered) failure is surfaced — presence capture across the
             single bracketed drain — and every dependent is still attempted once;
             the later thrower does not abort the fan-out. (rf2-7ryt0)"
-    (let [scheduler    (spine/make-scheduler)
-          make-derived (spine/make-derived-value-fn "rf-3m-" scheduler)
+    (let [scheduler    (rf.substrate.spine/make-scheduler)
+          make-derived (rf.substrate.spine/make-derived-value-fn "rf-3m-" scheduler)
           src          (atom 1)
           boom?        (atom false)
           ran          (atom 0)
@@ -591,8 +591,8 @@
             NO failure, and the next unrelated clean mutation flushes normally
             with no retained earlier failure. (rf2-7ryt0 acceptance — clean
             state after every path.)"
-    (let [scheduler    (spine/make-scheduler)
-          make-derived (spine/make-derived-value-fn "rf-clean-" scheduler)
+    (let [scheduler    (rf.substrate.spine/make-scheduler)
+          make-derived (rf.substrate.spine/make-derived-value-fn "rf-clean-" scheduler)
           src          (atom 1)
           other        (atom 100)
           boom?        (atom false)
@@ -635,10 +635,10 @@
             rf2-2u4rw seeds the body escape onto :escaped BEFORE draining so the
             drain's E2 cannot displace it; the drain still attempts the queued
             tail, and E1 surfaces once with exact identity, scheduler clean."
-    (let [scheduler    (spine/make-scheduler)
-          make-derived (spine/make-derived-value-fn "rf-b2-" scheduler)
-          replace!     (spine/make-replace-container-fn scheduler)
-          root         (spine/make-state-container {:a 1})
+    (let [scheduler    (rf.substrate.spine/make-scheduler)
+          make-derived (rf.substrate.spine/make-derived-value-fn "rf-b2-" scheduler)
+          replace!     (rf.substrate.spine/make-replace-container-fn scheduler)
+          root         (rf.substrate.spine/make-state-container {:a 1})
           boom?        (atom false)
           e1           (js/Error. "E1 body")
           ;; A derived whose flush recompute throws E2 during the drain (its
@@ -652,7 +652,7 @@
         ;; Body: reset root (queues drain-thrower's flush at depth 1), THEN
         ;; throw E1. The outermost close drains (flush throws E2) and must
         ;; surface E1.
-        (try (#'spine/with-epoch scheduler
+        (try (#'rf.substrate.spine/with-epoch scheduler
                (fn []
                  (reset! root {:a 2})   ;; queues the flush (no drain yet)
                  (throw e1)))           ;; E1 escapes the body after queueing
@@ -675,9 +675,9 @@
             throws a FALSEY value (`nil` / `false`, both legal CLJS throws)
             still wins over a truthy drain E2, with exact identity. (rf2-2u4rw)"
     (doseq [thrown-val [false nil]]
-      (let [scheduler    (spine/make-scheduler)
-            make-derived (spine/make-derived-value-fn "rf-b2f-" scheduler)
-            root         (spine/make-state-container {:a 1})
+      (let [scheduler    (rf.substrate.spine/make-scheduler)
+            make-derived (rf.substrate.spine/make-derived-value-fn "rf-b2f-" scheduler)
+            root         (rf.substrate.spine/make-state-container {:a 1})
             boom?        (atom false)
             _drain-thrower (make-derived [root]
                              (fn [db] (when @boom? (throw (js/Error. "E2 drain")))
@@ -686,7 +686,7 @@
         (reset! boom? true)
         (let [caught (atom ::none)
               threw? (atom false)]
-          (try (#'spine/with-epoch scheduler
+          (try (#'rf.substrate.spine/with-epoch scheduler
                  (fn [] (reset! root {:a 2}) (throw thrown-val)))
                (catch :default e (reset! threw? true) (reset! caught e)))
           (is @threw?

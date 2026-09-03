@@ -25,15 +25,15 @@
 
   `inject-cofx` is REMOVED (EP-0017, no alias) — calling it is the hard
   error `:rf.error/inject-cofx-removed` naming `:rf.cofx/requires`."
-  (:require [re-frame.registrar :as registrar]
-            [re-frame.interceptor :as interceptor]
-            [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.error :as error]
-            [re-frame.cofx.value-check :as value-check]
-            [re-frame.frame :as frame]
-            [re-frame.fx :as fx]
-            [re-frame.trace :as trace
+  (:require [re-frame.registrar :as rf.registrar]
+            [re-frame.interceptor :as rf.interceptor]
+            [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.error :as rf.error]
+            [re-frame.cofx.value-check :as rf.cofx.value-check]
+            [re-frame.frame :as rf.frame]
+            [re-frame.fx :as rf.fx]
+            [re-frame.trace :as rf.trace
              #?@(:cljs [:include-macros true])]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -51,18 +51,18 @@
 ;; SP6); we alias it here so internal call sites read in the cofx
 ;; vocabulary.
 
-(def ^:private cofx-runs-on-platform? fx/runs-on-platform?)
+(def ^:private cofx-runs-on-platform? rf.fx/runs-on-platform?)
 
 (defn- active-platform-for-frame
   "Resolve the active platform for a cofx supplier run from a frame-id.
   Resolves the frame record, then defers to the shared per-frame platform
-  resolution `fx/platform-for-frame-record`: the frame's `:config
+  resolution `rf.fx/platform-for-frame-record`: the frame's `:config
   :platform` override (set by the `:ssr-server` preset, or any
   user-supplied frame config) takes precedence over the host-wide platform
-  marker (`interop/active-platform`, toggled via
+  marker (`rf.interop/active-platform`, toggled via
   `re-frame.core/init-platform`)."
   [frame-id]
-  (fx/platform-for-frame-record (when frame-id (frame/frame frame-id))))
+  (rf.fx/platform-for-frame-record (when frame-id (rf.frame/frame frame-id))))
 
 ;; ---- reserved / framework-owned coeffect names ----------------------------
 ;;
@@ -96,11 +96,11 @@
   "Emit `:rf.error/cofx-name-collision` (registration-time, diagnostic) and
   throw. Per Spec 001 §Collisions + Spec 009 §Error catalogue."
   [id reason]
-  (trace/emit-error! :rf.error/cofx-name-collision
+  (rf.trace/emit-error! :rf.error/cofx-name-collision
                      {:rf.cofx/id id
                       :reason     reason
                       :recovery   :no-recovery})
-  (error/throw-error! :rf.error/cofx-name-collision 'rf/reg-cofx reason
+  (rf.error/throw-error! :rf.error/cofx-name-collision 'rf/reg-cofx reason
                       {:extra {:rf.cofx/id id}}))
 
 (defn- emit-cofx-registration-invalid!
@@ -115,11 +115,11 @@
   caught at EP-0023 image assembly (`:rf.error/image-duplicate-id`), not
   here. Per Spec 001 §`reg-cofx` + Spec 009 §Error catalogue."
   [id reason]
-  (trace/emit-error! :rf.error/cofx-registration-invalid
+  (rf.trace/emit-error! :rf.error/cofx-registration-invalid
                      {:rf.cofx/id id
                       :reason     reason
                       :recovery   :no-recovery})
-  (error/throw-error! :rf.error/cofx-registration-invalid 'rf/reg-cofx reason
+  (rf.error/throw-error! :rf.error/cofx-registration-invalid 'rf/reg-cofx reason
                       {:extra {:rf.cofx/id id}}))
 
 (defn reg-cofx
@@ -274,12 +274,12 @@
       ;; `registration-classification` read time (emit-time projection redacts the
       ;; delivered coeffect value's slots in trace events that surface
       ;; `:coeffects`), no imperative stash. Shares the validate + merge-coords +
-      ;; register tail with `reg-fx` via `fx/register-with-classification!`
+      ;; register tail with `reg-fx` via `rf.fx/register-with-classification!`
       ;; (rf2-a3pl56). The value-returning supplier rides the registrar's
       ;; conventional `:handler-fn` slot; nil for a provided fact with no
       ;; generator. The cofx-specific `:recordable?` / `:provided?` grade flags
       ;; ride the `extra-slots` map.
-      (fx/register-with-classification! :cofx id meta supplier
+      (rf.fx/register-with-classification! :cofx id meta supplier
                                         {:recordable? recordable?
                                          :provided?   provided?}))
     id))
@@ -308,7 +308,7 @@
    :recordable? (boolean (:recordable? meta))
    :provided?   (boolean (:provided? meta))})
 
-(late-bind/set-fn! :image/lower-inline-cofx lower-inline-cofx)
+(rf.late-bind/set-fn! :image/lower-inline-cofx lower-inline-cofx)
 
 ;; ---- :rf.cofx/requires parsing (Spec 001 §The declaration key) ------------
 ;;
@@ -325,12 +325,12 @@
   "Emit `:rf.error/cofx-request-invalid` (registration-time) and throw. Per
   Spec 001 §The declaration key + Spec 009 §Error catalogue."
   [failing-id received reason]
-  (trace/emit-error! :rf.error/cofx-request-invalid
+  (rf.trace/emit-error! :rf.error/cofx-request-invalid
                      {:failing-id failing-id
                       :received   received
                       :reason     reason
                       :recovery   :no-recovery})
-  (error/throw-error! :rf.error/cofx-request-invalid 'rf/reg-event reason
+  (rf.error/throw-error! :rf.error/cofx-request-invalid 'rf/reg-event reason
                       {:extra {:failing-id failing-id
                                :received   received}}))
 
@@ -504,15 +504,15 @@
                     "`:rf.cofx/requires`) so a supplier exists before the event "
                     "is dispatched."
                     (when frame-id (str " (frame `" frame-id "`)")))]
-    (when-let [emit-error-both! (late-bind/get-fn-cached :error-emit/emit-error-both)]
-      (emit-error-both! :rf.error/unregistered-cofx nil failing-id frame-id nil 0 (interop/now-ms)
+    (when-let [emit-error-both! (rf.late-bind/get-fn-cached :error-emit/emit-error-both)]
+      (emit-error-both! :rf.error/unregistered-cofx nil failing-id frame-id nil 0 (rf.interop/now-ms)
                         (cond-> {:rf.cofx/id        cofx-id
                                  :failing-id        failing-id
                                  :rf.trace/event-id failing-id
                                  :reason            reason
                                  :recovery          :no-recovery}
                           frame-id (assoc :frame frame-id))))
-    (error/throw-error! :rf.error/unregistered-cofx 'rf/reg-event reason
+    (rf.error/throw-error! :rf.error/unregistered-cofx 'rf/reg-event reason
                         {:extra (cond-> {:rf.cofx/id cofx-id
                                          :failing-id failing-id}
                                   frame-id (assoc :frame frame-id))})))
@@ -532,15 +532,15 @@
                     "dispatch under `:live` so a generator-backed fact can mint "
                     "it."
                     (when frame-id (str " (frame `" frame-id "`)")))]
-    (when-let [emit-error-both! (late-bind/get-fn-cached :error-emit/emit-error-both)]
-      (emit-error-both! :rf.error/missing-required-cofx nil failing-id frame-id nil 0 (interop/now-ms)
+    (when-let [emit-error-both! (rf.late-bind/get-fn-cached :error-emit/emit-error-both)]
+      (emit-error-both! :rf.error/missing-required-cofx nil failing-id frame-id nil 0 (rf.interop/now-ms)
                         (cond-> {:rf.cofx/id        cofx-id
                                  :failing-id        failing-id
                                  :rf.trace/event-id failing-id
                                  :reason            reason
                                  :recovery          :no-recovery}
                           frame-id (assoc :frame frame-id))))
-    (error/throw-error! :rf.error/missing-required-cofx 'rf/reg-event reason
+    (rf.error/throw-error! :rf.error/missing-required-cofx 'rf/reg-event reason
                         {:extra (cond-> {:rf.cofx/id cofx-id
                                          :failing-id failing-id}
                                   frame-id (assoc :frame frame-id))})))
@@ -559,9 +559,9 @@
   tools from double-recording a captured trace AND a propagated Throwable)."
   [cofx-id failing-id frame-id ^Throwable t]
   ;; rf2-vzrxp3: nil-safe extractor (a thrown non-Error value has no message).
-  (let [msg (error/ex-message-safe t)]
-    (when-let [emit-error-both! (late-bind/get-fn-cached :error-emit/emit-error-both)]
-      (emit-error-both! :rf.error/coeffect-exception nil failing-id frame-id t 0 (interop/now-ms)
+  (let [msg (rf.error/ex-message-safe t)]
+    (when-let [emit-error-both! (rf.late-bind/get-fn-cached :error-emit/emit-error-both)]
+      (emit-error-both! :rf.error/coeffect-exception nil failing-id frame-id t 0 (rf.interop/now-ms)
                         (cond-> {:rf.cofx/id        cofx-id
                                  :failing-id        cofx-id
                                  :rf.trace/event-id failing-id
@@ -611,7 +611,7 @@
   `(when redact-fn …)` guard is belt-and-braces (no schemas artefact ⇒ no
   schema to redact against)."
   [cofx-id value explanation schema failing-id frame-id continue?]
-  (let [redact-fn (late-bind/get-fn-cached :schemas/redact-validation-tags)
+  (let [redact-fn (rf.late-bind/get-fn-cached :schemas/redact-validation-tags)
         ;; The off-box slots shared by the trace and the throw's ex-data.
         ;; Redaction scrubs `:value` / `:explain` and stamps `:sensitive?`
         ;; when `schema` declares any `:sensitive?` slot.
@@ -636,8 +636,8 @@
                       "this is a hard error in dev AND production. Fix the value "
                       "to satisfy the declared `:schema` (or correct the schema). "
                       "See `:explain` for the validation detail.")]
-        (when-let [emit-error-both! (late-bind/get-fn-cached :error-emit/emit-error-both)]
-          (emit-error-both! :rf.error/cofx-value-invalid nil failing-id frame-id nil 0 (interop/now-ms)
+        (when-let [emit-error-both! (rf.late-bind/get-fn-cached :error-emit/emit-error-both)]
+          (emit-error-both! :rf.error/cofx-value-invalid nil failing-id frame-id nil 0 (rf.interop/now-ms)
                             (cond-> {:rf.cofx/id        cofx-id
                                      :failing-id        failing-id
                                      :rf.trace/event-id failing-id
@@ -650,7 +650,7 @@
         ;; The always-on error listener is synchronous. If it destroys A, the
         ;; framework-owned throw is inert too.
         (when (continue?)
-          (error/throw-error! :rf.error/cofx-value-invalid 'rf/reg-cofx reason
+          (rf.error/throw-error! :rf.error/cofx-value-invalid 'rf/reg-cofx reason
                               {:extra (cond-> {:rf.cofx/id cofx-id
                                                :failing-id failing-id
                                                :value      (:value redacted)
@@ -684,7 +684,7 @@
     (if-not (contains? meta :schema)
       value
       (let [schema      (:schema meta)
-            validate-fn (late-bind/get-fn-cached :schemas/validate-with-registered-fn)]
+            validate-fn (rf.late-bind/get-fn-cached :schemas/validate-with-registered-fn)]
         (if (nil? validate-fn)
           ;; No validator registered (schemas artefact absent, or
           ;; `set-schema-validator!` called with nil) → nil = "every value
@@ -698,7 +698,7 @@
               ok?
               value
               :else
-              (let [explain-fn  (late-bind/get-fn-cached :schemas/explain-with-registered-fn)
+              (let [explain-fn  (rf.late-bind/get-fn-cached :schemas/explain-with-registered-fn)
                     explanation (when (and (continue?) explain-fn)
                                   (try (explain-fn schema value)
                                        (catch #?(:clj Throwable :cljs :default) e
@@ -726,7 +726,7 @@
 ;; (`re-frame.recordable`) and error shape (`:rf.error/cofx-value-invalid`,
 ;; reason `:non-edn-recordable-value`).
 ;;
-;; ALWAYS-ON — NOT gated on `interop/debug-enabled?` (rf2-q34j26, EP-0017 Open
+;; ALWAYS-ON — NOT gated on `rf.interop/debug-enabled?` (rf2-q34j26, EP-0017 Open
 ;; Issue 9 — structural EDN always, hard error in production too), matching the
 ;; slice-A supplied-value walk (router/diagnostics.cljc) now hardened the same
 ;; way: a generated host handle folds a non-EDN value into the durable record
@@ -744,7 +744,7 @@
   `:rf.error/cofx-value-invalid` (reason `:non-edn-recordable-value`); a
   fully-EDN value passes and returns `value`.
 
-  ALWAYS-ON — NOT gated on `interop/debug-enabled?` (EP-0017 §3 / §5 / Open
+  ALWAYS-ON — NOT gated on `rf.interop/debug-enabled?` (EP-0017 §3 / §5 / Open
   Issue 9 — structural EDN always, hard error in production too): a generated
   value that is a host handle folds a non-EDN value into the durable causal
   record (written back into `:rf.cofx`, captured in the epoch ledger, replayed,
@@ -758,13 +758,13 @@
   EP-0017 errata tail — a generator without a `:schema` minting a host handle
   no longer escapes to a far-away replay / Xray / SSR failure).
 
-  The `:generated` arm of the shared `value-check/check-edn-value!` (rf2-6zfzxy)
+  The `:generated` arm of the shared `rf.cofx.value-check/check-edn-value!` (rf2-6zfzxy)
   — its supplied-value twin (slice A) lives at the dispatch boundary
   (`router.diagnostics`). The throw propagates from inside the generator's
   HandlerScope, so the failure carries the cofx's source-coord like every other
   cofx emit."
   [cofx-id value failing-id frame-id]
-  (value-check/check-edn-value! :generated cofx-id value failing-id nil frame-id))
+  (rf.cofx.value-check/check-edn-value! :generated cofx-id value failing-id nil frame-id))
 
 ;; ---- generation at processing-start (EP-0017 §5 step 3 / slice B.7) --------
 ;;
@@ -811,8 +811,8 @@
        ambient's `:rf.cofx/run` emit). `post-run!` receives the supplier
        invocation's dev-only `elapsed-ms` (the ambient stamps it onto
        `:rf.cofx/run`; the generator ignores it — `:rf.cofx/generated` carries
-       no duration slot). The `interop/now-ms` brackets ride
-       `interop/debug-enabled?` so production DCEs them.
+       no duration slot). The `rf.interop/now-ms` brackets ride
+       `rf.interop/debug-enabled?` so production DCEs them.
 
   Returns the `[outcome value]` pair. `ok-keyword` is the success outcome head
   (`:generated` vs `:delivered`); `post-run!` is `(fn [outcome valued? arg
@@ -820,10 +820,10 @@
   [cofx-id meta supplier arg frame-id failing-id ok-keyword post-run! continue?]
   (let [active-platform (active-platform-for-frame frame-id)]
     (if (cofx-runs-on-platform? meta active-platform)
-      (trace/with-handler-scope
-        (trace/handler-scope-from-meta :cofx cofx-id meta)
+      (rf.trace/with-handler-scope
+        (rf.trace/handler-scope-from-meta :cofx cofx-id meta)
         (let [valued? (not (identical? arg no-arg))
-              t0      (when interop/debug-enabled? (interop/now-ms))
+              t0      (when rf.interop/debug-enabled? (rf.interop/now-ms))
                outcome (try
                          [ok-keyword (if valued? (supplier arg) (supplier))]
                          (catch #?(:clj Throwable :cljs :default) t
@@ -835,7 +835,7 @@
                                (emit-coeffect-exception! cofx-id failing-id frame-id t)
                                [:threw nil])
                              [:stale nil])))
-               elapsed (when interop/debug-enabled? (- (interop/now-ms) t0))]
+               elapsed (when rf.interop/debug-enabled? (- (rf.interop/now-ms) t0))]
           ;; Supplier callbacks are an incarnation boundary. Their returned
           ;; value and all framework-owned post-run validation/evidence become
           ;; inert if the callback destroyed its owner.
@@ -843,7 +843,7 @@
             (post-run! outcome valued? arg elapsed continue?))
           outcome))
       (do
-        (trace/emit! :warning :rf.cofx/skipped-on-platform
+        (rf.trace/emit! :warning :rf.cofx/skipped-on-platform
                      {:rf.cofx/id                   cofx-id
                       :frame                        frame-id
                       :rf.cofx/platform             active-platform
@@ -916,15 +916,15 @@
             (catch #?(:clj Throwable :cljs :default) e
               (when (continue?) (throw e)))))
         ;; Dev-only `:rf.cofx/generated` — fact-name + supplier id (the
-        ;; cofx id is both). Gated on `interop/debug-enabled?` so
+        ;; cofx id is both). Gated on `rf.interop/debug-enabled?` so
         ;; production DCEs the tag-map + emit, exactly like
         ;; `:rf.cofx/run`. The generated value itself rides the durable
         ;; `:rf.cofx` record (always-on), NOT this dev trace. Emitted ONLY
         ;; after both validations pass — a VALID generated value's
         ;; `:rf.cofx/value` is still projected through the marks chokepoint
         ;; (`project-cofx-run-tags`) for any explicit `:sensitive` reg-mark.
-        (when (and (continue?) interop/debug-enabled?)
-          (trace/emit! :rf.cofx :rf.cofx/generated
+        (when (and (continue?) rf.interop/debug-enabled?)
+          (rf.trace/emit! :rf.cofx :rf.cofx/generated
                        (cond-> {:rf.cofx/id    cofx-id
                                 :frame         frame-id
                                 :rf.cofx/value (second outcome)}
@@ -952,9 +952,9 @@
       ;; value before it surfaces in trace. The requirement-arg rides
       ;; under the distinct `:rf.cofx/arg`, present only for a
       ;; parameterized `[id arg]` requirement (rf2-sepqgg). Both ride
-      ;; under the `interop/debug-enabled?` gate so production DCEs them.
-      (when (and (continue?) interop/debug-enabled? (= :delivered (first outcome)))
-        (trace/emit! :rf.cofx :rf.cofx/run
+      ;; under the `rf.interop/debug-enabled?` gate so production DCEs them.
+      (when (and (continue?) rf.interop/debug-enabled? (= :delivered (first outcome)))
+        (rf.trace/emit! :rf.cofx :rf.cofx/run
                      (cond-> {:rf.cofx/id    cofx-id
                               :frame         frame-id
                               :rf.cofx/value (second outcome)}
@@ -1039,7 +1039,7 @@
     (assoc-in acc [:coeffects fact-id] (get (:rf.cofx acc) fact-id))
 
     (mint-policy-generates? mint-policy)
-    (if-let [eval-sub (late-bind/get-fn-cached :cofx/eval-recordable-sub)]
+    (if-let [eval-sub (rf.late-bind/get-fn-cached :cofx/eval-recordable-sub)]
       (let [value (try
                     (eval-sub query-v frame-id)
                     (catch #?(:clj Throwable :cljs :default) e
@@ -1135,7 +1135,7 @@
          ;; NOT the registrar-lookup path below.
          (deliver-sub-source acc id (:rf.cofx/sub entry) failing-id frame-id
                              mint-policy continue?)
-          (let [meta (registrar/lookup :cofx id)]
+          (let [meta (rf.registrar/lookup :cofx id)]
             (if-not (continue?)
               nil
               (cond
@@ -1223,7 +1223,7 @@
 ;; category — `:rf.error/inject-cofx-removed`, `:rf.error/reg-event-*-removed`)
 ;; was hand-rolled per surface: the same three-step body (surface on the
 ;; always-on `:error-emit/dispatch-on-error` listener → emit the dev
-;; `:rf.error/*` trace → throw the canonical `error/throw-error!` hard error).
+;; `:rf.error/*` trace → throw the canonical `rf.error/throw-error!` hard error).
 ;; `raise-removed!` is the ONE shared fan-out thrower both surfaces delegate
 ;; to (the EP-0017 `inject-cofx` stub here, and the EP-0018 reg-event removed
 ;; names via `re-frame.events/raise-removed-reg-event!`, which requires this
@@ -1234,14 +1234,14 @@
 ;; / offending `id` and the `id-key` under which the id rides the trace tag +
 ;; thrown ex-data (`:id` for reg-event, `:rf.cofx/id` for inject-cofx). The
 ;; std-interceptor removed values (EP-0022) ride no catalogued 009 category, so
-;; they throw `error/throw-error!` directly (no fan-out) and do NOT use this.
+;; they throw `rf.error/throw-error!` directly (no fan-out) and do NOT use this.
 (defn raise-removed!
   "Fan out + throw a removed-public-API hard error that rides the always-on
   Spec 009 observability channel (rf2-8au0w6). Surfaces `error-kw` on the
   always-on `:error-emit/dispatch-on-error` listener (production-survivable),
   emits the dev `:rf.error/*` trace, then throws the canonical
-  `error/throw-error!` hard error attributed to `where` with `reason`. The
-  offending `id` (the removed registrar/cofx call's first arg, or nil) rides
+  `rf.error/throw-error!` hard error attributed to `where` with `reason`. The
+  offending `id` (the removed rf.registrar/cofx call's first arg, or nil) rides
   the trace tag + thrown ex-data under `id-key` when present. Never returns
   normally. The ONE place the fan-out throw mechanics live; every fan-out
   removed stub delegates here so the next such removal is a data edit."
@@ -1250,11 +1250,11 @@
   ;; listener (production-survivable), axis 2 the dev trace (DCEs in CLJS prod).
   ;; Reached via the `:error-emit/emit-error-both` hook (cofx cannot
   ;; static-require error-emit — load cycle). `elapsed-ms 0`.
-  (when-let [emit-error-both! (late-bind/get-fn-cached :error-emit/emit-error-both)]
-    (emit-error-both! error-kw nil id nil nil 0 (interop/now-ms)
+  (when-let [emit-error-both! (rf.late-bind/get-fn-cached :error-emit/emit-error-both)]
+    (emit-error-both! error-kw nil id nil nil 0 (rf.interop/now-ms)
                       (cond-> {:reason reason :recovery :no-recovery}
                         (some? id) (assoc id-key id))))
-  (error/throw-error! error-kw where reason
+  (rf.error/throw-error! error-kw where reason
                       {:recovery :no-recovery
                        :extra    (when (some? id) {id-key id})}))
 

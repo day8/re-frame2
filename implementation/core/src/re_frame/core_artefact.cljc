@@ -111,7 +111,7 @@
   Convention: each `core_<artefact>.cljc` declares a private
   `<artefact>-artefact` at the top of the file and threads it through
   every `defwrapper` spec."
-  (:require [re-frame.error :as error]
+  (:require [re-frame.error :as rf.error]
             [re-frame.late-bind]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -206,7 +206,7 @@
      (let [attrs (cond
                    (map? docstring-or-attrs)    docstring-or-attrs
                    (string? docstring-or-attrs) {:doc docstring-or-attrs}
-                   :else (error/throw-error!
+                   :else (rf.error/throw-error!
                            :rf.error/defwrapper-bad-args
                            'defwrapper
                            "defwrapper's second argument must be a docstring or an attr-map"

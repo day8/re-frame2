@@ -12,7 +12,7 @@
   `goog.DEBUG=false` — so a CLJS production build silently swallowed
   flow-eval throws (no corpus-wide listener record for off-box
   monitors). The fix routes the error through
-  `error-emit/dispatch-on-error!` (the always-on substrate) in
+  `rf.error-emit/dispatch-on-error!` (the always-on substrate) in
   parallel with the dev-only trace emit. This file is the
   prod-elision proof — rf2-0q0du pinned the contract in Spec 013
   §Failure semantics rule 4 + Resolved decisions, and this test
@@ -31,23 +31,23 @@
   picked up ONLY by the `:browser-test-prod-elision` build."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.error-emit :as error-emit]
+            [re-frame.error-emit :as rf.error-emit]
             ;; Loading `re-frame.flows` registers the late-bind hooks
             ;; (`:flows/reg-flow`, `:flows/run-flows-on-db`) the router
             ;; reaches at dispatch time — keep the require even when
             ;; the test ns doesn't reach `flows/...` directly through
             ;; a public fn.
             [re-frame.flows]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]))
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter
      :init-fn (fn []
                 ;; Per rf2-bacs4: clear the listener registry between
                 ;; tests — defonce means it would otherwise leak.
-                (error-emit/clear-error-listeners!))}))
+                (rf.error-emit/clear-error-listeners!))}))
 
 ;; ---- corpus-wide listener fires for flow-eval failures under prod -------
 

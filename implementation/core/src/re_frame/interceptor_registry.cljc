@@ -44,8 +44,8 @@
 
   ## Realm-awareness
 
-  Resolution goes through `registrar/lookup`, which reads the active
-  registrar (`registrar/*registrar*` when an explicit-realm seating is in
+  Resolution goes through `rf.registrar/lookup`, which reads the active
+  registrar (`rf.registrar/*registrar*` when an explicit-realm seating is in
   flight, else the process-default). Refs therefore resolve through the owning
   realm's registrar wherever an explicit realm is bound — no realm argument is
   threaded here (per Spec 002 §Effective chain ordering — the lookup direction
@@ -60,12 +60,12 @@
   application-authored chain entry — so `resolve-chain` lets a `:rf/default?
   true` value pass through untouched. Every OTHER inline value in a chain is
   application-authored and rejected `:rf.error/inline-interceptor-removed`."
-  (:require [re-frame.registrar :as registrar]
-            [re-frame.interceptor :as interceptor]
-            [re-frame.identity :as identity]
-            [re-frame.error :as error]
-            [re-frame.reg-meta :as reg-meta]
-            [re-frame.source-coords :as source-coords]))
+  (:require [re-frame.registrar :as rf.registrar]
+            [re-frame.interceptor :as rf.interceptor]
+            [re-frame.identity :as rf.identity]
+            [re-frame.error :as rf.error]
+            [re-frame.reg-meta :as rf.reg-meta]
+            [re-frame.source-coords :as rf.source-coords]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -104,7 +104,7 @@
 
 (defn- throw-invalid-interceptor!
   [id descriptor reason]
-  (error/throw-error!
+  (rf.error/throw-error!
     :rf.error/invalid-interceptor
     'rf/reg-interceptor
     reason
@@ -115,7 +115,7 @@
 
 (defn- throw-interceptor-id-mismatch!
   [id descriptor value-id]
-  (error/throw-error!
+  (rf.error/throw-error!
     :rf.error/invalid-interceptor
     'rf/reg-interceptor
     (str "reg-interceptor for `" id "` received an interceptor "
@@ -165,10 +165,10 @@
    ;; rf2-x68lzo — no-silent-swallow on the registration metadata KEYS: a retired
    ;; bare key (`:spec`) hard-errors, an unknown bare key warns, namespaced/known
    ;; keys pass. `reg-interceptor` adds no per-kind keys beyond the base shape.
-   (reg-meta/validate-registration-metadata! :interceptor 'rf/reg-interceptor id metadata)
-   (registrar/register! interceptor-kind id
+   (rf.reg-meta/validate-registration-metadata! :interceptor 'rf/reg-interceptor id metadata)
+   (rf.registrar/register! interceptor-kind id
                         (-> metadata
-                            source-coords/merge-coords
+                            rf.source-coords/merge-coords
                             (assoc :rf/interceptor-descriptor descriptor)))
    id))
 
@@ -198,7 +198,7 @@
 ;; chain entry, so the reference-only grammar does not reject it. The
 ;; predicate lives in `re-frame.interceptor` (already required here) and is
 ;; shared with that ns's `invoke-after` ctx-delta-capture gate — one copy,
-;; not two. Call it as `interceptor/framework-default-interceptor?`.
+;; not two. Call it as `rf.interceptor/framework-default-interceptor?`.
 
 (defn interceptor-ref?
   "True when `x` is an interceptor REFERENCE (Spec 002 §Interceptor
@@ -236,7 +236,7 @@
   [a b]
   (or (= a b)
       (try
-        (identity/identical-identity? a b)
+        (rf.identity/identical-identity? a b)
         ;; A non-EDN arg can never appear in a serializable override key /
         ;; authored ref, but fail-soft to "not equal" rather than letting a
         ;; canonicalization throw escape the override walk.
@@ -271,10 +271,10 @@
 (defn- registration-coords
   "The registration-site source coords the `reg-interceptor` MACRO captured
   into the registry slot's metadata (`reg-interceptor*` →
-  `source-coords/merge-coords` stores them FLAT on the meta map per Spec 001
+  `rf.source-coords/merge-coords` stores them FLAT on the meta map per Spec 001
   §Source-coordinate capture), re-nested as the `{:ns :file :line :column}`
   `:source-coord` map shape the interceptor error-record carries
-  (`interceptor/->interceptor*` §`:source-coord`). Returns nil when the slot
+  (`rf.interceptor/->interceptor*` §`:source-coord`). Returns nil when the slot
   carries no coords — a programmatic `reg-interceptor*` call, a framework
   standard (`:rf.interceptor/path`), or a production build whose
   `merge-coords` elided the public coords (rf2-3un2g)."
@@ -303,7 +303,7 @@
     (cond-> descriptor
       (and coords (nil? (:source-coord descriptor)))
       (assoc :source-coord coords))
-    (interceptor/->interceptor*
+    (rf.interceptor/->interceptor*
       :id           id
       :before       (:before descriptor)
       :after        (:after descriptor)
@@ -311,7 +311,7 @@
 
 (defn- throw-unregistered-interceptor!
   [ref id]
-  (error/throw-error!
+  (rf.error/throw-error!
     :rf.error/unregistered-interceptor
     'rf/resolve-interceptor-ref
     (str "interceptor reference `" (pr-str ref) "` names id `"
@@ -324,7 +324,7 @@
 
 (defn- throw-factory-arity!
   [ref id reason]
-  (error/throw-error!
+  (rf.error/throw-error!
     :rf.error/interceptor-factory-arity
     'rf/resolve-interceptor-ref
     reason
@@ -334,7 +334,7 @@
 
 (defn- throw-invalid-ref!
   [ref]
-  (error/throw-error!
+  (rf.error/throw-error!
     :rf.error/invalid-interceptor-ref
     'rf/resolve-interceptor-ref
     (str "interceptor chain entry `" (pr-str ref) "` is neither a "
@@ -355,11 +355,11 @@
   accepted; it must be registered with `reg-interceptor` and referenced by
   id. Loud-fail at chain assembly rather than a silent no-op (Conventions §No
   silent swallow). Delegates to the ONE shared
-  `error/throw-inline-interceptor-removed!` passing this site's
+  `rf.error/throw-inline-interceptor-removed!` passing this site's
   `:where 'rf/resolve-chain`, reason, and ex-data — the registration-time
   twin (`re-frame.events`) shares the same thrower."
   [entry]
-  (error/throw-inline-interceptor-removed!
+  (rf.error/throw-inline-interceptor-removed!
     'rf/resolve-chain
     (str "an event/frame `:interceptors` chain carried an INLINE "
          "interceptor value `" (pr-str entry) "`. Interceptor "
@@ -406,7 +406,7 @@
                       ref id
                       (str "the `:factory` for interceptor `" id "` threw while building "
                            ;; nil-safe (a thrown non-Error value has no message).
-                           "for arg `" (pr-str arg) "`: " (error/ex-message-safe e) ".")))))]
+                           "for arg `" (pr-str arg) "`: " (rf.error/ex-message-safe e) ".")))))]
     (cond
       ;; Factory returned an executable interceptor value (a map with
       ;; :before / :after / :id) — STAMP the registry id over it so the
@@ -449,7 +449,7 @@
   [ref]
   (cond
     (keyword? ref)
-    (let [meta (registrar/lookup interceptor-kind ref)]
+    (let [meta (rf.registrar/lookup interceptor-kind ref)]
       (when (nil? meta)
         (throw-unregistered-interceptor! ref ref))
       (let [descriptor (:rf/interceptor-descriptor meta)]
@@ -463,7 +463,7 @@
 
     (and (vector? ref) (= 2 (count ref)) (keyword? (first ref)))
     (let [[id arg] ref
-          meta     (registrar/lookup interceptor-kind id)]
+          meta     (rf.registrar/lookup interceptor-kind id)]
       (when (nil? meta)
         (throw-unregistered-interceptor! ref id))
       (resolve-factory ref id arg (:rf/interceptor-descriptor meta)
@@ -485,7 +485,7 @@
   framework default) is `:rf.error/invalid-interceptor-ref`.
 
   The ONE inline value that passes through untouched is the framework's own
-  appended handler-wrapper (`:rf/default? true` — `interceptor/framework-default-interceptor?`):
+  appended handler-wrapper (`:rf/default? true` — `rf.interceptor/framework-default-interceptor?`):
   it is framework machinery, not an application-authored chain entry.
 
   `chain` is a sequential of refs (+ the framework default tail); returns a
@@ -522,7 +522,7 @@
                          (interceptor-ref? entry)
                          (assoc (resolve-ref entry) authored-ref-key entry)
                          ;; The framework's own appended handler-wrapper.
-                         (interceptor/framework-default-interceptor? entry) entry
+                         (rf.interceptor/framework-default-interceptor? entry) entry
                          ;; Inline values remain a hard reference-grammar error.
                          (interceptor-value? entry)
                          (throw-inline-interceptor-removed! entry)
@@ -548,7 +548,7 @@
   resolve the ref, or to reject the inline value loudly)."
   [chain]
   (boolean (some (fn [entry]
-                   (and (not (interceptor/framework-default-interceptor? entry))
+                   (and (not (rf.interceptor/framework-default-interceptor? entry))
                         (or (interceptor-ref? entry)
                             (interceptor-value? entry))))
                  chain)))

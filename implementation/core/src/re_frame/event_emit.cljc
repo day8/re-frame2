@@ -73,11 +73,11 @@
   Sensitive data marking is path-based per the data-classification
   mechanism (separate spec doc); handler-meta `:sensitive?` is not
   consulted here."
-  (:require [re-frame.elision       :as elision]
-            [re-frame.emit-substrate :as emit]
-            [re-frame.late-bind     :as late-bind]
-            [re-frame.registrar     :as registrar]
-            [re-frame.trace         :as trace]))
+  (:require [re-frame.elision       :as rf.elision]
+            [re-frame.emit-substrate :as rf.emit-substrate]
+            [re-frame.late-bind     :as rf.late-bind]
+            [re-frame.registrar     :as rf.registrar]
+            [re-frame.trace         :as rf.trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -90,7 +90,7 @@
   (atom {}))
 
 (def ^:private registry
-  (emit/make-listener-registry {:listeners listeners}))
+  (rf.emit-substrate/make-listener-registry {:listeners listeners}))
 
 (def register-event-listener!
   "Register a listener `f` under `id`. Re-registering the same id
@@ -128,21 +128,21 @@
   under the late-bind key `:event-emit/dispatch-on-event` so the
   router does NOT statically `:require` this namespace."
   [event event-id frame time outcome elapsed-ms]
-  (when (and (trace/continuation-live?) (seq @listeners))
+  (when (and (rf.trace/continuation-live?) (seq @listeners))
     (let [handler-meta (try
-                         (registrar/lookup :event event-id)
+                         (rf.registrar/lookup :event event-id)
                          (catch #?(:clj Throwable :cljs :default) e
-                           (when (trace/continuation-live?) (throw e))))]
+                           (when (rf.trace/continuation-live?) (throw e))))]
       ;; Handler resolution may execute a generation resolver.
-      (when (and (trace/continuation-live?)
-                 (not (trace/no-emit?-from-meta handler-meta)))
+      (when (and (rf.trace/continuation-live?)
+                 (not (rf.trace/no-emit?-from-meta handler-meta)))
         (let [elided-event (try
-                             (elision/elide-wire-value event {:frame frame})
+                             (rf.elision/elide-wire-value event {:frame frame})
                              (catch #?(:clj Throwable :cljs :default) e
-                               (when (trace/continuation-live?) (throw e))))]
+                               (when (rf.trace/continuation-live?) (throw e))))]
           ;; Elision/classification is callback-bearing. Listener sibling fanout
           ;; is one already-linearized publication and remains failure-isolated.
-          (when (trace/continuation-live?)
+          (when (rf.trace/continuation-live?)
             ((:fan-out registry)
              {:event      elided-event
               :event-id   event-id
@@ -150,7 +150,7 @@
               :time       time
               :outcome    outcome
               :elapsed-ms elapsed-ms}
-             trace/continuation-live?))))))
+             rf.trace/continuation-live?))))))
   nil)
 
 ;; ---- late-bind hook registration ------------------------------------------
@@ -159,4 +159,4 @@
 ;; The router looks the fn up through the late-bind hook table at call
 ;; time rather than `:require`ing this namespace directly.
 
-(late-bind/set-fn! :event-emit/dispatch-on-event dispatch-on-event!)
+(rf.late-bind/set-fn! :event-emit/dispatch-on-event dispatch-on-event!)

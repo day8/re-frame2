@@ -13,7 +13,7 @@
   `fx/framework-coeffect-keys`), leaving the lens with no input map.
 
   The stamp is DEBUG-GATED via the canonical outermost
-  `(if interop/debug-enabled? <stamped> <plain>)` shape in
+  `(if rf.interop/debug-enabled? <stamped> <plain>)` shape in
   `emit-dispatched-trace!` — the dev arm carries the slot, the prod arm
   omits it. This is the rf2-7ynhyn-correct idiom (NOT a `cond->`
   test-position gate). The PRODUCTION-ELISION counterpart is the CLJS
@@ -21,7 +21,7 @@
   emit DCE's under `:advanced` + `goog.DEBUG=false` (the `event/dispatched`
   op keyword is a `check-elision.cjs` dev-only sentinel), so the dev arm —
   including the `:rf.cofx` stamp — rides that same whole-body elision. This
-  JVM test pins the DEV-SIDE PRESENCE contract (`interop/debug-enabled?` is
+  JVM test pins the DEV-SIDE PRESENCE contract (`rf.interop/debug-enabled?` is
   true by default on the JVM).
 
   JVM-only — the trace-listener mechanism is platform-agnostic.
@@ -40,28 +40,28 @@
   So the three CONTENT claims — the framework stamps `:rf/time-ms`, a
   caller-supplied map rides verbatim, a map missing `:rf/time-ms` has it filled
   — are now read off the envelope and hold in both postures. What stays
-  inside the `(when interop/debug-enabled? ...)` arms is the narrower claim the
+  inside the `(when rf.interop/debug-enabled? ...)` arms is the narrower claim the
   trace still owns: that the slot is STAMPED on `:rf.event/dispatched`, under
   `:tags` rather than at top level, which is what the Xray Event lens reads."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.interop :as interop]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
-            [re-frame.flows :as flows]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]))
+            [re-frame.interop :as rf.interop]
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.flows :as rf.flows]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace :as rf.trace]))
 
 ;; ---- fixtures -------------------------------------------------------------
 
 (defn reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  (trace/clear-listeners!)
-  (rf/init! plain-atom/adapter)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.flows/reset-flows!)
+  (rf.schemas/clear-schemas-by-frame!)
+  (rf.trace/clear-listeners!)
+  (rf/init! rf.substrate.plain-atom/adapter)
   (require 're-frame.routing :reload)
   (rf/make-frame {:id :rf/default})
   (rf/with-frame :rf/default
@@ -113,7 +113,7 @@
       (is (integer? (:rf/time-ms env-cofx))
           ":rf/time-ms is an epoch-ms integer")
       ;; ---- rf2-d2841 dev arm: the STAMP onto the trace -------------------
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (some? enqueue) ":rf.event/dispatched fired")
         (is (contains? (:tags enqueue) :rf.cofx)
             ":rf.cofx is stamped on the dispatched trace (rf2-jt854w)")
@@ -142,7 +142,7 @@
       (is (= scripted (:rf.cofx (:scripted @envelopes)))
           "the caller-supplied causal :rf.cofx map rides the envelope verbatim")
       ;; ---- rf2-d2841 dev arm --------------------------------------------
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (some? enqueue) ":rf.event/dispatched fired")
         (is (= scripted (get-in enqueue [:tags :rf.cofx]))
             "the caller-supplied causal :rf.cofx map is stamped verbatim")))))
@@ -166,7 +166,7 @@
       (is (integer? (:rf/time-ms env-cofx))
           ":rf/time-ms filled by the router at the causal boundary")
       ;; ---- rf2-d2841 dev arm --------------------------------------------
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (some? enqueue) ":rf.event/dispatched fired")
         (is (= 0.99 (:todo/score rf-cofx)) "caller-supplied fact preserved")
         (is (integer? (:rf/time-ms rf-cofx))
@@ -176,7 +176,7 @@
  ;; rf2-d2841 — a claim about the TRACE EVENT's SHAPE (which slot is hoisted,
  ;; which rides under `:tags`), not about the coeffect map, whose content the
  ;; three deftests above now pin in both postures. Kept verbatim.
- (when interop/debug-enabled?
+ (when rf.interop/debug-enabled?
   (testing ":rf.cofx rides under :tags alongside the other op-type-
    specific payload slots (:rf.event/v, :rf.event/origin, :rf.event/sync?) —
    build-event hoists only :source to top-level, so the Event lens reads the

@@ -42,7 +42,7 @@
 
   Consequently both live arms read a channel that emits nothing under
   `-Dre-frame.debug=false`, and both are kept VERBATIM — sweeps included —
-  inside `(when interop/debug-enabled? …)` arms. The whole-stream sweeps are
+  inside `(when rf.interop/debug-enabled? …)` arms. The whole-stream sweeps are
   the reason the arm is drawn around the WHOLE body rather than around the
   failing rows: `(is (not (contains-sentinel? v)))` over an empty stream is a
   redaction suite certifying itself green having emitted nothing.
@@ -54,7 +54,7 @@
       was ever in flight would be pinning nothing;
     * the registration owns its `[:token]` declaration (`:sensitive` is
       load-bearing metadata, NOT pure documentation, so it survives the strip);
-    * `classification/project-trace-event` — the rf2-6h3c02 chokepoint itself —
+    * `rf.classification/project-trace-event` — the rf2-6h3c02 chokepoint itself —
       redacts both fx-arg-bearing slot shapes and leaves the control fx raw,
       driven deterministically on hand-built shapes. That is the same
       \"projector teeth\" pattern `fx-aggregate-classification-cljs-test` and
@@ -63,15 +63,15 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
-            [re-frame.classification :as classification]
-            [re-frame.interop :as interop]
-            [re-frame.privacy :as privacy]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as ts]))
+            [re-frame.classification :as rf.classification]
+            [re-frame.interop :as rf.interop]
+            [re-frame.privacy :as rf.privacy]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (ts/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; A UNIQUE sentinel — appears nowhere else, so a whole-stream scan that finds
 ;; it can only be hitting THIS fx's token arg.
@@ -147,7 +147,7 @@
  ;; rf2-d2841 — every row below reads the DEV TRACE stream. Under
  ;; -Dre-frame.debug=false nothing is emitted, and the whole-stream sweep at
  ;; the end would then certify "no leak" over an empty stream. Kept verbatim.
- (when interop/debug-enabled?
+ (when rf.interop/debug-enabled?
   (testing "a classified fx's token is redacted in BOTH the :rf.event/fx
             aggregate (on :rf.fx/do-fx) AND the per-effect :rf.fx/handled slot,
             while the non-sensitive control fx rides raw"
@@ -163,7 +163,7 @@
           (let [fx-vec (get-in ev [:tags :rf.event/fx])
                 store  (first (filter #(= :fx-args/store (first %)) fx-vec))
                 audit  (first (filter #(= :fx-args/audit (first %)) fx-vec))]
-            (is (= privacy/redacted-sentinel (get-in store [1 :token]))
+            (is (= rf.privacy/redacted-sentinel (get-in store [1 :token]))
                 "the classified fx's :token reads :rf/redacted in :rf.event/fx")
             (is (= :fx-args/store (first store))
                 "shape retained — the fx-id survives")
@@ -175,7 +175,7 @@
                          (filterv #(= :fx-args/store (get-in % [:tags :rf.fx/id]))))]
         (is (seq handled) "the classified fx emitted a :rf.fx/handled trace")
         (doseq [ev handled]
-          (is (= privacy/redacted-sentinel (get-in ev [:tags :rf.fx/args :token]))
+          (is (= rf.privacy/redacted-sentinel (get-in ev [:tags :rf.fx/args :token]))
               "the :token arg reads :rf/redacted in :rf.fx/handled (unchanged)")))
 
       (let [audit-handled (->> @acc
@@ -211,7 +211,7 @@
 (deftest error-arm-redacts-fx-args-on-fx-handler-exception
  ;; rf2-d2841 — dev-trace stream; the trailing `contains-sentinel?` negative
  ;; would pass over an empty stream. Kept verbatim inside the arm.
- (when interop/debug-enabled?
+ (when rf.interop/debug-enabled?
   (testing "when a classified fx throws, :rf.error/fx-handler-exception redacts
             its :rf.fx/args :token"
     (register!)
@@ -224,7 +224,7 @@
         (is (seq errs)
             "the throwing classified fx emitted an :rf.error/fx-handler-exception trace")
         (doseq [ev errs]
-          (is (= privacy/redacted-sentinel (get-in ev [:tags :rf.fx/args :token]))
+          (is (= rf.privacy/redacted-sentinel (get-in ev [:tags :rf.fx/args :token]))
               "the :rf.fx/args :token reads :rf/redacted on the error trace")
           (is (= :fx-args/store-throwing (get-in ev [:tags :rf.fx/id]))
               "shape retained — the fx-id survives")
@@ -240,9 +240,9 @@
             reads at egress"
     (register!)
     (is (= {:sensitive [[:token]]}
-           (classification/registration-classification :fx :fx-args/store))
+           (rf.classification/registration-classification :fx :fx-args/store))
         ":fx-args/store owns [:token]")
-    (is (nil? (classification/registration-classification :fx :fx-args/audit))
+    (is (nil? (rf.classification/registration-classification :fx :fx-args/audit))
         "the control fx declares nothing — precision, not blanket redaction")))
 
 ;; ---------------------------------------------------------------------------
@@ -256,7 +256,7 @@
 ;; always-on counterpart at all.
 ;; ---------------------------------------------------------------------------
 
-(defn- project [ev] (:tags (classification/project-trace-event ev)))
+(defn- project [ev] (:tags (rf.classification/project-trace-event ev)))
 
 (deftest projector-redacts-the-do-fx-aggregate-slot
   (testing "the :rf.event/fx aggregate on :rf.fx/do-fx — the slot rf2-6h3c02
@@ -270,7 +270,7 @@
           fx-vec (:rf.event/fx t)
           store  (first (filter #(= :fx-args/store (first %)) fx-vec))
           audit  (first (filter #(= :fx-args/audit (first %)) fx-vec))]
-      (is (= privacy/redacted-sentinel (get-in store [1 :token]))
+      (is (= rf.privacy/redacted-sentinel (get-in store [1 :token]))
           "the classified fx's :token reads :rf/redacted in :rf.event/fx")
       (is (= :fx-args/store (first store)) "shape retained — the fx-id survives")
       (is (= {:msg "a benign audit line"} (second audit))
@@ -288,7 +288,7 @@
                         :tags {:frame      frame-id
                                :rf.fx/id   :fx-args/store
                                :rf.fx/args {:token sentinel :note "plain"}}})]
-        (is (= privacy/redacted-sentinel (get-in t [:rf.fx/args :token]))
+        (is (= rf.privacy/redacted-sentinel (get-in t [:rf.fx/args :token]))
             (str op " redacts the declared :token path"))
         (is (= "plain" (get-in t [:rf.fx/args :note]))
             (str op " keeps the non-secret sibling (path-precise)"))

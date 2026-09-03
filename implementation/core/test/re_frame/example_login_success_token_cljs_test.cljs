@@ -54,11 +54,11 @@
    two formerly-residual framework slots."
   (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
             [re-frame.core :as rf]
-            [re-frame.classification :as classification]
-            [re-frame.privacy :as privacy]
-            [re-frame.frame :as frame]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]
+            [re-frame.classification :as rf.classification]
+            [re-frame.privacy :as rf.privacy]
+            [re-frame.frame :as rf.frame]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]
             ;; login.model pulls these transitively; require here so the ns is
             ;; self-sufficient (mirrors the sibling login test namespaces).
             [re-frame.schemas]
@@ -67,8 +67,8 @@
   (:require-macros [re-frame.core :refer [with-new-frame]]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter}))
 
 ;; ---------------------------------------------------------------------------
 ;; Helpers
@@ -116,7 +116,7 @@
 (deftest succeeded-persists-real-token-and-drives-machine-to-authed
   (testing "the success handler hands the REAL token to the persistence fx and
             drives the machine to :authed with a credential-free signal"
-    (with-new-frame [f (frame/make-anon-frame-record! {})]
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
       (submit! f)
       (is (= :submitting (machine-state f))
           "the submit signal put the flow in :submitting")
@@ -142,7 +142,7 @@
   (testing "on a successful login, the session token does NOT appear raw in any
             reply-event or per-effect trace slot the example owns; the reply
             event redacts [:value :token] and the store fx redacts [:token]"
-    (with-new-frame [f (frame/make-anon-frame-record! {})]
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
       (submit! f)
       (let [traces (record-traces!)]
         (rf/dispatch-sync [:auth.login/succeeded success-reply] {:frame f})
@@ -159,7 +159,7 @@
           (is (seq succeeded-vs)
               "the :auth.login/succeeded event surfaced on the trace with its payload")
           (doseq [v succeeded-vs]
-            (is (= privacy/redacted-sentinel (get-in v [1 :value :token]))
+            (is (= rf.privacy/redacted-sentinel (get-in v [1 :value :token]))
                 "the token reads :rf/redacted in the succeeded event trace")
             (is (= :ok (get-in v [1 :status]))
                 "shape retained — the envelope :status is still visible")
@@ -172,7 +172,7 @@
           (is (seq handled)
               "the :auth.session/store fx emitted a :rf.fx/handled trace")
           (doseq [ev handled]
-            (is (= privacy/redacted-sentinel (get-in ev [:tags :rf.fx/args :token]))
+            (is (= rf.privacy/redacted-sentinel (get-in ev [:tags :rf.fx/args :token]))
                 "the store fx :token arg reads :rf/redacted in :rf.fx/handled")))
 
         ;; --- the whole-stream sweep: the sentinel appears in NO trace tag.
@@ -200,7 +200,7 @@
             example-owned) AND the fx args (:rf.fx/args slot, framework-gated
             until rf2-6h3c02) on the always-on :rf.error/fx-handler-exception
             trace redact the token"
-    (with-new-frame [f (frame/make-anon-frame-record! {})]
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
       (submit! f)
       (let [traces (record-traces!)]
         (rf/dispatch-sync
@@ -219,7 +219,7 @@
                  :auth.login/succeeded registration classifies it")
             ;; rf2-6h3c02: the fx args on the production-survivable error trace
             ;; now redact off :auth.session/store's own :sensitive [[:token]].
-            (is (= privacy/redacted-sentinel (get-in ev [:tags :rf.fx/args :token]))
+            (is (= rf.privacy/redacted-sentinel (get-in ev [:tags :rf.fx/args :token]))
                 "the store fx :token arg reads :rf/redacted in :rf.fx/args")
             (is (not (contains-sentinel? (:tags ev)))
                 "the token appears nowhere raw across the error trace tags")))))))
@@ -233,8 +233,8 @@
             :sensitive path — the registration-owned classification the trace
             projector reads at egress"
     (is (= {:sensitive [[:value :token]]}
-           (classification/registration-classification :event :auth.login/succeeded))
+           (rf.classification/registration-classification :event :auth.login/succeeded))
         ":auth.login/succeeded owns [:value :token] — the reply's token slot")
     (is (= {:sensitive [[:token]]}
-           (classification/registration-classification :fx :auth.session/store))
+           (rf.classification/registration-classification :fx :auth.session/store))
         ":auth.session/store owns [:token] — its own transient fx arg")))

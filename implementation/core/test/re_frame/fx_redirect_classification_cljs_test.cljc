@@ -34,7 +34,7 @@
   precision rows — runs under `scripts/test-core-prod-gate.sh` unchanged.
 
   Section B's live round-trips read the DEV TRACE stream. Their trace-reading
-  steps sit verbatim inside `(when interop/debug-enabled? …)` arms, sweeps
+  steps sit verbatim inside `(when rf.interop/debug-enabled? …)` arms, sweeps
   included: `(is (not (some #(leaks? pw-sentinel %) @traces)))` over an EMPTY
   `@traces` passes for free, and a redirect-redaction suite that certifies
   itself green having emitted nothing is worse than no suite.
@@ -48,9 +48,9 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [clojure.string :as str]
-            [re-frame.classification :as classification]
+            [re-frame.classification :as rf.classification]
             [re-frame.core :as rf]
-            [re-frame.interop :as interop]
+            [re-frame.interop :as rf.interop]
             ;; Boot the optional http artefact so the
             ;; `:http/project-managed-fx-args` hook is bound…
             [re-frame.http.managed]
@@ -58,20 +58,20 @@
             ;; (`:rf.http/managed-canned-*`) are registered for the live
             ;; keyword-redirect round-trip (the exact rf2-2siusz scenario).
             [re-frame.http.test-support]
-            [re-frame.privacy :as privacy]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as ts]))
+            [re-frame.privacy :as rf.privacy]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; A UNIQUE sentinel that must never appear raw in any projected trace slot.
 (def ^:private pw-sentinel "rf2-2siusz-PW-4c8d19")
 
 (defn- leaks? [sentinel x] (str/includes? (pr-str x) sentinel))
 
-(defn- project [ev] (:tags (classification/project-trace-event ev)))
+(defn- project [ev] (:tags (rf.classification/project-trace-event ev)))
 
 (defn- record-traces! []
   (let [a (atom [])]
@@ -87,7 +87,7 @@
             applies the ORIGINAL registration's static :sensitive on top of
             the (unclassified) redirect target — on every op that stamps the
             slot shape"
-    (registrar/register! :fx ::orig {:sensitive [[:token]]})
+    (rf.registrar/register! :fx ::orig {:sensitive [[:token]]})
     (doseq [op [:rf.fx/handled :rf.error/fx-handler-exception
                 :rf.fx/skipped-on-platform]]
       (let [t (project {:operation op
@@ -95,7 +95,7 @@
                                :rf.fx/id    ::stub
                                :rf.fx/from  ::orig
                                :rf.fx/args  {:token pw-sentinel :note "plain"}}})]
-        (is (= privacy/redacted-sentinel (get-in t [:rf.fx/args :token]))
+        (is (= rf.privacy/redacted-sentinel (get-in t [:rf.fx/args :token]))
             (str op " redacts the original id's declared :token path"))
         (is (= "plain" (get-in t [:rf.fx/args :note]))
             (str op " keeps the non-secret sibling (path-precise)"))
@@ -106,8 +106,8 @@
 (deftest redirected-slot-composes-both-registrations
   (testing "the redirect TARGET's own static declaration composes WITH the
             original's — both ids' paths redact on the same slot"
-    (registrar/register! :fx ::orig {:sensitive [[:token]]})
-    (registrar/register! :fx ::stub {:sensitive [[:note]]})
+    (rf.registrar/register! :fx ::orig {:sensitive [[:token]]})
+    (rf.registrar/register! :fx ::stub {:sensitive [[:note]]})
     (let [t (project {:operation :rf.fx/handled
                       :tags {:frame       :rf/default
                              :rf.fx/id    ::stub
@@ -115,9 +115,9 @@
                              :rf.fx/args  {:token pw-sentinel
                                            :note  pw-sentinel
                                            :other "x"}}})]
-      (is (= privacy/redacted-sentinel (get-in t [:rf.fx/args :token]))
+      (is (= rf.privacy/redacted-sentinel (get-in t [:rf.fx/args :token]))
           "the ORIGINAL id's path redacts")
-      (is (= privacy/redacted-sentinel (get-in t [:rf.fx/args :note]))
+      (is (= rf.privacy/redacted-sentinel (get-in t [:rf.fx/args :note]))
           "the redirect TARGET's own path redacts too")
       (is (= "x" (get-in t [:rf.fx/args :other])) "unclassified slots survive")
       (is (not (leaks? pw-sentinel t))))))
@@ -137,7 +137,7 @@
                                                        :body   {:password pw-sentinel}}
                                           :sensitive? true
                                           :decode     :json}}})]
-      (is (= privacy/redacted-sentinel (get-in t [:rf.fx/args :request :body]))
+      (is (= rf.privacy/redacted-sentinel (get-in t [:rf.fx/args :request :body]))
           "the sensitive request's whole :body reads :rf/redacted")
       (is (= "https://api.example.test/login"
              (get-in t [:rf.fx/args :request :url]))
@@ -155,13 +155,13 @@
                              :rf.fx/args {:token pw-sentinel}}})]
       (is (= pw-sentinel (get-in t [:rf.fx/args :token]))
           "no provenance, no registration → args ride raw"))
-    (registrar/register! :fx ::orig {:sensitive [[:token]]})
+    (rf.registrar/register! :fx ::orig {:sensitive [[:token]]})
     (let [t (project {:operation :rf.fx/handled
                       :tags {:frame      :rf/default
                              :rf.fx/id   ::orig
                              :rf.fx/from ::orig
                              :rf.fx/args {:token pw-sentinel :note "n"}}})]
-      (is (= privacy/redacted-sentinel (get-in t [:rf.fx/args :token]))
+      (is (= rf.privacy/redacted-sentinel (get-in t [:rf.fx/args :token]))
           "a from == id stamp projects once, correctly")
       (is (= "n" (get-in t [:rf.fx/args :note]))))))
 
@@ -195,14 +195,14 @@
 
        ;; rf2-d2841 — steps 2-4 read the dev trace stream; step 4's sweep would
        ;; certify "no leak" over an empty `@traces`. Kept verbatim in the arm.
-       (when interop/debug-enabled?
+       (when rf.interop/debug-enabled?
         ;; 2. the stub's own handled slot stamps provenance + redacts.
         (let [handled (filter #(= ::stub (get-in % [:tags :rf.fx/id])) @traces)]
           (is (seq handled) "the stub emitted a :rf.fx/handled trace")
           (doseq [ev handled]
             (is (= ::orig (get-in ev [:tags :rf.fx/from]))
                 "the handled trace carries the ORIGINAL id as :rf.fx/from")
-            (is (= privacy/redacted-sentinel
+            (is (= rf.privacy/redacted-sentinel
                    (get-in ev [:tags :rf.fx/args :token]))
                 "the original id's declared :token path redacts on the stub slot")
             (is (= "plain" (get-in ev [:tags :rf.fx/args :note]))
@@ -218,7 +218,7 @@
                         args)]
           (is (seq entries) "the do-fx aggregate carried the original entry")
           (doseq [args entries]
-            (is (= privacy/redacted-sentinel (:token args)))))
+            (is (= rf.privacy/redacted-sentinel (:token args)))))
 
         ;; 4. whole-stream sweep — the token appears NOWHERE.
         (is (not (some #(leaks? pw-sentinel %) @traces))
@@ -259,7 +259,7 @@
 
        ;; rf2-d2841 — steps 2-4 read the dev trace stream; step 4's sweep would
        ;; certify "no leak" over an empty `@traces`. Kept verbatim in the arm.
-       (when interop/debug-enabled?
+       (when rf.interop/debug-enabled?
         ;; 2. the stub's own handled slot: provenance + dynamic redaction.
         (let [handled (filter #(= :rf.http/managed-canned-success
                                   (get-in % [:tags :rf.fx/id]))
@@ -268,7 +268,7 @@
           (doseq [ev handled]
             (is (= :rf.http/managed (get-in ev [:tags :rf.fx/from]))
                 "the stub's handled trace names the ORIGINAL managed id")
-            (is (= privacy/redacted-sentinel
+            (is (= rf.privacy/redacted-sentinel
                    (get-in ev [:tags :rf.fx/args :request :body]))
                 "the sensitive request's whole :body redacts on the stub slot")
             (is (= "https://api.example.test/login"

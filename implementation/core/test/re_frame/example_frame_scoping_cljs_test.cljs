@@ -47,10 +47,10 @@
   `handle-request` runs.)"
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.schemas :as schemas]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]
+            [re-frame.frame :as rf.frame]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]
             ;; The affected example ENTRY namespaces. Requiring them here is
             ;; load-bearing twice over: (1) it fires their ns-load
             ;; `reg-app-schema` / `reg-cofx` / `reg-machine` / `reg-event`
@@ -77,8 +77,8 @@
 ;;   - schemas retained → the example's explicit-frame registration is
 ;;     readable, proving the fix fired.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       reagent-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.reagent/adapter
      :ambient-frame nil}))
 
 ;; ============================================================================
@@ -110,9 +110,9 @@
   (into {}
         (map (fn [[ns-name path]]
                [ns-name {:on-default
-                         (schemas/app-schema-at path {:frame :rf/default})
+                         (rf.schemas/app-schema-at path {:frame :rf/default})
                          :on-unrelated
-                         (schemas/app-schema-at path {:frame :test/never-registered})}]))
+                         (rf.schemas/app-schema-at path {:frame :test/never-registered})}]))
         example-app-schema-paths))
 
 (deftest example-ns-load-schemas-bound-to-rf-default-not-an-ambient-pin
@@ -145,7 +145,7 @@
             `with-frame` wrappers exist to satisfy is LIVE right here — so a
             reverted bare ns-load call would have thrown at this ns's require
             and aborted the bundle, never reaching a green assertion"
-    (is (nil? (frame/current-frame))
+    (is (nil? (rf.frame/current-frame))
         "precondition: no ambient frame (the pin is removed)")
     (let [ex (try
                (rf/reg-app-schema [:regression/bare] [:map])
@@ -159,7 +159,7 @@
            failure mode the examples' explicit-frame ns-load registration
            avoids")
       ;; The bad call must NOT have landed an entry anywhere.
-      (is (nil? (schemas/app-schema-at [:regression/bare] {:frame :rf/default}))
+      (is (nil? (rf.schemas/app-schema-at [:regression/bare] {:frame :rf/default}))
           "the rejected registration left no entry on :rf/default"))))
 
 ;; ============================================================================
@@ -176,7 +176,7 @@
   `:rf.cofx` token under `:rf.cofx/mint-policy :strict`. Returns the durable
   item id the handler folded in."
   [recorded]
-  (let [f (frame/make-anon-frame-record! {:doc          "nine-states replay frame"
+  (let [f (rf.frame/make-anon-frame-record! {:doc          "nine-states replay frame"
                           :fx-overrides {:rf.http/managed
                                          :nine-states.http/managed-demo}})]
     ;; `:initialise` seeds the form slice + resets/spawns the :ui/nine-states
@@ -223,7 +223,7 @@
   the success path fires is stubbed to a no-op so no backend is needed.
   Returns the durable optimistic card id the handler folded in."
   [recorded]
-  (let [f (frame/make-anon-frame-record! {:doc "realworld replay frame"})]
+  (let [f (rf.frame/make-anon-frame-record! {:doc "realworld replay frame"})]
     ;; Stub the managed-HTTP fx so the optimistic-post fx fires harmlessly
     ;; (the durable write under test is the temp card conj'd into
     ;; [:comments :data]; the request itself is irrelevant here).

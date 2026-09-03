@@ -7,7 +7,7 @@
   always stated. It MATTERS because the JVM decomposition's largest single
   term is one that does not exist in ClojureScript at all:
 
-    the dynamic `binding` of `registrar/*generation*` inside
+    the dynamic `binding` of `rf.registrar/*generation*` inside
     `call-with-frame-resolution`      ~760 B/call JVM      ~0 in CLJS
 
   JVM `binding` is `push-thread-bindings`: a hash-map for the pair, a fresh
@@ -168,8 +168,8 @@
     GETIN     the application's own work — `(get-in db [:items i])`
     RAWDV     + a bare substrate derived value over the same container,
               with NO re-frame sub machinery. (The JVM harness spells this
-              `interop/make-reaction`; under the React spine that hook is
-              deliberately unpublished, and `adapter/make-derived-value` is
+              `rf.interop/make-reaction`; under the React spine that hook is
+              deliberately unpublished, and `rf.substrate.adapter/make-derived-value` is
               the CLJS surface for the same thing.)
     DEREF     + re-frame's signal graph — `@reaction` on a cached node
     RGSUB     `subscribe` WITHOUT the deref: frame resolution, cache lookup
@@ -178,7 +178,7 @@
 
   ### Inside `subscribe`'s cache-HIT path (rf2-j8ls2 / rf2-ncjyt)
 
-  S1..S4 re-walk `subs/subscribe`'s 1-arity through PUBLIC functions only,
+  S1..S4 re-walk `rf.subs/subscribe`'s 1-arity through PUBLIC functions only,
   each a strict prefix of the next and of `RGSUB`:
 
     S1-CURFRM  `(or (resolve-current-frame) (require-current-frame! ...))`
@@ -186,7 +186,7 @@
     S2-TGTID   + `frame-target->id`
     S3-CWFR    + `call-with-frame-resolution` around an empty thunk — the
                flush consult, the generation read, and THE BINDING
-    S4-PRELOOK + `(frame/frame id)` + `(get @cache k)`
+    S4-PRELOOK + `(rf.frame/frame id)` + `(get @cache k)`
     RGSUB      + the ref-count attach and the post-swap re-check
 
   Two RETIRED spellings are kept live beside their replacements as PAIRED
@@ -200,7 +200,7 @@
   ### The ref-count attach, part by part
 
     RC-ATTACH  the PRE-rf2-j8ls2 `update-in` spelling — the paired control
-    RC-CAND    the form that replaced it in `subs/bump-ref-count-fn`
+    RC-CAND    the form that replaced it in `rf.subs/bump-ref-count-fn`
     RC-GUARD   the same `swap-vals!` returning `m` UNCHANGED
     RC-SWAPID  `(swap-vals! cache identity)` — the machinery alone
     RC-UPDIN   pure `(update-in m [k :ref-count] (fnil inc 0))`
@@ -222,7 +222,7 @@
                no binding, not even a call. It prices the thunk every arm
                above hands to somebody, and it is what says the bimodal step
                those arms carry is closure CREATION (rf2-ktrvw, below).
-    N-LOOKGEN  `registrar/lookup :sub` with `*generation*` BOUND — the
+    N-LOOKGEN  `rf.registrar/lookup :sub` with `*generation*` BOUND — the
                generation-routed branch that allocates a `[kind id]` key
                vector per call (rf2-ezwnl, ~98 B/call JVM)
     N-LOOKATOM the same lookup on the registrar-atom branch
@@ -233,7 +233,7 @@
   nothing about WHERE the bytes go. The H arms walk the route:
 
     H-FVID     `frame-value->id` on the result
-    H-CACHE    `late-bind/get-fn-cached` — the hook lookup alone
+    H-CACHE    `rf.late-bind/get-fn-cached` — the hook lookup alone
     H-SPEC     `substrate-adapter/current-adapter-spec` — the state read alone
     H-IMPL     `function-component-current-frame` — the routed impl alone
     H-SAMEH    `same-adapter?` on two HELD maps — the SHIPPED routing predicate
@@ -291,18 +291,18 @@
             [goog.object :as gobj]
             [goog.string :as gstring]
             [goog.string.format]
-            [re-frame.adapter.context :as adapter-context]
-            [re-frame.bench.calibration :as calib]
-            [re-frame.bench.order-guard :as guard]
+            [re-frame.adapter.context :as rf.adapter.context]
+            [re-frame.bench.calibration :as rf.bench.calibration]
+            [re-frame.bench.order-guard :as rf.bench.order-guard]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.live-frame :as live-frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.subs :as subs]
-            [re-frame.substrate.adapter :as adapter]
-            [re-frame.substrate.spine :as spine]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.live-frame :as rf.live-frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.subs :as rf.subs]
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
+            [re-frame.substrate.spine :as rf.substrate.spine]))
 
 ;; ---------------------------------------------------------------------------
 ;; the counter
@@ -463,13 +463,13 @@
 ;; prediction the instrument can falsify rather than a before/after story.
 
 (defn- retired-resolution-target
-  "rf2-8gb3t. `live-frame/frame-resolution-target` as it stood before the
+  "rf2-8gb3t. `rf.live-frame/frame-resolution-target` as it stood before the
   wrapper was retired: a frame VALUE verbatim, a frame-id keyword through
   `live-frame` (which MINTS a fresh frame value), anything else nil."
   [target]
   (cond
-    (live-frame/frame-value? target) target
-    (keyword? target)                (live-frame/live-frame target)
+    (rf.live-frame/frame-value? target) target
+    (keyword? target)                (rf.live-frame/live-frame target)
     :else                            nil))
 
 (defn- retired-current-frame!
@@ -477,7 +477,7 @@
   `{:where :event-id}` extra map built on EVERY call, read only on the
   `:rf.error/no-frame-context` path."
   [query-v]
-  (frame/require-current-frame!
+  (rf.frame/require-current-frame!
     :subscribe
     {:where    're-frame.subs/subscribe
      :event-id (first query-v)}))
@@ -487,8 +487,8 @@
   with `require-current-frame!` building it — only when the reader found
   nothing."
   [query-v]
-  (or (frame/resolve-current-frame)
-      (frame/require-current-frame!
+  (or (rf.frame/resolve-current-frame)
+      (rf.frame/require-current-frame!
         :subscribe
         {:where    're-frame.subs/subscribe
          :event-id (first query-v)})))
@@ -517,7 +517,7 @@
 
 (defn- arm-rawdv []
   (let [{:keys [n raw]} @rig]
-    (dotimes [k n] (keep! (adapter/read-container (nth raw k))))
+    (dotimes [k n] (keep! (rf.substrate.adapter/read-container (nth raw k))))
     nil))
 
 (defn- arm-deref []
@@ -527,12 +527,12 @@
 
 (defn- arm-rgsub []
   (let [{:keys [n qs]} @rig]
-    (dotimes [k n] (keep! (subs/subscribe (nth qs k))))
+    (dotimes [k n] (keep! (rf.subs/subscribe (nth qs k))))
     nil))
 
 (defn- arm-rgread []
   (let [{:keys [n qs]} @rig]
-    (dotimes [k n] (keep! (deref (subs/subscribe (nth qs k)))))
+    (dotimes [k n] (keep! (deref (rf.subs/subscribe (nth qs k)))))
     nil))
 
 ;; ---- inside subscribe: the prefix ladder ----------------------------------
@@ -540,15 +540,15 @@
 ;; rf2-x0fe2 — the ambient reader, PAIRED, because this is the one place the
 ;; CLJS read path does MORE than the JVM one rather than less.
 ;;
-;; `frame/resolve-current-frame` is a plain `*current-frame*` var read on the
+;; `rf.frame/resolve-current-frame` is a plain `*current-frame*` var read on the
 ;; JVM. On CLJS it consults the `:adapter/current-frame` late-bind hook so the
 ;; React-context tier is live — a hook lookup plus a routed-hook chain that
-;; bottoms out in `frame/current-frame`. Every ambient subscribe pays it, and
+;; bottoms out in `rf.frame/current-frame`. Every ambient subscribe pays it, and
 ;; nothing in the JVM decomposition can see it.
 ;;
-;;   S0-VAR    `(frame/current-frame)` — the dynamic-var tier ALONE, which is
+;;   S0-VAR    `(rf.frame/current-frame)` — the dynamic-var tier ALONE, which is
 ;;             the whole of what the JVM does
-;;   S0-SCOPE  `(frame/resolve-current-frame)` — the shipped CLJS reader
+;;   S0-SCOPE  `(rf.frame/resolve-current-frame)` — the shipped CLJS reader
 ;;
 ;; S0-SCOPE - S0-VAR is the React-context-tier consult, and it is a CLJS-ONLY
 ;; term. The arms are in one process against one installed adapter, so the pair
@@ -556,12 +556,12 @@
 
 (defn- arm-s0-var []
   (let [{:keys [n]} @rig]
-    (dotimes [_ n] (keep! (frame/current-frame)))
+    (dotimes [_ n] (keep! (rf.frame/current-frame)))
     nil))
 
 (defn- arm-s0-scope []
   (let [{:keys [n]} @rig]
-    (dotimes [_ n] (keep! (frame/resolve-current-frame)))
+    (dotimes [_ n] (keep! (rf.frame/resolve-current-frame)))
     nil))
 
 (defn- arm-s1-curfrm []
@@ -577,31 +577,31 @@
 (defn- arm-s2-tgtid []
   (let [{:keys [n qs]} @rig]
     (dotimes [k n]
-      (keep! (frame/frame-target->id (shipped-current-frame! (nth qs k)))))
+      (keep! (rf.frame/frame-target->id (shipped-current-frame! (nth qs k)))))
     nil))
 
 (defn- arm-s3-cwfr []
   (let [{:keys [n qs]} @rig]
     (dotimes [k n]
-      (let [fid* (frame/frame-target->id (shipped-current-frame! (nth qs k)))]
-        (live-frame/call-with-frame-resolution fid* (fn [] (keep! true)))))
+      (let [fid* (rf.frame/frame-target->id (shipped-current-frame! (nth qs k)))]
+        (rf.live-frame/call-with-frame-resolution fid* (fn [] (keep! true)))))
     nil))
 
 (defn- arm-s4-prelook []
   (let [{:keys [n qs]} @rig]
     (dotimes [k n]
       (let [q    (nth qs k)
-            fid* (frame/frame-target->id (shipped-current-frame! q))]
-        (live-frame/call-with-frame-resolution
+            fid* (rf.frame/frame-target->id (shipped-current-frame! q))]
+        (rf.live-frame/call-with-frame-resolution
           fid*
           (fn []
-            (let [cache* (:sub-cache (frame/frame fid*))]
+            (let [cache* (:sub-cache (rf.frame/frame fid*))]
               (keep! (get @cache* q)))))))
     nil))
 
 ;; ---- the ref-count attach, part by part -----------------------------------
 ;;
-;; RC-CAND is the SHIPPED form (`subs/bump-ref-count-fn`), spelled out here
+;; RC-CAND is the SHIPPED form (`rf.subs/bump-ref-count-fn`), spelled out here
 ;; rather than called, so the pair stays a comparison of two EXPRESSIONS and
 ;; neither arm can drift under the other. RC-ATTACH is the retired `update-in`
 ;; spelling. The rest strip ONE thing each, so a difference names a part rather
@@ -700,13 +700,13 @@
 
 (defn- arm-n-genread []
   (let [{:keys [n]} @rig]
-    (dotimes [_ n] (keep! (live-frame/frame-resolution-generation fid)))
+    (dotimes [_ n] (keep! (rf.live-frame/frame-resolution-generation fid)))
     nil))
 
 (defn- arm-n-flush []
   (let [{:keys [n]} @rig]
     (dotimes [_ n]
-      (when-let [flush! (late-bind/get-fn-cached :live-frame/flush-projection!)]
+      (when-let [flush! (rf.late-bind/get-fn-cached :live-frame/flush-projection!)]
         (flush!))
       (keep! true))
     nil))
@@ -719,8 +719,8 @@
 (defn- arm-n-bindonly []
   (let [{:keys [n gen]} @rig]
     (dotimes [_ n]
-      (binding [registrar/*generation* gen]
-        (keep! registrar/*generation*)))
+      (binding [rf.registrar/*generation* gen]
+        (keep! rf.registrar/*generation*)))
     nil))
 
 ;; `call-with-frame-resolution` with a target that names no image-loaded frame:
@@ -729,7 +729,7 @@
 (defn- arm-n-cwfr-nogen []
   (let [{:keys [n]} @rig]
     (dotimes [_ n]
-      (live-frame/call-with-frame-resolution nil (fn [] (keep! true))))
+      (rf.live-frame/call-with-frame-resolution nil (fn [] (keep! true))))
     nil))
 
 ;; THE EXACT ISOLATOR, and it is why this file does not simply copy the JVM
@@ -755,7 +755,7 @@
 ;;
 ;; So the pair below is SYMMETRIC: two sibling functions of identical arity and
 ;; identical shape, each taking a thunk the arm allocates fresh, differing in
-;; exactly ONE token — `(binding [registrar/*generation* gen] (thunk))` against
+;; exactly ONE token — `(binding [rf.registrar/*generation* gen] (thunk))` against
 ;; `(thunk)`. Same closure, same escape, same flush consult, same generation
 ;; read. `N-CWFRBIND - N-CWFRGEN` is therefore the binding and nothing else.
 ;;
@@ -765,22 +765,22 @@
 ;; `N-CWFRBIND` must agree with `N-CWFRRAW`, which calls the shipped function.
 
 (defn- cwfr-bind
-  "`live-frame/call-with-frame-resolution`'s body, verbatim. Its twin below
+  "`rf.live-frame/call-with-frame-resolution`'s body, verbatim. Its twin below
   differs in one token; do not let them drift apart."
   [frame-target thunk]
-  (when-let [flush! (late-bind/get-fn-cached :live-frame/flush-projection!)]
+  (when-let [flush! (rf.late-bind/get-fn-cached :live-frame/flush-projection!)]
     (flush!))
-  (if-let [gen (live-frame/frame-resolution-generation frame-target)]
-    (binding [registrar/*generation* gen]
+  (if-let [gen (rf.live-frame/frame-resolution-generation frame-target)]
+    (binding [rf.registrar/*generation* gen]
       (thunk))
     (thunk)))
 
 (defn- cwfr-nobind
   "`cwfr-bind` with the `binding` removed and NOTHING else changed."
   [frame-target thunk]
-  (when-let [flush! (late-bind/get-fn-cached :live-frame/flush-projection!)]
+  (when-let [flush! (rf.late-bind/get-fn-cached :live-frame/flush-projection!)]
     (flush!))
-  (if-let [_gen (live-frame/frame-resolution-generation frame-target)]
+  (if-let [_gen (rf.live-frame/frame-resolution-generation frame-target)]
     (thunk)
     (thunk)))
 
@@ -907,7 +907,7 @@
 (defn- arm-n-cwfr-wrap []
   (let [{:keys [n]} @rig]
     (dotimes [_ n]
-      (live-frame/call-with-frame-resolution
+      (rf.live-frame/call-with-frame-resolution
         (retired-resolution-target fid)
         (fn [] (keep! true))))
     nil))
@@ -915,7 +915,7 @@
 (defn- arm-n-cwfr-raw []
   (let [{:keys [n]} @rig]
     (dotimes [_ n]
-      (live-frame/call-with-frame-resolution fid (fn [] (keep! true))))
+      (rf.live-frame/call-with-frame-resolution fid (fn [] (keep! true))))
     nil))
 
 ;; rf2-ezwnl's pair. The generation-routed branch is `(get resolver [kind id])`
@@ -924,15 +924,15 @@
 ;; `(first query-v)`, so the DIFFERENCE is the key vector.
 (defn- arm-n-lookgen []
   (let [{:keys [n qs gen]} @rig]
-    (binding [registrar/*generation* gen]
+    (binding [rf.registrar/*generation* gen]
       (dotimes [k n]
-        (keep! (registrar/lookup :sub (first (nth qs k))))))
+        (keep! (rf.registrar/lookup :sub (first (nth qs k))))))
     nil))
 
 (defn- arm-n-lookatom []
   (let [{:keys [n qs]} @rig]
     (dotimes [k n]
-      (keep! (registrar/lookup :sub (first (nth qs k)))))
+      (keep! (rf.registrar/lookup :sub (first (nth qs k)))))
     nil))
 
 ;; ---------------------------------------------------------------------------
@@ -942,7 +942,7 @@
 ;; and nothing about WHERE. The route has four steps and each is a candidate:
 ;;
 ;;   (frame-value->id                                    <- H-FVID
-;;     (if-let [f (late-bind/get-fn-cached               <- H-CACHE
+;;     (if-let [f (rf.late-bind/get-fn-cached               <- H-CACHE
 ;;                  :adapter/current-frame)]
 ;;       (f)                                             <- H-ROUTED (the whole call)
 ;;       (current-frame)))
@@ -954,7 +954,7 @@
 ;;       (apply impl-fn args)                            <- the RESIDUAL
 ;;       ...))
 ;;
-;; with `impl-fn` = `adapter-context/function-component-current-frame`  <- H-IMPL.
+;; with `impl-fn` = `rf.adapter.context/function-component-current-frame`  <- H-IMPL.
 ;;
 ;; The arms below price each step against the SAME installed adapter in the
 ;; SAME process, and the budget must close:
@@ -1004,12 +1004,12 @@
 
 (defn- arm-h-spec []
   (let [{:keys [n]} @rig]
-    (dotimes [_ n] (keep! (adapter/current-adapter-spec)))
+    (dotimes [_ n] (keep! (rf.substrate.adapter/current-adapter-spec)))
     nil))
 
 (defn- arm-h-sameh []
   (let [{:keys [n spec]} @rig]
-    (dotimes [_ n] (keep! (adapter/same-adapter? spec spec)))
+    (dotimes [_ n] (keep! (rf.substrate.adapter/same-adapter? spec spec)))
     nil))
 
 (defn- arm-h-sameflat []
@@ -1019,17 +1019,17 @@
 
 (defn- arm-h-fvid []
   (let [{:keys [n]} @rig]
-    (dotimes [_ n] (keep! (frame/frame-value->id fid)))
+    (dotimes [_ n] (keep! (rf.frame/frame-value->id fid)))
     nil))
 
 (defn- arm-h-cache []
   (let [{:keys [n]} @rig]
-    (dotimes [_ n] (keep! (late-bind/get-fn-cached :adapter/current-frame)))
+    (dotimes [_ n] (keep! (rf.late-bind/get-fn-cached :adapter/current-frame)))
     nil))
 
 (defn- arm-h-impl []
   (let [{:keys [n]} @rig]
-    (dotimes [_ n] (keep! (adapter-context/function-component-current-frame)))
+    (dotimes [_ n] (keep! (rf.adapter.context/function-component-current-frame)))
     nil))
 
 ;; The whole shipped call — the hook lookup AND the routed closure. `S0-SCOPE -
@@ -1037,7 +1037,7 @@
 (defn- arm-h-routed []
   (let [{:keys [n]} @rig]
     (dotimes [_ n]
-      (keep! ((late-bind/get-fn-cached :adapter/current-frame))))
+      (keep! ((rf.late-bind/get-fn-cached :adapter/current-frame))))
     nil))
 
 
@@ -1328,24 +1328,24 @@
         (if coords?
           (rf/reg-sub id prod-sub-meta body)
           (rf/reg-sub id body))))
-    (live-frame/make-frame {:id fid})
-    (frame/replace-app-db! fid (db-of n))
-    (let [src   (frame/app-db-container fid)
-          cache (:sub-cache (frame/frame fid))
+    (rf.live-frame/make-frame {:id fid})
+    (rf.frame/replace-app-db! fid (db-of n))
+    (let [src   (rf.frame/app-db-container fid)
+          cache (:sub-cache (rf.frame/frame fid))
           ;; Hold n subscriptions the way a mounted application holds them, so
           ;; every node is live for the whole run — which is what makes DEREF a
           ;; cache HIT rather than a cold compute.
-          held  (mapv subs/subscribe qs)
+          held  (mapv rf.subs/subscribe qs)
           ;; The substrate shell over the same container computing the same
           ;; body, with NO re-frame sub machinery over it. One watcher each, the
           ;; shape a mounted boundary gives it — without it the derived value
           ;; takes its zero-subscriber branch and is not the thing an
           ;; application holds.
           raw   (mapv (fn [i]
-                        (let [dv (adapter/make-derived-value
+                        (let [dv (rf.substrate.adapter/make-derived-value
                                    [src] (fn [db] (get-in db [:items i])))]
-                          (adapter/subscribe-container dv (fn [_ _] nil))
-                          (adapter/read-container dv)
+                          (rf.substrate.adapter/subscribe-container dv (fn [_ _] nil))
+                          (rf.substrate.adapter/read-container dv)
                           dv))
                       (range n))]
       ;; Establish each held node's memo baseline the way a first render does.
@@ -1360,8 +1360,8 @@
                 :container src
                 ;; rf2-f70iq: the installed spec the routing predicate compares
                 ;; against, and the routed impl the calling-convention pair calls
-                :spec      (adapter/current-adapter-spec)
-                :impl      adapter-context/function-component-current-frame
+                :spec      (rf.substrate.adapter/current-adapter-spec)
+                :impl      rf.adapter.context/function-component-current-frame
                 ;; the exact reaction the shipped `identical?` guard compares
                 ;; against, a SNAPSHOT of the real n-entry cache map for the
                 ;; pure arms, and the frame's sealed generation for the
@@ -1369,7 +1369,7 @@
                 :reactions (mapv #(:reaction (get @cache %)) qs)
                 :snap      @cache
                 :bumped    (mapv #(update (get @cache %) :ref-count inc) qs)
-                :gen       (live-frame/frame-resolution-generation fid)}))))
+                :gen       (rf.live-frame/frame-resolution-generation fid)}))))
 
 ;; ---------------------------------------------------------------------------
 
@@ -1381,7 +1381,7 @@
   ;; Ahead of everything, because a broken guard makes every figure below
   ;; unpublishable and finding that out after the run is wasteful. The checks
   ;; are fixtures replayed from recorded readings, so this is deterministic.
-  (when-not (guard/print-self-test!)
+  (when-not (rf.bench.order-guard/print-self-test!)
     (throw (ex-info "order guard self-test FAILED — nothing may be measured" {})))
   ;; And its floor-attribution counterpart (rf2-hydpy), for the same reason:
   ;; a broken verdict here could lift a refusal it had no right to lift.
@@ -1390,7 +1390,7 @@
   ;; rf2-l3jv4 — and the control calibration, whose refusal is a third
   ;; independent contributor to this run's exit code. Injected ratios,
   ;; including the recorded 16.11 B/slot the owner bead was opened on.
-  (when-not (calib/print-self-test!)
+  (when-not (rf.bench.calibration/print-self-test!)
     (throw (ex-info "calibration self-test FAILED — nothing may be measured" {})))
   (let [n            (env-int "RA_N" 300)
         samples      (env-int "RA_SAMPLES" 42)
@@ -1413,9 +1413,9 @@
     ;; ns-load — before the bench installs its own — decides whether the shipped
     ;; route is ONE link or two — and a second link would be a second
     ;; `same-adapter?` call. Read it, do not assume it.
-    (vreset! pre-published (some? (late-bind/get-fn :adapter/current-frame)))
-    (rf/init! (spine/make-react-adapter
-                (spine/make-react-spine
+    (vreset! pre-published (some? (rf.late-bind/get-fn :adapter/current-frame)))
+    (rf/init! (rf.substrate.spine/make-react-adapter
+                (rf.substrate.spine/make-react-spine
                   {:substrate-name        "read-attribution-cljs"
                    :gensym-prefix-sub     "ra-sub-"
                    :gensym-prefix-derived "ra-derived-"
@@ -1430,11 +1430,11 @@
     ;; Everything below runs under an established frame scope, exactly as a
     ;; mounted application's render does — bound ONCE, outside every measured
     ;; window, so the scope itself is never charged to an arm.
-    (binding [frame/*current-frame* fid]
+    (binding [rf.frame/*current-frame* fid]
       (build-rig! n coords?)
       (println ";; rf2-x0fe2 READ attribution — CLJS, node V8, :advanced")
       (println (gstring/format ";; debug-enabled? = %s   gc-exposed? = %s"
-                       interop/debug-enabled?
+                       rf.interop/debug-enabled?
                        (some? (gobj/get js/globalThis "gc"))))
       (println (gstring/format ";; node %s  V8 %s  pointer-compression=%s (Chrome ships it ON: a tagged slot is 4 B there, 8 B here)"
                        (.-node js/process.versions) (.-v8 js/process.versions)
@@ -1450,7 +1450,7 @@
                        (if coords?
                          "COORD-CARRYING (default — the shape a real application registers)"
                          "COORD-LESS (RA_COORDS=0 — a labelled CONTROL; do not quote a figure from this run)")))
-      (let [slot (registrar/lookup :sub (first (first (:qs @rig))))]
+      (let [slot (rf.registrar/lookup :sub (first (first (:qs @rig))))]
         (println (gstring/format ";; registered sub-meta coord keys = %s"
                          (pr-str (select-keys slot [:ns :file :line :column])))))
       ;; PROVENANCE. The binding arm is only measuring a binding if the frame
@@ -1468,10 +1468,10 @@
       ;; arms are not reading the same thing and nothing below is comparable.
       (let [{:keys [qs held raw db]} @rig
             expect  (get-in db [:items 7])
-            rg-v    (deref (subs/subscribe (nth qs 7)))
+            rg-v    (deref (rf.subs/subscribe (nth qs 7)))
             dr-v    (deref (nth held 7))
-            raw-v   (adapter/read-container (nth raw 7))
-            scope-v (frame/resolve-current-frame)
+            raw-v   (rf.substrate.adapter/read-container (nth raw 7))
+            scope-v (rf.frame/resolve-current-frame)
             agree?  (and (= expect rg-v dr-v raw-v) (= fid scope-v))]
         (println (gstring/format ";; agreement at site 7: want %s rgread %s deref %s rawdv %s | scope %s -> %s"
                          (pr-str expect) (pr-str rg-v) (pr-str dr-v) (pr-str raw-v)
@@ -1483,13 +1483,13 @@
       ;; while it decides identically. Checked over the cases that discriminate
       ;; the branches: nil, a canonical-kind match, a canonical-kind mismatch, a
       ;; kindless map (object identity), and a copied canonical map.
-      (let [spec   (adapter/current-adapter-spec)
+      (let [spec   (rf.substrate.adapter/current-adapter-spec)
             copy   (assoc spec :rf.bench/copied true)
             other  {:kind :rf.adapter/ra-not-installed}
             custom {:kind :custom}
             cases  [[nil nil] [spec nil] [nil spec] [spec spec] [spec copy]
                     [spec other] [other spec] [custom custom] [custom {:kind :custom}]]
-            bad    (remove (fn [[a b]] (= (adapter/same-adapter? a b)
+            bad    (remove (fn [[a b]] (= (rf.substrate.adapter/same-adapter? a b)
                                           (same-adapter-flat? a b)))
                            cases)]
         (println (gstring/format ";; predicate agreement over %d discriminating cases -> %s"
@@ -1588,7 +1588,7 @@
                            (assoc :prev label))))
                    {:xs {} :dropped {} :unverified {} :windows {} :order [] :prev nil}
                    (vec (for [round (range rounds)
-                              j     (guard/slot-order k round)]
+                              j     (rf.bench.order-guard/slot-order k round)]
                           [round j])))
             res  (into {}
                        (map-indexed
@@ -1609,7 +1609,7 @@
             ;; code at the bottom. The bands live in
             ;; `re-frame.bench.calibration` and are expressed nowhere else,
             ;; so what is printed and what refuses cannot drift apart.
-            cal  (calib/verdict
+            cal  (rf.bench.calibration/verdict
                    (mapv (fn [d] {:d d :smi (b (ctl-key "SMI" d)) :dbl (b (ctl-key "DBL" d))})
                          ctl-smi-ds)
                    (slope b (ctl-key "SMI" 100) 100 (ctl-key "SMI" 200) 200))
@@ -1794,7 +1794,7 @@
                          "rf2-ezwnl key vector (LOOKGEN-LOOKATOM)"
                          (fmt (- (net* "N-LOOKGEN") (net* "N-LOOKATOM")))))
         (println ";;   ^ NOT on the cache-HIT read path: subscribe's hit branch performs no")
-        (println ";;     registrar/lookup. It runs per dispatch, per fx, per cofx and per")
+        (println ";;     rf.registrar/lookup. It runs per dispatch, per fx, per cofx and per")
         (println ";;     subscribe MISS. Quoted here because rf2-ezwnl's reopen condition names it.")
         (println ";;")
         ;; --- rf2-f70iq — WHERE the ambient reader's bytes go -----------------
@@ -1817,7 +1817,7 @@
                (- (net* "S0-SCOPE") (net* "S0-VAR")) nil)
           (println ";;   and the route, part by part:")
           (row "H-FVID    frame-value->id on the result"   (net* "H-FVID")   "H-FVID")
-          (row "H-CACHE   late-bind/get-fn-cached, lookup only" (net* "H-CACHE") "H-CACHE")
+          (row "H-CACHE   rf.late-bind/get-fn-cached, lookup only" (net* "H-CACHE") "H-CACHE")
           (row "H-SPEC    current-adapter-spec alone"      (net* "H-SPEC")   "H-SPEC")
           (row "H-IMPL    function-component-current-frame" (net* "H-IMPL")  "H-IMPL")
           (row "H-SAMEH   same-adapter?, two HELD maps  (SHIPPED)" (net* "H-SAMEH") "H-SAMEH")
@@ -1886,7 +1886,7 @@
           (println ";;"))
         ;; --- THE HEADLINE ---------------------------------------------------
         (println ";; ==== THE TERM THIS BEAD IS ABOUT ====")
-        (println ";;   JVM: the dynamic `binding` of registrar/*generation* inside")
+        (println ";;   JVM: the dynamic `binding` of rf.registrar/*generation* inside")
         (println ";;   call-with-frame-resolution reads ~760 B/call and is ~41-46% of")
         (println ";;   subscribe's cache-HIT allocation. CLJS `binding` is let + set! +")
         (println ";;   try/finally restore. PREDICTION, stated before the run: 0 B/read.")
@@ -2008,8 +2008,8 @@
         ;; never its p50. Any arm the sweep cannot attribute, and any
         ;; :unchecked refusal (a plan defect, which no sweep can excuse),
         ;; keeps the run at exit 2 exactly as before.
-        (let [v (guard/verdict (:order run) {:tolerance tolerance})]
-          (doseq [line (guard/report-lines v "the per-arm figure, one p50 per round")]
+        (let [v (rf.bench.order-guard/verdict (:order run) {:tolerance tolerance})]
+          (doseq [line (rf.bench.order-guard/report-lines v "the per-arm figure, one p50 per round")]
             (println line))
           (when (:refuse? v)
             (let [arms-with    (fn [k]
@@ -2095,7 +2095,7 @@
         ;; tagged-slot copy at all. Until this bead the answer only ever
         ;; printed, so a run could report `NEITHER` above and still exit 0
         ;; under a `VERDICT: reportable`.
-        (doseq [line (calib/report-lines cal)]
+        (doseq [line (rf.bench.calibration/report-lines cal)]
           (println line))
         (when (:refuse? cal)
           (set! (.-exitCode js/process) 2))

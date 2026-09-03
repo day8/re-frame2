@@ -15,18 +15,18 @@
   absence regression."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.interceptor-registry :as icpt-reg]
-            [re-frame.router :as router]
-            [re-frame.subs :as subs]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.interceptor-registry :as rf.interceptor-registry]
+            [re-frame.router :as rf.router]
+            [re-frame.subs :as rf.subs]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (defn reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (rf/init! plain-atom/adapter)
-  (frame/ensure-default-frame!)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf/init! rf.substrate.plain-atom/adapter)
+  (rf.frame/ensure-default-frame!)
   (test-fn))
 
 (use-fixtures :each reset-runtime)
@@ -101,9 +101,9 @@
   (testing "retiring the re-frame.core facade twins does NOT touch the
             owning-ns fns the macros delegate to — JVM programmatic callers
             still reach them directly"
-    (is (fn? router/dispatch!) "re-frame.router/dispatch! is untouched")
-    (is (fn? router/dispatch-sync!) "re-frame.router/dispatch-sync! is untouched")
-    (is (fn? subs/subscribe) "re-frame.subs/subscribe is untouched")
-    (is (fn? icpt-reg/reg-interceptor*)
+    (is (fn? rf.router/dispatch!) "re-frame.router/dispatch! is untouched")
+    (is (fn? rf.router/dispatch-sync!) "re-frame.router/dispatch-sync! is untouched")
+    (is (fn? rf.subs/subscribe) "re-frame.subs/subscribe is untouched")
+    (is (fn? rf.interceptor-registry/reg-interceptor*)
         "re-frame.interceptor-registry/reg-interceptor* is untouched — only
          the re-frame.core facade re-export is gone")))

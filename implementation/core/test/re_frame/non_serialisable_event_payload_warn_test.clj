@@ -8,7 +8,7 @@
 
   This is a SHOULD, not the `:rf.cofx` structural-EDN MUST: the warning is
   observational (`:recovery :no-recovery`), never a throw, and dev-only —
-  `interop/debug-enabled?`-gated (the elision probe verifies DCE separately).
+  `rf.interop/debug-enabled?`-gated (the elision probe verifies DCE separately).
 
   ## Posture split (rf2-d2841)
 
@@ -19,7 +19,7 @@
   would be the actual defect.
 
   Everything ABOUT the warning is dev-only by design and is kept verbatim
-  inside a `(when interop/debug-enabled? …)` arm marked `rf2-d2841` —
+  inside a `(when rf.interop/debug-enabled? …)` arm marked `rf2-d2841` —
   `silent-on-plain-data-payload` included, even though it currently passes
   under the gate. It passes for the wrong reason: `(is (empty? (payload-
   warnings recorded)))` over a trace stream that is empty for EVERY payload
@@ -28,19 +28,19 @@
   lane still executes the dispatch it is reasoning about."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace :as rf.trace]))
 
 (defn reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (trace/clear-listeners!)
-  (rf/init! plain-atom/adapter)
-  (frame/ensure-default-frame!)
-  (binding [frame/*current-frame* :rf/default]
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.trace/clear-listeners!)
+  (rf/init! rf.substrate.plain-atom/adapter)
+  (rf.frame/ensure-default-frame!)
+  (binding [rf.frame/*current-frame* :rf/default]
     (test-fn)))
 
 (use-fixtures :each reset-runtime)
@@ -70,7 +70,7 @@
       ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture
       ;; split). A NEGATIVE over the trace stream: under the gate the stream
       ;; is empty whatever the payload contained.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (empty? (payload-warnings recorded)))))))
 
 (deftest fires-on-fn-valued-payload
@@ -86,7 +86,7 @@
       (is (fn? (:on-done (:seen (rf/app-db-value :rf/default))))
           "the host handle reached the handler untouched — the lint is observational")
       ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [warns (payload-warnings recorded)]
           (is (= 1 (count warns)))
           (let [w (first warns)

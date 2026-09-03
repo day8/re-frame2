@@ -26,7 +26,7 @@
   injectable so the unit tests are pure.
 
   See spec/Design-TransducerRouter.md for the full contract."
-  (:require [re-frame.interop :as interop]))
+  (:require [re-frame.interop :as rf.interop]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -216,7 +216,7 @@
   tests to drain manually via `manual-driver`."
   []
   (fn
-    ([] {:db nil :steps [] :queue interop/empty-queue
+    ([] {:db nil :steps [] :queue rf.interop/empty-queue
          :fx-applied [] :errors []})
     ([acc] acc)
     ([acc step]
@@ -272,7 +272,7 @@
     :drain! (drain! frame rf) — tick! to fixed point; returns the
                                final accumulator after the queue empties"
   []
-  (let [state (atom {:queue interop/empty-queue :acc nil})]
+  (let [state (atom {:queue rf.interop/empty-queue :acc nil})]
     {:push!  (fn [envelope]
                (swap! state update :queue conj envelope))
      :tick!  (fn [frame rf]

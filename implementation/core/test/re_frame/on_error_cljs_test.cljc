@@ -32,21 +32,21 @@
   (`re-frame.interceptor-test`), not in this file."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.error-emit :as error-emit]
-            [re-frame.source-coords :as source-coords]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.error-emit :as rf.error-emit]
+            [re-frame.source-coords :as rf.source-coords]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.substrate.plain-atom/adapter
      :init-fn (fn []
                 ;; Per rf2-bacs4: the listener registry is a `defonce`
                 ;; atom that survives test re-runs. Clear before each
                 ;; test so a listener registered by one test doesn't
                 ;; leak into the next.
-                (error-emit/clear-error-listeners!))}))
+                (rf.error-emit/clear-error-listeners!))}))
 
 ;; ============================================================================
 ;; rf2-bacs4 — corpus-wide register-error-listener!
@@ -126,7 +126,7 @@
   ;; rf2-fu75 / PR #8108 ruled it: an UNOWNED promoted error DOES additionally
   ;; reach `console.error` in a dev build — but only on a browser host, and
   ;; only while the `:errors` listener registry is EMPTY
-  ;; (`error-emit/report-unowned-error!`). Registering ANY `:errors` listener
+  ;; (`rf.error-emit/report-unowned-error!`). Registering ANY `:errors` listener
   ;; takes corpus-wide ownership and silences the fallback for every category,
   ;; which is precisely what the recorder below does. So nothing this witness
   ;; raises is unowned, and this node lane has no `js/document` to print from
@@ -515,7 +515,7 @@
                        (fn [_ _] {:fx [[:goum9x/real-fx]]}))
       ;; Per-call override redirects :goum9x/real-fx to an id that is NOT
       ;; registered → override-fallthrough; runtime uses :goum9x/real-fx.
-      (let [f (frame/make-anon-frame-record! {})]
+      (let [f (rf.frame/make-anon-frame-record! {})]
         (rf/dispatch-sync [:goum9x/run-bad-override]
                           {:frame f
                            :fx-overrides {:goum9x/real-fx :goum9x/not-registered}})
@@ -659,7 +659,7 @@
 ;; They pin `:failing-id` on the always-on record, which is the load-bearing
 ;; half and the half rf2-mlh1h was filed about. But rf2-mszrz's contract also
 ;; discriminates the two INTERCEPTOR PHASES, and `:phase` is deliberately NOT
-;; lifted: `error-emit/emit-error-both!` lifts exactly `:failing-id` +
+;; lifted: `rf.error-emit/emit-error-both!` lifts exactly `:failing-id` +
 ;; `:reason`, keeping the record tight. So in production the phase is
 ;; observable through the `:reason` STRING and nowhere else — and both
 ;; interceptor twins above assert only `(string? (:reason r))`. Drop the phase
@@ -746,7 +746,7 @@
 ;; hardcoded `[:event event-id]` — so the production error records for the
 ;; sub categories (whose `:event-id` slot carries a SUB id) OMITTED the
 ;; failing sub's `:source-coord`. The fix is a kind-aware lookup
-;; (`error-emit/error-source-coord`) that resolves the sub categories under
+;; (`rf.error-emit/error-source-coord`) that resolves the sub categories under
 ;; `[:sub …]`. These tests pin that the records now carry the right coord.
 ;; ============================================================================
 
@@ -817,7 +817,7 @@
 ;; `[:sub]` then `[:event]`, so a `:dispatch` frame-destroyed whose id ALSO
 ;; named a subscription was attributed to the WRONG realm (the subscription's
 ;; coord). The captured-frame stale-op seam stamps the
-;; exact failing `:op` onto the always-on record; `error-emit/error-source-coord`
+;; exact failing `:op` onto the always-on record; `rf.error-emit/error-source-coord`
 ;; now pivots on it — `:dispatch` / `:dispatch-sync` → the EVENT coord,
 ;; `:subscribe` → the SUBSCRIPTION coord, `:capture` → NEITHER. The `:op` is a
 ;; PRIVATE steering input (read from the record's attribution, never promoted to
@@ -846,7 +846,7 @@
   (let [seen (atom [])]
     (rf/register-listener! :errors :xgkgx/recorder
                            (fn [record] (swap! seen conj record)))
-    (error-emit/emit-error-both!
+    (rf.error-emit/emit-error-both!
       :rf.error/frame-destroyed
       (when id [id])   ;; attempted event/query vector (nil for :capture)
       id               ;; event-id / sub-id — the vector head (nil for :capture)
@@ -863,9 +863,9 @@
             registered as BOTH an event AND a same-keyword subscription
             resolves the EVENT coord. The pre-fix `[:sub]`-first probe picked
             the subscription's coord (the WRONG realm)."
-    (source-coords/forget-error-coords!)
-    (source-coords/remember-error-coords! :event :xgkgx.collide/a xgkgx-event-coord)
-    (source-coords/remember-error-coords! :sub   :xgkgx.collide/a xgkgx-sub-coord)
+    (rf.source-coords/forget-error-coords!)
+    (rf.source-coords/remember-error-coords! :event :xgkgx.collide/a xgkgx-event-coord)
+    (rf.source-coords/remember-error-coords! :sub   :xgkgx.collide/a xgkgx-sub-coord)
     (let [records (xgkgx-frame-destroyed-records :dispatch :xgkgx.collide/a)]
       (is (= 1 (count records)) "exactly one always-on record per frame-destroyed emit")
       (let [r (first records)]
@@ -876,9 +876,9 @@
 (deftest frame-destroyed-dispatch-sync-shares-the-dispatch-event-realm
   (testing "rf2-xgkgx — `:dispatch-sync` shares the dispatch realm: it resolves
             the EVENT coord, never the same-keyword subscription's."
-    (source-coords/forget-error-coords!)
-    (source-coords/remember-error-coords! :event :xgkgx.collide/b xgkgx-event-coord)
-    (source-coords/remember-error-coords! :sub   :xgkgx.collide/b xgkgx-sub-coord)
+    (rf.source-coords/forget-error-coords!)
+    (rf.source-coords/remember-error-coords! :event :xgkgx.collide/b xgkgx-event-coord)
+    (rf.source-coords/remember-error-coords! :sub   :xgkgx.collide/b xgkgx-sub-coord)
     (let [records (xgkgx-frame-destroyed-records :dispatch-sync :xgkgx.collide/b)]
       (is (= 1 (count records)))
       (is (= xgkgx-event-coord (:source-coord (first records)))
@@ -888,9 +888,9 @@
   (testing "rf2-xgkgx — the INVERSE collision direction: a `:subscribe`
             frame-destroyed record whose id is registered as BOTH resolves the
             SUBSCRIPTION coord, never the same-keyword event's."
-    (source-coords/forget-error-coords!)
-    (source-coords/remember-error-coords! :event :xgkgx.collide/c xgkgx-event-coord)
-    (source-coords/remember-error-coords! :sub   :xgkgx.collide/c xgkgx-sub-coord)
+    (rf.source-coords/forget-error-coords!)
+    (rf.source-coords/remember-error-coords! :event :xgkgx.collide/c xgkgx-event-coord)
+    (rf.source-coords/remember-error-coords! :sub   :xgkgx.collide/c xgkgx-sub-coord)
     (let [records (xgkgx-frame-destroyed-records :subscribe :xgkgx.collide/c)]
       (is (= 1 (count records)))
       (is (= xgkgx-sub-coord (:source-coord (first records)))
@@ -901,9 +901,9 @@
             dead incarnation BEFORE any op ran) fabricates NEITHER coord: no id
             rides the record, and no `:source-coord` slot appears even with
             same-keyword registrations present."
-    (source-coords/forget-error-coords!)
-    (source-coords/remember-error-coords! :event :xgkgx.collide/d xgkgx-event-coord)
-    (source-coords/remember-error-coords! :sub   :xgkgx.collide/d xgkgx-sub-coord)
+    (rf.source-coords/forget-error-coords!)
+    (rf.source-coords/remember-error-coords! :event :xgkgx.collide/d xgkgx-event-coord)
+    (rf.source-coords/remember-error-coords! :sub   :xgkgx.collide/d xgkgx-sub-coord)
     (let [records (xgkgx-frame-destroyed-records :capture nil)]
       (is (= 1 (count records)))
       (let [r (first records)]
@@ -915,7 +915,7 @@
   (testing "rf2-xgkgx — a `:dispatch` frame-destroyed for an id with NO captured
             coords (a programmatic registration that bypassed the macro path)
             omits the `:source-coord` slot rather than niling it."
-    (source-coords/forget-error-coords!)
+    (rf.source-coords/forget-error-coords!)
     (let [records (xgkgx-frame-destroyed-records :dispatch :xgkgx.no-coord/e)]
       (is (= 1 (count records)))
       (let [r (first records)]
@@ -930,7 +930,7 @@
 ;; superseded!`, reached from `core/capture-dispatch!` + `core/capture-
 ;; subscribe!` — recover-but-emits `:rf.error/frame-destroyed` when a
 ;; `capture-frame` op finds its pinned incarnation superseded. Before rf2-7xlvt
-;; it DROPPED the already-known operation realm, so `error-emit/error-source-
+;; it DROPPED the already-known operation realm, so `rf.error-emit/error-source-
 ;; coord` fell back to the legacy `[:sub]`-then-`[:event]` probe (the correct
 ;; fallback for the realm-ambiguous bare router / subs emitters, UNSOUND here
 ;; where the realm IS known). That misattributed a stale captured DISPATCH to a
@@ -970,7 +970,7 @@
       (rf/destroy-frame! fid)
       (rf/make-frame {:id fid :doc "same-id successor B"})
       (let [seen (atom [])]
-        (source-coords/forget-error-coords!)
+        (rf.source-coords/forget-error-coords!)
         (seed)
         (rf/register-listener! :errors :xlvt/recorder
                                (fn [record] (swap! seen conj record)))
@@ -982,8 +982,8 @@
 
 (defn- seed-both [id]
   (fn []
-    (source-coords/remember-error-coords! :event id xlvt-event-coord)
-    (source-coords/remember-error-coords! :sub   id xlvt-sub-coord)))
+    (rf.source-coords/remember-error-coords! :event id xlvt-event-coord)
+    (rf.source-coords/remember-error-coords! :sub   id xlvt-sub-coord)))
 
 (deftest stale-captured-dispatch-resolves-the-event-coord-not-the-collision-sub
   (testing "rf2-7xlvt — a stale captured `:dispatch` whose id is BOTH an event
@@ -1023,7 +1023,7 @@
             returned the EVENT coord — the wrong realm."
     (let [records (capture-superseded-record
                     :subscribe :audit/collide
-                    (fn [] (source-coords/remember-error-coords!
+                    (fn [] (rf.source-coords/remember-error-coords!
                              :event :audit/collide xlvt-event-coord)))]
       (is (= 1 (count records)))
       (let [r (first records)]
@@ -1038,7 +1038,7 @@
             returned the SUB coord — the wrong realm."
     (let [records (capture-superseded-record
                     :dispatch :audit/collide
-                    (fn [] (source-coords/remember-error-coords!
+                    (fn [] (rf.source-coords/remember-error-coords!
                              :sub :audit/collide xlvt-sub-coord)))]
       (is (= 1 (count records)))
       (let [r (first records)]
@@ -1060,7 +1060,7 @@
 ;; bare-id resolve; (2) loss of A after the token match but before enqueue /
 ;; drain-lock acquire (the exactly-once window — pinned in
 ;; `re-frame.capture-frame-test`). These drive seam (1): a ONE-SHOT interposition
-;; on `frame/frame-incarnation-live?` destroys A and reseats B AT the pre-check,
+;; on `rf.frame/frame-incarnation-live?` destroys A and reseats B AT the pre-check,
 ;; so the pre-check PASSES (A "live") and the LATE fence catches the reseated B.
 ;; They assert the delivered always-on record's `:source-coord` names the EXACT
 ;; realm (dispatch / dispatch-sync → `[:event id]`, subscribe → `[:sub id]`) or
@@ -1071,7 +1071,7 @@
 (defn- late-superseded-records
   "Pin a `capture-frame` api to a LIVE frame A, then run the captured `op-key` op
   (`:dispatch` / `:dispatch-sync` / `:subscribe`) with a ONE-SHOT interposition
-  on `frame/frame-incarnation-live?`: at the capture's synchronous pre-check (the
+  on `rf.frame/frame-incarnation-live?`: at the capture's synchronous pre-check (the
   ONE liveness check `capture-target-superseded?` makes) destroy A and reseat a
   same-id successor B BEFORE handing back A's (true) liveness. The pre-check thus
   sees A LIVE (not superseded), delegates to the ordinary bare-id resolve, which
@@ -1082,15 +1082,15 @@
   (let [fid :a2x2w/target]
     (rf/make-frame {:id fid :doc "capture target A"})
     (let [h       (rf/capture-frame fid)
-          a-token (frame/frame-incarnation-token fid)
+          a-token (rf.frame/frame-incarnation-token fid)
           seen    (atom [])
-          real    frame/frame-incarnation-live?
+          real    rf.frame/frame-incarnation-live?
           fired   (atom false)]
-      (source-coords/forget-error-coords!)
+      (rf.source-coords/forget-error-coords!)
       (seed)
       (rf/register-listener! :errors :a2x2w/recorder
                              (fn [record] (swap! seen conj record)))
-      (with-redefs [frame/frame-incarnation-live?
+      (with-redefs [rf.frame/frame-incarnation-live?
                     (fn [id* token]
                       (let [live? (real id* token)]
                         (when (and (not @fired) (= id* fid)
@@ -1149,7 +1149,7 @@
             exactly the wrong-realm record the bead's repro captured."
     (let [records (late-superseded-records
                     :subscribe :audit/collide
-                    (fn [] (source-coords/remember-error-coords!
+                    (fn [] (rf.source-coords/remember-error-coords!
                              :event :audit/collide xlvt-event-coord)))]
       (is (= 1 (count records)))
       (let [r (first records)]
@@ -1164,7 +1164,7 @@
             stealing the unrelated sub's."
     (let [records (late-superseded-records
                     :dispatch :audit/collide
-                    (fn [] (source-coords/remember-error-coords!
+                    (fn [] (rf.source-coords/remember-error-coords!
                              :sub :audit/collide xlvt-sub-coord)))]
       (is (= 1 (count records)))
       (let [r (first records)]
@@ -1210,10 +1210,10 @@
             `:event`, and resolves its `:source-coord` under the EXACT `[:sub
             id]` realm even when the id is ALSO registered as a same-keyword
             event."
-    (source-coords/forget-error-coords!)
+    (rf.source-coords/forget-error-coords!)
     ;; the id collides: distinct coords under BOTH `[:event id]` and `[:sub id]`.
-    (source-coords/remember-error-coords! :event :alk8a/collide xgkgx-event-coord)
-    (source-coords/remember-error-coords! :sub   :alk8a/collide xgkgx-sub-coord)
+    (rf.source-coords/remember-error-coords! :event :alk8a/collide xgkgx-event-coord)
+    (rf.source-coords/remember-error-coords! :sub   :alk8a/collide xgkgx-sub-coord)
     (let [seen (atom [])]
       (rf/register-listener! :errors :alk8a/recorder (fn [record] (swap! seen conj record)))
       (is (nil? (rf/subscribe-once [:alk8a/collide] {:frame :alk8a/gone-frame}))
@@ -1235,8 +1235,8 @@
             event's. Pre-fix the op-nil path's `[:sub]`-then-`[:event]` fallback
             returned the unrelated EVENT coord; the `:op :subscribe` stamp
             resolves `[:sub id]` (a miss) and omits the slot."
-    (source-coords/forget-error-coords!)
-    (source-coords/remember-error-coords! :event :alk8a/event-only xgkgx-event-coord)
+    (rf.source-coords/forget-error-coords!)
+    (rf.source-coords/remember-error-coords! :event :alk8a/event-only xgkgx-event-coord)
     (let [seen (atom [])]
       (rf/register-listener! :errors :alk8a/recorder2 (fn [record] (swap! seen conj record)))
       (is (nil? (rf/subscribe-once [:alk8a/event-only] {:frame :alk8a/gone-frame})))

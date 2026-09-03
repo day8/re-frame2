@@ -3,7 +3,7 @@
   before the timer fires must be CANCELLED by `destroy-frame!` (rf2-uxz52g).
 
   FINDING (code review, worker-max session 2026-06-20): the `:dispatch-later`
-  reserved-fx body armed a host-clock timer via `interop/set-timeout!` but did
+  reserved-fx body armed a host-clock timer via `rf.interop/set-timeout!` but did
   NOT retain the host handle anywhere, so `destroy-frame!` could not cancel a
   still-pending `:dispatch-later` timer. A frame torn down before its timer
   fired leaked the armed timer + its captured closure until the delay elapsed,
@@ -28,30 +28,30 @@
                   emitted `:rf.error/frame-destroyed`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.fx :as fx]
-            [re-frame.frame :as frame]
-            [re-frame.flows :as flows]
-            [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.schemas :as schemas]
-            [re-frame.registrar :as registrar]
-            [re-frame.error-emit :as error-emit]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.fx :as rf.fx]
+            [re-frame.frame :as rf.frame]
+            [re-frame.flows :as rf.flows]
+            [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.error-emit :as rf.error-emit]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  (error-emit/clear-error-listeners!)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.flows/reset-flows!)
+  (rf.schemas/clear-schemas-by-frame!)
+  (rf.error-emit/clear-error-listeners!)
   ;; Cancel + drop any pending :dispatch-later host timer so a sibling test
   ;; cannot leak one into this run (the same reset the fixture reset-hooks
   ;; table fires in the CLJS path).
-  (fx/reset-dispatch-later-timers!)
-  (rf/init! plain-atom/adapter)
+  (rf.fx/reset-dispatch-later-timers!)
+  (rf/init! rf.substrate.plain-atom/adapter)
   (rf/make-frame {:id :rf/default})
   (test-fn)
-  (fx/reset-dispatch-later-timers!))
+  (rf.fx/reset-dispatch-later-timers!))
 
 (use-fixtures :each reset-runtime)
 
@@ -72,12 +72,12 @@
   through the async router drain (whose scheduling would make the count timing-
   dependent). `stub` has the runtime dispatch signature `(fn [event opts] ...)`."
   [stub body-fn]
-  (let [real (late-bind/get-fn :router/dispatch!)]
+  (let [real (rf.late-bind/get-fn :router/dispatch!)]
     (try
-      (late-bind/set-fn! :router/dispatch! stub)
+      (rf.late-bind/set-fn! :router/dispatch! stub)
       (body-fn)
       (finally
-        (late-bind/set-fn! :router/dispatch! real)))))
+        (rf.late-bind/set-fn! :router/dispatch! real)))))
 
 ;; ===========================================================================
 ;; (white-box) the armed handle is retained, then cancelled + dropped on
@@ -182,7 +182,7 @@
 ;; thunk on its worker thread BEFORE `set-timeout!` returns) fired before the
 ;; handle was published, and could publish a handle PAST a frame destroy that
 ;; raced the schedule. These tests drive both interleavings DETERMINISTICALLY
-;; through the `interop/set-timeout!` seam (not a flaky probability stress).
+;; through the `rf.interop/set-timeout!` seam (not a flaky probability stress).
 ;; ===========================================================================
 
 (def ^:private race-frame :rf2-3fc89f3/race)
@@ -204,9 +204,9 @@
           ;; Force the pathological ordering: the host runs the timer thunk
           ;; SYNCHRONOUSLY (as the real executor may for a 0ms delay) BEFORE
           ;; returning its handle — the immediate-fire-before-publication race.
-          (with-redefs [interop/set-timeout!   (fn [f _ms] (f) spent-handle)
-                        interop/clear-timeout! (fn [h] (swap! cleared conj h) nil)]
-            (#'fx/arm-dispatch-later! race-frame 0 event opts))))
+          (with-redefs [rf.interop/set-timeout!   (fn [f _ms] (f) spent-handle)
+                        rf.interop/clear-timeout! (fn [h] (swap! cleared conj h) nil)]
+            (#'rf.fx/arm-dispatch-later! race-frame 0 event opts))))
       (is (= [[event opts]] @dispatched)
           "the deferred event dispatched exactly once, with its event + opts
            (:source / :source-detail) propagated verbatim")
@@ -232,7 +232,7 @@
       (with-dispatch-stub
         (fn [ev op] (swap! dispatched conj [ev op]))
         (fn []
-          (with-redefs [interop/set-timeout!
+          (with-redefs [rf.interop/set-timeout!
                         (fn [_f _ms]
                           ;; The arming reservation is VISIBLE here (phase 1 ran
                           ;; before set-timeout!). Destroy the frame mid-schedule:
@@ -241,13 +241,13 @@
                           ;; return the real handle (publication happens next).
                           (is (= 1 (count (timers-for-frame race-frame)))
                               "the arming reservation is visible mid-set-timeout!")
-                          (fx/release-frame! race-frame)
+                          (rf.fx/release-frame! race-frame)
                           (is (empty? @cleared)
                               "release-frame! did NOT cancel the arming sentinel
                                (nothing cleared yet)")
                           the-handle)
-                        interop/clear-timeout! (fn [h] (swap! cleared conj h) nil)]
-            (#'fx/arm-dispatch-later! race-frame 600000 event opts))))
+                        rf.interop/clear-timeout! (fn [h] (swap! cleared conj h) nil)]
+            (#'rf.fx/arm-dispatch-later! race-frame 600000 event opts))))
       (is (= [the-handle] @cleared)
           "the publish phase found the reservation gone (destroy removed it) and
            CANCELLED the returned handle; the arming SENTINEL was NEVER passed to
@@ -262,13 +262,13 @@
   (testing "release-frame! and reset-dispatch-later-timers! DROP an in-progress
             arming reservation but NEVER pass the sentinel to clear-timeout!,
             while still cancelling real handles (rf2-3fc89f.3 acceptance 4)"
-    (let [sentinel @#'fx/arming-sentinel
+    (let [sentinel @#'rf.fx/arming-sentinel
           timers    @(resolve 're-frame.fx/dispatch-later-timers)
           cleared   (atom [])]
       ;; release-frame! over a frame whose only slot is an arming reservation.
       (reset! timers {[race-frame 1] sentinel})
-      (with-redefs [interop/clear-timeout! (fn [h] (swap! cleared conj h) nil)]
-        (fx/release-frame! race-frame))
+      (with-redefs [rf.interop/clear-timeout! (fn [h] (swap! cleared conj h) nil)]
+        (rf.fx/release-frame! race-frame))
       (is (empty? @cleared)
           "release-frame! dropped the arming reservation WITHOUT cancelling the
            sentinel (a sentinel is not a cancellable host object)")
@@ -278,8 +278,8 @@
       (reset! cleared [])
       (reset! timers {[race-frame 2] sentinel
                       [race-frame 3] ::real-handle})
-      (with-redefs [interop/clear-timeout! (fn [h] (swap! cleared conj h) nil)]
-        (fx/reset-dispatch-later-timers!))
+      (with-redefs [rf.interop/clear-timeout! (fn [h] (swap! cleared conj h) nil)]
+        (rf.fx/reset-dispatch-later-timers!))
       (is (= [::real-handle] @cleared)
           "reset cancelled the REAL handle but NEVER the arming sentinel")
       (is (empty? @timers)
@@ -319,7 +319,7 @@
 ;; un-run an already-started thunk, so the SLOT is treated as the thunk's
 ;; DISPATCH AUTHORITY: the thunk dispatches ONLY when its winning `swap-vals!`
 ;; snapshot still held its slot. These tests drive the composed interleaving
-;; DETERMINISTICALLY through the `interop/set-timeout!` seam — cleanup FIRST,
+;; DETERMINISTICALLY through the `rf.interop/set-timeout!` seam — cleanup FIRST,
 ;; then the callback, then the handle return.
 ;; ===========================================================================
 
@@ -340,18 +340,18 @@
       (with-dispatch-stub
         (fn [ev op] (swap! dispatched conj [ev op]))
         (fn []
-          (with-redefs [interop/set-timeout!
+          (with-redefs [rf.interop/set-timeout!
                         (fn [f _ms]
                           ;; Cleanup wins DURING arming: destroy removes the
                           ;; reservation while the timer is still mid-schedule …
-                          (fx/release-frame! authority-frame)
+                          (rf.fx/release-frame! authority-frame)
                           ;; … yet the host executor STILL runs the captured
                           ;; callback before set-timeout! returns (a legal JVM
                           ;; ordering the two-phase publish alone cannot suppress).
                           (f)
                           the-handle)
-                        interop/clear-timeout! (fn [h] (swap! cleared conj h) nil)]
-            (#'fx/arm-dispatch-later! authority-frame 600000 authority-event opts))))
+                        rf.interop/clear-timeout! (fn [h] (swap! cleared conj h) nil)]
+            (#'rf.fx/arm-dispatch-later! authority-frame 600000 authority-event opts))))
       (is (empty? @dispatched)
           "the callback fired AFTER cleanup removed its reservation, so it had NO
            dispatch authority and dispatched NOTHING (before the fix it dispatched
@@ -377,18 +377,18 @@
       (with-dispatch-stub
         (fn [ev op] (swap! dispatched conj [ev op]))
         (fn []
-          (with-redefs [interop/set-timeout!
+          (with-redefs [rf.interop/set-timeout!
                         (fn [f _ms]
                           ;; A test-isolation reset fires DURING arming — the
                           ;; reset-hooks table clears every frame's timers between
                           ;; tests, dropping the arming sentinel …
-                          (fx/reset-dispatch-later-timers!)
+                          (rf.fx/reset-dispatch-later-timers!)
                           ;; … but the captured callback still runs before
                           ;; set-timeout! returns.
                           (f)
                           the-handle)
-                        interop/clear-timeout! (fn [h] (swap! cleared conj h) nil)]
-            (#'fx/arm-dispatch-later! authority-frame 600000 authority-event opts))))
+                        rf.interop/clear-timeout! (fn [h] (swap! cleared conj h) nil)]
+            (#'rf.fx/arm-dispatch-later! authority-frame 600000 authority-event opts))))
       (is (empty? @dispatched)
           "the reset removed the reservation, so the callback had no authority and
            could NOT leak a dispatch into the next test/runtime generation")
@@ -414,18 +414,18 @@
       (with-dispatch-stub
         (fn [ev op] (swap! dispatched conj [ev op]))
         (fn []
-          (with-redefs [interop/set-timeout!
+          (with-redefs [rf.interop/set-timeout!
                         (fn [f _ms]
                           ;; Ordinary arm: capture the callback and return a real
                           ;; handle WITHOUT firing — the handle publishes normally.
                           (reset! captured-cb f)
                           the-handle)
-                        interop/clear-timeout! (fn [h] (swap! cleared conj h) nil)]
-            (#'fx/arm-dispatch-later! authority-frame 600000 authority-event opts)
+                        rf.interop/clear-timeout! (fn [h] (swap! cleared conj h) nil)]
+            (#'rf.fx/arm-dispatch-later! authority-frame 600000 authority-event opts)
             (is (= 1 (count (timers-for-frame authority-frame)))
                 "the armed handle is published under the frame's key")
             ;; Destroy the frame: release-frame! cancels + drops the real handle.
-            (fx/release-frame! authority-frame)
+            (rf.fx/release-frame! authority-frame)
             (is (= [the-handle] @cleared)
                 "release-frame! cancelled the published host handle")
             (is (empty? (timers-for-frame authority-frame))

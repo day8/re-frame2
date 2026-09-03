@@ -19,17 +19,17 @@
   at its ns-load time via the regular `reg-fx` path. They are NOT
   reserved in core's case-block — apps that don't pull in the machines
   artefact don't carry the trace strings or the handler for them."
-  (:require [re-frame.registrar :as registrar]
-            [re-frame.error :as error]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.reg-meta :as reg-meta]
-            [re-frame.classification :as classification]
-            [re-frame.performance :as performance
+  (:require [re-frame.registrar :as rf.registrar]
+            [re-frame.error :as rf.error]
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.reg-meta :as rf.reg-meta]
+            [re-frame.classification :as rf.classification]
+            [re-frame.performance :as rf.performance
              #?@(:cljs [:include-macros true])]
-            [re-frame.source-coords :as source-coords]
-            [re-frame.trace :as trace
+            [re-frame.source-coords :as rf.source-coords]
+            [re-frame.trace :as rf.trace
              #?@(:cljs [:include-macros true])]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -55,10 +55,10 @@
   ;; `reg-fx` and `reg-cofx`): a retired bare key (`:spec`) hard-errors, an
   ;; unknown bare key warns, namespaced/known keys pass. The per-kind vocabulary
   ;; distinguishes `reg-cofx`'s `:recordable?` / `:provided?` grade keys.
-  (reg-meta/validate-registration-metadata!
+  (rf.reg-meta/validate-registration-metadata!
     kind (case kind :fx 'rf/reg-fx :cofx 'rf/reg-cofx (symbol "rf" (str "reg-" (name kind)))) id meta)
-  (classification/validate-classification! kind meta)
-  (registrar/register! kind id (merge (assoc (source-coords/merge-coords meta)
+  (rf.classification/validate-classification! kind meta)
+  (rf.registrar/register! kind id (merge (assoc (rf.source-coords/merge-coords meta)
                                              :handler-fn handler-fn)
                                       extra-slots)))
 
@@ -74,11 +74,11 @@
   effect / coeffect register sites. Per Spec 001 §Registration + Spec 009
   §Error catalogue."
   [id reason]
-  (trace/emit-error! :rf.error/fx-registration-invalid
+  (rf.trace/emit-error! :rf.error/fx-registration-invalid
                      {:rf.fx/id id
                       :reason   reason
                       :recovery :no-recovery})
-  (error/throw-error! :rf.error/fx-registration-invalid 'rf/reg-fx reason
+  (rf.error/throw-error! :rf.error/fx-registration-invalid 'rf/reg-fx reason
                       {:extra {:rf.fx/id id}}))
 
 (defn reg-fx
@@ -166,8 +166,8 @@
 
   Returns nil. See also: `reg-fx`, the user-facing surface `rf/clear-fx`
   (this is the underlying fn — they point at the same value)."
-  ([] (registrar/clear-kind! :fx))
-  ([id] (registrar/unregister! :fx id)))
+  ([] (rf.registrar/clear-kind! :fx))
+  ([id] (rf.registrar/unregister! :fx id)))
 
 ;; ---- EP-0023 inline-registration lowering (rf2-ffc6s0) --------------------
 ;;
@@ -175,7 +175,7 @@
 ;; handler fn under `:impl`. For the inline fx to RUN when an event handler
 ;; emits it through a frame-targeted cascade, the assembled generation's
 ;; resolver descriptor must carry the SAME runnable slot `reg-fx` installs —
-;; `:handler-fn` (the fx-walker reads it via `registrar/handler :fx`). Closes
+;; `:handler-fn` (the fx-walker reads it via `rf.registrar/handler :fx`). Closes
 ;; the EP-0023 §Image Fragments "same runtime descriptor shape" contract for
 ;; fx. Published via late-bind (image-assembly cannot static-require this ns).
 
@@ -189,7 +189,7 @@
   [_meta impl]
   {:handler-fn impl})
 
-(late-bind/set-fn! :image/lower-inline-fx lower-inline-fx)
+(rf.late-bind/set-fn! :image/lower-inline-fx lower-inline-fx)
 
 ;; ---- the platform predicate -----------------------------------------------
 
@@ -210,20 +210,20 @@
   frame record. The frame's `:config :platform` override (set by the
   `:ssr-server` preset, or any user-supplied frame config) takes
   precedence over the host-wide platform marker
-  (`interop/active-platform`, toggled via `re-frame.core/init-platform`).
+  (`rf.interop/active-platform`, toggled via `re-frame.core/init-platform`).
 
   Single definition of the per-frame platform resolution shared by the
   router's `:fx` walk (`router/run-fx-effects!`) and the cofx injector
   (`cofx/active-platform-for-frame`, which resolves the record from a
   frame-id first). Both sites previously inlined the identical
-  `(or (-> rec :config :platform) (interop/active-platform))` kernel."
+  `(or (-> rec :config :platform) (rf.interop/active-platform))` kernel."
   [frame-record]
   (or (-> frame-record :config :platform)
-      (interop/active-platform)))
+      (rf.interop/active-platform)))
 
 ;; ---- :dispatch-later host-timer side table (rf2-uxz52g) -------------------
 ;;
-;; `:dispatch-later` arms a host-clock timer (`interop/set-timeout!`) whose
+;; `:dispatch-later` arms a host-clock timer (`rf.interop/set-timeout!`) whose
 ;; thunk dispatches the deferred event into its frame. The host handle must
 ;; be RETAINED so `destroy-frame!` can cancel a still-pending timer for a
 ;; frame that is torn down before it fires — otherwise the armed timer + its
@@ -256,7 +256,7 @@
    (NOT runtime-db), so an epoch restore cannot rewind / recycle it and it never
    rides the SSR / hydration / epoch wire. A fired timer drops its own entry;
    `release-frame!` cancels + drops every still-pending timer for a destroyed
-   frame (frame/destroy-frame! via the `:fx/on-frame-destroyed!` late-bind hook).
+   frame (rf.frame/destroy-frame! via the `:fx/on-frame-destroyed!` late-bind hook).
    Mirrors `re-frame.resources.timers/timer-table`."}
   dispatch-later-timers
   (atom {}))
@@ -313,7 +313,7 @@
     ;; handle: `release-frame!` / `reset-dispatch-later-timers!` drop it without
     ;; passing it to `clear-timeout!`.
     (swap! dispatch-later-timers assoc k arming-sentinel)
-    (let [handle (interop/set-timeout!
+    (let [handle (rf.interop/set-timeout!
                    (fn []
                      ;; ATOMICALLY remove our own slot AND capture the winning
                      ;; pre-swap snapshot (rf2-j538f7.2). The slot is BOTH the
@@ -339,7 +339,7 @@
                        ;; the suppression. On the live path the slot is present, so
                        ;; `dispatch!` enqueues into the frame exactly once.
                        (when (contains? old k)
-                         (when-let [dispatch! (late-bind/get-fn-cached :router/dispatch!)]
+                         (when-let [dispatch! (rf.late-bind/get-fn-cached :router/dispatch!)]
                            (dispatch! event opts)))))
                    ms)
           ;; PHASE 2 — publish the handle only if the reservation survived. The
@@ -351,12 +351,12 @@
         ;; The thunk (immediate/0ms fire) or destroy already removed the
         ;; reservation — do NOT reinsert the spent/orphan handle; cancel it
         ;; (idempotent even on an already-completed handle).
-        (interop/clear-timeout! handle)))
+        (rf.interop/clear-timeout! handle)))
     nil))
 
 (defn release-frame!
   "Cancel + drop EVERY still-pending `:dispatch-later` timer for a destroyed
-  `frame-id` (rf2-uxz52g). Invoked from `frame/destroy-frame!` via the
+  `frame-id` (rf2-uxz52g). Invoked from `rf.frame/destroy-frame!` via the
   `:fx/on-frame-destroyed!` late-bind hook so a timer armed before destroy
   never fires a dead-on-arrival dispatch into the torn-down frame, and its
   armed host handle + captured closure are released promptly rather than
@@ -375,7 +375,7 @@
                               (into {} (remove (fn [[[fid _tid] _]] (= fid frame-id))) m)))]
     (doseq [[[fid _tid] handle] old
             :when (and (= fid frame-id) (not (= handle arming-sentinel)))]
-      (interop/clear-timeout! handle)))
+      (rf.interop/clear-timeout! handle)))
   nil)
 
 (defn reset-dispatch-later-timers!
@@ -395,7 +395,7 @@
   (let [[old _] (reset-vals! dispatch-later-timers {})]
     (doseq [[_ handle] old
             :when (not (= handle arming-sentinel))]
-      (interop/clear-timeout! handle)))
+      (rf.interop/clear-timeout! handle)))
   nil)
 
 ;; Publish the frame-destroy cleanup + test-isolation reset through the
@@ -405,8 +405,8 @@
 ;; would invert the load order), so the hook is the seam. Bound once at
 ;; ns-load — `re-frame.fx` ships in every canonical build (core.cljc
 ;; side-effect-requires it), so the hook is always present.
-(late-bind/set-fn! :fx/on-frame-destroyed!           release-frame!)
-(late-bind/set-fn! :fx/reset-dispatch-later-timers!  reset-dispatch-later-timers!)
+(rf.late-bind/set-fn! :fx/on-frame-destroyed!           release-frame!)
+(rf.late-bind/set-fn! :fx/reset-dispatch-later-timers!  reset-dispatch-later-timers!)
 
 ;; ---- do-fx ----------------------------------------------------------------
 
@@ -423,7 +423,7 @@
 ;; perf bracket; on success it returns; the caller emits `:rf.fx/handled`
 ;; uniformly. When a hook is unregistered (the producing artefact is not
 ;; on the classpath) the body-fn is a no-op — matching the pre-existing
-;; `when-let [f (late-bind/get-fn ...)]` shape across all four sites.
+;; `when-let [f (rf.late-bind/get-fn ...)]` shape across all four sites.
 ;;
 ;; `:dispatch-later` carries its own body because it wraps the hook call
 ;; in `set-timeout!` and destructures `{:keys [ms event]}` from args; the
@@ -443,7 +443,7 @@
   discards a reserved body's value (Spec 002 §`:fx` ordering rule 4), so
   nothing downstream reads it."
   [hook-key frame-id args]
-  (when-let [f (late-bind/get-fn hook-key)]
+  (when-let [f (rf.late-bind/get-fn hook-key)]
     (f args {:frame frame-id})
     true))
 
@@ -585,7 +585,7 @@
       (keyword? v)
       (cond
         (contains? non-redirectable-target-fx-ids v) {:disposition :protected-rejection :target v}
-        (registrar/lookup :fx v)               {:disposition :applied-redirect :target v}
+        (rf.registrar/lookup :fx v)               {:disposition :applied-redirect :target v}
         :else                                  {:disposition :fallthrough :reason :unregistered :target v})
       :else                    {:disposition :fallthrough :reason :malformed :value v})))
 
@@ -765,7 +765,7 @@
       (arm-dispatch-later! frame-id ms event opts)
       ;; Sticky hook (rf2-f72pd) — `:router/dispatch!` is published once at
       ;; re-frame.router load and never withdrawn.
-      (when-let [f (late-bind/get-fn-cached :router/dispatch!)]
+      (when-let [f (rf.late-bind/get-fn-cached :router/dispatch!)]
         (f event opts)))))
 
 ;; ---- flow-settle request (Spec 013 §Sequencing) ---------------------------
@@ -991,7 +991,7 @@
    ;; frame-scoped reserved fx).
    :rf.fx/reg-flow
    (fn [frame-id _parent-envelope args]
-     (when-let [f (late-bind/get-fn :flows/reg-flow)]
+     (when-let [f (rf.late-bind/get-fn :flows/reg-flow)]
        (let [[flow-id metadata derive-fn] args]
          (f flow-id (assoc metadata :frame frame-id) derive-fn)
          ;; AFTER the hook returned, so a throw from `reg-flow` (a cycle, a
@@ -1035,7 +1035,7 @@
   Reaches the shared two-channel `emit-error-both!` (rf2-c4oycd) through the
   `:error-emit/emit-error-both` late-bind hook — fx.cljc cannot static-require
   `re-frame.error-emit` (a load cycle), exactly as it reached `dispatch-on-error!`
-  through its hook before. `elapsed-ms 0` (not a timed path); `(interop/now-ms)`
+  through its hook before. `elapsed-ms 0` (not a timed path); `(rf.interop/now-ms)`
   is the emit instant.
 
   The optional trailing `record-attrs` map is `emit-error-both!`'s axis-1-only
@@ -1051,9 +1051,9 @@
    ;; listener (survives prod elision), axis 2 the dev trace (DCE'd in CLJS prod).
    ;; `nil` when the substrate ns hasn't loaded (it is a foundational always-on
    ;; surface, so in practice it is present).
-   (when-let [emit-error-both! (late-bind/get-fn-cached :error-emit/emit-error-both)]
+   (when-let [emit-error-both! (rf.late-bind/get-fn-cached :error-emit/emit-error-both)]
      (emit-error-both! category event event-id frame-id exception 0
-                       (interop/now-ms) trace-payload record-attrs))))
+                       (rf.interop/now-ms) trace-payload record-attrs))))
 
 (def ^:private non-overridable-source-rationale
   "Per-id WHY for the `:rf.error/reserved-fx-override` `:reason` (rf2-0qsp5).
@@ -1282,7 +1282,7 @@
 
       ;; (2) id-redirect to a registered fx.
       :applied-redirect (do
-                          (trace/emit! :rf.fx :rf.fx/override-applied
+                          (rf.trace/emit! :rf.fx :rf.fx/override-applied
                                        {:rf.fx/from original-fx-id
                                         :rf.fx/to   (:target disposition)})
                           (:target disposition))
@@ -1318,7 +1318,7 @@
       ;; gating it by platform would surprise the test author).
       {:handler-fn override
        :platforms  #{:client :server}}
-      (registrar/lookup :fx resolved-fx-id))))
+      (rf.registrar/lookup :fx resolved-fx-id))))
 
 (defn- emit-handled!
   "Emit a `:rf.fx/handled` success trace for a dispatched fx. Per Spec-Schemas
@@ -1346,7 +1346,7 @@
    ;; invoke, dev-only) rides onto `:rf.fx/handled` as `:rf.fx/elapsed-ms`
    ;; so the Trace panel's DURATION column reads the per-op duration. The
    ;; slot construction rides `(some? elapsed-ms)` — callers pass nil in
-   ;; production (the brackets ride `interop/debug-enabled?`), so the
+   ;; production (the brackets ride `rf.interop/debug-enabled?`), so the
    ;; assoc collapses and the prod emit shape is unchanged.
    ;;
    ;; rf2-2siusz: `from-id` (the ORIGINAL fx-id of a keyword-redirected
@@ -1355,7 +1355,7 @@
    ;; the redirect target's — and tools see the redirect fact on the
    ;; handled trace itself, not only on the separate
    ;; `:rf.fx/override-applied` event.
-   (trace/emit! :rf.fx :rf.fx/handled
+   (rf.trace/emit! :rf.fx :rf.fx/handled
                 (cond-> {:rf.fx/id   fx-id
                          :rf.fx/args args
                          :frame      frame-id}
@@ -1376,10 +1376,10 @@
 (defn- exact-owner-live?
   [frame-id]
   (or (nil? *exact-frame-owner-token*)
-      (frame/event-continuation-live? frame-id *exact-frame-owner-token*)))
+      (rf.frame/event-continuation-live? frame-id *exact-frame-owner-token*)))
 
 (defn- call-while-exact-owner
-  "Fence a registrar/generation callback against exact event-owner loss."
+  "Fence a rf.registrar/generation callback against exact event-owner loss."
   [frame-id f]
   (if-not (exact-owner-live? frame-id)
     stale-incarnation
@@ -1517,7 +1517,7 @@
    ;; flag on.
    (if-not (exact-owner-live? frame-id)
      stale-incarnation
-     (performance/mark-and-measure :fx fx-id
+     (rf.performance/mark-and-measure :fx fx-id
       (if-let [reserved-body (and (not fn-value-override?)
                                 (get reserved-fx-handlers fx-id))]
       ;; Reserved fx-id — dispatch through the table; one uniform
@@ -1546,13 +1546,13 @@
       (try
         ;; rf2-hhh92: wall-clock the reserved-fx body (dev-only) so
         ;; `:rf.fx/handled` carries `:rf.fx/elapsed-ms`. The `now-ms`
-        ;; brackets ride `interop/debug-enabled?` (nil in prod → DCE).
-        (let [t0 (when interop/debug-enabled? (interop/now-ms))]
+        ;; brackets ride `rf.interop/debug-enabled?` (nil in prod → DCE).
+        (let [t0 (when rf.interop/debug-enabled? (rf.interop/now-ms))]
           (reserved-body frame-id parent-envelope args)
           (if (exact-owner-live? frame-id)
             (emit-handled! fx-id args frame-id
-                           (when interop/debug-enabled?
-                             (- (interop/now-ms) t0)))
+                           (when rf.interop/debug-enabled?
+                             (- (rf.interop/now-ms) t0)))
             stale-incarnation))
         (catch #?(:clj Throwable :cljs :default) e
           (if-not (exact-owner-live? frame-id)
@@ -1561,7 +1561,7 @@
                   category    (:rf.error/id ex-data-map)]
               (if (keyword? category)
               ;; rf2-vzrxp3: nil-safe (a thrown non-Error value has no message).
-              (let [msg (error/ex-message-safe e)]
+              (let [msg (rf.error/ex-message-safe e)]
                 ;; Both channels via the shared `emit-fx-error!` helper
                 ;; (rf2-xxlzfl): axis 1 the always-on per-error observability
                 ;; fan-out (rf2-bacs4 / sticky hook rf2-f72pd; survives
@@ -1570,7 +1570,7 @@
                 ;; two-channel `emit-error-both!` through the
                 ;; `:error-emit/emit-error-both` late-bind hook (fx cannot
                 ;; static-require error-emit — load cycle), stamping
-                ;; `elapsed-ms 0` + `(interop/now-ms)` internally — the same
+                ;; `elapsed-ms 0` + `(rf.interop/now-ms)` internally — the same
                 ;; two-step the three other fx error sites
                 ;; (`:rf.error/no-such-fx`, `:rf.error/fx-handler-exception`,
                 ;; `:rf.error/override-fallthrough`) route through. The typed
@@ -1614,7 +1614,7 @@
         ;; false `:schema` on the fx registration is a declaration — consult
         ;; `validate-fx!`, which delegates the exact token to the registered
         ;; validator. Only an ABSENT key short-circuits to pass.
-        (let [validate-fx! (late-bind/get-fn-cached :schemas/validate-fx!)
+        (let [validate-fx! (rf.late-bind/get-fn-cached :schemas/validate-fx!)
               fx-ok?       (if (and validate-fx!
                                     (contains? meta :schema))
                              (try
@@ -1659,8 +1659,8 @@
           ;; land on the fx handler's `reg-fx` site, not the event
           ;; handler that produced the fx vector). `:call-site` /
           ;; `:dispatch-id` are inherited from the outer scope.
-          (trace/with-handler-scope
-            (trace/handler-scope-from-meta :fx fx-id meta)
+          (rf.trace/with-handler-scope
+            (rf.trace/handler-scope-from-meta :fx fx-id meta)
             ;; rf2-nrpj1: emit `:rf.fx/override-applied` HERE — at the
             ;; point the fn-value override actually fires — not during
             ;; resolution. This is the trace-honesty half of the fix: the
@@ -1672,15 +1672,15 @@
             ;; CLJS-reference fn-value form (the keyword form's trace is
             ;; emitted by `resolve-fx-with-overrides` with its target id).
             (when fn-value-override?
-              (trace/emit! :rf.fx :rf.fx/override-applied
+              (rf.trace/emit! :rf.fx :rf.fx/override-applied
                            {:rf.fx/from original-fx-id :rf.fx/to ::fn-value}))
             ;; rf2-hhh92: wall-clock the user fx-handler invoke (dev-only)
             ;; so `:rf.fx/handled` carries `:rf.fx/elapsed-ms`. The
-            ;; `now-ms` brackets ride `interop/debug-enabled?` (nil in
+            ;; `now-ms` brackets ride `rf.interop/debug-enabled?` (nil in
             ;; prod → DCE under :advanced).
             (if-not (exact-owner-live? frame-id)
               stale-incarnation
-              (let [t0  (when interop/debug-enabled? (interop/now-ms))
+              (let [t0  (when rf.interop/debug-enabled? (rf.interop/now-ms))
                   ok? (try
                         ;; Per Spec 002 §The binary fx-handler signature
                         ;; (line 603): the fx-handler ctx carries `:frame`
@@ -1699,7 +1699,7 @@
                           ;; rf2-vzrxp3: nil-safe (a thrown non-Error value has no message).
                           (if-not (exact-owner-live? frame-id)
                             stale-incarnation
-                            (let [msg (error/ex-message-safe e)]
+                            (let [msg (rf.error/ex-message-safe e)]
                             ;; rf2-goum9x: a thrown registered fx is
                             ;; production-survivable (Spec 009/011) — fan it
                             ;; out through the always-on error-emit listener
@@ -1737,12 +1737,12 @@
 
                   ok?
                   (emit-handled! fx-id args frame-id
-                                 (when interop/debug-enabled?
-                                   (- (interop/now-ms) t0))
+                                 (when rf.interop/debug-enabled?
+                                   (- (rf.interop/now-ms) t0))
                                  redirected-from)
 
                   :else nil))))))
-        (trace/emit! :warning :rf.fx/skipped-on-platform
+        (rf.trace/emit! :warning :rf.fx/skipped-on-platform
                      (cond-> {:rf.fx/id                   fx-id
                               :frame                      frame-id
                               :rf.fx/args                 args
@@ -2072,7 +2072,7 @@
          (do
            ;; Per rf2-twt7m Change 2: stamp `:fx` + `:db-present?` onto
            ;; the terminal marker only while the exact owner remains live.
-           (trace/emit! :rf.fx :rf.fx/do-fx
+           (rf.trace/emit! :rf.fx :rf.fx/do-fx
                         (cond-> {:frame frame-id}
                           (some? effects)
                           (assoc :rf.event/fx          (:fx effects)

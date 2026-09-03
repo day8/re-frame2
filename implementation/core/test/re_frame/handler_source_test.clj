@@ -16,14 +16,14 @@
   (This docstring used to say \"JVM-side is always-on (bundle-size argument
   doesn't apply)\". Measured under the real gate that is false, and the source
   agrees: `with-form-source-form` binds `*pending-form-source*` to
-  `(if interop/debug-enabled? <src> nil)` with no platform reader-conditional,
-  and `merge-form-source` opens with `(if-not interop/debug-enabled? m …)`.
+  `(if rf.interop/debug-enabled? <src> nil)` with no platform reader-conditional,
+  and `merge-form-source` opens with `(if-not rf.interop/debug-enabled? m …)`.
   Corrected here rather than left to mislead the next reader — rf2-d2841.)
 
   ## Posture split (rf2-d2841)
 
   AUTO-capture is therefore dev-only, and every auto-capture assertion is kept
-  verbatim inside a `(when interop/debug-enabled? …)` arm.
+  verbatim inside a `(when rf.interop/debug-enabled? …)` arm.
 
   The always-on half is that the form-source-capturing MACRO PATH still
   registers a live handler. That is not a formality: the macro's production
@@ -47,17 +47,17 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.interceptor :as interceptor]
-            [re-frame.interop :as interop]
-            [re-frame.registrar :as registrar]
-            [re-frame.frame :as frame]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.subs :as subs]))
+            [re-frame.interceptor :as rf.interceptor]
+            [re-frame.interop :as rf.interop]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.frame :as rf.frame]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.subs :as rf.subs]))
 
 (defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (rf/init! plain-atom/adapter)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf/init! rf.substrate.plain-atom/adapter)
   (test-fn))
 
 (use-fixtures :each reset-runtime)
@@ -73,7 +73,7 @@
     (is (ifn? (:handler-fn m))
         (str "the registered handler-fn is live for " kind " " id))
     ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
-    (when interop/debug-enabled?
+    (when rf.interop/debug-enabled?
       (is (string? src)
           (str ":rf.handler/source should be a string for " kind " " id))
       (is (str/includes? src macro-name)
@@ -92,7 +92,7 @@
                   (fn [{:keys [db]} _ev] {:db db}))
     (assert-source :event :rf2-xhfxcs/event-sample "reg-event")
     ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
-    (when interop/debug-enabled?
+    (when rf.interop/debug-enabled?
       (let [src (:rf.handler/source
                  (rf/handler-meta :event :rf2-xhfxcs/event-sample))]
         ;; Whole-form capture: the handler-fn body (the fx-shape return) must
@@ -132,7 +132,7 @@
     (is (some? (rf/handler-meta :event :rf2-xgfuy/event-with-meta))
         "the metadata-map middle slot registers in BOTH postures")
     ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
-    (when interop/debug-enabled?
+    (when rf.interop/debug-enabled?
       (let [src (:rf.handler/source
                  (rf/handler-meta :event :rf2-xgfuy/event-with-meta))]
         (is (string? src))
@@ -147,7 +147,7 @@
     ;; framework-owned value. Only the metadata `:interceptors` chain needs to
     ;; round-trip into the source string — the interceptor's :before is a no-op.
     (rf/reg-interceptor :app/unwrap
-                         (interceptor/->interceptor* :id :app/unwrap
+                         (rf.interceptor/->interceptor* :id :app/unwrap
                                                      :before identity))
     (rf/reg-event :rf2-xgfuy/event-with-icpts
                      {:interceptors [:app/unwrap]}
@@ -160,7 +160,7 @@
                  (:interceptors (rf/handler-meta :event :rf2-xgfuy/event-with-icpts))))
         "the metadata :interceptors ref sits before the framework wrapper")
     ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
-    (when interop/debug-enabled?
+    (when rf.interop/debug-enabled?
       (let [src (:rf.handler/source
                  (rf/handler-meta :event :rf2-xgfuy/event-with-icpts))]
         (is (string? src))
@@ -181,7 +181,7 @@
       ;; elides WHOLESALE: outside the arm this passes because
       ;; `:rf.handler/source` is never present for ANY path in production, not
       ;; because the fn-form skipped capture.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (not (contains? m :rf.handler/source))
             ":rf.handler/source absent on direct fn call")))))
 
@@ -195,7 +195,7 @@
       (is (some? m))
       ;; rf2-d2841 — dev-instrumentation arm. Same wholesale-elision shape as
       ;; `fn-form-call-skips-form-source` above.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (not (contains? m :rf.handler/source))
             ":rf.handler/source absent on reg-sub")))))
 

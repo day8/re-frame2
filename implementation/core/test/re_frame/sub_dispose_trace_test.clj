@@ -22,7 +22,7 @@
                             frame's whole sub-cache (rf2-x3m8c).
 
   Single-fire discipline: the emit rides the SAME CAS-winner check that
-  gates `interop/dispose!`, so a concurrent invalidate + sync-dispose
+  gates `rf.interop/dispose!`, so a concurrent invalidate + sync-dispose
   cannot produce two `:rf.sub/dispose` for the same eviction.
 
   Per rf2-cmfln: sub disposal is synchronous on derefer-count → 0; no
@@ -30,21 +30,21 @@
   same tick."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
-            [re-frame.flows :as flows]
-            [re-frame.interop :as interop]
-            [re-frame.subs :as subs]
-            [re-frame.subs.cache :as subs-cache]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.flows :as rf.flows]
+            [re-frame.interop :as rf.interop]
+            [re-frame.subs :as rf.subs]
+            [re-frame.subs.cache :as rf.subs.cache]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  (rf/init! plain-atom/adapter)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.flows/reset-flows!)
+  (rf.schemas/clear-schemas-by-frame!)
+  (rf/init! rf.substrate.plain-atom/adapter)
   ;; EP-0002 (rf2-jue6sp): `init!` no longer synthesises `:rf/default`,
   ;; and ambient subscribe / unsubscribe / clear-sub-cache! now require a
   ;; carried frame stamp. These dispose-trace tests exercise the ambient
@@ -52,7 +52,7 @@
   ;; fixture registers `:rf/default` explicitly and pins it as the
   ;; established scope for the whole body via `with-frame` — the dispose
   ;; traces still assert `:frame :rf/default`.
-  (frame/ensure-default-frame!)
+  (rf.frame/ensure-default-frame!)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr     :reload)
   (require 're-frame.machines :reload)
@@ -94,10 +94,10 @@
 ;; emit assertions while carrying PRODUCTION sub-cache claims — the rf2-cmfln
 ;; fresh-reaction rebuild, and rf2-is8ov5's guarantee that one input's throwing
 ;; release does not abort the walk over its siblings. `release-input!` puts the
-;; `try`/`catch` OUTSIDE `interop/debug-enabled?` and only the `emit-error!`
+;; `try`/`catch` OUTSIDE `rf.interop/debug-enabled?` and only the `emit-error!`
 ;; inside it, so that second claim splits cleanly in half: SURFACED is dev,
 ;; ISOLATED ships. Both keep their emit assertions verbatim inside a
-;; `(when interop/debug-enabled? …)` arm and run their semantics in both
+;; `(when rf.interop/debug-enabled? …)` arm and run their semantics in both
 ;; postures.
 
 (deftest ^:requires-debug dispose-emits-on-last-unsubscribe
@@ -185,7 +185,7 @@
 
 ;; NOT `^:requires-debug` — rf2-d2841 seventh pass. The CLAIM here is
 ;; rf2-cmfln's: a synchronous dispose closes the slot, so the next subscribe
-;; rebuilds a FRESH reaction. That is `interop/dispose!` and the cache map,
+;; rebuilds a FRESH reaction. That is `rf.interop/dispose!` and the cache map,
 ;; not the trace, and it holds in both postures; only the emit COUNTS below
 ;; are dev instrumentation, and they are guarded individually.
 (deftest dispose-then-resubscribe-builds-fresh-slot
@@ -207,7 +207,7 @@
           ;; `-Dre-frame.debug=false`, so the emit COUNT is a dev-posture
           ;; claim. The sync dispose it reports is not: the identity
           ;; assertions below witness it in both postures.
-          (when interop/debug-enabled?
+          (when rf.interop/debug-enabled?
             (is (= 1 (count (dispose-events @acc)))
                 "one :rf.sub/dispose fired at the sync 1 → 0 transition"))
           ;; A resubscribe after the sync dispose rebuilds — fresh
@@ -218,7 +218,7 @@
                 "resubscribe returned a FRESH reaction (rf2-cmfln —
                  sync dispose closed the old slot before this rebuild)")
             (is (= 42 @r2) "the rebuilt sub computes the same value")
-            (when interop/debug-enabled?
+            (when rf.interop/debug-enabled?
               (is (= 1 (count (dispose-events @acc)))
                   "no additional dispose emit — the new slot is alive"))))
         (finally
@@ -299,7 +299,7 @@
       (try
         (rf/subscribe [:sub/a])
         (rf/subscribe [:sub/b])
-        (subs-cache/clear-sub-cache!)
+        (rf.subs.cache/clear-sub-cache!)
         (let [disposes (dispose-events @acc)
               ids      (set (map #(-> % :tags :rf.sub/id) disposes))]
           (is (= 2 (count disposes))
@@ -329,11 +329,11 @@
     (let [acc (collect-traces! ::cache-clear-layered)]
       (try
         (let [r     (rf/subscribe [:sub/csum])
-              cache (:sub-cache (frame/frame :rf/default))]
+              cache (:sub-cache (rf.frame/frame :rf/default))]
           (is (= 5 @r))
           (is (= 3 (count @cache))
               "precondition: sum + both inputs are cached before clear"))
-        (subs-cache/clear-sub-cache!)
+        (rf.subs.cache/clear-sub-cache!)
         (let [disposes (dispose-events @acc)
               by-query (group-by #(-> % :tags :rf.sub/query-v) disposes)]
           (is (= 3 (count disposes))
@@ -389,7 +389,7 @@
 
 ;; ---- elision pin ---------------------------------------------------------
 ;;
-;; The emit-dispose! helper sits inside `interop/debug-enabled?`, so
+;; The emit-dispose! helper sits inside `rf.interop/debug-enabled?`, so
 ;; under prod CLJS (`:advanced` + `goog.DEBUG=false`) it folds out.
 ;; The CLJS-side production elision is pinned by the existing
 ;; `re-frame.trace_bus_elision_prod_test` + the artefact-level
@@ -429,10 +429,10 @@
 
 ;; NOT `^:requires-debug` — rf2-d2841 seventh pass, and this one is the reason
 ;; the "100% dev instrumentation" premise had to be checked rather than
-;; assumed. `subs/release-input!` puts the `try`/`catch` OUTSIDE the gate and
+;; assumed. `rf.subs/release-input!` puts the `try`/`catch` OUTSIDE the gate and
 ;; only `trace/emit-error!` inside it (see its docstring: "it rides the
 ;; DIAGNOSTIC channel — `trace/emit-error!` sits inside
-;; `interop/debug-enabled?`"). So the claim splits exactly in half: SURFACED
+;; `rf.interop/debug-enabled?`"). So the claim splits exactly in half: SURFACED
 ;; is dev, ISOLATED is production. Assertion 2 — the sibling input still
 ;; released, the parent slot was still evicted — is the half that ships, and
 ;; it had never run under this posture.
@@ -452,15 +452,15 @@
     (rf/dispatch-sync [:init])
     (let [acc       (collect-traces! ::input-dispose-throw)
           ;; The REAL unsubscribe — `re-frame.subs/unsubscribe`. `rf/unsubscribe`
-          ;; is a `(def ... subs/unsubscribe)` defalias that captured this fn
+          ;; is a `(def ... rf.subs/unsubscribe)` defalias that captured this fn
           ;; VALUE at load, so `with-redefs` on the var below does NOT touch
           ;; `rf/unsubscribe` — only the var-reference calls inside the on-
-          ;; dispose callback (which reads the `subs/unsubscribe` var) see the
+          ;; dispose callback (which reads the `rf.subs/unsubscribe` var) see the
           ;; redef. We trigger the parent dispose through this captured original
           ;; so the parent itself releases normally; the parent's dispose
           ;; callback then hits the redefed per-input releases.
-          real-unsub @#'subs/unsubscribe
-          cache      (:sub-cache (frame/frame :rf/default))]
+          real-unsub @#'rf.subs/unsubscribe
+          cache      (:sub-cache (rf.frame/frame :rf/default))]
       (try
         ;; Hold the layer-2 sub (which subscribes both inputs, bumping their
         ;; ref-counts to 1 apiece).
@@ -471,7 +471,7 @@
           ;; Make the FIRST input's (`[:sub/a]`) release throw; every other
           ;; query-v (the parent's own trigger goes through `real-unsub`
           ;; directly, and `[:sub/b]` here) delegates to the real fn.
-          (with-redefs [subs/unsubscribe
+          (with-redefs [rf.subs/unsubscribe
                         (fn [frame-id query-v]
                           (if (= query-v [:sub/a])
                             (throw (ex-info "boom: custom adapter -dispose threw"
@@ -479,7 +479,7 @@
                             (real-unsub frame-id query-v)))]
             ;; Trigger the parent's 1 → 0 dispose via the captured original,
             ;; so the PARENT disposes (its on-dispose callback runs the
-            ;; per-input release walk against the redefed `subs/unsubscribe`).
+            ;; per-input release walk against the redefed `rf.subs/unsubscribe`).
             (real-unsub :rf/default [:sub/sum])))
         ;; Assertion 1 — the throw is SURFACED (not discarded): exactly one
         ;; :rf.warning/sub-input-dispose-exception for the failing input,
@@ -489,13 +489,13 @@
         ;; rf2-d2841 — DEV ONLY, and deliberately the SMALLER half. The
         ;; surfacing is the diagnostic channel: `release-input!` reaches it
         ;; through `trace/emit-error!`, which is inside
-        ;; `interop/debug-enabled?`. Every assertion in this arm would pass
+        ;; `rf.interop/debug-enabled?`. Every assertion in this arm would pass
         ;; VACUOUSLY under the production gate if left unguarded — `warns`
         ;; is `[]` there, so `[ev]` destructures to nil and every `(:x tags)`
         ;; read below is a nil-vs-nil comparison waiting to happen. Assertion
         ;; 2 is outside this arm because the ISOLATION it pins is production
         ;; behaviour: the `try`/`catch` is NOT gated.
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (let [warns (dispose-exception-events @acc)]
             (is (= 1 (count warns))
                 "exactly one dispose-exception trace for the throwing input")

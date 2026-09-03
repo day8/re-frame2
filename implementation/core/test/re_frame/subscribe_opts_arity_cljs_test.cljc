@@ -29,14 +29,14 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as ts]))
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; `:ambient-frame nil` opts OUT of the fixture's default `:rf/default` ambient
 ;; scope, so this suite controls the carried scope explicitly: it establishes a
 ;; scope with `with-frame` where the ambient path is under test, and leaves NO
 ;; scope where the fail-loud (`:rf.error/no-frame-context`) path is under test.
-(use-fixtures :each (ts/make-reset-runtime-fixture {:adapter       plain-atom/adapter
+(use-fixtures :each (rf.test-support/make-reset-runtime-fixture {:adapter       rf.substrate.plain-atom/adapter
                                                     :ambient-frame nil}))
 
 (defn- setup!

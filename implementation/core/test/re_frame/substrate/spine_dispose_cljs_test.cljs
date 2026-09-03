@@ -12,10 +12,10 @@
 
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.disposable :as rf-disposable]
-            [re-frame.frame :as frame]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.substrate.spine :as spine]))
+            [re-frame.disposable :as rf.disposable]
+            [re-frame.frame :as rf.frame]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.substrate.spine :as rf.substrate.spine]))
 
 (defn- fake-root
   "Build a minimal stand-in for a React root that records every
@@ -29,10 +29,10 @@
 
 (deftest dispose-drains-active-roots
   (testing "dispose-adapter! calls .unmount on every tracked root and empties the cell"
-    (let [active-roots-cell (spine/make-active-roots-cell)
-          warn-cache        (spine/make-warn-once-cache)
-          emitter-cell      (spine/make-hiccup-emitter-cell)
-          dispose-fn        (spine/make-dispose-adapter!
+    (let [active-roots-cell (rf.substrate.spine/make-active-roots-cell)
+          warn-cache        (rf.substrate.spine/make-warn-once-cache)
+          emitter-cell      (rf.substrate.spine/make-hiccup-emitter-cell)
+          dispose-fn        (rf.substrate.spine/make-dispose-adapter!
                               {:active-roots-cell active-roots-cell
                                :warn-cache        warn-cache
                                :emitter-cell      emitter-cell})
@@ -53,10 +53,10 @@
 
 (deftest dispose-swallows-per-root-unmount-throws
   (testing "one misbehaving root's unmount throw does not strand the rest of the drain"
-    (let [active-roots-cell (spine/make-active-roots-cell)
-          warn-cache        (spine/make-warn-once-cache)
-          emitter-cell      (spine/make-hiccup-emitter-cell)
-          dispose-fn        (spine/make-dispose-adapter!
+    (let [active-roots-cell (rf.substrate.spine/make-active-roots-cell)
+          warn-cache        (rf.substrate.spine/make-warn-once-cache)
+          emitter-cell      (rf.substrate.spine/make-hiccup-emitter-cell)
+          dispose-fn        (rf.substrate.spine/make-dispose-adapter!
                               {:active-roots-cell active-roots-cell
                                :warn-cache        warn-cache
                                :emitter-cell      emitter-cell})
@@ -77,10 +77,10 @@
 
 (deftest dispose-clears-warn-cache-and-emitter
   (testing "dispose-adapter! also empties the warn-once cache and the hiccup-emitter cell"
-    (let [active-roots-cell (spine/make-active-roots-cell)
-          warn-cache        (spine/make-warn-once-cache)
-          emitter-cell      (spine/make-hiccup-emitter-cell)
-          dispose-fn        (spine/make-dispose-adapter!
+    (let [active-roots-cell (rf.substrate.spine/make-active-roots-cell)
+          warn-cache        (rf.substrate.spine/make-warn-once-cache)
+          emitter-cell      (rf.substrate.spine/make-hiccup-emitter-cell)
+          dispose-fn        (rf.substrate.spine/make-dispose-adapter!
                               {:active-roots-cell active-roots-cell
                                :warn-cache        warn-cache
                                :emitter-cell      emitter-cell})]
@@ -105,9 +105,9 @@
 ;; subscriptions.
 ;;
 ;; These tests exercise the helper in isolation by populating
-;; `frame/frames` directly with fake sub-cache entries — no adapter
+;; `rf.frame/frames` directly with fake sub-cache entries — no adapter
 ;; install, no real Reactions, no JSDOM. Each fake `:reaction` is a
-;; reified `rf-disposable/IDisposable` that records dispose calls; an
+;; reified `rf.disposable/IDisposable` that records dispose calls; an
 ;; integration test in `re-frame.dispose-adapter-sub-cache-walk-cljs-test`
 ;; pins the through-the-Reagent-adapter shape.
 
@@ -117,7 +117,7 @@
   exercises the `IDisposable` `-dispose` slot, so this is enough."
   []
   (let [dispose-count (atom 0)]
-    {:reaction      (reify rf-disposable/IDisposable
+    {:reaction      (reify rf.disposable/IDisposable
                       (-dispose [_]
                         (swap! dispose-count inc))
                       (-add-on-dispose [_ _f] nil))
@@ -131,24 +131,24 @@
   {:sub-cache (atom cache-map)})
 
 (defn frames-fixture
-  "Save and restore `frame/frames` + the `:adapter/dispose!` late-bind
+  "Save and restore `rf.frame/frames` + the `:adapter/dispose!` late-bind
   hook so each test gets a clean slate and any other suite running in
   the same JS heap sees the pre-existing globals."
   [test-fn]
-  (let [saved-frames @frame/frames
-        saved-hook   (late-bind/get-fn-cached :adapter/dispose!)]
-    (reset! frame/frames {})
+  (let [saved-frames @rf.frame/frames
+        saved-hook   (rf.late-bind/get-fn-cached :adapter/dispose!)]
+    (reset! rf.frame/frames {})
     ;; Install a dispose hook that calls rf-disposable's protocol fn so
     ;; the walk's `interop/dispose!` invocation actually fires the
     ;; recording reify. Without this seed `interop/dispose!` no-ops
     ;; (the hook is unbound in a cold-start test) and we can't tell
     ;; the walk from a stub.
-    (late-bind/set-fn! :adapter/dispose! rf-disposable/-dispose)
+    (rf.late-bind/set-fn! :adapter/dispose! rf.disposable/-dispose)
     (try (test-fn)
          (finally
-           (reset! frame/frames saved-frames)
+           (reset! rf.frame/frames saved-frames)
            (when saved-hook
-             (late-bind/set-fn! :adapter/dispose! saved-hook))))))
+             (rf.late-bind/set-fn! :adapter/dispose! saved-hook))))))
 
 (use-fixtures :each frames-fixture)
 
@@ -161,7 +161,7 @@
           frm-a  (fake-frame {[:sub :x] (select-keys r-a-x [:reaction])
                               [:sub :y] (select-keys r-a-y [:reaction])})
           frm-b  (fake-frame {[:sub :z] (select-keys r-b   [:reaction])})]
-      (reset! frame/frames {:walk/a frm-a :walk/b frm-b})
+      (reset! rf.frame/frames {:walk/a frm-a :walk/b frm-b})
       ;; Preconditions: cache atoms populated, no dispose yet.
       (is (= 2 (count @(:sub-cache frm-a))))
       (is (= 1 (count @(:sub-cache frm-b))))
@@ -169,7 +169,7 @@
       (is (zero? @(:dispose-count r-a-y)))
       (is (zero? @(:dispose-count r-b)))
 
-      (spine/dispose-frame-sub-caches!)
+      (rf.substrate.spine/dispose-frame-sub-caches!)
 
       (is (= 1 @(:dispose-count r-a-x))
           "walk/a [:sub :x]'s reaction was disposed")
@@ -189,15 +189,15 @@
     (let [good-1 (fake-reaction)
           good-2 (fake-reaction)
           ;; Poison entry: an object that doesn't satisfy IDisposable so
-          ;; the seeded `:adapter/dispose!` hook (rf-disposable/-dispose)
+          ;; the seeded `:adapter/dispose!` hook (rf.disposable/-dispose)
           ;; throws when invoked on it.
           poison {:reaction (js-obj "not" "a reaction")}
           frm-a  (fake-frame {[:sub :good-1] (select-keys good-1 [:reaction])
                               [:sub :poison] poison})
           frm-b  (fake-frame {[:sub :good-2] (select-keys good-2 [:reaction])})]
-      (reset! frame/frames {:walk/a frm-a :walk/b frm-b})
+      (reset! rf.frame/frames {:walk/a frm-a :walk/b frm-b})
 
-      (spine/dispose-frame-sub-caches!)
+      (rf.substrate.spine/dispose-frame-sub-caches!)
 
       (is (= 1 @(:dispose-count good-1))
           "good-1 (same cache as the poison) was disposed despite the sibling throw")
@@ -210,14 +210,14 @@
 
 (deftest dispose-frame-sub-caches-tolerates-empty-frames-registry
   (testing "dispose-frame-sub-caches! on an empty frames registry is a no-op (no throw)"
-    (reset! frame/frames {})
-    (is (nil? (spine/dispose-frame-sub-caches!))
+    (reset! rf.frame/frames {})
+    (is (nil? (rf.substrate.spine/dispose-frame-sub-caches!))
         "returns nil with no live frames")))
 
 (deftest dispose-frame-sub-caches-tolerates-frame-without-sub-cache
   (testing "a frame record lacking the :sub-cache key is skipped (no throw)"
-    (reset! frame/frames {:walk/no-cache {:other-key :value}})
-    (is (nil? (spine/dispose-frame-sub-caches!))
+    (reset! rf.frame/frames {:walk/no-cache {:other-key :value}})
+    (is (nil? (rf.substrate.spine/dispose-frame-sub-caches!))
         "returns nil; the cacheless frame is skipped")))
 
 (deftest make-dispose-adapter-invokes-sub-cache-walk
@@ -229,11 +229,11 @@
   that adapter's dispose path would silently regress."
     (let [r          (fake-reaction)
           frm        (fake-frame {[:sub :x] (select-keys r [:reaction])})
-          _          (reset! frame/frames {:walk/a frm})
-          active     (spine/make-active-roots-cell)
-          warn-cache (spine/make-warn-once-cache)
-          emitter    (spine/make-hiccup-emitter-cell)
-          dispose-fn (spine/make-dispose-adapter!
+          _          (reset! rf.frame/frames {:walk/a frm})
+          active     (rf.substrate.spine/make-active-roots-cell)
+          warn-cache (rf.substrate.spine/make-warn-once-cache)
+          emitter    (rf.substrate.spine/make-hiccup-emitter-cell)
+          dispose-fn (rf.substrate.spine/make-dispose-adapter!
                        {:active-roots-cell active
                         :warn-cache        warn-cache
                         :emitter-cell      emitter})]
@@ -247,7 +247,7 @@
 ;;
 ;; The earlier tests above drive the cache-walk through reified toy
 ;; disposables. These pin the ACTUAL spine-produced derived value's
-;; `rf-disposable/IDisposable` `-dispose` — the concrete reify returned by
+;; `rf.disposable/IDisposable` `-dispose` — the concrete reify returned by
 ;; `make-derived-value-fn` — against repeated and re-entrant disposal. The
 ;; bug rf2-1bzlai: the impl fired `@on-dispose-fns` and only then cleared
 ;; the vector, with no disposed guard, so a second `-dispose` re-fired the
@@ -262,9 +262,9 @@
   it directly. The compute is identity-of-first-source; tests here only
   exercise the disposal protocol, not recompute."
   []
-  (let [scheduler (spine/make-scheduler)
-        make-dv   (spine/make-derived-value-fn "rf2-1bzlai-test-" scheduler)
-        src       (spine/make-state-container 0)
+  (let [scheduler (rf.substrate.spine/make-scheduler)
+        make-dv   (rf.substrate.spine/make-derived-value-fn "rf2-1bzlai-test-" scheduler)
+        src       (rf.substrate.spine/make-state-container 0)
         dv        (make-dv [src] (fn [vs] (first vs)))]
     {:dv dv :src src}))
 
@@ -273,12 +273,12 @@
   re-fire its on-dispose callbacks (idempotent per the IDisposable contract)"
     (let [{:keys [dv]} (spine-derived-value)
           fire-log     (atom [])]
-      (rf-disposable/-add-on-dispose dv #(swap! fire-log conj :cb-1))
-      (rf-disposable/-add-on-dispose dv #(swap! fire-log conj :cb-2))
-      (rf-disposable/-dispose dv)
+      (rf.disposable/-add-on-dispose dv #(swap! fire-log conj :cb-1))
+      (rf.disposable/-add-on-dispose dv #(swap! fire-log conj :cb-2))
+      (rf.disposable/-dispose dv)
       (is (= [:cb-1 :cb-2] @fire-log)
           "first -dispose fired both callbacks in registration order")
-      (rf-disposable/-dispose dv)
+      (rf.disposable/-dispose dv)
       (is (= [:cb-1 :cb-2] @fire-log)
           "second -dispose did NOT re-fire the callbacks (idempotent)"))))
 
@@ -290,12 +290,12 @@
       ;; This callback defensively re-disposes the same object — the exact
       ;; re-entrant shape the bead calls out. With the guard flipped first
       ;; and callbacks snapshot-and-cleared, the re-entrant call is a no-op.
-      (rf-disposable/-add-on-dispose dv
+      (rf.disposable/-add-on-dispose dv
         (fn []
           (swap! fire-log conj :re-entrant-cb)
-          (rf-disposable/-dispose dv)))
-      (rf-disposable/-add-on-dispose dv #(swap! fire-log conj :after-cb))
-      (rf-disposable/-dispose dv)
+          (rf.disposable/-dispose dv)))
+      (rf.disposable/-add-on-dispose dv #(swap! fire-log conj :after-cb))
+      (rf.disposable/-dispose dv)
       (is (= [:re-entrant-cb :after-cb] @fire-log)
           "each callback fired exactly once despite the re-entrant -dispose; no recursion, no double-fire"))))
 
@@ -306,7 +306,7 @@
     ;; requires a real DOM — so for this isolated test we simulate the
     ;; render path by mounting the root directly into the cell and
     ;; building an unmount thunk shaped like the one render returns.
-    (let [active-roots-cell (spine/make-active-roots-cell)
+    (let [active-roots-cell (rf.substrate.spine/make-active-roots-cell)
           fake-a            (fake-root)
           fake-b            (fake-root)]
       (swap! active-roots-cell conj (:root fake-a))

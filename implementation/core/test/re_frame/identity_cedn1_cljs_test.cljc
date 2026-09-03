@@ -12,7 +12,7 @@
   shadow-cljs `:node-test` build and the JVM cognitect runner discover it."
   (:require #?(:clj  [clojure.test :refer [deftest is testing]]
                :cljs [cljs.test :refer-macros [deftest is testing]])
-            [re-frame.identity :as id]))
+            [re-frame.identity :as rf.identity]))
 
 ;; ---- deterministic PRNG (mirrors path-laws-cljs-test) --------------------
 
@@ -79,10 +79,10 @@
 
 (deftest map-order-invariance
   (testing "permuted map insertion order -> identical canonical bytes"
-    (is (= (id/canonical-bytes {:page 1 :tag "cljs"})
-           (id/canonical-bytes {:tag "cljs" :page 1})))
-    (is (= (id/canonical-bytes {:filter {:archived? false :tag "cljs"}})
-           (id/canonical-bytes {:filter {:tag "cljs" :archived? false}}))))
+    (is (= (rf.identity/canonical-bytes {:page 1 :tag "cljs"})
+           (rf.identity/canonical-bytes {:tag "cljs" :page 1})))
+    (is (= (rf.identity/canonical-bytes {:filter {:archived? false :tag "cljs"}})
+           (rf.identity/canonical-bytes {:filter {:tag "cljs" :archived? false}}))))
   (testing "generated nested maps are order-invariant under reshuffle"
     (is (nil?
           (loop [i 0, s 31337]
@@ -91,7 +91,7 @@
               (let [[v s1] (gen-edn s 3)]
                 (if (and (map? v) (seq v))
                   (let [v' (shuffle-coll v s1)]
-                    (if (= (id/canonical-bytes v) (id/canonical-bytes v'))
+                    (if (= (rf.identity/canonical-bytes v) (rf.identity/canonical-bytes v'))
                       (recur (inc i) (lcg-next s1))
                       [v v']))
                   (recur (inc i) (lcg-next s1))))))))))
@@ -103,26 +103,26 @@
         scope-b [:rf.scope/session {:tenant-id "acme" :user-id "u-42"}]
         params-a {:slug "welcome" :include-comments? true}
         params-b {:include-comments? true :slug "welcome"}]
-    (is (id/identical-identity? scope-a scope-b))
-    (is (id/identical-identity? params-a params-b))
+    (is (rf.identity/identical-identity? scope-a scope-b))
+    (is (rf.identity/identical-identity? params-a params-b))
     (testing "different scopes with same params do NOT collide"
-      (is (not (id/identical-identity?
+      (is (not (rf.identity/identical-identity?
                  [:rf.scope/session {:user-id "u-1"}]
                  [:rf.scope/session {:user-id "u-2"}]))))
     (testing "work id embeds the canonical scoped resource key + generation"
-      (let [rkey [(id/canonical scope-a) :article/by-slug (id/canonical params-a)]
+      (let [rkey [(rf.identity/canonical scope-a) :article/by-slug (rf.identity/canonical params-a)]
             work-id [:rf.work/resource rkey 4]]
-        (is (= (id/canonical-bytes work-id)
-               (id/canonical-bytes [:rf.work/resource
-                                    [(id/canonical scope-b) :article/by-slug (id/canonical params-b)]
+        (is (= (rf.identity/canonical-bytes work-id)
+               (rf.identity/canonical-bytes [:rf.work/resource
+                                    [(rf.identity/canonical scope-b) :article/by-slug (rf.identity/canonical params-b)]
                                     4])))))))
 
 ;; ---- set ordering --------------------------------------------------------
 
 (deftest set-ordering
   (testing "sets are order-invariant by canonical element bytes"
-    (is (= (id/canonical-bytes #{3 1 2}) (id/canonical-bytes #{2 3 1})))
-    (is (= (id/canonical-bytes #{:b :a :c}) (id/canonical-bytes #{:c :a :b}))))
+    (is (= (rf.identity/canonical-bytes #{3 1 2}) (rf.identity/canonical-bytes #{2 3 1})))
+    (is (= (rf.identity/canonical-bytes #{:b :a :c}) (rf.identity/canonical-bytes #{:c :a :b}))))
   (testing "generated sets are order-invariant under reshuffle"
     (is (nil?
           (loop [i 0, s 4242]
@@ -130,7 +130,7 @@
               nil
               (let [[v s1] (gen-edn s 3)]
                 (if (and (set? v) (seq v))
-                  (if (= (id/canonical-bytes v) (id/canonical-bytes (shuffle-coll v s1)))
+                  (if (= (rf.identity/canonical-bytes v) (rf.identity/canonical-bytes (shuffle-coll v s1)))
                     (recur (inc i) (lcg-next s1))
                     [v])
                   (recur (inc i) (lcg-next s1))))))))))
@@ -139,58 +139,58 @@
 
 (deftest edn-kind-distinctness
   (testing "vector vs list are distinct EDN facts"
-    (is (not= (id/canonical-bytes [1 2]) (id/canonical-bytes (list 1 2)))))
+    (is (not= (rf.identity/canonical-bytes [1 2]) (rf.identity/canonical-bytes (list 1 2)))))
   (testing "vector vs set are distinct"
-    (is (not= (id/canonical-bytes [1 2 3]) (id/canonical-bytes #{1 2 3}))))
+    (is (not= (rf.identity/canonical-bytes [1 2 3]) (rf.identity/canonical-bytes #{1 2 3}))))
   (testing "the type tag keeps scalar kinds distinct"
-    (let [bs [(id/canonical-bytes "42")
-              (id/canonical-bytes 42)
-              (id/canonical-bytes :42)
-              (id/canonical-bytes [1 2])
-              (id/canonical-bytes (list 1 2))]]
+    (let [bs [(rf.identity/canonical-bytes "42")
+              (rf.identity/canonical-bytes 42)
+              (rf.identity/canonical-bytes :42)
+              (rf.identity/canonical-bytes [1 2])
+              (rf.identity/canonical-bytes (list 1 2))]]
       (is (= (count bs) (count (distinct bs))))))
   (testing "heterogeneous map keys are legal and ordered by key bytes"
-    (is (string? (id/canonical-bytes {:a 1 "a" 2 0 3 true 4})))
-    (is (= (id/canonical-bytes {:a 1 "a" 2 0 3})
-           (id/canonical-bytes {0 3 "a" 2 :a 1}))))
+    (is (string? (rf.identity/canonical-bytes {:a 1 "a" 2 0 3 true 4})))
+    (is (= (rf.identity/canonical-bytes {:a 1 "a" 2 0 3})
+           (rf.identity/canonical-bytes {0 3 "a" 2 :a 1}))))
   (testing "vectors preserve order (not sorted)"
-    (is (not= (id/canonical-bytes [:a :b]) (id/canonical-bytes [:b :a])))))
+    (is (not= (rf.identity/canonical-bytes [:a :b]) (rf.identity/canonical-bytes [:b :a])))))
 
 ;; ---- nil vs missing ------------------------------------------------------
 
 (deftest nil-vs-missing
   (testing "present-nil and absent key are distinct identities"
-    (is (not (id/identical-identity? {} {:page nil})))
-    (is (not= (id/canonical-bytes {}) (id/canonical-bytes {:page nil}))))
+    (is (not (rf.identity/identical-identity? {} {:page nil})))
+    (is (not= (rf.identity/canonical-bytes {}) (rf.identity/canonical-bytes {:page nil}))))
   (testing "canonical preserves present-nil values"
-    (is (= {:page nil} (id/canonical {:page nil})))
-    (is (= nil (id/canonical nil)))))
+    (is (= {:page nil} (rf.identity/canonical {:page nil})))
+    (is (= nil (rf.identity/canonical nil)))))
 
 ;; ---- canonical returns an = value, order-normalized ----------------------
 
 (deftest canonical-normalized-value
   (testing "canonical of map is =-equal but key-order-normalized"
-    (is (= {:a 1 :b 2} (id/canonical {:b 2 :a 1}))))
+    (is (= {:a 1 :b 2} (rf.identity/canonical {:b 2 :a 1}))))
   (testing "canonical recurses, preserving vector order"
-    (is (= {:xs [3 1 2]} (id/canonical {:xs [3 1 2]}))))
+    (is (= {:xs [3 1 2]} (rf.identity/canonical {:xs [3 1 2]}))))
   (testing "canonical of a value equals the value for in-domain scalars"
-    (is (= "x" (id/canonical "x")))
-    (is (= 7 (id/canonical 7)))
-    (is (= :k (id/canonical :k)))))
+    (is (= "x" (rf.identity/canonical "x")))
+    (is (= 7 (rf.identity/canonical 7)))
+    (is (= :k (rf.identity/canonical :k)))))
 
 ;; ---- instant + uuid ------------------------------------------------------
 
 (deftest instant-and-uuid
   (testing "uuid encodes lower-case RFC 4122 text"
     (is (= "u:11111111-1111-1111-1111-111111111111"
-           (id/canonical-bytes #uuid "11111111-1111-1111-1111-111111111111"))))
+           (rf.identity/canonical-bytes #uuid "11111111-1111-1111-1111-111111111111"))))
   #?(:clj
      (testing "equivalent instants in different source timezones normalize to one UTC identity"
-       (is (id/identical-identity?
+       (is (rf.identity/identical-identity?
              #inst "2026-06-10T10:00:00.000+10:00"
              #inst "2026-06-10T00:00:00.000-00:00"))
        (is (= "t:2026-06-10T00:00:00.000Z"
-              (id/canonical-bytes #inst "2026-06-10T00:00:00.000-00:00")))))
+              (rf.identity/canonical-bytes #inst "2026-06-10T00:00:00.000-00:00")))))
   ;; --- CLJS js/Date instant encoding (rf2-orcbow point 4) ---
   ;; The JVM instant tests above exercise the java.time path; CLJS js/Date
   ;; encoding rides a SEPARATE branch (`.toISOString`) that can regress
@@ -201,22 +201,22 @@
      (testing "CLJS js/Date encodes to the exact RFC 3339 millis-UTC t:...Z token"
        ;; 2026-06-10T00:00:00.000Z == epoch millis 1781049600000.
        (is (= "t:2026-06-10T00:00:00.000Z"
-              (id/canonical-bytes (js/Date. 1781049600000))))
+              (rf.identity/canonical-bytes (js/Date. 1781049600000))))
        (testing "a whole-second instant still renders the millisecond .000 suffix"
          (is (= "t:2026-06-10T00:00:00.000Z"
-                (id/canonical-bytes (js/Date. "2026-06-10T00:00:00Z")))))
+                (rf.identity/canonical-bytes (js/Date. "2026-06-10T00:00:00Z")))))
        (testing "sub-second precision is preserved in the token"
          (is (= "t:2026-06-10T00:00:00.123Z"
-                (id/canonical-bytes (js/Date. 1781049600123)))))
+                (rf.identity/canonical-bytes (js/Date. 1781049600123)))))
        (testing "two js/Date objects built for the same instant in different
                  timezone literals collapse to one identity"
-         (is (id/identical-identity?
+         (is (rf.identity/identical-identity?
                (js/Date. "2026-06-10T10:00:00+10:00")
                (js/Date. "2026-06-10T00:00:00Z"))))
        (testing "a js/Date is identity-equal to its EDN #inst counterpart for the
                  same instant (host-date and EDN-instant are one fact)"
-         (is (= (id/canonical-bytes (js/Date. 1781049600000))
-                (id/canonical-bytes #inst "2026-06-10T00:00:00.000-00:00")))))))
+         (is (= (rf.identity/canonical-bytes (js/Date. 1781049600000))
+                (rf.identity/canonical-bytes #inst "2026-06-10T00:00:00.000-00:00")))))))
 
 ;; ---- fail-closed rejection -----------------------------------------------
 
@@ -246,29 +246,29 @@
 
 (deftest rejection-cases
   (testing "floats / NaN / infinities / ratios fail closed"
-    (is (non-edn-id-error? #(id/canonical-bytes 1.5)))
-    #?(:clj (is (non-edn-id-error? #(id/canonical-bytes (/ 1 3)))))
-    #?(:cljs (is (non-edn-id-error? #(id/canonical-bytes js/NaN))))
-    #?(:cljs (is (non-edn-id-error? #(id/canonical-bytes js/Infinity)))))
+    (is (non-edn-id-error? #(rf.identity/canonical-bytes 1.5)))
+    #?(:clj (is (non-edn-id-error? #(rf.identity/canonical-bytes (/ 1 3)))))
+    #?(:cljs (is (non-edn-id-error? #(rf.identity/canonical-bytes js/NaN))))
+    #?(:cljs (is (non-edn-id-error? #(rf.identity/canonical-bytes js/Infinity)))))
   (testing "integers outside the safe range fail closed"
-    (is (non-edn-id-error? #(id/canonical-bytes 9007199254740992)))
-    (is (non-edn-id-error? #(id/canonical-bytes -9007199254740992))))
+    (is (non-edn-id-error? #(rf.identity/canonical-bytes 9007199254740992)))
+    (is (non-edn-id-error? #(rf.identity/canonical-bytes -9007199254740992))))
   (testing "the safe-range boundaries are admitted"
-    (is (= "i:9007199254740991"  (id/canonical-bytes 9007199254740991)))
-    (is (= "i:-9007199254740991" (id/canonical-bytes -9007199254740991))))
+    (is (= "i:9007199254740991"  (rf.identity/canonical-bytes 9007199254740991)))
+    (is (= "i:-9007199254740991" (rf.identity/canonical-bytes -9007199254740991))))
   (testing "functions fail closed"
-    (is (non-edn-id-error? #(id/canonical-bytes inc))))
+    (is (non-edn-id-error? #(rf.identity/canonical-bytes inc))))
   (testing "a nested host value fails the WHOLE identity closed (no host fallback)"
-    (is (non-edn-id-error? #(id/canonical {:a {:b inc}})))
-    (is (non-edn-id-error? #(id/canonical-bytes [1 2 inc]))))
+    (is (non-edn-id-error? #(rf.identity/canonical {:a {:b inc}})))
+    (is (non-edn-id-error? #(rf.identity/canonical-bytes [1 2 inc]))))
   #?(:cljs
      (testing "a raw JS object fails closed"
-       (is (non-edn-id-error? #(id/canonical-bytes #js {:tenant "acme"})))
+       (is (non-edn-id-error? #(rf.identity/canonical-bytes #js {:tenant "acme"})))
        (testing "but its explicit EDN encoding is accepted"
-         (is (string? (id/canonical-bytes {:tenant "acme"}))))))
+         (is (string? (rf.identity/canonical-bytes {:tenant "acme"}))))))
   #?(:clj
      (testing "an arbitrary host object fails closed"
-       (is (non-edn-id-error? #(id/canonical-bytes (java.lang.Object.)))))))
+       (is (non-edn-id-error? #(rf.identity/canonical-bytes (java.lang.Object.)))))))
 
 ;; ---- canonical projection: ordering is owned by canonical-bytes ----------
 ;;
@@ -288,30 +288,30 @@
 (deftest canonical-projection-ordering-contract
   (testing "canonical-bytes is the deterministically-ordered surface"
     ;; Map key order in the source spelling does not change the bytes.
-    (is (= (id/canonical-bytes {:z 1 :a 2 :m 3})
-           (id/canonical-bytes {:a 2 :m 3 :z 1})
-           (id/canonical-bytes {:m 3 :z 1 :a 2})))
+    (is (= (rf.identity/canonical-bytes {:z 1 :a 2 :m 3})
+           (rf.identity/canonical-bytes {:a 2 :m 3 :z 1})
+           (rf.identity/canonical-bytes {:m 3 :z 1 :a 2})))
     ;; Repeated calls are byte-identical (determinism).
-    (is (= (id/canonical-bytes {:z 1 :a 2})
-           (id/canonical-bytes {:z 1 :a 2})))
+    (is (= (rf.identity/canonical-bytes {:z 1 :a 2})
+           (rf.identity/canonical-bytes {:z 1 :a 2})))
     ;; Sets order by element bytes regardless of construction order.
-    (is (= (id/canonical-bytes #{:gamma :alpha :beta})
-           (id/canonical-bytes #{:beta :gamma :alpha}))))
+    (is (= (rf.identity/canonical-bytes #{:gamma :alpha :beta})
+           (rf.identity/canonical-bytes #{:beta :gamma :alpha}))))
   (testing "canonical returns an =-equal value but ordering is NOT its contract"
     ;; Equal as a value, key-order normalized away.
-    (is (= (id/canonical {:z 1 :a 2 :m 3})
-           (id/canonical {:a 2 :m 3 :z 1})))
-    (is (= {:a 2 :m 3 :z 1} (id/canonical {:z 1 :a 2 :m 3})))
+    (is (= (rf.identity/canonical {:z 1 :a 2 :m 3})
+           (rf.identity/canonical {:a 2 :m 3 :z 1})))
+    (is (= {:a 2 :m 3 :z 1} (rf.identity/canonical {:z 1 :a 2 :m 3})))
     ;; The projection recurses but preserves vector order (vectors are
     ;; order-significant EDN facts).
-    (is (= {:xs [3 1 2]} (id/canonical {:xs [3 1 2]})))
+    (is (= {:xs [3 1 2]} (rf.identity/canonical {:xs [3 1 2]})))
     ;; A set projection is =-equal to the source set.
-    (is (= #{:alpha :beta :gamma} (id/canonical #{:gamma :alpha :beta}))))
+    (is (= #{:alpha :beta :gamma} (rf.identity/canonical #{:gamma :alpha :beta}))))
   (testing "two values are equal-as-identity iff their canonical-bytes are ="
     ;; The normative equality contract (Conventions §Canonical EDN identity):
     ;; canonical-bytes equality is the identity, not canonical-value =.
-    (is (= (id/identical-identity? {:z 1 :a 2} {:a 2 :z 1})
-           (= (id/canonical-bytes {:z 1 :a 2}) (id/canonical-bytes {:a 2 :z 1}))
+    (is (= (rf.identity/identical-identity? {:z 1 :a 2} {:a 2 :z 1})
+           (= (rf.identity/canonical-bytes {:z 1 :a 2}) (rf.identity/canonical-bytes {:a 2 :z 1}))
            true))))
 
 ;; ---- duplicate canonical map keys (the host-value collision) -------------
@@ -347,9 +347,9 @@
     ;; one identity fact (the cross-host instant-collapse property).
     (let [d #?(:clj (java.util.Date. 1781049600000) :cljs (js/Date. 1781049600000))
           i #inst "2026-06-10T00:00:00.000-00:00"]
-      (is (= (id/canonical-bytes d) (id/canonical-bytes i))
+      (is (= (rf.identity/canonical-bytes d) (rf.identity/canonical-bytes i))
           "distinct host representations, identical CEDN-1 bytes")
-      (is (id/identical-identity? d i))))
+      (is (rf.identity/identical-identity? d i))))
   #?(:clj
      ;; The map-collision premise only holds where the two same-instant keys
      ;; are DISTINCT map keys — i.e. on the JVM, where Date and Instant are
@@ -369,9 +369,9 @@
          ;; BOTH surfaces reject the whole identity closed — no silent
          ;; serialization of colliding key tokens, and canonical + canonical-bytes
          ;; agree (one canonical form).
-         (is (non-edn-id-error? #(id/canonical-bytes dup-map))
+         (is (non-edn-id-error? #(rf.identity/canonical-bytes dup-map))
              "canonical-bytes rejects the duplicate-canonical-key map")
-         (is (non-edn-id-error? #(id/canonical dup-map))
+         (is (non-edn-id-error? #(rf.identity/canonical dup-map))
              "canonical rejects it too — the two surfaces share one fail-closed rule"))))
   #?(:cljs
      (testing "CLJS collapses same-instant js/Date keys (no distinct-key
@@ -383,7 +383,7 @@
          (is (= 1 (count m))
              "value-equal js/Date keys collapse to one entry on CLJS")
          (is (= 1 (count (re-seq #"t:2026-06-10T00:00:00\.000Z"
-                                 (id/canonical-bytes m)))))))))
+                                 (rf.identity/canonical-bytes m)))))))))
 
 ;; ---- rf2-eynsfe: the reserved tagged-instant canonical form --------------
 ;;
@@ -402,32 +402,32 @@
 
 (deftest instant-tagged-canonical-form
   (testing "canonical returns the reserved tagged tuple; canonical-bytes emits t:<text>"
-    (is (= :rf.identity/instant id/instant-marker))
-    (is (= sample-tuple (id/canonical sample-instant)))
-    (is (= "t:2026-06-10T00:00:00.000Z" (id/canonical-bytes sample-instant)))
-    (is (= "t:2026-06-10T00:00:00.000Z" (id/canonical-bytes sample-tuple))))
+    (is (= :rf.identity/instant rf.identity/instant-marker))
+    (is (= sample-tuple (rf.identity/canonical sample-instant)))
+    (is (= "t:2026-06-10T00:00:00.000Z" (rf.identity/canonical-bytes sample-instant)))
+    (is (= "t:2026-06-10T00:00:00.000Z" (rf.identity/canonical-bytes sample-tuple))))
   (testing "law 1 — canonical is idempotent; an already-tagged tuple is returned unchanged"
-    (is (= (id/canonical (id/canonical sample-instant)) (id/canonical sample-instant)))
-    (is (= sample-tuple (id/canonical sample-tuple))))
+    (is (= (rf.identity/canonical (rf.identity/canonical sample-instant)) (rf.identity/canonical sample-instant)))
+    (is (= sample-tuple (rf.identity/canonical sample-tuple))))
   (testing "law 2 — canonical-bytes agrees across the canonical projection"
-    (is (= (id/canonical-bytes (id/canonical sample-instant))
-           (id/canonical-bytes sample-instant)))
-    (is (= (id/canonical-bytes (id/canonical sample-tuple))
-           (id/canonical-bytes sample-tuple))))
+    (is (= (rf.identity/canonical-bytes (rf.identity/canonical sample-instant))
+           (rf.identity/canonical-bytes sample-instant)))
+    (is (= (rf.identity/canonical-bytes (rf.identity/canonical sample-tuple))
+           (rf.identity/canonical-bytes sample-tuple))))
   (testing "laws 3/4 — an instant is DISTINCT from a look-alike string on both surfaces"
-    (is (not= (id/canonical sample-instant) (id/canonical sample-instant-text)))
-    (is (not= (id/canonical-bytes sample-instant) (id/canonical-bytes sample-instant-text)))
-    (is (not (id/identical-identity? sample-instant sample-instant-text))))
+    (is (not= (rf.identity/canonical sample-instant) (rf.identity/canonical sample-instant-text)))
+    (is (not= (rf.identity/canonical-bytes sample-instant) (rf.identity/canonical-bytes sample-instant-text)))
+    (is (not (rf.identity/identical-identity? sample-instant sample-instant-text))))
   (testing "a heterogeneous instant+string-keyed map is a LEGAL two-entry map on BOTH surfaces"
     (let [m {sample-instant :via-instant sample-instant-text :via-string}]
       (is (= 2 (count m)) "the instant key and the string key are distinct host keys")
       ;; canonical-bytes accepts it (no duplicate-canonical-key rejection) and
       ;; carries both a t: and an s: key token.
-      (is (string? (id/canonical-bytes m)))
-      (is (re-find #"t:2026-06-10T00:00:00\.000Z" (id/canonical-bytes m)))
-      (is (re-find #"s:\"2026-06-10T00:00:00\.000Z\"" (id/canonical-bytes m)))
+      (is (string? (rf.identity/canonical-bytes m)))
+      (is (re-find #"t:2026-06-10T00:00:00\.000Z" (rf.identity/canonical-bytes m)))
+      (is (re-find #"s:\"2026-06-10T00:00:00\.000Z\"" (rf.identity/canonical-bytes m)))
       ;; canonical accepts it too and keeps two entries, keyed distinctly.
-      (let [c (id/canonical m)]
+      (let [c (rf.identity/canonical m)]
         (is (= 2 (count c)))
         (is (= :via-instant (get c sample-tuple)))
         (is (= :via-string (get c sample-instant-text)))))))
@@ -435,57 +435,57 @@
 (deftest instant-tagged-fail-closed
   (testing "a vector under the reserved marker is validated STRICTLY — never a generic vector"
     (is (= :invalid-canonical-instant
-           (non-edn-id-reason #(id/canonical-bytes [:rf.identity/instant])))
+           (non-edn-id-reason #(rf.identity/canonical-bytes [:rf.identity/instant])))
         "wrong arity (1)")
     (is (= :invalid-canonical-instant
-           (non-edn-id-reason #(id/canonical [:rf.identity/instant "2026-06-10T00:00:00.000Z" :extra])))
+           (non-edn-id-reason #(rf.identity/canonical [:rf.identity/instant "2026-06-10T00:00:00.000Z" :extra])))
         "wrong arity (3)")
     (is (= :invalid-canonical-instant
-           (non-edn-id-reason #(id/canonical-bytes [:rf.identity/instant 123])))
+           (non-edn-id-reason #(rf.identity/canonical-bytes [:rf.identity/instant 123])))
         "non-string payload")
     (is (= :invalid-canonical-instant
-           (non-edn-id-reason #(id/canonical-bytes [:rf.identity/instant "2026-06-10T00:00:00Z"])))
+           (non-edn-id-reason #(rf.identity/canonical-bytes [:rf.identity/instant "2026-06-10T00:00:00Z"])))
         "not millisecond precision")
     (is (= :invalid-canonical-instant
-           (non-edn-id-reason #(id/canonical-bytes [:rf.identity/instant "2026-13-01T00:00:00.000Z"])))
+           (non-edn-id-reason #(rf.identity/canonical-bytes [:rf.identity/instant "2026-13-01T00:00:00.000Z"])))
         "impossible month")
     (is (= :invalid-canonical-instant
-           (non-edn-id-reason #(id/canonical-bytes [:rf.identity/instant "2026-02-30T00:00:00.000Z"])))
+           (non-edn-id-reason #(rf.identity/canonical-bytes [:rf.identity/instant "2026-02-30T00:00:00.000Z"])))
         "impossible day (Feb 30) — a host clock silently rolls it, the round-trip rejects it")
     (is (= :invalid-canonical-instant
-           (non-edn-id-reason #(id/canonical [:rf.identity/instant "2026-06-12T24:00:00.000Z"])))
+           (non-edn-id-reason #(rf.identity/canonical [:rf.identity/instant "2026-06-12T24:00:00.000Z"])))
         "hour 24 folds to the next day — rejected by the round-trip")
     (is (= :invalid-canonical-instant
-           (non-edn-id-reason #(id/canonical-bytes [:rf.identity/instant "10000-01-01T00:00:00.000Z"])))
+           (non-edn-id-reason #(rf.identity/canonical-bytes [:rf.identity/instant "10000-01-01T00:00:00.000Z"])))
         "5-digit year is outside the fixed-width portable window"))
   (testing "the portable-range boundaries are admitted, inclusive"
     (is (= "t:0000-01-01T00:00:00.000Z"
-           (id/canonical-bytes [:rf.identity/instant "0000-01-01T00:00:00.000Z"])))
+           (rf.identity/canonical-bytes [:rf.identity/instant "0000-01-01T00:00:00.000Z"])))
     (is (= "t:9999-12-31T23:59:59.999Z"
-           (id/canonical-bytes [:rf.identity/instant "9999-12-31T23:59:59.999Z"])))
+           (rf.identity/canonical-bytes [:rf.identity/instant "9999-12-31T23:59:59.999Z"])))
     (is (= [:rf.identity/instant "0000-01-01T00:00:00.000Z"]
-           (id/canonical [:rf.identity/instant "0000-01-01T00:00:00.000Z"]))))
+           (rf.identity/canonical [:rf.identity/instant "0000-01-01T00:00:00.000Z"]))))
   (testing "the reserved marker as a PLAIN keyword is still an ordinary encodable value"
-    (is (= "k::rf.identity/instant" (id/canonical-bytes :rf.identity/instant)))
-    (is (= :rf.identity/instant (id/canonical :rf.identity/instant))))
+    (is (= "k::rf.identity/instant" (rf.identity/canonical-bytes :rf.identity/instant)))
+    (is (= :rf.identity/instant (rf.identity/canonical :rf.identity/instant))))
   (testing "a host instant and its tagged tuple for one moment are a DUPLICATE canonical key"
     ;; both encode to the identical t:<text> token, so a map keyed by both fails
     ;; closed — holds on both hosts (js/Date and a vector are distinct keys).
     (is (= :duplicate-canonical-map-key
            (non-edn-id-reason
-             #(id/canonical-bytes {sample-instant :a sample-tuple :b}))))
+             #(rf.identity/canonical-bytes {sample-instant :a sample-tuple :b}))))
     (is (= :duplicate-canonical-map-key
            (non-edn-id-reason
-             #(id/canonical {sample-instant :a sample-tuple :b})))))
+             #(rf.identity/canonical {sample-instant :a sample-tuple :b})))))
   #?(:cljs
      (testing "an invalid js/Date (NaN time value) fails closed with :invalid-instant"
        (is (= :invalid-instant
-              (non-edn-id-reason #(id/canonical-bytes (js/Date. "not-a-date")))))
+              (non-edn-id-reason #(rf.identity/canonical-bytes (js/Date. "not-a-date")))))
        (is (= :invalid-instant
-              (non-edn-id-reason #(id/canonical (js/Date. "not-a-date")))))))
+              (non-edn-id-reason #(rf.identity/canonical (js/Date. "not-a-date")))))))
   #?(:clj
      (testing "sub-millisecond JVM precision truncates to the millisecond text"
        (is (= "t:2026-06-10T00:00:00.123Z"
-              (id/canonical-bytes (java.time.Instant/ofEpochSecond 1781049600 123456789))))
+              (rf.identity/canonical-bytes (java.time.Instant/ofEpochSecond 1781049600 123456789))))
        (is (= [:rf.identity/instant "2026-06-10T00:00:00.123Z"]
-              (id/canonical (java.time.Instant/ofEpochSecond 1781049600 123456789)))))))
+              (rf.identity/canonical (java.time.Instant/ofEpochSecond 1781049600 123456789)))))))

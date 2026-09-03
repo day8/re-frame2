@@ -64,8 +64,8 @@
   relocation seam): the graph is assembled from the per-family algebra
   views, which are themselves assembled from registration metadata, NOT
   (yet) from an EP-0013 app value."
-  (:require [re-frame.subs.tooling :as subs-tooling]
-            [re-frame.identity :as identity]))
+  (:require [re-frame.subs.tooling :as rf.subs.tooling]
+            [re-frame.identity :as rf.identity]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -459,8 +459,8 @@
   `:subs` family here: they are all `re-frame.subs` registrations and all
   lower through the one `sub-algebra-view` (Derivations §Subscriptions
   expose algebra views — a `reg-runtime-sub` is an ordinary algebra node)."
-  {:static-fn  subs-tooling/sub-algebra-view
-   :live-fn    subs-tooling/sub-cache-algebra-view
+  {:static-fn  rf.subs.tooling/sub-algebra-view
+   :live-fn    rf.subs.tooling/sub-cache-algebra-view
    :live-shape :map})
 
 #?(:clj
@@ -642,7 +642,7 @@
   breaking the normative deterministic-assembly promise ([Derivations.md]
   §Graph inspection) and any caller that serializes / diffs / hashes /
   snapshots the explicitly vector-valued `:edges`. We therefore sort the
-  de-duplicated collection by `identity/canonical-bytes` of each COMPLETE
+  de-duplicated collection by `rf.identity/canonical-bytes` of each COMPLETE
   edge map: the CEDN-1 token string is a platform-stable TOTAL key (identical
   on CLJ and CLJS, unlike host `hash`/`compare` over heterogeneous node
   ids), and it is order-insensitive over each edge map's own keys (so it does
@@ -669,7 +669,7 @@
                   (present-families contributors))]
     (->> (concat input extra)
          distinct
-         (sort-by identity/canonical-bytes)
+         (sort-by rf.identity/canonical-bytes)
          vec)))
 
 ;; ---------------------------------------------------------------------------

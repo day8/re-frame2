@@ -36,8 +36,8 @@
   `.cljc` ends `-cljs-test` so it rides `npm run test:cljs` AND `clojure -M:test`."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
-            [re-frame.image          :as image]
-            [re-frame.image-assembly :as asm]))
+            [re-frame.image          :as rf.image]
+            [re-frame.image-assembly :as rf.image-assembly]))
 
 ;; ---------------------------------------------------------------------------
 ;; Fixture — the framework-standard registry is a defonce atom; clear per case.
@@ -45,9 +45,9 @@
 
 (use-fixtures :each
   (fn [t]
-    (asm/clear-standards!)
+    (rf.image-assembly/clear-standards!)
     (t)
-    (asm/clear-standards!)))
+    (rf.image-assembly/clear-standards!)))
 
 ;; ---------------------------------------------------------------------------
 ;; Synthetic registered descriptors (mirror the source-store output shape the
@@ -93,17 +93,17 @@
             framework standard present, projects into a sealed [kind id]
             resolver carrying exactly the selected + inline + standard
             descriptors"
-    (asm/register-standard! :fx :rf.nav/push-url
+    (rf.image-assembly/register-standard! :fx :rf.nav/push-url
                             {:handler-fn ::std-nav})
     (let [pool [(reg-desc "shop.cart" :event :cart/add ::cart-add)
                 (reg-desc "shop.cart" :sub   :cart/items ::cart-items)
                 (reg-desc "shop.other" :event :other/noise ::noise)]
-          img  (image/image
+          img  (rf.image/image
                  {:id :shop/main
                   :select-ns {:include ["shop.cart"]}
                   :registrations
                   {:reg-fx [[:cart.http/post {:doc "post"} ::http-post]]}})
-          gen  (asm/assemble [img] pool)]
+          gen  (rf.image-assembly/assemble [img] pool)]
       (testing "the resolver is keyed by [kind id], one descriptor each"
         (is (contains? (:rf.gen/resolver gen) [:event :cart/add]))
         (is (contains? (:rf.gen/resolver gen) [:sub :cart/items]))
@@ -113,15 +113,15 @@
         (testing "the non-selected namespace is NOT in the generation"
           (is (not (contains? (:rf.gen/resolver gen) [:event :other/noise])))))
       (testing "resolve-descriptor reads one descriptor for a (kind, id)"
-        (is (= ::cart-add (:handler-fn (asm/resolve-descriptor gen :event :cart/add))))
-        (is (= ::http-post (:impl (asm/resolve-descriptor gen :fx :cart.http/post)))))
+        (is (= ::cart-add (:handler-fn (rf.image-assembly/resolve-descriptor gen :event :cart/add))))
+        (is (= ::http-post (:impl (rf.image-assembly/resolve-descriptor gen :fx :cart.http/post)))))
       (testing "the generation carries the kinds present (EP-0026 retired
                 :rf.gen/requires with the image-capability feature)"
-        (is (= #{:event :sub :fx} (asm/generation-kinds gen)))
+        (is (= #{:event :sub :fx} (rf.image-assembly/generation-kinds gen)))
         (is (not (contains? gen :rf.gen/requires))))
       (testing "the sealed generation is an inert immutable value"
         (is (map? gen))
-        (is (= gen (asm/assemble [img] pool))
+        (is (= gen (rf.image-assembly/assemble [img] pool))
             "equal image inputs over the same pool produce an equal generation")))))
 
 ;; ===========================================================================
@@ -134,40 +134,40 @@
             (load order does NOT pick a survivor)"
     (let [pool [(reg-desc "todo.boot"    :event :boot/init ::todo-boot)
                 (reg-desc "counter.boot" :event :boot/init ::counter-boot)]
-          img  (image/image {:id :both/img :select-ns {:include ["todo.boot" "counter.boot"]}})]
+          img  (rf.image/image {:id :both/img :select-ns {:include ["todo.boot" "counter.boot"]}})]
       (is (= :rf.error/image-duplicate-id
-             (assembly-error-id #(asm/assemble [img] pool)))))))
+             (assembly-error-id #(rf.image-assembly/assemble [img] pool)))))))
 
 (deftest duplicate-id-order-independence
   (testing "the duplicate-id error fires regardless of selection order — there
             is no last-write that 'wins'"
     (let [a    (reg-desc "todo.boot"    :event :boot/init ::a)
           b    (reg-desc "counter.boot" :event :boot/init ::b)
-          img  (image/image {:id :i :select-ns {:include ["todo.boot" "counter.boot"]}})]
+          img  (rf.image/image {:id :i :select-ns {:include ["todo.boot" "counter.boot"]}})]
       (is (= :rf.error/image-duplicate-id
-             (assembly-error-id #(asm/assemble [img] [a b]))))
+             (assembly-error-id #(rf.image-assembly/assemble [img] [a b]))))
       (is (= :rf.error/image-duplicate-id
-             (assembly-error-id #(asm/assemble [img] [b a])))))))
+             (assembly-error-id #(rf.image-assembly/assemble [img] [b a])))))))
 
 (deftest same-registration-selected-twice-dedupes
   (testing "the SAME registration (same coordinate + impl) selected by two
             overlapping globs is a DEDUPE, not a collision — it seals cleanly"
     (let [d    (reg-desc "shop.cart" :event :cart/add ::add)
-          img  (image/image {:id :i :select-ns {:include ["shop.*" "shop.cart"]}})
-          gen  (asm/assemble [img] [d])]
-      (is (= ::add (:handler-fn (asm/resolve-descriptor gen :event :cart/add)))))))
+          img  (rf.image/image {:id :i :select-ns {:include ["shop.*" "shop.cart"]}})
+          gen  (rf.image-assembly/assemble [img] [d])]
+      (is (= ::add (:handler-fn (rf.image-assembly/resolve-descriptor gen :event :cart/add)))))))
 
 (deftest inline-vs-selected-same-id-collides
   (testing "an inline :counter/inc and a namespace-selected :counter/inc in ONE
             image is a within-image collision — fail loud
             (:rf.error/image-within-image-collision); to override, use a later image"
     (let [pool [(reg-desc "counter.core" :event :counter/inc ::selected)]
-          img  (image/image
+          img  (rf.image/image
                  {:id :i
                   :select-ns {:include ["counter.core"]}
                   :registrations {:reg-event [[:counter/inc {} ::inline]]}})]
       (is (= :rf.error/image-within-image-collision
-             (assembly-error-id #(asm/assemble [img] pool)))))))
+             (assembly-error-id #(rf.image-assembly/assemble [img] pool)))))))
 
 ;; ===========================================================================
 ;; 3. Image-order resolution (EP-0026 §Layered Resolution) — the LATER image
@@ -178,36 +178,36 @@
   (testing "a [kind id] in two composed images resolves to the LATER image's
             descriptor (the test-doubles override image composed after the app image)"
     (let [pool [(reg-desc "checkout.core" :fx :checkout.http/post ::real)]
-          app-image    (image/image
+          app-image    (rf.image/image
                          {:id :app/main :select-ns {:include ["checkout.core"]}})
-          test-doubles (image/image
+          test-doubles (rf.image/image
                          {:id :test/doubles
                           :registrations {:reg-fx [[:checkout.http/post {} ::stub]]}})
-          gen  (asm/assemble [app-image test-doubles] pool)]
-      (is (= ::stub (:impl (asm/resolve-descriptor gen :fx :checkout.http/post)))
+          gen  (rf.image-assembly/assemble [app-image test-doubles] pool)]
+      (is (= ::stub (:impl (rf.image-assembly/resolve-descriptor gen :fx :checkout.http/post)))
           "the later image (test-doubles) wins — image order, not the registrar"))))
 
 (deftest reversing-image-order-reverses-the-winner
   (testing "image order is the ONLY precedence: composing the app image LAST makes
             its selected registration the winner instead"
     (let [pool [(reg-desc "checkout.core" :fx :checkout.http/post ::real)]
-          app-image    (image/image
+          app-image    (rf.image/image
                          {:id :app/main :select-ns {:include ["checkout.core"]}})
-          test-doubles (image/image
+          test-doubles (rf.image/image
                          {:id :test/doubles
                           :registrations {:reg-fx [[:checkout.http/post {} ::stub]]}})
-          gen  (asm/assemble [test-doubles app-image] pool)]
-      (is (= ::real (:handler-fn (asm/resolve-descriptor gen :fx :checkout.http/post)))))))
+          gen  (rf.image-assembly/assemble [test-doubles app-image] pool)]
+      (is (= ::real (:handler-fn (rf.image-assembly/resolve-descriptor gen :fx :checkout.http/post)))))))
 
 (deftest cross-image-shadow-does-not-fail-assembly
   (testing "a later image overriding an earlier one RESOLVES (later wins) and does
             NOT fail assembly — a cross-image shadow is reported, not failed"
     (let [pool  [(reg-desc "a.core" :fx :checkout.http/post ::a)
                  (reg-desc "b.core" :fx :checkout.http/post ::b)]
-          img-a (image/image {:id :img/a :select-ns {:include ["a.core"]}})
-          img-b (image/image {:id :img/b :select-ns {:include ["b.core"]}})
-          gen   (asm/assemble [img-a img-b] pool)]
-      (is (= ::b (:handler-fn (asm/resolve-descriptor gen :fx :checkout.http/post)))))))
+          img-a (rf.image/image {:id :img/a :select-ns {:include ["a.core"]}})
+          img-b (rf.image/image {:id :img/b :select-ns {:include ["b.core"]}})
+          gen   (rf.image-assembly/assemble [img-a img-b] pool)]
+      (is (= ::b (:handler-fn (rf.image-assembly/resolve-descriptor gen :fx :checkout.http/post)))))))
 
 ;; ===========================================================================
 ;; 3b. Within-image disjointness — an image must resolve cleanly to ONE
@@ -218,20 +218,20 @@
 (deftest within-image-two-inline-is-malformed
   (testing "two inline entries for the same [kind id] in ONE image →
             :rf.error/image-within-image-collision (define each [kind id] once inline)"
-    (let [img (image/image
+    (let [img (rf.image/image
                 {:id :i
                  :registrations {:reg-fx [[:checkout.http/post {} ::a]
                                           [:checkout.http/post {} ::b]]}})]
       (is (= :rf.error/image-within-image-collision
-             (assembly-error-id #(asm/assemble [img] [])))))))
+             (assembly-error-id #(rf.image-assembly/assemble [img] [])))))))
 
 (deftest noncolliding-image-seals-cleanly
   (testing "the baseline: a single selected registration with no within-image
             collision seals cleanly to that descriptor"
     (let [pool [(reg-desc "checkout.core" :fx :checkout.http/post ::only)]
-          img  (image/image {:id :i :select-ns {:include ["checkout.core"]}})
-          gen  (asm/assemble [img] pool)]
-      (is (= ::only (:handler-fn (asm/resolve-descriptor gen :fx :checkout.http/post)))))))
+          img  (rf.image/image {:id :i :select-ns {:include ["checkout.core"]}})
+          gen  (rf.image-assembly/assemble [img] pool)]
+      (is (= ::only (:handler-fn (rf.image-assembly/resolve-descriptor gen :fx :checkout.http/post)))))))
 
 ;; ===========================================================================
 ;; 4. Unsupported descriptor kind
@@ -242,9 +242,9 @@
             → :rf.error/image-unsupported-kind"
     (let [pool [{:rf.provenance/ns "weird.ns" :kind :not-a-kind :id :x/y
                  :handler-fn ::w}]
-          img  (image/image {:id :i :select-ns {:include ["weird.ns"]}})]
+          img  (rf.image/image {:id :i :select-ns {:include ["weird.ns"]}})]
       (is (= :rf.error/image-unsupported-kind
-             (assembly-error-id #(asm/assemble [img] pool)))))))
+             (assembly-error-id #(rf.image-assembly/assemble [img] pool)))))))
 
 ;; ===========================================================================
 ;; 5. Framework-standard replacement policy (default non-replaceable)
@@ -255,42 +255,42 @@
             :rf.error/image-standard-replacement-forbidden (a standard must not
             be shadowed — there is no public :replace-standard opt-in, EP-0026
             §Framework Standard Registrations)"
-    (asm/register-standard! :fx :rf.nav/push-url {:handler-fn ::std})
+    (rf.image-assembly/register-standard! :fx :rf.nav/push-url {:handler-fn ::std})
     (let [pool [(reg-desc "product.story" :fx :rf.nav/push-url ::app-override)]
-          img  (image/image {:id :i :select-ns {:include ["product.story"]}})]
+          img  (rf.image/image {:id :i :select-ns {:include ["product.story"]}})]
       (is (= :rf.error/image-standard-replacement-forbidden
-             (assembly-error-id #(asm/assemble [img] pool)))))))
+             (assembly-error-id #(rf.image-assembly/assemble [img] pool)))))))
 
 (deftest inline-app-shadowing-a-standard-fails-loud
   (testing "an INLINE app entry with the same [kind id] as a framework standard
             also fails loud — a public app image must not shadow a standard
             (EP-0026 §Framework Standard Registrations)"
-    (asm/register-standard! :fx :rf.nav/push-url {:handler-fn ::std})
-    (let [img (image/image {:id :i
+    (rf.image-assembly/register-standard! :fx :rf.nav/push-url {:handler-fn ::std})
+    (let [img (rf.image/image {:id :i
                             :registrations {:reg-fx [[:rf.nav/push-url {} ::app]]}})]
       (is (= :rf.error/image-standard-replacement-forbidden
-             (assembly-error-id #(asm/assemble [img] [])))))))
+             (assembly-error-id #(rf.image-assembly/assemble [img] [])))))))
 
 (deftest later-image-cannot-shadow-a-standard
   (testing "even a LATER image cannot shadow a framework standard — standards are
             not part of app layer order; the app/standard collision fails loud
             regardless of image position"
-    (asm/register-standard! :fx :rf.nav/push-url {:handler-fn ::std})
+    (rf.image-assembly/register-standard! :fx :rf.nav/push-url {:handler-fn ::std})
     (let [pool  [(reg-desc "app.core" :event :app/boot ::boot)]
-          base  (image/image {:id :base :select-ns {:include ["app.core"]}})
-          ovr   (image/image {:id :ovr
+          base  (rf.image/image {:id :base :select-ns {:include ["app.core"]}})
+          ovr   (rf.image/image {:id :ovr
                               :registrations {:reg-fx [[:rf.nav/push-url {} ::app]]}})]
       (is (= :rf.error/image-standard-replacement-forbidden
-             (assembly-error-id #(asm/assemble [base ovr] pool)))))))
+             (assembly-error-id #(rf.image-assembly/assemble [base ovr] pool)))))))
 
 (deftest standard-without-app-collision-is-unioned
   (testing "a framework standard with NO colliding app id is simply unioned into
             the generation"
-    (asm/register-standard! :fx :rf.nav/push-url {:handler-fn ::std})
+    (rf.image-assembly/register-standard! :fx :rf.nav/push-url {:handler-fn ::std})
     (let [pool [(reg-desc "product.story" :event :product/open ::open)]
-          img  (image/image {:id :i :select-ns {:include ["product.story"]}})
-          gen  (asm/assemble [img] pool)]
-      (is (= ::std (:handler-fn (asm/resolve-descriptor gen :fx :rf.nav/push-url))))
+          img  (rf.image/image {:id :i :select-ns {:include ["product.story"]}})
+          gen  (rf.image-assembly/assemble [img] pool)]
+      (is (= ::std (:handler-fn (rf.image-assembly/resolve-descriptor gen :fx :rf.nav/push-url))))
       (is (contains? (:rf.gen/resolver gen) [:event :product/open])))))
 
 ;; ===========================================================================
@@ -303,17 +303,17 @@
             :rf.error/image-missing-reference"
     (let [pool [(assoc (reg-desc "app.core" :event :cart/add ::add)
                        :interceptors [:my.audit/guard])]
-          img  (image/image {:id :i :select-ns {:include ["app.core"]}})]
+          img  (rf.image/image {:id :i :select-ns {:include ["app.core"]}})]
       (is (= :rf.error/image-missing-reference
-             (assembly-error-id #(asm/assemble [img] pool)))))))
+             (assembly-error-id #(rf.image-assembly/assemble [img] pool)))))))
 
 (deftest present-interceptor-reference-passes
   (testing "the same chain succeeds when the referenced :interceptor IS selected"
     (let [pool [(assoc (reg-desc "app.core" :event :cart/add ::add)
                        :interceptors [:my.audit/guard])
                 (reg-desc "app.core" :interceptor :my.audit/guard ::guard)]
-          img  (image/image {:id :i :select-ns {:include ["app.core"]}})
-          gen  (asm/assemble [img] pool)]
+          img  (rf.image/image {:id :i :select-ns {:include ["app.core"]}})
+          gen  (rf.image-assembly/assemble [img] pool)]
       (is (contains? (:rf.gen/resolver gen) [:interceptor :my.audit/guard])))))
 
 (deftest framework-standard-interceptor-reference-skipped
@@ -321,8 +321,8 @@
             image-supplied — it is not flagged as a missing reference"
     (let [pool [(assoc (reg-desc "app.core" :event :cart/add ::add)
                        :interceptors [[:rf.interceptor/path [:cart]]])]
-          img  (image/image {:id :i :select-ns {:include ["app.core"]}})
-          gen  (asm/assemble [img] pool)]
+          img  (rf.image/image {:id :i :select-ns {:include ["app.core"]}})
+          gen  (rf.image-assembly/assemble [img] pool)]
       (is (contains? (:rf.gen/resolver gen) [:event :cart/add])
           "assembly succeeds — the standard ref is not an app-supplied reference"))))
 
@@ -342,13 +342,13 @@
 (deftest descriptor-coordinate-by-source
   (testing "the source coordinate distinguishes registered / inline / standard"
     (is (= {:ns "shop.cart"}
-           (asm/descriptor-coordinate (reg-desc "shop.cart" :event :x ::f))))
+           (rf.image-assembly/descriptor-coordinate (reg-desc "shop.cart" :event :x ::f))))
     (is (= {:image :i :inline [:reg-fx :x]}
-           (asm/descriptor-coordinate {:kind :fx :id :x
+           (rf.image-assembly/descriptor-coordinate {:kind :fx :id :x
                                        :rf.provenance/image :i
                                        :rf.provenance/inline [:reg-fx :x]})))
     (is (= {:standard true}
-           (asm/descriptor-coordinate {:kind :fx :id :x :standard true})))))
+           (rf.image-assembly/descriptor-coordinate {:kind :fx :id :x :standard true})))))
 
 ;; ===========================================================================
 ;; 9. Cross-image layering (EP-0026 §Layered Resolution) — the LATER image
@@ -361,37 +361,37 @@
             image — image order is the only precedence (no conflict)"
     (let [pool   [(reg-desc "checkout.story.a" :fx :checkout.http/post ::a)
                   (reg-desc "checkout.story.b" :fx :checkout.http/post ::b)]
-          img-a  (image/image {:id :img/a :select-ns {:include ["checkout.story.a"]}})
-          img-b  (image/image {:id :img/b :select-ns {:include ["checkout.story.b"]}})]
-      (is (= ::b (:handler-fn (asm/resolve-descriptor
-                                (asm/assemble [img-a img-b] pool)
+          img-a  (rf.image/image {:id :img/a :select-ns {:include ["checkout.story.a"]}})
+          img-b  (rf.image/image {:id :img/b :select-ns {:include ["checkout.story.b"]}})]
+      (is (= ::b (:handler-fn (rf.image-assembly/resolve-descriptor
+                                (rf.image-assembly/assemble [img-a img-b] pool)
                                 :fx :checkout.http/post)))
           "img-b wins (last)")
-      (is (= ::a (:handler-fn (asm/resolve-descriptor
-                                (asm/assemble [img-b img-a] pool)
+      (is (= ::a (:handler-fn (rf.image-assembly/resolve-descriptor
+                                (rf.image-assembly/assemble [img-b img-a] pool)
                                 :fx :checkout.http/post)))
           "reversing order reverses the winner"))))
 
 (deftest multi-image-chain-last-image-wins
   (testing "a chain [base override-a override-b] resolves the shared [kind id] to
             the LAST image's descriptor"
-    (let [base  (image/image {:id :base
+    (let [base  (rf.image/image {:id :base
                               :registrations {:reg-fx [[:checkout.http/post {} ::base]]}})
-          ov-a  (image/image {:id :ov/a
+          ov-a  (rf.image/image {:id :ov/a
                               :registrations {:reg-fx [[:checkout.http/post {} ::a]]}})
-          ov-b  (image/image {:id :ov/b
+          ov-b  (rf.image/image {:id :ov/b
                               :registrations {:reg-fx [[:checkout.http/post {} ::b]]}})
-          gen   (asm/assemble [base ov-a ov-b] [])]
-      (is (= ::b (:impl (asm/resolve-descriptor gen :fx :checkout.http/post)))))))
+          gen   (rf.image-assembly/assemble [base ov-a ov-b] [])]
+      (is (= ::b (:impl (rf.image-assembly/resolve-descriptor gen :fx :checkout.http/post)))))))
 
 (deftest duplicate-image-id-across-composition-fails-loud
   (testing "two images sharing an :id within one :images composition →
             :rf.error/image-duplicate-image-id (the shadow report names images by id)"
     (let [pool  [(reg-desc "a.core" :fx :checkout.http/post ::a)
                  (reg-desc "b.core" :fx :checkout.http/post ::b)]
-          img-a (image/image {:id :dup :select-ns {:include ["a.core"]}})
-          img-b (image/image {:id :dup :select-ns {:include ["b.core"]}})
-          d     (assembly-error-data #(asm/assemble [img-a img-b] pool))]
+          img-a (rf.image/image {:id :dup :select-ns {:include ["a.core"]}})
+          img-b (rf.image/image {:id :dup :select-ns {:include ["b.core"]}})
+          d     (assembly-error-data #(rf.image-assembly/assemble [img-a img-b] pool))]
       (is (= :rf.error/image-duplicate-image-id (:rf.error/id d)))
       (is (= [:dup] (:duplicate-image-ids d))))))
 
@@ -404,26 +404,26 @@
               :rf.error/image-duplicate-image-id, NOT a degenerate nil/nil shadow"
       (let [pool  [(reg-desc "app.a" :event :x ::a)
                    (reg-desc "app.b" :event :x ::b)]
-            anon-a (image/image {:select-ns {:include ["app.a"]}})
-            anon-b (image/image {:select-ns {:include ["app.b"]}})
-            d      (assembly-error-data #(asm/assemble [anon-a anon-b] pool))]
+            anon-a (rf.image/image {:select-ns {:include ["app.a"]}})
+            anon-b (rf.image/image {:select-ns {:include ["app.b"]}})
+            d      (assembly-error-data #(rf.image-assembly/assemble [anon-a anon-b] pool))]
         (is (= :rf.error/image-duplicate-image-id (:rf.error/id d)))
         (is (= 2 (:anonymous-image-count d)))))
     (testing "even DISJOINT anonymous images fail loud — an un-nameable image
               cannot participate in composition regardless of a collision"
       (let [pool  [(reg-desc "app.a" :event :x ::a)
                    (reg-desc "app.b" :event :y ::b)]
-            anon-a (image/image {:select-ns {:include ["app.a"]}})
-            anon-b (image/image {:select-ns {:include ["app.b"]}})]
+            anon-a (rf.image/image {:select-ns {:include ["app.a"]}})
+            anon-b (rf.image/image {:select-ns {:include ["app.b"]}})]
         (is (= :rf.error/image-duplicate-image-id
-               (assembly-error-id #(asm/assemble [anon-a anon-b] pool))))))
+               (assembly-error-id #(rf.image-assembly/assemble [anon-a anon-b] pool))))))
     (testing "a NAMED image composed with an ANONYMOUS one also fails loud"
       (let [pool  [(reg-desc "app.a" :event :x ::a)
                    (reg-desc "app.b" :event :y ::b)]
-            named (image/image {:id :app/a :select-ns {:include ["app.a"]}})
-            anon  (image/image {:select-ns {:include ["app.b"]}})]
+            named (rf.image/image {:id :app/a :select-ns {:include ["app.a"]}})
+            anon  (rf.image/image {:select-ns {:include ["app.b"]}})]
         (is (= :rf.error/image-duplicate-image-id
-               (assembly-error-id #(asm/assemble [named anon] pool))))))))
+               (assembly-error-id #(rf.image-assembly/assemble [named anon] pool))))))))
 
 (deftest single-anonymous-image-still-assembles
   (testing "a SINGLE anonymous image (the local-test / example case) still
@@ -431,10 +431,10 @@
             compositions, where the shadow report must name each image
             (rf2-x76af2.30)"
     (let [pool [(reg-desc "app.a" :event :x ::a)]
-          anon (image/image {:select-ns {:include ["app.a"]}})
-          gen  (asm/assemble [anon] pool)]
+          anon (rf.image/image {:select-ns {:include ["app.a"]}})
+          gen  (rf.image-assembly/assemble [anon] pool)]
       (is (contains? (:rf.gen/resolver gen) [:event :x]))
-      (is (= [] (asm/generation-shadows gen))
+      (is (= [] (rf.image-assembly/generation-shadows gen))
           "a lone image produces no cross-image shadow"))))
 
 ;; ===========================================================================
@@ -448,22 +448,22 @@
             an EMPTY :rf.gen/shadows report (nothing was overridden)"
     (let [pool  [(reg-desc "a.core" :fx :a/post ::a)
                  (reg-desc "b.core" :fx :b/post ::b)]
-          img-a (image/image {:id :img/a :select-ns {:include ["a.core"]}})
-          img-b (image/image {:id :img/b :select-ns {:include ["b.core"]}})]
+          img-a (rf.image/image {:id :img/a :select-ns {:include ["a.core"]}})
+          img-b (rf.image/image {:id :img/b :select-ns {:include ["b.core"]}})]
       (testing "single image — no shadows"
-        (is (= [] (asm/generation-shadows (asm/assemble [img-a] pool)))))
+        (is (= [] (rf.image-assembly/generation-shadows (rf.image-assembly/assemble [img-a] pool)))))
       (testing "composed images with no shared [kind id] — no shadows"
-        (is (= [] (asm/generation-shadows (asm/assemble [img-a img-b] pool))))))))
+        (is (= [] (rf.image-assembly/generation-shadows (rf.image-assembly/assemble [img-a img-b] pool))))))))
 
 (deftest shadow-report-shape-one-entry-per-override
   (testing "one later image overriding one earlier registration produces ONE flat
             entry — exactly :registration / :image / :shadowed-by, nothing else"
     (let [pool  [(reg-desc "checkout.core" :fx :checkout.http/post ::real)]
-          app   (image/image {:id :app/main :select-ns {:include ["checkout.core"]}})
-          dbls  (image/image {:id :test/doubles
+          app   (rf.image/image {:id :app/main :select-ns {:include ["checkout.core"]}})
+          dbls  (rf.image/image {:id :test/doubles
                               :registrations {:reg-fx [[:checkout.http/post {} ::stub]]}})
-          gen   (asm/assemble [app dbls] pool)
-          report (asm/generation-shadows gen)]
+          gen   (rf.image-assembly/assemble [app dbls] pool)
+          report (rf.image-assembly/generation-shadows gen)]
       (is (= [{:registration [:fx :checkout.http/post]
                :image        :app/main
                :shadowed-by  :test/doubles}]
@@ -478,16 +478,16 @@
   (testing "a chain [base override-a override-b] reports the FINAL winner for EVERY
             loser — base and override-a are BOTH :shadowed-by override-b, not the
             immediate predecessor (EP-0026 §Shadow Report)"
-    (let [base  (image/image {:id :base
+    (let [base  (rf.image/image {:id :base
                               :registrations {:reg-fx [[:checkout.http/post {} ::base]]}})
-          ov-a  (image/image {:id :ov/a
+          ov-a  (rf.image/image {:id :ov/a
                               :registrations {:reg-fx [[:checkout.http/post {} ::a]]}})
-          ov-b  (image/image {:id :ov/b
+          ov-b  (rf.image/image {:id :ov/b
                               :registrations {:reg-fx [[:checkout.http/post {} ::b]]}})
-          gen   (asm/assemble [base ov-a ov-b] [])
-          report (asm/generation-shadows gen)]
+          gen   (rf.image-assembly/assemble [base ov-a ov-b] [])
+          report (rf.image-assembly/generation-shadows gen)]
       (testing "the live winner is the last image"
-        (is (= ::b (:impl (asm/resolve-descriptor gen :fx :checkout.http/post)))))
+        (is (= ::b (:impl (rf.image-assembly/resolve-descriptor gen :fx :checkout.http/post)))))
       (testing "TWO loser entries, each naming the FINAL winner :ov/b"
         (is (= [{:registration [:fx :checkout.http/post] :image :base  :shadowed-by :ov/b}
                 {:registration [:fx :checkout.http/post] :image :ov/a  :shadowed-by :ov/b}]
@@ -498,12 +498,12 @@
             DIFFERENT [kind id]s, that is two entries (one per shadowed registration)"
     (let [pool  [(reg-desc "a.core" :fx  :pay/post ::a-pay)
                  (reg-desc "b.core" :sub :pay/total ::b-total)]
-          img-a (image/image {:id :img/a :select-ns {:include ["a.core"]}})
-          img-b (image/image {:id :img/b :select-ns {:include ["b.core"]}})
-          dbls  (image/image {:id :test/doubles
+          img-a (rf.image/image {:id :img/a :select-ns {:include ["a.core"]}})
+          img-b (rf.image/image {:id :img/b :select-ns {:include ["b.core"]}})
+          dbls  (rf.image/image {:id :test/doubles
                               :registrations {:reg-fx  [[:pay/post {} ::stub-post]]
                                               :reg-sub [[:pay/total (fn [_ _] 0)]]}})
-          report (asm/generation-shadows (asm/assemble [img-a img-b dbls] pool))]
+          report (rf.image-assembly/generation-shadows (rf.image-assembly/assemble [img-a img-b dbls] pool))]
       (is (= [{:registration [:fx :pay/post]   :image :img/a :shadowed-by :test/doubles}
               {:registration [:sub :pay/total] :image :img/b :shadowed-by :test/doubles}]
              report)))))
@@ -513,14 +513,14 @@
             report — it never fails assembly (EP-0026 Acceptance Bar 2)"
     (let [pool  [(reg-desc "a.core" :fx :checkout.http/post ::a)
                  (reg-desc "b.core" :fx :checkout.http/post ::b)]
-          img-a (image/image {:id :img/a :select-ns {:include ["a.core"]}})
-          img-b (image/image {:id :img/b :select-ns {:include ["b.core"]}})
-          gen   (asm/assemble [img-a img-b] pool)]    ;; must not throw
-      (is (= ::b (:handler-fn (asm/resolve-descriptor gen :fx :checkout.http/post))))
+          img-a (rf.image/image {:id :img/a :select-ns {:include ["a.core"]}})
+          img-b (rf.image/image {:id :img/b :select-ns {:include ["b.core"]}})
+          gen   (rf.image-assembly/assemble [img-a img-b] pool)]    ;; must not throw
+      (is (= ::b (:handler-fn (rf.image-assembly/resolve-descriptor gen :fx :checkout.http/post))))
       (is (= [{:registration [:fx :checkout.http/post]
                :image        :img/a
                :shadowed-by  :img/b}]
-             (asm/generation-shadows gen))))))
+             (rf.image-assembly/generation-shadows gen))))))
 
 ;; ===========================================================================
 ;; 10. Resource → resource-scope resolver reference validation (rf2-32siq3.25)
@@ -551,9 +551,9 @@
             absent from the generation → :rf.error/image-missing-reference"
     (let [pool [(resource-desc "shop.articles" :article/by-slug
                                {:from-db :shop/session})]
-          img  (image/image {:id :i :select-ns {:include ["shop.articles"]}})]
+          img  (rf.image/image {:id :i :select-ns {:include ["shop.articles"]}})]
       (is (= :rf.error/image-missing-reference
-             (assembly-error-id #(asm/assemble [img] pool)))))))
+             (assembly-error-id #(rf.image-assembly/assemble [img] pool)))))))
 
 (deftest resource-present-scope-resolver-passes
   (testing "the same resource seals cleanly when the referenced :resource-scope
@@ -561,8 +561,8 @@
     (let [pool [(resource-desc "shop.articles" :article/by-slug
                                {:from-db :shop/session})
                 (scope-resolver-desc "shop.scopes" :shop/session)]
-          img  (image/image {:id :i :select-ns {:include ["shop.articles" "shop.scopes"]}})
-          gen  (asm/assemble [img] pool)]
+          img  (rf.image/image {:id :i :select-ns {:include ["shop.articles" "shop.scopes"]}})
+          gen  (rf.image-assembly/assemble [img] pool)]
       (is (contains? (:rf.gen/resolver gen) [:resource :article/by-slug]))
       (is (contains? (:rf.gen/resolver gen) [:resource-scope :shop/session])))))
 
@@ -574,8 +574,8 @@
           tuple    (resource-desc "shop.b" :b/session [:rf.scope/session {:u 1}])
           from-clr (resource-desc "shop.c" :c/from-caller :rf.scope/from-caller)
           pool     [global tuple from-clr]
-          img      (image/image {:id :i :select-ns {:include ["shop.a" "shop.b" "shop.c"]}})
-          gen      (asm/assemble [img] pool)]
+          img      (rf.image/image {:id :i :select-ns {:include ["shop.a" "shop.b" "shop.c"]}})
+          gen      (rf.image-assembly/assemble [img] pool)]
       (is (contains? (:rf.gen/resolver gen) [:resource :a/global]))
       (is (contains? (:rf.gen/resolver gen) [:resource :b/session]))
       (is (contains? (:rf.gen/resolver gen) [:resource :c/from-caller])))))
@@ -586,8 +586,8 @@
             id] reference, and a repair path (rf2-32siq3.26)"
     (let [pool [(resource-desc "shop.articles" :article/by-slug
                                {:from-db :shop/session})]
-          img  (image/image {:id :shop/img :select-ns {:include ["shop.articles"]}})
-          d    (assembly-error-data #(asm/assemble [img] pool))]
+          img  (rf.image/image {:id :shop/img :select-ns {:include ["shop.articles"]}})
+          d    (assembly-error-data #(rf.image-assembly/assemble [img] pool))]
       (is (= :rf.error/image-missing-reference (:rf.error/id d)))
       (is (= :shop/img (:image d)))
       (is (= :resource (:kind d)))
@@ -599,17 +599,17 @@
 
 ;; ===========================================================================
 ;; 11. Structured diagnostics audit (rf2-32siq3.26) — every enriched assembly
-;;     failure carries image/[kind id]/provenance/repair where applicable.
+;;     failure carries rf.image/[kind id]/provenance/repair where applicable.
 ;; ===========================================================================
 
 (deftest interceptor-missing-ref-ex-data-carries-provenance
   (testing "the (existing) interceptor missing-reference diagnostic now also
             carries the referencing descriptor's provenance ns + source
-            coordinate alongside image/[kind id]/missing-reference/recovery"
+            coordinate alongside rf.image/[kind id]/missing-reference/recovery"
     (let [pool [(assoc (reg-desc "app.core" :event :cart/add ::add)
                        :interceptors [:my.audit/guard])]
-          img  (image/image {:id :app/img :select-ns {:include ["app.core"]}})
-          d    (assembly-error-data #(asm/assemble [img] pool))]
+          img  (rf.image/image {:id :app/img :select-ns {:include ["app.core"]}})
+          d    (assembly-error-data #(rf.image-assembly/assemble [img] pool))]
       (is (= :rf.error/image-missing-reference (:rf.error/id d)))
       (is (= :app/img (:image d)))
       (is (= :event (:kind d)))
@@ -620,12 +620,12 @@
       (is (= :select-the-missing-registration-or-fix-the-reference (:recovery d))))))
 
 (deftest unsupported-kind-ex-data-carries-provenance
-  (testing "the unsupported-kind diagnostic carries image/kind/id/provenance
+  (testing "the unsupported-kind diagnostic carries rf.image/kind/id/provenance
             ns/coordinate/recovery (rf2-32siq3.26)"
     (let [pool [{:rf.provenance/ns "weird.ns" :kind :not-a-kind :id :x/y
                  :handler-fn ::w}]
-          img  (image/image {:id :w/img :select-ns {:include ["weird.ns"]}})
-          d    (assembly-error-data #(asm/assemble [img] pool))]
+          img  (rf.image/image {:id :w/img :select-ns {:include ["weird.ns"]}})
+          d    (assembly-error-data #(rf.image-assembly/assemble [img] pool))]
       (is (= :rf.error/image-unsupported-kind (:rf.error/id d)))
       (is (= :w/img (:image d)))
       (is (= :not-a-kind (:kind d)))
@@ -638,10 +638,10 @@
   (testing "the standard-replacement-forbidden diagnostic (EP-0026 §Framework
             Standard Registrations) names the standard coordinate, the app source
             coordinate, [kind id], and a rename/deselect recovery"
-    (asm/register-standard! :fx :rf.nav/push-url {:handler-fn ::std})
+    (rf.image-assembly/register-standard! :fx :rf.nav/push-url {:handler-fn ::std})
     (let [pool [(reg-desc "product.story" :fx :rf.nav/push-url ::app-override)]
-          img  (image/image {:id :p/img :select-ns {:include ["product.story"]}})
-          d    (assembly-error-data #(asm/assemble [img] pool))]
+          img  (rf.image/image {:id :p/img :select-ns {:include ["product.story"]}})
+          d    (assembly-error-data #(rf.image-assembly/assemble [img] pool))]
       (is (= :rf.error/image-standard-replacement-forbidden (:rf.error/id d)))
       (is (= :fx (:kind d)))
       (is (= :rf.nav/push-url (:id d)))
@@ -651,14 +651,14 @@
       (is (= :rename-the-app-id-or-deselect-it (:recovery d))))))
 
 (deftest within-image-duplicate-id-ex-data-names-colliding-coordinates
-  (testing "the within-image duplicate-id diagnostic carries image/[kind id]/
+  (testing "the within-image duplicate-id diagnostic carries rf.image/[kind id]/
             colliding source coordinates and the narrow-or-rename recovery
             (EP-0026 §Layered Resolution)"
     (let [pool [(reg-desc "todo.boot"    :event :boot/init ::a)
                 (reg-desc "counter.boot" :event :boot/init ::b)]
-          img  (image/image {:id :both/img
+          img  (rf.image/image {:id :both/img
                              :select-ns {:include ["todo.boot" "counter.boot"]}})
-          d    (assembly-error-data #(asm/assemble [img] pool))]
+          d    (assembly-error-data #(rf.image-assembly/assemble [img] pool))]
       (is (= :rf.error/image-duplicate-id (:rf.error/id d)))
       (is (= :both/img (:image d)))
       (is (= :event (:kind d)))

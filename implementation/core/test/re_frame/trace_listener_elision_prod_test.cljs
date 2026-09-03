@@ -11,10 +11,10 @@
   `goog.DEBUG=false` + `:advanced`) so the gate is constant-folded by the
   closure compiler. Under that compile:
 
-    - `(trace-tooling/register-listener! ...)` returns a key; the callback registry
+    - `(rf.trace.tooling/register-listener! ...)` returns a key; the callback registry
       atom still exists at the value layer, but
     - `(rf/dispatch-sync [...])` runs handlers normally yet
-      `trace/emit!` becomes a no-op (its body sits inside the gate);
+      `rf.trace/emit!` becomes a no-op (its body sits inside the gate);
       hence the callback never fires.
     - `(rf/emit-trace-event! ...)` is not a public surface — but
       `re-frame.trace/emit!` IS. Calling it directly under prod-mode
@@ -27,26 +27,26 @@
   `cljs-test$` and therefore do NOT pick up these files."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace :as trace]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.trace :as rf.trace]
             ;; rf2-qwm0a — listener surface (`register-listener!`
             ;; etc.) lives in `re-frame.trace.tooling`.
-            [re-frame.trace.tooling :as trace-tooling]))
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter}))
 
 ;; ---- callback NEVER fires under prod-mode --------------------------------
 
 (deftest registered-listener-does-not-fire-under-prod
   (testing "Per Spec 009 §Production builds: under `:advanced` +
-            `goog.DEBUG=false`, trace/emit!'s body is DCE'd. A registered
+            `goog.DEBUG=false`, rf.trace/emit!'s body is DCE'd. A registered
             listener observes NO events when dispatch runs, because the
             emit call sites have been elided."
     (let [seen (atom [])]
-      (trace-tooling/register-listener! ::prod-no-trace
+      (rf.trace.tooling/register-listener! ::prod-no-trace
         (fn [ev] (swap! seen conj ev)))
       (rf/reg-event :prod/ping
                        (fn [{:keys [db]} _] {:db (assoc db :pinged? true)}))
@@ -57,19 +57,19 @@
           "the handler ran — only the trace surface is gated, not dispatch")
       (is (empty? @seen)
           "no events observed — Spec 009 §Production builds elision contract holds")
-      (trace-tooling/unregister-listener! ::prod-no-trace))))
+      (rf.trace.tooling/unregister-listener! ::prod-no-trace))))
 
 (deftest emit-direct-call-is-noop-under-prod
-  (testing "Direct invocation of trace/emit! is a no-op under prod-mode.
+  (testing "Direct invocation of rf.trace/emit! is a no-op under prod-mode.
             The gate sits inside the fn body, so even bypassing the
             runtime's normal dispatch path doesn't escape elision."
     (let [seen (atom [])]
-      (trace-tooling/register-listener! ::direct-emit (fn [ev] (swap! seen conj ev)))
+      (rf.trace.tooling/register-listener! ::direct-emit (fn [ev] (swap! seen conj ev)))
       ;; Direct emit — would deliver under dev-mode.
-      (trace/emit! :info :rf.prod-test/direct-emit {:should "never appear"})
+      (rf.trace/emit! :info :rf.prod-test/direct-emit {:should "never appear"})
       (is (empty? @seen)
-          "trace/emit! is a no-op under :advanced + goog.DEBUG=false")
-      (trace-tooling/unregister-listener! ::direct-emit))))
+          "rf.trace/emit! is a no-op under :advanced + goog.DEBUG=false")
+      (rf.trace.tooling/unregister-listener! ::direct-emit))))
 
 (deftest clear-trace-listeners-returns-nil-under-prod
   (testing "clear-listeners! still returns nil under prod-mode — the
@@ -77,6 +77,6 @@
             the emit/deliver path is. clear-listeners! must work the
             same way as it does under dev so test fixtures that call
             it in prod-mode CI runs don't error."
-    (trace-tooling/register-listener! ::prod-clear (fn [_ev] nil))
-    (is (nil? (trace-tooling/clear-listeners!))
+    (rf.trace.tooling/register-listener! ::prod-clear (fn [_ev] nil))
+    (is (nil? (rf.trace.tooling/clear-listeners!))
         "clear-listeners! returns nil consistently across dev and prod")))

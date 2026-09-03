@@ -29,8 +29,8 @@
 
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.disposable :as rf-disposable]
-            [re-frame.substrate.spine :as spine]))
+            [re-frame.disposable :as rf.disposable]
+            [re-frame.substrate.spine :as rf.substrate.spine]))
 
 ;; ---------------------------------------------------------------------------
 ;; A non-atom (`reify`) source — the spine's DIRECT `add-watch` branch.
@@ -84,8 +84,8 @@
   (testing "a third source that refuses its watch leaves ZERO residue from the
             first two — the raw atom's coordinator is torn down and deregistered,
             and the reify source's direct watch is removed"
-    (let [scheduler    (spine/make-scheduler)
-          make-derived (spine/make-derived-value-fn "rf-atomic-" scheduler)
+    (let [scheduler    (rf.substrate.spine/make-scheduler)
+          make-derived (rf.substrate.spine/make-derived-value-fn "rf-atomic-" scheduler)
           release-log  (atom [])
           src-a        (atom 1)                                  ;; coordinator path
           src-b        (fault-source :b 2 nil release-log)       ;; direct watch, healthy
@@ -111,8 +111,8 @@
 (deftest unwind-runs-in-reverse-acquisition-order
   (testing "releases replay the acquisition vector backwards, so a source
             acquired later is released first"
-    (let [scheduler    (spine/make-scheduler)
-          make-derived (spine/make-derived-value-fn "rf-atomic-" scheduler)
+    (let [scheduler    (rf.substrate.spine/make-scheduler)
+          make-derived (rf.substrate.spine/make-derived-value-fn "rf-atomic-" scheduler)
           release-log  (atom [])
           src-b        (fault-source :b 1 nil release-log)
           src-c        (fault-source :c 2 nil release-log)
@@ -128,8 +128,8 @@
 (deftest unwind-attempts-every-release-and-preserves-the-primary-error
   (testing "a source that throws while being RELEASED does not abort the rest of
             the unwind, and does not displace the construction error"
-    (let [scheduler    (spine/make-scheduler)
-          make-derived (spine/make-derived-value-fn "rf-atomic-" scheduler)
+    (let [scheduler    (rf.substrate.spine/make-scheduler)
+          make-derived (rf.substrate.spine/make-derived-value-fn "rf-atomic-" scheduler)
           release-log  (atom [])
           src-a        (atom 1)
           src-b        (fault-source :b 2 :remove-throws release-log)
@@ -152,8 +152,8 @@
 (deftest first-source-failure-leaves-nothing-behind
   (testing "when the very first source refuses, there is nothing to unwind and
             the error still surfaces unchanged"
-    (let [scheduler    (spine/make-scheduler)
-          make-derived (spine/make-derived-value-fn "rf-atomic-" scheduler)
+    (let [scheduler    (rf.substrate.spine/make-scheduler)
+          make-derived (rf.substrate.spine/make-derived-value-fn "rf-atomic-" scheduler)
           release-log  (atom [])
           src-a        (fault-source :a 1 :add-throws release-log)
           src-b        (atom 2)
@@ -175,8 +175,8 @@
 (deftest unwind-releases-every-wire-of-a-repeated-source
   (testing "a source appearing twice before the failure has BOTH of its wires
             released"
-    (let [scheduler    (spine/make-scheduler)
-          make-derived (spine/make-derived-value-fn "rf-atomic-" scheduler)
+    (let [scheduler    (rf.substrate.spine/make-scheduler)
+          make-derived (rf.substrate.spine/make-derived-value-fn "rf-atomic-" scheduler)
           release-log  (atom [])
           src-a        (atom 1)
           src-c        (fault-source :c 2 :add-throws release-log)]
@@ -194,8 +194,8 @@
 (deftest successful-construction-and-disposal-are-unchanged
   (testing "no fault: every wire installs, the derived value computes, and
             `-dispose` still releases everything through the shared release path"
-    (let [scheduler    (spine/make-scheduler)
-          make-derived (spine/make-derived-value-fn "rf-atomic-" scheduler)
+    (let [scheduler    (rf.substrate.spine/make-scheduler)
+          make-derived (rf.substrate.spine/make-derived-value-fn "rf-atomic-" scheduler)
           release-log  (atom [])
           src-a        (atom 1)
           src-b        (fault-source :b 2 nil release-log)
@@ -206,7 +206,7 @@
       (is (= 1 (count (installed-keys src-b)))
           "the reify source carries its direct watch")
       (is (= 1 (coordinator-count scheduler)))
-      (rf-disposable/-dispose derived)
+      (rf.disposable/-dispose derived)
       (is (zero? (atom-watch-count src-a)) "dispose released the atom source")
       (is (empty? (installed-keys src-b)) "dispose released the reify source")
       (is (zero? (coordinator-count scheduler))

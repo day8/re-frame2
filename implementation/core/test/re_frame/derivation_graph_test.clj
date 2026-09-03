@@ -32,38 +32,38 @@
   five siblings' CLJS-side fns — reached directly by the consuming tool)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.derivation.graph :as graph]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
-            [re-frame.flows :as flows]
+            [re-frame.frame :as rf.frame]
+            [re-frame.derivation.graph :as rf.derivation.graph]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.flows :as rf.flows]
             ;; load-bearing side-effecting requires: each façade registers
             ;; its registrar kind / framework events so the family is live.
             [re-frame.routing]
-            [re-frame.routing.tooling :as routing-tooling]
+            [re-frame.routing.tooling :as rf.routing.tooling]
             [re-frame.resources]
-            [re-frame.resources.tooling :as resources-tooling]
-            [re-frame.machines.tooling :as machines-tooling]
-            [re-frame.subs.tooling :as subs-tooling]
-            [re-frame.flows.tooling :as flows-tooling]
-            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.resources.tooling :as rf.resources.tooling]
+            [re-frame.machines.tooling :as rf.machines.tooling]
+            [re-frame.subs.tooling :as rf.subs.tooling]
+            [re-frame.flows.tooling :as rf.flows.tooling]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.trace]))
 
 (defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (flows/reset-last-inputs!)
-  (schemas/clear-schemas-by-frame!)
-  (rf/init! plain-atom/adapter)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.flows/reset-flows!)
+  (rf.flows/reset-last-inputs!)
+  (rf.schemas/clear-schemas-by-frame!)
+  (rf/init! rf.substrate.plain-atom/adapter)
   ;; re-`require` every optional façade so its framework registrations
   ;; (registrar kinds, framework events, subs) are present after the
   ;; clear-all! above.
   (require 're-frame.routing :reload)
   (require 're-frame.resources :reload)
   (require 're-frame.machines :reload)
-  (frame/ensure-default-frame!)
-  (binding [frame/*current-frame* :rf/default]
+  (rf.frame/ensure-default-frame!)
+  (binding [rf.frame/*current-frame* :rf/default]
     (test-fn)))
 
 (use-fixtures :each reset-runtime)
@@ -75,22 +75,22 @@
 ;; composition regardless of resolution, and exercises the explicit-arg
 ;; path the CLJS consumer uses.
 (def all-contributors
-  {:subs      {:static-fn  subs-tooling/sub-algebra-view
-               :live-fn    subs-tooling/sub-cache-algebra-view
+  {:subs      {:static-fn  rf.subs.tooling/sub-algebra-view
+               :live-fn    rf.subs.tooling/sub-cache-algebra-view
                :live-shape :map}
-   :flows     {:static-fn  flows-tooling/flow-algebra-view
-               :live-fn    flows-tooling/flow-algebra-view
+   :flows     {:static-fn  rf.flows.tooling/flow-algebra-view
+               :live-fn    rf.flows.tooling/flow-algebra-view
                :live-shape :map}
-   :resources {:static-fn  resources-tooling/resource-algebra-view
-               :live-fn    resources-tooling/resource-cache-algebra-view
+   :resources {:static-fn  rf.resources.tooling/resource-algebra-view
+               :live-fn    rf.resources.tooling/resource-cache-algebra-view
                :live-shape :map}
-   :routes    {:static-fn  routing-tooling/route-algebra-view
-               :live-fn    routing-tooling/route-slice-algebra-view
+   :routes    {:static-fn  rf.routing.tooling/route-algebra-view
+               :live-fn    rf.routing.tooling/route-slice-algebra-view
                :live-shape :node}
-   :machines  {:static-fn         machines-tooling/machine-algebra-view
-               :live-fn           machines-tooling/machine-instance-algebra-view
+   :machines  {:static-fn         rf.machines.tooling/machine-algebra-view
+               :live-fn           rf.machines.tooling/machine-instance-algebra-view
                :live-shape        :map
-               :selector-targets  machines-tooling/machine-selector-targets}})
+               :selector-targets  rf.machines.tooling/machine-selector-targets}})
 
 (defn- register-one-of-each! []
   ;; :subs — a static `:<-` sub (an :input edge source) + a layer-1 sub.
@@ -125,12 +125,12 @@
 
 (deftest empty-graph-has-the-mode-nodes-edges-shape
   (testing "(derivation-graph) returns the {:mode :static :nodes :edges} shape"
-    (let [g (graph/derivation-graph all-contributors)]
+    (let [g (rf.derivation.graph/derivation-graph all-contributors)]
       (is (= :static (:mode g)))
       (is (map? (:nodes g)))
       (is (vector? (:edges g)))))
   (testing "(live-derivation-graph) carries :mode :live + :frame"
-    (let [g (graph/live-derivation-graph :rf/default all-contributors)]
+    (let [g (rf.derivation.graph/live-derivation-graph :rf/default all-contributors)]
       (is (= :live (:mode g)))
       (is (= :rf/default (:frame g)))
       (is (map? (:nodes g)))
@@ -142,7 +142,7 @@
   (testing "the assembled static graph carries nodes from subs, flows,
             resources, routes, AND machines"
     (register-one-of-each!)
-    (let [g        (graph/derivation-graph all-contributors)
+    (let [g        (rf.derivation.graph/derivation-graph all-contributors)
           nodes    (:nodes g)
           families (->> nodes vals (map :rf/family) set)]
       ;; Every family contributed at least one node.
@@ -173,7 +173,7 @@
 (deftest static-graph-edges-span-input-param-and-selector-roles
   (testing "the assembled edges carry :input, :param, and :selector roles"
     (register-one-of-each!)
-    (let [g     (graph/derivation-graph all-contributors)
+    (let [g     (rf.derivation.graph/derivation-graph all-contributors)
           edges (:edges g)
           roles (->> edges (map :role) set)]
       ;; :input — :cart/total depends on :cart/items. In the STATIC graph
@@ -219,7 +219,7 @@
       (rf/reg-flow :shared/total {:inputs [[:cart :items]] :output-path [:a-total]} count))
     (rf/with-frame :app/b
       (rf/reg-flow :shared/total {:inputs [[:basket :lines]] :output-path [:b-total]} count))
-    (let [g     (graph/derivation-graph all-contributors)
+    (let [g     (rf.derivation.graph/derivation-graph all-contributors)
           nodes (:nodes g)
           a-id  [:flow :app/a :shared/total]
           b-id  [:flow :app/b :shared/total]]
@@ -248,7 +248,7 @@
                      (fn [{:keys [slug]} _ctx]
                        {:request {:method :get
                                   :url    (str "/api/articles/" slug)}}))
-    (let [g     (graph/derivation-graph all-contributors)
+    (let [g     (rf.derivation.graph/derivation-graph all-contributors)
           edges (:edges g)
           param (filter #(= :param (:role %)) edges)]
       (is (seq param) "a :param edge is present")
@@ -277,7 +277,7 @@
     (rf/reg-sub :upload/progress
                 :<- [:rf/machine :upload/main]
                 (fn [snapshot _] (get-in snapshot [:data :progress] 0)))
-    (let [g     (graph/derivation-graph all-contributors)
+    (let [g     (rf.derivation.graph/derivation-graph all-contributors)
           edges (:edges g)
           sel   (filter #(= :selector (:role %)) edges)]
       ;; EXACTLY one selector edge, from :upload/main → :upload/progress.
@@ -299,7 +299,7 @@
     (rf/reg-sub :upload/busy?
                 :<- [:rf.machine/has-tag? :upload/main :busy]
                 (fn [tagged? _] (boolean tagged?)))
-    (let [g   (graph/derivation-graph all-contributors)
+    (let [g   (rf.derivation.graph/derivation-graph all-contributors)
           sel (filter #(= :selector (:role %)) (:edges g))]
       (is (= [{:from [:machine :upload/main]
                :to   [:sub :upload/busy?]
@@ -313,11 +313,11 @@
                 :<- [:rf/machine :upload/main]
                 (fn [snapshot _] snapshot))
     (rf/reg-sub :plain/sub (fn [db _] db))
-    (is (= #{:upload/main} (machines-tooling/machine-selector-targets :upload/progress))
+    (is (= #{:upload/main} (rf.machines.tooling/machine-selector-targets :upload/progress))
         "the target machine id is extracted")
-    (is (= #{} (machines-tooling/machine-selector-targets :plain/sub))
+    (is (= #{} (rf.machines.tooling/machine-selector-targets :plain/sub))
         "a non-selector sub has no targets")
-    (is (= #{} (machines-tooling/machine-selector-targets :nope/unregistered))
+    (is (= #{} (rf.machines.tooling/machine-selector-targets :nope/unregistered))
         "an unregistered sub has no targets")))
 
 ;; ---- static vs live: the don't-execute rule -------------------------------
@@ -327,7 +327,7 @@
     (rf/reg-sub :article/page
                 (fn [[_ slug]] [[:article/by-slug slug] [:comments/for-article slug]])
                 (fn [[a c] _] {:article a :comments c}))
-    (let [g     (graph/derivation-graph all-contributors)
+    (let [g     (rf.derivation.graph/derivation-graph all-contributors)
           node  (get (:nodes g) [:sub :article/page])]
       (is (some? node) "the parametric sub node is present")
       (is (= :parametric (:inputs node)) "its declared inputs are the :parametric marker")
@@ -344,7 +344,7 @@
     ;; Drop the resources + machines contributors — simulate a no-resources
     ;; / no-machines app. Those families must vanish from the graph.
     (let [subset (dissoc all-contributors :resources :machines)
-          g      (graph/derivation-graph subset)
+          g      (rf.derivation.graph/derivation-graph subset)
           families (->> (:nodes g) vals (map :rf/family) set)]
       (is (= #{:subs :flows :routes} families)
           "only the present families' nodes appear")
@@ -352,7 +352,7 @@
       (is (not (contains? (:nodes g) [:machine :upload/main])))))
   (testing "the subs-only graph still assembles (the core-only app)"
     (rf/reg-sub :cart/items (fn [db _] (get-in db [:cart :items])))
-    (let [g (graph/derivation-graph {:subs (:subs all-contributors)})]
+    (let [g (rf.derivation.graph/derivation-graph {:subs (:subs all-contributors)})]
       (is (= #{:subs} (->> (:nodes g) vals (map :rf/family) set)))
       (is (contains? (:nodes g) [:sub :cart/items])))))
 
@@ -363,13 +363,13 @@
     ;; Every artefact is on the core :test classpath, so resolution yields
     ;; the full set (the no-arg derivation-graph composes them all).
     (register-one-of-each!)
-    (let [g        (graph/derivation-graph)
+    (let [g        (rf.derivation.graph/derivation-graph)
           families (->> (:nodes g) vals (map :rf/family) set)]
       (is (= #{:subs :flows :resources :routes :machines} families)
           "the zero-arg form auto-resolves and composes every present family")
       ;; And it equals the explicit-contributor composition.
-      (is (= (:nodes (graph/derivation-graph))
-             (:nodes (graph/derivation-graph all-contributors)))
+      (is (= (:nodes (rf.derivation.graph/derivation-graph))
+             (:nodes (rf.derivation.graph/derivation-graph all-contributors)))
           "the auto-resolved graph equals the explicit-contributor graph"))))
 
 ;; ---- live graph: realized route slice + resource entries ------------------
@@ -379,7 +379,7 @@
     (rf/reg-route :route/article {} "/articles/:slug")
     ;; Drive a navigation so the route slice is materialized in runtime-db.
     (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "welcome"}}])
-    (let [g     (graph/live-derivation-graph :rf/default all-contributors)
+    (let [g     (rf.derivation.graph/live-derivation-graph :rf/default all-contributors)
           slice (get (:nodes g) :rf/route)]
       (is (some? slice) "the live route slice node is present, keyed by :rf/route")
       (is (= :route/article (:route-id slice)) "the live matched route id")
@@ -442,7 +442,7 @@
     (let [route-node (live-route-node-fixture)
           res-node   (live-resource-node-fixture
                        #{[:route :route/article nav-token-fixture]})
-          g          (graph/live-derivation-graph
+          g          (rf.derivation.graph/live-derivation-graph
                        :rf/default
                        (fixture-live-contributors route-node res-node))
           res-id     [:resource scoped-key-fixture]]
@@ -460,7 +460,7 @@
     (let [route-node (live-route-node-fixture)
           ;; owner is NOT a [:route …] shape → no route edge.
           res-node   (live-resource-node-fixture #{[:component :some/widget]})
-          g          (graph/live-derivation-graph
+          g          (rf.derivation.graph/live-derivation-graph
                        :rf/default
                        (fixture-live-contributors route-node res-node))]
       (is (not-any? #(and (= :param (:role %))
@@ -473,7 +473,7 @@
     (let [route-node (live-route-node-fixture)        ;; nav-token 42
           res-node   (live-resource-node-fixture
                        #{[:route :route/article 999]}) ;; stale token
-          g          (graph/live-derivation-graph
+          g          (rf.derivation.graph/live-derivation-graph
                        :rf/default
                        (fixture-live-contributors route-node res-node))]
       (is (not-any? #(and (= :param (:role %))
@@ -483,7 +483,7 @@
 
   (testing "the STATIC graph draws NO realized route-resource edge — realized
             owners are live-only"
-    (let [g (graph/derivation-graph
+    (let [g (rf.derivation.graph/derivation-graph
               (fixture-live-contributors (live-route-node-fixture)
                                          (live-resource-node-fixture
                                            #{[:route :route/article nav-token-fixture]})))]
@@ -503,21 +503,21 @@
 (deftest resolve-var-tolerates-a-genuinely-absent-namespace
   (testing "a symbol whose NAMESPACE is not on the classpath is EXPECTED
             absence — resolve-var returns nil (the no-flows story)"
-    (is (nil? (#'graph/resolve-var 'totally.absent.optional.sibling/some-view))
+    (is (nil? (#'rf.derivation.graph/resolve-var 'totally.absent.optional.sibling/some-view))
         "an un-loaded optional family namespace is tolerated as absent (nil)"))
   (testing "a DASHED absent namespace is tolerated too"
-    (is (nil? (#'graph/resolve-var 're-frame.totally-absent.optional-sibling/some-view))
+    (is (nil? (#'rf.derivation.graph/resolve-var 're-frame.totally-absent.optional-sibling/some-view))
         "a dashed un-loaded optional family namespace is tolerated as absent (nil)")))
 
 (deftest resolve-var-resolves-a-present-var
   (testing "a present namespace + present var resolves to the var (the happy path)"
-    (is (var? (#'graph/resolve-var 'clojure.string/upper-case))
+    (is (var? (#'rf.derivation.graph/resolve-var 'clojure.string/upper-case))
         "an existing tooling var resolves")))
 
 (deftest resolve-sibling-yields-nil-for-an-absent-family
   (testing "an absent optional sibling resolves to nil (the family contributes
             nothing) — the no-flows / no-resources story"
-    (is (nil? (#'graph/resolve-sibling 'totally.absent.sibling/static-view
+    (is (nil? (#'rf.derivation.graph/resolve-sibling 'totally.absent.sibling/static-view
                                        'totally.absent.sibling/live-view
                                        :map))
         "a genuinely-absent family yields nil (tolerated)")))
@@ -526,7 +526,7 @@
   (testing "the JVM default contributors wire the machine selector-target
             extractor (EP-0014 machine-selector refinement reads it) — present
             and callable, not dropped by the narrowed resolver (rf2-k0meap.8)"
-    (let [c (graph/default-contributors)]
+    (let [c (rf.derivation.graph/default-contributors)]
       (is (fn? (get-in c [:machines :selector-targets]))
           "the :machines contributor carries a callable :selector-targets extractor")
       ;; and the assembled default-contributors graph still draws the precise
@@ -536,7 +536,7 @@
       (rf/reg-sub :upload/progress
                   :<- [:rf/machine :upload/main]
                   (fn [snapshot _] snapshot))
-      (let [g   (graph/derivation-graph)            ;; zero-arg → default-contributors
+      (let [g   (rf.derivation.graph/derivation-graph)            ;; zero-arg → default-contributors
             sel (filter #(= :selector (:role %)) (:edges g))]
         (is (some #(= % {:from [:machine :upload/main]
                          :to   [:sub :upload/progress]
@@ -547,7 +547,7 @@
 ;; ---- fixed family set: only the five in-tree families compose -------------
 ;;
 ;; The graph composes EXACTLY the five in-tree families (subs / flows /
-;; resources / routes / machines), iterating `graph/families` filtered to the
+;; resources / routes / machines), iterating `rf.derivation.graph/families` filtered to the
 ;; ones a contributor map carries. A contributor key OUTSIDE that fixed set
 ;; contributes nothing — there is no synthetic-family extension path
 ;; (pre-alpha posture: a sixth family is a spec/code change here).
@@ -562,11 +562,11 @@
                         :widgets {:static-fn  (constantly {:w/a {:id :w/a :kind :process}})
                                   :live-shape :map
                                   :live-fn    (constantly {})}}
-          g     (graph/derivation-graph contributors)
+          g     (rf.derivation.graph/derivation-graph contributors)
           nodes (:nodes g)]
       (is (contains? nodes [:sub :cart/items])
           "the in-tree :subs family composes")
       (is (= #{:subs} (->> nodes vals (map :rf/family) set))
           "no node from the off-set :widgets family appears")
-      (is (not (contains? @#'graph/family-contract :widgets))
+      (is (not (contains? @#'rf.derivation.graph/family-contract :widgets))
           "core has no contract entry for a family outside the fixed five"))))

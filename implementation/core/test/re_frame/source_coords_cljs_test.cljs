@@ -25,11 +25,11 @@
   (when no form-meta `:file` is available and `*file*` is the sentinel)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.adapter.context :as adapter-context]
-            [re-frame.source-coords :as source-coords]
-            [re-frame.test-support :as test-support]))
+            [re-frame.adapter.context :as rf.adapter.context]
+            [re-frame.source-coords :as rf.source-coords]
+            [re-frame.test-support :as rf.test-support]))
 
-(use-fixtures :each (test-support/make-reset-runtime-fixture))
+(use-fixtures :each (rf.test-support/make-reset-runtime-fixture))
 
 ;; ---- helper -----------------------------------------------------------------
 
@@ -135,26 +135,26 @@
 (deftest resolve-file-prefers-form-meta
   (testing "rf2-mdjp: resolve-file picks form-meta :file when *file* is NO_SOURCE_PATH"
     (is (= "src/my/app.cljs"
-           (source-coords/resolve-file
+           (rf.source-coords/resolve-file
              {:file "src/my/app.cljs"}
              "NO_SOURCE_PATH")))))
 
 (deftest resolve-file-falls-back-to-bound-file
   (testing "rf2-mdjp: resolve-file falls back to *file* when form-meta lacks :file"
     (is (= "src/my/app.clj"
-           (source-coords/resolve-file
+           (rf.source-coords/resolve-file
              {:line 5}
              "src/my/app.clj")))))
 
 (deftest resolve-file-omits-sentinel
   (testing "rf2-mdjp: resolve-file returns nil when both sources are NO_SOURCE_PATH"
-    (is (nil? (source-coords/resolve-file
+    (is (nil? (rf.source-coords/resolve-file
                 {:file "NO_SOURCE_PATH"}
                 "NO_SOURCE_PATH")))))
 
 (deftest resolve-file-omits-when-both-nil
   (testing "rf2-mdjp: resolve-file returns nil when neither source supplies a file"
-    (is (nil? (source-coords/resolve-file {} nil)))))
+    (is (nil? (rf.source-coords/resolve-file {} nil)))))
 
 ;; ---- parse-source-coord (rf2-nr7vf2) ----------------------------------------
 ;;
@@ -168,37 +168,37 @@
 (deftest parse-source-coord-canonical-shape
   (testing "rf2-nr7vf2: a four-segment value parses to {:ns :handler-id :line :col}"
     (is (= {:ns "counter.core" :handler-id "counter-buttons" :line 47 :col 11}
-           (source-coords/parse-source-coord "counter.core:counter-buttons:47:11")))))
+           (rf.source-coords/parse-source-coord "counter.core:counter-buttons:47:11")))))
 
 (deftest parse-source-coord-degraded-placeholders
   (testing "rf2-nr7vf2: `?` placeholders parse the id portion; line/col are nil"
     (is (= {:ns "rf.x" :handler-id "programmatic" :line nil :col nil}
-           (source-coords/parse-source-coord "rf.x:programmatic:?:?")))
+           (rf.source-coords/parse-source-coord "rf.x:programmatic:?:?")))
     (is (= {:ns "ns.x" :handler-id "view" :line 42 :col nil}
-           (source-coords/parse-source-coord "ns.x:view:42:?")))))
+           (rf.source-coords/parse-source-coord "ns.x:view:42:?")))))
 
 (deftest parse-source-coord-dotted-and-hyphenated
   (testing "rf2-nr7vf2: dotted ns + hyphenated handler-id parse cleanly"
     (is (= {:ns "my-app.cart.view" :handler-id "apply-coupon-button" :line 125 :col 4}
-           (source-coords/parse-source-coord "my-app.cart.view:apply-coupon-button:125:4")))))
+           (rf.source-coords/parse-source-coord "my-app.cart.view:apply-coupon-button:125:4")))))
 
 (deftest parse-source-coord-malformed-returns-nil
   (testing "rf2-nr7vf2: malformed input returns nil and never throws"
-    (is (nil? (source-coords/parse-source-coord "ns:view:42")))      ; too few
-    (is (nil? (source-coords/parse-source-coord "ns:view")))
-    (is (nil? (source-coords/parse-source-coord "a:b:1:2:3")))       ; too many
-    (is (nil? (source-coords/parse-source-coord ":handler:1:2")))    ; empty ns
-    (is (nil? (source-coords/parse-source-coord "ns::1:2")))         ; empty sym
-    (is (nil? (source-coords/parse-source-coord "")))
-    (is (nil? (source-coords/parse-source-coord nil)))
-    (is (nil? (source-coords/parse-source-coord 42)))
-    (is (nil? (source-coords/parse-source-coord :keyword)))))
+    (is (nil? (rf.source-coords/parse-source-coord "ns:view:42")))      ; too few
+    (is (nil? (rf.source-coords/parse-source-coord "ns:view")))
+    (is (nil? (rf.source-coords/parse-source-coord "a:b:1:2:3")))       ; too many
+    (is (nil? (rf.source-coords/parse-source-coord ":handler:1:2")))    ; empty ns
+    (is (nil? (rf.source-coords/parse-source-coord "ns::1:2")))         ; empty sym
+    (is (nil? (rf.source-coords/parse-source-coord "")))
+    (is (nil? (rf.source-coords/parse-source-coord nil)))
+    (is (nil? (rf.source-coords/parse-source-coord 42)))
+    (is (nil? (rf.source-coords/parse-source-coord :keyword)))))
 
 (deftest format-then-parse-round-trips
   (testing "rf2-nr7vf2: (parse-source-coord (format-source-coord id coords)) recovers id + coords"
     (let [round-trip (fn [id coords]
-                       (source-coords/parse-source-coord
-                         (adapter-context/format-source-coord id coords)))]
+                       (rf.source-coords/parse-source-coord
+                         (rf.adapter.context/format-source-coord id coords)))]
       ;; numeric line + col
       (is (= {:ns "counter.core" :handler-id "counter-buttons" :line 47 :col 11}
              (round-trip :counter.core/counter-buttons {:line 47 :column 11})))
@@ -226,27 +226,27 @@
 
 (deftest parse-view-id-namespaced-keyword
   (testing "rf2-ztxnm8: a stringified namespaced keyword parses back to the keyword"
-    (is (= :rf.foo/bar (source-coords/parse-view-id ":rf.foo/bar")))))
+    (is (= :rf.foo/bar (rf.source-coords/parse-view-id ":rf.foo/bar")))))
 
 (deftest parse-view-id-bare-keyword
   (testing "rf2-ztxnm8: a leading-colon body with no slash → unqualified keyword"
-    (is (= :bare (source-coords/parse-view-id ":bare")))))
+    (is (= :bare (rf.source-coords/parse-view-id ":bare")))))
 
 (deftest parse-view-id-raw-string
   (testing "rf2-ztxnm8: a non-colon-prefixed value is a non-keyword id, returned verbatim"
-    (is (= "raw-string" (source-coords/parse-view-id "raw-string")))))
+    (is (= "raw-string" (rf.source-coords/parse-view-id "raw-string")))))
 
 (deftest parse-view-id-nil-and-non-string
   (testing "rf2-ztxnm8: nil / non-string input returns nil and never throws"
-    (is (nil? (source-coords/parse-view-id nil)))
-    (is (nil? (source-coords/parse-view-id 42)))
-    (is (nil? (source-coords/parse-view-id :keyword)))))
+    (is (nil? (rf.source-coords/parse-view-id nil)))
+    (is (nil? (rf.source-coords/parse-view-id 42)))
+    (is (nil? (rf.source-coords/parse-view-id :keyword)))))
 
 (deftest format-view-id-then-parse-round-trips
   (testing "rf2-ztxnm8: (parse-view-id (format-view-id id)) recovers the registry id"
     (let [round-trip (fn [id]
-                       (source-coords/parse-view-id
-                         (adapter-context/format-view-id id)))]
+                       (rf.source-coords/parse-view-id
+                         (rf.adapter.context/format-view-id id)))]
       ;; namespaced keyword id
       (is (= :rf.foo/bar (round-trip :rf.foo/bar)))
       ;; unqualified keyword id (legal at the registrar)

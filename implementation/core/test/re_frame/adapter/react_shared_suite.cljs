@@ -83,31 +83,31 @@
             [cljs.test :refer-macros [is testing async]]
             [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.source-store :as source-store]
-            [re-frame.disposable :as rf-disposable]
-            [re-frame.elision :as elision]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.subs :as subs]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.late-bind.directory :as directory]
-            [re-frame.machines :as machines]
-            [re-frame.routing :as routing]
-            [re-frame.ssr :as ssr]
+            [re-frame.source-store :as rf.source-store]
+            [re-frame.disposable :as rf.disposable]
+            [re-frame.elision :as rf.elision]
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.subs :as rf.subs]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.late-bind.directory :as rf.late-bind.directory]
+            [re-frame.machines :as rf.machines]
+            [re-frame.routing :as rf.routing]
+            [re-frame.ssr :as rf.ssr]
             [re-frame.schemas.malli]
-            [re-frame.http.managed :as http-managed]
+            [re-frame.http.managed :as rf.http.managed]
             ;; rf2-cdmle — canned-stub fxs gate on explicit test-support
             ;; require; the http-managed suite uses :fx-overrides into
             ;; both fx ids.
             [re-frame.http.test-support]
-            [re-frame.views :as views]
+            [re-frame.views :as rf.views]
             [re-frame.epoch]
-            [re-frame.adapter.context :as adapter-context]
-            [re-frame.adapter.react-test-support :as react-test-support]
-            [re-frame.performance :as performance]
-            [re-frame.substrate.adapter :as substrate-adapter]
-            [re-frame.substrate.spine :as spine]
-            [re-frame.trace.tooling :as trace-tooling])
+            [re-frame.adapter.context :as rf.adapter.context]
+            [re-frame.adapter.react-test-support :as rf.adapter.react-test-support]
+            [re-frame.performance :as rf.performance]
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
+            [re-frame.substrate.spine :as rf.substrate.spine]
+            [re-frame.trace.tooling :as rf.trace.tooling])
   (:require-macros [re-frame.core :refer [with-frame with-new-frame]]))
 
 ;; ===========================================================================
@@ -118,7 +118,7 @@
 ;; `re-frame.adapter.react-test-support` so the narrow elision-prod twins
 ;; can share it without dragging this heavy suite into their build. The
 ;; suite consumes the same single source of truth.
-(def react-element-attr react-test-support/react-element-attr)
+(def react-element-attr rf.adapter.react-test-support/react-element-attr)
 
 (defn- source-coord [el] (react-element-attr el "data-rf2-source-coord"))
 (defn- view-attr     [el] (react-element-attr el "data-rf-view"))
@@ -199,10 +199,10 @@
   :rf.error/adapter-disposed (breadcrumb owned by substrate-adapter)."
   [{:keys [adapter name]}]
   (testing (str name " — MUST (4): post-dispose delegation throws :adapter-disposed")
-    (substrate-adapter/dispose-adapter!)
-    (is (substrate-adapter/adapter-disposed?)
+    (rf.substrate.adapter/dispose-adapter!)
+    (is (rf.substrate.adapter/adapter-disposed?)
         "after dispose, the disposed? breadcrumb is true")
-    (let [thrown (try (substrate-adapter/make-state-container {}) nil
+    (let [thrown (try (rf.substrate.adapter/make-state-container {}) nil
                       (catch :default e e))]
       (is (some? thrown) "delegation call after dispose threw")
       ;; rf2-vvixub — message is a human sentence + the trailing
@@ -213,7 +213,7 @@
       (is (re-find #"\[:rf\.error/adapter-disposed\]" (.-message thrown))
           "the message carries the [:rf.error/adapter-disposed] token"))
     ;; Reinstall so the fixture's :after teardown lands on clean state.
-    (substrate-adapter/install-adapter! adapter)))
+    (rf.substrate.adapter/install-adapter! adapter)))
 
 (defn assert-dispose-idempotent-no-roots
   "MUST (2): dispose-adapter! drains the active-roots set; a second
@@ -238,7 +238,7 @@
       (rf/dispatch-sync [:seed] {:frame fid})
       (let [r-a (rf/subscribe [:n] {:frame fid})]
         (is (= 7 @r-a) "precondition: subscription is live and deref-able")
-        (let [cache          (:sub-cache (frame/frame fid))
+        (let [cache          (:sub-cache (rf.frame/frame fid))
               entries-before @cache]
           (is (>= (count entries-before) 1)
               "precondition: sub-cache holds at least the [:n] entry")
@@ -248,7 +248,7 @@
                                 :when r]
                             r)]
             (doseq [r reactions]
-              (rf-disposable/-add-on-dispose r (fn [] (swap! disposed conj r))))
+              (rf.disposable/-add-on-dispose r (fn [] (swap! disposed conj r))))
             ((:dispose-adapter! adapter))
             (doseq [r reactions]
               (is (contains? @disposed r)
@@ -280,20 +280,20 @@
         ;; throws (a bare object with no IDisposable impl). The walk's
         ;; per-entry try must swallow the throw and still drain the rest
         ;; of fid-a AND fid-b.
-        (let [cache-a      (:sub-cache (frame/frame fid-a))
+        (let [cache-a      (:sub-cache (rf.frame/frame fid-a))
               poison-entry {:reaction (js-obj "not" "a reaction")}]
           (swap! cache-a assoc [:poison] poison-entry)
           (let [reactions [r-a r-b]
                 disposed  (atom #{})]
             (doseq [r reactions]
-              (rf-disposable/-add-on-dispose r (fn [] (swap! disposed conj r))))
+              (rf.disposable/-add-on-dispose r (fn [] (swap! disposed conj r))))
             ((:dispose-adapter! adapter))
             (doseq [r reactions]
               (is (contains? @disposed r)
                   "the walk reached and disposed the real Reaction past the poison entry"))
-            (is (= {} @(:sub-cache (frame/frame fid-a)))
+            (is (= {} @(:sub-cache (rf.frame/frame fid-a)))
                 "frame-a's cache was still cleared despite the throw")
-            (is (= {} @(:sub-cache (frame/frame fid-b)))
+            (is (= {} @(:sub-cache (rf.frame/frame fid-b)))
                 "frame-b's cache was still cleared after the throwing entry")))))))
 
 ;; ===========================================================================
@@ -461,7 +461,7 @@
 ;; ===========================================================================
 ;; React DevTools display-name (Spec 006 §React DevTools support item 1, as
 ;; amended by rf2-976bw) — the name a React-hook substrate publishes to the
-;; developer is the view-id's performance/display projection, and it is the
+;; developer is the view-id's rf.performance/display projection, and it is the
 ;; SAME STRING the `rf:render:<id>` measure carries.
 ;;
 ;; The pre-amendment spelling was `(str id)`, which keeps a keyword's leading
@@ -473,7 +473,7 @@
 
 (defn assert-display-name-matches-render-measure
   "rf2-976bw: the spine's `wrap-view` names its component head with
-  `performance/entry-id` — the same builder `performance/build-name` calls —
+  `rf.performance/entry-id` — the same builder `rf.performance/build-name` calls —
   so the DevTools name and the `rf:render:` measure are ONE identifier.
   Headless (node-safe); the mounted counterpart is
   `assert-mounted-display-name-is-devtools-visible`.
@@ -484,11 +484,11 @@
     (let [id      (mint-kw substrate-kw "display-name-one-identifier")
           head    (wrap-view id {} (fn [] (React/createElement "span" #js {} "hi")))
           visible (.-displayName ^js head)]
-      (is (= (performance/entry-id id) visible)
-          "the component head is named by performance/entry-id")
+      (is (= (rf.performance/entry-id id) visible)
+          "the component head is named by rf.performance/entry-id")
       (is (not (str/starts-with? visible ":"))
           (str "no leading colon survives into the published name; got " (pr-str visible)))
-      (is (= (performance/build-name :render id)
+      (is (= (rf.performance/build-name :render id)
              (str "rf:render:" visible))
           "the render measure name is exactly \"rf:render:\" + the published name")
       ;; Non-vacuous: the id really is namespaced, so the equality above is
@@ -633,17 +633,17 @@
     ;; (and its corruption detection) is actually exercised; otherwise the
     ;; dynamic-var tier shadows it and the read resolves to :rf/default before
     ;; the context is ever inspected.
-    (binding [frame/*current-frame* nil]
+    (binding [rf.frame/*current-frame* nil]
     (let [lk       (keyword "re-frame.adapter.react-shared-suite"
                             (str "fc-" (clojure.core/name substrate-kw)))
-          original (.-_currentValue ^js adapter-context/frame-context)
+          original (.-_currentValue ^js rf.adapter.context/frame-context)
           traces   (atom [])]
-      (trace-tooling/register-listener! lk (fn [ev] (swap! traces conj ev)))
+      (rf.trace.tooling/register-listener! lk (fn [ev] (swap! traces conj ev)))
       (try
         (testing "nil _currentValue: error trace fires; resolves to nil (no-frame-context)"
           (reset! traces [])
-          (set! (.-_currentValue ^js adapter-context/frame-context) nil)
-          (is (nil? (adapter-context/function-component-current-frame))
+          (set! (.-_currentValue ^js rf.adapter.context/frame-context) nil)
+          (is (nil? (rf.adapter.context/function-component-current-frame))
               "returns nil — no synthesised :rf/default (EP-0002 carried invariant)")
           (let [errs (corruption-traces traces)]
             (is (= 1 (count errs)) "one :rf.error/frame-context-corrupted event fired")
@@ -653,8 +653,8 @@
             (is (= :nil (-> errs first :tags :type)) ":tags :type names the corrupted shape")))
         (testing "number _currentValue: error trace fires; resolves to nil"
           (reset! traces [])
-          (set! (.-_currentValue ^js adapter-context/frame-context) 42)
-          (is (nil? (adapter-context/function-component-current-frame))
+          (set! (.-_currentValue ^js rf.adapter.context/frame-context) 42)
+          (is (nil? (rf.adapter.context/function-component-current-frame))
               "returns nil")
           (let [errs (corruption-traces traces)]
             (is (= 1 (count errs)) "one error trace per corrupted read")
@@ -662,7 +662,7 @@
             (is (= 42 (-> errs first :tags :received)) ":tags :received echoes the offending value")))
         (testing "routed read via rf/current-frame-id raises no-frame-context"
           (reset! traces [])
-          (set! (.-_currentValue ^js adapter-context/frame-context) "")
+          (set! (.-_currentValue ^js rf.adapter.context/frame-context) "")
           ;; The adapter-routed reader resolves to nil; the public
           ;; `current-frame-id` REQUIRES a frame, so it raises
           ;; :rf.error/no-frame-context rather than synthesising a default.
@@ -685,8 +685,8 @@
             (is (= :empty-string (-> errs first :tags :type))
                 ":tags :type distinguishes empty-string from a populated string")))
         (finally
-          (trace-tooling/unregister-listener! lk)
-          (set! (.-_currentValue ^js adapter-context/frame-context) original)))))))
+          (rf.trace.tooling/unregister-listener! lk)
+          (set! (.-_currentValue ^js rf.adapter.context/frame-context) original)))))))
 
 ;; ===========================================================================
 ;; frame-provider CORE branches (rf2-7kjz8 / rf2-z7hfp) — folded from UIx's
@@ -746,7 +746,7 @@
   [{:keys [name]}]
   (testing (str name " — frame-provider core: missing frame raises no-frame-context")
     (is (thrown-with-msg? :default #":rf.error/no-frame-context"
-          (spine/build-frame-provider-element nil [:fake-child-a :fake-child-b]))
+          (rf.substrate.spine/build-frame-provider-element nil [:fake-child-a :fake-child-b]))
         "missing frame raises :rf.error/no-frame-context (no :rf/default floor)")))
 
 (defn assert-frame-provider-nil-frame-raises-no-frame-context
@@ -757,7 +757,7 @@
   [{:keys [name]}]
   (testing (str name " — frame-provider core: nil frame raises no-frame-context")
     (is (thrown-with-msg? :default #":rf.error/no-frame-context"
-          (spine/build-frame-provider-element nil [:fake-child]))
+          (rf.substrate.spine/build-frame-provider-element nil [:fake-child]))
         "nil frame raises :rf.error/no-frame-context (no :rf/default floor)")))
 
 (defn assert-frame-provider-named-frame-preserved
@@ -765,7 +765,7 @@
   slot. Sanity-check counterpart to the default-fallback assertions."
   [{:keys [name]}]
   (testing (str name " — frame-provider core: named frame keyword preserved")
-    (let [el (spine/build-frame-provider-element :tenant-a [:fake-child])]
+    (let [el (rf.substrate.spine/build-frame-provider-element :tenant-a [:fake-child])]
       (is (= :tenant-a (provider-element-frame-kw el))
           "frame :tenant-a flows through to the provider's value slot"))))
 
@@ -777,7 +777,7 @@
   [{:keys [name]}]
   (testing (str name " — frame-provider core: single child coerced to vector")
     (let [single-child :fake-single-child-marker
-          el (spine/build-frame-provider-element :session single-child)]
+          el (rf.substrate.spine/build-frame-provider-element :session single-child)]
       (is (some? el) "build-frame-provider-element didn't throw on a non-sequential child")
       (is (= :session (provider-element-frame-kw el)))
       ;; React normalises single-element children to the element value;
@@ -797,7 +797,7 @@
   (testing (str name " — frame-provider core: sequential children preserved")
     (let [a :child-a
           b :child-b
-          el (spine/build-frame-provider-element :session [a b])]
+          el (rf.substrate.spine/build-frame-provider-element :session [a b])]
       (is (some? el))
       (is (= :session (provider-element-frame-kw el)))
       (let [kids (provider-element-children el)]
@@ -817,7 +817,7 @@
   (testing (str name " — frame-provider core: JS-array children spread to positional args (rf2-7kii2)")
     (let [a :child-a
           b :child-b
-          el (spine/build-frame-provider-element :session #js [a b])]
+          el (rf.substrate.spine/build-frame-provider-element :session #js [a b])]
       (is (some? el))
       (is (= :session (provider-element-frame-kw el)))
       (let [kids (provider-element-children el)]
@@ -837,7 +837,7 @@
 
   Closes rf2-sx77q G5: the React adapters previously tested only the
   *clear* chain hook, never the fire-once semantics itself. The cache is
-  spine-produced (`spine/make-warn-once-cache`) so the contract is
+  spine-produced (`rf.substrate.spine/make-warn-once-cache`) so the contract is
   substrate-identical — but it was pinned only on Reagent."
   [{:keys [wrap-view clear-warn! substrate-kw name]}]
   (testing (str name " — warn-once: fires exactly once per id across renders")
@@ -893,15 +893,15 @@
   (testing (str name " — write-after-destroy: nil container no-ops with error")
     (let [fid      (mint-kw substrate-kw "race-frame")
           recorded (atom [])]
-      (trace-tooling/register-listener! ::wad (fn [ev] (swap! recorded conj ev)))
+      (rf.trace.tooling/register-listener! ::wad (fn [ev] (swap! recorded conj ev)))
       (try
-        (is (nil? (substrate-adapter/replace-container! nil {:any :value}))
+        (is (nil? (rf.substrate.adapter/replace-container! nil {:any :value}))
             "nil container is a documented no-op, not an exception")
         (rf/make-frame {:id fid :doc "write-after-destroy reproducer frame"})
-        (frame/destroy-frame! fid)
-        (let [container (frame/app-db-container fid)]
+        (rf.frame/destroy-frame! fid)
+        (let [container (rf.frame/app-db-container fid)]
           (is (nil? container) "app-db-container on a destroyed frame returns nil")
-          (is (nil? (substrate-adapter/replace-container! container {:would-have :npe'd}))
+          (is (nil? (rf.substrate.adapter/replace-container! container {:would-have :npe'd}))
               "writing through the nil container is a documented no-op"))
         (let [errs (filterv (fn [ev]
                               (and (= :error (:op-type ev))
@@ -910,7 +910,7 @@
           (is (pos? (count errs))
               ":rf.error/write-after-destroy fired for the post-destroy write"))
         (finally
-          (trace-tooling/unregister-listener! ::wad))))))
+          (rf.trace.tooling/unregister-listener! ::wad))))))
 
 ;; ===========================================================================
 ;; render-time parity contracts (Spec 001 §Hot-reload / Spec-Schemas
@@ -939,9 +939,9 @@
   pinned through each installed adapter."
   [{:keys [name]}]
   (testing (str name " — render-key: anonymous fallback outside any render")
-    (is (= [:rf.view/anonymous nil] (views/current-render-key))
+    (is (= [:rf.view/anonymous nil] (rf.views/current-render-key))
         "current-render-key reads the anonymous fallback outside any render")
-    (is (nil? views/*render-key*)
+    (is (nil? rf.views/*render-key*)
         "*render-key* is nil outside any render cycle")))
 
 (defn assert-wrap-view-callable-dispatches-to-user-fn
@@ -1086,7 +1086,7 @@
   slot so SSR's `re-frame.ssr.emit` ns-load auto-wires render-to-string."
   [{:keys [set-emitter! render-to-string name]}]
   (testing (str name " — set-hiccup-emitter! published through the late-bind chain")
-    (let [hook-fn (late-bind/get-fn :reagent/set-hiccup-emitter!)]
+    (let [hook-fn (rf.late-bind/get-fn :reagent/set-hiccup-emitter!)]
       (is (some? hook-fn)
           "the chained hook is registered after the adapter ns has loaded")
       (set-emitter! nil)
@@ -1129,7 +1129,7 @@
   [{:keys [name]}]
   (testing (str name " — adapter publishes the expected late-bind hook set")
     (doseq [k expected-hook-keys]
-      (is (some? (late-bind/get-fn k))
+      (is (some? (rf.late-bind/get-fn k))
           (str "expected the " name " adapter to publish " k
                " through the late-bind hook table at ns-load")))))
 
@@ -1140,7 +1140,7 @@
   [{:keys [producer-ns name]}]
   (testing (str name " — adapter hooks cross-checked against the late-bind directory")
     (doseq [k expected-hook-keys]
-      (let [entry     (some (fn [e] (when (= k (:key e)) e)) directory/hooks)
+      (let [entry     (some (fn [e] (when (= k (:key e)) e)) rf.late-bind.directory/hooks)
             producers (let [p (:producer-ns entry)]
                         (if (sequential? p) p [p]))]
         (is (some? entry) (str "no directory entry for " k))
@@ -1173,17 +1173,17 @@
   adapter so the fixture teardown lands clean."
   [{:keys [adapter substrate-kw name]}]
   (testing (str name " — copied adapter map still routes to live :adapter/wrap-view")
-    (let [original (substrate-adapter/current-adapter-spec)
+    (let [original (rf.substrate.adapter/current-adapter-spec)
           ;; The copy carries an instrumentation marker — exactly the
           ;; "wrap a canonical adapter map" shape — with a DIFFERENT object
           ;; identity but the SAME canonical :kind token.
           copied   (assoc adapter :rf.test/instrumentation-wrapper true)]
       (try
-        (substrate-adapter/dispose-adapter!)
-        (substrate-adapter/install-adapter! copied)
-        (is (false? (identical? adapter (substrate-adapter/current-adapter-spec)))
+        (rf.substrate.adapter/dispose-adapter!)
+        (rf.substrate.adapter/install-adapter! copied)
+        (is (false? (identical? adapter (rf.substrate.adapter/current-adapter-spec)))
             "precondition: the installed copy is NOT identical to the routed canonical map")
-        (is (= (:kind adapter) (substrate-adapter/current-adapter))
+        (is (= (:kind adapter) (rf.substrate.adapter/current-adapter))
             "precondition: the copy preserves the canonical :kind token")
         ;; The routed late-bind hook itself reports the copy as the active
         ;; adapter (the closure consults same-adapter?, not identity).
@@ -1201,8 +1201,8 @@
         (finally
           ;; Restore the original installed adapter so the :after fixture
           ;; teardown (dispose) lands on the same object the :before installed.
-          (substrate-adapter/dispose-adapter!)
-          (substrate-adapter/install-adapter! original))))))
+          (rf.substrate.adapter/dispose-adapter!)
+          (rf.substrate.adapter/install-adapter! original))))))
 
 ;; ===========================================================================
 ;; chained clear-warn-once-caches! end-to-end (rf2-e54wc / rf2-ovbxk) —
@@ -1218,7 +1218,7 @@
 
 (defn assert-chained-clear-warn-once-empties-cache
   "The chained :adapter/clear-warn-once-caches! hook (registered via
-  spine/install-clear-warn-once-step! at adapter ns-load) clears the
+  rf.substrate.spine/install-clear-warn-once-step! at adapter ns-load) clears the
   adapter's warn-cache: after one warn-once fire the same id is silenced;
   after the chained hook fires the same id re-warns (rf2-e54wc / rf2-ovbxk)."
   [{:keys [wrap-view substrate-kw name]}]
@@ -1230,7 +1230,7 @@
       (is (= 1 (count phase-1-ws))
           (str "phase-1 sanity: warn-once fires exactly once WITHIN a single phase; got "
                (count phase-1-ws) ": " (pr-str phase-1-ws)))
-      (let [chained-hook (late-bind/get-fn :adapter/clear-warn-once-caches!)]
+      (let [chained-hook (rf.late-bind/get-fn :adapter/clear-warn-once-caches!)]
         (is (some? chained-hook) "precondition: the chained hook is registered")
         (chained-hook)
         (let [phase-2-ws (with-captured-console-warn (fn [] (wrapped)))]
@@ -1258,8 +1258,8 @@
 ;; routing pipeline (Spec 012) — port of `*_routing`
 ;;
 ;; This suite requires the routing fixture to reset the route-registration
-;; counter (`routing/reset-counters!`) per test — wire `:init-fn
-;; routing/reset-counters!` into the entry-file fixture.
+;; counter (`rf.routing/reset-counters!`) per test — wire `:init-fn
+;; rf.routing/reset-counters!` into the entry-file fixture.
 ;; ===========================================================================
 
 (defn- route-kw
@@ -1279,7 +1279,7 @@
   resolve; :on-match dispatches; fresh nav-token per navigation."
   [{:keys [substrate-kw name]}]
   (testing (str name " — routing: :rf.route/transitioned drives the slice")
-    (let [f          (frame/make-anon-frame-record! {:doc "isolated frame for this test"})
+    (let [f          (rf.frame/make-anon-frame-record! {:doc "isolated frame for this test"})
           home       (route-kw substrate-kw "home")
           article    (route-kw substrate-kw "article")
           load-ev    (mint-kw substrate-kw "article-load")
@@ -1292,8 +1292,8 @@
                      :on-match [[load-ev]]} art-path)
       (rf/reg-event load-ev (fn [{:keys [db]} _] {:db (assoc db :article-loaded? true)}))
       ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state.
-      (subs/reg-runtime-sub id-sub     (fn [rt _] (get-in rt [:rf.runtime/routing :current :route-id])))
-      (subs/reg-runtime-sub params-sub (fn [rt _] (get-in rt [:rf.runtime/routing :current :params])))
+      (rf.subs/reg-runtime-sub id-sub     (fn [rt _] (get-in rt [:rf.runtime/routing :current :route-id])))
+      (rf.subs/reg-runtime-sub params-sub (fn [rt _] (get-in rt [:rf.runtime/routing :current :params])))
 
       (rf/dispatch-sync [:rf.route/transitioned (route-path substrate-kw "/articles/intro")] {:frame f})
       (is (= article (rf/subscribe-once [id-sub] {:frame f}))
@@ -1323,10 +1323,10 @@
       (rf/reg-route articles {} (route-path sk2 "/articles"))
       (rf/reg-route article  {:params [:map [:id :string]]} (route-path sk2 "/articles/:id"))
       ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state.
-      (subs/reg-runtime-sub route-sub (fn [rt _] (get-in rt [:rf.runtime/routing :current])))
+      (rf.subs/reg-runtime-sub route-sub (fn [rt _] (get-in rt [:rf.runtime/routing :current])))
 
-      (let [left  (frame/make-anon-frame-record! {:doc "left tab frame"})
-            right (frame/make-anon-frame-record! {:doc "right tab frame"})]
+      (let [left  (rf.frame/make-anon-frame-record! {:doc "left tab frame"})
+            right (rf.frame/make-anon-frame-record! {:doc "right tab frame"})]
         (rf/dispatch-sync [:rf.route/transitioned (route-path sk2 "/articles")] {:frame left})
         (rf/dispatch-sync [:rf.route/transitioned (route-path sk2 "/articles/intro")] {:frame right})
 
@@ -1412,7 +1412,7 @@
     (doseq [[kind id] [[:event :counter/init]
                        [:event :counter/inc]
                        [:sub   :count]]]
-      (source-store/forget-id! kind id))
+      (rf.source-store/forget-id! kind id))
     (rf/make-frame {:id :left :doc "left frame"})
     (rf/make-frame {:id :right :doc "right frame"})
     (rf/reg-event :counter/init (fn [{:keys [db]} [_ n]] {:db {:count n}}))
@@ -1469,7 +1469,7 @@
                        :green  {:on {:tick {:target :yellow}}}
                        :yellow {:on {:tick {:target :red}}}}}
           {s :snapshot}
-          (machines/machine-transition m {:state :red :data {}} [:tick])]
+          (rf.machines/machine-transition m {:state :red :data {}} [:tick])]
       (is (= :green (:state s))))))
 
 (defn assert-sub-exception-recovers-to-nil
@@ -1490,10 +1490,10 @@
       (fn [items _] (count (.something ^js items))))
     (rf/dispatch-sync [:init])
     (let [traces (atom [])]
-      (trace-tooling/register-listener! ::sub-err (fn [ev] (swap! traces conj ev)))
+      (rf.trace.tooling/register-listener! ::sub-err (fn [ev] (swap! traces conj ev)))
       (let [v (rf/subscribe-once [:items-count])]
         (is (nil? v) "the sub returns nil under :replaced-with-default recovery"))
-      (trace-tooling/unregister-listener! ::sub-err)
+      (rf.trace.tooling/unregister-listener! ::sub-err)
       (is (some (fn [ev] (= :rf.error/sub-exception (:operation ev))) @traces)
           "expected :rf.error/sub-exception trace"))))
 
@@ -1503,7 +1503,7 @@
 
 (defn- record-view-rendered! []
   (let [recorded (atom [])]
-    (trace-tooling/register-listener! ::view-rendered-recorder
+    (rf.trace.tooling/register-listener! ::view-rendered-recorder
       (fn [ev]
         (when (= :rf.view/rendered (:operation ev))
           (swap! recorded conj ev))))
@@ -1525,7 +1525,7 @@
         (is (= id (:rf.view/id t)) ":rf.view/id matches")
         (is (some? (:frame t)) ":frame present")
         (is (vector? (:rf.view/render-key t)) ":rf.view/render-key is a tuple"))
-      (trace-tooling/unregister-listener! ::view-rendered-recorder))))
+      (rf.trace.tooling/unregister-listener! ::view-rendered-recorder))))
 
 (defn assert-rf-view-rendered-attribution-in-cascade
   ":rf.view/rendered emitted inside a cascade carries :rf.view/cause-event-id +
@@ -1551,7 +1551,7 @@
           (let [t (:tags ev)]
             (is (= cascade-ev (:rf.view/cause-event-id t)))
             (is (some #{n-sub} (:rf.view/cause-subs t))))))
-      (trace-tooling/unregister-listener! ::view-rendered-recorder))))
+      (rf.trace.tooling/unregister-listener! ::view-rendered-recorder))))
 
 (defn assert-rf-view-rendered-carries-render-args
   ":rf.view/rendered carries the view's positional render args/props under
@@ -1571,7 +1571,7 @@
         (is (some? ev) "an :rf.view/rendered event fired")
         (is (= [{:label "hi"} 42] (:rf.view/render-args t))
             ":rf.view/render-args is the vector of positional render args"))
-      (trace-tooling/unregister-listener! ::view-rendered-recorder))
+      (rf.trace.tooling/unregister-listener! ::view-rendered-recorder))
     (testing "no-arg render omits the slot"
       (let [id     (mint-kw substrate-kw "view-rendered-no-args-sample")
             traces (record-view-rendered!)]
@@ -1582,7 +1582,7 @@
           (is (some? ev) "an :rf.view/rendered event fired")
           (is (not (contains? t :rf.view/render-args))
               "the slot is absent on a no-arg render (additive contract)"))
-        (trace-tooling/unregister-listener! ::view-rendered-recorder)))))
+        (rf.trace.tooling/unregister-listener! ::view-rendered-recorder)))))
 
 (defn assert-rf-view-rendered-render-args-elided
   "PRIVACY (rf2-rpgq8 / Spec 009 §Privacy): render args are arbitrary user
@@ -1599,13 +1599,13 @@
       ;; Declare [:auth :password] sensitive on this frame's app-db elision
       ;; registry — the SAME registry :rf.event/db consults. EP-0025:
       ;; durable app-db classification rides the commit-plane classification
-      ;; effects; `elision/apply-classification-effects` writes a
+      ;; effects; `rf.elision/apply-classification-effects` writes a
       ;; `:source :effect` declaration (index-free :rf/path) the walker reads
       ;; — the same registry write a `reg-event` returning `:sensitive`
       ;; performs. The fixture make-frames the ambient :rf/default the render
       ;; lands in.
-      (frame/swap-runtime-db! :rf/default
-        (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:auth :password]]})))
+      (rf.frame/swap-runtime-db! :rf/default
+        (fn [rt] (rf.elision/apply-classification-effects rt {:sensitive [[:auth :password]]})))
       (rf/reg-view* id (fn [_props] (React/createElement "span" #js {} "ok")))
       ;; Pass a render arg whose [:auth :password] leaf mirrors the
       ;; sensitive app-db path. The marks chokepoint elides it before
@@ -1621,7 +1621,7 @@
               "the [:auth :password] leaf inside the render arg is redacted at emit")
           (is (= "ada" (get-in arg0 [:auth :username]))
               "a non-sensitive sibling leaf is preserved")))
-      (trace-tooling/unregister-listener! ::view-rendered-recorder))))
+      (rf.trace.tooling/unregister-listener! ::view-rendered-recorder))))
 
 ;; ===========================================================================
 ;; make-derived-value per-arity contract (rf2-eoy63) —
@@ -1876,7 +1876,7 @@
         (fn [_ _] {:rf.db/runtime {:rf.runtime/routing {:current {:route-id :home}}}}))
       (rf/dispatch-sync [seed-id] {:frame fid})
       ;; A framework runtime-db sub reads the runtime-db projection directly.
-      (subs/reg-runtime-sub rt-sub
+      (rf.subs/reg-runtime-sub rt-sub
         (fn [runtime-db _] (swap! runs inc) (get-in runtime-db [:rf.runtime/routing :current :route-id])))
       (let [r (rf/subscribe [rt-sub] {:frame fid})]
         (is (= :home @r) "precondition: runtime-db sub primes to the seeded route id")
@@ -1916,7 +1916,7 @@
         (fn [_ _] {:rf.db/runtime {:rf.runtime/machines {:m 1}}}))
       (rf/dispatch-sync [seed-rt] {:frame fid})
       (rf/reg-sub app-sub (fn [db _] (swap! app-runs inc) (:n db)))
-      (subs/reg-runtime-sub rt-sub
+      (rf.subs/reg-runtime-sub rt-sub
         (fn [runtime-db _] (swap! rt-runs inc) (get-in runtime-db [:rf.runtime/machines :m])))
       (let [ra (rf/subscribe [app-sub] {:frame fid})
             rr (rf/subscribe [rt-sub] {:frame fid})]
@@ -2065,7 +2065,7 @@
           "the [src src] duplicate is fronted by ONE coordinator watch (rf2-7ryt0)")
       ;; Dispose. Pre-fix, only the LAST dependent entry was tracked → one
       ;; entry leaks → the coordinator's watch survives here.
-      (rf-disposable/-dispose derived)
+      (rf.disposable/-dispose derived)
       (is (zero? (source-watch-count src))
           "dispose released EVERY dependent entry the duplicate source held, so
            the coordinator's watch is torn down — zero remain")
@@ -2080,7 +2080,7 @@
 ;; managed HTTP (Spec 014) — port of `*_http_managed`
 ;;
 ;; The http-managed suite requires the entry-file fixture to call
-;; `http-managed/clear-all-in-flight!` before AND after each test (see the
+;; `rf.http.managed/clear-all-in-flight!` before AND after each test (see the
 ;; per-substrate twin's fixture). The shared-suite fns assume a freshly
 ;; reset runtime with the adapter installed.
 ;; ===========================================================================
@@ -2201,9 +2201,9 @@
           {:db {:article (:value reply)}}
           {:fx [[:rf.http/managed {:request {:method :get :url "/articles/hello"} :decode :json
                                    :reply-to [:article/load msg]}]]})))
-    (let [left  (frame/make-anon-frame-record! {:doc "left"
+    (let [left  (rf.frame/make-anon-frame-record! {:doc "left"
                                 :fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})
-          right (frame/make-anon-frame-record! {:doc "right"
+          right (rf.frame/make-anon-frame-record! {:doc "right"
                                 :fx-overrides {:rf.http/managed :rf.http/managed-canned-success}})]
       (rf/dispatch-sync [:article/load] {:frame left})
       (rf/dispatch-sync [:article/load] {:frame right})
@@ -2218,10 +2218,10 @@
 
 (defn- collect-traces [k]
   (let [traces (atom [])]
-    (trace-tooling/register-listener! k (fn [ev] (swap! traces conj ev)))
+    (rf.trace.tooling/register-listener! k (fn [ev] (swap! traces conj ev)))
     traces))
 
-(defn- stop-traces [k] (trace-tooling/unregister-listener! k))
+(defn- stop-traces [k] (rf.trace.tooling/unregister-listener! k))
 
 (defn assert-xspec-frame-destroy-with-active-machines
   "#1 Frame disposal with active machine instances."
@@ -2313,10 +2313,10 @@
   [{:keys [name]}]
   (testing (str name " — #7 route-not-found under SSR")
     (rf/reg-route :user/show {} "/users/:id")
-    (is (nil? (:route-id (routing/match-url "/no-such-thing")))
+    (is (nil? (:route-id (rf.routing/match-url "/no-such-thing")))
         "match-url surfaces no route-id for an unmatched URL")
     (let [traces (collect-traces ::xspec-7)]
-      (routing/match-url "/no-such-thing")
+      (rf.routing/match-url "/no-such-thing")
       (stop-traces ::xspec-7)
       (is (empty? (filter #(= :error (:op-type %)) @traces))
           "match-url is pure: route-not-found does not emit error traces"))))
@@ -2417,7 +2417,7 @@
         (is (= :working (get-in post-go-db [:rf.runtime/machines :snapshots :test/m :state])) "machine reached :working")
         ;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db
         ;; state — revert via the runtime-db PARTITION write (swap-runtime-db!).
-        (frame/swap-runtime-db! :rf/default
+        (rf.frame/swap-runtime-db! :rf/default
           (fn [rt] (assoc-in rt [:rf.runtime/machines :snapshots :test/m :state] :idle)))
         (is (= :idle (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/machines :snapshots :test/m :state]))
             "after the partition revert the snapshot reads back as :idle")
@@ -2438,12 +2438,12 @@
         (is (seq errs) ":rf.error/handler-exception fires on the server frame for a thrown handler")
         (is (some #(= :req (get-in % [:tags :frame])) errs) "the trace records the request frame's id")
         (let [err          (first errs)
-              public-error (ssr/apply-error-projection! :req err)]
+              public-error (rf.ssr/apply-error-projection! :req err)]
           (is (= 500 (:status public-error)) "default projector maps to :status 500")
           (is (= :internal-error (:code public-error)) "default projector's :code is :internal-error")
           (is (false? (:retryable? public-error)) "default projector's :retryable? is false")
           (is (string? (:message public-error)) "default projector emits a one-sentence human :message")
-          (is (= 500 (:status (ssr/get-response :req))) "the projector's :status is stamped onto [:rf/response]"))))))
+          (is (= 500 (:status (rf.ssr/get-response :req))) "the projector's :status is stamped onto [:rf/response]"))))))
 
 (defn assert-xspec-hot-reload-sub-mid-cascade
   "#18 Re-registering a sub mid-cascade."
@@ -2486,7 +2486,7 @@
       (is thrown? "second install-adapter! raises :rf.error/adapter-already-installed"))
     (rf/destroy-adapter!)
     (rf/install-adapter! adapter)
-    (is (some? (substrate-adapter/current-adapter))
+    (is (some? (rf.substrate.adapter/current-adapter))
         "after destroy, install succeeds again — clean swap path")))
 
 ;; ===========================================================================
@@ -2616,7 +2616,7 @@
     ;; seed below lands and the "neither frame leaked" assertions across
     ;; the dfc family compare against a real (empty) frame rather than a
     ;; never-registered one.
-    (frame/ensure-default-frame!)
+    (rf.frame/ensure-default-frame!)
     (rf/make-frame {:id tenant-a :doc "tenant-a frame"})
     (rf/make-frame {:id tenant-b :doc "tenant-b frame"})
     (rf/reg-event seed (fn [{:keys [db]} [_ marker]] {:db {:marker marker :received []}}))
@@ -2625,7 +2625,7 @@
     (rf/dispatch-sync [seed :tenant-b]  {:frame tenant-b})
     {:tenant-a tenant-a :tenant-b tenant-b}))
 
-(defn- dfc-received [frame-id] (:received (frame/frame-app-db-value frame-id)))
+(defn- dfc-received [frame-id] (:received (rf.frame/frame-app-db-value frame-id)))
 
 (defn assert-dfc-sync-dispatch-routes-to-handlers-frame
   "Synchronous direct rf/dispatch from inside a handler routes to that
@@ -2852,7 +2852,7 @@
 
 (def ^:private horizon-settle-ms
   "How long a horizon-crossing assertion waits, in milliseconds. It MUST exceed
-  the spine's own reap horizon (`spine/provisional-horizon-ms`, ruled 4 by
+  the spine's own reap horizon (`rf.substrate.spine/provisional-horizon-ms`, ruled 4 by
   rf2-2rtt6.71) with room to spare — the assertions read the state the reaper
   LEFT, so a settle that races it proves nothing. Deliberately not read from
   the spine: these rows assert the observable contract, not the constant."
@@ -2895,19 +2895,19 @@
 ;; ---- after-render hook (rf2-334d9) ----------------------------------------
 
 (defn assert-after-render-hook-wired
-  "rf2-334d9: `interop/after-render` no longer silent-no-ops under the
+  "rf2-334d9: `rf.interop/after-render` no longer silent-no-ops under the
   React adapter — the hook is wired at ns-load and returns nil (the
   documented swallow shape) rather than falling through to nil because no
   adapter published it. Node-safe (no DOM): runs under :node-test too."
   [{:keys [name]}]
   (testing (str name " — after-render hook wired at ns-load (rf2-334d9)")
-    (is (nil? (interop/after-render (fn [] :ok)))
-        "interop/after-render under the adapter returns nil — the
+    (is (nil? (rf.interop/after-render (fn [] :ok)))
+        "rf.interop/after-render under the adapter returns nil — the
          spine-built hook is wired through :adapter/after-render via
-         substrate-adapter/route-hook!")))
+         rf.substrate.adapter/route-hook!")))
 
 (defn assert-after-render-runs-after-commit
-  "rf2-334d9: `(interop/after-render f)` schedules `f` to run after the
+  "rf2-334d9: `(rf.interop/after-render f)` schedules `f` to run after the
   next mount/render cycle. The sentinel injected by the spine's
   make-render uses React.useLayoutEffect to drain the queue post-commit.
 
@@ -2930,18 +2930,18 @@
           ;; no sentinel in the tree — exactly what rf2-334d9 requires.
           (act-fn (fn []
                     (reset! unmount
-                            (substrate-adapter/render (probe-element) mount-node {}))))
+                            (rf.substrate.adapter/render (probe-element) mount-node {}))))
           (is (zero? @fired)
               "no after-render fn enqueued yet ⇒ no fires")
           ;; Enqueue under act so the set-tick bump → re-render →
           ;; useLayoutEffect drain commits synchronously in the test env.
-          (act-fn (fn [] (interop/after-render callback)))
+          (act-fn (fn [] (rf.interop/after-render callback)))
           (is (= 1 @fired)
               "after-render fn fired exactly once after the next commit")
           ;; A second enqueue + drain — the sentinel survives the first
           ;; drain (its useLayoutEffect runs every commit) so a
           ;; subsequent after-render also fires.
-          (act-fn (fn [] (interop/after-render callback)))
+          (act-fn (fn [] (rf.interop/after-render callback)))
           (is (= 2 @fired)
               "subsequent after-render fn also fires after its commit")
           (finally
@@ -2969,7 +2969,7 @@
         "0-arity flush-views! returns nil — the converged contract across all four substrates")))
 
 (defn assert-after-render-fires-on-native-mount
-  "rf2-t0x90: `(interop/after-render f)` fires post-commit even when the
+  "rf2-t0x90: `(rf.interop/after-render f)` fires post-commit even when the
   app was mounted via the SUBSTRATE-NATIVE renderer (the documented boot
   idiom: `uix-dom/render-root`) rather than
   through the adapter's `:render` slot.
@@ -2977,14 +2977,14 @@
   The defect this pins: the Fragment-wrap after-render sentinel only
   enters the tree on the `:render`-slot path. The documented idiom mounts
   natively (createRoot + .render), bypassing `make-render`, so a natively-
-  mounted UIx app had NO sentinel — `(interop/after-render f)` degraded
+  mounted UIx app had NO sentinel — `(rf.interop/after-render f)` degraded
   to a bare microtask FOREVER, defeating the post-commit-timing contract
   Reagent's global `r/after-render` honours regardless of mount path. The
   fix arms a per-adapter SINGLETON DRIVER ROOT the first time after-render
   is called with no app-tree sentinel, restoring post-commit parity.
 
   This test mounts the probe with a RAW `react-dom-client/createRoot` +
-  `.render` (NOT `substrate-adapter/render`) — exactly the native idiom
+  `.render` (NOT `rf.substrate.adapter/render`) — exactly the native idiom
   that bypasses the spine's Fragment-wrap — then asserts after-render
   still fires.
 
@@ -2999,7 +2999,7 @@
             callback   (fn native-after-render-cb [] (swap! fired inc))
             mount-node (make-mount-node!)
             ;; NATIVE mount — raw createRoot + .render, NOT
-            ;; substrate-adapter/render. This is the documented boot idiom
+            ;; rf.substrate.adapter/render. This is the documented boot idiom
             ;; (uix-dom/render-root). The spine's
             ;; Fragment-wrap sentinel is therefore NOT in this tree — the
             ;; exact gap rf2-t0x90 names.
@@ -3013,14 +3013,14 @@
           ;; sentinel) and bumps its tick — the useLayoutEffect drain fires
           ;; post-commit. Enqueue + drain under act so the commit lands
           ;; synchronously in the test env.
-          (act-fn (fn [] (interop/after-render callback)))
+          (act-fn (fn [] (rf.interop/after-render callback)))
           (is (= 1 @fired)
               "after-render fired post-commit on the native-mount path —
                the singleton driver root delivered parity (rf2-t0x90)")
           ;; A second enqueue + drain — the driver-root sentinel survives
           ;; (its useLayoutEffect runs every commit), so subsequent
           ;; after-render calls also fire.
-          (act-fn (fn [] (interop/after-render callback)))
+          (act-fn (fn [] (rf.interop/after-render callback)))
           (is (= 2 @fired)
               "subsequent after-render also fires via the driver root")
           (finally
@@ -3093,7 +3093,7 @@
           (reset! app-state :committed)
           (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
           (try
-            (interop/after-render callback)
+            (rf.interop/after-render callback)
             (finally
               (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)))
           (is (= :committed @observed)
@@ -3120,7 +3120,7 @@
   The probe ELEMENT is pre-rendered to matching SSR markup with React's own
   `react-dom/server/renderToString` (a test-only require — the same element
   the client hydrates, so no hydration-mismatch warning), the markup is
-  planted into a fresh mount node, then `substrate-adapter/render …
+  planted into a fresh mount node, then `rf.substrate.adapter/render …
   {:hydrate? true}` drives the spine's hydrate branch to adopt the existing
   DOM. We assert the spine's hydrate path returns a working unmount thunk
   (root tracked in `active-roots-cell` + drained) and that the hydrated
@@ -3144,7 +3144,7 @@
         (try
           (act-fn (fn []
                     (reset! unmount
-                            (substrate-adapter/render
+                            (rf.substrate.adapter/render
                               (probe-element) mount-node {:hydrate? true}))))
           (is (fn? @unmount)
               "hydrate render returns an unmount thunk (root tracked)")
@@ -3179,7 +3179,7 @@
     (doseq [[label tree] [["hiccup vector" [:div "hiccup-secret-xyzzy"]]
                           ["seq"           (list [:div "hiccup-secret-xyzzy"])]
                           ["map"           {:hiccup "hiccup-secret-xyzzy"}]]]
-      (let [thrown (try (substrate-adapter/render tree nil {}) nil
+      (let [thrown (try (rf.substrate.adapter/render tree nil {}) nil
                         (catch :default e e))]
         (is (some? thrown)
             (str label " is rejected by the element-slot guard (thrown "
@@ -3205,7 +3205,7 @@
     (doseq [[label tree] [["React element" (React/createElement "div" nil "ok")]
                           ["string node"   "just text"]
                           ["nil node"      nil]]]
-      (is (false? (spine/cljs-data-render-tree? tree))
+      (is (false? (rf.substrate.spine/cljs-data-render-tree? tree))
           (str label " passes the element-slot guard")))
     ;; Browser-only end-to-end leg: a real element mounts + unmounts
     ;; through the adapter's :render slot with the guard in place.
@@ -3216,7 +3216,7 @@
         (try
           (act-fn (fn []
                     (reset! unmount
-                            (substrate-adapter/render
+                            (rf.substrate.adapter/render
                               (React/createElement "div" nil "guard-pass")
                               mount-node {}))))
           (is (fn? @unmount)
@@ -3290,7 +3290,7 @@
             clean-node (make-mount-node!)
             div-node   (make-mount-node!)
             unmounts   (atom [])]
-        (trace-tooling/register-listener!
+        (rf.trace.tooling/register-listener!
           lk (fn [ev] (when (= :rf.ssr/hydration-mismatch (:operation ev))
                         (swap! mismatches conj ev))))
         (.appendChild (.-body js/document) clean-node)
@@ -3306,12 +3306,12 @@
               "<section class=\"srv\">DIVERGENT-SERVER</section>")
         (try
           (swap! unmounts conj
-                 (substrate-adapter/render
+                 (rf.substrate.adapter/render
                    (probe-element) clean-node
                    {:hydrate? true
                     :on-recoverable-error (fn [e _] (swap! clean-host conj e))}))
           (swap! unmounts conj
-                 (substrate-adapter/render
+                 (rf.substrate.adapter/render
                    (probe-element) div-node
                    {:hydrate? true
                     :on-recoverable-error (fn [e _] (swap! div-host conj e))}))
@@ -3344,7 +3344,7 @@
                 (is (empty? @clean-host)
                     "an identical native root hydrates with NO recoverable error"))
               (finally
-                (trace-tooling/unregister-listener! lk)
+                (rf.trace.tooling/unregister-listener! lk)
                 (doseq [u @unmounts] (try (u) (catch :default _ nil)))
                 (doseq [n [clean-node div-node]]
                   (when-let [p (.-parentNode n)] (.removeChild p n)))
@@ -3362,9 +3362,9 @@
   clears on the hydration commit, while STILL delegating to the host callback in
   BOTH windows.
 
-  Drives the REAL production seam deterministically: `spine/native-hydration-
+  Drives the REAL production seam deterministically: `rf.substrate.spine/native-hydration-
   reporter` (the exact callback `make-render` installs) over a flag the REAL
-  `spine/adoption-window-closer`, mounted here and flushed under `act`, clears —
+  `rf.substrate.spine/adoption-window-closer`, mounted here and flushed under `act`, clears —
   so it never waits on React's own post-hydration recoverable-error scheduling.
   Mounted DOM: the closer runs its passive effect on commit.
 
@@ -3381,11 +3381,11 @@
              host-calls (atom [])
              lk         (keyword (gensym "rf.qfz65-win-"))
              adoption   #js {:adopting true}
-             reporter   (spine/native-hydration-reporter
+             reporter   (rf.substrate.spine/native-hydration-reporter
                           adoption (fn [e _] (swap! host-calls conj e)))
              node       (make-mount-node!)
              root       (react-dom-client/createRoot node)]
-         (trace-tooling/register-listener!
+         (rf.trace.tooling/register-listener!
            lk (fn [ev] (when (= :rf.ssr/hydration-mismatch (:operation ev))
                          (swap! mismatches conj ev))))
          (try
@@ -3400,7 +3400,7 @@
            ;; so its passive effect clears `.-adopting` — closing the window.
            (act-fn (fn []
                      (.render root
-                              (React/createElement spine/adoption-window-closer
+                              (React/createElement rf.substrate.spine/adoption-window-closer
                                                    #js {:rfAdoption adoption}))))
            (is (false? (.-adopting adoption))
                "the mounted adoption-window-closer cleared the flag on its commit")
@@ -3414,7 +3414,7 @@
            (is (= 2 (count @host-calls))
                "post-window: the reporter STILL delegates to the host (compose intact)")
            (finally
-             (trace-tooling/unregister-listener! lk)
+             (rf.trace.tooling/unregister-listener! lk)
              (try (.unmount root) (catch :default _ nil))
              (when-let [p (.-parentNode node)] (.removeChild p node)))))))))
 
@@ -3578,7 +3578,7 @@
       ;; first, so this passed by accident; under the carried-invariant chain
       ;; the dynamic var legitimately shadows the provider.) Clearing it makes
       ;; the React-context tier the genuine decider. Per the bead's masking note.
-      (binding [frame/*current-frame* nil]
+      (binding [rf.frame/*current-frame* nil]
         (reset! probe-frame-provider-observed [])
         (rf/make-frame {:id frame-provider-frame :doc "use-subscribe frame-provider probe frame"})
         (rf/reg-event ::frame-provider-seed (fn [{:keys [db]} _] {:db {:k :wrapped}}))
@@ -3686,7 +3686,7 @@
     ;; answer before the React-context tier and mask the very resolution this
     ;; row measures — the same masking note `assert-use-subscribe-frame-
     ;; provider-resolution` carries.
-    (binding [frame/*current-frame* nil]
+    (binding [rf.frame/*current-frame* nil]
       (reset! probe-frame-provider-observed [])
       (reset! ssr-slot-observed nil)
       (rf/make-frame {:id ssr-ambient-frame :doc "rf2-5rqn SSR ambient probe frame"})
@@ -3711,7 +3711,7 @@
           (frame-provider-mount-element
             ssr-ambient-frame (probe-ssr-slots-element)))
         (let [{:keys [current-value current-value2 use-context reader]} @ssr-slot-observed]
-          (is (= adapter-context/no-provider-sentinel current-value)
+          (is (= rf.adapter.context/no-provider-sentinel current-value)
               "`_currentValue` — the PRIMARY slot, which the client renderer
                owns — holds the untouched NO-PROVIDER SENTINEL on the server;
                a reader consulting only it classifies that as 'no scope'")
@@ -3750,7 +3750,7 @@
       (testing "4b. NEGATIVE CONTROL — the dynamic tier still outranks both slots"
         (rf/make-frame {:id ssr-dynamic-frame :doc "rf2-5rqn SSR dynamic-precedence frame"})
         (reset! ssr-slot-observed nil)
-        (binding [frame/*current-frame* ssr-dynamic-frame]
+        (binding [rf.frame/*current-frame* ssr-dynamic-frame]
           (.renderToString react-dom-server
             (frame-provider-mount-element
               ssr-ambient-frame (probe-ssr-slots-element))))
@@ -3769,17 +3769,17 @@
         ;; Asserted against the reader directly, with the SSR slot shape staged
         ;; by hand, because no renderer produces 'corrupt primary + populated
         ;; secondary' on its own.
-        (let [ctx       adapter-context/frame-context
+        (let [ctx       rf.adapter.context/frame-context
               original  (.-_currentValue  ^js ctx)
               original2 (.-_currentValue2 ^js ctx)
               lk        (keyword "re-frame.adapter.react-shared-suite"
                                  (str "ssr-5rqn-" (clojure.core/name substrate-kw)))
               traces    (atom [])]
-          (trace-tooling/register-listener! lk (fn [ev] (swap! traces conj ev)))
+          (rf.trace.tooling/register-listener! lk (fn [ev] (swap! traces conj ev)))
           (try
             (set! (.-_currentValue  ^js ctx) 42)
             (set! (.-_currentValue2 ^js ctx) ssr-ambient-frame)
-            (is (nil? (adapter-context/function-component-current-frame))
+            (is (nil? (rf.adapter.context/function-component-current-frame))
                 "a corrupted PRIMARY resolves to nil even though the secondary
                  names a real frame — the fallback did not swallow the
                  corruption")
@@ -3791,7 +3791,7 @@
               (is (= :number (-> errs first :tags :type))
                   ":tags :type still names the corrupted shape"))
             (finally
-              (trace-tooling/unregister-listener! lk)
+              (rf.trace.tooling/unregister-listener! lk)
               (set! (.-_currentValue  ^js ctx) original)
               (set! (.-_currentValue2 ^js ctx) original2)))))
       (testing "4d. NEGATIVE CONTROL — a refusing extent still refuses on the server"
@@ -3801,7 +3801,7 @@
         ;; declared its own read discipline. That is why the repair needed no
         ;; refusal-awareness of its own — and this part is the proof.
         (reset! ssr-slot-observed nil)
-        (let [thrown (try (frame/call-with-ambient-frame-refused nil
+        (let [thrown (try (rf.frame/call-with-ambient-frame-refused nil
                             (fn []
                               (.renderToString react-dom-server
                                 (frame-provider-mount-element
@@ -3811,7 +3811,7 @@
           (is (= :rf.error/ambient-frame-refused (:rf.error/id (ex-data thrown)))
               "inside a refusing extent the ambient form raises REFUSED, not
                the absence category and not a silent success"))
-        (frame/call-with-ambient-frame-refused nil
+        (rf.frame/call-with-ambient-frame-refused nil
           (fn []
             (.renderToString react-dom-server
               (frame-provider-mount-element
@@ -3859,7 +3859,7 @@
         ;;
         ;; The throw is staged here rather than borrowed from 4d, so the render
         ;; immediately preceding these assertions is the aborted one.
-        (let [thrown (try (frame/call-with-ambient-frame-refused nil
+        (let [thrown (try (rf.frame/call-with-ambient-frame-refused nil
                             (fn []
                               (.renderToString react-dom-server
                                 (frame-provider-mount-element
@@ -3870,7 +3870,7 @@
               "the staged render did abort beneath the provider — without a
                throw here the rest of this part would prove nothing"))
         (is (= ssr-ambient-frame
-               (.-_currentValue2 ^js adapter-context/frame-context))
+               (.-_currentValue2 ^js rf.adapter.context/frame-context))
             "MEASURED RESIDUAL, not a requirement: React 19.2 leaves the
              secondary slot pushed after an aborted server render. If this
              assertion fails, React changed its error-path unwinding — that is
@@ -3886,8 +3886,8 @@
                still refuses, because the next render pops the abandoned
                snapshot before any component runs — one aborted request cannot
                leak its frame into the next"))
-        (is (= adapter-context/no-provider-sentinel
-               (.-_currentValue2 ^js adapter-context/frame-context))
+        (is (= rf.adapter.context/no-provider-sentinel
+               (.-_currentValue2 ^js rf.adapter.context/frame-context))
             "and that render left the slot back at createContext's default, so
              the window closes at the next render rather than persisting")))))
 
@@ -3931,7 +3931,7 @@
       ;; Clear the fixture's ambient `:rf/default` dynamic scope so the
       ;; provider tier is the genuine decider (the rf2-4mi2zj masking note:
       ;; the dynamic-var tier legitimately shadows the provider).
-      (binding [frame/*current-frame* nil]
+      (binding [rf.frame/*current-frame* nil]
         (reset! use-frame-observed [])
         (rf/make-frame {:id uf-frame :doc "use-frame probe frame"})
         (rf/reg-event ::uf-seed (fn [{:keys [db]} _] {:db {:n 1}}))
@@ -4011,7 +4011,7 @@
      (fn [act-fn]
       ;; Clear the fixture's ambient `:rf/default` dynamic scope so the
       ;; provider tier is the genuine decider (the rf2-4mi2zj masking note).
-      (binding [frame/*current-frame* nil]
+      (binding [rf.frame/*current-frame* nil]
         (let [uf-frame (mint-kw substrate-kw "use-frame-reincarnation")]
           (reset! use-frame-observed [])
           (rf/reg-event ::reincarnation-set (fn [_ [_ n]] {:db {:n n}}))
@@ -4024,7 +4024,7 @@
             (try
               (render!)
               (let [ops-1   (peek @use-frame-observed)
-                    token-1 (frame/frame-incarnation-token uf-frame)]
+                    token-1 (rf.frame/frame-incarnation-token uf-frame)]
                 ;; 2. CONTROL — a re-render under the SAME incarnation must
                 ;; still hit the memo. Runs before the reincarnation so the
                 ;; two outcomes are read off one mount and one ref cell.
@@ -4038,7 +4038,7 @@
                 (rf/destroy-frame! uf-frame)
                 (rf/make-frame {:id uf-frame :doc "use-frame reincarnation probe — incarnation B"})
                 (rf/dispatch-sync [::reincarnation-set 100] {:frame uf-frame})
-                (let [token-2 (frame/frame-incarnation-token uf-frame)]
+                (let [token-2 (rf.frame/frame-incarnation-token uf-frame)]
                   ;; 1. PREMISE.
                   (is (not (identical? token-1 token-2))
                       "a DIFFERENT incarnation now occupies the same public id")
@@ -4131,7 +4131,7 @@
 ;; provider resolution under the fixture's ambient `:rf/default` dynamic
 ;; scope — which MASKS the tier order (the dynamic var is always bound, so
 ;; the React-context tier is never the decider). These three assertions
-;; clear the ambient scope (`binding [frame/*current-frame* nil]`) so the
+;; clear the ambient scope (`binding [rf.frame/*current-frame* nil]`) so the
 ;; chain's real tier order is exercised, and add the two cases the prior
 ;; coverage never had: dynamic-var precedence, and no-scope failure.
 ;; ===========================================================================
@@ -4139,7 +4139,7 @@
 (defn assert-use-subscribe-provider-tier-resolution-ambient-cleared
   "rf2-4mi2zj — provider-tier resolution with the AMBIENT dynamic scope
   CLEARED. The 1-arg `use-subscribe` under a `frame-provider`, with
-  `frame/*current-frame*` bound to nil, must still resolve to the
+  `rf.frame/*current-frame*` bound to nil, must still resolve to the
   provider's frame via the React-context tier (tier 2). The fixture's
   default `:rf/default` ambient scope would mask this — with it cleared,
   the React-context tier is genuinely the decider, so this proves the
@@ -4164,7 +4164,7 @@
       ;; Clear the fixture's ambient :rf/default dynamic scope so the
       ;; React-context tier is the genuine decider, not a shadowing
       ;; dynamic var (the masking the bead flags).
-      (binding [frame/*current-frame* nil]
+      (binding [rf.frame/*current-frame* nil]
         (reset! probe-frame-provider-observed [])
         (rf/make-frame {:id provider-tier-frame :doc "rf2-4mi2zj provider-tier (ambient cleared) frame"})
         (rf/reg-event ::provider-tier-seed (fn [{:keys [db]} _] {:db {:k :from-provider}}))
@@ -4188,7 +4188,7 @@
 
 (defn assert-use-subscribe-dynamic-var-precedence-over-provider
   "rf2-4mi2zj — the ADVERSARIAL precedence case. With BOTH a dynamic-var
-  scope (`frame/*current-frame*` bound to the dynamic frame) AND a
+  scope (`rf.frame/*current-frame*` bound to the dynamic frame) AND a
   surrounding `frame-provider` naming a DIFFERENT frame, the 1-arg
   `use-subscribe` MUST resolve to the DYNAMIC frame (tier 1 wins over tier
   2). The buggy spine — raw `use-context` fed into the explicit path —
@@ -4229,7 +4229,7 @@
           ;; Bind the DYNAMIC frame around the synchronous mount render. The
           ;; probe sits under a provider naming the OTHER frame; the chain
           ;; must pick the dynamic var (tier 1).
-          (binding [frame/*current-frame* dynamic-precedence-dynamic-frame]
+          (binding [rf.frame/*current-frame* dynamic-precedence-dynamic-frame]
             (act-fn
               (fn []
                 (.render root
@@ -4271,11 +4271,11 @@
   (testing (str name " — use-subscribe 1-arg with no scope raises no-frame-context (rf2-4mi2zj)")
     (with-browser-act
      (fn [act-fn]
-      (binding [frame/*current-frame* nil]
+      (binding [rf.frame/*current-frame* nil]
         (let [lk     (keyword "re-frame.adapter.react-shared-suite"
                               (str "no-scope-" (clojure.core/name substrate-kw)))
               traces (atom [])]
-          (trace-tooling/register-listener! lk (fn [ev] (swap! traces conj ev)))
+          (rf.trace.tooling/register-listener! lk (fn [ev] (swap! traces conj ev)))
           (reset! probe-frame-provider-observed [])
           ;; Register the sub + a frame so the ONLY reason resolution can
           ;; fail is the absent scope — not a missing sub/frame.
@@ -4298,11 +4298,11 @@
                   "the no-provider sentinel was NEVER used as a frame id (the buggy
                    spine subscribed against :rf.frame/no-provider instead of erroring)")
               (finally
-                (trace-tooling/unregister-listener! lk)
+                (rf.trace.tooling/unregister-listener! lk)
                 (try (.unmount root) (catch :default _ nil)))))))))))
 
 (defn assert-use-subscribe-cleanup-decrements-refcount
-  "rf2-7g959: use-subscribe pairs subscribe with subs/unsubscribe on
+  "rf2-7g959: use-subscribe pairs subscribe with rf.subs/unsubscribe on
   unmount so the sub-cache ref-count for the (frame, query) pair returns
   to 0 (or the entry is dropped) after unmount.
 
@@ -4323,7 +4323,7 @@
       (rf/dispatch-sync [::rc-seed] {:frame rc-frame})
       (rf/reg-sub rc-query (fn [db _] (:m db)))
       (let [cache-key-v [rc-query]
-            cache       (:sub-cache (frame/frame rc-frame))
+            cache       (:sub-cache (rf.frame/frame rc-frame))
             mount-node  (make-mount-node!)
             root        (react-dom-client/createRoot mount-node)]
         (try
@@ -4331,7 +4331,7 @@
           (is (pos? (or (get-in @cache [cache-key-v :ref-count]) 0))
               "mounted probe pinned a cache entry with ref-count > 0")
           (act-fn (fn [] (.unmount root)))
-          ;; After unmount the useEffect cleanup fires subs/unsubscribe;
+          ;; After unmount the useEffect cleanup fires rf.subs/unsubscribe;
           ;; per rf2-cmfln the entry is disposed synchronously on the
           ;; 1 → 0 transition. The ref-count is no longer pinned at >0
           ;; — the regression rf2-7g959 named.
@@ -4391,7 +4391,7 @@
       (rf/dispatch-sync [::sib-seed] {:frame sib-frame})
       (rf/reg-sub sib-query (fn [db _] (:n db)))
       (let [cache-key-v [sib-query]
-            cache       (:sub-cache (frame/frame sib-frame))
+            cache       (:sub-cache (rf.frame/frame sib-frame))
             mount-node  (make-mount-node!)
             root        (react-dom-client/createRoot mount-node)]
         (try
@@ -4427,7 +4427,7 @@
   pinned at exactly 1 throughout and returns to 0 on unmount.
 
   rf2-es09qq changed the acquisition lifecycle: the render-phase reaction
-  fetch is now a BALANCED `subs/subscribe` + `subs/unsubscribe` round-trip
+  fetch is now a BALANCED `rf.subs/subscribe` + `rf.subs/unsubscribe` round-trip
   (net 0), and the single DURABLE ref is taken/released only in the
   commit-owned `useSyncExternalStore` subscribe callback. So the meaningful
   invariant is no longer 'exactly one raw subscribe call' (the OLD design's
@@ -4457,20 +4457,20 @@
       (rf/reg-sub stable-deps-query (fn [db _] (:p db)))
       (let [subscribe-calls   (atom 0)
             unsubscribe-calls (atom 0)
-            real-subscribe    subs/subscribe
-            real-unsubscribe  subs/unsubscribe
-            real-unsub-if     subs/unsubscribe-if-reaction
+            real-subscribe    rf.subs/subscribe
+            real-unsubscribe  rf.subs/unsubscribe
+            real-unsub-if     rf.subs/unsubscribe-if-reaction
             cache-key-v       [stable-deps-query]
-            cache             (:sub-cache (frame/frame stable-deps-frame))
+            cache             (:sub-cache (rf.frame/frame stable-deps-frame))
             mount-node        (make-mount-node!)
             root              (react-dom-client/createRoot mount-node)]
-        ;; Spies preserve the multi-arity shape of subs/subscribe
+        ;; Spies preserve the multi-arity shape of rf.subs/subscribe
         ;; (`[query-v]` and `[query-v opts]`, API-shrink #1 rf2-csbbwu) and
-        ;; subs/unsubscribe (`[query-v]` and `[frame-id query-v]`) so
+        ;; rf.subs/unsubscribe (`[query-v]` and `[frame-id query-v]`) so
         ;; spine call sites that bind the arity-2 invoke-slot resolve.
         ;; A bare `[& args]` variadic spy compiles only the variadic
         ;; slot and trips `…cljs$core$IFn$_invoke$arity$2 is not a
-        ;; function` at the spine's subs/subscribe call.
+        ;; function` at the spine's rf.subs/subscribe call.
         ;;
         ;; `real-subscribe` / `real-unsubscribe` are captured direct fn
         ;; VALUES (not Var-qualified calls), so each spy invokes the real
@@ -4485,23 +4485,23 @@
         ;; durable committed reference — is unchanged; what widened is the set
         ;; of verbs a spy must watch to see it. Counting only `unsubscribe`
         ;; would read the hand-off's adoption as an unbalanced acquire.
-        (with-redefs [subs/subscribe
+        (with-redefs [rf.subs/subscribe
                       (fn spy-subscribe
                         ([query-v]
                          (swap! subscribe-calls inc)
-                         (real-subscribe query-v {:frame (frame/resolve-current-frame)}))
+                         (real-subscribe query-v {:frame (rf.frame/resolve-current-frame)}))
                         ([query-v opts]
                          (swap! subscribe-calls inc)
                          (real-subscribe query-v opts)))
-                      subs/unsubscribe
+                      rf.subs/unsubscribe
                       (fn spy-unsubscribe
                         ([query-v]
                          (swap! unsubscribe-calls inc)
-                         (real-unsubscribe (frame/resolve-current-frame) query-v))
+                         (real-unsubscribe (rf.frame/resolve-current-frame) query-v))
                         ([frame-id query-v]
                          (swap! unsubscribe-calls inc)
                          (real-unsubscribe frame-id query-v)))
-                      subs/unsubscribe-if-reaction
+                      rf.subs/unsubscribe-if-reaction
                       (fn spy-unsubscribe-if-reaction [frame-id query-v reaction]
                         (swap! unsubscribe-calls inc)
                         (real-unsub-if frame-id query-v reaction))]
@@ -4601,11 +4601,11 @@
       (rf/reg-sub rc-query (fn [db _] (swap! builds inc) (:m db)))
       (let [subscribe-calls   (atom 0)
             unsubscribe-calls (atom 0)
-            real-subscribe    subs/subscribe
-            real-unsubscribe  subs/unsubscribe
-            real-unsub-if     subs/unsubscribe-if-reaction
+            real-subscribe    rf.subs/subscribe
+            real-unsubscribe  rf.subs/unsubscribe
+            real-unsub-if     rf.subs/unsubscribe-if-reaction
             cache-key-v       [rc-query]
-            cache             (:sub-cache (frame/frame rc-frame))
+            cache             (:sub-cache (rf.frame/frame rc-frame))
             mount-node        (make-mount-node!)
             root              (react-dom-client/createRoot mount-node)]
         ;; Spies mirror the rf2-mwft2 stable-deps-key bypass: preserve the
@@ -4614,23 +4614,23 @@
         ;; double-counted. `unsubscribe-if-reaction` is the spine's second
         ;; release verb since rf2-2rtt6.25 and counts as an unsubscribe — see
         ;; the note in the rf2-mwft2 assertion above.
-        (with-redefs [subs/subscribe
+        (with-redefs [rf.subs/subscribe
                       (fn spy-subscribe
                         ([query-v]
                          (swap! subscribe-calls inc)
-                         (real-subscribe query-v {:frame (frame/resolve-current-frame)}))
+                         (real-subscribe query-v {:frame (rf.frame/resolve-current-frame)}))
                         ([query-v opts]
                          (swap! subscribe-calls inc)
                          (real-subscribe query-v opts)))
-                      subs/unsubscribe
+                      rf.subs/unsubscribe
                       (fn spy-unsubscribe
                         ([query-v]
                          (swap! unsubscribe-calls inc)
-                         (real-unsubscribe (frame/resolve-current-frame) query-v))
+                         (real-unsubscribe (rf.frame/resolve-current-frame) query-v))
                         ([frame-id query-v]
                          (swap! unsubscribe-calls inc)
                          (real-unsubscribe frame-id query-v)))
-                      subs/unsubscribe-if-reaction
+                      rf.subs/unsubscribe-if-reaction
                       (fn spy-unsubscribe-if-reaction [frame-id query-v reaction]
                         (swap! unsubscribe-calls inc)
                         (real-unsub-if frame-id query-v reaction))]
@@ -4703,8 +4703,8 @@
 ;;      rf2-es09qq) ----
 ;;
 ;; The shared spine's `use-subscribe` reads the cached reaction during render
-;; (a render-phase `subs/subscribe`) but — since rf2-es09qq — IMMEDIATELY
-;; balances it with `subs/unsubscribe`, so the render phase nets ZERO ref-count
+;; (a render-phase `rf.subs/subscribe`) but — since rf2-es09qq — IMMEDIATELY
+;; balances it with `rf.subs/unsubscribe`, so the render phase nets ZERO ref-count
 ;; whether or not it commits. The DURABLE ref is taken/released only in the
 ;; commit-owned `useSyncExternalStore` subscribe callback (run after commit;
 ;; its cleanup on unmount / key change / teardown). These assertions pin the
@@ -4760,7 +4760,7 @@
       (rf/dispatch-sync [::mr-seed] {:frame rc-frame})
       (rf/reg-sub rc-query (fn [db _] (:m db)))
       (let [cache-key-v [rc-query]
-            cache       (:sub-cache (frame/frame rc-frame))
+            cache       (:sub-cache (rf.frame/frame rc-frame))
             mount-node  (make-mount-node!)
             root        (react-dom-client/createRoot mount-node)
             real-use-memo (.-useMemo React)]
@@ -4823,7 +4823,7 @@
       (rf/dispatch-sync [::ar-seed] {:frame rc-frame})
       (rf/reg-sub rc-query (fn [db _] (:m db)))
       (let [cache-key-v   [rc-query]
-            cache         (:sub-cache (frame/frame rc-frame))
+            cache         (:sub-cache (rf.frame/frame rc-frame))
             mount-node    (make-mount-node!)
             root          (react-dom-client/createRoot mount-node)
             real-use-memo (.-useMemo React)]
@@ -4924,7 +4924,7 @@
         (rf/dispatch-sync [::sa-seed] {:frame rc-frame})
         (rf/reg-sub rc-query (fn [db _] (:m db)))
         (let [cache-key-v [rc-query]
-              cache       (:sub-cache (frame/frame rc-frame))
+              cache       (:sub-cache (rf.frame/frame rc-frame))
               mount-node  (make-mount-node!)
               root        (react-dom-client/createRoot mount-node)]
           ;; Render the Suspense tree. The probe runs `use-subscribe` in its
@@ -4978,7 +4978,7 @@
 ;; ---- getSnapshot tracks the committed reaction (rf2-sqhjtu) ---------------
 ;;
 ;; THE BUG. `use-subscribe` fetches a render-phase reaction HANDLE with a
-;; balanced `subs/subscribe` + immediate `subs/unsubscribe` round-trip
+;; balanced `rf.subs/subscribe` + immediate `rf.subs/unsubscribe` round-trip
 ;; (net-zero ref-count, so an abandoned render leaks nothing). On a FIRST
 ;; mount with no prior cache entry, that round-trip drives the cache slot
 ;; 1 → 0 and DISPOSES the render-phase reaction (its source watches are
@@ -5002,7 +5002,7 @@
 ;; THE PROOF (object-identity, not value). A value assertion cannot fail
 ;; deterministically here — both the disposed handle and the committed
 ;; reaction recompute the same live value. So we prove the snapshot's SOURCE
-;; OBJECT: spy `subs/subscribe` to wrap every returned reaction in a thin
+;; OBJECT: spy `rf.subs/subscribe` to wrap every returned reaction in a thin
 ;; deref-recording proxy that delegates IDeref/IWatchable to the real
 ;; reaction and tags each deref with a per-real-reaction generation. After a
 ;; first mount (render-phase handle disposed; committed reaction freshly
@@ -5015,7 +5015,7 @@
 (defn assert-use-subscribe-getsnapshot-tracks-committed-reaction
   "rf2-sqhjtu: after a first mount, `get-snap` (React's `getSnapshot`) must
   deref the DURABLE committed cached reaction, not the disposed render-phase
-  handle. Proven by object identity: a `subs/subscribe` spy wraps each
+  handle. Proven by object identity: a `rf.subs/subscribe` spy wraps each
   returned reaction in a deref-recording proxy tagged with a per-real-reaction
   generation; the committed reaction is the one left in the cache after mount.
   A forced re-render re-runs `get-snap` (without re-running the stable-key memo
@@ -5035,8 +5035,8 @@
       (rf/reg-event ::gs-inc (fn [{:keys [db]} _] {:db {:m (inc (:m db))}}))
       (rf/reg-sub rc-query (fn [db _] (:m db)))
       (let [cache-key-v      [rc-query]
-            cache            (:sub-cache (frame/frame rc-frame))
-            real-subscribe   subs/subscribe
+            cache            (:sub-cache (rf.frame/frame rc-frame))
+            real-subscribe   rf.subs/subscribe
             ;; per-real-reaction generation + the deref log (generation of
             ;; the reaction each `get-snap` deref hit, in order).
             gen-counter      (atom 0)
@@ -5051,7 +5051,7 @@
             ;; A deref-recording proxy delegating to the REAL reaction. The
             ;; spine derefs THIS (records the gen) and add-watch/remove-watch
             ;; THIS (delegated to the real reaction so on-change still fires).
-            ;; `subs/unsubscribe` is by (frame, query), not by object, so the
+            ;; `rf.subs/unsubscribe` is by (frame, query), not by object, so the
             ;; proxy needs no IDisposable — disposal hits the real reaction via
             ;; the cache.
             wrap             (fn [real]
@@ -5076,10 +5076,10 @@
                                  (swap! proxy->real assoc p real)
                                  p))
             unwrap           (fn [x] (get @proxy->real x x))
-            real-unsub-if    subs/unsubscribe-if-reaction
+            real-unsub-if    rf.subs/unsubscribe-if-reaction
             mount-node       (make-mount-node!)
             root             (react-dom-client/createRoot mount-node)]
-        ;; Preserve subs/subscribe's 1-/2-arity shape (the spine binds the
+        ;; Preserve rf.subs/subscribe's 1-/2-arity shape (the spine binds the
         ;; arity-2 invoke slot); both bodies route to the canonical REAL fn
         ;; VALUE directly (no Var recur double-trip — same discipline as the
         ;; rf2-mwft2 spy) and wrap the returned reaction.
@@ -5087,20 +5087,20 @@
         ;; rf2-2rtt6.25 — THE SPY MUST UN-SUBSTITUTE AT THE ONE PLACE IDENTITY
         ;; IS LOAD-BEARING. Substituting a proxy for the reaction is exactly
         ;; what makes this proof possible, and exactly what would break
-        ;; `subs/unsubscribe-if-reaction`, whose guard compares the caller's
+        ;; `rf.subs/unsubscribe-if-reaction`, whose guard compares the caller's
         ;; reaction against the cache slot's. The cache holds the REAL
         ;; reaction, so an un-mapped proxy would fail the guard, the spine's
         ;; provisional release would silently no-op, and the ref-count
         ;; assertions below would read one too high — an artefact of the
         ;; instrument, not of the spine. Mapping back keeps the spy transparent
         ;; where transparency is the whole point.
-        (with-redefs [subs/subscribe
+        (with-redefs [rf.subs/subscribe
                       (fn spy-subscribe
                         ([query-v]
-                         (wrap (real-subscribe query-v {:frame (frame/resolve-current-frame)})))
+                         (wrap (real-subscribe query-v {:frame (rf.frame/resolve-current-frame)})))
                         ([query-v opts]
                          (wrap (real-subscribe query-v opts))))
-                      subs/unsubscribe-if-reaction
+                      rf.subs/unsubscribe-if-reaction
                       (fn spy-unsubscribe-if-reaction [frame-id query-v reaction]
                         (real-unsub-if frame-id query-v (unwrap reaction)))]
           (try
@@ -5173,7 +5173,7 @@
 ;;   EVERY deref the spine performs, at any point in the component's lifetime,
 ;;   targets the reaction TENANTED in the sub-cache slot at that moment.
 ;;
-;; A `subs/subscribe` spy wraps each returned reaction in a proxy that records,
+;; A `rf.subs/subscribe` spy wraps each returned reaction in a proxy that records,
 ;; per deref, the reaction's generation AND whether it was the cache's tenant at
 ;; that instant. Pre-fix the pre-commit `getSnapshot` deref lands on the evicted
 ;; handle and the tenancy flag is false on the very first mount.
@@ -5226,8 +5226,8 @@
       (rf/reg-event ::nr-inc (fn [{:keys [db]} _] {:db {:m (inc (:m db))}}))
       (rf/reg-sub rc-query (fn [db _] (:m db)))
       (let [cache-key-v    [rc-query]
-            cache          (:sub-cache (frame/frame nr-frame))
-            real-subscribe subs/subscribe
+            cache          (:sub-cache (rf.frame/frame nr-frame))
+            real-subscribe rf.subs/subscribe
             gen-counter    (atom 0)
             real->gen      (atom {})
             ;; One entry per deref, in order: the reaction's generation, and
@@ -5257,7 +5257,7 @@
                                (swap! proxy->real assoc p real)
                                p))
             unwrap         (fn [x] (get @proxy->real x x))
-            real-unsub-if  subs/unsubscribe-if-reaction
+            real-unsub-if  rf.subs/unsubscribe-if-reaction
             mount-node     (make-mount-node!)
             root           (react-dom-client/createRoot mount-node)]
         ;; The whole point is a COLD read — a live cache entry would make the
@@ -5268,13 +5268,13 @@
         ;; rf2-2rtt6.25 — the proxy is un-substituted at the identity-guarded
         ;; release, exactly as in the rf2-sqhjtu assertion above; see the note
         ;; there for why a transparent spy has to do this.
-        (with-redefs [subs/subscribe
+        (with-redefs [rf.subs/subscribe
                       (fn spy-subscribe
                         ([query-v]
-                         (wrap (real-subscribe query-v {:frame (frame/resolve-current-frame)})))
+                         (wrap (real-subscribe query-v {:frame (rf.frame/resolve-current-frame)})))
                         ([query-v opts]
                          (wrap (real-subscribe query-v opts))))
-                      subs/unsubscribe-if-reaction
+                      rf.subs/unsubscribe-if-reaction
                       (fn spy-unsubscribe-if-reaction [frame-id query-v reaction]
                         (real-unsub-if frame-id query-v (unwrap reaction)))]
           (try
@@ -5392,7 +5392,7 @@
   (rf/make-frame {:id frame :doc "rf2-2rtt6.13 render→commit window row"})
   (rf/dispatch-sync [::gap-seed] {:frame frame})
   (reset! refcount-target frame)
-  (let [cache      (:sub-cache (frame/frame frame))
+  (let [cache      (:sub-cache (rf.frame/frame frame))
         mount-node (make-mount-node!)
         root       (react-dom-client/createRoot mount-node)]
     (reset! gap-mount-node mount-node)
@@ -5542,7 +5542,7 @@
 ;; THE PROOF IS TWO EXACT INTEGERS, both falsifiable and neither a proxy for
 ;; the other:
 ;;
-;;   IDENTITY — the reaction `subs/subscribe` returns to the commit is
+;;   IDENTITY — the reaction `rf.subs/subscribe` returns to the commit is
 ;;   `identical?` the one it returned to the render, and both are the cache's
 ;;   tenant. Pre-hand-off these are different objects.
 ;;
@@ -5578,8 +5578,8 @@
       (let [builds         (atom 0)
             _              (rf/reg-sub rc-query (fn [db _] (swap! builds inc) (:m db)))
             cache-key-v    [rc-query]
-            cache          (:sub-cache (frame/frame ad-frame))
-            real-subscribe subs/subscribe
+            cache          (:sub-cache (rf.frame/frame ad-frame))
+            real-subscribe rf.subs/subscribe
             ;; Identity log ONLY — no proxy, so nothing about the objects under
             ;; test is substituted.
             returned       (atom [])
@@ -5587,10 +5587,10 @@
             root           (react-dom-client/createRoot mount-node)]
         (is (nil? (get @cache cache-key-v))
             "precondition: no live cache entry, so the mount is genuinely COLD")
-        (with-redefs [subs/subscribe
+        (with-redefs [rf.subs/subscribe
                       (fn spy-subscribe
                         ([query-v]
-                         (let [r (real-subscribe query-v {:frame (frame/resolve-current-frame)})]
+                         (let [r (real-subscribe query-v {:frame (rf.frame/resolve-current-frame)})]
                            (swap! returned conj r) r))
                         ([query-v opts]
                          (let [r (real-subscribe query-v opts)]
@@ -5757,8 +5757,8 @@
         (let [builds         (atom 0)
               _              (rf/reg-sub rc-query (fn [db _] (swap! builds inc) (:m db)))
               cache-key-v    [rc-query]
-              cache          (:sub-cache (frame/frame pm-frame))
-              real-subscribe subs/subscribe
+              cache          (:sub-cache (rf.frame/frame pm-frame))
+              real-subscribe rf.subs/subscribe
               ;; Identity log ONLY — no proxy, so the cache's tenant and the
               ;; spine's escrow token are the objects the production path sees.
               ;; `with-redefs` cannot be used: it restores when its body exits,
@@ -5769,7 +5769,7 @@
               at-commit      (atom nil)
               mount-node     (make-mount-node!)
               unmount        (atom nil)
-              restore!       (fn [] (set! subs/subscribe real-subscribe))
+              restore!       (fn [] (set! rf.subs/subscribe real-subscribe))
               finish!        (fn []
                                (restore!)
                                (reset! pm-on-commit nil)
@@ -5777,10 +5777,10 @@
                                (done))]
           (is (nil? (get @cache cache-key-v))
               "precondition: no live cache entry, so the mount is genuinely COLD")
-          (set! subs/subscribe
+          (set! rf.subs/subscribe
                 (fn spy-subscribe
                   ([query-v]
-                   (let [r (real-subscribe query-v {:frame (frame/resolve-current-frame)})]
+                   (let [r (real-subscribe query-v {:frame (rf.frame/resolve-current-frame)})]
                      (swap! returned conj r) r))
                   ([query-v opts]
                    (let [r (real-subscribe query-v opts)]
@@ -5796,7 +5796,7 @@
                                :ref-count (ref-count-of cache cache-key-v)
                                :dom       (.-textContent mount-node)}))))
           (try
-            (reset! unmount (substrate-adapter/render (probe-public-mount-element) mount-node {}))
+            (reset! unmount (rf.substrate.adapter/render (probe-public-mount-element) mount-node {}))
             (catch :default e
               (restore!)
               (is false (str "the public adapter render slot threw: " e))))
@@ -5907,7 +5907,7 @@
   (rf/make-frame {:id frame :doc "rf2-2rtt6.25 public-schedule escrow-leg row"})
   (rf/dispatch-sync [::gap-seed] {:frame frame})
   (reset! refcount-target frame)
-  (let [cache      (:sub-cache (frame/frame frame))
+  (let [cache      (:sub-cache (rf.frame/frame frame))
         mount-node (make-mount-node!)
         unmount    (atom nil)
         release!   (fn [] (when-let [u @unmount] (try (u) (catch :default _ nil))))]
@@ -5919,7 +5919,7 @@
     (reset! gap-public-set-phase nil)
     (reset! gap-write! (when move?
                          (fn [] (rf/dispatch-sync [::gap-set 1] {:frame frame}))))
-    (reset! unmount (substrate-adapter/render (probe-gap-public-element) mount-node {}))
+    (reset! unmount (rf.substrate.adapter/render (probe-gap-public-element) mount-node {}))
     (await-settlement!
       (fn [] (some? @gap-public-set-phase))
       (fn []
@@ -6034,7 +6034,7 @@
       (let [builds      (atom 0)
             _           (rf/reg-sub rc-query (fn [db _] (swap! builds inc) (:m db)))
             cache-key-v [rc-query]
-            cache       (:sub-cache (frame/frame ad-frame))
+            cache       (:sub-cache (rf.frame/frame ad-frame))
             mount-node  (make-mount-node!)
             root        (react-dom-client/createRoot mount-node)]
         (act-fn (fn [] (.render root (probe-refcount-element))))
@@ -6096,7 +6096,7 @@
         (rf/reg-sub rc-query :<- [::hz-input] (fn [v _] v))
         (let [parent-k   [rc-query]
               input-k    [::hz-input]
-              cache      (:sub-cache (frame/frame hz-frame))
+              cache      (:sub-cache (rf.frame/frame hz-frame))
               root       (react-dom-client/createRoot (make-mount-node!))]
           (act-fn (fn [] (.render root (probe-suspense-abort-element))))
           ;; Before the horizon: the abandoned render's reference(s) hold the
@@ -6180,7 +6180,7 @@
         (let [builds      (atom 0)
               _           (rf/reg-sub rc-query (fn [db _] (swap! builds inc) (:m db)))
               cache-key-v [rc-query]
-              cache       (:sub-cache (frame/frame rv-frame))
+              cache       (:sub-cache (rf.frame/frame rv-frame))
               root        (react-dom-client/createRoot (make-mount-node!))
               mount-node  (make-mount-node!)
               at-commit   (atom nil)
@@ -6224,7 +6224,7 @@
                                          :ref-count (ref-count-of cache cache-key-v)
                                          :dom       (.-textContent mount-node)}))))
                     (try
-                      (reset! unmount (substrate-adapter/render (probe-public-mount-element) mount-node {}))
+                      (reset! unmount (rf.substrate.adapter/render (probe-public-mount-element) mount-node {}))
                       (catch :default e
                         (is false (str "the public adapter render slot threw: " e))))
                     (await-settlement!
@@ -6290,7 +6290,7 @@
     (rf/dispatch-sync [::ssr-seed] {:frame ssr-frame})
     (rf/reg-sub rc-query (fn [db _] (:m db)))
     (let [cache-key-v [rc-query]
-          cache       (:sub-cache (frame/frame ssr-frame))
+          cache       (:sub-cache (rf.frame/frame ssr-frame))
           html        (.renderToString react-dom-server (probe-refcount-element))]
       (is (re-find #"m=13" html)
           "the server render read the subscription's value")
@@ -6341,7 +6341,7 @@
 ;;       render after the key change already shows the NEW value and the OLD value
 ;;       never reappears. (Deterministic here: the two targets hold DISTINCT
 ;;       values, unlike rf2-sqhjtu where both handles deref the same value.)
-;;   (2) OBJECT IDENTITY — a subs/subscribe spy tags reactions by generation (the
+;;   (2) OBJECT IDENTITY — a rf.subs/subscribe spy tags reactions by generation (the
 ;;       rf2-sqhjtu deref-recording proxy); no get-snap deref after the change
 ;;       hits the OLD target's committed generation.
 ;;   CONTROL — a re-render with an UNCHANGED query-v keeps serving the committed
@@ -6379,7 +6379,7 @@
       (rf/reg-sub kc-query-a (fn [db _] (:va db)))
       (rf/reg-sub kc-query-b (fn [db _] (:vb db)))
       ;; ---- deref-recording subscribe spy (object-identity proof) -----------
-      (let [real-subscribe subs/subscribe
+      (let [real-subscribe rf.subs/subscribe
             gen-counter    (atom 0)
             real->gen      (atom {})
             deref-log      (atom [])
@@ -6403,23 +6403,23 @@
                                (swap! proxy->real assoc p real)
                                p))
             unwrap         (fn [x] (get @proxy->real x x))
-            real-unsub-if  subs/unsubscribe-if-reaction]
+            real-unsub-if  rf.subs/unsubscribe-if-reaction]
         ;; rf2-2rtt6.25 — the proxy is un-substituted at the identity-guarded
         ;; release (see the rf2-sqhjtu assertion's note): the cache holds the
         ;; REAL reaction, so a proxy reaching the guard would make the spine's
         ;; provisional release no-op and inflate every ref-count below.
-        (with-redefs [subs/subscribe
+        (with-redefs [rf.subs/subscribe
                       (fn spy-subscribe
-                        ([query-v]      (wrap (real-subscribe query-v {:frame (frame/resolve-current-frame)})))
+                        ([query-v]      (wrap (real-subscribe query-v {:frame (rf.frame/resolve-current-frame)})))
                         ([query-v opts] (wrap (real-subscribe query-v opts))))
-                      subs/unsubscribe-if-reaction
+                      rf.subs/unsubscribe-if-reaction
                       (fn spy-unsubscribe-if-reaction [frame-id query-v reaction]
                         (real-unsub-if frame-id query-v (unwrap reaction)))]
           ;; ============ PHASE 1 — QUERY-V change (frame fixed) =============
           (reset! key-change-frame kc-frame)
           (reset! key-change-query [kc-query-a])
           (reset! key-change-observed [])
-          (let [cache      (:sub-cache (frame/frame kc-frame))
+          (let [cache      (:sub-cache (rf.frame/frame kc-frame))
                 mount-node (make-mount-node!)
                 root       (react-dom-client/createRoot mount-node)]
             (try
@@ -6502,7 +6502,7 @@
 ;; ---- unsubscribe arity contract (rf2-gizlj) -------------------------------
 ;;
 ;; The shared spine's `use-subscribe` useEffect cleanup calls
-;; `subs/unsubscribe` with `[frame-id query-v]` — the canonical 2-arity
+;; `rf.subs/unsubscribe` with `[frame-id query-v]` — the canonical 2-arity
 ;; form. Per rf2-cmfln (Spec 006 §Reference counting and disposal) the
 ;; 3-arity `[frame-id query-v opts]` was retired with the grace-period
 ;; mechanism: the cache disposes synchronously on the 1 → 0 transition
@@ -6516,8 +6516,8 @@
 
 (defn assert-use-subscribe-cleanup-calls-unsubscribe-with-2-args
   "rf2-gizlj: the React-hook spine's `use-subscribe` useEffect cleanup
-  calls `subs/unsubscribe` with exactly 2 args (`[frame-id query-v]`).
-  Per rf2-cmfln the canonical-leaf arity for `subs/unsubscribe` is 2;
+  calls `rf.subs/unsubscribe` with exactly 2 args (`[frame-id query-v]`).
+  Per rf2-cmfln the canonical-leaf arity for `rf.subs/unsubscribe` is 2;
   no `opts` map, no grace-period override. This test mounts a probe,
   unmounts it, and asserts the spy observed exactly 2 args at the
   cleanup call — drift here is what introduced the regression bug
@@ -6526,7 +6526,7 @@
   cfg keys: re-uses the same stable-deps-key probe surface — the
   cleanup fires on either parent here."
   [{:keys [name probe-stable-deps-element stable-deps-set-tick stable-deps-frame stable-deps-query]}]
-  (testing (str name " — use-subscribe cleanup calls subs/unsubscribe with 2 args (rf2-gizlj, rf2-cmfln contract)")
+  (testing (str name " — use-subscribe cleanup calls rf.subs/unsubscribe with 2 args (rf2-gizlj, rf2-cmfln contract)")
     (with-browser-act
      (fn [act-fn]
       (reset! stable-deps-set-tick nil)
@@ -6535,17 +6535,17 @@
       (rf/dispatch-sync [::gizlj-seed] {:frame stable-deps-frame})
       (rf/reg-sub stable-deps-query (fn [db _] (:p db)))
       (let [unsubscribe-arg-counts (atom [])
-            real-unsubscribe       subs/unsubscribe
+            real-unsubscribe       rf.subs/unsubscribe
             mount-node             (make-mount-node!)
             root                   (react-dom-client/createRoot mount-node)]
         ;; Spy records the arg-count at each call site and delegates to
         ;; the canonical 2-arity body (mirroring the existing spy bypass
         ;; — see the rf2-mwft2 stable-deps-key spy comment).
-        (with-redefs [subs/unsubscribe
+        (with-redefs [rf.subs/unsubscribe
                       (fn spy-unsubscribe-arity
                         ([query-v]
                          (swap! unsubscribe-arg-counts conj 1)
-                         (real-unsubscribe (frame/resolve-current-frame) query-v))
+                         (real-unsubscribe (rf.frame/resolve-current-frame) query-v))
                         ([frame-id query-v]
                          (swap! unsubscribe-arg-counts conj 2)
                          (real-unsubscribe frame-id query-v)))]
@@ -6558,9 +6558,9 @@
             ;; the 2-arity form — anything else is a contract violation.
             (let [arities (set @unsubscribe-arg-counts)]
               (is (seq @unsubscribe-arg-counts)
-                  "spine fired at least one subs/unsubscribe across mount + unmount")
+                  "spine fired at least one rf.subs/unsubscribe across mount + unmount")
               (is (= #{2} arities)
-                  (str "every spine-driven subs/unsubscribe call must be 2-arity "
+                  (str "every spine-driven rf.subs/unsubscribe call must be 2-arity "
                        "(frame-id + query-v) per rf2-cmfln Spec 006 §Reference "
                        "counting and disposal — observed arities: "
                        (pr-str @unsubscribe-arg-counts)
@@ -6605,7 +6605,7 @@
      (fn [act-fn]
       (let [view-id   (mint-kw substrate-kw "unmount-parity-probe")
             recorded  (atom [])]
-        (trace-tooling/register-listener! ::view-unmounted-recorder
+        (rf.trace.tooling/register-listener! ::view-unmounted-recorder
           (fn [ev]
             (when (= :rf.view/unmounted (:operation ev))
               (swap! recorded conj ev))))
@@ -6638,7 +6638,7 @@
                 (is (= view-id (first (:rf.view/render-key t)))
                     ":rf.view/render-key's head is the view-id")))
             (finally
-              (trace-tooling/unregister-listener! ::view-unmounted-recorder)
+              (rf.trace.tooling/unregister-listener! ::view-unmounted-recorder)
               (try (.unmount root) (catch :default _ nil))))))))))
 
 (defn assert-void-root-view-unmount-no-warning
@@ -6662,7 +6662,7 @@
      (fn [act-fn]
       (let [view-id  (mint-kw substrate-kw "void-root-unmount-probe")
             recorded (atom [])]
-        (trace-tooling/register-listener! ::void-view-unmounted-recorder
+        (rf.trace.tooling/register-listener! ::void-view-unmounted-recorder
           (fn [ev]
             (when (= :rf.view/unmounted (:operation ev))
               (swap! recorded conj ev))))
@@ -6695,7 +6695,7 @@
               (is (= view-id (:rf.view/id (:tags ev)))
                   ":rf.view/id tag matches the registered void-root view"))
             (finally
-              (trace-tooling/unregister-listener! ::void-view-unmounted-recorder)
+              (rf.trace.tooling/unregister-listener! ::void-view-unmounted-recorder)
               (try (.unmount root) (catch :default _ nil))))))))))
 
 (defn assert-mounted-display-name-is-devtools-visible
@@ -6711,7 +6711,7 @@
   its `displayName` has to be right independently of the registry. Since
   rf2-oz7wr a REGISTERED view's mounted head is instead the adapter's
   `componentize-view` shell, which carries the same
-  `performance/entry-id` stamp from the same single source; the registry
+  `rf.performance/entry-id` stamp from the same single source; the registry
   path's own direct mount is covered by
   `re-frame.adapter.uix-reg-view-direct-mount-dom-cljs-test`.
 
@@ -6724,12 +6724,12 @@
       (let [id         (mint-kw substrate-kw "display-name-mounted")
             head       (wrap-view id {} (fn [] (React/createElement
                                                  "span" #js {"data-testid" "rf-dn-mounted"} "hi")))
-            expected   (performance/entry-id id)
+            expected   (rf.performance/entry-id id)
             mount-node (make-mount-node!)
             root       (react-dom-client/createRoot mount-node)]
         (try
           (act-fn (fn [] (.render root (React/createElement head #js {}))))
-          (let [names (react-test-support/devtools-names-above
+          (let [names (rf.adapter.react-test-support/devtools-names-above
                         (.querySelector mount-node "[data-testid='rf-dn-mounted']"))]
             (is (some #{expected} names)
                 (str "the mounted component is named " (pr-str expected)
@@ -6737,7 +6737,7 @@
             (is (not-any? #{(str ":" expected)} names)
                 (str "no colon-prefixed spelling survives into the tree; saw "
                      (pr-str names)))
-            (is (= (performance/build-name :render id)
+            (is (= (rf.performance/build-name :render id)
                    (str "rf:render:" expected))
                 "the name read off the fiber is the measure's own id"))
           (finally

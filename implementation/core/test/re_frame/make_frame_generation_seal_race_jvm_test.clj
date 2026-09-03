@@ -6,10 +6,10 @@
 
       generation  (asm/assemble-default …)   ;; SEAL   — the pool, frozen
       …
-      (frame/upsert-frame! runnable-id …)    ;; PUBLISH — the record appears
+      (rf.frame/upsert-frame! runnable-id …)    ;; PUBLISH — the record appears
 
   Between them the frame EXISTS as a sealed generation but is absent from
-  `frames`, so `live-frame/live-frame-ids` does not see it. A `reg-*` issued on
+  `frames`, so `rf.live-frame/live-frame-ids` does not see it. A `reg-*` issued on
   another thread in that gap fires the registration hook →
   `reproject-on-registration-change!` → `mark-dirty-and-schedule!`, which SKIPS
   when `(seq (live-frame-ids))` is empty — the rf2-h4q6cy hot-path
@@ -18,7 +18,7 @@
   does not count, so NO dirty mark is set. `upsert-frame!` then publishes a
   record whose generation PREDATES that registration, and nothing is left to
   flush it. The frame is permanently stale: `dispatch` reports
-  `:rf.error/no-such-handler` for a handler `registrar/lookup` is holding at
+  `:rf.error/no-such-handler` for a handler `rf.registrar/lookup` is holding at
   that very moment.
 
   THE INVARIANT, stated as this namespace tests it: *a registration that lands
@@ -39,7 +39,7 @@
 
   THE HARNESS is the rf2-9c2jf one's sibling: a deterministic barrier, no
   sleeps deciding anything. It parks the constructor inside the window using
-  `frame/*upsert-decide-probe*` — the `nil`-in-production JVM linearization
+  `rf.frame/*upsert-decide-probe*` — the `nil`-in-production JVM linearization
   seam `frame_upsert_linearization_jvm_test.clj` already uses, fired ONCE after
   the per-id construction transaction is acquired and BEFORE the authoritative
   registry decision. Parked there the generation is sealed and the record is
@@ -53,13 +53,13 @@
   a mark that the very next `reg-*` would have made anyway."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.flows :as flows]
-            [re-frame.frame :as frame]
-            [re-frame.live-frame :as live-frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace])
+            [re-frame.flows :as rf.flows]
+            [re-frame.frame :as rf.frame]
+            [re-frame.live-frame :as rf.live-frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace :as rf.trace])
   (:import [java.util.concurrent CountDownLatch TimeUnit]))
 
 ;; ---------------------------------------------------------------------------
@@ -70,21 +70,21 @@
 ;; the hot-path skip is still intact after the fix.
 ;; ---------------------------------------------------------------------------
 
-(def ^:private dirty-flag #'live-frame/pending-reprojection?)
+(def ^:private dirty-flag #'rf.live-frame/pending-reprojection?)
 
 (defn- reset-runtime [test-fn]
   (try
-    (registrar/clear-all!)
-    (reset! frame/frames {})
-    (flows/reset-flows!)
-    (schemas/clear-schemas-by-frame!)
-    (trace/clear-listeners!)
-    (rf/init! plain-atom/adapter)
+    (rf.registrar/clear-all!)
+    (reset! rf.frame/frames {})
+    (rf.flows/reset-flows!)
+    (rf.schemas/clear-schemas-by-frame!)
+    (rf.trace/clear-listeners!)
+    (rf/init! rf.substrate.plain-atom/adapter)
     ;; Framework registrations live at namespace-load time; `clear-all!` wiped
     ;; them. Re-eval so the rest of the suite is not left short.
     (require 're-frame.routing :reload)
     (require 're-frame.ssr :reload)
-    ;; LOAD-BEARING, and it must come LAST. `registrar/clear-all!` is itself a
+    ;; LOAD-BEARING, and it must come LAST. `rf.registrar/clear-all!` is itself a
     ;; source-store change and marks the projection dirty (via the removal
     ;; late-bind) whenever a live frame is still standing from an earlier test.
     ;; A test that starts with the flag already true would have its first
@@ -93,8 +93,8 @@
     (reset! @dirty-flag false)
     (test-fn)
     (finally
-      (registrar/clear-all!)
-      (reset! frame/frames {})
+      (rf.registrar/clear-all!)
+      (reset! rf.frame/frames {})
       (reset! @dirty-flag false))))
 
 (use-fixtures :each reset-runtime)
@@ -127,7 +127,7 @@
           errors  (atom [])]
       (rf/register-listener! :errors ::recorder
                              (fn [record] (swap! errors conj record)))
-      (let [a (binding [frame/*upsert-decide-probe*
+      (let [a (binding [rf.frame/*upsert-decide-probe*
                         (window-probe :seal-race/a reached release)]
                 (future (rf/make-frame {:id  :seal-race/a
                                         :doc "the constructor parked mid-window"})))]
@@ -137,9 +137,9 @@
         ;; THE PRECONDITION that makes this defect the narrow one it is. The
         ;; in-flight frame is NOT in `frames`, so the registration hook about
         ;; to fire sees nothing image-loaded and takes the hot-path skip.
-        (is (nil? (frame/frame :seal-race/a))
+        (is (nil? (rf.frame/frame :seal-race/a))
             "the parked constructor's record is not published yet")
-        (is (empty? (live-frame/live-frame-ids))
+        (is (empty? (rf.live-frame/live-frame-ids))
             "NO image-loaded frame exists — the hook's skip will fire")
 
         ;; THE RACING REGISTRATION. Its hook fires now, against an empty
@@ -151,12 +151,12 @@
 
         (.countDown release)
         (is (some? (deref a settle-ms ::timeout)) "the constructor completed")
-        (is (some? (frame/frame :seal-race/a)) "the frame is published")
+        (is (some? (rf.frame/frame :seal-race/a)) "the frame is published")
 
         ;; THE END STATE. Without the fix the frame resolves through a
         ;; generation sealed BEFORE `:seal-race/late` was registered, so this
         ;; dispatch is a no-op reported as `:rf.error/no-such-handler` — for a
-        ;; handler `registrar/lookup` is holding at this very moment.
+        ;; handler `rf.registrar/lookup` is holding at this very moment.
         (rf/dispatch-sync [:seal-race/late] {:frame :seal-race/a})
         (rf/unregister-listener! :errors ::recorder)
 
@@ -183,9 +183,9 @@
           runs    (atom 0)]
       (rf/make-frame {:id :seal-race/incumbent})
       (reset! @dirty-flag false)
-      (is (seq (live-frame/live-frame-ids))
+      (is (seq (rf.live-frame/live-frame-ids))
           "an image-loaded frame is standing before the race")
-      (let [a (binding [frame/*upsert-decide-probe*
+      (let [a (binding [rf.frame/*upsert-decide-probe*
                         (window-probe :seal-race/b reached release)]
                 (future (rf/make-frame {:id :seal-race/b})))]
         (is (await! reached settle-ms) "the constructor parked inside the window")
@@ -213,7 +213,7 @@
   (testing "a reg-* with no image-loaded frame standing sets no dirty flag and
             schedules no flush — the rf2-h4q6cy hot-path skip survives the
             rf2-djkr0 fix"
-    (is (empty? (live-frame/live-frame-ids)) "no frame is standing")
+    (is (empty? (rf.live-frame/live-frame-ids)) "no frame is standing")
     (is (false? @@dirty-flag) "the flag starts clear")
     (rf/reg-event :seal-race/boot-time (fn [{:keys [db]} _] {:db db}))
     (rf/reg-sub :seal-race/boot-sub (fn [db _] db))

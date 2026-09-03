@@ -25,7 +25,7 @@
   the deleted Playwright spec at
   `tools/xray/testbeds/perf_counter/spec.cjs`."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.performance :as performance :include-macros true]))
+            [re-frame.performance :as rf.performance :include-macros true]))
 
 (defn- count-measures
   "Count entries in `performance.getEntriesByType('measure')` whose
@@ -56,11 +56,11 @@
 (deftest build-name-shape
   (testing "Per Spec 009 §Naming convention — bucket and id render as
             `rf:<bucket>:<id>` with the keyword's namespace preserved."
-    (is (= "rf:event:user/login"  (performance/build-name :event :user/login)))
-    (is (= "rf:sub:cart/total"    (performance/build-name :sub   :cart/total)))
-    (is (= "rf:fx:dispatch"       (performance/build-name :fx    :dispatch)))
+    (is (= "rf:event:user/login"  (rf.performance/build-name :event :user/login)))
+    (is (= "rf:sub:cart/total"    (rf.performance/build-name :sub   :cart/total)))
+    (is (= "rf:fx:dispatch"       (rf.performance/build-name :fx    :dispatch)))
     (is (= "rf:render:my.app/page"
-           (performance/build-name :render :my.app/page)))))
+           (rf.performance/build-name :render :my.app/page)))))
 
 ;; ---- macro round-trip ------------------------------------------------------
 
@@ -68,10 +68,10 @@
   (testing "Regardless of the perf flag, mark-and-measure returns whatever
             its body returned (the macro expands to a value-yielding
             form on both branches of the `if`)."
-    (is (= :result (performance/mark-and-measure :test :return :result)))
-    (is (= 42      (performance/mark-and-measure :test :return-num
+    (is (= :result (rf.performance/mark-and-measure :test :return :result)))
+    (is (= 42      (rf.performance/mark-and-measure :test :return-num
                      (+ 40 2))))
-    (is (= [1 2 3] (performance/mark-and-measure :test :return-vec
+    (is (= [1 2 3] (rf.performance/mark-and-measure :test :return-vec
                      (let [a 1 b 2]
                        [a b 3]))))))
 
@@ -83,11 +83,11 @@
             accumulate. A live PerformanceObserver still receives the
             entry (callback fires at measure() time, before the clear);
             the retained buffer that `getEntriesByType` reads stays empty."
-    (when (and performance/enabled? (not performance/retain-entries?))
+    (when (and rf.performance/enabled? (not rf.performance/retain-entries?))
       (clear-measures!)
       (let [nm "rf:test:roundtrip-on"]
         (dotimes [_ 25]
-          (performance/mark-and-measure :test :roundtrip-on :ok))
+          (rf.performance/mark-and-measure :test :roundtrip-on :ok))
         (is (zero? (count-measures nm))
             "the measure buffer stays empty — cleared after each emit, no leak")))))
 
@@ -97,10 +97,10 @@
             allocated — two-thirds of the old per-bracket buffer growth
             is gone. No `rf:` mark entry lands regardless of the
             retain-entries? flag."
-    (when performance/enabled?
+    (when rf.performance/enabled?
       (clear-measures!)
       (dotimes [_ 25]
-        (performance/mark-and-measure :test :no-marks :ok))
+        (rf.performance/mark-and-measure :test :no-marks :ok))
       (is (zero? (count-rf-marks))
           "the bracket produces no rf: mark entries"))))
 
@@ -110,10 +110,10 @@
             This is the runtime expression of the elision contract: a
             broken DCE would leave the body live and this assertion
             would still be the runtime signal."
-    (when-not performance/enabled?
+    (when-not rf.performance/enabled?
       (clear-measures!)
       (dotimes [_ 5]
-        (performance/mark-and-measure :test :off nil))
+        (rf.performance/mark-and-measure :test :off nil))
       (is (zero? (count-measures "rf:test:off"))))))
 
 (deftest mark-and-measure-propagates-thrown-exceptions
@@ -125,11 +125,11 @@
     (clear-measures!)
     (let [thrown (atom nil)]
       (try
-        (performance/mark-and-measure :test :throws
+        (rf.performance/mark-and-measure :test :throws
           (throw (ex-info "boom" {})))
         (catch :default e
           (reset! thrown e)))
       (is @thrown "the exception propagates")
-      (when (and performance/enabled? (not performance/retain-entries?))
+      (when (and rf.performance/enabled? (not rf.performance/retain-entries?))
         (is (zero? (count-measures "rf:test:throws"))
             "the partial-run measure was emitted (delivered to observers) then cleared")))))

@@ -32,9 +32,9 @@
       handler that leaves `:circles` unchanged."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]
+            [re-frame.frame :as rf.frame]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]
             ;; Required for its ns-load side effects: the `:drawer/undoable`
             ;; interceptor + the drawer events/handlers under test.
             [seven-guis.circle-drawer.core]))
@@ -43,8 +43,8 @@
 ;; so it wants a clear ambient scope (the frame-scoping sibling uses the same
 ;; opt-out for the same reason).
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       reagent-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.reagent/adapter
      :ambient-frame nil}))
 
 (defn- drawer
@@ -55,7 +55,7 @@
 (defn- boot!
   "A fresh anon frame with the drawer initialised to a blank canvas."
   []
-  (let [f (frame/make-anon-frame-record! {:doc "circle-drawer undo test"})]
+  (let [f (rf.frame/make-anon-frame-record! {:doc "circle-drawer undo test"})]
     (rf/dispatch-sync [:drawer/initialise] {:frame f})
     f))
 

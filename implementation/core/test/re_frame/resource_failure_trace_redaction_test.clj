@@ -23,8 +23,8 @@
   Production elision of the whole projection cost is pinned separately by the
   `re-frame.elision-probe` + `scripts/check-elision.cjs` gate."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.classification :as classification]
-            [re-frame.privacy :as privacy]))
+            [re-frame.classification :as rf.classification]
+            [re-frame.privacy :as rf.privacy]))
 
 ;; ---- rf2-7qbxbm: resource/mutation FAILURE :error / :page-error envelope ---
 
@@ -53,7 +53,7 @@
   (testing "rf2-7qbxbm (on-box leg): a :rf.resource/failed trace's :error HTTP
             failure envelope is summarized to :rf/redacted; structural status
             tags ride; no raw secret survives"
-    (let [projected (classification/project-trace-event
+    (let [projected (rf.classification/project-trace-event
                       {:operation :rf.resource/failed
                        :op-type   :rf.event
                        :tags      {:rf.frame/id    :rf/default
@@ -61,7 +61,7 @@
                                    :status-before  :loading
                                    :status-after   :error
                                    :error          http-failure-envelope}})]
-      (is (= privacy/redacted-sentinel (get-in projected [:tags :error]))
+      (is (= rf.privacy/redacted-sentinel (get-in projected [:tags :error]))
           "the :error HTTP failure envelope is redacted on-box")
       (is (= :loading (get-in projected [:tags :status-before]))
           "the structural status-before tag rides verbatim")
@@ -73,13 +73,13 @@
 (deftest resource-page-failed-page-error-envelope-redacted-on-box
   (testing "rf2-7qbxbm (on-box leg): a :rf.resource/page-failed trace's
             :page-error envelope (load-more third error channel) is redacted"
-    (let [projected (classification/project-trace-event
+    (let [projected (rf.classification/project-trace-event
                       {:operation :rf.resource/page-failed
                        :op-type   :rf.event
                        :tags      {:rf.frame/id :rf/default
                                    :frame       :rf/default
                                    :page-error  http-failure-envelope}})]
-      (is (= privacy/redacted-sentinel (get-in projected [:tags :page-error]))
+      (is (= rf.privacy/redacted-sentinel (get-in projected [:tags :page-error]))
           "the :page-error envelope is redacted on-box")
       (is (not (envelope-contains-secret? (:tags projected)))
           "no raw secret survives"))))
@@ -87,7 +87,7 @@
 (deftest mutation-failed-error-envelope-redacted-on-box
   (testing "rf2-7qbxbm (on-box leg): a :rf.mutation/failed trace's :error
             envelope is redacted; the mutation id structural tag rides"
-    (let [projected (classification/project-trace-event
+    (let [projected (rf.classification/project-trace-event
                       {:operation :rf.mutation/failed
                        :op-type   :rf.event
                        :tags      {:rf.frame/id :rf/default
@@ -95,7 +95,7 @@
                                    :mutation    :m/save
                                    :instance    7
                                    :error       http-failure-envelope}})]
-      (is (= privacy/redacted-sentinel (get-in projected [:tags :error]))
+      (is (= rf.privacy/redacted-sentinel (get-in projected [:tags :error]))
           "the mutation failure envelope is redacted on-box")
       (is (= :m/save (get-in projected [:tags :mutation]))
           "the mutation id structural tag rides verbatim")
@@ -106,7 +106,7 @@
   (testing "rf2-7qbxbm guard: the resource-failure clause is keyed on the
             FAILURE ops, so an UNRELATED trace carrying a scalar :error status
             keyword (not an HTTP envelope) is NOT swept up — no over-redaction"
-    (let [projected (classification/project-trace-event
+    (let [projected (rf.classification/project-trace-event
                       {:operation :rf.resource/work-completed
                        :op-type   :rf.event
                        :tags      {:rf.frame/id :rf/default

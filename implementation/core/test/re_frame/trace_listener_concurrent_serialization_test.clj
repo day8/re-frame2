@@ -28,13 +28,13 @@
   self-deadlock. CLJS is single-threaded, so these races cannot manifest there
   and there is no monitor — hence this suite is JVM-only (`.clj`)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace :as trace])
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.trace :as rf.trace])
   (:import [java.util.concurrent CountDownLatch TimeUnit]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (def ^:private probe-a :trace.serialize/a)
 (def ^:private probe-b :trace.serialize/b)
@@ -52,7 +52,7 @@
 ;; ---- 1. Deterministic two-thread latch proof -----------------------------
 
 ;; ---- Posture: dev-only, declared by `^:requires-debug` (rf2-d2841) ---------
-;; Trace machinery end to end: under `-Dre-frame.debug=false` `trace/emit` is a
+;; Trace machinery end to end: under `-Dre-frame.debug=false` `rf.trace/emit` is a
 ;; no-op, so there is no semantic residue to run under that posture, and a
 ;; `(when interop/debug-enabled? ...)` split -- the shape the rest of rf2-d2841
 ;; used -- would leave EMPTY deftests reporting green (class 2).  Every deftest
@@ -78,7 +78,7 @@
             a-entered (CountDownLatch. 1)
             b-entered (CountDownLatch. 1)
             release-a (CountDownLatch. 1)]
-        (trace/register-listener! ::probe
+        (rf.trace/register-listener! ::probe
           (fn [ev]
             (let [op (:operation ev)]
               (when (or (= op probe-a) (= op probe-b))
@@ -95,8 +95,8 @@
                   (.countDown b-entered))
                 (swap! log conj [:exit op])
                 (swap! in-flight dec)))))
-        (let [t1 (Thread. ^Runnable (fn [] (trace/emit! :info probe-a {})))
-              t2 (Thread. ^Runnable (fn [] (trace/emit! :info probe-b {})))]
+        (let [t1 (Thread. ^Runnable (fn [] (rf.trace/emit! :info probe-a {})))
+              t2 (Thread. ^Runnable (fn [] (rf.trace/emit! :info probe-b {})))]
           (.start t1)
           ;; A is now inside L, blocked on release-a (holding fanout-monitor).
           (.await a-entered 5 TimeUnit/SECONDS)
@@ -116,7 +116,7 @@
           (.countDown release-a)
           (.join t1 5000)
           (.join t2 5000))
-        (trace/unregister-listener! ::probe)
+        (rf.trace/unregister-listener! ::probe)
         (is (= 1 @max-conc)
             (str "iter " iter ": the listener callback was invoked concurrently "
                  "with itself across two emits (max concurrent invocations "
@@ -147,7 +147,7 @@
           n-threads  6
           per-thread (quot stress-iters n-threads)
           total      (* n-threads per-thread)]
-      (trace/register-listener! ::always-on
+      (rf.trace/register-listener! ::always-on
         (fn [_ev]
           (let [n (swap! in-flight inc)]
             (swap! max-conc max n))
@@ -162,8 +162,8 @@
                       (let [toggle (atom false)]
                         (while (not @stop)
                           (if (swap! toggle not)
-                            (trace/register-listener! ::churned (fn [_ev] nil))
-                            (trace/unregister-listener! ::churned))
+                            (rf.trace/register-listener! ::churned (fn [_ev] nil))
+                            (rf.trace/unregister-listener! ::churned))
                           (Thread/yield)))))
             emitters (mapv (fn [t]
                              (Thread.
@@ -171,7 +171,7 @@
                                (fn []
                                  (.await start)
                                  (dotimes [i per-thread]
-                                   (trace/emit! :info :trace.serialize/stress
+                                   (rf.trace/emit! :info :trace.serialize/stress
                                                 {:t t :i i})))))
                            (range n-threads))]
         (.start churn)
@@ -181,8 +181,8 @@
         (reset! stop true)
         (.join churn 5000)
         (let [stragglers (filterv (fn [^Thread e] (.isAlive e)) emitters)]
-          (trace/unregister-listener! ::always-on)
-          (trace/unregister-listener! ::churned)
+          (rf.trace/unregister-listener! ::always-on)
+          (rf.trace/unregister-listener! ::churned)
           (is (empty? stragglers)
               (str "an emitter thread did not finish within the deadline — "
                    "possible deadlock; " (count stragglers) " still alive"))

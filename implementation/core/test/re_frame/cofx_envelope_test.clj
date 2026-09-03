@@ -16,7 +16,7 @@
       coeffect alongside `:db` / `:event` / `:rf.db/runtime` / `:rf.frame/id`
       (Spec 002 §Event Context And Coeffects);
     - it is FILTERED out of the user-cofx trace projection exactly like the
-      other framework defaults (`fx/framework-coeffect-keys`);
+      other framework defaults (`rf.fx/framework-coeffect-keys`);
     - `:dispatched-at` is RETIRED in the same change (rider b) — its
       diagnostic dispatch-time need is the trace event `:time` stamp.
 
@@ -30,7 +30,7 @@
   `re-frame.cofx-cljs-test`, `re-frame.unknown-dispatch-opts-warn-test`, and
   `re-frame.event-model-conformance-cljs-test`.
 
-  JVM-only — the stamping path is platform-agnostic (`interop/now-ms`
+  JVM-only — the stamping path is platform-agnostic (`rf.interop/now-ms`
   realises on both hosts); no CLJS host dependency under test.
 
   ## Posture split (rf2-d2841)
@@ -59,15 +59,15 @@
   projection kept as the guarded dev-side detail."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.fx :as fx]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.recordable :as recordable]
-            [re-frame.registrar :as registrar]
-            [re-frame.router :as router]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]
+            [re-frame.fx :as rf.fx]
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.recordable :as rf.recordable]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.router :as rf.router]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace :as rf.trace]
             ;; rf2-zq5zj2 / rf2-qwm0a — load the tooling sibling so the
             ;; late-bind hooks behind the listener API resolve (the
             ;; diagnostic-differs test registers a trace listener).
@@ -84,17 +84,17 @@
 ;; ---- fixtures -------------------------------------------------------------
 
 (defn reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (when-let [clear-schemas! (late-bind/get-fn :schemas/clear-by-frame!)]
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (when-let [clear-schemas! (rf.late-bind/get-fn :schemas/clear-by-frame!)]
     (clear-schemas!))
   ;; rf2-zq5zj2 — clear the per-frame epoch rings so the diagnostic-differs
   ;; test reads only its own freshly-committed records (the `:epoch/settle!`
   ;; hook is published once `re-frame.epoch` is loaded, above).
-  (when-let [clear-history! (late-bind/get-fn :epoch/clear-history!)]
+  (when-let [clear-history! (rf.late-bind/get-fn :epoch/clear-history!)]
     (clear-history!))
-  (trace/clear-listeners!)
-  (rf/init! plain-atom/adapter)
+  (rf.trace/clear-listeners!)
+  (rf/init! rf.substrate.plain-atom/adapter)
   (test-fn))
 
 (use-fixtures :each reset-runtime)
@@ -102,7 +102,7 @@
 (def ^:private build-envelope
   "The private envelope builder — the dispatch envelope is not exposed to
   user handlers, so stamping/preservation is asserted directly against it."
-  #'router/build-envelope)
+  #'rf.router/build-envelope)
 
 (defn- capture-coeffects
   "Dispatch `[:capture]` on `frame-id` (threading `opts`) and return the
@@ -173,7 +173,7 @@
   (testing "a supplied non-map :rf.cofx is a hard error (not silently stamped)"
     (rf/make-frame {:id :wi/bad-shape :doc "ctx"})
     (testing "build-envelope throws even with the dev gate OFF (prod-survivable)"
-      (with-redefs [interop/debug-enabled? false]
+      (with-redefs [rf.interop/debug-enabled? false]
         (is (thrown? clojure.lang.ExceptionInfo
                      (build-envelope [:noop] {:frame :wi/bad-shape
                                               :rf.cofx "now"}))
@@ -197,7 +197,7 @@
   (testing "a supplied :rf/time-ms that is not an integer is a hard error"
     (rf/make-frame {:id :wi/bad-time :doc "ctx"})
     (testing "build-envelope throws on a string :rf/time-ms (even dev-gate OFF)"
-      (with-redefs [interop/debug-enabled? false]
+      (with-redefs [rf.interop/debug-enabled? false]
         (is (thrown? clojure.lang.ExceptionInfo
                      (build-envelope [:noop] {:frame :wi/bad-time
                                               :rf.cofx {:rf/time-ms "now"}}))
@@ -267,7 +267,7 @@
                #inst "2026-06-14T00:00:00.000Z"
                [] [1 2 3] '(1 2) #{1 2} {:a 1 :b [2 {:c 3}]}
                {:nested {:deep [#{:a :b} {:k "v"}]}}]]
-      (is (recordable/recordable-edn-value? v)
+      (is (rf.recordable/recordable-edn-value? v)
           (str (pr-str v) " is recordable EDN data"))))
   (testing "recordable-edn-value? REJECTS non-data host handles"
     (doseq [v [(fn [] 1)                       ;; a function
@@ -276,30 +276,30 @@
                (java.util.regex.Pattern/compile "x") ;; a host object
                (Object.)                        ;; a bare host object
                (java.io.StringWriter.)]]        ;; a host writer
-      (is (not (recordable/recordable-edn-value? v))
+      (is (not (rf.recordable/recordable-edn-value? v))
           (str (type v) " is NOT recordable EDN data"))))
   (testing "a host handle BURIED in a collection is rejected (deep walk)"
-    (is (not (recordable/recordable-edn-value? {:ok 1 :bad [:a (atom 2)]}))
+    (is (not (rf.recordable/recordable-edn-value? {:ok 1 :bad [:a (atom 2)]}))
         "an atom nested in a vector under a map key is found")
-    (is (not (recordable/recordable-edn-value? #{:a (fn [] 1)}))
+    (is (not (rf.recordable/recordable-edn-value? #{:a (fn [] 1)}))
         "a function inside a set is found")
-    (is (not (recordable/recordable-edn-value? {(Object.) :v}))
+    (is (not (rf.recordable/recordable-edn-value? {(Object.) :v}))
         "a host-object MAP KEY is found")))
 
 (deftest explain-non-recordable-reports-path-and-type
   (testing "explain-non-recordable returns the failing path + safe type"
-    (let [bad (recordable/explain-non-recordable {:ok 1 :nope {:deep (atom 9)}})]
+    (let [bad (rf.recordable/explain-non-recordable {:ok 1 :nope {:deep (atom 9)}})]
       (is (some? bad) "a descriptor is returned for a non-recordable value")
       (is (= [:nope :deep] (:path bad)) "the path locates the bad leaf")
       (is (string? (:bad-type bad)) "a printable host-type string is reported")
       (is (re-find #"(?i)atom" (:bad-type bad))
           "the type names the atom host class")))
   (testing "explain-non-recordable is nil for clean EDN"
-    (is (nil? (recordable/explain-non-recordable {:a [1 2 {:b :c}]}))))
+    (is (nil? (rf.recordable/explain-non-recordable {:a [1 2 {:b :c}]}))))
   (testing "safe-preview round-trips EDN and refuses host handles"
-    (is (= "{:a 1}" (recordable/safe-preview {:a 1}))
+    (is (= "{:a 1}" (rf.recordable/safe-preview {:a 1}))
         "a preview of EDN data is its pr-str")
-    (is (nil? (recordable/safe-preview (atom 1)))
+    (is (nil? (rf.recordable/safe-preview (atom 1)))
         "no preview for a non-recordable value (never the raw host object)")))
 
 (deftest jvm-instant-is-not-recordable-only-date-is
@@ -313,29 +313,29 @@
   ;; not far away at replay / Xray / SSR time — and safe-preview never leaks it.
   (testing "a java.util.Date (#inst literal) IS recordable and round-trips"
     (let [d (java.util.Date. 1781078400123)]
-      (is (recordable/recordable-edn-value? d)
+      (is (rf.recordable/recordable-edn-value? d)
           "a java.util.Date is recordable EDN data")
-      (is (nil? (recordable/explain-non-recordable d))
+      (is (nil? (rf.recordable/explain-non-recordable d))
           "no failing descriptor for a Date")
       (is (= d (read-string (pr-str d)))
           "a Date round-trips through pr-str / read-string unchanged")))
   (testing "a java.time.Instant is NOT recordable — rejected at the source"
     (let [inst (java.time.Instant/ofEpochMilli 1781078400123)]
-      (is (not (recordable/recordable-edn-value? inst))
+      (is (not (rf.recordable/recordable-edn-value? inst))
           "a java.time.Instant is NOT recordable EDN data")
-      (let [bad (recordable/explain-non-recordable inst)]
+      (let [bad (rf.recordable/explain-non-recordable inst)]
         (is (some? bad) "explain-non-recordable returns a descriptor for an Instant")
         (is (= [] (:path bad)) "the failing path is the root (the value itself)")
         (is (re-find #"(?i)instant" (:bad-type bad))
             "the bad-type names the Instant host class"))
-      (is (nil? (recordable/safe-preview inst))
+      (is (nil? (rf.recordable/safe-preview inst))
           "safe-preview refuses an Instant — no non-round-tripping preview leak")
       (testing "the round-trip the predicate protects against actually fails"
         (is (thrown? RuntimeException
               (read-string (pr-str inst)))
             "read-string of a printed Instant throws (No reader function for tag inst)"))))
   (testing "an Instant BURIED in a collection is rejected (deep walk)"
-    (let [bad (recordable/explain-non-recordable
+    (let [bad (rf.recordable/explain-non-recordable
                 {:ok 1 :when {:at (java.time.Instant/ofEpochMilli 0)}})]
       (is (some? bad) "the buried Instant is found")
       (is (= [:when :at] (:path bad)) "the path locates the buried Instant"))))
@@ -398,12 +398,12 @@
   ;; production as well as dev): a supplied recordable value that is a host
   ;; handle folds a non-EDN value into the durable causal record (epoch ledger,
   ;; replay, SSR payload, Xray) — corrupt durable state, not a dev nicety. The
-  ;; per-value walk is therefore ALWAYS-ON, NOT gated on `interop/debug-enabled?`
+  ;; per-value walk is therefore ALWAYS-ON, NOT gated on `rf.interop/debug-enabled?`
   ;; — the same `:dispatched-at` causal-token precedent the map-shape /
   ;; `:rf/time-ms` checks already enforce in production.
   (testing "with the dev gate OFF a non-EDN supplied value IS structurally rejected"
     (rf/make-frame {:id :wi/edn-prod :doc "ctx"})
-    (with-redefs [interop/debug-enabled? false]
+    (with-redefs [rf.interop/debug-enabled? false]
       (let [ex   (try
                    (build-envelope [:noop]
                                    {:frame   :wi/edn-prod
@@ -422,7 +422,7 @@
             "the path is rooted at the failing fact key"))))
   (testing "the MAP-SHAPE check stays always-on even with the dev gate OFF"
     (rf/make-frame {:id :wi/edn-prod2 :doc "ctx"})
-    (with-redefs [interop/debug-enabled? false]
+    (with-redefs [rf.interop/debug-enabled? false]
       (is (thrown? clojure.lang.ExceptionInfo
                    (build-envelope [:noop] {:frame :wi/edn-prod2
                                             :rf.cofx "not-a-map"}))
@@ -437,7 +437,7 @@
   (testing "a malformed :rf.cofx throws the validation error WITHOUT
             reading the causal-token clock first"
     (rf/make-frame {:id :wi/order2 :doc "ctx"})
-    (with-redefs [interop/epoch-now-ms
+    (with-redefs [rf.interop/epoch-now-ms
                   (fn [] (throw (ex-info "clock read before validation"
                                          {::clock-read true})))]
       (let [ex   (try
@@ -509,12 +509,12 @@
 ;; as child causal-token producers. The existing child-dispatch-gets-fresh-
 ;; time-ms (above) covers the IMMEDIATE :dispatch child; the deferred path is
 ;; distinct because `:dispatch-later` wraps the router `dispatch!` in
-;; `interop/set-timeout!` (re-frame.fx §reserved-fx-handlers), so the child's
+;; `rf.interop/set-timeout!` (re-frame.fx §reserved-fx-handlers), so the child's
 ;; `build-envelope` — and thus its `:rf.cofx` stamp — happens inside
 ;; the timer callback, an arbitrary wall-clock interval after the parent
 ;; settled. `:rf.cofx` is deliberately ABSENT from
 ;; `re-frame.fx/inheritable-envelope-keys`, so the deferred child is stamped
-;; a fresh `:rf/time-ms` at fire from `interop/epoch-now-ms` rather than copying
+;; a fresh `:rf/time-ms` at fire from `rf.interop/epoch-now-ms` rather than copying
 ;; the parent's — the mechanism the existing :rf.cofx tests pin only for
 ;; the synchronous case.
 ;;
@@ -550,18 +550,18 @@
         (fn [_ _]
           {:fx [[:wi.later/capture-env]]}))
 
-      (with-redefs [interop/epoch-now-ms (fn [] @clock)
+      (with-redefs [rf.interop/epoch-now-ms (fn [] @clock)
                     ;; capture the deferred thunk; do NOT run it yet, so the
                     ;; clock can advance before the child's build-envelope runs.
-                    interop/set-timeout! (fn [f _ms] (reset! deferred f) :handle)
+                    rf.interop/set-timeout! (fn [f _ms] (reset! deferred f) :handle)
                     ;; the deferred thunk calls the ASYNC router `dispatch!`,
-                    ;; which schedules its drain on `interop/next-tick` (a
+                    ;; which schedules its drain on `rf.interop/next-tick` (a
                     ;; separate executor thread on the JVM). Run next-tick
                     ;; INLINE so the deferred child's cascade settles
                     ;; synchronously within this test — the clock read under
                     ;; test is at the deferred dispatch's `build-envelope`,
                     ;; which the inline drain reaches deterministically.
-                    interop/next-tick   (fn [f] (f) nil)]
+                    rf.interop/next-tick   (fn [f] (f) nil)]
         ;; Parent supplies an explicit token :rf/time-ms and rides a distinctive
         ;; :trace-id / :origin so we can assert inheritance onto the child.
         (rf/dispatch-sync [:wi.later/parent]
@@ -624,13 +624,13 @@
           "the supplied :rf/time-ms is what the handler reads"))))
 
 (deftest cofx-filtered-from-user-cofx-projection
-  (testing "fx/user-injected-coeffects strips :rf.cofx like the other framework defaults"
-    (is (contains? fx/framework-coeffect-keys :rf.cofx)
+  (testing "rf.fx/user-injected-coeffects strips :rf.cofx like the other framework defaults"
+    (is (contains? rf.fx/framework-coeffect-keys :rf.cofx)
         ":rf.cofx is in the framework-coeffect-keys filter set")
     (let [cofx {:db {} :event [:e] :rf.db/runtime {} :rf.frame/id :f
                 :rf.cofx {:rf/time-ms 1781078400789}
                 :my/cofx 1}]
-      (is (= {:my/cofx 1} (fx/user-injected-coeffects cofx))
+      (is (= {:my/cofx 1} (rf.fx/user-injected-coeffects cofx))
           ":rf.cofx does NOT appear in the user-cofx trace projection"))))
 
 ;; ===========================================================================
@@ -641,7 +641,7 @@
   (testing "EP-0010 rider b: :dispatched-at is retired from the envelope (no coexistence)"
     (rf/make-frame {:id :wi/no-dispatched-at :doc "ctx"})
     (testing "absent even with the dev gate ON (it is not merely prod-elided — it is gone)"
-      (with-redefs [interop/debug-enabled? true]
+      (with-redefs [rf.interop/debug-enabled? true]
         (is (not (contains? (build-envelope [:noop] {:frame :wi/no-dispatched-at})
                             :dispatched-at))
             "no :dispatched-at key on the envelope")))
@@ -674,7 +674,7 @@
       (let [seen (atom [])]
         (rf/register-listener! :trace ::dispatched-at
           (fn [ev] (swap! seen conj ev)))
-        (binding [frame/*current-frame* :wi/retired-supply]
+        (binding [rf.frame/*current-frame* :wi/retired-supply]
           (rf/dispatch-sync [:wi/retired-noop] {:dispatched-at 123}))
         (rf/unregister-listener! :trace ::dispatched-at)
         ;; ALWAYS-ON (rf2-d2841): `:recovery :no-recovery` means the dispatch
@@ -683,7 +683,7 @@
         ;; nothing had asserted it there.
         (is (true? (:wi/handler-ran? (rf/app-db-value :wi/retired-supply)))
             "the dispatch proceeded and committed despite the unrecognised opt")
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (let [warns (filterv (fn [ev]
                                  (and (= :warning (:op-type ev))
                                       (= :rf.warning/unknown-dispatch-opt (:operation ev))))
@@ -796,7 +796,7 @@
 ;; CAUSAL time (the token's `:rf.cofx` `:rf/time-ms` → the epoch record's
 ;; `:committed-at`, read ONCE at the causal boundary from `epoch-now-ms`) AND
 ;; ambient DIAGNOSTIC times (the trace event `:time`, stamped from the elapsed
-;; `interop/now-ms` at every emit). The bullet asserts the ambient ones are
+;; `rf.interop/now-ms` at every emit). The bullet asserts the ambient ones are
 ;; free to vary run-to-run while the durable projection stays EQUAL.
 ;;
 ;; We run the SAME scripted token (same supplied `:rf/time-ms`) twice under two
@@ -826,7 +826,7 @@
     (let [token-time   1781078400123     ; the supplied causal token :rf/time-ms
           ;; capture the diagnostic trace :time of THIS frame's :wi/note event
           ;; per run — the trace `:time` is stamped from the ambient
-          ;; `interop/now-ms` (re-frame.trace/build-event), the diagnostic
+          ;; `rf.interop/now-ms` (re-frame.trace/build-event), the diagnostic
           ;; surface the bullet says is free to vary.
           trace-times  (atom [])
           run!         (fn [ambient-clock]
@@ -849,8 +849,8 @@
                            ;; the SUPPLIED token :rf/time-ms rides through
                            ;; unchanged (the router only fills :rf/time-ms when
                            ;; absent — see preserves-caller-supplied-time-ms).
-                           (with-redefs [interop/now-ms       (constantly ambient-clock)
-                                         interop/epoch-now-ms (constantly ambient-clock)]
+                           (with-redefs [rf.interop/now-ms       (constantly ambient-clock)
+                                         rf.interop/epoch-now-ms (constantly ambient-clock)]
                              (rf/dispatch-sync [:wi/note]
                                                {:frame :wi/split
                                                 :rf.cofx {:rf/time-ms token-time}}))
@@ -873,7 +873,7 @@
       (is (= token-time (:wi/durable-token (rf/app-db-value :wi/split)))
           "the durable state folded the SUPPLIED token time, not the ambient
            clock — and it is the same value after a run under each clock")
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         ;; the epoch-ring projection of the same durable fact
         (is (= token-time committed-1)
             "run 1: durable :committed-at folds the supplied token :rf/time-ms")

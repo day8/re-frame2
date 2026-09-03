@@ -46,8 +46,8 @@
   The DOM-annotation hook (per Tool-Pair §Source-mapping) is the dev-only
   piece, gated separately."
   (:require [clojure.string :as str]
-            [re-frame.interop :as interop]
-            [re-frame.source-coords.editor-uri :as editor-uri]))
+            [re-frame.interop :as rf.interop]
+            [re-frame.source-coords.editor-uri :as rf.source-coords.editor-uri]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -75,7 +75,7 @@
   inline (no need to leave the browser to read what code ran).
 
   CLJS production elision: the macro emission wraps the binding-value
-  in an `(if interop/debug-enabled? <source-string> nil)` gate so
+  in an `(if rf.interop/debug-enabled? <source-string> nil)` gate so
   Closure constant-folds the gate to `nil` under `:advanced` +
   `goog.DEBUG=false` and DCEs both the literal source string and the
   `:rf.handler/source` keyword's reachability from this slot. The
@@ -101,7 +101,7 @@
   (see [[remember-error-coords!]]) carries them through to the
   error-emit substrate for Sentry-style observability."
   [user-meta]
-  (if-not interop/debug-enabled?
+  (if-not rf.interop/debug-enabled?
     ;; Production: strip the coord-keys from public meta. The always-on
     ;; error-coords parallel registry retains them for error-emit
     ;; observability — see [[remember-error-coords!]] / [[error-coords-for]].
@@ -308,7 +308,7 @@
 ;; ALWAYS present — it's the function the transition engine invokes. The
 ;; `:source-coords` / `:source-code` slots are DEBUG-only: the reg-machine
 ;; macro emits them via [[collocate-element-source]] under an
-;; `(if interop/debug-enabled? ...)` gate, so production CLJS builds run the
+;; `(if rf.interop/debug-enabled? ...)` gate, so production CLJS builds run the
 ;; `(else)` branch — [[wrap-element-fns]] — which collapses each entry to
 ;; `{:fn <fn>}` with no source literals reachable. Keeping `:fn` separable is
 ;; what lets Closure DCE the dev-only source bytes (rf2-npvsx supersedes the
@@ -337,7 +337,7 @@
   No-op when the slot is absent or not a map. Returns the updated spec.
 
   This is the `(else)` arm of the reg-machine macro's
-  `(if interop/debug-enabled? <collocate> <wrap>)` gate — it references
+  `(if rf.interop/debug-enabled? <collocate> <wrap>)` gate — it references
   NO source literals, so under `:advanced` + `goog.DEBUG=false` the
   whole dev arm (with its coord maps + `pr-str` source strings) DCEs and
   only `{:fn <fn>}` / verbatim entry-map entries ship."
@@ -380,7 +380,7 @@
   couldn't `pr-str` meaningfully) still get their bare-fn `{:fn <fn>}`
   wrapper / verbatim entry-map. Returns the updated spec.
 
-  This is the dev arm of the reg-machine macro's `(if interop/debug-
+  This is the dev arm of the reg-machine macro's `(if rf.interop/debug-
   enabled? <collocate> <wrap>)` gate. The `source-data` literal is
   referenced ONLY here, so it DCEs alongside this arm under `:advanced` +
   `goog.DEBUG=false`."
@@ -414,7 +414,7 @@
   so a spec whose runtime shape diverged from the literal — never, in
   practice — degrades to a no-op rather than corrupting a non-map slot).
 
-  This is the dev arm of the reg-machine macro's `(if interop/debug-enabled?
+  This is the dev arm of the reg-machine macro's `(if rf.interop/debug-enabled?
   <collocate> <identity>)` gate — the `coords` literal is referenced ONLY
   here, so under `:advanced` + `goog.DEBUG=false` the whole co-location (and
   its coord maps) DCEs and the registered state-nodes ship clean (just the
@@ -463,7 +463,7 @@
   whose runtime shape diverged from the literal degrades to a no-op). Returns
   the updated spec.
 
-  This is the dev arm of the reg-machine macro's `(if interop/debug-enabled?
+  This is the dev arm of the reg-machine macro's `(if rf.interop/debug-enabled?
   <collocate> <identity>)` gate — the `inline-source` literal is referenced
   ONLY here, so under `:advanced` + `goog.DEBUG=false` the whole co-location
   (with its `pr-str` source strings) DCEs and the registered state-nodes ship
@@ -613,8 +613,8 @@
 ;; Failure modes that fall through to the unchanged input:
 ;;   - Already-absolute path (e.g. a JVM-compile `*file*` that
 ;;     happened to be absolute, or a synthetic coord with an absolute
-;;     `:file`): detected by `editor-uri/absolute-path?` — the same
-;;     predicate `editor-uri/compose-path` uses (leading `/`, leading
+;;     `:file`): detected by `rf.source-coords.editor-uri/absolute-path?` — the same
+;;     predicate `rf.source-coords.editor-uri/compose-path` uses (leading `/`, leading
 ;;     drive letter, leading `file:` scheme, leading backslash).
 ;;   - File not resolvable on classpath (REPL-eval forms with synthetic
 ;;     `:file`, a test fixture's fabricated path, a path under a
@@ -648,7 +648,7 @@
 
      Per rf2-wvsxg."
      [path]
-     (if (or (nil? path) (.isEmpty ^String path) (editor-uri/absolute-path? path))
+     (if (or (nil? path) (.isEmpty ^String path) (rf.source-coords.editor-uri/absolute-path? path))
        path
        (try
          (if-let [url (.getResource (context-class-loader) path)]
@@ -720,7 +720,7 @@
 
   Per rf2-3un2g §Production elision: callers SHOULD wrap the dev
   emission alongside [[prod-coords-form]] under
-  `(if interop/debug-enabled? <dev> <prod>)` so Closure DCEs the dev
+  `(if rf.interop/debug-enabled? <dev> <prod>)` so Closure DCEs the dev
   shape (with `:column`) under `:advanced` + `goog.DEBUG=false`. The
   `with-coords-form` / `expand-reg-machine` helpers do this internally;
   per-element machine stamping and call-site stamping handle elision
@@ -750,7 +750,7 @@
      Per rf2-3un2g — `:column` is dev-tooling-only (IDE jump-to-source
      refinement); Sentry-style observability needs only `:ns`/`:file`/
      `:line`. Emitting the slim form under the prod branch of an
-     `(if interop/debug-enabled? ...)` lets Closure DCE the dev coords
+     `(if rf.interop/debug-enabled? ...)` lets Closure DCE the dev coords
      literal (with `:column`) under `:advanced` + `goog.DEBUG=false`,
      so the bundle ships the slimmer payload only.
 
@@ -817,7 +817,7 @@
 ;; walker runs at compile time on JVM only (the Clojure side of the macro)
 ;; and produces a `{<map-spec-path> <coord-form>}` index that
 ;; [[collocate-state-source]] splices onto each map node at RUNTIME — but
-;; only in the dev arm of the macro's `interop/debug-enabled?` gate, so the
+;; only in the dev arm of the macro's `rf.interop/debug-enabled?` gate, so the
 ;; whole co-location DCEs under `goog.DEBUG=false`.
 
 #?(:clj
@@ -966,7 +966,7 @@
 
   The returned index is consumed by [[collocate-state-source]], which
   splices each coord onto its map node at runtime (the dev arm of the
-  macro's `interop/debug-enabled?` gate), so the registered spec carries
+  macro's `rf.interop/debug-enabled?` gate), so the registered spec carries
   `:source-coords` directly on each state-node / transition map rather than
   in a flat side-index.
 
@@ -1021,7 +1021,7 @@
 ;; :clear-hold`) carry NO inline source — their body lives on the named
 ;; `:actions` entry (per `walk-element-source`).
 ;;
-;; The whole index rides the dev arm of the macro's `interop/debug-enabled?`
+;; The whole index rides the dev arm of the macro's `rf.interop/debug-enabled?`
 ;; gate (spliced only by `collocate-state-inline-source`), so the source
 ;; strings DCE under `:advanced` + `goog.DEBUG=false` exactly as the
 ;; reference-site coord index does.
@@ -1160,7 +1160,7 @@
    Returns `{}` when the spec form is not a map literal (a symbol /
    let-bound expr — nothing to walk). JVM-only — runs on the Clojure side
    of the `reg-machine` / `defmachine` macro. The whole returned literal is
-   referenced only from the dev arm of the macro's `interop/debug-enabled?`
+   referenced only from the dev arm of the macro's `rf.interop/debug-enabled?`
    gate, so it DCEs under `:advanced` + `goog.DEBUG=false`."
   [spec-form]
   (if-not (map? spec-form)
@@ -1182,7 +1182,7 @@
 ;; `pr-str` of the fn-form. These are merged onto each element entry's
 ;; `{:fn .. :source-coords .. :source-code ..}` co-located map at registration
 ;; runtime by [[collocate-element-source]] — but ONLY in the dev arm of the
-;; macro's `(if interop/debug-enabled? ...)` gate, so under `:advanced` +
+;; macro's `(if rf.interop/debug-enabled? ...)` gate, so under `:advanced` +
 ;; `goog.DEBUG=false` the source-coord maps + `pr-str` strings DCE and prod
 ;; entries collapse to `{:fn <fn>}` ([[wrap-element-fns]]).
 ;;

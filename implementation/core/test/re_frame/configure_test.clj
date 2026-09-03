@@ -27,7 +27,7 @@
 
   ## Posture split (rf2-d2841)
 
-  The `:elision` knob is PRODUCTION STATE — `elision/current-config` is not
+  The `:elision` knob is PRODUCTION STATE — `rf.elision/current-config` is not
   gated — and so are the closed-vocabulary rules: unknown keys return nil, a
   non-map argument fails loud on an `assert`. Those run under
   `scripts/test-core-prod-gate.sh` unchanged and are the substance of
@@ -36,12 +36,12 @@
   The `:trace-buffer` knob is a different animal, and the tempting reading of
   it is wrong. It is NOT \"a dev-only warning attached to production state\":
   `trace.tooling/configure-trace-buffer!` opens BOTH of its arms with
-  `(when (and interop/debug-enabled? …))`, so under `-Dre-frame.debug=false`
+  `(when (and rf.interop/debug-enabled? …))`, so under `-Dre-frame.debug=false`
   the whole surface — the retention it sets AND the
   `:rf.warning/trace-buffer-unrecognised-opts` it emits — is a no-op, and
   `trace-buffer` itself returns `[]` because the ring is never allocated.
   Every `:trace-buffer` assertion is therefore kept verbatim inside a
-  `(when interop/debug-enabled? …)` arm marked `rf2-d2841`.
+  `(when rf.interop/debug-enabled? …)` arm marked `rf2-d2841`.
 
   That includes four assertions that currently PASS under the gate and pass
   for no reason at all: `(is (<= (count (rf/trace-buffer :rf/default)) N))`
@@ -54,24 +54,24 @@
   returns nil and does not throw."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
-            [re-frame.flows :as flows]
-            [re-frame.elision :as elision]
-            [re-frame.trace :as trace]
-            [re-frame.trace.tooling :as trace-tooling]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.flows :as rf.flows]
+            [re-frame.elision :as rf.elision]
+            [re-frame.trace :as rf.trace]
+            [re-frame.trace.tooling :as rf.trace.tooling]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (defn reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  (trace/clear-listeners!)
-  (trace-tooling/clear-trace-rings!)
-  (rf/init! plain-atom/adapter)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.flows/reset-flows!)
+  (rf.schemas/clear-schemas-by-frame!)
+  (rf.trace/clear-listeners!)
+  (rf.trace.tooling/clear-trace-rings!)
+  (rf/init! rf.substrate.plain-atom/adapter)
   ;; EP-0002 (rf2-9o48ih): `init!` no longer synthesises `:rf/default`;
   ;; framework operation surfaces require a carried frame stamp. Register
   ;; `:rf/default` + pin it as the body's ambient scope (the carried-
@@ -98,12 +98,12 @@
     ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
     ;; `(<= (count []) 7)` is true for every N; the cap is unreadable here
     ;; under the gate because the ring is never allocated.
-    (when interop/debug-enabled?
+    (when rf.interop/debug-enabled?
       (is (<= (count (rf/trace-buffer :rf/default)) 7)
           ":trace-buffer {:events-retained 7} caps retained events at 7")))
   (testing ":elision is wired (rf2-le2qu)"
     (rf/configure! {:elision {:rf.size/threshold-bytes 4096}})
-    (is (= 4096 (:rf.size/threshold-bytes (elision/current-config)))
+    (is (= 4096 (:rf.size/threshold-bytes (rf.elision/current-config)))
         ":elision {:rf.size/threshold-bytes N} reaches the elision config")))
 
 (deftest trace-buffer-rejected-opts-warn-not-silent
@@ -122,10 +122,10 @@
         "a negative :events-retained no-ops and returns nil in BOTH postures")
     ;; Establish a known retention first.
     (rf/configure! {:trace-buffer {:events-retained 9}})
-    (when interop/debug-enabled?
+    (when rf.interop/debug-enabled?
      ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
      ;; The whole `configure-trace-buffer!` surface — warning AND retention —
-     ;; sits behind `interop/debug-enabled?`.
+     ;; sits behind `rf.interop/debug-enabled?`.
      (let [warnings (atom [])]
       (rf/register-listener! :trace ::trace-buffer-opts
                              (fn [ev]
@@ -169,7 +169,7 @@
   (testing "rf2-ho20xj — a {:severity :warning} trace-buffer filter must
             catch :rf.warning/trace-buffer-unrecognised-opts. Before the
             fix, configure-trace-buffer! routed the warning through
-            trace/emit-error! (a hardcoded :op-type :error), so the
+            rf.trace/emit-error! (a hardcoded :op-type :error), so the
             Spec 009-declared :op-type :warning row and a
             {:severity :warning} filter silently missed it. Dispatch the
             bad {:configure! {:trace-buffer {:depth N}}} call FROM INSIDE
@@ -202,7 +202,7 @@
     ;; BOTH reads go inside: `trace-buffer` returns [] in production, so the
     ;; `{:severity :error}` sanity NEGATIVE would pass over an empty vector —
     ;; certifying "no longer rides the :error op-type" with nothing retained.
-    (when interop/debug-enabled?
+    (when rf.interop/debug-enabled?
       (let [warnings (rf/trace-buffer :rf/default {:flat true :severity :warning})]
         (is (some #(= :rf.warning/trace-buffer-unrecognised-opts (:operation %))
                   warnings)
@@ -257,7 +257,7 @@
         "all thirty bracketed dispatches ran to completion and committed")
     ;; rf2-d2841 — dev-instrumentation arm. `(<= (count []) 11)` is true for
     ;; every N under the gate: the retention cap is unreadable in production.
-    (when interop/debug-enabled?
+    (when rf.interop/debug-enabled?
       (is (<= (count (rf/trace-buffer :rf/default)) 11)
           ":trace-buffer events-retained survived bracketing unknown-key calls")))
   (testing "rf2-dzxixe — a single map mixing known + unknown top-level
@@ -267,14 +267,14 @@
                     :elision      {:rf.size/threshold-bytes 2048}
                     :no-such-key  {:foo 1}
                     :strict-subs  true})
-    (is (= 2048 (:rf.size/threshold-bytes (elision/current-config)))
+    (is (= 2048 (:rf.size/threshold-bytes (rf.elision/current-config)))
         ":elision applied from the composite map")
     (rf/reg-event :ping (fn [{:keys [db]} _] {:db db}))
     (dotimes [_ 20] (rf/dispatch-sync [:ping]))
     ;; rf2-d2841 — dev-instrumentation arm. Same empty-vector false-green; the
     ;; composite map's PRODUCTION half is the `:elision` assertion above,
     ;; which is unguarded and is what proves "known subsystems applied".
-    (when interop/debug-enabled?
+    (when rf.interop/debug-enabled?
       (is (<= (count (rf/trace-buffer :rf/default)) 6)
           ":trace-buffer applied from the composite map; unknown keys ignored"))))
 

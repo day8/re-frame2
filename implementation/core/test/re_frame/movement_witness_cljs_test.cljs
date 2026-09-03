@@ -27,16 +27,16 @@
 
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.disposable :as rf-disposable]
-            [re-frame.movement :as movement]
-            [re-frame.substrate.spine :as spine]))
+            [re-frame.disposable :as rf.disposable]
+            [re-frame.movement :as rf.movement]
+            [re-frame.substrate.spine :as rf.substrate.spine]))
 
 ;; A bare spine adapter — nothing is mounted and no frame is registered; these
 ;; tests drive `make-state-container` / `make-derived-value` /
 ;; `replace-container!` directly, which is the whole surface under test.
 (def ^:private adapter
-  (spine/make-react-adapter
-    (spine/make-react-spine
+  (rf.substrate.spine/make-react-adapter
+    (rf.substrate.spine/make-react-spine
       {:substrate-name        "movement-witness"
        :gensym-prefix-sub     "mw-sub-"
        :gensym-prefix-derived "mw-derived-"
@@ -55,14 +55,14 @@
             publish and the container must say so"
     (let [src     (make-state-container {:n 1})
           derived (make-derived-value [src] :n)]
-      (is (satisfies? movement/IMovementWitness derived)
+      (is (satisfies? rf.movement/IMovementWitness derived)
           "the spine's derived container publishes the capability — its
            fan-out is `rf=`-gated, which is W2's precondition")
-      (is (identical? movement/no-witness (movement/-moved-from derived))
+      (is (identical? rf.movement/no-witness (rf.movement/-moved-from derived))
           "before any movement, `no-witness`")
       ;; A deref establishes the baseline but is NOT a movement.
       (is (= 1 @derived))
-      (is (identical? movement/no-witness (movement/-moved-from derived))
+      (is (identical? rf.movement/no-witness (rf.movement/-moved-from derived))
           "a read is not a movement"))))
 
 (deftest a-completed-movement-publishes-its-departure-value
@@ -73,7 +73,7 @@
           derived (make-derived-value [src] identity)]
       (is (= v0 @derived))                      ;; seed the baseline
       (replace-container! src {:n 2})
-      (let [f (movement/-moved-from derived)]
+      (let [f (rf.movement/-moved-from derived)]
         (is (identical? v0 f)
             "the witness IS the predecessor object — the consumer's whole
              short-circuit is an `identical?` test against it")
@@ -94,11 +94,11 @@
           derived (make-derived-value [src] :n)]
       (is (= 1 @derived))
       (replace-container! src {:n 2 :other :a})
-      (is (= 1 (movement/-moved-from derived))
+      (is (= 1 (rf.movement/-moved-from derived))
           "the real move arms the witness with the value DEPARTED FROM")
       ;; A source change that leaves THIS container's value `rf=`-equal.
       (replace-container! src {:n 2 :other :b})
-      (is (identical? movement/no-witness (movement/-moved-from derived))
+      (is (identical? rf.movement/no-witness (rf.movement/-moved-from derived))
           "the input change was OBSERVED (mark-dirty) so the witness was
            retracted, and the `rf=` gate then declined to re-arm it — the
            container correctly publishes nothing rather than a stale claim")
@@ -114,9 +114,9 @@
           derived (make-derived-value [src] identity)]
       (is (= v0 @derived))
       (replace-container! src {:n 2})
-      (is (identical? v0 (movement/-moved-from derived)))
-      (rf-disposable/-dispose derived)
-      (is (identical? movement/no-witness (movement/-moved-from derived))
+      (is (identical? v0 (rf.movement/-moved-from derived)))
+      (rf.disposable/-dispose derived)
+      (is (identical? rf.movement/no-witness (rf.movement/-moved-from derived))
           "disposed containers stop answering, and the retained predecessor
            is released with them"))))
 
@@ -127,6 +127,6 @@
             the protocol. `subs.memo`'s `witness-src` is therefore nil there
             and the guard is unchanged."
     (let [src (make-state-container {:n 1})]
-      (is (not (satisfies? movement/IMovementWitness src))
+      (is (not (satisfies? rf.movement/IMovementWitness src))
           "a raw base container publishes no witness — absence is the correct
            answer for it, not an omission"))))

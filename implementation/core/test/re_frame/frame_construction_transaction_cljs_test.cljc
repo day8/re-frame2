@@ -15,13 +15,13 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.substrate.adapter :as substrate]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- err-id [thunk]
   (try
@@ -36,8 +36,8 @@
         in-nested?       (atom false)
         state-calls      (atom 0)
         outer-derived-n  (atom 0)
-        original-state   substrate/make-state-container
-        original-derived substrate/make-derived-value
+        original-state   rf.substrate.adapter/make-state-container
+        original-derived rf.substrate.adapter/make-derived-value
         reenter!         (fn []
                            (reset! in-nested? true)
                            (try
@@ -46,14 +46,14 @@
                                                 {:id id :tags #{:nested}})))
                              (finally
                                (reset! in-nested? false))))]
-    (with-redefs [substrate/make-state-container
+    (with-redefs [rf.substrate.adapter/make-state-container
                   (fn [initial]
                     (swap! state-calls inc)
                     (when (and (= :make-state-container callback)
                                (not @in-nested?))
                       (reenter!))
                     (original-state initial))
-                  substrate/make-derived-value
+                  rf.substrate.adapter/make-derived-value
                   (fn [sources compute-fn]
                     (when-not @in-nested?
                       (let [n (swap! outer-derived-n inc)]
@@ -67,7 +67,7 @@
           (str callback " same-id nested construction loses with the stable type"))
       (is (= 1 @state-calls)
           (str callback " allocates only the committed frame's state container"))
-      (is (= #{:outer} (get-in (frame/frame id) [:config :tags]))
+      (is (= #{:outer} (get-in (rf.frame/frame id) [:config :tags]))
           (str callback " cannot overwrite the committed outer config"))
       (is (some? (rf/make-frame {:id id :tags #{:sequential-refresh}}))
           (str callback " releases its reservation for a later sequential refresh")))))
@@ -95,7 +95,7 @@
         "the outer setup failure remains the constructor's terminal outcome")
     (is (= :rf.error/frame-construction-in-progress @nested-outcome)
         "the synchronous same-id make cannot report success against a provisional row")
-    (is (nil? (frame/frame id))
+    (is (nil? (rf.frame/frame id))
         "the failed outer transaction leaves no frame or nested revision")
     (is (some? (rf/make-frame {:id id :tags #{:clean-retry}}))
         "failure released the exact reservation for a clean retry")))
@@ -104,24 +104,24 @@
   (let [a     :construction-handoff/a
         b     :construction-handoff/b
         free  :construction-handoff/free
-        owner (frame/claim-frame-construction! #{a b} :plan-preflight)]
+        owner (rf.frame/claim-frame-construction! #{a b} :plan-preflight)]
     (try
       (is (= :rf.error/frame-construction-in-progress
-             (err-id #(frame/claim-frame-construction! #{b free}
+             (err-id #(rf.frame/claim-frame-construction! #{b free}
                                                         :competing-plan)))
           "a set claim that overlaps one owned id loses as a unit")
       (is (some? (rf/make-frame {:id free :tags #{:disjoint}}))
           "the losing set claim did not partially reserve its free id")
       (is (= [true :rf.error/frame-construction-in-progress]
-             (frame/call-with-frame-construction-handoff!
+             (rf.frame/call-with-frame-construction-handoff!
                owner a
                (fn []
                  [(some? (rf/make-frame {:id a :tags #{:handed-off}}))
                   (err-id #(rf/make-frame {:id a :tags #{:second-entry}}))])))
           "one handoff permits exactly one engine entry; a second public entry collides")
-      (is (= #{:handed-off} (get-in (frame/frame a) [:config :tags]))
+      (is (= #{:handed-off} (get-in (rf.frame/frame a) [:config :tags]))
           "only the handed-off engine entry published")
       (finally
-        (frame/release-frame-construction! owner)))
+        (rf.frame/release-frame-construction! owner)))
     (is (some? (rf/make-frame {:id a :tags #{:after-release}}))
         "the external set owner compare-releases for later ordinary construction")))

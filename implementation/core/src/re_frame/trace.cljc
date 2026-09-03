@@ -36,8 +36,8 @@
   `deliver!` reaches the tooling fan-out through the single
   `:trace.tooling/deliver!` late-bind hook (mirroring the existing
   `:epoch/capture-event` shape)."
-  (:require [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
+  (:require [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
             ;; Per rf2-ic1sv pick c: `re-frame.trace/register-listener!`
             ;; et al. are the canonical app-facing names. Bringing the
             ;; tooling sibling in on both CLJS and JVM allows the
@@ -46,7 +46,7 @@
             ;; — the trivial registration fns survive otherwise, but
             ;; the heavier buffer machinery only enters the bundle when
             ;; explicitly used.
-            [re-frame.trace.tooling :as trace-tooling])
+            [re-frame.trace.tooling :as rf.trace.tooling])
   #?(:cljs (:require-macros [re-frame.trace])))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -182,7 +182,7 @@
     - JVM calls `re-frame.trace.tooling/call-with-deferred-fanout` directly.
 
     - CLJS reaches it through the `:trace.tooling/call-with-deferred-fanout`
-      late-bind hook, gated by `interop/debug-enabled?`. This fn is on the
+      late-bind hook, gated by `rf.interop/debug-enabled?`. This fn is on the
       always-reachable production drain path, so a STATIC reference to the tooling
       sibling from here would pull the dev-only listener registry + ring machinery
       (and its `check-bundle-isolation.cjs` sentinel) into the production counter
@@ -194,9 +194,9 @@
       cross-platform `call-with-deferred-fanout`, which runs the single-threaded
       CLJS deferral."
   [f]
-  #?(:clj  (trace-tooling/call-with-deferred-fanout f call-with-ordinary-delivery-scope)
-     :cljs (if-let [defer (and interop/debug-enabled?
-                               (late-bind/get-fn-cached
+  #?(:clj  (rf.trace.tooling/call-with-deferred-fanout f call-with-ordinary-delivery-scope)
+     :cljs (if-let [defer (and rf.interop/debug-enabled?
+                               (rf.late-bind/get-fn-cached
                                  :trace.tooling/call-with-deferred-fanout))]
              (defer f call-with-ordinary-delivery-scope)
              (f))))
@@ -269,7 +269,7 @@
   assoc-ed over a nil: that writes no information but still copies the
   whole record, and in a production build BOTH parent slots are always
   nil (the router mints `:dispatch-id` and reads the macro-stamped
-  `:call-site` only under `interop/debug-enabled?`). So the one-question
+  `:call-site` only under `rf.interop/debug-enabled?`). So the one-question
   form copied the record twice on entry to every handler — every event,
   every fx, every cofx, every view render, every subscription recompute
   — to change nothing. A record's declared fields exist whether or not
@@ -442,7 +442,7 @@
   Sharing the reader is what keeps the two from drifting on HOW the
   ambient frame is resolved; they differ only on WHEN it applies."
   []
-  (when-let [current-frame (late-bind/get-fn-cached :frame/current-frame-id)]
+  (when-let [current-frame (rf.late-bind/get-fn-cached :frame/current-frame-id)]
     (current-frame)))
 
 (defn- tagged-frame-trace-disabled?
@@ -545,14 +545,14 @@
   ;; Sticky hook (rf2-f72pd) — `:epoch/capture-event` is published once
   ;; at re-frame.epoch load and never withdrawn; this fires on every
   ;; trace emit during a cascade.
-  (when-let [capture (late-bind/get-fn-cached :epoch/capture-event)]
+  (when-let [capture (rf.late-bind/get-fn-cached :epoch/capture-event)]
     (try
       (capture event)
       (catch #?(:clj Throwable :cljs :default) _ nil))))
 
 ;; ---- shared emit substrate ------------------------------------------------
 ;;
-;; The `interop/debug-enabled?` gate stays in the public emit wrappers
+;; The `rf.interop/debug-enabled?` gate stays in the public emit wrappers
 ;; (NOT in `build-event`) so Closure DCE elides the whole expression at
 ;; `:advanced` + `goog.DEBUG=false`. Per Spec 009 §Production builds.
 
@@ -713,7 +713,7 @@
     (cond-> {:operation operation
              :op-type   op-type
              :id        (next-event-id)
-             :time      (interop/now-ms)
+             :time      (rf.interop/now-ms)
              :tags      tags+}
       source               (assoc :source source)
       ;; Success path hoists :recovery only when caller supplied one;
@@ -771,7 +771,7 @@
   ;; Epoch capture is a separate callback-bearing publication. If it destroys
   ;; A, do not deliver the same stale event into tooling/rings/listeners.
   (when (continuing?)
-    (when-let [deliver-tooling (late-bind/get-fn-cached :trace.tooling/deliver!)]
+    (when-let [deliver-tooling (rf.late-bind/get-fn-cached :trace.tooling/deliver!)]
       ;; Capture the outer envelope's ring-retention decision AND the caller's
       ;; exact continuation predicate BEFORE restoring ordinary defaults. The
       ;; tooling hook (in the sibling ns, which cannot see these vars) reads
@@ -842,7 +842,7 @@
 
   The projection hook is published by `re-frame.classification` at ns-load;
   when the classification artefact is absent the hook is unbound and this is
-  a no-op pass-through. Inside the existing `interop/debug-enabled?`
+  a no-op pass-through. Inside the existing `rf.interop/debug-enabled?`
   gate (in `emit!`) so production builds DCE the hook lookup along
   with the rest of the trace emit.
 
@@ -853,13 +853,13 @@
   [event]
   ;; Sticky hook (rf2-f72pd) — `:classification/project-trace-event` is
   ;; published once at re-frame.classification load and never withdrawn.
-  (if-let [project (late-bind/get-fn-cached :classification/project-trace-event)]
+  (if-let [project (rf.late-bind/get-fn-cached :classification/project-trace-event)]
     (hoist-projected-sensitive (project event))
     event))
 
 (defn emit!
   "Emit a trace event. Production builds elide the body entirely
-  (Closure DCE on the `interop/debug-enabled?` gate); in dev / JVM
+  (Closure DCE on the `rf.interop/debug-enabled?` gate); in dev / JVM
   the envelope is built and delivered to the ring buffer, epoch
   capture, and all registered listeners synchronously.
 
@@ -873,14 +873,14 @@
   substitute `:rf/redacted` and `:rf.size/large-elided` markers at
   paths declared sensitive / large by the in-scope handler's
   registration meta or the EP-0025 commit-plane `:sensitive` / `:large` effects. Gated by the same
-  `interop/debug-enabled?` so production CLJS bundles DCE the entire
+  `rf.interop/debug-enabled?` so production CLJS bundles DCE the entire
   classification machinery.
 
   Per Spec 009 §Emitting trace events and §Handler-scope."
   [op operation tags]
-  (when interop/debug-enabled?
+  (when rf.interop/debug-enabled?
     ;; `:no-emit?` short-circuit sits *inside* the outer
-    ;; `interop/debug-enabled?` gate per Spec 009 §Production builds
+    ;; `rf.interop/debug-enabled?` gate per Spec 009 §Production builds
     ;; (the outer gate must stand alone for Closure DCE — see
     ;; §Production-elision verification). The frame-level gate
     ;; (rf2-2qaqh) is its sibling: an event tagged with a trace-
@@ -915,9 +915,9 @@
   traces so exception traces don't accidentally leak sensitive event-args /
   fx-args / cofx-values."
   [error-operation tags]
-  (when interop/debug-enabled?
+  (when rf.interop/debug-enabled?
     ;; `:no-emit?` short-circuit sits *inside* the outer
-    ;; `interop/debug-enabled?` gate per Spec 009 §Production builds.
+    ;; `rf.interop/debug-enabled?` gate per Spec 009 §Production builds.
     ;; The frame-level gate (rf2-2qaqh) suppresses errors emitted from
     ;; a trace-disabled (tool / inspector) frame too — symmetric with
     ;; `emit!`.
@@ -937,8 +937,8 @@
 ;; Published through `late-bind` so registrar can emit without requiring
 ;; this ns (cyclic load order).
 
-(late-bind/set-fn! :trace/emit!       emit!)
-(late-bind/set-fn! :trace/emit-error! emit-error!)
+(rf.late-bind/set-fn! :trace/emit!       emit!)
+(rf.late-bind/set-fn! :trace/emit-error! emit-error!)
 
 ;; ---- Public listener-registration surface (rf2-ic1sv pick c) -------------
 ;;
@@ -948,10 +948,10 @@
 ;; production CLJS bundles rely on user-side `goog.DEBUG` gating of
 ;; registration call sites for DCE.
 
-(def register-listener!     trace-tooling/register-listener!)
-(def unregister-listener!   trace-tooling/unregister-listener!)
-(def clear-listeners!       trace-tooling/clear-listeners!)
+(def register-listener!     rf.trace.tooling/register-listener!)
+(def unregister-listener!   rf.trace.tooling/unregister-listener!)
+(def clear-listeners!       rf.trace.tooling/clear-listeners!)
 
-(def trace-buffer           trace-tooling/trace-buffer)
-(def clear-trace-buffer!    trace-tooling/clear-trace-buffer!)
-(def configure-trace-buffer! trace-tooling/configure-trace-buffer!)
+(def trace-buffer           rf.trace.tooling/trace-buffer)
+(def clear-trace-buffer!    rf.trace.tooling/clear-trace-buffer!)
+(def configure-trace-buffer! rf.trace.tooling/configure-trace-buffer!)

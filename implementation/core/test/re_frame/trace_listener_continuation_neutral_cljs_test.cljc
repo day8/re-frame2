@@ -8,19 +8,19 @@
 
   When a framework-owned lifecycle trace is fenced to an exact incarnation A
   (`re-frame.trace/call-with-continuation-predicate` bound to
-  `frame/event-continuation-live?` — this is what a cold `reg-flow`'s
+  `rf.frame/event-continuation-live?` — this is what a cold `reg-flow`'s
   first-registration / replacement / clear emit does, rf2-pwum1g / rf2-rxsldx),
   the public listener fan-out runs INSIDE that binding. Before this fix, a
   listener that destroyed A and created same-id incarnation B with
-  `:initial-events` had B's seed `dispatch-sync!` consult `trace/continuation-live?`,
+  `:initial-events` had B's seed `dispatch-sync!` consult `rf.trace/continuation-live?`,
   inherit A's now-FALSE predicate, and get silently dropped at `build-envelope`
-  (`(when (trace/continuation-live?) ...)` returns nil ⇒ the seed is never
+  (`(when (rf.trace/continuation-live?) ...)` returns nil ⇒ the seed is never
   enqueued). B was left live with `{}`, and make-frame's reuse/no-reseed law
   meant a later re-ensure could not recover the seed.
 
   ## The reproduction
 
-  This exercises the SAME code path a cold `reg-flow` uses — a `trace/emit!`
+  This exercises the SAME code path a cold `reg-flow` uses — a `rf.trace/emit!`
   wrapped in `call-with-continuation-predicate` bound to A's incarnation — but
   synthetically, so the proof lives in core (where the fix lives) and rides both
   `npm run test:cljs` and `clojure -M:test`. The seam is DELIBERATELY the
@@ -48,13 +48,13 @@
   (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
             [re-frame.core                 :as rf]
-            [re-frame.frame                :as frame]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support         :as test-support]
-            [re-frame.trace                :as trace]))
+            [re-frame.frame                :as rf.frame]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support         :as rf.test-support]
+            [re-frame.trace                :as rf.trace]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- reg-test-events! []
   ;; Pure handlers. `:seed` initializes B's db AND bumps a db-level run counter,
@@ -71,13 +71,13 @@
   the same shape a cold `reg-flow` uses for its lifecycle traces. Listeners see
   `:operation :rf.test/fenced-emit`."
   [frame-id token]
-  (trace/call-with-continuation-predicate
-    #(frame/event-continuation-live? frame-id token)
+  (rf.trace/call-with-continuation-predicate
+    #(rf.frame/event-continuation-live? frame-id token)
     (fn []
-      (trace/emit! :rf.registry :rf.test/fenced-emit {:frame frame-id}))))
+      (rf.trace/emit! :rf.registry :rf.test/fenced-emit {:frame frame-id}))))
 
 ;; ---- Posture: dev-only, declared by `^:requires-debug` (rf2-d2841) ---------
-;; Trace machinery end to end: under `-Dre-frame.debug=false` `trace/emit` is a
+;; Trace machinery end to end: under `-Dre-frame.debug=false` `rf.trace/emit` is a
 ;; no-op, so there is no semantic residue to run under that posture, and a
 ;; `(when interop/debug-enabled? ...)` split -- the shape the rest of rf2-d2841
 ;; used -- would leave EMPTY deftests reporting green (class 2).  Every deftest
@@ -97,24 +97,24 @@
         armed?     (atom true)]
     (rf/make-frame {:id c-id})
     (rf/make-frame {:id a-id})
-    (let [a-token (frame/frame-incarnation-token a-id)]
+    (let [a-token (rf.frame/frame-incarnation-token a-id)]
       ;; Listener 1 (FIRST → fans out first): the DESTROYER — the already-entered
       ;; delivery. Destroys A, creates same-id B with a seed, then does UNRELATED
       ;; nested work into C. All of this is a listener body: it must run neutral.
-      (trace/register-listener! ::destroyer
+      (rf.trace/register-listener! ::destroyer
         (fn [ev]
           (when (and (= :rf.test/fenced-emit (:operation ev))
                      (compare-and-set! armed? true false))
-            (frame/destroy-frame! a-id)
+            (rf.frame/destroy-frame! a-id)
             (rf/make-frame {:id a-id :initial-events [[:trace.neutral/seed]]})
-            (reset! b-token (frame/frame-incarnation-token a-id))
-            (reset! b-live? (some? (frame/frame-incarnation-token a-id)))
+            (reset! b-token (rf.frame/frame-incarnation-token a-id))
+            (reset! b-live? (some? (rf.frame/frame-incarnation-token a-id)))
             (reset! b-db (rf/app-db-value a-id))
             ;; Unrelated-frame nested dispatch AFTER A is destroyed — before the
             ;; fix this too was strangled by A's now-false predicate.
             (rf/dispatch-sync [:trace.neutral/mark] {:frame c-id}))))
       ;; Listener 2 (SECOND → subsequent): must NOT fire once A is destroyed.
-      (trace/register-listener! ::later-a
+      (rf.trace/register-listener! ::later-a
         (fn [ev]
           (when (= :rf.test/fenced-emit (:operation ev))
             (swap! later-hits inc))))
@@ -150,8 +150,8 @@
         (is (= {:seeded :ok :seed-count 1} (rf/app-db-value a-id))
             "B's db is unchanged by the re-ensure")
         (finally
-          (trace/unregister-listener! ::destroyer)
-          (trace/unregister-listener! ::later-a))))))
+          (rf.trace/unregister-listener! ::destroyer)
+          (rf.trace/unregister-listener! ::later-a))))))
 
 (deftest ^:requires-debug non-destroying-listener-does-not-over-suppress-subsequent-listener
   ;; Mutation guard for the loop's before/after check. When the first listener
@@ -166,14 +166,14 @@
         later-hit (atom 0)]
     (rf/make-frame {:id c-id})
     (rf/make-frame {:id a-id})
-    (let [a-token (frame/frame-incarnation-token a-id)]
-      (trace/register-listener! ::observer
+    (let [a-token (rf.frame/frame-incarnation-token a-id)]
+      (rf.trace/register-listener! ::observer
         (fn [ev]
           (when (= :rf.test/fenced-emit (:operation ev))
             (swap! first-hit inc)
             ;; nested unrelated work, A stays live
             (rf/dispatch-sync [:trace.neutral/mark] {:frame c-id}))))
-      (trace/register-listener! ::subsequent
+      (rf.trace/register-listener! ::subsequent
         (fn [ev]
           (when (= :rf.test/fenced-emit (:operation ev))
             (swap! later-hit inc))))
@@ -183,10 +183,10 @@
         (is (= 1 @later-hit)
             "the SUBSEQUENT listener also received it — the live-owner fan-out is
              not over-fenced by the neutralization")
-        (is (identical? a-token (frame/frame-incarnation-token a-id))
+        (is (identical? a-token (rf.frame/frame-incarnation-token a-id))
             "A remained the live incarnation throughout")
         (is (= {:marked true} (rf/app-db-value c-id))
             "the first listener's nested unrelated dispatch ran normally")
         (finally
-          (trace/unregister-listener! ::observer)
-          (trace/unregister-listener! ::subsequent))))))
+          (rf.trace/unregister-listener! ::observer)
+          (rf.trace/unregister-listener! ::subsequent))))))

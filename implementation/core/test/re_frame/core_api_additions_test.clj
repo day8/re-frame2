@@ -14,32 +14,32 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
-            [re-frame.flows :as flows]
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.flows :as rf.flows]
             [re-frame.machines]
-            [re-frame.image :as image]
-            [re-frame.routing :as routing]
+            [re-frame.image :as rf.image]
+            [re-frame.routing :as rf.routing]
             ;; rf2-q4i9ko — replace-app-db! delegates to the epoch artefact's
             ;; replace-app-db! (synthetic-epoch recording); load it so the
             ;; mutator round-trip below resolves a live hook.
             [re-frame.epoch]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (defn reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  (flows/reset-last-inputs!)
-  (rf/init! plain-atom/adapter)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.flows/reset-flows!)
+  (rf.schemas/clear-schemas-by-frame!)
+  (rf.flows/reset-last-inputs!)
+  (rf/init! rf.substrate.plain-atom/adapter)
   ;; EP-0002 (rf2-jue6sp): `init!` no longer synthesises `:rf/default`.
   ;; Register it explicitly as an ordinary frame so the registrar-query
   ;; tests below (which assert `:rf/default` is enumerable) have a real
   ;; frame to find. `current-frame-id` outside a scope still RAISES — the
   ;; with-frame tests assert the carried-invariant absence path directly.
-  (frame/ensure-default-frame!)
+  (rf.frame/ensure-default-frame!)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)
   (require 're-frame.machines :reload)
@@ -103,7 +103,7 @@
   (testing "(with-new-frame [f (make-frame opts)] body) creates, binds, destroys"
     (let [captured-id (atom nil)
           observed-current (atom nil)]
-      (rf/with-new-frame [f (frame/make-anon-frame-record! {:doc "ephemeral"})]
+      (rf/with-new-frame [f (rf.frame/make-anon-frame-record! {:doc "ephemeral"})]
         (reset! captured-id f)
         (reset! observed-current (rf/current-frame-id))
         (is (= f (rf/current-frame-id))
@@ -128,7 +128,7 @@
   (testing "(with-new-frame [f ...] body) destroys the frame even when body throws"
     (let [captured-id (atom nil)]
       (try
-        (rf/with-new-frame [f (frame/make-anon-frame-record! {:doc "ephemeral-throw"})]
+        (rf/with-new-frame [f (rf.frame/make-anon-frame-record! {:doc "ephemeral-throw"})]
           (reset! captured-id f)
           (throw (ex-info "boom" {:kind ::boom})))
         (catch Exception e
@@ -144,7 +144,7 @@
             destroy runs after"
     (rf/reg-event :wf/initialise (fn [{:keys [db]} _] {:db {:counter 42}}))
     (let [captured-db (atom nil)]
-      (rf/with-new-frame [f (frame/make-anon-frame-record! {:initial-events [[:wf/initialise]]})]
+      (rf/with-new-frame [f (rf.frame/make-anon-frame-record! {:initial-events [[:wf/initialise]]})]
         (reset! captured-db (rf/app-db-value f)))
       (is (= {:counter 42} @captured-db)
           "the body observed the on-create-seeded app-db"))))
@@ -244,9 +244,9 @@
     (rf/reg-event :hf.alpha/one (fn [{:keys [db]} _] {:db db}))
     (rf/reg-event :hf.alpha/two (fn [{:keys [db]} _] {:db db}))
     (rf/reg-event :hf.beta/one  (fn [{:keys [db]} _] {:db db}))
-    (registrar/register! :event :hf.alpha/one
+    (rf.registrar/register! :event :hf.alpha/one
       (assoc (rf/handler-meta :event :hf.alpha/one) :rf/group :alpha))
-    (registrar/register! :event :hf.alpha/two
+    (rf.registrar/register! :event :hf.alpha/two
       (assoc (rf/handler-meta :event :hf.alpha/two) :rf/group :alpha))
     (let [alpha-only (rf/registrations :event
                                   (fn [m] (= :alpha (:rf/group m))))]
@@ -261,7 +261,7 @@
     (rf/reg-event :hf/marked   (fn [{:keys [db]} _] {:db db}))
     (rf/reg-event :hf/unmarked (fn [{:keys [db]} _] {:db db}))
     ;; Re-register :hf/marked with extra meta on the slot.
-    (registrar/register! :event :hf/marked
+    (rf.registrar/register! :event :hf/marked
       (assoc (rf/handler-meta :event :hf/marked) :rf/marker? true))
     (let [marked (rf/registrations :event (fn [m] (:rf/marker? m)))]
       (is (= #{:hf/marked} (set (keys marked)))
@@ -565,9 +565,9 @@
             declarative-removal surface (rf2-sd6amv)"
     (require 're-frame.routing :reload)
     (rf/reg-route :rn/route {} "/rn")
-    (is (some? (routing/match-url "/rn")) "route registered + matchable")
-    (routing/clear-route :rn/route)
-    (is (nil? (routing/match-url "/rn"))
+    (is (some? (rf.routing/match-url "/rn")) "route registered + matchable")
+    (rf.routing/clear-route :rn/route)
+    (is (nil? (rf.routing/match-url "/rn"))
         "clear-route removed the route — it no longer matches")))
 
 (deftest register-observability-sink-installs-under-new-name
@@ -598,7 +598,7 @@
     ;; the unchanged value constructor `re-frame.image/image`.
     (is (:macro (meta #'rf/image))
         "rf/image is a macro (the compile-time :doc-elision authoring seam)")
-    (is (fn? @#'image/image)
+    (is (fn? @#'rf.image/image)
         "re-frame.image/image stays a plain value fn (programmatic / computed-spec callers)")
     (is (= 're-frame.image/image
            (first (macroexpand-1 '(re-frame.core/image {:id :x}))))

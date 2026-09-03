@@ -175,7 +175,7 @@
   See [008 §Single-frame view test](../../../../../spec/008-Testing.md)
   and `docs/core/testing/views.md` for the worked recipe."
   (:require [clojure.string :as str]
-            [re-frame.error :as error]))
+            [re-frame.error :as rf.error]))
 
 ;; ---------------------------------------------------------------------------
 ;; Hiccup-tree expansion
@@ -447,14 +447,14 @@
         (is (= 1 (:n (app-db-value :rf/default)))))"
   [node event-key & args]
   (when-not (vector? node)
-    (error/throw-error! :rf.error/invoke-handler-bad-node
+    (rf.error/throw-error! :rf.error/invoke-handler-bad-node
                         'rf/invoke-handler
                         "invoke-handler's node must be a hiccup vector"
                         {:extra {:node      node
                                  :event-key event-key}}))
   (let [h (extract-handler node event-key)]
     (when-not (fn? h)
-      (error/throw-error! :rf.error/invoke-handler-missing
+      (rf.error/throw-error! :rf.error/invoke-handler-missing
                           'rf/invoke-handler
                           (str "invoke-handler found no handler fn under " event-key)
                           {:extra {:node      node

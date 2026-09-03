@@ -36,29 +36,29 @@
   Two slots are reflection metadata and elided in production: the auto-
   captured `:source` coords (`:ns` / `:line` / `:file`, suppressed by
   `source-coords/merge-coords` under the gate) and `:doc` (stripped at the
-  `registrar/register!` chokepoint). Their assertions are kept verbatim
-  inside `(when interop/debug-enabled? …)` arms marked `rf2-d2841` —
+  `rf.registrar/register!` chokepoint). Their assertions are kept verbatim
+  inside `(when rf.interop/debug-enabled? …)` arms marked `rf2-d2841` —
   including the negative in `no-schema-or-doc-when-absent`, which under the
   gate would pass because `:doc` is elided WHOLESALE rather than because this
   registration omitted it. `:schema` is load-bearing and stays outside the
   arm in both deftests, which is what keeps that pair honest."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.interop :as interop]
-            [re-frame.subs :as subs]
-            [re-frame.subs.tooling :as subs-tooling]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
-            [re-frame.flows :as flows]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.interop :as rf.interop]
+            [re-frame.subs :as rf.subs]
+            [re-frame.subs.tooling :as rf.subs.tooling]
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.flows :as rf.flows]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (defn reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  (rf/init! plain-atom/adapter)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.flows/reset-flows!)
+  (rf.schemas/clear-schemas-by-frame!)
+  (rf/init! rf.substrate.plain-atom/adapter)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)
   (require 're-frame.machines :reload)
@@ -83,15 +83,15 @@
 
 (deftest empty-registry-returns-empty-map
   (testing "(sub-algebra-view) returns {} (not nil) when no subs are registered"
-    (registrar/clear-all!)
-    (is (= {} (subs-tooling/sub-algebra-view)))
-    (is (map? (subs-tooling/sub-algebra-view)))))
+    (rf.registrar/clear-all!)
+    (is (= {} (rf.subs.tooling/sub-algebra-view)))
+    (is (map? (rf.subs.tooling/sub-algebra-view)))))
 
 (deftest jvm-alias-mirrors-the-tooling-fn
   (testing "the JVM `re-frame.subs/sub-algebra-view` alias is the tooling fn"
     (rf/reg-sub :n (fn [db _] (:n db)))
-    (is (= (subs-tooling/sub-algebra-view)
-           (subs/sub-algebra-view))
+    (is (= (rf.subs.tooling/sub-algebra-view)
+           (rf.subs/sub-algebra-view))
         "the JVM convenience alias projects identically to the tooling sibling")))
 
 ;; ---- reg-sub :db (layer-1) -----------------------------------------------
@@ -99,7 +99,7 @@
 (deftest layer-1-sub-exposes-its-algebra-view
   (testing "a layer-1 reg-sub exposes the full ephemeral / on-demand / cache-entry node"
     (rf/reg-sub :cart/items (fn [db _] (get-in db [:cart :items])))
-    (let [node ((subs-tooling/sub-algebra-view) :cart/items)]
+    (let [node ((rf.subs.tooling/sub-algebra-view) :cart/items)]
       (is (some? node))
       (is (has-fixed-classifications? node)
           "layer-1 sub carries the fixed derivation / ephemeral / on-demand / cache-entry classifications")
@@ -117,10 +117,10 @@
 (deftest single-arity-returns-one-node
   (testing "(sub-algebra-view id) returns the single node, nil when unregistered"
     (rf/reg-sub :n (fn [db _] (:n db)))
-    (is (= ((subs-tooling/sub-algebra-view) :n)
-           (subs-tooling/sub-algebra-view :n))
+    (is (= ((rf.subs.tooling/sub-algebra-view) :n)
+           (rf.subs.tooling/sub-algebra-view :n))
         "the one-arity form equals the entry in the all-subs map")
-    (is (nil? (subs-tooling/sub-algebra-view :ghost))
+    (is (nil? (rf.subs.tooling/sub-algebra-view :ghost))
         "an unregistered sub id projects to nil")))
 
 ;; ---- reg-sub static :<- --------------------------------------------------
@@ -133,7 +133,7 @@
                 :<- [:cart/items]
                 :<- [:pricing/discounts]
                 (fn [[items discounts] _] [items discounts]))
-    (let [node ((subs-tooling/sub-algebra-view) :cart/total)]
+    (let [node ((rf.subs.tooling/sub-algebra-view) :cart/total)]
       (is (has-fixed-classifications? node))
       (is (= [:fact :cart/total] (:output node)))
       (is (= [[:sub [:cart/items]]
@@ -147,7 +147,7 @@
     (rf/reg-sub :upstream (fn [db [_ _arg]] (:n db)))
     (rf/reg-sub :downstream :<- [:upstream :some-arg] (fn [u _] u))
     (is (= [[:sub [:upstream :some-arg]]]
-           (:inputs ((subs-tooling/sub-algebra-view) :downstream)))
+           (:inputs ((rf.subs.tooling/sub-algebra-view) :downstream)))
         "the declared input carries the full :<- query-vector, args and all")))
 
 ;; ---- reg-sub parametric input-fn -----------------------------------------
@@ -166,7 +166,7 @@
                    [:comments/for-article id]])
                 (fn [[article comments] [_ id]]
                   {:id id :article article :comments comments}))
-    (let [node ((subs-tooling/sub-algebra-view) :article/page)]
+    (let [node ((rf.subs.tooling/sub-algebra-view) :article/page)]
       (is (has-fixed-classifications? node))
       (is (= [:fact :article/page] (:output node)))
       (is (= :parametric (:inputs node))
@@ -183,9 +183,9 @@
     ;; reg-runtime-sub is framework-internal (not on the rf/ facade) — call
     ;; through re-frame.subs directly. Its signal source is the runtime-db
     ;; projection, so its conservative declared input is [:runtime []].
-    (subs/reg-runtime-sub :rf.route/params
+    (rf.subs/reg-runtime-sub :rf.route/params
                           (fn [runtime-db _] (get-in runtime-db [:rf.runtime/routing :current :params])))
-    (let [node ((subs-tooling/sub-algebra-view) :rf.route/params)]
+    (let [node ((rf.subs.tooling/sub-algebra-view) :rf.route/params)]
       (is (some? node))
       (is (has-fixed-classifications? node)
           "a runtime sub is still an ephemeral / on-demand / cache-entry derivation")
@@ -201,9 +201,9 @@
     ;; A :frame-state sub reads across BOTH partitions (the whole frame-state
     ;; value); the input vocabulary reserves [:frame-state path] for exactly
     ;; this framework-internal cross-partition read.
-    (subs/reg-frame-state-sub :rf/whole-state
+    (rf.subs/reg-frame-state-sub :rf/whole-state
                               (fn [frame-state _] frame-state))
-    (let [node ((subs-tooling/sub-algebra-view) :rf/whole-state)]
+    (let [node ((rf.subs.tooling/sub-algebra-view) :rf/whole-state)]
       (is (some? node))
       (is (has-fixed-classifications? node))
       (is (= [:fact :rf/whole-state] (:output node)))
@@ -215,7 +215,7 @@
 (deftest source-coords-surface-in-the-node
   (testing ":ns / :line / :file captured by reg-sub surface under :source"
     (rf/reg-sub :n (fn [db _] (:n db)))
-    (let [node ((subs-tooling/sub-algebra-view) :n)
+    (let [node ((rf.subs.tooling/sub-algebra-view) :n)
           source (:source node)]
       ;; Always-on witness (rf2-d2841): the sub is lowered into the algebra
       ;; regardless of posture — the precondition for reading any coord off it.
@@ -223,7 +223,7 @@
           "the registration is projected into the algebra view in BOTH postures")
       ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
       ;; Source coords are reflection metadata, elided in production.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (some? source) ":source map is present when the registration carried coords")
         (is (some? (:ns source))     ":ns captured at the call site")
         (is (number? (:line source)) ":line captured at the call site")
@@ -235,26 +235,26 @@
                 {:doc    "a priced item"
                  :schema :app.money/amount}
                 (fn [db _] (:price db)))
-    (let [node ((subs-tooling/sub-algebra-view) :priced)]
+    (let [node ((rf.subs.tooling/sub-algebra-view) :priced)]
       ;; `:schema` is LOAD-BEARING (precomputed marks / introspection) and is
       ;; retained in production — no guard.
       (is (= :app.money/amount (:schema node))
           "the declared output :schema surfaces as a node fact")
       ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (= "a priced item" (:doc node)))))))
 
 (deftest no-schema-or-doc-when-absent
   (testing ":schema / :doc are absent when the registration didn't supply them"
     (rf/reg-sub :n (fn [db _] (:n db)))
-    (let [node ((subs-tooling/sub-algebra-view) :n)]
+    (let [node ((rf.subs.tooling/sub-algebra-view) :n)]
       ;; `:schema` is retained in production, so its absence here really is
       ;; "the registration did not supply one" — posture-independent.
       (is (not (contains? node :schema)))
       ;; rf2-d2841 — dev-instrumentation arm. A NEGATIVE about a key the gate
       ;; elides WHOLESALE: outside the arm it passes because `:doc` never
       ;; exists in production, not because this registration omitted it.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (not (contains? node :doc)))))))
 
 ;; ---- registry semantics --------------------------------------------------
@@ -262,10 +262,10 @@
 (deftest reregistration-replaces-the-node
   (testing "re-registering a sub replaces its algebra node (last-write-wins)"
     (rf/reg-sub :a (fn [db _] (:a db)))
-    (is (= [[:db []]] (:inputs ((subs-tooling/sub-algebra-view) :a))))
+    (is (= [[:db []]] (:inputs ((rf.subs.tooling/sub-algebra-view) :a))))
     (rf/reg-sub :b (fn [db _] (:b db)))
     (rf/reg-sub :a :<- [:b] (fn [b _] b))
-    (let [node ((subs-tooling/sub-algebra-view) :a)]
+    (let [node ((rf.subs.tooling/sub-algebra-view) :a)]
       (is (= [[:sub [:b]]] (:inputs node))
           "the re-registered :<- chain replaces the prior :db reader's inputs")
       (is (has-fixed-classifications? node)))))
@@ -274,8 +274,8 @@
   (testing "(clear-sub id) removes the sub from the algebra view"
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
-    (is (contains? (subs-tooling/sub-algebra-view) :a))
-    (subs/clear-sub :a)
-    (let [view (subs-tooling/sub-algebra-view)]
+    (is (contains? (rf.subs.tooling/sub-algebra-view) :a))
+    (rf.subs/clear-sub :a)
+    (let [view (rf.subs.tooling/sub-algebra-view)]
       (is (not (contains? view :a)))
       (is (contains? view :b)))))

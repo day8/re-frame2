@@ -24,10 +24,10 @@
   ALGEBRA the component drives."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.views.frame-boundary :as boundary]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.views.frame-boundary :as rf.views.frame-boundary]))
 
 ;; ---- app image (EP-0026 §Default Image) ----------------------------------
 ;;
@@ -64,15 +64,15 @@
      :select-ns {:include ["re-frame.frame-root-lifecycle-cljs-test"]}}))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- ENSURE: create-if-absent + reuse-no-reseed ---------------------------
 
 (deftest acquire-frame-root-creates-and-returns-id
   (testing "acquire-frame-root! runs make-frame and returns the resolved id"
-    (let [id (boundary/acquire-frame-root! {:id :root/alpha :images [app-image] :initial-events [[:rf/set-db {:n 1}]]})]
+    (let [id (rf.views.frame-boundary/acquire-frame-root! {:id :root/alpha :images [app-image] :initial-events [[:rf/set-db {:n 1}]]})]
       (is (= :root/alpha id) "returns the frame id off the constructed frame value")
-      (is (some? (frame/frame :root/alpha)) "the frame is live in the registry")
+      (is (some? (rf.frame/frame :root/alpha)) "the frame is live in the registry")
       (is (= {:n 1} (rf/app-db-value :root/alpha)) ":rf/set-db seeded app-db"))))
 
 (deftest re-acquire-frame-root-reuses-without-reseed
@@ -84,13 +84,13 @@
     ;; frame's app-image-scoped generation (the generation is sealed at
     ;; make-frame time; its `:select-ns` over this ns picks the handler up).
     (rf/reg-event :root/bump (fn [{:keys [db]} _] {:db (update db :count inc)}))
-    (boundary/acquire-frame-root! {:id :root/beta :images [app-image] :initial-events [[:rf/set-db {:count 0}]]})
+    (rf.views.frame-boundary/acquire-frame-root! {:id :root/beta :images [app-image] :initial-events [[:rf/set-db {:count 0}]]})
     ;; Mutate durable state through a dispatch path.
     (rf/dispatch-sync [:root/bump] {:frame :root/beta})
     (is (= {:count 1} (rf/app-db-value :root/beta)) "durable state advanced")
     ;; A re-acquire under the SAME id (the hot-reload / StrictMode remount
     ;; shape) must NOT reset durable state and must NOT re-run :initial-events.
-    (let [id2 (boundary/acquire-frame-root! {:id :root/beta :images [app-image] :initial-events [[:rf/set-db {:count 99}]]})]
+    (let [id2 (rf.views.frame-boundary/acquire-frame-root! {:id :root/beta :images [app-image] :initial-events [[:rf/set-db {:count 99}]]})]
       (is (= :root/beta id2))
       (is (= {:count 1} (rf/app-db-value :root/beta))
           "re-acquire preserved durable state — NOT re-seeded to {:count 99} (reuse-no-reseed)"))))
@@ -99,17 +99,17 @@
   (testing "a frame-root opt like :url-bound? flows verbatim through make-frame
             onto the frame record-config (it is not a component-only opt; the
             frame-root just hands the whole opts map to make-frame)."
-    (boundary/acquire-frame-root!
+    (rf.views.frame-boundary/acquire-frame-root!
       {:id :root/urlbound :images [app-image] :url-bound? true
        :initial-events [[:rf/set-db {:n 0}]]})
-    (is (true? (:url-bound? (frame/frame-meta :root/urlbound)))
+    (is (true? (:url-bound? (rf.frame/frame-meta :root/urlbound)))
         ":url-bound? landed on the frame meta (record-config passthrough)")))
 
 (deftest frame-root-opts-strips-children-and-fallback
   (testing "frame-root-opts strips the substrate carriers :children / :fallback
             and passes every make-frame key through"
     (is (= {:id :root/x :images [:i] :initial-events []}
-           (boundary/frame-root-opts
+           (rf.views.frame-boundary/frame-root-opts
              {:id :root/x :images [:i] :initial-events []
               :children [:span] :fallback [:div "loading"]}))
         ":children and :fallback are stripped; frame opts pass through")))
@@ -131,7 +131,7 @@
       (fn [{:keys [db]} _] {:db (assoc db :ran true)}))
     (let [thrown (atom nil)]
       (try
-        (boundary/acquire-frame-root!
+        (rf.views.frame-boundary/acquire-frame-root!
           {:id :root/boom
            :images [app-image]
            :initial-events [[:rf/set-db {:seeded true}]
@@ -142,7 +142,7 @@
       (is (= :rf.error/initial-events-step-failed
              (:rf.error/id (ex-data @thrown)))
           "the rethrown error is the setup-step failure naming the throwing step")
-      (is (nil? (frame/frame :root/boom))
+      (is (nil? (rf.frame/frame :root/boom))
           "no half-created frame is left registered — the partial frame was torn down"))))
 
 (deftest acquire-frame-root-setup-in-band-handler-throw-rethrows-and-leaves-no-frame
@@ -157,7 +157,7 @@
             acquire-frame-root!."
     (let [thrown (atom nil)]
       (try
-        (boundary/acquire-frame-root!
+        (rf.views.frame-boundary/acquire-frame-root!
           {:id :root/setdb-boom
            :images [app-image]
            :initial-events [[:rf/set-db {:seeded true}]
@@ -168,20 +168,20 @@
       (is (= :rf.error/initial-events-step-failed
              (:rf.error/id (ex-data @thrown)))
           "the rethrown error is the setup-step failure naming the failing step")
-      (is (nil? (frame/frame :root/setdb-boom))
+      (is (nil? (rf.frame/frame :root/setdb-boom))
           "no half-created frame is left registered — the partial frame was torn down"))))
 
 ;; ---- fail-loud: ENSURE frame-root needs a keyword :id --------------------
 
 (deftest require-frame-root-id-fails-loud-on-missing-id
   (testing "the frame-root requires a keyword :id"
-    (is (= :root/ok (boundary/require-frame-root-id! :root/ok 'rf/frame-root))
+    (is (= :root/ok (rf.views.frame-boundary/require-frame-root-id! :root/ok 'rf/frame-root))
         "a keyword :id passes through unchanged")
     (is (thrown-with-msg? :default #":rf.error/frame-root-missing-id"
-          (boundary/require-frame-root-id! nil 'rf/frame-root))
+          (rf.views.frame-boundary/require-frame-root-id! nil 'rf/frame-root))
         "a missing/nil :id fails loud")
     (is (thrown-with-msg? :default #":rf.error/frame-root-missing-id"
-          (boundary/require-frame-root-id! "root/str" 'rf/frame-root))
+          (rf.views.frame-boundary/require-frame-root-id! "root/str" 'rf/frame-root))
         "a non-keyword :id fails loud")))
 
 ;; ---- fail-loud: did-you-mean both ways (rf2-nyea0r) ----------------------
@@ -189,34 +189,34 @@
 (deftest reject-frame-provider-id-names-frame-root
   (testing "frame-provider given :id fails loud naming frame-root"
     (is (thrown-with-msg? :default #":rf.error/frame-provider-given-id"
-          (boundary/reject-frame-provider-id! :some/frame 'rf/frame-provider))
+          (rf.views.frame-boundary/reject-frame-provider-id! :some/frame 'rf/frame-provider))
         "an :id on a SCOPE provider is a configuration error")))
 
 (deftest reject-frame-root-frame-names-frame-provider
   (testing "frame-root given :frame fails loud naming frame-provider"
     (is (thrown-with-msg? :default #":rf.error/frame-root-given-frame"
-          (boundary/reject-frame-root-frame! :some/frame 'rf/frame-root))
+          (rf.views.frame-boundary/reject-frame-root-frame! :some/frame 'rf/frame-root))
         "a :frame on an ENSURE root is a configuration error")))
 
 ;; ---- fail-loud: SCOPE-only shape needs a LIVE frame ----------------------
 
 (deftest require-live-frame-for-scope-passes-a-live-frame
   (testing "require-live-frame-for-scope! returns the keyword for a LIVE frame"
-    (boundary/acquire-frame-root! {:id :scope/live :images [app-image]})
+    (rf.views.frame-boundary/acquire-frame-root! {:id :scope/live :images [app-image]})
     (is (= :scope/live
-           (boundary/require-live-frame-for-scope! :scope/live 'rf/frame-provider))
+           (rf.views.frame-boundary/require-live-frame-for-scope! :scope/live 'rf/frame-provider))
         "a live frame passes through unchanged")))
 
 (deftest require-live-frame-for-scope-fails-loud-on-absent-frame
   (testing "require-live-frame-for-scope! fails loud when the named frame is absent"
     (is (thrown-with-msg? :default #":rf.error/frame-provider-frame-absent"
-          (boundary/require-live-frame-for-scope! :scope/never-created 'rf/frame-provider))
+          (rf.views.frame-boundary/require-live-frame-for-scope! :scope/never-created 'rf/frame-provider))
         "scoping a never-created frame fails loud")
     ;; A created-then-destroyed frame is also absent.
-    (boundary/acquire-frame-root! {:id :scope/gone :images [app-image]})
+    (rf.views.frame-boundary/acquire-frame-root! {:id :scope/gone :images [app-image]})
     (rf/destroy-frame! :scope/gone)
     (is (thrown-with-msg? :default #":rf.error/frame-provider-frame-absent"
-          (boundary/require-live-frame-for-scope! :scope/gone 'rf/frame-provider))
+          (rf.views.frame-boundary/require-live-frame-for-scope! :scope/gone 'rf/frame-provider))
         "scoping a destroyed frame fails loud")))
 
 ;; ---- end-to-end: the Reagent user-facing surfaces validate ----------------
@@ -251,7 +251,7 @@
 
 (deftest frame-provider-scope-scopes-a-live-frame-at-the-surface
   (testing "rf/frame-provider {:frame live} SCOPE shape composes to a Provider"
-    (boundary/acquire-frame-root! {:id :scope/surface-live :images [app-image]})
+    (rf.views.frame-boundary/acquire-frame-root! {:id :scope/surface-live :images [app-image]})
     (let [tree (rf/frame-provider {:frame :scope/surface-live} [:span "child"])]
       (is (vector? tree) "produces a hiccup vector")
       (is (= :scope/surface-live (second tree))

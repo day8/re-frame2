@@ -26,7 +26,7 @@
   registrations that landed at namespace-load time and (under CLJS)
   cannot be re-loaded at runtime.
 
-  Earlier fixtures in the CLJS test suite reached for `registrar/clear-all!`,
+  Earlier fixtures in the CLJS test suite reached for `rf.registrar/clear-all!`,
   which is fundamentally hostile to CLJS isolation:
 
     - `re-frame.routing` registers `:rf.route/transitioned`, `:rf.route/navigate`,
@@ -41,7 +41,7 @@
   rf2-coks documented the resulting cross-test pollution.
 
   The right pattern is **snapshot/restore**: capture
-  `@registrar/kind->id->metadata` before the test, allow the test to
+  `@rf.registrar/kind->id->metadata` before the test, allow the test to
   register additional ids, then reset the registrar to the captured map
   on the way out. Framework-shipped registrations survive (they're in
   the snapshot); user-test registrations are rolled back; the next test
@@ -90,31 +90,31 @@
     timer-semantics tests — those should keep their sleep and annotate
     that intent locally (the sleep IS the contract under test)."
   (:require [clojure.string]
-            [re-frame.registrar :as registrar]
-            [re-frame.error :as error]
-            ;; The runtime fixture resets the ONE `frame/frames` registry, which
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.error :as rf.error]
+            ;; The runtime fixture resets the ONE `rf.frame/frames` registry, which
             ;; (EP-0024 — the second live-frame registry dissolved into it) clears
             ;; every record AND its `:generation`. A frame seated via
             ;; `rf/make-frame {:id …}` registers there, and a stale entry leaking
             ;; across tests would make the next `make-frame`/`seat-*` treat the id
             ;; as already-seated (or fail loud on the duplicate id) — the single
             ;; reset is the whole clear (rf2-32siq3.32 / rf2-rjml45 / rf2-ji3tvy).
-            [re-frame.frame :as frame]
+            [re-frame.frame :as rf.frame]
             ;; EP-0027 (rf2-7ae2to): re-seed the framework-standard `:rf/set-db`
             ;; event into BOTH the regular registrar AND the EP-0023 image
             ;; standard registry on each reset (mirroring how `init!` re-seeds
-            ;; it after a `registrar/clear-all!`). A sibling test ns whose
-            ;; fixture calls `image-assembly/clear-standards!` (frame-resolution,
+            ;; it after a `rf.registrar/clear-all!`). A sibling test ns whose
+            ;; fixture calls `rf.image-assembly/clear-standards!` (frame-resolution,
             ;; ep0023-conformance, facade-frame-read, image-assembly-cache) would
             ;; otherwise leave the image standard registry EMPTY for the next ns,
             ;; so an image-loaded frame seeding via `:initial-events [[:rf/set-db
             ;; …]]` could not resolve `:rf/set-db` through its sealed generation.
             ;; (`events` is already in the dep graph via `router`; no new cycle.)
-            [re-frame.events :as events]
+            [re-frame.events :as rf.events]
             ;; EP-0026 §Default Image: `make-frame {}` now projects the DEFAULT
             ;; image over the active SOURCE STORE. Every `reg-*` writes a
             ;; provenance-tagged descriptor into `source-store` (in lockstep with
-            ;; the registrar resolver map — `registrar/register!`), so the source
+            ;; the registrar resolver map — `rf.registrar/register!`), so the source
             ;; store ACCUMULATES across the consolidated node-test bundle exactly
             ;; the way the registrar would without snapshot/restore. Two sibling
             ;; test namespaces registering the same `[kind id]` under different
@@ -126,8 +126,8 @@
             ;; projection sees ONLY this test's own registrations. The
             ;; resolved-generation cache is keyed on the source-store generation,
             ;; so clearing it on reset stops a stale default generation leaking.
-            [re-frame.source-store :as source-store]
-            [re-frame.image-assembly :as image-assembly]
+            [re-frame.source-store :as rf.source-store]
+            [re-frame.image-assembly :as rf.image-assembly]
             ;; The flows / schemas / machines / routing / http-managed /
             ;; epoch artefacts ship in separate Maven coordinates and are
             ;; reached only through late-bind hooks — see the
@@ -135,18 +135,18 @@
             ;; rationale (rf2-tfw3 / rf2-p7va / rf2-xbtj / rf2-k682 /
             ;; rf2-5kpd / rf2-lt4e). This ns must not statically require
             ;; any of them.
-            [re-frame.late-bind :as late-bind]
+            [re-frame.late-bind :as rf.late-bind]
             ;; Per rf2-qwm0a: the public-tooling listener + buffer
             ;; surface lives in `re-frame.trace.tooling` (split off
             ;; from `re-frame.trace` for production CLJS bundle DCE).
             ;; Test fixtures need `clear-listeners!` between scenarios;
             ;; we reach it through the tooling sibling directly.
-            [re-frame.trace.tooling :as trace-tooling]
+            [re-frame.trace.tooling :as rf.trace.tooling]
             ;; Clear the always-on event-emit listener registry on each
             ;; reset so a forwarder registered in one test doesn't see
             ;; events fired by a sibling test.
-            [re-frame.event-emit :as event-emit]
-            [re-frame.substrate.adapter :as adapter]
+            [re-frame.event-emit :as rf.event-emit]
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
             #?(:clj  [clojure.test :as ctest]
                :cljs [cljs.test :as ctest :include-macros true])))
 
@@ -162,7 +162,7 @@
   above the fixture form, or re-seed in the suite's :init-fn (frames
   resolve through the STORE: the default image is assembled from it)."
   [baseline]
-  (reset! source-store/kind->id->ns->descriptor baseline)
+  (reset! rf.source-store/kind->id->ns->descriptor baseline)
   nil)
 
 (defn sequester-app-registration!
@@ -201,31 +201,31 @@
       forgotten either way — sibling source rows survive — so registrar and
       source-store authority stay coherent."
   [kind id provenance-ns]
-  (when-let [row (get-in @source-store/kind->id->ns->descriptor
+  (when-let [row (get-in @rf.source-store/kind->id->ns->descriptor
                          [kind id provenance-ns])]
     ;; Registrar leg — remove the shared (kind, id) resolver slot ONLY when
     ;; this provenance-ns is its CURRENT writer, so an id both apps register
     ;; does not have a sibling's live registration clobbered.
-    (swap! registrar/kind->id->metadata update kind
+    (swap! rf.registrar/kind->id->metadata update kind
            (fn [m]
              (let [cur    (get m id)
-                   cur-ns (or (get cur source-store/provenance-ns-key)
+                   cur-ns (or (get cur rf.source-store/provenance-ns-key)
                               (some-> (:ns cur) str))]
                (if (and cur (= cur-ns (str provenance-ns)))
                  (dissoc m id)
                  m))))
     ;; Source leg — forget THIS provenance-ns's own row; sibling rows survive.
-    (source-store/forget-descriptor! kind id provenance-ns)
+    (rf.source-store/forget-descriptor! kind id provenance-ns)
     row))
 
 (defn reinstate-app-registration!
   "Reinstate a descriptor captured by [[sequester-app-registration!]]
-  through `registrar/register!` — registrar + source store in lockstep
+  through `rf.registrar/register!` — registrar + source store in lockstep
   (an image-loaded frame resolves through the STORE; a raw registrar-atom
   write would be invisible to its generation). No-op on nil."
   [descriptor]
   (when descriptor
-    (registrar/register! (:kind descriptor) (:id descriptor) descriptor))
+    (rf.registrar/register! (:kind descriptor) (:id descriptor) descriptor))
   nil)
 
 (defonce ^:private sequestered-namespace-rows
@@ -246,7 +246,7 @@
   [ns-prefix]
   (let [captured (get @sequestered-namespace-rows ns-prefix)
         rows     (or captured
-                     (vec (for [[kind id->ns] @source-store/kind->id->ns->descriptor
+                     (vec (for [[kind id->ns] @rf.source-store/kind->id->ns->descriptor
                                 [id ns->d]    id->ns
                                 [pns d]       ns->d
                                 :when (and (string? pns)
@@ -266,7 +266,7 @@
         ;; the registrar's single row is the LAST writer's, which may be the
         ;; SIBLING app's; deleting it would leave the id to whatever
         ;; leftover an earlier suite's restore folds around (rf2-h1vqa4).
-        (swap! registrar/kind->id->metadata update kind
+        (swap! rf.registrar/kind->id->metadata update kind
                (fn [m]
                  (let [cur (get m id)]
                    (if (and cur
@@ -274,22 +274,22 @@
                                     (clojure.string/starts-with? ns-prefix)))
                      (dissoc m id)
                      m))))
-        (source-store/forget-descriptor! kind id (:rf.provenance/ns d)))
+        (rf.source-store/forget-descriptor! kind id (:rf.provenance/ns d)))
       (count rows))))
 
 (defn reinstate-app-namespaces!
   "Reinstate every row [[sequester-app-namespaces!]] captured for
-  `ns-prefix` through `registrar/register!` (registrar + source store in
+  `ns-prefix` through `rf.registrar/register!` (registrar + source store in
   lockstep). Call from a suite's per-test init-fn."
   [ns-prefix]
   (doseq [d (get @sequestered-namespace-rows ns-prefix)]
-    (registrar/register! (:kind d) (:id d) d))
+    (rf.registrar/register! (:kind d) (:id d) d))
   nil)
 
 (defn snapshot-registrar
   "Capture the current registrar contents.
 
-  Returns the value of `@registrar/kind->id->metadata` — a plain map of
+  Returns the value of `@rf.registrar/kind->id->metadata` — a plain map of
   `kind → id → metadata` — at the moment of the call. Pair with
   [[restore-registrar!]] to roll the registrar back to this point.
 
@@ -297,7 +297,7 @@
   is safe to keep across mutations (subsequent `register!` calls produce
   new persistent maps and don't alter the captured one)."
   []
-  @registrar/kind->id->metadata)
+  @rf.registrar/kind->id->metadata)
 
 (defn restore-registrar!
   "Reset the registrar to a previously captured snapshot.
@@ -307,7 +307,7 @@
   undo per-test pollution while preserving framework / example
   registrations that landed at ns-load time."
   [snapshot]
-  (reset! registrar/kind->id->metadata snapshot)
+  (reset! rf.registrar/kind->id->metadata snapshot)
   nil)
 
 (defn- merge-registrar-snapshots
@@ -332,15 +332,15 @@
 (def ^:private reset-hook-table
   "Late-bind hook keys fired by `make-reset-runtime-fixture` to drop per-process
   test state — one row per optional artefact. Each entry pairs the hook key
-  with a `:phase` (when it fires relative to `adapter/dispose-adapter!`) and
+  with a `:phase` (when it fires relative to `rf.substrate.adapter/dispose-adapter!`) and
   the design bead that introduced the artefact. The driver
   `run-reset-hooks!` walks the table in registration order and no-ops a row
   when its hook is unregistered (artefact absent from the classpath).
 
   Order is load-bearing — non-late-bind steps interleave with the hooks:
-    1. `(reset! frame/frames {})`
+    1. `(reset! rf.frame/frames {})`
     2. `:pre-dispose` hooks (flows resets, schemas clear)
-    3. `(adapter/dispose-adapter!)`
+    3. `(rf.substrate.adapter/dispose-adapter!)`
     4. `:post-dispose` hooks (machines, routing, http, epoch, adapter-warn)
   Splitting the table by `:phase` lets the driver fire each contiguous run
   in one pass while keeping the cross-cutting prose in one place.
@@ -397,7 +397,7 @@
                                        listener is module-level host state
                                        (`re-frame.routing.history/history-
                                        listener-atom`), NOT torn down by the
-                                       `frame/frames` reset above (a raw atom
+                                       `rf.frame/frames` reset above (a raw atom
                                        reset does not run `destroy-frame!`'s
                                        teardown chain) — without this a
                                        listener installed by one test would
@@ -477,7 +477,7 @@
   (artefact absent from the classpath)."
   [phase]
   (run! (fn [{:keys [hook]}]
-          (when-let [f (late-bind/get-fn hook)]
+          (when-let [f (rf.late-bind/get-fn hook)]
             (f)))
         (filter #(= phase (:phase %)) reset-hook-table)))
 
@@ -528,11 +528,11 @@
   (restore-registrar!
     (merge-registrar-snapshots (snapshot-registrar) ns-load-baseline))
   (restore-source-store! source-store-baseline)
-  (image-assembly/clear-generation-cache!)
-  (let [snapshot-fn (late-bind/get-fn :schemas/snapshot-by-frame)]
+  (rf.image-assembly/clear-generation-cache!)
+  (let [snapshot-fn (rf.late-bind/get-fn :schemas/snapshot-by-frame)]
     {:snap         (snapshot-registrar)
-     :clear-fn     (late-bind/get-fn :schemas/clear-by-frame!)
-     :restore-fn   (late-bind/get-fn :schemas/restore-by-frame!)
+     :clear-fn     (rf.late-bind/get-fn :schemas/clear-by-frame!)
+     :restore-fn   (rf.late-bind/get-fn :schemas/restore-by-frame!)
      :schemas-snap (when snapshot-fn (snapshot-fn))}))
 
 (defn- reset-runtime!
@@ -545,20 +545,20 @@
   ambient frame scope — each shape owns how it makes that scope survive (see
   the section comment above)."
   [{:keys [adapter clear-kinds clear-app-schemas?]} clear-fn]
-  (reset! frame/frames {})
+  (reset! rf.frame/frames {})
   (run-reset-hooks! :pre-dispose)
-  (adapter/dispose-adapter!)
+  (rf.substrate.adapter/dispose-adapter!)
   (run-reset-hooks! :post-dispose)
-  (trace-tooling/clear-listeners!)
-  (event-emit/clear-event-listeners!)
+  (rf.trace.tooling/clear-listeners!)
+  (rf.event-emit/clear-event-listeners!)
   (when adapter
-    (adapter/install-adapter! adapter)
-    (frame/ensure-default-frame!))
-  (events/register-set-db-standard!)
-  (when-let [install (late-bind/get-fn :machines/install-runtime!)]
+    (rf.substrate.adapter/install-adapter! adapter)
+    (rf.frame/ensure-default-frame!))
+  (rf.events/register-set-db-standard!)
+  (when-let [install (rf.late-bind/get-fn :machines/install-runtime!)]
     (install))
   (doseq [k clear-kinds]
-    (registrar/clear-kind! k))
+    (rf.registrar/clear-kind! k))
   (when (and clear-app-schemas? clear-fn)
     (clear-fn)))
 
@@ -572,9 +572,9 @@
   (restore-registrar! snap)
   (when restore-fn (restore-fn schemas-snap))
   (restore-source-store! source-store-baseline)
-  (image-assembly/clear-generation-cache!)
-  (reset! frame/frames {})
-  (when-let [reset-flows! (late-bind/get-fn :flows/reset-flows!)]
+  (rf.image-assembly/clear-generation-cache!)
+  (reset! rf.frame/frames {})
+  (when-let [reset-flows! (rf.late-bind/get-fn :flows/reset-flows!)]
     (reset-flows!)))
 
 (defn make-reset-runtime-fixture
@@ -588,7 +588,7 @@
   `make-frame {}` (omitted `:images`) resolves the DEFAULT image — the implicit
   selector over the whole active SOURCE STORE plus the framework standards. Every
   `reg-*` writes a provenance-tagged descriptor into the source store in lockstep
-  with the registrar resolver map (`registrar/register!`), so without isolation
+  with the registrar resolver map (`rf.registrar/register!`), so without isolation
   the source store accumulates across the consolidated node-test bundle: two
   sibling namespaces registering the same `[kind id]` under different provenance
   namespaces leave a cross-namespace collision in the shared store, and the next
@@ -623,7 +623,7 @@
     1. Captures the current (baseline-reinstated) registrar (so user-test
        registrations can be rolled back without losing ns-load-time
        framework / example registrations).
-    2. Resets `frame/frames` to `{}`, plus the flows registry (via
+    2. Resets `rf.frame/frames` to `{}`, plus the flows registry (via
        `flows/reset-flows!` per rf2-4gvb4 — atoms are private behind
        an accessor seam) and the schemas per-frame registry (via the
        encapsulated `:schemas/clear-by-frame!` hook → `clear-schemas-
@@ -644,7 +644,7 @@
        app-db.
     8. Runs the test.
     9. Restores the registrar to the captured snapshot.
-   10. Resets `frame/frames` back to `{}` for symmetry, and (when their
+   10. Resets `rf.frame/frames` back to `{}` for symmetry, and (when their
        artefacts are loaded) the flows registry (via the
        `:flows/reset-flows!` late-bind hook) and the schemas per-frame
        registry (via the `:schemas/clear-by-frame!` late-bind hook).
@@ -735,7 +735,7 @@
   own top-level frames.
 
   FN/MAP MIXING HAZARD. `cljs.test` runs every test ns in ONE shared JS
-  runtime, and a fn-form fixture's teardown `(reset! frame/frames {})` clears
+  runtime, and a fn-form fixture's teardown `(reset! rf.frame/frames {})` clears
   the `:rf/default` frame for whatever ns runs next. The `:async? true`
   fixture is robust to this because its `:before` re-installs the adapter and
   re-ensures `:rf/default` itself every test — it never relies on a
@@ -816,7 +816,7 @@
    ;; `reinstate-and-snapshot!` (run-order independence; see that helper and
    ;; the shared-halves section comment above for the full EP-0026 rationale).
    (let [ns-load-baseline      (snapshot-registrar)
-         source-store-baseline* @source-store/kind->id->ns->descriptor
+         source-store-baseline* @rf.source-store/kind->id->ns->descriptor
          source-store-baseline (fn [] source-store-baseline*)
          ambient-frame         (if (contains? opts :ambient-frame)
                                  (:ambient-frame opts)
@@ -882,7 +882,7 @@
               ;; `dispatch-sync` in that body resolves `:rf/default`, finds the
               ;; frame `reset-runtime!` just ensured, and drains + lands.
               (when scope?
-                (set! frame/*current-frame* ambient-frame))
+                (set! rf.frame/*current-frame* ambient-frame))
               (run-init!)))
           :after
           (fn after-reset-runtime []
@@ -891,7 +891,7 @@
             ;; cljs.test runs :after AFTER the test's `done`, so this never
             ;; races the async body.
             (when scope?
-              (set! frame/*current-frame* nil))
+              (set! rf.frame/*current-frame* nil))
             (finish-runtime-reset! @ctx-atom (source-store-baseline))
             (reset! ctx-atom nil))})
        ;; ---- sync fn-form (default; clojure.test + non-async cljs.test) ----
@@ -906,7 +906,7 @@
            (try
              (reset-runtime! opts (:clear-fn ctx))
              (if scope?
-               (binding [frame/*current-frame* ambient-frame]
+               (binding [rf.frame/*current-frame* ambient-frame]
                  (run-init!)
                  (test-fn))
                (do
@@ -929,10 +929,10 @@
 (defn- resolve-frame
   "Frame-resolution chain shared by the helpers below:
      1. `:frame` key in opts when supplied;
-     2. `(frame/current-frame)` — picks up `with-frame` bindings,
+     2. `(rf.frame/current-frame)` — picks up `with-frame` bindings,
         defaults to `:rf/default`."
   [opts]
-  (or (:frame opts) (frame/current-frame)))
+  (or (:frame opts) (rf.frame/current-frame)))
 
 (defn assert-path-equals
   "Assert `(= expected-val (get-in app-db path))` against the resolved
@@ -962,7 +962,7 @@
   ([path expected-val opts]
    (let [opts     (or opts {})
          frame-id (resolve-frame opts)
-         actual   (get-in (frame/frame-app-db-value frame-id) path)
+         actual   (get-in (rf.frame/frame-app-db-value frame-id) path)
          pass?    (= expected-val actual)]
      (ctest/do-report
        {:type     (if pass? :pass :fail)
@@ -1008,7 +1008,7 @@
   :rf.error/poll-until-timeout` discriminator (per Spec 009) works on
   either runtime."
   [label elapsed-ms]
-  (error/thrown-ex-info :rf.error/poll-until-timeout
+  (rf.error/thrown-ex-info :rf.error/poll-until-timeout
                         'rf/poll-until
                         (str "poll-until timed out"
                              (when label (str " — " label)))
@@ -1124,7 +1124,7 @@
 ;;
 ;; Every adapter test ns that wants to capture a stream of trace events
 ;; used to define its own `defn- <verb>-traces[!]` wrapper around
-;; `trace-tooling/register-listener!` plus an atom. The verb
+;; `rf.trace.tooling/register-listener!` plus an atom. The verb
 ;; (collect-/record-), the `!` suffix, the return shape (bare atom vs
 ;; `{:traces a :stop! f}`), and the cleanup convention (manual key-keyed
 ;; `unregister-listener!` vs no cleanup at all) all diverged file-by-file
@@ -1218,8 +1218,8 @@
            key-form (or key `(keyword (gensym "rf-trace-recorder-")))]
        `(let [~recs-sym       ~init
               listener-key#   ~key-form]
-          (trace-tooling/register-listener! listener-key# ~on-event)
+          (rf.trace.tooling/register-listener! listener-key# ~on-event)
           (try
             ~@body
             (finally
-              (trace-tooling/unregister-listener! listener-key#)))))))
+              (rf.trace.tooling/unregister-listener! listener-key#)))))))

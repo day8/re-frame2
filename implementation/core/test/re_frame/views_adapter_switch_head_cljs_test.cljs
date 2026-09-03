@@ -1,11 +1,11 @@
 (ns re-frame.views-adapter-switch-head-cljs-test
   "rf2-oz7wr — the head cache across an ADAPTER SWITCH.
 
-  `views/view-head` derives `(rf/view id)` from (registration × installed
+  `rf.views/view-head` derives `(rf/view id)` from (registration × installed
   substrate) and memoises it, because both substrate hooks it consults are
   routed and the canonical boot order registers views before `rf/init!`.
   The registrar slot is deliberately NOT rewritten on a re-derivation
-  (`registrar/register!` emits `:rf.registry/handler-replaced` on every call,
+  (`rf.registrar/register!` emits `:rf.registry/handler-replaced` on every call,
   so re-registering at lookup would publish a phantom hot-reload), so the
   cache must recognise its own registration by an IMMUTABLE token — the exact
   object the slot still holds — rather than by whatever the latest derivation
@@ -56,10 +56,10 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [goog.object :as gobj]
             [re-frame.core :as rf]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.adapter :as adapter]
-            [re-frame.test-support :as test-support]
-            [re-frame.views :as views]))
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.views :as rf.views]))
 
 ;; ---- inert test substrates -------------------------------------------------
 ;;
@@ -100,20 +100,20 @@
 ;; reaches its nil fallback and `apply-adapter-componentize-view` keeps the
 ;; wrapper as the head (the Reagent shape).
 (defonce ^:private routed-componentize-hooks
-  (do (adapter/route-hook! adapter-a1 :adapter/componentize-view
+  (do (rf.substrate.adapter/route-hook! adapter-a1 :adapter/componentize-view
                            (make-componentize-view :a1))
-      (adapter/route-hook! adapter-a2 :adapter/componentize-view
+      (rf.substrate.adapter/route-hook! adapter-a2 :adapter/componentize-view
                            (make-componentize-view :a2))
       true))
 
 (defn- render-fn [& _args] [:div "row"])
 
 (defn- switch-adapter! [next-adapter]
-  (adapter/dispose-adapter!)
-  (adapter/install-adapter! next-adapter))
+  (rf.substrate.adapter/dispose-adapter!)
+  (rf.substrate.adapter/install-adapter! next-adapter))
 
 (defn- slot-handler [id]
-  (:handler-fn (registrar/lookup :view id)))
+  (:handler-fn (rf.registrar/lookup :view id)))
 
 ;; ---- fixture ---------------------------------------------------------------
 ;; The runtime fixture rolls the registrar back around each test (so the view
@@ -123,22 +123,22 @@
 ;; never-installed state for whatever namespace runs next.
 
 (use-fixtures :each
-  (let [reset-runtime (test-support/make-reset-runtime-fixture {})]
+  (let [reset-runtime (rf.test-support/make-reset-runtime-fixture {})]
     (fn [t]
       (reset-runtime
         (fn []
           (try
             (t)
             (finally
-              (adapter/dispose-adapter!)
-              (adapter/reset-lifecycle-state-for-tests!))))))))
+              (rf.substrate.adapter/dispose-adapter!)
+              (rf.substrate.adapter/reset-lifecycle-state-for-tests!))))))))
 
 ;; ---- the audit's shape: componentizing → componentizing --------------------
 
 (deftest post-init-componentized-head-survives-an-adapter-switch
   (testing "two consecutive lookups after a switch both answer the NEW substrate's head (rf2-oz7wr)"
-    (adapter/install-adapter! adapter-a1)
-    (let [h1 (views/reg-view* ::switch-row {} render-fn)]
+    (rf.substrate.adapter/install-adapter! adapter-a1)
+    (let [h1 (rf.views/reg-view* ::switch-row {} render-fn)]
       ;; Premises. Without these the row could silently decay into the
       ;; boot-order shape, where the slot holds the uncomponentized seed and
       ;; the misclassification cannot occur at all.
@@ -176,8 +176,8 @@
 
 (deftest switch-to-a-non-componentizing-substrate-does-not-fall-back
   (testing "a componentizing → non-componentizing switch answers the wrapper on BOTH lookups (rf2-oz7wr)"
-    (adapter/install-adapter! adapter-a1)
-    (let [h1 (views/reg-view* ::to-plain-row {} render-fn)]
+    (rf.substrate.adapter/install-adapter! adapter-a1)
+    (let [h1 (rf.views/reg-view* ::to-plain-row {} render-fn)]
       (is (= :a1 (shell-marker h1))
           "precondition: the registrar slot holds A1's componentized head H1")
 
@@ -205,9 +205,9 @@
 
 (deftest foreign-view-slot-passes-through-untouched-across-a-switch
   (testing "a :view slot this ns did not build is handed back exactly as stored"
-    (adapter/install-adapter! adapter-a1)
+    (rf.substrate.adapter/install-adapter! adapter-a1)
     (let [foreign (fn foreign-view [& _args] [:div "foreign"])]
-      (registrar/register! :view ::foreign-row {:handler-fn foreign})
+      (rf.registrar/register! :view ::foreign-row {:handler-fn foreign})
       (is (identical? foreign (rf/view ::foreign-row))
           "a hand-rolled registration is never componentized")
       (is (identical? foreign (rf/view ::foreign-row))
@@ -223,13 +223,13 @@
 
 (deftest foreign-re-registration-over-a-composed-slot-passes-through
   (testing "a hand-rolled register! that REPLACES a composed slot wins over the stale cache entry"
-    (adapter/install-adapter! adapter-a1)
-    (let [h1      (views/reg-view* ::hijacked-row {} render-fn)
+    (rf.substrate.adapter/install-adapter! adapter-a1)
+    (let [h1      (rf.views/reg-view* ::hijacked-row {} render-fn)
           foreign (fn foreign-view [& _args] [:div "foreign"])]
       (is (= :a1 (shell-marker h1))
           "precondition: the cache entry for this id describes a views-composed registration")
       ;; The cache still holds {W, H1, A1} for this id; the slot no longer does.
-      (registrar/register! :view ::hijacked-row {:handler-fn foreign})
+      (rf.registrar/register! :view ::hijacked-row {:handler-fn foreign})
 
       (switch-adapter! adapter-a2)
       (is (identical? foreign (rf/view ::hijacked-row))

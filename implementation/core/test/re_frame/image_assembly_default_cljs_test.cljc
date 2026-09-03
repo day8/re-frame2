@@ -35,9 +35,9 @@
   `clojure -M:test`."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
-            [re-frame.image          :as image]
-            [re-frame.image-assembly :as asm]
-            [re-frame.source-store   :as ss]))
+            [re-frame.image          :as rf.image]
+            [re-frame.image-assembly :as rf.image-assembly]
+            [re-frame.source-store   :as rf.source-store]))
 
 ;; ---------------------------------------------------------------------------
 ;; Fixture — SNAPSHOT/RESTORE the live source store (do NOT clear-all! — that
@@ -48,16 +48,16 @@
 
 (use-fixtures :each
   (fn [t]
-    (let [store-before @ss/kind->id->ns->descriptor]
-      (asm/clear-standards!)
-      (asm/clear-generation-cache!)
+    (let [store-before @rf.source-store/kind->id->ns->descriptor]
+      (rf.image-assembly/clear-standards!)
+      (rf.image-assembly/clear-generation-cache!)
       (try
         (t)
         (finally
           ;; Restore the source store to exactly its pre-case contents.
-          (reset! ss/kind->id->ns->descriptor store-before)
-          (asm/clear-standards!)
-          (asm/clear-generation-cache!))))))
+          (reset! rf.source-store/kind->id->ns->descriptor store-before)
+          (rf.image-assembly/clear-standards!)
+          (rf.image-assembly/clear-generation-cache!))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Synthetic registered descriptors — same shape the selector consumes. The
@@ -83,7 +83,7 @@
          (:rf.error/id (ex-data e)))))
 
 (defn- record! [provenance-ns kind id impl]
-  (ss/record-descriptor! kind id {:ns provenance-ns :kind kind :id id
+  (rf.source-store/record-descriptor! kind id {:ns provenance-ns :kind kind :id id
                                   :handler-fn impl}))
 
 ;; ===========================================================================
@@ -94,12 +94,12 @@
   (testing "the default image is the implicit selector over the WHOLE source
             store: it projects EVERY descriptor across every namespace + the
             framework standards into a sealed [kind id] resolver"
-    (asm/register-standard! :fx :rf.nav/push-url {:handler-fn ::std-nav})
+    (rf.image-assembly/register-standard! :fx :rf.nav/push-url {:handler-fn ::std-nav})
     (let [pool [(reg-desc "shop.cart"    :event :cart/add   ::cart-add)
                 (reg-desc "shop.cart"    :sub   :cart/items ::cart-items)
                 (reg-desc "shop.auth"    :event :auth/login ::auth-login)
                 (reg-desc "shop.catalog" :view  :catalog/grid ::grid)]
-          gen  (asm/assemble-default pool)]
+          gen  (rf.image-assembly/assemble-default pool)]
       (testing "every namespace's descriptors are selected (no glob — the whole
                 store)"
         (is (contains? (:rf.gen/resolver gen) [:event :cart/add]))
@@ -109,25 +109,25 @@
       (testing "the framework standard is unioned in, exactly as the explicit
                 path"
         (is (contains? (:rf.gen/resolver gen) [:fx :rf.nav/push-url]))
-        (is (= ::std-nav (:handler-fn (asm/resolve-descriptor gen :fx :rf.nav/push-url)))))
+        (is (= ::std-nav (:handler-fn (rf.image-assembly/resolve-descriptor gen :fx :rf.nav/push-url)))))
       (testing "resolve-descriptor reads one descriptor per (kind, id)"
-        (is (= ::cart-add (:handler-fn (asm/resolve-descriptor gen :event :cart/add))))
-        (is (= ::grid (:handler-fn (asm/resolve-descriptor gen :view :catalog/grid)))))
+        (is (= ::cart-add (:handler-fn (rf.image-assembly/resolve-descriptor gen :event :cart/add))))
+        (is (= ::grid (:handler-fn (rf.image-assembly/resolve-descriptor gen :view :catalog/grid)))))
       (testing "the generation carries the kinds present"
-        (is (= #{:event :sub :view :fx} (asm/generation-kinds gen)))))))
+        (is (= #{:event :sub :view :fx} (rf.image-assembly/generation-kinds gen)))))))
 
 (deftest empty-store-default-projects-an-empty-generation
   (testing "the default image over an EMPTY source store is a VALID empty
             projection (resolving only framework standards) — no zero-match
             fail-loud, unlike a :select-ns :include glob"
-    (let [gen (asm/assemble-default [])]
+    (let [gen (rf.image-assembly/assemble-default [])]
       (is (map? gen))
       (is (= {} (:rf.gen/resolver gen)))
-      (is (= #{} (asm/generation-kinds gen)))
+      (is (= #{} (rf.image-assembly/generation-kinds gen)))
       (testing "with only a framework standard present, the default projects it"
-        (asm/register-standard! :fx :rf.nav/push-url {:handler-fn ::std})
-        (asm/clear-generation-cache!) ;; the standard generation also invalidates
-        (let [gen2 (asm/assemble-default [])]
+        (rf.image-assembly/register-standard! :fx :rf.nav/push-url {:handler-fn ::std})
+        (rf.image-assembly/clear-generation-cache!) ;; the standard generation also invalidates
+        (let [gen2 (rf.image-assembly/assemble-default [])]
           (is (contains? (:rf.gen/resolver gen2) [:fx :rf.nav/push-url])))))))
 
 ;; ===========================================================================
@@ -143,7 +143,7 @@
     (let [pool [(reg-desc "examples.todo.boot"    :event :boot/init ::todo-boot)
                 (reg-desc "examples.counter.boot" :event :boot/init ::counter-boot)]]
       (is (= :rf.error/image-duplicate-id
-             (assembly-error-id #(asm/assemble-default pool)))))))
+             (assembly-error-id #(rf.image-assembly/assemble-default pool)))))))
 
 (deftest default-projection-collision-order-independent
   (testing "the default-projection duplicate-id error fires regardless of pool
@@ -151,9 +151,9 @@
     (let [a (reg-desc "examples.todo.boot"    :event :boot/init ::a)
           b (reg-desc "examples.counter.boot" :event :boot/init ::b)]
       (is (= :rf.error/image-duplicate-id
-             (assembly-error-id #(asm/assemble-default [a b]))))
+             (assembly-error-id #(rf.image-assembly/assemble-default [a b]))))
       (is (= :rf.error/image-duplicate-id
-             (assembly-error-id #(asm/assemble-default [b a])))))))
+             (assembly-error-id #(rf.image-assembly/assemble-default [b a])))))))
 
 (deftest default-projection-same-namespace-replacement-is-not-a-collision
   (testing "the same (kind, id) in the SAME namespace is the hot-reload
@@ -162,16 +162,16 @@
             collision)"
     ;; A genuine same-ns replacement: the store keeps one slot per
     ;; [kind id provenance-ns], so two records for the same ns leave ONE.
-    (let [store-before @ss/kind->id->ns->descriptor]
+    (let [store-before @rf.source-store/kind->id->ns->descriptor]
       (try
-        (reset! ss/kind->id->ns->descriptor {})
+        (reset! rf.source-store/kind->id->ns->descriptor {})
         (record! "counter.core" :event :counter/inc ::v1)
         (record! "counter.core" :event :counter/inc ::v2) ;; replaces ::v1
-        (let [gen (asm/assemble-default
-                    (into [] (mapcat ss/all-descriptors) (ss/kinds-present)))]
-          (is (= ::v2 (:handler-fn (asm/resolve-descriptor gen :event :counter/inc)))
+        (let [gen (rf.image-assembly/assemble-default
+                    (into [] (mapcat rf.source-store/all-descriptors) (rf.source-store/kinds-present)))]
+          (is (= ::v2 (:handler-fn (rf.image-assembly/resolve-descriptor gen :event :counter/inc)))
               "the same-namespace re-register replaced the slot; one descriptor seals"))
-        (finally (reset! ss/kind->id->ns->descriptor store-before))))))
+        (finally (reset! rf.source-store/kind->id->ns->descriptor store-before))))))
 
 ;; ===========================================================================
 ;; 3. Single-namespace default projects cleanly
@@ -183,11 +183,11 @@
     (let [pool [(reg-desc "app.core" :event :counter/inc   ::inc)
                 (reg-desc "app.core" :sub   :counter/value ::value)
                 (reg-desc "app.core" :view  :counter/view  ::view)]
-          gen  (asm/assemble-default pool)]
-      (is (= ::inc   (:handler-fn (asm/resolve-descriptor gen :event :counter/inc))))
-      (is (= ::value (:handler-fn (asm/resolve-descriptor gen :sub :counter/value))))
-      (is (= ::view  (:handler-fn (asm/resolve-descriptor gen :view :counter/view))))
-      (is (= #{:event :sub :view} (asm/generation-kinds gen))))))
+          gen  (rf.image-assembly/assemble-default pool)]
+      (is (= ::inc   (:handler-fn (rf.image-assembly/resolve-descriptor gen :event :counter/inc))))
+      (is (= ::value (:handler-fn (rf.image-assembly/resolve-descriptor gen :sub :counter/value))))
+      (is (= ::view  (:handler-fn (rf.image-assembly/resolve-descriptor gen :view :counter/view))))
+      (is (= #{:event :sub :view} (rf.image-assembly/generation-kinds gen))))))
 
 ;; ===========================================================================
 ;; 4. `assemble` with NO / empty :images routes to the default projection
@@ -198,8 +198,8 @@
             (the implicit whole-store selector) — the no-explicit-image frame
             path produces the same generation as `assemble-default`"
     (let [pool [(reg-desc "app.core" :event :counter/inc ::inc)]
-          via-empty   (asm/assemble [] pool)
-          via-default (asm/assemble-default pool)]
+          via-empty   (rf.image-assembly/assemble [] pool)
+          via-default (rf.image-assembly/assemble-default pool)]
       (is (contains? (:rf.gen/resolver via-empty) [:event :counter/inc]))
       (is (= via-default via-empty)
           "the empty-:images path equals the explicit default projection")
@@ -212,7 +212,7 @@
     (let [pool [(reg-desc "todo.boot"    :event :boot/init ::a)
                 (reg-desc "counter.boot" :event :boot/init ::b)]]
       (is (= :rf.error/image-duplicate-id
-             (assembly-error-id #(asm/assemble [] pool)))))))
+             (assembly-error-id #(rf.image-assembly/assemble [] pool)))))))
 
 ;; ===========================================================================
 ;; 5. The default generation is CACHED + invalidates on a source-store change
@@ -226,51 +226,51 @@
             on a repeat) and INVALIDATES the instant a `reg-*` bumps the
             source-store generation (EP-0023 §Image — the default generation is
             cached keyed on the source-store generation)"
-    (let [store-before @ss/kind->id->ns->descriptor]
+    (let [store-before @rf.source-store/kind->id->ns->descriptor]
       (try
         ;; Start from a known clean live store for a deterministic generation.
-        (reset! ss/kind->id->ns->descriptor {})
-        (asm/clear-generation-cache!)
+        (reset! rf.source-store/kind->id->ns->descriptor {})
+        (rf.image-assembly/clear-generation-cache!)
         (record! "shop.cart" :event :cart/add ::add)
-        (let [gen1 (asm/assemble-default)
-              gen1b (asm/assemble-default)]
+        (let [gen1 (rf.image-assembly/assemble-default)
+              gen1b (rf.image-assembly/assemble-default)]
           (testing "a repeat assembly over the UNCHANGED live store reuses the
                     SAME sealed object (the cache HIT)"
             (is (identical? gen1 gen1b))
-            (is (= 1 (asm/cache-size))))
+            (is (= 1 (rf.image-assembly/cache-size))))
           (is (not (contains? (:rf.gen/resolver gen1) [:sub :cart/items])))
           ;; A new registration bumps the source-store generation.
           (record! "shop.cart" :sub :cart/items ::items)
-          (let [gen2 (asm/assemble-default)]
+          (let [gen2 (rf.image-assembly/assemble-default)]
             (testing "the store changed → a re-seal, NOT the stale cached object"
               (is (not (identical? gen1 gen2)))
               (is (contains? (:rf.gen/resolver gen2) [:sub :cart/items])
                   "the re-sealed default generation reflects the new registration")
-              (is (= 2 (asm/cache-size))
+              (is (= 2 (rf.image-assembly/cache-size))
                   "both the pre- and post-change default generations are cached"))))
         (finally
-          (reset! ss/kind->id->ns->descriptor store-before)
-          (asm/clear-generation-cache!))))))
+          (reset! rf.source-store/kind->id->ns->descriptor store-before)
+          (rf.image-assembly/clear-generation-cache!))))))
 
 (deftest default-generation-invalidates-on-standard-change
   (testing "registering a NEW framework standard bumps the standard generation,
             so a re-assembly of the default image over the same store is a MISS
             — the standard set is part of the default generation too"
-    (let [store-before @ss/kind->id->ns->descriptor]
+    (let [store-before @rf.source-store/kind->id->ns->descriptor]
       (try
-        (reset! ss/kind->id->ns->descriptor {})
-        (asm/clear-generation-cache!)
+        (reset! rf.source-store/kind->id->ns->descriptor {})
+        (rf.image-assembly/clear-generation-cache!)
         (record! "app.core" :event :app/boot ::boot)
-        (let [gen1 (asm/assemble-default)]
+        (let [gen1 (rf.image-assembly/assemble-default)]
           (is (not (contains? (:rf.gen/resolver gen1) [:fx :rf.nav/push-url])))
-          (asm/register-standard! :fx :rf.nav/push-url {:handler-fn ::std-nav})
-          (let [gen2 (asm/assemble-default)]
+          (rf.image-assembly/register-standard! :fx :rf.nav/push-url {:handler-fn ::std-nav})
+          (let [gen2 (rf.image-assembly/assemble-default)]
             (is (not (identical? gen1 gen2))
                 "the standard set changed → a re-seal of the default generation")
             (is (contains? (:rf.gen/resolver gen2) [:fx :rf.nav/push-url]))))
         (finally
-          (reset! ss/kind->id->ns->descriptor store-before)
-          (asm/clear-generation-cache!))))))
+          (reset! rf.source-store/kind->id->ns->descriptor store-before)
+          (rf.image-assembly/clear-generation-cache!))))))
 
 ;; ===========================================================================
 ;; 6. `default-image?` predicate + the default-image marker value
@@ -279,10 +279,10 @@
 (deftest default-image-marker-and-predicate
   (testing "`default-image` is the marker value; `default-image?` recognizes it
             and rejects an ordinary explicit image value"
-    (is (asm/default-image? asm/default-image))
-    (is (true? (:rf.image/default? asm/default-image)))
-    (is (not (asm/default-image? {:rf.image/include-ns ["a.b"]})))
-    (is (not (asm/default-image? {})))))
+    (is (rf.image-assembly/default-image? rf.image-assembly/default-image))
+    (is (true? (:rf.image/default? rf.image-assembly/default-image)))
+    (is (not (rf.image-assembly/default-image? {:rf.image/include-ns ["a.b"]})))
+    (is (not (rf.image-assembly/default-image? {})))))
 
 ;; ===========================================================================
 ;; 7. A PROVENANCED app descriptor colliding with a framework STANDARD FAILS
@@ -298,14 +298,14 @@
             DEFAULT path with :rf.error/image-standard-replacement-forbidden —
             the standard is protected and the app registration is NOT silently
             dropped (rf2-x76af2.29)"
-    (asm/register-standard! :fx :rf.nav/push-url {:handler-fn ::std-nav})
+    (rf.image-assembly/register-standard! :fx :rf.nav/push-url {:handler-fn ::std-nav})
     (let [pool [(reg-desc "shop.nav"  :fx    :rf.nav/push-url ::app-nav)
                 (reg-desc "shop.cart" :event :cart/add        ::cart-add)]]
       (is (= :rf.error/image-standard-replacement-forbidden
-             (assembly-error-id #(asm/assemble-default pool)))
+             (assembly-error-id #(rf.image-assembly/assemble-default pool)))
           "the default path throws the SAME error the explicit path throws")
       (is (= :rf.error/image-standard-replacement-forbidden
-             (assembly-error-id #(asm/assemble [] pool)))
+             (assembly-error-id #(rf.image-assembly/assemble [] pool)))
           "the empty-:images default route throws it too"))))
 
 (deftest default-and-explicit-paths-fail-loud-symmetrically-on-standard-collision
@@ -315,15 +315,15 @@
             and the explicit path. Before rf2-x76af2.29 the default path
             silently dropped the app descriptor and resolved to the standard
             (the documented fail-loud asymmetry)"
-    (asm/register-standard! :fx :rf.nav/push-url {:handler-fn ::std-nav})
+    (rf.image-assembly/register-standard! :fx :rf.nav/push-url {:handler-fn ::std-nav})
     (let [pool     [(reg-desc "shop.nav" :fx :rf.nav/push-url ::app-nav)]
-          explicit (image/image {:id :shop/nav :select-ns {:include ["shop.nav"]}})]
+          explicit (rf.image/image {:id :shop/nav :select-ns {:include ["shop.nav"]}})]
       (is (= :rf.error/image-standard-replacement-forbidden
-             (assembly-error-id #(asm/assemble-default pool))))
+             (assembly-error-id #(rf.image-assembly/assemble-default pool))))
       (is (= :rf.error/image-standard-replacement-forbidden
-             (assembly-error-id #(asm/assemble [explicit] pool))))
-      (is (= (assembly-error-id #(asm/assemble-default pool))
-             (assembly-error-id #(asm/assemble [explicit] pool)))
+             (assembly-error-id #(rf.image-assembly/assemble [explicit] pool))))
+      (is (= (assembly-error-id #(rf.image-assembly/assemble-default pool))
+             (assembly-error-id #(rf.image-assembly/assemble [explicit] pool)))
           "same error id on both paths — the default path is no longer the odd one out"))))
 
 (deftest default-projection-drops-framework-own-no-provenance-standard-shadow
@@ -333,15 +333,15 @@
             it must NOT reach check-standard-collision! and must NOT throw. The
             standard still resolves and ordinary app descriptors still project
             (rf2-x76af2.29 NARROWED the filter, it did not remove it)"
-    (asm/register-standard! :fx :rf.nav/push-url {:handler-fn ::std-nav})
+    (rf.image-assembly/register-standard! :fx :rf.nav/push-url {:handler-fn ::std-nav})
     (let [own-shadow {:rf.provenance/ns nil :kind :fx :id :rf.nav/push-url
                       :handler-fn ::std-nav}
           pool       [own-shadow
                       (reg-desc "shop.cart" :event :cart/add ::cart-add)]
-          gen        (asm/assemble-default pool)]
+          gen        (rf.image-assembly/assemble-default pool)]
       (is (contains? (:rf.gen/resolver gen) [:fx :rf.nav/push-url])
           "the standard is still present (unioned in)")
-      (is (= ::std-nav (:handler-fn (asm/resolve-descriptor gen :fx :rf.nav/push-url)))
+      (is (= ::std-nav (:handler-fn (rf.image-assembly/resolve-descriptor gen :fx :rf.nav/push-url)))
           "resolves to the standard's own copy; the no-provenance shadow was dropped")
       (is (contains? (:rf.gen/resolver gen) [:event :cart/add])
           "ordinary app descriptors still project into the default generation"))))
@@ -377,9 +377,9 @@
             stays safe for an app that registers nothing"
     (let [pool [(fw-default-desc :event :rf.route/entry-denied ::fw-noop)
                 (reg-desc "shop.cart" :event :cart/add ::cart-add)]
-          gen  (asm/assemble-default pool)]
+          gen  (rf.image-assembly/assemble-default pool)]
       (is (= ::fw-noop
-             (:handler-fn (asm/resolve-descriptor gen :event :rf.route/entry-denied)))
+             (:handler-fn (rf.image-assembly/resolve-descriptor gen :event :rf.route/entry-denied)))
           "the framework default resolves")
       (is (contains? (:rf.gen/resolver gen) [:event :cart/add])))))
 
@@ -391,9 +391,9 @@
             :rf.error/image-duplicate-id"
     (let [pool [(fw-default-desc :event :rf.route/entry-denied ::fw-noop)
                 (reg-desc "shop.auth" :event :rf.route/entry-denied ::app-denial)]
-          gen  (asm/assemble-default pool)]
+          gen  (rf.image-assembly/assemble-default pool)]
       (is (= ::app-denial
-             (:handler-fn (asm/resolve-descriptor gen :event :rf.route/entry-denied)))
+             (:handler-fn (rf.image-assembly/resolve-descriptor gen :event :rf.route/entry-denied)))
           "the application's handler is what the frame runs"))))
 
 (deftest two-application-registrations-of-a-default-id-still-collide
@@ -404,7 +404,7 @@
                 (reg-desc "shop.auth"  :event :rf.route/entry-denied ::a)
                 (reg-desc "shop.admin" :event :rf.route/entry-denied ::b)]]
       (is (= :rf.error/image-duplicate-id
-             (assembly-error-id #(asm/assemble-default pool)))))))
+             (assembly-error-id #(rf.image-assembly/assemble-default pool)))))))
 
 (deftest the-framework-default-marker-is-not-forgeable-from-app-code
   (testing "the marker only identifies the FRAMEWORK's own copy: it is read
@@ -415,8 +415,8 @@
                        :rf/framework-default? true)
                 (reg-desc "shop.admin" :event :cart/add ::b)]]
       (is (= :rf.error/image-duplicate-id
-             (assembly-error-id #(asm/assemble-default pool))))
-      (is (false? (asm/framework-default-descriptor?
+             (assembly-error-id #(rf.image-assembly/assemble-default pool))))
+      (is (false? (rf.image-assembly/framework-default-descriptor?
                     (assoc (reg-desc "shop.auth" :event :cart/add ::a)
                            :rf/framework-default? true)))
           "a provenanced descriptor is never the framework's own copy"))))
@@ -425,14 +425,14 @@
   (testing "the key set names ONLY the framework defaults an application has
             actually registered over — not every framework default, and not
             every colliding id"
-    (is (= #{} (asm/superseded-framework-default-keys
+    (is (= #{} (rf.image-assembly/superseded-framework-default-keys
                  [(reg-desc "shop.cart" :event :cart/add ::a)]))
         "no framework defaults in the pool → no keys, one pass")
-    (is (= #{} (asm/superseded-framework-default-keys
+    (is (= #{} (rf.image-assembly/superseded-framework-default-keys
                  [(fw-default-desc :event :rf.route/entry-denied ::fw)]))
         "an unsuperseded framework default is NOT in the set")
     (is (= #{[:event :rf.route/entry-denied]}
-           (asm/superseded-framework-default-keys
+           (rf.image-assembly/superseded-framework-default-keys
              [(fw-default-desc :event :rf.route/entry-denied ::fw)
               (reg-desc "shop.auth" :event :rf.route/entry-denied ::app)
               (reg-desc "shop.cart" :event :cart/add ::a)]))
@@ -451,31 +451,31 @@
 (deftest framework-default-carrier-classification-rides-an-override
   (testing "an app registration over a framework default keeps the framework's
             OWN carrier classification, with no boilerplate on the app side"
-    (ss/record-descriptor! :event ::denied
+    (rf.source-store/record-descriptor! :event ::denied
                            {:rf/framework-default? true
                             :sensitive             [[:requested-url] [:destination]]
                             :handler-fn            ::fw-noop})
     (is (= {:sensitive [[:requested-url] [:destination]]}
-           (asm/framework-default-classification :event ::denied))
+           (rf.image-assembly/framework-default-classification :event ::denied))
         "the framework's own copy is still readable after supersession")
     (is (= {:handler-fn ::app :sensitive [[:requested-url] [:destination]]}
-           (asm/retain-framework-default-classification
+           (rf.image-assembly/retain-framework-default-classification
              :event ::denied {:handler-fn ::app}))
         "an override declaring NOTHING still classifies the framework's carriers")))
 
 (deftest an-app-declaration-is-additive-over-the-retained-carriers
   (testing "the retention is a UNION — the framework's paths first, then the
             override's own, de-duplicated. Neither side silently loses"
-    (ss/record-descriptor! :event ::denied
+    (rf.source-store/record-descriptor! :event ::denied
                            {:rf/framework-default? true
                             :sensitive             [[:requested-url] [:target]]
                             :handler-fn            ::fw-noop})
     (is (= [[:requested-url] [:target] [:guard]]
-           (:sensitive (asm/retain-framework-default-classification
+           (:sensitive (rf.image-assembly/retain-framework-default-classification
                          :event ::denied {:sensitive [[:guard]]})))
         "the app's own path is appended, not dropped")
     (is (= [[:requested-url] [:target]]
-           (:sensitive (asm/retain-framework-default-classification
+           (:sensitive (rf.image-assembly/retain-framework-default-classification
                          :event ::denied {:sensitive [[:target]]})))
         "an override restating a framework path does not duplicate it")))
 
@@ -484,19 +484,19 @@
             PROVENANCED descriptor stamping the marker (the forgery case), and a
             framework default declaring no carriers all pass the metadata
             through untouched — the same value, not an equal copy"
-    (ss/record-descriptor! :event ::ordinary {:handler-fn ::app
+    (rf.source-store/record-descriptor! :event ::ordinary {:handler-fn ::app
                                              :sensitive  [[:token]]})
-    (ss/record-descriptor! :event ::forged {:rf.provenance/ns      "shop.auth"
+    (rf.source-store/record-descriptor! :event ::forged {:rf.provenance/ns      "shop.auth"
                                             :rf/framework-default? true
                                             :sensitive             [[:secret]]
                                             :handler-fn            ::app})
-    (ss/record-descriptor! :event ::bare-default {:rf/framework-default? true
+    (rf.source-store/record-descriptor! :event ::bare-default {:rf/framework-default? true
                                                   :handler-fn            ::fw-noop})
     (doseq [id [::ordinary ::forged ::bare-default ::never-registered]]
       (let [m {:handler-fn ::app}]
-        (is (identical? m (asm/retain-framework-default-classification :event id m))
+        (is (identical? m (rf.image-assembly/retain-framework-default-classification :event id m))
             (str "identity-preserving for " id))))
-    (is (nil? (asm/framework-default-classification :event ::forged))
+    (is (nil? (rf.image-assembly/framework-default-classification :event ::forged))
         "a provenanced descriptor stamping the reserved marker is not the
          framework's own copy — the same unforgeability the supersession seam has")))
 
@@ -508,21 +508,21 @@
             require order no longer decides the effective classification"
     ;; The inverse order — the app registration is in the store, no framework
     ;; default yet.
-    (ss/record-descriptor! :event ::denied {:ns         "shop.auth"
+    (rf.source-store/record-descriptor! :event ::denied {:ns         "shop.auth"
                                             :sensitive  [[:guard]]
                                             :handler-fn ::app})
-    (is (nil? (asm/framework-default-classification :event ::denied))
+    (is (nil? (rf.image-assembly/framework-default-classification :event ::denied))
         "no framework default yet — the retention read has nothing to carry")
-    (asm/reconcile-framework-default-classification! :event ::denied)
-    (is (= [[:guard]] (:sensitive (ss/descriptor-for :event ::denied "shop.auth")))
+    (rf.image-assembly/reconcile-framework-default-classification! :event ::denied)
+    (is (= [[:guard]] (:sensitive (rf.source-store/descriptor-for :event ::denied "shop.auth")))
         "and the reconcile is itself a no-op while there is no framework default")
     ;; The framework's default lands SECOND (something requires the facade later).
-    (ss/record-descriptor! :event ::denied
+    (rf.source-store/record-descriptor! :event ::denied
                            {:rf/framework-default? true
                             :sensitive             [[:requested-url] [:target]]
                             :handler-fn            ::fw-noop})
-    (asm/reconcile-framework-default-classification! :event ::denied)
-    (let [app (ss/descriptor-for :event ::denied "shop.auth")]
+    (rf.image-assembly/reconcile-framework-default-classification! :event ::denied)
+    (let [app (rf.source-store/descriptor-for :event ::denied "shop.auth")]
       (is (= [[:requested-url] [:target] [:guard]] (:sensitive app))
           "the already-stored app descriptor now carries the SAME union the
            default-first order produces — framework carriers first, then its own")
@@ -533,11 +533,11 @@
            metadata inheritance"))
     (testing "the framework's own copy is left alone — it is not an app descriptor"
       (is (= [[:requested-url] [:target]]
-             (:sensitive (ss/descriptor-for :event ::denied nil)))))
+             (:sensitive (rf.source-store/descriptor-for :event ::denied nil)))))
     (testing "and the reconcile is idempotent — a second pass re-records nothing"
-      (let [before (ss/descriptor-for :event ::denied "shop.auth")]
-        (asm/reconcile-framework-default-classification! :event ::denied)
-        (is (identical? before (ss/descriptor-for :event ::denied "shop.auth"))
+      (let [before (rf.source-store/descriptor-for :event ::denied "shop.auth")]
+        (rf.image-assembly/reconcile-framework-default-classification! :event ::denied)
+        (is (identical? before (rf.source-store/descriptor-for :event ::denied "shop.auth"))
             "identical descriptor ⇒ no write ⇒ no gratuitous generation bump")))))
 
 (deftest an-explicit-image-is-unaffected-by-the-default-seam
@@ -546,7 +546,7 @@
             The app's registration is simply the image's descriptor"
     (let [pool     [(fw-default-desc :event :rf.route/entry-denied ::fw-noop)
                     (reg-desc "shop.auth" :event :rf.route/entry-denied ::app-denial)]
-          explicit (image/image {:id :shop/auth :select-ns {:include ["shop.auth"]}})
-          gen      (asm/assemble [explicit] pool)]
+          explicit (rf.image/image {:id :shop/auth :select-ns {:include ["shop.auth"]}})
+          gen      (rf.image-assembly/assemble [explicit] pool)]
       (is (= ::app-denial
-             (:handler-fn (asm/resolve-descriptor gen :event :rf.route/entry-denied)))))))
+             (:handler-fn (rf.image-assembly/resolve-descriptor gen :event :rf.route/entry-denied)))))))

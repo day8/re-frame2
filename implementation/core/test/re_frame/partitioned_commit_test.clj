@@ -31,7 +31,7 @@
        fx asymmetry (Mike-ruled, unchanged)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.elision :as elision]
+            [re-frame.elision :as rf.elision]
             ;; Load the flows artefact so the rejection-survivor tests below
             ;; can register REAL `reg-flow` outputs (which install
             ;; `:source :flow` elision marks at registration time) and
@@ -40,17 +40,17 @@
             ;; Requiring it publishes the `:flows/*` late-bind hooks the
             ;; drain consults.
             [re-frame.flows]
-            [re-frame.frame :as frame]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.registrar :as registrar]
+            [re-frame.frame :as rf.frame]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.registrar :as rf.registrar]
             ;; Load the schemas artefact so the
             ;; `:schemas/validate-app-schema!` late-bind hook is published —
             ;; the schema-rejection tests below guard on it and are
             ;; otherwise skipped when this ns runs in isolation (`-n`).
             [re-frame.schemas]
-            [re-frame.substrate.adapter :as adapter]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace :as rf.trace]
             ;; rf2-szbzei — the partition-injection mutators
             ;; (replace-runtime-db! / replace-frame-state!) are now
             ;; epoch-backed Tool-Pair writes that delegate to the epoch
@@ -62,12 +62,12 @@
 ;; ---- fixtures -------------------------------------------------------------
 
 (defn reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (when-let [clear-schemas! (late-bind/get-fn :schemas/clear-by-frame!)]
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (when-let [clear-schemas! (rf.late-bind/get-fn :schemas/clear-by-frame!)]
     (clear-schemas!))
-  (trace/clear-listeners!)
-  (rf/init! plain-atom/adapter)
+  (rf.trace/clear-listeners!)
+  (rf/init! rf.substrate.plain-atom/adapter)
   ;; EP-0002 (rf2-9o48ih): `init!` no longer synthesises `:rf/default`;
   ;; framework operation surfaces require a carried frame stamp. Register
   ;; `:rf/default` + pin it as the body's ambient scope (the carried-
@@ -102,26 +102,26 @@
 (deftest one-physical-container-two-projections
   (testing "a frame holds one frame-state container; app-db / runtime-db are projections over it"
     (rf/make-frame {:id :pc/shape :doc "shape"})
-    (let [fs   (frame/frame-state-container :pc/shape)
-          app  (frame/app-db-container :pc/shape)
-          rt   (frame/runtime-db-container :pc/shape)]
+    (let [fs   (rf.frame/frame-state-container :pc/shape)
+          app  (rf.frame/app-db-container :pc/shape)
+          rt   (rf.frame/runtime-db-container :pc/shape)]
       (is (some? fs) "the physical frame-state container exists")
       (is (some? app) "the app-db projection exists")
       (is (some? rt) "the runtime-db projection exists")
       (is (= {:rf.db/app {} :rf.db/runtime {}}
-             (adapter/read-container fs))
+             (rf.substrate.adapter/read-container fs))
           "the physical container holds the coherent frame-state value (both partitions)")
-      (is (= {} (adapter/read-container app))
+      (is (= {} (rf.substrate.adapter/read-container app))
           "the app-db projection derefs the :rf.db/app slice")
-      (is (= {} (adapter/read-container rt))
+      (is (= {} (rf.substrate.adapter/read-container rt))
           "the runtime-db projection derefs the :rf.db/runtime slice"))))
 
 (deftest projections-are-read-only
   (testing "writing the app-db / runtime-db projection throws derived-container-replaced"
     (rf/make-frame {:id :pc/ro :doc "ro"})
-    (doseq [container [(frame/app-db-container :pc/ro)
-                       (frame/runtime-db-container :pc/ro)]]
-      (let [e (try (adapter/replace-container! container {:x 1}) nil
+    (doseq [container [(rf.frame/app-db-container :pc/ro)
+                       (rf.frame/runtime-db-container :pc/ro)]]
+      (let [e (try (rf.substrate.adapter/replace-container! container {:x 1}) nil
                    (catch clojure.lang.ExceptionInfo e e))]
         (is (some? e) "a projection reaction rejects replace-container!")
         (is (= :rf.error/derived-container-replaced (:rf.error/id (ex-data e)))
@@ -203,7 +203,7 @@
     ;; is no window where one partition is committed and the other is not.
     (is (= {:rf.db/app {:page :account}
             :rf.db/runtime {:rf.runtime/routing {:current {:route-id :account}}}}
-           (adapter/read-container (frame/frame-state-container :pc/both)))
+           (rf.substrate.adapter/read-container (rf.frame/frame-state-container :pc/both)))
         "both partitions are present in the single physical frame-state value")))
 
 ;; ===========================================================================
@@ -321,10 +321,10 @@
     ;; return value, synthetic epoch, failure modes, reject-bad-keys — is
     ;; exercised in the epoch artefact's own suite; here we only need the
     ;; partition-isolation effect of the low-level `re-frame.frame` writer).
-    (frame/replace-app-db! :pc/m-app {:k 1})
+    (rf.frame/replace-app-db! :pc/m-app {:k 1})
     (is (= {:k 1} (rf/app-db-value :pc/m-app)))
     (is (= {:rf.runtime/machines {:m 1}} (:rf.db/runtime (rf/frame-state-value :pc/m-app)))
-        "frame/replace-app-db! never silently replaces runtime-db (Mike ruling #10)")))
+        "rf.frame/replace-app-db! never silently replaces runtime-db (Mike ruling #10)")))
 
 (deftest replace-frame-state-is-atomic-both-partitions
   (testing "replace-frame-state! installs both partitions in one write"
@@ -361,13 +361,13 @@
 (deftest mutators-return-changed-partition-set
   (testing "the frame-level commit helpers report which partition(s) changed"
     (rf/make-frame {:id :pc/m-ret :doc "m-ret"})
-    (is (= #{:rf.db/app} (frame/replace-app-db! :pc/m-ret {:k 1}))
+    (is (= #{:rf.db/app} (rf.frame/replace-app-db! :pc/m-ret {:k 1}))
         "an app-db write reports #{:rf.db/app}")
-    (is (= #{} (frame/replace-app-db! :pc/m-ret {:k 1}))
+    (is (= #{} (rf.frame/replace-app-db! :pc/m-ret {:k 1}))
         "a value-equal write reports no change (projection-equality)")
-    (is (= #{:rf.db/runtime} (frame/replace-runtime-db! :pc/m-ret {:rf.runtime/machines {}}))
+    (is (= #{:rf.db/runtime} (rf.frame/replace-runtime-db! :pc/m-ret {:rf.runtime/machines {}}))
         "a runtime-db write reports #{:rf.db/runtime}")
-    (is (nil? (frame/replace-app-db! :pc/no-such {:k 1}))
+    (is (nil? (rf.frame/replace-app-db! :pc/no-such {:k 1}))
         "an unknown frame returns nil")))
 
 ;; ===========================================================================
@@ -378,7 +378,7 @@
   (testing "an app-db schema rejection discards the WHOLE candidate before
             install — BOTH partitions keep the pre-handler state (rf2-uhk9ko)"
     ;; Only run when the schemas artefact is on the classpath (optional).
-    (when (late-bind/get-fn :schemas/validate-app-schema!)
+    (when (rf.late-bind/get-fn :schemas/validate-app-schema!)
       (rf/make-frame {:id :pc/rb :doc "rb"})
       ;; seed a coherent pre-handler frame-state
       (rf/replace-frame-state! :pc/rb {:rf.db/app {:n 0}
@@ -424,8 +424,8 @@
             installs — the rf2-5lo1fk unwind, now structural) while a real
             :source :flow mark (installed at reg-flow time, pre-existing the
             rejected event) stands untouched (rf2-3pglag)"
-    (when (and (late-bind/get-fn :schemas/validate-app-schema!)
-               (late-bind/get-fn :flows/run-flows-on-db))
+    (when (and (rf.late-bind/get-fn :schemas/validate-app-schema!)
+               (rf.late-bind/get-fn :flows/run-flows-on-db))
       (rf/make-frame {:id :pc/rb-srcaware :doc "rb-srcaware"})
       ;; Seed a coherent pre-handler app-db that PASSES the schema below, so the
       ;; rollback target is `{:n 0}` (the rejected `{:n -5}` unwinds to it).
@@ -436,7 +436,7 @@
       ;; `runtime-before` (the chain-start snapshot) and must survive a rollback.
       (rf/reg-flow :creds {:frame :pc/rb-srcaware :inputs [[:n]] :output-path [:derived :creds] :sensitive [[:secret]]} (fn [n] {:secret n}))
       (is (= #{{:source :flow :flow-id :creds}}
-             (get (elision/sensitive-declarations :pc/rb-srcaware)
+             (get (rf.elision/sensitive-declarations :pc/rb-srcaware)
                   [:derived :creds :secret]))
           "precondition: the :source :flow owner is installed at reg-flow time")
       ;; app schema demanding :n stay a non-negative int — the bad handler
@@ -457,13 +457,13 @@
           "app-db keeps the pre-handler value (the schema rejection held)")
       ;; rf2-5lo1fk (now structural): the in-band :source :effect
       ;; classification rode the rejected candidate and never installed.
-      (is (not (contains? (elision/sensitive-declarations :pc/rb-srcaware)
+      (is (not (contains? (rf.elision/sensitive-declarations :pc/rb-srcaware)
                           [:another-secret]))
           "the rejected event's in-band :source :effect classification never
            installed (rf2-5lo1fk, structural under rf2-uhk9ko)")
       ;; rf2-3pglag: the pre-existing :source :flow mark stands untouched.
       (is (= #{{:source :flow :flow-id :creds}}
-             (get (elision/sensitive-declarations :pc/rb-srcaware)
+             (get (rf.elision/sensitive-declarations :pc/rb-srcaware)
                   [:derived :creds :secret]))
           "the pre-existing :source :flow owner stands after the rejection (rf2-3pglag)"))))
 
@@ -476,11 +476,11 @@
             (the only legitimate during-event out-of-band write under the
             post-EP-0025 model) stands after the rejection — it wrote the
             LIVE registry directly, not the discarded candidate (rf2-yzsims)"
-    (when (late-bind/get-fn :schemas/validate-app-schema!)
+    (when (rf.late-bind/get-fn :schemas/validate-app-schema!)
       (rf/make-frame {:id :pc/rb-subsys :doc "rb-subsys"})
       (rf/replace-frame-state! :pc/rb-subsys {:rf.db/app {:n 0}
                                               :rf.db/runtime {}})
-      (is (= {} (elision/sensitive-declarations :pc/rb-subsys))
+      (is (= {} (rf.elision/sensitive-declarations :pc/rb-subsys))
           "precondition: no subsystem mark before dispatch")
       (rf/with-frame :pc/rb-subsys
         (rf/reg-app-schema [] [:map [:n [:int {:min 0}]]]))
@@ -490,9 +490,9 @@
       ;; part of the discarded candidate, so the mark stands structurally.
       (rf/reg-interceptor :pc/subsystem-mark-writer
         {:after (fn [ctx]
-                  (elision/swap-elision-slot! :pc/rb-subsys
+                  (rf.elision/swap-elision-slot! :pc/rb-subsys
                     (fn [reg]
-                      (elision/add-claims (or reg {}) :sensitive-declarations
+                      (rf.elision/add-claims (or reg {}) :sensitive-declarations
                                           {:source :machine :machine-id :door}
                                           [[:actor :token]])))
                   ctx)})
@@ -505,7 +505,7 @@
       (is (= {:n 0} (rf/app-db-value :pc/rb-subsys))
           "app-db keeps the pre-handler value")
       (is (= #{{:source :machine :machine-id :door}}
-             (get (elision/sensitive-declarations :pc/rb-subsys) [:actor :token]))
+             (get (rf.elision/sensitive-declarations :pc/rb-subsys) [:actor :token]))
           "the during-event out-of-band :source :machine owner stands after
            the rejection (rf2-yzsims)"))))
 
@@ -520,8 +520,8 @@
             install there is no restored-value/moved-mark divergence to
             patch — the re-recorded abandoned-path vacation clears any stale
             old-path VALUE on the next clean commit, per rf2-1b8yxb)"
-    (when (and (late-bind/get-fn :schemas/validate-app-schema!)
-               (late-bind/get-fn :flows/run-flows-on-db))
+    (when (and (rf.late-bind/get-fn :schemas/validate-app-schema!)
+               (rf.late-bind/get-fn :flows/run-flows-on-db))
       (rf/make-frame {:id :pc/rb-move :doc "rb-move"})
       ;; Seed a coherent pre-handler app-db that PASSES the schema below.
       (rf/replace-frame-state! :pc/rb-move {:rf.db/app {:n 0}
@@ -530,7 +530,7 @@
       ;; installed at reg-flow time, so it is in the chain-start snapshot.
       (rf/reg-flow :mover {:frame :pc/rb-move :inputs [[:n]] :output-path [:old :creds] :sensitive [[:secret]]} (fn [n] {:secret n}))
       (is (= #{{:source :flow :flow-id :mover}}
-             (get (elision/sensitive-declarations :pc/rb-move)
+             (get (rf.elision/sensitive-declarations :pc/rb-move)
                   [:old :creds :secret]))
           "precondition: the OLD-path :source :flow owner is installed")
       (rf/with-frame :pc/rb-move
@@ -554,14 +554,14 @@
       ;; part of the rejected candidate): the OLD-path claim stays dropped —
       ;; the same posture as a reg-flow move outside any dispatch, whose
       ;; queued abandoned-path vacation clears the old-path value next drain.
-      (is (not (contains? (elision/sensitive-declarations :pc/rb-move)
+      (is (not (contains? (rf.elision/sensitive-declarations :pc/rb-move)
                           [:old :creds :secret]))
           "the OLD-path :source :flow claim stays dropped — the reentrant
            move's reconcile is durable (out-of-band re-registration)")
       ;; The NEW-path mark — lowered out-of-band during the event — stands
       ;; (the flow now declares it; harmless over the retained db).
       (is (= #{{:source :flow :flow-id :mover}}
-             (get (elision/sensitive-declarations :pc/rb-move)
+             (get (rf.elision/sensitive-declarations :pc/rb-move)
                   [:new :creds :secret]))
           "the NEW-path out-of-band :source :flow owner stands (during-event
            subsystem write)"))))
@@ -584,7 +584,7 @@
             leaves the FULL prior app-db intact — every key outside the
             focused path survives (rf2-wfy2kq pin; structural under
             rf2-uhk9ko's validate-before-install)"
-    (when (late-bind/get-fn :schemas/validate-app-schema!)
+    (when (rf.late-bind/get-fn :schemas/validate-app-schema!)
       (rf/make-frame {:id :pc/rb-path :doc "rb-path"})
       ;; Seed a coherent pre-handler app-db with state BOTH inside AND OUTSIDE
       ;; the path the handler will focus. `:keep` is the canary — it lives

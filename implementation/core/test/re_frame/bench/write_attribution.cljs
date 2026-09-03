@@ -3,7 +3,7 @@
 
   B8 (rf2-lcsjg) measured, in a browser, that changing ONE cell of a
   300-cell grid costs 478,787 bytes, of which **457,181 — 95.5% — is the
-  WRITE LEG**: `frame/replace-app-db!` plus the subscription graph
+  WRITE LEG**: `rf.frame/replace-app-db!` plus the subscription graph
   re-evaluating all 300 `:b6/cell` subscriptions to discover that 299 of
   them did not change. That figure is on record; nothing decomposes it.
 
@@ -150,7 +150,7 @@
     SPINE0    + the substrate's `replace-container!` — `with-epoch`,
               the reset, the epoch close, an empty drain — with NO
               derived values wired to the container
-    RFWRITE-0 + `frame/replace-app-db!`'s own bookkeeping on a REAL frame
+    RFWRITE-0 + `rf.frame/replace-app-db!`'s own bookkeeping on a REAL frame
               with ZERO subscriptions: `commit-frame-transition!`, the
               partition carry-forward, the `changed` set, the two
               partition projections recomputing and fanning out
@@ -180,9 +180,9 @@
     P-EQDBF   the same guard at the OTHER input that reaches it — two
               `=`-but-not-`identical?` app-db values, where the walk runs to
               completion and finds no difference (rf2-gncxk.1)
-    P-SCOPE   `trace/with-handler-scope` + `handler-scope-from-meta`, which
+    P-SCOPE   `rf.trace/with-handler-scope` + `handler-scope-from-meta`, which
               bracket every recompute and are NOT dev-gated
-    P-EMIT    `trace/emit!` on its production path with the tag map the
+    P-EMIT    `rf.trace/emit!` on its production path with the tag map the
               memo wrapper builds for it
     P-MEMO    the whole shipped memo wrapper
               (`subs.memo/make-layer-1-memoised-body`) invoked with a
@@ -290,18 +290,18 @@
   (:require [goog.object :as gobj]
             [goog.string :as gstring]
             [goog.string.format]
-            [re-frame.bench.calibration :as calib]
-            [re-frame.bench.order-guard :as guard]
+            [re-frame.bench.calibration :as rf.bench.calibration]
+            [re-frame.bench.order-guard :as rf.bench.order-guard]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.live-frame :as live-frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.subs :as subs]
-            [re-frame.subs.memo :as subs-memo]
-            [re-frame.substrate.adapter :as adapter]
-            [re-frame.substrate.spine :as spine]
-            [re-frame.trace :as trace :include-macros true]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.live-frame :as rf.live-frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.subs :as rf.subs]
+            [re-frame.subs.memo :as rf.subs.memo]
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
+            [re-frame.substrate.spine :as rf.substrate.spine]
+            [re-frame.trace :as rf.trace :include-macros true]))
 
 ;; ---------------------------------------------------------------------------
 ;; the counter
@@ -524,12 +524,12 @@
   (let [{:keys [cells-n db-cell spine-container]} @rig
         v (next-gen!)
         i (mod v cells-n)]
-    (adapter/replace-container! spine-container
+    (rf.substrate.adapter/replace-container! spine-container
                                 (update @db-cell :cells assoc i v))
     nil))
 
 (defn- arm-rfwrite
-  "`frame/replace-app-db!` on the rig's frame `k` (which carries `k`'s own
+  "`rf.frame/replace-app-db!` on the rig's frame `k` (which carries `k`'s own
   number of held subscriptions). The value written is built the way B6's
   narrow `write!` builds it — read the frame's current app-db, assoc one
   cell — so this arm is B8's `write` leg and nothing else."
@@ -538,7 +538,7 @@
         f (nth frames k)
         v (next-gen!)
         i (mod v cells-n)]
-    (frame/replace-app-db! f (update (frame/frame-app-db-value f) :cells assoc i v))
+    (rf.frame/replace-app-db! f (update (rf.frame/frame-app-db-value f) :cells assoc i v))
     nil))
 
 (defn- arm-fswrite
@@ -558,7 +558,7 @@
         f (nth fs-frames k)
         v (next-gen!)
         i (mod v cells-n)]
-    (frame/replace-app-db! f (update (frame/frame-app-db-value f) :cells assoc i v))
+    (rf.frame/replace-app-db! f (update (rf.frame/frame-app-db-value f) :cells assoc i v))
     nil))
 
 ;; ---- rf2-78ejq: the rungs UNDER RFWRITE-0 ---------------------------------
@@ -575,20 +575,20 @@
 ;; checked against the `RFWRITE-0 − SPINE0` delta and the residual is printed,
 ;; so an attribution that does not add up says so.
 ;;
-;;   C-FRAME    `(frame/frame id)` — the registry lookup `commit-frame-
+;;   C-FRAME    `(rf.frame/frame id)` — the registry lookup `commit-frame-
 ;;              transition!` does before anything else, on a frame the rig
 ;;              REGISTERED, so the visibility walk behind the registry `get`
 ;;              actually runs (rf2-c0awb)
 ;;   C-FRAMEX   the same call on an id that was never registered. PAIRED
-;;              CONTROL: `frame/frame` short-circuits on the `get`, so the
+;;              CONTROL: `rf.frame/frame` short-circuits on the `get`, so the
 ;;              miss is strictly less work than the hit and only `C-FRAME`
 ;;              belongs in the attribution. This arm is what `C-FRAME` was
 ;;              measuring by accident until rf2-c0awb.
 ;;   C-FRAMEG   the registry `get` ALONE on the same hit, which is what says
-;;              WHICH HALF of `frame/frame` a hit-vs-miss difference is in.
+;;              WHICH HALF of `rf.frame/frame` a hit-vs-miss difference is in.
 ;;              It reads 0.0 — the registry is a FOUR-entry map, so `get` is
 ;;              an array scan and no hash is taken.
-;;   C-FRAMEV   the same walk `frame/frame` performs, re-spelled INLINE.
+;;   C-FRAMEV   the same walk `rf.frame/frame` performs, re-spelled INLINE.
 ;;              C-FRAME − C-FRAMEV is what the CALL costs; it is 0 (rf2-tmzie)
 ;;   C-FRAMEL   the `:lifecycle` half of the walk alone
 ;;   C-FRAMES   the `:construction` half alone. L + S = V, additively, and
@@ -629,10 +629,10 @@
   one per write."
   (fnil inc 0))
 
-;; rf2-c0awb — `commit-frame-transition!`'s first act is `(frame/frame id)`, and
+;; rf2-c0awb — `commit-frame-transition!`'s first act is `(rf.frame/frame id)`, and
 ;; this arm is what that costs. It has to be a HIT to be that.
 ;;
-;; `frame/frame` is `(when-let [f (get @frames id)] (when (visible? id f) f))`,
+;; `rf.frame/frame` is `(when-let [f (get @frames id)] (when (visible? id f) f))`,
 ;; so a miss short-circuits on the registry `get` and never reaches the
 ;; visibility predicate — the two-level `:lifecycle`/`:construction` walk that
 ;; a real commit's lookup always runs. The arm used to be handed `:wa/frame`,
@@ -653,7 +653,7 @@
   []
   (let [id (nth (:frames @rig) 0)]
     (fn []
-      (keep! (frame/frame id))
+      (keep! (rf.frame/frame id))
       nil)))
 
 (defn- arm-c-frame-miss
@@ -662,22 +662,22 @@
   []
   (let [id absent-fid]
     (fn []
-      (keep! (frame/frame id))
+      (keep! (rf.frame/frame id))
       nil)))
 
 (defn- arm-c-frame-get
-  "`frame/frame`'s registry `get` ALONE, on the same hit — the first half of
+  "`rf.frame/frame`'s registry `get` ALONE, on the same hit — the first half of
   the lookup with the visibility predicate removed. `frames` is public, so
   this is the `Q-SCHED` discipline: the expression re-spelled in the harness
   so what is measured is pinned here and cannot drift under the attribution.
 
   It exists because the HIT/MISS pair alone cannot say WHICH half of
-  `frame/frame` a non-zero difference is in — the miss short-circuits on the
+  `rf.frame/frame` a non-zero difference is in — the miss short-circuits on the
   `get`, so it skips both halves at once."
   []
   (let [id (nth (:frames @rig) 0)]
     (fn []
-      (keep! (get @frame/frames id))
+      (keep! (get @rf.frame/frames id))
       nil)))
 
 ;; rf2-tmzie — BISECTING the hit, because `C-FRAME − C-FRAMEG` was published as
@@ -710,7 +710,7 @@
   []
   (let [id (nth (:frames @rig) 0)]
     (fn []
-      (let [f (get @frame/frames id)]
+      (let [f (get @rf.frame/frames id)]
         (keep! (and (not (-> f :lifecycle :destroyed?))
                     (not= :provisional (-> f :construction :state)))))
       nil)))
@@ -720,7 +720,7 @@
   []
   (let [id (nth (:frames @rig) 0)]
     (fn []
-      (keep! (not (-> (get @frame/frames id) :lifecycle :destroyed?)))
+      (keep! (not (-> (get @rf.frame/frames id) :lifecycle :destroyed?)))
       nil)))
 
 (defn- arm-c-frame-state
@@ -730,7 +730,7 @@
   []
   (let [id (nth (:frames @rig) 0)]
     (fn []
-      (keep! (not= :provisional (-> (get @frame/frames id) :construction :state)))
+      (keep! (not= :provisional (-> (get @rf.frame/frames id) :construction :state)))
       nil)))
 
 ;; rf2-tmzie — THE MECHANISM, as a PREDICTION stated before it is measured.
@@ -795,25 +795,25 @@
         ;; makes them do — a genuinely different app-db value, one cell apart,
         ;; which `=` walks element-wise exactly as it does on the real path.
         current    (if e? fs-a fs-b)
-        partitions (if e? {frame/app-partition-key db-b}
-                          {frame/app-partition-key db-a})
-        app-given? (contains? partitions frame/app-partition-key)
-        rt-given?  (contains? partitions frame/runtime-partition-key)
-        next-app   (if app-given? (get partitions frame/app-partition-key)
-                       (get current frame/app-partition-key))
-        next-rt    (if rt-given? (get partitions frame/runtime-partition-key)
-                       (get current frame/runtime-partition-key))
-        next-fs    {frame/app-partition-key     next-app
-                    frame/runtime-partition-key next-rt}
+        partitions (if e? {rf.frame/app-partition-key db-b}
+                          {rf.frame/app-partition-key db-a})
+        app-given? (contains? partitions rf.frame/app-partition-key)
+        rt-given?  (contains? partitions rf.frame/runtime-partition-key)
+        next-app   (if app-given? (get partitions rf.frame/app-partition-key)
+                       (get current rf.frame/app-partition-key))
+        next-rt    (if rt-given? (get partitions rf.frame/runtime-partition-key)
+                       (get current rf.frame/runtime-partition-key))
+        next-fs    {rf.frame/app-partition-key     next-app
+                    rf.frame/runtime-partition-key next-rt}
         changed    (cond-> #{}
                      (and app-given?
-                          (not= next-app (get current frame/app-partition-key)))
-                     (conj frame/app-partition-key)
+                          (not= next-app (get current rf.frame/app-partition-key)))
+                     (conj rf.frame/app-partition-key)
                      (and rt-given?
-                          (not= next-rt (get current frame/runtime-partition-key)))
-                     (conj frame/runtime-partition-key))]
-    (keep! (and (identical? next-app (get current frame/app-partition-key))
-                (identical? next-rt  (get current frame/runtime-partition-key))))
+                          (not= next-rt (get current rf.frame/runtime-partition-key)))
+                     (conj rf.frame/runtime-partition-key))]
+    (keep! (and (identical? next-app (get current rf.frame/app-partition-key))
+                (identical? next-rt  (get current rf.frame/runtime-partition-key))))
     (next-gen!)
     ;; Sink the two results SEPARATELY. Wrapping them in a `[next-fs changed]`
     ;; pair to sink them in one go allocates a vector this arm is not
@@ -841,13 +841,13 @@
 
 (defn- arm-spine0b []
   (let [{:keys [fs-a fs-b bare-fs-container]} @rig]
-    (adapter/replace-container! bare-fs-container (if (even? @gen) fs-a fs-b))
+    (rf.substrate.adapter/replace-container! bare-fs-container (if (even? @gen) fs-a fs-b))
     (next-gen!)
     nil))
 
 (defn- arm-spine0p []
   (let [{:keys [fs-a fs-b proj-fs-container]} @rig]
-    (adapter/replace-container! proj-fs-container (if (even? @gen) fs-a fs-b))
+    (rf.substrate.adapter/replace-container! proj-fs-container (if (even? @gen) fs-a fs-b))
     (next-gen!)
     nil))
 
@@ -866,8 +866,8 @@
 (defn- arm-p-scope []
   (let [{:keys [n qids]} @rig]
     (dotimes [k n]
-      (trace/with-handler-scope
-        (trace/handler-scope-from-meta :sub (nth qids k) nil)
+      (rf.trace/with-handler-scope
+        (rf.trace/handler-scope-from-meta :sub (nth qids k) nil)
         (keep! true)))))
 
 ;; rf2-zxv06 — the handler-scope bracket, in BOTH spellings, one process, the
@@ -906,14 +906,14 @@
 (defn- arm-p-scope-m []
   (let [{:keys [n qids]} @rig]
     (dotimes [k n]
-      (trace/with-handler-scope
-        (trace/handler-scope-from-meta :sub (nth qids k) prod-sub-meta)
+      (rf.trace/with-handler-scope
+        (rf.trace/handler-scope-from-meta :sub (nth qids k) prod-sub-meta)
         (keep! true)))))
 
 (defn- arm-p-scope-h []
   (let [{:keys [n sub-scopes]} @rig]
     (dotimes [k n]
-      (trace/with-handler-scope (nth sub-scopes k) (keep! true)))))
+      (rf.trace/with-handler-scope (nth sub-scopes k) (keep! true)))))
 
 (defn- arm-p-inher []
   (let [{:keys [n sub-scopes parent-scope]} @rig]
@@ -928,12 +928,12 @@
 (defn- arm-p-inher-h []
   (let [{:keys [n sub-scopes parent-scope]} @rig]
     (dotimes [k n]
-      (keep! (trace/inherit-scope (nth sub-scopes k) parent-scope)))))
+      (keep! (rf.trace/inherit-scope (nth sub-scopes k) parent-scope)))))
 
 (defn- arm-p-emit []
   (let [{:keys [n qids qvs]} @rig]
     (dotimes [k n]
-      (trace/emit! :rf.sub :rf.sub/run
+      (rf.trace/emit! :rf.sub :rf.sub/run
                    {:rf.sub/id      (nth qids k)
                     :rf.sub/query-v (nth qvs k)
                     :frame          fid}))))
@@ -985,7 +985,7 @@
 ;; same value twice and put it on the memo-hit branch instead.
 ;;
 ;; THE `:frame-state` HALF — the same wrapper, over a RAW ATOM (which is what
-;; `subs/single-source-container-for` maps `:frame-state` to: the frame's ONE
+;; `rf.subs/single-source-container-for` maps `:frame-state` to: the frame's ONE
 ;; physical container, whose fan-out is not movement-gated and which therefore
 ;; cannot implement the protocol). Two arms over the SAME wrapper objects,
 ;; both landing on the memo-HIT branch — the real `:frame-state` flush-path
@@ -1014,7 +1014,7 @@
         cur (if (vswap! w-flip not) db-a db-b)]
     ;; Move the witnessing source: `notify`'s `rf=` gate arms its witness
     ;; with the value the 300 wrappers below each hold in `last-db`.
-    (adapter/replace-container! w-src cur)
+    (rf.substrate.adapter/replace-container! w-src cur)
     (dotimes [k n]
       (keep! ((nth memos-w k) cur)))
     nil))
@@ -1025,7 +1025,7 @@
     ;; Byte-for-byte `arm-p-memo-w`'s scaffolding — the same container shape
     ;; carrying the same lone derived dependent — so the only thing left in
     ;; the difference is whether the wrapper's source publishes a witness.
-    (adapter/replace-container! wc-src cur)
+    (rf.substrate.adapter/replace-container! wc-src cur)
     (dotimes [k n]
       (keep! ((nth memos-wc k) cur)))
     nil))
@@ -1197,11 +1197,11 @@
   ;; the fact the movement witness keys on, so this ladder's slope is the
   ;; control for the `RFWRITE-N` ladder's.
   (doseq [i (range cells-n)]
-    (let [body (fn [fs _] (get-in fs [frame/app-partition-key :cells i]))
+    (let [body (fn [fs _] (get-in fs [rf.frame/app-partition-key :cells i]))
           qid  (keyword "wa" (str "fscell" i))]
       (if coords?
-        (subs/reg-frame-state-sub qid prod-sub-meta body)
-        (subs/reg-frame-state-sub qid body))))
+        (rf.subs/reg-frame-state-sub qid prod-sub-meta body)
+        (rf.subs/reg-frame-state-sub qid body))))
   (let [qids  (mapv #(keyword "wa" (str "cell" %)) (range cells-n))
         qvs   (mapv vector qids)
         ;; One frame per subscription count, each with its OWN held
@@ -1209,20 +1209,20 @@
         ;; rather than by subscribing and unsubscribing between samples.
         frames (mapv (fn [k]
                        (let [f (keyword "wa" (str "frame" k))]
-                         (live-frame/make-frame {:id f})
-                         (frame/replace-app-db! f (db-of cells-n 0))
+                         (rf.live-frame/make-frame {:id f})
+                         (rf.frame/replace-app-db! f (db-of cells-n 0))
                          f))
                      (range (count ns-per-frame)))
         holds  (mapv (fn [f cnt]
-                       (binding [frame/*current-frame* f]
+                       (binding [rf.frame/*current-frame* f]
                          (mapv (fn [q]
-                                 (let [r (subs/subscribe q)]
+                                 (let [r (rf.subs/subscribe q)]
                                    ;; One watcher per reaction — the shape a
                                    ;; mounted boundary gives it. Without this
                                    ;; the derived value's fan-out takes its
                                    ;; zero-subscriber branch and the graph is
                                    ;; not the graph an application has.
-                                   (adapter/subscribe-container r (fn [_ _] nil))
+                                   (rf.substrate.adapter/subscribe-container r (fn [_ _] nil))
                                    ;; Establish the memo baseline the way a
                                    ;; first render does.
                                    (deref r)
@@ -1237,15 +1237,15 @@
         fs-qvs (mapv (fn [i] [(keyword "wa" (str "fscell" i))]) (range cells-n))
         fs-frames (mapv (fn [k]
                           (let [f (keyword "wa" (str "fsframe" k))]
-                            (live-frame/make-frame {:id f})
-                            (frame/replace-app-db! f (db-of cells-n 0))
+                            (rf.live-frame/make-frame {:id f})
+                            (rf.frame/replace-app-db! f (db-of cells-n 0))
                             f))
                         (range (count ns-per-frame)))
         fs-holds (mapv (fn [f cnt]
-                         (binding [frame/*current-frame* f]
+                         (binding [rf.frame/*current-frame* f]
                            (mapv (fn [q]
-                                   (let [r (subs/subscribe q)]
-                                     (adapter/subscribe-container r (fn [_ _] nil))
+                                   (let [r (rf.subs/subscribe q)]
+                                     (rf.substrate.adapter/subscribe-container r (fn [_ _] nil))
                                      (deref r)
                                      r))
                                  (subvec fs-qvs 0 cnt))))
@@ -1261,16 +1261,16 @@
         ;; rf2-78ejq — the two frame-state values a commit alternates between,
         ;; PRE-BUILT so the SPINE0B / SPINE0P arms measure the container write
         ;; and the projections alone, with no value construction folded in.
-        fs-a  {frame/app-partition-key db-a frame/runtime-partition-key {}}
-        fs-b  {frame/app-partition-key db-b frame/runtime-partition-key {}}
+        fs-a  {rf.frame/app-partition-key db-a rf.frame/runtime-partition-key {}}
+        fs-b  {rf.frame/app-partition-key db-b rf.frame/runtime-partition-key {}}
         ;; A container with NOTHING layered over it, and the same container
         ;; shape carrying the TWO partition projections a real frame wires
         ;; (`frame.cljc`'s `(make-derived-value [frame-state] :rf.db/app)` and
         ;; its `:rf.db/runtime` sibling). The pair isolates the projections.
-        bare-fs-container (adapter/make-state-container fs-a)
-        proj-fs-container (adapter/make-state-container fs-a)
-        _proj (mapv (fn [k] (adapter/make-derived-value [proj-fs-container] k))
-                    [frame/app-partition-key frame/runtime-partition-key])
+        bare-fs-container (rf.substrate.adapter/make-state-container fs-a)
+        proj-fs-container (rf.substrate.adapter/make-state-container fs-a)
+        _proj (mapv (fn [k] (rf.substrate.adapter/make-derived-value [proj-fs-container] k))
+                    [rf.frame/app-partition-key rf.frame/runtime-partition-key])
         ;; rf2-gncxk.1 — the movement-witness pair's rigs. TWO structurally
         ;; identical stacks (a raw container carrying one derived dependent),
         ;; differing only in which of the two the 300 memo wrappers are handed
@@ -1281,16 +1281,16 @@
         ;;   wc-*  wrappers over the RAW container underneath it, which cannot
         ;;
         ;; so `P-MEMOWC − P-MEMOW` isolates the guard and nothing else.
-        w-src      (adapter/make-state-container db-a)
-        w-derived  (adapter/make-derived-value [w-src] identity)
-        wc-src     (adapter/make-state-container db-a)
-        wc-derived (adapter/make-derived-value [wc-src] identity)
+        w-src      (rf.substrate.adapter/make-state-container db-a)
+        w-derived  (rf.substrate.adapter/make-derived-value [w-src] identity)
+        wc-src     (rf.substrate.adapter/make-state-container db-a)
+        wc-derived (rf.substrate.adapter/make-derived-value [wc-src] identity)
         ;; The `:frame-state` half's source: a raw container, exactly what
-        ;; `subs/single-source-container-for` hands a `:frame-state` sub.
-        f-src      (adapter/make-state-container db-a)
+        ;; `rf.subs/single-source-container-for` hands a `:frame-state` sub.
+        f-src      (rf.substrate.adapter/make-state-container db-a)
         mk-memos   (fn [source]
                      (mapv (fn [i]
-                             (subs-memo/make-layer-1-memoised-body
+                             (rf.subs.memo/make-layer-1-memoised-body
                                (fn [db _] (get-in db [:cells i]))
                                (nth qids i) (nth qvs i) fid {} source))
                            (range n)))
@@ -1307,8 +1307,8 @@
     ;; `w-flip` / `wc-flip` start false, so the first measured call flips to
     ;; true and drives `db-b -> db-a`, arming the witness with the very object
     ;; the wrappers hold.
-    (adapter/replace-container! w-src db-b)
-    (adapter/replace-container! wc-src db-b)
+    (rf.substrate.adapter/replace-container! w-src db-b)
+    (rf.substrate.adapter/replace-container! wc-src db-b)
     (dotimes [k n]
       ((nth memos-w k) db-b)
       ((nth memos-wc k) db-b)
@@ -1327,7 +1327,7 @@
               :fs-holds  fs-holds
               :db-cell  (atom (db-of cells-n 0))
               :bare     (atom (db-of cells-n 0))
-              :spine-container (adapter/make-state-container (db-of cells-n 0))
+              :spine-container (rf.substrate.adapter/make-state-container (db-of cells-n 0))
               :db-a     db-a
               :db-b     db-b
               ;; rf2-gncxk.1 — the movement-witness pair
@@ -1349,10 +1349,10 @@
               ;; (`subs.memo`'s wrappers now close over exactly this), plus a
               ;; parent whose inheritable slots are both nil, which is what a
               ;; production build always presents to `inherit-scope`.
-              :sub-scopes   (mapv #(trace/handler-scope-from-meta
+              :sub-scopes   (mapv #(rf.trace/handler-scope-from-meta
                                      :sub % prod-sub-meta)
                                   qids)
-              :parent-scope (trace/handler-scope-from-meta
+              :parent-scope (rf.trace/handler-scope-from-meta
                               :event :wa/parent prod-sub-meta)
               ;; the shipped memo wrapper, one per subscription. The trailing
               ;; source is the RAW container (rf2-gncxk.1) — a source that
@@ -1374,12 +1374,12 @@
   ;; unpublishable and finding that out after the run is wasteful. The checks
   ;; are fixtures replayed from `rf2-jr76s`'s recorded readings, so this is
   ;; deterministic — exactly as `b8_run.cjs` does it.
-  (when-not (guard/print-self-test!)
+  (when-not (rf.bench.order-guard/print-self-test!)
     (throw (ex-info "order guard self-test FAILED — nothing may be measured" {})))
   ;; rf2-l3jv4 — and the SAME discipline for the control calibration, whose
   ;; refusal is the other half of this run's exit code. Injected ratios,
   ;; including the recorded 16.11 B/slot this bead was opened on.
-  (when-not (calib/print-self-test!)
+  (when-not (rf.bench.calibration/print-self-test!)
     (throw (ex-info "calibration self-test FAILED — nothing may be measured" {})))
   (let [n        (env-int "WA_N" 300)
         samples  (env-int "WA_SAMPLES" 40)
@@ -1399,8 +1399,8 @@
         ;; `WA_COORDS=0` selects the coord-less control.
         coords?  (not= "0" (env "WA_COORDS" "1"))
         ns-per-frame [0 (js/Math.round (/ n 4)) (js/Math.round (/ n 2)) n]]
-    (rf/init! (spine/make-react-adapter
-                (spine/make-react-spine
+    (rf/init! (rf.substrate.spine/make-react-adapter
+                (rf.substrate.spine/make-react-spine
                   {:substrate-name        "write-attribution"
                    :gensym-prefix-sub     "wa-sub-"
                    :gensym-prefix-derived "wa-derived-"
@@ -1415,7 +1415,7 @@
     (build-rig! n n ns-per-frame coords?)
     (println (gstring/format ";; rf2-jr76s WRITE attribution — node V8, :advanced"))
     (println (gstring/format ";; debug-enabled? = %s   gc-exposed? = %s"
-                     interop/debug-enabled?
+                     rf.interop/debug-enabled?
                      (some? (gobj/get js/globalThis "gc"))))
     (println (gstring/format ";; node %s  V8 %s  pointer-compression=%s (Chrome ships it ON: a tagged slot is 4 B there, 8 B here)"
                      (.-node js/process.versions) (.-v8 js/process.versions)
@@ -1437,10 +1437,10 @@
     ;; the record is all there is. So which of `P-SCOPE` (coord-less) and
     ;; `P-SCOPEM` (coord-carrying) predicts the ladder's slope depends on a
     ;; fact about THIS build, and guessing it would be guessing the headline.
-    (let [slot (registrar/lookup :sub (first (:qids @rig)))]
+    (let [slot (rf.registrar/lookup :sub (first (:qids @rig)))]
       (println (gstring/format ";; registered sub-meta coord keys = %s  (trigger-handler %s)"
                        (pr-str (select-keys slot [:ns :file :line :column]))
-                       (if (trace/trigger-handler-from-meta :sub :probe slot)
+                       (if (rf.trace/trigger-handler-from-meta :sub :probe slot)
                          "BUILT — P-SCOPEM is the predictive arm"
                          "nil — P-SCOPE is the predictive arm"))))
     ;; rf2-tmzie — the mechanism pair's whole claim is the COLLECTION TYPE, so
@@ -1453,20 +1453,20 @@
     (println (gstring/format ";; probe maps: %d-entry %s   %d-entry %s   registry @frames %d-entry %s"
                      (count phm-probe) (pr-str (type phm-probe))
                      (count pam-probe) (pr-str (type pam-probe))
-                     (count @frame/frames) (pr-str (type @frame/frames))))
+                     (count @rf.frame/frames) (pr-str (type @rf.frame/frames))))
     (println (gstring/format ";;   big differs from small = %s   registry is the SMALL-map type = %s  (%s)"
                      (not (identical? (type phm-probe) (type pam-probe)))
-                     (identical? (type @frame/frames) (type pam-probe))
+                     (identical? (type @rf.frame/frames) (type pam-probe))
                      (if (and (not (identical? (type phm-probe) (type pam-probe)))
-                              (identical? (type @frame/frames) (type pam-probe)))
+                              (identical? (type @rf.frame/frames) (type pam-probe)))
                        "as the C-PHMGET / C-PAMGET pair requires"
                        "*** the mechanism pair is NOT contrasting what it claims ***")))
     ;; Agreement gate: every held subscription must read what the writer
     ;; wrote, or the graph is not wired and nothing below is evidence.
     (let [f (last (:frames @rig))
           v (next-gen!)]
-      (frame/replace-app-db! f (update (frame/frame-app-db-value f) :cells assoc 3 v))
-      (let [got (binding [frame/*current-frame* f] (deref (subs/subscribe [(keyword "wa" "cell3")])))]
+      (rf.frame/replace-app-db! f (update (rf.frame/frame-app-db-value f) :cells assoc 3 v))
+      (let [got (binding [rf.frame/*current-frame* f] (deref (rf.subs/subscribe [(keyword "wa" "cell3")])))]
         (println (gstring/format ";; agreement at cell3: wrote %d read %s -> %s"
                          v (pr-str got) (if (= v got) "AGREE" "*** DISAGREE ***")))
         (when-not (= v got)
@@ -1563,7 +1563,7 @@
                          (assoc :prev label))))
                  {:xs {} :dropped {} :order [] :prev nil}
                  (vec (for [round (range rounds)
-                            j     (guard/slot-order k round)]
+                            j     (rf.bench.order-guard/slot-order k round)]
                         [round j])))
           res  (into {}
                      (map-indexed
@@ -1582,7 +1582,7 @@
           ;; code at the bottom of this function. The bands live in
           ;; `re-frame.bench.calibration` and are expressed nowhere else, so
           ;; what is printed and what refuses cannot drift apart.
-          cal  (calib/verdict
+          cal  (rf.bench.calibration/verdict
                  (mapv (fn [d] {:d d :smi (b (ctl-key "SMI" d)) :dbl (b (ctl-key "DBL" d))})
                        ctl-smi-ds)
                  (slope b (ctl-key "SMI" 100) 100 (ctl-key "SMI" 200) 200))]
@@ -1679,7 +1679,7 @@
         (println (gstring/format ";;   %-46s %10s B" lbl (fmt v))))
       (doseq [cnt ns-per-frame]
         (println (gstring/format ";;   %-46s %10s B"
-                         (str "RFWRITE-" cnt "  frame/replace-app-db!, " cnt " subs")
+                         (str "RFWRITE-" cnt "  rf.frame/replace-app-db!, " cnt " subs")
                          (fmt (b (str "RFWRITE-" cnt))))))
       (doseq [cnt ns-per-frame]
         (println (gstring/format ";;   %-46s %10s B"
@@ -1789,7 +1789,7 @@
         (println ";;")
         (println ";;   rf2-tmzie — WHAT THE 32 B IS, bisected")
         (doseq [[lbl v note]
-                [["C-FRAME   frame/frame, the shipped call" (b "C-FRAME")
+                [["C-FRAME   rf.frame/frame, the shipped call" (b "C-FRAME")
                   "the whole hit"]
                  ["C-FRAMEV  the same walk, re-spelled INLINE" (b "C-FRAMEV")
                   "no call: so the cost is the WORK, not the call"]
@@ -1830,8 +1830,8 @@
       ;; tagged-slot copy at all. A run that fails either is not reportable,
       ;; and until this bead the second one only ever printed.
       (println ";;")
-      (let [v (guard/verdict (:order run) {:tolerance tolerance})]
-        (doseq [line (guard/report-lines v "the per-arm figure, one p50 per round")]
+      (let [v (rf.bench.order-guard/verdict (:order run) {:tolerance tolerance})]
+        (doseq [line (rf.bench.order-guard/report-lines v "the per-arm figure, one p50 per round")]
           (println line))
         (when (:refuse? v)
           (println ";;")
@@ -1841,7 +1841,7 @@
           (println (str ";;   it was measured (rf2-88pie). The table above stands as raw data; "
                         "nothing in it"))
           (println ";;   may be quoted."))
-        (doseq [line (calib/report-lines cal)]
+        (doseq [line (rf.bench.calibration/report-lines cal)]
           (println line))
         (when (or (:refuse? v) (:refuse? cal))
           (set! (.-exitCode js/process) 2))))
@@ -1930,8 +1930,8 @@
         pc-off? (not= 1 (gobj/getValueByKeys js/process "config" "variables"
                                              "v8_enable_pointer_compression"))
         box-b   (if pc-off? 16 12)]
-    (rf/init! (spine/make-react-adapter
-                (spine/make-react-spine
+    (rf/init! (rf.substrate.spine/make-react-adapter
+                (rf.substrate.spine/make-react-spine
                   {:substrate-name        "write-attribution"
                    :gensym-prefix-sub     "wa-sub-"
                    :gensym-prefix-derived "wa-derived-"
@@ -1947,7 +1947,7 @@
     (println ";; rf2-xu0ma — SINK-TYPING PROBE for write-attribution's refusing arms")
     (println (gstring/format ";; node %s  V8 %s  pointer-compression=%s  debug-enabled?=%s  gc-exposed?=%s"
                      (.-node js/process.versions) (.-v8 js/process.versions)
-                     (if pc-off? "OFF" "ON") interop/debug-enabled?
+                     (if pc-off? "OFF" "ON") rf.interop/debug-enabled?
                      (some? (gobj/get js/globalThis "gc"))))
     (println (gstring/format ";; iters/call=%d  windows/point=%d  HeapNumber predicted at %d B"
                      iters windows box-b))
@@ -2058,7 +2058,7 @@
         (doseq [reps sweep]
           (let [r (probe f* reps windows seed verify)]
             (probe-line label reps r reps))))
-      ;; ---- PROBE 5 — the SAME sweep, once `frame/frame` has a SECOND caller --
+      ;; ---- PROBE 5 — the SAME sweep, once `rf.frame/frame` has a SECOND caller --
       ;;
       ;; rf2-tmzie. PROBE 4 above and the measured plan disagree about the same
       ;; closure by a factor of the rep count, and the sweep says which is which:
@@ -2068,11 +2068,11 @@
       ;;
       ;; The candidate is escape analysis, and it is testable. In PROBE 4 the
       ;; measured loop is the ONLY thing in the process that calls
-      ;; `frame/frame`, so V8 can inline it whole — registry `get`, visibility
+      ;; `rf.frame/frame`, so V8 can inline it whole — registry `get`, visibility
       ;; predicate and all — into one loop body, prove nothing it builds
       ;; escapes, and delete it. `-main` cannot offer that: its `RFWRITE-*` arms
-      ;; drive `frame/replace-app-db!`, whose `commit-frame-transition!` calls
-      ;; `frame/frame` on every write, so the function is hot from a second site
+      ;; drive `rf.frame/replace-app-db!`, whose `commit-frame-transition!` calls
+      ;; `rf.frame/frame` on every write, so the function is hot from a second site
       ;; whose result genuinely escapes.
       ;;
       ;; So: run the real write path until that second call site is hot, then
@@ -2080,14 +2080,14 @@
       ;; the SAME process. Nothing else changes. If the arm converts from
       ;; ~constant-per-window to ~32-per-call, the elision is named and `-main`
       ;; is the reading a real application — which never has a single-caller
-      ;; `frame/frame` — actually gets.
+      ;; `rf.frame/frame` — actually gets.
       (println ";;")
       (println ";; PROBE 5 — PROBE 4's sweep again, after the SHIPPED write path has made")
-      (println ";;   `frame/frame` hot from a SECOND call site (commit-frame-transition!).")
+      (println ";;   `rf.frame/frame` hot from a SECOND call site (commit-frame-transition!).")
       (println ";;   ~constant B/window -> still elided;  flat B/call -> the elision is gone")
       (let [writer (fn [] (arm-rfwrite 0))]
         (dotimes [_ 20000] (writer))
-        (println (gstring/format ";;   (20000 frame/replace-app-db! writes through frame 0 first; sink2 %s)"
+        (println (gstring/format ";;   (20000 rf.frame/replace-app-db! writes through frame 0 first; sink2 %s)"
                          (some? @sink2))))
       (doseq [[label f* seed verify]
               [["C-FRAME  HIT s=1"  (arm-c-frame)     1 (advanced-by 1)]

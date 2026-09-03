@@ -29,7 +29,7 @@
 
   ## Posture split (rf2-d2841)
 
-  The DETERMINISTIC PROJECTOR TEETH — `classification/project-machine-tags`
+  The DETERMINISTIC PROJECTOR TEETH — `rf.classification/project-machine-tags`
   called directly on hand-built trace shapes — are pure functions and run
   under `scripts/test-core-prod-gate.sh` unchanged. So does the live
   round-trip's EGRESS-ONLY claim: the action reads the raw value, the durable
@@ -39,7 +39,7 @@
 
   The LIVE TRACE assertions are dev-only, because the trace stream they police
   does not exist under `-Dre-frame.debug=false`. They are kept verbatim inside
-  a `(when interop/debug-enabled? …)` arm marked `rf2-d2841` — the no-leak
+  a `(when rf.interop/debug-enabled? …)` arm marked `rf2-d2841` — the no-leak
   NEGATIVE emphatically included. `(not (some #(leaks? sentinel %) @seen))`
   over an empty `@seen` is true because nothing was emitted, and a redaction
   suite reporting green on that basis is the worst false green in this
@@ -48,19 +48,19 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [clojure.string :as str]
-            [re-frame.classification :as classification]
+            [re-frame.classification :as rf.classification]
             [re-frame.core :as rf]
-            [re-frame.interop :as interop]
+            [re-frame.interop :as rf.interop]
             ;; Boot the optional machines artefact so `rf/reg-machine`
             ;; resolves through the spec-005 implementation.
             [re-frame.machines]
-            [re-frame.privacy :as privacy]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as ts]))
+            [re-frame.privacy :as rf.privacy]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; UNIQUE sentinels that must never appear raw in a projected trace slot.
 (def ^:private data-sentinel "rf2-orcd31-DATA-6a91cf")
@@ -69,7 +69,7 @@
 
 (defn- leaks? [sentinel x] (str/includes? (pr-str x) sentinel))
 
-(defn- project [ev] (:tags (classification/project-trace-event ev)))
+(defn- project [ev] (:tags (rf.classification/project-trace-event ev)))
 
 (def ^:private mid :rf.orcd31/settings)
 
@@ -82,7 +82,7 @@
   (testing "an action's returned {:data …} echoed at :outcome redacts the
             machine's :data-rooted :sensitive paths — same path set as the
             bare :data / [:input :data] slots — while non-secret keys survive"
-    (registrar/register! :event mid {:sensitive [[:data :secret]]})
+    (rf.registrar/register! :event mid {:sensitive [[:data :secret]]})
     (let [t (project {:operation :rf.machine/action-ran
                       :tags {:actor-id  mid
                              :frame     :rf/default
@@ -91,11 +91,11 @@
                                          :event [:save]}
                              :outcome   {:data {:secret data-sentinel
                                                 :count  2}}}})]
-      (is (= privacy/redacted-sentinel (get-in t [:outcome :data :secret]))
+      (is (= rf.privacy/redacted-sentinel (get-in t [:outcome :data :secret]))
           ":outcome [:data :secret] reads :rf/redacted")
       (is (= 2 (get-in t [:outcome :data :count]))
           "the non-secret :count survives (path-precise)")
-      (is (= privacy/redacted-sentinel (get-in t [:input :data :secret]))
+      (is (= rf.privacy/redacted-sentinel (get-in t [:input :data :secret]))
           "[:input :data] still redacts (unchanged pre-existing behaviour)")
       (is (not (leaks? data-sentinel t))
           "the data sentinel appears NOWHERE in the projected action-ran trace"))))
@@ -103,7 +103,7 @@
 (deftest outcome-keyword-passes-through
   (testing "the non-map :outcome values (:ok for a nil return, the throw
             marker) ride through untouched"
-    (registrar/register! :event mid {:sensitive [[:data :secret]]})
+    (rf.registrar/register! :event mid {:sensitive [[:data :secret]]})
     (doseq [outcome [:ok :rf.error/action-threw]]
       (is (= outcome
              (:outcome (project {:operation :rf.machine/action-ran
@@ -117,14 +117,14 @@
             classification as the :rf.event/fx aggregate — including on a
             machine with NO classification of its own (registration-driven)"
     ;; A classified TARGET event — the nested-dispatch inheritance (rf2-32ffq1).
-    (registrar/register! :event ::classified-target {:sensitive [[:secret]]})
+    (rf.registrar/register! :event ::classified-target {:sensitive [[:secret]]})
     (let [t (project {:operation :rf.machine/action-ran
                       :tags {:actor-id :rf.orcd31/unclassified-machine
                              :frame    :rf/default
                              :outcome  {:fx [[:dispatch
                                               [::classified-target
                                                {:secret fx-sentinel}]]]}}})]
-      (is (= privacy/redacted-sentinel
+      (is (= rf.privacy/redacted-sentinel
              (get-in t [:outcome :fx 0 1 1 :secret]))
           "the outcome's nested [:dispatch [classified-target …]] payload redacts")
       (is (not (leaks? fx-sentinel t))
@@ -140,7 +140,7 @@
                              :frame    :rf/default
                              :outcome  {:db   {:auth {:token db-sentinel}}
                                         :data {:ok true}}}})]
-      (is (= privacy/redacted-sentinel (get-in t [:outcome :db]))
+      (is (= rf.privacy/redacted-sentinel (get-in t [:outcome :db]))
           "the whole disallowed :db echo reads :rf/redacted")
       (is (true? (get-in t [:outcome :data :ok]))
           "the legal :data half is untouched on an unclassified machine")
@@ -193,7 +193,7 @@
       ;; is exactly the false green a redaction test must never report. Its
       ;; teeth are the `(is (seq rans) …)` positive beside it, and that
       ;; positive is only satisfiable with the channel live.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         ;; 2. an :rf.machine/action-ran trace fired, and its :outcome redacts.
         (let [rans (filter #(= :rf.machine/action-ran (:operation %)) @seen)]
           (is (seq rans) "an :rf.machine/action-ran trace was emitted")

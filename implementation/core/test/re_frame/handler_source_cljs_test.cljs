@@ -16,9 +16,9 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.test-support :as test-support]))
+            [re-frame.test-support :as rf.test-support]))
 
-(use-fixtures :each (test-support/make-reset-runtime-fixture))
+(use-fixtures :each (rf.test-support/make-reset-runtime-fixture))
 
 (deftest reg-event-captures-form-source-cljs
   (testing "EP-0018 C (rf2-xhfxcs.3): CLJS `reg-event` stamps :rf.handler/source

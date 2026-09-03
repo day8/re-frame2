@@ -8,7 +8,7 @@
     {<cache-key> {:reaction r :inputs [...] :ref-count n}}
 
   The cached value is NOT a stored slot — it lives on the reaction, read
-  via deref. Disposal is wired on the reaction (interop/add-on-dispose!),
+  via deref. Disposal is wired on the reaction (rf.interop/add-on-dispose!),
   not an entry-level callback slot.
 
   Disposal is **synchronous on derefer-count → 0** (per
@@ -55,7 +55,7 @@
 
   The `swap-vals!`-after-CAS patterns (in `dispose-entry-now!`,
   `unsubscribe!`, and `invalidate-sub-on-replace!`) all encode the same
-  concurrency-safety property: any side-effect (`interop/dispose!`)
+  concurrency-safety property: any side-effect (`rf.interop/dispose!`)
   reads from the PRE-swap snapshot and runs AFTER the CAS commits.
   `swap!` is allowed to retry on JVM contention, so a side-effecting
   body could fire 2+ times under concurrent invalidate + sync-dispose.
@@ -78,13 +78,13 @@
   Cache-key shape is the query-vector itself
   (`re-frame.subs/cache-key` is identity), so the emit derives
   `:rf.sub/id` and `:rf.sub/query-v` directly from `k`. The emits ride
-  `interop/debug-enabled?` so production CLJS bundles DCE them with the
+  `rf.interop/debug-enabled?` so production CLJS bundles DCE them with the
   rest of the trace surface."
-  (:require [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.registrar :as registrar]
-            [re-frame.trace :as trace
+  (:require [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.trace :as rf.trace
              #?@(:cljs [:include-macros true])]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -94,7 +94,7 @@
 ;; NO READER TODAY (rf2-63t1i). The internal observation port's node-disposed
 ;; hook was the only one, and the port was retired on 2026-08-21. The var and
 ;; its bindings are RETAINED for the reason Spec 009 gives for
-;; `frame/guard-open-drain!` at zero call sites: the CAUSE is knowable only
+;; `rf.frame/guard-open-drain!` at zero call sites: the CAUSE is knowable only
 ;; here, so a hook that ever needs it can only be served from here. Removing
 ;; the bindings would make the information unrecoverable rather than merely
 ;; unused.
@@ -105,9 +105,9 @@
 ;; gone), NOT with whichever drain boundary happens to fire first. That cause is
 ;; known ONLY here, at the eviction site — HMR re-registration and a cache clear
 ;; both leave the frame live, so nothing downstream can recover which one ran.
-;; Each site binds this var to its INTRINSIC reason around its `interop/dispose!`
+;; Each site binds this var to its INTRINSIC reason around its `rf.interop/dispose!`
 ;; call(s); a node-disposed hook — which fires SYNCHRONOUSLY inside
-;; `interop/dispose!` — reads it as a plain deref, and maps
+;; `rf.interop/dispose!` — reads it as a plain deref, and maps
 ;; `:hot-reload` → `:hmr`, every other reason → `:disposed`. nil outside any
 ;; eviction extent (an `acquire!`-stack re-check enqueue defaults `:disposed` —
 ;; never the re-acquire-signalling `:hmr`). Nested binding is correct: a
@@ -118,7 +118,7 @@
 
 (def ^:dynamic *disposal-cause*
   "The INTRINSIC `:rf.sub/dispose` reason for the reaction(s) being disposed in
-  the current synchronous `interop/dispose!` extent — bound by each eviction
+  the current synchronous `rf.interop/dispose!` extent — bound by each eviction
   site, read late-bound by a node-disposed hook. ZERO READERS TODAY; see the
   section comment above for why it is retained. nil outside any eviction
   extent."
@@ -130,14 +130,14 @@
 ;; eviction site funnels through this helper so the emit tag-shape is
 ;; single-sourced. `k` is the cache-key (currently the query-vector
 ;; itself, per `re-frame.subs/cache-key`); `query-id` is `(first k)`.
-;; The whole call sits behind `interop/debug-enabled?` so production
+;; The whole call sits behind `rf.interop/debug-enabled?` so production
 ;; CLJS bundles DCE the tag-map allocation + the emit call along with
 ;; the rest of the trace surface.
 
 (defn- emit-dispose!
   [frame-id k reason]
-  (when interop/debug-enabled?
-    (trace/emit! :rf.sub :rf.sub/dispose
+  (when rf.interop/debug-enabled?
+    (rf.trace/emit! :rf.sub :rf.sub/dispose
                  {:frame          frame-id
                   :rf.sub/id      (first k)
                   :rf.sub/query-v k
@@ -154,13 +154,13 @@
   else; the reaction to dispose is read from the PRE-swap snapshot
   returned by `swap-vals!` and acted on AFTER the CAS commits. `swap!`
   is allowed to retry on contention on the JVM, so any side-effect
-  (`interop/dispose!`) inside the swap-fn could fire 2+ times under
+  (`rf.interop/dispose!`) inside the swap-fn could fire 2+ times under
   concurrent invalidate + dispose race.
 
   Emits `:rf.sub/dispose` with `:rf.sub/reason
   :no-more-derefers` after the CAS commits, for the call that actually
   drove the eviction (read off the `old` / `new` snapshot diff — the
-  same single-fire discipline that gates `interop/dispose!`). `frame-id`
+  same single-fire discipline that gates `rf.interop/dispose!`). `frame-id`
   rides on the emit's `:frame` tag; the 2-arity form serves call sites
   that don't carry a frame-id (the emit fires with `:frame nil` and
   tools fall back to `:rf.sub/id` for grouping)."
@@ -180,14 +180,14 @@
      (when (and (contains? old k) (not (contains? new k)))
        ;; Emit the dispose trace before tearing down the
        ;; reaction. Single-fire (gated on the same CAS-winner check as
-       ;; `interop/dispose!`) so we never double-emit under contention.
+       ;; `rf.interop/dispose!`) so we never double-emit under contention.
        (emit-dispose! frame-id k :no-more-derefers)
        (when-let [r (get-in old [k :reaction])]
          ;; Tag a synchronous node-disposed notification
          ;; with the INTRINSIC cause (→ :disposed) so it can never be mislabelled
          ;; :hmr by a co-pending HMR drain (rf2-r8jmdb).
          (binding [*disposal-cause* :no-more-derefers]
-           (try (interop/dispose! r)
+           (try (rf.interop/dispose! r)
                 (catch #?(:clj Throwable :cljs :default) _ nil)))))
      nil)))
 
@@ -347,8 +347,8 @@
 (defn- invalidate-sub-on-replace!
   [{:keys [kind id]}]
   (when (= kind :sub)
-    (doseq [frame-id (frame/frame-ids)]
-      (when-let [cache (:sub-cache (frame/frame frame-id))]
+    (doseq [frame-id (rf.frame/frame-ids)]
+      (when-let [cache (:sub-cache (rf.frame/frame frame-id))]
         ;; The swap-fn body is pure — it returns only the new cache map.
         ;; Reactions to dispose are read from the diff between `old` and
         ;; `new` AFTER the CAS commits (so a retried `swap!` can't fire
@@ -366,7 +366,7 @@
               evicted-keys (filterv #(not (contains? new %))
                                     (keys old))]
           ;; Emit dispose per evicted key BEFORE running the
-          ;; per-reaction `interop/dispose!` teardown. The reason
+          ;; per-reaction `rf.interop/dispose!` teardown. The reason
           ;; `:hot-reload` discriminates this path from sync 1 → 0 fires
           ;; (`:no-more-derefers`) and explicit `clear-sub-cache!`
           ;; (`:cache-clear`).
@@ -380,11 +380,11 @@
           (binding [*disposal-cause* :hot-reload]
             (doseq [k evicted-keys]
               (when-let [r (get-in old [k :reaction])]
-                (try (interop/dispose! r)
+                (try (rf.interop/dispose! r)
                      (catch #?(:clj Throwable :cljs :default) _ nil))))))))))
 
 (defonce ^:private _hot-reload-hook
-  (do (registrar/add-replacement-hook! invalidate-sub-on-replace!)
+  (do (rf.registrar/add-replacement-hook! invalidate-sub-on-replace!)
       :installed))
 
 (defn clear-sub-cache!
@@ -397,14 +397,14 @@
   bundles cache-clearing with registrar / frame state reset.
 
   Zero-arity resolves the scope/hold stamp via
-  `frame/require-current-frame!` (EP-0002) — called under no established
+  `rf.frame/require-current-frame!` (EP-0002) — called under no established
   scope it raises `:rf.error/no-frame-context` rather than clearing an
   invented default. One-arity targets the named frame (the right shape
   for fixtures / tools outside any scope). Returns nil. See also:
   `re-frame.subs/clear-sub` (registrar-side counterpart).
 
   Per rf2-awhtpc: the cache atom is reset to `{}` BEFORE any
-  `interop/dispose!` call, not after. A layer-2+ slot's on-dispose
+  `rf.interop/dispose!` call, not after. A layer-2+ slot's on-dispose
   callback releases its `:<-` input refs via `unsubscribe!`, which — if
   the input's slot were still present in the cache atom mid-walk — could
   drive its ref-count to 0 and fire `dispose-entry-now!`, re-emitting a
@@ -415,11 +415,11 @@
   every cascade-driven `unsubscribe!` finds nothing to evict, so it can
   never re-fire — every slot in the pre-clear snapshot gets exactly one
   emit, deterministically reasoned `:cache-clear`."
-  ([] (clear-sub-cache! (frame/require-current-frame!
+  ([] (clear-sub-cache! (rf.frame/require-current-frame!
                           :clear-sub-cache!
                           {:where 're-frame.subs.cache/clear-sub-cache!})))
   ([frame-id]
-   (when-let [cache (:sub-cache (frame/frame frame-id))]
+   (when-let [cache (:sub-cache (rf.frame/frame frame-id))]
      (let [snapshot @cache]
        ;; Evict the whole cache BEFORE any dispose! call — see the
        ;; rf2-awhtpc note above.
@@ -431,13 +431,13 @@
        (binding [*disposal-cause* :cache-clear]
          (doseq [[k entry] snapshot]
            ;; Emit dispose per evicted key BEFORE the per-
-           ;; reaction `interop/dispose!`. Reason `:cache-clear`
+           ;; reaction `rf.interop/dispose!`. Reason `:cache-clear`
            ;; discriminates the explicit-teardown path from sync 1 → 0
            ;; fires (`:no-more-derefers`) and hot-reload re-registration
            ;; (`:hot-reload`).
            (emit-dispose! frame-id k :cache-clear)
            (when-let [r (:reaction entry)]
-             (try (interop/dispose! r)
+             (try (rf.interop/dispose! r)
                   (catch #?(:clj Throwable :cljs :default) _ nil)))))))))
 
 (defn clear-all-frame-sub-caches!
@@ -463,7 +463,7 @@
   `:rf.sub/reason :cache-clear` per evicted slot (the closed-enum reason
   shared with explicit `clear-sub-cache!` test/REPL teardown). Returns nil."
   []
-  (doseq [frame-id (frame/frame-ids)]
+  (doseq [frame-id (rf.frame/frame-ids)]
     (clear-sub-cache! frame-id))
   nil)
 
@@ -491,7 +491,7 @@
   destroy.
 
   Per rf2-awhtpc: the cache atom is reset to `{}` BEFORE any
-  `interop/dispose!` call — same rationale as `clear-sub-cache!` above.
+  `rf.interop/dispose!` call — same rationale as `clear-sub-cache!` above.
   Without pre-clearing, disposing a layer-2+ slot cascades (via its
   on-dispose callback) into `unsubscribe!` on its `:<-` inputs; if an
   input's slot were still live in the cache mid-walk, that could drive
@@ -512,9 +512,9 @@
         (doseq [[k entry] snapshot]
           (emit-dispose! frame-id k :frame-destroy)
           (when-let [r (:reaction entry)]
-            (try (interop/dispose! r)
+            (try (rf.interop/dispose! r)
                  (catch #?(:clj Throwable :cljs :default) _ nil)))))))
   nil)
 
-(late-bind/set-fn! :subs.cache/dispose-all-for-frame-destroy!
+(rf.late-bind/set-fn! :subs.cache/dispose-all-for-frame-destroy!
                    dispose-all-for-frame-destroy!)

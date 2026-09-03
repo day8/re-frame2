@@ -35,15 +35,15 @@
   (:require #?(:clj  [clojure.test :refer [deftest is use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is use-fixtures]])
             [re-frame.core                 :as rf]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support         :as test-support]
-            [re-frame.trace                :as trace]))
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support         :as rf.test-support]
+            [re-frame.trace                :as rf.trace]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- Posture: dev-only, declared by `^:requires-debug` (rf2-d2841) ---------
-;; Trace machinery end to end: under `-Dre-frame.debug=false` `trace/emit` is a
+;; Trace machinery end to end: under `-Dre-frame.debug=false` `rf.trace/emit` is a
 ;; no-op, so there is no semantic residue to run under that posture, and a
 ;; `(when interop/debug-enabled? ...)` split -- the shape the rest of rf2-d2841
 ;; used -- would leave EMPTY deftests reporting green (class 2).  Every deftest
@@ -58,7 +58,7 @@
   (let [seen-at-run-start (atom :not-recorded)]
     (rf/reg-event :uoy6m/settle
       (fn [{:keys [db]} _] {:db (assoc db :uoy6m/settled? true)}))
-    (trace/register-listener! ::probe
+    (rf.trace/register-listener! ::probe
       (fn [ev]
         (when (and (= :rf.event/run-start (:operation ev))
                    (= :uoy6m/settle (first (-> ev :tags :rf.event/v)))
@@ -81,4 +81,4 @@
                "inline while the drain was active, not at the post-drain "
                "boundary. Recorded: " (pr-str @seen-at-run-start)))
       (finally
-        (trace/unregister-listener! ::probe)))))
+        (rf.trace/unregister-listener! ::probe)))))

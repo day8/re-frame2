@@ -46,7 +46,7 @@
   Dual-runtime `*_cljs_test.cljc`: the shadow `:node-test` build
   (`npm run test:cljs`) AND the JVM `clojure -M:test` runner both run it. Plain
   CLJC; no DOM dependency. The interposition redefines the PUBLIC
-  `frame/frame-incarnation-live?` (a plain `defn`), so `with-redefs` intercepts
+  `rf.frame/frame-incarnation-live?` (a plain `defn`), so `with-redefs` intercepts
   the cross-namespace pre-check call on both hosts.
 
   ## Posture split (rf2-d2841)
@@ -61,7 +61,7 @@
 
   Exactly ONE assertion is posture-dependent: `(= 1 (count traces))`, the axis-2
   DEV TRACE counterpart in `assert-preserved-record!`. It sits inside a
-  `(when interop/debug-enabled? …)` arm. Note what does NOT need one — the
+  `(when rf.interop/debug-enabled? …)` arm. Note what does NOT need one — the
   `(zero? (count @b-sink))` negative, which would be the textbook vacuous pass
   if the sink were dev-gated. It is not, and `probe-vacuity!` proves it by
   landing a real record in the same sink immediately afterwards. That probe is
@@ -69,25 +69,25 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core          :as rf]
-            [re-frame.error-emit    :as error-emit]
-            [re-frame.frame         :as frame]
-            [re-frame.interop       :as interop]
-            [re-frame.observability :as observability]
-            [re-frame.privacy       :as privacy]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support  :as test-support]
-            [re-frame.trace         :as trace]))
+            [re-frame.error-emit    :as rf.error-emit]
+            [re-frame.frame         :as rf.frame]
+            [re-frame.interop       :as rf.interop]
+            [re-frame.observability :as rf.observability]
+            [re-frame.privacy       :as rf.privacy]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support  :as rf.test-support]
+            [re-frame.trace         :as rf.trace]))
 
 ;; Rebuild registrar / frames / runtime per test; additionally clear the corpus
 ;; error-listener registry AND the observability sink registry so a listener /
 ;; sink from one test cannot leak into the next.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       plain-atom/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.substrate.plain-atom/adapter
      :ambient-frame nil
      :init-fn       (fn []
-                      (error-emit/clear-error-listeners!)
-                      (observability/clear-observability-sinks!))}))
+                      (rf.error-emit/clear-error-listeners!)
+                      (rf.observability/clear-observability-sinks!))}))
 
 ;; The attempted event / query the stale captured op carries: a keyword head plus
 ;; a distinctive body leaf, so a leak into a sink would be unmistakable.
@@ -120,7 +120,7 @@
   and register the concrete sink fn (conj'ing every record it receives into
   `seen`). Returns `id`."
   [id sink-id seen]
-  (observability/register-observability-sink! sink-id (fn [r] (swap! seen conj r)))
+  (rf.observability/register-observability-sink! sink-id (fn [r] (swap! seen conj r)))
   (rf/make-frame {:id id
                   :observability {:errors [{:sink sink-id
                                             :rf.egress/profile :rf.egress/off-box-observability}]}})
@@ -137,16 +137,16 @@
         traces (atom [])
         ekey   (keyword "test" (name (gensym "qjfrw-rec")))
         tkey   (keyword "test" (name (gensym "qjfrw-trace")))]
-    (error-emit/register-error-listener!
+    (rf.error-emit/register-error-listener!
       ekey (fn [r] (when (= :rf.error/frame-destroyed (:error r)) (swap! recs conj r))))
-    (trace/register-listener!
+    (rf.trace/register-listener!
       tkey (fn [ev] (when (= :rf.error/frame-destroyed (:operation ev)) (swap! traces conj ev))))
     (try
       (let [result (thunk)]
         {:records @recs :traces @traces :result result})
       (finally
-        (error-emit/unregister-error-listener! ekey)
-        (trace/unregister-listener! tkey)))))
+        (rf.error-emit/unregister-error-listener! ekey)
+        (rf.trace/unregister-listener! tkey)))))
 
 (defn- assert-preserved-record!
   "The route suppression must NOT drop the corpus record or the dev trace, nor
@@ -158,7 +158,7 @@
   ;; -Dre-frame.debug=false. Axis 1, asserted above and picked apart below, is
   ;; the production-survivable channel and the one this bead's regression
   ;; actually lives on, so the rest of this fn stays outside the arm.
-  (when interop/debug-enabled?
+  (when rf.interop/debug-enabled?
     (is (= 1 (count traces))  "EXACTLY ONE dev trace on axis 2 still fires"))
   (let [r (first records)]
     (is (= :rf.error/frame-destroyed (:error r))    "corpus category retained")
@@ -175,7 +175,7 @@
   mis-declared sink. Mirrors the rf2-bf0io vacuity probe."
   [fid b-sink]
   (let [before (count @b-sink)]
-    (observability/route-error!
+    (rf.observability/route-error!
       :rf.error/handler-exception [:qjfrw/probe] :qjfrw/probe fid nil 0 0 nil)
     (is (= (inc before) (count @b-sink))
         "B's sink IS live — a directly-routed ordinary error reaches it")))
@@ -207,7 +207,7 @@
             (rf/destroy-frame! fid)
             ;; B: same id, declaring its OWN :errors sink (armed BEFORE the op).
             (make-frame-with-error-sink! fid sink-id b-sink)
-            (is (some? (frame/frame fid)) "successor B is live under the reused id")
+            (is (some? (rf.frame/frame fid)) "successor B is live under the reused id")
             ;; Fire A's stale captured op into the same-id successor world.
             (let [emits (capture-emits #(invoke stale))]
               ;; THE REGRESSION: B's OWN sink must stay clean.
@@ -235,16 +235,16 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- run-superseded-after-precheck
-  "Interpose ONE-SHOT on `frame/frame-incarnation-live?` (the predicate the
+  "Interpose ONE-SHOT on `rf.frame/frame-incarnation-live?` (the predicate the
   capture pre-check consults): when the pre-check validates incarnation `a-token`
   of `frame-id` as live, run `(make-b!)` (destroy A + reseat same-id B with an
   armed sink) BEFORE handing back A's (true) liveness, then run `op`. The
   interposition fires exactly once (the pre-check); every later call — including
   the destroy/create machinery's own — delegates to the real fn."
   [frame-id a-token make-b! op]
-  (let [real  frame/frame-incarnation-live?
+  (let [real  rf.frame/frame-incarnation-live?
         fired (atom false)]
-    (with-redefs [frame/frame-incarnation-live?
+    (with-redefs [rf.frame/frame-incarnation-live?
                   (fn [id token]
                     (let [live? (real id token)]
                       (when (and (not @fired)
@@ -270,14 +270,14 @@
               sink-id (keyword "qjfrw.late.sinks" (str "sentry-" (name op)))
               b-sink  (atom [])]
           (rf/make-frame {:id fid})
-          (let [a-token (frame/frame-incarnation-token fid)
+          (let [a-token (rf.frame/frame-incarnation-token fid)
                 stale   (rf/capture-frame fid)             ; pins incarnation A
                 make-b! (fn []
                           (rf/destroy-frame! fid)
                           (make-frame-with-error-sink! fid sink-id b-sink))
                 emits   (capture-emits
                           #(run-superseded-after-precheck fid a-token make-b! (fn [] (invoke stale))))]
-            (is (some? (frame/frame fid)) "successor B is live under the reused id")
+            (is (some? (rf.frame/frame fid)) "successor B is live under the reused id")
             ;; THE REGRESSION: the LATE fence routed nothing to B's own sink.
             (is (zero? (count @b-sink))
                 "A's dead-incarnation failure NEVER reaches successor B's :errors sink (late fence)")
