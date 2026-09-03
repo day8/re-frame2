@@ -32,6 +32,63 @@ beyond it:
   (:require [re-frame.hicasso :as h]))
 ```
 
+## Boot a routed application
+
+Routing costs a dependency and a frame option, and a mount line says neither out
+loud: `h/mount!`'s config carries no routing key at all.
+
+```clojure
+;; deps.edn — beside the Hicasso coordinate
+{:deps {day8/re-frame2-hicasso {:local/root "../re-frame2/implementation/hicasso"}
+        day8/re-frame2-routing {:local/root "../re-frame2/implementation/routing"}}}
+```
+
+```clojure
+(ns app.core
+  (:require [re-frame.core :as rf]
+            [re-frame.routing]                  ;; loads the routing artefact
+            [re-frame.hicasso.substrate :as substrate]
+            [re-frame.hicasso :as h]
+            [app.routes]                        ;; the reg-route table above
+            [app.views :as views]))
+
+(defonce !root (atom nil))
+
+(defn ^:export init []
+  (rf/init! substrate/adapter)
+  (rf/make-frame {:id             :app/main
+                  :url-bound?     true          ;; this frame owns the browser URL
+                  :initial-events [[:app/initialise]]})
+  (reset! !root
+          (h/mount! (js/document.getElementById "app")
+                    {:frame :app/main}
+                    [views/app-root]))
+  nil)
+```
+
+Three things in that shape are load-bearing:
+
+- **`re-frame.routing` is a separate coordinate, and Hicasso does not bring it
+  in.** Require it before anything renders a route link, or `h/route-link` raises
+  `:rf.error/routing-artefact-missing`.
+- **A frame owns the browser URL only by carrying `:url-bound? true`.** There is
+  no default and nothing infers it; the declaration *is* the wiring, and creating
+  the frame installs the URL listener and syncs the current URL into the route
+  slice in one step. Without it `route-link` still renders and navigation still
+  updates that frame's own route state — the address bar simply never moves, and
+  a refresh loses the page.
+- **The frame is made before the mount, because the mount cannot carry
+  `:url-bound?`.** `h/mount!`'s config is closed at `:frame`, `:initial-events`
+  and `:identifier-prefix`, and any other key is ignored without complaint. The
+  mount then joins the live frame, so the seed belongs to `rf/make-frame` — see
+  [A frame that needs more than a
+  seed](00-installation.md#a-frame-that-needs-more-than-a-seed).
+
+Exactly one frame may carry `:url-bound? true`. A second raises
+`:rf.error/duplicate-url-binding` and the first claimant keeps the URL. Frames
+without it — story variants, devcards, per-test fixtures — route independently
+and never touch the address bar.
+
 ## Render an application route link
 
 Call `h/route-link` as a plain helper. Name a registered route and its params
@@ -208,15 +265,28 @@ focusable, and focus it after commit:
      [:main {:key       route
              :tab-index -1
              :ref       focus-page}
-      (case route
-        :app/home    [home-page]
-        :app/article [article-page]
-        [not-found-page])]]))
+      [h/error-boundary
+       {:fallback [:p.oops "This page could not be shown."]}
+       (case route
+         :app/home    [home-page]
+         :app/article [article-page]
+         [not-found-page])]]]))
 ```
 
 The key remounts `<main>` when page identity changes, causing the ref to run.
 `:tab-index -1` allows programmatic focus without adding the region to normal
 tab order. `preventScroll` lets the router's scroll policy remain authoritative.
+
+The boundary sits inside `<main>` on purpose. Every Hicasso refusal is a throw,
+and React unmounts a root whose tree throws with nothing above it to catch, so a
+single refused head anywhere in a page takes the whole application to a blank
+screen with the error only in the console. Catching at the page keeps the
+navigation usable, which is the region rule
+[Errors](17-errors.md#place-boundaries-at-useful-recovery-regions) states and the
+reason not to wrap the root instead — that would turn every failure into a
+whole-page fallback and remove `site-nav` along with the broken content. It needs
+no `:reset-key`: the `:key` above already remounts `<main>` on a route change, so
+navigating away is the retry.
 
 Query-only or fragment-only changes keep the same route id and therefore do
 not move focus. If article 7 and article 9 count as separate pages, include the
@@ -308,6 +378,23 @@ and activation pipeline as route links:
 - The server runs the same routing pipeline for the request URL. Hydration
   adopts that result rather than navigating again.
 
+!!! warning "A route deeper than one segment moves what relative URLs resolve against"
+
+    A page's relative URLs resolve against the *document* URL, and under the
+    default history strategy the document URL **is** the route. So a host page
+    carrying `href="css/style.css"` is correct while every route is `/`, and
+    silently wrong the moment somebody deep-links or refreshes on
+    `/articles/intro`, where it resolves to `/articles/css/style.css` and 404s.
+    Nothing in the application fails: the script tag is usually absolute already,
+    so the app boots, routes and behaves — with no stylesheet and no favicon.
+
+    Give every asset in the host page an absolute path, as [chapter 00's
+    `index.html`](00-installation.md#add-the-dependencies) does for
+    `/js/main.js`, or add one `<base href="/">` to `<head>`. Under a sub-path
+    deployment that becomes `<base href="/my-app/">`, with
+    `rf.routing/with-base-path` wrapped around the frame's `:url-strategy` so
+    the two agree.
+
 ??? info "For readers coming from React Router"
     `route-link` is a plain function returning an anchor, not a component with
     private router context. A blocked transition is app state, not a blocker
@@ -319,6 +406,8 @@ and activation pipeline as route links:
 | --- | --- | --- |
 | Rendering a route link raises `:rf.error/routing-artefact-missing` | The core routing artefact was not required before rendering | Require `re-frame.routing` during boot |
 | An in-app link performs a full page load | A hand-written anchor bypassed route interception | Use `route-link` or the documented document-level routing listener |
+| Links change the page but the address bar never moves, and a refresh loses the route | No frame carries `:url-bound? true`, so nothing owns the browser URL | Declare it on the frame — [Boot a routed application](#boot-a-routed-application) |
+| The page loads and behaves but is unstyled after a deep link or a refresh | Relative asset paths in the host page resolve against the current route | Make host-page asset paths absolute, or add `<base href="/">` |
 | `route-link` rejects a bare `:on-click` vector | The click would produce two semantic events | Use `[::h/prevent [:app/event]]`, `h/event`, or a plain function according to the intended veto |
 | A link carrying `:prefetch` warms nothing | `route-link` installs none of routing's prefetch handlers | Dispatch `[:rf.route/prefetch address]` from `:on-mouse-enter` |
 | Every attempt to leave is rejected and the guard is named | `:rf.error/can-leave-non-boolean` | Return strict `true` or `false` from the guard subscription |

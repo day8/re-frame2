@@ -131,6 +131,12 @@ many roots as it likes, and no call here reaches a root the caller did not name.
 | `:initial-events` | an ordered vector of ordinary event vectors, dispatched synchronously **when this mount creates the frame**, draining before the call returns. Core's own `:initial-events`, reaching `rf/make-frame` untouched |
 | `:identifier-prefix` | React's `identifierPrefix`, handed to `createRoot` untouched. No default, no coercion, no validation |
 
+The list is closed, and any other key is ignored without complaint. A frame that
+needs an `rf/make-frame` option — `:url-bound?` for an application that owns the
+browser URL, `:fx-overrides`, `:images`, `:platform` — is created before the
+mount, which then joins it: [A frame that needs more than a
+seed](00-installation.md#a-frame-that-needs-more-than-a-seed).
+
 `h/hydrate!`'s `config` carries `:frame` and `:identifier-prefix`, and no
 `:initial-events`. The next section is why.
 

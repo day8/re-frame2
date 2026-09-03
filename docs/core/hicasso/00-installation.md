@@ -174,9 +174,33 @@ substrates — see [Use UIx or reagent-slim](../how-to/use-uix-or-slim.md) for t
 shipped alternatives and their coordinates. A Reagent or UIx adapter under a
 Hicasso tree keeps working exactly as it did, and is what you want when the page
 also renders that substrate's own components: every React-shaped adapter writes
-the same frame context, so the two subtrees resolve one frame. What it costs is
-a second dependency whose notation you never write, which is why Hicasso's own
-is the default here.
+the same frame context, so a Hicasso subtree and that substrate's own subtree
+resolve one frame. What it costs is a second dependency whose notation you never
+write, which is why Hicasso's own is the default here.
+
+**One frame, but not one markup dialect.** That shared context is what a
+*component* crossing reads; it is not permission to interleave the two notations.
+A Reagent view is not a legal Hiccup head, so `[reagent-footer]` written inside a
+Hicasso body raises `:rf.error/hicasso-bad-head` at the first paint — and because
+a Reagent view is an anonymous meta-carrying function, the refusal can name the
+enclosing view but not the offender. The two directions are not symmetric:
+
+- **Hicasso inside a foreign parent has a named door.** `h/as-component` mints a
+  real React component from a Hicasso head, and `h/as-element` converts one
+  subtree; a Reagent, UIx, React or plain-JavaScript parent then mounts either
+  under the frame it is already in. See [Render a Hicasso view from native
+  React](09-interop.md#render-a-hicasso-view-from-native-react).
+- **Reagent inside a Hicasso tree has no Hicasso door.** `[:>]` and `h/defhost`
+  take real React components, which a Reagent view is not. Lifting it with
+  `reagent.core/reactify-component` and crossing at the [raw
+  escape](09-interop.md#raw--escape) does work, but that is Reagent's own bridge
+  plus a general escape rather than something this package offers, and it puts
+  two renderers in one tree.
+
+So the practical boundary between the two layers is a **root**, not a tag. Mix or
+migrate a screen at a time, and where one page must genuinely show both, give
+each layer its own root naming the same `:frame` — see [More than one
+root](#more-than-one-root).
 
 An adapter buys plumbing, not notation: you write Hicasso views either way and
 never call the adapter yourself. The headless plain-atom adapter is not a
@@ -282,6 +306,45 @@ reached independently by fixtures, reload hooks, and `finally` blocks. The
 unmount releases the root's subscriptions as their reference counts reach
 zero and makes the DOM node available for another root.
 
+**A bare mount catches nothing.** Every Hicasso refusal is a throw, and React
+unmounts a root whose tree throws with no error boundary above it — the whole
+page, not the offending region, with the error only in the console. Put
+`h/error-boundary` around the regions a user can carry on without, which for
+most applications means a route's main content rather than the root itself;
+[Errors](17-errors.md#place-boundaries-at-useful-recovery-regions) is the whole
+rule and [Routing and navigation](07-routing-and-navigation.md#move-focus-after-a-page-change)
+shows it in a routed root.
+
+### A frame that needs more than a seed
+
+Those three keys are the whole of what `h/mount!` reads, and the list is closed:
+any other key in `config` is ignored, silently and without complaint. A frame
+that needs an `rf/make-frame` option — `:url-bound? true` for an application that
+owns the browser URL, `:fx-overrides` for a stubbed backend, `:images`,
+`:platform` — is therefore **created first, and the mount joins it**:
+
+```clojure
+(defn ^:export init []
+  (rf/init! substrate/adapter)
+  (rf/make-frame {:id             :app/main
+                  :url-bound?     true
+                  :initial-events [[:app/initialise]]})
+  (reset! !root
+          (h/mount! (js/document.getElementById "app")
+                    {:frame :app/main}
+                    [app-root]))
+  nil)
+```
+
+Mounting ensures rather than creates, so the mount finds the frame already live
+and joins it untouched. That is the same join a second root takes, and it carries
+the same consequence: **seed from `rf/make-frame` in this shape, not from the
+mount**, because `:initial-events` handed to a mount that joins never run.
+
+[Routing and navigation](07-routing-and-navigation.md#boot-a-routed-application)
+walks the routed case, which is the common one — a frame owns the browser URL
+only by carrying `:url-bound? true`, and nothing supplies it by default.
+
 ## More than one root
 
 A page can mount several Hicasso roots. The frame id determines whether those
@@ -364,5 +427,7 @@ production; there is no production-only view mode.
 | The first paint is empty and then fills in | Initial state was dispatched after mounting | Put the seed events in `:initial-events` so they finish before the first paint |
 | A second `h/mount!` fails on the same DOM node | A live root already owns the node | Keep the handle with `defonce`; unmount that root before mounting another |
 | A joining root's `:initial-events` never run | The named frame already exists; joining does not replay setup | Seed only from the mount that creates the frame |
+| A key added to `h/mount!`'s `config` has no effect and raises nothing | The config is closed at `:frame`, `:initial-events` and `:identifier-prefix`; every other key is ignored | Put frame options on `rf/make-frame` and let the mount join ([above](#a-frame-that-needs-more-than-a-seed)) |
+| One refused head blanks the whole page | A Hicasso refusal is a throw, and React unmounts a root that throws with no boundary above it | Wrap independently recoverable regions with `h/error-boundary` ([Errors](17-errors.md)) |
 | A changed initialisation handler has no effect after hot reload | The live frame kept its existing app-db | Reload, recreate the frame, or dispatch an explicit reset event |
 | A view body runs twice when first mounted in development | React StrictMode probes bodies twice | Expected. Keep view bodies pure and safe to re-run |
