@@ -41,15 +41,20 @@
     {:adapter #?(:clj ssr/adapter :cljs reagent-slim-adapter/adapter)
      :ambient-frame nil}))
 
-(defn- card-skeleton [id]
-  [:div.card.skeleton [:h3 (str "Loading " (name id))]])
+;; Server-side fixture components. JVM-only: every reference is inside a
+;; `#?(:clj …)` deftest below — the client half builds its own trees.
+#?(:clj
+   (defn- card-skeleton [id]
+     [:div.card.skeleton [:h3 (str "Loading " (name id))]]))
 
-(defn- card-view [id]
-  (let [c @(rf/subscribe [:card/by-id id])]
-    [:div.card [:h3 (:title c)] [:p.value (str (:value c))]]))
+#?(:clj
+   (defn- card-view [id]
+     (let [c @(rf/subscribe [:card/by-id id])]
+       [:div.card [:h3 (:title c)] [:p.value (str (:value c))]])))
 
-(defn- throwing-card []
-  (throw (ex-info "flaky third-party metric service" {})))
+#?(:clj
+   (defn- throwing-card []
+     (throw (ex-info "flaky third-party metric service" {}))))
 
 ;; ---- host-neutral contract -------------------------------------------------
 

@@ -17,8 +17,11 @@
   `render-head`, `active-head`, `default-head`, the per-frame snapshot
   bookkeeping, and the late-bind hook registrations — live in the
   `re-frame.ssr.head` façade."
-  (:require [clojure.string :as str]
-            [re-frame.error :as error]
+  ;; `clojure.string` and `re-frame.error` are JVM-only: every use is
+  ;; inside `ld-json-string`'s `:clj` arm (the hand-rolled JSON emitter and
+  ;; its two fail-fast gates). CLJS goes through `js/JSON.stringify`.
+  (:require #?@(:clj [[clojure.string :as str]
+                      [re-frame.error :as error]])
             [re-frame.ssr.html-helpers :as html]))
 
 ;; Reflection warnings guard the hand-rolled JVM JSON emitter.
