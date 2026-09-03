@@ -4,7 +4,7 @@ The operator's page. It says what a pilot workspace contains, how to assemble on
 
 A pilot agent is never sent here — this page sits inside the repository the pilot is blinded to. What the agent gets is `BRIEF.md` and `FRICTION-LOG.md`, both of which land in the workspace by the procedure below.
 
-Authorized by `rf2-v04s` under [`rf2-hic-063`](README.md#what-governs-this-directory)'s ratification; the `_shared/` line in both source manifests, under `rf2-f22y`; the documentation row in the read fence and the docs line in the layout block, under `rf2-lpfz`; the rehearsal variant of outcome 7, under `rf2-dc0c`; step 6 naming the fenced block rather than the file, under `rf2-lh7b`; pilot 2's distinct `:dev-http` port and step 5's identity check, under `rf2-v6l6`; step 1 setting the pin rather than reading it back, under `rf2-zmhn`; the `PRE-PILOT` header being stamped at collection, under `rf2-yqtr`; step 5's nominated-screen check, under `rf2-dra3`.
+Authorized by `rf2-v04s` under [`rf2-hic-063`](README.md#what-governs-this-directory)'s ratification; the `_shared/` line in both source manifests, under `rf2-f22y`; the documentation row in the read fence and the docs line in the layout block, under `rf2-lpfz`; the rehearsal variant of outcome 7, under `rf2-dc0c`; step 6 naming the fenced block rather than the file, under `rf2-lh7b`; pilot 2's distinct `:dev-http` port and step 5's identity check, under `rf2-v6l6`; step 1 setting the pin rather than reading it back, under `rf2-zmhn`; the `PRE-PILOT` header being stamped at collection, under `rf2-yqtr`; step 5's nominated-screen check, under `rf2-dra3`; the browser page check the manifest copies and step 5 runs, under `rf2-ek1a`; step 2's repair of the copied README's outward links, under `rf2-vfmb`.
 
 ## Layout
 
@@ -19,6 +19,7 @@ The published installation chapter tells a reader to clone the monorepo *beside*
     deps.edn
     shadow-cljs.edn
     package.json
+    page-check.cjs      loads a URL in a headless browser and reports what rendered
     public/index.html
     src/
     test/               the app's behavioural baseline, copied in with the source
@@ -55,7 +56,7 @@ The last row is the one that will actually come up, and it is deliberately stric
 
 Each pilot's `README.md` is copied in with the source, and the pilot may read it. It explains what the application does and which re-frame2 patterns it is built from — the app's HTTP handling, its state machines, its routing. That is the pilot's own codebase and a real adopter would have exactly this.
 
-Its links into `spec/` and `docs/` are a different matter, and following one is a logged leak. The line is the same one as above: knowing how *your app* works is yours; knowing how *Hicasso* works must come from the published documentation, because that is the only thing under measurement.
+Its outward links are a different matter, and [step 2b](#assemble-a-workspace) has already dealt with them: the ones into `docs/` point at the checkout's copy of the published documentation and resolve, because [the fence](#the-read-fence) admits that tree; the ones into `spec/` and into sibling examples have had their links removed, because it does not. Their names are still in the prose, so the rule is worth stating anyway. Knowing how *your app* works is yours; knowing how *Hicasso* works must come from the published documentation, because that is the only thing under measurement — and going looking for a named `spec/` file in the checkout is a logged leak whether or not the README still links it. Amended under `rf2-vfmb`.
 
 ## Assemble a workspace
 
@@ -86,6 +87,7 @@ cp re-frame2/examples/real-apps/realworld_http/index.html         app/public/
 cp -r re-frame2/examples/_shared                                  app/public/_shared
 cp re-frame2/examples/real-apps/realworld_http/README.md          app/
 cp re-frame2/docs/design/hicasso/product/pilots/baseline/realworld_http/baseline_test.cljs app/test/realworld_http/
+cp re-frame2/docs/design/hicasso/product/pilots/page-check.cjs    app/
 ```
 
 Pilot 2 — LinearLite:
@@ -97,9 +99,24 @@ cp re-frame2/examples/capabilities/resources/linearlite/index.html app/public/
 cp -r re-frame2/examples/_shared                                   app/public/_shared
 cp re-frame2/examples/capabilities/resources/linearlite/README.md  app/
 cp re-frame2/docs/design/hicasso/product/pilots/baseline/linearlite/baseline_test.cljs app/test/linearlite/
+cp re-frame2/docs/design/hicasso/product/pilots/page-check.cjs     app/
 ```
 
-The last line of each manifest is the app's behavioural baseline, and it is the one file that does not come from the app's own directory. The examples tree is test-free by policy, so each app's behavioural suite lives in the Reagent adapter's test tree and runs on the in-repo harness; [`baseline/`](baseline/README.md) carries the subset that exercises the nominated screens, rewritten as the app's own test namespace so that it stands on `cljs.test`, the core test support and the canned HTTP replies — all of which the `:local/root` route resolves — and on nothing the workspace cannot see. The pilot may read it, since it is under `app/`, which is why it names no in-tree path, bead or spec: the fence holds inside the test file as it does inside the brief. Added under `rf2-xkhul`.
+The last two lines of each manifest are the two files that do not come from the app's own directory. The first is the app's behavioural baseline. The examples tree is test-free by policy, so each app's behavioural suite lives in the Reagent adapter's test tree and runs on the in-repo harness; [`baseline/`](baseline/README.md) carries the subset that exercises the nominated screens, rewritten as the app's own test namespace so that it stands on `cljs.test`, the core test support and the canned HTTP replies — all of which the `:local/root` route resolves — and on nothing the workspace cannot see. The pilot may read it, since it is under `app/`, which is why it names no in-tree path, bead or spec: the fence holds inside the test file as it does inside the brief. Added under `rf2-xkhul`. The second is `page-check.cjs`, which [step 5](#assemble-a-workspace) runs and the pilot keeps; it is under `app/` on the same terms and names no in-tree path either. Added under `rf2-ek1a`.
+
+**2b. Repair the copied README's outward links.** The README is written for its position in the repository and the copy sits somewhere else, so every one of its relative links is broken the moment it lands in `app/` — measured on the assembled pilot 1 workspace at 31 leaving links, all 31 resolving above `<pilot-root>` and none of them existing; pilot 2 is the same shape at a different depth, at 14. That is not merely untidy. The links that point into `spec/` and into sibling examples aim at trees the read fence bars by name, so the copy hands the pilot a document whose outward references are simultaneously dead and forbidden, in the first hour, in the one file it has been told is unambiguously its own — and following one is the single most likely way an honest pilot generates a leak row it did not mean to. Three commands, identical for both pilots, run from `<pilot-root>`:
+
+```bash
+sed -E -e 's#\]\((\.\./)+docs/#](@@D@@#g' \
+       -e 's#\[([^]]*)\]\(\.\.[^)]*\)#\1#g' \
+       -e 's#@@D@@#../re-frame2/docs/#g' app/README.md > app/README.tmp
+cat re-frame2/docs/design/hicasso/product/pilots/readme-note.md app/README.tmp > app/README.md
+rm app/README.tmp
+```
+
+**The three passes are ordered, and the order is what makes them safe.** The first marks links into `docs/`, the second de-links every relative link still standing, and the third restores the marked ones pointing at the checkout's copy of the documentation. Written the other way round the third pass's output would be eaten by the second. The `sed` is depth-agnostic, which is why one block serves both pilots.
+
+**Links into `docs/` are repaired rather than removed, because the fence already allows them.** [The read fence](#the-read-fence) admits anything under `docs/` the site builds, and every `docs/` target either README names is inside that set — `docs/core/glossary.md`, `docs/machines/glossary.md`, `docs/machines/concepts.md`, `docs/resources/glossary.md`, `docs/EP/EP-0019-optimistic-mutation-rollback.md`, none of them under an `exclude_docs` prefix, every one of the 20 + 9 anchors resolving. Stripping them would deny the pilot something the fence grants; repointing them at `../re-frame2/docs/` grants nothing new and makes an already-permitted reference reachable. What is de-linked is what the fence bars: 10 targets into `spec/` and one sibling example for pilot 1, 2 and three for pilot 2. Their names stay in the prose, and the note the second command prepends says what they are and why they do not resolve here. Added under `rf2-vfmb`.
 
 **The `_shared/` line is the one that is easy to leave out, and leaving it out is invisible until a browser draws the page.** Both `index.html` files link a stylesheet, a favicon and an OG image from a sibling `_shared/` directory that sits at the *root* of the examples tree, one level above each app's own folder — so a manifest written per app misses all three, and nothing in the repository ever notices, because the repository's own example runner stages that directory into each example's output as a whole-tree copy instead of serving it from where it lives. Copy the directory rather than the three files it is named for: `style.css` opens by importing `structure.css` beside it, which a file-by-file manifest drops silently and no page ever mentions. Omit the line and both workspaces serve an unstyled page — which reads as broken scaffolding, in the one place [step 5](#assemble-a-workspace) exists to stop that reading. Added under `rf2-f22y`.
 
@@ -108,18 +125,42 @@ The last line of each manifest is the app's behavioural baseline, and it is the 
 **4. Install npm dependencies.**
 
 ```bash
-cd app && npm install
+cd app
+npm install
+npx playwright install chromium    # the browser `page-check.cjs` drives
 ```
 
 **5. Prove the workspace boots before the pilot starts.** This is the operator's check, not the pilot's, and it must pass with the app still on Reagent — otherwise the pilot's first hour is spent debugging the scaffolding and the friction log records the operator's mistakes as the framework's.
 
 ```bash
-npx shadow-cljs watch app     # then open http://localhost:8080 — pilot 2 uses 8081
+npx shadow-cljs watch app     # leave it running; pilot 2 serves on 8081
 ```
 
-**Then check the page is *this* pilot's application, not the other one's.** The two pilots carry different `:dev-http` ports for exactly this reason: [`rf2-hic-063`](README.md#what-governs-this-directory)'s method permits them to run in parallel from separate workspaces, and two shadow-cljs servers asking for the same port do not fail. The second prints `BindException Address already in use` as a *warning*, above its own `Build completed` line, and carries on — leaving the first pilot's application answering on that port with no page errors, no console errors and no failed requests. A boot check that only counts errors passes while looking at the wrong app. Confirm by sight instead: pilot 1 renders Conduit's masthead — `conduit`, Home, Sign in, Sign up — and pilot 2 renders the LinearLite board. Added under `rf2-v6l6`.
+**Run the check; do not look at the page.** Every pilot is an agent and so is the operator running this step, and neither has eyes. `app/page-check.cjs`, copied in by [step 2](#assemble-a-workspace), is the instrument: it loads a URL in headless Chromium and prints the mount element's size, the page's visible text, and every console error, page error and failed request. It exits non-zero unless the mount rendered something, nothing raised, and every `--expect` string is on the page — so both checks below are one command, and the verdict is a captured exit code rather than an impression. Run it from `app/` in a second shell with the watch still running. Added under `rf2-ek1a`.
 
-**Then check the screen the pilot is being sent to migrate has something on it.** An application boots long before its data does, and a masthead is chrome — it is drawn whether or not the screen under migration has a single row in it, so the check above passes on an application that is running and empty. That is not hypothetical: at pin `6e9bb105fc9b1569d63fdebc212b7787a2a023ba` pilot 1's page rendered the masthead with no page errors, no console errors and no failed requests, while its Global Feed — the first of its two nominated screens — showed `No articles are here… yet.` and never changed (`rf2-2xzc`). So confirm the screen's own content as well as the application's identity: pilot 1's Global Feed lists at least one article card, with a title and an author; pilot 2's board shows its three issue cards across the Backlog / In Progress / Done columns. Pilot 2 passes that stricter form today on the evidence its boot check already produces, so it costs nothing where the tree is healthy and bites exactly where it is not. It is the same shape as the port collision one paragraph up — a check that passes while looking at the wrong thing — and it matters for the same reason: [`rf2-hic-063`](README.md#what-governs-this-directory)'s method makes this check the condition of dispatching a blinded pilot at all, and a pilot sent at a brief that says the screen "works today" spends its first hours on a defect the operator was standing in front of. Added under `rf2-dra3`.
+Pilot 1 — RealWorld/Conduit:
+
+```bash
+cd app && node page-check.cjs http://localhost:8080/ \
+  --expect conduit --expect "Sign in" \
+  --expect "Hello, Conduit" --expect stub-bot > ../boot-check.log 2>&1; echo "boot check exit $?"
+```
+
+Pilot 2 — LinearLite:
+
+```bash
+cd app && node page-check.cjs http://localhost:8081/ \
+  --expect Backlog --expect "In Progress" --expect Done \
+  --expect "Wire up the optimistic board" > ../boot-check.log 2>&1; echo "boot check exit $?"
+```
+
+The two paragraphs below say what those `--expect` strings are for and why each half of the check exists. Both halves are in the one command; neither is optional.
+
+**Then check the page is *this* pilot's application, not the other one's.** The two pilots carry different `:dev-http` ports for exactly this reason: [`rf2-hic-063`](README.md#what-governs-this-directory)'s method permits them to run in parallel from separate workspaces, and two shadow-cljs servers asking for the same port do not fail. The second prints `BindException Address already in use` as a *warning*, above its own `Build completed` line, and carries on — leaving the first pilot's application answering on that port with no page errors, no console errors and no failed requests. A boot check that only counts errors passes while looking at the wrong app. Name the application's own chrome in the check instead: pilot 1's page carries Conduit's masthead — `conduit`, Home, Sign in, Sign up — and pilot 2's carries the board's three column headings. That is what the first `--expect` of each command above pins. Added under `rf2-v6l6`.
+
+**Then check the screen the pilot is being sent to migrate has something on it.** An application boots long before its data does, and a masthead is chrome — it is drawn whether or not the screen under migration has a single row in it, so the check above passes on an application that is running and empty. That is not hypothetical: at pin `6e9bb105fc9b1569d63fdebc212b7787a2a023ba` pilot 1's page rendered the masthead with no page errors, no console errors and no failed requests, while its Global Feed — the first of its two nominated screens — showed `No articles are here… yet.` and never changed (`rf2-2xzc`). So confirm the screen's own content as well as the application's identity: pilot 1's Global Feed lists at least one article card, with a title and an author; pilot 2's board shows its three issue cards across the Backlog / In Progress / Done columns. Pilot 2 passes that stricter form today on the evidence its boot check already produces, so it costs nothing where the tree is healthy and bites exactly where it is not. It is the same shape as the port collision one paragraph up — a check that passes while looking at the wrong thing — and it matters for the same reason: [`rf2-hic-063`](README.md#what-governs-this-directory)'s method makes this check the condition of dispatching a blinded pilot at all, and a pilot sent at a brief that says the screen "works today" spends its first hours on a defect the operator was standing in front of. That is what the remaining `--expect` strings pin, and the difference is measurable: pointed at a page carrying Conduit's masthead over an empty feed, the identity half alone exits 0 while the two halves together exit 1 naming `"Hello, Conduit"` and `"stub-bot"` as absent. Added under `rf2-dra3`, made executable under `rf2-ek1a`.
+
+**A green here is a statement about the DEVELOPMENT build and nothing else.** `shadow-cljs watch` serves the development compile, and the two compiles of one tree do not always behave alike: the rehearsal measured pilot 1's development build failing to settle its HTTP replies in Chrome while its release build settled all of them, on untouched Reagent screens as well as the migrated one (`rf2-2xzc`). So this check certifies the build it was pointed at, which is the one the pilot works in — the right thing to certify, since that is where the pilot's first hours go. Outcome 6's second half is the same command pointed at a release build, and it belongs to the pilot, not here. When this check goes red for that reason the workspace is not the defect; the pilot is still not dispatched, because [`rf2-hic-063`](README.md#what-governs-this-directory)'s METHOD (a) is a condition and not a preference. Added under `rf2-ek1a`.
 
 **5b. Run the baseline, with the app still on Reagent**, and record its exit code in the log header beside the pin. This is outcome 1's "before" measurement, and it is the operator who takes it: a baseline that is not green before the pilot starts is a defect in the scaffolding, fixed here, never handed to the pilot as friction. The run also proves that the `:test` build resolves the test kit, the app and its test namespace from the clean workspace.
 
@@ -225,7 +266,8 @@ Pilot 1 — RealWorld/Conduit:
                       "markdown-it": "^14.1.0", "markdown-it-block-image": "^0.0.3",
                       "markdown-it-footnote": "^3.0.3", "markdown-it-texmath": "^1.0.0",
                       "markdown-it-toc-done-right": "^4.2.0", "punycode": "2.1.1"},
-  "devDependencies": {"shadow-cljs": "3.4.10", "@testing-library/dom": "^10"}
+  "devDependencies": {"shadow-cljs": "3.4.10", "@testing-library/dom": "^10",
+                      "playwright": "1.59.1"}
 }
 ```
 
@@ -235,7 +277,7 @@ The six are what the Markdown library's ClojureScript side tokenizes with, and t
 
 `npm test` is the one-line test command: the briefs name it, step 5b runs it, and outcome 1 quotes its exit code before and after. It compiles the `:test` build and then runs the script, chained with `&&` so a failed compile never runs a stale bundle, and the status it exits with is the test runner's own — one failing assertion is a non-zero exit, which is what makes the captured number evidence.
 
-The React pin is the published floor, not a preference: below 19.2 the lifecycle contract has nothing to run on, and 18 and earlier is not supported. `shadow-cljs` stays in `devDependencies` even though the JVM dependency compiles, because the npm package is where React's CommonJS `process` shim comes from. Testing Library is what the published testing ladder's L3 rung reaches for; add `@testing-library/user-event` if the pilot's ported tests drive real interactions.
+The React pin is the published floor, not a preference: below 19.2 the lifecycle contract has nothing to run on, and 18 and earlier is not supported. `shadow-cljs` stays in `devDependencies` even though the JVM dependency compiles, because the npm package is where React's CommonJS `process` shim comes from. Testing Library is what the published testing ladder's L3 rung reaches for; add `@testing-library/user-event` if the pilot's ported tests drive real interactions. Playwright is the browser driver `page-check.cjs` uses, pinned rather than floated because a browser download is the one dependency in this file whose version decides what the check can see; [step 4](#assemble-a-workspace) fetches its Chromium explicitly rather than leaving it to a postinstall, on the same reasoning as the Markdown row above. The published pages name no browser driver at all — the testing chapter's L4 rung says to use real engines and stops there — which is [gap G4](README.md#what-the-published-documentation-does-not-answer); the workspace supplies one so the pilot does not spend its first hours writing one, and the gap is recorded rather than filled. Added under `rf2-ek1a`.
 
 ### `app/public/index.html`
 

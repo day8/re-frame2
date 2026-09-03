@@ -17,7 +17,7 @@ Filed under `rf2-v04s`, executing item 2 of [`rf2-hic-063`](#what-governs-this-d
 
 The 2 briefs are the only pages a pilot agent ever sees. `workspace.md` is the operator's. `friction-log.md` is quoted into the brief by reference, and its blank template is copied into the workspace. But the pilot is never sent to this directory to read it, because this directory is inside the repository the pilot is blinded to.
 
-Beside the four pages, [`baseline/`](baseline/README.md) holds the two app-owned test files that `workspace.md`'s manifest copies into `app/test/` — the behavioural baseline outcome 1 is measured against. They are fixtures the workspace compiles, not a test lane of this repository, and nothing here runs them. Added under `rf2-xkhul`.
+Beside the four pages, [`baseline/`](baseline/README.md) holds the two app-owned test files that `workspace.md`'s manifest copies into `app/test/` — the behavioural baseline outcome 1 is measured against. They are fixtures the workspace compiles, not a test lane of this repository, and nothing here runs them. Added under `rf2-xkhul`. Two more files travel the same way: [`page-check.cjs`](page-check.cjs), which loads a URL in a headless browser and reports what rendered, and [`readme-note.md`](readme-note.md), the paragraph step 2b puts at the top of the app's own README once its outward links have been repaired. Added under `rf2-ek1a` and `rf2-vfmb`.
 
 ## The blinding is a read fence, not an absence
 
@@ -33,13 +33,14 @@ Blinding therefore cannot mean the repository is absent. It means:
 
 ## What the published documentation does not answer
 
-Three gaps were found while writing the briefs, all of one class: the published happy path routes through a repository checkout at 3 separate points. They are recorded rather than filled, because filling them from in-tree knowledge is the contamination the programme exists to detect.
+Four gaps were found. The first three are of one class: the published happy path routes through a repository checkout at 3 separate points. The fourth is different in kind and was found by running the rehearsal rather than by writing the briefs. They are recorded rather than filled, because filling them from in-tree knowledge is the contamination the programme exists to detect.
 
 | # | Gap | Where it bites | Standing |
 | --- | --- | --- | --- |
 | G1 | No published coordinate. Installation resolves `:local/root` against a monorepo clone | Every pilot, at setup. It is what forces the read fence above | Closes when `rf2-kmqx3` cuts the first tag. The installation page's warning box goes stale the same day |
 | G2 | The migration reporter — step 1 of the published migration process — runs from `migration/reagent-to-hicasso/codemod` in a checkout, and that tree is excluded from the built site | Outcome 2, immediately. A pilot cannot begin the documented process from the published site alone | Open. No bead filed: it is the same root cause as G1 and is expected to move with it |
 | G3 | The compatibility matrix and upgrade policy live in [`release-policy.md`](../release-policy.md), which the site excludes. The installation page publishes a four-row summary and the substance of the upgrade promise, and points at the design record for the rest | Outcome 7, partially. The *promise* is published — no shims, a rename is a compile error, complaint ids are stable — so a pilot can act; the *matrix* is not | Open, and the mildest of the three. Recorded so a pilot's outcome-7 verdict is read against what it could actually reach |
+| G4 | No way to LOOK at a rendered page. The testing chapter's L4 rung says to use real browser engines and names no driver, no command and no dependency; across the 29 published pages `playwright`, `puppeteer`, `jsdom` and `karma` match nothing at all | Outcomes 2, 3, 4, 5 and 6 — every one of which asks the pilot to judge what a page did, and every pilot is an agent with no eyes. Both rehearsal pilots wrote their own Chrome DevTools Protocol driver rather than answer off a green compile, which is hours spent on the instrument | Open, and WORKED AROUND rather than filled: [`workspace.md`](workspace.md)'s step 2 copies `page-check.cjs` into `app/` and its `package.json` template carries the driver, so a pilot has an instrument from hour zero. The documentation still names none, and a pilot that reaches for the L4 rung and finds nothing should log exactly that |
 
 A pilot that hits any of these should log it as ordinary friction and carry on. They are listed here so that the operator dispositioning the log can tell a gap already known from a gap the pilot discovered — the second kind is the one worth acting on.
 

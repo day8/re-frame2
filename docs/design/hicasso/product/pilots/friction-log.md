@@ -43,7 +43,7 @@ One row each, filled in as the work reaches them. `BLOCKED` is for an outcome th
 
 Rules that make the row mean something:
 
-- **Quote a captured exit code, never a described one.** Redirect to a file and echo the runner's own status; a piped or remembered number is not evidence.
+- **Quote a captured exit code, never a described one.** Redirect to a file and echo the runner's own status; a piped or remembered number is not evidence. That rule reaches what a page RENDERED as well as what a command returned: `page-check.cjs` in the workspace answers “did the screen come up, and did it have anything on it” with an exit code, so outcomes 2 and 6 quote a number rather than describe an impression. Added under `rf2-ek1a`.
 - **Outcome 1 is measured twice** — the suite passing before the migration is the baseline, and without it "the tests pass" says nothing.
 - **Outcome 5 induces the failure deliberately.** Pick a fault the published diagnostics chapter claims to cover, break it on purpose, and record whether the documented path actually reached it. A pilot that only diagnoses the bugs it happened to write has not tested the instrument.
 - **Outcome 6 checks the built page runs**, not merely that the build exited zero. Advanced compilation removes diagnostics and warning strings, and a bundle that compiles but does not boot is the failure this outcome exists to catch.

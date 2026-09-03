@@ -4,7 +4,7 @@ Copy the block below into `<pilot-root>/BRIEF.md`. Everything inside it is writt
 
 The brief is deliberately free of in-tree references: no bead ids, no spec sections, no repository paths except the ones the published documentation itself tells a reader to use, and one added since: `docs/core/hicasso/` inside the checkout, which is where the published documentation is kept until a site exists (`rf2-lpfz`). Naming it is what makes the pilot's only reference reachable at all. That is not tidiness. A brief that leaks in-tree knowledge does not bend a rule, it invalidates the evidence the pilot exists to produce, and the leak is invisible in the output.
 
-Authorized by `rf2-v04s` under [`rf2-hic-063`](README.md#what-governs-this-directory)'s ratification; the sentence naming the test command, under `rf2-xkhul`; the address of the published documentation in the read rules, under `rf2-lpfz`. Assemble the workspace first, per [`workspace.md`](workspace.md).
+Authorized by `rf2-v04s` under [`rf2-hic-063`](README.md#what-governs-this-directory)'s ratification; the sentence naming the test command, under `rf2-xkhul`; the address of the published documentation in the read rules, under `rf2-lpfz`; the paragraph naming the page check, under `rf2-ek1a`. Assemble the workspace first, per [`workspace.md`](workspace.md).
 
 ---
 
@@ -20,6 +20,15 @@ against a fake backend that lives in the page, so there is nothing to set up
 and no network to depend on. It is in `app/`, it currently renders through
 Reagent, and it works today. Run it before you change anything. Its
 behavioural tests are in `app/test/`; `npm test` from `app/` runs them.
+
+To see what the running page actually did, there is `page-check.cjs` in
+`app/`. `node page-check.cjs http://localhost:8080/` loads that URL in a
+headless browser and prints how much the application rendered, the page's
+visible text, and every console error, page error and failed request. Add
+`--expect "some text"` — repeatable — and it exits non-zero unless that
+text is on the page, which is how "it looks right" becomes a captured exit
+code. `node page-check.cjs --help` lists the rest. It is an ordinary script
+in your project: read it, change it, extend it.
 
 Your two screens are **the feed** and **the article editor**.
 
