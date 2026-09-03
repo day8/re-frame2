@@ -34,7 +34,6 @@
   uses a NON-sensitive sample route, so the leak was invisible there — this is
   the sensitive-route regression that gap called for (rf2-ugoxyv)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.core :as rf]
             [re-frame.elision :as elision]
             [re-frame.frame :as frame]
             ;; Loading routing publishes the route classification machinery

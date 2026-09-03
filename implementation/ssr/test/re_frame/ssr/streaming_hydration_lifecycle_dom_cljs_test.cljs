@@ -54,7 +54,6 @@
             ["react-dom/client" :as react-dom-client]
             [reagent2.core :as r2]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
             [re-frame.adapter.reagent-slim :as reagent-slim-adapter]
             [re-frame.ssr :as ssr]
             [re-frame.ssr.suspense :as suspense :refer [boundary]]
@@ -168,9 +167,6 @@
 ;; attributes rather than on anything the feature does. Emitting the
 ;; fixture makes the test a genuine cross-host parity check: same hiccup,
 ;; server render vs client render, reconciled by React.
-
-(def ^:private app-db-seed
-  {:cards {:revenue {:title "Revenue" :value 42375}}})
 
 (defn- server-render!
   "Run the REAL server pipeline over `[dashboard]` under a server frame:
