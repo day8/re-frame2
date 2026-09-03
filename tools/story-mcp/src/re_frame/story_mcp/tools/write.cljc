@@ -152,10 +152,9 @@
   under one ruler and admitted under the other (rf2-2rtt6.131). That arm
   was also unreachable: this ns requires `clojure.edn` and catches
   `Throwable` unconditionally, and story-mcp is a JVM-only artefact by
-  declaration (`tools/story-mcp/deps.edn` §JVM-only; `tools/shadow-cljs.edn`
-  lists it among the JVM-only tools). A phantom second host publishing a
-  WRONG number is worse than no second host, so the conditional is gone and
-  the one ruler that runs is the correct one. Code units equal UTF-8 bytes
+  declaration (`tools/story-mcp/deps.edn` §JVM-only). A phantom second host
+  publishing a WRONG number is worse than no second host, so the conditional
+  is gone and the one ruler that runs is the correct one. Code units equal UTF-8 bytes
   only for ASCII — which is exactly why an ASCII-only oversize fixture
   could never see the defect."
   [^String body]

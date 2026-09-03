@@ -93,19 +93,19 @@
   ;; test's captured events don't bleed in.
   (recorder/clear!)
   ;; Disable epoch-ring recording for the duration of each story-mcp test
-  ;; (restored below). story-mcp's OWN artefact carries NO epoch dep, so a
-  ;; standalone `cd tools/story-mcp && clojure -M:test` never loads
-  ;; `re-frame.epoch` and `run-variant`'s `:narrative` projection reads an
-  ;; empty tape. Under the tools-root aggregate (`cd tools && clojure
-  ;; -M:test`) a STORY test namespace REQUIRES `re-frame.epoch`, installing
-  ;; the capture hooks process-wide — so story-mcp's `run-variant` then
-  ;; projects a full per-event narrative (each beat carries full :db /
-  ;; trace-events), ballooning the wire payload past the MCP token cap (the
-  ;; whole run-result is replaced by a `:rf.mcp/overflow` marker, failing the
-  ;; shape + elision-indicator assertions). `(rf/configure! {:epoch-history
-  ;; {:depth 0}})` reproduces the artefact's own epoch-free posture: it is a
-  ;; core-facade knob that no-ops when epoch is absent and disables ring
-  ;; recording when present.
+  ;; (restored below). story-mcp's OWN artefact carries NO epoch dep, so
+  ;; `cd tools/story-mcp && clojure -M:test` never loads `re-frame.epoch`
+  ;; and `run-variant`'s `:narrative` projection reads an empty tape. This
+  ;; call PINS that posture rather than inheriting it: `re-frame.epoch`
+  ;; installs its capture hooks PROCESS-WIDE at ns-load, so any JVM that
+  ;; puts epoch on this suite's classpath would silently switch
+  ;; `run-variant` to a full per-event narrative (each beat carrying full
+  ;; :db / trace-events), ballooning the wire payload past the MCP token cap
+  ;; — the whole run-result replaced by a `:rf.mcp/overflow` marker, failing
+  ;; the shape + elision-indicator assertions. `(rf/configure!
+  ;; {:epoch-history {:depth 0}})` is a core-facade knob that no-ops when
+  ;; epoch is absent and disables ring recording when present, so it is
+  ;; correct under either classpath.
   (rf/configure! {:epoch-history {:depth 0}})
   ;; Fixture story + variant.
   (story/reg-story :story.button
