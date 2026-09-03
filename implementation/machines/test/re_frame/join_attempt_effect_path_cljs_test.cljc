@@ -29,9 +29,13 @@
 
   The fix (rf2-2lzk8a):
     - `join-dispatch-fx` gates the canonical override on the STRICTER
-      `re-frame.fx/override-applies?` (fn-value OR registered NON-reject
-      keyword). Every other disposition — noop, unregistered keyword, malformed
-      value, reject-target redirect — falls through to the recordable transport,
+      APPLIED rule (fn-value OR registered NON-reject keyword) instead of the
+      coarse `real-override?`. Since rf2-5g6qq that rule is read ONCE as a
+      `re-frame.fx/classify-fx-override` disposition and `case`-dispatched on
+      `:disposition` (join.cljc), so only `:applied-fn` and `:applied-redirect`
+      pre-empt. Every other disposition — `:noop`, `:fallthrough` (unregistered
+      keyword, malformed value), `:protected-rejection` (reject-target
+      redirect) — falls through to the recordable transport,
       so the join still folds EXACTLY ONCE on the framework-produced coordinate.
       The canonical `:rf.error/override-fallthrough` is still surfaced through the
       ONE override engine (`re-frame.fx/resolve-fx-with-overrides`).
@@ -48,8 +52,9 @@
   `:rf.machine/join-dispatch` retains BOTH policies on its own redirect-specific
   rationale. Pinned in `source-nonoverridable-are-redirectable-targets` below.
 
-  MUTATION TEETH: reverting the `override-applies?` gate to `real-override?`
-  fails the fallthrough folds; removing `:rf.machine/join-dispatch` from the
+  MUTATION TEETH: reverting the applied-disposition gate to the coarse
+  `real-override?` fails the fallthrough folds; removing
+  `:rf.machine/join-dispatch` from the
   reject set fails the capture + recursion guards; re-conflating the two policies
   (adding `:rf.machine/spawn` back to the target set) fails the redirect-target
   case below.
@@ -217,7 +222,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest genuine-fn-value-override-still-preempts
-  (testing "rf2-2lzk8a — the stricter `override-applies?` gate still lets a
+  (testing "rf2-2lzk8a — the stricter applied-disposition gate still lets a
             GENUINE fn-value `:dispatch` override pre-empt the completion
             (captures the UNCHANGED public event, folds nothing, and — because
             the framework-produced path never runs — stamps no coordinate). The
