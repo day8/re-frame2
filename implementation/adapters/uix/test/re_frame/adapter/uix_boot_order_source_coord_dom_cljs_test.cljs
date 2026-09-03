@@ -122,26 +122,26 @@
   "Read `attr` off a React element's props. The reg-time row reads the
   annotation here rather than off the DOM because the value it is reading has
   no DOM: it is what the un-mountable reg-time composition produces."
-  [^js el attr]
-  (some-> el .-props (aget attr)))
+  [^js element attr]
+  (some-> element .-props (aget attr)))
 
-(defn- capture-warnings
+(defn- capture-console-diagnostics
   "Record `console.warn` / `console.error` text across `thunk`; restores both
   on the way out. The non-DOM-root diagnostic goes to `console.warn`, and it
   is the fourth casualty of the missing wrap — a warning that is not merely
   absent-when-wanted but PRESENT-and-wrong."
   [thunk]
-  (let [calls      (atom [])
-        orig-warn  (.-warn js/console)
-        orig-error (.-error js/console)]
+  (let [messages       (atom [])
+        original-warn  (.-warn js/console)
+        original-error (.-error js/console)]
     (try
-      (set! (.-warn js/console)  (fn [& args] (swap! calls conj (apply str args))))
-      (set! (.-error js/console) (fn [& args] (swap! calls conj (apply str args))))
+      (set! (.-warn js/console)  (fn [& args] (swap! messages conj (apply str args))))
+      (set! (.-error js/console) (fn [& args] (swap! messages conj (apply str args))))
       (thunk)
-      @calls
+      @messages
       (finally
-        (set! (.-warn js/console)  orig-warn)
-        (set! (.-error js/console) orig-error)))))
+        (set! (.-warn js/console)  original-warn)
+        (set! (.-error js/console) original-error)))))
 
 (def ^:private non-dom-root-re #"data-rf2-source-coord skipped")
 
@@ -159,45 +159,47 @@
   node."
   [act-fn head]
   (let [mount-node (.createElement js/document "div")
-        root       (react-dom-client/createRoot mount-node)]
+        react-root (react-dom-client/createRoot mount-node)]
     (binding [frame/*current-frame* nil]
-      (let [msgs (capture-warnings
-                   (fn []
-                     (act-fn
-                       (fn []
-                         (.render root
-                           ($ uix-adapter/frame-provider {:frame probe-frame}
-                              ($ head)))))))
-            node (.querySelector mount-node "[data-testid='probe']")]
+      (let [diagnostics (capture-console-diagnostics
+                          (fn []
+                            (act-fn
+                              (fn []
+                                (.render react-root
+                                  ($ uix-adapter/frame-provider {:frame probe-frame}
+                                     ($ head)))))))
+            view-root   (.querySelector mount-node "[data-testid='probe']")]
         (try
-          {:msgs  msgs
-           :node? (some? node)
-           :coord (some-> node (.getAttribute "data-rf2-source-coord"))
-           :view  (some-> node (.getAttribute "data-rf-view"))}
+          {:diagnostics       diagnostics
+           :view-root-present? (some? view-root)
+           :source-coordinate (some-> view-root (.getAttribute "data-rf2-source-coord"))
+           :view-id-attribute (some-> view-root (.getAttribute "data-rf-view"))}
           (finally
-            (try (.unmount root) (catch :default _ nil))))))))
+            (try (.unmount react-root) (catch :default _ nil))))))))
 
 (defn- assert-annotated
   "The shared assertion block for a mounted root. `label` names which mount
   produced `facts` so a failure says which row broke."
-  [label id facts]
-  (let [{:keys [msgs node? coord view]} facts]
-    (is (true? node?)
+  [label view-id facts]
+  (let [{:keys [diagnostics view-root-present? source-coordinate
+                view-id-attribute]} facts]
+    (is (true? view-root-present?)
         (str label ": the view's own root element committed to the DOM"))
-    (is (string? coord)
+    (is (string? source-coordinate)
         (str label ": data-rf2-source-coord is stamped on the committed root"
-             " — the substrate wrap ran; got " (pr-str coord)))
-    (is (and (string? coord)
-             (str/starts-with? coord (str (namespace id) ":" (name id))))
+             " — the substrate wrap ran; got " (pr-str source-coordinate)))
+    (is (and (string? source-coordinate)
+             (str/starts-with? source-coordinate
+                               (str (namespace view-id) ":" (name view-id))))
         (str label ": and its value is the view's own <ns>:<sym> coordinate;"
-             " got " (pr-str coord)))
-    (is (= (str id) view)
+             " got " (pr-str source-coordinate)))
+    (is (= (str view-id) view-id-attribute)
         (str label ": data-rf-view carries the printed view id (Spec 006"
-             " §View tagging contract); got " (pr-str view)))
-    (is (empty? (filterv #(and (string? %) (re-find non-dom-root-re %)) msgs))
+             " §View tagging contract); got " (pr-str view-id-attribute)))
+    (is (empty? (filterv #(and (string? %) (re-find non-dom-root-re %)) diagnostics))
         (str label ": and no non-DOM-root warning was emitted — the inline"
              " hiccup walk did not run against a React element; got "
-             (pr-str msgs)))))
+             (pr-str diagnostics)))))
 
 ;; ---- the ABSENT half, on the registration itself ---------------------------
 
@@ -213,11 +215,11 @@
     (is (some? head-at-registration)
         "premise: the reg-time lookup returned the composition to compare against")
 
-    (let [reg-time-out (head-at-registration)]
-      (is (= "span" (.-type ^js reg-time-out))
+    (let [registration-output (head-at-registration)]
+      (is (= "span" (.-type ^js registration-output))
           "the reg-time composition renders the view's own DOM-tag root, so a
            missing annotation below is about the wrap and not about the shape")
-      (is (nil? (element-attr reg-time-out "data-rf2-source-coord"))
+      (is (nil? (element-attr registration-output "data-rf2-source-coord"))
           "ABSENT: registration ran before rf/init!, so :adapter/wrap-view
            declined and nothing stamped the root — this is the defect, and the
            registrar slot deliberately keeps it (rewriting the slot would
@@ -231,10 +233,10 @@
             "and the re-derivation is memoized — a second lookup returns the
              SAME object, so React reconciles it as one component type rather
              than remounting the subtree on every render")
-        (let [out (head)]
-          (is (= "span" (.-type ^js out))
+        (let [lookup-output (head)]
+          (is (= "span" (.-type ^js lookup-output))
               "the re-derived head renders the same root element type")
-          (is (string? (element-attr out "data-rf2-source-coord"))
+          (is (string? (element-attr lookup-output "data-rf2-source-coord"))
               "PRESENT: the re-derivation re-asked :adapter/wrap-view with the
                adapter installed, so the substrate's cloneElement pass stamped
                the root (rf2-8mkmb)"))))))
@@ -265,7 +267,7 @@
     (with-browser-act
       (fn [act-fn]
         (seed-frame!)
-        (let [id :rf.uix-boot-order-coord/post-init-row]
-          (rf/reg-view* id probe-render)
-          (assert-annotated "post-init head" id
-                            (mount-and-read act-fn (rf/view id))))))))
+        (let [view-id :rf.uix-boot-order-coord/post-init-row]
+          (rf/reg-view* view-id probe-render)
+          (assert-annotated "post-init head" view-id
+                            (mount-and-read act-fn (rf/view view-id))))))))

@@ -47,17 +47,17 @@
             :advanced + goog.DEBUG=false. The Closure compiler DCEs
             the wrap-view body's cloneElement branch via the
             `interop/debug-enabled?` gate."
-    (let [user-fn (fn []
+    (let [view-fn (fn []
                     (React/createElement "span" #js {} "hi"))]
-      (rf/reg-view* :rf.uix-prod-elision-test/no-attr user-fn)
-      (let [render (rf/view :rf.uix-prod-elision-test/no-attr)
-            out    (render)]
-        (is (some? out))
-        (is (= "span" (.-type out))
+      (rf/reg-view* :rf.uix-prod-elision-test/no-attr view-fn)
+      (let [view-head        (rf/view :rf.uix-prod-elision-test/no-attr)
+            rendered-element (view-head)]
+        (is (some? rendered-element))
+        (is (= "span" (.-type rendered-element))
             "root element's type preserved")
-        (is (nil? (react-element-attr out "data-rf2-source-coord"))
+        (is (nil? (react-element-attr rendered-element "data-rf2-source-coord"))
             "NO data-rf2-source-coord on the rendered root — elision contract holds")
-        (is (nil? (react-element-attr out "data-rf-view"))
+        (is (nil? (react-element-attr rendered-element "data-rf-view"))
             "NO data-rf-view on the rendered root — view-id tagging rides the
              same interop/debug-enabled? gate and elides too (rf2-ihcib)")))))
 
@@ -65,22 +65,22 @@
   (testing "Even with an existing props map on the root, the wrapper does
             NOT inject data-rf2-source-coord under prod-mode. User props
             pass through; no extra key is added."
-    (let [user-fn (fn []
+    (let [view-fn (fn []
                     (React/createElement "div"
                                          #js {:className "card"
                                               :id        "x"}
                                          "body"))]
-      (rf/reg-view* :rf.uix-prod-elision-test/with-attrs user-fn)
-      (let [render (rf/view :rf.uix-prod-elision-test/with-attrs)
-            out    (render)
-            props  (.-props out)]
-        (is (= "div" (.-type out)))
-        (is (some? props))
-        (is (= "card" (aget props "className")) "user className preserved")
-        (is (= "x"    (aget props "id")) "user id preserved")
-        (is (nil? (aget props "data-rf2-source-coord"))
+      (rf/reg-view* :rf.uix-prod-elision-test/with-attrs view-fn)
+      (let [view-head        (rf/view :rf.uix-prod-elision-test/with-attrs)
+            rendered-element (view-head)
+            element-props    (.-props rendered-element)]
+        (is (= "div" (.-type rendered-element)))
+        (is (some? element-props))
+        (is (= "card" (aget element-props "className")) "user className preserved")
+        (is (= "x"    (aget element-props "id")) "user id preserved")
+        (is (nil? (aget element-props "data-rf2-source-coord"))
             "NO data-rf2-source-coord merged into the props — elision contract holds")
-        (is (nil? (aget props "data-rf-view"))
+        (is (nil? (aget element-props "data-rf-view"))
             "NO data-rf-view merged into the props — view-id tagging elides on the
              same gate (rf2-ihcib)")))))
 
@@ -94,14 +94,14 @@
             reached through it — survives into the bundle. The Reagent-side
             counterpart is
             `re-frame.reg-view-devtools-elision-prod-test/reg-view-wrapped-fn-has-no-display-name-under-prod`."
-    (let [user-fn (fn [] (React/createElement "span" #js {:id "x"} "hi"))]
-      (rf/reg-view* :rf.uix-prod-elision-test/dn-elided user-fn)
-      (let [wrapped (rf/view :rf.uix-prod-elision-test/dn-elided)]
-        (is (some? wrapped) "the view is registered")
-        (is (nil? (.-displayName ^js wrapped))
+    (let [view-fn (fn [] (React/createElement "span" #js {:id "x"} "hi"))]
+      (rf/reg-view* :rf.uix-prod-elision-test/dn-elided view-fn)
+      (let [view-head (rf/view :rf.uix-prod-elision-test/dn-elided)]
+        (is (some? view-head) "the view is registered")
+        (is (nil? (.-displayName ^js view-head))
             "no .displayName on the registered view under prod-mode")
         (is (nil? (.-displayName ^js (uix-adapter/wrap-view
                                        :rf.uix-prod-elision-test/dn-elided-head
-                                       {} user-fn)))
+                                       {} view-fn)))
             "no .displayName on a directly-built wrap-view head either —
              the whole arm elided")))))

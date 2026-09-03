@@ -95,7 +95,7 @@
         (do (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) true)
             (f act-fn))))))
 
-(defn- with-captured-errors
+(defn- capture-render-diagnostics
   "Record `console.error` / `console.warn` messages AND any window
   `error` event raised across `thunk`. Returns the vector of joined
   message strings; restores everything on the way out even if thunk
@@ -107,30 +107,30 @@
   capture of only one of the two would let half the failure mode through
   silently."
   [thunk]
-  (let [calls      (atom [])
-        orig-warn  (.-warn js/console)
-        orig-error (.-error js/console)
+  (let [messages       (atom [])
+        original-warn  (.-warn js/console)
+        original-error (.-error js/console)
         on-error   (fn [^js e]
-                     (swap! calls conj (str (or (.-message e) e))))]
+                     (swap! messages conj (str (or (.-message e) e))))]
     (.addEventListener js/window "error" on-error)
     (try
-      (set! (.-warn js/console)  (fn [& args] (swap! calls conj (apply str args))))
-      (set! (.-error js/console) (fn [& args] (swap! calls conj (apply str args))))
+      (set! (.-warn js/console)  (fn [& args] (swap! messages conj (apply str args))))
+      (set! (.-error js/console) (fn [& args] (swap! messages conj (apply str args))))
       (try
         (thunk)
         (catch :default e
-          (swap! calls conj (str "THROWN: " (.-message e)))))
-      @calls
+          (swap! messages conj (str "THROWN: " (.-message e)))))
+      @messages
       (finally
-        (set! (.-warn js/console)  orig-warn)
-        (set! (.-error js/console) orig-error)
+        (set! (.-warn js/console)  original-warn)
+        (set! (.-error js/console) original-error)
         (.removeEventListener js/window "error" on-error)))))
 
-(defn- matching
-  "Messages matching `re`. Fixed-shape helper so each assertion reports the
+(defn- matching-messages
+  "Messages matching `pattern`. Fixed-shape helper so each assertion reports the
   offending text rather than a bare false."
-  [re msgs]
-  (filterv #(and (string? %) (re-find re %)) msgs))
+  [pattern messages]
+  (filterv #(and (string? %) (re-find pattern %)) messages))
 
 ;; The two diagnostics this bead is about. `invalid-element-type-re` is what
 ;; React raises when handed the `MetaFn` — the pre-fix symptom. `hook-boundary-re`
@@ -250,72 +250,73 @@
   (reset! observed-children ::unset)
   (reset! observed-ops nil)
   (let [mount-node (.createElement js/document "div")
-        root       (react-dom-client/createRoot mount-node)]
+        react-root (react-dom-client/createRoot mount-node)]
     ;; Clear the fixture's ambient `:rf/default` dynamic scope so the
     ;; 1-arg `use-subscribe` resolves through the React-context (provider)
     ;; tier — the shape a real app has.
     (binding [frame/*current-frame* nil]
-      (let [msgs    (with-captured-errors
-                      (fn []
-                        (act-fn
-                          (fn []
-                            (.render root
-                              ($ uix-adapter/frame-provider {:frame probe-frame}
-                                 ($ head
-                                    {:payload probe-payload}
-                                    ($ :em {:data-testid "child"} "kid"))))))))
-            initial (text-of mount-node "n")
-            ops     @observed-ops
+      (let [mount-diagnostics (capture-render-diagnostics
+                                (fn []
+                                  (act-fn
+                                    (fn []
+                                      (.render react-root
+                                        ($ uix-adapter/frame-provider {:frame probe-frame}
+                                           ($ head
+                                              {:payload probe-payload}
+                                              ($ :em {:data-testid "child"} "kid"))))))))
+            initial-text      (text-of mount-node "n")
+            frame-ops         @observed-ops
             ;; Dispatch through the ops map `use-frame` handed the mounted
             ;; component. Wrapped in act so React commits the update the
             ;; spine's useSyncExternalStore path schedules — the same
             ;; convention every other UIx DOM row here uses.
-            more    (with-captured-errors
-                      (fn []
-                        (act-fn
-                          (fn []
-                            (when-let [ds (:dispatch-sync ops)]
-                              (ds [:rf.uix-direct-mount/inc]))))))
-            after   (text-of mount-node "n")]
+            dispatch-diagnostics (capture-render-diagnostics
+                                   (fn []
+                                     (act-fn
+                                       (fn []
+                                         (when-let [dispatch-sync (:dispatch-sync frame-ops)]
+                                           (dispatch-sync [:rf.uix-direct-mount/inc]))))))
+            updated-text          (text-of mount-node "n")]
         (try
-          {:msgs     (into msgs more)
-           :initial  initial
-           :after    after
-           :child    (text-of mount-node "child")
-           :payload  @observed-payload
-           :children @observed-children
-           :ops      ops}
+          {:diagnostics       (into mount-diagnostics dispatch-diagnostics)
+           :initial-text      initial-text
+           :updated-text      updated-text
+           :child-text        (text-of mount-node "child")
+           :observed-payload  @observed-payload
+           :children-present? @observed-children
+           :frame-ops         frame-ops}
           (finally
-            (try (.unmount root) (catch :default _ nil))))))))
+            (try (.unmount react-root) (catch :default _ nil))))))))
 
 (defn- assert-mount-case
   "The shared assertion block. `label` names which mount path produced
   `facts` so a failure message says which of the two rows broke."
   [label facts]
-  (let [{:keys [msgs initial after child payload children ops]} facts]
-    (is (empty? (matching invalid-element-type-re msgs))
+  (let [{:keys [diagnostics initial-text updated-text child-text
+                observed-payload children-present? frame-ops]} facts]
+    (is (empty? (matching-messages invalid-element-type-re diagnostics))
         (str label ": React accepted the value as a component type; got "
-             (pr-str (matching invalid-element-type-re msgs))))
-    (is (empty? (matching hook-boundary-re msgs))
+             (pr-str (matching-messages invalid-element-type-re diagnostics))))
+    (is (empty? (matching-messages hook-boundary-re diagnostics))
         (str label ": the mount owns a real React hook boundary; got "
-             (pr-str (matching hook-boundary-re msgs))))
-    (is (= probe-payload payload)
+             (pr-str (matching-messages hook-boundary-re diagnostics))))
+    (is (= probe-payload observed-payload)
         (str label ": the nested CLJS prop arrived intact — namespaced keyword"
-             " keys AND values, by value equality; got " (pr-str payload)))
-    (is (true? children)
+             " keys AND values, by value equality; got " (pr-str observed-payload)))
+    (is (true? children-present?)
         (str label ": the trailing `$` child reached the component; got "
-             (pr-str children)))
-    (is (= "kid" child)
-        (str label ": the trailing child rendered into the DOM; got " (pr-str child)))
-    (is (= probe-frame (:frame ops))
+             (pr-str children-present?)))
+    (is (= "kid" child-text)
+        (str label ": the trailing child rendered into the DOM; got " (pr-str child-text)))
+    (is (= probe-frame (:frame frame-ops))
         (str label ": use-frame resolved the SURROUNDING provider's frame, so"
              " the hook read the context this mount established; got "
-             (pr-str (:frame ops))))
-    (is (= "1" initial)
-        (str label ": use-subscribe's initial value rendered; got " (pr-str initial)))
-    (is (= "2" after)
+             (pr-str (:frame frame-ops))))
+    (is (= "1" initial-text)
+        (str label ": use-subscribe's initial value rendered; got " (pr-str initial-text)))
+    (is (= "2" updated-text)
         (str label ": the DOM re-rendered after a dispatch off use-frame's ops"
-             " map; got " (pr-str after)))))
+             " map; got " (pr-str updated-text)))))
 
 ;; ---- AC1 / AC2 / AC3 — the registry path ----------------------------------
 
@@ -396,12 +397,12 @@
     (seed-world!)
     (rf/reg-view* :rf.uix-direct-mount/stable
                   (fn [props] (React/createElement "div" #js {} (str (:label props)))))
-    (let [a (rf/view :rf.uix-direct-mount/stable)
-          b (rf/view :rf.uix-direct-mount/stable)]
-      (is (identical? a b)
+    (let [first-head  (rf/view :rf.uix-direct-mount/stable)
+          second-head (rf/view :rf.uix-direct-mount/stable)]
+      (is (identical? first-head second-head)
           "two lookups return the SAME object — React reconciles it as one
            component type rather than remounting on every render")
-      (let [out (a {:label "hi"})]
-        (is (some? out) "the head is still directly callable (headless invocation)")
-        (is (= "div" (.-type ^js out))
+      (let [rendered-element (first-head {:label "hi"})]
+        (is (some? rendered-element) "the head is still directly callable (headless invocation)")
+        (is (= "div" (.-type ^js rendered-element))
             "and returns the registered view's own React element")))))

@@ -27,7 +27,7 @@
             [uix.compiler.input]
             [re-frame.adapter.uix :as uix-adapter]))
 
-(def ^:private value-at-load
+(def ^:private reagent-input-enabled-at-load?
   "The var as `re-frame.adapter.uix`'s load left it, snapshotted at THIS
   namespace's load — which CLJS runs after the adapter's, and before any
   test runs. Asserting the snapshot rather than only the live read is what
@@ -36,7 +36,7 @@
   to schedule first."
   uix.compiler.input/*use-reagent-input-enabled?*)
 
-(defn- selector []
+(defn- reagent-input-selected? []
   (uix.compiler.input/should-use-reagent-input?))
 
 (defn- with-cleared-pin
@@ -46,16 +46,16 @@
   (set! uix.compiler.input/*use-reagent-input-enabled?* nil)
   (try (f) (finally (set! uix.compiler.input/*use-reagent-input-enabled?* false))))
 
-(deftest reacts-controlled-input-is-the-adapters-default
+(deftest react-controlled-input-is-the-adapters-default
   (testing "requiring the adapter is enough: a UIx `:input` is a plain React
            controlled input"
     (is (some? uix-adapter/adapter)
         "the adapter namespace is loaded — which is what runs the pin")
-    (is (false? value-at-load)
+    (is (false? reagent-input-enabled-at-load?)
         "the adapter's load left the var at false — asserted from the
          load-time snapshot, so no sibling suite's per-row pinning can
          stand in for the pin and mask its absence")
-    (is (false? (selector))
+    (is (false? (reagent-input-selected?))
         "`should-use-reagent-input?` answers false, so
          `create-uix-input` builds a plain React element")))
 
@@ -65,17 +65,17 @@
            is not vacuous"
     (with-cleared-pin
       (fn []
-        (if (true? (selector))
-          (is (true? (selector))
+        (if (true? (reagent-input-selected?))
+          (is (true? (reagent-input-selected?))
               "Reagent is in this bundle, so UIx's unset default would have
                selected the port — the adapter's pin is what stops it")
           ;; A bundle without Reagent answers false either way. Say so
           ;; rather than asserting a coincidence: the pin still holds, it
           ;; simply cannot be distinguished from the sniff here.
-          (is (false? (selector))
+          (is (false? (reagent-input-selected?))
               "no Reagent in this bundle, so UIx's unset default already
                answers false; the pin is still what makes it a decision"))))
-    (is (false? (selector))
+    (is (false? (reagent-input-selected?))
         "and the pin is back after the probe")))
 
 (deftest the-port-remains-reachable-explicitly
@@ -83,8 +83,8 @@
            stays public and dynamic, so a consumer who genuinely wants
            Reagent's port asks for it by name"
     (set! uix.compiler.input/*use-reagent-input-enabled?* true)
-    (is (true? (selector))
+    (is (true? (reagent-input-selected?))
         "an explicit opt-in reaches the port")
     (set! uix.compiler.input/*use-reagent-input-enabled?* false)
-    (is (false? (selector))
+    (is (false? (reagent-input-selected?))
         "and an explicit opt-out returns to React's own implementation")))

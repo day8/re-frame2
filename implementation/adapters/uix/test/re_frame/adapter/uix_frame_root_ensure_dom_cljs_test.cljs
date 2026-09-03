@@ -1,4 +1,4 @@
-(ns re-frame.adapter.uix-frame-provider-ensure-dom-cljs-test
+(ns re-frame.adapter.uix-frame-root-ensure-dom-cljs-test
   "UIx DOM/browser regression coverage for the NATIVE `frame-root` `defui`'s
   ENSURE (`{:id …}`) config through UIx's `$` → `glue-args` marshalling seam
   (rf2-0bhnwm; rf2-nyea0r split).
