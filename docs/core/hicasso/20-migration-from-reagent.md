@@ -384,8 +384,23 @@ a single happy click.
 Add a sabotage control before trusting the comparator: deliberately change a
 candidate prop and confirm the run turns red at the expected checkpoint.
 
-Omit `:script` for interactive development. Both mounts remain live and each
-committed render becomes a checkpoint as you use the screen manually.
+Omit `:script` for interactive development. Both mounts stay live and the call
+answers a handle rather than a verdict. **No checkpoint is taken
+automatically.** A reading per committed render is not built, because the
+runtime publishes no commit callback, so nothing is compared until you ask for
+it. Retain the handle, drive both mounts by hand, call `:checkpoint!` at each
+point you want compared, and `:stop!` when you are finished.
+
+```clojure
+(let [s (hm/shadow! {:reference [:> old-article-row {:id 7}]
+                     :candidate [new/article-row {:id 7}]})]
+  ;; drive the page by hand, then take a reading
+  ((:checkpoint! s))   ;; => {:status :green :checkpoints 1}
+  ((:stop! s)))
+```
+
+Each `:checkpoint!` call settles both mounts, compares them, and numbers the
+reading; `:stop!` takes both mounts down.
 
 Shadow comparison covers canonical DOM and intent streams. It does not prove
 focus, caret, IME, layout, or paint behaviour. Use the browser levels from
