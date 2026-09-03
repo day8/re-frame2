@@ -189,13 +189,6 @@
   Spec 009 §Production builds."
   (:wrap-view spine-fns))
 
-(def ^:no-doc clear-warned-non-dom-roots!
-  "Reset the warn-once cache for non-DOM-root warnings. Tests use this
-  between cases (via `make-reset-runtime-fixture` and the chained
-  `:adapter/clear-warn-once-caches!` hook) so a sibling test's
-  first-encounter warning cannot suppress a later test's same-id warning."
-  (:clear-warned-non-dom-roots! spine-fns))
-
 ;; ---- registered-view component head — UIx-NATIVE half (rf2-oz7wr) ---------
 ;;
 ;; `views/reg-view*` hands its composed wrapper to `:adapter/componentize-view`

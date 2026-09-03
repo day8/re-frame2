@@ -36,10 +36,15 @@
                    (e.g. :uix) used to mint per-adapter ids so
                    two adapters' suites never collide in the same process
      :wrap-view    the adapter's wrap-view fn
-     :clear-warn!  the adapter's clear-warned-non-dom-roots! fn
      :set-emitter! the adapter's set-hiccup-emitter! fn
      :render-to-string the adapter's render-to-string fn
-     :name         human substrate name for assertion messages}
+     :name         human substrate name for assertion messages
+     :public-surface      map of published-surface keyword -> the fn the
+                   adapter publishes under it
+     :public-surface-keys the roster that map MUST carry, in order — the
+                   adapter's own published surface, NOT a cross-adapter
+                   constant (UIx's is its `spec/api-manifest.edn` rows
+                   minus `adapter`; Hicasso publishes a different set)}
 
   COVERAGE (closes rf2-sx77q gaps G2/G3/G4/G5 for the React-hook adapters):
     - dispose MUST (1) sub-cache walk + best-effort poison tolerance (G3)
@@ -185,14 +190,30 @@
       (is (= :rf.error/no-hiccup-emitter-bound (:rf.error/id (ex-data thrown)))
           "the emitter slot was cleared by dispose-adapter!"))))
 
+(defn- clear-warn-once-caches!
+  "Fire the canonical chained `:adapter/clear-warn-once-caches!` hook and
+  return nil — the ONE published route to a loaded adapter's warn-once
+  cache, and the very hook `make-reset-runtime-fixture` fires between
+  tests. The suite reaches the seam exactly as the fixture does; no
+  adapter needs to re-export the raw spine thunk for tests to drive it
+  (rf2-6r9j.36). Throws when no producer registered the key — that is a
+  spine-wiring failure the caller wants loud, not a silent no-op."
+  []
+  (if-let [hook (rf.late-bind/get-fn :adapter/clear-warn-once-caches!)]
+    (hook)
+    (throw (ex-info "no :adapter/clear-warn-once-caches! producer is registered"
+                    {:hook-key :adapter/clear-warn-once-caches!}))))
+
 (defn assert-clear-warn-idempotent-post-dispose
-  "MUST (3): the adapter-public warn-once clear thunk remains a safe
-  idempotent no-op after dispose."
-  [{:keys [adapter clear-warn! name]}]
-  (testing (str name " — MUST (3): clear-warned-non-dom-roots! idempotent post-dispose")
+  "MUST (3): the canonical chained warn-once clear stays a safe idempotent
+  no-op after dispose. `make-reset-runtime-fixture` fires it AFTER
+  disposal on every single test, so a post-dispose throw here would
+  poison every case that follows."
+  [{:keys [adapter name]}]
+  (testing (str name " — MUST (3): chained clear-warn-once-caches! idempotent post-dispose")
     ((:dispose-adapter! adapter))
-    (is (nil? (clear-warn!))
-        "clear-warned-non-dom-roots! is idempotent post-dispose")))
+    (is (nil? (clear-warn-once-caches!))
+        "the chained warn-once clear is a nil-returning no-op post-dispose")))
 
 (defn assert-post-dispose-delegation-throws
   "MUST (4): after dispose-adapter!, subsequent delegation calls raise
@@ -839,7 +860,7 @@
   *clear* chain hook, never the fire-once semantics itself. The cache is
   spine-produced (`rf.substrate.spine/make-warn-once-cache`) so the contract is
   substrate-identical — but it was pinned only on Reagent."
-  [{:keys [wrap-view clear-warn! substrate-kw name]}]
+  [{:keys [wrap-view substrate-kw name]}]
   (testing (str name " — warn-once: fires exactly once per id across renders")
     (let [id          (mint-kw substrate-kw "warn-once-multi")
           non-dom     (fn [] (React/createElement React/Fragment #js {} "non-dom"))
@@ -854,10 +875,10 @@
       (is (str/includes? (first phase-1) "data-rf2-source-coord")
           "the warning mentions the attribute that was skipped")
       ;; After the clear hook the same id re-arms and re-warns.
-      (clear-warn!)
+      (clear-warn-once-caches!)
       (let [phase-2 (with-captured-console-warn (fn [] (wrapped)))]
         (is (= 1 (count phase-2))
-            (str "after clear-warned-non-dom-roots! the same id re-emits; got "
+            (str "after the chained warn-once clear the same id re-emits; got "
                  (count phase-2) ": " (pr-str phase-2)))))))
 
 (defn assert-warn-once-per-id-not-global
@@ -1238,21 +1259,6 @@
               (str "phase-2 must re-emit the warning for the same id AFTER the "
                    "chained :adapter/clear-warn-once-caches! hook fires. Got "
                    (count phase-2-ws) ": " (pr-str phase-2-ws))))))))
-
-(defn assert-clear-warned-non-dom-roots-resets-directly
-  "Calling the adapter's clear-warned-non-dom-roots! thunk directly also
-  resets the cache — the seam the chained hook invokes (rf2-e54wc / rf2-ovbxk)."
-  [{:keys [wrap-view clear-warn! substrate-kw name]}]
-  (testing (str name " — clear-warned-non-dom-roots! resets the cache directly")
-    (let [target-id (mint-kw substrate-kw "clear-warn-direct")
-          wrapped   (wrap-view target-id {} (fn user-fn [] (non-dom-element)))
-          ws-1      (with-captured-console-warn (fn [] (wrapped)))]
-      (is (= 1 (count ws-1)) "first emission fires")
-      (clear-warn!)
-      (let [ws-2 (with-captured-console-warn (fn [] (wrapped)))]
-        (is (= 1 (count ws-2))
-            (str "after clear-warned-non-dom-roots! the same id re-emits. Got "
-                 (count ws-2) ": " (pr-str ws-2)))))))
 
 ;; ===========================================================================
 ;; routing pipeline (Spec 012) — port of `*_routing`
@@ -2494,26 +2500,35 @@
 ;; from the byte-identical uix_public_surface / helix_public_surface twins
 ;; (rf2-6j09b).
 ;;
-;; WHAT THESE PIN. The React-hook adapters re-export the SAME seven
-;; public Vars out of `make-react-spine` plus the `adapter` map. Every
-;; BEHAVIOUR is asserted elsewhere in this suite + the DOM twins, but two
-;; re-exports — `use-current-frame` and `flush-views!` — are referenced by
-;; NO behavioural test, and a copy-paste spine-key mis-wire (two Vars
-;; bound to the same spine fn) would pass every behavioural test for
-;; whichever Var happened to forward the asserted behaviour. These four
-;; assertions pin the WIRING the behaviour tests cannot see: presence +
-;; kind of every public Var, cross-wiring distinctness, the node-safe
-;; flush-views! contract, and the 9-key adapter-map shape + :kind of
-;; the adapter map (the six required + subscribe-container +
-;; register-context-provider + dispose-adapter! keys; flush-render!, the
-;; tenth contract entry, is the optional fn this map-shape check omits).
+;; WHAT THESE PIN. Every BEHAVIOUR is asserted elsewhere in this suite +
+;; the DOM twins, but two published surfaces — `use-current-frame` and
+;; `flush-views!` — are referenced by NO behavioural test, and a
+;; copy-paste spine-key mis-wire (two surfaces bound to the same spine
+;; fn) would pass every behavioural test for whichever one happened to
+;; forward the asserted behaviour. These four assertions pin the WIRING
+;; the behaviour tests cannot see: presence + kind of every published
+;; surface, cross-wiring distinctness, the node-safe flush-views!
+;; contract, and the 9-key adapter-map shape + :kind of the adapter map
+;; (the six required + subscribe-container + register-context-provider +
+;; dispose-adapter! keys; flush-render!, the tenth contract entry, is the
+;; optional fn this map-shape check omits).
 ;;
-;; CONFIG. Substrate-specific because each adapter's public Vars are
-;; distinct objects the suite cannot name directly — the entry file passes
-;; them in via the cfg `:public-surface` map (the seven named Vars). The
-;; `:kind` discriminator is read off the existing `:adapter` cfg key (the
-;; adapter map carries its own :kind), so no extra cfg key is needed for
-;; the adapter-map shape assertion.
+;; CONFIG. Substrate-specific in BOTH halves. The fns are distinct objects
+;; the suite cannot name directly, so the entry file passes them in via
+;; the cfg `:public-surface` map; and the ROSTER those keys must form is
+;; the adapter's own — `:public-surface-keys` — not a cross-adapter
+;; constant, because the adapters do not publish the same set. UIx
+;; re-exports the eight fns `spec/api-manifest.edn` rows for
+;; `re-frame.adapter.uix` (that file is the API contract; `adapter`, its
+;; ninth row, is checked by the adapter-map assertion below). Hicasso
+;; re-exports NONE of them by design and reads the spine map instead, so
+;; its roster is the six spine surfaces it publishes. Neither roster
+;; carries the spine's internal warn-once clear thunk: that seam is
+;; reached through the chained `:adapter/clear-warn-once-caches!` hook,
+;; never a namespace export (rf2-6r9j.36). The `:kind` discriminator is
+;; read off the existing `:adapter` cfg key (the adapter map carries its
+;; own :kind), so no extra cfg key is needed for the adapter-map shape
+;; assertion.
 ;;
 ;; Node-safe. The hook Vars (`use-current-frame` / `use-subscribe`) are
 ;; only asserted for KIND + IDENTITY, never INVOKED outside a render (the
@@ -2522,23 +2537,19 @@
 ;; unreachable ⇒ no-op nil).
 ;; ===========================================================================
 
-(def ^:private public-surface-keys
-  "The seven public Vars every React-shaped adapter re-exports, in the
-  order the entry-file cfg `:public-surface` map should carry them."
-  [:set-hiccup-emitter!
-   :use-current-frame
-   :frame-provider
-   :use-subscribe
-   :flush-views!
-   :wrap-view
-   :clear-warned-non-dom-roots!])
-
 (defn assert-public-vars-present-and-callable
-  "Every documented public Var the adapter re-exports is bound and
-  fn-shaped (a dropped/renamed re-export trips this — incl.
-  use-current-frame + flush-views!, which no behavioural test references)."
-  [{:keys [public-surface name]}]
-  (testing (str name " — public surface: every public Var is bound and fn-shaped")
+  "Every surface the adapter's cfg roster names is bound and fn-shaped (a
+  dropped/renamed re-export trips this — incl. use-current-frame +
+  flush-views!, which no behavioural test references). The roster and the
+  `:public-surface` map are also asserted to name the SAME keys, so a row
+  quietly added to (or dropped from) one side cannot leave the other
+  decorative."
+  [{:keys [public-surface public-surface-keys name]}]
+  (testing (str name " — public surface: every published Var is bound and fn-shaped")
+    (is (= (set public-surface-keys) (set (keys public-surface)))
+        (str "the cfg :public-surface-keys roster and the :public-surface map "
+             "name the same surfaces. Roster: " (pr-str (vec public-surface-keys))
+             "; map: " (pr-str (vec (keys public-surface)))))
     (doseq [k public-surface-keys]
       (is (fn? (get public-surface k))
           (str (clojure.core/name k) " is bound and fn-shaped")))))
@@ -2548,12 +2559,13 @@
   spine-key mis-wire (e.g. use-current-frame ← :use-subscribe).
   Behavioural tests would still pass for whichever Var happened to forward
   the asserted behaviour."
-  [{:keys [public-surface name]}]
-  (testing (str name " — public surface: the seven public Vars are distinct fn objects")
+  [{:keys [public-surface public-surface-keys name]}]
+  (testing (str name " — public surface: the published Vars are distinct fn objects")
     (let [surface (select-keys public-surface public-surface-keys)
           fns     (vals surface)]
       (is (= (count fns) (count (distinct fns)))
-          (str "expected 7 distinct fn objects across the public surface; "
+          (str "expected " (count public-surface-keys)
+               " distinct fn objects across the published surface; "
                "duplicates indicate a cross-wired spine key. Surface: "
                (pr-str (mapv (fn [[k v]] [k (hash v)]) surface)))))))
 

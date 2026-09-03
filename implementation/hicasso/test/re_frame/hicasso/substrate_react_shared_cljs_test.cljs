@@ -28,15 +28,22 @@
 
   ## The `:public-surface` rows read the spine map, not re-exported Vars
 
-  Every other React-shaped adapter re-exports seven spine surfaces as public
+  Every other React-shaped adapter re-exports its spine surfaces as public
   Vars, and the guard's stated job is to catch one being dropped, renamed or
   cross-wired. Hicasso re-exports NONE of them, deliberately — a body reads
   through `h/sub` and the collector, and a second read path would be a second
   commit discipline — so the rows below read `substrate/spine-fns` directly.
   The assertion that survives the difference is the one that matters here:
-  the spine produced all seven, each is fn-shaped, and no two are the same
+  the spine produced all six, each is fn-shaped, and no two are the same
   object (a mis-keyed `:use-current-frame` ← `:use-subscribe` is a live core
   bug class, and it trips exactly as it would for UIx).
+
+  The roster is Hicasso's own (`:public-surface-keys`), not a cross-adapter
+  constant: UIx's is the eight fns `spec/api-manifest.edn` rows for it, and
+  the two sets differ. Neither names the spine's warn-once clear thunk —
+  that seam is internal and is driven through the chained
+  `:adapter/clear-warn-once-caches!` hook the reset fixture fires
+  (rf2-6r9j.36).
 
   `:frame-provider` is read back through the contract slot rather than off a
   Var, because that is the only route Hicasso publishes it by.
@@ -60,20 +67,20 @@
    :name             "Hicasso"
    :producer-ns      're-frame.hicasso.substrate
    :wrap-view        (:wrap-view substrate/spine-fns)
-   :clear-warn!      (:clear-warned-non-dom-roots! substrate/spine-fns)
    :set-emitter!     (:set-hiccup-emitter! substrate/spine-fns)
    :render-to-string (:render-to-string substrate/adapter)
-   :public-surface   {:set-hiccup-emitter!         (:set-hiccup-emitter! substrate/spine-fns)
-                      :use-current-frame           (:use-current-frame substrate/spine-fns)
+   :public-surface-keys [:set-hiccup-emitter! :use-current-frame :frame-provider
+                         :use-subscribe :flush-views! :wrap-view]
+   :public-surface   {:set-hiccup-emitter! (:set-hiccup-emitter! substrate/spine-fns)
+                      :use-current-frame   (:use-current-frame substrate/spine-fns)
                       ;; The contract slot IS the publication route here: the
                       ;; frame-keyword arg is ignored (the frame lives in the
                       ;; Provider's `:value` at render time), so passing nil
                       ;; asks for the component and nothing else.
-                      :frame-provider              ((:register-context-provider substrate/adapter) nil)
-                      :use-subscribe               (:use-subscribe substrate/spine-fns)
-                      :flush-views!                (:flush-views! substrate/spine-fns)
-                      :wrap-view                   (:wrap-view substrate/spine-fns)
-                      :clear-warned-non-dom-roots! (:clear-warned-non-dom-roots! substrate/spine-fns)}})
+                      :frame-provider      ((:register-context-provider substrate/adapter) nil)
+                      :use-subscribe       (:use-subscribe substrate/spine-fns)
+                      :flush-views!        (:flush-views! substrate/spine-fns)
+                      :wrap-view           (:wrap-view substrate/spine-fns)}})
 
 ;; Emit one (deftest name (re-frame.adapter.react-shared-suite/assert-name cfg))
 ;; per row in `react-shared-suite-tests/test-specs`.
