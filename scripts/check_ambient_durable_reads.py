@@ -8,8 +8,9 @@ read ambiently at the durable write site. The accepted spec's
 to ship a STATIC LINT that flags direct ambient reads in code paths that can
 write durable frame-state:
 
-  - clock:   `interop/now-ms`, `interop/epoch-now-ms`, `js/Date.now`,
-             `(.now js/Date)`;
+  - clock:   `interop/now-ms`, `interop/epoch-now-ms` (and their canonical
+             dotted spellings `rf.interop/now-ms` / `rf.interop/epoch-now-ms`),
+             `js/Date.now`, `(.now js/Date)`;
   - random:  `rand`, `rand-int`, `rand-nth`, `random-uuid`,
              `js/crypto.getRandomValues`;
   - browser: `js/location`, `navigator`, `localStorage`, `sessionStorage`,
@@ -240,7 +241,8 @@ _DURABLE_ID_KEYS = (
 # EP-0010 §Validation enumerates. `\b` boundaries keep `now-ms` from matching
 # `now-ms-foo` and `rand` from matching `random` / `rand-something`.
 #
-#   clock:  (interop/now-ms) (interop/epoch-now-ms) (js/Date.now) (.now js/Date)
+#   clock:  (interop/now-ms) (interop/epoch-now-ms) (rf.interop/now-ms)
+#           (rf.interop/epoch-now-ms) (js/Date.now) (.now js/Date)
 #   random: (rand) (rand-int ...) (rand-nth ...) (random-uuid)
 #           js/crypto.getRandomValues  (.getRandomValues js/crypto)
 #   browser: js/location  js/navigator  navigator.  js/localStorage
@@ -274,7 +276,14 @@ _DURABLE_ID_KEYS = (
 # whose result IS the host fact, so there is no threading it can mistake.
 _AMBIENT_READ_FORMS: tuple[tuple[str, str], ...] = (
     # clock
-    ("now-ms",       r"\(\s*(?:interop/)?(?:epoch-)?now-ms\b[^)]*\)"),
+    # BOTH alias spellings of `re-frame.interop`, and the bare symbol. An
+    # artefact migrated to the spec/Conventions.md §Require-alias dialect calls
+    # the clock `(rf.interop/now-ms)`, and a pattern that knew only the bare
+    # leaf `interop/` went BLIND on it — fail-open, since this gate forbids a
+    # shape. Measured on implementation/resources (rf2-6r9j.209): a planted
+    # `:restored-at (rf.interop/epoch-now-ms)` in resources/ssr.cljc scored 0
+    # findings while the identical `(interop/epoch-now-ms)` scored 1.
+    ("now-ms",       r"\(\s*(?:(?:rf\.)?interop/)?(?:epoch-)?now-ms\b[^)]*\)"),
     ("js/Date.now",  r"\(\s*js/Date\.now\b[^)]*\)"),
     (".now js/Date", r"\(\s*\.now\s+js/Date\b[^)]*\)"),
     # random
@@ -759,6 +768,11 @@ _UNEXERCISABLE_READ_FORMS: dict[str, str] = {
 # planting N witnesses on N lines is asserted by NAME, not by the number N.
 _POSITIVE_WITNESSES: dict[str, frozenset[str]] = {
     "positive/now_ms_into_loaded_at.cljc":
+        frozenset({"loaded-at<-now-ms"}),
+    # The same plant in the canonical dotted alias dialect. Its own fixture,
+    # not a second line in the one above, so the bare-leaf and dotted spellings
+    # can each die alone and be named when they do (rf2-6r9j.209).
+    "positive/dotted_alias_now_ms_into_loaded_at.cljc":
         frozenset({"loaded-at<-now-ms"}),
     "positive/date_now_into_started_at.cljc":
         frozenset({"started-at<-.now js/Date"}),
