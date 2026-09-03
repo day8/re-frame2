@@ -48,9 +48,9 @@
 ;; Work ids are portable data, so both readers must reconstruct an equal value.
 ;; ---------------------------------------------------------------------------
 
-(defn- edn-roundtrip [x]
-  #?(:clj  (read-string (pr-str x))
-     :cljs (cljs.reader/read-string (pr-str x))))
+(defn- edn-roundtrip [value]
+  #?(:clj  (read-string (pr-str value))
+     :cljs (cljs.reader/read-string (pr-str value))))
 
 ;; ---------------------------------------------------------------------------
 ;; Builder inputs remain family-specific; the matrix compares their reply maps.
@@ -464,8 +464,8 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest every-reply-validates-against-the-one-shared-contract
-  (doseq [{:keys [family] :as f} families
-          [situation builder] (select-keys f [:success :error :cancel :stale])
+  (doseq [{:keys [family] :as family-spec} families
+          [situation builder] (select-keys family-spec [:success :error :cancel :stale])
           :when builder
           :let [reply (builder)]]
     (testing (str family " / " situation)
@@ -489,8 +489,8 @@
 (deftest every-work-id-is-a-comparable-edn-tuple
   ;; Every descriptor supplies a work-id head. Missing ids fail explicitly
   ;; instead of skipping the tuple and round-trip assertions.
-  (doseq [{:keys [family work-head] :as f} families
-          [situation builder] (select-keys f [:success :error :cancel :stale])
+  (doseq [{:keys [family work-head] :as family-spec} families
+          [situation builder] (select-keys family-spec [:success :error :cancel :stale])
           :when (and builder work-head)
           :let [reply (builder)
                 wid   (:rf.reply/work-id reply)]]
@@ -616,15 +616,15 @@
 (deftest completion-time-propagates-and-omits-across-nonsuccess-terminals
   (testing "each non-success terminal that durably uses causal completion time
             propagates a supplied :completed-at unchanged and omits it when absent"
-    (doseq [{:keys [family] :as f} families
-            [situation with-k no-k] time-pair-situations
-            :let [with-builder (get f with-k)
-                  no-builder    (get f no-k)]
+    (doseq [{:keys [family] :as family-spec} families
+            [situation with-key no-key] time-pair-situations
+            :let [with-builder (get family-spec with-key)
+                  no-builder    (get family-spec no-key)]
             :when (or with-builder no-builder)]
       ;; A family declaring one half of a pair MUST declare both, so the gate
       ;; proves BOTH propagation and omission (never a half-covered situation).
       (is (and with-builder no-builder)
-          (str family " " situation " must declare BOTH " with-k " and " no-k
+          (str family " " situation " must declare BOTH " with-key " and " no-key
                " — a completion-time pair proves propagation AND omission"))
       (when (and with-builder no-builder)
         (let [with-reply (with-builder)
@@ -748,9 +748,9 @@
    (`:rf.reply/carried` and `:rf.reply/current`) the correlation gate requires.
    Shared with the fails-closed control, which asserts it FALSE for a stripped
    outcome — so gutting the gate reddens one side or the other."
-  [out]
-  (and (some? (get-in out [:trace :rf.reply/carried]))
-       (some? (get-in out [:trace :rf.reply/current]))))
+  [outcome]
+  (and (some? (get-in outcome [:trace :rf.reply/carried]))
+       (some? (get-in outcome [:trace :rf.reply/current]))))
 
 (deftest stale-replies-carry-a-carried-and-current-correlation-gate
   ;; Delegating implementations expose carried/current facts on the suppress
@@ -768,12 +768,12 @@
   (testing "all suppress-delegating families carry carried/current trace facts"
     (doseq [{:keys [family stale-out]} families
             :when stale-out
-            :let  [out (stale-out)]]
-      (is (false? (:deliver? out))
+            :let  [outcome (stale-out)]]
+      (is (false? (:deliver? outcome))
           (str family " stale suppression MUST NOT deliver the app target"))
-      (is (= :suppressed (:rf.reply/work-status out))
+      (is (= :suppressed (:rf.reply/work-status outcome))
           (str family " stale suppression outcome is :rf.reply/work-status :suppressed"))
-      (is (correlation-facts-present? out)
+      (is (correlation-facts-present? outcome)
           (str family " stale trace MUST carry BOTH the :rf.reply/carried and "
                ":rf.reply/current correlation facts")))))
 
@@ -783,24 +783,24 @@
 
 (defn- strip-correlation-trace
   "Remove the correlation facts while leaving the stale outcome otherwise intact."
-  [out]
-  (update out :trace dissoc :rf.reply/carried :rf.reply/current))
+  [outcome]
+  (update outcome :trace dissoc :rf.reply/carried :rf.reply/current))
 
 (deftest stale-correlation-gate-fails-closed-on-a-non-conforming-family
   (testing "the correlation gate REJECTS a stale outcome missing its facts"
-    (doseq [[family out] [[:http     (strip-correlation-trace (http-stale-out))]
-                          [:mutation (strip-correlation-trace (mutation-stale-out))]]]
+    (doseq [[family outcome] [[:http     (strip-correlation-trace (http-stale-out))]
+                              [:mutation (strip-correlation-trace (mutation-stale-out))]]]
       ;; The outcome still suppresses delivery and carries canonical statuses —
       ;; the ONLY departure is the stripped correlation facts.
-      (is (false? (:deliver? out))
+      (is (false? (:deliver? outcome))
           (str family " control outcome still suppresses delivery"))
-      (is (= :suppressed (:rf.reply/work-status out))
+      (is (= :suppressed (:rf.reply/work-status outcome))
           (str family " control outcome is still :rf.reply/work-status :suppressed"))
-      (is (= :stale (get-in out [:reply :status]))
+      (is (= :stale (get-in outcome [:reply :status]))
           (str family " control reply is still :status :stale"))
       ;; The teeth: run the SAME predicate the primary gate asserts TRUE and
       ;; require it to go FALSE here. Gutting the predicate reddens this control.
-      (is (not (correlation-facts-present? out))
+      (is (not (correlation-facts-present? outcome))
           (str family " control STRIPPED the correlation facts, yet the correlation "
                "gate accepted the outcome — the gate has lost its teeth")))))
 
@@ -846,9 +846,9 @@
 ;; gate has teeth on error / cancel / stale replies too, not only on success.
 (deftest nonsuccess-completion-time-gate-fails-closed-on-drop-and-nil-fill
   (testing "the propagation gate REJECTS a non-success terminal that DROPS :completed-at"
-    (doseq [{:keys [family] :as f} families
-            [situation with-k _] time-pair-situations
-            :let [with-builder (get f with-k)]
+    (doseq [{:keys [family] :as family-spec} families
+            [situation with-key _] time-pair-situations
+            :let [with-builder (get family-spec with-key)]
             :when with-builder
             :let [bad (drop-completion-time (with-builder))]]
       ;; Completion time is optional, so the reply is otherwise still valid.
@@ -859,9 +859,9 @@
           (str family " " situation " control DROPPED :completed-at, yet the "
                "propagation gate accepted the reply — the gate has lost its teeth"))))
   (testing "the omit-when-absent gate REJECTS a no-time terminal that NIL-FILLS :completed-at"
-    (doseq [{:keys [family] :as f} families
-            [situation _ no-k] time-pair-situations
-            :let [no-builder (get f no-k)]
+    (doseq [{:keys [family] :as family-spec} families
+            [situation _ no-key] time-pair-situations
+            :let [no-builder (get family-spec no-key)]
             :when no-builder
             :let [bad (nil-fill-completion-time (no-builder))]]
       ;; The teeth: the SHARED omission predicate must reject a present-but-nil slot.

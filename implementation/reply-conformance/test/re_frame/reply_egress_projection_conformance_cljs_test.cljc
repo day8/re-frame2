@@ -106,8 +106,8 @@
    :rf.reply/work-status :failed
    :rf.frame/id frame-id})
 
-(defn- redacted? [v] (= privacy/redacted-sentinel v))
-(defn- large-marker? [v] (and (map? v) (contains? v :rf.size/large-elided)))
+(defn- redacted? [value] (= privacy/redacted-sentinel value))
+(defn- large-marker? [value] (and (map? value) (contains? value :rf.size/large-elided)))
 
 ;; ---------------------------------------------------------------------------
 ;; Recursive raw-value-absence predicate (Finding 2, rf2-3fc89f.7).
@@ -126,8 +126,8 @@
   [pred data]
   (cond
     (pred data)  true
-    (map? data)  (boolean (some (fn [[k v]] (or (tree-contains? pred k)
-                                                (tree-contains? pred v)))
+    (map? data)  (boolean (some (fn [[map-key map-value]] (or (tree-contains? pred map-key)
+                                                               (tree-contains? pred map-value)))
                                 data))
     (coll? data) (boolean (some #(tree-contains? pred %) data))
     :else        false))
@@ -296,46 +296,46 @@
 (deftest off-box-project-egress-redacts-the-reply-body-and-local-raw-exposes-it
   (testing "project-egress protects classified fields unless local-raw is explicit"
     (mk-frame!)
-    (doseq [p [:rf.egress/off-box-observability
-               :rf.egress/off-box-tool
-               :rf.egress/local-redacted]]
-      (let [out (rf/project-egress (reply-body)
-                  {:frame frame-id :rf.egress/profile p})]
-        (is (redacted? (get-in out [:token]))
-            (str p ": the sensitive reply-body leaf is redacted"))
-        (is (large-marker? (get-in out [:blob]))
-            (str p ": the large reply-body leaf is elided"))
-        (is (= 3 (get-in out [:public :count]))
-            (str p ": the unmarked sibling passes through"))
+    (doseq [profile [:rf.egress/off-box-observability
+                     :rf.egress/off-box-tool
+                     :rf.egress/local-redacted]]
+      (let [projected-result (rf/project-egress (reply-body)
+                              {:frame frame-id :rf.egress/profile profile})]
+        (is (redacted? (get-in projected-result [:token]))
+            (str profile ": the sensitive reply-body leaf is redacted"))
+        (is (large-marker? (get-in projected-result [:blob]))
+            (str profile ": the large reply-body leaf is elided"))
+        (is (= 3 (get-in projected-result [:public :count]))
+            (str profile ": the unmarked sibling passes through"))
         ;; Marker/redaction presence is asserted above; prove raw ABSENCE too —
         ;; recursively, across the whole projected record.
-        (is (not (embeds-raw-token? out))
-            (str p ": the raw token does NOT survive project-egress anywhere"))
-        (is (not (embeds-raw-blob? out))
-            (str p ": the raw blob does NOT survive project-egress anywhere"))))
+        (is (not (embeds-raw-token? projected-result))
+            (str profile ": the raw token does NOT survive project-egress anywhere"))
+        (is (not (embeds-raw-blob? projected-result))
+            (str profile ": the raw blob does NOT survive project-egress anywhere"))))
     (testing ":rf.egress/local-raw exposes classified fields"
-      (let [out (rf/project-egress (reply-body)
-                  {:frame frame-id :rf.egress/profile :rf.egress/local-raw})]
-        (is (= raw-token (get-in out [:token]))
+      (let [projected-result (rf/project-egress (reply-body)
+                              {:frame frame-id :rf.egress/profile :rf.egress/local-raw})]
+        (is (= raw-token (get-in projected-result [:token]))
             "local-raw keeps the token")
-        (is (= big-string (get-in out [:blob]))
+        (is (= big-string (get-in projected-result [:blob]))
             "local-raw keeps the large field")
         ;; The explicit positive control: the SAME sentinel predicate that must
         ;; find nothing off-box MUST find the originals under local-raw.
-        (is (embeds-raw-token? out)
+        (is (embeds-raw-token? projected-result)
             "local-raw is the positive control — the raw token IS present")
-        (is (embeds-raw-blob? out)
+        (is (embeds-raw-blob? projected-result)
             "local-raw is the positive control — the raw blob IS present")))))
 
 (deftest off-box-project-egress-fails-closed-on-an-unresolved-frame
   (testing "project-egress fails closed for an unresolved explicit frame"
-    (let [out (rf/project-egress (reply-body)
-                {:frame :reply-egress/ghost :rf.egress/profile :rf.egress/off-box-tool})]
-      (is (redacted? out)
+    (let [projected-result (rf/project-egress (reply-body)
+                            {:frame :reply-egress/ghost :rf.egress/profile :rf.egress/off-box-tool})]
+      (is (redacted? projected-result)
           "an unresolved-frame off-box egress conservatively redacts the whole reply body")
-      (is (not (embeds-raw-token? out))
+      (is (not (embeds-raw-token? projected-result))
           "the raw token NEVER ships under an unresolved frame")
-      (is (not (embeds-raw-blob? out))
+      (is (not (embeds-raw-blob? projected-result))
           "the raw blob NEVER ships under an unresolved frame"))))
 
 ;; ---------------------------------------------------------------------------
