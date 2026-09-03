@@ -101,18 +101,24 @@
 ;; co-loaded. cljs.test loads every test ns into ONE bundle, so both apps' rows
 ;; sit in the shared source store, and two provenance rows for one id fail
 ;; default-image assembly loud (`:rf.error/image-duplicate-id`) for every suite
-;; whose baseline is captured after the second app loads. Sequester the SIBLING
-;; app's tree here, at ns load and BEFORE the fixture below captures its
-;; baseline, so this suite's frames resolve the resources app's implementations.
-;; The realworld-http suites reinstate their own tree in their fixture init.
-(rf.test-support/sequester-app-namespaces! "realworld-http.")
-
+;; whose baseline is captured after the second app loads. So the sibling app's
+;; tree is sequestered below, per test, and the realworld-http suites reinstate
+;; their own tree in their fixture init.
+;;
+;; THE SEQUESTER CALL BELONGS IN `:init-fn`, NOT AT NS LOAD, and the difference
+;; is not cosmetic. `sequester-app-namespaces!` captures the prefix's rows ONCE
+;; and MEMOIZES them, scrubbing only that captured set on every later call. A
+;; call at THIS ns's load runs while the bundle is still loading — this ns sorts
+;; ahead of the two RealWorld integration suites, so `realworld-http.tags` (and
+;; the rest of the app beyond the few feature nses loaded ahead of us) is not
+;; there yet — and the incomplete capture is then the memo EVERY suite gets
+;; afterwards. Measured: an ns-load call here left `:home/show-global-feed`
+;; unsequestered and failed the sibling resources suite's own frame creation
+;; with `:rf.error/image-duplicate-id`. By `:init-fn` time every test ns has
+;; loaded, so the capture is complete whether it is ours or a sibling's.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
     {:adapter rf.adapter.reagent/adapter
-     ;; The merge-form source-store restore preserves slots this suite's baseline
-     ;; does not know about, so re-sequester per test as the sibling resources
-     ;; suite does.
      :init-fn (fn [] (rf.test-support/sequester-app-namespaces! "realworld-http."))}))
 
 ;; ---------------------------------------------------------------------------
