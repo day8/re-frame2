@@ -122,13 +122,28 @@ test('the module boots once per isolate, not once per request', async () => {
   // Spec 006 allows exactly one reactive substrate per process, so booting
   // is a per-isolate decision. If it ran per request the isolation would
   // be real and the cost would be absurd.
+  //
+  // THE ROW COUNTS BOOTS, and that is the whole of what makes it a
+  // witness. It used to assert `overlapMax === 1` on both responses and
+  // call that "the module was not re-required" — but `overlapMax` is
+  // render-concurrency state, and two SEQUENTIAL renders read 1 whether
+  // the hook is called never, once, or before every render. Neither
+  // asserted outcome discriminated the contract the row is named for, so
+  // the hook could have been removed with this file still green
+  // (rf2-6r9j.70). The fixture publishes a per-isolate boot count instead;
+  // the concurrency rows keep `overlapMax`, which is their subject.
   await withService('reference', { isolates: 1 }, async (service) => {
     const a = await collect(service, req({ ':todos': '[]' }));
     const b = await collect(service, req({ ':todos': '[]' }));
+    // The precondition: one isolate served both, so a count that did not
+    // change between them is a reading of one isolate's history rather
+    // than of two.
     assert.strictEqual(observed(a).threadId, observed(b).threadId);
-    // `overlapMax` is module-level state; its survival across the two
-    // renders is what shows the module was not re-required.
-    assert.strictEqual(observed(a).overlapMax, 1);
-    assert.strictEqual(observed(b).overlapMax, 1);
+    assert.strictEqual(observed(a).boots, 1, 'the isolate must have booted the module exactly once');
+    assert.strictEqual(
+      observed(b).boots,
+      1,
+      'a second boot by the time of the second render is a per-request boot',
+    );
   });
 });
