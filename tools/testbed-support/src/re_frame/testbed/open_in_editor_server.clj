@@ -221,33 +221,35 @@
   wait so a child that fills its stderr pipe still makes progress to exit,
   rather than blocking on a write the parent hasn't read. Never throws."
   [^InputStream in]
-  (let [sb  (StringBuilder.)
-        buf (char-array 4096)
-        cap (int stderr-diagnostic-cap)]
+  (let [diagnostic-builder (StringBuilder.)
+        read-buffer        (char-array 4096)
+        retained-char-cap  (int stderr-diagnostic-cap)]
     (try
-      (with-open [r (InputStreamReader. in java.nio.charset.StandardCharsets/UTF_8)]
+      (with-open [reader (InputStreamReader. in java.nio.charset.StandardCharsets/UTF_8)]
         (loop []
-          (let [n (.read r buf)]
-            (when-not (neg? n)                       ;; -1 = EOF
-              (let [room (- cap (.length sb))]
-                (when (and (pos? n) (pos? room))
-                  (.append sb buf (int 0) (int (min n room)))))
+          (let [chars-read (.read reader read-buffer)]
+            (when-not (neg? chars-read)               ;; -1 = EOF
+              (let [remaining-capacity (- retained-char-cap
+                                           (.length diagnostic-builder))]
+                (when (and (pos? chars-read) (pos? remaining-capacity))
+                  (.append diagnostic-builder read-buffer (int 0)
+                           (int (min chars-read remaining-capacity)))))
               (recur)))))
       (catch Throwable _ nil))
-    (.toString sb)))
+    (.toString diagnostic-builder)))
 
 (defn ^:private terminate!
   "Best-effort stop of a child that overran its budget: destroy, wait briefly,
   then FORCE-destroy if it is still alive and wait again. Returns true when the
   child is confirmed dead. Force-termination is the fallback for a child that
   ignores the graceful destroy signal."
-  [^Process proc]
-  (.destroy proc)
-  (when (and (.isAlive proc)
-             (not (.waitFor proc 500 TimeUnit/MILLISECONDS)))
-    (.destroyForcibly proc)
-    (.waitFor proc 1000 TimeUnit/MILLISECONDS))
-  (not (.isAlive proc)))
+  [^Process child-process]
+  (.destroy child-process)
+  (when (and (.isAlive child-process)
+             (not (.waitFor child-process 500 TimeUnit/MILLISECONDS)))
+    (.destroyForcibly child-process)
+    (.waitFor child-process 1000 TimeUnit/MILLISECONDS))
+  (not (.isAlive child-process)))
 
 (defn launch!
   "Invoke launch-editor from the dev JVM cwd and return `{:ok ...}`.
@@ -273,41 +275,44 @@
   (if-not (file-exists? abs-path)
     {:ok false :message "file-not-found"}
     (let [file-spec (build-file-spec abs-path line column)
-          args (cond-> ["node" "-e" launch-shim file-spec
-                        (str line) (str column)]
-                 command (conj command))]
+          node-args (cond-> ["node" "-e" launch-shim file-spec
+                             (str line) (str column)]
+                      command (conj command))]
       (try
-        (let [pb (doto (ProcessBuilder. ^java.util.List args)
-                   ;; stdout is unused by the endpoint — discard it so a chatty
-                   ;; child can never fill an undrained stdout pipe and wedge.
-                   (.redirectOutput java.lang.ProcessBuilder$Redirect/DISCARD)
-                   (.redirectErrorStream false)
-                   (.directory (File. (System/getProperty "user.dir"))))
-              proc      (.start pb)
+        (let [process-builder (doto (ProcessBuilder. ^java.util.List node-args)
+                                ;; stdout is unused by the endpoint — discard it so a chatty
+                                ;; child can never fill an undrained stdout pipe and wedge.
+                                (.redirectOutput java.lang.ProcessBuilder$Redirect/DISCARD)
+                                (.redirectErrorStream false)
+                                (.directory (File. (System/getProperty "user.dir"))))
+              child-process  (.start process-builder)
               ;; Drain stderr CONCURRENTLY with the wait — the whole point: a
               ;; child that fills its stderr pipe must still reach exit.
-              err-drain (future (drain-stream (.getErrorStream proc)))
-              done?     (.waitFor proc (long *launch-timeout-ms*) TimeUnit/MILLISECONDS)]
-          (if-not done?
+              stderr-drain-future (future (drain-stream (.getErrorStream child-process)))
+              process-finished?   (.waitFor child-process
+                                              (long *launch-timeout-ms*)
+                                              TimeUnit/MILLISECONDS)]
+          (if-not process-finished?
             ;; The child overran its budget: kill it (which EOFs stderr, so the
             ;; drain future completes on its own) and report the timeout.
-            (do (terminate! proc)
+            (do (terminate! child-process)
                 {:ok false :message "launch-editor timed out"})
-            (let [exit (.exitValue proc)
-                  err  (deref err-drain 1000 "")]
+            (let [exit-code          (.exitValue child-process)
+                  stderr-diagnostic  (deref stderr-drain-future 1000 "")]
               (cond
-                (zero? exit) {:ok true}
+                (zero? exit-code) {:ok true}
 
                 ;; The shim's capability probe refused BEFORE launching: read
                 ;; the verdict off the exit code rather than off stderr, so the
                 ;; client-visible error is a contract and not a scraped string.
-                (= exit position-unsupported-exit)
+                (= exit-code position-unsupported-exit)
                 {:ok false :message position-unsupported-error}
 
                 :else
                 {:ok false
-                 :message (or (when (seq err) (str/trim err))
-                              (str "launch-editor exited " exit))}))))
+                 :message (or (when (seq stderr-diagnostic)
+                                (str/trim stderr-diagnostic))
+                              (str "launch-editor exited " exit-code))}))))
         (catch Throwable t
           {:ok false :message (.getMessage t)})))))
 
