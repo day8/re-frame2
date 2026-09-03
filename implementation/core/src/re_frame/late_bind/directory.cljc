@@ -515,9 +515,6 @@
     :producer-ns 're-frame.routing
     :design-bead "rf2-3l7xxz"
     :description "Reset the process-global URL-ownership claim-order vector (re-frame.routing.nav-fx/url-claim-order) that records, in claim order, which frames carry :url-bound? true. url-owner-frame-id resolves the FIRST-CLAIMED still-live binding (the incumbent) so a later duplicate cannot steal the browser URL. Like the nav-counters it is process-global state a runtime/frames reset does not clear; the shared CLJS make-reset-runtime-fixture reset-hooks table fires this per test so a prior test's claim cannot leak (test isolation)."}
-   {:key         :routing/route-sub-fn
-    :producer-ns 're-frame.routing
-    :description "Subscription fn returning the currently-matched route."}
    {:key         :routing/route-sub-egress-path
     :producer-ns 're-frame.routing
     :design-bead "rf2-mtzv5m"

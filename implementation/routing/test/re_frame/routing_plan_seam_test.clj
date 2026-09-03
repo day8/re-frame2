@@ -21,7 +21,7 @@
   The SEAM ITSELF is production-real and carries no posture guard. Every pure
   constructor test — `resolved-target`, the nil-query strip, the fragment
   collapse, `:query-defaults`, `route-plan`, the fail-loud `:branch` walk,
-  `leaf-plan-of`, `plan-projection`, `plan-trace-tags` and `url-resolution` —
+  `leaf-plan-of`, `plan-trace-tags` and `url-resolution` —
   runs in the ordinary `clojure -M:test` suite AND in
   `scripts/test-routing-prod-gate.sh` (the `-Dre-frame.debug=false` lane). So
   do the door-wiring tests at the foot: the link/commit agreement, the exact
@@ -367,20 +367,6 @@
           (is (= cause (:cause plan)))
           (is (= target (:target plan)))
           (is (= [:route/home] (:branch plan))))))))
-
-;; ---- the R0 diagnostic projection -----------------------------------------
-
-(deftest plan-projection-exposes-only-the-r0-keys
-  (rf.routing/reg-route :route/home {} "/")
-  (let [plan (rf.routing.resolve/route-plan
-               {:source {:url "/"} :cause :popstate
-                :target (rf.routing.resolve/resolved-target {:route-id :route/home :params {} :query {} :url "/"})})
-        proj (rf.routing.resolve/plan-projection plan)]
-    (testing "the projection is exactly the R0 keys — the minimum needed to prove the shared spine"
-      (is (= #{:source :cause :target :branch :leaf-plan} (set (keys proj))))
-      (is (= (set rf.routing.resolve/r0-projection-keys) (set (keys proj)))))
-    (testing "the projection is a pure view of the plan the doors already build"
-      (is (= (select-keys plan rf.routing.resolve/r0-projection-keys) proj)))))
 
 ;; ---- the projection as trace tags (mayor ruling on rf2-kqxe6.3) ------------
 ;;

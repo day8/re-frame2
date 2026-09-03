@@ -95,19 +95,16 @@
   (set/union address-keys raw-url-keys policy-keys edit-keys))
 
 ;; ---- the closed `:rf/route-address` value ---------------------------------
-
-(def RouteAddress
-  "The closed `:rf/route-address` Malli schema DATA (Spec-Schemas
-  §`:rf/route-address`) — the caller-authored address of one registered named
-  destination. Held as data so the routing artefact carries the contract's
-  schema shape without a hot-path Malli-artefact dependency; `valid-address?`
-  is the pure structural check the extractor applies to the EXTRACTED
-  address."
-  [:map {:closed true}
-   [:to       :keyword]
-   [:params   {:optional true} :map]
-   [:query    {:optional true} :map]
-   [:fragment {:optional true} [:maybe :string]]])
+;;
+;; The NORMATIVE schema for this value is `:rf/route-address` in
+;; Spec-Schemas.md; routing does not carry a second copy of it. A Malli-form
+;; `RouteAddress` value used to sit here (rf2-6r9j.3). It was inert: routing
+;; never read it, the optional Schemas artefact never imported it, and
+;; `valid-address?` below — the pure structural check the extractor applies to
+;; the EXTRACTED address — derives nothing from it. Its only remaining effect
+;; was to present, in an internal namespace, a second spelling of the contract
+;; that could drift from both the normative schema and the live gate. Keep the
+;; structural gate and the spec text as the two authorities.
 
 (defn valid-address?
   "Pure structural predicate for the closed `:rf/route-address` shape

@@ -27,14 +27,6 @@
       R0 diagnostic projection: the source address / raw-URL request, the
       cause, the resolved target, the parent-to-leaf branch, and the
       behaviour-preserving leaf resource plan.
-    - `plan-projection` — the R0 diagnostic projection of a plan (the minimum
-      needed to prove the shared spine), the pure on-demand view a tool
-      (Xray / trace tooling) reads. Later EP-0037 slices widen it (R2 adds
-      occurrence / dependency groups, the grouped order, and the identity
-      diff); R0 exposes only the source + cause, the resolved target, the
-      branch, and the leaf plan. This adds no public `RoutePlan` constructor
-      or promise-returning router object — its observable laws are public and
-      its projection is a pure derivation.
     - `plan-trace-tags` — the projection as `:rf.route/planned` TRACE tags, the
       ONE mapping both door commit branches emit through so the projection is
       reachable from an executed navigation without the trace becoming a
@@ -302,8 +294,9 @@
   resolved target — the ONE place the branch + leaf plan are derived.
 
   Plain data — this contract adds no public `RoutePlan` constructor or
-  promise-returning router object; its diagnostic projection is
-  `plan-projection`.
+  promise-returning router object; its observable projection is
+  `plan-trace-tags`, the `:rf.route/planned` trace both door commit branches
+  emit through.
 
   The parent-to-leaf `:branch` is the FAIL-LOUD walk
   (`rf.routing.events/resolve-branch`), resolved ONCE per navigation here:
@@ -330,29 +323,18 @@
              :leaf-plan           (leaf-plan-of route-id)}
       branch-error (assoc :branch-error branch-error))))
 
-;; ---- the diagnostic projection --------------------------------------------
-
-(def r0-projection-keys
-  "The keys the R0 plan diagnostic projection exposes (Spec 012 §Resolved
-  target and the plan diagnostic projection): the minimum needed to prove the
-  shared spine — the source address and cause, the resolved target, the
-  parent-to-leaf branch, and the behaviour-preserving leaf resource plan.
-  Later EP-0037 slices widen the projection (R2 adds occurrence / dependency
-  groups, contributor dedupe advisories, the grouped order, and the identity
-  diff)."
-  [:source :cause :target :branch :leaf-plan])
-
-(defn plan-projection
-  "The R0 diagnostic projection of a route `plan` — the pure, on-demand view a
-  tool (Xray / trace tooling) reads to prove the shared spine, exposing ONLY
-  `r0-projection-keys`. No slice is licence to build a second Xray graph or a
-  general-purpose public plan debugger (Spec 012 §Resolved target and the plan
-  diagnostic projection); this is a `select-keys` over the plan the doors
-  already build."
-  [plan]
-  (select-keys plan r0-projection-keys))
-
 ;; ---- the projection as trace tags -----------------------------------------
+;;
+;; An on-demand `plan-projection` helper and its `r0-projection-keys` list used
+;; to sit here (rf2-6r9j.4). Nothing read them: no runtime, Xray, trace tool,
+;; example or conformance path called the helper, and its only caller was the
+;; unit test that pinned it. `plan-trace-tags` below is the ONE projection an
+;; executed navigation actually exposes — deliberately bounded and redacted
+;; where the raw plan carries the carriers — so the helper was a second,
+;; unreachable spelling of "the plan projection" that future plan-field changes
+;; would have had to keep in step for no reader. Should a tool ever need an
+;; on-demand view, land the concrete consumer and a supported access boundary
+;; with it rather than re-planting a speculative internal helper.
 
 (defn- bound-keys
   "The KEY SET of a resolved `:params` / `:query` map, as a vector in the total
