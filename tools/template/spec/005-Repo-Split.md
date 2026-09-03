@@ -49,33 +49,70 @@ Secondary benefits:
 
 ## §2 What lives where after the split
 
+The split leaves **two roots**, and every path the test suite touches
+belongs to exactly one of them:
+
+- **template root** — the external `day8/re-frame2-template` checkout.
+  Owns the template body, this spec tree, the template's own `VERSION`,
+  the tests, their Chromium driver, and (post-split) the release
+  workflow.
+- **framework root** — a checkout of the `day8/re-frame2` monorepo,
+  consumed as a *test fixture*. Owns the framework sources, the pin
+  files, `implementation/node_modules`, the framework-wide `VERSION`,
+  and the setup-skill reference leaves.
+
+In the monorepo these two coincide, which is why the current harness
+has only one. §3.2.1 names them apart and assigns every consumer.
+
 ```
-github.com/day8/re-frame2-template/        ; external repo (NEW)
-├── README.md                              ; invocation + quick start (copy of tools/template/README.md)
-├── deps.edn                               ; the template's own deps (test-time only)
-├── VERSION                                ; the template's own version (e.g. 0.0.1.alpha)
-├── template.edn                           ; deps-new declarative config (placeholder)
+github.com/day8/re-frame2-template/        ; external repo (NEW) — the TEMPLATE ROOT
+├── README.md                              ; invocation + quick start (from tools/template/README.md)
+├── LICENSE
+├── deps.edn                               ; the template's own deps + :test alias
+├── VERSION                                ; the TEMPLATE's version — NOT the framework's; see §3.2.1
 ├── src/day8/re_frame2_template/
 │   └── hooks.clj                          ; :data-fn / :template-fn / :post-process-fn
 ├── resources/io/github/day8/re_frame2_template/  ; RETARGETED from day8/… — see §2.1
-│   ├── template.edn                       ; the in-tree template config (resource-side)
-│   ├── root/                              ; bulk-copied content (README, lefthook, dev/, resources/public/)
-│   ├── _shared/                           ; substrate-agnostic content (dotfiles, src/test sources, build configs shadow-cljs.edn + package.json)
+│   ├── template.edn                       ; the deps-new template config (the only template.edn in the tree)
+│   ├── root/                              ; bulk-copied: README.md + resources/public/ (index.html, css/app.css)
+│   ├── _shared/                           ; substrate-agnostic: gitignore, events.cljs, events_test.cljs, subs.cljs, shadow-cljs.edn, package.json
 │   ├── _reagent/                          ; Reagent-specific (core.cljs / views.cljs / deps.edn)
 │   └── _uix/                              ; UIx-specific (core.cljs / views.cljs / deps.edn)
-├── spec/                                  ; the spec/ tree (000-Vision, 001-Substrate-Variants, ...)
-├── test/day8/re_frame2_template/            ; monorepo-coupled — needs §3.2.1 framework-root setup to run standalone
-│   ├── template_test.clj
-│   ├── template_emission_test.clj
-│   ├── emitted_test_run_test.clj
-│   ├── version_lockstep_test.clj            ; pin-lockstep guard (all coords ride one version)
-│   └── test_support.clj                     ; shared test harness (extracted); repo-root needs §3.2.1 retarget
+├── spec/                                  ; 000-Vision, 001-Substrate-Variants, 002-Generated-Shape,
+│                                          ;   005-Repo-Split (this doc), API, DESIGN-RATIONALE, Principles, README
+├── test/day8/re_frame2_template/          ; framework-fixture-coupled — see §3.2.1
+│   ├── test_support.clj                   ; shared harness; owns the root resolution §3.2.1 splits in two
+│   ├── template_test.clj                  ; emitted-tree contract (reads the emitted project only)
+│   ├── template_emission_test.clj         ; emitted re-frame symbols audited against framework source
+│   ├── emitted_test_run_test.clj          ; behavioural compile/run/release tier + setup-leaf parity
+│   ├── version_lockstep_test.clj          ; pin-lockstep guard (all coords ride one version)
+│   ├── release_gate_test.clj              ; workflow-sanity coverage for template-release.yml
+│   └── repo_split_spec_test.clj           ; executable checks for the §2.1.x deps-new grammar
+├── test-support/
+│   └── dev-page-boot-proof.cjs            ; Chromium dev-page boot driver (emitted-app tier)
 └── .github/workflows/
-    └── template-release.yml               ; tag-on-release CI (moved from re-frame2 monorepo)
+    └── template-release.yml               ; tag-on-release CI (moved from the monorepo — see §3.2)
+
+<framework root>/                          ; a day8/re-frame2 checkout, consumed as a TEST FIXTURE
+├── VERSION                                ; the FRAMEWORK version — the :rf2-version lockstep target
+├── skills/re-frame2-setup/references/     ; first-counter.md — the twelve-file leaf parity fixture
+└── implementation/
+    ├── package.json                       ; react / react-dom / shadow-cljs pins
+    ├── node_modules/                      ; populated by `npm ci`; junctioned into every emitted project
+    ├── core/                              ; deps.edn (clojure/clojurescript pins) + src/re_frame (surface audit)
+    └── adapters/reagent/, adapters/uix/   ; deps.edn (substrate pins) + src (surface audit)
 
 github.com/day8/re-frame2/                 ; monorepo (current)
 └── tools/template/                        ; STUB or DELETED after the split (see §6)
 ```
+
+**There is no repo-root `template.edn`.** Earlier drafts of this tree
+carried one, annotated "deps-new declarative config (placeholder)". No
+such file has ever existed under `tools/template/`, no step in this
+runbook created or consumed it, and deps-new never looks for one there:
+`find-root` resolves `template.edn` on the *classpath*, under the
+template-body path (§2.1). It is removed from the plan rather than
+created.
 
 The external repo's layout drops the `tools/template/` prefix — the
 template lives at the repo root. But the template-body resource path
@@ -246,67 +283,142 @@ edits:
 - The `paths:` filter on the `push:` trigger drops the
   `tools/template/**` prefix (every change in the external repo
   touches the template).
+- **The provisioning steps move to the framework root, not the template
+  root.** `release_gate_test.clj` asserts today that the workflow runs
+  `npm ci` in `implementation/` and `clojure -M:test` from
+  `tools/template`. Post-split those become
+  `$RF2_FRAMEWORK_ROOT/implementation` and the template repo root
+  (§3.2.1). The workflow edit and the assertion edit are one change —
+  `release_gate_test.clj` reads the workflow, so moving one without the
+  other reds the suite.
+- **The pre-split Release-body caveat retires with the split.**
+  `release_gate_test.clj`'s `release-body-carries-pre-split-caveat-test`
+  requires the cut Release body to state it is *not a usable public
+  scaffold*, to name the `:local/root` rewrite, and to cite rf2-8n4s71 —
+  because pre-split the emitted framework coords are unpublished and the
+  `io.github.day8/re-frame2-template` git-coord does not resolve.
+  Completing this split is exactly what makes that coord resolve, so the
+  first external release drops the caveat and the assertion demanding it
+  together. Dropping either alone reds the suite; dropping the assertion
+  *before* the coords actually resolve reinstates the false-green it
+  guards.
 
-### §3.2.1 Post-split test architecture (the monorepo-coupled suite)
+### §3.2.1 Post-split test architecture: two roots, named apart
 
-Dropping path prefixes is **not** sufficient: the template's JVM test
-suite is deeply monorepo-coupled and cannot run from a standalone
-external-repo layout as-is. Concretely (all relative to the monorepo
-root, which the external repo no longer has):
+Dropping path prefixes is **not** sufficient. The template's JVM suite
+resolves every path it touches from a single `repo-root`, and that one
+root is doing two incompatible jobs.
 
-- `test_support.clj`'s `repo-root` walks up until it finds an
-  `implementation/core/src/re_frame` child — the framework source
-  tree, which does not exist in the standalone template repo.
-- `version_lockstep_test.clj` reads `implementation/package.json`
-  (react / shadow-cljs pins) and `implementation/core/deps.edn` +
-  `implementation/adapters/uix/deps.edn` (substrate pins) to
-  assert the template's literal version pins ride lockstep with the
-  framework.
-- `template_emission_test.clj` resolves emitted re-frame symbols
-  against `implementation/core/src/`, the per-substrate adapter
-  sources, and `tools/story/src/` (the surface/compile coverage).
-- `emitted_test_run_test.clj` rewrites the generated app's deps.edn
-  to `:local/root` paths under `implementation/*`, `tools/xray`, and
-  `tools/story`, then junctions `implementation/node_modules` — the
-  behavioural compile/run/release tier.
+`test_support.clj`'s `repo-root` walks up from `user.dir` until it finds
+a directory with an `implementation/core/src/re_frame` child — a
+**framework** marker. Four consumers then read **template**-owned paths
+off that same root:
 
-If those framework references are dropped ad hoc during the split, the
-external repo loses its strongest pin / surface / compile coverage; if
-they are left untouched, `clojure -M:test` fails outright from the
-standalone layout. **Decide and document the architecture before the
-first external release.** Two viable shapes:
+- `template-resource-dir` returns
+  `<repo-root>/tools/template/resources` and hands it to deps-new as
+  `:src-dirs`.
+- `repo_split_spec_test.clj` slurps
+  `<repo-root>/tools/template/spec/005-Repo-Split.md` — this document.
+- `release_gate_test.clj` slurps
+  `<repo-root>/.github/workflows/template-release.yml`.
+- `emitted_test_run_test.clj` launches
+  `<repo-root>/tools/template/test-support/dev-page-boot-proof.cjs`.
 
-**Shape A — Monorepo as a checked-out test fixture (recommended).**
-Parameterize the framework root. `repo-root` (and every
-`implementation/*` / `tools/*` reference derived from it) reads an
-env var, e.g. `RF2_FRAMEWORK_ROOT`, that points at a checkout of the
-re-frame2 monorepo. The external-repo CI checks out `day8/re-frame2`
-as a sibling, exports `RF2_FRAMEWORK_ROOT`, and runs the suite
-unchanged. This preserves the full pin-lockstep + surface + emitted
-tiers verbatim. The cost is a second checkout in CI (and a documented
-local-dev prerequisite). When the env var is unset, the suite either
-skips the framework-coupled tiers with a loud message (matching the
-existing `RF2_TEMPLATE_RUN_EMITTED_TESTS` gating idiom) or fails fast
-with a setup hint — pick fail-fast for CI, skip-with-message for the
-fast local loop.
+In the monorepo the framework marker and the template body sit under one
+root, so the conflation is invisible. **That is exactly what makes the
+obvious fix dangerous.** Renaming `repo-root` to `RF2_FRAMEWORK_ROOT` —
+the shape earlier drafts of this section prescribed — points those four
+consumers at the *monorepo* copy of the template's resources, spec,
+release workflow and browser driver: precisely the copy §3.5 stubs or
+deletes. The external suite would then certify a tree that is not the one
+being released, and would go on passing until the monorepo copy
+disappeared, at which point it would fail for the wrong reason.
 
-**Shape B — Consume published/git coords + frozen fixture data.**
-Rewrite the coupled tests to consume the framework via its **published
-git-coords** (the same coords the generated app ships) instead of
-`:local/root` into a monorepo, and replace the live
-`implementation/package.json` / `deps.edn` reads with **frozen fixture
-data** committed into the template repo's `test/resources/`. This
-removes the monorepo dependency entirely but trades live lockstep for
-a fixture that must be refreshed on each framework-pin bump (the
-lockstep guard becomes "template pins == fixture pins == last-known
-framework pins", one hop weaker). Use only if the second-checkout cost
-in Shape A proves unworkable.
+So the harness grows **two** roots, and no consumer may read from the
+wrong one:
 
-The chosen shape is the operator's call (file the decision bead at the
-handoff). Whichever wins, the external-repo release workflow (§5) MUST
-run the chosen test set green from the standalone layout before the
-first `template-v…` tag — a release that skips these tiers is the
-exact false-green the in-monorepo gates (rf2-jdj17, rf2-ek857f) were
+- **`template-root`** — the checkout under test. Resolved by walking up
+  from `user.dir` to the directory holding
+  `resources/io/github/day8/re_frame2_template/template.edn` (the
+  post-retarget body, §2.1). Deliberately *not* an env var: the suite
+  always tests the checkout it ships in, which is what makes reading the
+  monorepo copy impossible rather than merely discouraged.
+- **`framework-root`** — `RF2_FRAMEWORK_ROOT`, pointing at a checkout of
+  `day8/re-frame2`. An env var, because it is genuinely external and can
+  legitimately skew in version from the template.
+
+Every current path consumer, and the root it must read from:
+
+| Consumer | Path | Root |
+|---|---|---|
+| `test_support` / `template-resource-dir` | `resources/` (deps-new `:src-dirs`) | template |
+| `repo_split_spec_test` | `spec/005-Repo-Split.md` | template |
+| `release_gate_test` | `.github/workflows/template-release.yml` | template |
+| `emitted_test_run_test` (boot proof) | `test-support/dev-page-boot-proof.cjs` | template |
+| `version_lockstep_test` (`:rf2-version`) | `VERSION` | framework |
+| `version_lockstep_test` (react / shadow pins) | `implementation/package.json` | framework |
+| `version_lockstep_test` (clojure + substrate pins) | `implementation/core/deps.edn`, `implementation/adapters/reagent/deps.edn`, `implementation/adapters/uix/deps.edn` | framework |
+| `template_emission_test` (surface audit) | `implementation/core/src/re_frame`, `implementation/adapters/` + substrate | framework |
+| `emitted_test_run_test` (deps rewrite) | `implementation/core`, `implementation/adapters/` + substrate | framework |
+| `emitted_test_run_test` (React resolution) | `implementation/node_modules` | framework |
+| `emitted_test_run_test` (setup-leaf parity) | `skills/re-frame2-setup/references/first-counter.md` | framework |
+| `template_test` | the emitted project in a temp dir | neither |
+
+`template_test.clj` is the one file with no root dependency at all — it
+reads only the tree deps-new has just emitted — so it needs no migration.
+
+**The `VERSION` trap.** Both roots hold a file called `VERSION`, the two
+files currently hold the *same string* (`0.0.1.alpha`), and they mean
+different things. `version_lockstep_test.clj` reads `<repo-root>/VERSION`
+for the `:rf2-version` lockstep, and that is the **framework** version
+the emitted app pins — not the template's release version. Post-split
+`<template-root>/VERSION` is the template's own version, the one §5
+matches against the `template-v…` tag. Route `:rf2-version` at
+`<framework-root>/VERSION` explicitly. Because the two files agree today,
+mis-routing it yields a green suite asserting that the template's
+`:rf2-version` literal matches the template's own release version — a
+tautology that stays green right up until the two versions first diverge,
+which is the only moment the guard exists for.
+
+**When `RF2_FRAMEWORK_ROOT` is unset**, fail fast under CI and skip with
+a loud message in the fast local loop — the idiom
+`RF2_TEMPLATE_RUN_EMITTED_TESTS` already establishes. A silent skip is
+not acceptable for any tier in the table above: they are the pin, surface
+and behavioural coverage the release gate rests on.
+
+**Retired coupling, removed from this plan.** Earlier drafts of this
+section listed dependencies the suite no longer has: that
+`template_emission_test.clj` resolves emitted symbols against
+`tools/story/src/`, and that `emitted_test_run_test.clj` rewrites the
+generated `deps.edn` to `:local/root` paths under `tools/xray` and
+`tools/story`. Neither holds today. The emission audit resolves against
+`implementation/core/src/re_frame` and the per-substrate adapter sources
+only; the deps rewrite touches exactly two coordinates, `day8/re-frame2`
+and the substrate adapter. Story, Xray and the schema coordinates survive
+in `template_test.clj` only as **retired-coord guards** — assertions that
+the emitted app does *not* carry them — so they are contract to keep, not
+a dependency to migrate. Likewise the `root/` bulk-copy holds `README.md`
+and `resources/public/` only: the Lefthook and `dev/` entries earlier
+drafts inventoried are not in the tree, and no SSR artefact is emitted.
+
+**Fallback shape, for the pin tiers only.** If the second checkout proves
+unworkable, the pin tests can consume the framework through its published
+git-coords, with the live `implementation/package.json` and `deps.edn`
+reads replaced by frozen fixture data committed under the template repo's
+`test/resources/`. That drops `framework-root` for those tests, but
+trades live lockstep for a fixture needing a refresh on every
+framework-pin bump (the guard weakens to "template pins == fixture pins
+== last-known framework pins"). It cannot serve `emitted_test_run_test`
+at all: that tier needs a real `implementation/node_modules` to junction
+and real adapter sources to compile against. Taking it wholesale would
+mean dropping the behavioural tier — the exact false-green rf2-jdj17 /
+rf2-ek857f hardened against — so it is never an option for the release
+gate.
+
+Whichever shape wins for the pin tiers, the external-repo release
+workflow (§5) MUST run the full set green from the standalone layout
+before the first `template-v…` tag — a release that skips these tiers is
+the exact false-green the in-monorepo gates (rf2-jdj17, rf2-ek857f) were
 hardened against, reintroduced post-split.
 
 ### §3.3 Pin the initial release tag
@@ -473,20 +585,48 @@ and the test-architecture setup per §3.2.1):
 - Trigger: push of a tag matching
   `template-v[0-9]+.[0-9]+.[0-9]+*`.
 - Steps:
-  1. Set up the chosen test architecture (§3.2.1): for Shape A, check
-     out `day8/re-frame2` as a sibling, `npm ci` in its
-     `implementation/`, and export `RF2_FRAMEWORK_ROOT` (+
-     `RF2_TEMPLATE_RUN_EMITTED_TESTS=1` so the behavioural
-     compile/run/release tier runs — the gate rf2-ek857f / rf2-jdj17
-     hardened must not regress to a fast-loop-only release).
-  2. `clojure -M:test` — runs the template's JVM test suite (the
-     pin-lockstep, emission/surface, and emitted compile/run/release
-     tiers all green from the standalone layout).
-  3. Run the §3.4 published-coord scaffold smoke against the tagged
+  1. Check out the template repo. This is `template-root` — the bytes
+     being released. Every template-side consumer in §3.2.1 reads from
+     here and from nowhere else.
+  2. Check out `day8/re-frame2` as a sibling, `npm ci` in its
+     `implementation/`, `npx playwright install --with-deps chromium`,
+     and export `RF2_FRAMEWORK_ROOT` at it (§3.2.1) together with
+     `RF2_TEMPLATE_RUN_EMITTED_TESTS=1`. Without the env var the
+     behavioural tier short-circuits to skip-asserts and the release
+     regresses to fast-loop-only — the false-green rf2-ek857f /
+     rf2-jdj17 hardened against. Without the Chromium install the
+     emitted dev-page boot proof cannot launch.
+  3. `clojure -M:test` from the template repo root. The tiers this must
+     carry, every one of them against the external checkout:
+     - **pin lockstep** (`version_lockstep_test`) — the template's
+       literals against the framework `VERSION`,
+       `implementation/package.json`, and the core / adapter `deps.edn`
+       pins;
+     - **framework surface** (`template_emission_test`) — every emitted
+       `re-frame.*` symbol resolved against framework source;
+     - **emitted-tree contract** (`template_test`) — including the
+       retired-coord guards;
+     - **setup-leaf parity** (`emitted_test_run_test`) — the emitted
+       Reagent tree against the twelve-file manifest in
+       `skills/re-frame2-setup/references/first-counter.md`;
+     - **behavioural compile / run + browser** (`emitted_test_run_test`)
+       — compile the emitted app against `:local/root` framework paths,
+       junction `implementation/node_modules`, and boot the dev page
+       under Chromium via `test-support/dev-page-boot-proof.cjs`;
+     - **release-workflow sanity** (`release_gate_test`) — read against
+       the template repo's own
+       `.github/workflows/template-release.yml`;
+     - **split-spec grammar** (`repo_split_spec_test`) — the §2.1.2
+       override-token guard, read against this document in the template
+       repo.
+  4. Run the §3.4 published-coord scaffold smoke against the tagged
      commit (the §2.1 retarget guard).
-  4. Read the `VERSION` file.
-  5. Verify the tag matches `template-v<VERSION>`.
-  6. Cut a GitHub Release pointing at the tagged commit.
+  5. Read `<template-root>/VERSION` — the template's own version, not
+     the framework's (§3.2.1).
+  6. Verify the tag matches `template-v` + that VERSION.
+  7. Cut a GitHub Release pointing at the tagged commit. The pre-split
+     "not a usable public scaffold" caveat does not apply post-split and
+     retires with it (§3.2).
 - Secrets needed: `GITHUB_TOKEN` (default; for push-tag permission).
   **No Clojars credentials** — git-coord distribution has no
   artefact-upload step.
