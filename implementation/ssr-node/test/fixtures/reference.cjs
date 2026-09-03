@@ -83,7 +83,12 @@ module.exports = {
   buildId: 'reference-build-1',
   entries: {
     'app/root': {
-      stateAllowlist: [':todos', ':route', ':delay', ':bytes'],
+      // Exactly the keys `observe` reads. An allowlist member this module
+      // never looks at is state it would admit and drop, which is the
+      // opposite of what a fail-closed allowlist is for — the byte-fidelity
+      // rows have their own fixture (`chunked.cjs`, `bytes.cjs`) and their
+      // own `:bytes` entry.
+      stateAllowlist: [':todos', ':route', ':delay'],
       runtimeAllowlist: [':rf.runtime/routing'],
     },
     'app/other': { stateAllowlist: [':route'], runtimeAllowlist: [] },

@@ -58,7 +58,7 @@ const REFERENCE_TABLES = {
   buildId: 'reference-build-1',
   entries: {
     'app/root': {
-      stateAllowlist: [':todos', ':route', ':delay', ':bytes'],
+      stateAllowlist: [':todos', ':route', ':delay'],
       runtimeAllowlist: [':rf.runtime/routing'],
     },
   },

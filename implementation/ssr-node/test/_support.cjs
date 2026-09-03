@@ -72,4 +72,4 @@ async function post(url, body, headers = {}) {
   return { status: res.status, headers: res.headers, buf, text: buf.toString('utf8') };
 }
 
-module.exports = { fixture, boot, withService, collect, observed, refusalOf, post };
+module.exports = { fixture, withService, collect, observed, refusalOf, post };
