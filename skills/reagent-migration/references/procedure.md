@@ -39,8 +39,11 @@ no re-frame2 loaded, no files touched.
 
 - **The census (`:census`)** tells you how big the job is — every `r/atom`,
   `r/with-let`, `r/create-class`, `r/cursor`, `r/as-element`,
-  `r/reactify-component` and root mount, classified `:human-decision` or
-  `:runtime-blocker`. Map each class onto a MIG rule and you have the D/R
+  `r/reactify-component` and root mount, plus re-frame2's own substrate
+  adapters under `re-frame.adapter.`, classified `:human-decision` or
+  `:runtime-blocker`. Two rosters, because a re-frame2 application on the
+  Reagent adapter calls no Reagent API of its own and a Reagent-only census
+  scored it at zero. Map each class onto a MIG rule and you have the D/R
   gating for the whole codebase before you open a file.
 - **The fixer (`:entries`)** covers only `[:> …]`-family crossings into React.
   A codebase that crosses into React nowhere gets **zero** entries — which is

@@ -65,7 +65,7 @@ So rewriting views into Hicasso is a **separate, optional second step, and it is
 
 ## Start with the reporter — it is a real tool and it runs first
 
-Unlike the view rewrite, the **prop-dialect fixer and the Reagent API census are automated**, and they run before you touch anything:
+Unlike the view rewrite, the **prop-dialect fixer and the view-substrate API census are automated**, and they run before you touch anything:
 
 ```bash
 cd re-frame2/migration/reagent-to-hicasso/codemod
@@ -75,7 +75,7 @@ clojure -M:run path/to/consumer/src/          # scan: report only, touch nothing
 It reads source text on a bare JVM, loads no re-frame2, and writes a deterministic EDN report with two halves that answer different questions:
 
 - **The fixer** (`:entries`) — every `[:> …]`-family crossing into React. Reagent converted the prop dialect at those sites and Hicasso does not, so a crossing can keep rendering while sending different values. Six rewrite families (W1–W6) are decidable from source text; everything else is a named refusal with a recovery sentence.
-- **The census** (`:census`) — every Reagent API **call site**: `r/atom`, `r/with-let`, `r/create-class`, `r/cursor`, `r/as-element`, `r/reactify-component`, root mounting. This is the inventory that tells you how big the job actually is, and it is the half a `[:>]`-only report leaves invisible.
+- **The census** (`:census`) — every rostered view-substrate API **call site**, across two rosters: Reagent's API (`r/atom`, `r/with-let`, `r/create-class`, `r/cursor`, `r/as-element`, `r/reactify-component`, root mounting, and the `reagent2.*` namespaces the reagent-slim adapter ships), and re-frame2's own substrate adapters under `re-frame.adapter.`. The second roster exists because a re-frame2 application on the Reagent adapter calls no Reagent API of its own, and a Reagent-only census scored it at zero. This is the inventory that tells you how big the job actually is, and it is the half a `[:>]`-only report leaves invisible.
 
 Read the report first. It is exhaustive over what it touched or refused and carries a count of sites left alone, so *"not in the report"* is unambiguous. Its `h/defhost` sketches list the callback positions a site uses, and the usual case needs no `:callbacks` at all — Hicasso infers the contract from the spelling. The one thing to check against the library's own documentation is each `on*`-named prop: a render prop the vendor named `on*` (Fluent's `onRenderCell`, Ant's `onRow`) would infer `:event`, whose wrapper returns `nil` and blanks the UI, so that prop gets a `{:callbacks {… :render}}` override on the host.
 
