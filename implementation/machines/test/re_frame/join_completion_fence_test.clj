@@ -19,7 +19,8 @@
        B). The fix rechecks exact-owner continuation after the emit and before
        the router dispatch / numeric-ms timer reservation.
 
-    B. CHURN FLIP. `override-applies?` (preflight) and `handle-one-fx` →
+    B. CHURN FLIP. The since-removed preflight predicate `override-applies?`
+       and `handle-one-fx` →
        `resolve-fx-with-overrides` (execution) each independently re-looked-up the
        registrar + protected-target rule, so a concurrent register / unregister
        between them could flip an applies-preflight into a fallthrough that
@@ -30,8 +31,8 @@
 
   MUTATION TEETH: dropping the `(when (continue?) …)` transport guard makes the
   destroy tests re-dispatch / re-arm into the gone frame; restoring the two-phase
-  `override-applies?` + full-overrides `handle-one-fx` makes the churn test flip
-  to `:attempt-unverified`."
+  preflight-predicate + full-overrides `handle-one-fx` shape (the one
+  `override-applies?` had) makes the churn test flip to `:attempt-unverified`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.fx :as fx]
