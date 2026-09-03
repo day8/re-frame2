@@ -102,9 +102,16 @@
 ;; when an entire teardown cascade completes within one clock tick.
 (defonce ^:private phase-seq (atom 0))
 
-(defn- log-phase! [mount phase & {:as extras}]
+;; FIXED ARITY by design (rf2-6r9j.83). The entry shape IS the contract
+;; `lifecycle-log` publishes — exactly `{:phase … :seq …}`, nothing else — so
+;; the literal map is appended directly. It previously took a variadic
+;; `& {:as extras}` merged on TOP of the canonical keys; no call site in the
+;; adapter's whole history ever supplied one, and because the merge landed
+;; last it was an escape hatch that could overwrite `:phase` or `:seq` and
+;; contradict the very ordering invariant the log promises.
+(defn- log-phase! [mount phase]
   (swap! (:lifecycle-log mount)
-         conj (merge {:phase phase :seq (swap! phase-seq inc)} extras)))
+         conj {:phase phase :seq (swap! phase-seq inc)}))
 
 ;; Declared so `run-render!` (which invokes a render body that may mount
 ;; children) can call the mount seam defined below it.

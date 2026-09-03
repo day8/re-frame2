@@ -238,7 +238,7 @@ Some checks intentionally exit 0 when their preconditions are absent. They are d
 
 | Gate | Why skip-ok |
 |---|---|
-| Adapter JVM classpath probes (`jvm-{reagent,uix}`) | Adapter namespaces are `:cljs-only`; the probe proves deps + classpath wiring even with a zero-test alias. Two siblings on the same `adapter_diagnostic` gate are **not** skip-ok and must not be read as probes: `jvm-reagent-slim` runs the component-shape detection contract, and `jvm-adapters-test-react` runs the Test-React lifecycle suite (35 deftests / 160 assertions — the adapter is pure CLJC by design, so its `.cljc` tests are real JVM coverage). Real coverage for reagent/uix: the adapter smokes + per-adapter CLJS unit tests. |
+| Adapter JVM classpath probes (`jvm-{reagent,uix}`) | Adapter namespaces are `:cljs-only`; the probe proves deps + classpath wiring even with a zero-test alias. Two siblings on the same `adapter_diagnostic` gate are **not** skip-ok and must not be read as probes: `jvm-reagent-slim` runs the component-shape detection contract, and `jvm-adapters-test-react` runs the Test-React lifecycle suite (35 deftests / 157 assertions — the adapter is pure CLJC by design, so its `.cljc` tests are real JVM coverage). Real coverage for reagent/uix: the adapter smokes + per-adapter CLJS unit tests. |
 | Pair live-overflow without nREPL (`mcp-conformance-re-frame2-pair`) | Exits 0 with a SKIP marker when `$SHADOW_CLJS_NREPL_PORT` is unset — so the SKIP path itself is exercised every run. Real coverage: the hermetic-suite step that follows. |
 
 Never treat a passing skip-ok diagnostic as evidence the behaviour was covered; the real coverage is the changed-surface, nightly, or release gate.

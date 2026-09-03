@@ -22,7 +22,7 @@ You pick one (or more) by adding the matching artefact to your `deps.edn` alongs
 |---|---|---|---|
 | [`test-react/`](test-react/) | Test-React adapter | **none — local-test-only** | Pure-CLJC React class-3 lifecycle simulator for lifecycle-order and unmount-during-render tests |
 
-The test-react adapter is not a published artefact. It is a development/test fixture only: it has no Maven coordinate, no `:clein/build` descriptor, and is absent from the lockstep array, the release deploy matrix, and the CI JVM job set by design. Consumers never depend on it. It exists solely so the project's own unit tests can simulate React class-3 lifecycle on the JVM and Node-CLJS without a browser. Bundle isolation treats it as test-only — no example or production build should ever pull it in.
+The test-react adapter is not a published artefact. It is a development/test fixture only: it has no Maven coordinate, no `:clein/build` descriptor, and is absent from the lockstep array and the release deploy matrix by design. That governs publishing, not testing — its suite is gated on every PR by the required `jvm-adapters-test-react` job (its own `clojure -M:test`) and, on the CLJS side, by the consolidated Shadow `:node-test` run; see [TESTING.md](../../TESTING.md). Consumers never depend on it. It exists solely so the project's own unit tests can simulate React class-3 lifecycle on the JVM and Node-CLJS without a browser. Bundle isolation treats it as test-only — no example or production build should ever pull it in.
 
 The `reagent-slim` adapter includes reactive primitives, a render scheduler,
 hiccup translation, and pure-CLJS render-to-string. Its test suite covers the
@@ -66,11 +66,11 @@ adapters/
     └── test/...
 ```
 
-All 4 published adapters declare `day8/re-frame2 {:local/root "../../core"}`. The unpublished test-react fixture declares the same `:local/root` dep. None depend on each other.
+All 3 published adapters declare `day8/re-frame2 {:local/root "../../core"}`. The unpublished test-react fixture declares the same `:local/root` dep. None depend on each other.
 
 ## Where the substrate logic lives
 
-The 4 React-shaped adapter namespaces are primarily configuration and
+The 3 React-shaped adapter namespaces are primarily configuration and
 substrate-specific public helpers because they delegate shared mechanics into
 [`re-frame.substrate.spine`](../core/src/re_frame/substrate/spine.cljs) in the
 core artefact. There are 2 factory families:
