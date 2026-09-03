@@ -89,11 +89,13 @@
 ;; EP-0037 R0 — the shared RouteAddress extraction law
 ;; (`re-frame.routing.address`) and the one resolved-target / route-plan seam
 ;; (`re-frame.routing.resolve`) are INTERNAL routing seams the navigation
-;; doors consume; they are deliberately NOT re-exported here. A tool that
-;; needs the R0 plan diagnostic projection (`resolve/plan-projection`) requires
-;; the internal namespace directly, exactly as CLJS tools require
-;; `re-frame.routing.tooling` — routing adds no public `RoutePlan` constructor
-;; (Spec 012 §Resolved target and the plan diagnostic projection).
+;; doors consume; they are deliberately NOT re-exported here. The plan's
+;; observable projection is the `:rf.route/planned` trace
+;; (`resolve/plan-trace-tags`), which every door commit branch emits through;
+;; a tool reads it there rather than through a facade export, exactly as CLJS
+;; tools require `re-frame.routing.tooling` directly — routing adds no public
+;; `RoutePlan` constructor (Spec 012 §Resolved target and the plan diagnostic
+;; projection).
 
 ;; Scroll positions are host-side transient state, not runtime-db state.
 (def scroll-positions-cap       rf.routing.scroll/scroll-positions-cap)
@@ -486,7 +488,12 @@
 ;; cannot reach.
 (rf.late-bind/set-fn! :routing/reset-nav-counters! reset-nav-counters!)
 (rf.late-bind/set-fn! :routing/reset-url-claims!  reset-url-claims!)
-(rf.late-bind/set-fn! :routing/route-sub-fn       route-sub-fn)
+;; rf2-6r9j.8: no :routing/route-sub-fn hook. `route-sub-fn` is registered
+;; DIRECTLY as the `:rf/route` sub above, in this already-loaded facade, so
+;; core never needed to late-bind to it; the hook was mechanical residue of the
+;; artefact split (c435165251) that nothing ever read. The public
+;; `re-frame.routing/route-sub-fn` alias stays — it is a documented owned-
+;; namespace function.
 
 ;; Registration-time frame-config preflight (rf2-ktmto9): routing owns the
 ;; MEANING of `:url-strategy` (presence semantics + host-required legs), core

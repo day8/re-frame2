@@ -17,8 +17,8 @@
       whole routing artefact is already bundle-isolated
       from production builds (the counter example never `:require`s
       `re-frame.routing`), so this sibling can never reach a no-routing
-      app's bundle; the explicit sentinel at the foot of this ns
-      is checked by the sentinel at the foot of this namespace.
+      app's bundle; the bundle-isolation gate noted at the foot of this ns
+      additionally proves no stray `:require` ever pulled the body in.
 
   READ-ONLY over the registry. Like slice-2's subs.tooling read the sub
   registrar and slice-3's flows.tooling read the flow registry, this ns
@@ -340,10 +340,24 @@
 
 ;; ---- bundle-isolation sentinel ------------------------------------------
 ;;
-;; `implementation/scripts/check-bundle-isolation.cjs` rejects the production
-;; counter bundle if this exact string appears. Keep the literal unique to this
-;; namespace and in lockstep with the checker; its presence means the tooling
-;; namespace reached a production bundle that should not load routing tools.
-
-(defonce ^:private bundle-isolation-sentinel
-  "rf.routing.tooling/sentinel:rf2-eiiifu-2026-06-12:do-not-rename")
+;; `implementation/scripts/check-bundle-isolation.cjs` proves this tooling
+;; sibling never reaches the production counter bundle. The literal it greps
+;; the EMITTED module for is `route-fact` — the `:refinement` every route
+;; algebra node this namespace builds carries (`node-for` and
+;; `route-slice-algebra-view` both stamp it), so a CLJS keyword's
+;; fully-qualified name is interned into the emitted JS as a string constant
+;; Closure does not rename.
+;;
+;; A `defonce ^:private bundle-isolation-sentinel` string used to sit here
+;; (rf2-eiiifu). It was inert: private, unconsumed, and therefore dropped by
+;; Closure `:advanced`, so the `do-not-rename` instruction it carried guarded
+;; nothing. `4e43784ec7` (2026-07-15) moved this roster entry onto the live
+;; node kind when these controls became emitted-module greps rather than
+;; source greps; the var was simply left behind, and rf2-6r9j.1 removed it.
+;; `re-frame.resources.tooling` (rf2-6r9j.54) and `re-frame.derivation.egress`
+;; (rf2-yk2d) record the identical trap and repair.
+;;
+;; The rule, and the reason a planted string is the WRONG instinct here: pick
+;; a literal a LIVE code path emits, and verify the count in the emitted
+;; module, never in the `.cljc`. The roster comment in check-bundle-
+;; isolation.cjs beside the `routing-tooling` entry is the full account.
