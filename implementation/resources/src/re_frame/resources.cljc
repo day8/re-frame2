@@ -499,10 +499,11 @@
 ;; User code MUST NOT dispatch these.
 ;; The reply + stale-timer handlers consume
 ;; the reply / timer token's causal `:rf/time-ms` — succeeded → durable
-;; `:loaded-at` / `:stale-at`; failed + aborted → the canonical reply's
-;; `:completed-at` (failure / cancellation replies carry it symmetrically with
-;; success + mutation); stale-fired → a replay-stable freshness
-;; re-check. Each declares the time cofx so the fact is delivered flat.
+;; `:loaded-at` / `:stale-at`; failed → the canonical reply's `:completed-at`
+;; (an ordinary failure and the `:rf.http/aborted` cancellation branch both
+;; carry it, symmetrically with success + mutation); stale-fired → a
+;; replay-stable freshness re-check. Each declares the time cofx so the fact
+;; is delivered flat.
 (events/reg-event :rf.resource.internal/succeeded
                      time-meta
                      (resource-events/with-classification-lowering
@@ -526,10 +527,6 @@
                      time-meta
                      (resource-events/with-classification-lowering
                        resource-events/page-failed-handler))
-(events/reg-event :rf.resource.internal/aborted
-                     time-meta
-                     (resource-events/with-classification-lowering
-                       resource-events/aborted-handler))
 (events/reg-event :rf.resource.internal/stale-fired
                      time-meta
                      (resource-events/with-classification-lowering

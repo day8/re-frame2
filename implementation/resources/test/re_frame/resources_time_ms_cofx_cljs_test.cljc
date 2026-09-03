@@ -95,7 +95,6 @@
    :rf.resource/network-reconnected
    :rf.resource.internal/succeeded
    :rf.resource.internal/failed
-   :rf.resource.internal/aborted
    :rf.resource.internal/stale-fired
    :rf.mutation/execute
    :rf.mutation.internal/succeeded
@@ -226,24 +225,6 @@
         (is (= :cancelled (:status (record wid))))
         (is (= completed-at (:completed-at (:outcome (record wid))))
             "the cancelled terminal outcome carries the causal :completed-at")))))
-
-(deftest standalone-aborted-handler-carries-completed-at
-  (testing "rf2-rl27r2: the standalone :rf.resource.internal/aborted handler
-            settles the work row :cancelled carrying the reply token's causal
-            :completed-at (previously dropped — only :reason rode)"
-    (rf/reg-resource :ab3/article (article-spec) article-spec-request)
-    (let [scoped-key   (state/scoped-resource-key :rf.scope/global :ab3/article {:slug "w"})
-          completed-at 1781333333333]
-      (rf/dispatch-sync [:rf.resource/ensure {:resource :ab3/article :scope :rf.scope/global
-                                              :params {:slug "w"} :owner [:app :ab3 1]}])
-      (let [wid (:current-work (entry scoped-key))]
-        (rf/dispatch-sync [:rf.resource.internal/aborted
-                           {:resource/key scoped-key :work/id wid :generation 1}]
-                          {:rf.cofx {:rf/time-ms completed-at}})
-        (is (= :cancelled (:status (record wid))))
-        (is (= {:reason :aborted :completed-at completed-at}
-               (:outcome (record wid)))
-            "the cancelled outcome carries :reason AND the causal :completed-at")))))
 
 (deftest stale-suppressed-failure-carries-completed-at
   (testing "rf2-rl27r2: a SUPPRESSED (superseded) failure reply records the

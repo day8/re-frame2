@@ -504,19 +504,19 @@
           (is (contains? (:active-owners e) [:route :r 2])
               "the new owner is attached to the fresh attempt"))))))
 
-(deftest re-ensure-after-internal-aborted-settle-does-not-join-terminal
+(deftest re-ensure-after-abort-settle-does-not-join-terminal
   (rf/reg-resource :njt/article (article-spec) article-spec-request)
   (let [scope {:user "u"}
         k     (state/scoped-resource-key scope :njt/article {:slug "w"})]
     (ensure! :njt/article scope "w" [:app :a 1])
     (let [wid1 (:current-work (entry k))
           gen1 (:generation (entry k))]
-      ;; a direct internal aborted settle marks the work TERMINAL :cancelled
-      ;; (the aborted-handler makes no entry write — the pointer dangles).
-      (rf/dispatch-sync [:rf.resource.internal/aborted
-                         {:resource/key k :work/id wid1 :generation gen1}])
+      ;; an abort reply (an `:rf.http/aborted` envelope through the canonical
+      ;; failure seam) settles the entry to a non-error `:idle` and marks the
+      ;; work row TERMINAL :cancelled.
+      (abort! k)
       (is (= :cancelled (:status (work-ledger/get-record (runtime-db) wid1)))
-          "the directly-aborted work row is terminal :cancelled")
+          "the aborted work row is terminal :cancelled")
       (testing "rf2-v4ygg5 — a subsequent ensure does NOT join the terminal
                 work; it starts a fresh generation"
         (ensure! :njt/article scope "w" [:app :a 2])

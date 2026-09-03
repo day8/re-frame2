@@ -1912,15 +1912,18 @@
 ;; ---- (a) end-to-end liveness: the route must actually settle ---------------
 
 (defn- abort-current-work!
-  "Abort the entry's live attempt through the internal abort reply. The first
-  load settles to a non-error `:idle` with `:current-work` cleared — the
-  `idle / no data / no work` retained entry the bead names."
+  "Abort the entry's live attempt through the canonical failure reply carrying
+  an `:rf.http/aborted` envelope — the cancellation branch of
+  `failed-handler`, which is the only settle path a managed-HTTP abort takes.
+  The first load settles to a non-error `:idle` with `:current-work` cleared
+  — the `idle / no data / no work` retained entry the bead names."
   [scoped-key]
   (let [e (entry scoped-key)]
-    (rf/dispatch-sync [:rf.resource.internal/aborted
+    (rf/dispatch-sync [:rf.resource.internal/failed
                        {:resource/key scoped-key
                         :work/id      (:current-work e)
-                        :generation   (:generation e)}])))
+                        :generation   (:generation e)
+                        :error        {:kind :rf.http/aborted :reason :aborted}}])))
 
 (defn- reg-shell-branch! []
   (rf/reg-resource :prof/banner (article-spec {}) article-spec-request)
