@@ -63,13 +63,19 @@ artefacts=(
   # rf2-jn7frs — the EP-0014 derivation/process-ALGEBRA conformance tier
   # is `.cljc` and runs in BOTH runtimes. Its own `:test` alias
   # (implementation/derivation-conformance/deps.edn) runs the SAME `.cljc`
-  # namespaces under the JVM so the `:clj`-side composition (JVM
-  # `default-contributors` auto-resolution, the pure-data algebra views,
-  # the whole-value law over JVM data) is exercised — previously only the
-  # CLJS side (the always-on `:node-test` gate) ever ran the tier. It
+  # namespaces under the JVM so the `:clj`-side composition (the pure-data
+  # algebra views, the whole-value law over JVM data) is exercised —
+  # previously only the CLJS side (the always-on `:node-test` gate) ever
+  # ran the tier. The suite supplies an EXPLICIT contributor map on BOTH
+  # hosts, so it deliberately does NOT exercise JVM `default-contributors`
+  # auto-resolution; that path is core's, pinned by
+  # `default-contributors-resolves-every-jvm-sibling` and
+  # `default-contributors-wires-the-machine-selector-targets-surface` in
+  # implementation/core/test/re_frame/derivation_graph_test.clj. It
   # proves the four EP-0014 laws (lowering / storage+eval+lifecycle
   # classification / graph edges / whole-value) across all five families
-  # through the graph composer.
+  # — subscriptions, flows, resources, route facts, machines — through
+  # the graph composer.
   implementation/derivation-conformance
   # rf2-xhfxcs.6 — the EP-0018 one-form event-MODEL conformance tier is
   # `.cljc` and runs in BOTH runtimes. Its own `:test` alias
