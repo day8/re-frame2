@@ -37,6 +37,7 @@
             ;; The CLJS reader arm below requires the namespace explicitly;
             ;; the JVM arm uses clojure.core/read-string.
             #?(:cljs [cljs.reader])
+            [clojure.string :as string]
             [re-frame.reply :as reply]
             [re-frame.reply-conformance-fixtures :as fixtures]
             [re-frame.http.reply :as http-reply]
@@ -460,6 +461,103 @@
     "cancelled-timer-reply takes no :completed-at parameter"]])
 
 ;; ---------------------------------------------------------------------------
+;; The EXECUTABLE partition over the non-success completion-time matrix. Every
+;; family × {:error :cancel :stale} cell must declare EXACTLY ONE of a complete
+;; `-with-time` / `-no-time` pair or one explicit `time-pair-exclusions` entry,
+;; and an UNSUPPORTED situation must declare neither. Without this, deleting BOTH
+;; pair keys from a row removed that family/situation from the propagation gate
+;; AND from its adversarial controls with nothing left to notice — no exclusion
+;; required, no diagnostic emitted, suite still green.
+;; ---------------------------------------------------------------------------
+
+(defn- paired-rows
+  "The rows of `descriptors` carrying a COMPLETE completion-time pair — the rows
+   the propagation/omission gate and its drop/nil-fill controls iterate. Every
+   row it omits is proved to be an unsupported terminal or an explicit exclusion
+   by `every-nonsuccess-terminal-declares-a-time-pair-or-an-exclusion`, so this
+   derivation can no longer silently lose a family."
+  [descriptors]
+  (vec (for [{:keys [family] :as family-spec} descriptors
+             [situation with-key no-key] time-pair-situations
+             :let [with-builder (get family-spec with-key)
+                   no-builder   (get family-spec no-key)]
+             :when (and with-builder no-builder)]
+         {:family       family
+          :situation    situation
+          :with-builder with-builder
+          :no-builder   no-builder})))
+
+(def ^:private time-paired-rows (paired-rows families))
+
+(defn- exclusions-for
+  "The `exclusions` entries naming this family/situation cell."
+  [exclusions family situation]
+  (filterv (fn [[f s]] (and (= f family) (= s situation))) exclusions))
+
+(defn- time-pair-partition-problems
+  "Classify EVERY family × non-success-situation cell of `descriptors` against
+   `exclusions`, returning a vector of problem strings — empty iff the partition
+   is exhaustive and exclusive. Shared by the primary partition gate (asserted
+   EMPTY for the real matrix) and its fails-closed control (asserted NON-EMPTY
+   for each mutated matrix), so weakening the classifier into permissiveness
+   reddens one side or the other."
+  [descriptors exclusions]
+  (let [cells  (for [{:keys [family] :as family-spec} descriptors
+                     [situation with-key no-key] time-pair-situations]
+                 (let [supported?   (some? (get f situation))
+                       with-builder (get family-spec with-key)
+                       no-builder   (get family-spec no-key)
+                       declared     (remove nil? [with-builder no-builder])
+                       paired?      (= 2 (count declared))
+                       excls        (exclusions-for exclusions family situation)
+                       n-excl       (count excls)
+                       label        (str family " / " situation)]
+                   (cond-> []
+                     (and (seq declared) (not paired?))
+                     (conj (str label " declares a HALF pair — a family declaring "
+                                with-key " or " no-key " MUST declare both, so the gate "
+                                "proves propagation AND omission"))
+
+                     (and supported? (not paired?) (zero? n-excl))
+                     (conj (str label " is a SUPPORTED terminal with neither a complete "
+                                with-key "/" no-key " pair nor an explicit "
+                                "time-pair-exclusions entry — it would silently vanish "
+                                "from the completion-time gate and its controls"))
+
+                     (and paired? (pos? n-excl))
+                     (conj (str label " declares BOTH a complete completion-time pair and "
+                                n-excl " time-pair-exclusions entry/entries — a cell is "
+                                "paired or excluded, never both"))
+
+                     (> n-excl 1)
+                     (conj (str label " carries " n-excl " time-pair-exclusions entries — "
+                                "a cell carries at most ONE exclusion"))
+
+                     (and (not supported?) (pos? n-excl))
+                     (conj (str label " is an UNSUPPORTED situation (no " situation
+                                " builder) yet carries a time-pair-exclusions entry — an "
+                                "unsupported terminal declares neither a pair nor an "
+                                "exclusion"))
+
+                     (and (not supported?) (seq declared))
+                     (conj (str label " is an UNSUPPORTED situation (no " situation
+                                " builder) yet declares completion-time pair builders"))
+
+                     (some (fn [[_ _ builder reason]]
+                             (or (nil? builder) (not (string? reason)) (empty? reason)))
+                           excls)
+                     (conj (str label " time-pair-exclusions entry must be "
+                                "[family situation builder-thunk reason-string]")))))
+        known  (set (for [{:keys [family]} descriptors
+                          [situation] time-pair-situations]
+                      [family situation]))
+        orphan (for [[family situation] exclusions
+                     :when (not (contains? known [family situation]))]
+                 (str family " / " situation " has a time-pair-exclusions entry but is "
+                      "not a family/non-success-situation cell of the matrix"))]
+    (vec (concat (apply concat cells) orphan))))
+
+;; ---------------------------------------------------------------------------
 ;; Universal envelope invariants across all supported situations.
 ;; ---------------------------------------------------------------------------
 
@@ -486,23 +584,87 @@
                       (reply/validate-reply reply))
             (str family " " situation " reply carries a host handle"))))))
 
+;; ---------------------------------------------------------------------------
+;; Work-id identity metadata. `:work-head` is REQUIRED descriptor metadata, never
+;; a row filter: the only legitimate filter is the situation builder, because
+;; `:error` / `:cancel` are legitimately unsupported for some families. Filtering
+;; on `:work-head` too made a deleted or renamed head remove EVERY row of that
+;; family from the gate — the presence / vector / head / EDN round-trip
+;; assertions then ran zero times and the suite stayed green.
+;; ---------------------------------------------------------------------------
+
+(defn- work-id-rows
+  "Every (family, situation) row the work-id gate MUST visit, one per SUPPORTED
+   situation builder in `descriptors`. The filter is the builder ALONE, so a
+   descriptor missing its `:work-head` still yields all of its rows and fails on
+   the head comparison instead of vanishing. Shared with the fails-closed
+   control, which asserts the row count is UNCHANGED by deleting a `:work-head`."
+  [descriptors]
+  (vec (for [{:keys [family work-head] :as family-spec} descriptors
+             [situation builder] (select-keys f [:success :error :cancel :stale])
+             :when builder]
+         {:family    family
+          :situation situation
+          :work-head work-head
+          :builder   builder})))
+
+(defn- work-id-head-matches?
+  "True iff `reply` carries a vector `:rf.reply/work-id` whose head is the
+   descriptor's declared `:work-head` keyword. Absent or non-keyword metadata is
+   FALSE, never a skip — the fail-closed half of the work-id gate. The primary
+   asserts this TRUE for every real row; the control asserts it FALSE for a
+   descriptor whose `:work-head` was deleted, renamed, or nil-filled, so
+   weakening the predicate reddens one side or the other."
+  [work-head reply]
+  (let [wid (:rf.reply/work-id reply)]
+    (and (keyword? work-head)
+         (vector? wid)
+         (= work-head (first wid)))))
+
 (deftest every-work-id-is-a-comparable-edn-tuple
-  ;; Every descriptor supplies a work-id head. Missing ids fail explicitly
-  ;; instead of skipping the tuple and round-trip assertions.
-  (doseq [{:keys [family work-head] :as family-spec} families
-          [situation builder] (select-keys family-spec [:success :error :cancel :stale])
-          :when (and builder work-head)
+  (testing "every family descriptor declares its required :work-head metadata"
+    (doseq [{:keys [family work-head]} families]
+      (is (keyword? work-head)
+          (str family " descriptor MUST declare a :work-head keyword — missing "
+               "identity metadata fails the family explicitly instead of silently "
+               "removing its rows from the work-id gate; got " (pr-str work-head)))))
+  (doseq [{:keys [family situation work-head builder]} (work-id-rows families)
           :let [reply (builder)
                 wid   (:rf.reply/work-id reply)]]
     (testing (str family " / " situation " :rf.reply/work-id correlation")
       (is (some? wid)
           (str family " " situation " reply must carry :rf.reply/work-id"))
       (is (vector? wid) (str family " " situation " reply work id is not a vector"))
-      (is (= work-head (first wid))
-          (str family " " situation " reply work-id head is " (first wid)
-               ", expected " work-head))
+      (is (work-id-head-matches? work-head reply)
+          (str family " " situation " reply work-id head is " (pr-str (first wid))
+               ", expected the descriptor's :work-head " (pr-str work-head)))
       (is (= wid (edn-roundtrip wid))
           (str family " " situation " reply work id is not EDN-round-trippable")))))
+
+(deftest work-id-gate-fails-closed-on-missing-descriptor-metadata
+  ;; The mutation: delete, misspell, or nil-fill one descriptor's `:work-head`.
+  ;; Under the old `:when (and builder work-head)` filter that family's rows
+  ;; disappeared and the suite stayed green. BOTH teeth are checked here — the
+  ;; rows are still VISITED, and the shared head predicate goes FALSE.
+  (doseq [[label mutate]
+          [[":work-head deleted" #(dissoc % :work-head)]
+           [":work-head renamed" #(-> % (dissoc :work-head) (assoc :wrok-head :rf.work/machine))]
+           [":work-head nil"     #(assoc % :work-head nil)]]]
+    (let [mutated  (mapv #(if (= :machine (:family %)) (mutate %) %) families)
+          bad-rows (work-id-rows mutated)
+          machine  (filterv #(= :machine (:family %)) bad-rows)]
+      (testing (str "a descriptor with " label " is still fully visited")
+        (is (= (count (work-id-rows families)) (count bad-rows))
+            (str "mutating :work-head (" label ") must NOT reduce the rows the "
+                 "work-id gate visits — that silent skip is the false green this "
+                 "control exists to catch"))
+        (is (seq machine)
+            (str ":machine rows must survive the mutation (" label ")")))
+      (testing (str "the shared head predicate REJECTS a descriptor with " label)
+        (doseq [{:keys [situation work-head builder]} machine]
+          (is (not (work-id-head-matches? work-head (builder)))
+              (str ":machine " situation " descriptor has " label ", yet the "
+                   "work-id head gate accepted it — the gate has lost its teeth")))))))
 
 (deftest timer-family-work-ids-share-the-actor-bearing-logical-id
   ;; Fired, stale, and cancelled replies describe one actor-owned timer, so
@@ -613,40 +775,98 @@
 ;; excluded explicitly (`time-pair-exclusions`), not silently.
 ;; ---------------------------------------------------------------------------
 
+(deftest every-nonsuccess-terminal-declares-a-time-pair-or-an-exclusion
+  (testing "the non-success completion-time matrix is an EXHAUSTIVE partition:
+            every supported terminal declares exactly one of a complete
+            with-time/no-time pair or one explicit exclusion, and every
+            unsupported terminal declares neither"
+    (let [problems (time-pair-partition-problems families time-pair-exclusions)]
+      (is (empty? problems)
+          (str "the non-success completion-time partition is not exhaustive:\n  "
+               (string/join "\n  " problems)))))
+  (testing "the partition accounts for EVERY cell of the matrix"
+    (let [cells       (* (count families) (count time-pair-situations))
+          unsupported (count (for [f families
+                                   [situation] time-pair-situations
+                                   :when (nil? (get f situation))]
+                               situation))]
+      (is (pos? (count time-paired-rows))
+          "the completion-time gate must drive off a NON-EMPTY set of paired rows")
+      (is (= cells (+ (count time-paired-rows)
+                      (count time-pair-exclusions)
+                      unsupported))
+          (str "every family × non-success-situation cell must be paired, excluded, "
+               "or unsupported — " cells " cells vs " (count time-paired-rows)
+               " paired + " (count time-pair-exclusions) " excluded + "
+               unsupported " unsupported")))))
+
+(deftest nonsuccess-time-pair-partition-fails-closed
+  ;; Each mutation feeds the SAME classifier the primary asserts EMPTY and
+  ;; requires it to report a problem. A classifier weakened into permissiveness
+  ;; reddens here; a matrix drifting out of the partition reddens the primary.
+  (testing "deleting BOTH pair keys really would drop the row from the gate"
+    (let [mutated (mapv #(if (= :http (:family %))
+                           (dissoc % :error-with-time :error-no-time) %)
+                        families)]
+      (is (< (count (paired-rows mutated)) (count time-paired-rows))
+          "deleting both :http :error pair keys must remove a row the gate drives off")
+      (is (seq (time-pair-partition-problems mutated time-pair-exclusions))
+          "…and the partition gate MUST report the now-unclassified :http / :error cell")))
+  (doseq [[label mutated exclusions]
+          [["a HALF pair (:http/:error keeps only -with-time)"
+            (mapv #(if (= :http (:family %)) (dissoc % :error-no-time) %) families)
+            time-pair-exclusions]
+           ["a complete pair that ALSO carries an exclusion (:http/:error)"
+            families
+            (conj time-pair-exclusions [:http :error http-error-with-time "bogus"])]
+           ["a DUPLICATE exclusion (:http/:stale twice)"
+            families
+            (conj time-pair-exclusions
+                  [:http :stale #(:reply (http-stale-out)) "duplicate"])]
+           ["an exclusion for an UNSUPPORTED situation (:route/:error)"
+            families
+            (conj time-pair-exclusions [:route :error route-live-reply "unsupported"])]
+           ["an exclusion for a cell OUTSIDE the matrix (:nope/:error)"
+            families
+            (conj time-pair-exclusions [:nope :error route-live-reply "orphan"])]
+           ["an exclusion missing its reason (:http/:stale)"
+            families
+            (conj (vec (remove (fn [[f s]] (and (= :http f) (= :stale s)))
+                               time-pair-exclusions))
+                  [:http :stale #(:reply (http-stale-out)) nil])]]]
+    (testing label
+      (is (seq (time-pair-partition-problems mutated exclusions))
+          (str "the partition classifier ACCEPTED a matrix with " label
+               " — the completeness gate has lost its teeth")))))
+
 (deftest completion-time-propagates-and-omits-across-nonsuccess-terminals
   (testing "each non-success terminal that durably uses causal completion time
             propagates a supplied :completed-at unchanged and omits it when absent"
-    (doseq [{:keys [family] :as family-spec} families
-            [situation with-key no-key] time-pair-situations
-            :let [with-builder (get family-spec with-key)
-                  no-builder    (get family-spec no-key)]
-            :when (or with-builder no-builder)]
-      ;; A family declaring one half of a pair MUST declare both, so the gate
-      ;; proves BOTH propagation and omission (never a half-covered situation).
-      (is (and with-builder no-builder)
-          (str family " " situation " must declare BOTH " with-key " and " no-key
-               " — a completion-time pair proves propagation AND omission"))
-      (when (and with-builder no-builder)
-        (let [with-reply (with-builder)
-              no-reply   (no-builder)]
-          (testing (str family " / " situation " → supplied :completed-at propagates unchanged")
-            (is (completion-time-propagated? with-reply completion-time-ms)
-                (str family " " situation " with-time reply MUST carry the supplied "
-                     "causal time " completion-time-ms " as :completed-at; got "
-                     (pr-str (:completed-at with-reply)))))
-          (testing (str family " / " situation " → absent :completed-at omitted (never nil-filled)")
-            (is (completion-time-omitted? no-reply)
-                (str family " " situation " no-time reply MUST OMIT :completed-at when no "
-                     "completion time was supplied — never nil-fill it (a nil sentinel "
-                     "would let a reducer derive a bogus durable timestamp). Got "
-                     (pr-str (:completed-at no-reply)))))
-          (testing (str family " / " situation " → both replies still validate")
-            (is (reply/valid-reply? with-reply)
-                (str family " " situation " with-time reply must validate: "
-                     (reply/validate-reply with-reply)))
-            (is (reply/valid-reply? no-reply)
-                (str family " " situation " no-time reply must validate: "
-                     (reply/validate-reply no-reply)))))))))
+    ;; Driven by the VALIDATED partition rather than by its own skip logic:
+    ;; `every-nonsuccess-terminal-declares-a-time-pair-or-an-exclusion` proves the
+    ;; rows omitted here are exactly the unsupported terminals and the explicit
+    ;; `time-pair-exclusions`, so a deleted pair can no longer skip in silence.
+    (doseq [{:keys [family situation with-builder no-builder]} time-paired-rows
+            :let [with-reply (with-builder)
+                  no-reply   (no-builder)]]
+      (testing (str family " / " situation " → supplied :completed-at propagates unchanged")
+        (is (completion-time-propagated? with-reply completion-time-ms)
+            (str family " " situation " with-time reply MUST carry the supplied "
+                 "causal time " completion-time-ms " as :completed-at; got "
+                 (pr-str (:completed-at with-reply)))))
+      (testing (str family " / " situation " → absent :completed-at omitted (never nil-filled)")
+        (is (completion-time-omitted? no-reply)
+            (str family " " situation " no-time reply MUST OMIT :completed-at when no "
+                 "completion time was supplied — never nil-fill it (a nil sentinel "
+                 "would let a reducer derive a bogus durable timestamp). Got "
+                 (pr-str (:completed-at no-reply)))))
+      (testing (str family " / " situation " → both replies still validate")
+        (is (reply/valid-reply? with-reply)
+            (str family " " situation " with-time reply must validate: "
+                 (reply/validate-reply with-reply)))
+        (is (reply/valid-reply? no-reply)
+            (str family " " situation " no-time reply must validate: "
+                 (reply/validate-reply no-reply)))))))
 
 (deftest excluded-terminals-omit-completion-time-even-when-supplied
   (testing "a terminal whose builder does not accept a causal completion time
@@ -845,11 +1065,10 @@
 ;; shared `completion-time-propagates-and-omits-across-nonsuccess-terminals`
 ;; gate has teeth on error / cancel / stale replies too, not only on success.
 (deftest nonsuccess-completion-time-gate-fails-closed-on-drop-and-nil-fill
+  ;; Driven by the SAME validated partition as the primary gate, so a row can
+  ;; never be present in one and absent from the other.
   (testing "the propagation gate REJECTS a non-success terminal that DROPS :completed-at"
-    (doseq [{:keys [family] :as family-spec} families
-            [situation with-key _] time-pair-situations
-            :let [with-builder (get family-spec with-key)]
-            :when with-builder
+    (doseq [{:keys [family situation with-builder]} time-paired-rows
             :let [bad (drop-completion-time (with-builder))]]
       ;; Completion time is optional, so the reply is otherwise still valid.
       (is (reply/valid-reply? bad)
@@ -859,10 +1078,7 @@
           (str family " " situation " control DROPPED :completed-at, yet the "
                "propagation gate accepted the reply — the gate has lost its teeth"))))
   (testing "the omit-when-absent gate REJECTS a no-time terminal that NIL-FILLS :completed-at"
-    (doseq [{:keys [family] :as family-spec} families
-            [situation _ no-key] time-pair-situations
-            :let [no-builder (get family-spec no-key)]
-            :when no-builder
+    (doseq [{:keys [family situation no-builder]} time-paired-rows
             :let [bad (nil-fill-completion-time (no-builder))]]
       ;; The teeth: the SHARED omission predicate must reject a present-but-nil slot.
       (is (not (completion-time-omitted? bad))
