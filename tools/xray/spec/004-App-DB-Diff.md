@@ -1,6 +1,6 @@
 # 004-App-DB-Diff
 
-> **See also**: [`021-Dynamic-Panel-Designs.md` §4](021-Dynamic-Panel-Designs.md#4-the-app-db-panel-state-bridge) for the canonical content design including downstream-subs overlay.
+> **See also**: [`021-Dynamic-Panel-Designs.md` §4](021-Dynamic-Panel-Designs.md#4-the-app-db-panel-state-bridge) for the canonical content design. (Its §4.4 downstream-subs overlay is retired — the popover was removed by rf2-kbxgj · rf2-ilubp and its resolver by rf2-6r9j.17.)
 
 ## Bug class
 

@@ -757,9 +757,14 @@
 
 (def machine-cascade-trace-ops
   "Closed set of trace ops the cascade projection harvests in trace order
-  (rf2-u69j7). Each op maps to a row :kind via `op->row-kind`. New ops
-  must be added here AND in the `op->row-kind` table; the view's
-  unknown-kind bail-out keeps drift visible."
+  (rf2-u69j7). Each op's row builder below stamps its own `:kind` (see
+  the guard / action / transition / microstep / timer / no-op / start
+  row fns); a new op is added here AND given a row builder that stamps
+  a `:kind`. The view's unknown-kind bail-out keeps drift visible.
+
+  (There was a standalone `op->row-kind` lookup table alongside this
+  set. Nothing ever read it — the row builders held the mapping — so
+  rf2-6r9j.25 removed it and this instruction with it.)"
   #{:rf.machine/guard-evaluated
     :rf.machine/action-ran
     :rf.machine/transition
@@ -790,17 +795,6 @@
     ;; first-real-event fold. Op-type :rf.machine (benign birth, not a
     ;; severity). Renders the `[START]` badge row at the FRONT of the cascade.
     :rf.machine/started})
-
-(def ^:private op->row-kind
-  "Map a machine trace op → cascade-row `:kind` keyword (rf2-u69j7).
-  The view's badge / chrome resolver keys off `:kind`."
-  {:rf.machine/guard-evaluated      :guard
-   :rf.machine/action-ran           :action
-   :rf.machine/transition           :transition
-   :rf.machine.microstep/transition :microstep
-   :rf.machine.timer/cancelled      :timer
-   :rf.machine.event/unhandled-no-op :no-op
-   :rf.machine/started              :start})
 
 (def ^:private cascade-rank
   "Canonical (kind, phase) presentation rank for the machine cascade
@@ -1213,16 +1207,6 @@
 ;; falls through to nil for those cases — the existing source-missing
 ;; placeholder renders in the view (graceful degradation; correct for the
 ;; common flat / single-microstep case).
-
-(defn- state-keyword-or-leaf
-  "Coerce a state form (keyword or vector path) to its leaf keyword. Used
-  as the state-id key in spec-path tuples for flat machines."
-  [state]
-  (cond
-    (keyword? state)            state
-    (and (vector? state)
-         (seq state))           (last state)
-    :else                       nil))
 
 (defn- state-vector
   "Coerce a state form (keyword or vector path) to its full vector path.

@@ -283,9 +283,6 @@
    :align-items           "center"
    :gap                   "4px"})
 
-(def ^:private link-button-nowrap-style
-  (assoc link-button-style :white-space "nowrap"))
-
 (def ^:private link-button-inherit-base-style
   {:background            "transparent"
    :border                "none"
@@ -302,9 +299,6 @@
    :display               "inline-flex"
    :align-items           "center"
    :gap                   "4px"})
-
-(def ^:private link-button-inherit-style
-  (assoc link-button-inherit-base-style :white-space "nowrap"))
 
 (def ^:private dispatch-source-plain-style
   {:color       accent-colour
@@ -355,24 +349,6 @@
    :white-space "nowrap"})
 
 ;; -- COEFFECT --------------------------------------------------------------
-
-(def ^:private coeffect-row-style
-  {:padding     "3px 0"
-   :display     "flex"
-   :align-items "flex-start"
-   :gap         "8px"
-   :font-family mono-stack
-   :font-size   "12px"})
-
-(def ^:private coeffect-row-id-plain-style
-  {:color       accent-colour
-   :white-space "nowrap"})
-
-(def ^:private coeffect-row-value-style
-  {:color      text-primary-colour
-   :min-width  0
-   :flex       1
-   :word-break "break-word"})
 
 (def ^:private coeffect-verb-link-button-style
   (assoc link-button-style
@@ -1303,15 +1279,6 @@
    :border-radius "3px"
    :overflow      "hidden"})
 
-(def ^:private table-glyph-cell-header-style
-  {:flex "0 0 24px" :padding "5px 8px"})
-
-(def ^:private disposed-th-60-style
-  {:flex "1 1 60%" :padding "5px 8px"})
-
-(def ^:private disposed-th-40-style
-  {:flex "1 1 40%" :padding "5px 8px"})
-
 (def ^:private disposed-glyph-cell-style
   {:flex        "0 0 24px"
    :padding     "5px 8px"
@@ -1354,9 +1321,6 @@
    :border        border-subtle-1px
    :border-radius "3px"
    :overflow      "hidden"})
-
-(def ^:private views-th-50-style
-  {:flex "1 1 50%" :padding "5px 8px"})
 
 (def ^:private views-cell-view-style
   {:flex        "1 1 50%"
@@ -1536,13 +1500,6 @@
          :color          white-colour
          :text-transform "none"))
 
-(def ^:private schema-violation-headline-style
-  {:color       text-primary-colour
-   :font-weight 600})
-
-(def ^:private schema-violation-headline-id-style
-  {:color accent-colour})
-
 (def ^:private schema-violation-line-style
   {:display "flex" :gap "8px" :align-items "baseline"})
 
@@ -1564,17 +1521,6 @@
 ;; retired (rf2-wnvid) — they backed the error-card's jump-to-source
 ;; action row, which rf2-wnvid dropped as redundant with the HANDLER
 ;; step's verb link.
-
-(def ^:private schema-violation-explain-toggle-style
-  {:background  "transparent"
-   :border      "none"
-   :padding     0
-   :margin      0
-   :color       text-tertiary-colour
-   :cursor      "pointer"
-   :font-family mono-stack
-   :font-size   "11px"
-   :text-align  "left"})
 
 (def ^:private schema-violation-explain-body-style
   {:color text-secondary-colour
@@ -2379,47 +2325,6 @@
     (violation-blocks :dispatch violations)]))
 
 ;; ---- COEFFECT step -------------------------------------------------------
-
-(defn- coeffect-row-view
-  "Render one COEFFECT row (id link + labelled value via edn-inspector)
-  per the bead body's §COEFFECT shape (rf2-cq0ch).
-
-  The injected value renders via the canonical edn-inspector widget —
-  scalars one-line through `edn/inspect-inline`; nested structures get
-  the labelled cofx-id header so the row reads `:rf/now <inst>` /
-  `:session {:user-id 42}` rather than the legacy cryptic
-  `+[]<value>` diff-row.
-
-  Pair-debug 2026-05-26: the cofx-id is a CLICKABLE button when the
-  registered cofx carries `:file`/`:line` meta — clicking opens the
-  editor at the `reg-cofx` source. The external-link icon rides
-  INSIDE the button so the affordance reads as a single labelled
-  link. When no coord is captured the label renders as a plain
-  coloured span (no broken / dead-link affordance).
-
-  Argument order matches `map-indexed`'s `(f idx item)` calling
-  convention; the pre-rf2-cq0ch shape transposed these and silently
-  destructured a number as the row map (`_row` was the index, `idx`
-  the row map — hence the legacy `+[]nil` symptom)."
-  [idx {:keys [id value] :as _row}]
-  (let [cofx-meta  (when (keyword? id)
-                     (try (rf/handler-meta :cofx id)
-                          (catch :default _ nil)))
-        coord      (when (and cofx-meta (string? (:file cofx-meta)))
-                     {:file (:file cofx-meta) :line (:line cofx-meta)})
-        label      (fmt/ns-keyword id)]
-    [:div {:key (str "cofx-" idx)
-           :data-testid (str "rf-xray-epoch-coeffect-row-" idx)
-           :style coeffect-row-style}
-     ;; rf2-vw5pi — id via shared `coord-link` (clickable when coord
-     ;; captured, plain span otherwise); per-site styles preserved.
-     (coord-link/coord-link coord label (str "rf-xray-epoch-coeffect-row-id-" idx)
-                            {:style       link-button-inherit-style
-                             :plain-style coeffect-row-id-plain-style})
-     ;; injected value (labelled — no cryptic `+[]nil` line)
-     [:span {:data-testid (str "rf-xray-epoch-coeffect-row-value-" idx)
-             :style coeffect-row-value-style}
-      (edn/inspect-inline value)]]))
 
 (defn render-coeffect-step
   "Render one COEFFECT step — one PER injected coeffect (pair-debug
@@ -3931,16 +3836,6 @@
   (when (and m (string? (:file m)) (seq (:file m)))
     {:file (:file m) :line (:line m)}))
 
-(defn- source-coord-display
-  "Render a structured source-coord `{:file :line}` as the display
-  string `\"file:line\"` (or just `\"file\"`). nil when the coord
-  lacks `:file`. Mirrors `event_detail/format-coord-display` so the
-  HANDLER source row reads the same chrome the Event panel ships."
-  [{:keys [file line]}]
-  (when (and (string? file) (seq file))
-    (cond-> file
-      line (str ":" line))))
-
 (defn- handler-verb-link
   "Render the HANDLER step's verb (e.g. `reg-event`) as a
   clickable hyperlink + external-link glyph when the handler's
@@ -4405,7 +4300,7 @@
   the `:fx` entries, then `other` rows.
 
   Argument order matches `map-indexed`'s `(f idx item)` convention
-  (rf2-cq0ch — companion swap with `coeffect-row-view`).
+  (rf2-cq0ch).
 
   The leading glyph + colour resolve off the shared
   `badge/fx-row-status-*` primitive (rf2-j630b): ✓ :ok / ✗ :error /
@@ -5316,19 +5211,6 @@
 ;; under its primary body; FX / SUBSCRIPTIONS additionally inject
 ;; per-row blocks via the row's own `:violations` slot.
 
-(defn- schema-violation-where-label
-  "Render a violation's `:where` slot as a UI label. Closed set per
-  Spec 008 / 010; defaults to the keyword name."
-  [where]
-  (case where
-    :app-db      "app-db commit"
-    :cofx        "coeffect"
-    :sub-return  "sub return"
-    :fx-args     "fx args"
-    :event       "event payload"
-    :hot-reload  "schema hot-reload"
-    (when (keyword? where) (name where))))
-
 (defn- violation-recovery-label
   "Render the recovery posture chip on a violation's title bar.
   Per rf2-2ek7t — short chip text; the prose sentence below carries
@@ -5360,18 +5242,6 @@
                  (catch :default _ nil))]
       (when (and m (string? (:file m)))
         {:file (:file m) :line (:line m)}))))
-
-(defn- where->handler-kind
-  "Map a violation's `:where` slot to the registrar kind whose
-  source-coord we want to open. nil for slots with no canonical kind."
-  [where]
-  (case where
-    :event       :event
-    :cofx        :cofx
-    :app-db      :event   ;; the event handler that wrote the bad app-db
-    :fx-args     :fx
-    :sub-return  :sub
-    nil))
 
 (def ^:private violation-prose-style
   ;; sans-stack overrides the outer block's monospace inheritance —

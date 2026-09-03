@@ -381,18 +381,18 @@
      :epoch-id   (:epoch-id epoch-record)
      :empty-kind empty-kind}))
 
-;; ---- film-strip filter slot (spec/021 §8.5 stretch) ---------------------
+;; ---- issue-bearing epoch predicate --------------------------------------
 
 (defn epoch-has-issues?
   "True iff `epoch-record`'s `:trace-events` carry at least one issue
   (any severity). Pure data → bool; JVM-testable.
 
-  Consumed by the film-strip header's `:filter-fn` slot per
-  spec/021 §8.5 — the operator stepping through bug repro lands on
-  issue-bearing epochs only ('next epoch with ⚠'). When the film-
-  strip header lands (rf2-h7nqh) this fn becomes the panel's contract
-  callback; until then it's wired internally so the algebra is
-  test-covered."
+  Written for the film-strip header's `:filter-fn` slot (spec/021 §8.5
+  stretch — 'next epoch with ⚠'). That header was removed unmounted by
+  rf2-6r9j.16: spine navigation is the L2 events list's, not any L4
+  panel's. The predicate survives as pure, test-covered algebra with no
+  current caller — wire it to a real surface or retire it, but do not
+  read it as evidence that a per-panel epoch filter exists."
   [epoch-record]
   (boolean
     (some issue-event?

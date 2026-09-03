@@ -34,25 +34,23 @@ depth-2-expanded).
 Operator expansion state persists in app-db
 (`:rf.xray.edn-inspector/expansion {<path>}`) per epoch + path.
 
-### `film_strip/header`
+### `film_strip/header` — REMOVED (rf2-6r9j.16)
 
-Shared `[◀ Prev] [Next ▶]` header consumed by most L4 panels (**Trace
-opts out** — the L2 list owns its spine navigation). Lives
-at
-[`tools/xray/src/day8/re_frame2_xray/panels/shared/film_strip/header.cljc`](../../../tools/xray/src/day8/re_frame2_xray/panels/shared/film_strip/header.cljc).
-MVP: chronological walk through the L2 spine. Hit-target sizing per
-§021 §17.1.5 (28×20px, 4px vertical padding for AA target-size).
-Disabled state at spine ends. Navigation is via the rendered
-`◀ Prev` / `Next ▶` buttons plus the wired focus-gated `j` / `k` spine
-keys (`:rf.xray/focus-event-prev` / `-next`, per `keybinding.cljs`) —
-the component is pure (no global keydown listener), and `keybinding.cljs`
-wires **no** `ArrowLeft` / `ArrowRight` spine handler. Do not document
-arrow-key navigation until `keybinding.cljs` actually implements it.
+**There is no shared film-strip header, and no L4 panel mounts one.**
+The component was built under rf2-h7nqh, never acquired a production
+caller, and was deleted with its self-test by rf2-6r9j.16.
 
-Per-panel stretch filters (e.g. "next epoch with ⚠" — driven off the
-issues-ribbon signal — "next route activity"
-for Routes, "next epoch that touched THIS machine" for the Machine tab)
-slot into the header's filter slot.
+Spine navigation belongs to the **L2 events list** and the chrome
+ribbon's `[◀ ▶ ⏭]` cluster, for every L4 panel without exception —
+see [`021-Dynamic-Panel-Designs.md` §5.5](../../../tools/xray/spec/021-Dynamic-Panel-Designs.md).
+The focus-gated `j` / `k` spine keys
+(`:rf.xray/focus-event-prev` / `-next`, per `keybinding.cljs`) remain
+the keyboard route; `keybinding.cljs` wires **no** `ArrowLeft` /
+`ArrowRight` spine handler, so do not document arrow-key navigation
+until it does.
+
+A panel wanting its own epoch stepper is proposing a SECOND navigation
+owner. Argue that first; do not reach for this section as precedent.
 
 ### `focus_resolver` + `find-epoch-record`
 
@@ -68,8 +66,8 @@ states.
 
 The evicted-epoch placeholder (§021 §10.7 — `"Epoch evicted from
 buffer — increase :epoch-history to retain more"`) is also resolved
-here, so the film-strip ◀ / ▶ keeps working when the operator scrubs
-past an evicted row.
+here, so the ribbon's ◀ / ▶ / ⏭ nav keeps working when the operator
+scrubs past an evicted row.
 
 ## Iconography quick reference
 
