@@ -5,8 +5,10 @@
   contracted servers, and representative fixtures. Family-local schemas
   such as result envelopes and event bundles stay beside their focused
   tests. Wrapper maps are closed and single-keyed; marker bodies remain
-  open where additive fields are part of the contract."
-  (:require [malli.core :as m]))
+  open where additive fields are part of the contract.
+
+  This namespace defines schema DATA; the validating test namespaces are
+  where Malli is executed, so it requires nothing.")
 
 ;; ---------------------------------------------------------------------------
 ;; Canonical schemas. Single source of truth.

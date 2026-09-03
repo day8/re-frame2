@@ -200,17 +200,20 @@ function assertBodiesAgree(textBody, structuredBody, ctx) {
   }
 }
 
+// Exported: the surface the two importers actually consume —
+// `test/overflow-marker.test.cjs` (the unit gate) and
+// `test/live-re-frame2-pair-overflow.cjs` (the live gate). `OVERFLOW_KEY`,
+// `REQUIRED_FIELDS`, `parseOverflowText` and `canonicalize` stay module-local:
+// each is live INSIDE this file, and the JVM cross-encoding gate
+// (`js-assertOverflowBody-pins-every-re-frame2-pair-overflow-required-field`)
+// source-greps the `REQUIRED_FIELDS` rows rather than importing the table.
 module.exports = {
-  OVERFLOW_KEY,
   EDN_PARSE_OPTS,
-  REQUIRED_FIELDS,
   isPlainObject,
   unwrapClosedOverflow,
   assertOverflowBody,
   validateOverflowWrapper,
-  parseOverflowText,
   validateOverflowText,
-  canonicalize,
   bodiesEqual,
   assertBodiesAgree,
 };

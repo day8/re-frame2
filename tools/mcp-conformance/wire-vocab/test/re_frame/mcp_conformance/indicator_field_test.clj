@@ -143,9 +143,8 @@
 
 ;; ---------------------------------------------------------------------------
 ;; Inline-emit anti-pin — neither slot literal may appear inline in any
-;; re-frame2-pair-mcp source file OTHER than the helper itself (and the
-;; descriptors file, whitelisted
-;; below). A tool that bypasses the helper to `(assoc envelope
+;; re-frame2-pair-mcp source file OTHER than the helper itself. A tool
+;; that bypasses the helper to `(assoc envelope
 ;; :dropped-sensitive N)` directly violates the MUST-level parity rule
 ;; — the helper exists precisely to centralise the omit-when-zero rule
 ;; and the parity invariant.
@@ -156,13 +155,16 @@
   `:elided-large` keywords. Anything else MUST go through the
   `with-indicators` helper.
 
-  - `wire.cljs`        — the helper itself (the canonical emit-path).
-  - `descriptors.cljs` — tool-descriptor docstrings reference the slot
-                         names; these are documentation strings shipped
-                         in the `tools/list` response shape, not envelope
-                         emissions."
-  #{"tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/wire.cljs"
-    "tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/descriptors.cljs"})
+  - `wire.cljs` — the helper itself (the canonical emit-path).
+
+  This set holds ONE entry by design. Documentation that names the slots
+  — descriptor prose shipped in the `tools/list` response, docstrings
+  cross-linking the helper — needs no entry: the gate strips comments,
+  docstrings and strings BEFORE it greps (efd0c8dbf32), so prose is
+  already invisible to it. A whitelist row is strictly stronger than that:
+  it skips the file WHOLE, so a later real emission there would evade the
+  gate. Add a row only for a file that must carry the literal in CODE."
+  #{"tools/re-frame2-pair-mcp/src/re_frame2_pair_mcp/tools/wire.cljs"})
 
 (defn- mcp-source-files
   "Walk `src-rel` (a repo-relative subdir) and return every `.cljs`
@@ -193,7 +195,8 @@
   ;; docstring / comment / descriptor-string mentions — descriptor
   ;; descriptions ship the slot names as user-visible documentation
   ;; (e.g. `"Dropped count surfaces as `:dropped-sensitive` ..."` in
-  ;; `descriptors_data.cljs`), and tool-source docstrings cross-link the
+  ;; `descriptors_data.cljs`, which is NOT whitelisted and is scanned like
+  ;; any other file), and tool-source docstrings cross-link the
   ;; helper they delegate to. Those are documentation, not
   ;; emissions; the strip-then-grep posture catches real inline emits
   ;; (`(assoc envelope :dropped-sensitive N)`) while letting prose
