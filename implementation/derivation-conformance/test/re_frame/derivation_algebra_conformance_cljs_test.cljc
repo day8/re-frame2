@@ -47,8 +47,7 @@
             [re-frame.subs.tooling :as subs-tooling]
             [re-frame.flows.tooling :as flows-tooling]
             [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace]))
+            [re-frame.test-support :as test-support]))
 
 ;; ---------------------------------------------------------------------------
 ;; Closed vocabularies from `spec/Derivations.md` and `spec/Spec-Schemas.md`.
@@ -1092,8 +1091,10 @@
   ;; Snapshot both durable partitions, read the on-demand nodes, re-snapshot.
   (let [app-before (frame/frame-app-db-value :rf/default)
         rt-before  (frame/frame-runtime-db-value :rf/default)
-        ;; Read the ordinary subscription.
-        sub-val    @(rf/subscribe [:cart/items])
+        ;; Read the ordinary subscription. The value is deliberately
+        ;; discarded — it may be nil (no cart seeded); the point is that the
+        ;; read RAN, between the two durable-state snapshots.
+        _          @(rf/subscribe [:cart/items])
         ;; Read the resource selector for an unmaterialized key — the idle
         ;; empty-state projection. Reading it must not start work or write a
         ;; cache entry / work-ledger record.
@@ -1102,7 +1103,8 @@
         app-after  (frame/frame-app-db-value :rf/default)
         rt-after   (frame/frame-runtime-db-value :rf/default)]
     (testing "the reads return values (the reads actually happened)"
-      ;; sub-val may be nil (no cart seeded) — the point is the read ran.
+      ;; The subscription read above is unasserted by design (see its comment);
+      ;; the selector read carries the observable claim.
       (is (= :idle (:status sel-val))
           "reading the selector for an unmaterialized key yields the idle empty-state"))
     (testing "neither durable partition changed merely because a reader read"
