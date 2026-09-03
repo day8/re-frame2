@@ -64,6 +64,16 @@
   ;; nothing to re-point here: pointing at the shipped door was already the
   ;; answer that outlives Freehand's retirement, and it outlives the harness's
   ;; relocation for free.
+  ;; THE DEPRECATION WARNING THIS PRINTS IS EXPECTED, AND A `:local/root` IS
+  ;; NOT THE FIX. `clojure` warns on every `:paths` entry outside the project
+  ;; ("Use of :paths external to the project has been deprecated"), which a
+  ;; migrator running the documented command sees and reasonably wonders about
+  ;; (rf2-mckf). The sanctioned spelling would be a `:local/root` on
+  ;; `implementation/hicasso`, and taking it would drag that artefact's own
+  ;; `:deps` — `day8/re-frame2` and `day8/re-frame2-ssr`, by `:local/root` in
+  ;; turn — onto the classpath of a tool whose whole design premise is that it
+  ;; runs on a bare JVM and never loads re-frame2. One pure `.cljc` file that
+  ;; requires `clojure.string` is the cheaper honesty.
   "../../../implementation/hicasso/src"]
 
  :deps {org.clojure/clojure       {:mvn/version "1.12.4"}

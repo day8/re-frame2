@@ -25,6 +25,16 @@ clojure -M:run --rewrite --write src/          # apply it
 clojure -M:run --report out.edn src/           # choose where the report goes
 ```
 
+**Every run writes one EDN report, a scan that changes no source included.**
+Without `--report` it goes to `reagent-to-hicasso-report.edn` beside the first
+path scanned — point the tool at `<repo>/src/` and it lands at `<repo>/` — and
+the run prints the absolute path it used. It used to be written to the process's
+working directory under that bare name, which, given that the first line above
+is a `cd` into this directory, meant *into this checkout*: a consumer running
+the documented command found the file in their `git status` for a repository
+they were treating as a read-only build input, with nothing having said it would
+be there (rf2-mckf).
+
 The exit code is `0` for any run that completed and `1` only when a file could
 not be read or written. A migration tool that fails a build because a
 consumer's code needs a human decision is a tool that gets run once.
@@ -38,9 +48,9 @@ the fixer reports zero entries — the corpus crosses into React nowhere — and
 a migrator reading that report sees eighty-eight files that are not mentioned.
 
 So the same run also produces a census, under `:census` in the report, whose
-population is the Reagent API call site: `r/atom`, `r/with-let`,
+population is the view-substrate API call site: `r/atom`, `r/with-let`,
 `r/create-class`, `r/as-element`, `r/cursor`, `r/reactify-component`, root
-mounting, and the rest of the roster in
+mounting, and the rest of the two rosters in
 `src/re_frame/migration/hicasso/census.clj`. On that same corpus it reports
 59 sites across 28 files, one of them the `with-let` whose teardown no
 mechanical edit can carry. Both are measurements of a corpus that keeps
@@ -50,7 +60,7 @@ landed.
 | Half | Population | Addressed at | Verdicts |
 |---|---|---|---|
 | fixer (`:entries`) | `[:>]`-family crossing sites | the site | rewrote / refused, in the classes below |
-| census (`:census`) | Reagent API call sites | the call | `:mechanical`, `:human-decision`, `:runtime-blocker` |
+| census (`:census`) | view-substrate API call sites | the call | `:mechanical`, `:human-decision`, `:runtime-blocker` |
 
 (4 columns; 2 body rows.)
 
@@ -102,6 +112,59 @@ returning a `fn` and nothing else marks it; a structural test for that would
 report every higher-order function in the corpus. The `r/atom` such a component
 closes over is on the roster, and the shape itself is left uncounted and said
 so. A confident wrong number is worse than a stated silence.
+
+## Two rosters, and a zero the tool cannot report confidently
+
+The census reads its population off a **namespace**, and for most of its life
+it knew one family of them. That made it score a real re-frame2 application at
+**zero** — not wrongly, but uselessly (rf2-xoal, found by a blinded pilot
+migrating a real application against the published guide). A re-frame2 app on
+the Reagent adapter renders *through* Reagent and never names it: views are
+declared with `reg-view`, reads are `@(subscribe […])`, and the substrate
+arrives as `re-frame.adapter.reagent`, which is not `reagent.core`. Not one
+`reagent.core` name anywhere. The zero was a true statement about a population
+that was not that application's migration surface — and an application on the
+Reagent adapter is the single most likely thing to be migrated to Hicasso.
+
+There are two rosters now, and the rule for both is **identity, not spelling: a
+namespace is classified when this project can vouch for what it is.**
+
+- **Reagent's API** — stock Reagent's four namespaces, plus the `reagent2.*`
+  four that the reagent-slim adapter ships. That is the same API authored a
+  second time in this repository, under names the how-to guide teaches
+  consumers to call, so one roster classifies both. Omitting it was the same
+  defect one adopter later.
+- **re-frame2's own substrate adapters** — everything under
+  `re-frame.adapter.`, matched as a **prefix rule anchored at the start of the
+  namespace**, because the adapter set is open and a list of today's adapters
+  goes stale into the same silent zero tomorrow. The roster of names on it is
+  the adapters' documented public surface in `docs/api/`.
+
+A namespace that merely *contains* one of these spellings is still not one and
+still binds nothing — re-frame-10x's vendored
+`day8.re-frame-10x.inlined-deps.reagent.v1v2v0.reagent.core` and a hypothetical
+`my.vendored.re-frame.adapter.reagent` alike. The two rosters are also kept
+**apart** rather than merged: `:files-with-reagent` is read to decide whether a
+Reagent *coordinate* can be dropped, which is a question about Reagent and not
+about the substrate.
+
+**And no roster is ever wide enough.** Whatever the census knows, some codebase
+renders through a surface it does not, and over that corpus every count comes
+back zero in precisely the voice of a clean bill of health. Widening postpones
+that; it cannot prevent it. So the tool is made unable to report the confident
+zero:
+
+- every scanned file is `:recognised?` or it is not, and the summary's file
+  counts **partition** the corpus (`files-scanned = files-recognised +
+  files-unrecognised`, and `files-recognised = files-clean + files carrying an
+  entry`) — the missing bucket was the very thing the zero was hiding;
+- `:recognition` is `:full`, `:partial`, `:none` or `:no-files`, and `:caveat`
+  is a sentence saying what that means for the numbers beside it — present
+  always, `:full` included, because a warning that appears only when something
+  is wrong is a warning nobody can tell from a missing key;
+- the verdict is **hoisted to the top of the report**, beside `:tool`, because
+  the reader who gets misled is the one who reads the first summary and stops;
+- the CLI's last line leads with it, for the same reason.
 
 ## The two laws
 
@@ -261,7 +324,7 @@ semantics directly, running the design's stated shape alongside to show the
 amendment is load-bearing. `shared_rule_test.clj` asserts that the slot rule
 this tool asks is the shared one and not a copy.
 
-`census_test.clj` gates the census on both ways a census fails — answering
+`census_test.clj` gates the census on the ways a census fails — answering
 nothing, and answering too much. The second control is not decoration: it caught
 two live over-reports while the namespace was being written. An `ns` DOCSTRING
 discussing `reagent.ratom/run!` in prose made five clean example files read as
@@ -280,6 +343,17 @@ write, and each is a place the advertised estimand was false — three counted,
 two missed. The controls that PRUNE come paired with controls that the pruning
 does not over-reach, since a walk that skips too much is the first failure
 mode arriving from the other side.
+
+A third failure mode joined them from rf2-xoal: answering nothing over a corpus
+the census never RECOGNISED, which wears the first one's face exactly — every
+count zero, nothing red. It is gated on the tool's inability to report that zero
+without saying which of the two it is, and the assertion comes with a control
+that has to fire: the same machinery over a corpus the census does have a
+population in reports `:full`, whose caveat says the zero would be a
+measurement. Beside it sit the roster controls, which are the same lesson in
+both families — a vendored `…reagent.v1v2v0.reagent.core` binds nothing, and
+neither does a `my.vendored.re-frame.adapter.reagent`, because the prefix rule
+is anchored at the start of the namespace and containment is not identity.
 
 ## One dependency, deliberately
 
