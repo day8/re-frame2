@@ -155,8 +155,8 @@
   same signal to tell a mid-drain destroy (commit a `:halted-destroy`
   partial record) from a registration-time tagalong."
   [frame-id]
-  (some (fn [ev]
-          (= :rf.event/run-start (:operation ev)))
+  (some (fn [trace-event]
+          (= :rf.event/run-start (:operation trace-event)))
         (state/buffer-for frame-id)))
 
 (defn capture-event!
@@ -188,12 +188,12 @@
   synchronous occurrences stay in the current buffer."
   [event]
   (when interop/debug-enabled?
-    (let [op       (:operation event)
-          tags     (:tags event)
+    (let [operation  (:operation event)
+          event-tags (:tags event)
           ;; The canonical raw trace-event frame path, and the ONLY one
           ;; (Spec 009 §Frame identity on the raw event — there is no
           ;; top-level `:frame` on a raw event, and the dual
-          ;; `(or (:frame tags) (:frame event))` read this replaces is
+          ;; `(or (:frame event-tags) (:frame event))` read this replaces is
           ;; named there as the thing not to write). `build-event`
           ;; supplies the tag from the ambient frame for emit sites that
           ;; don't stamp it themselves (rf2-hbmeb), so this single read
@@ -201,17 +201,17 @@
           ;; `:rf.resource/*` / `:rf.mutation/*` family, which spells its
           ;; frame as the EVIDENCE key `:rf.frame/id` and so was
           ;; frame-less here, and dropped, on every real cascade.
-          frame-id (:frame tags)]
+          frame-id (:frame event-tags)]
       ;; Any path below that can mutate epoch state first claims the id-keyed
       ;; stores for the exact live frame incarnation. This serialises a fresh
       ;; same-id B publication against stale A's final destroy hook.
       (when (and frame-id
-                 (not (contains? skip-ops op))
-                 (or (:rf.trace/dispatch-id tags)
+                 (not (contains? skip-ops operation))
+                 (or (:rf.trace/dispatch-id event-tags)
                      (in-flight-cascade? frame-id)
-                     (contains? render-ops op)
-                     (contains? sub-run-ops op)
-                     (contains? unmount-ops op)))
+                     (contains? render-ops operation)
+                     (contains? sub-run-ops operation)
+                     (contains? unmount-ops operation)))
         (when-let [owner-token (frame/frame-incarnation-token frame-id)]
           (state/claim-frame-owner! frame-id owner-token)))
       ;; Learn which subscriptions each view reads from the
@@ -224,10 +224,11 @@
       ;; uses the read-set to tell a view's genuine re-render from a
       ;; mount-burst tail. Fires regardless of the routing branch below.
       (when frame-id
-        (when-let [reader-render-key (:rf.sub/reader-render-key tags)]
-          (when (= :rf.sub/run op)
-            (state/record-render-deps! frame-id reader-render-key (:rf.sub/id tags)))))
-      (when (and frame-id (not (contains? skip-ops op)))
+        (when-let [reader-render-key (:rf.sub/reader-render-key event-tags)]
+          (when (= :rf.sub/run operation)
+            (state/record-render-deps! frame-id reader-render-key
+                                       (:rf.sub/id event-tags)))))
+      (when (and frame-id (not (contains? skip-ops operation)))
         (cond
           ;; Post-settle render — attribute to the causing cascade.
           ;; The orchestrator (state back-fill + listener re-notify)
@@ -237,7 +238,7 @@
           ;; is published at `re-frame.epoch` ns-load; when absent (the
           ;; degenerate load-order window before the facade installs it)
           ;; the render falls through to the normal buffer path.
-          (and (contains? render-ops op)
+          (and (contains? render-ops operation)
                (not (in-flight-cascade? frame-id)))
           (if-let [record-render! (late-bind/get-fn-cached :epoch/record-render!)]
             (record-render! frame-id event)
@@ -246,7 +247,7 @@
           ;; Post-settle sub-run. Same
           ;; back-fill shape, distinct hook. Falls through to the normal
           ;; buffer path during the pre-facade-install load-order window.
-          (and (contains? sub-run-ops op)
+          (and (contains? sub-run-ops operation)
                (not (in-flight-cascade? frame-id)))
           (if-let [record-sub-run! (late-bind/get-fn-cached :epoch/record-sub-run!)]
             (record-sub-run! frame-id event)
@@ -265,7 +266,7 @@
           ;; drain) is buffered normally by the `:else` arm. Falls through to
           ;; the normal buffer path during the pre-facade-install load-order
           ;; window.
-          (and (contains? unmount-ops op)
+          (and (contains? unmount-ops operation)
                (not (in-flight-cascade? frame-id)))
           (if-let [record-unmount! (late-bind/get-fn-cached :epoch/record-unmount!)]
             (record-unmount! frame-id event)
@@ -293,7 +294,7 @@
           ;; do-fx carrying the child's id, and rides the child's later
           ;; `harvest-buffer-for-event!` settle.
           (and (not (in-flight-cascade? frame-id))
-               (nil? (:rf.trace/dispatch-id tags)))
+               (nil? (:rf.trace/dispatch-id event-tags)))
           nil
 
           :else
@@ -357,67 +358,70 @@
    (run-cause frame-id 100))
   ([frame-id sub-cap]
    (when interop/debug-enabled?
-     (let [events  (state/buffer-for frame-id)
+     (let [buffered-events (state/buffer-for frame-id)
            ;; Single reduce: capture first :rf.event/run-start, accumulate
            ;; distinct sub-ids in first-seen order up to `sub-cap`, and
            ;; count the existing :rf.view/rendered emits so the views.cljs
            ;; emit site can enforce the per-run view-render cap.
-           result  (reduce
-                     (fn [acc ev]
-                       (let [op   (:operation ev)
-                             tags (:tags ev)]
-                         (cond-> acc
-                           (and (nil? (:cause-event-id acc))
-                                (= :rf.event/run-start op))
-                           (assoc :cause-event-id (:rf.trace/event-id tags))
+           cause-state (reduce
+                         (fn [cause-state trace-event]
+                           (let [operation  (:operation trace-event)
+                                 event-tags (:tags trace-event)]
+                             (cond-> cause-state
+                               (and (nil? (:cause-event-id cause-state))
+                                    (= :rf.event/run-start operation))
+                               (assoc :cause-event-id (:rf.trace/event-id event-tags))
 
-                           (and (= :rf.sub/run op)
-                                (some? (:rf.sub/id tags))
-                                (not (contains? (:seen acc) (:rf.sub/id tags)))
-                                (< (count (:subs acc)) sub-cap))
-                           (-> (update :subs conj (:rf.sub/id tags))
-                               (update :seen conj (:rf.sub/id tags)))
+                               (and (= :rf.sub/run operation)
+                                    (some? (:rf.sub/id event-tags))
+                                    (not (contains? (:seen cause-state)
+                                                    (:rf.sub/id event-tags)))
+                                    (< (count (:subs cause-state)) sub-cap))
+                               (-> (update :subs conj (:rf.sub/id event-tags))
+                                   (update :seen conj (:rf.sub/id event-tags)))
 
-                           ;; Accumulate the value-changed
-                           ;; subset (a set, deduped) so the views.cljs emit
-                           ;; site can derive :rf.view/triggered-by. A sub
-                           ;; that ran multiple times in the cascade
-                           ;; contributes once (set semantics). This scan is
-                           ;; independently bounded by `sub-cap` and
-                           ;; gates value-changed accumulation on its OWN
-                           ;; count, just as the first-seen scan above caps
-                           ;; `:subs`. Without this guard a pathological
-                           ;; full-page cascade with > sub-cap distinct
-                           ;; value-changed sub-ids would grow the set past
-                           ;; the cap, contradicting the documented bound and
-                           ;; defeating the per-cascade view-render cap's
-                           ;; intent for this slot.
-                           (and (= :rf.sub/run op)
-                                (some? (:rf.sub/id tags))
-                                (true? (:rf.sub/value-changed? tags))
-                                (< (count (:value-changed-subs acc)) sub-cap))
-                           (update :value-changed-subs conj (:rf.sub/id tags))
+                               ;; Accumulate the value-changed
+                               ;; subset (a set, deduped) so the views.cljs emit
+                               ;; site can derive :rf.view/triggered-by. A sub
+                               ;; that ran multiple times in the cascade
+                               ;; contributes once (set semantics). This scan is
+                               ;; independently bounded by `sub-cap` and
+                               ;; gates value-changed accumulation on its OWN
+                               ;; count, just as the first-seen scan above caps
+                               ;; `:subs`. Without this guard a pathological
+                               ;; full-page cascade with > sub-cap distinct
+                               ;; value-changed sub-ids would grow the set past
+                               ;; the cap, contradicting the documented bound and
+                               ;; defeating the per-cascade view-render cap's
+                               ;; intent for this slot.
+                               (and (= :rf.sub/run operation)
+                                    (some? (:rf.sub/id event-tags))
+                                    (true? (:rf.sub/value-changed? event-tags))
+                                    (< (count (:value-changed-subs cause-state)) sub-cap))
+                               (update :value-changed-subs conj (:rf.sub/id event-tags))
 
-                           ;; Count both :rf.view/rendered AND the one-shot
-                           ;; :rf.view/rendered-cap-reached marker: once
-                           ;; the marker fires for a cascade, n-so-far
-                           ;; remains > cap so the emit site's `:else nil`
-                           ;; branch suppresses subsequent emits (the
-                           ;; marker is one-shot per cascade).
-                           (or (= :rf.view/rendered op)
-                               (= :rf.view/rendered-cap-reached op))
-                           (update :rendered-so-far inc))))
+                               ;; Count both :rf.view/rendered AND the one-shot
+                               ;; :rf.view/rendered-cap-reached marker: once
+                               ;; the marker fires for a cascade, n-so-far
+                               ;; remains > cap so the emit site's `:else nil`
+                               ;; branch suppresses subsequent emits (the
+                               ;; marker is one-shot per cascade).
+                               (or (= :rf.view/rendered operation)
+                                   (= :rf.view/rendered-cap-reached operation))
+                               (update :rendered-so-far inc))))
                      {:cause-event-id     nil
                       :subs               []
                       :seen               #{}
                       :value-changed-subs #{}
                       :rendered-so-far    0}
-                     events)]
-       (cond-> {:rendered-so-far (:rendered-so-far result)}
-         (:cause-event-id result) (assoc :cause-event-id (:cause-event-id result))
-         (seq (:subs result))     (assoc :cause-subs (:subs result))
-         (seq (:value-changed-subs result))
-         (assoc :value-changed-subs (:value-changed-subs result)))))))
+                     buffered-events)]
+       (cond-> {:rendered-so-far (:rendered-so-far cause-state)}
+         (:cause-event-id cause-state)
+         (assoc :cause-event-id (:cause-event-id cause-state))
+         (seq (:subs cause-state))
+         (assoc :cause-subs (:subs cause-state))
+         (seq (:value-changed-subs cause-state))
+         (assoc :value-changed-subs (:value-changed-subs cause-state)))))))
 
 ;; ---- record projection ----------------------------------------------------
 ;;
@@ -473,19 +477,19 @@
   presence semantics."
   [event]
   (when (= :rf.sub/run (:operation event))
-    (let [tags (:tags event)]
-      (cond-> {:sub-id         (:rf.sub/id tags)
-               :query-v        (:rf.sub/query-v tags)
+    (let [event-tags (:tags event)]
+      (cond-> {:sub-id         (:rf.sub/id event-tags)
+               :query-v        (:rf.sub/query-v event-tags)
                :recomputed?    true
-               :value-changed? (:rf.sub/value-changed? tags)
-               :prev-value     (:rf.sub/prev-value tags)
-               :value          (:rf.sub/value tags)
-               :cascade?       (:rf.sub/cascade? tags)
-               :cause-sub      (:rf.sub/cause-sub tags)}
-        (contains? tags :rf.sub/cause-event-id)
-        (assoc :cause-event-id (:rf.sub/cause-event-id tags))
+               :value-changed? (:rf.sub/value-changed? event-tags)
+               :prev-value     (:rf.sub/prev-value event-tags)
+               :value          (:rf.sub/value event-tags)
+               :cascade?       (:rf.sub/cascade? event-tags)
+               :cause-sub      (:rf.sub/cause-sub event-tags)}
+        (contains? event-tags :rf.sub/cause-event-id)
+        (assoc :cause-event-id (:rf.sub/cause-event-id event-tags))
 
-        (:large? tags)
+        (:large? event-tags)
         (assoc :large? true)))))
 
 (defn render-row
@@ -532,17 +536,17 @@
   re-renders, matching the open-map schema."
   [event]
   (when (= :rf.view/rendered (:operation event))
-    (let [tags (:tags event)]
-      (cond-> {:render-key (or (:rf.view/render-key tags)
+    (let [event-tags (:tags event)]
+      (cond-> {:render-key (or (:rf.view/render-key event-tags)
                                [:rf.view/anonymous nil])}
-        (contains? tags :rf.view/mount?)
-        (assoc :mount? (:rf.view/mount? tags))
-        (some? (:rf.view/triggered-by tags))
-        (assoc :triggered-by (:rf.view/triggered-by tags))
-        (some? (:rf.view/elapsed-ms tags))
-        (assoc :elapsed-ms (:rf.view/elapsed-ms tags))
-        (contains? tags :rf.view/cause-event-id)
-        (assoc :cause-event-id (:rf.view/cause-event-id tags))))))
+        (contains? event-tags :rf.view/mount?)
+        (assoc :mount? (:rf.view/mount? event-tags))
+        (some? (:rf.view/triggered-by event-tags))
+        (assoc :triggered-by (:rf.view/triggered-by event-tags))
+        (some? (:rf.view/elapsed-ms event-tags))
+        (assoc :elapsed-ms (:rf.view/elapsed-ms event-tags))
+        (contains? event-tags :rf.view/cause-event-id)
+        (assoc :cause-event-id (:rf.view/cause-event-id event-tags))))))
 
 (defn project-all
   "Walk the captured trace events ONCE and emit the three `:sub-runs`,
@@ -589,63 +593,68 @@
   ;; Internal slot keys are `:s` / `:r` / `:e` purely to keep this
   ;; transient namespace local; the documented `:sub-runs` /
   ;; `:renders` / `:effects` shape is materialised once at the end.
-  (let [acc (reduce
-              (fn [acc ev]
-                (let [op   (:operation ev)
-                      tags (:tags ev)]
-                  (cond
-                    ;; The reactive recompute path enriches
-                    ;; the `:rf.sub/run` tag with value-change + cascade
-                    ;; attribution; `sub-run-row` threads them onto the
-                    ;; structured projection (shared with the post-settle
-                    ;; back-fill in `listeners`).
-                    (= :rf.sub/run op)
-                    (assoc! acc :s (conj! (get acc :s) (sub-run-row ev)))
+  (let [projection-state
+        (reduce
+          (fn [projection-state trace-event]
+            (let [operation  (:operation trace-event)
+                  event-tags (:tags trace-event)]
+              (cond
+                ;; The reactive recompute path enriches
+                ;; the `:rf.sub/run` tag with value-change + cascade
+                ;; attribution; `sub-run-row` threads them onto the
+                ;; structured projection (shared with the post-settle
+                ;; back-fill in `listeners`).
+                (= :rf.sub/run operation)
+                (assoc! projection-state :s
+                        (conj! (get projection-state :s)
+                               (sub-run-row trace-event)))
 
-                    ;; Source the :renders projection from the
-                    ;; POST-render :rf.view/rendered op (carries per-view
-                    ;; cause + timing), not the render-START :rf.view/render.
-                    (= :rf.view/rendered op)
-                    (assoc! acc :r (conj! (get acc :r) (render-row ev)))
+                ;; Source the :renders projection from the
+                ;; POST-render :rf.view/rendered op (carries per-view
+                ;; cause + timing), not the render-START :rf.view/render.
+                (= :rf.view/rendered operation)
+                (assoc! projection-state :r
+                        (conj! (get projection-state :r)
+                               (render-row trace-event)))
 
-                    (= :rf.fx/handled op)
-                    (assoc! acc :e
-                            (conj! (get acc :e)
-                                   {:fx-id   (:rf.fx/id tags)
-                                    :args    (:rf.fx/args tags)
-                                    :outcome :ok}))
+                (= :rf.fx/handled operation)
+                (assoc! projection-state :e
+                        (conj! (get projection-state :e)
+                               {:fx-id   (:rf.fx/id event-tags)
+                                :args    (:rf.fx/args event-tags)
+                                :outcome :ok}))
 
-                    (= :rf.fx/skipped-on-platform op)
-                    (assoc! acc :e
-                            (conj! (get acc :e)
-                                   {:fx-id   (:rf.fx/id tags)
-                                    :args    (:rf.fx/args tags)
-                                    :outcome :skipped-on-platform}))
+                (= :rf.fx/skipped-on-platform operation)
+                (assoc! projection-state :e
+                        (conj! (get projection-state :e)
+                               {:fx-id   (:rf.fx/id event-tags)
+                                :args    (:rf.fx/args event-tags)
+                                :outcome :skipped-on-platform}))
 
-                    (= :rf.error/fx-handler-exception op)
-                    (assoc! acc :e
-                            (conj! (get acc :e)
-                                   {:fx-id       (:rf.fx/id tags)
-                                    :args        (:rf.fx/args tags)
-                                    :outcome     :error
-                                    :error-trace (:id ev)}))
+                (= :rf.error/fx-handler-exception operation)
+                (assoc! projection-state :e
+                        (conj! (get projection-state :e)
+                               {:fx-id       (:rf.fx/id event-tags)
+                                :args        (:rf.fx/args event-tags)
+                                :outcome     :error
+                                :error-trace (:id trace-event)}))
 
-                    (= :rf.error/no-such-fx op)
-                    (assoc! acc :e
-                            (conj! (get acc :e)
-                                   {:fx-id       (:rf.fx/id tags)
-                                    :args        (:rf.fx/args tags)
-                                    :outcome     :error
-                                    :error-trace (:id ev)}))
+                (= :rf.error/no-such-fx operation)
+                (assoc! projection-state :e
+                        (conj! (get projection-state :e)
+                               {:fx-id       (:rf.fx/id event-tags)
+                                :args        (:rf.fx/args event-tags)
+                                :outcome     :error
+                                :error-trace (:id trace-event)}))
 
-                    :else acc)))
-              (transient {:s (transient [])
-                          :r (transient [])
-                          :e (transient [])})
-              events)]
-    {:sub-runs (persistent! (get acc :s))
-     :renders  (persistent! (get acc :r))
-     :effects  (persistent! (get acc :e))}))
+                :else projection-state)))
+          (transient {:s (transient [])
+                      :r (transient [])
+                      :e (transient [])})
+          events)]
+    {:sub-runs (persistent! (get projection-state :s))
+     :renders  (persistent! (get projection-state :r))
+     :effects  (persistent! (get projection-state :e))}))
 
 ;; ---- trigger-event resolution --------------------------------------------
 
@@ -664,11 +673,11 @@
   re-present every fact the run consumed. Pre-handler mints merge
   idempotently; later same-id mints win in event order."
   [events]
-  (let [result
+  (let [capture-state
         (reduce
-          (fn [acc ev]
-            (let [op   (:operation ev)
-                  tags (:tags ev)]
+          (fn [capture-state trace-event]
+            (let [operation  (:operation trace-event)
+                  event-tags (:tags trace-event)]
               (cond
                 ;; run-start beats the fallback. We DO NOT short-circuit:
                 ;; the cascade's `:rf.cofx/generated`
@@ -692,14 +701,16 @@
                 ;; dispatch opts beside `:rf.cofx`). Static per cascade (the
                 ;; envelope is fixed at build-envelope time) — unlike
                 ;; `:rf.cofx` there is no mid-drain augmentation to merge.
-                (and (= :rf.event/run-start op) (nil? (:run-start acc)))
-                (assoc acc :run-start {:event-id      (:rf.trace/event-id tags)
-                                       :event         (:rf.event/v tags)
-                                       :dispatch-id   (:rf.trace/dispatch-id tags)
-                                       :rf.cofx       (:rf.event/cofx tags)
-                                       :fx-overrides  (:rf.event/fx-overrides tags)
-                                       :interceptor-overrides
-                                       (:rf.event/interceptor-overrides tags)})
+                (and (= :rf.event/run-start operation)
+                     (nil? (:run-start capture-state)))
+                (assoc capture-state
+                       :run-start {:event-id      (:rf.trace/event-id event-tags)
+                                   :event         (:rf.event/v event-tags)
+                                   :dispatch-id   (:rf.trace/dispatch-id event-tags)
+                                   :rf.cofx       (:rf.event/cofx event-tags)
+                                   :fx-overrides  (:rf.event/fx-overrides event-tags)
+                                   :interceptor-overrides
+                                   (:rf.event/interceptor-overrides event-tags)})
 
                 ;; Accumulate every generator-minted recordable fact in event
                 ;; order. `:rf.cofx/value`
@@ -708,10 +719,11 @@
                 ;; that re-mints) wins last-write — the LAST value the cascade
                 ;; produced for that id is the one a same-id re-presentation
                 ;; consumed, matching the in-drain write-back semantics.
-                (= :rf.cofx/generated op)
-                (cond-> acc
-                  (some? (:rf.cofx/id tags))
-                  (assoc-in [:minted (:rf.cofx/id tags)] (:rf.cofx/value tags)))
+                (= :rf.cofx/generated operation)
+                (cond-> capture-state
+                  (some? (:rf.cofx/id event-tags))
+                  (assoc-in [:minted (:rf.cofx/id event-tags)]
+                            (:rf.cofx/value event-tags)))
 
                 ;; Capture the first :event-id we see as the fallback.
                 ;; Do not fabricate `:event`; when the
@@ -728,11 +740,13 @@
                 ;; from a rejected dispatch); the run-start arm
                 ;; is the canonical source for it, so only that arm above
                 ;; pins `:dispatch-id`.
-                (and (nil? (:fallback acc)) (some? (:rf.trace/event-id tags)))
-                (assoc acc :fallback {:event-id (:rf.trace/event-id tags)
-                                      :event    (:rf.event/v tags)})
+                (and (nil? (:fallback capture-state))
+                     (some? (:rf.trace/event-id event-tags)))
+                (assoc capture-state
+                       :fallback {:event-id (:rf.trace/event-id event-tags)
+                                  :event    (:rf.event/v event-tags)})
 
-                :else acc)))
+                :else capture-state)))
           {}
           events)
         ;; Merge generated facts onto the run-start
@@ -742,8 +756,9 @@
         ;; when run-start carried a `:rf.cofx` slot at all (dev builds; a
         ;; cascade whose envelope carried no cofx map omits it — there is then
         ;; no token to augment and no mints to merge for that degenerate case).
-        run-start (when-let [rs (:run-start result)]
-                    (cond-> rs
-                      (and (some? (:rf.cofx rs)) (seq (:minted result)))
-                      (update :rf.cofx merge (:minted result))))]
-    (or run-start (:fallback result))))
+        run-start-record (when-let [captured-run-start (:run-start capture-state)]
+                           (cond-> captured-run-start
+                             (and (some? (:rf.cofx captured-run-start))
+                                  (seq (:minted capture-state)))
+                             (update :rf.cofx merge (:minted capture-state))))]
+    (or run-start-record (:fallback capture-state))))

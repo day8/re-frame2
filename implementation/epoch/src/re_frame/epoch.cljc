@@ -250,13 +250,13 @@
           (when (continue?)
             ;; Whole-frame snapshots are restore units; app-db slots are
             ;; projections. The supplied digest keeps build-record data-only.
-            (let [base   (assembly/build-record
-                           frame-id frame-state-before frame-state-after events
-                           committed-at outcome halt-reason schema-digest)
+            (let [base-record (assembly/build-record
+                                frame-id frame-state-before frame-state-after events
+                                committed-at outcome halt-reason schema-digest)
                   ;; Pin the explicit trigger only when the buffer did not
                   ;; resolve one (a halting event that never reached run-start).
-                  record (cond-> base
-                           (and trigger-event (not (:event-id base)))
+                  record (cond-> base-record
+                           (and trigger-event (not (:event-id base-record)))
                            (assoc :event-id      (first trigger-event)
                                   :trigger-event trigger-event))
                   ;; Record + async anchor publish as one exact-owner
@@ -268,10 +268,10 @@
               ;; The optional cascade aggregator is callback-bearing. Its
               ;; result and every later trailer are inert after owner loss.
               (when (and published? (continue?))
-                (when-let [capture (late-bind/get-fn-cached
-                                     :trace.cascade/capture-for-epoch!)]
+                (when-let [capture-for-epoch! (late-bind/get-fn-cached
+                                                :trace.cascade/capture-for-epoch!)]
                   (try
-                    (capture frame-id (:epoch-id record) (:event-id record) events)
+                    (capture-for-epoch! frame-id (:epoch-id record) (:event-id record) events)
                     (catch #?(:clj Throwable :cljs :default) _ nil))))
               (when (and published? (continue?))
                 (assembly/emit-snapshotted+outcome!
@@ -514,7 +514,7 @@
   The record remains raw for replay and becomes the frame's last-settled
   attribution anchor. With no application event in flight, `:committed-at`
   uses `epoch-now-ms`: a durable wall-clock value, not the elapsed-time clock."
-  [frame-id incarnation-token fs-before fs-after]
+  [frame-id incarnation-token frame-state-before frame-state-after]
   (let [continue? #(frame/event-continuation-live? frame-id incarnation-token)]
     (when (and incarnation-token
                (state/claim-frame-owner! frame-id incarnation-token continue?))
@@ -523,7 +523,9 @@
       (when (continue?)
         (let [schema-digest (assembly/current-schema-digest frame-id continue?)]
           (when (continue?)
-            (let [record     (assoc (assembly/build-record frame-id fs-before fs-after []
+            (let [record     (assoc (assembly/build-record frame-id
+                                                           frame-state-before
+                                                           frame-state-after []
                                                            (interop/epoch-now-ms)
                                                            :ok nil schema-digest)
                                     :event-id      :rf.epoch/db-replaced
@@ -552,7 +554,7 @@
   rather than the bare id: a same-id successor seated between validation and
   this write can therefore never receive the patch — the gate refuses with
   the SAME canonical `:rf.error/no-such-handler` failure a destroyed-frame
-  race produces, and `write-fn` (core's exact-incarnation 3-arity write)
+  race produces, and `write-frame-state!` (core's exact-incarnation 3-arity write)
   closes the post-liveness half of the window. The write result settles the
   remaining teardown race: nil means the exact incarnation was lost before
   the write landed (destroyed, or reseated), while any non-nil changed-key
@@ -563,15 +565,15 @@
   token-fenced (`record-synthetic-replace-epoch!`), so post-write owner loss
   STOPS the tail rather than retargeting it onto a successor.
 
-  The coherent read (`fs-before`), the physical write, and the synthetic-epoch
+  The coherent read (`frame-state-before`), the physical write, and the synthetic-epoch
   bookkeeping run under the frame's `:drain-lock` (`serialize-tool-write!`), so
-  no event transition can interleave between the `fs-before` read and the
-  write's own re-read. `fs-after` is therefore the EXACT value installed — the
+  no event transition can interleave between the `frame-state-before` read and the
+  write's own re-read. `frame-state-after` is therefore the EXACT value installed — the
   synthetic `:frame-state-before` / `:frame-state-after` describe the physical
   transition, and a concurrent event's update to an omitted partition is never
   lost or silently reverted (rf2-3fc89f.4). A replace invoked reentrantly from
   the active drainer refuses with `:rf.epoch/replace-during-drain`."
-  [frame-id incarnation-token fs-after-fn write-fn]
+  [frame-id incarnation-token build-frame-state-after write-frame-state!]
   (tool-pair/serialize-tool-write!
     frame-id
     :rf.epoch/replace-during-drain
@@ -589,29 +591,29 @@
             false)
         (let [;; Record the same coherent whole-frame value the write installs.
               ;; Read under the drain lock so the write's own re-read (which
-              ;; preserves omitted partitions) sees this same state — fs-after
+              ;; preserves omitted partitions) sees this same state — frame-state-after
               ;; then equals the installed value. The write goes through the
               ;; EXACT-INCARNATION arity: nil means the incarnation was lost
               ;; after the gate (destroyed, or reseated — the post-liveness
               ;; race); an empty set is still a successful no-op write against
               ;; the live incarnation.
-              fs-before (frame/frame-state-value frame-id)
-              fs-after  (fs-after-fn fs-before)
-              changed   (write-fn)]
-          (if (nil? changed)
+              frame-state-before (frame/frame-state-value frame-id)
+              frame-state-after  (build-frame-state-after frame-state-before)
+              changed-keys       (write-frame-state!)]
+          (if (nil? changed-keys)
             (do (tool-pair/emit-precondition-failure! :rf.error/no-such-handler
                                                       {:kind :frame :frame frame-id})
                 false)
             (do (record-synthetic-replace-epoch! frame-id incarnation-token
-                                                 fs-before fs-after)
+                                                 frame-state-before frame-state-after)
                 true)))))))
 
 (defn- perform-replace-frame-state!
   "Carry out the partial frame-state patch once preconditions have passed.
   `new-frame-state` is a PARTIAL frame-state map (any subset of
   `{:rf.db/app … :rf.db/runtime …}`); a present key replaces that
-  partition, an absent key is carried forward unchanged from `fs-before`.
-  The recorded after-state (`merge fs-before
+  partition, an absent key is carried forward unchanged from `frame-state-before`.
+  The recorded after-state (`merge frame-state-before
   new-frame-state`) mirrors that same contract so the synthetic epoch's
   `:frame-state-after` matches exactly what the write installed.
   `incarnation-token` (from the preconditions) keys the whole transaction to
@@ -622,7 +624,8 @@
   [frame-id incarnation-token new-frame-state]
   (perform-replace! frame-id
                     incarnation-token
-                    (fn [fs-before] (merge fs-before new-frame-state))
+                    (fn [frame-state-before]
+                      (merge frame-state-before new-frame-state))
                     #(frame/replace-frame-state! frame-id incarnation-token new-frame-state)))
 
 (defn replace-frame-state!

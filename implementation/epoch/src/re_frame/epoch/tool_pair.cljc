@@ -73,8 +73,9 @@
   frame-scoped; restore-epoch! validates against the schemas registered
   against the frame the epoch belongs to, not a process-global set."
   [frame-id]
-  (if-let [entries (late-bind/get-fn :schemas/frame-schema-entries)]
-    (entries frame-id)
+  (if-let [schema-entries-for-frame
+           (late-bind/get-fn :schemas/frame-schema-entries)]
+    (schema-entries-for-frame frame-id)
     {}))
 
 (defn failing-schema-paths
@@ -89,18 +90,18 @@
   `(empty? (failing-schema-paths frame-id db))`, so callers get both the
   yes/no answer and the failing paths from one traversal."
   [frame-id db]
-  (let [schemas  (registered-app-schemas frame-id)
-        validate (malli-validate-fn)]
-    (if (or (empty? schemas) (nil? validate))
+  (let [app-schemas     (registered-app-schemas frame-id)
+        validate-schema (malli-validate-fn)]
+    (if (or (empty? app-schemas) (nil? validate-schema))
       []
       (vec
-        (keep (fn [[path meta]]
-                (let [schema (:schema meta)
-                      v      (get-in db path)]
-                  (when-not (try (validate schema v)
+        (keep (fn [[path schema-entry]]
+                (let [schema       (:schema schema-entry)
+                      schema-value (get-in db path)]
+                  (when-not (try (validate-schema schema schema-value)
                                  (catch #?(:clj Throwable :cljs :default) _ true))
                     path)))
-              schemas)))))
+              app-schemas)))))
 
 (defn- machine-registration
   "Resolve a machine-id against the public machine registry. Per
@@ -112,9 +113,9 @@
   Epoch restore validates against this public surface, not the unrelated
   internal `:head` registrar kind."
   [machine-id]
-  (let [reg (registrar/lookup :event machine-id)]
-    (when (:rf/machine? reg)
-      reg)))
+  (let [registration (registrar/lookup :event machine-id)]
+    (when (:rf/machine? registration)
+      registration)))
 
 (defn- snapshot-version
   "Read the recorded snapshot's `:rf/snapshot-version`. Per
@@ -190,10 +191,12 @@
   validator returns for an app-db failure. The validity question is
   `(empty? (failing-runtime-paths frame-id runtime-db))`."
   [frame-id runtime-db]
-  (if-let [validate (late-bind/get-fn :machines/validate-machine-data!)]
-    (let [result (try (validate runtime-db nil frame-id)
-                      (catch #?(:clj Throwable :cljs :default) _ true))]
-      (if (or (nil? result) (true? result))
+  (if-let [validate-machine-data!
+           (late-bind/get-fn :machines/validate-machine-data!)]
+    (let [validation-result
+          (try (validate-machine-data! runtime-db nil frame-id)
+               (catch #?(:clj Throwable :cljs :default) _ true))]
+      (if (or (nil? validation-result) (true? validation-result))
         []
         [machine-snapshots-path]))
     []))
@@ -330,9 +333,11 @@
   Shared by every precondition path that must refuse to write to
   `app-db` while a cascade is being processed."
   [frame-record]
-  (let [router (:router frame-record)
-        r      (when router @router)]
-    (boolean (and r (or (:in-drain? r) (:in-sync-drain? r))))))
+  (let [router       (:router frame-record)
+        router-state (when router @router)]
+    (boolean (and router-state
+                  (or (:in-drain? router-state)
+                      (:in-sync-drain? router-state))))))
 
 (defn- frame-exists-or-fail
   "Resolve `frame-id` to its `frame-record` or yield the canonical
@@ -402,7 +407,7 @@
 
       :else
       (let [history (state/history-for frame-id)
-            epoch   (find-epoch-in history epoch-id)]
+            epoch-record (find-epoch-in history epoch-id)]
         (cond
           ;; Exact-owner gate on the history/validation snapshot (rf2-qfrh4
           ;; seam 1). `state/history-for` above (and every validator below)
@@ -421,7 +426,7 @@
                      :frame frame-id}}
 
           ;; (3) Epoch present in current history?
-          (nil? epoch)
+          (nil? epoch-record)
           {:outcome :fail
            :op      :rf.epoch/restore-unknown-epoch
            :tags    {:frame        frame-id
@@ -432,13 +437,13 @@
           ;; Refuse before schema, handler, and version checks so
           ;; the failure surfaces with the actual halt context, not
           ;; a downstream consequence of the partial db.
-          (not= :ok (get epoch :outcome :ok))
+          (not= :ok (get epoch-record :outcome :ok))
           {:outcome :fail
            :op      :rf.epoch/restore-non-ok-record
            :tags    {:frame       frame-id
                      :rf.epoch/id epoch-id
-                     :outcome     (:outcome epoch)
-                     :halt-reason (:halt-reason epoch)}}
+                     :outcome     (:outcome epoch-record)
+                     :halt-reason (:halt-reason epoch-record)}}
 
           :else
           (let [;; The canonical restore target is the whole frame state.
@@ -450,13 +455,16 @@
                 ;; slot is a retained app-db PROJECTION for tool diffs, never
                 ;; a restore source). A record with no `:frame-state-after`
                 ;; is malformed/unreachable on the current build path.
-                frame-state-target (:frame-state-after epoch)
-                db-target          (get frame-state-target frame/app-partition-key)
-                runtime-target     (get frame-state-target frame/runtime-partition-key)]
+                recorded-frame-state (:frame-state-after epoch-record)
+                recorded-app-db      (get recorded-frame-state
+                                          frame/app-partition-key)
+                recorded-runtime-db  (get recorded-frame-state
+                                          frame/runtime-partition-key)]
             ;; Bind each probe once so each substrate is walked once.
             ;; failure path walks the recorded db / schema set / machine
             ;; map exactly once per check.
-            (if-let [failing-paths (seq (failing-schema-paths frame-id db-target))]
+            (if-let [failing-paths
+                     (seq (failing-schema-paths frame-id recorded-app-db))]
               ;; (4) Schema mismatch?
               ;; Per Spec 010 §Schema digest + Tool-Pair §Time-travel:
               ;; the trace carries both the digest pinned on the
@@ -468,19 +476,21 @@
                :op      :rf.epoch/restore-schema-mismatch
                :tags    {:frame                  frame-id
                          :rf.epoch/id            epoch-id
-                         :schema-digest-recorded (:schema-digest epoch)
+                         :schema-digest-recorded (:schema-digest epoch-record)
                          :schema-digest-current  (assembly/current-schema-digest frame-id)
                          :failing-paths          (vec failing-paths)}}
 
-              (if-let [missing (seq (missing-references runtime-target))]
+              (if-let [missing-reference-details
+                       (seq (missing-references recorded-runtime-db))]
                 ;; (5) Missing handler referenced from runtime-db?
                 {:outcome :fail
                  :op      :rf.epoch/restore-missing-handler
                  :tags    {:frame       frame-id
                            :rf.epoch/id epoch-id
-                           :missing     (vec missing)}}
+                           :missing     (vec missing-reference-details)}}
 
-                (if-let [{:keys [machine-id machine-type recorded current]} (machine-version-mismatch runtime-target)]
+                (if-let [{:keys [machine-id machine-type recorded current]}
+                         (machine-version-mismatch recorded-runtime-db)]
                   ;; (6) Machine snapshot version drift?
                   ;; `:machine-type` identifies a spawned actor's
                   ;; TYPE (keyword or inline-definition map) alongside its
@@ -497,7 +507,9 @@
                                      :version-current  current}
                               (some? machine-type) (assoc :machine-type machine-type))}
 
-                  {:outcome :ok :epoch epoch :incarnation-token incarnation-token})))))))))
+                  {:outcome :ok
+                   :epoch epoch-record
+                   :incarnation-token incarnation-token})))))))))
 
 ;; ---- replay-epoch! preconditions + perform (Tool-Pair §Replay) -------------
 ;;
@@ -632,11 +644,16 @@
   dispatch exactly as any `:strict` dispatch does — nothing here catches it,
   and nothing mints."
   [frame-id record opts]
-  (let [before-ids (into #{} (map :epoch-id) (state/history-for frame-id))]
+  (let [pre-replay-epoch-ids
+        (into #{} (map :epoch-id) (state/history-for frame-id))]
     (router/dispatch-sync! (:trigger-event record)
                            (replay-dispatch-opts frame-id record opts))
-    (let [new-record (some (fn [r] (when-not (contains? before-ids (:epoch-id r)) r))
-                           (state/history-for frame-id))]
+    (let [new-record
+          (some (fn [candidate-record]
+                  (when-not (contains? pre-replay-epoch-ids
+                                       (:epoch-id candidate-record))
+                    candidate-record))
+                (state/history-for frame-id))]
       {:ok?             true
        :frame           frame-id
        :source-epoch-id (:epoch-id record)
@@ -785,13 +802,16 @@
   ([frame-id frame-state restore-time-ms]
    (reconcile-runtime-db-on-restore frame-id frame-state restore-time-ms nil))
   ([frame-id frame-state restore-time-ms owner-token]
-   (if-let [reconcile (late-bind/get-fn :resources/reconcile-on-restore)]
+   (if-let [reconcile-runtime-db!
+            (late-bind/get-fn :resources/reconcile-on-restore)]
      (if (contains? frame-state frame/runtime-partition-key)
        (update frame-state frame/runtime-partition-key
-               (fn [rdb] (when (some? rdb)
-                           (reconcile rdb frame-id {:defer-traces?   true
-                                                    :restore-time-ms restore-time-ms
-                                                    :owner-token     owner-token}))))
+               (fn [runtime-db]
+                 (when (some? runtime-db)
+                   (reconcile-runtime-db!
+                     runtime-db frame-id {:defer-traces?   true
+                                          :restore-time-ms restore-time-ms
+                                          :owner-token     owner-token}))))
        frame-state)
      frame-state)))
 
@@ -868,11 +888,11 @@
    (let [still-owned? (fn []
                         (or (nil? incarnation-token)
                             (frame/event-continuation-live? frame-id incarnation-token)))]
-     (doseq [hook-key restore-quiesce-hooks
-             :while   (still-owned?)]
-       (when-let [f (late-bind/get-fn hook-key)]
-         (try (f frame-id)
-              (catch #?(:clj Throwable :cljs :default) ex
+      (doseq [hook-key restore-quiesce-hooks
+              :while   (still-owned?)]
+        (when-let [quiesce-hook (late-bind/get-fn hook-key)]
+          (try (quiesce-hook frame-id)
+               (catch #?(:clj Throwable :cljs :default) quiesce-error
                 ;; rf2-vy2hj: the SETTLED path needs the same fence as the
                 ;; loop's `:while`. A hook is the very callback boundary this
                 ;; chain polices, so hook 1 may destroy A, seat a same-id
@@ -890,11 +910,11 @@
                 ;; best-effort chain continues.
                 (when (still-owned?)
                   (trace/emit-error! :rf.warning/restore-quiesce-hook-exception
-                                     {:category  :rf.warning/restore-quiesce-hook-exception
-                                      :hook      hook-key
-                                      :frame     frame-id
-                                      :exception ex
-                                      :recovery  :ignored})))))))
+                                      {:category  :rf.warning/restore-quiesce-hook-exception
+                                       :hook      hook-key
+                                       :frame     frame-id
+                                       :exception quiesce-error
+                                       :recovery  :ignored})))))))
    nil))
 
 (defn commit-resources-restore-traces!
@@ -917,9 +937,11 @@
   at every intent boundary and stops announcing A's restore once a listener has
   seated a same-id successor B."
   [frame-state frame-id incarnation-token]
-  (when-let [commit (late-bind/get-fn :resources/commit-restore-reconcile!)]
-    (when-let [rdb (get frame-state frame/runtime-partition-key)]
-      (commit rdb frame-id {:owner-token incarnation-token})))
+  (when-let [commit-restore-reconcile!
+             (late-bind/get-fn :resources/commit-restore-reconcile!)]
+    (when-let [runtime-db (get frame-state frame/runtime-partition-key)]
+      (commit-restore-reconcile! runtime-db frame-id
+                                 {:owner-token incarnation-token})))
   nil)
 
 (defn perform-restore!
@@ -993,7 +1015,7 @@
                                         {:kind :frame :frame frame-id})
             false)
         (let [;; Whole `:frame-state-after` is the only restore source.
-              frame-state-target (:frame-state-after epoch)
+              recorded-frame-state (:frame-state-after epoch)
               ;; Reconcile runtime subsystems before the atomic install,
               ;; the same way SSR hydration reconciles its installed slice — so a
               ;; mid-flight captured snapshot does not install stranded
@@ -1009,9 +1031,10 @@
               ;; pre-write host-table clear is fenced to this incarnation — a
               ;; callback that churns A to B mid-reconcile cannot make the bare-id
               ;; clear release B's host handles (rf2-qfrh4 seam 2).
-              frame-state-target (reconcile-runtime-db-on-restore
-                                   frame-id frame-state-target
-                                   (:committed-at epoch) incarnation-token)
+              reconciled-frame-state
+              (reconcile-runtime-db-on-restore frame-id recorded-frame-state
+                                               (:committed-at epoch)
+                                               incarnation-token)
               ;; Write both partitions through the one physical frame container,
               ;; via the EXACT-INCARNATION arity: it resolves through the
               ;; validated incarnation's own record and returns nil if a same-id
@@ -1021,8 +1044,10 @@
               ;; incarnation was lost after the gate (destroyed, or reseated); a
               ;; non-nil changed-key-set (even empty) means it landed on the
               ;; exact incarnation.
-              changed (frame/replace-frame-state! frame-id incarnation-token frame-state-target)]
-          (if (nil? changed)
+              changed-keys
+              (frame/replace-frame-state! frame-id incarnation-token
+                                          reconciled-frame-state)]
+          (if (nil? changed-keys)
             (do (emit-precondition-failure! :rf.error/no-such-handler
                                             {:kind :frame :frame frame-id})
                 false)
@@ -1049,8 +1074,8 @@
                   (state/set-last-settled-epoch! frame-id (:epoch-id epoch)))
                 (when (frame/event-continuation-live? frame-id incarnation-token)
                   ;; Deferred subsystem success traces are valid only after install.
-                  (commit-resources-restore-traces! frame-state-target
-                                                    frame-id incarnation-token))
+                  (commit-resources-restore-traces! reconciled-frame-state
+                                                     frame-id incarnation-token))
                 (when (frame/event-continuation-live? frame-id incarnation-token)
                   ;; Host timers and HTTP handles are not frame state; cancel the
                   ;; abandoned timeline only after the new state is installed.
@@ -1097,13 +1122,16 @@
   bad-shaped map is rejected loudly rather than treated as an empty
   partial patch."
   [frame-state]
-  (let [ks         (set (keys frame-state))
-        unknown    (into [] (remove frame-state-partition-keys) ks)
-        recognized (filter frame-state-partition-keys ks)]
+  (let [frame-state-keys (set (keys frame-state))
+        unknown-keys    (into [] (remove frame-state-partition-keys)
+                              frame-state-keys)
+        recognized-keys (filter frame-state-partition-keys frame-state-keys)]
     (cond
-      (seq unknown)        {:reason :unknown-keys :keys (vec ks)}
-      (empty? recognized)  {:reason :no-recognized-keys :keys (vec ks)}
-      :else                nil)))
+      (seq unknown-keys)       {:reason :unknown-keys
+                                :keys   (vec frame-state-keys)}
+      (empty? recognized-keys) {:reason :no-recognized-keys
+                                :keys   (vec frame-state-keys)}
+      :else                   nil)))
 
 (defn check-replace-frame-state-preconditions!
   "Validate the documented preconditions for `replace-frame-state!`, the
@@ -1196,12 +1224,15 @@
         :else
         ;; (4) Schema mismatch? Only the PRESENT partitions are walked — an
         ;; absent key is preserved, not written.
-        (let [failing (cond-> []
-                        (contains? frame-state frame/app-partition-key)
-                        (into (failing-schema-paths frame-id (get frame-state frame/app-partition-key)))
+        (let [failing-paths
+              (cond-> []
+                (contains? frame-state frame/app-partition-key)
+                (into (failing-schema-paths
+                        frame-id (get frame-state frame/app-partition-key)))
 
-                        (contains? frame-state frame/runtime-partition-key)
-                        (into (failing-runtime-paths frame-id (get frame-state frame/runtime-partition-key))))]
+                (contains? frame-state frame/runtime-partition-key)
+                (into (failing-runtime-paths
+                        frame-id (get frame-state frame/runtime-partition-key))))]
           (cond
             ;; Exact-owner gate on the validation snapshot (rf2-gj2bo,
             ;; mirroring `check-restore-preconditions!`'s history gate). The
@@ -1220,11 +1251,11 @@
              :tags    {:kind  :frame
                        :frame frame-id}}
 
-            (seq failing)
+            (seq failing-paths)
             {:outcome :fail
              :op      :rf.epoch/replace-schema-mismatch
              :tags    {:frame         frame-id
-                       :failing-paths failing}}
+                       :failing-paths failing-paths}}
 
             :else
             {:outcome :ok :incarnation-token incarnation-token}))))))
@@ -1299,9 +1330,9 @@
   classification). Returns the projected value; `nil` slots are preserved
   as nil (halted records may have nil app-db slots; the projection
   MUST NOT fabricate a value)."
-  [v frame-id opts]
-  (when (some? v)
-    (projection/project-egress v (egress-opts frame-id opts))))
+  [payload frame-id opts]
+  (when (some? payload)
+    (projection/project-egress payload (egress-opts frame-id opts))))
 
 (defn- project-frame-state-slot
   "Project a `:frame-state-before` / `:frame-state-after` slot for off-box
@@ -1330,19 +1361,19 @@
 
   Nil-preserving (a halted-destroy record may carry a nil frame-state slot;
   the projection MUST NOT fabricate a value)."
-  [fs frame-id {:keys [include-runtime-db?] :as opts}]
-  (when (some? fs)
-    (cond-> fs
-      (contains? fs :rf.db/app)
+  [frame-state frame-id {:keys [include-runtime-db?] :as opts}]
+  (when (some? frame-state)
+    (cond-> frame-state
+      (contains? frame-state :rf.db/app)
       (update :rf.db/app projection/project-egress (egress-opts frame-id opts))
       ;; Default-redact runtime-db off-box. The
       ;; trusted-local `:include-runtime-db? true` opt-in lifts the
       ;; partition redaction; the value still rides the value walk so its
       ;; own sensitive / large declarations apply.
-      (and (contains? fs :rf.db/runtime) (not include-runtime-db?))
+      (and (contains? frame-state :rf.db/runtime) (not include-runtime-db?))
       (assoc :rf.db/runtime :rf/redacted)
 
-      (and (contains? fs :rf.db/runtime) include-runtime-db?)
+      (and (contains? frame-state :rf.db/runtime) include-runtime-db?)
       (update :rf.db/runtime projection/project-egress (egress-opts frame-id opts)))))
 
 (defn- reroot-trace-event-db-slots
@@ -1379,17 +1410,17 @@
   (if-not (sequential? trace-events)
     trace-events
     (let [wire-opts (assoc (egress-opts frame-id opts) :path [])]
-      (mapv (fn [ev]
-              (if-not (map? ev)
-                ev
-                (let [op (:operation ev)]
-                  (if (and (or (= op :rf.event/db-pending)
-                               (= op :rf.event/db-pending-post-flow))
-                           (some? (get-in ev [:tags :rf.event/db])))
-                    (update-in ev [:tags :rf.event/db]
+      (mapv (fn [trace-event]
+              (if-not (map? trace-event)
+                trace-event
+                (let [operation (:operation trace-event)]
+                  (if (and (or (= operation :rf.event/db-pending)
+                               (= operation :rf.event/db-pending-post-flow))
+                           (some? (get-in trace-event [:tags :rf.event/db])))
+                    (update-in trace-event [:tags :rf.event/db]
                                projection/project-egress
                                wire-opts)
-                    ev))))
+                    trace-event))))
             trace-events))))
 
 ;; ---- off-box HTTP response-body fail-closed -------------------------------
@@ -1496,20 +1527,22 @@
   [trace-events {:keys [include-sensitive?]}]
   (if (or include-sensitive? (not (sequential? trace-events)))
     trace-events
-    (mapv (fn [ev]
-            (if-not (map? ev)
-              ev
-              (let [slot-paths (get http-body-slots (:operation ev))]
-                (if (and slot-paths
-                         (= :omit (get-in ev [:tags :rf.http/off-box-body])))
-                  (reduce (fn [ev slot-path]
-                            (let [tag-path (into [:tags] slot-path)]
-                              (if (some? (get-in ev tag-path))
-                                (assoc-in ev tag-path :rf/redacted)
-                                ev)))
-                          ev
-                          slot-paths)
-                  ev))))
+    (mapv (fn [trace-event]
+            (if-not (map? trace-event)
+              trace-event
+              (let [body-slot-paths
+                    (get http-body-slots (:operation trace-event))]
+                (if (and body-slot-paths
+                         (= :omit (get-in trace-event
+                                         [:tags :rf.http/off-box-body])))
+                  (reduce (fn [trace-event body-slot-path]
+                            (let [tag-path (into [:tags] body-slot-path)]
+                              (if (some? (get-in trace-event tag-path))
+                                (assoc-in trace-event tag-path :rf/redacted)
+                                trace-event)))
+                          trace-event
+                          body-slot-paths)
+                  trace-event))))
           trace-events)))
 
 (def ^:private event-arg-tag-slots
@@ -1550,18 +1583,19 @@
   [trace-events {:keys [include-event-args?]}]
   (if (or include-event-args? (not (sequential? trace-events)))
     trace-events
-    (mapv (fn [ev]
-            (if-not (map? ev)
-              ev
-              (reduce (fn [ev slot]
-                        (let [tag-path [:tags slot]
-                              v        (get-in ev tag-path)]
-                          (if (and (vector? v) (seq v))
-                            (assoc-in ev tag-path
-                                      (into [(first v)]
-                                            (repeat (dec (count v)) :rf/redacted)))
-                            ev)))
-                      ev
+    (mapv (fn [trace-event]
+            (if-not (map? trace-event)
+              trace-event
+              (reduce (fn [trace-event tag-slot]
+                        (let [tag-path     [:tags tag-slot]
+                              event-vector (get-in trace-event tag-path)]
+                          (if (and (vector? event-vector) (seq event-vector))
+                            (assoc-in trace-event tag-path
+                                      (into [(first event-vector)]
+                                            (repeat (dec (count event-vector))
+                                                    :rf/redacted)))
+                            trace-event)))
+                      trace-event
                       event-arg-tag-slots)))
           trace-events)))
 
@@ -1589,13 +1623,15 @@
   [trace-events {:keys [include-sensitive?]}]
   (if (or include-sensitive? (not (sequential? trace-events)))
     trace-events
-    (if-let [project (late-bind/get-fn :resources/project-scope-resolved-egress)]
-      (mapv (fn [ev]
-              (if (and (map? ev)
-                       (= :rf.resource/scope-resolved (:operation ev))
-                       (map? (:tags ev)))
-                (update ev :tags project)
-                ev))
+    (if-let [project-scope-resolved-tags
+             (late-bind/get-fn :resources/project-scope-resolved-egress)]
+      (mapv (fn [trace-event]
+              (if (and (map? trace-event)
+                       (= :rf.resource/scope-resolved
+                          (:operation trace-event))
+                       (map? (:tags trace-event)))
+                (update trace-event :tags project-scope-resolved-tags)
+                trace-event))
             trace-events)
       trace-events)))
 
@@ -1610,13 +1646,13 @@
   carries a `:scope`). Those rows must take the SAME fail-closed family egress
   projection as the `:rf.resource/*` rows, not slip through the
   scoped-key-blind generic walk."
-  [op]
-  (and (keyword? op)
-       (when-let [ns* (namespace op)]
-         (or (= "rf.resource" ns*)
-             (= "rf.mutation" ns*)
-             (and (= "rf.warning" ns*)
-                  (str/starts-with? (name op) "resource-"))))))
+  [operation]
+  (and (keyword? operation)
+       (when-let [operation-namespace (namespace operation)]
+         (or (= "rf.resource" operation-namespace)
+             (= "rf.mutation" operation-namespace)
+             (and (= "rf.warning" operation-namespace)
+                  (str/starts-with? (name operation) "resource-"))))))
 
 (defn- omit-off-box-resource-trace-keys
   "Redact the owner-local scoped keys embedded in the
@@ -1653,13 +1689,15 @@
   [trace-events frame-id {:keys [include-sensitive?]}]
   (if (or include-sensitive? (not (sequential? trace-events)))
     trace-events
-    (if-let [project (late-bind/get-fn :resources/project-resource-trace-egress)]
-      (mapv (fn [ev]
-              (if (and (map? ev)
-                       (resource-family-op? (:operation ev))
-                       (map? (:tags ev)))
-                (update ev :tags project (or (:rf.frame/id (:tags ev)) frame-id))
-                ev))
+    (if-let [project-resource-trace-tags
+             (late-bind/get-fn :resources/project-resource-trace-egress)]
+      (mapv (fn [trace-event]
+              (if (and (map? trace-event)
+                       (resource-family-op? (:operation trace-event))
+                       (map? (:tags trace-event)))
+                (update trace-event :tags project-resource-trace-tags
+                        (or (:rf.frame/id (:tags trace-event)) frame-id))
+                trace-event))
             trace-events)
       trace-events)))
 
@@ -1699,11 +1737,13 @@
   [trace-events frame-id {:keys [include-sensitive?]}]
   (if (or include-sensitive? (not (sequential? trace-events)))
     trace-events
-    (if-let [project (late-bind/get-fn :resources/project-fx-args-egress)]
-      (mapv (fn [ev]
-              (if (and (map? ev) (map? (:tags ev)))
-                (update ev :tags project (or (:rf.frame/id (:tags ev)) frame-id))
-                ev))
+    (if-let [project-fx-arg-tags
+             (late-bind/get-fn :resources/project-fx-args-egress)]
+      (mapv (fn [trace-event]
+              (if (and (map? trace-event) (map? (:tags trace-event)))
+                (update trace-event :tags project-fx-arg-tags
+                        (or (:rf.frame/id (:tags trace-event)) frame-id))
+                trace-event))
             trace-events)
       trace-events)))
 
@@ -1726,7 +1766,7 @@
   path declaration, so neither the app-db-rooted walker nor the marks emit site
   can act on it.
 
-  Given the container `m` and its two value-slot keys, substitutes the
+  Given the `slot-map` container and its two value-slot keys, substitutes the
   canonical `:rf.size/large-elided` marker (`classification/large-marker`) for
   each PRESENT slot and strips the now-spent `:large?` flag so the projected
   shape matches the on-box base shape's metadata. A MARKER, not a drop: a tool
@@ -1757,17 +1797,22 @@
   `elision/->marker` WITHOUT `include-digests?`, so a whole-output marker
   carries no `:digest` under ANY egress profile — including
   `:rf.egress/off-box-tool`, where a PATH-declared marker does get one."
-  [m {:keys [include-large?]} value-key prev-value-key]
-  (let [mark (fn [k] (fn [v] (if (elision/marker? v) v (classification/large-marker v [k]))))]
+  [slot-map {:keys [include-large?]} value-key prev-value-key]
+  (let [mark-slot-value
+        (fn [slot-key]
+          (fn [slot-value]
+            (if (elision/marker? slot-value)
+              slot-value
+              (classification/large-marker slot-value [slot-key]))))]
     (cond
-      (not (:large? m)) m
-      include-large?    (dissoc m :large?)
+      (not (:large? slot-map)) slot-map
+      include-large?            (dissoc slot-map :large?)
       :else
-      (-> m
-          (cond-> (contains? m value-key)
-            (update value-key (mark value-key))
-            (contains? m prev-value-key)
-            (update prev-value-key (mark prev-value-key)))
+      (-> slot-map
+          (cond-> (contains? slot-map value-key)
+            (update value-key (mark-slot-value value-key))
+            (contains? slot-map prev-value-key)
+            (update prev-value-key (mark-slot-value prev-value-key)))
           (dissoc :large?)))))
 
 (defn- elide-large-sub-trace-values
@@ -1794,13 +1839,13 @@
   [trace-events opts]
   (if-not (sequential? trace-events)
     trace-events
-    (mapv (fn [ev]
-            (if (and (map? ev)
-                     (= :rf.sub/run (:operation ev))
-                     (map? (:tags ev)))
-              (update ev :tags elide-whole-output-large-slots opts
+    (mapv (fn [trace-event]
+            (if (and (map? trace-event)
+                     (= :rf.sub/run (:operation trace-event))
+                     (map? (:tags trace-event)))
+              (update trace-event :tags elide-whole-output-large-slots opts
                       :rf.sub/value :rf.sub/prev-value)
-              ev))
+              trace-event))
           trace-events)))
 
 (defn- elide-trace-events-slot
@@ -1817,9 +1862,9 @@
   `:include-sensitive?` / `:include-large?` / `:include-event-args?` opt
   the per-call posture back in. Idempotent (a
   second pass walks already-redacted scalars). Nil-preserving."
-  [v frame-id opts]
-  (when (some? v)
-    (-> v
+  [trace-events frame-id opts]
+  (when (some? trace-events)
+    (-> trace-events
         (reroot-trace-event-db-slots frame-id opts)
         (omit-off-box-event-args opts)
         (omit-off-box-http-bodies opts)
@@ -1870,8 +1915,8 @@
   whole-output `:large?` stamp) are already substituted INTO the value
   at the marks emit site (`redact-with-paths`), so they ride the row
   pre-marked and need no projection here."
-  [row opts]
-  (elide-whole-output-large-slots row opts :value :prev-value))
+  [sub-run-row opts]
+  (elide-whole-output-large-slots sub-run-row opts :value :prev-value))
 
 (defn- elide-sub-runs-slot
   "Project the structured `:sub-runs` vector for off-box egress: walk
@@ -1909,10 +1954,10 @@
   Idempotent: a row whose `:args` was already replaced with `:rf/redacted`
   re-redacts to the same sentinel. A row carrying no `:args` key passes
   through (no slot to fabricate)."
-  [row {:keys [include-fx-args?]}]
-  (if (or include-fx-args? (not (contains? row :args)))
-    row
-    (assoc row :args :rf/redacted)))
+  [effect-row {:keys [include-fx-args?]}]
+  (if (or include-fx-args? (not (contains? effect-row :args)))
+    effect-row
+    (assoc effect-row :args :rf/redacted)))
 
 (defn- elide-effects-slot
   "Project the structured `:effects` vector for off-box egress:
@@ -1967,14 +2012,15 @@
   Idempotent: a second pass over an already-projected `[<id> :rf/redacted
   …]` re-redacts the (already-`:rf/redacted`) tail to the same sentinels.
   Nil-preserving (a halted record may carry no `:trigger-event`)."
-  [v {:keys [include-event-args?]}]
+  [trigger-event {:keys [include-event-args?]}]
   (cond
-    (or include-event-args? (nil? v)) v
+    (or include-event-args? (nil? trigger-event)) trigger-event
     ;; The canonical shape is a non-empty event vector `[<id> <arg> …]`.
     ;; Retain the head event-id keyword (the non-payload summary); fail
     ;; closed on every positional / map arg in the tail.
-    (and (vector? v) (seq v))
-    (into [(first v)] (repeat (dec (count v)) :rf/redacted))
+    (and (vector? trigger-event) (seq trigger-event))
+    (into [(first trigger-event)]
+          (repeat (dec (count trigger-event)) :rf/redacted))
     ;; Degenerate non-vector / empty slot (or a `:redact-fn` that already
     ;; substituted a scalar sentinel) — redact wholesale; nothing safe to
     ;; expose, and the open schema admits `:rf/redacted` here.
@@ -1992,37 +2038,38 @@
   ([record] (projected-record record nil))
   ([record opts]
    (when (map? record)
-     (let [frame-id  (:frame record)
-           projected (cond-> record
-                       ;; Whole-frame slots project app-db and redact runtime-db
-                       ;; unless the corresponding trusted-local opts lift them.
-                       (contains? record :frame-state-before)
-                       (update :frame-state-before project-frame-state-slot frame-id opts)
+     (let [frame-id (:frame record)
+           built-in-projected-record
+           (cond-> record
+             ;; Whole-frame slots project app-db and redact runtime-db
+             ;; unless the corresponding trusted-local opts lift them.
+             (contains? record :frame-state-before)
+             (update :frame-state-before project-frame-state-slot frame-id opts)
 
-                       (contains? record :frame-state-after)
-                       (update :frame-state-after  project-frame-state-slot frame-id opts)
+             (contains? record :frame-state-after)
+             (update :frame-state-after project-frame-state-slot frame-id opts)
 
-                       (contains? record :db-before)
-                       (update :db-before     project-payload-slot frame-id opts)
+             (contains? record :db-before)
+             (update :db-before project-payload-slot frame-id opts)
 
-                       (contains? record :db-after)
-                       (update :db-after      project-payload-slot frame-id opts)
+             (contains? record :db-after)
+             (update :db-after project-payload-slot frame-id opts)
 
-                       ;; Trigger args are not app-db-rooted and fail closed.
-                       (contains? record :trigger-event)
-                       (update :trigger-event elide-trigger-event-slot opts)
+             ;; Trigger args are not app-db-rooted and fail closed.
+             (contains? record :trigger-event)
+             (update :trigger-event elide-trigger-event-slot opts)
 
-                       (contains? record :trace-events)
-                       (update :trace-events  elide-trace-events-slot frame-id opts)
+             (contains? record :trace-events)
+             (update :trace-events elide-trace-events-slot frame-id opts)
 
-                       (contains? record :sub-runs)
-                       (update :sub-runs      elide-sub-runs-slot opts)
+             (contains? record :sub-runs)
+             (update :sub-runs elide-sub-runs-slot opts)
 
-                       ;; Effect args are not app-db-rooted and fail closed.
-                       (contains? record :effects)
-                       (update :effects       elide-effects-slot opts))]
+             ;; Effect args are not app-db-rooted and fail closed.
+             (contains? record :effects)
+             (update :effects elide-effects-slot opts))]
        ;; Apply the advanced override only to the projected copy.
-       (assembly/apply-redact-fn projected)))))
+       (assembly/apply-redact-fn built-in-projected-record)))))
 
 (defn projected-history
   "INTERNAL — the public contract lives on

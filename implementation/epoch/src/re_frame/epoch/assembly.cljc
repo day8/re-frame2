@@ -100,11 +100,11 @@
   egress; raw replay storage and listener delivery are never changed. Callers
   own the shared debug gate."
   [record]
-  (if-let [f (state/redact-fn)]
+  (if-let [redact-fn (state/redact-fn)]
     (if (some? record)
       (try
-        (f record)
-        (catch #?(:clj Throwable :cljs :default) e
+        (redact-fn record)
+        (catch #?(:clj Throwable :cljs :default) redaction-error
           ;; Failure isolation: emit the warning, fall back to the
           ;; projected record. The keyword literal sits inside an
           ;; `(when interop/debug-enabled? ...)` gate at the call site
@@ -115,8 +115,8 @@
           (trace/emit! :warning :rf.warning/epoch-redact-fn-exception
                        {:frame       (:frame record)
                         :rf.epoch/id (:epoch-id record)
-                        :ex-msg      #?(:clj (.getMessage ^Throwable e)
-                                        :cljs (.-message e))})
+                        :ex-msg      #?(:clj (.getMessage ^Throwable redaction-error)
+                                        :cljs (.-message redaction-error))})
           record))
       record)
     record))
@@ -133,9 +133,9 @@
    (current-schema-digest frame-id (constantly true)))
   ([frame-id continue?]
    (when (continue?)
-     (when-let [digest (late-bind/get-fn :schemas/app-schemas-digest)]
+     (when-let [schema-digest-fn (late-bind/get-fn :schemas/app-schemas-digest)]
        (try
-         (digest frame-id)
+         (schema-digest-fn frame-id)
          (catch #?(:clj Throwable :cljs :default) _
            ;; Optional diagnostic enrichment retains nil-on-failure. The
            ;; caller's post-callback exact check decides whether even that nil
@@ -249,11 +249,11 @@
     (if (empty? sensitive-paths)
       0
       (reduce
-        (fn [acc path]
+        (fn [modified-path-count path]
           (if (not= (get-in db-before path)
                     (get-in db-after  path))
-            (inc acc)
-            acc))
+            (inc modified-path-count)
+            modified-path-count))
         0
         sensitive-paths))))
 
@@ -336,8 +336,8 @@
          ;; gap by surfacing the suppressed signal directly on the
          ;; record. Computed BEFORE :redact-fn runs (parallel to the
          ;; :rf.epoch/sensitive? rollup above).
-         redacted-modified-count (redacted-modified-paths-count
-                                   frame-id db-before db-after)]
+         redacted-modified-path-count (redacted-modified-paths-count
+                                        frame-id db-before db-after)]
      (cond-> {:epoch-id           (state/next-epoch-id)
               :frame              frame-id
               ;; Durable causal time is supplied from envelope construction;
@@ -356,7 +356,7 @@
               ;; produces nil; consumers tolerate the absent slot).
               :schema-digest      schema-digest
               :rf.epoch/sensitive? sensitive?
-              :rf.epoch/redacted-modified-paths-count redacted-modified-count
+              :rf.epoch/redacted-modified-paths-count redacted-modified-path-count
               :trace-events       events
               :sub-runs           sub-runs
               :renders            renders

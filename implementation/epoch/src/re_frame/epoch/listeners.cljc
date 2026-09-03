@@ -64,24 +64,24 @@
   ([record listener-snapshot continue? record-observation? terminal?]
    (let [frame-id (:frame record)
          emit-listener-exception!
-         (fn [id ex]
+         (fn [callback-id listener-error]
            (trace/emit-error! :rf.epoch.cb/listener-exception
-                              {:frame       frame-id
-                               :cb-id       id
-                               :rf.epoch/id (:epoch-id record)
-                               :message     #?(:clj  (.getMessage ^Throwable ex)
-                                               :cljs (.-message ex))
-                               :recovery    :no-recovery}))]
+                               {:frame       frame-id
+                                :cb-id       callback-id
+                                :rf.epoch/id (:epoch-id record)
+                                :message     #?(:clj  (.getMessage ^Throwable listener-error)
+                                                :cljs (.-message listener-error))
+                                :recovery    :no-recovery}))]
      (loop [entries (seq listener-snapshot)]
        (when (and entries (continue?))
-          (let [[id {:keys [callback generation]}] (first entries)]
+          (let [[callback-id {:keys [callback generation]}] (first entries)]
             ;; Stamp only the callback that is actually about to run. A later
             ;; listener suppressed by owner loss must not be reported observed.
             (when record-observation?
-              (state/record-observation! id generation frame-id))
-           (try
-             (callback record)
-             (catch #?(:clj Throwable :cljs :default) ex
+              (state/record-observation! callback-id generation frame-id))
+            (try
+              (callback record)
+              (catch #?(:clj Throwable :cljs :default) listener-error
                ;; A callback that destroyed the exact owner has an inert throw;
                ;; never emit its failure diagnostic against same-id B.
                (when (continue?)
@@ -89,9 +89,9 @@
                    ;; A's terminal callback fault is A's own diagnostic. A same-id
                    ;; B that a listener just installed (possibly no-emit) must not
                    ;; suppress or capture it (rf2-vxgfnd.152).
-                   (trace/call-with-structural-delivery
-                     #(emit-listener-exception! id ex))
-                   (emit-listener-exception! id ex)))))
+                    (trace/call-with-structural-delivery
+                      #(emit-listener-exception! callback-id listener-error))
+                    (emit-listener-exception! callback-id listener-error)))))
            (recur (next entries))))))))
 
 (defn notify-listeners!
@@ -156,34 +156,35 @@
   — `back-fill-render!` returns nil and we skip the re-notify."
   [frame-id event]
   (when interop/debug-enabled?
-    (when-let [default-epoch (state/last-settled-epoch-id frame-id)]
+    (when-let [default-epoch-id (state/last-settled-epoch-id frame-id)]
       (let [render-key (-> event :tags :rf.view/render-key)
-            target     (state/resolve-render-epoch frame-id render-key
-                                                    default-epoch)]
+            target-epoch-id (state/resolve-render-epoch frame-id render-key
+                                                         default-epoch-id)]
         ;; Record the mount anchor on first sighting; never overwrites.
-        (state/record-mount-epoch! frame-id render-key target)
+        (state/record-mount-epoch! frame-id render-key target-epoch-id)
         ;; De-dup a mount-burst tail ONLY when it was REDIRECTED away from
-        ;; the settling cascade (`target` ≠ `default-epoch`) back to a
+        ;; the settling cascade (`target-epoch-id` ≠ `default-epoch-id`) back to a
         ;; mount epoch where the instance already rendered. A genuine
-        ;; re-render resolves to the settling cascade (`target` =
-        ;; `default-epoch`) and is never de-duped — so the paired
+        ;; re-render resolves to the settling cascade (`target-epoch-id` =
+        ;; `default-epoch-id`) and is never de-duped — so the paired
         ;; `:view/render` + `:rf.view/rendered` of one real render both
         ;; ride their cascade (only the late mount-burst tail is absorbed).
         (when-not (and render-key
-                       (not= target default-epoch)
+                       (not= target-epoch-id default-epoch-id)
                        (state/render-key-already-in-epoch?
-                         frame-id target render-key))
+                         frame-id target-epoch-id render-key))
           ;; Back-fill stores the raw event and row; egress projection remains
           ;; the only redaction boundary.
-          (when-let [updated (state/back-fill-render! frame-id target event
-                                                      (capture/render-row event))]
+          (when-let [updated-record
+                     (state/back-fill-render! frame-id target-epoch-id event
+                                              (capture/render-row event))]
             ;; Re-fan the corrected record so snapshot consumers re-read
             ;; the ring. The fan-out is failure-isolated per listener
             ;; (same contract as the settle-time fan-out); a render-driven
             ;; Xray pump (`:rf.xray/epoch-recorded`) is
             ;; `:rf.trace/no-emit?` so it commits no new epoch and cannot
             ;; loop back into this path.
-            (notify-listeners! updated)))))))
+            (notify-listeners! updated-record)))))))
 
 ;; ---- post-settle sub-run back-fill ----------------------------------------
 
@@ -205,12 +206,13 @@
   (when interop/debug-enabled?
     (when-let [epoch-id (state/last-settled-epoch-id frame-id)]
       ;; Store raw; projection remains the egress boundary.
-      (when-let [updated (state/back-fill-sub-run! frame-id epoch-id event
-                                                   (capture/sub-run-row event))]
+      (when-let [updated-record
+                 (state/back-fill-sub-run! frame-id epoch-id event
+                                           (capture/sub-run-row event))]
         ;; Re-fan the corrected record so snapshot consumers re-read the
         ;; ring. Same failure-isolated fan-out + no-loop contract as the
         ;; render back-fill above.
-        (notify-listeners! updated)))))
+        (notify-listeners! updated-record)))))
 
 ;; ---- post-settle view-unmount back-fill -----------------------------------
 
@@ -259,11 +261,12 @@
   (when interop/debug-enabled?
     (when-let [epoch-id (state/last-settled-epoch-id frame-id)]
       ;; Unmount has no structured row, so only retained raw trace is updated.
-      (when-let [updated (state/back-fill-unmount! frame-id epoch-id event)]
+      (when-let [updated-record
+                 (state/back-fill-unmount! frame-id epoch-id event)]
         ;; Re-fan the corrected record so snapshot consumers re-read the
         ;; ring. Same failure-isolated fan-out + no-loop contract as the
         ;; render / sub-run back-fill above.
-        (notify-listeners! updated)))
+        (notify-listeners! updated-record)))
     ;; Prune the unmounting instance's mount-attribution entry so
     ;; the map stays bounded across instance churn (NOT retained until
     ;; whole-frame destroy). Runs whether or not the back-fill found a live

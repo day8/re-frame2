@@ -61,23 +61,25 @@
   Validation at this boundary keeps numeric assumptions out of the hot path."
   [opts]
   (when (map? opts)
-    (let [numeric (select-keys opts [:depth :trace-events-keep])
-          numeric-valid (into {}
-                              (filter (fn [[_ v]] (non-neg-int? v)))
-                              numeric)
+    (let [numeric-options (select-keys opts [:depth :trace-events-keep])
+          valid-numeric-options (into {}
+                                      (filter (fn [[_ option-value]]
+                                                (non-neg-int? option-value)))
+                                      numeric-options)
           ;; :redact-fn validated separately — accept fn? OR nil
           ;; (explicit-clear); anything else silently dropped.
           ;; `contains?` distinguishes 'absent slot' from 'present
           ;; nil' so the explicit-clear path lands while a callsite
           ;; that didn't mention :redact-fn doesn't clobber a
           ;; previously-installed fn.
-          redact (when (contains? opts :redact-fn)
-                   (let [v (:redact-fn opts)]
-                     (when (or (nil? v) (fn? v))
-                       {:redact-fn v})))
-          valid (merge numeric-valid redact)]
-      (when (seq valid)
-        (swap! config merge valid))))
+          valid-redact-option (when (contains? opts :redact-fn)
+                                (let [redact-fn-value (:redact-fn opts)]
+                                  (when (or (nil? redact-fn-value)
+                                            (fn? redact-fn-value))
+                                    {:redact-fn redact-fn-value})))
+          valid-options (merge valid-numeric-options valid-redact-option)]
+      (when (seq valid-options)
+        (swap! config merge valid-options))))
   nil)
 
 (defn current-config
@@ -124,65 +126,68 @@
 (defonce ^:private histories (atom {}))
 
 (defn- elide-just-crossed-trace-events
-  "When the record at index `(- (count history) keep 1)` crosses the
-  keep-boundary, dissoc its `:trace-events`. O(1) per append: every
+  "When the record at index `(- (count history) trace-events-keep 1)` crosses
+  the keep-boundary, dissoc its `:trace-events`. O(1) per append: every
   earlier record was already elided on its own crossing, so the only
   record that needs work is the one that just slid out of the keep-
   window. Records keep their structured projections (`:sub-runs` /
-  `:renders` / `:effects`) but lose the raw trace stream. nil `keep`
-  means 'keep every record's :trace-events'.
+  `:renders` / `:effects`) but lose the raw trace stream. nil
+  `trace-events-keep` means 'keep every record's :trace-events'.
 
   Invoked from `append-record` for every event epoch. Under steady state only
   one record per append
   actually transitions out of the keep-window, so touching just that
   record (rather than walking the whole history vector) is all that is
   needed. The steady-state invariant holds because every prior append
-  already elided its own just-crossed record; runtime reductions of `keep`
-  via `(rf/configure! {:epoch-history ...})` will take full effect on
-  subsequent appends rather than retroactively rewriting the buffer."
-  [history keep]
-  (let [n (count history)]
-    (if (and (some? keep) (nat-int? keep) (> n keep))
-      (let [idx    (- n keep 1)
-            record (nth history idx)]
+  already elided its own just-crossed record; runtime reductions of
+  `trace-events-keep` via `(rf/configure! {:epoch-history ...})` take full
+  effect on subsequent appends rather than retroactively rewriting the buffer."
+  [history trace-events-keep]
+  (let [history-count (count history)]
+    (if (and (some? trace-events-keep)
+             (nat-int? trace-events-keep)
+             (> history-count trace-events-keep))
+      (let [crossed-index (- history-count trace-events-keep 1)
+            record        (nth history crossed-index)]
         (if (contains? record :trace-events)
-          (assoc history idx (dissoc record :trace-events))
+          (assoc history crossed-index (dissoc record :trace-events))
           history))
       history)))
 
 (defn- append-record
-  "Conj `record` onto the frame's history vector, cap to `d` by
-  MATERIALISING the most-recent-`d` window into a fresh vector, then
-  elide the just-crossed record's `:trace-events` per `keep`.
+  "Conj `record` onto the frame's history vector, cap to `depth` by
+  MATERIALISING the most-recent-`depth` window into a fresh vector, then
+  elide the just-crossed record's `:trace-events` per `trace-events-keep`.
 
-  The cap MUST materialise — a bare `(subvec history+ ...)` view does
+  The cap MUST materialise — a bare `(subvec appended-history ...)` view does
   NOT release the evicted records. `SubVector.cons` keeps appending to
   the SAME growing underlying vector and `subvec` of a `SubVector`
   re-wraps that same backing vector, so over a long session the
-  depth-`d` view's backing PersistentVector accretes every record ever
+  retained-window view's backing PersistentVector accretes every record ever
   appended (each carrying its full `:db-before` / `:db-after` /
   `:trace-events` payload) — an unbounded heap leak that defeats the
   bounded-ring contract even though `history-for` correctly returns
-  only `d` records. `(into [] (subvec ...))` copies the `d`-element
-  window into a concrete PersistentVector whose backing is exactly `d`,
+  only `depth` records. `(into [] (subvec ...))` copies the `depth`-element
+  window into a concrete PersistentVector whose backing is exactly `depth`,
   so the evicted records become GC-eligible.
 
   HOT PATH: fires once per cascade settle, i.e. once per dispatched
   user event under steady state. Below the cap the append is O(1) (a
-  plain `conj`); once the ring is full each append is O(d) — a `d`-wide
-  copy of the retained window (d defaults to 50, fired once per
+  plain `conj`); once the ring is full each append is O(depth) — a `depth`-wide
+  copy of the retained window (depth defaults to 50, fired once per
   user-facing event, not per trace emit). The bounded copy is the
   necessary cost of bounded heap; the prior O(1) `subvec` view was O(1)
   in time but O(session-length) in retained heap. The trace-events
   elision stays O(1) — at most one record's `:trace-events` slot is
   dissoc'd."
-  [history record d keep]
-  (let [history+ (conj (or history []) record)
-        n        (count history+)
-        capped   (if (and (pos? d) (> n d))
-                   (into [] (subvec history+ (- n d)))
-                   history+)]
-    (elide-just-crossed-trace-events capped keep)))
+  [history record depth trace-events-keep]
+  (let [appended-history (conj (or history []) record)
+        history-count    (count appended-history)
+        capped-history   (if (and (pos? depth) (> history-count depth))
+                           (into [] (subvec appended-history
+                                           (- history-count depth)))
+                           appended-history)]
+    (elide-just-crossed-trace-events capped-history trace-events-keep)))
 
 (defn record!
   "Append a record into the frame's history. The depth cap and the
@@ -190,11 +195,12 @@
   append so runtime `(rf/configure! {:epoch-history ...})` takes effect
   immediately."
   [record]
-  (let [d    (depth)
-        keep (trace-events-keep)]
-    (when (pos? d)
+  (let [history-depth       (depth)
+        trace-events-to-keep (trace-events-keep)]
+    (when (pos? history-depth)
       (let [frame-id (:frame record)]
-        (swap! histories update frame-id append-record record d keep)))))
+        (swap! histories update frame-id append-record record
+               history-depth trace-events-to-keep)))))
 
 (defn history-for
   "Return the frame's history vector (oldest-first) or `[]`."
@@ -215,9 +221,9 @@
   epoch?` reuses it for its record lookup. `tool-pair/find-epoch-in` answers
   the sibling 'give me the record' question off a deref'd history."
   [history epoch-id]
-  (some (fn [i]
-          (when (= epoch-id (:epoch-id (nth history i)))
-            i))
+  (some (fn [history-index]
+          (when (= epoch-id (:epoch-id (nth history history-index)))
+            history-index))
         (range (count history))))
 
 ;; ---- post-settle render back-fill -----------------------------------------
@@ -346,10 +352,12 @@
   [frame-id render-key epoch-id]
   (when (and frame-id render-key epoch-id)
     (swap! mount-attribution
-           (fn [m]
-             (if (get-in m [frame-id render-key :epoch-id])
-               m
-               (assoc-in m [frame-id render-key :epoch-id] epoch-id)))))
+           (fn [attribution-map]
+             (if (get-in attribution-map [frame-id render-key :epoch-id])
+               attribution-map
+               (assoc-in attribution-map
+                         [frame-id render-key :epoch-id]
+                         epoch-id)))))
   nil)
 
 (defn drop-render-key-mount-attribution!
@@ -373,11 +381,12 @@
   [frame-id render-key]
   (when (and frame-id render-key)
     (swap! mount-attribution
-           (fn [m]
-             (let [pruned (update m frame-id dissoc render-key)]
-               (if (empty? (get pruned frame-id))
-                 (dissoc pruned frame-id)
-                 pruned)))))
+           (fn [attribution-map]
+             (let [pruned-attribution-map
+                   (update attribution-map frame-id dissoc render-key)]
+               (if (empty? (get pruned-attribution-map frame-id))
+                 (dissoc pruned-attribution-map frame-id)
+                 pruned-attribution-map)))))
   nil)
 
 (defn drop-frame-mount-attribution!
@@ -416,26 +425,27 @@
        keep-0 saw NO value-change evidence and mis-recorded genuine re-renders
        against the mount/default epoch.
 
-  `deps` may be nil when the view's read-set was never learned — then only the
+  `render-deps` may be nil when the view's read-set was never learned — then only the
   render-key (trace) match applies, and the structured fallback yields nothing.
   Prefers the trace source when present so the render-key precision is kept;
   falls back to the structured rows only when traces are absent."
-  [record render-key deps]
+  [record render-key render-deps]
   (if (contains? record :trace-events)
-    (some (fn [ev]
-            (and (= :rf.sub/run (:operation ev))
-                 (true? (-> ev :tags :rf.sub/value-changed?))
-                 (let [tags (:tags ev)]
-                   (or (= render-key (:rf.sub/reader-render-key tags))
-                       (and deps (contains? deps (:rf.sub/id tags)))))))
+    (some (fn [trace-event]
+            (and (= :rf.sub/run (:operation trace-event))
+                 (true? (-> trace-event :tags :rf.sub/value-changed?))
+                 (let [event-tags (:tags trace-event)]
+                   (or (= render-key (:rf.sub/reader-render-key event-tags))
+                       (and render-deps
+                            (contains? render-deps (:rf.sub/id event-tags)))))))
           (:trace-events record))
     ;; `:trace-events` elided (keep-0, or this record below the
     ;; elision boundary). The structured `:sub-runs` rows are retained for
     ;; every record; match a value-changed row by the view's learned read-set.
-    (and deps
-         (some (fn [row]
-                 (and (true? (:value-changed? row))
-                      (contains? deps (:sub-id row))))
+    (and render-deps
+         (some (fn [sub-run-row]
+                 (and (true? (:value-changed? sub-run-row))
+                      (contains? render-deps (:sub-id sub-run-row))))
                (:sub-runs record)))))
 
 (defn- value-changed-epoch-for
@@ -496,18 +506,19 @@
   genuine-re-render case. One pass newest-first from the anchor;
   short-circuits at the first matching epoch."
   [frame-id render-key anchor-epoch-id]
-  (let [history (history-for frame-id)
-        deps    (render-deps-for frame-id render-key)
-        n       (count history)
+  (let [history       (history-for frame-id)
+        render-deps   (render-deps-for frame-id render-key)
+        history-count (count history)
         ;; Records newer than the anchor exist only after a restore rewind;
         ;; start the newest-first scan at the anchor so they are excluded.
-        start   (or (epoch-index history anchor-epoch-id) (dec n))]
-    (loop [i start]
-      (when (>= i 0)
-        (let [record (nth history i)]
-          (if (epoch-value-changed-for-view? record render-key deps)
+        start-index (or (epoch-index history anchor-epoch-id)
+                        (dec history-count))]
+    (loop [history-index start-index]
+      (when (>= history-index 0)
+        (let [record (nth history history-index)]
+          (if (epoch-value-changed-for-view? record render-key render-deps)
             (:epoch-id record)
-            (recur (dec i))))))))
+            (recur (dec history-index))))))))
 
 (defn resolve-render-epoch
   "Resolve the epoch a post-settle render of `render-key` should be
@@ -542,11 +553,12 @@
   present on a built record), not the optional `:trace-events`."
   [frame-id epoch-id render-key]
   (let [history (history-for frame-id)
-        idx     (epoch-index history epoch-id)]
+        record-index (epoch-index history epoch-id)]
     (boolean
-      (when idx
-        (some (fn [row] (= render-key (:render-key row)))
-              (:renders (nth history idx)))))))
+      (when record-index
+        (some (fn [render-row]
+                (= render-key (:render-key render-row)))
+              (:renders (nth history record-index)))))))
 
 ;; ---- post-settle event back-fill ------------------------------------------
 ;;
@@ -574,76 +586,82 @@
   the target was evicted or never stored.
 
   Raw trace is appended only when that record retained `:trace-events`; a
-  non-nil row is appended independently to `slot`. Sensitive evidence is ORed
-  into the record-level rollup. Projection never runs on this storage path.
+  non-nil structured row is appended independently to `projection-slot`.
+  Sensitive evidence is ORed into the record-level rollup. Projection never
+  runs on this storage path.
 
   Back-fill runs outside the frame drain and can race ring append/eviction.
   Therefore the epoch index must be resolved inside the CAS-retried `swap!`
   update from the same history map being rewritten. Resolving it earlier could
   splice the wrong record after a capped-ring eviction shifts indices. The
   update function remains pure so retries are safe."
-  [frame-id epoch-id slot event row]
+  [frame-id epoch-id projection-slot trace-event structured-row]
   (let [;; The record-level rollup must include post-settle trace evidence,
         ;; but `build-record` computes it ONCE at settle time over the
         ;; SETTLE-TIME events; a post-settle back-fill of a `:sensitive?`-
         ;; stamped trace event would otherwise leave the rollup stale-false.
-        ;; `privacy/sensitive?` is pure and depends only on `event` (not on any
-        ;; @histories snapshot), so it is hoisted out of the swap; the swap fn
-        ;; ORs it into the rollup fail closed. The OR is
+        ;; `privacy/sensitive?` is pure and depends only on `trace-event` (not
+        ;; on any @histories snapshot), so it is hoisted out of the swap; the
+        ;; swap fn ORs it into the rollup fail closed. The OR is
         ;; monotonic/idempotent (only flips false→true, never clears a
         ;; settle-time true), so it rides safely inside the CAS-retried swap.
-        sens?   (privacy/sensitive? event)
-        row?    (some? row)
-        splice-slot (fn [rec real-slot dv]
-                      (cond
-                        (vector? (get rec real-slot))
-                        (update rec real-slot conj dv)
+        trace-sensitive? (privacy/sensitive? trace-event)
+        structured-row?  (some? structured-row)
+        append-slot-value (fn [record target-slot slot-value]
+                            (cond
+                              (vector? (get record target-slot))
+                              (update record target-slot conj slot-value)
 
-                        (not (contains? rec real-slot))
-                        (assoc rec real-slot [dv])
+                              (not (contains? record target-slot))
+                              (assoc record target-slot [slot-value])
 
-                        :else            ; real slot already a scalar
-                        rec))            ; delta subsumed
+                              :else        ; target slot already a scalar
+                              record))     ; delta subsumed
         ;; Operate on the whole histories map so the index is
         ;; re-derived from the SAME (CAS-retried) value the splice rewrites —
         ;; never against a separate, possibly-shifted deref. When the epoch is
         ;; no longer in the frame's ring (evicted, or never landed) the map is
         ;; returned unchanged and the post-swap read-back yields nil.
-        splice-map (fn [m]
-                     (let [history (get m frame-id)
-                           idx     (epoch-index history epoch-id)]
-                       (if (nil? idx)
-                         m
-                         (let [record (nth history idx)
-                               ;; Was there anything to splice? `:trace-events`
-                               ;; is appended only when THIS record retained its
-                               ;; raw stream (keep-window); a non-nil `row` rides
-                               ;; the structured `slot`. No delta → pass-through
-                               ;; (e.g. an unmount on a record whose trace stream
-                               ;; was already dropped by the keep cap); the
-                               ;; sensitivity rollup is NOT touched without a
-                               ;; delta to carry it. `append?` is read off the
-                               ;; RETRIED record so a CAS retry that re-resolves
-                               ;; a different record re-decides correctly.
-                               append? (contains? record :trace-events)
-                               delta?  (or append? row?)]
-                           (if-not delta?
-                             m              ; no delta → pure pass-through
-                             (assoc m frame-id
-                                    (assoc history idx
-                                           (cond-> record
-                                             append? (splice-slot :trace-events event)
-                                             row?    (splice-slot slot row)
-                                             sens?   (assoc :rf.epoch/sensitive? true)))))))))
+        update-histories (fn [histories-map]
+                           (let [history      (get histories-map frame-id)
+                                 record-index (epoch-index history epoch-id)]
+                             (if (nil? record-index)
+                               histories-map
+                               (let [record (nth history record-index)
+                                     ;; Was there anything to splice?
+                                     ;; `:trace-events` is appended only when
+                                     ;; THIS record retained its raw stream
+                                     ;; (keep-window); a structured row rides
+                                     ;; `projection-slot`. No delta means pure
+                                     ;; pass-through. `append-trace?` is read
+                                     ;; off the RETRIED record so a CAS retry
+                                     ;; re-decides against the record it found.
+                                     append-trace? (contains? record :trace-events)
+                                     has-delta?    (or append-trace?
+                                                       structured-row?)]
+                                 (if-not has-delta?
+                                   histories-map
+                                   (assoc histories-map frame-id
+                                          (assoc history record-index
+                                                 (cond-> record
+                                                   append-trace?
+                                                   (append-slot-value
+                                                     :trace-events trace-event)
+                                                   structured-row?
+                                                   (append-slot-value
+                                                     projection-slot structured-row)
+                                                   trace-sensitive?
+                                                   (assoc :rf.epoch/sensitive?
+                                                          true)))))))))
         ;; Read the spliced record back from the SAME post-swap value the
         ;; update committed — re-derive the index there (it may differ from any
         ;; pre-swap index if an append/eviction interleaved). nil when the
         ;; epoch was not (or no longer) in the ring.
-        m'      (swap! histories splice-map)
-        history (get m' frame-id)
-        idx'    (epoch-index history epoch-id)]
-    (when idx'
-      (nth history idx'))))
+        updated-histories    (swap! histories update-histories)
+        updated-history      (get updated-histories frame-id)
+        updated-record-index (epoch-index updated-history epoch-id)]
+    (when updated-record-index
+      (nth updated-history updated-record-index))))
 
 (defn back-fill-render!
   "Back-fill a raw render event and its structured row into `:renders`."
@@ -696,9 +714,9 @@
 (defn harvest-buffer!
   "Atomically read-and-clear the frame's in-flight buffer."
   [frame-id]
-  (let [buffer (get @capture-buffers frame-id [])]
+  (let [buffered-events (get @capture-buffers frame-id [])]
     (swap! capture-buffers dissoc frame-id)
-    buffer))
+    buffered-events))
 
 (defn- run-start-dispatch-id
   "The `:dispatch-id` of the event being settled, read off the FIRST
@@ -706,11 +724,11 @@
   rejected / aborted dispatch, or a halt path whose event never ran) — the
   no-run-start branch of `harvest-buffer-for-event!` then falls back to the
   settling envelope's dispatch-id to scope its drop."
-  [events]
-  (some (fn [ev]
-          (when (= :rf.event/run-start (:operation ev))
-            (-> ev :tags :rf.trace/dispatch-id)))
-        events))
+  [trace-events]
+  (some (fn [trace-event]
+          (when (= :rf.event/run-start (:operation trace-event))
+            (-> trace-event :tags :rf.trace/dispatch-id)))
+        trace-events))
 
 ;; A child's queue-time `:event/dispatched` trace is emitted while its parent
 ;; runs but carries the child's dispatch id. Keep it until the child's matching
@@ -744,45 +762,54 @@
   envelope id and therefore falls back to a full read-and-clear."
   ([frame-id] (harvest-buffer-for-event! frame-id nil))
   ([frame-id settling-dispatch-id]
-  (let [buffer (get @capture-buffers frame-id [])]
-    (if-let [settling-id (run-start-dispatch-id buffer)]
-      ;; Return matching traces, retain non-nil ids for later events, and drop
-      ;; nil-id orphans. The capture seam normally removes orphans first; this
-      ;; partition is the defensive bound if one reaches storage.
-      (let [mine   (filterv (fn [ev] (= (-> ev :tags :rf.trace/dispatch-id) settling-id))
-                            buffer)
-            ;; Other-event markers: a non-nil dispatch-id that isn't the
-            ;; settling event's. Kept verbatim for the child's own settle.
-            theirs (filterv (fn [ev]
-                              (let [event-dispatch-id (-> ev :tags :rf.trace/dispatch-id)]
-                                (and (some? event-dispatch-id)
-                                     (not= event-dispatch-id settling-id))))
-                            buffer)]
-        ;; Leave the other-event markers in the buffer for their own event's
-        ;; settle; drop orphans (nil dispatch-id) and the harvested-mine events.
-        (if (seq theirs)
-          (swap! capture-buffers assoc frame-id theirs)
-          (swap! capture-buffers dissoc frame-id))
-        mine)
-      ;; No run-start means no event ran, so nothing can be committed.
-      (if settling-dispatch-id
-        ;; Scope the drop to THIS dispatch: drop its own traces (the rejection's
-        ;; frame-stamped error trace, `:dispatch-id` = settling) + orphans, RETAIN
-        ;; any unrelated sibling marker for its own settle, RETURN [] so `settle!`
-        ;; commits no misleading `:ok` epoch. Symmetric with the run-start branch.
-        (let [theirs (filterv (fn [ev]
-                                (let [event-dispatch-id (-> ev :tags :rf.trace/dispatch-id)]
-                                  (and (some? event-dispatch-id)
-                                       (not= event-dispatch-id settling-dispatch-id))))
-                              buffer)]
-          (if (seq theirs)
-            (swap! capture-buffers assoc frame-id theirs)
-            (swap! capture-buffers dissoc frame-id))
-          [])
-        ;; 1-arity fallback (no envelope id — a direct low-level test call):
-        ;; full read-and-clear, returning the whole buffer.
-        (do (swap! capture-buffers dissoc frame-id)
-            buffer))))))
+   (let [buffered-events (get @capture-buffers frame-id [])]
+     (if-let [run-dispatch-id (run-start-dispatch-id buffered-events)]
+       ;; Return matching traces, retain non-nil ids for later events, and drop
+       ;; nil-id orphans. The capture seam normally removes orphans first; this
+       ;; partition is the defensive bound if one reaches storage.
+       (let [settling-events
+             (filterv (fn [trace-event]
+                        (= (-> trace-event :tags :rf.trace/dispatch-id)
+                           run-dispatch-id))
+                      buffered-events)
+             ;; Other-event markers: a non-nil dispatch-id that isn't the
+             ;; settling event's. Kept verbatim for the child's own settle.
+             remaining-events
+             (filterv (fn [trace-event]
+                        (let [event-dispatch-id
+                              (-> trace-event :tags :rf.trace/dispatch-id)]
+                          (and (some? event-dispatch-id)
+                               (not= event-dispatch-id run-dispatch-id))))
+                      buffered-events)]
+         ;; Leave the other-event markers in the buffer for their own event's
+         ;; settle; drop orphans (nil dispatch-id) and the harvested settling
+         ;; events.
+         (if (seq remaining-events)
+           (swap! capture-buffers assoc frame-id remaining-events)
+           (swap! capture-buffers dissoc frame-id))
+         settling-events)
+       ;; No run-start means no event ran, so nothing can be committed.
+       (if settling-dispatch-id
+         ;; Scope the drop to THIS dispatch: drop its own traces (the rejection's
+         ;; frame-stamped error trace, `:dispatch-id` = settling) + orphans,
+         ;; RETAIN any unrelated sibling marker for its own settle, RETURN [] so
+         ;; `settle!` commits no misleading `:ok` epoch. Symmetric with the
+         ;; run-start branch.
+         (let [remaining-events
+               (filterv (fn [trace-event]
+                          (let [event-dispatch-id
+                                (-> trace-event :tags :rf.trace/dispatch-id)]
+                            (and (some? event-dispatch-id)
+                                 (not= event-dispatch-id settling-dispatch-id))))
+                        buffered-events)]
+           (if (seq remaining-events)
+             (swap! capture-buffers assoc frame-id remaining-events)
+             (swap! capture-buffers dissoc frame-id))
+           [])
+         ;; 1-arity fallback (no envelope id — a direct low-level test call):
+         ;; full read-and-clear, returning the whole buffer.
+         (do (swap! capture-buffers dissoc frame-id)
+             buffered-events))))))
 
 (defn drop-frame-buffer!
   "Drop the frame's in-flight capture buffer."
@@ -801,12 +828,12 @@
   (when dispatch-id
     (swap! capture-buffers
            (fn [buffers]
-             (let [kept (filterv
-                          #(not= dispatch-id
-                                 (-> % :tags :rf.trace/dispatch-id))
-                          (get buffers frame-id []))]
-               (if (seq kept)
-                 (assoc buffers frame-id kept)
+             (let [remaining-events
+                   (filterv #(not= dispatch-id
+                                   (-> % :tags :rf.trace/dispatch-id))
+                            (get buffers frame-id []))]
+               (if (seq remaining-events)
+                 (assoc buffers frame-id remaining-events)
                  (dissoc buffers frame-id))))))
   nil)
 
