@@ -16,8 +16,8 @@
   Canonical contract: `spec/Managed-Effects.md` §The uniform reply
   envelope; EP-0011 §Resource Reply And Work Ledger / §Mutation Reply."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.reply :as reply]
-            [re-frame.resources.reply :as rreply]))
+            [re-frame.reply :as rf.reply]
+            [re-frame.resources.reply :as rf.resources.reply]))
 
 (def ^:private resource-vp
   "A resource verification payload — what resource lowering stamps into the
@@ -42,9 +42,9 @@
 (deftest resource-success-reply-is-canonical
   (testing "a resource :ok reply carries the decoded result under :value
             (EP-0007: :value everywhere, never :data on the reply map)"
-    (let [r (rreply/success-reply resource-vp {:title "Welcome"}
-                                  {:work-kind rreply/work-kind-resource :completed-at 1781078400456})]
-      (is (reply/valid-reply? r) (str (reply/validate-reply r)))
+    (let [r (rf.resources.reply/success-reply resource-vp {:title "Welcome"}
+                                  {:work-kind rf.resources.reply/work-kind-resource :completed-at 1781078400456})]
+      (is (rf.reply/valid-reply? r) (str (rf.reply/validate-reply r)))
       (is (= :ok (:status r)))
       (is (= :completed (:rf.reply/work-status r)))
       (is (= :resource (:rf.reply/work-kind r)))
@@ -64,10 +64,10 @@
             the causal :completed-at (rf2-rl27r2 — a failed completion is still
             a managed-async completion with a reply token, so its causal
             completion time rides the reply, symmetric with success)"
-    (let [r (rreply/failure-reply resource-vp {:kind :rf.http/http-5xx :status 503}
-                                  {:work-kind rreply/work-kind-resource
+    (let [r (rf.resources.reply/failure-reply resource-vp {:kind :rf.http/http-5xx :status 503}
+                                  {:work-kind rf.resources.reply/work-kind-resource
                                    :completed-at 1781078400456})]
-      (is (reply/valid-reply? r) (str (reply/validate-reply r)))
+      (is (rf.reply/valid-reply? r) (str (rf.reply/validate-reply r)))
       (is (= :error (:status r)))
       (is (= :failed (:rf.reply/work-status r)))
       (is (= :resource (:rf.reply/work-kind r)))
@@ -77,10 +77,10 @@
       (is (nil? (:value r)))))
   (testing "an :rf.http/aborted envelope lowers to :status :cancelled, not
             :error, and carries the causal :completed-at (rf2-rl27r2)"
-    (let [r (rreply/failure-reply resource-vp {:kind :rf.http/aborted :reason :actor-destroyed}
-                                  {:work-kind rreply/work-kind-resource
+    (let [r (rf.resources.reply/failure-reply resource-vp {:kind :rf.http/aborted :reason :actor-destroyed}
+                                  {:work-kind rf.resources.reply/work-kind-resource
                                    :completed-at 1781078400456})]
-      (is (reply/valid-reply? r) (str (reply/validate-reply r)))
+      (is (rf.reply/valid-reply? r) (str (rf.reply/validate-reply r)))
       (is (= :cancelled (:status r)))
       (is (= :cancelled (:rf.reply/work-status r)))
       (is (true? (:cancelled? r)))
@@ -92,9 +92,9 @@
 (deftest mutation-success-reply-is-canonical
   (testing "a mutation :ok reply carries :work/kind :mutation and the result
             under :value (the instance layer stores it as :result — kh9jz6)"
-    (let [r (rreply/success-reply mutation-vp {:slug "w" :title "Welcome"}
-                                  {:work-kind rreply/work-kind-mutation :completed-at 1781078400456})]
-      (is (reply/valid-reply? r) (str (reply/validate-reply r)))
+    (let [r (rf.resources.reply/success-reply mutation-vp {:slug "w" :title "Welcome"}
+                                  {:work-kind rf.resources.reply/work-kind-mutation :completed-at 1781078400456})]
+      (is (rf.reply/valid-reply? r) (str (rf.reply/validate-reply r)))
       (is (= :ok (:status r)))
       (is (= :mutation (:rf.reply/work-kind r)))
       (is (= {:slug "w" :title "Welcome"} (:value r)))
@@ -111,7 +111,7 @@
   (testing "a superseded completion produces :status :stale and DOES NOT deliver"
     (let [carried {:work/id [:rf.work/resource [:rf.scope/global :r {}] 4] :generation 4}
           current {:work/id [:rf.work/resource [:rf.scope/global :r {}] 5] :generation 5}
-          out     (rreply/stale-reply
+          out     (rf.resources.reply/stale-reply
                     {:carried carried :current current
                      :extra   {:rf.reply/work-id (:work/id carried)
                                :work/kind :resource
@@ -124,7 +124,7 @@
         (is (true? (:stale? r)))
         (is (= :resource/generation-mismatch (:rf.reply/stale-reason r)))
         (is (not (contains? r :value)) "a stale reply carries no value (no app mutation)")
-        (is (reply/valid-reply? r) (str (reply/validate-reply r))))
+        (is (rf.reply/valid-reply? r) (str (rf.reply/validate-reply r))))
       (testing "the suppression trace carries the carried + current correlation"
         (is (= carried (get-in out [:trace :rf.reply/carried])))
         (is (= current (get-in out [:trace :rf.reply/current])))))))

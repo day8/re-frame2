@@ -62,22 +62,22 @@
   recomputable-from-`:entries` (rebuilt on install, never trusted from the
   snapshot — Spec 016 §Restore and replay part 5) and need not ride. Per
   Spec 016 §Runtime-subsystem graduation clause 4."
-  (:require [re-frame.elision :as elision]
-            [re-frame.error :as error]
-            [re-frame.frame :as frame]
-            [re-frame.identity :as identity]
-            [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.privacy :as privacy]
-            [re-frame.resources.classification :as classification]
-            [re-frame.resources.mutation-registry :as mutation-registry]
-            [re-frame.resources.mutation-runtime :as mutation-runtime]
-            [re-frame.resources.registry :as registry]
-            [re-frame.resources.route :as route]
-            [re-frame.resources.state :as state]
-            [re-frame.resources.timers :as timers]
-            [re-frame.resources.work-ledger :as work-ledger]
-            [re-frame.trace :as trace]))
+  (:require [re-frame.elision :as rf.elision]
+            [re-frame.error :as rf.error]
+            [re-frame.frame :as rf.frame]
+            [re-frame.identity :as rf.identity]
+            [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.privacy :as rf.privacy]
+            [re-frame.resources.classification :as rf.resources.classification]
+            [re-frame.resources.mutation-registry :as rf.resources.mutation-registry]
+            [re-frame.resources.mutation-runtime :as rf.resources.mutation-runtime]
+            [re-frame.resources.registry :as rf.resources.registry]
+            [re-frame.resources.route :as rf.resources.route]
+            [re-frame.resources.state :as rf.resources.state]
+            [re-frame.resources.timers :as rf.resources.timers]
+            [re-frame.resources.work-ledger :as rf.resources.work-ledger]
+            [re-frame.trace :as rf.trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -97,12 +97,12 @@
 ;; absolute timestamps against to surface skew — is the core
 ;; `re-frame.interop/epoch-now-ms` (rf2-366u0g — `System/currentTimeMillis`
 ;; on the JVM, `js/Date.now` on CLJS), the canonical EP-0010 §Time wall-clock
-;; surface — NOT the perf clock `interop/now-ms` (`performance.now()` on CLJS,
+;; surface — NOT the perf clock `rf.interop/now-ms` (`performance.now()` on CLJS,
 ;; origin-relative, ~1e4), which is incomparable with `js/Date`-based freshness
 ;; checks. These resources are durable freshness / skew readers, so the wall
 ;; clock is correct.
 ;;
-;; `interop/epoch-now-ms` is PUBLIC (rf2-wshzsp test seam preserved): the
+;; `rf.interop/epoch-now-ms` is PUBLIC (rf2-wshzsp test seam preserved): the
 ;; restore-reconcile suite `with-redefs`-stubs it to a sentinel and ADVERSARIALLY
 ;; pins that restore reads it ONLY for the clock-skew DIAGNOSTIC — never to
 ;; freshen a DURABLE restored entry / instance timestamp (EP-0010
@@ -114,7 +114,7 @@
 ;; Freshness is computed from the entry's DURABLE absolute timestamps
 ;; (`:stale-at` / `:invalidated-at`) against a supplied clock — never from
 ;; trusting a timer fired on time (Spec 016 §Stale and GC scheduling). SSR
-;; reads the CANONICAL `state/entry-stale?` (which explicitly owns the
+;; reads the CANONICAL `rf.resources.state/entry-stale?` (which explicitly owns the
 ;; staleness derivation for the subs projection, the SSR projection, AND the
 ;; stale-timer re-check) so the server projection metadata and the client
 ;; refetch decision agree with the subs layer — there is no SSR-private copy
@@ -135,7 +135,7 @@
 ;;   - the canonical FINE-GRAINED surface is the projection-relative
 ;;     `:sensitive` / `:large` PATH declarations on the resource spec (EP-0025).
 ;;     They are LOWERED per instance into the per-frame elision registry
-;;     (`classification/reconcile-registry`, `:source :resource`) at the entry's
+;;     (`rf.resources.classification/reconcile-registry`, `:source :resource`) at the entry's
 ;;     absolute runtime-db path, and the SSR egress READS that registry back —
 ;;     `project-entry-data` for `:data`, and `project-entry-scope` /
 ;;     `project-entry-params` for the scoped key's two classification-bearing
@@ -149,7 +149,7 @@
 ;; onto the wire — every visitor of every SSR page would otherwise receive
 ;; it. The whole-entry coarse claim drives redact / omit; a `:serialize`
 ;; entry's data slice still rides through the registry-driven
-;; `classification/project-entry-data` (over the SHARED `rf/elide-wire-value`
+;; `rf.resources.classification/project-entry-data` (over the SHARED `rf/elide-wire-value`
 ;; walker) under the SSR boundary profile, so the resource's OWN lowered
 ;; projection-relative `:sensitive` / `:large` path declarations redact / elide
 ;; their slots, and any path the FRAME ALSO classifies composes as
@@ -159,7 +159,7 @@
 ;; family-private elider.
 
 ;; The per-entry disposition (`:serialize` / `:redact` / `:omit`) is computed
-;; inside `project-entry` (`classification/whole-entry-disposition` over the
+;; inside `project-entry` (`rf.resources.classification/whole-entry-disposition` over the
 ;; resource OWNER's coarse root-prop `:sensitive?` / `:large?` claim — EP-0015
 ;; §6 / issue 11). EP-0025 (rf2-71dr8t) removed the named-scope-resolver
 ;; derived-sensitivity inheritance arm (no sensitivity propagation). Sensitive
@@ -314,7 +314,7 @@
 
 (defn- shape-token
   "The CONTENT-FREE payload of a `{:rf/redacted …}` token: `value`'s shape,
-  through `error/diag-value-summary`'s closed vocabulary — a `:type` tag drawn
+  through `rf.error/diag-value-summary`'s closed vocabulary — a `:type` tag drawn
   from a fixed set, plus a `:count` for a counted collection or string.
 
   Every slot is a member of a closed vocabulary or an integer, so no expression
@@ -332,13 +332,13 @@
   reaches neither `toString` nor `pr-str`, so an app payload carrying a host
   object cannot destroy the redaction being performed on it."
   [value]
-  (error/diag-value-summary value))
+  (rf.error/diag-value-summary value))
 
 (defn- canonical-digest-token
   "The CONTENT-ADDRESSED payload of a `{:rf/redacted …}` token: `fnv-1a-32` over
   `value`'s CEDN-1 canonical bytes.
 
-  `identity/canonical-bytes` is the repo's identity authority and is what makes
+  `rf.identity/canonical-bytes` is the repo's identity authority and is what makes
   this a fixed function of the CANONICAL value rather than of one spelling of
   it: `(array-map :a 1 :b 2)` and `(array-map :b 2 :a 1)` are `=`, have equal
   canonical bytes, and now produce one token — on both hosts. `pr-str`, which
@@ -354,7 +354,7 @@
   redaction that throws is not a redaction."
   [value]
   (try
-    (fnv-1a-32 (identity/canonical-bytes value))
+    (fnv-1a-32 (rf.identity/canonical-bytes value))
     (catch #?(:clj Throwable :cljs :default) _t
       (shape-token value))))
 
@@ -418,10 +418,10 @@
 ;; ---- is a wire key one the live client can DERIVE? (rf2-rjq9d) ------------
 ;;
 ;; The client never receives a key; it RE-DERIVES one, from its live scope and
-;; params, and reads `(state/entry-path scoped-key)` (`route/route-resource-
+;; params, and reads `(rf.resources.state/entry-path scoped-key)` (`rf.resources.route/route-resource-
 ;; plan`, `events/ensure-handler`). So a wire key is only useful to it if that
 ;; re-derivation can reproduce it. A per-slot `:scope` / `:params` declaration
-;; breaks exactly that: `classification/project-entry-key-component` substitutes
+;; breaks exactly that: `rf.resources.classification/project-entry-key-component` substitutes
 ;; the CONSTANT `:rf/redacted` / `:rf.size/large-elided` sentinel into the
 ;; declared slot, and no live value re-derives to a constant.
 ;;
@@ -483,8 +483,8 @@
 
 (defn- carries-projection-substitution?
   "Deep-scan `v` for ANY projection substitution that makes a wire key
-  underivable by the live client — `privacy/redacted-sentinel` (`:rf/redacted`)
-  or an `:rf.size/large-elided` marker map (`elision/marker?`) from a per-slot
+  underivable by the live client — `rf.privacy/redacted-sentinel` (`:rf/redacted`)
+  or an `:rf.size/large-elided` marker map (`rf.elision/marker?`) from a per-slot
   declaration, or a whole-component coarse `{:rf/redacted <digest>}` token.
 
   The scan is deep because a per-slot declaration names a SLOT INSIDE a
@@ -501,8 +501,8 @@
   Pure."
   [v]
   (cond
-    (= v privacy/redacted-sentinel) true
-    (elision/marker? v)             true
+    (= v rf.privacy/redacted-sentinel) true
+    (rf.elision/marker? v)             true
     (coarse-redaction-token? v)     true
     (map? v)                        (boolean (some carries-projection-substitution? (vals v)))
     (coll? v)                       (boolean (some carries-projection-substitution? v))
@@ -533,8 +533,8 @@
     - `:serialize` — the key rides VERBATIM (scope + params unchanged). A
       per-slot `:params` / `:scope` projection-relative declaration on a
       `:serialize` resource is the REGISTRY-DRIVEN concern of the SSR
-      `project-entry` path (`classification/project-entry-params` at index 2,
-      rf2-d3pku1; `classification/project-entry-scope` at index 0, rf2-5e2ye):
+      `project-entry` path (`rf.resources.classification/project-entry-params` at index 2,
+      rf2-d3pku1; `rf.resources.classification/project-entry-scope` at index 0, rf2-5e2ye):
       it has the entry's `key-id` + the live SSR frame, so it walks each
       component through `project-egress` seeded at that component's own lowered
       registry path. The trace / tool egress callers do NOT get their per-slot
@@ -558,7 +558,7 @@
 
   The wire key keeps the `[scope resource-id params]` SHAPE so the client's
   index recompute + refetch plan parse it unchanged (resource-id at position
-  1). `spec` is the resource owner spec (`registry/resource-meta`) — retained
+  1). `spec` is the resource owner spec (`rf.resources.registry/resource-meta`) — retained
   for caller signature stability (the disposition already encodes the coarse
   claim it carried). PURE."
   [scoped-key disposition _spec]
@@ -573,8 +573,8 @@
   disposition+project-key pipeline. Returns
   `[projected-key disposition spec]`:
 
-    1. `spec`        ← `registry/resource-meta` of `scoped-key`'s resource-id;
-    2. `disposition` ← `classification/whole-entry-disposition spec`
+    1. `spec`        ← `rf.resources.registry/resource-meta` of `scoped-key`'s resource-id;
+    2. `disposition` ← `rf.resources.classification/whole-entry-disposition spec`
        (the coarse owner `:sensitive?` / `:large?` root-prop claim; scope
        resolver inputs never propagate classification to the output);
     3. projected key ← `project-scoped-key scoped-key disposition spec`
@@ -582,8 +582,8 @@
        `{:rf/redacted <digest>}` tokens; `:serialize` rides VERBATIM — the
        resource-id always survives. A `:serialize` key's per-slot `:params` /
        `:scope` projection-relative declarations are the registry-driven concern
-       of the SSR `project-entry` caller — `classification/project-entry-scope`
-       at index 0 and `classification/project-entry-params` at index 2 — which
+       of the SSR `project-entry` caller — `rf.resources.classification/project-entry-scope`
+       at index 0 and `rf.resources.classification/project-entry-params` at index 2 — which
        has the entry's `key-id` + the live frame).
 
   The single home for the pipeline the SSR durable-egress projection
@@ -595,7 +595,7 @@
   never drift between egress boundaries. Pure.
 
   It lives HERE (not in `classification`) because the pipeline needs both
-  `project-scoped-key` (this ns) AND `registry/resource-meta` — and
+  `project-scoped-key` (this ns) AND `rf.resources.registry/resource-meta` — and
   `re-frame.resources.registry` already requires `classification`, so hosting
   it in `classification` would introduce a require cycle. `ssr` already
   requires both `classification` and `registry`, and the trace / tool egress
@@ -603,8 +603,8 @@
   signature stability; whole-entry disposition is frame-independent."
   [scoped-key _frame-id]
   (let [resource-id (second scoped-key)
-        spec        (registry/resource-meta resource-id)
-        disposition (classification/whole-entry-disposition spec)]
+        spec        (rf.resources.registry/resource-meta resource-id)
+        disposition (rf.resources.classification/whole-entry-disposition spec)]
     [(project-scoped-key scoped-key disposition spec) disposition spec]))
 
 (defn- project-entry
@@ -652,7 +652,7 @@
   [frame-id clock-ms entry]
   (let [scoped-key  (:resource/key entry)
         resource-id (second scoped-key)
-        key-id      (state/key-id scoped-key)
+        key-id      (rf.resources.state/key-id scoped-key)
         ;; The shared disposition+project-key pipeline (rf2-366u0g) resolves the
         ;; owner spec ONCE, computes the whole-entry disposition, and projects
         ;; the scoped key in one call:
@@ -667,7 +667,7 @@
         ;;     `:serialize` key rides verbatim and its per-slot scope + params
         ;;     are registry-projected below.
         [projected-key disposition _spec] (disposition+project-key scoped-key frame-id)
-        stale?      (state/entry-stale? entry clock-ms)
+        stale?      (rf.resources.state/entry-stale? entry clock-ms)
         ;; A `:serialize` key's BOTH classification-bearing components are
         ;; REGISTRY-PROJECTED — the SCOPE at index 0 (rf2-5e2ye) and the PARAMS
         ;; at index 2 (rf2-d3pku1). `reconcile-registry` lowers a `:scope`-rooted
@@ -683,21 +683,21 @@
         ;; DEPENDS on it — see `key-projected?` immediately below.
         projected-key (if (= :serialize disposition)
                         (let [[scope rid params] projected-key]
-                          [(classification/project-entry-scope
+                          [(rf.resources.classification/project-entry-scope
                              scope key-id frame-id
                              :rf.egress/ssr-hydration)
                            rid
-                           (classification/project-entry-params
+                           (rf.resources.classification/project-entry-params
                              params key-id frame-id
                              :rf.egress/ssr-hydration)])
                         projected-key)
         ;; rf2-rjq9d — DID a per-slot declaration actually change this entry's
-        ;; identity? `state/key-id` is `canonical-bytes` over the WHOLE key
+        ;; identity? `rf.resources.state/key-id` is `canonical-bytes` over the WHOLE key
         ;; vector, so projecting EITHER component re-keys the entry, and
         ;; `project-resources-runtime-db` installs the wire entry under the
         ;; key-id of THIS projected key. The live client, however, derives the
         ;; ORDINARY scoped key from live scope + params and reads
-        ;; `(state/entry-path scoped-key)` — the RAW key-id (`route/route-
+        ;; `(rf.resources.state/entry-path scoped-key)` — the RAW key-id (`rf.resources.route/route-
         ;; resource-plan`'s readiness read, `events/ensure-handler`). It
         ;; therefore CANNOT address a re-keyed entry, and issues a load.
         ;;
@@ -707,7 +707,7 @@
         ;; clear — the exact leak rf2-5e2ye closed. Nor is it fixable by having
         ;; the client re-derive the PROJECTED key-id and adopt the entry under
         ;; it: the per-slot substitution is the CONSTANT `:rf/redacted` /
-        ;; `:rf.size/large-elided` sentinel (`classification/project-entry-key-
+        ;; `:rf.size/large-elided` sentinel (`rf.resources.classification/project-entry-key-
         ;; component`), NOT the classification-chosen `{:rf/redacted …}` token
         ;; the coarse arm uses, so the mapping is MANY-TO-ONE precisely on the
         ;; slots that carry principal identity. Two tenants' keys project to one
@@ -731,7 +731,7 @@
         ;; reason (see `unaddressable-wire-key?`: neither token payload buys
         ;; the coarse arm an adoption path).
         ;; Comparing key-ids is exact, so nothing here sniffs a shape.
-        key-derivable? (= (state/key-id projected-key) key-id)
+        key-derivable? (= (rf.resources.state/key-id projected-key) key-id)
         ;; the `:serialize`-specific NAME for that answer, which drives the
         ;; `:key-projected` disposition and the data decision below. It is
         ;; narrower than `key-derivable?` on purpose: a coarse entry is already
@@ -770,7 +770,7 @@
                       ;; per-slot `:data` declarations were lowered into the
                       ;; per-frame elision registry at the entry's absolute
                       ;; `:data` path (`reconcile-registry`), and
-                      ;; `classification/project-entry-data` walks the bare `:data`
+                      ;; `rf.resources.classification/project-entry-data` walks the bare `:data`
                       ;; through `project-egress` SEEDED at that absolute offset
                       ;; (`[:rf.runtime/resources :entries <key-id> :data]`) so the
                       ;; lowered `:source :resource` decls — UNIONED with any frame
@@ -789,7 +789,7 @@
                       ;; branch.
                       :serialize
                       (assoc entry :data
-                             (classification/project-entry-data
+                             (rf.resources.classification/project-entry-data
                                (:data entry) key-id frame-id
                                :rf.egress/ssr-hydration))
                       ;; sensitive: replace data with the redaction sentinel.
@@ -809,7 +809,7 @@
                       ;; `:withheld?` does, from an exact key-id comparison.
                       :redact
                       (-> entry
-                          (assoc :data privacy/redacted-sentinel)
+                          (assoc :data rf.privacy/redacted-sentinel)
                           (dissoc :refresh-error))
                       ;; large: drop the data key entirely (metadata only).
                       :omit
@@ -830,7 +830,7 @@
         ;; depends on whether it fired); `projected-key` here is already final.
         ;;
         ;; Projecting either component CHANGES the entry's `key-id`, because
-        ;; `state/key-id` is `canonical-bytes` over the WHOLE key vector.
+        ;; `rf.resources.state/key-id` is `canonical-bytes` over the WHOLE key vector.
         ;; `project-resources-runtime-db` re-keys each wire entry on the `key-id`
         ;; of THIS projected `:resource/key`, so the wire map key and the entry's
         ;; own copy are one value by construction, and the client's
@@ -942,7 +942,7 @@
 
   ## The re-key, and what it costs the entry (rf2-5e2ye, rf2-rjq9d)
 
-  `state/key-id` is `canonical-bytes` over the WHOLE `[scope resource-id params]`
+  `rf.resources.state/key-id` is `canonical-bytes` over the WHOLE `[scope resource-id params]`
   vector, so projecting EITHER component changes it. The wire map is therefore
   keyed on the key-id of each entry's PROJECTED `:resource/key` — the wire map
   key and the entry's own copy are ONE value by construction, and the client
@@ -990,7 +990,7 @@
 
   Unlike the trace / tool key projection (`trace-egress/redact-key-declarations`,
   rf2-dl7bz), which is dev-only — every caller sits behind
-  `interop/debug-enabled?` or bundle isolation — this projection is PRODUCTION.
+  `rf.interop/debug-enabled?` or bundle isolation — this projection is PRODUCTION.
   It is the body behind `:ssr/extend-runtime-db-projection`, called from
   `re-frame.ssr.payload-policy/project-runtime-db` on every SSR render, and its
   output ships in the `:rf/hydration-payload` to every visitor of every page.
@@ -1001,12 +1001,12 @@
    ;; site already inside the frame's own `with-frame` (ambient == the target) —
    ;; e.g. a direct unit-test caller. The security-critical SSR consumer passes
    ;; the explicit target (rf2-f02diw).
-   (project-resources-runtime-db runtime-db (frame/resolve-current-frame)))
+   (project-resources-runtime-db runtime-db (rf.frame/resolve-current-frame)))
   ([runtime-db frame-id]
-   (let [resources (get runtime-db state/resources-key)
+   (let [resources (get runtime-db rf.resources.state/resources-key)
          entries   (:entries resources)]
      (if (seq entries)
-       (let [clock-ms (interop/epoch-now-ms)
+       (let [clock-ms (rf.interop/epoch-now-ms)
              ;; rf2-9e0tyq — the projected wire entries are RE-KEYED on the byte
              ;; `key-id` of each entry's PROJECTED `:resource/key` (the wire
              ;; entry's own `:resource/key`, set by `project-entry`), so the
@@ -1026,9 +1026,9 @@
                               (map (fn [[_k-id entry]] (project-entry frame-id clock-ms entry)))
                               (remove (fn [[_wire-entry meta']] (:withheld? meta')))
                               (map (fn [[wire-entry _meta]]
-                                     [(state/key-id (:resource/key wire-entry)) wire-entry])))
+                                     [(rf.resources.state/key-id (:resource/key wire-entry)) wire-entry])))
                             entries)]
-         {state/resources-key {:entries wired}})
+         {rf.resources.state/resources-key {:entries wired}})
        {}))))
 
 ;; ---- server blocking drain (Spec 016 §SSR and hydration steps 3-4) --------
@@ -1135,10 +1135,10 @@
             entries' (reduce
                        (fn [es [k-id k]]
                          (let [entry (or (get es k-id)
-                                         (state/empty-entry (second k) k))]
-                           (assoc es k-id (state/entry-failed entry {:error error}))))
+                                         (rf.resources.state/empty-entry (second k) k))]
+                           (assoc es k-id (rf.resources.state/entry-failed entry {:error error}))))
                        entries unsettled)]
-        (trace/emit-error! :rf.error/resource-ssr-blocking-timeout
+        (rf.trace/emit-error! :rf.error/resource-ssr-blocking-timeout
                            {:rf.error/id :rf.error/resource-ssr-blocking-timeout
                             :where       're-frame.resources.ssr/settle-blocking-timeout
                             :frame       frame-id
@@ -1172,7 +1172,7 @@
 ;; itself uses (resources never statically depends on routing). The route
 ;; slice's READINESS, by contrast, is not a literal but a projection, and it
 ;; has exactly one implementation: hydration + restore call
-;; `route/reconcile-readiness` rather than re-deriving it here.
+;; `rf.resources.route/reconcile-readiness` rather than re-deriving it here.
 
 (def ^:private routing-key
   "The routing-runtime subtree key (`:rf.runtime/routing`). Mirrors the
@@ -1276,16 +1276,16 @@
   record). The drain reads the LIVE frame each tick (`frame-runtime-db-value`)
   so a reply that lands mid-pump is observed."
   [frame-id {:keys [pump! deadline-ms clock-fn tick-ms]}]
-  (let [clock-fn (or clock-fn interop/epoch-now-ms)
-        rdb0     (frame/frame-runtime-db-value frame-id)
+  (let [clock-fn (or clock-fn rf.interop/epoch-now-ms)
+        rdb0     (rf.frame/frame-runtime-db-value frame-id)
         blocking (current-blocking-keys rdb0)]
     (if (empty? blocking)
       {:settled? true :timed-out [] :route-blocking-failure nil}
       (let [start    (clock-fn)
             deadline (+ start deadline-ms)]
         (loop []
-          (let [rdb     (frame/frame-runtime-db-value frame-id)
-                entries (get-in rdb [state/resources-key :entries])]
+          (let [rdb     (rf.frame/frame-runtime-db-value frame-id)
+                entries (get-in rdb [rf.resources.state/resources-key :entries])]
             (cond
               ;; every blocking entry settled within budget — render sees the
               ;; settled state, runtime-db untouched.
@@ -1298,11 +1298,11 @@
               (>= (clock-fn) deadline)
               (let [{:keys [entries route-blocking-failure]}
                     (settle-blocking-timeout entries blocking deadline-ms frame-id)]
-                (frame/swap-runtime-db! frame-id assoc-in
-                                        [state/resources-key :entries] entries)
+                (rf.frame/swap-runtime-db! frame-id assoc-in
+                                        [rf.resources.state/resources-key :entries] entries)
                 {:settled?              false
                  :timed-out             (vec (vals (unsettled-blocking-keys
-                                                     (get-in rdb [state/resources-key :entries])
+                                                     (get-in rdb [rf.resources.state/resources-key :entries])
                                                      blocking)))
                  :route-blocking-failure route-blocking-failure})
 
@@ -1504,7 +1504,7 @@
        Wiring the COMPUTE into the reconcile means the per-entry decision is
        never lost on the `:rf/hydrate` install path;
     5. RECONCILE the hydrated route readiness through the one projector
-       (`route/reconcile-readiness`) — the payload's cached `:transition` /
+       (`rf.resources.route/reconcile-readiness`) — the payload's cached `:transition` /
        `:error` is not independent authority, and hydration MUST NOT preserve
        a `:loading` / `:error` the reconciled resource facts contradict (Spec
        012 §Route readiness is a resource projection). A payload with no
@@ -1517,11 +1517,11 @@
   emit self-gates on debug)."
   ([runtime-db] (hydrate-runtime-db runtime-db nil))
   ([runtime-db frame-id]
-   (let [resources (get runtime-db state/resources-key)
+   (let [resources (get runtime-db rf.resources.state/resources-key)
          entries   (:entries resources)]
      (if-not (seq entries)
        runtime-db
-       (let [clock-ms (interop/epoch-now-ms)
+       (let [clock-ms (rf.interop/epoch-now-ms)
              ;; reconcile each entry: orphan SSR owners + clear current-work +
              ;; settle a non-terminal entry to last-stable (rf2-bg6qah).
              ;; Hydration passes nil live-nav-token — there is no client
@@ -1593,10 +1593,10 @@
                           entries)
              entries'  (:entries reconciled)
              ;; recompute the reverse indexes from the reconciled entries
-             subtree'  (state/recompute-indexes
+             subtree'  (rf.resources.state/recompute-indexes
                          (assoc resources :entries entries'))
-             rdb'      (assoc runtime-db state/resources-key subtree')]
-         (trace/emit! :rf.event :rf.resource/hydrated
+             rdb'      (assoc runtime-db rf.resources.state/resources-key subtree')]
+         (rf.trace/emit! :rf.event :rf.resource/hydrated
                       {:rf.frame/id    frame-id
                        :installed      (count entries')
                        :orphaned-owners (vec (:orphaned reconciled))
@@ -1615,7 +1615,7 @@
                        ;; nothing the payload did not already contain.
                        :unaddressable  (vec (:unaddressable reconciled))})
          (doseq [[sk skew] (:skews reconciled)]
-           (trace/emit! :warning :rf.resource/hydrate-clock-skew
+           (rf.trace/emit! :warning :rf.resource/hydrate-clock-skew
                         {:rf.frame/id  frame-id
                          :resource/key sk
                          :skew-ms      skew
@@ -1640,7 +1640,7 @@
          ;; readiness no live work can ever move. No routing slice / no live
          ;; nav-token / no blocking slot is a structural no-op. Per Spec 012
          ;; §Route readiness is a resource projection.
-         (route/reconcile-readiness rdb'))))))
+         (rf.resources.route/reconcile-readiness rdb'))))))
 
 ;; ---- epoch-restore reconcile (Spec 016 §Restore and replay parts 2/4/5) ---
 ;;
@@ -1681,7 +1681,7 @@
 ;;      pre-restore in-flight reply that lands post-restore is suppressed by the
 ;;      ordinary work-id + generation check (the entry no longer points at it and
 ;;      its row is terminal). The generation allocator is host-side + monotonic
-;;      (part 1, `state/generation-cache`), so the dangling `:work/id` can never
+;;      (part 1, `rf.resources.state/generation-cache`), so the dangling `:work/id` can never
 ;;      re-match a live entry — collision is structurally impossible.
 ;;
 ;; Whether a settled entry then re-fetches is a freshness decision (part 3) — it
@@ -1704,7 +1704,7 @@
   [entry]
   (if (contains? #{:loading :fetching} (:status entry))
     (let [next (cond
-                 (state/has-data? entry) :loaded
+                 (rf.resources.state/has-data? entry) :loaded
                  (some? (:error entry))  :error
                  :else                   :idle)]
       (assoc entry :status next))
@@ -1726,10 +1726,10 @@
   handles are dropped by the resources frame-destroy / restore teardown, not
   here (this only moves the durable serializable row forward)."
   [runtime-db]
-  (let [ledger (get runtime-db state/work-ledger-key)
+  (let [ledger (get runtime-db rf.resources.state/work-ledger-key)
         non-terminal (into []
                            (comp (filter (fn [[_ r]]
-                                           (contains? work-ledger/non-terminal-statuses
+                                           (contains? rf.resources.work-ledger/non-terminal-statuses
                                                       (:status r))))
                                  (map key))
                            ledger)]
@@ -1740,8 +1740,8 @@
       ;; `update-record-by-id` (NOT `update-record`, which re-transforms a
       ;; work-id VECTOR to its byte id and would double-hash).
       [(reduce (fn [rdb work-id-id]
-                 (work-ledger/update-record-by-id rdb work-id-id
-                                                   work-ledger/mark-terminal
+                 (rf.resources.work-ledger/update-record-by-id rdb work-id-id
+                                                   rf.resources.work-ledger/mark-terminal
                                                    :suppressed
                                                    {:reason :dangling
                                                     :recovery :restore-reconcile}))
@@ -1763,7 +1763,7 @@
 
   Each restored pending/idle instance is TERMINALLY SETTLED to `:error` with
   the `:dangling-on-restore` envelope and its `:current-work` is CLEARED
-  (`mutation-runtime/instance-dangled`). Clearing `:current-work` makes the
+  (`rf.resources.mutation-runtime/instance-dangled`). Clearing `:current-work` makes the
   ordinary work-id + generation gate suppress the late reply (the
   `(= work-id (:current-work inst))` check fails); the generation allocator is
   host-side + monotonic (part 1), so the dangling work-id can never re-match a
@@ -1774,7 +1774,7 @@
   EP-0019 Q3 GUARD — a dangled OPTIMISTIC write also ROLLS BACK its recorded
   apply (the entry shows the optimistic value with no in-flight write to confirm
   it — an accepted-error-shaped terminal). The rollback runs INSIDE this same
-  pure pass (`mutation-runtime/dangle-rollback-optimistic`), NOT as a second
+  pure pass (`rf.resources.mutation-runtime/dangle-rollback-optimistic`), NOT as a second
   post-restore dispatched event that could RACE a fresh load: an UNMOVED
   `:revision` restores the recorded `:before` verbatim; a CONFLICT (the entry's
   revision moved) marks the entry durably STALE in place (the read path refetches
@@ -1790,13 +1790,13 @@
   handles are cleared separately — the mutation's work-ledger row is dangled by
   `dangle-non-terminal-work!`, work-kind `:mutation`)."
   [runtime-db settled-at]
-  (let [instances (get-in runtime-db (mutation-runtime/instances-path))
+  (let [instances (get-in runtime-db (rf.resources.mutation-runtime/instances-path))
         ;; rf2-8iciw8 — `:rf.runtime/mutations` is keyed on the CEDN-1 byte
         ;; `key-id`; iterate the map's OWN keys (already byte key-ids) and
         ;; operate on the direct `[mutations-key <key-id>]` path. Do NOT re-feed
         ;; a byte key-id through `instance-path` (that would re-encode it).
         pending   (into []
-                        (comp (filter (fn [[_ inst]] (mutation-runtime/pending? inst)))
+                        (comp (filter (fn [[_ inst]] (rf.resources.mutation-runtime/pending? inst)))
                               (map key))
                         instances)]
     (if (empty? pending)
@@ -1804,7 +1804,7 @@
       (let [[rdb' rolled-keys dangled-ids]
             (reduce
               (fn [[rdb rk dids] key-id]
-                (let [inst-path (conj (mutation-runtime/instances-path) key-id)
+                (let [inst-path (conj (rf.resources.mutation-runtime/instances-path) key-id)
                       inst (get-in rdb inst-path)
                       ;; EP-0019 Q3 — roll back the recorded optimistic apply
                       ;; (conflict-aware, INSIDE the pass) BEFORE settling the
@@ -1812,11 +1812,11 @@
                       ;; restored `:before`, or a durable-stale entry the read path
                       ;; refetches), never a dangling optimistic value with no
                       ;; in-flight write to confirm it.
-                      spec (mutation-registry/mutation-meta (:mutation/id inst))
-                      [rdb2 keys2] (mutation-runtime/dangle-rollback-optimistic
+                      spec (rf.resources.mutation-registry/mutation-meta (:mutation/id inst))
+                      [rdb2 keys2] (rf.resources.mutation-runtime/dangle-rollback-optimistic
                                      rdb inst spec settled-at)]
                   [(update-in rdb2 inst-path
-                              mutation-runtime/instance-dangled settled-at)
+                              rf.resources.mutation-runtime/instance-dangled settled-at)
                    (into rk keys2)
                    ;; surface the kind-preserving `:instance/id` in the returned
                    ;; dangled-id list (the byte key-id is opaque storage detail).
@@ -1833,19 +1833,19 @@
   cleared so a stale timer / abandoned in-flight handle cannot fire against the
   restored state:
 
-    - **stale / GC timer handles** (`timers/release-frame!`) — cancelled +
+    - **stale / GC timer handles** (`rf.resources.timers/release-frame!`) — cancelled +
       dropped for the frame; stale/GC scheduling re-arms LAZILY from the
       restored entries' durable timestamps the next time the runtime touches
       each entry (the timer is advisory, re-checked against durable facts), so
       restore arms NO eager timer;
-    - **work-ledger host handles** (`work-ledger/release-frame!`) — the
+    - **work-ledger host handles** (`rf.resources.work-ledger/release-frame!`) — the
       AbortController / transport-promise slots for the frame's in-flight
       attempts; best-effort aborted on the way out (the work is dangling per
       part 2 — its durable row was already settled `:suppressed`).
 
   DELIBERATELY does NOT touch (Spec 016 part 5 / the bead's explicit fence):
 
-    - the host-side GENERATION high-water mark (`state/generation-cache`) — it
+    - the host-side GENERATION high-water mark (`rf.resources.state/generation-cache`) — it
       is monotonic + must NOT rewind (part 1), or a pre-restore reply's
       generation could re-match a post-restore entry; resetting it here would
       reintroduce the exact anti-recycling hazard restore exists to prevent;
@@ -1860,8 +1860,8 @@
   (mutates the module-level `timer-table` / `handle-table`); idempotent;
   returns nil. No-op for a frame with no armed transients."
   [frame-id]
-  (timers/release-frame! frame-id)
-  (work-ledger/release-frame! frame-id)
+  (rf.resources.timers/release-frame! frame-id)
+  (rf.resources.work-ledger/release-frame! frame-id)
   nil)
 
 ;; ---- deferred restore trace intents (rf2-obi8rr) --------------------------
@@ -1882,7 +1882,7 @@
 ;; directly (the 1-/2-arity, the pure unit-test path) the reconcile still emits
 ;; inline — there is no install to gate against. The host-side-transient clear is
 ;; NOT deferred: it is idempotent and the only failure path is an already-
-;; destroyed frame whose transients `frame/destroy-frame!` already released.
+;; destroyed frame whose transients `rf.frame/destroy-frame!` already released.
 
 (def ^:private deferred-trace-intents-key
   "Metadata key carrying the deferred restore-reconcile trace intents on the
@@ -1893,13 +1893,13 @@
 
 (defn- emit-trace-intent!
   "Emit one deferred restore trace intent `{:level :op :tags}` through the
-  matching `trace` emitter. `:error` routes through `trace/emit-error!` (the
+  matching `trace` emitter. `:error` routes through `rf.trace/emit-error!` (the
   structured-error channel); every other level (`:rf.epoch` / `:warning` / …)
-  routes through `trace/emit!`. Per rf2-obi8rr."
+  routes through `rf.trace/emit!`. Per rf2-obi8rr."
   [{:keys [level op tags]}]
   (if (= :error level)
-    (trace/emit-error! op tags)
-    (trace/emit! level op tags))
+    (rf.trace/emit-error! op tags)
+    (rf.trace/emit! level op tags))
   nil)
 
 (defn commit-restore-reconcile-traces!
@@ -1927,7 +1927,7 @@
    (let [still-owned? (fn []
                         (or (nil? frame-id)
                             (nil? owner-token)
-                            (frame/frame-incarnation-live? frame-id owner-token)))]
+                            (rf.frame/frame-incarnation-live? frame-id owner-token)))]
      (doseq [intent (-> reconciled-runtime-db meta (get deferred-trace-intents-key))
              :while (still-owned?)]
        (emit-trace-intent! intent)))
@@ -1968,7 +1968,7 @@
        `:generation`, not the resource entry's, so the resource-side dangle
        alone does NOT suppress it);
     3c. RECONCILE the restored route readiness through the one projector
-       (`route/reconcile-readiness`, run LAST so it projects over the settled
+       (`rf.resources.route/reconcile-readiness`, run LAST so it projects over the settled
        entries + dangled work). A snapshot captured mid-load restores a route
        `:loading` whose in-flight work step 3 has just dangled — nothing would
        ever move it again — so restore recomputes `:transition` / `:error`
@@ -2004,7 +2004,7 @@
     atomic install, so a callback that churns incarnation A to a same-id
     successor B mid-reconcile could otherwise make it release B's live host
     handles. When present, the clear fires ONLY while that exact incarnation is
-    still live (`frame/frame-incarnation-live?`); once it is lost the clear is
+    still live (`rf.frame/frame-incarnation-live?`); once it is lost the clear is
     skipped — B is untouched, and A's transients were already released by
     `destroy-frame!`. nil (the pure-unit 1-/2-arity) has no incarnation to fence
     and clears unconditionally, as before.
@@ -2012,7 +2012,7 @@
     epoch's `:committed-at` (the committing token's `:rf.cofx`
     `:rf/time-ms`, replay-stable per EP-0010 §Time). It is the source of the
     DURABLE `:settled-at` stamped on a PENDING mutation instance dangled on
-    restore — NOT the live install clock (`interop/epoch-now-ms`). Per EP-0010 §Restore/Replay
+    restore — NOT the live install clock (`rf.interop/epoch-now-ms`). Per EP-0010 §Restore/Replay
     a durable frame-state field MUST come from a causal input, never an ambient
     world read at install. nil on the pure-unit 1-/2-arity (no token / no real
     restore epoch), where it falls back to the live clock — those paths install
@@ -2025,10 +2025,10 @@
   ([runtime-db] (reconcile-on-restore runtime-db nil nil))
   ([runtime-db frame-id] (reconcile-on-restore runtime-db frame-id nil))
   ([runtime-db frame-id {:keys [defer-traces? restore-time-ms owner-token]}]
-   (let [resources (get runtime-db state/resources-key)
+   (let [resources (get runtime-db rf.resources.state/resources-key)
          entries   (:entries resources)
-         ledger    (get runtime-db state/work-ledger-key)
-         mutations (get-in runtime-db (mutation-runtime/instances-path))
+         ledger    (get runtime-db rf.resources.state/work-ledger-key)
+         mutations (get-in runtime-db (rf.resources.mutation-runtime/instances-path))
          ;; the nav-token the restored routing slice currently considers live
          ;; — restore installs both partitions wholesale, so routing :current
          ;; is present in this same runtime-db (nil when the app carries no
@@ -2037,7 +2037,7 @@
          live-nav-token (get-in runtime-db routing-current-nav-token-path)]
      (if-not (or (seq entries) (seq ledger) (seq mutations))
        runtime-db
-       (let [clock-ms (interop/epoch-now-ms)
+       (let [clock-ms (rf.interop/epoch-now-ms)
              ;; reconcile each entry: orphan SSR owners + STALE-NAV route
              ;; owners (part 4) + clear current-work (part 2) + settle a
              ;; mid-flight status to last-stable (restore-specific — the wire
@@ -2065,10 +2065,10 @@
                           {:entries {} :orphaned [] :skews []}
                           entries)
              entries'  (:entries reconciled)
-             subtree'  (state/recompute-indexes
+             subtree'  (rf.resources.state/recompute-indexes
                          (assoc resources :entries entries'))
              rdb'      (cond-> runtime-db
-                         (seq entries) (assoc state/resources-key subtree'))
+                         (seq entries) (assoc rf.resources.state/resources-key subtree'))
              ;; settle the dangling non-terminal work-ledger rows (restore-specific)
              [rdb'' dangled] (dangle-non-terminal-work! rdb')
              ;; settle the dangling PENDING mutation instances + clear their
@@ -2082,7 +2082,7 @@
              ;; come from the restore's CAUSAL time (`restore-time-ms` — the
              ;; restored epoch's `:committed-at`, itself the committing token's
              ;; `:rf.cofx` `:rf/time-ms`), NOT the ambient `clock-ms`
-             ;; (`interop/epoch-now-ms`) read above. Sourcing it from the live install clock
+             ;; (`rf.interop/epoch-now-ms`) read above. Sourcing it from the live install clock
              ;; would make the durable stamp non-replayable (the exact shape the
              ;; EP's restore clause warns against: a durable write fed by an
              ;; ambient read at install). `clock-ms` legitimately feeds ONLY the
@@ -2101,7 +2101,7 @@
              [rdb-dangled dangled-mutations rolled-mutation-keys]
              (dangle-pending-mutations! rdb'' settled-at)
              rdb''' (if (seq rolled-mutation-keys)
-                      (update rdb-dangled state/resources-key state/recompute-indexes)
+                      (update rdb-dangled rf.resources.state/resources-key rf.resources.state/recompute-indexes)
                       rdb-dangled)
              ;; rf2-obi8rr — compute the restore-reconcile trace rows as INTENTS
              ;; (plain `{:level :op :tags}` data). They are emitted inline below
@@ -2215,7 +2215,7 @@
          ;; unconditionally, as before.
          (when (and frame-id
                     (or (nil? owner-token)
-                        (frame/frame-incarnation-live? frame-id owner-token)))
+                        (rf.frame/frame-incarnation-live? frame-id owner-token)))
            (clear-host-transients-on-restore! frame-id))
          ;; rf2-kqxe6.17 — reconcile the restored ROUTE readiness through the
          ;; ONE projector, LAST (after the entry settles + the work/mutation
@@ -2229,7 +2229,7 @@
          ;; and must announce nothing an aborted install would not have done
          ;; (rf2-obi8rr). Per Spec 012 §Route readiness is a resource
          ;; projection.
-         (let [rdb-final (route/reconcile-readiness
+         (let [rdb-final (rf.resources.route/reconcile-readiness
                            rdb''' {:emit-error? (not defer-traces?)})]
            (if defer-traces?
              ;; rf2-obi8rr — ride the intents back as metadata; the epoch
@@ -2254,7 +2254,7 @@
 ;;
 ;; A REDACTED entry rides
 ;; the wire with its `:data` REPLACED by the redaction sentinel
-;; (`privacy/redacted-sentinel` = `:rf/redacted`) — it is METADATA ONLY, NOT
+;; (`rf.privacy/redacted-sentinel` = `:rf/redacted`) — it is METADATA ONLY, NOT
 ;; usable data. A naive `(some? (:data entry))` would see the sentinel as
 ;; present and misclassify a redacted entry as fresh-with-data → NEVER
 ;; refetch, leaving the client rendering the `:rf/redacted` sentinel as if it
@@ -2263,14 +2263,14 @@
 
 (defn hydrated-data-usable?
   "True iff a HYDRATED `entry` carries USABLE last-known-good `:data` — i.e.
-  `:data` is NOT the redaction sentinel (`privacy/redacted-sentinel`) AND the
-  durable `state/has-data?` predicate reports usable data. A `:sensitive?`
+  `:data` is NOT the redaction sentinel (`rf.privacy/redacted-sentinel`) AND the
+  durable `rf.resources.state/has-data?` predicate reports usable data. A `:sensitive?`
   resource projects its data as the sentinel (`project-entry` `:redact`), so on
   the wire the entry's `:data` is `:rf/redacted` — metadata only, never usable.
   An `:large?` resource OMITS the `:data` key entirely (nil — also not usable).
 
   This DELEGATES the 'is there usable last-known-good data?' question to
-  `state/has-data?` so the two never drift: crucially, an INFINITE feed's
+  `rf.resources.state/has-data?` so the two never drift: crucially, an INFINITE feed's
   `:data` is the ordered PAGE VECTOR (seeded `[]`), and an EMPTY page vector is
   NO usable data (EP-0021 R1) — a naive `(some? :data)` would treat `[]` as
   present and strand an empty hydrated feed fresh-forever (rf2-x76af2.11). The
@@ -2280,8 +2280,8 @@
   Spec 016 §SSR and hydration (redacted entries hydrate as metadata only)."
   [entry]
   (let [d (:data entry)]
-    (and (not= privacy/redacted-sentinel d)
-         (state/has-data? entry))))
+    (and (not= rf.privacy/redacted-sentinel d)
+         (rf.resources.state/has-data? entry))))
 
 (defn entry-needs-refetch?
   "Decide whether a hydrated `entry` needs a client refetch against
@@ -2305,7 +2305,7 @@
   (let [usable? (hydrated-data-usable? entry)]
     (cond
       (not usable?)                true            ;; metadata-only / redacted / error
-      (state/entry-stale? entry clock-ms) true           ;; stale-while-revalidate
+      (rf.resources.state/entry-stale? entry clock-ms) true           ;; stale-while-revalidate
       :else                         false)))       ;; fresh + usable data → no dup-fetch
 
 (defn hydrate-refetch-plan
@@ -2345,10 +2345,10 @@
 
   `frame-id` (3-arity) is the explicit hydration target the trace rows are
   tagged with; the 1-/2-arity overloads omit it (a frame-agnostic decision)."
-  ([runtime-db] (hydrate-refetch-plan runtime-db (interop/epoch-now-ms) nil))
+  ([runtime-db] (hydrate-refetch-plan runtime-db (rf.interop/epoch-now-ms) nil))
   ([runtime-db clock-ms] (hydrate-refetch-plan runtime-db clock-ms nil))
   ([runtime-db clock-ms frame-id]
-   (let [entries (get-in runtime-db [state/resources-key :entries])
+   (let [entries (get-in runtime-db [rf.resources.state/resources-key :entries])
          ;; rf2-9e0tyq — `entries` is keyed on the opaque byte `key-id`; the
          ;; plan names each entry by its stored `:resource/key` VECTOR (the
          ;; route slice re-resolves params from the live route under that key)
@@ -2377,19 +2377,19 @@
                                                  ;; Xray / the route slice can tell a
                                                  ;; sensitive-redaction refetch from a
                                                  ;; large-omission one (rf2-fopuj9).
-                                                 (= privacy/redacted-sentinel (:data entry)) :metadata-only
+                                                 (= rf.privacy/redacted-sentinel (:data entry)) :metadata-only
                                                  ;; no usable last-known-good data — a nil
                                                  ;; scalar (omitted `:large?`) OR an EMPTY
                                                  ;; infinite page vector `[]` (EP-0021 R1;
-                                                 ;; rf2-x76af2.11). `state/has-data?` is the
+                                                 ;; rf2-x76af2.11). `rf.resources.state/has-data?` is the
                                                  ;; single home for the infinite-empty branch,
                                                  ;; reached only after the sentinel is ruled out.
-                                                 (not (state/has-data? entry))       :no-data
-                                                 (state/entry-stale? entry clock-ms) :stale
+                                                 (not (rf.resources.state/has-data? entry))       :no-data
+                                                 (rf.resources.state/entry-stale? entry clock-ms) :stale
                                                  :else                         :metadata-only)})))
                        entries)]
      (doseq [{:keys [resource-id reason] resource-key :resource/key} plan]
-       (trace/emit! :rf.event :rf.resource/hydrate-refetch
+       (rf.trace/emit! :rf.event :rf.resource/hydrate-refetch
                     {:rf.frame/id  frame-id
                      :resource/key resource-key
                      :resource-id  resource-id
@@ -2434,7 +2434,7 @@
   runtime-db). Published from the `re-frame.resources` façade so a `:reload`
   re-wires them."
   []
-  (late-bind/set-fns!
+  (rf.late-bind/set-fns!
     {:ssr/extend-runtime-db-projection project-resources-runtime-db
      :resources/drain-blocking-ssr!    drain-blocking-resources!
      :resources/hydrate-runtime-db     hydrate-runtime-db
@@ -2458,5 +2458,5 @@
   fallback). NEVER crosses scopes (the reconcile only touches the entries
   the server projected under their own scoped keys)."
   [frame-id]
-  (let [rdb (frame/swap-runtime-db! frame-id hydrate-runtime-db frame-id)]
-    (hydrate-refetch-plan (or rdb {}) (interop/epoch-now-ms) frame-id)))
+  (let [rdb (rf.frame/swap-runtime-db! frame-id hydrate-runtime-db frame-id)]
+    (hydrate-refetch-plan (or rdb {}) (rf.interop/epoch-now-ms) frame-id)))

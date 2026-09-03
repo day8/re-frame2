@@ -11,20 +11,20 @@
 
   and NO coarse `:sensitive?` root prop classifies `:serialize`. The trace /
   tool key projection read only that coarse disposition
-  (`ssr/project-scoped-key`), so the declared `:account-id` rode RAW inside
+  (`rf.resources.ssr/project-scoped-key`), so the declared `:account-id` rode RAW inside
   `:resource/key` on every `:rf.resource/*` / `:rf.mutation/*` row, inside every
   scoped-keys vector slot, inside every `[:rf.work/resource <key> <gen>]`
   work-id, and inside every fx carrier (`:rf.fx/args` / `:rf.event/fx`) the key
   reaches — off-box, epoch, MCP. Meanwhile the SAME bytes in the durable entry
   redact, because `reconcile-registry` lowered the declaration to
   `[… :resource/key 2 :account-id]` and the SSR wire key walks it
-  (`classification/project-entry-params`). One value, two carriers, one rule
+  (`rf.resources.classification/project-entry-params`). One value, two carriers, one rule
   applied: the rf2-irwsq shape.
 
   The artefact ALREADY DOCUMENTED the closed behaviour before it existed —
   `tooling.cljc` claimed `:serialize` \"applies the resource's per-slot
   `:params` projection-relative declarations\" and \"projects per-slot
-  `:params-schema` marks\", and `ssr/project-scoped-key` took a `spec` argument
+  `:params-schema` marks\", and `rf.resources.ssr/project-scoped-key` took a `spec` argument
   it named `_spec`. §1 below is the standing statement that the prose is now
   true of the code, and §5 is the standing statement that it was made true
   WITHOUT widening `project-scoped-key`, whose `:serialize` deferral is
@@ -61,24 +61,24 @@
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [clojure.string :as str]
    [re-frame.core :as rf]
-   [re-frame.frame :as frame]
+   [re-frame.frame :as rf.frame]
    ;; load-bearing side-effecting require: the façade registers the
    ;; :rf.resource/* events + subs + the :resource registrar kind, and
    ;; publishes the trace-egress hooks the epoch tool-pair consults.
    [re-frame.resources]
-   [re-frame.resources.classification :as classification]
-   [re-frame.resources.registry :as registry]
-   [re-frame.resources.ssr :as ssr]
-   [re-frame.resources.state :as state]
-   [re-frame.resources.tooling :as resources-tooling]
-   [re-frame.resources.trace-egress :as trace-egress]
-   [re-frame.resources.work-ledger :as work-ledger]
+   [re-frame.resources.classification :as rf.resources.classification]
+   [re-frame.resources.registry :as rf.resources.registry]
+   [re-frame.resources.ssr :as rf.resources.ssr]
+   [re-frame.resources.state :as rf.resources.state]
+   [re-frame.resources.tooling :as rf.resources.tooling]
+   [re-frame.resources.trace-egress :as rf.resources.trace-egress]
+   [re-frame.resources.work-ledger :as rf.resources.work-ledger]
    ;; production HTTP fx surface (so the transport feature probe resolves).
    [re-frame.http.managed]
    [re-frame.schemas]
-   [re-frame.test-support :as core-test-support]
-   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
-       :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
+   [re-frame.test-support :as rf.test-support]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
 (def ^:private account-secret "acct-SECRET-4417")
 (def ^:private tenant-secret "tenant-SECRET-99")
@@ -124,8 +124,8 @@
     (fn [_p _ctx] {:request {:method :get :url "/sealed"}})))
 
 (use-fixtures :each
-  (core-test-support/make-reset-runtime-fixture
-    {:adapter #?(:clj plain-atom/adapter :cljs reagent-adapter/adapter)
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter #?(:clj rf.substrate.plain-atom/adapter :cljs rf.adapter.reagent/adapter)
      :init-fn init!}))
 
 ;; ---- helpers --------------------------------------------------------------
@@ -133,10 +133,10 @@
 (def ^:private declared-params {:account-id account-secret :page 3})
 
 (defn- key-for [resource-id]
-  (state/scoped-resource-key :rf.scope/global resource-id declared-params))
+  (rf.resources.state/scoped-resource-key :rf.scope/global resource-id declared-params))
 
 (defn- tenant-key []
-  (state/scoped-resource-key [:rf.scope/session {:tenant-id tenant-secret :region "au"}]
+  (rf.resources.state/scoped-resource-key [:rf.scope/session {:tenant-id tenant-secret :region "au"}]
                              :tenant/report
                              {:avatar avatar-blob :page 3}))
 
@@ -145,7 +145,7 @@
   through the late-bound `:resources/project-resource-trace-egress` hook's body,
   against the row's own `:rf.frame/id`."
   [tags]
-  (trace-egress/project-resource-trace-egress tags (:rf.frame/id tags)))
+  (rf.resources.trace-egress/project-resource-trace-egress tags (:rf.frame/id tags)))
 
 (defn- projected-key
   "The single `:resource/key` slot of a one-key row, projected off-box."
@@ -164,15 +164,15 @@
   steps a real resource commit folds into one transition. Returns the key."
   [frame-id scoped-key]
   (let [resource-id (second scoped-key)]
-    (frame/swap-runtime-db!
+    (rf.frame/swap-runtime-db!
       frame-id
       (fn [rdb]
         (-> (or rdb {})
-            (assoc-in (state/entry-path scoped-key)
-                      (assoc (state/empty-entry resource-id scoped-key)
+            (assoc-in (rf.resources.state/entry-path scoped-key)
+                      (assoc (rf.resources.state/empty-entry resource-id scoped-key)
                              :status :loaded
                              :data   {:total 1}))
-            (classification/reconcile-registry registry/resource-meta)))))
+            (rf.resources.classification/reconcile-registry rf.resources.registry/resource-meta)))))
   scoped-key)
 
 (defn- ssr-wire-key
@@ -184,15 +184,15 @@
   row, because a `:serialize` entry re-keyed by its own per-slot declaration is
   WITHHELD from the wire (rf2-rjq9d — an unaddressable row hydrates as an
   ownerless duplicate nothing can reach or collect). The projection itself is
-  untouched: `classification/project-entry-params` still runs and still produces
+  untouched: `rf.resources.classification/project-entry-params` still runs and still produces
   this key, so the agreement asserted below is the same agreement, read off the
   carrier that survives."
   [frame-id scoped-key]
-  (let [rdb (frame/frame-runtime-db-value frame-id)]
+  (let [rdb (rf.frame/frame-runtime-db-value frame-id)]
     (some (fn [m]
             (when (= (second (:resource/key m)) (second scoped-key))
               (:projected-key m)))
-          (ssr/projection-metadata frame-id 5000 (get-in rdb (state/entries-path))))))
+          (rf.resources.ssr/projection-metadata frame-id 5000 (get-in rdb (rf.resources.state/entries-path))))))
 
 ;; ===========================================================================
 ;; 1. THE LEAK. A `:serialize` owner's declared params slot must not ride raw
@@ -226,7 +226,7 @@
             slot, inside a work-id, and inside the fx carriers a foreign row
             stamps"
     (let [k       (key-for :account/summary)
-          work-id (work-ledger/resource-work-id k 1)
+          work-id (rf.resources.work-ledger/resource-work-id k 1)
           rows    {:rf.frame/id :rf/default
                    :matched     [k]
                    :work/id     work-id
@@ -248,7 +248,7 @@
             tags {:rf.frame/id :rf/default
                   :rf.fx/args  {:request-id [:rf.req :rf/default
                                              [:rf.work/resource k 1]]}}
-            out  (trace-egress/project-fx-args-egress tags :rf/default)]
+            out  (rf.resources.trace-egress/project-fx-args-egress tags :rf/default)]
         (is (not (leaks? account-secret out))
             (str "an ensure's fx carrier must honour the declaration — got "
                  (pr-str out)))
@@ -264,7 +264,7 @@
     (let [k  (key-for :plain/summary)
           pk (projected-key k)]
       (is (= k pk) "a plain owner's key is unchanged")
-      (is (= (state/key-id k) (state/key-id pk))
+      (is (= (rf.resources.state/key-id k) (rf.resources.state/key-id pk))
           "…byte-identical, so the cache-key-identity round-trip is intact")
       (is (leaks? account-secret pk)
           "an undeclared param is app data and stays readable to a tool"))))
@@ -273,7 +273,7 @@
   (testing "rf2-wgutc2 — the walker reconstructs collections, so an UNNECESSARY
             walk would collapse a list-valued param to a vector and change the
             key's bytes. The declaration-existence gate is what stops it"
-    (let [k  (state/scoped-resource-key :rf.scope/global :plain/summary
+    (let [k  (rf.resources.state/scoped-resource-key :rf.scope/global :plain/summary
                                         {:account-id "a" :page 3 :ids '(1 2 3)})
           pk (projected-key k)]
       (is (= (pr-str k) (pr-str pk))
@@ -331,7 +331,7 @@
     (let [k     (key-for :account/summary)
           reply (read-reply k {:ok true})
           tags  {:rf.frame/id :rf/default :rf.fx/args reply}
-          out   (:rf.fx/args (trace-egress/project-fx-args-egress tags :rf/default))]
+          out   (:rf.fx/args (rf.resources.trace-egress/project-fx-args-egress tags :rf/default))]
       (is (= :rf/redacted (:account-id (:params out)))
           "the reply's own :params copy still redacts through its declaration")
       (is (= 3 (:page (:params out)))
@@ -376,7 +376,7 @@
 
 (deftest trace-key-agrees-with-the-ssr-durable-wire-key
   (testing "rf2-dl7bz Q1 — the spec-derived per-slot projection is BYTE-EQUAL
-            to the registry-driven `classification/project-entry-params` the SSR
+            to the registry-driven `rf.resources.classification/project-entry-params` the SSR
             durable path runs. Two derivations, one answer"
     (let [k        (install-entry! :rf/default (key-for :account/summary))
           wire     (ssr-wire-key :rf/default k)
@@ -402,16 +402,16 @@
 
 (deftest project-scoped-key-still-defers-on-serialize
   (testing "rf2-dl7bz ruling — the per-slot arm lives at the trace / tool
-            boundary, NOT inside `ssr/project-scoped-key`, whose `:serialize`
+            boundary, NOT inside `rf.resources.ssr/project-scoped-key`, whose `:serialize`
             deferral is deliberate (the SSR durable path resolves the same
             declaration from the per-frame elision registry). This test reds if
             anyone moves the arm into the shared projection"
     (let [k    (key-for :account/summary)
-          spec (registry/resource-meta :account/summary)]
-      (is (= k (ssr/project-scoped-key k :serialize spec))
+          spec (rf.resources.registry/resource-meta :account/summary)]
+      (is (= k (rf.resources.ssr/project-scoped-key k :serialize spec))
           "`:serialize` still rides VERBATIM through `project-scoped-key`")
-      (is (= (ssr/project-scoped-key k :serialize spec)
-             (ssr/project-scoped-key k :serialize nil))
+      (is (= (rf.resources.ssr/project-scoped-key k :serialize spec)
+             (rf.resources.ssr/project-scoped-key k :serialize nil))
           "…and it still ignores the spec argument, exactly as documented"))))
 
 ;; ===========================================================================
@@ -431,12 +431,12 @@
           "…and so is the whole scope component")
       (is (= :sealed/summary (nth pk 1)) "the resource-id survives")
       (is (true? (:sensitive? tags)))
-      (is (= pk (ssr/project-scoped-key k :redact nil))
+      (is (= pk (rf.resources.ssr/project-scoped-key k :redact nil))
           "byte-for-byte what `project-scoped-key` alone produced before"))))
 
 (deftest unregistered-owner-still-fails-closed
   (testing "the nil-spec fail-closed arm is untouched by the declaration arm"
-    (let [k    (state/scoped-resource-key :rf.scope/global :never/registered
+    (let [k    (rf.resources.state/scoped-resource-key :rf.scope/global :never/registered
                                           {:account-id account-secret})
           tags (project-row {:rf.frame/id :rf/default :resource/key k})]
       (is (not (leaks? account-secret (:resource/key tags))))
@@ -455,7 +455,7 @@
             Before this, `project-key-for-egress`'s docstring claimed `:serialize`
             projected per-slot marks and the code did nothing"
     (let [k    (install-entry! :rf/default (key-for :account/summary))
-          view (resources-tooling/resource-cache-algebra-view :rf/default)
+          view (rf.resources.tooling/resource-cache-algebra-view :rf/default)
           node (first (vals view))]
       (is (some? node) "the live entry projects to a node")
       (is (not (leaks? account-secret node))
@@ -466,6 +466,6 @@
       (is (= 3 (get-in (:id node) [2 :page]))
           "…and the undeclared sibling still rides, so joins survive")
       (testing "the DURABLE cache key is untouched — this is an egress-only projection"
-        (let [rdb (frame/frame-runtime-db-value :rf/default)]
-          (is (= k (:resource/key (get-in rdb (state/entry-path k))))
+        (let [rdb (rf.frame/frame-runtime-db-value :rf/default)]
+          (is (= k (:resource/key (get-in rdb (rf.resources.state/entry-path k))))
               "the entry still stores the raw scoped key"))))))

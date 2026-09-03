@@ -37,19 +37,19 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.fx :as fx]
+   [re-frame.fx :as rf.fx]
    ;; load-bearing side-effecting requires: the resources façade registers the
    ;; :rf.resource/* events; machines wires the machine grammar + the
    ;; :rf.machine/start / :rf.machine/destroy fxs (and the release-on-destroy
    ;; dispatch under test).
    [re-frame.resources]
-   [re-frame.resources.state :as state]
+   [re-frame.resources.state :as rf.resources.state]
    [re-frame.resources.test-support]
    [re-frame.machines]
-   [re-frame.machines.paths :as machine-paths]
+   [re-frame.machines.paths :as rf.machines.paths]
    [re-frame.schemas]
    [re-frame.http.managed]
-   [re-frame.test-support :as core-test-support]
+   [re-frame.test-support :as rf.test-support]
    #?@(:clj  [[re-frame.substrate.plain-atom :as substrate]]
        :cljs [[re-frame.adapter.reagent :as substrate]])))
 
@@ -65,10 +65,10 @@
 (defn- capturing-fixture
   [f]
   (reset! cancelled-poll [])
-  (fx/reg-fx :rf.http/managed (fn [_ctx _args] nil))
-  (fx/reg-fx :rf.http/managed-abort (fn [_ctx _wid] nil))
-  (fx/reg-fx :rf.resource/schedule-timers (fn [_ctx _args] nil))
-  (fx/reg-fx :rf.resource/cancel-poll-timers
+  (rf.fx/reg-fx :rf.http/managed (fn [_ctx _args] nil))
+  (rf.fx/reg-fx :rf.http/managed-abort (fn [_ctx _wid] nil))
+  (rf.fx/reg-fx :rf.resource/schedule-timers (fn [_ctx _args] nil))
+  (rf.fx/reg-fx :rf.resource/cancel-poll-timers
              (fn [_ctx args] (swap! cancelled-poll conj args) nil))
   ;; A poll-enabled, actively-owned resource. The machine actor ensures it on
   ;; entry under its `[:machine actor-id]` owner; on actor destroy the owner
@@ -85,7 +85,7 @@
   (f))
 
 (use-fixtures :each
-  (core-test-support/make-reset-runtime-fixture
+  (rf.test-support/make-reset-runtime-fixture
     {:adapter substrate/adapter})
   capturing-fixture)
 
@@ -98,20 +98,20 @@
 
 (defn- runtime-db [] (:rf.db/runtime (rf/frame-state-value :rf/default)))
 (defn- slug-key [slug]
-  (state/scoped-resource-key scope :art/by-slug {:slug slug}))
-(defn- entry [scoped-key] (get-in (runtime-db) (state/entry-path scoped-key)))
+  (rf.resources.state/scoped-resource-key scope :art/by-slug {:slug slug}))
+(defn- entry [scoped-key] (get-in (runtime-db) (rf.resources.state/entry-path scoped-key)))
 (defn- machine-snapshot [id]
-  (get-in (runtime-db) (machine-paths/snapshot-path id)))
+  (get-in (runtime-db) (rf.machines.paths/snapshot-path id)))
 (defn- owner-index []
   ;; :entries is keyed on the opaque byte key-id; map the owner-index members
   ;; back to scoped-key vectors for readable assertions (mirrors the
   ;; scoped-owner-lifecycle suite's owner-index helper).
   (let [rdb    (runtime-db)
-        es     (get-in rdb (state/entries-path))
+        es     (get-in rdb (rf.resources.state/entries-path))
         id->sk (into {} (map (fn [[k-id e]] [k-id (:resource/key e)])) es)]
     (into {} (map (fn [[owner members]]
                     [owner (into #{} (map #(get id->sk % %)) members)]))
-          (get-in rdb (state/owner-index-path)))))
+          (get-in rdb (rf.resources.state/owner-index-path)))))
 (defn- succeed! [scoped-key data]
   (let [e (entry scoped-key)]
     (rf/dispatch-sync [:rf.resource.internal/succeeded

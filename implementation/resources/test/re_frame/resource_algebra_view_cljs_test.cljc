@@ -31,26 +31,26 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.elision :as elision]
-   [re-frame.frame :as frame]
+   [re-frame.elision :as rf.elision]
+   [re-frame.frame :as rf.frame]
    ;; load-bearing side-effecting require: the façade registers the
    ;; :rf.resource/* events + subs + the :resource registrar kind.
    [re-frame.resources]
-   [re-frame.resources.registry :as registry]
-   [re-frame.resources.state :as state]
-   [re-frame.resources.tooling :as resources-tooling]
-   [re-frame.resources.work-ledger :as work-ledger]
+   [re-frame.resources.registry :as rf.resources.registry]
+   [re-frame.resources.state :as rf.resources.state]
+   [re-frame.resources.tooling :as rf.resources.tooling]
+   [re-frame.resources.work-ledger :as rf.resources.work-ledger]
    ;; production HTTP fx surface (so the transport feature probe resolves).
    [re-frame.http.managed]
    [re-frame.schemas]
-   [re-frame.test-support :as core-test-support]
-   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
-       :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
+   [re-frame.test-support :as rf.test-support]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
 (use-fixtures :each
-  (core-test-support/make-reset-runtime-fixture
-    #?(:clj  {:adapter plain-atom/adapter}
-       :cljs {:adapter reagent-adapter/adapter})))
+  (rf.test-support/make-reset-runtime-fixture
+    #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
+       :cljs {:adapter rf.adapter.reagent/adapter})))
 
 ;; ---- helpers --------------------------------------------------------------
 
@@ -98,10 +98,10 @@
 
 (deftest empty-registry-returns-empty-map
   (testing "(resource-algebra-view) returns {} (not nil) when none registered"
-    (is (= {} (resources-tooling/resource-algebra-view)))
-    (is (map? (resources-tooling/resource-algebra-view))))
+    (is (= {} (rf.resources.tooling/resource-algebra-view)))
+    (is (map? (rf.resources.tooling/resource-algebra-view))))
   (testing "(resource-algebra-view id) returns nil for an unregistered id"
-    (is (nil? (resources-tooling/resource-algebra-view :nope/missing)))))
+    (is (nil? (rf.resources.tooling/resource-algebra-view :nope/missing)))))
 
 ;; ---- a registered resource exposes its process node ----------------------
 
@@ -110,14 +110,14 @@
     (rf/reg-resource :article/by-slug (article-spec {:data-schema :app/article
                                                      :doc "an article by slug"})
                      article-spec-request)
-    (let [node (resources-tooling/resource-algebra-view :article/by-slug)]
+    (let [node (rf.resources.tooling/resource-algebra-view :article/by-slug)]
       (is (some? node) "the resource is present in the static view")
       (is (has-fixed-classifications? node)
           "resource carries the fixed process / runtime-db / multi-trigger / resource-key / materialized classifications")
       (is (= :article/by-slug (:id node)))
       (is (= {:kind :reg-resource :id :article/by-slug} (:source-form node)))
       (testing "output materializes the cache entries into runtime-db"
-        (is (= [:runtime [state/resources-key :entries]] (:output node))))
+        (is (= [:runtime [rf.resources.state/resources-key :entries]] (:output node))))
       (testing "the remote authority axis names the external system + transport"
         (is (= {:kind :remote :system :server :transport :rf.http/managed}
                (:authority node)))
@@ -147,10 +147,10 @@
   (testing "(resource-algebra-view) lowers every registered resource"
     (rf/reg-resource :a/x (article-spec) article-spec-request)
     (rf/reg-resource :b/y (article-spec) article-spec-request)
-    (let [view (resources-tooling/resource-algebra-view)]
+    (let [view (rf.resources.tooling/resource-algebra-view)]
       (is (= #{:a/x :b/y} (set (keys view))))
       (is (every? has-fixed-classifications? (vals view)))
-      (is (= (resources-tooling/resource-algebra-view :a/x) (:a/x view))
+      (is (= (rf.resources.tooling/resource-algebra-view :a/x) (:a/x view))
           "the one-arity form equals that id's entry in the all-resources map"))))
 
 ;; ---- the don't-execute rule on scope -------------------------------------
@@ -163,7 +163,7 @@
                      (article-spec {:scope (fn [_route _ctx]
                                              (throw (ex-info "must not run in static view" {})))})
                      article-spec-request)
-    (let [node (resources-tooling/resource-algebra-view :fn/scoped)]
+    (let [node (rf.resources.tooling/resource-algebra-view :fn/scoped)]
       (is (= [[:param :rf.params] [:scope :rf.scope/resolver]] (:inputs node))
           "the fn scope lowers to the opaque resolver marker — the fn is never executed")
       (is (not (contains? node :scope-resolver))
@@ -183,7 +183,7 @@
     (rf/reg-resource :tenant/article
                      (article-spec {:scope {:from-db :session/current-tenant}})
                      article-spec-request)
-    (let [node (resources-tooling/resource-algebra-view :tenant/article)]
+    (let [node (rf.resources.tooling/resource-algebra-view :tenant/article)]
       (is (= [[:param :rf.params] [:scope {:from-db :session/current-tenant}]]
              (:inputs node))
           "the {:from-db <id>} reference is reported verbatim — a static fact")
@@ -195,31 +195,31 @@
 
 (deftest live-cache-view-empty-when-no-entries
   (testing "(resource-cache-algebra-view frame) is {} for a frame with no entries"
-    (is (= {} (resources-tooling/resource-cache-algebra-view :rf/default)))))
+    (is (= {} (rf.resources.tooling/resource-cache-algebra-view :rf/default)))))
 
 (defn- install-live-entry!
   "Write a live cache entry (and, when in flight, a linked work-ledger
   record) DIRECTLY into the frame's runtime-db — a test fixture, NOT the
   resource write-path under test. Returns the scoped key."
   [frame-id resource-id scope params {:keys [status owner in-flight?]}]
-  (let [scoped-key (state/scoped-resource-key scope resource-id params)
-        work-id    (when in-flight? (work-ledger/resource-work-id scoped-key 1))
+  (let [scoped-key (rf.resources.state/scoped-resource-key scope resource-id params)
+        work-id    (when in-flight? (rf.resources.work-ledger/resource-work-id scoped-key 1))
         ;; rf2-9e0tyq — the runtime stamps each entry's `:resource/key`; the
         ;; live algebra view reads it for the node `:id` / `:inputs` (the
         ;; `:entries` map is keyed on the opaque byte `key-id`).
-        entry      (cond-> (assoc (state/empty-entry resource-id scoped-key)
+        entry      (cond-> (assoc (rf.resources.state/empty-entry resource-id scoped-key)
                                   :status        (or status :loaded)
                                   :data          {:slug (:slug params)}
                                   :active-owners (if owner #{owner} #{}))
                      in-flight? (assoc :current-work work-id :status :fetching))]
-    (frame/swap-runtime-db!
+    (rf.frame/swap-runtime-db!
       frame-id
       (fn [rdb]
-        (cond-> (assoc-in (or rdb {}) (state/entry-path scoped-key) entry)
+        (cond-> (assoc-in (or rdb {}) (rf.resources.state/entry-path scoped-key) entry)
           in-flight?
-          (work-ledger/put-record
+          (rf.resources.work-ledger/put-record
             work-id
-            (work-ledger/work-record {:work-id      work-id
+            (rf.resources.work-ledger/work-record {:work-id      work-id
                                       :frame-id     frame-id
                                       :resource/key scoped-key
                                       :generation   1
@@ -235,8 +235,8 @@
           params     {:slug "welcome"}
           scoped-key (install-live-entry! :rf/default :article/by-slug scope params
                                           {:status :loaded :owner [:route :route/article 17]})
-          view       (resources-tooling/resource-cache-algebra-view :rf/default)
-          node       (get view (state/key-id scoped-key))]
+          view       (rf.resources.tooling/resource-cache-algebra-view :rf/default)
+          node       (get view (rf.resources.state/key-id scoped-key))]
       (is (some? node) "the live entry node is reachable by its byte key-id")
       (is (has-live-fixed-classifications? node)
           "the live node keeps the fixed process classifications (lifecycle is the map form)")
@@ -244,7 +244,7 @@
       (testing "the realized scope + param edges"
         (is (= [[:scope scope] [:param params]] (:inputs node))))
       (testing "the concrete entry output address"
-        (is (= [:runtime (state/entry-path scoped-key)] (:output node))))
+        (is (= [:runtime (rf.resources.state/entry-path scoped-key)] (:output node))))
       (testing "the live lifecycle map carries the active owners"
         (is (= {:kind :scoped-resource-key :owners #{[:route :route/article 17]}}
                (:lifecycle node))))
@@ -264,9 +264,9 @@
           params     {:slug "loading"}
           scoped-key (install-live-entry! :rf/default :article/by-slug scope params
                                           {:owner [:route :route/article 9] :in-flight? true})
-          node       (get (resources-tooling/resource-cache-algebra-view :rf/default)
-                          (state/key-id scoped-key))
-          work-id    (work-ledger/resource-work-id scoped-key 1)]
+          node       (get (rf.resources.tooling/resource-cache-algebra-view :rf/default)
+                          (rf.resources.state/key-id scoped-key))
+          work-id    (rf.resources.work-ledger/resource-work-id scoped-key 1)]
       (is (= :fetching (:status node)))
       (testing "the work-ledger link carries the work id + a serializable record summary"
         (is (= work-id (get-in node [:work-ledger :work/id])))
@@ -290,16 +290,16 @@
                                       {:status :loaded :owner [:app :v 1]})
           kl     (install-live-entry! :rf/default :article/by-slug scope pl
                                       {:status :loaded :owner [:app :l 1]})
-          view   (resources-tooling/resource-cache-algebra-view :rf/default)]
+          view   (rf.resources.tooling/resource-cache-algebra-view :rf/default)]
       (is (= kv kl) "the scoped-key VECTORS are Clojure-= (the collapse routed around)")
-      (is (not= (state/key-id kv) (state/key-id kl))
+      (is (not= (rf.resources.state/key-id kv) (rf.resources.state/key-id kl))
           "their byte key-ids differ (v[…] vs l(…))")
       (is (= 2 (count view)) "TWO distinct nodes — no =-collapse onto one map key")
-      (is (= #{(state/key-id kv) (state/key-id kl)} (set (keys view)))
+      (is (= #{(rf.resources.state/key-id kv) (rf.resources.state/key-id kl)} (set (keys view)))
           "the view is keyed on the byte key-ids of BOTH entries")
       (testing "each node keeps its kind-preserving scoped-key on :id"
-        (let [nv (get view (state/key-id kv))
-              nl (get view (state/key-id kl))]
+        (let [nv (get view (rf.resources.state/key-id kv))
+              nl (get view (rf.resources.state/key-id kl))]
           (is (= kv (:id nv)) "vector node keeps its vector key")
           (is (= kl (:id nl)) "list node keeps its list key")
           (is (vector? (-> nv :id (nth 2) :xs)) "vector-params node preserves vector kind")
@@ -344,7 +344,7 @@
           params     {:auth-token secret}
           scoped-key (install-live-entry! :rf/default :secret/article scope params
                                           {:owner [:route :route/article 17] :in-flight? true})
-          view       (resources-tooling/resource-cache-algebra-view :rf/default)
+          view       (rf.resources.tooling/resource-cache-algebra-view :rf/default)
           node       (first (vals view))]
       (is (= 1 (count view)) "exactly one live node")
       (is (some? node))
@@ -367,8 +367,8 @@
           params {:slug "welcome"}
           scoped-key (install-live-entry! :rf/default :plain/article scope params
                                           {:status :loaded :owner [:app :p 1]})
-          view   (resources-tooling/resource-cache-algebra-view :rf/default)
-          node   (get view (state/key-id scoped-key))]
+          view   (rf.resources.tooling/resource-cache-algebra-view :rf/default)
+          node   (get view (rf.resources.state/key-id scoped-key))]
       (is (some? node))
       (is (= [[:scope scope] [:param params]] (:inputs node))
           "non-sensitive scope + params ride verbatim")
@@ -383,8 +383,8 @@
     ;; FRAME classification: the resolver's :db input path is sensitive
     ;; (commit-plane effect path, :source :effect).
     (rf/make-frame {:id :sens/frame :doc "frame with a sensitive tenant-id"})
-    (frame/swap-runtime-db! :sens/frame
-      (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:session :tenant-id]]})))
+    (rf.frame/swap-runtime-db! :sens/frame
+      (fn [rt] (rf.elision/apply-classification-effects rt {:sensitive [[:session :tenant-id]]})))
     ;; resolver reading the frame-sensitive path — NO propagation now.
     (rf/reg-resource-scope :session/tenant
                            {:inputs {:tenant-id [:db [:session :tenant-id]]}}
@@ -399,7 +399,7 @@
           params {:slug "x"}]
       (install-live-entry! :sens/frame :derived/article scope params
                            {:status :loaded :owner [:app :d 1]})
-      (let [view (resources-tooling/resource-cache-algebra-view :sens/frame)]
+      (let [view (rf.resources.tooling/resource-cache-algebra-view :sens/frame)]
         (is (= 1 (count view)) "one node")
         (testing "the derived scope is NOT auto-redacted (no inheritance)"
           (is (contains-secret? view)
@@ -418,7 +418,7 @@
             params {:slug "y"}]
         (install-live-entry! :sens/frame2 :derived/secret-article scope params
                              {:status :loaded :owner [:app :s 1]})
-        (let [view (resources-tooling/resource-cache-algebra-view :sens/frame2)]
+        (let [view (rf.resources.tooling/resource-cache-algebra-view :sens/frame2)]
           (is (= 1 (count view)) "one node in the fresh frame")
           (testing "the owner-:sensitive? key redacts the secret"
             (is (not (contains-secret? view))
@@ -430,9 +430,9 @@
   (testing "(clear-resource id) removes the resource from the static view"
     (rf/reg-resource :a/x (article-spec) article-spec-request)
     (rf/reg-resource :b/y (article-spec) article-spec-request)
-    (is (contains? (resources-tooling/resource-algebra-view) :a/x))
+    (is (contains? (rf.resources.tooling/resource-algebra-view) :a/x))
     (rf/clear-resource :a/x)
-    (let [view (resources-tooling/resource-algebra-view)]
+    (let [view (rf.resources.tooling/resource-algebra-view)]
       (is (not (contains? view :a/x)))
       (is (contains? view :b/y)))))
 
@@ -440,6 +440,6 @@
    (deftest jvm-alias-mirrors-the-tooling-fn
      (testing "the JVM re-frame.resources/resource-algebra-view alias is the tooling fn"
        (rf/reg-resource :article/by-slug (article-spec) article-spec-request)
-       (is (= (resources-tooling/resource-algebra-view)
+       (is (= (rf.resources.tooling/resource-algebra-view)
               (re-frame.resources/resource-algebra-view))
            "the JVM convenience alias projects identically to the tooling sibling"))))

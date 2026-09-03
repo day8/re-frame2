@@ -102,12 +102,12 @@
   the handler's coeffect db (the pre-transition causal input) and pass it to
   `:rf.resource/clear-scope` concretely. Per Spec 016 §`clear-scope` resolves
   the concrete scope from the coeffect db (EP-0016 issue 7)."
-  (:require [re-frame.error :as error]
-            [re-frame.path :as path]
-            [re-frame.registrar :as registrar]
-            [re-frame.resources.state :as state]
-            [re-frame.source-coords :as source-coords]
-            [re-frame.trace :as trace]))
+  (:require [re-frame.error :as rf.error]
+            [re-frame.path :as rf.path]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.resources.state :as rf.resources.state]
+            [re-frame.source-coords :as rf.source-coords]
+            [re-frame.trace :as rf.trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -150,7 +150,7 @@
   "Build the canonical thrown-error shape (Spec 009 §The thrown-error
   shape) for a `reg-resource-scope` validation failure."
   [error-id where reason extra]
-  (error/thrown-ex-info
+  (rf.error/thrown-ex-info
     error-id
     where
     reason
@@ -224,7 +224,7 @@
       ;; a host/opaque or template segment in a `:db` path fails closed here.
       :else
       (try
-        [:db (path/normalize-concrete raw-path)]
+        [:db (rf.path/normalize-concrete raw-path)]
         (catch #?(:clj Exception :cljs :default) e
           (throw (registration-error
                    :rf.error/invalid-resource-scope-spec
@@ -381,16 +381,16 @@
   ([scope-id resolve-fn] (reg-resource-scope scope-id {} resolve-fn))
   ([scope-id metadata resolve-fn]
   (let [spec     (canonical-spec scope-id metadata resolve-fn)
-        previous (registrar/lookup scope-kind scope-id)]
-    (registrar/register!
+        previous (rf.registrar/lookup scope-kind scope-id)]
+    (rf.registrar/register!
       scope-kind
       scope-id
-      (source-coords/merge-coords
+      (rf.source-coords/merge-coords
         (merge {:doc (:doc spec)}
                {:rf/resource-scope spec
                 :handler-fn        (:resolve spec)})))
     (when (nil? previous)
-      (trace/emit! :rf.event :rf.resource/registered
+      (rf.trace/emit! :rf.event :rf.resource/registered
                    {:resource-id scope-id
                     :kind        :resource-scope
                     :inputs      (vec (keys (:inputs spec)))
@@ -406,7 +406,7 @@
   `scope-id`) when the id is not registered. Per Spec 016 §Named
   resource-scope resolvers."
   [scope-id]
-  (registrar/unregister! scope-kind scope-id)
+  (rf.registrar/unregister! scope-kind scope-id)
   scope-id)
 
 ;; ---- registry-side introspection -----------------------------------------
@@ -417,14 +417,14 @@
   registered. The introspection counterpart of `resource-meta` /
   `mutation-meta`. Per Spec 016 §Named resource-scope resolvers."
   [scope-id]
-  (:rf/resource-scope (registrar/lookup scope-kind scope-id)))
+  (:rf/resource-scope (rf.registrar/lookup scope-kind scope-id)))
 
 (defn scope-resolver-ids
   "Return a vector of every registered resource-scope resolver id. Per
   Spec 016 §Named resource-scope resolvers (the static resolver registry —
   enumerable by tooling)."
   []
-  (vec (registrar/ids scope-kind)))
+  (vec (rf.registrar/ids scope-kind)))
 
 (defn require-scope-resolver!
   "Look the resolver spec up by `scope-id`, throwing
@@ -453,7 +453,7 @@
   [inputs db]
   (reduce-kv
     (fn [acc input-name [_source rf-path]]
-      (assoc acc input-name (path/get db rf-path)))
+      (assoc acc input-name (rf.path/get db rf-path)))
     {} (or inputs {})))
 
 ;; ---- off-box trace egress projection of scope-resolution rows (rf2-84l82t) -
@@ -504,14 +504,14 @@
   "PURE core of resolver evaluation: given the ALREADY-EVALUATED resolver
   `in-vals`, call `:resolve` with `(in-vals nil)` (the `ctx` arg is reserved,
   literal nil in this slice), then route a non-nil result through the SHARED
-  concrete-scope canonicalization path (`state/canonicalize-scope`). A nil
+  concrete-scope canonicalization path (`rf.resources.state/canonicalize-scope`). A nil
   result passes through as nil (the fail-closed unresolved condition). Shared
   by `resolve-scope*-pure` and the traced `resolve-scope*` wrapper so a single
   causal resolution evaluates its declared `:inputs` exactly ONCE."
   [scope-id spec in-vals where]
   (let [raw ((:resolve spec) in-vals nil)]
     (when (some? raw)
-      (state/canonicalize-scope raw where scope-id))))
+      (rf.resources.state/canonicalize-scope raw where scope-id))))
 
 (defn resolve-scope*-pure
   "PURE: resolve resolver `spec` against `db`, returning a canonical scope
@@ -519,7 +519,7 @@
   Evaluates the declared `:inputs` off `db`, calls `:resolve` with
   `(inputs nil)` (the `ctx` arg is reserved, literal nil in this slice), then
   routes a non-nil result through the SHARED concrete-scope canonicalization
-  path (`state/canonicalize-scope` — rejects a misspelled `:rf.scope/*`
+  path (`rf.resources.state/canonicalize-scope` — rejects a misspelled `:rf.scope/*`
   keyword fail-closed, rejects a host/opaque value, rejects the global scope
   wrapped as the singleton `[:rf.scope/global]` in favour of the canonical
   bare keyword). A nil result passes through as nil (the fail-closed
@@ -560,7 +560,7 @@
   (let [inputs   (:inputs spec)
         in-vals  (eval-inputs inputs db)
         resolved (resolve-scope-from-inputs scope-id spec in-vals where)]
-    (trace/emit! :rf.event :rf.resource/scope-resolved
+    (rf.trace/emit! :rf.event :rf.resource/scope-resolved
                  {:resource-id   scope-id
                   :kind          :resource-scope
                   :inputs        (vec (keys inputs))
@@ -662,7 +662,7 @@
   the single use-time resolution rule, uniform across every site.
 
     - concrete arm — the literal scope is routed through the shared
-      `state/canonicalize-scope` validation path ONCE (reserved-typo /
+      `rf.resources.state/canonicalize-scope` validation path ONCE (reserved-typo /
       wrapped-global / host-value fail-closed);
     - reference arm — `resolve-from-db-reference` resolves against `db` at use
       time AND emits the causal `:rf.resource/scope-resolved` evidence; its
@@ -683,4 +683,4 @@
   [scope db where resource-id]
   (if (from-db-reference? scope)
     (resolve-from-db-reference scope db where)
-    (state/canonicalize-scope scope where resource-id)))
+    (rf.resources.state/canonicalize-scope scope where resource-id)))

@@ -35,26 +35,26 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.fx :as fx]
+   [re-frame.fx :as rf.fx]
    ;; load-bearing side-effecting requires: register the :rf.resource/* +
    ;; :rf.mutation/* events + subs + the generation cofx/fx.
    [re-frame.resources]
-   [re-frame.resources.state :as state]
-   [re-frame.registrar :as registrar]
+   [re-frame.resources.state :as rf.resources.state]
+   [re-frame.registrar :as rf.registrar]
    [re-frame.resources.test-support]
    [re-frame.http.managed]
    [re-frame.schemas]
-   [re-frame.test-support :as core-test-support]
-   [re-frame.trace.tooling :as trace-tooling]
-   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
-       :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
+   [re-frame.test-support :as rf.test-support]
+   [re-frame.trace.tooling :as rf.trace.tooling]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
 ;; ---- capturing transport ---------------------------------------------------
 
 (def ^:private last-managed-args (atom nil))
 
 (defn- init! []
-  (registrar/clear-kind! :resource-scope)
+  (rf.registrar/clear-kind! :resource-scope)
   ;; a named db-derived viewer-session resolver (EP-0016 D3 canonical form)
   (rf/reg-resource-scope :t/session
     {:inputs {:username [:db [:auth :user :username]]}}
@@ -64,25 +64,25 @@
 
 (defn- capturing-transport-fixture [f]
   (reset! last-managed-args nil)
-  (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
-  (fx/reg-fx :rf.resource/schedule-timers (fn [_ _] nil))
+  (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
+  (rf.fx/reg-fx :rf.resource/schedule-timers (fn [_ _] nil))
   (f))
 
 (use-fixtures :each
-  (core-test-support/make-reset-runtime-fixture
-    #?(:clj  {:adapter plain-atom/adapter :init-fn init!}
-       :cljs {:adapter reagent-adapter/adapter :init-fn init!}))
+  (rf.test-support/make-reset-runtime-fixture
+    #?(:clj  {:adapter rf.substrate.plain-atom/adapter :init-fn init!}
+       :cljs {:adapter rf.adapter.reagent/adapter :init-fn init!}))
   capturing-transport-fixture)
 
 ;; ---- helpers ---------------------------------------------------------------
 
 (defn- runtime-db [] (:rf.db/runtime (rf/frame-state-value :rf/default)))
-(defn- entry [scoped-key] (get-in (runtime-db) (state/entry-path scoped-key)))
+(defn- entry [scoped-key] (get-in (runtime-db) (rf.resources.state/entry-path scoped-key)))
 
 (defn- reply-success! [args result]
   (rf/dispatch-sync (conj (:on-success args) {:status :ok :value result})))
 
-(defn- session-feed-key [u] (state/scoped-resource-key [:rf.scope/session {:username u}] :r/feed {}))
+(defn- session-feed-key [u] (rf.resources.state/scoped-resource-key [:rf.scope/session {:username u}] :r/feed {}))
 
 (defn- reg-feed-resource!
   "A SESSION-scoped resource (`{:from-db :t/session}`) producing the `[:feed]`
@@ -120,10 +120,10 @@
   [body-fn]
   (let [seen (atom [])
         k    ::warn-recorder]
-    (trace-tooling/register-listener!
+    (rf.trace.tooling/register-listener!
       k (fn [ev] (when (= :rf.warning/mutation-scope-mismatch (:operation ev))
                    (swap! seen conj ev))))
-    (try (body-fn) (finally (trace-tooling/unregister-listener! k)))
+    (try (body-fn) (finally (rf.trace.tooling/unregister-listener! k)))
     @seen))
 
 ;; ===========================================================================
@@ -294,7 +294,7 @@
                                                               :params {:slug "w"} :instance :s1}])
                      (reply-success! @last-managed-args {:favorited true})))]
     (testing "both targets HIT their own-scope entries"
-      (is (some? (:invalidated-at (entry (state/scoped-resource-key
+      (is (some? (:invalidated-at (entry (rf.resources.state/scoped-resource-key
                                            :rf.scope/global :r/article {:slug "w"})))))
       (is (some? (:invalidated-at (entry (session-feed-key "jake"))))))
     (testing "no scope-mismatch warning — the safe pattern matched every scope"

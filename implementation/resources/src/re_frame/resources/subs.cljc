@@ -17,7 +17,7 @@
   (`reg-runtime-sub`) — the durable cache lives at
   `[:rf.runtime/resources :entries <key-id>]` in runtime-db, keyed by the
   CEDN-1 byte-identity `key-id` (the scoped key is carried inside each
-  entry under `:resource/key`); the sub resolves it via `(state/entry-path k)`.
+  entry under `:resource/key`); the sub resolves it via `(rf.resources.state/entry-path k)`.
   The derived booleans (`:stale?` / `:loading?` / `:fetching?` /
   `:has-data?`) are PUBLIC DERIVED SUB VALUES computed here from the
   durable entry facts, NOT stored on the entry (Spec 016 §Status
@@ -48,12 +48,12 @@
   route/event that ensures under the new scope attaches the new owner, and
   route leave / `clear-scope` releases the old — the sub is a passive
   reader throughout (Spec 016 §Views stay passive)."
-  (:require [re-frame.interop :as interop]
-            [re-frame.resources.registry :as registry]
-            [re-frame.resources.state :as state]
-            [re-frame.resources.work-ledger :as work-ledger]
-            [re-frame.subs :as subs]
-            [re-frame.trace :as trace]))
+  (:require [re-frame.interop :as rf.interop]
+            [re-frame.resources.registry :as rf.resources.registry]
+            [re-frame.resources.state :as rf.resources.state]
+            [re-frame.resources.work-ledger :as rf.resources.work-ledger]
+            [re-frame.subs :as rf.subs]
+            [re-frame.trace :as rf.trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -104,19 +104,19 @@
   supplies the frame `db` explicitly (rf2-bwwk6l): a caller that resolves no
   `{:from-db …}` scope passes `{}`."
   [{:keys [resource] :as payload} db]
-  (let [spec    (registry/require-resource-spec! resource 'rf.resource/subscribe)
-        scope   (registry/resolve-scope-for-sub
+  (let [spec    (rf.resources.registry/require-resource-spec! resource 'rf.resource/subscribe)
+        scope   (rf.resources.registry/resolve-scope-for-sub
                   resource spec (:scope payload) 'rf.resource/subscribe db)
         ;; rf2-hgy5kf — thread `:params` presence (absent vs explicit nil) so
         ;; the sub re-keys to the SAME identity the ensure produced (an absent
         ;; slot defaults to `{}` at the boundary; explicit nil reaches the
         ;; schema unchanged).
-        cparams (registry/validate+canonicalize-params
-                  resource spec (state/params-present? payload) 'rf.resource/subscribe)]
+        cparams (rf.resources.registry/validate+canonicalize-params
+                  resource spec (rf.resources.state/params-present? payload) 'rf.resource/subscribe)]
     ;; rf2-rplgkw: scope + cparams are ALREADY canonical (resolve-scope-for-sub
     ;; → canonicalize-scope; validate+canonicalize-params), so use the trusted
     ;; constructor — a resource sub re-runs this on every frame-state change.
-    (state/scoped-resource-key* scope resource cparams)))
+    (rf.resources.state/scoped-resource-key* scope resource cparams)))
 
 ;; ---- dev-mode scope-mismatch warning (Spec 016 §Subscription-side scope
 ;; ---- resolution — likely-mismatch dev warning) ----------------------------
@@ -145,8 +145,8 @@
 ;; does NOT fire: there is no "right" entry being missed, only an un-ensured
 ;; resource, which the empty `:idle` projection already documents.)
 ;;
-;; DEV-ONLY + production-elided: gated by `interop/debug-enabled?` and
-;; emitted through `trace/emit!` (which is itself behind the same gate), so
+;; DEV-ONLY + production-elided: gated by `rf.interop/debug-enabled?` and
+;; emitted through `rf.trace/emit!` (which is itself behind the same gate), so
 ;; Closure DCE strips the whole path at `:advanced` + `goog.DEBUG=false`,
 ;; exactly like the rest of the framework's dev warnings (e.g.
 ;; `:rf.warning/large-value-unschema'd`). One-shot idempotent per distinct
@@ -221,9 +221,9 @@
   the fail-closed scope rules cannot catch (the sub DID resolve a scope; it
   resolved the WRONG one).
 
-  DEV-ONLY: the whole body is behind `interop/debug-enabled?` so Closure DCE
+  DEV-ONLY: the whole body is behind `rf.interop/debug-enabled?` so Closure DCE
   elides it in production (`:advanced` + `goog.DEBUG=false`), and the emit
-  rides `trace/emit!` (same gate). One-shot idempotent per distinct
+  rides `rf.trace/emit!` (same gate). One-shot idempotent per distinct
   `[resource-id sub-scope active-scope]` so a reactive re-run warns once.
 
   Only `:rf.scope/from-caller` resources are checked: every other policy
@@ -231,9 +231,9 @@
   SAME concrete scope sub-side and ensure-side, so a sub cannot land on a
   different key than the ensure did. Returns nil."
   [runtime-db payload sub-key sub-entry]
-  (when interop/debug-enabled?
+  (when rf.interop/debug-enabled?
     (let [resource-id (:resource payload)
-          spec        (registry/resource-meta resource-id)]
+          spec        (rf.resources.registry/resource-meta resource-id)]
       ;; only the from-caller footgun — see docstring
       (when (and (= :rf.scope/from-caller (:scope spec))
                  ;; the subscribed entry has no active owner (or no entry) …
@@ -241,7 +241,7 @@
         ;; rf2-tluunj — pass the whole resources subtree so the mismatch scan
         ;; can use the `:owner-index` (visit only active entries) rather than
         ;; scanning the entire `:entries` map on every reactive sub recompute.
-        (let [resources-subtree (get runtime-db state/resources-key)
+        (let [resources-subtree (get runtime-db rf.resources.state/resources-key)
               [sub-scope]   sub-key
               active-scope  (active-mismatch-scope resources-subtree sub-key)]
           ;; … while a DIFFERENT scope for the same resource IS active.
@@ -249,7 +249,7 @@
             (let [dedupe-key [resource-id sub-scope active-scope]]
               (when-not (contains? @warned-scope-mismatch dedupe-key)
                 (swap! warned-scope-mismatch conj dedupe-key)
-                (trace/emit! :warning :rf.warning/resource-sub-scope-mismatch
+                (rf.trace/emit! :warning :rf.warning/resource-sub-scope-mismatch
                              {:resource-id  resource-id
                               :sub-scope    sub-scope
                               :active-scope active-scope
@@ -282,7 +282,7 @@
   snapshot the `:frame-state` sub body receives."
   [runtime-db app-db payload]
   (let [k (resolve-scoped-key payload app-db)
-        e (get-in runtime-db (state/entry-path k))]
+        e (get-in runtime-db (rf.resources.state/entry-path k))]
     (maybe-warn-scope-mismatch! runtime-db payload k e)
     e))
 
@@ -292,7 +292,7 @@
 ;; core WALL-clock `re-frame.interop/epoch-now-ms` (rf2-366u0g —
 ;; `System/currentTimeMillis` on the JVM, `js/Date.now` on CLJS), the
 ;; canonical EP-0010 §Time wall-clock surface. NOT the perf clock
-;; `interop/now-ms` (`performance.now()`
+;; `rf.interop/now-ms` (`performance.now()`
 ;; on CLJS, origin-relative), which is incomparable with the `js/Date`-based
 ;; `:stale-at` timestamps. Freshness is computed from durable timestamps, not
 ;; from trusting a timer fired on time (Spec 016 §Stale and GC scheduling).
@@ -303,12 +303,12 @@
   (`:stale-at` set and `now >= :stale-at`). Freshness is ORTHOGONAL to load
   status — a `:loaded` entry may be stale; a `:fetching` entry may be
   refreshing stale data. Per Spec 016 §Status semantics. A computed value,
-  never a stored fact. Delegates to the single shared `state/entry-stale?`
+  never a stored fact. Delegates to the single shared `rf.resources.state/entry-stale?`
   derivation (the same one the SSR projection + the stale-timer re-check
   use) so freshness never drifts between readers; the live clock is the
-  canonical wall-clock `interop/epoch-now-ms`."
+  canonical wall-clock `rf.interop/epoch-now-ms`."
   [entry]
-  (state/entry-stale? entry (interop/epoch-now-ms)))
+  (rf.resources.state/entry-stale? entry (rf.interop/epoch-now-ms)))
 
 ;; ---- the projections (public derived sub values) -------------------------
 
@@ -323,7 +323,7 @@
   [runtime-db e]
   (let [prev-key (:previous-key e)]
     (if (and prev-key (nil? (:data e)))
-      (let [prev-entry (get-in runtime-db (state/entry-path prev-key))]
+      (let [prev-entry (get-in runtime-db (rf.resources.state/entry-path prev-key))]
         {:previous?     true
          :previous-key  prev-key
          :previous-data (:data prev-entry)})
@@ -357,13 +357,13 @@
          :loading?      (= :loading (:status e))
          :fetching?     (= :fetching (:status e))
          :stale?        (stale? e)
-         ;; `:has-data?` via the shared `state/has-data?` derivation, NOT the
+         ;; `:has-data?` via the shared `rf.resources.state/has-data?` derivation, NOT the
          ;; scalar `(some? :data)`: an infinite feed's `:data` is the page
          ;; VECTOR seeded EMPTY (`[]`), which `some?` would wrongly read as
-         ;; usable data (rf2-3fynns). `state/has-data?` branches on the
+         ;; usable data (rf2-3fynns). `rf.resources.state/has-data?` branches on the
          ;; feed shape (`(seq data)`), so the scalar `:state` sub and
          ;; `:infinite-state` never disagree.
-         :has-data?     (state/has-data? e)}
+         :has-data?     (rf.resources.state/has-data? e)}
         ;; `:keep-previous?` projection — previous-key data shown while this
         ;; key first-loads, WITHOUT polluting this entry's cache / tags.
         (previous-projection rt e)))))
@@ -413,13 +413,13 @@
 
 (defn has-data?-sub-fn
   "Project `:rf.resource/has-data?` — usable data present. Per Spec 016
-  §Status semantics. Routed through the shared `state/has-data?` derivation
+  §Status semantics. Routed through the shared `rf.resources.state/has-data?` derivation
   (NOT the scalar `(some? :data)`): an infinite feed's `:data` is the page
   VECTOR seeded EMPTY (`[]`), which `some?` would wrongly read as usable data
-  (rf2-3fynns). `state/has-data?` branches on the feed shape (`(seq data)`),
+  (rf2-3fynns). `rf.resources.state/has-data?` branches on the feed shape (`(seq data)`),
   so this scalar sub and `:rf.resource/infinite-state` never disagree."
   [frame-state [_id payload]]
-  (state/has-data? (entry-for (runtime-of frame-state) (app-of frame-state) payload)))
+  (rf.resources.state/has-data? (entry-for (runtime-of frame-state) (app-of frame-state) payload)))
 
 (defn previous-data-sub-fn
   "Project `:rf.resource/previous-data` — the prior key's data projected
@@ -432,7 +432,7 @@
   (let [rt (runtime-of frame-state)
         e  (entry-for rt (app-of frame-state) payload)]
     (when (and (:previous-key e) (nil? (:data e)))
-      (:data (get-in rt (state/entry-path (:previous-key e)))))))
+      (:data (get-in rt (rf.resources.state/entry-path (:previous-key e)))))))
 
 ;; ---- the infinite-feed projection family (EP-0021 R3) ---------------------
 ;;
@@ -463,7 +463,7 @@
   missing-accessor merge, below)."
   [runtime-db app-db payload]
   (let [e (entry-for runtime-db app-db payload)]
-    (when (state/infinite-entry? e) e)))
+    (when (rf.resources.state/infinite-entry? e) e)))
 
 ;; Framework-owned merge memo (R3). A bounded per-feed cache keyed on the
 ;; feed's byte `key-id` → `{:pages <page-vector> :items <merged-vector>}`. The
@@ -505,7 +505,7 @@
   "The framework-owned, MEMOISED merged item list for an infinite-feed
   `entry` (R3) — the headline `:rf.resource/items` read. Resolves the
   resource's `:page->items` accessor and flattens the entry's `:data` page
-  vector via `state/merge-pages->items` (vector pages flatten by identity; a
+  vector via `rf.resources.state/merge-pages->items` (vector pages flatten by identity; a
   non-vector page REQUIRES the accessor or raises
   `:rf.error/infinite-missing-page-accessor`). Memoised on the page-vector
   IDENTITY keyed by the feed's `key-id`: a re-run whose page vector is
@@ -515,13 +515,13 @@
   (let [pages (:data entry)]
     (if (empty? pages)
       []
-      (let [k-id   (state/key-id (:resource/key entry))
+      (let [k-id   (rf.resources.state/key-id (:resource/key entry))
             cached (get @items-merge-memo k-id)]
         (if (and cached (identical? (:pages cached) pages))
           (:items cached)
-          (let [spec     (registry/resource-meta (:resource/id entry))
-                accessor (state/resolve-page->items (:page->items spec))
-                merged   (state/merge-pages->items
+          (let [spec     (rf.resources.registry/resource-meta (:resource/id entry))
+                accessor (rf.resources.state/resolve-page->items (:page->items spec))
+                merged   (rf.resources.state/merge-pages->items
                            pages accessor (:resource/id entry) where)]
             (swap! items-merge-memo assoc k-id {:pages pages :items merged})
             merged))))))
@@ -549,7 +549,7 @@
   no feed). Per Spec 016 §Subscription contract."
   [frame-state [_id payload]]
   (let [e (feed-entry-for (runtime-of frame-state) (app-of frame-state) payload)]
-    (state/page-count e)))
+    (rf.resources.state/page-count e)))
 
 (defn has-next-page?-sub-fn
   "Project `:rf.resource/has-next-page?` — `(some? :next-page-param)`, the
@@ -557,7 +557,7 @@
   Spec 016 §Subscription contract."
   [frame-state [_id payload]]
   (let [e (feed-entry-for (runtime-of frame-state) (app-of frame-state) payload)]
-    (and (some? e) (not (state/terminal? (:next-page-param e))))))
+    (and (some? e) (not (rf.resources.state/terminal? (:next-page-param e))))))
 
 (defn has-prev-page?-sub-fn
   "Project `:rf.resource/has-prev-page?` — `(some? :prev-page-param)`, the
@@ -565,7 +565,7 @@
   when no feed. Per Spec 016 §Subscription contract."
   [frame-state [_id payload]]
   (let [e (feed-entry-for (runtime-of frame-state) (app-of frame-state) payload)]
-    (and (some? e) (not (state/terminal? (:prev-page-param e))))))
+    (and (some? e) (not (rf.resources.state/terminal? (:prev-page-param e))))))
 
 (defn page-error-sub-fn
   "Project `:rf.resource/page-error` — the last load-more failure envelope
@@ -582,7 +582,7 @@
   in-flight work record's `:page-index` — a load-more APPENDS at a POSITIVE
   index (the tail), a page-0 fetch / refetch fetches index 0. The sub joins
   the entry's `:current-work` pointer to its live work-ledger row and reads the
-  recorded page index. Liveness is `work-ledger/live-work?`, the ONE definition
+  recorded page index. Liveness is `rf.resources.work-ledger/live-work?`, the ONE definition
   of that question (rf2-kqxe6.6); the row is re-read here only for its
   `:page-index`. false when the feed is not fetching, has no live work, or the
   live work is a page-0 fetch / whole-feed refresh. Per Spec 016 §Causal event
@@ -592,10 +592,10 @@
     (when (and (some? entry) (= :fetching (:status entry)))
       (let [work-id (:current-work entry)]
         ;; the work is genuinely LIVE (not terminal / doomed) …
-        (and (work-ledger/live-work? runtime-db work-id)
+        (and (rf.resources.work-ledger/live-work? runtime-db work-id)
              ;; … and it is a load-more APPEND (a positive page index), not a
              ;; page-0 fetch / whole-feed refresh (index 0 / absent).
-             (let [pi (:page-index (work-ledger/get-record runtime-db work-id))]
+             (let [pi (:page-index (rf.resources.work-ledger/get-record runtime-db work-id))]
                (and (integer? pi) (pos? pi))))))))
 
 (defn fetching-next?-sub-fn
@@ -630,9 +630,9 @@
         {:status         (:status e)
          :items          (merged-items e 'rf.resource/infinite-state)
          :pages          (vec (:data e))
-         :page-count     (state/page-count e)
-         :has-next-page? (not (state/terminal? (:next-page-param e)))
-         :has-prev-page? (not (state/terminal? (:prev-page-param e)))
+         :page-count     (rf.resources.state/page-count e)
+         :has-next-page? (not (rf.resources.state/terminal? (:next-page-param e)))
+         :has-prev-page? (not (rf.resources.state/terminal? (:prev-page-param e)))
          :loading?       (= :loading (:status e))
          ;; `:fetching?` is a WHOLE-FEED refresh; `:fetching-next?` is a
          ;; load-more — both ride `:fetching` (no 6th FSM state, R2), so split
@@ -642,10 +642,10 @@
          :stale?         (stale? e)
          ;; an infinite feed's `:data` is the page VECTOR (`[]` when empty), so
          ;; `:has-data?` is "≥ 1 accumulated page" — delegated to the shared
-         ;; `state/has-data?` (which knows the infinite-feed shape: `(seq data)`,
+         ;; `rf.resources.state/has-data?` (which knows the infinite-feed shape: `(seq data)`,
          ;; never the scalar `(some? data)` that an empty `[]` would satisfy), so
          ;; the sub and the restore/FSM readers never drift.
-         :has-data?      (state/has-data? e)
+         :has-data?      (rf.resources.state/has-data? e)
          :error          (:error e)
          :refresh-error  (:refresh-error e)
          :page-error     (:page-error e)}))))
@@ -665,62 +665,62 @@
   runtime-db cache writes. Output `=` memoisation keeps the sub quiet when
   neither the resolved scoped key nor the read entry changed."
   []
-  (subs/reg-frame-state-sub :rf/resource
+  (rf.subs/reg-frame-state-sub :rf/resource
     {:doc "Passive read of a resource instance's full view-model `{:status :data :error :refresh-error :loading? :fetching? :stale? :has-data?}`. Resolves scope per Spec 016 §Subscription-side scope resolution (incl. `{:from-db <id>}` named-resolver references against app-db); raises :rf.error/resource-sub-unresolved-scope rather than reading global / returning a silent :idle. Per Spec 016 §Subscriptions."}
     state-sub-fn)
-  (subs/reg-frame-state-sub :rf.resource/data
+  (rf.subs/reg-frame-state-sub :rf.resource/data
     {:doc "Passive read of a resource instance's last-known-good :data (or nil). Per Spec 016 §Subscriptions."}
     data-sub-fn)
-  (subs/reg-frame-state-sub :rf.resource/status
+  (rf.subs/reg-frame-state-sub :rf.resource/status
     {:doc "Passive read of a resource instance's :status keyword (:idle / :loading / :fetching / :loaded / :error). Per Spec 016 §Subscriptions."}
     status-sub-fn)
-  (subs/reg-frame-state-sub :rf.resource/loading?
+  (rf.subs/reg-frame-state-sub :rf.resource/loading?
     {:doc "Passive read: true iff a resource instance is on its first load with no usable data. Per Spec 016 §Status semantics."}
     loading?-sub-fn)
-  (subs/reg-frame-state-sub :rf.resource/fetching?
+  (rf.subs/reg-frame-state-sub :rf.resource/fetching?
     {:doc "Passive read: true iff a resource instance is refreshing while prior data stays visible. Per Spec 016 §Status semantics."}
     fetching?-sub-fn)
-  (subs/reg-frame-state-sub :rf.resource/stale?
+  (rf.subs/reg-frame-state-sub :rf.resource/stale?
     {:doc "Passive read: true iff a resource instance is stale (freshness is orthogonal to load status). Per Spec 016 §Status semantics."}
     stale?-sub-fn)
-  (subs/reg-frame-state-sub :rf.resource/error
+  (rf.subs/reg-frame-state-sub :rf.resource/error
     {:doc "Passive read of a resource instance's first-load error envelope (or nil). Per Spec 016 §Status semantics."}
     error-sub-fn)
-  (subs/reg-frame-state-sub :rf.resource/refresh-error
+  (rf.subs/reg-frame-state-sub :rf.resource/refresh-error
     {:doc "Passive read of a resource instance's background-refresh error envelope (or nil); the prior :data is kept. Per Spec 016 §Status semantics."}
     refresh-error-sub-fn)
-  (subs/reg-frame-state-sub :rf.resource/has-data?
+  (rf.subs/reg-frame-state-sub :rf.resource/has-data?
     {:doc "Passive read: true iff a resource instance currently has usable :data. Per Spec 016 §Status semantics."}
     has-data?-sub-fn)
-  (subs/reg-frame-state-sub :rf.resource/previous-data
+  (rf.subs/reg-frame-state-sub :rf.resource/previous-data
     {:doc "Passive read of the prior key's data, projected while a new page/filter resource first-loads under :keep-previous? (not inserted into the new entry). Per Spec 016 §Paginated and previous data."}
     previous-data-sub-fn)
   ;; ---- the infinite-feed projection family (EP-0021 R3) -----------------
   ;; `:rf.resource/items` / `:pages` / `:infinite-state` are the framework-
   ;; owned MEMOISED merge subs (R3 — NOT ordinary app subs over :pages); the
   ;; page-metadata subs round out the load-more UI state.
-  (subs/reg-frame-state-sub :rf.resource/items
+  (rf.subs/reg-frame-state-sub :rf.resource/items
     {:doc "Passive read of an infinite feed's MERGED / flattened item list (the headline read) — DERIVED + framework-owned-memoised by concatenating each accumulated page's items (R3). A vector page flattens by identity; a non-vector / enveloped page REQUIRES a :page->items accessor (else :rf.error/infinite-missing-page-accessor). [] for a non-feed / empty feed. Per Spec 016 §Subscription contract (R3)."}
     items-sub-fn)
-  (subs/reg-frame-state-sub :rf.resource/pages
+  (rf.subs/reg-frame-state-sub :rf.resource/pages
     {:doc "Passive read of an infinite feed's raw ordered page vector (the TanStack `pages` analogue) — for views that need page boundaries. [] for a non-feed. Per Spec 016 §Subscription contract (R3)."}
     pages-sub-fn)
-  (subs/reg-frame-state-sub :rf.resource/page-count
+  (rf.subs/reg-frame-state-sub :rf.resource/page-count
     {:doc "Passive read of an infinite feed's accumulated page count (0 when no feed). Per Spec 016 §Subscription contract."}
     page-count-sub-fn)
-  (subs/reg-frame-state-sub :rf.resource/has-next-page?
+  (rf.subs/reg-frame-state-sub :rf.resource/has-next-page?
     {:doc "Passive read: true iff an infinite feed has a next page ((some? :next-page-param) — nil is the single terminal). false for a non-feed / terminal feed. Per Spec 016 §Subscription contract."}
     has-next-page?-sub-fn)
-  (subs/reg-frame-state-sub :rf.resource/has-prev-page?
+  (rf.subs/reg-frame-state-sub :rf.resource/has-prev-page?
     {:doc "Passive read: true iff an infinite feed has a prev page ((some? :prev-page-param) — the bidirectional mirror; the prepend event is deferred, R7). false for a non-feed. Per Spec 016 §Subscription contract."}
     has-prev-page?-sub-fn)
-  (subs/reg-frame-state-sub :rf.resource/fetching-next?
+  (rf.subs/reg-frame-state-sub :rf.resource/fetching-next?
     {:doc "Passive read: true iff a LOAD-MORE is in flight on an infinite feed (R2) — distinct from :fetching? (a whole-feed refresh). Derived from the in-flight work record's page index (a load-more appends at a positive index). Per Spec 016 §Subscription contract / §Causal event — load-more."}
     fetching-next?-sub-fn)
-  (subs/reg-frame-state-sub :rf.resource/page-error
+  (rf.subs/reg-frame-state-sub :rf.resource/page-error
     {:doc "Passive read of an infinite feed's last LOAD-MORE failure envelope (the third error channel; distinct from :error first-load and :refresh-error whole-feed), or nil. Per Spec 016 §Subscription contract / §Causal event — load-more."}
     page-error-sub-fn)
-  (subs/reg-frame-state-sub :rf.resource/infinite-state
+  (rf.subs/reg-frame-state-sub :rf.resource/infinite-state
     {:doc "Passive read of an infinite feed's combined view-model `{:status :items :pages :page-count :has-next-page? :has-prev-page? :loading? :fetching? :fetching-next? :stale? :has-data? :error :refresh-error :page-error}` — the feed analogue of :rf/resource, with the framework-owned-memoised merged :items (R3). Empty-feed shape when no infinite entry. Per Spec 016 §Subscription contract (R3)."}
     infinite-state-sub-fn)
   nil)

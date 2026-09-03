@@ -33,17 +33,17 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.fx :as fx]
+   [re-frame.fx :as rf.fx]
    ;; load-bearing side-effecting requires: register the :rf.resource/* events
    ;; (ensure / release-owner / gc-fired) + the named-resolver scope plumbing.
    [re-frame.resources]
    [re-frame.resources.registry]
-   [re-frame.resources.state :as state]
+   [re-frame.resources.state :as rf.resources.state]
    [re-frame.resources.test-support]
    [re-frame.schemas]
    [re-frame.http.managed]
-   [re-frame.registrar :as registrar]
-   [re-frame.test-support :as core-test-support]
+   [re-frame.registrar :as rf.registrar]
+   [re-frame.test-support :as rf.test-support]
    #?(:clj  [re-frame.substrate.plain-atom :as substrate]
       :cljs [re-frame.adapter.reagent :as substrate])))
 
@@ -58,8 +58,8 @@
   []
   (rf/make-frame {:id :rf/default :url-bound? true
                   :doc "scoped-owner-lifecycle suite default app frame."})
-  (registrar/clear-kind! :resource-scope)
-  (fx/reg-fx :rf.http/managed (fn [_ctx _args] nil))
+  (rf.registrar/clear-kind! :resource-scope)
+  (rf.fx/reg-fx :rf.http/managed (fn [_ctx _args] nil))
   (rf/reg-resource-scope :t/tenant
     {:inputs {:tenant [:db [:viewer :tenant-id]]}}
     (fn [{:keys [tenant]} _ctx]
@@ -75,7 +75,7 @@
     (fn [{:keys [db]} [_ tenant]] {:db (assoc-in db [:viewer :tenant-id] tenant)})))
 
 (use-fixtures :each
-  (core-test-support/make-reset-runtime-fixture
+  (rf.test-support/make-reset-runtime-fixture
     {:adapter substrate/adapter
      :init-fn init!}))
 
@@ -89,20 +89,20 @@
 ;; semantics (which keys/owners map where) are unchanged.
 (defn- entries []
   (into {} (map (fn [[_k-id e]] [(:resource/key e) e]))
-        (get-in (runtime-db) (state/entries-path))))
-(defn- entry [scoped-key] (get-in (runtime-db) (state/entry-path scoped-key)))
+        (get-in (runtime-db) (rf.resources.state/entries-path))))
+(defn- entry [scoped-key] (get-in (runtime-db) (rf.resources.state/entry-path scoped-key)))
 (defn- owner-index []
   (let [rdb (runtime-db)
-        es  (get-in rdb (state/entries-path))
+        es  (get-in rdb (rf.resources.state/entries-path))
         id->sk (into {} (map (fn [[k-id e]] [k-id (:resource/key e)])) es)]
     (into {} (map (fn [[owner members]]
                     [owner (into #{} (map #(get id->sk % %)) members)]))
-          (get-in rdb (state/owner-index-path)))))
+          (get-in rdb (rf.resources.state/owner-index-path)))))
 
 (defn- tenant-key
   "The scoped feed key for tenant `t`, page `page`."
   [t page]
-  (state/scoped-resource-key [:rf.scope/tenant {:tenant-id t}] :t/feed {:page page}))
+  (rf.resources.state/scoped-resource-key [:rf.scope/tenant {:tenant-id t}] :t/feed {:page page}))
 
 (defn- ensure-feed!
   "Ensure the tenant-scoped feed for tenant `t` under owner `owner`. Uses an

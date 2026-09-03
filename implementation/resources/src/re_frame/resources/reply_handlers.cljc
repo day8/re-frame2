@@ -25,7 +25,7 @@
     by `live-for-reply?` (the verifier reads `:current-work` + `:generation`
     off the slot) and by `current-generation` (the `:current` half of the
     carried-vs-current stale gate reads the slot's live `:generation`).
-  - **`work-kind`** — `rreply/work-kind-resource` | `rreply/work-kind-mutation`
+  - **`work-kind`** — `rf.resources.reply/work-kind-resource` | `rf.resources.reply/work-kind-mutation`
     (Managed-Effects §Work-id correlation).
   - **`stale-reason`** — `:rf.resource/superseded` | `:rf.mutation/superseded`
     (the family's `:rf.reply/stale-reason` on the suppressed reply).
@@ -53,8 +53,8 @@
   no stamped frame (a direct-dispatch test payload) skips the frame check (nil
   never collides with a concrete frame id) and is verified by work-id +
   generation alone."
-  (:require [re-frame.resources.reply :as rreply]
-            [re-frame.trace :as trace]))
+  (:require [re-frame.resources.reply :as rf.resources.reply]
+            [re-frame.trace :as rf.trace]))
 
 ;; ---------------------------------------------------------------------------
 ;; (1) Live-slot verifier (Spec 016 §Transport — stale suppression).
@@ -120,7 +120,7 @@
 (defn stale-suppress-reply
   "Build the canonical `:status :stale` reply outcome for a superseded /
   vanished reply through the SHARED `re-frame.reply` substrate (via
-  `rreply/stale-reply`), so the family lowers its stale outcome exactly as
+  `rf.resources.reply/stale-reply`), so the family lowers its stale outcome exactly as
   every other managed-async family does (Managed-Effects §Stale suppression).
   The carried correlation is the reply token's `:work/id` + `:generation`; the
   current correlation is the live slot's `:generation` (nil when the slot is
@@ -136,7 +136,7 @@
   The three family knobs:
   - `path-fn` reads the live slot's `:current` generation (see
     `current-generation`);
-  - `work-kind` is `rreply/work-kind-resource` | `rreply/work-kind-mutation`;
+  - `work-kind` is `rf.resources.reply/work-kind-resource` | `rf.resources.reply/work-kind-mutation`;
   - `stale-reason` is the family's `:rf.reply/stale-reason`.
   `correlation-fn` is `(payload) → extra-correlation` (the family's diagnostic
   correlation keys merged ONTO the carried/current `:generation` pair —
@@ -146,7 +146,7 @@
   [runtime-db path-fn {work-id :work/id :as payload} {:keys [work-kind stale-reason correlation-fn]} extra]
   (let [carried-generation      (:generation payload)
         current-slot-generation (current-generation runtime-db path-fn payload)]
-    (rreply/stale-reply
+    (rf.resources.reply/stale-reply
       {:carried {:work/id work-id :generation carried-generation}
        :current {:generation current-slot-generation}
        :extra   (merge {:rf.reply/work-id      work-id
@@ -173,14 +173,14 @@
   additive shape the machine `:rf.machine/done` and HTTP / probe stale paths
   ride (Managed-Effects §Tracing / EP-0011). `stale` is the
   `stale-suppress-reply` outcome; its trace summary routes wire slots through
-  the shared elider via `rreply/trace-reply`.
+  the shared elider via `rf.resources.reply/trace-reply`.
 
   `bespoke-facts` is the family's leading per-trace map (its caller-side
   spelling of `:rf.frame/id` + the durable key + `:generation` / `:outcome`);
   the additive `:rf.reply/*` facts are MERGED on top."
   [trace-id bespoke-facts stale]
-  (let [trace-summary (rreply/trace-reply (:reply stale))]
-    (trace/emit! :rf.event trace-id
+  (let [trace-summary (rf.resources.reply/trace-reply (:reply stale))]
+    (rf.trace/emit! :rf.event trace-id
                  (merge bespoke-facts
                         {;; reply-envelope vocabulary (Managed-Effects §9) — the
                          ;; canonical :status :stale reply produced via the

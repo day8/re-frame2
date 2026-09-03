@@ -4,12 +4,12 @@
 
   ## The asymmetry this suite closes
 
-  `classification/instance-declaration-paths` has always lowered a
+  `rf.resources.classification/instance-declaration-paths` has always lowered a
   `:scope`-rooted declaration to the entry's ABSOLUTE `[… :resource/key 0 …]`
   path exactly as it lowers a `:params`-rooted one to `[… :resource/key 2 …]`,
   so the epoch / registry walk over the runtime-db honoured BOTH, and since
-  rf2-dl7bz `trace-egress/redact-key-declarations` honours both on every trace
-  and every tool key. But `ssr/project-entry` projected ONLY index 2. So a
+  rf2-dl7bz `rf.resources.trace-egress/redact-key-declarations` honours both on every trace
+  and every tool key. But `rf.resources.ssr/project-entry` projected ONLY index 2. So a
   resource declaring
 
     (rf/reg-resource :tenant/report
@@ -33,7 +33,7 @@
 
   ## The re-key is the mechanism, not a hazard — §2 pins it
 
-  `state/key-id` is `canonical-bytes` over the WHOLE `[scope resource-id
+  `rf.resources.state/key-id` is `canonical-bytes` over the WHOLE `[scope resource-id
   params]` vector, so projecting EITHER component necessarily changes it. That
   is not a new consequence of this change: `project-resources-runtime-db` re-keys
   each wire entry on the key-id of its own PROJECTED `:resource/key`, the coarse
@@ -61,22 +61,22 @@
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [clojure.string :as str]
    [re-frame.core :as rf]
-   [re-frame.frame :as frame]
+   [re-frame.frame :as rf.frame]
    ;; load-bearing side-effecting require: the façade registers the
    ;; :rf.resource/* events + subs + the :resource registrar kind, and
    ;; publishes the trace-egress hooks the epoch tool-pair consults.
    [re-frame.resources]
-   [re-frame.resources.classification :as classification]
-   [re-frame.resources.registry :as registry]
-   [re-frame.resources.ssr :as ssr]
-   [re-frame.resources.state :as state]
-   [re-frame.resources.trace-egress :as trace-egress]
+   [re-frame.resources.classification :as rf.resources.classification]
+   [re-frame.resources.registry :as rf.resources.registry]
+   [re-frame.resources.ssr :as rf.resources.ssr]
+   [re-frame.resources.state :as rf.resources.state]
+   [re-frame.resources.trace-egress :as rf.resources.trace-egress]
    ;; production HTTP fx surface (so the transport feature probe resolves).
    [re-frame.http.managed]
    [re-frame.schemas]
-   [re-frame.test-support :as core-test-support]
-   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
-       :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
+   [re-frame.test-support :as rf.test-support]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
 (def ^:private tenant-secret "tenant-SECRET-99")
 (def ^:private account-secret "acct-SECRET-4417")
@@ -118,8 +118,8 @@
     (fn [_p _ctx] {:request {:method :get :url "/sealed"}})))
 
 (use-fixtures :each
-  (core-test-support/make-reset-runtime-fixture
-    {:adapter #?(:clj plain-atom/adapter :cljs reagent-adapter/adapter)
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter #?(:clj rf.substrate.plain-atom/adapter :cljs rf.adapter.reagent/adapter)
      :init-fn init!}))
 
 ;; ---- helpers --------------------------------------------------------------
@@ -142,7 +142,7 @@
   `:scope`-rooted declaration has to reach THROUGH."
   ([resource-id] (key-for resource-id {:page 3}))
   ([resource-id params]
-   (state/scoped-resource-key (session-scope) resource-id params)))
+   (rf.resources.state/scoped-resource-key (session-scope) resource-id params)))
 
 (defn- global-key-for
   "The same undeclared owner under `:rf.scope/global` — an ADDRESSABLE key that
@@ -156,7 +156,7 @@
   verbatim, tenant id and all, which is exactly what
   `an-undeclared-owners-key-rides-byte-identical` asserts about it."
   [resource-id]
-  (state/scoped-resource-key :rf.scope/global resource-id {:page 3}))
+  (rf.resources.state/scoped-resource-key :rf.scope/global resource-id {:page 3}))
 
 (defn- install-entry!
   "Write a durable `:loaded` entry for `scoped-key` into the frame's runtime-db
@@ -165,15 +165,15 @@
   commit folds into one atomic transition. Returns the key."
   [frame-id scoped-key]
   (let [resource-id (second scoped-key)]
-    (frame/swap-runtime-db!
+    (rf.frame/swap-runtime-db!
       frame-id
       (fn [rdb]
         (-> (or rdb {})
-            (assoc-in (state/entry-path scoped-key)
-                      (assoc (state/empty-entry resource-id scoped-key)
+            (assoc-in (rf.resources.state/entry-path scoped-key)
+                      (assoc (rf.resources.state/empty-entry resource-id scoped-key)
                              :status :loaded
                              :data   {:total 1}))
-            (classification/reconcile-registry registry/resource-meta)))))
+            (rf.resources.classification/reconcile-registry rf.resources.registry/resource-meta)))))
   scoped-key)
 
 (defn- wire-entries
@@ -181,9 +181,9 @@
   `:rf/runtime-db` slice — keyed on the byte key-id of each entry's PROJECTED
   `:resource/key`."
   [frame-id]
-  (get-in (ssr/project-resources-runtime-db
-            (frame/frame-runtime-db-value frame-id) frame-id)
-          [state/resources-key :entries]))
+  (get-in (rf.resources.ssr/project-resources-runtime-db
+            (rf.frame/frame-runtime-db-value frame-id) frame-id)
+          [rf.resources.state/resources-key :entries]))
 
 (defn- wire-entry-for
   "The single wire entry whose key names `resource-id`."
@@ -209,9 +209,9 @@
   pins directly against the map key."
   [frame-id resource-id]
   (some (fn [m] (when (= resource-id (second (:resource/key m))) (:projected-key m)))
-        (ssr/projection-metadata
+        (rf.resources.ssr/projection-metadata
           frame-id 5000
-          (get-in (frame/frame-runtime-db-value frame-id) (state/entries-path)))))
+          (get-in (rf.frame/frame-runtime-db-value frame-id) (rf.resources.state/entries-path)))))
 
 (defn- leaks?
   "Whether `secret` survives ANYWHERE in `v` — the plaintext test."
@@ -253,17 +253,17 @@
     ;; `global-key-for` for why neither `:sealed/report` nor the session-scoped
     ;; `:plain/report` can serve.
     (install-entry! :rf/default (global-key-for :plain/report))
-    (let [slice (ssr/project-resources-runtime-db
-                  (frame/frame-runtime-db-value :rf/default) :rf/default)
+    (let [slice (rf.resources.ssr/project-resources-runtime-db
+                  (rf.frame/frame-runtime-db-value :rf/default) :rf/default)
           w     (wire-key :rf/default :tenant/report)]
-      (is (seq (get-in slice [state/resources-key :entries]))
+      (is (seq (get-in slice [rf.resources.state/resources-key :entries]))
           "premise: the slice is not empty — every re-keyed row is withheld
            (rf2-rjq9d, rf2-4bjep), so this claim would otherwise be satisfied
            by a slice with nothing in it at all")
       (is (not (leaks? tenant-secret slice))
           (str "the tenant id survived somewhere in the wire slice: "
                (pr-str slice)))
-      (is (not (leaks? tenant-secret [w (state/key-id w)]))
+      (is (not (leaks? tenant-secret [w (rf.resources.state/key-id w)]))
           (str "…nor in the projected key or its key-id, which is where it
                 would ride if the row were sent — " (pr-str w))))))
 
@@ -285,7 +285,7 @@
 ;; ===========================================================================
 ;; 2. THE RE-KEYING INTERACTION — the bead's Q1, pinned rather than argued.
 ;;
-;;    `state/key-id` is `canonical-bytes` over the WHOLE key vector, so
+;;    `rf.resources.state/key-id` is `canonical-bytes` over the WHOLE key vector, so
 ;;    projecting index 0 CHANGES it. The invariant that has to hold is not
 ;;    "the key-id is stable" — it is "the wire MAP key and the wire ENTRY's own
 ;;    :resource/key are ONE value". `project-resources-runtime-db` maintains
@@ -308,7 +308,7 @@
          declaration and the coarse one are withheld (rf2-rjq9d, rf2-4bjep), so
          a `doseq` over the wire is not a `doseq` over nothing")
     (doseq [[k-id e] (wire-entries :rf/default)]
-      (is (= k-id (state/key-id (:resource/key e)))
+      (is (= k-id (rf.resources.state/key-id (:resource/key e)))
           (str "wire map key must equal key-id of the entry's own projected "
                ":resource/key — entry " (pr-str (:resource/key e)))))))
 
@@ -321,11 +321,11 @@
           plain-k  (install-entry! :rf/default (key-for :plain/report))
           sealed-k (install-entry! :rf/default (key-for :sealed/report))
           wired    (wire-entries :rf/default)]
-      (is (not (contains? wired (state/key-id scope-k)))
+      (is (not (contains? wired (rf.resources.state/key-id scope-k)))
           "a declared SCOPE re-keys the entry — the raw key-id is gone")
-      (is (not (contains? wired (state/key-id sealed-k)))
+      (is (not (contains? wired (rf.resources.state/key-id sealed-k)))
           "…as the coarse whole-component digests always have")
-      (is (contains? wired (state/key-id plain-k))
+      (is (contains? wired (rf.resources.state/key-id plain-k))
           "…while an UNDECLARED key keeps its byte identity exactly"))))
 
 ;; ===========================================================================
@@ -349,7 +349,7 @@
       (is (= (pr-str k) (pr-str w)) "…byte-for-byte, not merely `=`")
       (is (seq? (get-in w [0 1 :roles]))
           "…the list is still a LIST — no walker reconstruction happened")
-      (is (= (state/key-id k) (state/key-id w)) "…so its key-id is unchanged")
+      (is (= (rf.resources.state/key-id k) (rf.resources.state/key-id w)) "…so its key-id is unchanged")
       (is (leaks? tenant-secret w)
           "and its scope rides VERBATIM — nothing here scrubs by shape"))))
 
@@ -372,12 +372,12 @@
             An owner that declares nothing under :scope must leave it exactly
             as it found it"
     (let [k (install-entry! :rf/default
-                            (state/scoped-resource-key
+                            (rf.resources.state/scoped-resource-key
                               :rf.scope/global :plain/report {:page 3}))
           w (wire-key :rf/default :plain/report)]
       (is (= :rf.scope/global (nth w 0)))
       (is (= k w))
-      (is (= (state/key-id k) (state/key-id w))))))
+      (is (= (rf.resources.state/key-id k) (rf.resources.state/key-id w))))))
 
 (deftest a-key-declaration-does-not-promote-the-entry-to-a-coarse-claim
   (testing "rf2-dl7bz's second finding, on this surface: a declaration naming
@@ -414,10 +414,10 @@
         "…while the undeclared sibling still rides, so this is withholding and
          not an empty projection")
     (let [m (some (fn [m] (when (= :tenant/report (second (:resource/key m))) m))
-                  (ssr/projection-metadata
+                  (rf.resources.ssr/projection-metadata
                     :rf/default 5000
-                    (get-in (frame/frame-runtime-db-value :rf/default)
-                            (state/entries-path))))]
+                    (get-in (rf.frame/frame-runtime-db-value :rf/default)
+                            (rf.resources.state/entries-path))))]
       (is (= :key-projected (:disposition m))
           "the server-side metadata still announces what the server knew")
       (is (true? (:refetch-on-client? m))
@@ -442,9 +442,9 @@
     ;; owner is installed to prove it contributes NOTHING here.
     (install-entry! :rf/default (key-for :sealed/report))
     (let [wired    (wire-entries :rf/default)
-          subtree  (state/recompute-indexes {:entries wired})
+          subtree  (rf.resources.state/recompute-indexes {:entries wired})
           members  (into #{} cat (vals (:owner-index subtree)))]
-      (is (not (contains? wired (state/key-id (key-for :sealed/report))))
+      (is (not (contains? wired (rf.resources.state/key-id (key-for :sealed/report))))
           "premise: the coarse row IS re-keyed — its raw key-id is not a map key")
       (is (= 2 (count wired))
           (str "premise: exactly the two undeclared rows ride — the coarse row "
@@ -457,7 +457,7 @@
         (is (contains? wired m)
             (str "index member " (pr-str m) " must resolve to an installed entry")))
       (doseq [[k-id e] (:entries subtree)]
-        (is (= k-id (state/key-id (:resource/key e)))
+        (is (= k-id (rf.resources.state/key-id (:resource/key e)))
             "…and the round-tripped entry still agrees with its own key")))))
 
 ;; ===========================================================================
@@ -474,7 +474,7 @@
     (let [k     (install-entry! :rf/default (key-for :tenant/report))
           wire  (wire-key :rf/default :tenant/report)
           trace (:resource/key
-                  (trace-egress/project-resource-trace-egress
+                  (rf.resources.trace-egress/project-resource-trace-egress
                     {:rf.frame/id :rf/default :resource/key k} :rf/default))]
       (is (= (pr-str (nth wire 0)) (pr-str (nth trace 0)))
           (str "the SSR wire key's SCOPE component must be BYTE-equal to the "
@@ -488,7 +488,7 @@
                                          {:account-id account-secret :page 3}))
           wire  (wire-key :rf/default :both/report)
           trace (:resource/key
-                  (trace-egress/project-resource-trace-egress
+                  (rf.resources.trace-egress/project-resource-trace-egress
                     {:rf.frame/id :rf/default :resource/key k} :rf/default))]
       (is (= (pr-str wire) (pr-str trace))
           (str "wire " (pr-str wire) " vs trace " (pr-str trace))))))
@@ -513,7 +513,7 @@
       (is (contains? (nth w 2) :rf/redacted) "…and so is the whole params")
       (is (= :sealed/report (nth w 1)) "the resource-id survives")
       (is (not (leaks? tenant-secret w)))
-      (is (= w (ssr/project-scoped-key k :redact nil))
+      (is (= w (rf.resources.ssr/project-scoped-key k :redact nil))
           "byte-for-byte what `project-scoped-key` alone produces"))))
 
 (deftest a-coarse-owners-row-is-withheld-like-any-other-re-keyed-one
@@ -525,7 +525,7 @@
     (install-entry! :rf/default (global-key-for :plain/report))
     (let [wired (wire-entries :rf/default)
           w     (wire-key :rf/default :sealed/report)]
-      (is (not (contains? wired (state/key-id w)))
+      (is (not (contains? wired (rf.resources.state/key-id w)))
           (str "no row rides under the coarse PROJECTED key either — the claim "
                "is absence of the ROW, not of its data: " (pr-str wired)))
       (is (nil? (wire-entry-for :rf/default :sealed/report)))
@@ -551,11 +551,11 @@
             :params one. This test reds if anyone moves the arm into the
             shared projection"
     (let [k    (key-for :tenant/report)
-          spec (registry/resource-meta :tenant/report)]
-      (is (= k (ssr/project-scoped-key k :serialize spec))
+          spec (rf.resources.registry/resource-meta :tenant/report)]
+      (is (= k (rf.resources.ssr/project-scoped-key k :serialize spec))
           "`:serialize` still rides VERBATIM through `project-scoped-key`")
-      (is (= (ssr/project-scoped-key k :serialize spec)
-             (ssr/project-scoped-key k :serialize nil))
+      (is (= (rf.resources.ssr/project-scoped-key k :serialize spec)
+             (rf.resources.ssr/project-scoped-key k :serialize nil))
           "…and it still ignores the spec argument, exactly as documented"))))
 
 ;; ===========================================================================
@@ -566,20 +566,20 @@
 (deftest project-entry-scope-is-frame-scoped-and-declaration-gated
   (testing "the two guards `project-entry-params` carries, on the scope arm"
     (let [k      (install-entry! :rf/default (key-for :tenant/report))
-          key-id (state/key-id k)
+          key-id (rf.resources.state/key-id k)
           scope  (nth k 0)]
       (is (= :rf/redacted
-             (get-in (classification/project-entry-scope
+             (get-in (rf.resources.classification/project-entry-scope
                        scope key-id :rf/default :rf.egress/ssr-hydration)
                      [1 :tenant-id]))
           "under a live frame with the declaration lowered, the slot redacts")
-      (is (= scope (classification/project-entry-scope
+      (is (= scope (rf.resources.classification/project-entry-scope
                      scope key-id nil :rf.egress/ssr-hydration))
           "a nil frame rides the scope VERBATIM — the registry is frame-scoped")
       (let [plain-k (install-entry! :rf/default (key-for :plain/report))]
         (is (= (nth plain-k 0)
-               (classification/project-entry-scope
-                 (nth plain-k 0) (state/key-id plain-k)
+               (rf.resources.classification/project-entry-scope
+                 (nth plain-k 0) (rf.resources.state/key-id plain-k)
                  :rf/default :rf.egress/ssr-hydration))
             "an UNDECLARED offset rides the scope VERBATIM — no walk, no
              list↔vector collapse, byte identity preserved")))))

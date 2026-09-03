@@ -42,7 +42,7 @@
   The decoration seam IS the production `:rf.http/managed` per-frame
   interceptor chain (`re-frame.http.middleware`). To exercise it without a
   live fetch we override `:rf.http/managed` with a stub that runs the REAL
-  request-side chain (`http-test-support/run-request-chain`) — so the
+  request-side chain (`rf.http.test-support/run-request-chain`) — so the
   registered interceptors genuinely fire on the request the resource /
   mutation runtime lowered — captures the post-`:before` decorated request,
   and exposes the runtime-owned reply addressing so the test can replay the
@@ -53,26 +53,26 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.fx :as fx]
+   [re-frame.fx :as rf.fx]
    ;; load-bearing side-effecting requires: register the :rf.resource/* +
    ;; :rf.mutation/* events + subs + the generation cofx/fx.
    [re-frame.resources]
-   [re-frame.resources.state :as state]
-   [re-frame.resources.mutation-runtime :as mstate]
+   [re-frame.resources.state :as rf.resources.state]
+   [re-frame.resources.mutation-runtime :as rf.resources.mutation-runtime]
    [re-frame.resources.test-support]
    ;; production HTTP fx + interceptor surface — loading it publishes the
    ;; transport feature probe (`:http/abort-on-actor-destroy`) the resource
    ;; lowering consults AND registers the per-frame interceptor chain.
-   [re-frame.http.managed :as http-managed]
+   [re-frame.http.managed :as rf.http.managed]
    ;; the request-side chain walker `run-request-chain` is HTTP test
    ;; scaffolding (rf2-w59es5) — it lives in http-test-support alongside the
    ;; canned-stub fxs, not the production machine-wrapper.
-   [re-frame.http.test-support :as http-test-support]
+   [re-frame.http.test-support :as rf.http.test-support]
    [re-frame.schemas]
-   [re-frame.test-support :as core-test-support]
-   [re-frame.trace.tooling :as trace-tooling]
-   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
-       :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
+   [re-frame.test-support :as rf.test-support]
+   [re-frame.trace.tooling :as rf.trace.tooling]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
 ;; ---- a transport stub that runs the REAL :before chain --------------------
 ;;
@@ -96,29 +96,29 @@
   ;; the per-frame HTTP-interceptor chain is a `defonce` atom NOT cleared by
   ;; the shared resource reset hook — drop it so each test starts with an
   ;; empty chain (otherwise a prior test's interceptor leaks forward).
-  (http-managed/clear-all-http-interceptors!)
-  (fx/reg-fx :rf.http/managed
+  (rf.http.managed/clear-all-http-interceptors!)
+  (rf.fx/reg-fx :rf.http/managed
              (fn [frame-ctx args]
-               (let [ctx (http-test-support/run-request-chain frame-ctx args)]
+               (let [ctx (rf.http.test-support/run-request-chain frame-ctx args)]
                  (reset! last-decorated
                          {:request    (:request ctx)
                           :on-success (:on-success args)
                           :on-failure (:on-failure args)}))
                nil))
-  (fx/reg-fx :rf.resource/schedule-timers (fn [_ _] nil))
+  (rf.fx/reg-fx :rf.resource/schedule-timers (fn [_ _] nil))
   (f))
 
 (use-fixtures :each
-  (core-test-support/make-reset-runtime-fixture
-    #?(:clj  {:adapter plain-atom/adapter}
-       :cljs {:adapter reagent-adapter/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
+       :cljs {:adapter rf.adapter.reagent/adapter}))
   decorating-transport-fixture)
 
 ;; ---- helpers --------------------------------------------------------------
 
 (defn- runtime-db [] (:rf.db/runtime (rf/frame-state-value :rf/default)))
-(defn- entry [scoped-key] (get-in (runtime-db) (state/entry-path scoped-key)))
-(defn- instance [instance-id] (get-in (runtime-db) (mstate/instance-path instance-id)))
+(defn- entry [scoped-key] (get-in (runtime-db) (rf.resources.state/entry-path scoped-key)))
+(defn- instance [instance-id] (get-in (runtime-db) (rf.resources.mutation-runtime/instance-path instance-id)))
 
 (defn- reply-success! [addr-key data]
   (rf/dispatch-sync (conj (get @last-decorated addr-key) {:status :ok :value data})))
@@ -170,7 +170,7 @@
   (seed-token! "abc123")
   (reg-auth-interceptor!)
   (rf/reg-resource :rd/article (article-spec) article-spec-request)
-  (let [k (state/scoped-resource-key :rf.scope/global :rd/article {:slug "w"})]
+  (let [k (rf.resources.state/scoped-resource-key :rf.scope/global :rd/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :rd/article :scope :rf.scope/global
                         :params {:slug "w"} :owner [:app :rd 1]}])
@@ -244,7 +244,7 @@
   (seed-token! "tok")
   (reg-auth-interceptor!)
   (rf/reg-resource :sp/article (article-spec) article-spec-request)
-  (let [k (state/scoped-resource-key :rf.scope/global :sp/article {:slug "w"})]
+  (let [k (rf.resources.state/scoped-resource-key :rf.scope/global :sp/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :sp/article :scope :rf.scope/global
                         :params {:slug "w"} :owner [:app :sp 1]}])
@@ -322,9 +322,9 @@
               (contains? #{"rf.resource" "rf.resource.internal"
                            "rf.mutation" "rf.mutation.internal"}
                          ns*))))]
-    (trace-tooling/register-listener!
+    (rf.trace.tooling/register-listener!
       k (fn [ev] (when (resource-or-mutation-op? (:operation ev)) (swap! seen conj ev))))
-    (try (body-fn) (finally (trace-tooling/unregister-listener! k)))
+    (try (body-fn) (finally (rf.trace.tooling/unregister-listener! k)))
     @seen))
 
 (deftest decorated-bearer-token-does-not-leak-into-trace-rows

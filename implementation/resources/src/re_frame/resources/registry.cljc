@@ -24,17 +24,17 @@
   data-lifecycle events (`:rf.resource/remove` / `:rf.resource/release-owner`
   / `:rf.resource/clear-scope`) remain the in-cascade, scope/instance-grained
   disposal surfaces."
-  (:require [re-frame.error :as error]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.resources.classification :as classification]
-            [re-frame.resources.params :as params]
-            [re-frame.resources.scope-registry :as scope-registry]
-            [re-frame.resources.state :as state]
-            [re-frame.resources.timers :as timers]
-            [re-frame.resources.work-ledger :as work-ledger]
-            [re-frame.source-coords :as source-coords]
-            [re-frame.trace :as trace]))
+  (:require [re-frame.error :as rf.error]
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.resources.classification :as rf.resources.classification]
+            [re-frame.resources.params :as rf.resources.params]
+            [re-frame.resources.scope-registry :as rf.resources.scope-registry]
+            [re-frame.resources.state :as rf.resources.state]
+            [re-frame.resources.timers :as rf.resources.timers]
+            [re-frame.resources.work-ledger :as rf.resources.work-ledger]
+            [re-frame.source-coords :as rf.source-coords]
+            [re-frame.trace :as rf.trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -66,11 +66,11 @@
   `:rf.scope/*` namespace — i.e. a candidate for the closed scope-policy
   enum. A non-keyword (a `[:rf.scope/session …]` tuple, a map, a string)
   is NOT in the bare-keyword reserved slot. Reuses the shared
-  `state/reserved-scope-ns` constant (one source of truth for the reserved
+  `rf.resources.state/reserved-scope-ns` constant (one source of truth for the reserved
   namespace across the policy gate here and the concrete-scope gate in
   `state`)."
   [scope]
-  (and (keyword? scope) (= state/reserved-scope-ns (namespace scope))))
+  (and (keyword? scope) (= rf.resources.state/reserved-scope-ns (namespace scope))))
 
 (defn- valid-scope-policy?
   "A scope policy is one of the reserved enum keywords
@@ -102,7 +102,7 @@
          (= scope from-caller-scope-policy) true
          ;; a `{:from-db <id>}` named-resolver reference — a derived-scope
          ;; policy resolved at use time, NOT a literal map scope.
-         (scope-registry/from-db-reference? scope) true
+         (rf.resources.scope-registry/from-db-reference? scope) true
          ;; a bare `:rf.scope/*` keyword outside the enum is a typo —
          ;; reject (fail closed), do NOT accept as a literal scope.
          (reserved-scope-namespace? scope)  false
@@ -117,7 +117,7 @@
   "Build the canonical thrown-error shape (Spec 009 §The thrown-error
   shape) for a `reg-resource` validation failure."
   [error-id where reason extra]
-  (error/thrown-ex-info
+  (rf.error/thrown-ex-info
     error-id
     where
     reason
@@ -135,7 +135,7 @@
 ;; (`{:rf.resource/page-param p :rf.resource/page-index i}`); a non-infinite
 ;; `:request` still receives a nil/empty ctx (NO new 3-arity). The
 ;; `:rf.error/infinite-missing-page-accessor` error is RUNTIME-detected at the
-;; first non-vector page in the subs merge site (state/merge-pages->items), not
+;; first non-vector page in the subs merge site (rf.resources.state/merge-pages->items), not
 ;; here — at registration
 ;; we have no page to inspect; here we shape-validate `:page->items` (a keyword
 ;; or fn) when present.
@@ -337,7 +337,7 @@
              {:resource-id resource-id})))
   ;; `:poll-interval-ms` is OPTIONAL (Spec 016 §Polling). When present it MUST
   ;; be a number of milliseconds — a non-positive / absent value means NO
-  ;; polling (the disarm rule `timers/schedule!` applies to a non-positive
+  ;; polling (the disarm rule `rf.resources.timers/schedule!` applies to a non-positive
   ;; delay), parallel to `:stale-after-ms` (infinite-by-default, Spec 016
   ;; §Freshness clock contract). Absent `:gc-after-ms` normalizes to a finite
   ;; default; any other non-positive/non-`:never` value is a loud registration
@@ -372,7 +372,7 @@
   ;; is value-independent + standing (it redacts whatever later occupies the
   ;; projection-relative slot on every instance), so a shape fault is caught
   ;; at definition, not silently dropped.
-  (when-let [{:keys [axis reason]} (classification/classification-declaration-defect spec)]
+  (when-let [{:keys [axis reason]} (rf.resources.classification/classification-declaration-defect spec)]
     (throw (registration-error
              :rf.error/resource-bad-spec
              'rf/reg-resource
@@ -507,11 +507,11 @@
                           (assoc :gc-after-ms
                                  (normalize-gc-after-ms resource-id metadata)))]
   (validate-resource-spec! resource-id resource-spec)
-  (let [previous (registrar/lookup resource-kind resource-id)]
-    (registrar/register!
+  (let [previous (rf.registrar/lookup resource-kind resource-id)]
+    (rf.registrar/register!
       resource-kind
       resource-id
-      (source-coords/merge-coords
+      (rf.source-coords/merge-coords
         (merge {:doc (:doc resource-spec)}
                {:rf/resource resource-spec
                 :handler-fn  (:request resource-spec)})))
@@ -520,12 +520,12 @@
     ;; tab / lifecycle timeline) see one row per fresh resource — the
     ;; registration anchor of the `:rf.resource/*` trace family (Spec 016
     ;; §Xray and AI tooling). Re-registration rides the cross-kind
-    ;; `:rf.registry/handler-replaced` trace (emitted by `registrar/register!`
+    ;; `:rf.registry/handler-replaced` trace (emitted by `rf.registrar/register!`
     ;; per Spec 001 §Hot-reload trace surface); not re-emitted here. Mirrors
     ;; the `:rf.route/registered` / `:rf.flow/registered` symmetry. The row is
     ;; frame-agnostic (registration is a load-time act, not a per-frame event).
     (when (nil? previous)
-      (trace/emit! :rf.event :rf.resource/registered
+      (rf.trace/emit! :rf.event :rf.resource/registered
                    {:resource-id      resource-id
                     :scope-policy     (:scope resource-spec)
                     :transport        (:transport resource-spec)
@@ -541,18 +541,18 @@
   reads each entry's stored `:resource/key` vector (NOT the map key), and the
   returned keys are the kind-preserving VECTORS the timer-cancel / abort / trace
   consumers name resources by. The disposal `dissoc` maps these through
-  `state/key-id` to address the byte-keyed `:entries` slots."
+  `rf.resources.state/key-id` to address the byte-keyed `:entries` slots."
   [runtime-db resource-id]
   (into []
         (comp (map val)
               (filter (fn [entry] (= resource-id (second (:resource/key entry)))))
               (map :resource/key))
-        (get-in runtime-db (state/entries-path))))
+        (get-in runtime-db (rf.resources.state/entries-path))))
 
 (defn- dispose-resource-runtime!
   "Dispose every live runtime entry for `resource-id` in ONE frame (Spec 016
   §clear-resource MUST-dispose, rf2-m9h5iq). Atomically (through
-  `frame/swap-runtime-db!`, the framework-authority out-of-cascade runtime-db
+  `rf.frame/swap-runtime-db!`, the framework-authority out-of-cascade runtime-db
   write surface routing / machine spawn use): removes the resource's
   `:entries`, marks each in-flight work record terminal `:suppressed` (so a
   late reply's `live-entry-for-reply` existence check finds nothing to write
@@ -564,31 +564,31 @@
   (`:reason :clear-resource`) for the frame when anything was disposed.
   Returns the disposed scoped keys (possibly empty)."
   [frame-id resource-id]
-  (let [runtime-db (or (frame/frame-runtime-db-value frame-id) {})
+  (let [runtime-db (or (rf.frame/frame-runtime-db-value frame-id) {})
         keys'      (entry-keys-for-resource runtime-db resource-id)]
     (when (seq keys')
       (let [in-flight (into []
                             (keep (fn [k]
-                                    (let [e   (get-in runtime-db (state/entry-path k))
+                                    (let [e   (get-in runtime-db (rf.resources.state/entry-path k))
                                           wid (:current-work e)]
                                       (when wid
-                                        [wid (:transport (work-ledger/get-record runtime-db wid))]))))
+                                        [wid (:transport (rf.resources.work-ledger/get-record runtime-db wid))]))))
                             keys')]
         ;; durable disposal — atomic on the frame's runtime-db partition
-        (frame/swap-runtime-db!
+        (rf.frame/swap-runtime-db!
           frame-id
           (fn [rdb]
             (-> (or rdb {})
                 ;; rf2-9e0tyq — `keys'` are scoped-key VECTORS; the byte-keyed
                 ;; `:entries` map is dissoc'd by their `key-id`s.
-                (update-in (state/entries-path)
-                           (fn [es] (reduce dissoc es (map state/key-id keys'))))
+                (update-in (rf.resources.state/entries-path)
+                           (fn [es] (reduce dissoc es (map rf.resources.state/key-id keys'))))
                 (as-> db (reduce (fn [d [wid _]]
-                                   (work-ledger/update-record
-                                     d wid work-ledger/mark-terminal
+                                   (rf.resources.work-ledger/update-record
+                                     d wid rf.resources.work-ledger/mark-terminal
                                      :suppressed {:reason :clear-resource}))
                                  db in-flight))
-                (update state/resources-key state/recompute-indexes))))
+                (update rf.resources.state/resources-key rf.resources.state/recompute-indexes))))
         ;; host-side disposal — release advisory timers + opportunistically
         ;; abort each in-flight attempt. Correctness rests on the removed
         ;; entry (a late reply's existence check finds nothing), NOT on the
@@ -597,10 +597,10 @@
         ;; frame-destroy teardown uses (Spec 016 §Cancellation is
         ;; opportunistic).
         (doseq [k keys']
-          (timers/cancel-for-key! frame-id k))
+          (rf.resources.timers/cancel-for-key! frame-id k))
         (doseq [[wid _transport] in-flight]
-          (work-ledger/opportunistic-abort! frame-id wid))
-        (trace/emit! :rf.event :rf.resource/removed
+          (rf.resources.work-ledger/opportunistic-abort! frame-id wid))
+        (rf.trace/emit! :rf.event :rf.resource/removed
                      {:rf.frame/id frame-id :resource-id resource-id
                       :reason :clear-resource :removed (vec keys')
                       :aborted (mapv first in-flight)})))
@@ -628,8 +628,8 @@
   No-op (returns `resource-id`) when the id is not registered and no frame
   holds a live entry for it."
   [resource-id]
-  (registrar/unregister! resource-kind resource-id)
-  (doseq [frame-id (frame/frame-ids)]
+  (rf.registrar/unregister! resource-kind resource-id)
+  (doseq [frame-id (rf.frame/frame-ids)]
     (dispose-resource-runtime! frame-id resource-id))
   resource-id)
 
@@ -642,7 +642,7 @@
   `resource-id`, or nil if no resource is registered under that id. Per Spec
   016 §Introspection."
   [resource-id]
-  (:rf/resource (registrar/lookup resource-kind resource-id)))
+  (:rf/resource (rf.registrar/lookup resource-kind resource-id)))
 
 (defn resource-ids
   "Return a vector of every registered resource id. The registry-side
@@ -650,7 +650,7 @@
   the runtime). Per Spec 016 §Xray and AI tooling (the static
   resource registry)."
   []
-  (vec (registrar/ids resource-kind)))
+  (vec (rf.registrar/ids resource-kind)))
 
 (defn require-resource-spec!
   "Look the resource spec up by `resource-id`, throwing
@@ -673,14 +673,14 @@
   "Validate `params` against the resource's REQUIRED `:params-schema`
   (pluggable late-bound Malli validator, exactly as routing validates route
   params — `:schemas/validate-with-registered-fn`; no static schemas dep),
-  reject non-EDN / host values loudly (`state/reject-non-edn!`), then return
-  the canonical params (`state/canonicalize`). Throws
+  reject non-EDN / host values loudly (`rf.resources.state/reject-non-edn!`), then return
+  the canonical params (`rf.resources.state/canonicalize`). Throws
   `:rf.error/resource-invalid-params` on a schema-conformance failure.
   Per Spec 016 §Resource identity / §Canonicalization rule.
 
   `nil` vs missing is schema-defined (rf2-hgy5kf): a caller threads
-  `state/missing-params` for an ABSENT `:params` slot (the documented
-  omitted-default lowers it to `{}` via `state/default-omitted-params`), while
+  `rf.resources.state/missing-params` for an ABSENT `:params` slot (the documented
+  omitted-default lowers it to `{}` via `rf.resources.state/default-omitted-params`), while
   a PRESENT explicit `nil` is passed THROUGH to `:params-schema` validation +
   canonicalization unchanged — the schema (not a blanket `(or params {})`)
   decides whether nil conforms. This keeps the validation boundary from
@@ -695,7 +695,7 @@
   validation, invalid-param REDACTION, and canonicalization are owned once in
   that leaf (so the mutation registrar's identical pipeline can never drift)."
   [resource-id spec params where]
-  (params/validate+canonicalize
+  (rf.resources.params/validate+canonicalize
     resource-id spec params where
     (fn [redacted-params redacted-error]
       (registration-error
@@ -719,7 +719,7 @@
 
 (defn- canonical-scope!
   "Route a CONCRETE resolved scope through the single shared concrete-scope
-  validation path (`state/canonicalize-scope`, rf2-lzv9xc): reject a
+  validation path (`rf.resources.state/canonicalize-scope`, rf2-lzv9xc): reject a
   reserved-namespace typo fail-closed (rf2-pd7akw), reject a host / opaque
   value, reject the global scope wrapped as the singleton `[:rf.scope/global]`
   in favour of the canonical bare `:rf.scope/global` (rf2-bwwk6l), then
@@ -729,7 +729,7 @@
   route-resolver / fn-of-nothing / pure-data policy is caught at the concrete
   boundary, not silently accepted as a literal scope."
   [resource-id scope where]
-  (state/canonicalize-scope scope where resource-id))
+  (rf.resources.state/canonicalize-scope scope where resource-id))
 
 (defn- require-resolved-reference!
   "A `{:from-db <id>}` reference at a scope-REQUIRING event/route site
@@ -741,7 +741,7 @@
   `:rf.error/resource-scope-unresolved-reference` naming the resolver id;
   returns the resolved concrete scope otherwise."
   [resource-id reference db where]
-  (or (scope-registry/resolve-from-db-reference reference db where)
+  (or (rf.resources.scope-registry/resolve-from-db-reference reference db where)
       (throw (registration-error
                :rf.error/resource-scope-unresolved-reference
                where
@@ -788,19 +788,19 @@
       ;; 1. payload scope (highest precedence) — a {:from-db …} reference
       ;; resolves at use time + fails closed on nil; a concrete scope is
       ;; canonicalized as before.
-      (scope-registry/from-db-reference? payload-scope)
+      (rf.resources.scope-registry/from-db-reference? payload-scope)
       (canonical-scope! resource-id (resolve-ref payload-scope) where)
       (some? payload-scope) (canonical-scope! resource-id payload-scope where)
       ;; 2. route-resource resolver result (threaded in by the route slice).
       ;; The route slice already resolves a {:from-db …} route-resource
       ;; `:scope` to a concrete value before threading it here, so route-scope
       ;; is concrete; resolve defensively if a reference still arrives.
-      (scope-registry/from-db-reference? route-scope)
+      (rf.resources.scope-registry/from-db-reference? route-scope)
       (canonical-scope! resource-id (resolve-ref route-scope) where)
       (some? route-scope)   (canonical-scope! resource-id route-scope where)
       ;; 3a. a {:from-db …} spec policy — the declared derived-scope policy,
       ;; resolved against db at use time, fail-closed on nil.
-      (scope-registry/from-db-reference? policy)
+      (rf.resources.scope-registry/from-db-reference? policy)
       (canonical-scope! resource-id (resolve-ref policy) where)
       ;; 3b. explicit global claim — the resource's declared policy
       (= policy global-scope-policy) global-scope-policy
@@ -838,7 +838,7 @@
   ;; `:rf.resource/scope-resolved` observability state. The causal write-side
   ;; resolution (event ensure / route / mutation settle) keeps its traced
   ;; evidence via `resolve-from-db-reference`.
-  (or (scope-registry/resolve-from-db-reference-pure reference db where)
+  (or (rf.resources.scope-registry/resolve-from-db-reference-pure reference db where)
       (throw (registration-error
                :rf.error/resource-sub-unresolved-scope
                where
@@ -887,7 +887,7 @@
     (cond
       ;; 1. payload scope — a {:from-db …} reference resolves against the
       ;; frame db at use time + fails closed on nil (sub-side).
-      (scope-registry/from-db-reference? payload-scope)
+      (rf.resources.scope-registry/from-db-reference? payload-scope)
       (canonical-scope! resource-id
                         (sub-unresolved-reference! resource-id payload-scope db where)
                         where)
@@ -895,7 +895,7 @@
       ;; 2a. a {:from-db …} spec policy — the declared derived-scope policy,
       ;; resolved against the frame db at use time (rf2-616xa6: the sub
       ;; re-keys reactively when the resolver's app-db inputs change).
-      (scope-registry/from-db-reference? policy)
+      (rf.resources.scope-registry/from-db-reference? policy)
       (canonical-scope! resource-id
                         (sub-unresolved-reference! resource-id policy db where)
                         where)

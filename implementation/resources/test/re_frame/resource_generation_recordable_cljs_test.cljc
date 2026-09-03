@@ -48,20 +48,20 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.fx :as fx]
+   [re-frame.fx :as rf.fx]
    ;; load-bearing side-effecting requires: register the :rf.resource/*
    ;; events + subs + the generation-allocation cofx / commit-generation fx.
    [re-frame.resources]
-   [re-frame.resources.state :as state]
+   [re-frame.resources.state :as rf.resources.state]
    [re-frame.resources.test-support]
    ;; production HTTP fx surface (so the transport feature probe resolves);
    ;; the actual fetch is overridden by the capturing reply stub below.
    [re-frame.http.managed]
    [re-frame.schemas]
-   [re-frame.trace.tooling :as trace-tooling]
-   [re-frame.test-support :as core-test-support]
-   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
-       :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
+   [re-frame.trace.tooling :as rf.trace.tooling]
+   [re-frame.test-support :as rf.test-support]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
 ;; ---- capturing transport (replays the real reply-append shape) ------------
 
@@ -69,13 +69,13 @@
 
 (defn- capturing-transport-fixture [f]
   (reset! last-managed-args nil)
-  (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
+  (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
   (f))
 
 (use-fixtures :each
-  (core-test-support/make-reset-runtime-fixture
-    #?(:clj  {:adapter plain-atom/adapter}
-       :cljs {:adapter reagent-adapter/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
+       :cljs {:adapter rf.adapter.reagent/adapter}))
   capturing-transport-fixture)
 
 (def ^:private frame-id :rf/default)
@@ -89,7 +89,7 @@
       {:request {:method :get :url (str "/api/articles/" slug)}})))
 
 (def ^:private scoped-key
-  (delay (state/scoped-resource-key :rf.scope/global :gen/article {:slug "w"})))
+  (delay (rf.resources.state/scoped-resource-key :rf.scope/global :gen/article {:slug "w"})))
 
 (defn- ensure!
   "Dispatch the ensure for `:gen/article`, optionally SUPPLYING a recorded
@@ -118,7 +118,7 @@
                      {:frame frame-id :rf.cofx {:rf/time-ms 1781078400250}})))
 
 (defn- live-entry []
-  (get-in (:rf.db/runtime (rf/frame-state-value frame-id)) (state/entry-path @scoped-key)))
+  (get-in (:rf.db/runtime (rf/frame-state-value frame-id)) (rf.resources.state/entry-path @scoped-key)))
 
 (defn- with-fresh-runtime
   "Run `body` (a zero-arg thunk) inside a FRESH runtime — re-runs the `:each`
@@ -130,12 +130,12 @@
   dispatch (no installed frame ⇒ nil entries). Mirrors the in-test reset of
   `replay_determinism_e2e_cljs_test`. Returns `body`'s value."
   [body]
-  ((core-test-support/make-reset-runtime-fixture
-     #?(:clj  {:adapter plain-atom/adapter}
-        :cljs {:adapter reagent-adapter/adapter}))
+  ((rf.test-support/make-reset-runtime-fixture
+     #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
+        :cljs {:adapter rf.adapter.reagent/adapter}))
    (fn []
      (reset! last-managed-args nil)
-     (fx/reg-fx :rf.http/managed
+     (rf.fx/reg-fx :rf.http/managed
                 (fn [_ctx args] (reset! last-managed-args args) nil))
      (body))))
 
@@ -149,13 +149,13 @@
     ;; ===== 1. RECORD — fresh allocator; ensure mints generation 1 ==========
     (register-resource!)
     (let [generated (atom [])]
-      (trace-tooling/register-listener!
+      (rf.trace.tooling/register-listener!
         ::gen-rec
         (fn [ev] (when (= :rf.cofx/generated (:operation ev))
                    (swap! generated conj ev))))
       (try
         (ensure!)                                  ;; generator runs (:live)
-        (finally (trace-tooling/unregister-listener! ::gen-rec)))
+        (finally (rf.trace.tooling/unregister-listener! ::gen-rec)))
 
       ;; The runtime recorded the allocation on the token (the dev-only
       ;; `:rf.cofx/generated` op carries the produced value). Fresh allocator
@@ -203,7 +203,7 @@
             ;; the replay process's host allocator already minted 10
             ;; generations (a different frame's work, a longer-lived process)
             ;; — restore / replay cannot rewind it.
-            (state/commit-generation! frame-id 10)
+            (rf.resources.state/commit-generation! frame-id 10)
             ;; replay the ensure SUPPLYING the recorded allocation: the handler
             ;; reads generation 1 (the recorded value), NOT (inc 10) = 11.
             (ensure! recorded-allocation)
@@ -223,7 +223,7 @@
         (with-fresh-runtime
           (fn []
             (register-resource!)
-            (state/commit-generation! frame-id 10)
+            (rf.resources.state/commit-generation! frame-id 10)
             ;; replay the ensure WITHOUT the recorded allocation — the
             ;; generator re-mints from the live high-water (the old ambient
             ;; behaviour): generation 11.
@@ -258,7 +258,7 @@
       (fn [{:keys [slug]} _] {:request {:method :post
                                         :url (str "/api/save/" slug)}}))
     (let [generated (atom [])]
-      (trace-tooling/register-listener!
+      (rf.trace.tooling/register-listener!
         ::mgen-rec
         (fn [ev] (when (and (= :rf.cofx/generated (:operation ev))
                             (= :rf.resource/generation-allocation
@@ -268,7 +268,7 @@
         (rf/dispatch-sync [:rf.mutation/execute
                            {:mutation :gen/save :params {:slug "w"}}]
                           {:frame frame-id :rf.cofx {:rf/time-ms 1781078400100}})
-        (finally (trace-tooling/unregister-listener! ::mgen-rec)))
+        (finally (rf.trace.tooling/unregister-listener! ::mgen-rec)))
       (is (= {:generation 1 :counter 1} (:rf.cofx/value (:tags (first @generated))))
           "the mutation writer recorded the generation allocation on its token
            via the same `:rf.resource/generation-allocation` cofx (one root,

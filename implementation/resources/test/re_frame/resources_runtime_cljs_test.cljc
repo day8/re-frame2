@@ -33,31 +33,31 @@
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [clojure.string :as str]
    [re-frame.core :as rf]
-   [re-frame.fx :as fx]
-   [re-frame.frame :as frame]
-   [re-frame.identity :as identity]
-   [re-frame.late-bind :as late-bind]
-   [re-frame.registrar :as registrar]
+   [re-frame.fx :as rf.fx]
+   [re-frame.frame :as rf.frame]
+   [re-frame.identity :as rf.identity]
+   [re-frame.late-bind :as rf.late-bind]
+   [re-frame.registrar :as rf.registrar]
    ;; load-bearing side-effecting require: the façade registers the
    ;; :rf.resource/* events + subs + the generation cofx/fx these tests
    ;; dispatch / subscribe to.
    [re-frame.resources]
-   [re-frame.resources.registry :as registry]
-   [re-frame.resources.mutation-registry :as mreg]
-   [re-frame.resources.state :as state]
-   [re-frame.resources.subs :as subs]
-   [re-frame.resources.test-support :as resources-test-support]
-   [re-frame.resources.timers :as timers]
-   [re-frame.resources.work-ledger :as work-ledger]
-   [re-frame.resources.revalidate-listeners :as revalidate-listeners]
+   [re-frame.resources.registry :as rf.resources.registry]
+   [re-frame.resources.mutation-registry :as rf.resources.mutation-registry]
+   [re-frame.resources.state :as rf.resources.state]
+   [re-frame.resources.subs :as rf.resources.subs]
+   [re-frame.resources.test-support :as rf.resources.test-support]
+   [re-frame.resources.timers :as rf.resources.timers]
+   [re-frame.resources.work-ledger :as rf.resources.work-ledger]
+   [re-frame.resources.revalidate-listeners :as rf.resources.revalidate-listeners]
    ;; production HTTP fx surface (so the transport feature probe resolves);
    ;; the actual fetch is overridden by the capturing no-op below.
    [re-frame.http.managed]
    [re-frame.schemas]
-   [re-frame.test-support :as core-test-support]
-   [re-frame.trace.tooling :as trace-tooling]
-   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
-       :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
+   [re-frame.test-support :as rf.test-support]
+   [re-frame.trace.tooling :as rf.trace.tooling]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
 ;; ---- capturing transport (decouples entry-state tests from HTTP) ----------
 
@@ -76,13 +76,13 @@
   ;; test body, so no per-suite generation-cache reset is needed here.
   ;; fx handlers are BINARY `(fn [ctx args] …)` (Spec 002 §binary
   ;; fx-handler signature) — capture the args (second arg).
-  (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
+  (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
   (f))
 
 (use-fixtures :each
-  (core-test-support/make-reset-runtime-fixture
-    #?(:clj  {:adapter plain-atom/adapter}
-       :cljs {:adapter reagent-adapter/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
+       :cljs {:adapter rf.adapter.reagent/adapter}))
   capturing-transport-fixture)
 
 ;; ---- helpers --------------------------------------------------------------
@@ -96,7 +96,7 @@
   :rf/default)."
   ([scoped-key] (entry :rf/default scoped-key))
   ([frame-id scoped-key]
-   (get-in (runtime-db frame-id) (state/entry-path scoped-key))))
+   (get-in (runtime-db frame-id) (rf.resources.state/entry-path scoped-key))))
 
 (defn- article-spec
   "A minimal valid resource spec (global scope, a slug param)."
@@ -143,22 +143,22 @@
 (deftest canonicalization-is-key-order-independent
   (testing "scoped key is identical regardless of map key order (Spec 016
             §Canonicalization rule)"
-    (let [k1 (state/scoped-resource-key {:tenant "acme" :user "u-42"}
+    (let [k1 (rf.resources.state/scoped-resource-key {:tenant "acme" :user "u-42"}
                                         :article/by-slug {:slug "x" :rev 1})
-          k2 (state/scoped-resource-key {:user "u-42" :tenant "acme"}
+          k2 (rf.resources.state/scoped-resource-key {:user "u-42" :tenant "acme"}
                                         :article/by-slug {:rev 1 :slug "x"})]
       (is (= k1 k2) "two spellings of the same scope + params collapse to one key")))
   (testing "nested maps recurse; sets / vectors keep value semantics"
-    (is (= (state/canonicalize {:a {:c 3 :b 2} :z #{2 1}})
-           (state/canonicalize {:z #{1 2} :a {:b 2 :c 3}})))))
+    (is (= (rf.resources.state/canonicalize {:a {:c 3 :b 2} :z #{2 1}})
+           (rf.resources.state/canonicalize {:z #{1 2} :a {:b 2 :c 3}})))))
 
 (deftest host-values-rejected-at-the-cache-key-boundary
   (testing "a host / opaque param value is rejected loudly (Spec 016
             §Resource identity)"
-    (is (false? (state/serializable-edn? {:f (fn [])})))
+    (is (false? (rf.resources.state/serializable-edn? {:f (fn [])})))
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-non-edn-params"
-          (state/reject-non-edn! {:f (fn [])} 'test :params :r/x)))))
+          (rf.resources.state/reject-non-edn! {:f (fn [])} 'test :params :r/x)))))
 
 ;; rf2-rplgkw — the redundant scope/params re-canonicalization on the resource
 ;; sub re-key hot path is collapsed: a trusted `scoped-resource-key*` for
@@ -170,43 +170,43 @@
   (testing "scoped-resource-key* (no re-canonicalize) yields the SAME key as
             the defensive scoped-resource-key when handed ALREADY-canonical
             scope + params — the dedup is behaviour-preserving"
-    (let [cscope  (state/canonicalize {:tenant "acme" :user "u-42"})
-          cparams (state/canonicalize {:slug "x" :rev 1})
-          trusted (state/scoped-resource-key* cscope :article/by-slug cparams)
-          defens  (state/scoped-resource-key cscope :article/by-slug cparams)]
+    (let [cscope  (rf.resources.state/canonicalize {:tenant "acme" :user "u-42"})
+          cparams (rf.resources.state/canonicalize {:slug "x" :rev 1})
+          trusted (rf.resources.state/scoped-resource-key* cscope :article/by-slug cparams)
+          defens  (rf.resources.state/scoped-resource-key cscope :article/by-slug cparams)]
       (is (= defens trusted) "same key vector")
-      (is (= (state/key-id defens) (state/key-id trusted)) "same byte key-id")))
+      (is (= (rf.resources.state/key-id defens) (rf.resources.state/key-id trusted)) "same byte key-id")))
   (testing "the defensive constructor still canonicalizes RAW (key-order-
             varying) input to the same identity scoped-resource-key* produces
             from the canonical value — so RAW direct/test/mutation callers keep
             working"
-    (let [raw-a (state/scoped-resource-key {:user "u-42" :tenant "acme"}
+    (let [raw-a (rf.resources.state/scoped-resource-key {:user "u-42" :tenant "acme"}
                                            :article/by-slug {:rev 1 :slug "x"})
-          raw-b (state/scoped-resource-key {:tenant "acme" :user "u-42"}
+          raw-b (rf.resources.state/scoped-resource-key {:tenant "acme" :user "u-42"}
                                            :article/by-slug {:slug "x" :rev 1})]
       (is (= raw-a raw-b) "key-order spellings collapse via the defensive path")
-      (is (= raw-a (state/scoped-resource-key*
-                     (state/canonicalize {:tenant "acme" :user "u-42"})
+      (is (= raw-a (rf.resources.state/scoped-resource-key*
+                     (rf.resources.state/canonicalize {:tenant "acme" :user "u-42"})
                      :article/by-slug
-                     (state/canonicalize {:rev 1 :slug "x"})))
+                     (rf.resources.state/canonicalize {:rev 1 :slug "x"})))
           "the trusted path on the canonical value matches the defensive path"))))
 
 (deftest canonicalize-or-rethrow-folds-validate-and-canonicalize
   (testing "on conforming input it returns the SAME value as canonicalize"
-    (is (= (state/canonicalize {:b 2 :a 1})
-           (state/canonicalize-or-rethrow {:a 1 :b 2} 'test :scope :r/x))
+    (is (= (rf.resources.state/canonicalize {:b 2 :a 1})
+           (rf.resources.state/canonicalize-or-rethrow {:a 1 :b 2} 'test :scope :r/x))
         "canonical result is identical to the two-step (reject + canonicalize)")
     (is (= :rf.scope/global
-           (state/canonicalize-or-rethrow :rf.scope/global 'test :scope :r/x))
+           (rf.resources.state/canonicalize-or-rethrow :rf.scope/global 'test :scope :r/x))
         "the bare global scope keyword canonicalizes to itself"))
   (testing "a host / opaque value re-throws the SAME public
             :rf.error/resource-non-edn-params category reject-non-edn! threw"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-non-edn-params"
-          (state/canonicalize-or-rethrow {:f (fn [])} 'test :scope :r/x)))
+          (rf.resources.state/canonicalize-or-rethrow {:f (fn [])} 'test :scope :r/x)))
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-non-edn-params"
-          (state/canonicalize-or-rethrow {:ratio 1.5} 'test :params :r/x)))))
+          (rf.resources.state/canonicalize-or-rethrow {:ratio 1.5} 'test :params :r/x)))))
 
 ;; rf2-wgutc2 (EP-0012 correctness review item 1): resource params + scopes
 ;; use the SHARED CEDN-1 identity rule (`re-frame.identity/canonical`), not a
@@ -220,26 +220,26 @@
   (testing "non-portable NUMBERS are rejected at the cache-key boundary
             (CEDN-1 admits only portable safe-range integers)"
     ;; floats / doubles
-    (is (false? (state/serializable-edn? {:ratio 1.5}))
+    (is (false? (rf.resources.state/serializable-edn? {:ratio 1.5}))
         "a float param is not a portable CEDN-1 identity")
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-non-edn-params"
-          (state/reject-non-edn! {:ratio 1.5} 'test :params :r/x))
+          (rf.resources.state/reject-non-edn! {:ratio 1.5} 'test :params :r/x))
         "a float param is rejected loudly")
     ;; out-of-safe-range integer (> 2^53 - 1) — diverges across hosts, so
     ;; CEDN-1 fails it closed.
-    (is (false? (state/serializable-edn? {:n 9007199254740993}))
+    (is (false? (rf.resources.state/serializable-edn? {:n 9007199254740993}))
         "an integer beyond the ECMAScript safe range is rejected")
     #?(:clj
        ;; ratios + bigdecimals only exist on the JVM
        (do
-         (is (false? (state/serializable-edn? {:r 1/3}))
+         (is (false? (rf.resources.state/serializable-edn? {:r 1/3}))
              "a ratio param is rejected")
-         (is (false? (state/serializable-edn? {:d 1.5M}))
+         (is (false? (rf.resources.state/serializable-edn? {:d 1.5M}))
              "a bigdecimal param is rejected"))))
   (testing "a plain safe-range integer param is STILL accepted (the common case)"
-    (is (true? (state/serializable-edn? {:rev 1 :page 42})))
-    (is (= {:rev 1 :page 42} (state/canonicalize {:page 42 :rev 1}))))
+    (is (true? (rf.resources.state/serializable-edn? {:rev 1 :page 42})))
+    (is (= {:rev 1 :page 42} (rf.resources.state/canonicalize {:page 42 :rev 1}))))
   (testing "list vs vector are DISTINCT EDN facts — never collapsed
             (Conventions §Sequences and sets)"
     ;; The prior resource-local canonicalize ACTIVELY COERCED lists to vectors
@@ -251,25 +251,25 @@
     ;; (`(= [1 2 3] '(1 2 3))` is true), so the distinction is at the
     ;; AUTHORITATIVE CEDN-1 identity level (EP-0012 disposition 5: the canonical
     ;; EDN value IS the identity, and equality-as-identity is CEDN-1 byte
-    ;; equality, `identity/identical-identity?`) — the vector encodes `v[…]`
+    ;; equality, `rf.identity/identical-identity?`) — the vector encodes `v[…]`
     ;; and the list encodes `l(…)`, distinct token streams.
-    (is (not (identity/identical-identity?
-               (state/canonicalize {:xs [1 2 3]})
-               (state/canonicalize {:xs '(1 2 3)})))
+    (is (not (rf.identity/identical-identity?
+               (rf.resources.state/canonicalize {:xs [1 2 3]})
+               (rf.resources.state/canonicalize {:xs '(1 2 3)})))
         "a vector value and a list value canonicalize to DISTINCT CEDN-1 identities")
-    (is (not (identity/identical-identity?
-               (state/scoped-resource-key :rf.scope/global :r/x {:xs [1 2 3]})
-               (state/scoped-resource-key :rf.scope/global :r/x {:xs '(1 2 3)})))
+    (is (not (rf.identity/identical-identity?
+               (rf.resources.state/scoped-resource-key :rf.scope/global :r/x {:xs [1 2 3]})
+               (rf.resources.state/scoped-resource-key :rf.scope/global :r/x {:xs '(1 2 3)})))
         "the scoped keys are distinct identities — list and vector params are
          not the same cache fact")
-    (is (vector? (:xs (state/canonicalize {:xs [1 2 3]})))
+    (is (vector? (:xs (rf.resources.state/canonicalize {:xs [1 2 3]})))
         "a vector value stays a vector")
-    (is (seq? (:xs (state/canonicalize {:xs '(1 2 3)})))
+    (is (seq? (:xs (rf.resources.state/canonicalize {:xs '(1 2 3)})))
         "a list value stays a list (not coerced to a vector — the prior
          resource-local canonicalizer's silent collapse is gone)"))
   (testing "key-order independence is preserved through the shared rule"
-    (is (= (state/canonicalize {:a 1 :b 2})
-           (state/canonicalize {:b 2 :a 1})))))
+    (is (= (rf.resources.state/canonicalize {:a 1 :b 2})
+           (rf.resources.state/canonicalize {:b 2 :a 1})))))
 
 ;; ===========================================================================
 ;; rf2-du585y — resource :params present-nil vs missing boundary
@@ -296,17 +296,17 @@
             identity from the absent-key case (EP-0012 §Missing vs present nil)"
     (let [spec (accepts-nil-spec)
           ;; explicit present-nil value vs the key absent entirely
-          present-nil (registry/validate+canonicalize-params :r/x spec {:x nil} 'test)
-          absent      (registry/validate+canonicalize-params :r/x spec {} 'test)]
+          present-nil (rf.resources.registry/validate+canonicalize-params :r/x spec {:x nil} 'test)
+          absent      (rf.resources.registry/validate+canonicalize-params :r/x spec {} 'test)]
       (is (= {:x nil} present-nil)
           "the present-nil param survives validation/canonicalization — not dropped to {}")
       (is (= {} absent) "the absent-key case canonicalizes to the empty map")
-      (is (not (identity/identical-identity? present-nil absent))
+      (is (not (rf.identity/identical-identity? present-nil absent))
           "present-nil and absent are DISTINCT canonical identities")
       ;; and therefore distinct cache keys
-      (is (not (identity/identical-identity?
-                 (state/scoped-resource-key :rf.scope/global :r/x present-nil)
-                 (state/scoped-resource-key :rf.scope/global :r/x absent)))
+      (is (not (rf.identity/identical-identity?
+                 (rf.resources.state/scoped-resource-key :rf.scope/global :r/x present-nil)
+                 (rf.resources.state/scoped-resource-key :rf.scope/global :r/x absent)))
           "the scoped resource keys differ — present-nil is its own cache fact"))))
 
 ;; rf2-hgy5kf (EP-0012) — the WHOLE-slot case the prior `(or params {})` at the
@@ -314,20 +314,20 @@
 ;; explicitly `nil` (`{:params nil}`) vs `:params` ABSENT (`{}`). Spec 016:70 +
 ;; EP-0012:1316 say present-nil and absent are DISTINCT unless explicitly
 ;; elided; the schema (not a blanket boundary default) decides whether the
-;; whole-slot nil conforms. `state/params-present?` threads the presence, and
-;; `state/default-omitted-params` applies the omitted-→`{}` policy ONLY to an
+;; whole-slot nil conforms. `rf.resources.state/params-present?` threads the presence, and
+;; `rf.resources.state/default-omitted-params` applies the omitted-→`{}` policy ONLY to an
 ;; absent slot — an explicit whole-slot nil reaches the schema unchanged.
 
 (deftest resource-explicit-nil-params-slot-distinct-from-omitted
   (testing "the presence helper distinguishes an explicit nil :params slot from
             an absent one (the distinction the old (or params {}) destroyed)"
-    (is (= nil (state/params-present? {:params nil}))
+    (is (= nil (rf.resources.state/params-present? {:params nil}))
         "a PRESENT explicit nil slot threads nil")
-    (is (= state/missing-params (state/params-present? {}))
+    (is (= rf.resources.state/missing-params (rf.resources.state/params-present? {}))
         "an ABSENT slot threads the missing sentinel")
-    (is (= {} (state/default-omitted-params (state/params-present? {})))
+    (is (= {} (rf.resources.state/default-omitted-params (rf.resources.state/params-present? {})))
         "an absent slot defaults to {} at the boundary")
-    (is (= nil (state/default-omitted-params (state/params-present? {:params nil})))
+    (is (= nil (rf.resources.state/default-omitted-params (rf.resources.state/params-present? {:params nil})))
         "an explicit nil slot passes THROUGH the default unchanged (not {})"))
   (testing "under a schema that ACCEPTS a nil params value ([:maybe :map]), an
             explicit whole-slot nil is preserved to the cache key and is a
@@ -335,18 +335,18 @@
     (let [spec {:scope         :rf.scope/global
                 :params-schema [:maybe :map]   ;; the whole params value may be nil
                 :request       (fn [_ _ctx] {:request {:method :get :url "/x"}})}
-          explicit-nil (registry/validate+canonicalize-params
-                         :r/x spec (state/params-present? {:params nil}) 'test)
-          omitted      (registry/validate+canonicalize-params
-                         :r/x spec (state/params-present? {}) 'test)]
+          explicit-nil (rf.resources.registry/validate+canonicalize-params
+                         :r/x spec (rf.resources.state/params-present? {:params nil}) 'test)
+          omitted      (rf.resources.registry/validate+canonicalize-params
+                         :r/x spec (rf.resources.state/params-present? {}) 'test)]
       (is (nil? explicit-nil)
           "explicit whole-slot nil survives validation — NOT coerced to {}")
       (is (= {} omitted) "the omitted slot defaults to {}")
-      (is (not (identity/identical-identity? explicit-nil omitted))
+      (is (not (rf.identity/identical-identity? explicit-nil omitted))
           "explicit-nil and omitted are DISTINCT canonical identities")
-      (is (not (identity/identical-identity?
-                 (state/scoped-resource-key :rf.scope/global :r/x explicit-nil)
-                 (state/scoped-resource-key :rf.scope/global :r/x omitted)))
+      (is (not (rf.identity/identical-identity?
+                 (rf.resources.state/scoped-resource-key :rf.scope/global :r/x explicit-nil)
+                 (rf.resources.state/scoped-resource-key :rf.scope/global :r/x omitted)))
           "the scoped resource keys differ — explicit-nil params is its own fact"))))
 
 (deftest resource-explicit-nil-params-slot-rejected-when-schema-rejects-nil
@@ -357,8 +357,8 @@
     (let [spec {:scope         :rf.scope/global
                 :params-schema [:map [:slug :string]]   ;; requires a map, rejects nil
                 :request       (fn [_ _] {:request {:method :get :url "/x"}})}
-          ex   (try (registry/validate+canonicalize-params
-                      :r/x spec (state/params-present? {:params nil}) 'test)
+          ex   (try (rf.resources.registry/validate+canonicalize-params
+                      :r/x spec (rf.resources.state/params-present? {:params nil}) 'test)
                     nil
                     (catch #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) e e))]
       (is (some? ex)
@@ -375,8 +375,8 @@
     (let [spec {:scope         :rf.scope/global
                 :params-schema [:map [:slug :string]]
                 :request       (fn [_ _] {:request {:method :post :url "/x"}})}
-          ex   (try (mreg/validate+canonicalize-params
-                      :m/x spec (state/params-present? {:params nil}) 'test)
+          ex   (try (rf.resources.mutation-registry/validate+canonicalize-params
+                      :m/x spec (rf.resources.state/params-present? {:params nil}) 'test)
                     nil
                     (catch #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) e e))]
       (is (some? ex) "an explicit nil mutation params slot against [:map] throws")
@@ -386,8 +386,8 @@
     (testing "an OMITTED mutation params slot still defaults to {} (API policy)"
       (let [spec {:scope :rf.scope/global :params-schema [:map]
                   :request (fn [_ _] {:request {:method :post :url "/x"}})}]
-        (is (= {} (mreg/validate+canonicalize-params
-                    :m/x spec (state/params-present? {}) 'test)))))))
+        (is (= {} (rf.resources.mutation-registry/validate+canonicalize-params
+                    :m/x spec (rf.resources.state/params-present? {}) 'test)))))))
 
 (deftest resource-present-nil-rejected-when-schema-rejects-nil
   (testing "under a schema that REJECTS nil ([:map [:x :string]]), an explicit
@@ -396,7 +396,7 @@
     (let [spec {:scope         :rf.scope/global
                 :params-schema [:map [:x :string]]   ;; :x is required + non-nil
                 :request       (fn [_ _] {:request {:method :get :url "/x"}})}
-          ex   (try (registry/validate+canonicalize-params :r/x spec {:x nil} 'test)
+          ex   (try (rf.resources.registry/validate+canonicalize-params :r/x spec {:x nil} 'test)
                     nil
                     (catch #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) e e))]
       (is (some? ex) "a nil value against a non-nil schema throws")
@@ -415,7 +415,7 @@
 ;; (a list value stays a list, distinct from a vector — rf2-wgutc2), but it is
 ;; NO LONGER used directly as a Clojure map key. The `:entries` map, the
 ;; reverse indexes, and the work-ledger map are keyed on the CEDN-1 byte
-;; `key-id` (`state/key-id` / `work-ledger/work-id-id`), so the map-key
+;; `key-id` (`rf.resources.state/key-id` / `rf.resources.work-ledger/work-id-id`), so the map-key
 ;; comparison is EXACTLY the CEDN-1 byte identity. Clojure `=` collapses
 ;; `(= [1 2 3] '(1 2 3))` to TRUE, but two distinct `canonical-bytes` strings
 ;; never collapse — so a list-params key and a vector-params key get DISTINCT
@@ -425,9 +425,9 @@
 ;; CEDN-1 kind distinction rf2-wgutc2 introduced — the test above).
 (deftest list-vs-vector-params-get-distinct-entries-rf2-9e0tyq
   (testing "list-vs-vector params keys carry DISTINCT CEDN-1 identities..."
-    (let [kv (state/scoped-resource-key :rf.scope/global :r/x {:xs [1 2 3]})
-          kl (state/scoped-resource-key :rf.scope/global :r/x {:xs '(1 2 3)})]
-      (is (not (identity/identical-identity? kv kl))
+    (let [kv (rf.resources.state/scoped-resource-key :rf.scope/global :r/x {:xs [1 2 3]})
+          kl (rf.resources.state/scoped-resource-key :rf.scope/global :r/x {:xs '(1 2 3)})]
+      (is (not (rf.identity/identical-identity? kv kl))
           "the authoritative identities differ (v[...] vs l(...))")
       ;; Clojure `=` still treats the VECTORS as equal — but the cache no longer
       ;; keys on the vector; it keys on the byte `key-id`, which is DISTINCT.
@@ -435,34 +435,34 @@
           "Clojure value = treats the vector- and list-params VECTORS as equal …")
       (testing "...and now resolve to DISTINCT :entries entries (the byte key-id
                 comparison is exactly the CEDN-1 identity — the fix)"
-        (is (not= (state/key-id kv) (state/key-id kl))
+        (is (not= (rf.resources.state/key-id kv) (rf.resources.state/key-id kl))
             "their byte key-ids differ (v[…] vs l(…)) — the map-key identity")
         (is (= 2 (count (-> {}
-                            (assoc (state/key-id kv) :v)
-                            (assoc (state/key-id kl) :l))))
+                            (assoc (rf.resources.state/key-id kv) :v)
+                            (assoc (rf.resources.state/key-id kl) :l))))
             "both keys map to TWO distinct entries — the =-collapse is closed")
         (is (= :v (get (-> {}
-                           (assoc (state/key-id kv) :v)
-                           (assoc (state/key-id kl) :l))
-                       (state/key-id kv)))
+                           (assoc (rf.resources.state/key-id kv) :v)
+                           (assoc (rf.resources.state/key-id kl) :l))
+                       (rf.resources.state/key-id kv)))
             "the vector-params entry is NOT overwritten by the list-params write"))
       ;; carrier 2 — the embedded work-id is keyed on its OWN byte id too, so
       ;; the two work-ledger slots stay distinct (stale suppression keys on the
       ;; entry's :current-work + the entry lookup, both byte-disambiguated).
       (testing "...and the embedded work-id keys on its own byte id (carrier 2)"
-        (let [wv (work-ledger/resource-work-id kv 1)
-              wl (work-ledger/resource-work-id kl 1)]
+        (let [wv (rf.resources.work-ledger/resource-work-id kv 1)
+              wl (rf.resources.work-ledger/resource-work-id kl 1)]
           (is (= wv wl) "the work-id VECTORS are still `=` (they embed the key vector) …")
-          (is (not= (work-ledger/work-id-id wv) (work-ledger/work-id-id wl))
+          (is (not= (rf.resources.work-ledger/work-id-id wv) (rf.resources.work-ledger/work-id-id wl))
               "…but their byte work-id-ids differ — distinct ledger slots")
           (is (= 2 (count (-> {}
-                              (assoc (work-ledger/work-id-id wv) :v)
-                              (assoc (work-ledger/work-id-id wl) :l))))
+                              (assoc (rf.resources.work-ledger/work-id-id wv) :v)
+                              (assoc (rf.resources.work-ledger/work-id-id wl) :l))))
               "both work-ids map to TWO distinct work-ledger slots")))))
   ;; The other CEDN-distinct params kinds were already `=`-distinct and stay
   ;; keyed correctly (the fix never regresses them).
   (testing "every other CEDN-distinct params kind also keys distinctly"
-    (let [k (fn [params] (state/key-id (state/scoped-resource-key :rf.scope/global :r/x params)))]
+    (let [k (fn [params] (rf.resources.state/key-id (rf.resources.state/scoped-resource-key :rf.scope/global :r/x params)))]
       (is (= 3 (count (-> {} (assoc (k {:v "1"}) :s) (assoc (k {:v 1}) :i) (assoc (k {:v :a}) :k))))
           "string / integer / keyword params keep distinct cache entries")
       (is (= 2 (count (-> {} (assoc (k {:v #{1 2}}) :set) (assoc (k {:v [1 2]}) :vec))))
@@ -480,20 +480,20 @@
             (Spec 016 §Scope resolution — no global fallthrough)"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-scope-required-from-caller"
-          (registry/resolve-scope-for-event
-            :sr/from-caller (registry/resource-meta :sr/from-caller)
+          (rf.resources.registry/resolve-scope-for-event
+            :sr/from-caller (rf.resources.registry/resource-meta :sr/from-caller)
             {:payload-scope nil} 'test))))
   (testing "from-caller WITH a payload scope resolves to that scope"
     (is (= {:user "u-1"}
-           (registry/resolve-scope-for-event
-             :sr/from-caller (registry/resource-meta :sr/from-caller)
+           (rf.resources.registry/resolve-scope-for-event
+             :sr/from-caller (rf.resources.registry/resource-meta :sr/from-caller)
              {:payload-scope {:user "u-1"}} 'test))))
   (testing "an explicit :rf.scope/global policy resolves to global (its
             declared policy, not a fallthrough)"
     (rf/reg-resource :sr/global (article-spec) article-spec-request)
     (is (= :rf.scope/global
-           (registry/resolve-scope-for-event
-             :sr/global (registry/resource-meta :sr/global) {} 'test)))))
+           (rf.resources.registry/resolve-scope-for-event
+             :sr/global (rf.resources.registry/resource-meta :sr/global) {} 'test)))))
 
 (deftest sub-side-scope-fail-closed
   (rf/reg-resource :ss/from-caller (article-spec {:scope :rf.scope/from-caller}) article-spec-request)
@@ -502,13 +502,13 @@
             read / :idle) — Spec 016 §Subscription-side scope resolution"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-sub-unresolved-scope"
-          (subs/resolve-scoped-key {:resource :ss/from-caller :params {:slug "x"}} {})))))
+          (rf.resources.subs/resolve-scoped-key {:resource :ss/from-caller :params {:slug "x"}} {})))))
 
 ;; ===========================================================================
 ;; 2b. The registration guard on the READ path (rf2-w67y)
 ;; ===========================================================================
 ;;
-;; `registry/require-resource-spec!` is the read-path twin of the mutation
+;; `rf.resources.registry/require-resource-spec!` is the read-path twin of the mutation
 ;; registrar's `require-mutation-spec!`. It is the loud, fail-closed boundary
 ;; behind SIX public surfaces — the four `:rf.resource/*` event handlers
 ;; (`ensure` / `refetch` / `remove`, plus the `:rf.resource/*` internal
@@ -533,7 +533,7 @@
   ;; rather than a half-built one, exactly as the mutation twin refuses
   ;; before minting its instance.
   (testing "Spec 016 §Public API — an unregistered resource id REFUSES"
-    (let [scoped-key (state/scoped-resource-key :rf.scope/global :r/nope {:slug "w"})
+    (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :r/nope {:slug "w"})
           recs (record-error-records!
                  #(rf/dispatch-sync [:rf.resource/ensure
                                      {:resource :r/nope :scope :rf.scope/global
@@ -578,7 +578,7 @@
                    (fn [{:keys [slug]} _ctx]
                      {:request {:method :post :url (str "/api/articles/" slug)}}))
   (testing "a MUTATION id passed as :resource refuses like any unknown id"
-    (let [scoped-key (state/scoped-resource-key :rf.scope/global :m/save {:slug "w"})
+    (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :m/save {:slug "w"})
           recs (record-error-records!
                  #(rf/dispatch-sync [:rf.resource/ensure
                                      {:resource :m/save :scope :rf.scope/global
@@ -600,7 +600,7 @@
   ;; over-eager guard shows up here as a spurious record on an otherwise
   ;; working read, which no other assertion in this suite would notice.
   (rf/reg-resource :r/ok (article-spec) article-spec-request)
-  (let [scoped-key (state/scoped-resource-key :rf.scope/global :r/ok {:slug "w"})
+  (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :r/ok {:slug "w"})
         recs (record-error-records!
                #(rf/dispatch-sync [:rf.resource/ensure
                                    {:resource :r/ok :scope :rf.scope/global
@@ -616,13 +616,13 @@
 (deftest status-transition-fn-is-pure
   (testing "Spec 016 §Lifecycle is an FSM — a pure transition fn over the
             five states"
-    (is (= :loading  (state/next-status :idle    :start-load false)))
-    (is (= :fetching (state/next-status :loaded  :start-load true)))
-    (is (= :loaded   (state/next-status :loading :success   false)))
-    (is (= :error    (state/next-status :loading :failure   false)))
+    (is (= :loading  (rf.resources.state/next-status :idle    :start-load false)))
+    (is (= :fetching (rf.resources.state/next-status :loaded  :start-load true)))
+    (is (= :loaded   (rf.resources.state/next-status :loading :success   false)))
+    (is (= :error    (rf.resources.state/next-status :loading :failure   false)))
     ;; background-refresh failure returns to :loaded (data kept)
-    (is (= :loaded   (state/next-status :fetching :failure  true)))
-    (is (= :loading  (state/next-status :error    :start-load false)))))
+    (is (= :loaded   (rf.resources.state/next-status :fetching :failure  true)))
+    (is (= :loading  (rf.resources.state/next-status :error    :start-load false)))))
 
 ;; ===========================================================================
 ;; 4. ensure → :loading → succeeded → :loaded  +  structural sharing
@@ -630,7 +630,7 @@
 
 (deftest ensure-then-success-loaded
   (rf/reg-resource :a/article (article-spec) article-spec-request)
-  (let [scoped-key (state/scoped-resource-key :rf.scope/global :a/article {:slug "welcome"})]
+  (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :a/article {:slug "welcome"})]
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :a/article :scope :rf.scope/global
                         :params {:slug "welcome"} :owner [:app :test 1]}])
@@ -667,7 +667,7 @@
 
 (deftest structural-sharing-preserves-identical-data
   (rf/reg-resource :ss/article (article-spec) article-spec-request)
-  (let [scoped-key (state/scoped-resource-key :rf.scope/global :ss/article {:slug "w"})
+  (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :ss/article {:slug "w"})
         data1      {:title "Welcome" :body [1 2 3]}]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :ss/article :scope :rf.scope/global
                                             :params {:slug "w"} :owner [:app :ss 1]}])
@@ -693,7 +693,7 @@
 
 (deftest refresh-failure-keeps-data
   (rf/reg-resource :rf2/article (article-spec) article-spec-request)
-  (let [scoped-key (state/scoped-resource-key :rf.scope/global :rf2/article {:slug "w"})]
+  (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :rf2/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :rf2/article :scope :rf.scope/global
                                             :params {:slug "w"} :owner [:app :rf2 1]}])
     (let [wid1 (:current-work (entry scoped-key))]
@@ -719,7 +719,7 @@
 
 (deftest first-load-failure-error
   (rf/reg-resource :fl/article (article-spec) article-spec-request)
-  (let [scoped-key (state/scoped-resource-key :rf.scope/global :fl/article {:slug "w"})]
+  (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :fl/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :fl/article :scope :rf.scope/global
                                             :params {:slug "w"} :owner [:app :fl 1]}])
     (let [wid (:current-work (entry scoped-key))]
@@ -738,7 +738,7 @@
 
 (deftest stale-reply-is-suppressed
   (rf/reg-resource :st/article (article-spec) article-spec-request)
-  (let [scoped-key (state/scoped-resource-key :rf.scope/global :st/article {:slug "w"})]
+  (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :st/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :st/article :scope :rf.scope/global
                                             :params {:slug "w"} :owner [:app :st 1]}])
     (let [wid1 (:current-work (entry scoped-key))]
@@ -763,7 +763,7 @@
 
 (deftest ensure-dedupes-in-flight
   (rf/reg-resource :dd/article (article-spec) article-spec-request)
-  (let [scoped-key (state/scoped-resource-key :rf.scope/global :dd/article {:slug "w"})]
+  (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :dd/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :dd/article :scope :rf.scope/global
                                             :params {:slug "w"} :owner [:route :r 1]}])
     (let [gen1 (:generation (entry scoped-key))]
@@ -784,7 +784,7 @@
   (rf/reg-resource :iso/article (article-spec) article-spec-request)
   (let [fa :iso/frame-a
         fb :iso/frame-b
-        scoped-key (state/scoped-resource-key :rf.scope/global :iso/article {:slug "w"})]
+        scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :iso/article {:slug "w"})]
     (rf/make-frame {:id fa :doc "isolation frame A"})
     (rf/make-frame {:id fb :doc "isolation frame B"})
     (testing "Spec 016 — resources are per-frame isolated; a resource
@@ -800,8 +800,8 @@
                           {:frame fa}))
       (is (= {:title "A"} (:data (entry fa scoped-key))) "frame A has the entry")
       (is (nil? (entry fb scoped-key)) "frame B has NO entry (isolated)"))
-    (frame/destroy-frame! fa)
-    (frame/destroy-frame! fb)))
+    (rf.frame/destroy-frame! fa)
+    (rf.frame/destroy-frame! fb)))
 
 ;; ===========================================================================
 ;; 9. Passive subscriptions (none fetch)
@@ -809,7 +809,7 @@
 
 (deftest passive-subs-project-the-entry
   (rf/reg-resource :sub/article (article-spec) article-spec-request)
-  (let [scoped-key (state/scoped-resource-key :rf.scope/global :sub/article {:slug "w"})
+  (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :sub/article {:slug "w"})
         q          {:resource :sub/article :scope :rf.scope/global :params {:slug "w"}}]
     (testing "before any load the state projection is the idle empty-state
               (a sub NEVER fetches — Spec 016 §Subscriptions)"
@@ -833,7 +833,7 @@
 
 (deftest stale-sub-derives-from-facts
   (rf/reg-resource :stl/article (article-spec {:stale-after-ms 60000}) article-spec-request)
-  (let [scoped-key (state/scoped-resource-key :rf.scope/global :stl/article {:slug "w"})
+  (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :stl/article {:slug "w"})
         q          {:resource :stl/article :scope :rf.scope/global :params {:slug "w"}}]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :stl/article :scope :rf.scope/global
                                             :params {:slug "w"} :owner [:app :st 1]}])
@@ -863,7 +863,7 @@
   ;; the reply handler. Scripting the reply dispatch's :rf.cofx pins
   ;; both; the same reply token rewrites the same durable timestamps.
   (rf/reg-resource :lra/article (article-spec {:stale-after-ms 60000}) article-spec-request)
-  (let [scoped-key (state/scoped-resource-key :rf.scope/global :lra/article {:slug "w"})
+  (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :lra/article {:slug "w"})
         completed-at 1781078400456]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :lra/article :scope :rf.scope/global
                                             :params {:slug "w"} :owner [:app :lr 1]}])
@@ -892,7 +892,7 @@
 ;; pins against.
 (deftest fresh-skip-decision-reads-causal-time-ms-not-ambient-clock
   (rf/reg-resource :fsd/article (article-spec {:stale-after-ms 60000}) article-spec-request)
-  (let [scoped-key  (state/scoped-resource-key :rf.scope/global :fsd/article {:slug "w"})
+  (let [scoped-key  (rf.resources.state/scoped-resource-key :rf.scope/global :fsd/article {:slug "w"})
         t0          1000000          ;; a SMALL scripted epoch-ms (a "recorded
         ;; run" basis far below the live host clock). The entry loads at t0 and
         ;; is fresh until t0 + 60000.
@@ -948,7 +948,7 @@
 
 (deftest release-owner-drops-the-owner
   (rf/reg-resource :ro/article (article-spec) article-spec-request)
-  (let [scoped-key (state/scoped-resource-key :rf.scope/global :ro/article {:slug "w"})]
+  (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :ro/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :ro/article :scope :rf.scope/global
                                             :params {:slug "w"} :owner [:app :ro 1]}])
     (is (contains? (:active-owners (entry scoped-key)) [:app :ro 1]))
@@ -956,14 +956,14 @@
     (testing "Spec 016 §Active owners — release drops the owner from the
               entry + the owner-index"
       (is (not (contains? (:active-owners (entry scoped-key)) [:app :ro 1])))
-      (is (nil? (get-in (runtime-db) (conj (state/owner-index-path) [:app :ro 1])))))))
+      (is (nil? (get-in (runtime-db) (conj (rf.resources.state/owner-index-path) [:app :ro 1])))))))
 
 (deftest clear-scope-removes-scoped-entries
   (rf/reg-resource :cs/article (article-spec {:scope :rf.scope/from-caller}) article-spec-request)
   (let [scope-a {:user "a"}
         scope-b {:user "b"}
-        ka (state/scoped-resource-key scope-a :cs/article {:slug "w"})
-        kb (state/scoped-resource-key scope-b :cs/article {:slug "w"})]
+        ka (rf.resources.state/scoped-resource-key scope-a :cs/article {:slug "w"})
+        kb (rf.resources.state/scoped-resource-key scope-b :cs/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :cs/article :scope scope-a
                                             :params {:slug "w"} :owner [:app :a 1]}])
     (rf/dispatch-sync [:rf.resource/ensure {:resource :cs/article :scope scope-b
@@ -978,7 +978,7 @@
 
 (deftest invalidate-tags-marks-stale-and-refetches-active
   (rf/reg-resource :it/article (article-spec) article-spec-request)
-  (let [scoped-key (state/scoped-resource-key :rf.scope/global :it/article {:slug "w"})]
+  (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :it/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :it/article :scope :rf.scope/global
                                             :params {:slug "w"} :owner [:route :r 1]}])
     (let [wid (:current-work (entry scoped-key))]
@@ -998,7 +998,7 @@
 
 (deftest remove-evicts-the-entry
   (rf/reg-resource :rm/article (article-spec) article-spec-request)
-  (let [scoped-key (state/scoped-resource-key :rf.scope/global :rm/article {:slug "w"})]
+  (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :rm/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :rm/article :scope :rf.scope/global
                                             :params {:slug "w"} :owner [:app :rm 1]}])
     (is (some? (entry scoped-key)))
@@ -1018,7 +1018,7 @@
           k2 [:rf.scope/global :r/b {:id 2}]
           subtree {:entries {k1 {:tags #{:t1 :shared} :active-owners #{[:app 1]}}
                              k2 {:tags #{:t2 :shared} :active-owners #{[:app 1]}}}}
-          rebuilt (state/recompute-indexes subtree)]
+          rebuilt (rf.resources.state/recompute-indexes subtree)]
       (is (= #{k1 k2} (get-in rebuilt [:tag-index :shared])))
       (is (= #{k1}    (get-in rebuilt [:tag-index :t1])))
       (is (= #{k1 k2} (get-in rebuilt [:owner-index [:app 1]]))))))
@@ -1042,10 +1042,10 @@
           ;; entries transition (subtree carries the OLD indexes built by a
           ;; prior full rebuild — the realistic pre-mutation shape).
           check (fn [old-entries new-entries touched]
-                  (let [old-subtree (state/recompute-indexes {:entries old-entries})
+                  (let [old-subtree (rf.resources.state/recompute-indexes {:entries old-entries})
                         new-subtree (assoc old-subtree :entries new-entries)
-                        incremental (state/reindex-keys new-subtree old-entries touched)
-                        full        (state/recompute-indexes new-subtree)]
+                        incremental (rf.resources.state/reindex-keys new-subtree old-entries touched)
+                        full        (rf.resources.state/recompute-indexes new-subtree)]
                     (is (= (:tag-index full)   (:tag-index incremental))
                         (str "tag-index drift on touched " (vec touched)))
                     (is (= (:owner-index full) (:owner-index incremental))
@@ -1102,7 +1102,7 @@
              entries {}
              ;; the incrementally maintained subtree (indexes derived from the
              ;; SAME entries via reindex-keys after each step).
-             subtree (state/recompute-indexes {:entries {}})]
+             subtree (rf.resources.state/recompute-indexes {:entries {}})]
         (if (= step 600)
           (is true "600 randomised mutations stayed in lock-step with the rebuild")
           (let [k        (nth key-ids (nextint (count key-ids)))
@@ -1111,9 +1111,9 @@
                               (dissoc entries k)
                               (assoc entries k {:tags          (rand-set tags)
                                                 :active-owners (rand-set owners)}))
-                incremental (state/reindex-keys (assoc subtree :entries new-entries)
+                incremental (rf.resources.state/reindex-keys (assoc subtree :entries new-entries)
                                                 entries [k])
-                full        (state/recompute-indexes {:entries new-entries})]
+                full        (rf.resources.state/recompute-indexes {:entries new-entries})]
             (is (= (:tag-index full) (:tag-index incremental))
                 (str "tag-index drift at step " step " key " k))
             (is (= (:owner-index full) (:owner-index incremental))
@@ -1130,8 +1130,8 @@
 
 (deftest resource-kind-registered
   (testing "the :resource registrar kind is valid (skeleton invariant held)"
-    (is (registrar/valid-kind? :resource))
-    (is (not (registrar/valid-kind? :query)))))
+    (is (rf.registrar/valid-kind? :resource))
+    (is (not (rf.registrar/valid-kind? :query)))))
 
 ;; ===========================================================================
 ;; 13. Concrete-scope typo rejection at resolution boundaries (rf2-pd7akw)
@@ -1139,35 +1139,35 @@
 
 (deftest reserved-scope-typo-rejected-at-concrete-boundaries
   (rf/reg-resource :tp/article (article-spec {:scope :rf.scope/from-caller}) article-spec-request)
-  (let [spec (registry/resource-meta :tp/article)]
+  (let [spec (rf.resources.registry/resource-meta :tp/article)]
     (testing "rf2-pd7akw — a misspelled reserved :rf.scope/* keyword on an
               EVENT payload is rejected fail-closed (never a silent wrong
               cache scope)"
       (is (thrown-with-msg?
             #?(:clj Throwable :cljs js/Error) #"resource-invalid-scope"
-            (registry/resolve-scope-for-event
+            (rf.resources.registry/resolve-scope-for-event
               :tp/article spec {:payload-scope :rf.scope/glabal} 'test))))
     (testing "rf2-pd7akw — a misspelled reserved :rf.scope/* keyword on a
               SUBSCRIPTION payload is rejected fail-closed too"
       (is (thrown-with-msg?
             #?(:clj Throwable :cljs js/Error) #"resource-invalid-scope"
-            (registry/resolve-scope-for-sub
+            (rf.resources.registry/resolve-scope-for-sub
               :tp/article spec :rf.scope/sesssion 'test {}))))
     (testing "rf2-pd7akw — :rf.scope/from-caller reaching a CONCRETE boundary
               as a payload value (not a policy) is a typo-class rejection"
       (is (thrown-with-msg?
             #?(:clj Throwable :cljs js/Error) #"resource-invalid-scope"
-            (registry/resolve-scope-for-event
+            (rf.resources.registry/resolve-scope-for-event
               :tp/article spec {:payload-scope :rf.scope/from-caller} 'test))))
     (testing "an APP-namespaced keyword scope is a legitimate literal scope
               (only the framework-reserved namespace is fail-closed)"
       (is (= :my.app/tenant
-             (registry/resolve-scope-for-event
+             (rf.resources.registry/resolve-scope-for-event
                :tp/article spec {:payload-scope :my.app/tenant} 'test))))
     (testing "a vector-tuple scope [:rf.scope/session {…}] is a value, not a
               bare-keyword typo — accepted"
       (is (= [:rf.scope/session {:tenant "acme"}]
-             (registry/resolve-scope-for-event
+             (rf.resources.registry/resolve-scope-for-event
                :tp/article spec {:payload-scope [:rf.scope/session {:tenant "acme"}]}
                'test))))))
 
@@ -1180,20 +1180,20 @@
 (deftest singleton-vector-global-rejected-fail-closed
   (testing "rf2-bwwk6l — the bare :rf.scope/global is the canonical concrete
             global scope and canonicalizes unchanged"
-    (is (= :rf.scope/global (state/canonicalize-scope :rf.scope/global 'test :r/x))))
+    (is (= :rf.scope/global (rf.resources.state/canonicalize-scope :rf.scope/global 'test :r/x))))
   (testing "rf2-bwwk6l — the singleton-vector [:rf.scope/global] spelling is
             NO LONGER accepted as a global alias; it fails closed at the shared
             canonicalize boundary, naming the canonical bare spelling"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-invalid-scope"
-          (state/canonicalize-scope [:rf.scope/global] 'test :r/x))))
+          (rf.resources.state/canonicalize-scope [:rf.scope/global] 'test :r/x))))
   (testing "rf2-bwwk6l — a sub payload carrying the wrapped [:rf.scope/global]
             spelling fails closed too (never a silent read of the bare global
             entry)"
     (rf/reg-resource :gv/article (article-spec) article-spec-request)
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-invalid-scope"
-          (subs/resolve-scoped-key {:resource :gv/article
+          (rf.resources.subs/resolve-scoped-key {:resource :gv/article
                                     :scope [:rf.scope/global]
                                     :params {:slug "w"}}
                                    {})))))
@@ -1204,8 +1204,8 @@
 
 (deftest clear-resource-disposes-runtime-state
   (rf/reg-resource :cr/article (article-spec) article-spec-request)
-  (let [loaded-key  (state/scoped-resource-key :rf.scope/global :cr/article {:slug "loaded"})
-        inflight-key (state/scoped-resource-key :rf.scope/global :cr/article {:slug "inflight"})]
+  (let [loaded-key  (rf.resources.state/scoped-resource-key :rf.scope/global :cr/article {:slug "loaded"})
+        inflight-key (rf.resources.state/scoped-resource-key :rf.scope/global :cr/article {:slug "inflight"})]
     ;; one LOADED entry (with tags + an active owner → indexed)
     (rf/dispatch-sync [:rf.resource/ensure {:resource :cr/article :scope :rf.scope/global
                                             :params {:slug "loaded"} :owner [:app :cr 1]}])
@@ -1218,34 +1218,34 @@
                                             :params {:slug "inflight"} :owner [:app :cr 2]}])
     (is (= :loaded (:status (entry loaded-key))))
     (is (some? (:current-work (entry inflight-key))) "in-flight entry has live work")
-    (is (seq (get-in (runtime-db) (state/tag-index-path))) "tag index populated")
-    (is (seq (get-in (runtime-db) (state/owner-index-path))) "owner index populated")
+    (is (seq (get-in (runtime-db) (rf.resources.state/tag-index-path))) "tag index populated")
+    (is (seq (get-in (runtime-db) (rf.resources.state/owner-index-path))) "owner index populated")
     (let [inflight-wid (:current-work (entry inflight-key))]
       ;; CLEAR the resource (registration-lifecycle + runtime disposal)
-      (registry/clear-resource :cr/article)
+      (rf.resources.registry/clear-resource :cr/article)
       (testing "rf2-m9h5iq — clear-resource removes the registrar entry"
-        (is (nil? (registry/resource-meta :cr/article))))
+        (is (nil? (rf.resources.registry/resource-meta :cr/article))))
       (testing "rf2-m9h5iq — every live entry for the id is removed from
                 :rf.runtime/resources :entries"
         (is (nil? (entry loaded-key)))
         (is (nil? (entry inflight-key))))
       (testing "rf2-m9h5iq — reverse indexes are recomputed/pruned"
-        (is (empty? (get-in (runtime-db) (state/tag-index-path))))
-        (is (empty? (get-in (runtime-db) (state/owner-index-path)))))
+        (is (empty? (get-in (runtime-db) (rf.resources.state/tag-index-path))))
+        (is (empty? (get-in (runtime-db) (rf.resources.state/owner-index-path)))))
       (testing "rf2-m9h5iq — the in-flight work record is settled terminal
                 (:suppressed) so the ledger row is not left in-flight"
         ;; Read through the byte-keyed work-ledger API (rf2-hgy5kf): the row is
-        ;; addressed by `work-ledger/work-id-id`, NOT the stale vector key. The
+        ;; addressed by `rf.resources.work-ledger/work-id-id`, NOT the stale vector key. The
         ;; assertion is NON-vacuous — a present post-clear row MUST be terminal
         ;; (`:suppressed`), and a present-but-NON-terminal row FAILS the test
         ;; (the exact drift EP-0012 closes; the old `(when rec …)` made it pass
         ;; silently when the byte-keyed row was read through a dead address).
-        (let [rec (work-ledger/get-record (runtime-db) inflight-wid)]
+        (let [rec (rf.resources.work-ledger/get-record (runtime-db) inflight-wid)]
           (is (some? rec)
               "the post-clear work record MUST be readable through the byte-keyed
                address — a nil here means the contract is asserted against a dead
                address, the exact vacuity EP-0012 closes")
-          (is (work-ledger/terminal? (:status rec))
+          (is (rf.resources.work-ledger/terminal? (:status rec))
               "a present post-clear work record must be terminal, never in-flight")
           (is (= :suppressed (:status rec)))))
       (testing "rf2-m9h5iq — a LATE reply for a cleared in-flight entry cannot
@@ -1265,19 +1265,19 @@
             :rf.scope/* typo is rejected through the same path resources use"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-invalid-scope"
-          (mreg/resolve-scope :m/x {} :rf.scope/glabal {}))))
+          (rf.resources.mutation-registry/resolve-scope :m/x {} :rf.scope/glabal {}))))
   (testing "rf2-lzv9xc — a host / opaque mutation scope value is rejected"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-non-edn-params"
-          (mreg/resolve-scope :m/x {} {:fn (fn [])} {}))))
+          (rf.resources.mutation-registry/resolve-scope :m/x {} {:fn (fn [])} {}))))
   (testing "rf2-lzv9xc — the default global scope still resolves to the bare
             :rf.scope/global"
-    (is (= :rf.scope/global (mreg/resolve-scope :m/x {} nil {}))))
+    (is (= :rf.scope/global (rf.resources.mutation-registry/resolve-scope :m/x {} nil {}))))
   (testing "rf2-bwwk6l — the wrapped [:rf.scope/global] singleton is rejected
             fail-closed (no back-compat alias); supply the bare keyword"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-invalid-scope"
-          (mreg/resolve-scope :m/x {} [:rf.scope/global] {})))))
+          (rf.resources.mutation-registry/resolve-scope :m/x {} [:rf.scope/global] {})))))
 
 ;; ===========================================================================
 ;; 17. resource-state fails closed without an explicit frame (rf2-c8lgy3)
@@ -1298,7 +1298,7 @@
                 {:resource :rs/article :scope :rf.scope/global
                  :params {:slug "absent"} :frame :rf/default}))))
   (testing "rf2-c8lgy3 — a valid explicit frame returns the entry when present"
-    (let [k (state/scoped-resource-key :rf.scope/global :rs/article {:slug "w"})]
+    (let [k (rf.resources.state/scoped-resource-key :rf.scope/global :rs/article {:slug "w"})]
       (rf/dispatch-sync [:rf.resource/ensure {:resource :rs/article :scope :rf.scope/global
                                               :params {:slug "w"} :owner [:app 1]}])
       (let [wid (:current-work (entry k))]
@@ -1325,8 +1325,8 @@
             `=`-colliding scoped-key vector (the original rf2-jtlq7l approach)
             collapsed a list-params and a vector-params entry onto one map key"
     (rf/reg-resource :intro/article (article-spec) article-spec-request)
-    (let [k1 (state/scoped-resource-key :rf.scope/global :intro/article {:slug "one"})
-          k2 (state/scoped-resource-key :rf.scope/global :intro/article {:slug "two"})]
+    (let [k1 (rf.resources.state/scoped-resource-key :rf.scope/global :intro/article {:slug "one"})
+          k2 (rf.resources.state/scoped-resource-key :rf.scope/global :intro/article {:slug "two"})]
       ;; Install two entries with DISTINCT scoped keys (distinct byte key-ids).
       (rf/dispatch-sync [:rf.resource/ensure {:resource :intro/article :scope :rf.scope/global
                                               :params {:slug "one"} :owner [:app :intro 1]}])
@@ -1336,11 +1336,11 @@
         (testing "the static registry still lists the registered id"
           (is (contains? (set resource-ids) :intro/article)))
         (testing "entry keys are the CEDN-1 byte key-id STRINGS (collapse-proof)"
-          (is (= #{(state/key-id k1) (state/key-id k2)} (set (keys entries)))
+          (is (= #{(rf.resources.state/key-id k1) (rf.resources.state/key-id k2)} (set (keys entries)))
               "the public accessor keys by the byte key-id, matching internal storage")
           (is (every? string? (keys entries))
               "every entry key is the byte key-id string")
-          (is (contains? entries (state/key-id k1))
+          (is (contains? entries (rf.resources.state/key-id k1))
               "the byte key-id IS the public entry key"))
         (testing "each entry carries its kind-preserving :resource/key VECTOR for
                   destructure + scope/resource filtering (the rf2-jtlq7l goal,
@@ -1363,8 +1363,8 @@
               "every entry filters cleanly by scope + resource-id"))
         (testing "the entry value is carried through unchanged (byte-keyed
                   in internal storage too)"
-          (is (= :intro/article (-> entries (get (state/key-id k1)) :resource/key second)))
-          (let [raw (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) (state/entries-path))]
+          (is (= :intro/article (-> entries (get (rf.resources.state/key-id k1)) :resource/key second)))
+          (let [raw (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) (rf.resources.state/entries-path))]
             (is (every? string? (keys raw))
                 "internal runtime storage remains byte-keyed (string key-ids)")))))))
 
@@ -1375,29 +1375,29 @@
             list params). The former vector-rekey `assoc`'d one entry OVER the
             other (the `=`-collapse), reporting ONE entry for TWO live ones"
     (rf/reg-resource :intro/article (article-spec) article-spec-request)
-    (let [kv (state/scoped-resource-key :rf.scope/global :intro/article {:xs [1 2 3]})
-          kl (state/scoped-resource-key :rf.scope/global :intro/article {:xs '(1 2 3)})
-          ev (assoc (state/empty-entry :intro/article kv) :status :loaded :data {:v 1})
-          el (assoc (state/empty-entry :intro/article kl) :status :loaded :data {:l 1})]
+    (let [kv (rf.resources.state/scoped-resource-key :rf.scope/global :intro/article {:xs [1 2 3]})
+          kl (rf.resources.state/scoped-resource-key :rf.scope/global :intro/article {:xs '(1 2 3)})
+          ev (assoc (rf.resources.state/empty-entry :intro/article kv) :status :loaded :data {:v 1})
+          el (assoc (rf.resources.state/empty-entry :intro/article kl) :status :loaded :data {:l 1})]
       (is (= kv kl) "the scoped-key VECTORS are Clojure-= (the collapse routed around)")
-      (is (not= (state/key-id kv) (state/key-id kl)) "their byte key-ids differ")
+      (is (not= (rf.resources.state/key-id kv) (rf.resources.state/key-id kl)) "their byte key-ids differ")
       ;; write both entries the runtime way (byte-keyed paths) — a `{kv .. kl ..}`
       ;; literal would itself throw `Duplicate key` (kv and kl are Clojure-=).
-      (frame/swap-runtime-db! :rf/default
+      (rf.frame/swap-runtime-db! :rf/default
         (fn [rdb] (-> (or rdb {})
-                      (assoc-in (state/entry-path kv) ev)
-                      (assoc-in (state/entry-path kl) el))))
+                      (assoc-in (rf.resources.state/entry-path kv) ev)
+                      (assoc-in (rf.resources.state/entry-path kl) el))))
       (let [{:keys [entries]} (re-frame.resources/resources {:frame :rf/default})]
         (is (= 2 (count entries))
             "TWO distinct returned entries — no =-collapse onto one map key")
-        (is (= #{(state/key-id kv) (state/key-id kl)} (set (keys entries)))
+        (is (= #{(rf.resources.state/key-id kv) (rf.resources.state/key-id kl)} (set (keys entries)))
             "keyed on the byte key-ids of BOTH entries")
-        (is (= {:v 1} (:data (get entries (state/key-id kv)))) "vector entry intact")
-        (is (= {:l 1} (:data (get entries (state/key-id kl)))) "list entry NOT overwritten")
+        (is (= {:v 1} (:data (get entries (rf.resources.state/key-id kv)))) "vector entry intact")
+        (is (= {:l 1} (:data (get entries (rf.resources.state/key-id kl)))) "list entry NOT overwritten")
         (testing "each entry carries its kind-preserving :resource/key"
-          (is (vector? (-> (get entries (state/key-id kv)) :resource/key (nth 2) :xs))
+          (is (vector? (-> (get entries (rf.resources.state/key-id kv)) :resource/key (nth 2) :xs))
               "vector-params entry preserves vector kind on :resource/key")
-          (is (seq? (-> (get entries (state/key-id kl)) :resource/key (nth 2) :xs))
+          (is (seq? (-> (get entries (rf.resources.state/key-id kl)) :resource/key (nth 2) :xs))
               "list-params entry preserves list kind on :resource/key"))))))
 
 (deftest resources-introspection-without-frame-returns-empty-entries
@@ -1415,17 +1415,17 @@
 (deftest param-canonicalization-total-over-mixed-keys
   (testing "rf2-ptz7z8 — a params map mixing keyword and string keys
             canonicalizes deterministically (no raw ClassCastException)"
-    (let [c1 (state/canonicalize {:b 1 "a" 2 :a 3 "z" 4})
-          c2 (state/canonicalize {"z" 4 :a 3 "a" 2 :b 1})]
+    (let [c1 (rf.resources.state/canonicalize {:b 1 "a" 2 :a 3 "z" 4})
+          c2 (rf.resources.state/canonicalize {"z" 4 :a 3 "a" 2 :b 1})]
       (is (= c1 c2) "key-order-independent over mixed key types")
       (is (= {:b 1 "a" 2 :a 3 "z" 4} c1) "values preserved")))
   (testing "rf2-ptz7z8 — mixed nil / number / boolean / keyword / string keys
             all order deterministically"
     (let [m {nil 0 1 :one true :t :kw :k "s" :str}]
-      (is (= (state/canonicalize m) (state/canonicalize (into {} (shuffle (seq m))))))))
+      (is (= (rf.resources.state/canonicalize m) (rf.resources.state/canonicalize (into {} (shuffle (seq m))))))))
   (testing "rf2-ptz7z8 — a scoped key built from mixed-key params is stable"
-    (is (= (state/scoped-resource-key :rf.scope/global :r/x {:a 1 "b" 2})
-           (state/scoped-resource-key :rf.scope/global :r/x {"b" 2 :a 1})))))
+    (is (= (rf.resources.state/scoped-resource-key :rf.scope/global :r/x {:a 1 "b" 2})
+           (rf.resources.state/scoped-resource-key :rf.scope/global :r/x {"b" 2 :a 1})))))
 
 ;; ===========================================================================
 ;; 19. Shared reset contract (rf2-784223) — `make-reset-runtime-fixture` plus
@@ -1441,10 +1441,10 @@
   ;; thunk clears the whole surface, so the redundant per-suite resets were
   ;; safe to remove.
   (testing "the late-bind reset hook IS published (the fixture's mechanism)"
-    (is (some? (late-bind/get-fn :resources/reset-resources!))
+    (is (some? (rf.late-bind/get-fn :resources/reset-resources!))
         ":resources/reset-resources! hook published at test-support ns-load")
-    (is (identical? resources-test-support/reset-resources!
-                    (late-bind/get-fn :resources/reset-resources!))
+    (is (identical? rf.resources.test-support/reset-resources!
+                    (rf.late-bind/get-fn :resources/reset-resources!))
         "the published hook IS test-support/reset-resources!"))
   ;; Seed every surface the reset must clear.
   (rf/reg-resource :rst/article (article-spec) article-spec-request)
@@ -1452,36 +1452,36 @@
                    {:params-schema [:map [:slug :string]]}
                    (fn [{:keys [slug]} _ctx]
                      {:request {:method :post :url (str "/api/articles/" slug)}}))
-  (state/commit-generation! :rf/default 7)
-  (let [k       (state/scoped-resource-key :rf.scope/global :rst/article {:slug "w"})
-        work-id (work-ledger/resource-work-id k 1)]
-    (work-ledger/put-handle! :rf/default work-id {:abort-fn (fn [] nil)})
-    (timers/schedule! :rf/default k timers/gc-kind 1000000)
-    (swap! revalidate-listeners/listener-table assoc :rf/default
+  (rf.resources.state/commit-generation! :rf/default 7)
+  (let [k       (rf.resources.state/scoped-resource-key :rf.scope/global :rst/article {:slug "w"})
+        work-id (rf.resources.work-ledger/resource-work-id k 1)]
+    (rf.resources.work-ledger/put-handle! :rf/default work-id {:abort-fn (fn [] nil)})
+    (rf.resources.timers/schedule! :rf/default k rf.resources.timers/gc-kind 1000000)
+    (swap! rf.resources.revalidate-listeners/listener-table assoc :rf/default
            {:focus :h :visibility :h :online :h})
     ;; precondition: everything is populated
-    (is (contains? (registrar/registrations registry/resource-kind) :rst/article))
-    (is (contains? (registrar/registrations mreg/mutation-kind) :rst/save))
-    (is (= 7 (state/generation-snapshot :rf/default)))
-    (is (some? (work-ledger/get-handle :rf/default work-id)))
+    (is (contains? (rf.registrar/registrations rf.resources.registry/resource-kind) :rst/article))
+    (is (contains? (rf.registrar/registrations rf.resources.mutation-registry/mutation-kind) :rst/save))
+    (is (= 7 (rf.resources.state/generation-snapshot :rf/default)))
+    (is (some? (rf.resources.work-ledger/get-handle :rf/default work-id)))
     ;; rf2-9e0tyq — the timer side-table key's resource-key element is the byte key-id.
-    (is (contains? @timers/timer-table [:rf/default (state/key-id k) timers/gc-kind]))
-    (is (contains? @revalidate-listeners/listener-table :rf/default))
+    (is (contains? @rf.resources.timers/timer-table [:rf/default (rf.resources.state/key-id k) rf.resources.timers/gc-kind]))
+    (is (contains? @rf.resources.revalidate-listeners/listener-table :rf/default))
     (testing "rf2-784223 — `reset-resources!` clears the resource + mutation
               registrars AND the generation / work-ledger-handle / timer /
               revalidate-listener host side tables in ONE call"
-      (resources-test-support/reset-resources!)
-      (is (empty? (registrar/registrations registry/resource-kind))
+      (rf.resources.test-support/reset-resources!)
+      (is (empty? (rf.registrar/registrations rf.resources.registry/resource-kind))
           "resource registrar cleared")
-      (is (empty? (registrar/registrations mreg/mutation-kind))
+      (is (empty? (rf.registrar/registrations rf.resources.mutation-registry/mutation-kind))
           "mutation registrar cleared")
-      (is (= 0 (state/generation-snapshot :rf/default))
+      (is (= 0 (rf.resources.state/generation-snapshot :rf/default))
           "generation high-water cache cleared")
-      (is (nil? (work-ledger/get-handle :rf/default work-id))
+      (is (nil? (rf.resources.work-ledger/get-handle :rf/default work-id))
           "work-ledger host handle table cleared")
-      (is (not (contains? @timers/timer-table [:rf/default (state/key-id k) timers/gc-kind]))
+      (is (not (contains? @rf.resources.timers/timer-table [:rf/default (rf.resources.state/key-id k) rf.resources.timers/gc-kind]))
           "stale/GC timer table cleared (timer cancelled)")
-      (is (not (contains? @revalidate-listeners/listener-table :rf/default))
+      (is (not (contains? @rf.resources.revalidate-listeners/listener-table :rf/default))
           "revalidation-listener side table cleared"))))
 
 ;; ===========================================================================
@@ -1500,19 +1500,19 @@
   [body-fn]
   (let [seen (atom [])
         k    ::scope-mismatch-recorder]
-    (trace-tooling/register-listener!
+    (rf.trace.tooling/register-listener!
       k (fn [ev]
           (when (= :rf.warning/resource-sub-scope-mismatch (:operation ev))
             (swap! seen conj ev))))
     (try (body-fn)
-         (finally (trace-tooling/unregister-listener! k)))
+         (finally (rf.trace.tooling/unregister-listener! k)))
     @seen))
 
 (defn- load-under!
   "Ensure + settle a `:sm/article` resource under `scope` with an active
   owner so its entry is :loaded and ACTIVE (≥1 active owner)."
   [scope owner]
-  (let [k (state/scoped-resource-key scope :sm/article {:slug "w"})]
+  (let [k (rf.resources.state/scoped-resource-key scope :sm/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :sm/article :scope scope
                                             :params {:slug "w"} :owner owner}])
     (let [wid (:current-work (entry k))]
@@ -1531,7 +1531,7 @@
     (load-under! {:user "a"} [:route :r 1])
     (let [warns (record-scope-mismatch-warnings!
                   (fn []
-                    (subs/state-sub-fn (runtime-db)
+                    (rf.resources.subs/state-sub-fn (runtime-db)
                                        [:rf/resource
                                         {:resource :sm/article :scope {:user "b"}
                                          :params {:slug "w"}}])))]
@@ -1546,14 +1546,14 @@
     (let [warns (record-scope-mismatch-warnings!
                   (fn []
                     (dotimes [_ 5]
-                      (subs/state-sub-fn (runtime-db)
+                      (rf.resources.subs/state-sub-fn (runtime-db)
                                          [:rf/resource
                                           {:resource :sm/article :scope {:user "b"}
                                            :params {:slug "w"}}]))))]
       (is (zero? (count warns)) "already-warned mismatch is not re-emitted")))
   (testing "rf2-rsmiru — the sub STILL reads the documented :idle empty-state
             projection (fail-closed is preserved; the warning is advisory)"
-    (is (= :idle (:status (subs/state-sub-fn (runtime-db)
+    (is (= :idle (:status (rf.resources.subs/state-sub-fn (runtime-db)
                                              [:rf/resource
                                               {:resource :sm/article :scope {:user "b"}
                                                :params {:slug "w"}}]))))))
@@ -1565,7 +1565,7 @@
     (load-under! {:user "a"} [:route :r 1])
     (let [warns (record-scope-mismatch-warnings!
                   (fn []
-                    (subs/state-sub-fn (runtime-db)
+                    (rf.resources.subs/state-sub-fn (runtime-db)
                                        [:rf/resource
                                         {:resource :sm/article :scope {:user "a"}
                                          :params {:slug "w"}}])))]
@@ -1579,7 +1579,7 @@
                     ;; a sub under a never-ensured scope C: no DIFFERENT scope
                     ;; is active, so this is an un-ensured resource (the empty
                     ;; :idle projection), not a likely mismatch.
-                    (subs/state-sub-fn (runtime-db)
+                    (rf.resources.subs/state-sub-fn (runtime-db)
                                        [:rf/resource
                                         {:resource :sm/article :scope {:user "c"}
                                          :params {:slug "w"}}])))]
@@ -1591,7 +1591,7 @@
             (global resolves the SAME scope sub-side and ensure-side, so a sub
             cannot land on a different key than the ensure did)"
     (rf/reg-resource :smg/article (article-spec) article-spec-request) ; :rf.scope/global
-    (let [k (state/scoped-resource-key :rf.scope/global :smg/article {:slug "w"})]
+    (let [k (rf.resources.state/scoped-resource-key :rf.scope/global :smg/article {:slug "w"})]
       (rf/dispatch-sync [:rf.resource/ensure {:resource :smg/article :scope :rf.scope/global
                                               :params {:slug "w"} :owner [:route :g 1]}])
       (let [wid (:current-work (entry k))]
@@ -1599,7 +1599,7 @@
                            {:resource/key k :work/id wid :generation 1 :data {:title "W"}}])))
     (let [warns (record-scope-mismatch-warnings!
                   (fn []
-                    (subs/state-sub-fn (runtime-db)
+                    (rf.resources.subs/state-sub-fn (runtime-db)
                                        [:rf/resource
                                         {:resource :smg/article :scope :rf.scope/global
                                          :params {:slug "w"}}])))]

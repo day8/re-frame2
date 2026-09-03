@@ -82,9 +82,9 @@
   trace). The two continuations are kept distinct: the ledger owns the
   framework-internal reified continuation; the call-site target is the app's
   transport-payload continuation."
-  (:require [re-frame.late-bind :as late-bind]
-            [re-frame.reply :as reply]
-            [re-frame.resources.state :as state]))
+  (:require [re-frame.late-bind :as rf.late-bind]
+            [re-frame.reply :as rf.reply]
+            [re-frame.resources.state :as rf.resources.state]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -129,7 +129,7 @@
   (`[:rf.work/resource <scoped-key> <generation>]`) — its `canonical-bytes`
   string (rf2-9e0tyq). The work-ledger runtime-db map is keyed on THIS string,
   NOT the work-id vector, for the SAME reason `:entries` is keyed on
-  `state/key-id`: the work-id embeds the scoped-key, so two work-ids that
+  `rf.resources.state/key-id`: the work-id embeds the scoped-key, so two work-ids that
   differ only by a list-vs-vector params spelling are `=`-equal (Clojure
   `(= [1 2 3] '(1 2 3))`) and would collide in the ledger map even though
   their CEDN-1 byte identities differ. Keying on the bytes string makes the
@@ -138,12 +138,12 @@
   `:current-work`, and on the wire. Total on a work-id over a canonical
   scoped-key. Per Spec 016 §Frame work ledger.
 
-  This IS `state/key-id` (both are `canonical-bytes` of an
+  This IS `rf.resources.state/key-id` (both are `canonical-bytes` of an
   already-canonical EDN identity — rf2-366u0g): the work-id-as-map-key
   byte-identity rule is the SAME rule the scoped-key-as-map-key follows, so
   the ledger surface re-binds the one canonical wrapper under its own name
   rather than re-typing the `canonical-bytes` call."
-  state/key-id)
+  rf.resources.state/key-id)
 
 (defn managed-request-id
   "Build the frame-QUALIFIED managed-HTTP transport correlation token
@@ -184,7 +184,7 @@
   Spec 016 §Ledger row retention and identity. The canonical set lives in
   `re-frame.resources.state/terminal-work-statuses` (rf2-366u0g); re-bound
   under the ledger surface's own name so a ledger consumer reads one home."
-  state/terminal-work-statuses)
+  rf.resources.state/terminal-work-statuses)
 
 (defn terminal?
   "True iff `status` is a terminal work-ledger status (the attempt has
@@ -310,7 +310,7 @@
   ;; The success leg is canonical: the failure leg
   ;; (`:rf.resource.internal/failed`) shares the SAME verification payload, so
   ;; one durable target represents the reified continuation.
-  (reply/durable-target
+  (rf.reply/durable-target
     {:event [:rf.resource.internal/succeeded
              {:work/id      (:work/id record)
               :resource/key (:resource/key record)
@@ -382,7 +382,7 @@
   016 §Frame work ledger / [Runtime-Subsystems] clause 4. Reuses the same
   serializable-EDN walker the cache-key boundary uses."
   [record]
-  (state/serializable-edn? record))
+  (rf.resources.state/serializable-edn? record))
 
 ;; ---- runtime-db record bookkeeping (Spec 016 §Cache home) -----------------
 ;;
@@ -432,7 +432,7 @@
   (let [ledger (:rf.runtime/work-ledger runtime-db)
         idx    (reduce-kv
                  (fn [acc wid-id record]
-                   (let [rk-id (state/key-id (:resource/key record))]
+                   (let [rk-id (rf.resources.state/key-id (:resource/key record))]
                      (update acc rk-id (fnil conj #{}) wid-id)))
                  {}
                  ledger)]
@@ -464,7 +464,7 @@
   [runtime-db work-id record]
   (-> runtime-db
       (assoc-in (record-path work-id) record)
-      (index-add (state/key-id (:resource/key record)) (work-id-id work-id))))
+      (index-add (rf.resources.state/key-id (:resource/key record)) (work-id-id work-id))))
 
 (defn get-record
   "Read the work record under `work-id` from `runtime-db`, or nil."
@@ -547,7 +547,7 @@
          ;; rf2-9e0tyq — match by CEDN-1 byte identity, not `=` over the
          ;; `:resource/key` vector (which would `=`-collapse a list- and a
          ;; vector-params key and prune both resources' rows).
-         rk-id  (state/key-id resource-key)
+         rk-id  (rf.resources.state/key-id resource-key)
          ;; rf2-wyan7e — visit ONLY this key's rows (via the inverse index)
          ;; instead of scanning the WHOLE ledger per settle (O(rows-for-key)
          ;; rather than O(all-work)). The index members ARE this key's row ids.
@@ -581,7 +581,7 @@
 ;; The non-serializable cancellation / timer handles keyed by `[frame-id
 ;; work-id]`. A module-level transient host cache — NOT runtime-db, NOT
 ;; serialized, off the epoch / SSR egress wire. Mirrors the host-side
-;; generation allocator (`state/generation-cache`) and routing's
+;; generation allocator (`rf.resources.state/generation-cache`) and routing's
 ;; nav-counters / scroll caches (rf2-oosjmh / rf2-1hncp2). Cleared on frame
 ;; destroy (Spec 016 [Runtime-Subsystems] clause 5: transient host handles
 ;; dropped).
@@ -670,7 +670,7 @@
                    (when (and (= (:transport handle) managed-abort-fx-transport)
                               (:request-id handle))
                      (try
-                       (when-let [abort! (late-bind/get-fn :http/abort-in-flight!)]
+                       (when-let [abort! (rf.late-bind/get-fn :http/abort-in-flight!)]
                          (boolean (abort! (:request-id handle) :resource-superseded)))
                        (catch #?(:clj Throwable :cljs :default) _ false))))]
     (or direct? managed?)))
@@ -853,7 +853,7 @@ attempt is superseded / settled so a stale handle does not leak. Per Spec 016
 ;; `:resources/on-frame-destroyed!` late-bind hook the façade publishes (the
 ;; same shape as routing's `:routing/on-frame-destroyed!`). Frame destroy
 ;; ALSO drops the host-side generation high-water mark
-;; (`state/release-frame!`), composed into the same hook body in the façade.
+;; (`rf.resources.state/release-frame!`), composed into the same hook body in the façade.
 
 (defn release-frame!
   "Release a destroyed frame's TRANSIENT work-ledger host handles: drop
@@ -896,7 +896,7 @@ attempt is superseded / settled so a stale handle does not leak. Per Spec 016
   host handles. `destroy-frame!` invokes it by key with the destroyed
   `frame-id`. Releases the frame's transient work-ledger host handles
   (`release-frame!`). The façade composes this with
-  `state/release-frame!` (the generation high-water mark) so both
+  `rf.resources.state/release-frame!` (the generation high-water mark) so both
   host-side transient caches drop on one hook. Per Spec 016
   [Runtime-Subsystems] clause 5."
   [frame-id]

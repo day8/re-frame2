@@ -27,7 +27,7 @@
       stable status;
     - the generation allocator is monotonic across restore (a post-restore
       allocation strictly exceeds any pre-restore generation — the host-side
-      allocator part 1, exercised here against `state/generation-cache`);
+      allocator part 1, exercised here against `rf.resources.state/generation-cache`);
     - a pre-restore in-flight reply that lands after restore is suppressed by
       the work-id + generation check (the dangled terminal row + cleared
       `:current-work` are what make the suppression structural);
@@ -41,26 +41,26 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.frame :as frame]
-   [re-frame.interop :as interop]
-   [re-frame.late-bind :as late-bind]
+   [re-frame.frame :as rf.frame]
+   [re-frame.interop :as rf.interop]
+   [re-frame.late-bind :as rf.late-bind]
    ;; load-bearing side-effecting require: the façade publishes the restore
    ;; reconcile hook + registers the resource registrar kind.
    [re-frame.resources]
-   [re-frame.resources.mutation-runtime :as mstate]
-   [re-frame.resources.ssr :as ssr]
-   [re-frame.resources.state :as state]
-   [re-frame.resources.timers :as timers]
-   [re-frame.resources.work-ledger :as work-ledger]
-   [re-frame.test-support :as core-test-support]
-   [re-frame.trace.tooling :as trace-tooling]
-   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
-       :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
+   [re-frame.resources.mutation-runtime :as rf.resources.mutation-runtime]
+   [re-frame.resources.ssr :as rf.resources.ssr]
+   [re-frame.resources.state :as rf.resources.state]
+   [re-frame.resources.timers :as rf.resources.timers]
+   [re-frame.resources.work-ledger :as rf.resources.work-ledger]
+   [re-frame.test-support :as rf.test-support]
+   [re-frame.trace.tooling :as rf.trace.tooling]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
 (use-fixtures :each
-  (core-test-support/make-reset-runtime-fixture
-    #?(:clj  {:adapter plain-atom/adapter}
-       :cljs {:adapter reagent-adapter/adapter})))
+  (rf.test-support/make-reset-runtime-fixture
+    #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
+       :cljs {:adapter rf.adapter.reagent/adapter})))
 
 ;; ---- helpers --------------------------------------------------------------
 
@@ -69,7 +69,7 @@
   [{:keys [resource-id status data error loaded-at stale-at invalidated-at
            generation current-work tags owners refresh-error]
     :or   {status :loaded generation 1 tags #{} owners #{}}}]
-  (merge (state/empty-entry resource-id)
+  (merge (rf.resources.state/empty-entry resource-id)
          {:status         status
           :data           data
           :error          error
@@ -90,14 +90,14 @@
   `{work-id-vector record}` to the byte `work-id-id` shape."
   ([entries] (runtime-db-with entries nil))
   ([entries ledger]
-   (cond-> {state/resources-key
+   (cond-> {rf.resources.state/resources-key
             {:entries (into {}
                             (map (fn [[sk e]]
-                                   [(state/key-id sk) (assoc e :resource/key sk)]))
+                                   [(rf.resources.state/key-id sk) (assoc e :resource/key sk)]))
                             entries)
              :tag-index {} :owner-index {}}}
-     ledger (assoc state/work-ledger-key
-                   (into {} (map (fn [[wid r]] [(work-ledger/work-id-id wid) r])) ledger)))))
+     ledger (assoc rf.resources.state/work-ledger-key
+                   (into {} (map (fn [[wid r]] [(rf.resources.work-ledger/work-id-id wid) r])) ledger)))))
 
 (defn- with-live-nav-token
   "Install a restored routing slice naming `nav-token` as live
@@ -108,7 +108,7 @@
   (assoc-in runtime-db [:rf.runtime/routing :current :nav-token] nav-token))
 
 (def ^:private gkey
-  (state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "x"}))
+  (rf.resources.state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "x"}))
 
 ;; ===========================================================================
 ;; 1. Settle mid-flight entries to last stable (Spec 016 §Restore part 2)
@@ -118,8 +118,8 @@
   (testing "a restored :loading entry that never loaded (no data, no error) settles to :idle"
     (let [e   (entry {:resource-id :article/by-slug :status :loading :data nil
                       :current-work [:rf.work/resource gkey 3]})
-          out (ssr/reconcile-on-restore (runtime-db-with {gkey e}) :app/main)
-          se  (get-in out [state/resources-key :entries (state/key-id gkey)])]
+          out (rf.resources.ssr/reconcile-on-restore (runtime-db-with {gkey e}) :app/main)
+          se  (get-in out [rf.resources.state/resources-key :entries (rf.resources.state/key-id gkey)])]
       (is (= :idle (:status se)) "loading-with-no-data → :idle, never stranded :loading")
       (is (nil? (:current-work se)) "the vanished current-work pointer is cleared"))))
 
@@ -129,8 +129,8 @@
     (let [e   (entry {:resource-id :article/by-slug :status :fetching
                       :data {:title "kept"} :loaded-at 1000 :stale-at 9.0e15
                       :current-work [:rf.work/resource gkey 4]})
-          out (ssr/reconcile-on-restore (runtime-db-with {gkey e}) :app/main)
-          se  (get-in out [state/resources-key :entries (state/key-id gkey)])]
+          out (rf.resources.ssr/reconcile-on-restore (runtime-db-with {gkey e}) :app/main)
+          se  (get-in out [rf.resources.state/resources-key :entries (rf.resources.state/key-id gkey)])]
       (is (= :loaded (:status se)) "fetching-with-data → :loaded (keep last-known-good)")
       (is (= {:title "kept"} (:data se)) "the last-known-good data is preserved")
       (is (nil? (:current-work se)) "the vanished current-work pointer is cleared"))))
@@ -141,8 +141,8 @@
     (let [err {:kind :rf.http/http-5xx}
           e   (entry {:resource-id :article/by-slug :status :loading :data nil
                       :error err :current-work [:rf.work/resource gkey 5]})
-          out (ssr/reconcile-on-restore (runtime-db-with {gkey e}) :app/main)
-          se  (get-in out [state/resources-key :entries (state/key-id gkey)])]
+          out (rf.resources.ssr/reconcile-on-restore (runtime-db-with {gkey e}) :app/main)
+          se  (get-in out [rf.resources.state/resources-key :entries (rf.resources.state/key-id gkey)])]
       (is (= :error (:status se)) "loading-with-error-and-no-data → :error")
       (is (= err (:error se)) "the first-load error envelope is retained")
       (is (nil? (:current-work se))))))
@@ -154,28 +154,28 @@
                          :loaded-at 1000 :stale-at 9.0e15})
           errd   (entry {:resource-id :b :status :error :error {:kind :x}})
           idle   (entry {:resource-id :c :status :idle})
-          ka (state/scoped-resource-key :rf.scope/global :a {})
-          kb (state/scoped-resource-key :rf.scope/global :b {})
-          kc (state/scoped-resource-key :rf.scope/global :c {})
-          out (ssr/reconcile-on-restore (runtime-db-with {ka loaded kb errd kc idle}) :app/main)
-          es  (get-in out [state/resources-key :entries])]
+          ka (rf.resources.state/scoped-resource-key :rf.scope/global :a {})
+          kb (rf.resources.state/scoped-resource-key :rf.scope/global :b {})
+          kc (rf.resources.state/scoped-resource-key :rf.scope/global :c {})
+          out (rf.resources.ssr/reconcile-on-restore (runtime-db-with {ka loaded kb errd kc idle}) :app/main)
+          es  (get-in out [rf.resources.state/resources-key :entries])]
       ;; rf2-9e0tyq — entries are keyed on the byte key-id.
-      (is (= :loaded (:status (es (state/key-id ka)))))
-      (is (= :error  (:status (es (state/key-id kb)))))
-      (is (= :idle   (:status (es (state/key-id kc))))))))
+      (is (= :loaded (:status (es (rf.resources.state/key-id ka)))))
+      (is (= :error  (:status (es (rf.resources.state/key-id kb)))))
+      (is (= :idle   (:status (es (rf.resources.state/key-id kc))))))))
 
 (deftest settle-entry-to-last-stable-is-pure
   (testing "settle-entry-to-last-stable: the three in-flight resolutions + pass-through"
-    (is (= :idle   (:status (ssr/settle-entry-to-last-stable
+    (is (= :idle   (:status (rf.resources.ssr/settle-entry-to-last-stable
                               (entry {:resource-id :a :status :loading :data nil})))))
-    (is (= :loaded (:status (ssr/settle-entry-to-last-stable
+    (is (= :loaded (:status (rf.resources.ssr/settle-entry-to-last-stable
                               (entry {:resource-id :a :status :fetching :data {:x 1}})))))
-    (is (= :loaded (:status (ssr/settle-entry-to-last-stable
+    (is (= :loaded (:status (rf.resources.ssr/settle-entry-to-last-stable
                               (entry {:resource-id :a :status :loading :data {:x 1}})))))
-    (is (= :error  (:status (ssr/settle-entry-to-last-stable
+    (is (= :error  (:status (rf.resources.ssr/settle-entry-to-last-stable
                               (entry {:resource-id :a :status :loading :data nil
                                       :error {:kind :x}})))))
-    (is (= :loaded (:status (ssr/settle-entry-to-last-stable
+    (is (= :loaded (:status (rf.resources.ssr/settle-entry-to-last-stable
                               (entry {:resource-id :a :status :loaded :data {:x 1}})))))))
 
 (deftest restore-does-not-re-read-the-live-clock-for-durable-entry-timestamps
@@ -185,12 +185,12 @@
   ;; not re-read the live clock during install." The structural restore tests
   ;; prove the durable timestamps SURVIVE (they are passed through, not
   ;; recomputed); this one PROVES it adversarially — it stubs the ONLY live-clock
-  ;; read in the reconcile (`interop/epoch-now-ms`) to a sentinel NOTHING durable
+  ;; read in the reconcile (`rf.interop/epoch-now-ms`) to a sentinel NOTHING durable
   ;; should ever stamp, then asserts every restored entry's :loaded-at /
   ;; :stale-at / :invalidated-at is the SNAPSHOT's value, untouched by the
   ;; sentinel. A regression that freshened any durable timestamp from the live
   ;; install clock would stamp the sentinel and fail loudly here.
-  (testing "the live install clock (interop/epoch-now-ms) does NOT freshen any durable restored
+  (testing "the live install clock (rf.interop/epoch-now-ms) does NOT freshen any durable restored
             entry timestamp — they ride through equal to the snapshot's"
     (let [sentinel    9999999999999  ; the install-clock value nothing durable may stamp
           ;; one of each freshness shape: a loaded entry with a future stale-at,
@@ -200,14 +200,14 @@
                               :loaded-at 1000 :stale-at 2000})
           invalidated (entry {:resource-id :b :status :loaded :data {:y 2}
                               :loaded-at 1000 :stale-at 8000 :invalidated-at 1500})
-          ka (state/scoped-resource-key :rf.scope/global :a {})
-          kb (state/scoped-resource-key :rf.scope/global :b {})]
-      (with-redefs [interop/epoch-now-ms (constantly sentinel)]
-        (let [out (ssr/reconcile-on-restore (runtime-db-with {ka loaded kb invalidated}) :app/main)
-              es  (get-in out [state/resources-key :entries])
+          ka (rf.resources.state/scoped-resource-key :rf.scope/global :a {})
+          kb (rf.resources.state/scoped-resource-key :rf.scope/global :b {})]
+      (with-redefs [rf.interop/epoch-now-ms (constantly sentinel)]
+        (let [out (rf.resources.ssr/reconcile-on-restore (runtime-db-with {ka loaded kb invalidated}) :app/main)
+              es  (get-in out [rf.resources.state/resources-key :entries])
               ;; rf2-9e0tyq — entries are keyed on the byte key-id.
-              ea (es (state/key-id ka))
-              eb (es (state/key-id kb))]
+              ea (es (rf.resources.state/key-id ka))
+              eb (es (rf.resources.state/key-id kb))]
           (is (= 1000 (:loaded-at ea)) ":loaded-at is the snapshot's, NOT the install clock")
           (is (= 2000 (:stale-at  ea)) ":stale-at is the snapshot's, NOT the install clock")
           (is (= 1000 (:loaded-at eb)) ":loaded-at (invalidated entry) is the snapshot's")
@@ -223,7 +223,7 @@
 
 (defn- work-row
   [work-id status]
-  (-> (work-ledger/work-record
+  (-> (rf.resources.work-ledger/work-record
         {:work-id work-id :frame-id :app/main :resource/key gkey
          :generation (nth work-id 2) :transport :rf.http/managed
          :started-at 1000})
@@ -241,14 +241,14 @@
           rdb (runtime-db-with {gkey (entry {:resource-id :article/by-slug
                                              :status :loading :data nil})}
                                ledger)
-          out (ssr/reconcile-on-restore rdb :app/main)
-          out-ledger (get out state/work-ledger-key)]
+          out (rf.resources.ssr/reconcile-on-restore rdb :app/main)
+          out-ledger (get out rf.resources.state/work-ledger-key)]
       (doseq [wid [w-running w-queued w-abort]]
         ;; rf2-9e0tyq — the ledger is keyed on the byte work-id-id.
-        (let [row (get out-ledger (work-ledger/work-id-id wid))]
+        (let [row (get out-ledger (rf.resources.work-ledger/work-id-id wid))]
           (is (= :suppressed (:status row))
               (str wid " settled to terminal :suppressed"))
-          (is (work-ledger/terminal? (:status row))
+          (is (rf.resources.work-ledger/terminal? (:status row))
               (str wid " is now terminal"))
           (is (= :dangling (get-in row [:outcome :reason]))
               (str wid " outcome marks it dangling")))))))
@@ -256,14 +256,14 @@
 (deftest terminal-rows-ride-through-unchanged
   (testing "already-terminal work-ledger rows are not re-touched by restore"
     (let [w-done [:rf.work/resource gkey 2]
-          row    (work-ledger/mark-terminal (work-row w-done :completed)
+          row    (rf.resources.work-ledger/mark-terminal (work-row w-done :completed)
                                             :completed {:ok true})
           rdb (runtime-db-with {gkey (entry {:resource-id :article/by-slug
                                              :status :loaded :data {:x 1}
                                              :loaded-at 1 :stale-at 9.0e15})}
                                {w-done row})
-          out (ssr/reconcile-on-restore rdb :app/main)]
-      (is (= row (get-in out [state/work-ledger-key (work-ledger/work-id-id w-done)]))
+          out (rf.resources.ssr/reconcile-on-restore rdb :app/main)]
+      (is (= row (get-in out [rf.resources.state/work-ledger-key (rf.resources.work-ledger/work-id-id w-done)]))
           "a completed row is unchanged"))))
 
 (deftest dangle-non-terminal-work-returns-dangled-ids
@@ -272,12 +272,12 @@
     (let [w1 [:rf.work/resource gkey 3]
           w2 [:rf.work/resource gkey 2]
           ledger {w1 (work-row w1 :running)
-                  w2 (work-ledger/mark-terminal (work-row w2 :completed) :completed {})}
-          [rdb' dangled] (ssr/dangle-non-terminal-work!
-                          {state/work-ledger-key ledger})]
+                  w2 (rf.resources.work-ledger/mark-terminal (work-row w2 :completed) :completed {})}
+          [rdb' dangled] (rf.resources.ssr/dangle-non-terminal-work!
+                          {rf.resources.state/work-ledger-key ledger})]
       (is (= [w1] dangled) "only the non-terminal row is dangled")
-      (is (= :suppressed (get-in rdb' [state/work-ledger-key w1 :status])))
-      (is (= :completed (get-in rdb' [state/work-ledger-key w2 :status]))))))
+      (is (= :suppressed (get-in rdb' [rf.resources.state/work-ledger-key w1 :status])))
+      (is (= :completed (get-in rdb' [rf.resources.state/work-ledger-key w2 :status]))))))
 
 ;; ===========================================================================
 ;; 2b. Dangle PENDING mutation instances on restore (rf2-o3d1uf, part 2)
@@ -296,7 +296,7 @@
   overrides (defaults to a :pending instance pointing at work-id)."
   [{:keys [mutation-id instance-id status generation work-id scope params]
     :or   {mutation-id :comment/add status :pending generation 3}}]
-  (-> (mstate/empty-instance mutation-id instance-id
+  (-> (rf.resources.mutation-runtime/empty-instance mutation-id instance-id
         {:scope scope :params params :generation generation
          :work-id work-id :started-at 1000})
       (assoc :status status)))
@@ -307,21 +307,21 @@
   own kind-preserving `:instance/id`. Takes `{<instance-id> <instance>}` pairs
   (instance ids as the LOGICAL key) and rekeys to the byte storage key."
   [m]
-  (into {} (map (fn [[iid inst]] [(mstate/instance-key-id iid) inst])) m))
+  (into {} (map (fn [[iid inst]] [(rf.resources.mutation-runtime/instance-key-id iid) inst])) m))
 
 (deftest instance-dangled-settles-pending-and-clears-current-work
   (testing "instance-dangled: a :pending instance settles terminal :error with
             the :dangling-on-restore envelope and CLEARS :current-work"
     (let [inst (mutation-instance {:instance-id :inst-1
                                    :work-id [:rf.work/resource [:rf.mutation :inst-1 3] 3]})
-          out  (mstate/instance-dangled inst 9999)]
+          out  (rf.resources.mutation-runtime/instance-dangled inst 9999)]
       (is (= :error (:status out)) "pending → terminal :error")
       (is (= :dangling-on-restore (:reason (:error out))))
       (is (nil? (:current-work out)) ":current-work cleared (the suppression gate)")
-      (is (mstate/terminal? (:status out)) "the instance is now terminal")))
+      (is (rf.resources.mutation-runtime/terminal? (:status out)) "the instance is now terminal")))
   (testing "a TERMINAL instance rides through unchanged"
     (let [done (mutation-instance {:instance-id :inst-2 :status :success})]
-      (is (= done (mstate/instance-dangled done 9999))))))
+      (is (= done (rf.resources.mutation-runtime/instance-dangled done 9999))))))
 
 (deftest dangle-pending-mutations-settles-and-returns-ids
   (testing "dangle-pending-mutations! settles every pending instance + clears
@@ -329,25 +329,25 @@
     (let [pending (mutation-instance {:instance-id :inst-p
                                       :work-id [:rf.work/resource [:rf.mutation :inst-p 3] 3]})
           settled (mutation-instance {:instance-id :inst-s :status :success})
-          rdb {mstate/mutations-key (mutations-map {:inst-p pending :inst-s settled})}
-          [rdb' dangled] (ssr/dangle-pending-mutations! rdb 9999)]
+          rdb {rf.resources.mutation-runtime/mutations-key (mutations-map {:inst-p pending :inst-s settled})}
+          [rdb' dangled] (rf.resources.ssr/dangle-pending-mutations! rdb 9999)]
       (is (= [:inst-p] dangled) "only the pending instance is dangled (kind-preserving :instance/id)")
-      (is (= :error (get-in rdb' [mstate/mutations-key (mstate/instance-key-id :inst-p) :status])))
-      (is (nil? (get-in rdb' [mstate/mutations-key (mstate/instance-key-id :inst-p) :current-work])))
-      (is (= :success (get-in rdb' [mstate/mutations-key (mstate/instance-key-id :inst-s) :status]))
+      (is (= :error (get-in rdb' [rf.resources.mutation-runtime/mutations-key (rf.resources.mutation-runtime/instance-key-id :inst-p) :status])))
+      (is (nil? (get-in rdb' [rf.resources.mutation-runtime/mutations-key (rf.resources.mutation-runtime/instance-key-id :inst-p) :current-work])))
+      (is (= :success (get-in rdb' [rf.resources.mutation-runtime/mutations-key (rf.resources.mutation-runtime/instance-key-id :inst-s) :status]))
           "the terminal instance is untouched")))
   (testing "no mutation instances → no-op"
     ;; EP-0019 Q3 — the return is now `[rdb dangled rolled-back-keys]`.
-    (is (= [{} [] []] (ssr/dangle-pending-mutations! {} 9999)))))
+    (is (= [{} [] []] (rf.resources.ssr/dangle-pending-mutations! {} 9999)))))
 
 (deftest reconcile-on-restore-dangles-pending-mutation-instances
   (testing "reconcile-on-restore reconciles the :rf.runtime/mutations slice too"
     (let [pending (mutation-instance {:instance-id :inst-1
                                       :work-id [:rf.work/resource [:rf.mutation :inst-1 3] 3]})
-          rdb {mstate/mutations-key (mutations-map {:inst-1 pending})}
-          out (ssr/reconcile-on-restore rdb :app/main)]
-      (is (= :error (get-in out [mstate/mutations-key (mstate/instance-key-id :inst-1) :status])))
-      (is (nil? (get-in out [mstate/mutations-key (mstate/instance-key-id :inst-1) :current-work]))))))
+          rdb {rf.resources.mutation-runtime/mutations-key (mutations-map {:inst-1 pending})}
+          out (rf.resources.ssr/reconcile-on-restore rdb :app/main)]
+      (is (= :error (get-in out [rf.resources.mutation-runtime/mutations-key (rf.resources.mutation-runtime/instance-key-id :inst-1) :status])))
+      (is (nil? (get-in out [rf.resources.mutation-runtime/mutations-key (rf.resources.mutation-runtime/instance-key-id :inst-1) :current-work]))))))
 
 (deftest dangled-instance-settled-at-is-the-restore-causal-time-not-the-live-clock
   ;; rf2-wshzsp (the option-1 CORRECTNESS fix) — a dangled-on-restore mutation
@@ -363,10 +363,10 @@
           live-sentinel 9999999999999  ; the (wrong) ambient install clock
           pending (mutation-instance {:instance-id :inst-1
                                       :work-id [:rf.work/resource [:rf.mutation :inst-1 3] 3]})
-          rdb {mstate/mutations-key (mutations-map {:inst-1 pending})}]
-      (with-redefs [interop/epoch-now-ms (constantly live-sentinel)]
-        (let [out (ssr/reconcile-on-restore rdb :app/main {:restore-time-ms restore-time})
-              inst (get-in out [mstate/mutations-key (mstate/instance-key-id :inst-1)])]
+          rdb {rf.resources.mutation-runtime/mutations-key (mutations-map {:inst-1 pending})}]
+      (with-redefs [rf.interop/epoch-now-ms (constantly live-sentinel)]
+        (let [out (rf.resources.ssr/reconcile-on-restore rdb :app/main {:restore-time-ms restore-time})
+              inst (get-in out [rf.resources.mutation-runtime/mutations-key (rf.resources.mutation-runtime/instance-key-id :inst-1)])]
           (is (= :error (:status inst)) "the pending instance is terminally dangled")
           (is (= restore-time (:settled-at inst))
               ":settled-at is the causal :restore-time-ms — replay-stable")
@@ -377,10 +377,10 @@
     (let [live-sentinel 9999999999999
           pending (mutation-instance {:instance-id :inst-1
                                       :work-id [:rf.work/resource [:rf.mutation :inst-1 3] 3]})
-          rdb {mstate/mutations-key (mutations-map {:inst-1 pending})}]
-      (with-redefs [interop/epoch-now-ms (constantly live-sentinel)]
-        (let [out (ssr/reconcile-on-restore rdb :app/main)]
-          (is (= live-sentinel (get-in out [mstate/mutations-key (mstate/instance-key-id :inst-1) :settled-at]))
+          rdb {rf.resources.mutation-runtime/mutations-key (mutations-map {:inst-1 pending})}]
+      (with-redefs [rf.interop/epoch-now-ms (constantly live-sentinel)]
+        (let [out (rf.resources.ssr/reconcile-on-restore rdb :app/main)]
+          (is (= live-sentinel (get-in out [rf.resources.mutation-runtime/mutations-key (rf.resources.mutation-runtime/instance-key-id :inst-1) :settled-at]))
               "no causal time supplied → the unit path falls back to the live clock"))))))
 
 (deftest dangling-mutation-without-restore-time-warns-loudly
@@ -393,18 +393,18 @@
   ;; is loud, not a quiet footgun (no-silent-swallow).
   (let [pending (mutation-instance {:instance-id :inst-1
                                     :work-id [:rf.work/resource [:rf.mutation :inst-1 3] 3]})
-        rdb {mstate/mutations-key (mutations-map {:inst-1 pending})}
+        rdb {rf.resources.mutation-runtime/mutations-key (mutations-map {:inst-1 pending})}
         recorder (fn []
                    (let [seen (atom [])
                          k    ::live-clock-warn-recorder]
-                     (trace-tooling/register-listener!
+                     (rf.trace.tooling/register-listener!
                        k (fn [ev] (when (= :rf.resource/restore-settled-at-from-live-clock
                                            (:operation ev))
                                     (swap! seen conj ev))))
-                     [seen (fn [] (trace-tooling/unregister-listener! k))]))]
+                     [seen (fn [] (rf.trace.tooling/unregister-listener! k))]))]
     (testing "dangling a pending mutation with NO :restore-time-ms warns loudly"
       (let [[seen unregister!] (recorder)]
-        (try (ssr/reconcile-on-restore rdb :app/main)
+        (try (rf.resources.ssr/reconcile-on-restore rdb :app/main)
              (finally (unregister!)))
         (is (= 1 (count @seen))
             "exactly one restore-settled-at-from-live-clock warning fired")
@@ -413,14 +413,14 @@
     (testing "supplying a causal :restore-time-ms suppresses the warning (the
               durable stamp folds the causal token — replay-stable)"
       (let [[seen unregister!] (recorder)]
-        (try (ssr/reconcile-on-restore rdb :app/main {:restore-time-ms 1781078400777})
+        (try (rf.resources.ssr/reconcile-on-restore rdb :app/main {:restore-time-ms 1781078400777})
              (finally (unregister!)))
         (is (empty? @seen)
             "no live-clock warning when the causal restore time is threaded")))
     (testing "no warning when NO pending mutations are dangled (nothing durable
               was stamped from the live clock)"
       (let [[seen unregister!] (recorder)]
-        (try (ssr/reconcile-on-restore {mstate/mutations-key {}} :app/main)
+        (try (rf.resources.ssr/reconcile-on-restore {rf.resources.mutation-runtime/mutations-key {}} :app/main)
              (finally (unregister!)))
         (is (empty? @seen)
             "an empty restore stamps no durable :settled-at, so no warning")))))
@@ -440,7 +440,7 @@
                             :data {:title "post-restore"} :loaded-at 1 :stale-at 9.0e15
                             :generation 9})
           instance-id [:rf.mutation/instance :article/edit 3]
-          work-id   (work-ledger/resource-work-id [:rf.mutation instance-id] 3)
+          work-id   (rf.resources.work-ledger/resource-work-id [:rf.mutation instance-id] 3)
           ;; the captured snapshot: a PENDING mutation instance pointing at work-id
           pending   (mutation-instance {:mutation-id :article/edit
                                         :instance-id instance-id
@@ -448,21 +448,21 @@
                                         :scope :rf.scope/global :params {:slug "x"}})
           ;; the runtime-db that restore is about to install (reconciled first)
           snapshot  (-> (runtime-db-with {gkey loaded})
-                        (assoc mstate/mutations-key (mutations-map {instance-id pending}))
-                        (assoc-in (work-ledger/record-path work-id)
-                                  (-> (work-ledger/work-record
+                        (assoc rf.resources.mutation-runtime/mutations-key (mutations-map {instance-id pending}))
+                        (assoc-in (rf.resources.work-ledger/record-path work-id)
+                                  (-> (rf.resources.work-ledger/work-record
                                         {:work-id work-id :frame-id fid
                                          :resource/key [:rf.mutation instance-id]
                                          :generation 3 :transport :rf.http/managed
                                          :started-at 1000})
                                       (assoc :work/kind :mutation))))
-          reconciled (ssr/reconcile-on-restore snapshot fid)]
+          reconciled (rf.resources.ssr/reconcile-on-restore snapshot fid)]
       (rf/make-frame {:id fid :doc "restore mutation suppression frame"})
       ;; install the reconciled snapshot as the live frame-state
-      (frame/replace-runtime-db! fid reconciled)
+      (rf.frame/replace-runtime-db! fid reconciled)
       (testing "post-reconcile the pending instance is terminal + current-work cleared"
-        (is (= :error (get-in reconciled [mstate/mutations-key (mstate/instance-key-id instance-id) :status])))
-        (is (nil? (get-in reconciled [mstate/mutations-key (mstate/instance-key-id instance-id) :current-work]))))
+        (is (= :error (get-in reconciled [rf.resources.mutation-runtime/mutations-key (rf.resources.mutation-runtime/instance-key-id instance-id) :status])))
+        (is (nil? (get-in reconciled [rf.resources.mutation-runtime/mutations-key (rf.resources.mutation-runtime/instance-key-id instance-id) :current-work]))))
       ;; NOW the late pre-restore mutation SUCCESS reply lands (carrying the
       ;; pre-restore work-id + generation that the snapshot instance held).
       (rf/dispatch-sync
@@ -471,13 +471,13 @@
           :work/id work-id :generation 3 :scope :rf.scope/global}
          {:status :ok :value {:title "STALE pre-restore write"}}]
         {:frame fid})
-      (let [post (frame/frame-runtime-db-value fid)
-            e    (get-in post [state/resources-key :entries (state/key-id gkey)])]
+      (let [post (rf.frame/frame-runtime-db-value fid)
+            e    (get-in post [rf.resources.state/resources-key :entries (rf.resources.state/key-id gkey)])]
         (is (= {:title "post-restore"} (:data e))
             "the resource entry is UNCHANGED — the stale reply did not patch/populate it")
-        (is (= :error (get-in post [mstate/mutations-key (mstate/instance-key-id instance-id) :status]))
+        (is (= :error (get-in post [rf.resources.mutation-runtime/mutations-key (rf.resources.mutation-runtime/instance-key-id instance-id) :status]))
             "the dangled instance stays terminal :error — the stale reply did not revive it"))
-      (frame/destroy-frame! fid))))
+      (rf.frame/destroy-frame! fid))))
 
 ;; ===========================================================================
 ;; 3. Owner reconciliation: orphan SSR, keep route (Spec 016 §Restore part 4)
@@ -495,16 +495,16 @@
           ;; the restored routing slice considers nav-1 live — the route owner
           ;; names the same nav-token, so it revives (Spec 016 §Restore part 4).
           rdb (with-live-nav-token (runtime-db-with {gkey e}) "nav-1")
-          out (ssr/reconcile-on-restore rdb :app/main)
-          owners (get-in out [state/resources-key :entries (state/key-id gkey) :active-owners])]
+          out (rf.resources.ssr/reconcile-on-restore rdb :app/main)
+          owners (get-in out [rf.resources.state/resources-key :entries (rf.resources.state/key-id gkey) :active-owners])]
       (is (not (contains? owners [:ssr "req-9" "nav-1"])) "SSR owner orphaned")
       (is (contains? owners [:route :route/article "nav-1"])
           "live-nav route owner survives (its nav-token is the one routing names live)")
       (is (contains? owners [:machine :checkout/flow "inst-1"]) "machine owner survives")
-      (is (not (contains? (get-in out [state/resources-key :owner-index])
+      (is (not (contains? (get-in out [rf.resources.state/resources-key :owner-index])
                           [:ssr "req-9" "nav-1"]))
           "the orphaned SSR owner is absent from the recomputed owner-index")
-      (is (contains? (get-in out [state/resources-key :owner-index])
+      (is (contains? (get-in out [rf.resources.state/resources-key :owner-index])
                      [:route :route/article "nav-1"])
           "the live-nav route owner IS in the recomputed owner-index"))))
 
@@ -520,17 +520,17 @@
           ;; the restored routing slice considers nav-NEW live; nav-OLD is the
           ;; navigation the timeline has already left.
           rdb (with-live-nav-token (runtime-db-with {gkey e}) "nav-NEW")
-          out (ssr/reconcile-on-restore rdb :app/main)
-          owners (get-in out [state/resources-key :entries (state/key-id gkey) :active-owners])]
+          out (rf.resources.ssr/reconcile-on-restore rdb :app/main)
+          owners (get-in out [rf.resources.state/resources-key :entries (rf.resources.state/key-id gkey) :active-owners])]
       (is (not (contains? owners stale))
           "the stale-nav route owner (nav-OLD ≠ live nav-NEW) is orphaned")
       (is (contains? owners live)
           "the live-nav route owner (nav-NEW = live) survives")
       (is (contains? owners [:machine :checkout/flow "inst-1"])
           "the machine owner is untouched")
-      (is (not (contains? (get-in out [state/resources-key :owner-index]) stale))
+      (is (not (contains? (get-in out [rf.resources.state/resources-key :owner-index]) stale))
           "the orphaned stale-nav route owner is absent from the recomputed owner-index")
-      (is (contains? (get-in out [state/resources-key :owner-index]) live)
+      (is (contains? (get-in out [rf.resources.state/resources-key :owner-index]) live)
           "the surviving live-nav route owner is present in the owner-index"))))
 
 ;; rf2-64bdnk — on RESTORE, a missing/nil live nav-token means NO route owner
@@ -558,14 +558,14 @@
                                     route-owner
                                     [:machine :checkout/flow "inst-1"]
                                     [:app :dashboard 7]}})
-              out (ssr/reconcile-on-restore (rdb-fn (runtime-db-with {gkey e})) :app/main)
-              owners (get-in out [state/resources-key :entries (state/key-id gkey) :active-owners])]
+              out (rf.resources.ssr/reconcile-on-restore (rdb-fn (runtime-db-with {gkey e})) :app/main)
+              owners (get-in out [rf.resources.state/resources-key :entries (rf.resources.state/key-id gkey) :active-owners])]
           (is (not (contains? owners route-owner))
               "the route owner is ORPHANED (no live nav-token names it live)")
           (is (not (contains? owners [:ssr "req-9" "nav-1"])) "SSR owner orphaned")
           (is (contains? owners [:machine :checkout/flow "inst-1"]) "machine owner survives")
           (is (contains? owners [:app :dashboard 7]) "app owner survives")
-          (is (not (contains? (get-in out [state/resources-key :owner-index]) route-owner))
+          (is (not (contains? (get-in out [rf.resources.state/resources-key :owner-index]) route-owner))
               "the orphaned route owner is absent from the recomputed owner-index"))))))
 
 (deftest restore-no-live-token-emits-owner-release-trace
@@ -576,12 +576,12 @@
                       :loaded-at 1 :stale-at 9.0e15 :owners #{route-owner}})
           seen (atom [])
           k    ::owner-release-recorder]
-      (trace-tooling/register-listener!
+      (rf.trace.tooling/register-listener!
         k (fn [ev] (when (= :rf.resource/owner-released (:operation ev))
                      (swap! seen conj ev))))
       (try
-        (ssr/reconcile-on-restore (runtime-db-with {gkey e}) :app/main)
-        (finally (trace-tooling/unregister-listener! k)))
+        (rf.resources.ssr/reconcile-on-restore (runtime-db-with {gkey e}) :app/main)
+        (finally (rf.trace.tooling/unregister-listener! k)))
       (is (some #(= route-owner (:owner (:tags %))) @seen)
           "an owner-released row names the orphaned route owner")
       (is (some #(= :stale-nav-orphan (:reason (:tags %))) @seen)
@@ -607,11 +607,11 @@
   []
   (let [seen (atom [])
         k    ::restore-trace-recorder]
-    (trace-tooling/register-listener!
+    (rf.trace.tooling/register-listener!
       k (fn [ev] (when (contains? #{:rf.resource/restored :rf.resource/owner-released}
                                   (:operation ev))
                    (swap! seen conj ev))))
-    [seen (fn [] (trace-tooling/unregister-listener! k))]))
+    [seen (fn [] (rf.trace.tooling/unregister-listener! k))]))
 
 (deftest defer-traces-does-not-emit-inline
   (testing "rf2-obi8rr — reconcile-on-restore with :defer-traces? true emits NO
@@ -622,14 +622,14 @@
                       :loaded-at 1 :stale-at 9.0e15 :owners #{stale}})
           rdb (with-live-nav-token (runtime-db-with {gkey e}) "nav-NEW")
           [seen unregister!] (restore-trace-recorder)
-          out (try (ssr/reconcile-on-restore rdb :app/main {:defer-traces? true})
+          out (try (rf.resources.ssr/reconcile-on-restore rdb :app/main {:defer-traces? true})
                    (finally (unregister!)))]
       (is (empty? @seen)
           "no restore/owner-released trace fired inline under :defer-traces? true")
       (is (seq (-> out meta (get :re-frame.resources.ssr/deferred-trace-intents)))
           "the trace intents ride back as metadata on the reconciled runtime-db")
       ;; the reconcile work still happened (the stale owner was orphaned)
-      (is (not (contains? (get-in out [state/resources-key :entries (state/key-id gkey) :active-owners]) stale))
+      (is (not (contains? (get-in out [rf.resources.state/resources-key :entries (rf.resources.state/key-id gkey) :active-owners]) stale))
           "the stale-nav owner is still reconciled (only the TRACE is deferred)"))))
 
 (deftest commit-restore-reconcile-traces-emits-deferred-rows
@@ -640,9 +640,9 @@
           e   (entry {:resource-id :article/by-slug :status :loaded :data {:x 1}
                       :loaded-at 1 :stale-at 9.0e15 :owners #{stale}})
           rdb (with-live-nav-token (runtime-db-with {gkey e}) "nav-NEW")
-          out (ssr/reconcile-on-restore rdb :app/main {:defer-traces? true})
+          out (rf.resources.ssr/reconcile-on-restore rdb :app/main {:defer-traces? true})
           [seen unregister!] (restore-trace-recorder)]
-      (try (ssr/commit-restore-reconcile-traces! out)
+      (try (rf.resources.ssr/commit-restore-reconcile-traces! out)
            (finally (unregister!)))
       (is (some #(= :rf.resource/restored (:operation %)) @seen)
           "the deferred :rf.resource/restored summary row is emitted on commit")
@@ -656,8 +656,8 @@
     (let [[seen unregister!] (restore-trace-recorder)]
       (try
         ;; a plain runtime-db (no deferred-intents metadata) → nothing emitted
-        (ssr/commit-restore-reconcile-traces! (runtime-db-with {}))
-        (ssr/commit-restore-reconcile-traces! nil)
+        (rf.resources.ssr/commit-restore-reconcile-traces! (runtime-db-with {}))
+        (rf.resources.ssr/commit-restore-reconcile-traces! nil)
         (finally (unregister!)))
       (is (empty? @seen) "no intents → no trace rows"))))
 
@@ -667,16 +667,16 @@
     (let [e   (entry {:resource-id :article/by-slug :status :loaded :data {:x 1}
                       :loaded-at 1 :stale-at 9.0e15})
           [seen unregister!] (restore-trace-recorder)]
-      (try (ssr/reconcile-on-restore (runtime-db-with {gkey e}) :app/main)
+      (try (rf.resources.ssr/reconcile-on-restore (runtime-db-with {gkey e}) :app/main)
            (finally (unregister!)))
       (is (some #(= :rf.resource/restored (:operation %)) @seen)
           "the inline path emits the :rf.resource/restored summary immediately"))))
 
 (deftest commit-hook-published
   (testing "rf2-obi8rr — the :resources/commit-restore-reconcile! hook is published"
-    (is (some? (late-bind/get-fn :resources/commit-restore-reconcile!)))
-    (is (= ssr/commit-restore-reconcile-traces!
-           (late-bind/get-fn :resources/commit-restore-reconcile!)))))
+    (is (some? (rf.late-bind/get-fn :resources/commit-restore-reconcile!)))
+    (is (= rf.resources.ssr/commit-restore-reconcile-traces!
+           (rf.late-bind/get-fn :resources/commit-restore-reconcile!)))))
 
 (deftest hydration-parity-route-owners-ride-through-without-routing
   (testing "rf2-64bdnk parity — HYDRATION (the no-comparison-yet case) still
@@ -686,8 +686,8 @@
           e   (entry {:resource-id :article/by-slug :status :loaded :data {:x 1}
                       :loaded-at 1 :stale-at 9.0e15
                       :owners #{[:ssr "req-9" "nav-1"] route-owner}})
-          out (ssr/hydrate-runtime-db (runtime-db-with {gkey e}) :app/main)
-          owners (get-in out [state/resources-key :entries (state/key-id gkey) :active-owners])]
+          out (rf.resources.ssr/hydrate-runtime-db (runtime-db-with {gkey e}) :app/main)
+          owners (get-in out [rf.resources.state/resources-key :entries (rf.resources.state/key-id gkey) :active-owners])]
       (is (not (contains? owners [:ssr "req-9" "nav-1"]))
           "SSR owner still orphans on hydration")
       (is (contains? owners route-owner)
@@ -711,15 +711,15 @@
           ;; stamped), then overwrite the indexes with deliberately-wrong
           ;; snapshot values to prove they are discarded + recomputed.
           rdb (-> (runtime-db-with {gkey e})
-                  (assoc-in [state/resources-key :tag-index]   {[:bogus] #{:nope}})
-                  (assoc-in [state/resources-key :owner-index] {[:bogus] #{:nope}})
+                  (assoc-in [rf.resources.state/resources-key :tag-index]   {[:bogus] #{:nope}})
+                  (assoc-in [rf.resources.state/resources-key :owner-index] {[:bogus] #{:nope}})
                   (with-live-nav-token "nav-1"))
-          out (ssr/reconcile-on-restore rdb :app/main)
-          sub (get out state/resources-key)]
+          out (rf.resources.ssr/reconcile-on-restore rdb :app/main)
+          sub (get out rf.resources.state/resources-key)]
       ;; rf2-9e0tyq — index MEMBERS are the byte key-id, not the scoped-key vector.
-      (is (= {[:article "x"] #{(state/key-id gkey)}} (:tag-index sub))
+      (is (= {[:article "x"] #{(rf.resources.state/key-id gkey)}} (:tag-index sub))
           "tag-index recomputed from the entry's :tags; bogus snapshot index discarded")
-      (is (= {[:route :route/article "nav-1"] #{(state/key-id gkey)}} (:owner-index sub))
+      (is (= {[:route :route/article "nav-1"] #{(rf.resources.state/key-id gkey)}} (:owner-index sub))
           "owner-index recomputed from the entry's owners; bogus snapshot index discarded"))))
 
 ;; ===========================================================================
@@ -736,12 +736,12 @@
 (defn- frame-timer-keys
   "The timer-table keys (`[frame-id resource-key kind]`) armed for `frame-id`."
   [frame-id]
-  (filter (fn [[fid _ _]] (= fid frame-id)) (keys @timers/timer-table)))
+  (filter (fn [[fid _ _]] (= fid frame-id)) (keys @rf.resources.timers/timer-table)))
 
 (defn- work-handle-keys
   "The work-ledger handle-table keys (`[frame-id work-id]`) for `frame-id`."
   [frame-id]
-  (filter (fn [[fid _]] (= fid frame-id)) (keys @work-ledger/handle-table)))
+  (filter (fn [[fid _]] (= fid frame-id)) (keys @rf.resources.work-ledger/handle-table)))
 
 (deftest clear-host-transients-on-restore-clears-timers-and-handles
   (testing "rf2-nd1r9q — restore clears the frame's armed stale/GC timer handles
@@ -751,33 +751,33 @@
           wid  [:rf.work/resource gkey 4]]
       ;; arm a stale timer (long delay so it never fires during the test) and a
       ;; work-ledger host handle for the frame.
-      (timers/schedule! fid rkey timers/stale-kind 600000)
-      (work-ledger/put-handle! fid wid {:transport :rf.http/managed :request-id wid})
+      (rf.resources.timers/schedule! fid rkey rf.resources.timers/stale-kind 600000)
+      (rf.resources.work-ledger/put-handle! fid wid {:transport :rf.http/managed :request-id wid})
       (is (seq (frame-timer-keys fid)) "a stale timer is armed for the frame")
       (is (seq (work-handle-keys fid)) "a work handle is recorded for the frame")
       ;; restore the frame's snapshot (a mid-flight fetching entry)
       (let [e (entry {:resource-id :article/by-slug :status :fetching :data {:x 1}
                       :loaded-at 1 :stale-at 9.0e15 :current-work wid})]
-        (ssr/reconcile-on-restore (runtime-db-with {gkey e}) fid))
+        (rf.resources.ssr/reconcile-on-restore (runtime-db-with {gkey e}) fid))
       (is (empty? (frame-timer-keys fid))
           "the frame's stale/GC timer handles are GONE after restore")
       (is (empty? (work-handle-keys fid))
           "the frame's work-ledger host handles are GONE after restore")
       ;; cleanup any stray timers (none expected)
-      (timers/cancel-for-key! fid rkey))))
+      (rf.resources.timers/cancel-for-key! fid rkey))))
 
 (deftest restore-host-clear-preserves-generation-high-water
   (testing "rf2-nd1r9q — clearing host transients on restore does NOT rewind the
             generation high-water mark (part 1 — it must stay monotonic)"
     (let [fid :restore/gen-preserve]
-      (state/commit-generation! fid 11)
-      (timers/schedule! fid gkey timers/stale-kind 600000)
+      (rf.resources.state/commit-generation! fid 11)
+      (rf.resources.timers/schedule! fid gkey rf.resources.timers/stale-kind 600000)
       (let [e (entry {:resource-id :article/by-slug :status :fetching :data {:x 1}
                       :loaded-at 1 :stale-at 9.0e15 :current-work [:rf.work/resource gkey 5]})]
-        (ssr/reconcile-on-restore (runtime-db-with {gkey e}) fid))
-      (is (= 11 (state/generation-snapshot fid))
+        (rf.resources.ssr/reconcile-on-restore (runtime-db-with {gkey e}) fid))
+      (is (= 11 (rf.resources.state/generation-snapshot fid))
           "the host-side generation high-water mark is UNTOUCHED by the host-transient clear")
-      (timers/cancel-for-key! fid gkey))))
+      (rf.resources.timers/cancel-for-key! fid gkey))))
 
 (deftest restore-host-clear-triggers-no-eager-refetch
   (testing "rf2-nd1r9q — restore clears transients but arms NO eager refetch /
@@ -785,7 +785,7 @@
     (let [fid :restore/no-eager
           e   (entry {:resource-id :article/by-slug :status :loaded
                       :data {:x 1} :loaded-at 1 :stale-at 2})] ;; stale
-      (ssr/reconcile-on-restore (runtime-db-with {gkey e}) fid)
+      (rf.resources.ssr/reconcile-on-restore (runtime-db-with {gkey e}) fid)
       (is (empty? (frame-timer-keys fid))
           "no stale/GC timer is armed by restore (lazy re-arm on next ensure)")
       (is (empty? (work-handle-keys fid))
@@ -794,7 +794,7 @@
 (deftest clear-host-transients-on-restore-is-pure-subset
   (testing "rf2-nd1r9q — clear-host-transients-on-restore! clears timers + work
             handles but is a no-op on an unarmed frame (idempotent)"
-    (is (nil? (ssr/clear-host-transients-on-restore! :restore/unarmed)))))
+    (is (nil? (rf.resources.ssr/clear-host-transients-on-restore! :restore/unarmed)))))
 
 (deftest reconcile-host-transient-clear-fenced-to-exact-incarnation
   (testing "rf2-qfrh4 seam 2 — the pre-write host-transient clear fires only when
@@ -809,12 +809,12 @@
           rkey gkey
           wid  [:rf.work/resource gkey 7]
           arm! (fn []
-                 (timers/schedule! fid rkey timers/stale-kind 600000)
-                 (work-ledger/put-handle! fid wid {:transport :rf.http/managed :request-id wid}))
+                 (rf.resources.timers/schedule! fid rkey rf.resources.timers/stale-kind 600000)
+                 (rf.resources.work-ledger/put-handle! fid wid {:transport :rf.http/managed :request-id wid}))
           e    (entry {:resource-id :article/by-slug :status :fetching :data {:x 1}
                        :loaded-at 1 :stale-at 9.0e15 :current-work wid})]
       (rf/make-frame {:id fid})
-      (let [live-token  (frame/frame-incarnation-token fid)
+      (let [live-token  (rf.frame/frame-incarnation-token fid)
             ;; a unique reference that never names fid's live incarnation — an
             ;; incarnation token is a `:drain-lock` atom, so a fresh atom stands
             ;; in for a destroyed / successor incarnation's token (cross-host:
@@ -824,26 +824,26 @@
         (arm!)
         (is (seq (frame-timer-keys fid)) "armed a stale timer for the frame")
         (is (seq (work-handle-keys fid)) "recorded a work handle for the frame")
-        (ssr/reconcile-on-restore (runtime-db-with {gkey e}) fid {:owner-token stale-token})
+        (rf.resources.ssr/reconcile-on-restore (runtime-db-with {gkey e}) fid {:owner-token stale-token})
         (is (seq (frame-timer-keys fid))
             "a stale incarnation token SKIPS the timer clear (successor's handle spared)")
         (is (seq (work-handle-keys fid))
             "a stale incarnation token SKIPS the work-handle clear")
         ;; LIVE token — clears as before.
-        (ssr/reconcile-on-restore (runtime-db-with {gkey e}) fid {:owner-token live-token})
+        (rf.resources.ssr/reconcile-on-restore (runtime-db-with {gkey e}) fid {:owner-token live-token})
         (is (empty? (frame-timer-keys fid)) "the live incarnation token clears the timer")
         (is (empty? (work-handle-keys fid)) "the live incarnation token clears the work handle")
         ;; nil token (pure-unit path) — clears unconditionally, as before.
         (arm!)
-        (ssr/reconcile-on-restore (runtime-db-with {gkey e}) fid {:owner-token nil})
+        (rf.resources.ssr/reconcile-on-restore (runtime-db-with {gkey e}) fid {:owner-token nil})
         (is (empty? (frame-timer-keys fid)) "nil token clears the timer unconditionally")
         (is (empty? (work-handle-keys fid)) "nil token clears the work handle unconditionally")
-        (timers/cancel-for-key! fid rkey)))))
+        (rf.resources.timers/cancel-for-key! fid rkey)))))
 
 ;; ---- rf2-sdeae — the clear itself is a CALLBACK-BEARING fan-out ------------
 ;;
 ;; The seam-2 fence above answers "may this clear run at all?" ONCE, before the
-;; fan-out. But the fan-out is not callback-free: `work-ledger/release-frame!`
+;; fan-out. But the fan-out is not callback-free: `rf.resources.work-ledger/release-frame!`
 ;; best-effort ABORTS each slot on the way out, and an abort callback is app /
 ;; transport code that can churn incarnation A to a same-id successor B and let
 ;; B record a handle in the SAME `[frame-id work-id]` slot. Read-abort-dissoc
@@ -854,7 +854,7 @@
 ;; FIRST (one `swap-vals!`, no callback window before it), then abort the
 ;; DETACHED handle values. Callbacks then act on detached attempt identities and
 ;; can neither be re-read nor dissociated by A's tail. This is the discipline
-;; `timers/release-frame!` already uses for the sibling timer table.
+;; `rf.resources.timers/release-frame!` already uses for the sibling timer table.
 
 (deftest work-ledger-release-frame-detaches-before-abort-callbacks
   (testing "rf2-sdeae — an abort callback that seats a same-id successor B in the
@@ -868,18 +868,18 @@
       ;; A's slot carries an abort callback that — synchronously, at the exact
       ;; seam between the table read and the dissoc — seats successor B's handle
       ;; in the very slot key A is about to drop.
-      (work-ledger/put-handle! fid wid
+      (rf.resources.work-ledger/put-handle! fid wid
         {:transport :rf.http/direct
          :owner     :A
          :abort-fn  (fn [reason]
                       (swap! aborted conj reason)
-                      (work-ledger/put-handle! fid wid b-handle))})
-      (work-ledger/release-frame! fid)
+                      (rf.resources.work-ledger/put-handle! fid wid b-handle))})
+      (rf.resources.work-ledger/release-frame! fid)
       (is (= [:resource-superseded] @aborted)
           "A's abort callback fired exactly once")
-      (is (identical? b-handle (work-ledger/get-handle fid wid))
+      (is (identical? b-handle (rf.resources.work-ledger/get-handle fid wid))
           "successor B's re-seated handle survives byte-for-byte (not dissoc'd by A's tail)")
-      (work-ledger/clear-handle! fid wid))))
+      (rf.resources.work-ledger/clear-handle! fid wid))))
 
 (deftest work-ledger-release-frame-abort-callback-reentrancy
   (testing "rf2-sdeae adversarial (nested fan-out) — an abort callback that
@@ -891,22 +891,22 @@
           wid-2    [:rf.work/resource gkey 22]
           b-handle {:transport :rf.http/managed :owner :B}
           aborted  (atom [])]
-      (work-ledger/put-handle! fid wid-1
+      (rf.resources.work-ledger/put-handle! fid wid-1
         {:owner :A :abort-fn (fn [_]
                                (swap! aborted conj :a1)
                                ;; nested fan-out over the same frame
-                               (work-ledger/release-frame! fid)
+                               (rf.resources.work-ledger/release-frame! fid)
                                ;; …then B seats a handle in a slot the OUTER
                                ;; pass still holds detached.
-                               (work-ledger/put-handle! fid wid-2 b-handle))})
-      (work-ledger/put-handle! fid wid-2
+                               (rf.resources.work-ledger/put-handle! fid wid-2 b-handle))})
+      (rf.resources.work-ledger/put-handle! fid wid-2
         {:owner :A :abort-fn (fn [_] (swap! aborted conj :a2))})
-      (work-ledger/release-frame! fid)
+      (rf.resources.work-ledger/release-frame! fid)
       (is (= 1 (count (filter #{:a1} @aborted))) "A's slot 1 aborted exactly once")
       (is (= 1 (count (filter #{:a2} @aborted))) "A's slot 2 aborted exactly once")
-      (is (identical? b-handle (work-ledger/get-handle fid wid-2))
+      (is (identical? b-handle (rf.resources.work-ledger/get-handle fid wid-2))
           "the successor handle seated during the nested fan-out survives")
-      (work-ledger/clear-handle! fid wid-2))))
+      (rf.resources.work-ledger/clear-handle! fid wid-2))))
 
 (deftest work-ledger-abort-callback-may-drop-its-own-slot
   (testing "rf2-sdeae adversarial (callback drops its own listener mid-cleanup) —
@@ -916,14 +916,14 @@
     (let [fid      :restore/self-drop
           wid      [:rf.work/resource gkey 31]
           b-handle {:transport :rf.http/managed :owner :B}]
-      (work-ledger/put-handle! fid wid
+      (rf.resources.work-ledger/put-handle! fid wid
         {:owner :A :abort-fn (fn [_]
-                               (work-ledger/clear-handle! fid wid)
-                               (work-ledger/put-handle! fid wid b-handle))})
-      (work-ledger/release-frame! fid)
-      (is (identical? b-handle (work-ledger/get-handle fid wid))
+                               (rf.resources.work-ledger/clear-handle! fid wid)
+                               (rf.resources.work-ledger/put-handle! fid wid b-handle))})
+      (rf.resources.work-ledger/release-frame! fid)
+      (is (identical? b-handle (rf.resources.work-ledger/get-handle fid wid))
           "the successor handle the callback seated after self-clearing survives")
-      (work-ledger/clear-handle! fid wid))))
+      (rf.resources.work-ledger/clear-handle! fid wid))))
 
 (deftest opportunistic-abort-detaches-before-abort-callback
   (testing "rf2-sdeae — the single-slot public abort has the same seam: the abort
@@ -932,13 +932,13 @@
     (let [fid      :restore/one-slot
           wid      [:rf.work/resource gkey 41]
           b-handle {:transport :rf.http/managed :owner :B}]
-      (work-ledger/put-handle! fid wid
-        {:owner :A :abort-fn (fn [_] (work-ledger/put-handle! fid wid b-handle))})
-      (is (true? (work-ledger/opportunistic-abort! fid wid))
+      (rf.resources.work-ledger/put-handle! fid wid
+        {:owner :A :abort-fn (fn [_] (rf.resources.work-ledger/put-handle! fid wid b-handle))})
+      (is (true? (rf.resources.work-ledger/opportunistic-abort! fid wid))
           "an abort capability was found and fired")
-      (is (identical? b-handle (work-ledger/get-handle fid wid))
+      (is (identical? b-handle (rf.resources.work-ledger/get-handle fid wid))
           "successor B's re-seated handle survives the returning clear")
-      (work-ledger/clear-handle! fid wid))))
+      (rf.resources.work-ledger/clear-handle! fid wid))))
 
 ;; ---- rf2-sdeae — the deferred trace commit is a callback fan-out too -------
 
@@ -954,15 +954,15 @@
                         :loaded-at 1 :stale-at 9.0e15 :owners #{stale}})
           rdb   (with-live-nav-token (runtime-db-with {gkey e}) "nav-NEW")]
       (rf/make-frame {:id fid})
-      (let [token (frame/frame-incarnation-token fid)
-            out   (ssr/reconcile-on-restore rdb fid {:defer-traces? true :owner-token token})
+      (let [token (rf.frame/frame-incarnation-token fid)
+            out   (rf.resources.ssr/reconcile-on-restore rdb fid {:defer-traces? true :owner-token token})
             intents (-> out meta (get :re-frame.resources.ssr/deferred-trace-intents))
             [seen unregister!] (restore-trace-recorder)
             churned? (atom false)]
         (is (< 1 (count intents))
             "the reconcile deferred MORE than one intent (a genuine fan-out)")
         ;; the FIRST emitted intent's listener destroys A and seats successor B
-        (trace-tooling/register-listener! ::sdeae-churn
+        (rf.trace.tooling/register-listener! ::sdeae-churn
           (fn [ev]
             (when (and (not @churned?)
                        (contains? #{:rf.resource/restored :rf.resource/owner-released}
@@ -971,9 +971,9 @@
               (rf/destroy-frame! fid)
               (rf/make-frame {:id fid}))))
         (try
-          (ssr/commit-restore-reconcile-traces! out fid {:owner-token token})
+          (rf.resources.ssr/commit-restore-reconcile-traces! out fid {:owner-token token})
           (finally
-            (trace-tooling/unregister-listener! ::sdeae-churn)
+            (rf.trace.tooling/unregister-listener! ::sdeae-churn)
             (unregister!)))
         (is (true? @churned?) "the first intent's listener churned A to B")
         (is (= 1 (count @seen))
@@ -986,22 +986,22 @@
           stale [:route :route/article "nav-OLD"]
           e     (entry {:resource-id :article/by-slug :status :loaded :data {:x 1}
                         :loaded-at 1 :stale-at 9.0e15 :owners #{stale}})
-          mk    (fn [] (ssr/reconcile-on-restore
+          mk    (fn [] (rf.resources.ssr/reconcile-on-restore
                          (with-live-nav-token (runtime-db-with {gkey e}) "nav-NEW")
                          fid {:defer-traces? true}))]
       (rf/make-frame {:id fid})
-      (let [token (frame/frame-incarnation-token fid)
+      (let [token (rf.frame/frame-incarnation-token fid)
             n     (count (-> (mk) meta (get :re-frame.resources.ssr/deferred-trace-intents)))]
         (let [[seen unregister!] (restore-trace-recorder)]
-          (try (ssr/commit-restore-reconcile-traces! (mk))
+          (try (rf.resources.ssr/commit-restore-reconcile-traces! (mk))
                (finally (unregister!)))
           (is (= n (count @seen)) "the 1-arity commits every intent unconditionally"))
         (let [[seen unregister!] (restore-trace-recorder)]
-          (try (ssr/commit-restore-reconcile-traces! (mk) fid {:owner-token token})
+          (try (rf.resources.ssr/commit-restore-reconcile-traces! (mk) fid {:owner-token token})
                (finally (unregister!)))
           (is (= n (count @seen)) "a LIVE incarnation commits every intent"))
         (let [[seen unregister!] (restore-trace-recorder)]
-          (try (ssr/commit-restore-reconcile-traces! (mk) fid {:owner-token nil})
+          (try (rf.resources.ssr/commit-restore-reconcile-traces! (mk) fid {:owner-token nil})
                (finally (unregister!)))
           (is (= n (count @seen)) "a nil token commits every intent, as before"))))))
 
@@ -1014,7 +1014,7 @@
             cannot rewind it, so a post-restore allocation strictly exceeds any
             pre-restore generation (anti-recycling, part 1)"
     ;; Pre-restore: the live timeline minted up to generation 7.
-    (state/commit-generation! :app/main 7)
+    (rf.resources.state/commit-generation! :app/main 7)
     ;; The captured snapshot is from an earlier epoch where generation was 3.
     ;; reconcile-on-restore touches ONLY durable frame-state — never the host
     ;; allocator — so the high-water mark stays at 7.
@@ -1022,13 +1022,13 @@
                                  :data {:x 1} :loaded-at 1 :stale-at 9.0e15
                                  :generation 3
                                  :current-work [:rf.work/resource gkey 3]})]
-      (ssr/reconcile-on-restore (runtime-db-with {gkey snapshot-entry}) :app/main)
-      (is (= 7 (state/generation-snapshot :app/main))
+      (rf.resources.ssr/reconcile-on-restore (runtime-db-with {gkey snapshot-entry}) :app/main)
+      (is (= 7 (rf.resources.state/generation-snapshot :app/main))
           "restore did not rewind the host-side allocator")
       ;; the next allocation strictly exceeds the pre-restore generation 7 AND
       ;; the restored snapshot's generation 3 → a pre-restore reply carrying
       ;; generation 3 can never match a freshly-minted live entry.
-      (is (= 8 (state/next-generation (state/generation-snapshot :app/main)))
+      (is (= 8 (rf.resources.state/next-generation (rf.resources.state/generation-snapshot :app/main)))
           "the next minted generation strictly exceeds every pre-restore generation"))))
 
 ;; ===========================================================================
@@ -1040,40 +1040,40 @@
             freshness is a later live-owner decision (part 3)"
     (let [stale (entry {:resource-id :article/by-slug :status :loaded
                         :data {:x 1} :loaded-at 1 :stale-at 2})  ;; stale
-          out (ssr/reconcile-on-restore (runtime-db-with {gkey stale}) :app/main)]
+          out (rf.resources.ssr/reconcile-on-restore (runtime-db-with {gkey stale}) :app/main)]
       ;; the reconcile returns a runtime-db, never an fx vector / dispatch plan
       (is (map? out))
-      (is (contains? out state/resources-key))
-      (is (= {:x 1} (get-in out [state/resources-key :entries (state/key-id gkey) :data]))
+      (is (contains? out rf.resources.state/resources-key))
+      (is (= {:x 1} (get-in out [rf.resources.state/resources-key :entries (rf.resources.state/key-id gkey) :data]))
           "the stale entry keeps its data; restore double-fetches nothing"))))
 
 (deftest restore-noop-without-resources
   (testing "a runtime-db with no resource entries AND no work-ledger rows is
             returned unchanged (a resource-free restore)"
     (let [rdb {:rf.runtime/machines {:snapshots {}}}]
-      (is (= rdb (ssr/reconcile-on-restore rdb :app/main))))))
+      (is (= rdb (rf.resources.ssr/reconcile-on-restore rdb :app/main))))))
 
 (deftest restore-never-crosses-scopes
   (testing "entries under different scopes stay isolated through the restore reconcile"
-    (let [ka (state/scoped-resource-key [:rf.scope/session {:user "a"}] :article/by-slug {:slug "x"})
-          kb (state/scoped-resource-key [:rf.scope/session {:user "b"}] :article/by-slug {:slug "x"})
+    (let [ka (rf.resources.state/scoped-resource-key [:rf.scope/session {:user "a"}] :article/by-slug {:slug "x"})
+          kb (rf.resources.state/scoped-resource-key [:rf.scope/session {:user "b"}] :article/by-slug {:slug "x"})
           ea (entry {:resource-id :article/by-slug :status :fetching :data {:owner "a"}
                      :loaded-at 1 :stale-at 9.0e15 :tags #{[:article "x"]}
                      :current-work [:rf.work/resource ka 2]})
           eb (entry {:resource-id :article/by-slug :status :loaded :data {:owner "b"}
                      :loaded-at 1 :stale-at 9.0e15 :tags #{[:article "x"]}})
-          out (ssr/reconcile-on-restore (runtime-db-with {ka ea kb eb}) :app/main)
-          es  (get-in out [state/resources-key :entries])]
+          out (rf.resources.ssr/reconcile-on-restore (runtime-db-with {ka ea kb eb}) :app/main)
+          es  (get-in out [rf.resources.state/resources-key :entries])]
       ;; rf2-9e0tyq — entries + tag-index members are keyed on the byte key-id.
-      (is (= {:owner "a"} (:data (es (state/key-id ka)))) "scope-a data stays under scope-a's key")
-      (is (= :loaded (:status (es (state/key-id ka)))) "scope-a fetching → loaded (kept data)")
-      (is (= {:owner "b"} (:data (es (state/key-id kb)))) "scope-b data stays under scope-b's key")
-      (is (= #{(state/key-id ka) (state/key-id kb)}
-             (get-in out [state/resources-key :tag-index [:article "x"]]))
+      (is (= {:owner "a"} (:data (es (rf.resources.state/key-id ka)))) "scope-a data stays under scope-a's key")
+      (is (= :loaded (:status (es (rf.resources.state/key-id ka)))) "scope-a fetching → loaded (kept data)")
+      (is (= {:owner "b"} (:data (es (rf.resources.state/key-id kb)))) "scope-b data stays under scope-b's key")
+      (is (= #{(rf.resources.state/key-id ka) (rf.resources.state/key-id kb)}
+             (get-in out [rf.resources.state/resources-key :tag-index [:article "x"]]))
           "the shared tag maps to both scoped keys, never collapsed"))))
 
 (deftest reconcile-on-restore-hook-published
   (testing "the :resources/reconcile-on-restore hook is published by the façade"
-    (is (some? (late-bind/get-fn :resources/reconcile-on-restore)))
-    (is (= ssr/reconcile-on-restore
-           (late-bind/get-fn :resources/reconcile-on-restore)))))
+    (is (some? (rf.late-bind/get-fn :resources/reconcile-on-restore)))
+    (is (= rf.resources.ssr/reconcile-on-restore
+           (rf.late-bind/get-fn :resources/reconcile-on-restore)))))

@@ -8,7 +8,7 @@
   `resources.reply/base-reply` puts the resolved scope in TWO places on every
   reply it builds: free at the top level, and again inside the `:correlation`
   map it stamps beside it. The carrier projector
-  (`trace-egress/project-embedded-keys`) reaches a free `:scope` through
+  (`rf.resources.trace-egress/project-embedded-keys`) reaches a free `:scope` through
   `carrier-family-payload?` — a map is provably the runtime's when its
   IMMEDIATE entries wear the family's reserved vocabulary (a `resource`-
   namespaced key, or a `[:rf.work/resource …]` work-id value). Both halves of
@@ -76,15 +76,15 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.fx :as fx]
+   [re-frame.fx :as rf.fx]
    ;; load-bearing side-effecting requires: register the :rf.resource/* /
    ;; :rf.mutation/* events this suite dispatches.
    [re-frame.resources]
    [re-frame.resources.test-support]
-   [re-frame.resources.trace-egress :as trace-egress]
+   [re-frame.resources.trace-egress :as rf.resources.trace-egress]
    [re-frame.http.managed]
    [re-frame.schemas]
-   [re-frame.test-support :as core-test-support]
+   [re-frame.test-support :as rf.test-support]
    #?(:clj  [re-frame.substrate.plain-atom :as substrate]
       :cljs [re-frame.adapter.reagent :as substrate])))
 
@@ -116,7 +116,7 @@
     (fn [_p _ctx] {:request {:method :get :url "/a"}})))
 
 (use-fixtures :each
-  (core-test-support/make-reset-runtime-fixture
+  (rf.test-support/make-reset-runtime-fixture
     {:adapter substrate/adapter
      :init-fn init!}))
 
@@ -172,7 +172,7 @@
   does — through the late-bound `:resources/project-fx-args-egress` hook's
   body, against the row's own `:rf.frame/id` falling back to the record's."
   [rows]
-  (mapv #(update % :tags trace-egress/project-fx-args-egress
+  (mapv #(update % :tags rf.resources.trace-egress/project-fx-args-egress
                  (or (:rf.frame/id (:tags %)) frame-id))
         rows))
 
@@ -199,7 +199,7 @@
   own carriers are covered by rf2-425mm's arm."
   [{:keys [status] :as outcome}]
   (let [captured (atom nil)]
-    (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! captured args) nil))
+    (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! captured args) nil))
     (rf/reg-event :app/save-replied (fn [_ _ev] {}))
     (rf/dispatch-sync [:rf.mutation/execute
                        {:mutation :m/save :params {:slug "a-slug"}
@@ -218,7 +218,7 @@
   the agreement counterpart, not a second acceptance arm."
   []
   (let [captured (atom nil)]
-    (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! captured args) nil))
+    (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! captured args) nil))
     (rf/reg-event :app/read-loaded (fn [_ _ev] {}))
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :r/article :params {:slug "a-slug"}
@@ -355,7 +355,7 @@
             well as after, which is what makes it a control rather than a
             second acceptance arm"
     (let [captured (atom nil)]
-      (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! captured args) nil))
+      (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! captured args) nil))
       (rf/reg-event :app/save-replied (fn [_ _ev] {}))
       (rf/dispatch-sync [:rf.mutation/execute
                          {:mutation :m/save :params {:slug "a-slug"}
@@ -386,8 +386,8 @@
                    :correlation        {:scope [:rf.scope/session {:username secret}]
                                         :generation 3}}
           tags    {:rf.fx/args {:on-success [:app/done foreign]}}]
-      (is (= tags (trace-egress/project-fx-args-egress tags frame-id))
+      (is (= tags (rf.resources.trace-egress/project-fx-args-egress tags frame-id))
           "byte-identical — the resources projector speaks only for what the
            resources runtime planted")
-      (is (nil? (:sensitive? (trace-egress/project-fx-args-egress tags frame-id)))
+      (is (nil? (:sensitive? (rf.resources.trace-egress/project-fx-args-egress tags frame-id)))
           "and does not stamp the row"))))

@@ -54,13 +54,13 @@
   token's slot is dropped wholesale on owner release.
 
   Per Spec 016 §Route integration."
-  (:require [re-frame.error :as error]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.resources.registry :as registry]
-            [re-frame.resources.scope-registry :as scope-registry]
-            [re-frame.resources.state :as state]
-            [re-frame.resources.work-ledger :as work-ledger]
-            [re-frame.trace :as trace]))
+  (:require [re-frame.error :as rf.error]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.resources.registry :as rf.resources.registry]
+            [re-frame.resources.scope-registry :as rf.resources.scope-registry]
+            [re-frame.resources.state :as rf.resources.state]
+            [re-frame.resources.work-ledger :as rf.resources.work-ledger]
+            [re-frame.trace :as rf.trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -227,7 +227,7 @@
   `entry` (nil when the entry is absent). The four outcomes are the Spec 016
   facts the Spec 012 readiness table is written in:
 
-    `:ready`   — the identity has its OWN usable data (`state/has-data?`), so
+    `:ready`   — the identity has its OWN usable data (`rf.resources.state/has-data?`), so
                  the requirement is met. `:keep-previous?` PREVIOUS data is a
                  projection POINTER (`:previous-key`) and never this entry's
                  `:data`, so previous data can NOT complete a newly-keyed
@@ -252,7 +252,7 @@
   [entry]
   (cond
     (nil? entry)                            :pending
-    (state/has-data? entry)                 :ready
+    (rf.resources.state/has-data? entry)                 :ready
     (= :error (:status entry))              :failed
     (contains? #{:loading :fetching} (:status entry)) :pending
     (zero? (:attempt entry 0))              :pending
@@ -300,7 +300,7 @@
 
     - it has its OWN usable data (`:ready`) — the partial-revalidation law
       applies and navigation must not revalidate it; or
-    - GENUINELY LIVE work will settle it (`work-ledger/live-work?`) — adopting
+    - GENUINELY LIVE work will settle it (`rf.resources.work-ledger/live-work?`) — adopting
       joins that work, and attach-before-release keeps it from being aborted.
 
   Everything else takes the ordinary ensure/readiness path: an ABSENT entry
@@ -317,7 +317,7 @@
   [runtime-db entry]
   (case (requirement-state entry)
     :ready   true
-    :pending (work-ledger/live-work? runtime-db (:current-work entry))
+    :pending (rf.resources.work-ledger/live-work? runtime-db (:current-work entry))
     false))
 
 (defn- route-blocking-error
@@ -399,7 +399,7 @@
          blocking   (get-in runtime-db (blocking-path nav-token))]
      (if (empty? blocking)
        runtime-db
-       (let [entry-of    (fn [k-id] (get-in runtime-db (state/entry-path-by-id k-id)))
+       (let [entry-of    (fn [k-id] (get-in runtime-db (rf.resources.state/entry-path-by-id k-id)))
              outstanding (into {} (remove (comp requirement-met? entry-of key)) blocking)
              ;; deterministic first failure: the outstanding slot promises no
              ;; order, so the pick is ordered by the canonical CEDN-1 byte
@@ -425,7 +425,7 @@
                ;; rf2-u5aj91: the route slice carries the structured :error AND
                ;; the trace/error stream sees `:rf.error/resource-route-blocking`
                ;; (tags conform to ResourceRouteBlockingTags).
-               (trace/emit-error! :rf.error/resource-route-blocking
+               (rf.trace/emit-error! :rf.error/resource-route-blocking
                                   (dissoc err :rf.error/id :operation)))
              (-> db'
                  (assoc-in (conj slice-path :transition) transition)
@@ -444,8 +444,8 @@
 
 (defn- planning-error
   "Build the canonical route-resource PLANNING ex-info via the central
-  `error/thrown-ex-info` builder (Spec 009 §The thrown-error shape) — the
-  same shape its intra-artefact sibling `registry/registration-error`
+  `rf.error/thrown-ex-info` builder (Spec 009 §The thrown-error shape) — the
+  same shape its intra-artefact sibling `rf.resources.registry/registration-error`
   follows. The fail-closed boundary `route-resource-plan` catches the throw
   and surfaces it on the route slice + Xray (never a silent cache miss).
 
@@ -458,7 +458,7 @@
   `:fix-route-integration`). Per Spec 016 §Route integration (a failed
   params / scope resolution is a planning error, NOT a silent fallback)."
   [reason extra]
-  (error/thrown-ex-info
+  (rf.error/thrown-ex-info
     :rf.error/resource-route-plan
     'rf/route-resource-plan
     reason
@@ -527,8 +527,8 @@
   [{scope-fn :scope :keys [resource]} route ctx app-db]
   (cond
     ;; a {:from-db …} reference — db-derived route-resource scope (slice 3)
-    (scope-registry/from-db-reference? scope-fn)
-    (let [resolved-scope (scope-registry/resolve-from-db-reference
+    (rf.resources.scope-registry/from-db-reference? scope-fn)
+    (let [resolved-scope (rf.resources.scope-registry/resolve-from-db-reference
                            scope-fn (or app-db {}) 'rf.resource/route-entry)]
       (if (nil? resolved-scope)
         (throw (planning-error
@@ -716,17 +716,17 @@
               (if-not (when-passes? entry route ctx)
                 [occurrences next-sequence]
                 (let [resource-id (:resource entry)
-                      spec        (registry/require-resource-spec!
+                      spec        (rf.resources.registry/require-resource-spec!
                                     resource-id 'rf.resource/route-entry)
                       raw-params  (resolve-entry-params entry route)
                       route-scope (resolve-entry-scope entry route ctx app-db)
-                      scope       (registry/resolve-scope-for-event
+                      scope       (rf.resources.registry/resolve-scope-for-event
                                     resource-id spec {:route-scope route-scope :db app-db}
                                     'rf.resource/route-entry)
-                      canonical-params (registry/validate+canonicalize-params
+                      canonical-params (rf.resources.registry/validate+canonicalize-params
                                          resource-id spec raw-params
                                          'rf.resource/route-entry)
-                      scoped-key       (state/scoped-resource-key*
+                      scoped-key       (rf.resources.state/scoped-resource-key*
                                          scope resource-id canonical-params)]
                   [(conj occurrences
                          {:occ-id         [contributor-id (:id entry) next-sequence]
@@ -745,7 +745,7 @@
                           ;; this (vector-vs-list params), so grouping on
                           ;; the scoped key itself collapses a supported
                           ;; pair before any ensure is dispatched.
-                          :key-id         (state/key-id scoped-key)
+                          :key-id         (rf.resources.state/key-id scoped-key)
                           :blocking?      (boolean (:blocking? entry))
                           :keep-previous? (boolean (:keep-previous? entry))})
                    (inc next-sequence)]))
@@ -1112,7 +1112,7 @@
         (cond
           branch-error
           (let [err (stamp (branch-plan-error route-id nav-token branch-error))]
-            (trace/emit-error! :rf.error/resource-route-plan err)
+            (rf.trace/emit-error! :rf.error/resource-route-plan err)
             {:plan-error err})
           :else
           (try
@@ -1120,7 +1120,7 @@
                   collapse-result (collapse-and-order occurrences)]
               (if-let [cyclic (:cycle collapse-result)]
                 (let [err (stamp (collapse-cycle-error route-id nav-token cyclic))]
-                  (trace/emit-error! :rf.error/resource-route-plan err)
+                  (rf.trace/emit-error! :rf.error/resource-route-plan err)
                   {:plan-error err})
                 collapse-result))
             (catch #?(:clj Throwable :cljs :default) ex
@@ -1129,7 +1129,7 @@
               ;; names the resource when the ex carries it.
               (let [err (stamp (plan-error route-id nav-token
                                            (:resource-id (ex-data ex)) ex))]
-                (trace/emit-error! :rf.error/resource-route-plan err)
+                (rf.trace/emit-error! :rf.error/resource-route-plan err)
                 {:plan-error err}))))
         ;; EP-0037 R2 plan diff: partition the dedup'd identities into
         ;; added (ensure with the next owner + freshness) vs kept (adopt the
@@ -1153,12 +1153,12 @@
         ;; rf2-dlkou (merged-PR audit of #7228) — the identity carriers are keyed
         ;; by the CEDN-1 BYTE key-id, NOT by Clojure `=`.
         ;;
-        ;; Resource identity is `state/key-id`, which is collection-KIND
+        ;; Resource identity is `rf.resources.state/key-id`, which is collection-KIND
         ;; sensitive (rf2-wgutc2): `{:p [1 2]}` and `{:p '(1 2)}` are two
-        ;; entries under two `state/entry-path`s, and yet the two scoped keys
+        ;; entries under two `rf.resources.state/entry-path`s, and yet the two scoped keys
         ;; are `=` to Clojure and hash alike. A raw `set` of scoped keys
         ;; therefore COLLAPSES a supported pair before anything downstream can
-        ;; canonicalize it — the row's `sort-by state/key-id` runs after the
+        ;; canonicalize it — the row's `sort-by rf.resources.state/key-id` runs after the
         ;; loss, not before it. What that cost: a navigation whose prior plan
         ;; held `{:p '(1 2)}` and whose next plan holds `{:p [1 2]}` reported
         ;; `:removed 0` and an EMPTY `:removed-identities`, because the prior
@@ -1179,9 +1179,9 @@
         ;; call may hand any collection of scoped keys, which does.
         prev-by-id (if (map? prev-identities)
                      prev-identities
-                     (into {} (map (juxt state/key-id identity)) prev-identities))
+                     (into {} (map (juxt rf.resources.state/key-id identity)) prev-identities))
         next-by-id (into {} (map (juxt :key-id :scoped-key)) ordered)
-        entry-of  (fn [k-id] (get-in runtime-db (state/entry-path-by-id k-id)))
+        entry-of  (fn [k-id] (get-in runtime-db (rf.resources.state/entry-path-by-id k-id)))
         adopted?  (fn [{:keys [key-id]}]
                     (and (contains? prev-by-id key-id)
                          (adoptable? runtime-db (entry-of key-id))))
@@ -1316,7 +1316,7 @@
                                   {:owner [:route prev-id prev-nav-token]}]]])
         added-count        (count ensured-identities)
         removed-count      (count removed-identities)]
-    (trace/emit! :rf.event :rf.resource/route-plan
+    (rf.trace/emit! :rf.event :rf.resource/route-plan
                  (cond-> {:route-id           route-id
                           :nav-token          nav-token
                           :branch             (mapv :route-id branch)
@@ -1513,7 +1513,7 @@
         (cond
           branch-error
           (let [err (warm-err (branch-plan-error route-id nil branch-error))]
-            (trace/emit-error! :rf.error/resource-route-plan err)
+            (rf.trace/emit-error! :rf.error/resource-route-plan err)
             {:plan-error err})
           :else
           (try
@@ -1521,13 +1521,13 @@
                   collapse-result (collapse-and-order occurrences)]
               (if-let [cyclic (:cycle collapse-result)]
                 (let [err (warm-err (collapse-cycle-error route-id nil cyclic))]
-                  (trace/emit-error! :rf.error/resource-route-plan err)
+                  (rf.trace/emit-error! :rf.error/resource-route-plan err)
                   {:plan-error err})
                 collapse-result))
             (catch #?(:clj Throwable :cljs :default) ex
               (let [err (warm-err (plan-error route-id nil
                                               (:resource-id (ex-data ex)) ex))]
-                (trace/emit-error! :rf.error/resource-route-plan err)
+                (rf.trace/emit-error! :rf.error/resource-route-plan err)
                 {:plan-error err}))))
         ;; WARM: ownerless ensure per unique identity — no owner, no blocking,
         ;; no keep-previous?. `:blocking?` on a contributor is inert here.
@@ -1536,7 +1536,7 @@
                                    {:resource resource :scope scope
                                     :params   cparams  :cause  cause}]])
                      ordered)]
-    (trace/emit! :rf.event :rf.resource/route-plan
+    (rf.trace/emit! :rf.event :rf.resource/route-plan
                  (cond-> {:route-id   route-id
                           :plan-cause :prefetch
                           :branch     (mapv :route-id branch)
@@ -1575,9 +1575,9 @@
   §Route-plan prefetch — warm-mode + §Route-plan replan — same-token
   reconciliation."
   []
-  (late-bind/set-fn! :routing/extra-route-keys
+  (rf.late-bind/set-fn! :routing/extra-route-keys
                      (fn extra-route-keys-thunk [] extra-route-keys))
-  (late-bind/set-fn! :routing/on-route-entry    on-route-entry-fx)
-  (late-bind/set-fn! :routing/on-route-prefetch on-route-prefetch-fx)
-  (late-bind/set-fn! :routing/on-route-replan   on-route-replan-fx)
+  (rf.late-bind/set-fn! :routing/on-route-entry    on-route-entry-fx)
+  (rf.late-bind/set-fn! :routing/on-route-prefetch on-route-prefetch-fx)
+  (rf.late-bind/set-fn! :routing/on-route-replan   on-route-replan-fx)
   nil)

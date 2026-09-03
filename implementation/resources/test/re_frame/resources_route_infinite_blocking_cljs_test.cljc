@@ -53,17 +53,17 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.fx :as fx]
+   [re-frame.fx :as rf.fx]
    ;; load-bearing side-effecting requires: register the routing + resources
    ;; events / subs and resources' late-bound :routing/* integration hooks.
    [re-frame.resources]
-   [re-frame.resources.route :as route]
-   [re-frame.resources.state :as state]
+   [re-frame.resources.route :as rf.resources.route]
+   [re-frame.resources.state :as rf.resources.state]
    [re-frame.resources.test-support]
-   [re-frame.routing :as routing]
+   [re-frame.routing :as rf.routing]
    [re-frame.schemas]
    [re-frame.http.managed]
-   [re-frame.test-support :as core-test-support]
+   [re-frame.test-support :as rf.test-support]
    #?(:clj  [re-frame.substrate.plain-atom :as substrate]
       :cljs [re-frame.adapter.reagent :as substrate])))
 
@@ -83,13 +83,13 @@
   (reset! last-managed-args nil)
   (rf/make-frame {:id :rf/default :url-bound? true
                   :doc "Route-infinite-blocking suite default app frame."})
-  (routing/reset-counters!)
-  (route/install-routing-integration!)
-  (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
-  (fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil)))
+  (rf.routing/reset-counters!)
+  (rf.resources.route/install-routing-integration!)
+  (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
+  (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil)))
 
 (use-fixtures :each
-  (core-test-support/make-reset-runtime-fixture
+  (rf.test-support/make-reset-runtime-fixture
     {:adapter substrate/adapter
      :init-fn init!}))
 
@@ -99,7 +99,7 @@
   (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/routing :current]))
 
 (defn- entry [scoped-key]
-  (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) (state/entry-path scoped-key)))
+  (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) (rf.resources.state/entry-path scoped-key)))
 
 (defn- blocking-slot
   "The live blocking slot for `nav-token`, projected to the SET of its scoped
@@ -108,7 +108,7 @@
   answers."
   [nav-token]
   (set (vals (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                     (route/blocking-path nav-token)))))
+                     (rf.resources.route/blocking-path nav-token)))))
 
 (def ^:private next-cursor
   (fn [last-page _all-pages] (get-in last-page [:page-info :next-cursor])))
@@ -137,7 +137,7 @@
                          page-param (assoc :cursor page-param))}}))
 
 (defn- feed-key [slug]
-  (state/scoped-resource-key :rf.scope/global :feed/articles {:slug slug}))
+  (rf.resources.state/scoped-resource-key :rf.scope/global :feed/articles {:slug slug}))
 
 (defn- reply-page-success!
   "Dispatch the captured page reply's `:on-success` with the transport's
@@ -185,7 +185,7 @@
       (is (contains? (blocking-slot nav-token) k)
           "the blocking infinite feed's scoped key is tracked under the nav-token")
       (let [e (entry k)]
-        (is (state/infinite-entry? e) "ensured an INFINITE entry (page-0 fetch, not a scalar)")
+        (is (rf.resources.state/infinite-entry? e) "ensured an INFINITE entry (page-0 fetch, not a scalar)")
         (is (= :loading (:status e)) "first load (no data) is :loading")
         (is (= [] (:data e)) "page vector empty (page-0 in flight)"))
       (testing "the route owner is on the infinite feed entry"
@@ -195,7 +195,7 @@
       (reply-page-success! (page [:a :b] "c1"))
       (let [e (entry k)]
         (is (= :loaded (:status e)) "feed settled :loaded")
-        (is (= 1 (state/page-count e)) "page 0 accumulated through the append path")
+        (is (= 1 (rf.resources.state/page-count e)) "page 0 accumulated through the append path")
         (is (= [(page [:a :b] "c1")] (:data e)) "page-0 data appended"))
       (is (= :idle (:transition (slice)))
           "the blocking infinite route drained to :idle on the page-0 reply")
@@ -235,7 +235,7 @@
         (is (nil? (:page-error e)) "NOT the load-more :page-error channel (page 0 is not a load-more)")
         (is (nil? (:refresh-error e)) "NOT the whole-feed :refresh-error channel")
         (is (nil? (:data e)) "first-load failure clears data (no usable data)")
-        (is (= 0 (state/page-count e)) "no page accumulated — page 0 never landed")))
+        (is (= 0 (rf.resources.state/page-count e)) "no page accumulated — page 0 never landed")))
     (testing "the BLOCKING ROUTE flips to :error (parity with a scalar blocking resource)"
       (is (= :error (:transition (slice)))
           "the blocking infinite route flips to :error on the page-0 first-load failure")
@@ -271,9 +271,9 @@
                               :params    (fn [route] {:slug (get-in route [:params :slug])})
                               :blocking? true}]} "/articles/:slug")
   (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:slug "intro"}}])
-  (let [scoped-key (state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "intro"})
+  (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :article/by-slug {:slug "intro"})
         e          (entry scoped-key)]
-    (is (not (state/infinite-entry? e)) "the contrast resource is SCALAR, not infinite")
+    (is (not (rf.resources.state/infinite-entry? e)) "the contrast resource is SCALAR, not infinite")
     ;; settle the scalar via the SCALAR failed handler (its live reply shape)
     (rf/dispatch-sync (conj (:on-failure @last-managed-args)
                             {:status :error :error {:status 503 :message "upstream down"}}))
@@ -304,7 +304,7 @@
     ;; drains to :idle, then the feed has one accumulated page.
     (reply-page-success! (page [:a :b] "c1"))
     (is (= :idle (:transition (slice))) "route drained on page-0 success")
-    (is (= 1 (state/page-count (entry k))) "page 0 accumulated")
+    (is (= 1 (rf.resources.state/page-count (entry k))) "page 0 accumulated")
     ;; now a load-more (page 1) is dispatched and FAILS.
     (rf/dispatch-sync [:rf.resource/load-more {:resource :feed/articles
                                                :scope    :rf.scope/global
@@ -318,7 +318,7 @@
         (is (= :loaded (:status e)) "load-more failure leaves the feed :loaded (data kept)")
         (is (= failure (:page-error e)) ":page-error records the load-more failure envelope")
         (is (nil? (:error e)) "NOT the first-load :error channel")
-        (is (= 1 (state/page-count e)) "the accumulated page-0 is KEPT (no data lost)")
+        (is (= 1 (rf.resources.state/page-count e)) "the accumulated page-0 is KEPT (no data lost)")
         (is (= [(page [:a :b] "c1")] (:data e)) "page-0 data still present")))
     (testing "the route is undisturbed by the load-more failure (already :idle)"
       (is (= :idle (:transition (slice)))

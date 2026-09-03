@@ -3,7 +3,7 @@
 
   The full fix for the resource cache-key `=`-collapse: the `:entries` map,
   the reverse indexes, and the work-ledger map are keyed on the CEDN-1 byte
-  `key-id` (`state/key-id` / `work-ledger/work-id-id`) rather than the scoped
+  `key-id` (`rf.resources.state/key-id` / `rf.resources.work-ledger/work-id-id`) rather than the scoped
   resource key VECTOR under Clojure `=`. The vector is the kind-preserving
   identity (`rf2-wgutc2`) carried as each entry's `:resource/key`, embedded in
   the work-id, on the SSR wire, and in trace payloads.
@@ -32,31 +32,31 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    #?(:cljs [cljs.reader])
-   [re-frame.identity :as identity]
-   [re-frame.resources.ssr :as ssr]
-   [re-frame.resources.state :as state]
-   [re-frame.resources.work-ledger :as work-ledger]
+   [re-frame.identity :as rf.identity]
+   [re-frame.resources.ssr :as rf.resources.ssr]
+   [re-frame.resources.state :as rf.resources.state]
+   [re-frame.resources.work-ledger :as rf.resources.work-ledger]
    ;; the façade publishes the SSR projection / reconcile hooks + registrar.
    [re-frame.resources]
-   [re-frame.test-support :as core-test-support]
-   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
-       :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
+   [re-frame.test-support :as rf.test-support]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
 (use-fixtures :each
-  (core-test-support/make-reset-runtime-fixture
-    #?(:clj  {:adapter plain-atom/adapter}
-       :cljs {:adapter reagent-adapter/adapter})))
+  (rf.test-support/make-reset-runtime-fixture
+    #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
+       :cljs {:adapter rf.adapter.reagent/adapter})))
 
 ;; ---- the two adversarial keys: same scope+rid, list-vs-vector params -------
 
-(def ^:private kv (state/scoped-resource-key :rf.scope/global :r/x {:xs [1 2 3]}))
-(def ^:private kl (state/scoped-resource-key :rf.scope/global :r/x {:xs '(1 2 3)}))
+(def ^:private kv (rf.resources.state/scoped-resource-key :rf.scope/global :r/x {:xs [1 2 3]}))
+(def ^:private kl (rf.resources.state/scoped-resource-key :rf.scope/global :r/x {:xs '(1 2 3)}))
 
 (defn- loaded-entry
   "A loaded durable entry stamped with its scoped-key `sk` (the runtime
   stamps `:resource/key` on every entry now)."
   [sk data tags]
-  (-> (state/empty-entry :r/x sk)
+  (-> (rf.resources.state/empty-entry :r/x sk)
       (merge {:status :loaded :data data :loaded-at 1000 :stale-at 9.0e15
               :generation 1 :tags tags})))
 
@@ -67,7 +67,7 @@
   would itself throw `Duplicate key` because `kv` and `kl` are Clojure-`=`,
   which is the very collapse this fix routes around)."
   [pairs]
-  (into {} (map (fn [[sk e]] [(state/key-id sk) e])) pairs))
+  (into {} (map (fn [[sk e]] [(rf.resources.state/key-id sk) e])) pairs))
 
 ;; ===========================================================================
 ;; Carrier 1 — the :entries map key
@@ -77,15 +77,15 @@
   (testing "list- and vector-params keys are `=` as VECTORS but their byte
             key-ids differ, so the :entries map holds TWO entries"
     (is (= kv kl) "the vectors are Clojure-= (the collapse the fix routes around)")
-    (is (not= (state/key-id kv) (state/key-id kl))
+    (is (not= (rf.resources.state/key-id kv) (rf.resources.state/key-id kl))
         "the byte key-ids differ (v[…] vs l(…))")
     (let [es (byte-keyed-entries [[kv (loaded-entry kv {:v 1} #{:t})]
                                    [kl (loaded-entry kl {:l 1} #{:t})]])]
       (is (= 2 (count es)) "two distinct entries — no =-collapse")
-      (is (= {:v 1} (:data (get es (state/key-id kv)))) "vector entry intact")
-      (is (= {:l 1} (:data (get es (state/key-id kl)))) "list entry intact")
-      (is (= kv (:resource/key (get es (state/key-id kv)))) "vector entry keeps its vector key")
-      (is (seq? (-> (get es (state/key-id kl)) :resource/key (nth 2) :xs))
+      (is (= {:v 1} (:data (get es (rf.resources.state/key-id kv)))) "vector entry intact")
+      (is (= {:l 1} (:data (get es (rf.resources.state/key-id kl)))) "list entry intact")
+      (is (= kv (:resource/key (get es (rf.resources.state/key-id kv)))) "vector entry keeps its vector key")
+      (is (seq? (-> (get es (rf.resources.state/key-id kl)) :resource/key (nth 2) :xs))
           "the list entry's :resource/key PRESERVES the list kind (not coerced to a vector)"))))
 
 ;; ===========================================================================
@@ -94,21 +94,21 @@
 
 (deftest carrier-2-work-ledger-keys-distinctly
   (testing "the embedded work-id keys the work-ledger map on its own byte id"
-    (let [wv (work-ledger/resource-work-id kv 1)
-          wl (work-ledger/resource-work-id kl 1)]
+    (let [wv (rf.resources.work-ledger/resource-work-id kv 1)
+          wl (rf.resources.work-ledger/resource-work-id kl 1)]
       (is (= wv wl) "the work-id VECTORS are = (they embed the key vector)")
-      (is (not= (work-ledger/work-id-id wv) (work-ledger/work-id-id wl))
+      (is (not= (rf.resources.work-ledger/work-id-id wv) (rf.resources.work-ledger/work-id-id wl))
           "their byte work-id-ids differ")
-      (let [recv (work-ledger/work-record {:work-id wv :frame-id :f :resource/key kv
+      (let [recv (rf.resources.work-ledger/work-record {:work-id wv :frame-id :f :resource/key kv
                                            :generation 1 :transport :rf.http/managed})
-            recl (work-ledger/work-record {:work-id wl :frame-id :f :resource/key kl
+            recl (rf.resources.work-ledger/work-record {:work-id wl :frame-id :f :resource/key kl
                                            :generation 1 :transport :rf.http/managed})
-            rdb  (-> {} (work-ledger/put-record wv recv) (work-ledger/put-record wl recl))]
+            rdb  (-> {} (rf.resources.work-ledger/put-record wv recv) (rf.resources.work-ledger/put-record wl recl))]
         (is (= 2 (count (:rf.runtime/work-ledger rdb))) "two distinct ledger rows")
-        (is (= wv (:work/id (work-ledger/get-record rdb wv))) "vector work record reads back")
-        (is (= wl (:work/id (work-ledger/get-record rdb wl))) "list work record reads back")
-        (is (= kv (:resource/key (work-ledger/get-record rdb wv))))
-        (is (= kl (:resource/key (work-ledger/get-record rdb wl))))))))
+        (is (= wv (:work/id (rf.resources.work-ledger/get-record rdb wv))) "vector work record reads back")
+        (is (= wl (:work/id (rf.resources.work-ledger/get-record rdb wl))) "list work record reads back")
+        (is (= kv (:resource/key (rf.resources.work-ledger/get-record rdb wv))))
+        (is (= kl (:resource/key (rf.resources.work-ledger/get-record rdb wl))))))))
 
 ;; ===========================================================================
 ;; Carrier 3 — the SSR hydration wire (project → install → hydrate recompute)
@@ -121,10 +121,10 @@
             string — no transit handler needed; a deftype key would break here)"
     (let [es   (byte-keyed-entries [[kv (loaded-entry kv {:v 1} #{:t})]
                                      [kl (loaded-entry kl {:l 1} #{:t})]])
-          rdb  {state/resources-key {:entries es :tag-index {} :owner-index {}}}
+          rdb  {rf.resources.state/resources-key {:entries es :tag-index {} :owner-index {}}}
           ;; SERVER projection (the :ssr/extend-runtime-db-projection body)
-          proj (ssr/project-resources-runtime-db rdb)
-          wired (get-in proj [state/resources-key :entries])]
+          proj (rf.resources.ssr/project-resources-runtime-db rdb)
+          wired (get-in proj [rf.resources.state/resources-key :entries])]
       (is (= 2 (count wired)) "two distinct wire entries projected")
       ;; the wire keys are plain strings (transit/JSON-safe — the load-bearing
       ;; property a deftype key would have violated).
@@ -135,16 +135,16 @@
                              :cljs (cljs.reader/read-string (pr-str wired)))]
         (is (= wired round-tripped) "the projected wire entries survive an EDN round-trip"))
       ;; CLIENT hydration reinstalls + recomputes indexes over the two entries.
-      (let [installed {state/resources-key {:entries wired}}
-            out (ssr/hydrate-runtime-db installed :app/main)
-            out-es (get-in out [state/resources-key :entries])
-            tag-members (get-in out [state/resources-key :tag-index :t])]
+      (let [installed {rf.resources.state/resources-key {:entries wired}}
+            out (rf.resources.ssr/hydrate-runtime-db installed :app/main)
+            out-es (get-in out [rf.resources.state/resources-key :entries])
+            tag-members (get-in out [rf.resources.state/resources-key :tag-index :t])]
         (is (= 2 (count out-es)) "hydration installs TWO distinct entries (no collapse)")
-        (is (= #{(state/key-id kv) (state/key-id kl)} (set (keys out-es)))
+        (is (= #{(rf.resources.state/key-id kv) (rf.resources.state/key-id kl)} (set (keys out-es)))
             "both byte key-ids present after hydration")
         (is (= 2 (count tag-members))
             "the recomputed tag-index has TWO distinct members for the shared tag")
-        (is (= #{(state/key-id kv) (state/key-id kl)} tag-members)
+        (is (= #{(rf.resources.state/key-id kv) (rf.resources.state/key-id kl)} tag-members)
             "the tag-index members are the byte key-ids of both entries")))))
 
 ;; ===========================================================================
@@ -157,13 +157,13 @@
             recomputed two-member shared tag index (restore never collapses)"
     (let [es  (byte-keyed-entries [[kv (loaded-entry kv {:v 1} #{:t})]
                                     [kl (loaded-entry kl {:l 1} #{:t})]])
-          rdb {state/resources-key {:entries es :tag-index {} :owner-index {}}
-               state/work-ledger-key {}}
-          out (ssr/reconcile-on-restore rdb)
-          out-es (get-in out [state/resources-key :entries])]
+          rdb {rf.resources.state/resources-key {:entries es :tag-index {} :owner-index {}}
+               rf.resources.state/work-ledger-key {}}
+          out (rf.resources.ssr/reconcile-on-restore rdb)
+          out-es (get-in out [rf.resources.state/resources-key :entries])]
       (is (= 2 (count out-es)) "two distinct entries survive restore reconcile")
-      (is (= #{(state/key-id kv) (state/key-id kl)}
-             (get-in out [state/resources-key :tag-index :t]))
+      (is (= #{(rf.resources.state/key-id kv) (rf.resources.state/key-id kl)}
+             (get-in out [rf.resources.state/resources-key :tag-index :t]))
           "the recomputed tag-index keeps both byte key-ids for the shared tag"))))
 
 ;; ===========================================================================
@@ -179,13 +179,13 @@
     (is (vector? (:xs (nth kv 2))) "the vector-params scoped key keeps its vector kind")
     ;; and the two are byte-distinct identities — a trace consumer can tell them
     ;; apart (the authoritative CEDN-1 identity, not Clojure =).
-    (is (not (identity/identical-identity? kv kl))
+    (is (not (rf.identity/identical-identity? kv kl))
         "the two trace-carried keys are byte-distinct CEDN-1 identities")))
 
 ;; The real-ensure path (the runtime stamping `:resource/key` on a freshly
 ;; minted entry, keyed under the byte `key-id`) is exercised by the broader
 ;; `resources-runtime-cljs-test` suite (its `entry` helper reads via
-;; `state/entry-path`, which byte-keys) — this focused file pins the cache-key
+;; `rf.resources.state/entry-path`, which byte-keys) — this focused file pins the cache-key
 ;; byte-identity round-trip through the four serialization carriers.
 
 ;; ===========================================================================
@@ -204,9 +204,9 @@
 ;; instant still dedupe to one identity.
 
 (def ^:private instant-text "2026-06-10T00:00:00.000Z")
-(def ^:private ki (state/scoped-resource-key
+(def ^:private ki (rf.resources.state/scoped-resource-key
                     :rf.scope/global :r/x {:at #inst "2026-06-10T00:00:00.000-00:00"}))
-(def ^:private ks (state/scoped-resource-key
+(def ^:private ks (rf.resources.state/scoped-resource-key
                     :rf.scope/global :r/x {:at instant-text}))
 
 (deftest instant-vs-string-params-distinct-identity
@@ -217,32 +217,32 @@
         "the string param stays a plain string"))
   (testing "instant- and string-params keys are DISTINCT scoped keys AND byte key-ids"
     (is (not= ki ks) "the scoped-key vectors differ (tagged tuple vs string param)")
-    (is (not= (state/key-id ki) (state/key-id ks))
+    (is (not= (rf.resources.state/key-id ki) (rf.resources.state/key-id ks))
         "the byte key-ids differ (t:<text> vs s:\"<text>\")")
-    (is (not (identity/identical-identity? ki ks))
+    (is (not (rf.identity/identical-identity? ki ks))
         "the two keys are byte-distinct CEDN-1 identities"))
   (testing "the two params key an :entries map DISTINCTLY end-to-end (no alias)"
     (let [es (byte-keyed-entries [[ki (loaded-entry ki {:from :instant} #{:t})]
                                    [ks (loaded-entry ks {:from :string} #{:t})]])]
       (is (= 2 (count es))
           "two distinct entries — the instant param no longer aliases the string param")
-      (is (= {:from :instant} (:data (get es (state/key-id ki)))))
-      (is (= {:from :string}  (:data (get es (state/key-id ks)))))))
+      (is (= {:from :instant} (:data (get es (rf.resources.state/key-id ki)))))
+      (is (= {:from :string}  (:data (get es (rf.resources.state/key-id ks)))))))
   (testing "the work-ledger work-id is likewise distinct for instant vs string params"
-    (let [wi (work-ledger/resource-work-id ki 1)
-          ws (work-ledger/resource-work-id ks 1)]
-      (is (not= (work-ledger/work-id-id wi) (work-ledger/work-id-id ws))
+    (let [wi (rf.resources.work-ledger/resource-work-id ki 1)
+          ws (rf.resources.work-ledger/resource-work-id ks 1)]
+      (is (not= (rf.resources.work-ledger/work-id-id wi) (rf.resources.work-ledger/work-id-id ws))
           "distinct byte work-id-ids end-to-end")))
   (testing "two SPELLINGS of ONE instant dedupe to the SAME scoped key + byte key-id"
     ;; a host Date and its #inst EDN literal for one moment (both read as the
     ;; host instant on each host) canonicalize to the SAME tagged tuple.
-    (let [ka (state/scoped-resource-key
+    (let [ka (rf.resources.state/scoped-resource-key
                :rf.scope/global :r/x {:at #?(:clj  (java.util.Date. 1781049600000)
                                              :cljs (js/Date. 1781049600000))})
-          kb (state/scoped-resource-key
+          kb (rf.resources.state/scoped-resource-key
                :rf.scope/global :r/x {:at #inst "2026-06-10T00:00:00.000-00:00"})]
       (is (= ka kb) "the two instant spellings collapse to one scoped key")
-      (is (= (state/key-id ka) (state/key-id kb))
+      (is (= (rf.resources.state/key-id ka) (rf.resources.state/key-id kb))
           "one instant → one byte key-id (dedupe holds)"))))
 
 ;; ===========================================================================
@@ -266,7 +266,7 @@
 (deftest scoped-key-vs-resource-id-not-confused
   (testing "the durable entry carries the registered :resource/id (a bare
             keyword) AND the scoped :resource/key (a tuple) under DISTINCT keys"
-    (let [entry (state/empty-entry :r/x kv)]
+    (let [entry (rf.resources.state/empty-entry :r/x kv)]
       ;; the registered id is a bare keyword, NOT the tuple
       (is (= :r/x (:resource/id entry)) ":resource/id is the registered keyword id")
       (is (keyword? (:resource/id entry)) "the registered id is a keyword, never a tuple")
@@ -281,8 +281,8 @@
       (is (= (:resource/id entry) (second (:resource/key entry)))
           "the scoped key's 2nd element is the registered id (the embedded fact)"))
     (testing "the work record names the SAME two distinct facts the SAME way"
-      (let [rec (work-ledger/work-record
-                  {:work-id (work-ledger/resource-work-id kv 1)
+      (let [rec (rf.resources.work-ledger/work-record
+                  {:work-id (rf.resources.work-ledger/resource-work-id kv 1)
                    :frame-id :f :resource/key kv :generation 1
                    :transport :rf.http/managed})]
         ;; the durable scoped-key field on the work record is :resource/key (the
@@ -296,7 +296,7 @@
             "the registered id reads out of the scoped key, not a separate row field"))))
   (testing "the durable scoped-key field is the canonical :resource/key spelling,
             never the retired unqualified :resource-key"
-    (let [entry (state/empty-entry :r/x kv)]
+    (let [entry (rf.resources.state/empty-entry :r/x kv)]
       (is (contains? entry :resource/key) "the canonical :resource/key field is present")
       (is (not (contains? entry :resource-key))
           "the retired :resource-key spelling never appears on a data shape"))))

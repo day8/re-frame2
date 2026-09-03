@@ -37,21 +37,21 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.fx :as fx]
+   [re-frame.fx :as rf.fx]
    ;; load-bearing side-effecting requires: register the :rf.resource/* events +
    ;; subs + the generation cofx/fx these tests dispatch.
    [re-frame.resources]
-   [re-frame.resources.state :as state]
-   [re-frame.resources.work-ledger :as work-ledger]
+   [re-frame.resources.state :as rf.resources.state]
+   [re-frame.resources.work-ledger :as rf.resources.work-ledger]
    [re-frame.resources.test-support]
    ;; production HTTP fx surface (so the transport feature probe resolves); the
    ;; actual fetch is overridden by the capturing reply stub below.
    [re-frame.http.managed]
    [re-frame.schemas]
-   [re-frame.test-support :as core-test-support]
-   [re-frame.trace.tooling :as trace-tooling]
-   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
-       :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
+   [re-frame.test-support :as rf.test-support]
+   [re-frame.trace.tooling :as rf.trace.tooling]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
 ;; ---- capturing transport + continuation-recording fixture ------------------
 
@@ -61,10 +61,10 @@
 (defn- capturing-fixture [f]
   (reset! last-managed-args nil)
   (reset! replied [])
-  (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
+  (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
   ;; capture host-side timer arming so the fresh-skip / success handlers'
   ;; emission does not fire a real wall-clock timer.
-  (fx/reg-fx :rf.resource/schedule-timers (fn [_ctx _args] nil))
+  (rf.fx/reg-fx :rf.resource/schedule-timers (fn [_ctx _args] nil))
   ;; the continuation target — an ordinary app event recording the FULL event
   ;; vector (so static-arg preservation + the appended reply are both
   ;; observable). Every test's `:reply-to` names it (distinguished by a static
@@ -73,15 +73,15 @@
   (f))
 
 (use-fixtures :each
-  (core-test-support/make-reset-runtime-fixture
-    #?(:clj  {:adapter plain-atom/adapter}
-       :cljs {:adapter reagent-adapter/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
+       :cljs {:adapter rf.adapter.reagent/adapter}))
   capturing-fixture)
 
 ;; ---- helpers --------------------------------------------------------------
 
 (defn- runtime-db [] (:rf.db/runtime (rf/frame-state-value :rf/default)))
-(defn- entry [scoped-key] (get-in (runtime-db) (state/entry-path scoped-key)))
+(defn- entry [scoped-key] (get-in (runtime-db) (rf.resources.state/entry-path scoped-key)))
 
 (defn- reply-success!
   ([args data] (rf/dispatch-sync (conj (:on-success args) {:status :ok :value data})))
@@ -138,7 +138,7 @@
                          page-param (assoc :cursor page-param))}}))
 
 (defn- feed-key [resource]
-  (state/scoped-resource-key :rf.scope/global resource {:filter :recent}))
+  (rf.resources.state/scoped-resource-key :rf.scope/global resource {:filter :recent}))
 
 (defn- ensure-feed!
   ([resource owner] (ensure-feed! resource owner nil))
@@ -159,11 +159,11 @@
   [body-fn]
   (let [seen (atom [])
         k    ::replied-trace-recorder]
-    (trace-tooling/register-listener!
+    (rf.trace.tooling/register-listener!
       k (fn [ev] (when (= :rf.resource/replied (:operation ev))
                    (swap! seen conj ev))))
     (try (body-fn)
-         (finally (trace-tooling/unregister-listener! k)))
+         (finally (rf.trace.tooling/unregister-listener! k)))
     @seen))
 
 ;; ===========================================================================
@@ -172,7 +172,7 @@
 
 (deftest reply-to-fires-on-accepted-fetch-and-carries-read-facts
   (rf/reg-resource :rr/article (article-spec) article-request)
-  (let [rkey (state/scoped-resource-key :rf.scope/global :rr/article {:slug "w"})
+  (let [rkey (rf.resources.state/scoped-resource-key :rf.scope/global :rr/article {:slug "w"})
         completed-at 1781078400777]
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :rr/article :scope :rf.scope/global
@@ -205,7 +205,7 @@
 
 (deftest reply-to-cache-hit-dispatches-immediately
   (rf/reg-resource :rr/article (article-spec) article-request)
-  (let [rkey (state/scoped-resource-key :rf.scope/global :rr/article {:slug "w"})]
+  (let [rkey (rf.resources.state/scoped-resource-key :rf.scope/global :rr/article {:slug "w"})]
     ;; first: load + settle so the entry is fresh :loaded (no :stale-after-ms →
     ;; never time-stale → a later ensure is a fresh-skip cache hit).
     (rf/dispatch-sync [:rf.resource/ensure
@@ -236,7 +236,7 @@
 
 (deftest reply-to-join-in-flight-fans-out-exactly-once
   (rf/reg-resource :rr/article (article-spec) article-request)
-  (let [rkey (state/scoped-resource-key :rf.scope/global :rr/article {:slug "w"})]
+  (let [rkey (rf.resources.state/scoped-resource-key :rf.scope/global :rr/article {:slug "w"})]
     ;; first ensure kicks off the load (owner A, target tagged :a)
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :rr/article :scope :rf.scope/global
@@ -253,7 +253,7 @@
       (testing "the second ensure joined (no new transport request)"
         (is (= args @last-managed-args) "still the same in-flight args"))
       (testing "both targets recorded on the ONE shared work record"
-        (let [rec (work-ledger/get-record (runtime-db) wid)]
+        (let [rec (rf.resources.work-ledger/get-record (runtime-db) wid)]
           (is (= 2 (count (:reply-targets rec))))))
       ;; ONE success reply settles the shared work
       (reply-success! args {:title "Shared"})
@@ -272,7 +272,7 @@
 
 (deftest reply-to-stale-superseded-never-delivered
   (rf/reg-resource :rr/article (article-spec) article-request)
-  (let [rkey (state/scoped-resource-key :rf.scope/global :rr/article {:slug "w"})]
+  (let [rkey (rf.resources.state/scoped-resource-key :rf.scope/global :rr/article {:slug "w"})]
     ;; gen-1 ensure carries a :reply-to
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :rr/article :scope :rf.scope/global

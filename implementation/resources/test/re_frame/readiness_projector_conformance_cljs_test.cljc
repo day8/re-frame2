@@ -44,30 +44,30 @@
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing]]
       :cljs [cljs.test :refer-macros [deftest is testing]])
-   [re-frame.resources.route :as res-route]
-   [re-frame.resources.state :as state]
-   [re-frame.routing.readiness :as readiness]))
+   [re-frame.resources.route :as rf.resources.route]
+   [re-frame.resources.state :as rf.resources.state]
+   [re-frame.routing.readiness :as rf.routing.readiness]))
 
 ;; ---- fixtures for the two vocabularies ------------------------------------
 
 (def ^:private req-a
-  (state/scoped-resource-key* :rf.scope/global :article/by-slug {:slug "a"}))
+  (rf.resources.state/scoped-resource-key* :rf.scope/global :article/by-slug {:slug "a"}))
 
 (def ^:private req-b
-  (state/scoped-resource-key* :rf.scope/global :article/by-slug {:slug "b"}))
+  (rf.resources.state/scoped-resource-key* :rf.scope/global :article/by-slug {:slug "b"}))
 
 (defn- blocking-map
   "The byte-keyed blocking carrier `{<key-id> <scoped-key>}` both slots hold
   (rf2-btdl1)."
   [& ks]
-  (into {} (map (juxt state/key-id identity)) ks))
+  (into {} (map (juxt rf.resources.state/key-id identity)) ks))
 
 (def ^:private plan-error
   {:rf.error/id :rf.error/resource-route-plan
    :reason      "params failed their schema"})
 
 ;; Durable cache entries, one per `requirement-state` outcome. The classifier
-;; (`res-route/requirement-state`) is the authority for what each shape means;
+;; (`rf.resources.route/requirement-state`) is the authority for what each shape means;
 ;; `requirement-states-are-what-this-table-thinks-they-are` below re-derives
 ;; that rather than trusting these names.
 (def ^:private entry-ready   {:resource/id :article/by-slug :status :loaded  :data {:x 1} :attempt 1})
@@ -87,7 +87,7 @@
                                             :transition transition
                                             :error      error}}
            :rf.runtime/resources {:entries (into {}
-                                                 (map (fn [[k e]] [(state/key-id k) e]))
+                                                 (map (fn [[k e]] [(rf.resources.state/key-id k) e]))
                                                  entries-by-key)}}
     entries-by-key
     (assoc-in [:rf.runtime/routing :resource-blocking nav-token]
@@ -172,7 +172,7 @@
 (defn- routing-projection
   "Run the commit-time half on a row and return `[transition error?]`."
   [{:keys [plan]}]
-  (let [{:keys [transition error]} (readiness/project-at-commit plan)]
+  (let [{:keys [transition error]} (rf.routing.readiness/project-at-commit plan)]
     [transition (some? error)]))
 
 (defn- resources-projection
@@ -181,7 +181,7 @@
   edge-triggered and pinned separately in `resources-route-cljs-test`."
   [{:keys [committed entries]}]
   (let [[transition error] committed
-        rdb  (res-route/reconcile-readiness
+        rdb  (rf.resources.route/reconcile-readiness
                (runtime-db-with "nav-1" transition error entries)
                {:emit-error? false})
         cur  (get-in rdb [:rf.runtime/routing :current])]
@@ -206,7 +206,7 @@
   ;; from the classifier so a change to `requirement-state` cannot quietly turn
   ;; a row into a test of something else — the guard above would stay green
   ;; while pinning the wrong classes.
-  (is (= :ready   (res-route/requirement-state entry-ready)))
-  (is (= :pending (res-route/requirement-state entry-pending)))
-  (is (= :failed  (res-route/requirement-state entry-failed)))
-  (is (= :inert   (res-route/requirement-state entry-inert))))
+  (is (= :ready   (rf.resources.route/requirement-state entry-ready)))
+  (is (= :pending (rf.resources.route/requirement-state entry-pending)))
+  (is (= :failed  (rf.resources.route/requirement-state entry-failed)))
+  (is (= :inert   (rf.resources.route/requirement-state entry-inert))))

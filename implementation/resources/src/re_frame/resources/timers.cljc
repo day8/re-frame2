@@ -65,11 +65,11 @@
   `:server` and a JVM client-mode unit test must still arm timers. A re-load
   reschedules (cancel-then-arm) so a single live timer per `[key kind]`
   survives."
-  (:require [re-frame.identity :as identity]
-            [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.managed-timer :as managed-timer]
-            [re-frame.trace :as trace]))
+  (:require [re-frame.identity :as rf.identity]
+            [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.managed-timer :as rf.managed-timer]
+            [re-frame.trace :as rf.trace]))
 
 ;; Forward declaration: the poll thunk reads host document visibility (CLJS).
 #?(:cljs (declare document-hidden?))
@@ -176,7 +176,7 @@
   recheck event still carries the kind-preserving scoped-key VECTOR; only the
   host side-table key is byte-reduced."
   [frame-id resource-key kind]
-  [frame-id (identity/canonical-bytes resource-key) kind])
+  [frame-id (rf.identity/canonical-bytes resource-key) kind])
 
 (defn cancel!
   "Cancel + drop the host timer for `[frame-id resource-key kind]` (a no-op
@@ -205,7 +205,7 @@
                                              m)))
             claimed    (get old k)]
         (when (and (= token (:token claimed)) (:handle claimed))
-          (interop/cancel-scheduled! (:handle claimed))))))
+          (rf.interop/cancel-scheduled! (:handle claimed))))))
   nil)
 
 (defn cancel-for-key!
@@ -256,7 +256,7 @@
   `poll-fired-handler` makes its default-pause-when-hidden decision from its
   recordable event payload, never an ambient host read at the cascade site."
   [frame-id resource-key kind]
-  (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
+  (when-let [dispatch! (rf.late-bind/get-fn :router/dispatch!)]
     (let [event-id (condp = kind
                      stale-kind stale-fired-event
                      gc-kind    gc-fired-event
@@ -298,7 +298,7 @@
   ;; rf2-j538f7.2): reserve the slot BEFORE arming the host clock, then publish
   ;; the handle only if this attempt still owns the slot, so a cleanup racing the
   ;; arm can never be outrun by a late-returning handle.
-  (when (managed-timer/positive-delay? delay-ms)
+  (when (rf.managed-timer/positive-delay? delay-ms)
     (let [k     (timer-key frame-id resource-key kind)
           token (next-attempt-token)]
       ;; PHASE 1 — reserve an arming sentinel (`:handle nil`) so a concurrent
@@ -307,7 +307,7 @@
       (let [handle
             ;; Shared positive-delay-guarded arm (rf2-7x2lky) — a no-op guard
             ;; pass-through here (already known positive).
-            (managed-timer/arm!
+            (rf.managed-timer/arm!
               (fn []
                 ;; ATOMICALLY claim THIS fire's slot — dispatch AUTHORITY +
                 ;; self-reap in one swap (mirrors core `:dispatch-later`). If a
@@ -332,13 +332,13 @@
                                              (assoc m k {:token token :handle handle})
                                              m)))]
         (if (= token (:token (get old k)))
-          (do (trace/emit! :rf.event (scheduled-trace-id kind)
+          (do (rf.trace/emit! :rf.event (scheduled-trace-id kind)
                            {:rf.frame/id frame-id :resource/key resource-key
                             :delay-ms delay-ms})
               handle)
           ;; a cleanup / synchronous self-fire claimed the sentinel while we
           ;; armed — cancel the orphan handle, publish nothing, emit no trace.
-          (do (interop/cancel-scheduled! handle)
+          (do (rf.interop/cancel-scheduled! handle)
               nil))))))
 
 (defn release-frame!
@@ -363,7 +363,7 @@
                                (fn [m] (into {} (remove (fn [[[fid _ _] _]] (= fid frame-id))) m)))]
     (doseq [[[fid _rkey _kind] slot] old
             :when (and (= fid frame-id) (:handle slot))]
-      (interop/cancel-scheduled! (:handle slot))))
+      (rf.interop/cancel-scheduled! (:handle slot))))
   nil)
 
 (defn reset-cache!
@@ -378,7 +378,7 @@
   (let [[old _new] (reset-vals! timer-table {})]
     (doseq [[_ slot] old
             :when (:handle slot)]
-      (interop/cancel-scheduled! (:handle slot))))
+      (rf.interop/cancel-scheduled! (:handle slot))))
   nil)
 
 ;; ---- the host-side scheduling fx (mirrors :rf.resource/commit-generation) -

@@ -39,7 +39,7 @@
     mutation registration; `clear-mutation` owns that separate lifecycle.
 
   Every handler carries framework-write authority
-  (`state/framework-authority-meta`) so a returned `:rf.db/runtime` effect
+  (`rf.resources.state/framework-authority-meta`) so a returned `:rf.db/runtime` effect
   is in-bounds; the registrations live in the `re-frame.resources` façade.
 
   ## Stale suppression (the correctness boundary, as for resources)
@@ -59,21 +59,21 @@
   follow `:on-conflict` (`:invalidate` by default, or explicit `:force`) and may
   refetch authoritative data."
   (:require [clojure.set :as set]
-            [re-frame.interop :as interop]
-            [re-frame.reply :as reply]
-            [re-frame.resources.classification :as rclass]
-            [re-frame.resources.events :as events]
-            [re-frame.resources.mutation-registry :as mreg]
-            [re-frame.resources.mutation-runtime :as mstate]
-            [re-frame.resources.registry :as registry]
-            [re-frame.resources.reply :as rreply]
-            [re-frame.resources.reply-handlers :as reply-handlers]
-            [re-frame.resources.scope-registry :as scope-registry]
-            [re-frame.resources.state :as state]
-            [re-frame.resources.transport :as transport]
-            [re-frame.resources.transport.http :as transport-http]
-            [re-frame.resources.work-ledger :as work-ledger]
-            [re-frame.trace :as trace]))
+            [re-frame.interop :as rf.interop]
+            [re-frame.reply :as rf.reply]
+            [re-frame.resources.classification :as rf.resources.classification]
+            [re-frame.resources.events :as rf.resources.events]
+            [re-frame.resources.mutation-registry :as rf.resources.mutation-registry]
+            [re-frame.resources.mutation-runtime :as rf.resources.mutation-runtime]
+            [re-frame.resources.registry :as rf.resources.registry]
+            [re-frame.resources.reply :as rf.resources.reply]
+            [re-frame.resources.reply-handlers :as rf.resources.reply-handlers]
+            [re-frame.resources.scope-registry :as rf.resources.scope-registry]
+            [re-frame.resources.state :as rf.resources.state]
+            [re-frame.resources.transport :as rf.resources.transport]
+            [re-frame.resources.transport.http :as rf.resources.transport.http]
+            [re-frame.resources.work-ledger :as rf.resources.work-ledger]
+            [re-frame.trace :as rf.trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -99,10 +99,10 @@
   the resource spec's `:stale-after-ms` / `:gc-after-ms` policy, or nil when
   the resource declares neither (so no `:rf.resource/schedule-timers` fx is
   emitted for that key). Mirrors the read path's
-  `state/positive-or-nil`-guarded delay derivation."
+  `rf.resources.state/positive-or-nil`-guarded delay derivation."
   [resource-spec]
-  (let [stale-delay-ms (state/positive-or-nil (:stale-after-ms resource-spec))
-        gc-delay-ms    (state/positive-or-nil (:gc-after-ms resource-spec))]
+  (let [stale-delay-ms (rf.resources.state/positive-or-nil (:stale-after-ms resource-spec))
+        gc-delay-ms    (rf.resources.state/positive-or-nil (:gc-after-ms resource-spec))]
     (when (or stale-delay-ms gc-delay-ms)
       {:stale-delay-ms stale-delay-ms :gc-delay-ms gc-delay-ms})))
 
@@ -129,11 +129,11 @@
 ;; a `{:from-db …}` named-resolver reference resolved against the settle-time
 ;; app-db (the single use-time rule). This mirrors the invalidation-descriptor
 ;; scope resolution (`resolve-descriptor-scope` below); both share the same
-;; `:rf.scope/same` marker, the same `state/canonicalize-scope` path, and the
+;; `:rf.scope/same` marker, the same `rf.resources.state/canonicalize-scope` path, and the
 ;; same fail-closed nil-resolution discipline.
 
 (defn- resolve-exact-target-scope
-  "Resolve a map-form exact target's DECLARED `:scope` (via `mstate/target-scope`,
+  "Resolve a map-form exact target's DECLARED `:scope` (via `rf.resources.mutation-runtime/target-scope`,
   defaulting `:rf.scope/same`) to a concrete cache scope at settle time, against
   the mutation's resolved scope `mut-scope` and the handler's app-db `db`.
   Returns `[:resolved <concrete-scope>]` or `[:nil-resolved <from-db-id>]` (a
@@ -142,18 +142,18 @@
   concept (an exact target writes ONE key, so there is no scope-agnostic form).
   Per Spec 016 §Map-form exact resource targets / §Resolver references."
   [target mut-scope db where]
-  (let [scope (mstate/target-scope target)]
+  (let [scope (rf.resources.mutation-runtime/target-scope target)]
     (cond
-      (= scope mstate/same-scope-marker)
+      (= scope rf.resources.mutation-runtime/same-scope-marker)
       [:resolved mut-scope]
 
-      (scope-registry/from-db-reference? scope)
-      (if-let [s (scope-registry/resolve-from-db-reference scope db where)]
-        [:resolved (state/canonicalize-scope s where nil)]
+      (rf.resources.scope-registry/from-db-reference? scope)
+      (if-let [s (rf.resources.scope-registry/resolve-from-db-reference scope db where)]
+        [:resolved (rf.resources.state/canonicalize-scope s where nil)]
         [:nil-resolved (:from-db scope)])
 
       :else
-      [:resolved (state/canonicalize-scope scope where nil)])))
+      [:resolved (rf.resources.state/canonicalize-scope scope where nil)])))
 
 ;; ---- the success-time patch / populate / invalidate composition -----------
 
@@ -182,21 +182,21 @@
           ;; (never a wrong-scope write); a RECOVERABLE bad target is
           ;; dropped-and-warned (the valid siblings still land); cache-identity
           ;; CORRUPTION still throws the whole arm.
-          (mstate/validate-target-map!
+          (rf.resources.mutation-runtime/validate-target-map!
             (patches-fn params result)
             #(resolve-exact-target-scope % mut-scope db where)
-            registry/resource-meta :patches where :skip-recoverable))]
+            rf.resources.registry/resource-meta :patches where :skip-recoverable))]
     (if (seq patches)
       (reduce-kv
         (fn [[db' ks policies nils sk] scoped-key patch-fn]
-          (let [entry (get-in db' (state/entry-path scoped-key))]
-            (if (and entry (state/has-data? entry))
-              (let [rspec    (registry/resource-meta (:resource/id entry))
-                    stale-at (state/stale-at-for rspec clock-ms)
-                    entry'   (mstate/patch-entry entry patch-fn result
+          (let [entry (get-in db' (rf.resources.state/entry-path scoped-key))]
+            (if (and entry (rf.resources.state/has-data? entry))
+              (let [rspec    (rf.resources.registry/resource-meta (:resource/id entry))
+                    stale-at (rf.resources.state/stale-at-for rspec clock-ms)
+                    entry'   (rf.resources.mutation-runtime/patch-entry entry patch-fn result
                                                  {:clock-ms clock-ms :stale-at stale-at})
                     delays   (timer-delays rspec)]
-                [(assoc-in db' (state/entry-path scoped-key) entry')
+                [(assoc-in db' (rf.resources.state/entry-path scoped-key) entry')
                  (conj ks scoped-key)
                  (cond-> policies delays (assoc scoped-key delays))
                  nils sk])
@@ -223,24 +223,24 @@
   [runtime-db populates-fn params result clock-ms mut-scope db where]
   (let [[populates nil-ids skipped]
         (when populates-fn
-          (mstate/validate-target-map!
+          (rf.resources.mutation-runtime/validate-target-map!
             (populates-fn params result)
             #(resolve-exact-target-scope % mut-scope db where)
-            registry/resource-meta :populates where :skip-recoverable))]
+            rf.resources.registry/resource-meta :populates where :skip-recoverable))]
     (if (seq populates)
       (reduce-kv
         (fn [[db' ks policies nils sk] scoped-key value]
           (let [[_scope resource-id rparams] scoped-key
-                rspec    (registry/resource-meta resource-id)
-                stale-at (state/stale-at-for rspec clock-ms)
+                rspec    (rf.resources.registry/resource-meta resource-id)
+                stale-at (rf.resources.state/stale-at-for rspec clock-ms)
                 tags-fn  (:tags rspec)
                 tags     (when tags-fn (set (tags-fn rparams value)))
-                entry    (get-in db' (state/entry-path scoped-key))
-                entry'   (mstate/populate-entry entry resource-id value
+                entry    (get-in db' (rf.resources.state/entry-path scoped-key))
+                entry'   (rf.resources.mutation-runtime/populate-entry entry resource-id value
                                                 {:clock-ms clock-ms :stale-at stale-at :tags tags
                                                  :scoped-key scoped-key})
                 delays   (timer-delays rspec)]
-            [(assoc-in db' (state/entry-path scoped-key) entry')
+            [(assoc-in db' (rf.resources.state/entry-path scoped-key) entry')
              (conj ks scoped-key)
              (cond-> policies delays (assoc scoped-key delays))
              nils sk]))
@@ -278,26 +278,26 @@
                     ;; consumes (it threads VALUES — a remove carries none).
                     (cond
                       (nil? raw)                 nil
-                      (mstate/target-map? raw)   {raw ::remove}
+                      (rf.resources.mutation-runtime/target-map? raw)   {raw ::remove}
                       :else                      (into {} (map (fn [t] [t ::remove])) raw))))
         [resolved nil-ids skipped]
         (when (seq targets)
-          (mstate/validate-target-map!
+          (rf.resources.mutation-runtime/validate-target-map!
             targets
             #(resolve-exact-target-scope % mut-scope db where)
-            registry/resource-meta :removes where :skip-recoverable))]
+            rf.resources.registry/resource-meta :removes where :skip-recoverable))]
     (if (seq resolved)
       (reduce-kv
         (fn [[db' ks work nils sk] scoped-key _placeholder]
-          (let [k-id  (state/key-id scoped-key)
-                entry (get-in db' (state/entry-path scoped-key))]
+          (let [k-id  (rf.resources.state/key-id scoped-key)
+                entry (get-in db' (rf.resources.state/entry-path scoped-key))]
             (if entry
               (let [wid       (:current-work entry)
-                    transport (when wid (:transport (work-ledger/get-record db' wid)))]
+                    transport (when wid (:transport (rf.resources.work-ledger/get-record db' wid)))]
                 [(-> db'
-                     (update-in (state/entries-path) dissoc k-id)
-                     (cond-> wid (work-ledger/update-record
-                                   wid work-ledger/mark-terminal
+                     (update-in (rf.resources.state/entries-path) dissoc k-id)
+                     (cond-> wid (rf.resources.work-ledger/update-record
+                                   wid rf.resources.work-ledger/mark-terminal
                                    :cancelled {:reason :mutation-remove})))
                  (conj ks scoped-key)
                  (cond-> work wid (conj [wid transport]))
@@ -312,12 +312,12 @@
 ;; An `:optimistic` / `:optimistic-tags` plan applies a FORWARD patch to the
 ;; resource cache BEFORE the request settles (phase 1.5 of the mutation phase
 ;; order). For each touched entry the runtime SNAPSHOTS the truthful inverse
-;; (`mstate/snapshot-entry` — the whole entry by reference, or the `:absent`
+;; (`rf.resources.mutation-runtime/snapshot-entry` — the whole entry by reference, or the `:absent`
 ;; sentinel) + its `:revision` at apply time, applies the forward patch
-;; (`mstate/apply-optimistic-patch`, which bumps the entry's `:revision`), and
+;; (`rf.resources.mutation-runtime/apply-optimistic-patch`, which bumps the entry's `:revision`), and
 ;; records the inverse on the instance row's `:patch-summary` `:rollback` slot.
 ;; The SETTLE slice (next) consumes that recorded inverse +
-;; `mstate/optimistic-conflict?` (the recorded POST-apply `:applied-revision`)
+;; `rf.resources.mutation-runtime/optimistic-conflict?` (the recorded POST-apply `:applied-revision`)
 ;; to commit / rollback / reconcile.
 ;;
 ;; `:optimistic` is the EXACT-target twin of `:patches` (the same map-form
@@ -357,19 +357,19 @@
   [optimistic-fn params mut-scope db where]
   (if-not optimistic-fn
     [nil []]
-    (mstate/validate-target-map!
+    (rf.resources.mutation-runtime/validate-target-map!
       (optimistic-fn params)
       #(resolve-exact-target-scope % mut-scope db where)
-      registry/resource-meta :optimistic where)))
+      rf.resources.registry/resource-meta :optimistic where)))
 
 (defn- warn-optimistic-tag-descriptor-skipped!
   "DEV-ONLY: emit `:rf.warning/optimistic-tags-descriptor-skipped` for a
   malformed `:optimistic-tags` descriptor that was warn-and-skipped (rf2-o5ca8k).
-  Behind `interop/debug-enabled?` so Closure DCE elides it in production, riding
-  the same `trace/emit!` gate as the other write-side dev tripwires. Returns nil."
+  Behind `rf.interop/debug-enabled?` so Closure DCE elides it in production, riding
+  the same `rf.trace/emit!` gate as the other write-side dev tripwires. Returns nil."
   [{:keys [frame-id mutation]} reason detail]
-  (when interop/debug-enabled?
-    (trace/emit! :warning :rf.warning/optimistic-tags-descriptor-skipped
+  (when rf.interop/debug-enabled?
+    (rf.trace/emit! :warning :rf.warning/optimistic-tags-descriptor-skipped
                  (merge {:rf.frame/id frame-id
                          :mutation    mutation
                          :recovery    :fix-descriptor
@@ -433,8 +433,8 @@
 
                 :else
                 (let [{:keys [scope tags patch]} descriptor]
-                  {:scope (if (contains? descriptor :scope) scope mstate/same-scope-marker)
-                   :tags  (state/normalize-tag-set tags)
+                  {:scope (if (contains? descriptor :scope) scope rf.resources.mutation-runtime/same-scope-marker)
+                   :tags  (rf.resources.state/normalize-tag-set tags)
                    :patch patch})))]
     (cond
       (or (nil? raw) (and (coll? raw) (empty? raw))) []
@@ -456,7 +456,7 @@
   descriptor: resolve its OWN scope (`resolve-descriptor-scope` — `:rf.scope/same`
   / concrete / `{:from-db …}`, FAIL-CLOSED on nil), then match every cache entry
   carrying the descriptor's tags IN that scope (the SHARED
-  `events/match-invalidation-keys` — the same matcher the invalidation engine
+  `rf.resources.events/match-invalidation-keys` — the same matcher the invalidation engine
   uses, EP-0014 one tag index). Each matched entry's scoped key maps to the
   descriptor's `:patch` fn. A later descriptor matching the same key wins
   (last-write). Cross-scope optimistic patching is NOT offered (the optimistic
@@ -473,7 +473,7 @@
           ;; cross-scope is unreachable (a descriptor has no :cross-scope? here)
           :cross-scope  [m nils]
           :resolved
-          (let [{:keys [matched]} (events/match-invalidation-keys
+          (let [{:keys [matched]} (rf.resources.events/match-invalidation-keys
                                     entries scope-or-id false (set tags) #{})]
             [(reduce (fn [m' sk] (assoc m' sk patch)) m matched) nils]))))
     [{} []]
@@ -486,16 +486,16 @@
   [patch-fn before-entry]
   (cond
     (nil? patch-fn)                               :remove
-    (= before-entry mstate/absent-snapshot)       :seed
+    (= before-entry rf.resources.mutation-runtime/absent-snapshot)       :seed
     :else                                         :patch))
 
 (defn- apply-optimistic
   "Apply the resolved optimistic target map `{scoped-key patch-fn-or-nil}` to the
   cache `runtime-db` at execute time (phase 1.5, EP-0019 Decisions 1/2). For each
-  key: SNAPSHOT the entry before (`mstate/snapshot-entry` — the truthful inverse),
-  record `{:resource/key :revision :before :forward}` (`mstate/record-optimistic-
+  key: SNAPSHOT the entry before (`rf.resources.mutation-runtime/snapshot-entry` — the truthful inverse),
+  record `{:resource/key :revision :before :forward}` (`rf.resources.mutation-runtime/record-optimistic-
   entry`), then either DISSOC the entry (a nil patch-fn = optimistic remove) or
-  apply the forward patch + bump revision (`mstate/apply-optimistic-patch`). A
+  apply the forward patch + bump revision (`rf.resources.mutation-runtime/apply-optimistic-patch`). A
   remove of an absent key records the `:absent` inverse and no-ops the cache.
   Returns `[runtime-db' affected-keys inverse-vec]` — `inverse-vec` is the
   recorded `:rollback` slot the instance row carries (in apply order). Indexes are
@@ -503,16 +503,16 @@
   [runtime-db target-map clock-ms]
   (reduce-kv
     (fn [[db' ks inverses] scoped-key patch-fn]
-      (let [entry  (get-in db' (state/entry-path scoped-key))
-            before (mstate/snapshot-entry entry)
+      (let [entry  (get-in db' (rf.resources.state/entry-path scoped-key))
+            before (rf.resources.mutation-runtime/snapshot-entry entry)
             fwd    (forward-summary patch-fn before)
-            inverse (mstate/record-optimistic-entry scoped-key before fwd)
+            inverse (rf.resources.mutation-runtime/record-optimistic-entry scoped-key before fwd)
             db''   (if (nil? patch-fn)
                      ;; optimistic REMOVE — dissoc by the byte key-id
-                     (update-in db' (state/entries-path) dissoc (state/key-id scoped-key))
+                     (update-in db' (rf.resources.state/entries-path) dissoc (rf.resources.state/key-id scoped-key))
                      (let [[_scope resource-id _p] scoped-key
-                           rspec    (registry/resource-meta resource-id)
-                           stale-at (state/stale-at-for rspec clock-ms)
+                           rspec    (rf.resources.registry/resource-meta resource-id)
+                           stale-at (rf.resources.state/stale-at-for rspec clock-ms)
                            tags-fn  (:tags rspec)
                            ;; a freshly-seeded entry needs its resource's tags
                            ;; (so a later invalidation can reach it). An existing
@@ -520,11 +520,11 @@
                            ;; the base entry's tags).
                            [_s _r rparams] scoped-key
                            tags     (when tags-fn (set (tags-fn rparams nil)))
-                           entry'   (mstate/apply-optimistic-patch
+                           entry'   (rf.resources.mutation-runtime/apply-optimistic-patch
                                       entry patch-fn resource-id
                                       {:clock-ms clock-ms :stale-at stale-at
                                        :tags tags :scoped-key scoped-key})]
-                       (assoc-in db' (state/entry-path scoped-key) entry')))]
+                       (assoc-in db' (rf.resources.state/entry-path scoped-key) entry')))]
         [db'' (conj ks scoped-key) (conj inverses inverse)]))
     [runtime-db #{} []]
     target-map))
@@ -532,7 +532,7 @@
 ;; ---- the settle protocol (phase 4) — commit / rollback / reconcile --------
 ;;
 ;; The SETTLE slice (EP-0019 Decision 3) consumes the recorded inverse on the
-;; instance row's `:patch-summary` `:rollback` slot + `mstate/optimistic-conflict?`
+;; instance row's `:patch-summary` `:rollback` slot + `rf.resources.mutation-runtime/optimistic-conflict?`
 ;; (the recorded POST-apply `:applied-revision`) to deterministically dispose
 ;; each optimistic apply when its mutation reply settles:
 ;;
@@ -554,10 +554,10 @@
 ;; These pieces compute the rolled-back runtime-db + the per-key dispositions
 ;; (for the trace + the `:reconciliation-refetches` evidence) + the
 ;; per-conflicted-key exact recovery-refetch fx; the pure decision lives in
-;; `mstate/rollback-entry-disposition` / `mstate/restore-before`.
+;; `rf.resources.mutation-runtime/rollback-entry-disposition` / `rf.resources.mutation-runtime/restore-before`.
 
 (defn- recorded-rollback
-  "The recorded optimistic inverse vector (`mstate/record-optimistic-entry`
+  "The recorded optimistic inverse vector (`rf.resources.mutation-runtime/record-optimistic-entry`
   shapes) the phase-1.5 apply wrote on the live instance's `:patch-summary`
   `:rollback` slot, or nil when this mutation ran no optimistic apply. Read off
   the live instance row (NOT the reply) — the inverse is durable instance state."
@@ -572,13 +572,13 @@
   (`:tags` is OPTIONAL registration metadata and an exact-target optimistic
   write needs none, so tag metadata must not gate rollback recovery —
   rf2-wcdj4). The caller has already marked the surviving entry durably stale
-  in the settle pass (`state/entry-invalidate`); this arms the ordinary exact
+  in the settle pass (`rf.resources.state/entry-invalidate`); this arms the ordinary exact
   refetch ONLY when the entry has ACTIVE OWNERS (a live owner needs fresh data
   now — Spec 016 §Invalidation 3/4). Returns nil when the (moved) entry has
   since vanished or is owner-free — an owner-free entry stays durably stale
   for its next ensure. `scoped-key` is `[scope resource-id params]`."
   [runtime-db scoped-key cause]
-  (let [entry (get-in runtime-db (state/entry-path scoped-key))
+  (let [entry (get-in runtime-db (rf.resources.state/entry-path scoped-key))
         [scope resource-id params] scoped-key]
     (when (and entry (seq (:active-owners entry)))
       [:dispatch [:rf.resource/refetch
@@ -588,9 +588,9 @@
 (defn- settle-optimistic-rollback
   "ROLL BACK the recorded optimistic apply on a FAILED / cancelled / dangled
   mutation reply (EP-0019 Decision 3). For each recorded inverse, decide the
-  conflict-aware disposition (`mstate/rollback-entry-disposition` against the
+  conflict-aware disposition (`rf.resources.mutation-runtime/rollback-entry-disposition` against the
   CURRENT entry + the resolved `on-conflict` policy), then either RESTORE the
-  recorded `:before` verbatim (`mstate/restore-before` — an unmoved revision, or
+  recorded `:before` verbatim (`rf.resources.mutation-runtime/restore-before` — an unmoved revision, or
   `:force`) or keep the moved entry's current owner/work facts, mark it durably
   STALE at its EXACT carried `:resource/key`, and arm the ordinary exact
   refetch when it has active owners — an owner-free entry stays durably stale
@@ -614,8 +614,8 @@
   caller emits `:rf.mutation/optimistic-rolled-back`)."
   [inverse runtime-db on-conflict cause clock-ms]
   (let [dispositions (mapv (fn [{scoped-key :resource/key :as recorded}]
-                             (mstate/rollback-entry-disposition
-                               (get-in runtime-db (state/entry-path scoped-key))
+                             (rf.resources.mutation-runtime/rollback-entry-disposition
+                               (get-in runtime-db (rf.resources.state/entry-path scoped-key))
                                recorded on-conflict))
                            inverse)
         restored?    #(= :restore (:disposition %))
@@ -625,13 +625,13 @@
         ;; moved entry's current owner/work facts, only staling it), so
         ;; reconcile that bounded key set incrementally rather than
         ;; full-rebuilding from all entries.
-        old-entries  (get-in runtime-db (state/entries-path))
-        changed-ids  (mapv (fn [{scoped-key :resource/key}] (state/key-id scoped-key))
+        old-entries  (get-in runtime-db (rf.resources.state/entries-path))
+        changed-ids  (mapv (fn [{scoped-key :resource/key}] (rf.resources.state/key-id scoped-key))
                            inverse)
         ;; apply each disposition to the cache: a :restore restores the recorded
         ;; :before verbatim; an :invalidate KEEPS the moved entry's current
         ;; owner/work facts and marks it durably STALE at its EXACT carried
-        ;; :resource/key (`state/entry-invalidate` — the same in-place exact-key
+        ;; :resource/key (`rf.resources.state/entry-invalidate` — the same in-place exact-key
         ;; staling the EP-0019 restore-dangle reconciler uses), never
         ;; rediscovered through the entry's tags (`:tags` is optional and must
         ;; not gate rollback recovery — rf2-wcdj4). A vanished entry no-ops —
@@ -642,14 +642,14 @@
         [rdb' staled-ks]
                      (reduce (fn [[rdb staled] {scoped-key :resource/key :as disp}]
                                (case (:disposition disp)
-                                 :restore    [(mstate/restore-before rdb disp) staled]
-                                 :invalidate (if (get-in rdb (state/entry-path scoped-key))
-                                               [(update-in rdb (state/entry-path scoped-key)
-                                                           state/entry-invalidate clock-ms)
+                                 :restore    [(rf.resources.mutation-runtime/restore-before rdb disp) staled]
+                                 :invalidate (if (get-in rdb (rf.resources.state/entry-path scoped-key))
+                                               [(update-in rdb (rf.resources.state/entry-path scoped-key)
+                                                           rf.resources.state/entry-invalidate clock-ms)
                                                 (conj staled scoped-key)]
                                                [rdb staled])))
                              [runtime-db []] dispositions)
-        rdb''        (update rdb' state/resources-key state/reindex-keys
+        rdb''        (update rdb' rf.resources.state/resources-key rf.resources.state/reindex-keys
                              old-entries changed-ids)
         ;; one ordinary EXACT refetch per :invalidate (conflicted, non-:force)
         ;; key WITH ACTIVE OWNERS, computed against the ROLLED-BACK runtime-db
@@ -690,7 +690,7 @@
 ;;
 ;; The mutation `:invalidates` arm now lowers TWO public forms — the bare
 ;; tag-set shorthand AND the per-target descriptor form — into ONE canonical
-;; descriptor vector (the pure `mstate/normalize-invalidation-descriptors`),
+;; descriptor vector (the pure `rf.resources.mutation-runtime/normalize-invalidation-descriptors`),
 ;; then resolves each descriptor's OWN scope and dispatches the SINGLE scoped
 ;; invalidation engine (`:rf.resource/invalidate-tags`) once per descriptor.
 ;; The runtime does not re-implement the invalidation — it causes it, once per
@@ -708,18 +708,18 @@
 
     - `:rf.scope/same` (the default) -> the mutation's resolved scope;
     - `:rf.scope/global` / a concrete value -> routed through the SHARED
-      `state/canonicalize-scope` (typo / host / global-spelling guarantees);
+      `rf.resources.state/canonicalize-scope` (typo / host / global-spelling guarantees);
     - `{:from-db <id>}` -> resolved against `db` at use time, nil fail-closed;
     - a `:cross-scope? true` descriptor -> `[:cross-scope]` (scope-agnostic by
       construction; its `:scope`, if any, is advisory only)."
   [{:keys [scope cross-scope?]} mut-scope db where]
   (cond
     cross-scope?                                [:cross-scope]
-    (= scope mstate/same-scope-marker)          [:resolved mut-scope]
-    (scope-registry/from-db-reference? scope)   (if-let [s (scope-registry/resolve-from-db-reference scope db where)]
-                                                  [:resolved (state/canonicalize-scope s where nil)]
+    (= scope rf.resources.mutation-runtime/same-scope-marker)          [:resolved mut-scope]
+    (rf.resources.scope-registry/from-db-reference? scope)   (if-let [s (rf.resources.scope-registry/resolve-from-db-reference scope db where)]
+                                                  [:resolved (rf.resources.state/canonicalize-scope s where nil)]
                                                   [:nil-resolved (:from-db scope)])
-    :else                                       [:resolved (state/canonicalize-scope scope where nil)]))
+    :else                                       [:resolved (rf.resources.state/canonicalize-scope scope where nil)]))
 
 (defn- invalidation-plan
   "Resolve the mutation's `:invalidates` result into the per-descriptor
@@ -748,7 +748,7 @@
   settlement op rather than a new trace op). Per EP-0003 §Mutations / EP-0016 D2."
   [invalidates-fn params result mut-scope db where]
   (when invalidates-fn
-    (let [descriptors (mstate/normalize-invalidation-descriptors
+    (let [descriptors (rf.resources.mutation-runtime/normalize-invalidation-descriptors
                         (invalidates-fn params result) where)]
       (reduce
         (fn [plan {:keys [tags refetch-populated?] :as descriptor}]
@@ -806,7 +806,7 @@
   "The per-descriptor scoped-key evidence the SETTLEMENT path needs from an
   invalidation `plan`, computed against the settle-time cache `entries` (read
   from `runtime-db`) — the SAME match the dispatched `:rf.resource/invalidate-
-  tags` passes will see — via the SHARED pure `events/match-invalidation-keys`
+  tags` passes will see — via the SHARED pure `rf.resources.events/match-invalidation-keys`
   (so the reply, the trace, and the engine never disagree). Returns
   `{:invalidated-keys <vec> :populate-exempt <vec> :per-descriptor [<vec> …]}`:
 
@@ -830,8 +830,8 @@
   (matched by byte `key-id`). Per Spec 016 §Trace evidence for invalidation /
   §Populate is an authoritative load."
   [plan populated-ks runtime-db]
-  (let [populated-ids (into #{} (map state/key-id) populated-ks)
-        entries       (get-in runtime-db (state/entries-path))
+  (let [populated-ids (into #{} (map rf.resources.state/key-id) populated-ks)
+        entries       (get-in runtime-db (rf.resources.state/entries-path))
         sk-by-id      (into {} (map (fn [[k-id e]] [k-id (:resource/key e)])) entries)
         id->sk        (fn [ids] (into [] (keep sk-by-id) ids))
         ;; per dispatch: the keys it will stale (exempt set = the populated keys
@@ -842,12 +842,12 @@
                 (let [tag-set (set tags)
                       exempt  (if refetch-populated? #{} populated-ids)
                       ;; what this descriptor actually stales (exempt removed)
-                      {stale :matched-ids} (events/match-invalidation-keys
+                      {stale :matched-ids} (rf.resources.events/match-invalidation-keys
                                              entries scope cross-scope? tag-set exempt)
                       ;; the populated keys it SPARED (matched with no exempt set)
                       spared  (if refetch-populated?
                                 #{}
-                                (let [{m :matched-ids} (events/match-invalidation-keys
+                                (let [{m :matched-ids} (rf.resources.events/match-invalidation-keys
                                                          entries scope cross-scope? tag-set #{})]
                                   (set/intersection (set m) populated-ids)))]
                   {:stale stale :exempt spared}))
@@ -856,7 +856,7 @@
         exempt-ids (into #{} (mapcat :exempt) per-descriptor)]
     {:invalidated-keys (id->sk stale-ids)
      ;; report by the scoped-key VECTOR, preserving each populated key's spelling
-     :populate-exempt  (into [] (filter (fn [sk] (contains? exempt-ids (state/key-id sk)))) populated-ks)
+     :populate-exempt  (into [] (filter (fn [sk] (contains? exempt-ids (rf.resources.state/key-id sk)))) populated-ks)
      :per-descriptor   (mapv (comp id->sk :exempt) per-descriptor)}))
 
 (defn- plan-trace
@@ -899,7 +899,7 @@
 ;; This is the WRITE-SIDE complement of the read-side `:rf.warning/resource-sub-
 ;; scope-mismatch` (`subs.cljc`): the SAME silent-miss footgun, observed at the
 ;; mutation-settlement boundary. The runtime tripwire reuses the SHARED
-;; `events/match-invalidation-keys` `:other-scope-hit?` signal — a descriptor
+;; `rf.resources.events/match-invalidation-keys` `:other-scope-hit?` signal — a descriptor
 ;; that matched ZERO keys in its resolved scope WHILE the same tags DO match an
 ;; entry in a DIFFERENT scope is a likely scope mismatch (the precise case;
 ;; a tag that simply has no cache entry anywhere does NOT warn — it is a true
@@ -967,19 +967,19 @@
   recoverable tripwire (the asymmetry-fix is not a silent swallow). Cache-identity
   CORRUPTION never reaches here (it throws in the runtime classifier).
 
-  DEV-ONLY: the whole body is behind `interop/debug-enabled?` so Closure DCE
-  elides it in production, and the emit rides `trace/emit!` (same gate). One-shot
+  DEV-ONLY: the whole body is behind `rf.interop/debug-enabled?` so Closure DCE
+  elides it in production, and the emit rides `rf.trace/emit!` (same gate). One-shot
   idempotent per distinct `[mutation-id arm reason resource-id target]` so a
   mutation re-executed repeatedly warns once per genuine bad target. `skipped` is
   the egress-safe `[{:reason :target :resource} …]` vector
   `validate-target-map!`'s `:skip-recoverable` policy returns. Returns nil."
   [skipped {:keys [frame-id mutation-id instance-id arm]}]
-  (when (and interop/debug-enabled? (seq skipped))
+  (when (and rf.interop/debug-enabled? (seq skipped))
     (doseq [{:keys [reason target resource]} skipped]
       (let [dedupe-key [mutation-id arm reason resource target]]
         (when-not (contains? @warned-mutation-target-skipped dedupe-key)
           (swap! warned-mutation-target-skipped conj dedupe-key)
-          (trace/emit! :warning :rf.warning/mutation-target-skipped
+          (rf.trace/emit! :warning :rf.warning/mutation-target-skipped
                        {:rf.frame/id frame-id
                         :mutation    mutation-id
                         :instance    instance-id
@@ -1018,27 +1018,27 @@
   tripwire for the mutation-scope footgun (Spec 016 §Mutation scope is two
   distinct scopes — Scope-match guidance).
 
-  DEV-ONLY: the whole body is behind `interop/debug-enabled?` so Closure DCE
+  DEV-ONLY: the whole body is behind `rf.interop/debug-enabled?` so Closure DCE
   elides it in production (`:advanced` + `goog.DEBUG=false`), and the emit rides
-  `trace/emit!` (same gate). One-shot idempotent per distinct
+  `rf.trace/emit!` (same gate). One-shot idempotent per distinct
   `[mutation-id descriptor-scope other-scope sorted-tags]` so a mutation
   re-executed repeatedly warns once per genuine mismatch.
 
   A `:cross-scope? true` descriptor (the AUDITED deliberate escape) is never
   flagged — it ignores the scope filter by construction, so a 'no match in this
   scope' is impossible / intentional for it. Reuses the SHARED pure
-  `events/match-invalidation-keys` (against the settle-time `entries`), so the
+  `rf.resources.events/match-invalidation-keys` (against the settle-time `entries`), so the
   diagnostic, the dispatched `:rf.resource/invalidate-tags`, and the settlement
   trace never disagree on the match set. Returns nil."
   [plan {:keys [frame-id mutation-id instance-id mut-scope entries]}]
-  (when (and interop/debug-enabled? plan)
+  (when (and rf.interop/debug-enabled? plan)
     (doseq [{:keys [scope cross-scope? tags]} (:dispatches plan)]
       ;; a cross-scope sweep cannot mis-scope; only a scoped descriptor that
       ;; matched nothing-here-but-something-elsewhere is the footgun.
       (when (and (not cross-scope?) (seq tags))
         (let [tag-set (set tags)
               {:keys [matched other-scope-hit?]}
-              (events/match-invalidation-keys entries scope cross-scope? tag-set #{})]
+              (rf.resources.events/match-invalidation-keys entries scope cross-scope? tag-set #{})]
           (when (and (empty? matched) other-scope-hit?)
             (let [other-scope (some (fn [[_k-id entry]]
                                       (let [[s] (:resource/key entry)]
@@ -1049,7 +1049,7 @@
                   dedupe-key  [mutation-id scope other-scope (vec (sort-by pr-str tag-set))]]
               (when-not (contains? @warned-mutation-scope-mismatch dedupe-key)
                 (swap! warned-mutation-scope-mismatch conj dedupe-key)
-                (trace/emit! :warning :rf.warning/mutation-scope-mismatch
+                (rf.trace/emit! :warning :rf.warning/mutation-scope-mismatch
                              {:rf.frame/id        frame-id
                               :mutation           mutation-id
                               :instance           instance-id
@@ -1141,7 +1141,7 @@
   Spec 016 §Phase order) rather than landing while the effect vector is still
   being built."
   [reply-to reply]
-  (when-let [completed (reply/complete reply-to reply)]
+  (when-let [completed (rf.reply/complete reply-to reply)]
     [:dispatch completed]))
 
 (defn- emit-replied!
@@ -1155,7 +1155,7 @@
   when the call site supplied no `:reply-to` (cont-fx is nil)."
   [cont-fx {:keys [frame-id mutation-id instance-id work-id status reply-to]}]
   (when cont-fx
-    (trace/emit! :rf.event :rf.mutation/replied
+    (rf.trace/emit! :rf.event :rf.mutation/replied
                  {:rf.frame/id frame-id :mutation mutation-id :instance instance-id
                   :work/id work-id :status status :target reply-to
                   :cause [:mutation mutation-id instance-id]})))
@@ -1173,8 +1173,8 @@
   references): a CONCRETE scope value OR a `{:from-db <resolver-id>}`
   named-resolver reference, resolved against this handler's app-db coeffect
   at event-execution time — SYMMETRIC with ensure / clear-scope /
-  invalidate-tags (`scope-registry/resolve-scope-input`, via
-  `mreg/resolve-scope`). A supplied reference that resolves NIL is
+  invalidate-tags (`rf.resources.scope-registry/resolve-scope-input`, via
+  `rf.resources.mutation-registry/resolve-scope`). A supplied reference that resolves NIL is
   FAIL-CLOSED with `:rf.error/resource-scope-unresolved-reference` (execute
   is scope-requiring for a supplied reference — never a fall-through to the
   global default); an unregistered resolver id throws
@@ -1209,12 +1209,12 @@
    [_event-id {:keys [mutation instance scope cause reply-to] :as payload}]]
   (let [where      'rf.mutation/execute
         runtime-db (or rt {})
-        spec       (mreg/require-mutation-spec! mutation where)
+        spec       (rf.resources.mutation-registry/require-mutation-spec! mutation where)
         ;; rf2-hgy5kf — thread `:params` presence (absent vs explicit nil) to
         ;; the validation boundary: an absent slot defaults to `{}` there, an
         ;; explicit `{:params nil}` reaches `:params-schema` unchanged.
-        cparams    (mreg/validate+canonicalize-params
-                     mutation spec (state/params-present? payload) where)
+        cparams    (rf.resources.mutation-registry/validate+canonicalize-params
+                     mutation spec (rf.resources.state/params-present? payload) where)
         ;; rf2-l11670 — the payload / spec :scope is a public ScopeInput: a
         ;; concrete scope OR a `{:from-db <id>}` named-resolver reference,
         ;; resolved against THIS handler's app-db coeffect at event-execution
@@ -1227,13 +1227,13 @@
         ;; invalidation plans, continuation reply) sees only the RESOLVED
         ;; concrete scope. An ABSENT :scope keeps the documented fail-open
         ;; :rf.scope/global default.
-        cscope     (mreg/resolve-scope mutation spec scope app-db)
+        cscope     (rf.resources.mutation-registry/resolve-scope mutation spec scope app-db)
         ;; rf2-e8wj5t — reject a non-serializable caller-supplied instance id
         ;; BEFORE any runtime-db / work-ledger write or HTTP lowering (the
         ;; instance id is durable + trace-visible + epoch-restore-safe). A nil
         ;; instance falls through to the generated id (serializable by
         ;; construction).
-        _          (mstate/validate-instance-id! instance where)
+        _          (rf.resources.mutation-runtime/validate-instance-id! instance where)
         ;; rf2-6kdcs9 — the call-site `:reply-to` continuation (EP-0016 D1) is
         ;; a TRANSPORT-PAYLOAD-only app target (NOT a durable ledger row fact),
         ;; but it MUST still be data-only: it rides the internal reply payload
@@ -1245,7 +1245,7 @@
         ;; mis-delivering (or stranding a non-serializable value on the wire)
         ;; at completion. A nil target stays nil (no continuation). The
         ;; data-only-validated target rides the `:reply-payload` below.
-        reply-to'  (when (some? reply-to) (reply/durable-target reply-to))
+        reply-to'  (when (some? reply-to) (rf.reply/durable-target reply-to))
         ;; rf2-abyycr — the generation is the RECORDED allocation value (the
         ;; generator-backed `:rf.resource/generation-allocation` cofx minted
         ;; it at processing-start and the runtime recorded it on the token),
@@ -1260,7 +1260,7 @@
         ;; re-execute under the same instance id mints a NEW work-id (stale
         ;; suppression keys on it). The scoped "key" for a mutation is the
         ;; instance id (no cache identity — a write is not cached by params).
-        work-id    (work-ledger/resource-work-id [:rf.mutation instance-id] generation)
+        work-id    (rf.resources.work-ledger/resource-work-id [:rf.mutation instance-id] generation)
         ;; rf2-sxyrzk — the transport correlation token is the frame-QUALIFIED
         ;; request-id, NOT the bare work-id. The managed-HTTP in-flight registry
         ;; keys by request-id PROCESS-GLOBALLY and supersedes by equal
@@ -1268,7 +1268,7 @@
         ;; frames executing the same mutation instance at the same generation
         ;; would collide on a bare work-id and abort/supersede each other's
         ;; in-flight write. Qualifying with the frame id isolates them.
-        request-id (work-ledger/managed-request-id frame-id work-id)
+        request-id (rf.resources.work-ledger/managed-request-id frame-id work-id)
         ;; EP-0010 §Resources, Mutations, And Work-Ledger Timestamps + EP-0017
         ;; declared-only delivery (rf2-601ife): `:rf.mutation/execute` writes the
         ;; durable instance + work-ledger `:started-at` from the TRIGGERING
@@ -1277,7 +1277,7 @@
         ;; ambient clock read in the reducer. Replay-stable: the same execute
         ;; token mints the same `:started-at`.
         started-at time-ms
-        transport-id (or (:transport spec) transport/default-transport)
+        transport-id (or (:transport spec) rf.resources.transport/default-transport)
         ;; the mutation's :request returns the Spec 014 managed-HTTP args
         ;; (the causal write); the runtime owns reply addressing.
         http-args  ((:request spec) cparams nil)
@@ -1294,11 +1294,11 @@
         ;; (Rider 1 is a success-path concept).
         before-fxs  (when before-plan
                       (plan->fx before-plan [:mutation mutation instance-id] #{}))
-        instance'  (mstate/empty-instance
+        instance'  (rf.resources.mutation-runtime/empty-instance
                      mutation instance-id
                      {:scope cscope :params cparams :cause cause
                       :generation generation :work-id work-id :started-at started-at})
-        record     (-> (work-ledger/work-record
+        record     (-> (rf.resources.work-ledger/work-record
                          {:work-id      work-id
                           :frame-id     frame-id
                           :resource/key [:rf.mutation instance-id]
@@ -1313,10 +1313,10 @@
         ;; Guard the declared transport (registration-time misconfig throw),
         ;; then lower directly into the only built-in
         ;; transport. The one-arm dispatch indirection
-        ;; (`transport/lower-ensure`) is folded into this guarded call.
+        ;; (`rf.resources.transport/lower-ensure`) is folded into this guarded call.
         lower-fx   (do
-                     (transport/assert-managed-transport! transport-id where)
-                     (transport-http/lower
+                     (rf.resources.transport/assert-managed-transport! transport-id where)
+                     (rf.resources.transport.http/lower
                      {:http-args    http-args
                       :request-id   request-id
                       ;; the reply addresses the MUTATION internal replies,
@@ -1350,8 +1350,8 @@
                       :generation   generation
                       :where        where}))
         rdb0       (-> runtime-db
-                       (assoc-in (mstate/instance-path instance-id) instance')
-                       (work-ledger/put-record work-id record))
+                       (assoc-in (rf.resources.mutation-runtime/instance-path instance-id) instance')
+                       (rf.resources.work-ledger/put-record work-id record))
         ;; EP-0019 PHASE 1.5 — the FORWARD optimistic apply, BEFORE the request
         ;; lowers. Per-call opt-out (Q4): `{:optimistic? false}` forces the
         ;; pessimistic path for one call (the registration plan is otherwise
@@ -1366,7 +1366,7 @@
         opt-out?    (and (contains? payload :optimistic?) (false? (:optimistic? payload)))
         has-opt?    (and (not opt-out?)
                          (or (:optimistic spec) (:optimistic-tags spec)))
-        opt-entries (when has-opt? (get-in rdb0 (state/entries-path)))
+        opt-entries (when has-opt? (get-in rdb0 (rf.resources.state/entries-path)))
         [exact-tm exact-nils]
         (when has-opt?
           (optimistic-exact-targets (:optimistic spec) cparams cscope app-db where))
@@ -1399,7 +1399,7 @@
         ;; ALL targets dropped — the evidence must survive).
         rdb'       (if opt-applied?
                      (-> rdb1
-                         (assoc-in (conj (mstate/instance-path instance-id) :patch-summary)
+                         (assoc-in (conj (rf.resources.mutation-runtime/instance-path instance-id) :patch-summary)
                                    {:snapshot-id       snapshot-id
                                     :rollback          opt-inverse
                                     :optimistic-keys   (vec opt-ks)
@@ -1411,11 +1411,11 @@
                          ;; members change, so reconcile that bounded set
                          ;; incrementally (against the pre-apply `opt-entries`)
                          ;; rather than full-rebuilding from all entries.
-                         (update state/resources-key state/reindex-keys
-                                 opt-entries (mapv state/key-id opt-ks)))
+                         (update rf.resources.state/resources-key rf.resources.state/reindex-keys
+                                 opt-entries (mapv rf.resources.state/key-id opt-ks)))
                      rdb1)]
     (when opt-applied?
-      (trace/emit! :rf.event :rf.mutation/optimistic-applied
+      (rf.trace/emit! :rf.event :rf.mutation/optimistic-applied
                    {:rf.frame/id frame-id :mutation mutation :instance instance-id
                     :work/id work-id :generation generation :scope cscope
                     :snapshot-id snapshot-id
@@ -1428,7 +1428,7 @@
                     :tag-matched-keys (vec (keys tag-tm))
                     :target-unresolved (vec opt-nil-ids)
                     :cause [:mutation mutation instance-id]}))
-    (trace/emit! :rf.event :rf.mutation/started
+    (rf.trace/emit! :rf.event :rf.mutation/started
                  (cond-> {:rf.frame/id frame-id :mutation mutation :instance instance-id
                           :work/id work-id :generation generation :scope cscope
                           :cause cause :invalidate-timing invalidate-timing}
@@ -1443,7 +1443,7 @@
     ;; execute-time runtime-db entries (the cache state before the write).
     (maybe-warn-scope-mismatch!
       before-plan {:frame-id frame-id :mutation-id mutation :instance-id instance-id
-                   :mut-scope cscope :entries (get-in runtime-db (state/entries-path))})
+                   :mut-scope cscope :entries (get-in runtime-db (rf.resources.state/entries-path))})
     {:rf.db/runtime rdb'
      ;; rf2-agrjvk — `:before-request` invalidation must precede the request
      ;; being lowered to transport. fx run in order, so the invalidation
@@ -1476,7 +1476,7 @@
   row terminal `:cancelled`."
   [{rt :rf.db/runtime, frame-id :rf.frame/id} [_event-id {:keys [instance mutation]}]]
   (let [runtime-db (or rt {})
-        instances  (get-in runtime-db (mstate/instances-path))
+        instances  (get-in runtime-db (rf.resources.mutation-runtime/instances-path))
         ;; rf2-8iciw8 — the `:rf.runtime/mutations` map is keyed on the CEDN-1
         ;; byte `key-id`; the storage targets (`dissoc` / `get`) MUST be those
         ;; byte key-ids, never the raw caller-supplied instance id (which is
@@ -1484,7 +1484,7 @@
         ;; `:instance` is matched by its OWN byte key-id so a `[:row 7]` clear
         ;; does NOT also gate a CEDN-distinct `'(:row 7)` row.
         target-kids (cond
-                      (some? instance) (let [k (mstate/instance-key-id instance)]
+                      (some? instance) (let [k (rf.resources.mutation-runtime/instance-key-id instance)]
                                          (when (contains? instances k) [k]))
                       (some? mutation) (keep (fn [[kid inst]]
                                                (when (= mutation (:mutation/id inst)) kid))
@@ -1497,27 +1497,27 @@
                                  (let [inst (get instances kid)
                                        wid  (:current-work inst)]
                                    (when wid
-                                     [wid (:transport (work-ledger/get-record runtime-db wid))]))))
+                                     [wid (:transport (rf.resources.work-ledger/get-record runtime-db wid))]))))
                          target-kids)
         rdb'       (-> runtime-db
-                       (update-in (mstate/instances-path)
+                       (update-in (rf.resources.mutation-runtime/instances-path)
                                   (fn [m] (reduce dissoc m target-kids)))
                        (as-> db (reduce (fn [d [wid _]]
-                                          (work-ledger/update-record
-                                            d wid work-ledger/mark-terminal
+                                          (rf.resources.work-ledger/update-record
+                                            d wid rf.resources.work-ledger/mark-terminal
                                             :cancelled {:reason :mutation-clear}))
                                         db in-flight)))
         ;; surface the kind-preserving `:instance/id` values in the trace (the
         ;; byte key-ids are an opaque storage detail), read off the rows BEFORE
         ;; they were dissoc'd.
         cleared-ids (mapv #(:instance/id (get instances %)) target-kids)]
-    (trace/emit! :rf.event :rf.mutation/cleared
+    (rf.trace/emit! :rf.event :rf.mutation/cleared
                  {:rf.frame/id frame-id :cleared cleared-ids
                   :aborted (mapv first in-flight)})
     {:rf.db/runtime rdb'
      ;; rf2-sxyrzk — abort by the frame-QUALIFIED request-id (the token the
      ;; lower registered); the bare work-id would miss the in-flight request.
-     :fx (into [] (keep (fn [[wid transport]] (work-ledger/abort-fx transport frame-id wid)))
+     :fx (into [] (keep (fn [[wid transport]] (rf.resources.work-ledger/abort-fx transport frame-id wid)))
                in-flight)}))
 
 ;; ---- framework-internal reply handlers ------------------------------------
@@ -1538,7 +1538,7 @@
   mutation instance at the reply's `:instance-id`. Used by the shared
   `reply-handlers` verifier + current-generation reader."
   [{:keys [instance-id]}]
-  (mstate/instance-path instance-id))
+  (rf.resources.mutation-runtime/instance-path instance-id))
 
 (defn- mutation-correlation
   "The mutation family's stale-reply diagnostic correlation keys (beyond the
@@ -1552,45 +1552,45 @@
 
 (def ^:private mutation-stale-knobs
   "The mutation family's stale-suppress knobs for
-  `reply-handlers/stale-suppress-reply`: `:work-kind`, `:stale-reason`, and
+  `rf.resources.reply-handlers/stale-suppress-reply`: `:work-kind`, `:stale-reason`, and
   the `:correlation-fn`."
-  {:work-kind      rreply/work-kind-mutation
+  {:work-kind      rf.resources.reply/work-kind-mutation
    :stale-reason   :rf.mutation/superseded
    :correlation-fn mutation-correlation})
 
 (defn- live-instance-for-reply
   "Look the live mutation instance up for an internal reply via the SHARED
-  `reply-handlers/live-slot-for-reply` (frame + work-id + generation
+  `rf.resources.reply-handlers/live-slot-for-reply` (frame + work-id + generation
   verification against the mutation instance at the reply's `:instance-id`).
   Returns the instance on a match, nil on a cross-frame / stale / superseded /
   cleared reply (which MUST be suppressed). Mirrors the resource
   `live-entry-for-reply` (the shared substrate is identical; only the slot
   path-fn differs)."
   [runtime-db receiving-frame-id payload]
-  (reply-handlers/live-slot-for-reply
+  (rf.resources.reply-handlers/live-slot-for-reply
     runtime-db receiving-frame-id instance-path-for-reply payload))
 
 (defn- stale-suppress-reply
   "Build the canonical `:status :stale` reply outcome for a superseded /
   cleared MUTATION reply through the SHARED `reply-handlers` substrate (which
-  lowers through `rreply/stale-reply`), so the mutation family lowers its stale
+  lowers through `rf.resources.reply/stale-reply`), so the mutation family lowers its stale
   outcome exactly as the resource family + every other managed-async family
   does (Managed-Effects §Stale suppression). `extra` threads diagnostic facts
   (e.g. `:outcome`) onto the stale reply."
   [runtime-db payload extra]
-  (reply-handlers/stale-suppress-reply
+  (rf.resources.reply-handlers/stale-suppress-reply
     runtime-db instance-path-for-reply payload mutation-stale-knobs extra))
 
 (defn- emit-mutation-stale-suppressed!
   "Emit the `:rf.mutation/stale-suppressed` trace for a suppressed late
-  mutation reply via the SHARED `reply-handlers/emit-stale-suppressed!`,
+  mutation reply via the SHARED `rf.resources.reply-handlers/emit-stale-suppressed!`,
   carrying the mutation bespoke facts (`:instance` / `:generation` /
   `:outcome`) PLUS the canonical reply-envelope vocabulary ADDITIVELY
   (Managed-Effects §Tracing / EP-0011 / rf2-waawic). The work identity rides
   ONLY as `:rf.reply/work-id` (one name per fact — rf2-o6c2jr dropped the bare
   `:work/id` duplicate the additive vocabulary already carries)."
   [frame-id instance-id _work-id generation outcome stale]
-  (reply-handlers/emit-stale-suppressed!
+  (rf.resources.reply-handlers/emit-stale-suppressed!
     :rf.mutation/stale-suppressed
     {:rf.frame/id frame-id :instance instance-id
      :generation generation :outcome outcome}
@@ -1633,7 +1633,7 @@
   A stale / superseded / cleared reply is SUPPRESSED. Per EP-0003
   §Mutations; EP-0011 §Mutation Reply.
 
-  The reply is re-lifted into the canonical reply map (`rreply/success-reply`
+  The reply is re-lifted into the canonical reply map (`rf.resources.reply/success-reply`
   with `:work/kind :mutation`); the decoded result rides as `:value` (the
   reply-map spelling) and is stored under the instance's durable `:result`
   (the instance-layer spelling — kh9jz6 / EP-0007).
@@ -1656,8 +1656,8 @@
         ;; the ONE canonical reply map (Managed-Effects §The uniform reply
         ;; envelope), `:work/kind :mutation`. The internal mutation reply
         ;; target receives it directly; the decoded result is `:value`.
-        reply      (rreply/success-reply payload (rreply/transport-success-value payload http-result :result)
-                                         {:work-kind rreply/work-kind-mutation
+        reply      (rf.resources.reply/success-reply payload (rf.resources.reply/transport-success-value payload http-result :result)
+                                         {:work-kind rf.resources.reply/work-kind-mutation
                                           :completed-at completed-at})
         result     (:value reply)
         inst       (live-instance-for-reply runtime-db frame-id payload)]
@@ -1673,11 +1673,11 @@
       (let [stale (stale-suppress-reply runtime-db payload {:outcome :success})]
         (emit-mutation-stale-suppressed!
           frame-id instance-id work-id generation :success stale)
-        (work-ledger/clear-handle! frame-id work-id)
-        {:rf.db/runtime (work-ledger/update-record
-                          runtime-db work-id work-ledger/mark-terminal
+        (rf.resources.work-ledger/clear-handle! frame-id work-id)
+        {:rf.db/runtime (rf.resources.work-ledger/update-record
+                          runtime-db work-id rf.resources.work-ledger/mark-terminal
                           :suppressed {:reason :stale-reply :outcome :success})})
-      (let [spec        (mreg/mutation-meta mutation-id)
+      (let [spec        (rf.resources.mutation-registry/mutation-meta mutation-id)
             params      (:params inst)
             timing      (or (:invalidate-timing spec) :after-success)
             ;; EP-0010: the terminal mutation reply writes `:settled-at` from
@@ -1804,7 +1804,7 @@
                                    :rollback    (:rollback opt-summary)
                                    :committed   committed-keys
                                    :reconciliation-refetches reconciliation-refetches))
-            inst'       (mstate/instance-succeeded
+            inst'       (rf.resources.mutation-runtime/instance-succeeded
                           inst {:result result :settled-at clock-ms
                                 :affected-keys affected :patch-summary patch-summary})
             ;; rf2-2c2mkh — the cache consequences (apply-patches /
@@ -1815,15 +1815,15 @@
             ;; rides a separate dispatched `:rf.resource/invalidate-tags`, which
             ;; marks entries stale without touching `:tags` / `:active-owners`,
             ;; so it never perturbs the indexes.)
-            old-entries (get-in runtime-db (state/entries-path))
+            old-entries (get-in runtime-db (rf.resources.state/entries-path))
             rdb'        (-> rdb3
-                            (assoc-in (mstate/instance-path instance-id) inst')
-                            (work-ledger/update-record
-                              work-id work-ledger/mark-terminal
+                            (assoc-in (rf.resources.mutation-runtime/instance-path instance-id) inst')
+                            (rf.resources.work-ledger/update-record
+                              work-id rf.resources.work-ledger/mark-terminal
                               :completed {:settled-at clock-ms})
-                            (update state/resources-key state/reindex-keys
+                            (update rf.resources.state/resources-key rf.resources.state/reindex-keys
                                     old-entries
-                                    (mapv state/key-id authoritative-keys)))
+                                    (mapv rf.resources.state/key-id authoritative-keys)))
             ;; arm the advisory stale / GC timers (host-side side table) for
             ;; every patched / populated key carrying a policy — one
             ;; `:rf.resource/schedule-timers` fx per key, mirroring the
@@ -1834,7 +1834,7 @@
             ;; populated ownerless entry would carry a durable :stale-at /
             ;; :gc-after-ms policy but NO armed reaper. Per Spec 016 §Stale
             ;; and GC scheduling.
-            server?     (state/server-frame? frame-id)
+            server?     (rf.resources.state/server-frame? frame-id)
             timer-fx    (mapv (fn [[scoped-key {:keys [stale-delay-ms gc-delay-ms]}]]
                                 [:rf.resource/schedule-timers
                                  {:frame-id     frame-id
@@ -1869,7 +1869,7 @@
                           ;; and dispatches into app workflow. The durable
                           ;; instance keeps the raw value (the success-path
                           ;; `:invalidates` / `:patches` above already read it).
-                          (rclass/redact-continuation-reply
+                          (rf.resources.classification/redact-continuation-reply
                             (continuation-reply
                               reply {:mutation-id mutation-id :params params
                                      :instance-id instance-id :scope scope
@@ -1883,13 +1883,13 @@
             ;; mirroring `:rf.resource/remove`. Stale suppression by work-id +
             ;; generation remains the correctness boundary.
             remove-abort-fx (into [] (keep (fn [[wid transport]]
-                                             (work-ledger/abort-fx transport frame-id wid)))
+                                             (rf.resources.work-ledger/abort-fx transport frame-id wid)))
                                   removed-work)
             remove-timer-fx (when (seq removed-ks)
                               [[:rf.resource/cancel-timers
                                 {:frame-id frame-id :resource/keys (vec removed-ks)}]])]
-        (work-ledger/clear-handle! frame-id work-id)
-        (trace/emit! :rf.event :rf.mutation/succeeded
+        (rf.resources.work-ledger/clear-handle! frame-id work-id)
+        (rf.trace/emit! :rf.event :rf.mutation/succeeded
                      (cond-> {:rf.frame/id frame-id :instance instance-id :mutation mutation-id
                               :work/id work-id :generation generation
                               :affected-keys affected :patch-summary patch-summary}
@@ -1912,7 +1912,7 @@
         ;; refetches). The recorded inverse was DISCARDED (the commit superseded
         ;; it — no rollback on success).
         (when opt-applied?
-          (trace/emit! :rf.event :rf.mutation/optimistic-reconciled
+          (rf.trace/emit! :rf.event :rf.mutation/optimistic-reconciled
                        {:rf.frame/id frame-id :instance instance-id :mutation mutation-id
                         :work/id work-id :generation generation
                         :snapshot-id (:snapshot-id opt-summary)
@@ -1929,7 +1929,7 @@
         ;; entries the dispatched invalidate-tags will themselves see).
         (maybe-warn-scope-mismatch!
           inv-plan {:frame-id frame-id :mutation-id mutation-id :instance-id instance-id
-                    :mut-scope scope :entries (get-in rdb3 (state/entries-path))})
+                    :mut-scope scope :entries (get-in rdb3 (rf.resources.state/entries-path))})
         ;; DEV-ONLY drop-and-warn tripwire (rf2-1vpbld) — for each RECOVERABLE
         ;; post-write `:patches` / `:populates` / `:removes` target the relaxed
         ;; settle policy DROPPED (unregistered resource / non-map / non-keyword
@@ -1965,7 +1965,7 @@
   EP-0011 §Mutation Reply.
 
   The failure is re-lifted into the canonical reply map
-  (`rreply/failure-reply` with `:rf.reply/work-kind :mutation` — `:status :error`
+  (`rf.resources.reply/failure-reply` with `:rf.reply/work-kind :mutation` — `:status :error`
   carrying the `:rf.http/*` envelope under `:error`, or `:status :cancelled`
   for an abort). The `:error` envelope (the same closed shape the instance
   `:error` stores) is read back from the canonical reply.
@@ -1987,8 +1987,8 @@
         ;; the ONE canonical reply map (Managed-Effects §The uniform reply
         ;; envelope), `:work/kind :mutation`. `:error` carries the closed
         ;; `:rf.http/*` envelope the instance `:error` also stores.
-        reply      (rreply/failure-reply payload (rreply/transport-failure-envelope payload http-result)
-                                         {:work-kind rreply/work-kind-mutation
+        reply      (rf.resources.reply/failure-reply payload (rf.resources.reply/transport-failure-envelope payload http-result)
+                                         {:work-kind rf.resources.reply/work-kind-mutation
                                           :completed-at completed-at})
         error      (:error reply)
         ;; rf2-qsn30x (EP-0011 §Status taxonomy / §Work-status mapping): an
@@ -2015,11 +2015,11 @@
       (let [stale (stale-suppress-reply runtime-db payload {:outcome :failure})]
         (emit-mutation-stale-suppressed!
           frame-id instance-id work-id generation :failure stale)
-        (work-ledger/clear-handle! frame-id work-id)
-        {:rf.db/runtime (work-ledger/update-record
-                          runtime-db work-id work-ledger/mark-terminal
+        (rf.resources.work-ledger/clear-handle! frame-id work-id)
+        {:rf.db/runtime (rf.resources.work-ledger/update-record
+                          runtime-db work-id rf.resources.work-ledger/mark-terminal
                           :suppressed {:reason :stale-reply :outcome :failure})})
-      (let [spec     (mreg/mutation-meta mutation-id)
+      (let [spec     (rf.resources.mutation-registry/mutation-meta mutation-id)
             params   (:params inst)
             timing   (or (:invalidate-timing spec) :after-success)
             ;; EP-0010: the terminal failure reply writes `:settled-at` from
@@ -2042,7 +2042,7 @@
             ;; failure-time invalidation so that pass reads the ROLLED-BACK cache.
             ;; A purely-pessimistic mutation (no recorded inverse) skips this.
             rollback-inverse (recorded-rollback inst)
-            on-conflict      (mstate/on-conflict-policy spec)
+            on-conflict      (rf.resources.mutation-runtime/on-conflict-policy spec)
             rolled  (when rollback-inverse
                       (settle-optimistic-rollback rollback-inverse runtime-db on-conflict
                                                   cause clock-ms))
@@ -2091,12 +2091,12 @@
                                     :rollback                 (rollback-trace-dispositions
                                                                 (:dispositions rolled) on-conflict)
                                     :reconciliation-refetches refetched-ks))
-            inst'    (cond-> (mstate/instance-failed
+            inst'    (cond-> (rf.resources.mutation-runtime/instance-failed
                                inst {:error error :settled-at clock-ms
                                      :affected-keys affected})
                        rolled-summary (assoc :patch-summary rolled-summary))
             rdb'     (-> settle-db
-                         (assoc-in (mstate/instance-path instance-id) inst')
+                         (assoc-in (rf.resources.mutation-runtime/instance-path instance-id) inst')
                          ;; rf2-qsn30x: the ledger row settles `:cancelled` for
                          ;; an accepted abort (the reply lowered it to
                          ;; `:status :cancelled`), else `:failed`. The outcome
@@ -2105,8 +2105,8 @@
                          ;; an abort is not a user-visible failure) so the
                          ;; ledger status and the canonical reply `:rf.reply/work-status`
                          ;; agree (Managed-Effects §Status taxonomy).
-                         (work-ledger/update-record
-                           work-id work-ledger/mark-terminal
+                         (rf.resources.work-ledger/update-record
+                           work-id rf.resources.work-ledger/mark-terminal
                            (:rf.reply/work-status reply)
                            (if aborted?
                              {:reason :aborted :completed-at completed-at}
@@ -2129,19 +2129,19 @@
                        ;; scope subpaths on the failure continuation echo too
                        ;; (an accepted `:error` / `:cancelled` reply dispatches
                        ;; `:reply-to`). Derived from the mutation spec.
-                       (rclass/redact-continuation-reply
+                       (rf.resources.classification/redact-continuation-reply
                          (continuation-reply
                            reply {:mutation-id mutation-id :params params
                                   :instance-id instance-id :scope scope
                                   :affected-keys affected})
                          spec))]
-        (work-ledger/clear-handle! frame-id work-id)
+        (rf.resources.work-ledger/clear-handle! frame-id work-id)
         ;; EP-0019 — the optimistic rollback trace (phase 4, error/cancel).
         ;; Carries the snapshot id, per-key restored-vs-conflict disposition (the
         ;; `:on-conflict` rule applied on a conflict), and the refetched keys.
         ;; Emitted only when this mutation ran an optimistic apply.
         (when rolled
-          (trace/emit! :rf.event :rf.mutation/optimistic-rolled-back
+          (rf.trace/emit! :rf.event :rf.mutation/optimistic-rolled-back
                        {:rf.frame/id frame-id :instance instance-id :mutation mutation-id
                         :work/id work-id :generation generation
                         :snapshot-id (-> inst :patch-summary :snapshot-id)
@@ -2156,7 +2156,7 @@
           ;; concurrent authoritative write — the deliberate single-writer
           ;; escape, but a tooling warning so an unexpected clobber is loud.
           (when (and (= :force on-conflict) (seq (:conflicted-keys rolled)))
-            (trace/emit! :warning :rf.warning/optimistic-force-clobber
+            (rf.trace/emit! :warning :rf.warning/optimistic-force-clobber
                          {:rf.frame/id frame-id :instance instance-id :mutation mutation-id
                           :forced-keys (vec (:conflicted-keys rolled))
                           :recovery :review-on-conflict
@@ -2171,7 +2171,7 @@
                                        "written concurrently, use the :invalidate default "
                                        "(refetch the authoritative value on conflict). Per "
                                        "Spec 016 §Optimistic settle / EP-0019 Decision 3.")})))
-        (trace/emit! :rf.event :rf.mutation/failed
+        (rf.trace/emit! :rf.event :rf.mutation/failed
                      (cond-> {:rf.frame/id frame-id :instance instance-id :mutation mutation-id
                               :work/id work-id :generation generation :error error
                               :affected-keys affected
@@ -2188,7 +2188,7 @@
         ;; the ROLLED-BACK settle-time entries the dispatched invalidate-tags see.
         (maybe-warn-scope-mismatch!
           inv-plan {:frame-id frame-id :mutation-id mutation-id :instance-id instance-id
-                    :mut-scope scope :entries (get-in settle-db (state/entries-path))})
+                    :mut-scope scope :entries (get-in settle-db (rf.resources.state/entries-path))})
         ;; PHASE 6 evidence — emitted AFTER `:rf.mutation/failed` so the
         ;; `:rf.mutation/replied` row truthfully follows settlement in the phase
         ;; order (rf2-ru73k6 F2). No-op when no `:reply-to` continued.

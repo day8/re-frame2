@@ -26,15 +26,15 @@
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
-   [re-frame.registrar :as registrar]
-   [re-frame.resources :as resources]
-   [re-frame.resources.scope-registry :as scope]))
+   [re-frame.registrar :as rf.registrar]
+   [re-frame.resources :as rf.resources]
+   [re-frame.resources.scope-registry :as rf.resources.scope-registry]))
 
 ;; ---- fixtures -------------------------------------------------------------
 
 (use-fixtures :each
-  {:before (fn [] (registrar/clear-kind! :resource-scope))
-   :after  (fn [] (registrar/clear-kind! :resource-scope))})
+  {:before (fn [] (rf.registrar/clear-kind! :resource-scope))
+   :after  (fn [] (rf.registrar/clear-kind! :resource-scope))})
 
 ;; rf2-bqstzr — the canonical declared-inputs resolver split into the 3-slot
 ;; grammar's metadata middle slot (`session-meta`: `:doc` + `:inputs`) and the
@@ -57,23 +57,23 @@
 
 (deftest resource-scope-kind-in-closed-set
   (testing ":resource-scope is a valid registrar kind"
-    (is (registrar/valid-kind? :resource-scope))
-    (is (contains? registrar/kinds :resource-scope))))
+    (is (rf.registrar/valid-kind? :resource-scope))
+    (is (contains? rf.registrar/kinds :resource-scope))))
 
 (deftest reg-resource-scope-registers-and-introspects
   (testing "reg-resource-scope writes a :resource-scope registrar entry"
-    (is (= :realworld/session (resources/reg-resource-scope :realworld/session session-meta session-resolve)))
-    (is (contains? (registrar/registrations :resource-scope) :realworld/session))
-    (is (= [:realworld/session] (resources/scope-resolver-ids))))
+    (is (= :realworld/session (rf.resources/reg-resource-scope :realworld/session session-meta session-resolve)))
+    (is (contains? (rf.registrar/registrations :resource-scope) :realworld/session))
+    (is (= [:realworld/session] (rf.resources/scope-resolver-ids))))
   (testing "scope-resolver-meta reads the canonical spec back"
-    (let [m (resources/scope-resolver-meta :realworld/session)]
+    (let [m (rf.resources/scope-resolver-meta :realworld/session)]
       (is (fn? (:resolve m)))
       (is (= {:username [:db [:auth :user :username]]} (:inputs m)))
       (is (false? (:whole-db? m)))))
   (testing "clear-resource-scope removes the registration"
-    (resources/clear-resource-scope :realworld/session)
-    (is (nil? (resources/scope-resolver-meta :realworld/session)))
-    (is (not (contains? (registrar/registrations :resource-scope) :realworld/session)))))
+    (rf.resources/clear-resource-scope :realworld/session)
+    (is (nil? (rf.resources/scope-resolver-meta :realworld/session)))
+    (is (not (contains? (rf.registrar/registrations :resource-scope) :realworld/session)))))
 
 ;; ===========================================================================
 ;; 2. Fail-closed validation at the authoring boundary
@@ -86,40 +86,40 @@
   (testing "a non-fn value slot throws invalid-resource-scope-spec"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"invalid-resource-scope-spec"
-          (resources/reg-resource-scope :s/no-resolve
+          (rf.resources/reg-resource-scope :s/no-resolve
                                         {:inputs {:x [:db [:x]]}}
                                         "not a fn"))))
   (testing "a non-map non-fn value slot throws (2-arg sugar, value not a fn)"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"invalid-resource-scope-spec"
-          (resources/reg-resource-scope :s/bad "not a resolver"))))
+          (rf.resources/reg-resource-scope :s/bad "not a resolver"))))
   (testing "a non-map metadata slot throws"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"invalid-resource-scope-spec"
-          (resources/reg-resource-scope :s/bad-meta "not a map" (fn [_ _] nil)))))
+          (rf.resources/reg-resource-scope :s/bad-meta "not a map" (fn [_ _] nil)))))
   (testing "a :resolve left inside the metadata map is rejected as mislocated"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"invalid-resource-scope-spec"
-          (resources/reg-resource-scope :s/mislocated
+          (rf.resources/reg-resource-scope :s/mislocated
                                         {:inputs {:x [:db [:x]]}
                                          :resolve (fn [_ _] nil)}
                                         (fn [_ _] nil)))))
   (testing "a non-map :inputs throws"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"invalid-resource-scope-spec"
-          (resources/reg-resource-scope :s/bad-inputs
+          (rf.resources/reg-resource-scope :s/bad-inputs
                                         {:inputs [:not :a :map]}
                                         (fn [_ _] nil)))))
   (testing "a malformed input descriptor (not a 2-vector) throws"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"invalid-resource-scope-spec"
-          (resources/reg-resource-scope :s/bad-desc
+          (rf.resources/reg-resource-scope :s/bad-desc
                                         {:inputs {:x [:db]}}
                                         (fn [_ _] nil)))))
   (testing "an unknown source head throws"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"invalid-resource-scope-spec"
-          (resources/reg-resource-scope :s/bad-src
+          (rf.resources/reg-resource-scope :s/bad-src
                                         {:inputs {:x [:cookie [:x]]}}
                                         (fn [_ _] nil))))))
 
@@ -131,7 +131,7 @@
   (testing "[:runtime path] is rejected with the reserved-source error"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-scope-source-reserved"
-          (resources/reg-resource-scope :s/tenant
+          (rf.resources/reg-resource-scope :s/tenant
                                         {:inputs {:tenant [:runtime [:rf.runtime/routing :current :params :tenant]]}}
                                         (fn [{:keys [tenant]} _]
                                           (when tenant [:rf.scope/tenant {:tenant tenant}])))))))
@@ -145,40 +145,40 @@
     (let [inputs {:username [:db [:auth :user :username]]
                   :locale   [:db [:i18n :locale]]}
           db     {:auth {:user {:username "jake"}} :i18n {:locale :en}}]
-      (is (= {:username "jake" :locale :en} (scope/eval-inputs inputs db)))))
+      (is (= {:username "jake" :locale :en} (rf.resources.scope-registry/eval-inputs inputs db)))))
   (testing "a missing path resolves to nil (rf.path get, no throw)"
-    (is (= {:username nil} (scope/eval-inputs {:username [:db [:auth :user :username]]} {})))))
+    (is (= {:username nil} (rf.resources.scope-registry/eval-inputs {:username [:db [:auth :user :username]]} {})))))
 
 ;; ===========================================================================
 ;; 4. The resolve-resource-scope resolver helper (fail-closed nil)
 ;; ===========================================================================
 
 (deftest resolve-resource-scope-against-supplied-db
-  (resources/reg-resource-scope :realworld/session session-meta session-resolve)
+  (rf.resources/reg-resource-scope :realworld/session session-meta session-resolve)
   (testing "resolves the concrete scope from a supplied db value (canonicalized)"
     (is (= [:rf.scope/session {:username "jake"}]
-           (resources/resolve-resource-scope {:auth {:user {:username "jake"}}}
+           (rf.resources/resolve-resource-scope {:auth {:user {:username "jake"}}}
                                              :realworld/session))))
   (testing "a resolver returning nil FAILS CLOSED — nil, never an implicit global"
-    (is (nil? (resources/resolve-resource-scope {} :realworld/session)))))
+    (is (nil? (rf.resources/resolve-resource-scope {} :realworld/session)))))
 
 (deftest resolve-resource-scope-unregistered-is-loud
   (testing "resolve-resource-scope on an unregistered id throws fail-closed"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-scope-not-registered"
-          (resources/resolve-resource-scope {} :s/nope)))))
+          (rf.resources/resolve-resource-scope {} :s/nope)))))
 
 (deftest resolved-scope-routes-through-canonicalization
   ;; A resolver that returns a :rf.scope/* TYPO must be rejected fail-closed
   ;; (the shared concrete-scope canonicalization path) — it can never become
   ;; a silent wrong cache scope.
-  (resources/reg-resource-scope :s/typo
+  (rf.resources/reg-resource-scope :s/typo
                                 {:inputs {}}
                                 (fn [_ _] :rf.scope/glabal))
   (testing "a resolved :rf.scope/* typo is rejected at canonicalization"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-invalid-scope"
-          (resources/resolve-resource-scope {} :s/typo)))))
+          (rf.resources/resolve-resource-scope {} :s/typo)))))
 
 ;; ===========================================================================
 ;; 5. Whole-db function sugar (explicit-cost)
@@ -186,44 +186,44 @@
 
 (deftest whole-db-fn-sugar-lowers-to-explicit-whole-db-input
   (testing "a bare (fn [db ctx] …) registers and is marked :whole-db? true"
-    (resources/reg-resource-scope :s/sugar
+    (rf.resources/reg-resource-scope :s/sugar
                                   (fn [db _ctx]
                                     (when-let [u (get-in db [:auth :user :username])]
                                       [:rf.scope/session {:username u}])))
-    (let [m (resources/scope-resolver-meta :s/sugar)]
+    (let [m (rf.resources/scope-resolver-meta :s/sugar)]
       (is (true? (:whole-db? m)))
       ;; the synthetic explicit whole-db input — the root [:db []] path, so
       ;; tooling sees the cost on both axes (EP-0015 disposition 8)
       (is (= {:db [:db []]} (:inputs m)))))
   (testing "the sugar resolves against the whole db at use time"
     (is (= [:rf.scope/session {:username "jake"}]
-           (resources/resolve-resource-scope {:auth {:user {:username "jake"}}}
+           (rf.resources/resolve-resource-scope {:auth {:user {:username "jake"}}}
                                              :s/sugar)))
-    (is (nil? (resources/resolve-resource-scope {} :s/sugar)))))
+    (is (nil? (rf.resources/resolve-resource-scope {} :s/sugar)))))
 
 ;; ===========================================================================
 ;; 6. {:from-db id} reference resolution (use-time, nil fail-closed)
 ;; ===========================================================================
 
 (deftest from-db-reference-resolution
-  (resources/reg-resource-scope :realworld/session session-meta session-resolve)
+  (rf.resources/reg-resource-scope :realworld/session session-meta session-resolve)
   (testing "from-db-reference? recognises only {:from-db …} maps"
-    (is (scope/from-db-reference? {:from-db :realworld/session}))
-    (is (not (scope/from-db-reference? :rf.scope/global)))
-    (is (not (scope/from-db-reference? [:rf.scope/session {:username "jake"}])))
-    (is (not (scope/from-db-reference? {:tenant "acme"}))))
+    (is (rf.resources.scope-registry/from-db-reference? {:from-db :realworld/session}))
+    (is (not (rf.resources.scope-registry/from-db-reference? :rf.scope/global)))
+    (is (not (rf.resources.scope-registry/from-db-reference? [:rf.scope/session {:username "jake"}])))
+    (is (not (rf.resources.scope-registry/from-db-reference? {:tenant "acme"}))))
   (testing "a reference resolves at USE TIME against the supplied db"
     (is (= [:rf.scope/session {:username "jake"}]
-           (scope/resolve-from-db-reference {:from-db :realworld/session}
+           (rf.resources.scope-registry/resolve-from-db-reference {:from-db :realworld/session}
                                             {:auth {:user {:username "jake"}}}
                                             'test))))
   (testing "a reference resolving nil FAILS CLOSED (nil — the caller interprets)"
-    (is (nil? (scope/resolve-from-db-reference {:from-db :realworld/session}
+    (is (nil? (rf.resources.scope-registry/resolve-from-db-reference {:from-db :realworld/session}
                                                {} 'test))))
   (testing "a reference to an unregistered resolver is loud"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-scope-not-registered"
-          (scope/resolve-from-db-reference {:from-db :s/nope} {} 'test)))))
+          (rf.resources.scope-registry/resolve-from-db-reference {:from-db :s/nope} {} 'test)))))
 
 ;; ===========================================================================
 ;; 7. No :rf.egress/output-sensitivity claim (EP-0025, rf2-71dr8t) — the
@@ -235,24 +235,24 @@
 (deftest output-sensitivity-claim-silently-ignored
   (testing "a resolver carries no :output-sensitivity on its canonical spec
             (the propagation enum is gone — EP-0025)"
-    (resources/reg-resource-scope :s/default session-meta session-resolve)
-    (is (nil? (:output-sensitivity (resources/scope-resolver-meta :s/default)))))
+    (rf.resources/reg-resource-scope :s/default session-meta session-resolve)
+    (is (nil? (:output-sensitivity (rf.resources/scope-resolver-meta :s/default)))))
   (testing "a present :rf.egress/output-sensitivity key is silently ignored, not
             stored, and registration does NOT throw (Spec 015 §No propagation:
             the key is gone and silently ignored if present)"
     (doseq [claim [:rf.egress/inherit :rf.egress/sensitive :rf.egress/public]]
       (is (= :s/claim
-             (resources/reg-resource-scope :s/claim
+             (rf.resources/reg-resource-scope :s/claim
                                            (assoc session-meta :rf.egress/output-sensitivity claim)
                                            session-resolve)))
-      (is (nil? (:output-sensitivity (resources/scope-resolver-meta :s/claim))))))
+      (is (nil? (:output-sensitivity (rf.resources/scope-resolver-meta :s/claim))))))
   (testing "the whole-db fn sugar carries no :output-sensitivity"
-    (resources/reg-resource-scope :s/sugar-claim (fn [_db _ctx] nil))
-    (is (nil? (:output-sensitivity (resources/scope-resolver-meta :s/sugar-claim)))))
+    (rf.resources/reg-resource-scope :s/sugar-claim (fn [_db _ctx] nil))
+    (is (nil? (:output-sensitivity (rf.resources/scope-resolver-meta :s/sugar-claim)))))
   (testing "a value that was a fail-closed enum typo is now silently ignored —
             no :rf.error/invalid-resource-scope-spec throw"
     (is (= :s/was-typo-claim
-           (resources/reg-resource-scope :s/was-typo-claim
+           (rf.resources/reg-resource-scope :s/was-typo-claim
                                          (assoc session-meta :rf.egress/output-sensitivity :rf.egress/publik)
                                          session-resolve)))))
 
@@ -267,28 +267,28 @@
   ;; reg-route.
   (testing "the 3-arg form stores :inputs from the metadata slot and the value
             fn as :resolve"
-    (resources/reg-resource-scope :s/three-slot
+    (rf.resources/reg-resource-scope :s/three-slot
                                   {:doc "3-slot." :inputs {:username [:db [:auth :user :username]]}}
                                   session-resolve)
-    (let [m (resources/scope-resolver-meta :s/three-slot)]
+    (let [m (rf.resources/scope-resolver-meta :s/three-slot)]
       (is (= {:username [:db [:auth :user :username]]} (:inputs m)))
       (is (identical? session-resolve (:resolve m)))
       (is (false? (:whole-db? m)))))
   (testing "the resolver first arg is the resolved inputs map"
     (is (= [:rf.scope/session {:username "jake"}]
-           (resources/resolve-resource-scope {:auth {:user {:username "jake"}}}
+           (rf.resources/resolve-resource-scope {:auth {:user {:username "jake"}}}
                                              :s/three-slot))))
   (testing "the 2-arg sugar (no metadata) selects the whole-db form"
-    (resources/reg-resource-scope :s/two-slot
+    (rf.resources/reg-resource-scope :s/two-slot
                                   (fn [db _ctx]
                                     (when-let [u (get-in db [:auth :user :username])]
                                       [:rf.scope/session {:username u}])))
-    (is (true? (:whole-db? (resources/scope-resolver-meta :s/two-slot))))
+    (is (true? (:whole-db? (rf.resources/scope-resolver-meta :s/two-slot))))
     (is (= [:rf.scope/session {:username "jake"}]
-           (resources/resolve-resource-scope {:auth {:user {:username "jake"}}}
+           (rf.resources/resolve-resource-scope {:auth {:user {:username "jake"}}}
                                              :s/two-slot))))
   (testing ":doc-only metadata (no :inputs) still selects the whole-db form"
-    (resources/reg-resource-scope :s/doc-only
+    (rf.resources/reg-resource-scope :s/doc-only
                                   {:doc "Whole-db, documented."}
                                   (fn [db _ctx] (get-in db [:tenant])))
-    (is (true? (:whole-db? (resources/scope-resolver-meta :s/doc-only))))))
+    (is (true? (:whole-db? (rf.resources/scope-resolver-meta :s/doc-only))))))

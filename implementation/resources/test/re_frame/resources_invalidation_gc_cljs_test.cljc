@@ -33,24 +33,24 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.fx :as fx]
-   [re-frame.frame :as frame]
+   [re-frame.fx :as rf.fx]
+   [re-frame.frame :as rf.frame]
    ;; load-bearing side-effecting require: the façade registers the
    ;; :rf.resource/* events + the timer / work-ledger side-table fx + the
    ;; internal re-check events these tests dispatch through.
    [re-frame.resources]
-   [re-frame.resources.events :as events]
-   [re-frame.resources.state :as state]
-   [re-frame.resources.timers :as timers]
-   [re-frame.resources.work-ledger :as work-ledger]
+   [re-frame.resources.events :as rf.resources.events]
+   [re-frame.resources.state :as rf.resources.state]
+   [re-frame.resources.timers :as rf.resources.timers]
+   [re-frame.resources.work-ledger :as rf.resources.work-ledger]
    [re-frame.resources.test-support]
    ;; production HTTP fx surface (so the transport feature probe resolves);
    ;; the actual fetch + abort are overridden by capturing no-ops below.
    [re-frame.http.managed]
    [re-frame.schemas]
-   [re-frame.test-support :as core-test-support]
-   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
-       :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
+   [re-frame.test-support :as rf.test-support]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
 ;; ---- capturing transport + abort + timer-schedule (deterministic) ---------
 
@@ -68,22 +68,22 @@
   `:resources/reset-resources!` post-dispose hook already clears the state /
   work-ledger / timer host caches before this fixture runs, so no per-suite
   reset is repeated here. (The timer-PRIMITIVE tests below keep their own
-  `timers/reset-cache!` calls — those are direct primitive assertions that
+  `rf.resources.timers/reset-cache!` calls — those are direct primitive assertions that
   reset just before arming a real timer, not fixture-level cache hygiene.)"
   [f]
   (reset! aborts [])
   (reset! scheduled-timers [])
-  (fx/reg-fx :rf.http/managed (fn [_ctx _args] nil))
-  (fx/reg-fx :rf.http/managed-abort (fn [_ctx work-id] (swap! aborts conj work-id) nil))
+  (rf.fx/reg-fx :rf.http/managed (fn [_ctx _args] nil))
+  (rf.fx/reg-fx :rf.http/managed-abort (fn [_ctx work-id] (swap! aborts conj work-id) nil))
   ;; capture the schedule-timers arming (the real fx arms host timers; here we
   ;; record the args so the test stays deterministic — no wall clock)
-  (fx/reg-fx :rf.resource/schedule-timers (fn [_ctx args] (swap! scheduled-timers conj args) nil))
+  (rf.fx/reg-fx :rf.resource/schedule-timers (fn [_ctx args] (swap! scheduled-timers conj args) nil))
   (f))
 
 (use-fixtures :each
-  (core-test-support/make-reset-runtime-fixture
-    #?(:clj  {:adapter plain-atom/adapter}
-       :cljs {:adapter reagent-adapter/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
+       :cljs {:adapter rf.adapter.reagent/adapter}))
   capturing-fixture)
 
 ;; ---- helpers --------------------------------------------------------------
@@ -95,7 +95,7 @@
 (defn- entry
   ([scoped-key] (entry :rf/default scoped-key))
   ([frame-id scoped-key]
-   (get-in (runtime-db frame-id) (state/entry-path scoped-key))))
+   (get-in (runtime-db frame-id) (rf.resources.state/entry-path scoped-key))))
 
 (defn- article-spec
   ([] (article-spec {}))
@@ -158,8 +158,8 @@
 (deftest invalidate-tags-is-scoped-by-default
   (rf/reg-resource :iv/article (article-spec) article-spec-request)
   (let [sa {:user "a"} sb {:user "b"}
-        ka (state/scoped-resource-key sa :iv/article {:slug "w"})
-        kb (state/scoped-resource-key sb :iv/article {:slug "w"})]
+        ka (rf.resources.state/scoped-resource-key sa :iv/article {:slug "w"})
+        kb (rf.resources.state/scoped-resource-key sb :iv/article {:slug "w"})]
     (ensure! :iv/article sa "w" [:app :a 1])
     (succeed! ka {:title "A"})
     (ensure! :iv/article sb "w" [:app :b 1])
@@ -179,8 +179,8 @@
 (deftest invalidate-tags-cross-scope-opt-in
   (rf/reg-resource :ivx/article (article-spec) article-spec-request)
   (let [sa {:user "a"} sb {:user "b"}
-        ka (state/scoped-resource-key sa :ivx/article {:slug "w"})
-        kb (state/scoped-resource-key sb :ivx/article {:slug "w"})]
+        ka (rf.resources.state/scoped-resource-key sa :ivx/article {:slug "w"})
+        kb (rf.resources.state/scoped-resource-key sb :ivx/article {:slug "w"})]
     (ensure! :ivx/article sa "w" [:app :a 1])
     (succeed! ka {:title "A"})
     (ensure! :ivx/article sb "w" [:app :b 1])
@@ -209,7 +209,7 @@
             (fail-closed, before any invalidation)"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-cross-scope-scope-conflict"
-          (events/invalidate-tags-handler
+          (rf.resources.events/invalidate-tags-handler
             {:rf.db/runtime {} :rf.frame/id :rf/default}
             [:rf.resource/invalidate-tags
              {:scope {:user "a"} :tags #{[:article "w"]} :cross-scope? true
@@ -223,7 +223,7 @@
   ;; rewrites the SAME :invalidated-at (replay-stable, not the live clock).
   (rf/reg-resource :ivt/article (article-spec) article-spec-request)
   (let [sa {:user "a"}
-        ka (state/scoped-resource-key sa :ivt/article {:slug "w"})
+        ka (rf.resources.state/scoped-resource-key sa :ivt/article {:slug "w"})
         t1 1781078400123
         t2 1781078999999]
     (ensure! :ivt/article sa "w" [:app :a 1])
@@ -265,14 +265,14 @@
             nil-scope match that invalidates nothing or the wrong set)"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-invalidate-scope-required"
-          (events/invalidate-tags-handler
+          (rf.resources.events/invalidate-tags-handler
             (invalidate-cofx {})
             [:rf.resource/invalidate-tags {:tags #{[:article "w"]}}]))))
   (testing "an explicitly nil :scope (not merely absent) is ALSO rejected
             — fail-closed is about the absence of a concrete scope"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-invalidate-scope-required"
-          (events/invalidate-tags-handler
+          (rf.resources.events/invalidate-tags-handler
             (invalidate-cofx {})
             [:rf.resource/invalidate-tags {:scope nil :tags #{[:article "w"]}}])))))
 
@@ -284,8 +284,8 @@
   ;; :cause even when it carries no :scope (scope-agnostic ≠ cause-free).
   (rf/reg-resource :ivxn/article (article-spec) article-spec-request)
   (let [sa {:user "a"} sb {:user "b"}
-        ka (state/scoped-resource-key sa :ivxn/article {:slug "w"})
-        kb (state/scoped-resource-key sb :ivxn/article {:slug "w"})]
+        ka (rf.resources.state/scoped-resource-key sa :ivxn/article {:slug "w"})
+        kb (rf.resources.state/scoped-resource-key sb :ivxn/article {:slug "w"})]
     (ensure! :ivxn/article sa "w" [:app :a 1])
     (succeed! ka {:title "A"})
     (ensure! :ivxn/article sb "w" [:app :b 1])
@@ -311,7 +311,7 @@
             MUST carry the privacy-relevant :cause evidence."
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-cross-scope-cause-required"
-          (events/invalidate-tags-handler
+          (rf.resources.events/invalidate-tags-handler
             (invalidate-cofx {})
             [:rf.resource/invalidate-tags
              {:tags #{[:article "w"]} :cross-scope? true}]))))
@@ -320,7 +320,7 @@
             carries NO :scope, rf2-oo8cv7 closed union)"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-cross-scope-cause-required"
-          (events/invalidate-tags-handler
+          (rf.resources.events/invalidate-tags-handler
             (invalidate-cofx {})
             [:rf.resource/invalidate-tags
              {:tags #{[:article "w"]}
@@ -328,7 +328,7 @@
   (testing "cross-scope WITH a :cause is accepted (the audited escape clears
             the gate) — no throw"
     (is (map?
-          (events/invalidate-tags-handler
+          (rf.resources.events/invalidate-tags-handler
             (invalidate-cofx {})
             [:rf.resource/invalidate-tags
              {:tags #{[:article "w"]} :cross-scope? true
@@ -339,11 +339,11 @@
 (deftest invalidate-tags-rejects-reserved-scope-typo
   (testing "rf2-hosnba / rf2-lzv9xc — a reserved-namespace scope typo
             (:rf.scope/glabal) reaching invalidate-tags fails closed through
-            the shared state/canonicalize-scope path (never a silent wrong
+            the shared rf.resources.state/canonicalize-scope path (never a silent wrong
             cache scope), surfaced as :rf.error/resource-invalid-scope"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-invalid-scope"
-          (events/invalidate-tags-handler
+          (rf.resources.events/invalidate-tags-handler
             (invalidate-cofx {})
             [:rf.resource/invalidate-tags
              {:scope :rf.scope/glabal :tags #{[:article "w"]}}])))))
@@ -354,7 +354,7 @@
             (:rf.error/resource-non-edn-params)"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-non-edn-params"
-          (events/invalidate-tags-handler
+          (rf.resources.events/invalidate-tags-handler
             (invalidate-cofx {})
             [:rf.resource/invalidate-tags
              {:scope {:cb (fn [])} :tags #{[:article "w"]}}])))))
@@ -368,27 +368,27 @@
             fail-closed at the shared scope-validation boundary"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-invalid-scope"
-          (events/invalidate-tags-handler
+          (rf.resources.events/invalidate-tags-handler
             (invalidate-cofx {})
             [:rf.resource/invalidate-tags
              {:scope [:rf.scope/global] :tags #{[:article "w"]}}])))))
 
 (deftest clear-scope-rejects-reserved-scope-typo
   (testing "rf2-hosnba / rf2-lzv9xc — clear-scope routes its scope through
-            the shared state/canonicalize-scope path; a reserved-namespace
+            the shared rf.resources.state/canonicalize-scope path; a reserved-namespace
             typo (:rf.scope/glabal) fails closed (a typo can never silently
             clear the WRONG scope — a cross-tenant data wipe)"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-invalid-scope"
-          (events/clear-scope-handler
+          (rf.resources.events/clear-scope-handler
             (invalidate-cofx {})
             [:rf.resource/clear-scope {:scope :rf.scope/glabal :cause :logout}])))))
 
 (deftest invalidate-tags-refetches-active-leaves-inactive-stale
   (rf/reg-resource :ivr/article (article-spec) article-spec-request)
   (let [scope {:user "u"}
-        kact  (state/scoped-resource-key scope :ivr/article {:slug "active"})
-        kin   (state/scoped-resource-key scope :ivr/article {:slug "inactive"})]
+        kact  (rf.resources.state/scoped-resource-key scope :ivr/article {:slug "active"})
+        kin   (rf.resources.state/scoped-resource-key scope :ivr/article {:slug "inactive"})]
     ;; active-owner entry
     (ensure! :ivr/article scope "active" [:route :r 1])
     (succeed! kact {:title "Active"})
@@ -413,13 +413,13 @@
                                           #{[:article slug] [:rev (:rev data)]})})
                    article-spec-request)
   (let [scope {:user "u"}
-        k     (state/scoped-resource-key scope :tagrep/article {:slug "w"})]
+        k     (rf.resources.state/scoped-resource-key scope :tagrep/article {:slug "w"})]
     (ensure! :tagrep/article scope "w" [:app :t 1])
     (succeed! k {:rev 1})
     (testing "first load produces version-1 tags"
       (is (= #{[:article "w"] [:rev 1]} (:tags (entry k))))
       ;; rf2-9e0tyq — tag-index members are the byte key-id.
-      (is (= #{(state/key-id k)} (get-in (runtime-db) (conj (state/tag-index-path) [:rev 1])))))
+      (is (= #{(rf.resources.state/key-id k)} (get-in (runtime-db) (conj (rf.resources.state/tag-index-path) [:rev 1])))))
     ;; refetch → data now rev 2 → tags REPLACED
     (rf/dispatch-sync [:rf.resource/refetch {:resource :tagrep/article :scope scope
                                              :params {:slug "w"}}])
@@ -429,9 +429,9 @@
               removed (stale list/detail relationships stop receiving
               invalidations)"
       (is (= #{[:article "w"] [:rev 2]} (:tags (entry k))) "entry tags replaced")
-      (is (= #{(state/key-id k)} (get-in (runtime-db) (conj (state/tag-index-path) [:rev 2])))
+      (is (= #{(rf.resources.state/key-id k)} (get-in (runtime-db) (conj (rf.resources.state/tag-index-path) [:rev 2])))
           "new tag indexed")
-      (is (nil? (get-in (runtime-db) (conj (state/tag-index-path) [:rev 1])))
+      (is (nil? (get-in (runtime-db) (conj (rf.resources.state/tag-index-path) [:rev 1])))
           "OLD tag removed from the index (not accumulated)"))))
 
 ;; ===========================================================================
@@ -441,7 +441,7 @@
 (deftest release-owner-does-not-abort-shared-in-flight
   (rf/reg-resource :sh/article (article-spec) article-spec-request)
   (let [scope {:user "u"}
-        k     (state/scoped-resource-key scope :sh/article {:slug "w"})]
+        k     (rf.resources.state/scoped-resource-key scope :sh/article {:slug "w"})]
     ;; two owners ensure the SAME in-flight key (dedupe joins)
     (ensure! :sh/article scope "w" [:route :r 1])
     (ensure! :sh/article scope "w" [:app :x 1])
@@ -453,7 +453,7 @@
                 request does NOT abort it (a remaining owner still needs it)"
         (is (= #{[:app :x 1]} (:active-owners (entry k))) "one owner dropped")
         (is (= [] @aborts) "no abort emitted (work still owned)")
-        (is (= #{[:app :x 1]} (:owners (work-ledger/get-record (runtime-db) wid)))
+        (is (= #{[:app :x 1]} (:owners (rf.resources.work-ledger/get-record (runtime-db) wid)))
             "work record owners updated"))
       (testing "releasing the LAST owner orphans the in-flight attempt →
                 opportunistic abort (best-effort; stale suppression is the
@@ -464,10 +464,10 @@
         ;; (`managed-request-id`), NOT the bare work-id (the managed-HTTP
         ;; registry keys by request-id process-globally; a bare work-id would
         ;; collide across frames).
-        (is (= [(work-ledger/managed-request-id :rf/default wid)] @aborts)
+        (is (= [(rf.resources.work-ledger/managed-request-id :rf/default wid)] @aborts)
             "orphaned in-flight attempt aborted (by qualified request-id)")
         (is (= :abort-requested
-               (:status (work-ledger/get-record (runtime-db) wid)))
+               (:status (rf.resources.work-ledger/get-record (runtime-db) wid)))
             "work row moved to :abort-requested")))))
 
 ;; ---- rf2-v4ygg5: abort-requested / terminal work is NON-joinable ----------
@@ -480,16 +480,16 @@
 (deftest re-ensure-after-owner-release-does-not-join-abort-requested
   (rf/reg-resource :nj/article (article-spec) article-spec-request)
   (let [scope {:user "u"}
-        k     (state/scoped-resource-key scope :nj/article {:slug "w"})]
+        k     (rf.resources.state/scoped-resource-key scope :nj/article {:slug "w"})]
     ;; load attempt in flight, single owner
     (ensure! :nj/article scope "w" [:route :r 1])
     (let [wid1 (:current-work (entry k))
           gen1 (:generation (entry k))]
-      (is (= :running (:status (work-ledger/get-record (runtime-db) wid1))))
+      (is (= :running (:status (rf.resources.work-ledger/get-record (runtime-db) wid1))))
       ;; the LAST owner releases → the work record is marked :abort-requested
       ;; (opportunistic abort issued) but the entry still POINTS at wid1.
       (rf/dispatch-sync [:rf.resource/release-owner {:owner [:route :r 1]}])
-      (is (= :abort-requested (:status (work-ledger/get-record (runtime-db) wid1)))
+      (is (= :abort-requested (:status (rf.resources.work-ledger/get-record (runtime-db) wid1)))
           "released-last-owner work is abort-requested")
       (is (= wid1 (:current-work (entry k)))
           "entry still points at the abort-requested work (stale pointer)")
@@ -499,7 +499,7 @@
         (let [e (entry k)]
           (is (= (inc gen1) (:generation e)) "fresh generation (no dedupe onto dead work)")
           (is (not= wid1 (:current-work e)) "a new work id, not the abort-requested one")
-          (is (= :running (:status (work-ledger/get-record (runtime-db) (:current-work e))))
+          (is (= :running (:status (rf.resources.work-ledger/get-record (runtime-db) (:current-work e))))
               "the new attempt is live")
           (is (contains? (:active-owners e) [:route :r 2])
               "the new owner is attached to the fresh attempt"))))))
@@ -507,7 +507,7 @@
 (deftest re-ensure-after-abort-settle-does-not-join-terminal
   (rf/reg-resource :njt/article (article-spec) article-spec-request)
   (let [scope {:user "u"}
-        k     (state/scoped-resource-key scope :njt/article {:slug "w"})]
+        k     (rf.resources.state/scoped-resource-key scope :njt/article {:slug "w"})]
     (ensure! :njt/article scope "w" [:app :a 1])
     (let [wid1 (:current-work (entry k))
           gen1 (:generation (entry k))]
@@ -515,7 +515,7 @@
       ;; failure seam) settles the entry to a non-error `:idle` and marks the
       ;; work row TERMINAL :cancelled.
       (abort! k)
-      (is (= :cancelled (:status (work-ledger/get-record (runtime-db) wid1)))
+      (is (= :cancelled (:status (rf.resources.work-ledger/get-record (runtime-db) wid1)))
           "the aborted work row is terminal :cancelled")
       (testing "rf2-v4ygg5 — a subsequent ensure does NOT join the terminal
                 work; it starts a fresh generation"
@@ -531,7 +531,7 @@
 (deftest clear-scope-suppresses-late-reply
   (rf/reg-resource :clr/article (article-spec) article-spec-request)
   (let [scope {:user "u"}
-        k     (state/scoped-resource-key scope :clr/article {:slug "w"})]
+        k     (rf.resources.state/scoped-resource-key scope :clr/article {:slug "w"})]
     (ensure! :clr/article scope "w" [:app :c 1])
     (let [stale-wid (:current-work (entry k))]
       (rf/dispatch-sync [:rf.resource/clear-scope {:scope scope :cause :logout}])
@@ -561,7 +561,7 @@
 (deftest succeeded-arms-stale-and-gc-timers
   (rf/reg-resource :tm/article (article-spec {:stale-after-ms 60000 :gc-after-ms 300000}) article-spec-request)
   (let [scope {:user "u"}
-        k     (state/scoped-resource-key scope :tm/article {:slug "w"})]
+        k     (rf.resources.state/scoped-resource-key scope :tm/article {:slug "w"})]
     (reset! scheduled-timers [])
     (ensure! :tm/article scope "w" [:app :tm 1])
     (succeed! k {:title "W"})
@@ -583,7 +583,7 @@
   ;; time-stale) — so the settle's :timers :stale delay stays nil.
   (rf/reg-resource :np/article (article-spec) article-spec-request) ;; no :stale-after-ms / :gc-after-ms
   (let [scope {:user "u"}
-        k     (state/scoped-resource-key scope :np/article {:slug "w"})]
+        k     (rf.resources.state/scoped-resource-key scope :np/article {:slug "w"})]
     (reset! scheduled-timers [])
     (ensure! :np/article scope "w" [:app :np 1])
     (succeed! k {:title "W"})
@@ -602,7 +602,7 @@
   ;; lingers indefinitely, by declared intent rather than by omission).
   (rf/reg-resource :npn/article (article-spec {:gc-after-ms :never}) article-spec-request)
   (let [scope {:user "u"}
-        k     (state/scoped-resource-key scope :npn/article {:slug "w"})]
+        k     (rf.resources.state/scoped-resource-key scope :npn/article {:slug "w"})]
     (reset! scheduled-timers [])
     (ensure! :npn/article scope "w" [:app :npn 1])
     (succeed! k {:title "W"})
@@ -612,43 +612,43 @@
 (deftest timer-side-table-is-host-side-not-frame-state
   (testing "Spec 016 §Stale and GC scheduling — timers live in a host SIDE
             TABLE keyed by [frame-id resource-key kind], NOT in frame-state"
-    (timers/reset-cache!)
+    (rf.resources.timers/reset-cache!)
     ;; rf2-9e0tyq — the side-table key's resource-key element is the CEDN-1
     ;; byte `key-id` (so a list- and a vector-params resource never share a
     ;; timer slot). The dispatched recheck event still carries the vector.
     (let [k    [:rf.scope/global :t/x {:id 1}]
-          k-id (state/key-id k)]
+          k-id (rf.resources.state/key-id k)]
       ;; arm a real (long) timer so it does not fire during the test
-      (timers/schedule! :rf/default k timers/gc-kind 1000000)
-      (is (contains? @timers/timer-table [:rf/default k-id timers/gc-kind])
+      (rf.resources.timers/schedule! :rf/default k rf.resources.timers/gc-kind 1000000)
+      (is (contains? @rf.resources.timers/timer-table [:rf/default k-id rf.resources.timers/gc-kind])
           "the timer handle lives in the module-level side table")
       ;; the durable runtime-db carries NO timer handle
       (is (not (contains? (runtime-db) :rf.runtime/resources-timers))
           "no timer state leaked into runtime-db")
-      (timers/cancel! :rf/default k timers/gc-kind)
-      (is (not (contains? @timers/timer-table [:rf/default k-id timers/gc-kind]))
+      (rf.resources.timers/cancel! :rf/default k rf.resources.timers/gc-kind)
+      (is (not (contains? @rf.resources.timers/timer-table [:rf/default k-id rf.resources.timers/gc-kind]))
           "cancel! drops the handle"))))
 
 (deftest timer-reschedule-cancels-prior
   (testing "Spec 016 — a re-load reschedules (cancel-then-arm), not accumulate"
-    (timers/reset-cache!)
+    (rf.resources.timers/reset-cache!)
     (let [k    [:rf.scope/global :t/y {:id 1}]
-          k-id (state/key-id k)]
-      (timers/schedule! :rf/default k timers/stale-kind 1000000)
-      (let [h1 (get @timers/timer-table [:rf/default k-id timers/stale-kind])]
-        (timers/schedule! :rf/default k timers/stale-kind 1000000)
-        (let [h2 (get @timers/timer-table [:rf/default k-id timers/stale-kind])]
+          k-id (rf.resources.state/key-id k)]
+      (rf.resources.timers/schedule! :rf/default k rf.resources.timers/stale-kind 1000000)
+      (let [h1 (get @rf.resources.timers/timer-table [:rf/default k-id rf.resources.timers/stale-kind])]
+        (rf.resources.timers/schedule! :rf/default k rf.resources.timers/stale-kind 1000000)
+        (let [h2 (get @rf.resources.timers/timer-table [:rf/default k-id rf.resources.timers/stale-kind])]
           (is (not= h1 h2) "a fresh handle replaced the prior one")
           (is (= 1 (count (filter (fn [[[_ rk kind] _]]
-                                    (and (= rk k-id) (= kind timers/stale-kind)))
-                                  @timers/timer-table)))
+                                    (and (= rk k-id) (= kind rf.resources.timers/stale-kind)))
+                                  @rf.resources.timers/timer-table)))
               "exactly one live stale timer per [key kind]")))
-      (timers/cancel-for-key! :rf/default k))))
+      (rf.resources.timers/cancel-for-key! :rf/default k))))
 
 (deftest gc-fired-rechecks-before-removing
   (rf/reg-resource :gc/article (article-spec {:gc-after-ms 1000}) article-spec-request)
   (let [scope {:user "u"}
-        k     (state/scoped-resource-key scope :gc/article {:slug "w"})]
+        k     (rf.resources.state/scoped-resource-key scope :gc/article {:slug "w"})]
     ;; load + release owner → owner-free + idle → GC-eligible
     (ensure! :gc/article scope "w" [:app :gc 1])
     (succeed! k {:title "W"})
@@ -667,7 +667,7 @@
   ;; collects it.
   (rf/reg-resource :gce/article (article-spec {:gc-after-ms 5000}) article-spec-request)
   (let [scope {:user "u"}
-        k     (state/scoped-resource-key scope :gce/article {:slug "w"})]
+        k     (rf.resources.state/scoped-resource-key scope :gce/article {:slug "w"})]
     (reset! scheduled-timers [])
     (ensure! :gce/article scope "w" [:app :gce 1])
     (fail! k :transient-500)   ;; first load fails → :error (no usable data)
@@ -701,7 +701,7 @@
   ;; GC re-check collects it.
   (rf/reg-resource :gca/article (article-spec {:gc-after-ms 5000}) article-spec-request)
   (let [scope {:user "u"}
-        k     (state/scoped-resource-key scope :gca/article {:slug "w"})]
+        k     (rf.resources.state/scoped-resource-key scope :gca/article {:slug "w"})]
     (reset! scheduled-timers [])
     (ensure! :gca/article scope "w" [:app :gca 1])
     (abort! k)   ;; first-load aborted → :idle (no usable data)
@@ -732,7 +732,7 @@
   ;; double-arm) — mirrors `background-refresh-failure-does-not-rearm-gc`.
   (rf/reg-resource :gcra/article (article-spec {:gc-after-ms 5000}) article-spec-request)
   (let [scope {:user "u"}
-        k     (state/scoped-resource-key scope :gcra/article {:slug "w"})]
+        k     (rf.resources.state/scoped-resource-key scope :gcra/article {:slug "w"})]
     (ensure! :gcra/article scope "w" [:route :r 1])
     (succeed! k {:title "W"})        ;; first load succeeds → :loaded, GC armed
     ;; a background refetch that is then aborted (entry keeps data, returns to
@@ -757,7 +757,7 @@
   ;; change, so the refresh-failure settle re-arms NOTHING (no double-arm).
   (rf/reg-resource :gcb/article (article-spec {:gc-after-ms 5000}) article-spec-request)
   (let [scope {:user "u"}
-        k     (state/scoped-resource-key scope :gcb/article {:slug "w"})]
+        k     (rf.resources.state/scoped-resource-key scope :gcb/article {:slug "w"})]
     (ensure! :gcb/article scope "w" [:route :r 1])
     (succeed! k {:title "W"})        ;; first load succeeds → :loaded, GC armed
     ;; a background refetch that fails (entry keeps data, returns to :loaded)
@@ -778,7 +778,7 @@
 (deftest gc-fired-skips-when-owner-reattached
   (rf/reg-resource :gck/article (article-spec {:gc-after-ms 1000}) article-spec-request)
   (let [scope {:user "u"}
-        k     (state/scoped-resource-key scope :gck/article {:slug "w"})]
+        k     (rf.resources.state/scoped-resource-key scope :gck/article {:slug "w"})]
     (ensure! :gck/article scope "w" [:app :gck 1])
     (succeed! k {:title "W"})
     (testing "Spec 016 §Stale and GC scheduling — a fired GC timer RE-CHECKS
@@ -791,7 +791,7 @@
 (deftest gc-fired-skips-when-in-flight
   (rf/reg-resource :gcf/article (article-spec {:gc-after-ms 1000}) article-spec-request)
   (let [scope {:user "u"}
-        k     (state/scoped-resource-key scope :gcf/article {:slug "w"})]
+        k     (rf.resources.state/scoped-resource-key scope :gcf/article {:slug "w"})]
     ;; ensure without ever succeeding → in flight (owner released, still
     ;; :current-work)
     (ensure! :gcf/article scope "w" [:app :gcf 1])
@@ -808,7 +808,7 @@
 (deftest gc-skip-while-owned-reschedules-and-collects-after-release
   (rf/reg-resource :gcr/article (article-spec {:gc-after-ms 1000}) article-spec-request)
   (let [scope {:user "u"}
-        k     (state/scoped-resource-key scope :gcr/article {:slug "w"})]
+        k     (rf.resources.state/scoped-resource-key scope :gcr/article {:slug "w"})]
     (ensure! :gcr/article scope "w" [:app :gcr 1])
     (succeed! k {:title "W"})
     (reset! scheduled-timers [])
@@ -832,7 +832,7 @@
 (deftest gc-skip-while-in-flight-reschedules-and-collects-after-settle
   (rf/reg-resource :gci/article (article-spec {:gc-after-ms 1000}) article-spec-request)
   (let [scope {:user "u"}
-        k     (state/scoped-resource-key scope :gci/article {:slug "w"})]
+        k     (rf.resources.state/scoped-resource-key scope :gci/article {:slug "w"})]
     ;; in flight + owner-free (owner released while loading)
     (ensure! :gci/article scope "w" [:app :gci 1])
     (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :gci 1]}])
@@ -863,7 +863,7 @@
 
 (deftest gc-skip-no-entry-does-not-reschedule
   (rf/reg-resource :gcn/article (article-spec {:gc-after-ms 1000}) article-spec-request)
-  (let [k (state/scoped-resource-key {:user "u"} :gcn/article {:slug "gone"})]
+  (let [k (rf.resources.state/scoped-resource-key {:user "u"} :gcn/article {:slug "gone"})]
     (reset! scheduled-timers [])
     (testing "rf2-07693y — a GC timer firing for an entry that no longer exists
               (removed / cleared) does NOT reschedule (nothing to collect)"
@@ -874,7 +874,7 @@
 (deftest stale-fired-rechecks-durable-fact-no-write
   (rf/reg-resource :sf/article (article-spec {:stale-after-ms 60000}) article-spec-request)
   (let [scope {:user "u"}
-        k     (state/scoped-resource-key scope :sf/article {:slug "w"})]
+        k     (rf.resources.state/scoped-resource-key scope :sf/article {:slug "w"})]
     (ensure! :sf/article scope "w" [:app :sf 1])
     (succeed! k {:title "W"})
     (let [before (entry k)]
@@ -888,19 +888,19 @@
 (deftest frame-destroy-cancels-resource-timers
   (rf/reg-resource :fd/article (article-spec {:stale-after-ms 60000 :gc-after-ms 300000}) article-spec-request)
   (let [fa :fd/frame-a
-        k  (state/scoped-resource-key {:user "u"} :fd/article {:slug "w"})]
+        k  (rf.resources.state/scoped-resource-key {:user "u"} :fd/article {:slug "w"})]
     (rf/make-frame {:id fa :doc "frame-destroy timer frame"})
     ;; arm two long timers in frame A directly via the side-table primitive
-    (timers/schedule! fa k timers/stale-kind 1000000)
-    (timers/schedule! fa k timers/gc-kind 1000000)
-    (is (= 2 (count (filter (fn [[[fid _ _] _]] (= fid fa)) @timers/timer-table)))
+    (rf.resources.timers/schedule! fa k rf.resources.timers/stale-kind 1000000)
+    (rf.resources.timers/schedule! fa k rf.resources.timers/gc-kind 1000000)
+    (is (= 2 (count (filter (fn [[[fid _ _] _]] (= fid fa)) @rf.resources.timers/timer-table)))
         "two timers armed for frame A")
     (testing "Spec 016 §Stale and GC scheduling — frame destroy cancels ALL
               of the frame's resource timers (composed into the single
               :resources/on-frame-destroyed! teardown hook, not a second
               teardown path)"
-      (frame/destroy-frame! fa)
-      (is (= 0 (count (filter (fn [[[fid _ _] _]] (= fid fa)) @timers/timer-table)))
+      (rf.frame/destroy-frame! fa)
+      (is (= 0 (count (filter (fn [[[fid _ _] _]] (= fid fa)) @rf.resources.timers/timer-table)))
           "frame A's timers cancelled + dropped on destroy"))))
 
 ;; ===========================================================================
@@ -910,17 +910,17 @@
 (deftest remove-cancels-instance-timers
   (rf/reg-resource :rmt/article (article-spec {:gc-after-ms 1000}) article-spec-request)
   (let [scope {:user "u"}
-        k     (state/scoped-resource-key scope :rmt/article {:slug "w"})]
+        k     (rf.resources.state/scoped-resource-key scope :rmt/article {:slug "w"})]
     (ensure! :rmt/article scope "w" [:app :rmt 1])
     (succeed! k {:title "W"})
     ;; arm a real long timer so remove has something to cancel. rf2-9e0tyq —
     ;; the timer side-table key's resource-key element is the byte key-id.
-    (timers/schedule! :rf/default k timers/gc-kind 1000000)
-    (is (contains? @timers/timer-table [:rf/default (state/key-id k) timers/gc-kind]))
+    (rf.resources.timers/schedule! :rf/default k rf.resources.timers/gc-kind 1000000)
+    (is (contains? @rf.resources.timers/timer-table [:rf/default (rf.resources.state/key-id k) rf.resources.timers/gc-kind]))
     (testing "Spec 016 §Events / §Stale and GC scheduling — :rf.resource/remove
               evicts the instance AND cancels its advisory timers"
       (rf/dispatch-sync [:rf.resource/remove {:resource :rmt/article :scope scope
                                               :params {:slug "w"}}])
       (is (nil? (entry k)) "instance removed")
-      (is (not (contains? @timers/timer-table [:rf/default (state/key-id k) timers/gc-kind]))
+      (is (not (contains? @rf.resources.timers/timer-table [:rf/default (rf.resources.state/key-id k) rf.resources.timers/gc-kind]))
           "its GC timer cancelled"))))

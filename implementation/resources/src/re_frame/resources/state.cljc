@@ -15,9 +15,9 @@
   `:rf.runtime/work-ledger`. Both are reserved runtime-db keys (per
   [Conventions §Reserved runtime-db keys]) — allocated lazily, per-frame
   isolated, never an app-db location."
-  (:require [re-frame.error :as error]
-            [re-frame.frame :as frame]
-            [re-frame.identity :as identity]))
+  (:require [re-frame.error :as rf.error]
+            [re-frame.frame :as rf.frame]
+            [re-frame.identity :as rf.identity]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -64,7 +64,7 @@
   scope + params, and `canonical-bytes` is total on canonical EDN). Per Spec
   016 §Resource identity / Conventions §Canonical EDN identity."
   [scoped-key]
-  (identity/canonical-bytes scoped-key))
+  (rf.identity/canonical-bytes scoped-key))
 
 (defn entries-path
   "Runtime-db-relative path to the cache entries map `{<key-id> <entry>}` —
@@ -254,7 +254,7 @@
 ;; via the shared `re-frame.identity` algebra (Conventions §Canonical EDN
 ;; identity). There is no resource-local identity dialect — a thin wrapper
 ;; preserves the public resource error categories but delegates the actual
-;; canonicalization / domain validation to `identity/canonical` (rf2-wgutc2,
+;; canonicalization / domain validation to `rf.identity/canonical` (rf2-wgutc2,
 ;; EP-0012 correctness review item 1).
 ;;
 ;; Delegating to the shared algebra means resource identities get exactly
@@ -268,7 +268,7 @@
 ;;   - map-key ordering is the one shared CEDN-1 byte order, with no
 ;;     bespoke second ordering definition.
 ;;
-;; `identity/canonical` also fails closed on DUPLICATE canonical map keys
+;; `rf.identity/canonical` also fails closed on DUPLICATE canonical map keys
 ;; (two distinct host keys whose CEDN-1 bytes collide), so a colliding cache
 ;; key can never silently collapse two identity-distinct param maps.
 
@@ -333,7 +333,7 @@
   identity). Per Spec 016 §Resource identity (\"Host values … are rejected\")."
   [x]
   (try
-    (identity/canonical-bytes x)
+    (rf.identity/canonical-bytes x)
     true
     (catch #?(:clj Throwable :cljs :default) _
       false)))
@@ -353,7 +353,7 @@
   carrying DUPLICATE canonical keys. Callers route the value through
   `reject-non-edn!` first to surface the public resource error category."
   [x]
-  (identity/canonical x))
+  (rf.identity/canonical x))
 
 (defn- throw-non-edn!
   "Throw the public `:rf.error/resource-non-edn-params` cache-key-boundary
@@ -362,7 +362,7 @@
   (validate-only) and `canonicalize-or-rethrow` (validate+canonicalize in one
   walk) so the two surfaces can never drift. Never returns normally."
   [value where kind resource-id]
-  (error/throw-error!
+  (rf.error/throw-error!
     :rf.error/resource-non-edn-params
     where
     (str "resource " resource-id " " (name kind)
@@ -393,7 +393,7 @@
 
   Preserves the public resource error category (`:rf.error/resource-non-edn-
   params`) while delegating the domain decision to the shared CEDN-1 rule
-  (`serializable-edn?` → `identity/canonical-bytes`).
+  (`serializable-edn?` → `rf.identity/canonical-bytes`).
 
   Validate-ONLY: a caller that then needs the canonical value should call
   `canonicalize-or-rethrow` instead, which validates AND canonicalizes in a
@@ -494,7 +494,7 @@
   [scope where resource-id]
   (when (and (vector? scope)
              (contains? reserved-concrete-scopes (first scope)))
-    (error/throw-error!
+    (rf.error/throw-error!
       :rf.error/resource-invalid-scope
       where
       (str "resource " resource-id " was reached with a "
@@ -520,7 +520,7 @@
   unchanged when it conforms."
   [scope where resource-id]
   (when (reserved-scope-typo? scope)
-    (error/throw-error!
+    (rf.error/throw-error!
       :rf.error/resource-invalid-scope
       where
       (str "resource " resource-id " was reached with a "
@@ -764,7 +764,7 @@
   wall-clock background timer. Per Spec 016 §Stale and GC scheduling (no
   wall-clock background timers under SSR)."
   [frame-id]
-  (= :server (:platform (frame/frame-meta frame-id))))
+  (= :server (:platform (rf.frame/frame-meta frame-id))))
 
 ;; ---- per-entry revision (EP-0019 §Decision 2 / byl7bk Open Issue 5) --------
 ;;
@@ -1372,7 +1372,7 @@
               (some? resolved-accessor) (resolved-accessor page)
               ;; loud over guessing (R3): a non-vector page + no accessor
               :else
-              (error/throw-error!
+              (rf.error/throw-error!
                 :rf.error/infinite-missing-page-accessor
                 where
                 (str "infinite resource " resource-id " accumulated a non-vector "
@@ -1633,7 +1633,7 @@ Spec 016 §Restore and replay + 002 §Durable join keys are recordable."})
 (defn generation-allocation-cofx
   "Value-returning GENERATOR for the `:rf.resource/generation-allocation`
   recordable cofx (EP-0017 §5). Reads the in-flight cascade's frame
-  (`frame/*current-frame*`, bound by the router during processing) and the
+  (`rf.frame/*current-frame*`, bound by the router during processing) and the
   frame's host-side generation high-water snapshot, and returns the next
   monotone allocation `{:generation N :counter N}` (N = `(inc snapshot)`).
 
@@ -1648,7 +1648,7 @@ Spec 016 §Restore and replay + 002 §Durable join keys are recordable."})
   (`:rf.cofx {:rf.resource/generation-allocation {:generation N :counter N}}`)
   or re-register the generator (the visible seam)."
   []
-  (let [n (next-generation (generation-snapshot frame/*current-frame*))]
+  (let [n (next-generation (generation-snapshot rf.frame/*current-frame*))]
     {:generation n :counter n}))
 
 (def commit-generation-meta
@@ -1673,7 +1673,7 @@ replay."})
   frame as `:frame`; a nil stamp is an invariant failure
   (`:rf.error/no-frame-context`), never a synthesised default."
   [{:keys [frame]} {:keys [value]}]
-  (let [frame-id (frame/require-frame-stamp!
+  (let [frame-id (rf.frame/require-frame-stamp!
                    frame :rf.resource/commit-generation
                    {:where 'rf.resource/commit-generation-handler})]
     (when (number? value)
