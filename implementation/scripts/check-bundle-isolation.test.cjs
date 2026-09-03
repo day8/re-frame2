@@ -571,6 +571,9 @@ const CO_LOAD_COMPLIANT = `(ns fixture.app
             ;; the reader machine below is why this require is here
             [re-frame.machines]))
 (rf/reg-machine :fixture.app/reader {})
+;; Present deliberately, and deliberately NOT a roster row: a defmachine
+;; alongside a reg-machine must not raise a second violation of its own. The
+;; two blocks below pin the distinction on its own.
 (rf/defmachine fixture-machine {})
 (rf/reg-route :fixture.app/home {} "/")
 (rf/reg-resource :fixture/thing {})
@@ -608,6 +611,57 @@ for (const row of OPTIONAL_ARTEFACT_FACADES) {
   assert(!res.ok, `${row.call}: a call site with no [${row.artefact}] require must FAIL`);
   assert(res.violations.some((v) => v.call === row.call && v.artefact === row.artefact),
     `${row.call}: the violation must name the call and the artefact it needs`);
+}
+
+// REGISTRATION vs DEFINITION — the distinction the roster turns on, pinned in
+// BOTH directions because the roster is one edit away from losing it.
+//
+// `defmachine` is NOT a registration façade. `expand-defmachine` walks the
+// literal spec at expansion time and emits `(def m <stamped-spec>)` and nothing
+// else — its own docstring says "`def` is not a registration" — while the
+// sibling `expand-reg-machine` emits a real `(re-frame.core-machines/reg-machine
+// …)` call, which is what needs re-frame.machines' load-time hooks. So a
+// namespace may DEFINE machine values requiring only re-frame.core and leave the
+// artefact require to the boot namespace that REGISTERS them.
+//
+// The first block would fail if `defmachine` were restored to the roster; the
+// second would fail if removing it were mistaken for "machines are now
+// unchecked". A single fixture carrying both calls over one shared require —
+// which is what CO_LOAD_COMPLIANT is — cannot tell these two apart, so each gets
+// a namespace of its own.
+//
+// Both assert on `violations`, NOT on `ok`, and the negative case is why. `ok`
+// also folds in the corpus-level non-vacuity guards (deadRows /
+// unprovenArtefacts), which a one-file fixture can never satisfy — so `!res.ok`
+// below would hold whatever the rule did, passing for a reason unrelated to the
+// contract under test. The prose-only and trailing-comment fixtures read
+// `violations` for the same reason.
+{
+  coLoadMutations += 1;
+  const res = assertExampleCoLoadIsolation([coLoadFixture('defmachine-only.cljs', `(ns fixture.machine-defs
+  (:require [re-frame.core :as rf]))
+(rf/defmachine door-machine
+  {:initial :locked
+   :states  {:locked {} :open {}}})
+`)]);
+  assert.deepStrictEqual(res.violations, [],
+    'a defmachine-only namespace requiring only re-frame.core is VALID — defmachine ' +
+    'expands to a plain def, fires no load-time hook registration, and must not ' +
+    'demand a [re-frame.machines] require');
+}
+{
+  coLoadMutations += 1;
+  const res = assertExampleCoLoadIsolation([coLoadFixture('defmachine-then-reg.cljs', `(ns fixture.machine-boot
+  (:require [re-frame.core :as rf]))
+(rf/defmachine door-machine {:initial :locked})
+(rf/reg-machine :door/main door-machine)
+`)]);
+  assert.deepStrictEqual(res.violations.map((v) => v.call), ['reg-machine'],
+    'REGISTERING a machine still requires [re-frame.machines], and the violation ' +
+    'must name reg-machine ALONE — defmachine in that same namespace is a def, ' +
+    'not a second violation');
+  assert.strictEqual(res.violations[0].artefact, 're-frame.machines',
+    'and it must name the artefact whose require is missing');
 }
 
 // A façade named only in PROSE is not a call site. Without this the rule would
@@ -698,7 +752,9 @@ console.log(
   'lockstep consumes the shared EDN authority; ' +
   'module-ownership and sentinel-ownership confusion rejected; ' +
   `${coLoadMutations} example co-load isolation mutations ` +
-  '(each dropped require caught by name; prose-only mention is not a call site; ' +
+  '(each dropped require caught by name; defmachine defines and does not register, ' +
+  'so a defmachine-only ns passes while reg-machine in that same ns still fails ' +
+  'naming reg-machine alone; prose-only mention is not a call site; ' +
   'trailing comment does not hide one; zero-call-site and zero-require corpora ' +
   'fail loud rather than pass vacuously)'
 );

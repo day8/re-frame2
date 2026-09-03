@@ -1306,9 +1306,24 @@ function assertCanonicalInventoryCovered(required = discoverBrowserOptionalRunti
 // (`skills/re-frame-migration/references/auto-cross-cutting.md` states the same
 // rule for migrating apps: "Add the dep AND the `:require` in every namespace
 // that uses the surface").
+//
+// REGISTRATION is the whole of the rule, and `defmachine` is the row that is
+// deliberately ABSENT for that reason. `(rf/defmachine m {…})` is re-frame.core's
+// own `def`-replacement: `expand-defmachine` walks the literal spec at expansion
+// time and emits `(def m <stamped-spec>)` — nothing else. Its own docstring says
+// so ("`def` is not a registration"), and the sibling expander makes the contrast
+// exact: `expand-reg-machine` emits a real `(re-frame.core-machines/reg-machine
+// …)` call, which is what needs the artefact's load-time hooks; `expand-defmachine`
+// emits no call at all. So a namespace may legitimately DEFINE machine values
+// while requiring only `re-frame.core`, and require `re-frame.machines` solely in
+// the boot namespace that REGISTERS them — a split this roster must not forbid.
+// Listing `defmachine` here would reject that shape and force a pointless
+// side-effecting require into the definition namespace. The sibling self-test
+// pins BOTH halves of the distinction (a defmachine-only ns passes; a
+// `reg-machine` call in that same ns still fails, and the violation must name
+// `reg-machine` alone), so restoring the row fails the gate by name.
 const OPTIONAL_ARTEFACT_FACADES = [
   { call: 'reg-machine',    artefact: 're-frame.machines',  absentError: 'rf.error/machines-artefact-missing' },
-  { call: 'defmachine',     artefact: 're-frame.machines',  absentError: 'rf.error/machines-artefact-missing' },
   { call: 'reg-route',      artefact: 're-frame.routing',   absentError: 'rf.error/routing-artefact-missing' },
   { call: 'reg-resource',   artefact: 're-frame.resources', absentError: 'rf.error/resources-artefact-missing' },
   { call: 'reg-mutation',   artefact: 're-frame.resources', absentError: 'rf.error/resources-artefact-missing' },
