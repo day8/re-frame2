@@ -50,7 +50,8 @@ implementation/
                              plus ../examples for the cross-substrate test and example bundles.
 
   core/                      day8/re-frame2 — the core artefact.
-    deps.edn                 Core's own deps (clojure, clojurescript, reagent).
+    deps.edn                 Core's own deps (clojure, clojurescript). Stock Reagent is
+                             the Reagent adapter's dep, not core's.
     src/re_frame/
       interop.{clj,cljs}     JVM / CLJS host primitives.
       registrar.cljc         (kind, id) → metadata + replacement-hooks.
@@ -163,8 +164,9 @@ implementation/
                              harness — now lives at the repo root as bench/hicasso/,
                              its own hand-run shadow project off this classpath
                              (rf2-6c12m.1).
-    deps.edn                 :local/root dep on ../core; own :test alias (pre-publication,
-                             so no :clein deploy aliases).
+    deps.edn                 :local/root deps on ../core and ../ssr (the server module);
+                             own :test alias, and the :clein + :clein/build deploy
+                             aliases — published as day8/re-frame2-hicasso since rf2-gra70.
     scripts/check_optional_module_reachability.py
                              No optional module is reachable from the public door, and
                              nothing in the package requires UIx or the bench tree.
