@@ -348,7 +348,7 @@
 (deftest cascade-step-source-stamping
   (testing "history-driven :entry cascade steps carry :source (spec/009 line 291)"
     ;; Re-run the restore and read the structured cascade off the ENGINE
-    ;; seam's Result (the `::rf.machines.result/cascade` rider is lifecycle bookkeeping
+    ;; seam's Result (the `:re-frame.machines.result/cascade` rider is lifecycle bookkeeping
     ;; the public map does not carry) — each :entry step must carry :source
     ;; matching the restored event; non-history steps (exit) carry none.
     (let [after-stop (step deep-player (seed [:player :playing :mid-track]) [:stop])
