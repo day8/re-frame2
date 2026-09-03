@@ -17,7 +17,6 @@
             [clojure.string :as str]
             [re-frame.core :as rf]
             [re-frame.fx :as fx]
-            [re-frame.registrar :as registrar]
             [re-frame.http.managed :as http-managed]
             ;; load-bearing: binds the shared schema walker hooks the
             ;; `:decode`-schema redaction/elision path late-binds (rf2-zvbm9).

@@ -36,8 +36,7 @@
                                   HttpRequest$BodyPublishers
                                   HttpResponse HttpResponse$BodyHandlers]
                    [java.nio.charset Charset StandardCharsets]
-                   [java.time Duration]
-                   [java.util.concurrent CompletableFuture])))
+                   [java.time Duration])))
 
 ;; Reflection warnings catch unhinted calls in this interop-heavy namespace.
 #?(:clj (set! *warn-on-reflection* true))

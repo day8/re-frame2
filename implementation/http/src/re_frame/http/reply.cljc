@@ -28,7 +28,8 @@
       metadata on the reply map. The frame-qualified transport
       request-id `[:rf.req frame-id work-id]` (landed in Spec 016) is the
       sanctioned second identity for process-global transport
-      correlation; `transport-request-id` builds it.
+      correlation; the Resources work-ledger's `managed-request-id` is
+      its only shipped constructor.
 
    2. **Canonical reply map** (`success-reply` / `failure-reply`). The
       transport's success / failure / abort
@@ -96,16 +97,6 @@
   (let [logical-id (if (some? request-id) request-id (first origin-event))]
     [:rf.work/http logical-id (or issuance 1) (or attempt 1)]))
 
-(defn transport-request-id
-  "Build the frame-qualified transport request-id `[:rf.req frame-id
-  work-id]` (Managed-Effects §Work-id correlation — the sanctioned second
-  identity for process-global transport-level in-flight correlation, landed
-  in Spec 016). The frame-local `:rf.reply/work-id` carries no frame id, so it is not
-  a safe process-global transport token on its own; this qualified form is.
-  Intra-frame stale suppression still keys on `:rf.reply/work-id`, not this."
-  [frame-id wid]
-  [:rf.req frame-id wid])
-
 ;; ---------------------------------------------------------------------------
 ;; Self-identifying failure maps (rf2-1u9dja; debugging-dx finding 3). Every
 ;; public HTTP failure map (the classified `:rf.http/*` shape that rides under
@@ -166,7 +157,7 @@
   `:completed-at`, and `:correlation {:request-id …}`. Optional facts
   (`:completed-at`, `:correlation`) are omitted when absent rather than
   filled with nil sentinels (Managed-Effects §The reply map)."
-  [{:keys [request-id origin-event issuance attempt frame completed-at] :as ctx}]
+  [{:keys [request-id attempt frame completed-at] :as ctx}]
   (let [wid (work-id ctx)]
     (cond-> {:rf.reply/work-id     wid
              :rf.reply/work-kind   :http

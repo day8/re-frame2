@@ -15,7 +15,6 @@
             [re-frame.http.json :as http-json]
             [re-frame.registrar :as registrar]
             [re-frame.http.decode :as http-decode]
-            [re-frame.http.encoding :as http-encoding]
             [re-frame.http.managed :as http-managed]
             [re-frame.http.registry :as registry]
             [re-frame.late-bind :as late-bind]
@@ -399,7 +398,7 @@
 
 (deftest jvm-real-get-success
   (testing "java.net.http.HttpClient transport — GET, JSON decode, default reply"
-    (let [{:keys [server port] :as srv}
+    (let [{:keys [port] :as srv}
           (start-server!
             (fn [^HttpExchange ex]
               (write-response! ex 200 "application/json"
@@ -423,7 +422,7 @@
 
 (deftest jvm-real-http-4xx
   (testing "non-2xx 4xx response classifies as :rf.http/http-4xx"
-    (let [{:keys [server port] :as srv}
+    (let [{:keys [port] :as srv}
           (start-server!
             (fn [^HttpExchange ex]
               (write-response! ex 404 "application/json" "{\"error\":\"not-found\"}")))]
@@ -452,7 +451,7 @@
 
 (deftest jvm-html-404-with-json-decode-routes-to-http-4xx
   (testing "HTML 4xx response with :decode :json classifies as :rf.http/http-4xx (not :rf.http/decode-failure)"
-    (let [{:keys [server port] :as srv}
+    (let [{:keys [port] :as srv}
           (start-server!
             (fn [^HttpExchange ex]
               (write-response! ex 404 "text/html"
@@ -488,7 +487,7 @@
 
 (deftest jvm-throwing-decoder-on-200-routes-to-decode-failure
   (testing "200 response whose decode pipeline throws classifies as :rf.http/decode-failure"
-    (let [{:keys [server port] :as srv}
+    (let [{:keys [port] :as srv}
           (start-server!
             (fn [^HttpExchange ex]
               (write-response! ex 200 "application/json" "{\"ok\":true}")))]

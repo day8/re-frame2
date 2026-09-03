@@ -134,10 +134,7 @@
       (is (= [:rf.work/http :article/by-id 2 1]
              (http-reply/work-id (assoc base-ctx :issuance 2))))
       (is (not= (http-reply/work-id base-ctx)
-                (http-reply/work-id (assoc base-ctx :issuance 2))))))
-  (testing "the frame-qualified transport request-id is [:rf.req frame-id work-id]"
-    (is (= [:rf.req :app/main [:rf.work/http :article/by-id 1 1]]
-           (http-reply/transport-request-id :app/main (http-reply/work-id base-ctx))))))
+                (http-reply/work-id (assoc base-ctx :issuance 2)))))))
 
 (deftest success-reply-is-canonical
   (testing "a success completion builds a schema-valid :status :ok reply"

@@ -1240,7 +1240,7 @@
   arming the timer, leaving the request invisible to every cancellation
   path for the whole backoff — the timer fired regardless."
   [ctx failure]
-  (let [{:keys [retry attempt request-id]} ctx
+  (let [{:keys [retry attempt]} ctx
         {:keys [on max-attempts backoff]} retry
         on-set      (or on #{})
         kind        (:kind failure)

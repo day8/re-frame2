@@ -25,7 +25,6 @@
             [re-frame.core :as rf]
             [re-frame.http.managed :as http-managed]
             [re-frame.http.registry :as http-registry]
-            [re-frame.http.transport :as http-transport]
             [re-frame.late-bind :as late-bind]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
