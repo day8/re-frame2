@@ -85,13 +85,13 @@
             ;; first `rf/reg-machine` call would otherwise raise
             ;; `:rf.error/machines-artefact-missing`.
             [re-frame.machines]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.substrate.plain-atom :as plain-atom])
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom])
   (:import [java.util.concurrent CountDownLatch]
            [java.util.concurrent.atomic AtomicLong]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; Per-thread iteration count. Kept at the standard 5000 so CI stays under
 ;; ~60s wall-clock with the default thread count.

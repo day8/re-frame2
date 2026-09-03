@@ -15,19 +15,19 @@
   installed."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.machines :as machines]
-            [re-frame.machines.lifecycle-fx.spawn :as spawn]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace.tooling :as trace-tooling]))
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.machines :as rf.machines]
+            [re-frame.machines.lifecycle-fx.spawn :as rf.machines.lifecycle-fx.spawn]
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 ;; touch the artefact so the machines registration hook is wired even when
 ;; this ns is run in isolation (`re-frame.machines` require has side effects).
-(def ^:private _artefact machines/machine-transition)
+(def ^:private _artefact rf.machines/machine-transition)
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (deftest destroyed-frame-spawn-fires-no-trace-no-dispatch
   (testing "C3: spawning into a never-created / destroyed frame installs nothing,
@@ -40,8 +40,8 @@
     (let [spawned-traces (atom [])
           dispatches     (atom [])
           ghost-frame    :rf2-g13nm2/never-created-frame
-          orig-dispatch! (late-bind/get-fn :router/dispatch!)]
-      (trace-tooling/register-listener!
+          orig-dispatch! (rf.late-bind/get-fn :router/dispatch!)]
+      (rf.trace.tooling/register-listener!
         ::ghost-spawn
         (fn [ev]
           (when (= :rf.machine.spawn/spawned (:operation ev))
@@ -49,10 +49,10 @@
       ;; Wrap the dispatch hook so any dispatch the spawn fx attempts is
       ;; captured (and NOT actually routed — a [nil <start>] dispatch would
       ;; otherwise blow up downstream).
-      (late-bind/set-fn! :router/dispatch!
+      (rf.late-bind/set-fn! :router/dispatch!
                          (fn [ev opts] (swap! dispatches conj [ev opts]) nil))
       (try
-        (let [ret (spawn/spawn-fx {:frame ghost-frame}
+        (let [ret (rf.machines.lifecycle-fx.spawn/spawn-fx {:frame ghost-frame}
                                   {:machine-id :rf2-g13nm2/ghost-child
                                    :start      [:go]})]
           (is (nil? ret)
@@ -65,9 +65,9 @@
                             [:rf.runtime/machines :snapshots]))
               "no snapshot was installed into the dead frame"))
         (finally
-          (trace-tooling/unregister-listener! ::ghost-spawn)
+          (rf.trace.tooling/unregister-listener! ::ghost-spawn)
           (when orig-dispatch!
-            (late-bind/set-fn! :router/dispatch! orig-dispatch!)))))))
+            (rf.late-bind/set-fn! :router/dispatch! orig-dispatch!)))))))
 
 (deftest live-frame-spawn-still-fires-trace-and-dispatch
   (testing "C3 control: a LIVE-frame spawn still emits the spawned trace,
@@ -85,7 +85,7 @@
        :states  {:idle     {:on {:start :spawning}}
                  :spawning {:spawn {:machine-id :rf2-g13nm2/live-child}}}})
     (let [spawned-traces (atom [])]
-      (trace-tooling/register-listener!
+      (rf.trace.tooling/register-listener!
         ::live-spawn
         (fn [ev]
           (when (= :rf.machine.spawn/spawned (:operation ev))
@@ -100,4 +100,4 @@
           (is (seq @spawned-traces)
               "the :rf.machine.spawn/spawned trace fired for the live-frame spawn"))
         (finally
-          (trace-tooling/unregister-listener! ::live-spawn))))))
+          (rf.trace.tooling/unregister-listener! ::live-spawn))))))

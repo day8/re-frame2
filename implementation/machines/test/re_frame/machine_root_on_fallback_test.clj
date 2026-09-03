@@ -21,17 +21,17 @@
       (Spec 005:1334), not left to fail at dispatch."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.machines :as machines]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.machines :as rf.machines]
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-;; Routed through the shared `mtest/with-trace-capture` — guaranteed
+;; Routed through the shared `rf.machines.test-support/with-trace-capture` — guaranteed
 ;; unregister in a `finally`.
 (defn- record-traces! [body-fn]
-  (mtest/with-trace-capture seen
+  (rf.machines.test-support/with-trace-capture seen
     (body-fn)
     @seen))
 
@@ -138,14 +138,14 @@
 
 (deftest root-on-refs-validated-at-registration
   (testing "a dangling root-`:on` :guard / :action ref fails registration"
-    (let [e (try (machines/validate-machine!
+    (let [e (try (rf.machines/validate-machine!
                    {:initial :a
                     :on      {:go {:target :a :guard :missing?}}
                     :states  {:a {}}})
                  nil (catch clojure.lang.ExceptionInfo ex ex))]
       (is (= :rf.error/machine-unresolved-guard (:rf.error/id (ex-data e)))))
     (testing "a resolvable root-`:on` ref validates silently"
-      (is (nil? (machines/validate-machine!
+      (is (nil? (rf.machines/validate-machine!
                   {:initial :a
                    :guards  {:ok? (fn [_] true)}
                    :on      {:go {:target :a :guard :ok?}}

@@ -18,7 +18,7 @@
 
   Two layers of coverage:
 
-   - PURE — drives `parallel/apply-initial-entry-cascade` directly (the
+   - PURE — drives `rf.machines.parallel/apply-initial-entry-cascade` directly (the
      birth site for BOTH paths; runtime-free, deterministic, JVM- and
      CLJS-runnable from arguments alone). This is the SCXML-conformance-
      style proof of the birth-eventless settle (mirrors W3C test 372/388
@@ -43,9 +43,9 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.machines.parallel :as parallel]
-   [re-frame.machines.result :as result]
-   [re-frame.machines.test-support :as mtest]
+   [re-frame.machines.parallel :as rf.machines.parallel]
+   [re-frame.machines.result :as rf.machines.result]
+   [re-frame.machines.test-support :as rf.machines.test-support]
    #?(:clj  [re-frame.substrate.plain-atom :as substrate-adapter]
       :cljs [re-frame.adapter.reagent :as substrate-adapter])))
 
@@ -65,8 +65,8 @@
   the initial macrostep (`apply-initial-entry-cascade`), and return
   `{:state :data}` from the settled snapshot. Asserts the Result is `:ok`."
   [machine]
-  (let [initial (parallel/build-initial-snapshot machine {:bootstrap-pending? false})
-        r       (parallel/apply-initial-entry-cascade machine initial)]
+  (let [initial (rf.machines.parallel/build-initial-snapshot machine {:bootstrap-pending? false})
+        r       (rf.machines.parallel/apply-initial-entry-cascade machine initial)]
     (is (= :ok (:status r)) "birth macrostep succeeds")
     (let [snap (:snapshot r)]
       {:state (:state snap) :data (:data snap)})))
@@ -76,8 +76,8 @@
   the OUTBOUND effect vector (e.g. that an initial-`:entry` `:raise` drained
   internally and left no reserved `:raise` fx)."
   [machine]
-  (let [initial (parallel/build-initial-snapshot machine {:bootstrap-pending? false})
-        r       (parallel/apply-initial-entry-cascade machine initial)]
+  (let [initial (rf.machines.parallel/build-initial-snapshot machine {:bootstrap-pending? false})
+        r       (rf.machines.parallel/apply-initial-entry-cascade machine initial)]
     (is (= :ok (:status r)) "birth macrostep succeeds")
     (let [snap (:snapshot r)]
       {:state (:state snap) :data (:data snap) :fx (:fx r)})))
@@ -322,10 +322,10 @@
              :guards  {:p? (fn [_] true)}
              :states  {:a {:always [{:guard :p? :target :b}]}
                        :b {:always [{:guard :p? :target :a}]}}}
-          initial (parallel/build-initial-snapshot m {:bootstrap-pending? false})
-          r       (parallel/apply-initial-entry-cascade m initial)]
+          initial (rf.machines.parallel/build-initial-snapshot m {:bootstrap-pending? false})
+          r       (rf.machines.parallel/apply-initial-entry-cascade m initial)]
       (is (= :error (:status r)) "birth returns a :fail (failed macrostep), not an :ok no-op")
-      (is (result/depth-abort? r)
+      (is (rf.machines.result/depth-abort? r)
           "the :fail carries the ::depth-abort? sentinel (a bounded-depth trip)")
       (is (nil? (:snapshot r))
           "a :fail threads no snapshot — the runaway settle commits nothing"))))
@@ -335,11 +335,11 @@
 ;; ===========================================================================
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter substrate-adapter/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter substrate-adapter/adapter}))
 
 ;; snapshot lookup via the shared machines test-support
 ;; — no hardcoded `[:rf.runtime/machines :snapshots …]` path.
-(def ^:private snapshot mtest/snapshot)
+(def ^:private snapshot rf.machines.test-support/snapshot)
 
 (deftest live-eager-start-settles-birth-always
   (testing "(a) eager `[:rf.machine/start]` — a transient initial leaf whose

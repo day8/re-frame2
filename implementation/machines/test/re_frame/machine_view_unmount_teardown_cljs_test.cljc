@@ -81,30 +81,30 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.events :as events]
-   [re-frame.interop :as interop]
-   [re-frame.late-bind :as late-bind]
+   [re-frame.events :as rf.events]
+   [re-frame.interop :as rf.interop]
+   [re-frame.late-bind :as rf.late-bind]
    ;; Loading `re-frame.machines` installs the machines-artefact late-bind
    ;; hooks (`reg-machine`, the `:rf.machine/spawn` / `:rf.machine/destroy`
    ;; reserved fxs); under a single-ns test run nothing else pulls it in.
    [re-frame.machines]
-   [re-frame.machines.test-support :as mtest]
-   [re-frame.machines.timer :as timer]
-   [re-frame.registrar :as registrar]
+   [re-frame.machines.test-support :as rf.machines.test-support]
+   [re-frame.machines.timer :as rf.machines.timer]
+   [re-frame.registrar :as rf.registrar]
    ;; listener surface lives in `re-frame.trace.tooling` (production-DCE split).
-   [re-frame.trace.tooling :as trace-tooling]
-   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
-       :cljs [[re-frame.adapter.reagent :as reagent-adapter]
-              [re-frame.views :as views]])))
+   [re-frame.trace.tooling :as rf.trace.tooling]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]
+              [re-frame.views :as rf.views]])))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture
-    #?(:clj  {:adapter plain-atom/adapter}
-       :cljs {:adapter reagent-adapter/adapter})))
+  (rf.machines.test-support/make-reset-runtime-fixture
+    #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
+       :cljs {:adapter rf.adapter.reagent/adapter})))
 
 ;; snapshot lookup via the shared machines test-support — no hardcoded
 ;; `[:rf.runtime/machines :snapshots …]` path.
-(def ^:private snapshot mtest/snapshot)
+(def ^:private snapshot rf.machines.test-support/snapshot)
 
 ;; The two teardown channels + the view marker (Spec 009 §Two-channel
 ;; teardown). A reason belongs to exactly one channel.
@@ -119,7 +119,7 @@
   unregister is needed."
   [k]
   (let [a (atom [])]
-    (trace-tooling/register-listener! k (fn [ev] (swap! a conj ev)))
+    (rf.trace.tooling/register-listener! k (fn [ev] (swap! a conj ev)))
     a))
 
 (defn- ops-of
@@ -140,8 +140,8 @@
   with the identical op-type (`:rf.view`), channel (`:rf.view/unmounted`),
   and tags."
   [view-id render-key frame-id]
-  #?(:cljs (views/emit-view-unmounted! view-id render-key frame-id)
-     :clj  (when-let [emit! (late-bind/get-fn-cached :trace/emit!)]
+  #?(:cljs (rf.views/emit-view-unmounted! view-id render-key frame-id)
+     :clj  (when-let [emit! (rf.late-bind/get-fn-cached :trace/emit!)]
              (emit! :rf.view view-unmounted
                     {:rf.view/render-key render-key
                      :rf.view/id         view-id
@@ -191,7 +191,7 @@
           (is (= before after)
               "machine snapshot is UNCHANGED by the unmount (same :state + :data)")
           (is (= :active (:state after)) "machine is still in :active"))
-        (is (some? (registrar/lookup :event :vut/session))
+        (is (some? (rf.registrar/lookup :event :vut/session))
             "the machine's event handler is still registered after the unmount")
 
         ;; (4) belt — NO machine-category (`:op-type :rf.machine`) trace of any
@@ -213,7 +213,7 @@
     ;; machines depends only on core, so it dispatches the release by NAME). The
     ;; recorded owner proves the machine's resource owner is released on destroy.
     (let [released (atom [])]
-      (events/reg-event :rf.resource/release-owner
+      (rf.events/reg-event :rf.resource/release-owner
         (fn [_ [_ {:keys [owner]}]] (swap! released conj owner) {}))
       (rf/reg-machine :ed/session
         {:initial :active :data {} :states {:active {}}})
@@ -243,7 +243,7 @@
         ;; --- resource release (snapshot storage, handler, resource owner) ---
         (is (nil? (snapshot :ed/session))
             "snapshot cleared — the machine's state storage is released")
-        (is (nil? (registrar/lookup :event :ed/session))
+        (is (nil? (rf.registrar/lookup :event :ed/session))
             "event handler unregistered — the machine's handler resource is released")
         (is (= [[:machine :ed/session]] @released)
             "EXACTLY ONE [:machine actor-id] resource owner released on destroy")))))
@@ -261,7 +261,7 @@
     ;; This closes the vacuous "never fired" gap: the old redef discarded the
     ;; thunk, so "no :after-elapsed" was trivially true — nothing ever drove it.
     (let [captured-thunk (atom nil)]
-      (with-redefs [interop/schedule-after!
+      (with-redefs [rf.interop/schedule-after!
                     (fn [thunk _ms] (reset! captured-thunk thunk) ::handle)]
         (rf/reg-machine :edt/waiter
           {:initial :idle :data {}
@@ -270,7 +270,7 @@
                      :done    {}}})
         (rf/dispatch-sync [:edt/waiter [:rf.machine/start]])
         (rf/dispatch-sync [:edt/waiter [:go]])
-        (is (= :waiting (mtest/machine-state :edt/waiter))
+        (is (= :waiting (rf.machines.test-support/machine-state :edt/waiter))
             "precondition: entered the :after-bearing state")
         (is (fn? @captured-thunk)
             "precondition: the host clock CAPTURED the actor's :after thunk — the
@@ -278,7 +278,7 @@
         ;; The actor owns its :after timers via the registry key's `:parent`
         ;; (`re-frame.machines.timer/after-timer-key`); destroy filters on the
         ;; same `:parent = actor-id` to cancel them.
-        (let [owned #(->> (get @timer/after-timers :rf/default {})
+        (let [owned #(->> (get @rf.machines.timer/after-timers :rf/default {})
                           keys
                           (filter (fn [k] (= :edt/waiter (:parent k)))))]
           (is (= 1 (count (owned)))

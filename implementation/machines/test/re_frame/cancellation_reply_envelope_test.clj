@@ -21,11 +21,11 @@
       `:rf.reply/status :cancelled` + `:rf.reply/cancel-reason :on-join-resolution`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- timer cancel (state exit) -----------------------------------------
 
@@ -40,13 +40,13 @@
                        :timeout {}
                        :ready   {}}}]
       (rf/reg-machine :sfunt8/timer m)
-      (mtest/with-trace-capture captured
+      (rf.machines.test-support/with-trace-capture captured
         (rf/dispatch-sync [:sfunt8/timer [:fetch]])
-        (is (= :loading (:state (mtest/snapshot :sfunt8/timer))))
+        (is (= :loading (:state (rf.machines.test-support/snapshot :sfunt8/timer))))
         ;; Exit :loading before the timer fires — cancels the :after timer
         ;; with :reason :on-exit.
         (rf/dispatch-sync [:sfunt8/timer [:loaded]])
-        (is (= :ready (:state (mtest/snapshot :sfunt8/timer))))
+        (is (= :ready (:state (rf.machines.test-support/snapshot :sfunt8/timer))))
         (let [cancelled (->> @captured
                              (filter #(= :rf.machine.timer/cancelled (:operation %)))
                              first)]
@@ -86,11 +86,11 @@
                                     :timeout {}}}
                  :other  {:initial :idle
                           :states  {:idle {}}}}})
-    (mtest/with-trace-capture captured
+    (rf.machines.test-support/with-trace-capture captured
       ;; Birth the singleton parallel machine (schedules :loader/:working's
       ;; :after at its per-region epoch — a still-pending 30s host handle).
       (rf/dispatch-sync [:cttpk4-tw/timer [:rf.machine.spawn/spawned]])
-      (let [snap  (mtest/snapshot :cttpk4-tw/timer)
+      (let [snap  (rf.machines.test-support/snapshot :cttpk4-tw/timer)
             epoch (get-in snap [:data :rf/after-epoch-by-region :loader [:working]])]
         (is (= :working (get-in snap [:state :loader])) ":loader entered :working")
         (is (some? epoch) "the region :after was scheduled at a per-region epoch")
@@ -102,7 +102,7 @@
         (rf/dispatch-sync
           [:cttpk4-tw/timer
            [:rf.machine.timer/after-elapsed 30000 epoch [:loader :working]]])
-        (is (= :timeout (get-in (mtest/snapshot :cttpk4-tw/timer) [:state :loader]))
+        (is (= :timeout (get-in (rf.machines.test-support/snapshot :cttpk4-tw/timer) [:state :loader]))
             "the region :after fired → :loader moved to :timeout")
         (let [fired         (->> @captured
                                  (filter #(and (= :rf.machine.timer/fired (:operation %))
@@ -147,7 +147,7 @@
        :after   {30000 {:target [[:a :two]]}}
        :regions {:a {:initial :one :states {:one {} :two {}}}}})
     (rf/make-frame {:id :cttpk4-root/f :doc "root-after :state test frame"})
-    (mtest/with-trace-capture captured
+    (rf.machines.test-support/with-trace-capture captured
       ;; Birth in the named frame → schedules the root :after (a still-pending
       ;; 30s host handle) and emits the :scheduled trace.
       (rf/dispatch-sync [:cttpk4-root/m [:rf.machine/start]] {:frame :cttpk4-root/f})
@@ -184,7 +184,7 @@
                              :on     {:stop :idle}}}}]
       (rf/reg-machine :sfunt8/child child)
       (rf/reg-machine :sfunt8/parent parent)
-      (mtest/with-trace-capture captured
+      (rf.machines.test-support/with-trace-capture captured
         (rf/dispatch-sync [:sfunt8/parent [:start]])
         ;; Exit the :spawn-bearing state — the spawned child is destroyed
         ;; (cancelled) before reaching a :final? leaf.
@@ -214,9 +214,9 @@
                   :states  {:working {:spawn {:machine-id :sfunt8/fchild}}}}]
       (rf/reg-machine :sfunt8/fchild child)
       (rf/reg-machine :sfunt8/fparent parent)
-      (mtest/with-trace-capture captured
+      (rf.machines.test-support/with-trace-capture captured
         (rf/dispatch-sync [:sfunt8/fparent [:rf.machine.spawn/spawned]])
-        (let [spawned-id (get-in (mtest/runtime-db)
+        (let [spawned-id (get-in (rf.machines.test-support/runtime-db)
                                  [:rf.runtime/machines :spawned :sfunt8/fparent [:working]])]
           (rf/dispatch-sync [spawned-id [:end]]))
         (let [finished (->> @captured
@@ -269,9 +269,9 @@
       (rf/reg-machine :sfunt8/sa child)
       (rf/reg-machine :sfunt8/sb child)
       (rf/reg-machine :sup/sfunt8 parent)
-      (mtest/with-trace-capture captured
+      (rf.machines.test-support/with-trace-capture captured
         (rf/dispatch-sync [:sup/sfunt8 [:start]])
-        (let [ids (get-in (mtest/runtime-db)
+        (let [ids (get-in (rf.machines.test-support/runtime-db)
                           [:rf.runtime/machines :spawned :sup/sfunt8 [:hydrating] :children])]
           ;; First child resolves the :any join; sibling :b is cancelled.
           (rf/dispatch-sync [(:a ids) [:go]]))

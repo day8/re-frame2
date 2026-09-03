@@ -56,40 +56,40 @@
             [clojure.test :refer [deftest is testing use-fixtures]]
             [malli.core :as m]
             [re-frame.core :as rf]
-            [re-frame.error-emit :as error-emit]
+            [re-frame.error-emit :as rf.error-emit]
             ;; load the machines artefact so its fx handlers + late-bind
             ;; hooks are installed when this ns runs in isolation.
             [re-frame.machines]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.spawn-all-schema-extract :as extract]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.spawn-all-schema-extract :as rf.spawn-all-schema-extract]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
+  (rf.machines.test-support/make-reset-runtime-fixture
+    {:adapter rf.substrate.plain-atom/adapter
      ;; the reject fixture fans an always-on `:rf.error/machine-spawn-
      ;; unregistered-type` record; clear the always-on listener registry so a
      ;; leaked listener from an earlier test cannot see it.
-     :init-fn (fn [] (error-emit/clear-error-listeners!))})
-  mtest/trace-capture-fixture)
+     :init-fn (fn [] (rf.error-emit/clear-error-listeners!))})
+  rf.machines.test-support/trace-capture-fixture)
 
 ;; The canonical `:spawn-all` runtime-db schema forms, EXTRACTED from
 ;; spec/Spec-Schemas.md (rf2-2ai15g) — NOT hand-copied. Removing / renaming a
 ;; def, or weakening `:rf/attempt` to `{:optional true}`, or dropping the
 ;; `InvokeAllRejectedState` arm from the markdown is a test-build / assertion
 ;; failure here, so the schema surface and the document cannot drift silently.
-(def ^:private InvokeAllJoinState     (extract/canonical-invoke-all-join-schema))
-(def ^:private InvokeAllRejectedState (extract/canonical-invoke-all-rejected-schema))
-(def ^:private SpawnedSlot            (extract/canonical-spawned-slot-schema))
-(def ^:private Machines               (extract/canonical-machines-schema))
+(def ^:private InvokeAllJoinState     (rf.spawn-all-schema-extract/canonical-invoke-all-join-schema))
+(def ^:private InvokeAllRejectedState (rf.spawn-all-schema-extract/canonical-invoke-all-rejected-schema))
+(def ^:private SpawnedSlot            (rf.spawn-all-schema-extract/canonical-spawned-slot-schema))
+(def ^:private Machines               (rf.spawn-all-schema-extract/canonical-machines-schema))
 
 (defn- machines-runtime-db
   "The frame's live `:rf.runtime/machines` runtime-db partition value."
   []
-  (get (mtest/runtime-db) :rf.runtime/machines))
+  (get (rf.machines.test-support/runtime-db) :rf.runtime/machines))
 
 (defn- join-state [parent-id invoke-id]
-  (get-in (mtest/runtime-db)
+  (get-in (rf.machines.test-support/runtime-db)
           [:rf.runtime/machines :spawned parent-id invoke-id]))
 
 (defn- mk-child
@@ -321,11 +321,11 @@
         ;; a LATE exact-current completion carrier for :a cannot resurrect
         ;; it. The coordinate rides the recordable `:rf.cofx` slot
         ;; (rf2-nsbwft — the metadata slot is not read).
-        (mtest/reset-captured!)
+        (rf.machines.test-support/reset-captured!)
         (rf/dispatch-sync [:sac/tomb [:child/done :a]]
                           {:rf.cofx {:rf.machine/join-attempt attempt}})
         (let [after (join-state :sac/tomb [:racing])
-              stale (first (mtest/events-of :rf.machine.spawn-all/stale-completion))]
+              stale (first (rf.machines.test-support/events-of :rf.machine.spawn-all/stale-completion))]
           (is (= #{} (:done after))
               "the late exact-attempt carrier did NOT fold — :a is never marked done")
           (is (= #{:a} (:cancelled after))
@@ -366,13 +366,13 @@
                          :spawned-id a
                          :attempt    (:rf/attempt j)}]
       (is (= #{} (:done j)) "precondition: child :a has not completed")
-      (mtest/reset-captured!)
+      (rf.machines.test-support/reset-captured!)
       ;; Present the exact-current coordinate on event-vector metadata — the
       ;; pre-fix metadata fallback read it; the fence no longer does.
       (rf/dispatch-sync [:sac/forge (with-meta [:child/done :a]
                                       {:rf/join-attempt exact-current})])
       (let [after (join-state :sac/forge [:racing])
-            stale (first (mtest/events-of :rf.machine.spawn-all/stale-completion))]
+            stale (first (rf.machines.test-support/events-of :rf.machine.spawn-all/stale-completion))]
         (is (= #{} (:done after))
             "the metadata-borne coordinate folded NOTHING (slot not read)")
         (is (false? (:resolved? after))
@@ -464,7 +464,7 @@
           a (get-in j [:children :a])]
       ;; A folds first — non-decisive in a two-child :all join.
       (rf/dispatch-sync [a [:go]])
-      (let [traces (mtest/events-of :rf.machine.spawn-all/child-completed)]
+      (let [traces (rf.machines.test-support/events-of :rf.machine.spawn-all/child-completed)]
         (is (= 1 (count traces)) "one child-completed fold trace for A")
         (let [tags        (:tags (first traces))
               correlation (:rf.reply/correlation tags)]
@@ -493,7 +493,7 @@
       ;; A resolves the :any join; the parent stays on :racing.
       (rf/dispatch-sync [a [:go]])
       (is (true? (:resolved? (join-state :sac/p3 [:racing]))) "the :any join resolved")
-      (mtest/reset-captured!)
+      (rf.machines.test-support/reset-captured!)
       ;; :a's EXACT-CURRENT completion re-completes AFTER the :resolved? latch
       ;; flipped — the late-completion path is gated on the exact-attempt fence
       ;; (rf2-ixjd48), so the carrier presents the current attempt's coordinate
@@ -505,7 +505,7 @@
                                           :child-id   :a
                                           :spawned-id a
                                           :attempt    (:rf/attempt (join-state :sac/p3 [:racing]))}}})
-      (let [late (first (mtest/events-of :rf.machine.spawn-all/late-completion))]
+      (let [late (first (rf.machines.test-support/events-of :rf.machine.spawn-all/late-completion))]
         (is (some? late) "the late-completion op fired")
         (is (= :stale (:rf.reply/status (:tags late))))
         (is (= :suppressed (:rf.reply/work-status (:tags late))))
@@ -521,11 +521,11 @@
             against a drift back to the bare `:reason`."
     (reg-join-parent! :sac/p4 :sac/p4a :sac/p4b
                       {:join :all :on-all-complete [:all/done]})
-    (mtest/reset-captured!)
+    (rf.machines.test-support/reset-captured!)
     ;; A bare hand-dispatched completion never flowed through the member
     ;; child's boundary, so it carries no runtime `:rf/join-attempt` stamp.
     (rf/dispatch-sync [:sac/p4 [:child/done :a]])
-    (let [stale (first (mtest/events-of :rf.machine.spawn-all/stale-completion))]
+    (let [stale (first (rf.machines.test-support/events-of :rf.machine.spawn-all/stale-completion))]
       (is (some? stale) "the stale-completion op fired")
       (is (= :stale (:rf.reply/status (:tags stale))))
       (is (= :rf.machine.spawn-all/attempt-unverified
@@ -560,7 +560,7 @@
 (deftest spec-009-catalogue-pins-the-spawn-all-ops
   (testing "rf2-2ai15g — the authoritative Spec-009 rows carry the exact
             vocabulary the runtime emits; each fact fails independently."
-    (let [text (extract/spec-009-text)
+    (let [text (rf.spawn-all-schema-extract/spec-009-text)
           qidx (quick-index-row text)
           cc   (detailed-row text :rf.machine.spawn-all/child-completed)
           sc   (detailed-row text :rf.machine.spawn-all/stale-completion)]

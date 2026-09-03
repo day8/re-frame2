@@ -28,17 +28,17 @@
       shallowest-first (per Spec 005 §Initial cascading)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.fx :as fx]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.fx :as rf.fx]
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; snapshot lookup via the shared machines test-support
 ;; — no hardcoded `[:rf.runtime/machines :snapshots …]` path.
-(def ^:private snapshot mtest/snapshot)
+(def ^:private snapshot rf.machines.test-support/snapshot)
 
 ;; ---- (1) singleton-machine initial :entry firing -------------------------
 
@@ -208,8 +208,8 @@
       ;; Hook the :rf.machine/spawn fx so we can observe if it fires.
       ;; Per Spec 005 §spawn-fx the runtime emits this when a :spawn
       ;; slot is declared on the entering state.
-      (let [orig (registrar/lookup :fx :rf.machine/spawn)]
-        (fx/reg-fx :rf.machine/spawn
+      (let [orig (rf.registrar/lookup :fx :rf.machine/spawn)]
+        (rf.fx/reg-fx :rf.machine/spawn
                    {:platforms #{:client :server}}
                    (fn [_ _]
                      (reset! spawn-fired? true)))
@@ -236,7 +236,7 @@
               "the snapshot was not committed; no machine record exists"))
         ;; Restore.
         (when orig
-          (fx/reg-fx :rf.machine/spawn orig (fn [_ _] nil)))))))
+          (rf.fx/reg-fx :rf.machine/spawn orig (fn [_ _] nil)))))))
 
 (deftest initial-entry-throw-in-compound-cascade
   (testing "with a compound :initial cascade, a throw at the inner :entry

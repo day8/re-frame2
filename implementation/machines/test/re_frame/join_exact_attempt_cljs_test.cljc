@@ -39,32 +39,32 @@
    ;; load the machines artefact so its fx handlers + late-bind hooks are
    ;; installed when this ns runs in isolation.
    [re-frame.machines]
-   [re-frame.machines.test-support :as mtest]
-   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
-       :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
+   [re-frame.machines.test-support :as rf.machines.test-support]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture
-    #?(:clj  {:adapter plain-atom/adapter}
-       :cljs {:adapter reagent-adapter/adapter}))
-  mtest/trace-capture-fixture)
+  (rf.machines.test-support/make-reset-runtime-fixture
+    #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
+       :cljs {:adapter rf.adapter.reagent/adapter}))
+  rf.machines.test-support/trace-capture-fixture)
 
 (defn- join-state [parent-id]
-  (get-in (mtest/runtime-db)
+  (get-in (rf.machines.test-support/runtime-db)
           [:rf.runtime/machines :spawned parent-id [:racing]]))
 
 (defn- stale-completions []
-  (mtest/events-of :rf.machine.spawn-all/stale-completion))
+  (rf.machines.test-support/events-of :rf.machine.spawn-all/stale-completion))
 
 (defn- stale-reasons []
   (mapv (comp :rf.reply/stale-reason :tags) (stale-completions)))
 
 (defn- destroyed-for [actor-id]
   (filterv #(= actor-id (:actor-id (:tags %)))
-           (mtest/events-of :rf.machine/destroyed)))
+           (rf.machines.test-support/events-of :rf.machine/destroyed)))
 
 (defn- bad-arg-causes []
-  (mapv (comp :cause :tags) (mtest/events-of :rf.error/machine-destroy-bad-arg)))
+  (mapv (comp :cause :tags) (rf.machines.test-support/events-of :rf.error/machine-destroy-bad-arg)))
 
 (defn- mk-child
   "A dispatching child: on `:go` / `:fail` it transitions to a PLAIN
@@ -156,7 +156,7 @@
                  :attempt    (:rf/attempt j)}]
       ;; (1) exact-current coordinate on the recordable cofx — ACCEPTED + folds,
       ;;     from deliberate app authoring.
-      (mtest/reset-captured!)
+      (rf.machines.test-support/reset-captured!)
       (rf/dispatch-sync [:jea/meta1 [:child/done :a]]
                         {:rf.cofx {:rf.machine/join-attempt exact}})
       (is (= #{:a} (:done (join-state :jea/meta1)))
@@ -168,7 +168,7 @@
       (let [j2 (join-state :jea/meta2)
             a2 (get-in j2 [:children :a])
             exact2 (assoc exact :parent-id :jea/meta2 :spawned-id a2 :attempt (:rf/attempt j2))]
-        (mtest/reset-captured!)
+        (rf.machines.test-support/reset-captured!)
         (rf/dispatch-sync [:jea/meta2 (with-meta [:child/done :a] {:rf/join-attempt exact2})])
         (is (= #{} (:done (join-state :jea/meta2)))
             "the metadata-borne exact-current tuple folded nothing (metadata slot not read)")
@@ -199,7 +199,7 @@
             a2     (get-in j2 [:children :a])]
         (is (some? token2) "attempt 2 minted its own token")
         (is (not= token1 token2) "per-attempt tokens are distinct")
-        (mtest/reset-captured!)
+        (rf.machines.test-support/reset-captured!)
         ;; The stale straggler: attempt 1's exact carrier.
         (dispatch-forged! :jea/p1 [:child/done :a]
                           {:parent-id  :jea/p1
@@ -213,7 +213,7 @@
           (is (false? (:resolved? j2')) "the successor join did not resolve"))
         (is (= [:rf.machine.spawn-all/attempt-superseded] (stale-reasons))
             "exactly one stale-completion with :attempt-superseded evidence")
-        (is (some? (mtest/snapshot a2)) "current child :a (A2) is untouched")
+        (is (some? (rf.machines.test-support/snapshot a2)) "current child :a (A2) is untouched")
         (is (empty? (destroyed-for a2)) "A2 was never reaped or destroyed")))))
 
 (deftest old-token-with-current-actor-id-is-superseded
@@ -227,7 +227,7 @@
       (rf/dispatch-sync [:jea/p2 [:start]])
       (let [j2 (join-state :jea/p2)
             a2 (get-in j2 [:children :a])]
-        (mtest/reset-captured!)
+        (rf.machines.test-support/reset-captured!)
         (dispatch-forged! :jea/p2 [:child/done :a]
                           {:parent-id  :jea/p2
                            :invoke-id  [:racing]
@@ -247,7 +247,7 @@
             through the member child's boundary, so no runtime stamp) is
             classified :attempt-unverified and folds nothing"
     (reg-join-parent! :jea/p3 :jea/p3a :jea/p3b)
-    (mtest/reset-captured!)
+    (rf.machines.test-support/reset-captured!)
     (dispatch-forged! :jea/p3 [:child/done :a] nil)
     (is (= #{} (:done (join-state :jea/p3))) "no fold")
     (is (false? (:resolved? (join-state :jea/p3))) "no resolution")
@@ -259,7 +259,7 @@
             actor (sibling :b's id, current token) fails the exact
             actor-identity clause"
     (let [j (reg-join-parent! :jea/p4 :jea/p4a :jea/p4b)]
-      (mtest/reset-captured!)
+      (rf.machines.test-support/reset-captured!)
       (dispatch-forged! :jea/p4 [:child/done :a]
                         {:parent-id  :jea/p4
                          :invoke-id  [:racing]
@@ -274,7 +274,7 @@
             minted for child :a (correct actor A, correct token) fails the
             logical-child-id clause"
     (let [j (reg-join-parent! :jea/p5 :jea/p5a :jea/p5b)]
-      (mtest/reset-captured!)
+      (rf.machines.test-support/reset-captured!)
       (dispatch-forged! :jea/p5 [:child/done :b]
                         {:parent-id  :jea/p5
                          :invoke-id  [:racing]
@@ -288,7 +288,7 @@
   (testing "rf2-nvxehu — a carrier stamped for a DIFFERENT invoke path fails
             the parent/invoke identity clause"
     (let [j (reg-join-parent! :jea/p6 :jea/p6a :jea/p6b)]
-      (mtest/reset-captured!)
+      (rf.machines.test-support/reset-captured!)
       (dispatch-forged! :jea/p6 [:child/done :a]
                         {:parent-id  :jea/p6
                          :invoke-id  [:other-invoke]           ;; WRONG invoke
@@ -313,7 +313,7 @@
       ;; Legit fold of :a (non-decisive in a 2-child :all).
       (rf/dispatch-sync [a [:go]])
       (is (= #{:a} (:done (join-state :jea/p7))) ":a folded")
-      (mtest/reset-captured!)
+      (rf.machines.test-support/reset-captured!)
       ;; Exact duplicate: an exact-current coordinate for the CURRENT attempt.
       (dispatch-forged! :jea/p7 [:child/done :a]
                         {:parent-id  :jea/p7
@@ -354,20 +354,20 @@
       (rf/dispatch-sync [a [:go]])
       (is (= #{:a} (:done (join-state :jea/p8))))
       (is (false? (:resolved? (join-state :jea/p8))))
-      (mtest/reset-captured!)
+      (rf.machines.test-support/reset-captured!)
       ;; The early reap — refused ahead of the :resolved? latch.
       (rf/dispatch-sync [::forge-reap :jea/p8 [:racing] :a])
       (is (= [:unresolved-join] (bad-arg-causes))
           "refused with the distinct :unresolved-join cause")
-      (is (some? (mtest/snapshot a)) "the folded child stays live — no teardown")
+      (is (some? (rf.machines.test-support/snapshot a)) "the folded child stays live — no teardown")
       (is (empty? (destroyed-for a)) "no destroyed trace for the refused reap")
       ;; Genuine resolution: :b completes, the join resolves, and the
       ;; resolution cascade reaps BOTH completed children with the
       ;; non-cancellation reason.
-      (mtest/reset-captured!)
+      (rf.machines.test-support/reset-captured!)
       (rf/dispatch-sync [b [:go]])
       (is (true? (:resolved? (join-state :jea/p8))))
-      (is (nil? (mtest/snapshot a)) "post-resolution, :a is reaped")
+      (is (nil? (rf.machines.test-support/snapshot a)) "post-resolution, :a is reaped")
       (is (= [:rf.machine/join-reaped]
              (mapv (comp :reason :tags) (destroyed-for a)))
           "exactly one destroyed trace for :a — the genuine post-resolution reap"))))
@@ -407,10 +407,10 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- late-completions []
-  (mtest/events-of :rf.machine.spawn-all/late-completion))
+  (rf.machines.test-support/events-of :rf.machine.spawn-all/late-completion))
 
 (defn- bad-child-errors []
-  (mtest/events-of :rf.error/machine-spawn-all-bad-child-id))
+  (rf.machines.test-support/events-of :rf.error/machine-spawn-all-bad-child-id))
 
 (defn- resolve-all-join!
   "Resolve a fresh `reg-join-parent!` `:all` join by completing BOTH children
@@ -444,7 +444,7 @@
             a2 (get-in j2 [:children :a])]
         (is (true? (:resolved? j2)) "attempt B resolved")
         (is (not= a1 a2) "attempt B respawned :a as a fresh instance")
-        (mtest/reset-captured!)
+        (rf.machines.test-support/reset-captured!)
         ;; Attempt A's exact carrier drains AFTER B resolved.
         (dispatch-forged! :jea/pr1 [:child/done :a]
                           {:parent-id  :jea/pr1
@@ -479,7 +479,7 @@
     (let [j (resolve-all-join! :jea/pr2)
           a (get-in j [:children :a])]
       (is (true? (:resolved? j)))
-      (mtest/reset-captured!)
+      (rf.machines.test-support/reset-captured!)
       (dispatch-forged! :jea/pr2 [:child/done :a]
                         {:parent-id  :jea/pr2
                          :invoke-id  [:racing]
@@ -502,7 +502,7 @@
             `:resolved?` branch attributed it before checking the exact-attempt coordinate."
     (reg-join-parent! :jea/pr3 :jea/pr3a :jea/pr3b)
     (resolve-all-join! :jea/pr3)
-    (mtest/reset-captured!)
+    (rf.machines.test-support/reset-captured!)
     (dispatch-forged! :jea/pr3 [:child/done :a] nil)
     (is (empty? (late-completions))
         "no late-completion for a coordinate-less carrier")
@@ -517,7 +517,7 @@
             from a nil `[:children child-id]`)."
     (reg-join-parent! :jea/pr4 :jea/pr4a :jea/pr4b)
     (resolve-all-join! :jea/pr4)
-    (mtest/reset-captured!)
+    (rf.machines.test-support/reset-captured!)
     (dispatch-forged! :jea/pr4 [:child/done :zzz] nil)
     (is (empty? (late-completions))
         "no late-completion for an unknown child")

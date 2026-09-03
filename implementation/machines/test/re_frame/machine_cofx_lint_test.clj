@@ -1,5 +1,5 @@
 (ns re-frame.machine-cofx-lint-test
-  "Dev-only consumer-attachment LINTS (`cofx-attach/lint-machine!`, wired
+  "Dev-only consumer-attachment LINTS (`rf.machines.cofx-attach/lint-machine!`, wired
   into the registration home at `lifecycle_fx/registration.cljc:1140` via
   `(lint-machine! machine-id (index-ensure-sets machine))`). Two
   recommendation-grade diagnostics, both DCE'd in production:
@@ -21,15 +21,15 @@
   maps."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.interop :as interop]
-            [re-frame.machines :as machines]
-            [re-frame.machines.cofx-attach :as cofx-attach]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.interop :as rf.interop]
+            [re-frame.machines :as rf.machines]
+            [re-frame.machines.cofx-attach :as rf.machines.cofx-attach]
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter})
-  mtest/trace-capture-fixture)
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})
+  rf.machines.test-support/trace-capture-fixture)
 
 (def ^:private AMBIENT :rf.warning/machine-cofx-ambient-durable)
 (def ^:private CONSUME :rf.warning/machine-cofx-consume-undeclared)
@@ -38,9 +38,9 @@
   "Drive the lint exactly as the registration home does (registration.cljc
   :1140): index the raw machine, then run the lints tagged with `machine-id`."
   [machine-id machine]
-  (cofx-attach/lint-machine! machine-id (cofx-attach/index-ensure-sets machine)))
+  (rf.machines.cofx-attach/lint-machine! machine-id (rf.machines.cofx-attach/index-ensure-sets machine)))
 
-(defn- warns [op] (mtest/events-of op))
+(defn- warns [op] (rf.machines.test-support/events-of op))
 
 ;; ===========================================================================
 ;; 1. ambient-durable — POSITIVE + negatives (works end-to-end today)
@@ -286,7 +286,7 @@
 ;; ===========================================================================
 
 (deftest lint-is-a-noop-in-production
-  (testing "under `interop/debug-enabled? false` (the production gate)
+  (testing "under `rf.interop/debug-enabled? false` (the production gate)
             lint-machine! runs no checks and emits nothing — for BOTH a
             machine that would trip ambient-durable and one that would trip
             consume-undeclared"
@@ -304,7 +304,7 @@
                                                    (:lint/undeclared4 cofx))}}
                      :states  {:idle {:on {:go {:target :done :guard :g}}}
                                :done {}}}]
-      (with-redefs [interop/debug-enabled? false]
+      (with-redefs [rf.interop/debug-enabled? false]
         (lint! :prod/ambient ambient-m)
         (lint! :prod/consume consume-m))
       (is (empty? (warns AMBIENT))  "no ambient-durable warning in production")

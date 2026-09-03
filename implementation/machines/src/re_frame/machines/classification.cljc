@@ -17,10 +17,10 @@
   so existing trace, SSR, and projection readers need no machine-specific path.
   A malformed declaration fails at registration. Omitting classification leaves
   the data unclassified."
-  (:require [re-frame.elision :as elision]
-            [re-frame.error :as error]
-            [re-frame.machines.paths :as paths]
-            [re-frame.path :as path]))
+  (:require [re-frame.elision :as rf.elision]
+            [re-frame.error :as rf.error]
+            [re-frame.machines.paths :as rf.machines.paths]
+            [re-frame.path :as rf.path]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -51,7 +51,7 @@
                    "must be a path vector; got " (pr-str p))
               :else
               (try
-                (path/normalize-concrete p)
+                (rf.path/normalize-concrete p)
                 nil
                 (catch #?(:clj Throwable :cljs :default) e
                   (str "an invalid path in the machine `" k "` classification "
@@ -70,7 +70,7 @@
   (doseq [k classification-axis-keys]
     (when (contains? spec k)
       (when-let [reason (declaration-defect k (get spec k))]
-        (error/throw-error!
+        (rf.error/throw-error!
           :rf.error/invalid-machine-classification
           'rf-machines/reg-machine
           (str "reg-machine " machine-id " declares a malformed " k
@@ -92,7 +92,7 @@
   Returns nil when the spec declares NEITHER axis (the common no-op).
   Assumes the spec already passed `validate-machine-classification!`. Pure."
   [spec]
-  (let [norm (fn [k] (into [] (map #(vec (path/normalize-concrete %))) (get spec k)))
+  (let [norm (fn [k] (into [] (map #(vec (rf.path/normalize-concrete %))) (get spec k)))
         sens (when (seq (get spec :sensitive)) (norm :sensitive))
         larg (when (seq (get spec :large))     (norm :large))]
     (when (or (seq sens) (seq larg))
@@ -107,7 +107,7 @@
   — the exact shape `re-frame.classification/frame-snapshot-classification` re-roots back
   snapshot-relative at egress. Pure."
   [actor-id path]
-  (into (paths/snapshot-path actor-id) path))
+  (into (rf.machines.paths/snapshot-path actor-id) path))
 
 (defn- machine-owner
   "The multi-owner elision-registry owner identity a machine actor's lowered
@@ -129,7 +129,7 @@
   owner on the same absolute path (Spec 015 L149 explicitly permits an app to
   additionally classify a subsystem absolute path from a handler effect,
   `:source :effect`); DROP removes ONLY this actor's own owner
-  (`elision/remove-claims`) at the named absolute paths — a path ALSO claimed
+  (`rf.elision/remove-claims`) at the named absolute paths — a path ALSO claimed
   by another owner is LEFT INTACT, so an actor teardown never silently
   un-redacts a path another owner still classifies (a privacy fail-open,
   rf2-wdm1vg). An emptied axis slot is pruned by the core ops. Returns the new
@@ -143,8 +143,8 @@
             registry
             (let [absolute-paths (map #(absolute-snapshot-path actor-id %) paths)]
               (if add?
-                (elision/add-claims registry slot owner absolute-paths)
-                (elision/remove-claims registry slot owner absolute-paths))))))
+                (rf.elision/add-claims registry slot owner absolute-paths)
+                (rf.elision/remove-claims registry slot owner absolute-paths))))))
       (or registry {})
       {:sensitive :sensitive-declarations
        :large     :declarations})))
@@ -180,8 +180,8 @@
        (let [transform (fn [registry]
                          (apply-declarations registry actor-id declarations true))]
          (if owner-token
-           (elision/swap-elision-slot! frame-id owner-token transform)
-           (elision/swap-elision-slot! frame-id transform)))))
+           (rf.elision/swap-elision-slot! frame-id owner-token transform)
+           (rf.elision/swap-elision-slot! frame-id transform)))))
    nil))
 
 (defn drop-at-destroy!
@@ -206,6 +206,6 @@
        (let [transform (fn [registry]
                          (apply-declarations registry actor-id declarations false))]
          (if owner-token
-           (elision/swap-elision-slot! frame-id owner-token transform)
-           (elision/swap-elision-slot! frame-id transform)))))
+           (rf.elision/swap-elision-slot! frame-id owner-token transform)
+           (rf.elision/swap-elision-slot! frame-id transform)))))
    nil))

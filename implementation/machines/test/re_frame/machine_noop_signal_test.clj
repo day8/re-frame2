@@ -26,16 +26,16 @@
             ;; throws `:rf.error/machines-artefact-missing` when run in
             ;; isolation via `-n`).
             [re-frame.machines]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-;; Routed through the shared `mtest/with-trace-capture`
+;; Routed through the shared `rf.machines.test-support/with-trace-capture`
 ;; — guaranteed unregister in a `finally`.
 (defn- record-traces! [body-fn]
-  (mtest/with-trace-capture seen
+  (rf.machines.test-support/with-trace-capture seen
     (body-fn)
     @seen))
 

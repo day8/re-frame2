@@ -37,15 +37,15 @@
   the observable ordering."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]))
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace :as rf.trace]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; `record-order!` intentionally uses a RAW listener (not
-;; `mtest/with-trace-capture`): it conjes its `:destroyed` sentinel onto the
+;; `rf.machines.test-support/with-trace-capture`): it conjes its `:destroyed` sentinel onto the
 ;; SAME caller-supplied ordering log the machine `:exit` action writes to, so
 ;; the interleaved marker order is the observable — a fresh capture atom
 ;; could not share that log.
@@ -54,12 +54,12 @@
   onto `log`; returns an unregister thunk."
   [log]
   (let [id ::order-listener]
-    (trace/register-listener!
+    (rf.trace/register-listener!
       id
       (fn [ev]
         (when (= :rf.machine/destroyed (:operation ev))
           (swap! log conj :destroyed))))
-    #(trace/unregister-listener! id)))
+    #(rf.trace/unregister-listener! id)))
 
 (defn- exit-then-destroyed?
   "True iff the first `:exit` marker precedes the first `:destroyed`

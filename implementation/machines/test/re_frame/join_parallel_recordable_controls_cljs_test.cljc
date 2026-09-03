@@ -19,18 +19,18 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.machines :as machines]
-   [re-frame.machines.test-support :as mtest]
-   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
-       :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
+   [re-frame.machines :as rf.machines]
+   [re-frame.machines.test-support :as rf.machines.test-support]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
-(def ^:private _artefact machines/machine-transition)
+(def ^:private _artefact rf.machines/machine-transition)
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture
-    #?(:clj  {:adapter plain-atom/adapter}
-       :cljs {:adapter reagent-adapter/adapter}))
-  mtest/trace-capture-fixture)
+  (rf.machines.test-support/make-reset-runtime-fixture
+    #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
+       :cljs {:adapter rf.adapter.reagent/adapter}))
+  rf.machines.test-support/trace-capture-fixture)
 
 (def ^:private parent-kw :lud4af-par/parent)
 
@@ -79,7 +79,7 @@
   (rf/dispatch-sync [parent-kw [:start]]))
 
 (defn- spawned-joins []
-  (get-in (mtest/runtime-db) [:rf.runtime/machines :spawned parent-kw]))
+  (get-in (rf.machines.test-support/runtime-db) [:rf.runtime/machines :spawned parent-kw]))
 
 (defn- region-invoke+join
   "`[invoke-id join-state]` for the region whose `:on-all-complete` is
@@ -113,10 +113,10 @@
 
 (defn- stale-reasons []
   (mapv (comp :rf.reply/stale-reason :tags)
-        (mtest/events-of :rf.machine.spawn-all/stale-completion)))
+        (rf.machines.test-support/events-of :rf.machine.spawn-all/stale-completion)))
 
 (defn- bad-child-ids []
-  (mtest/events-of :rf.error/machine-spawn-all-bad-child-id))
+  (rf.machines.test-support/events-of :rf.error/machine-spawn-all-bad-child-id))
 
 ;; ---------------------------------------------------------------------------
 ;; legitimate success / failure through the recordable transport
@@ -128,7 +128,7 @@
             untouched and no stale / bad-child evidence fires."
     (reg-and-start!)
     (let [[_ r2-js] (region-invoke+join [:r2/done])]
-      (mtest/reset-captured!)
+      (rf.machines.test-support/reset-captured!)
       (rf/dispatch-sync [(get-in r2-js [:children :worker]) [:go]])
       (let [[_ r1'] (region-invoke+join [:r1/done])
             [_ r2'] (region-invoke+join [:r2/done])]
@@ -142,7 +142,7 @@
             recordable transport folds ONLY into :r2 (:failed #{:worker})."
     (reg-and-start!)
     (let [[_ r2-js] (region-invoke+join [:r2/done])]
-      (mtest/reset-captured!)
+      (rf.machines.test-support/reset-captured!)
       (rf/dispatch-sync [(get-in r2-js [:children :worker]) [:fail]])
       (let [[_ r1'] (region-invoke+join [:r1/done])
             [_ r2'] (region-invoke+join [:r2/done])]
@@ -159,7 +159,7 @@
             (never flowed through a member child's boundary) folds nothing in
             either region and is classified :attempt-unverified."
     (reg-and-start!)
-    (mtest/reset-captured!)
+    (rf.machines.test-support/reset-captured!)
     (dispatch-carrier! [:child/done :worker] nil)
     (let [[_ r1'] (region-invoke+join [:r1/done])
           [_ r2'] (region-invoke+join [:r2/done])]
@@ -174,7 +174,7 @@
             clause and folds nothing (:attempt-superseded)."
     (reg-and-start!)
     (let [[r2-invoke r2-js] (region-invoke+join [:r2/done])]
-      (mtest/reset-captured!)
+      (rf.machines.test-support/reset-captured!)
       (dispatch-carrier! [:child/done :worker]
                          (attempt-for r2-invoke r2-js {:spawned-id :lud4af-par/bogus-instance}))
       (let [[_ r2'] (region-invoke+join [:r2/done])]
@@ -187,7 +187,7 @@
             parent/invoke identity clause and folds nothing (:attempt-superseded)."
     (reg-and-start!)
     (let [[r2-invoke r2-js] (region-invoke+join [:r2/done])]
-      (mtest/reset-captured!)
+      (rf.machines.test-support/reset-captured!)
       (dispatch-carrier! [:child/done :worker]
                          (attempt-for r2-invoke r2-js {:invoke-id [:r9 :nope]}))
       (let [[_ r1'] (region-invoke+join [:r1/done])
@@ -203,7 +203,7 @@
             :rf.error/machine-spawn-all-bad-child-id error trace fires."
     (reg-and-start!)
     (let [[r2-invoke r2-js] (region-invoke+join [:r2/done])]
-      (mtest/reset-captured!)
+      (rf.machines.test-support/reset-captured!)
       (dispatch-carrier! [:child/done :ghost]
                          (attempt-for r2-invoke r2-js {:child-id :ghost}))
       (let [[_ r1'] (region-invoke+join [:r1/done])

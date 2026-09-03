@@ -37,13 +37,13 @@
   parent macrostep, matching what a self-`[:dispatch [<self-id> …]]` would
   broadcast (pre-commit, in one macrostep)."
   (:require [clojure.set :as set]
-            [re-frame.error :as error]
-            [re-frame.machines.choice :as choice]
-            [re-frame.machines.result :as result
+            [re-frame.error :as rf.error]
+            [re-frame.machines.choice :as rf.machines.choice]
+            [re-frame.machines.result :as rf.machines.result
              #?@(:cljs [:include-macros true])]
-            [re-frame.machines.timeout :as timeout]
-            [re-frame.machines.transition :as transition]
-            [re-frame.trace :as trace]))
+            [re-frame.machines.timeout :as rf.machines.timeout]
+            [re-frame.machines.transition :as rf.machines.transition]
+            [re-frame.trace :as rf.trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -126,7 +126,7 @@
             machine                       ; already canonical — idempotent re-run
 
             (some? declared)
-            (error/throw-error!
+            (rf.error/throw-error!
               :rf.error/machine-parallel-region-order-mismatch
               'rf/reg-machine
               (str ":region-order must be a vector that is an exact permutation of "
@@ -140,7 +140,7 @@
             (assoc machine :region-order (vec (keys regions)))
 
             :else
-            (error/throw-error!
+            (rf.error/throw-error!
               :rf.error/machine-parallel-region-order-required
               'rf/reg-machine
               (str "a :type :parallel machine with more than eight regions must "
@@ -178,7 +178,7 @@
       is malformed), and no extra/stale region (a hot-reload that dropped a
       region, or a corrupted restore), AND
    3. every region's active path resolves to a REAL, OCCUPIABLE leaf under
-      that region's body — i.e. `transition/state-occupiable?` (non-nil node,
+      that region's body — i.e. `rf.machines.transition/state-occupiable?` (non-nil node,
       not a `:type :history` pseudo-state).
 
   Reused by `all-regions-final?`, the snapshot-compatibility reconcile
@@ -195,7 +195,7 @@
          (and (= declared present)
               (every?
                 (fn [[region-name region-state]]
-                  (transition/state-occupiable?
+                  (rf.machines.transition/state-occupiable?
                     (get-in machine [:regions region-name])
                     region-state))
                 state)))))
@@ -225,9 +225,9 @@
        (every?
          (fn [[region-name region-state]]
            (let [region-body (get-in machine [:regions region-name])
-                 leaf-node   (transition/node-at region-body
-                                                  (transition/state-path region-state))]
-             (transition/final-state-node? leaf-node)))
+                 leaf-node   (rf.machines.transition/node-at region-body
+                                                  (rf.machines.transition/state-path region-state))]
+             (rf.machines.transition/final-state-node? leaf-node)))
          state)))
 
 (defn- build-region-machine
@@ -248,14 +248,14 @@
   `:type :choice` stayed stuck at its transient node (rf2-x76af2.7): the raw
   region body was faulted into the cache during `build-initial-snapshot`'s tag
   computation, then served — still raw — on those direct-apply paths. Both
-  desugars are idempotent and short-circuit for the common timeout/choice-free
+  desugars are idempotent and short-circuit for the common rf.machines.timeout/choice-free
   region, so this costs one structural scan on the once-per-region cache miss.
   A region-ROOT `:after` / `:timeout` is rejected at registration
   (`validate-non-parallel-root-after!`, rf2-x76af2.10), so only region STATE
   nodes carry lowerable `:timeout` / `:choice` by the time a body reaches here."
   [parent-machine region-name]
-  (let [region-body (choice/desugar-choices
-                      (timeout/desugar-timeouts
+  (let [region-body (rf.machines.choice/desugar-choices
+                      (rf.machines.timeout/desugar-timeouts
                        (get-in parent-machine [:regions region-name])))]
     (-> region-body
         (assoc :guards            (:guards parent-machine))
@@ -324,8 +324,8 @@
   (let [decl      (:initial region-body)
         ;; `region-body` already carries `:states` — `initial-cascade`
         ;; reads it through `node-at`, so pass it directly.
-        full-path (transition/initial-cascade region-body (transition/state-path decl))]
-    (transition/denormalise-state full-path decl)))
+        full-path (rf.machines.transition/initial-cascade region-body (rf.machines.transition/state-path decl))]
+    (rf.machines.transition/denormalise-state full-path decl)))
 
 (defn- compute-tags-parallel
   "Per Spec 005 §Tags compose across regions: union every active state's
@@ -333,7 +333,7 @@
   [machine state-map]
   (transduce
     (map (fn [[region-name region-state]]
-           (transition/compute-tags (region-machine machine region-name) region-state)))
+           (rf.machines.transition/compute-tags (region-machine machine region-name) region-state)))
     set/union
     #{}
     state-map))
@@ -345,10 +345,10 @@
   [machine snapshot]
   (let [tags (if (parallel? machine)
                (compute-tags-parallel machine (:state snapshot))
-               (transition/compute-tags machine (:state snapshot)))]
+               (rf.machines.transition/compute-tags machine (:state snapshot)))]
     ;; The empty→dissoc / else→assoc elision lives
-    ;; once in `transition/stamp-tags`; both tag-commit fns delegate to it.
-    (transition/stamp-tags snapshot tags)))
+    ;; once in `rf.machines.transition/stamp-tags`; both tag-commit fns delegate to it.
+    (rf.machines.transition/stamp-tags snapshot tags)))
 
 (defn build-initial-snapshot
   "Build the freshly-derived initial snapshot for `machine`.
@@ -390,8 +390,8 @@
                                            (get-in machine [:regions rn]))]))
                               (region-order machine))
                         (let [decl (:initial machine)]
-                          (transition/denormalise-state
-                            (transition/initial-cascade machine (transition/state-path decl))
+                          (rf.machines.transition/denormalise-state
+                            (rf.machines.transition/initial-cascade machine (rf.machines.transition/state-path decl))
                             decl)))
         base          (cond-> {:state            initial-state
                                :data             (or (:data machine) {})
@@ -447,8 +447,8 @@
 
 (defn- bootstrap-step
   "Single bootstrap step for one (flat or per-region) machine. Returns
-  a `result/ok` Result carrying the post-cascade snapshot + fx, or a
-  `result/fail` Result if any `:entry` action threw.
+  a `rf.machines.result/ok` Result carrying the post-cascade snapshot + fx, or a
+  `rf.machines.result/fail` Result if any `:entry` action threw.
 
   Every initial-entry cascade action carries `:phase
   :initial-entry` on its `:rf.machine/action-ran` emit so the Handler
@@ -458,11 +458,11 @@
   (let [original-state (:state initial-snapshot)
         boot-target    (if (keyword? original-state)
                          original-state
-                         (vec (transition/state-path original-state)))]
-    (transition/apply-transition-once
+                         (vec (rf.machines.transition/state-path original-state)))]
+    (rf.machines.transition/apply-transition-once
       machine
       (assoc initial-snapshot :state [])
-      [transition/start-marker]
+      [rf.machines.transition/start-marker]
       {:target    boot-target
        :decl-path []}
       :initial-entry)))
@@ -485,7 +485,7 @@
 ;;   - prefix per-region fx with the region name via
 ;;     `prefix-region-invoke-id` so per-region `[:rf.runtime/machines :spawned ...]` /
 ;;     `:after`-epoch tracking slots stay distinct from siblings,
-;;   - short-circuit to a `result/fail` if any region's step fails,
+;;   - short-circuit to a `rf.machines.result/fail` if any region's step fails,
 ;;   - commit `:tags` via `commit-tags-parallel` AFTER every region has
 ;;     transitioned, since `:tags` is the union across active leaves.
 ;;
@@ -554,9 +554,9 @@
   transition-selection phase but retain the same deterministic action/fx
   ordering and shared-data threading.
 
-  Returns a `result/ok` Result carrying the merged snapshot (post-
+  Returns a `rf.machines.result/ok` Result carrying the merged snapshot (post-
   `commit-tags-parallel`) + accumulated fx, or the first region's
-  `result/fail` (cascade short-circuits).
+  `rf.machines.result/fail` (cascade short-circuits).
 
   This helper assumes `parent-machine` is `:type :parallel`. Flat /
   compound callers run their step directly — the broadcast invariant
@@ -646,10 +646,10 @@
           ;; engine from the synthetic region-spec's `:rf/region`), so the
           ;; flat concatenation stays per-region addressable for the
           ;; consumer.
-          (-> (result/ok (commit-tags-parallel parent-machine merged) acc-fx)
-              (result/with-handled any-handled?)
-              (result/with-microsteps micro-total)
-              (result/with-cascade cascade)))
+          (-> (rf.machines.result/ok (commit-tags-parallel parent-machine merged) acc-fx)
+              (rf.machines.result/with-handled any-handled?)
+              (rf.machines.result/with-microsteps micro-total)
+              (rf.machines.result/with-cascade cascade)))
         (let [rn          (first pending)
               ;; Stamp the REAL parent machine-id onto the
               ;; synthetic region-spec so any declarative `:spawn` / `:after`
@@ -734,12 +734,12 @@
                             (some? cur-history)
                             (assoc :rf/history cur-history))
               step-result (step-fn region-spec region-snap)]
-          (if (result/fail? step-result)
+          (if (rf.machines.result/fail? step-result)
             step-result
-            (let [region-handled? (result/handled? step-result)
-                  region-micro    (result/microsteps step-result)
-                  region-cascade  (result/cascade step-result)]
-              (result/with-ok [reg-snap reg-fx] step-result
+            (let [region-handled? (rf.machines.result/handled? step-result)
+                  region-micro    (rf.machines.result/microsteps step-result)
+                  region-cascade  (rf.machines.result/cascade step-result)]
+              (rf.machines.result/with-ok [reg-snap reg-fx] step-result
                 ;; Accumulate fx via `into` so the region
                 ;; loop doesn't rebuild the accumulator as a fresh vector
                 ;; on every region step: `into` uses a transient
@@ -765,8 +765,8 @@
 (defn- run-initial-cascade
   "Synthesise the bootstrap ENTRY cascade for `machine` against the
   freshly-synthesised `initial-snapshot` — the initial-descent `:entry`
-  actions only. Returns a `result/ok` Result carrying the post-cascade
-  snapshot + fx (+ `::cascade`), or a `result/fail` Result if any
+  actions only. Returns a `rf.machines.result/ok` Result carrying the post-cascade
+  snapshot + fx (+ `::cascade`), or a `rf.machines.result/fail` Result if any
   `:entry` action threw.
 
   For parallel-region machines (`:type :parallel`), delegates to
@@ -786,21 +786,21 @@
   cascade's Result. `reduce-regions` walks each REGION's `:after`; the root's
   own `:after` lives on the machine map itself (decl-path `[]`) and is never an
   entered region node, so it is scheduled explicitly via
-  `transition/schedule-root-after-fx` (which bumps the root's per-path epoch on
+  `rf.machines.transition/schedule-root-after-fx` (which bumps the root's per-path epoch on
   the snapshot and emits the same `:scheduled` trace + `:after-schedule` fx a
   state's `:after` emits)."
   [machine initial-snapshot]
   (if (parallel? machine)
     (let [regions-r (reduce-regions machine initial-snapshot bootstrap-step)]
-      (if (result/fail? regions-r)
+      (if (rf.machines.result/fail? regions-r)
         regions-r
-        (result/with-ok [snap fx] regions-r
+        (rf.machines.result/with-ok [snap fx] regions-r
           (let [[snap' root-after-fx]
-                (transition/schedule-root-after-fx machine snap false)]
-            (-> (result/ok snap' (into (vec fx) root-after-fx))
-                (result/with-handled (result/handled? regions-r))
-                (result/with-microsteps (result/microsteps regions-r))
-                (result/with-cascade (result/cascade regions-r)))))))
+                (rf.machines.transition/schedule-root-after-fx machine snap false)]
+            (-> (rf.machines.result/ok snap' (into (vec fx) root-after-fx))
+                (rf.machines.result/with-handled (rf.machines.result/handled? regions-r))
+                (rf.machines.result/with-microsteps (rf.machines.result/microsteps regions-r))
+                (rf.machines.result/with-cascade (rf.machines.result/cascade regions-r)))))))
     (bootstrap-step machine initial-snapshot)))
 
 (declare machine-transition)
@@ -859,11 +859,11 @@
   harvest."
   [region-spec region-snap event match phase]
   (try
-    (transition/apply-preselected-transition
+    (rf.machines.transition/apply-preselected-transition
       region-spec region-snap event match phase)
     (catch #?(:clj Throwable :cljs :default) e
-      (if (transition/guard-threw-signal? e)
-        (result/fail (transition/guard-threw->fail-info e))
+      (if (rf.machines.transition/guard-threw-signal? e)
+        (rf.machines.result/fail (rf.machines.transition/guard-threw->fail-info e))
         (throw e)))))
 
 (defn- broadcast-once
@@ -872,7 +872,7 @@
   APPLY — XState v5 / SCXML parity):
 
     SELECT — resolve EVERY region's enabled transition
-    (`transition/pick-transition`) against ONE frozen pre-event view: `:data`,
+    (`rf.machines.transition/pick-transition`) against ONE frozen pre-event view: `:data`,
     `:all-state` and `:tags` are all taken from `snapshot` BEFORE any region
     applies. So a later region's guard SELECTION never observes an earlier
     region's same-macrostep `:data` write — selection is DECLARATION-ORDER-
@@ -888,8 +888,8 @@
 
   Regions DEFER their raises, so the returned Result's `fx` may carry surfaced
   `[:raise …]` entries for the parent loop to harvest. Returns the merged
-  `result/ok` (carrying `::handled?` / `::microsteps` / `::cascade`) or the
-  first region's `result/fail`. Each raised-event re-broadcast re-enters here
+  `rf.machines.result/ok` (carrying `::handled?` / `::microsteps` / `::cascade`) or the
+  first region's `rf.machines.result/fail`. Each raised-event re-broadcast re-enters here
   with a FRESH `snapshot`, so it re-freezes the selection view against the
   config as of that microstep's start."
   [machine snapshot event]
@@ -920,9 +920,9 @@
                                             (some? sc)   (assoc :rf/spawn-counter sc)
                                             (some? hist) (assoc :rf/history hist))]
                           (assoc! acc rn
-                                  (transition/pick-transition
+                                  (rf.machines.transition/pick-transition
                                     region-spec
-                                    (transition/state-path (get state-map rn))
+                                    (rf.machines.transition/state-path (get state-map rn))
                                     event region-snap))))
                       (transient {})
                       ordered))]
@@ -958,9 +958,9 @@
                                      :tags      frozen-tags}
                               (some? sc)   (assoc :rf/spawn-counter sc)
                               (some? hist) (assoc :rf/history hist))
-                match       (transition/pick-always-transition
+                match       (rf.machines.transition/pick-always-transition
                               region-spec
-                              (transition/state-path (get state-map rn))
+                              (rf.machines.transition/state-path (get state-map rn))
                               region-snap)]
             (cond-> acc match (assoc! rn match))))
         (transient {})
@@ -972,7 +972,7 @@
   canonical declaration order with `:data` accumulation. No region drains a
   local `:always` tail.
 
-  Every taken regional transition gets its own trace/cascade row, but all
+  Every taken regional transition gets its own rf.trace/cascade row, but all
   co-selected transitions share `round-index`; the returned Result counts the
   SET as exactly one `::microsteps` round."
   [machine snapshot matches round-index]
@@ -985,10 +985,10 @@
                   from  (:state region-snap)
                   step  (apply-region-transition
                           region-spec region-snap nil match :always)]
-              (if (or (nil? match) (result/fail? step))
+              (if (or (nil? match) (rf.machines.result/fail? step))
                 step
-                (result/with-ok [snap2 _] step
-                  (trace/emit! :rf.machine :rf.machine.microstep/transition
+                (rf.machines.result/with-ok [snap2 _] step
+                  (rf.trace/emit! :rf.machine :rf.machine.microstep/transition
                                {:actor-id        (or (:rf/parent-id region-spec)
                                                      (:id region-spec))
                                 :from            from
@@ -1000,24 +1000,24 @@
                   (-> step
                       ;; The parent owns the count. `reduce-regions` must not
                       ;; sum one per selected region.
-                      (result/with-microsteps 0)
-                      (result/with-cascade
+                      (rf.machines.result/with-microsteps 0)
+                      (rf.machines.result/with-cascade
                         [{:kind            :microstep
                           :region          rn
                           :microstep-index round-index
                           :from            from
                           :to              (:state snap2)
-                          :steps           (result/cascade step)}])))))))]
-    (if (result/fail? round-r)
+                          :steps           (rf.machines.result/cascade step)}])))))))]
+    (if (rf.machines.result/fail? round-r)
       round-r
-      (result/with-microsteps round-r 1))))
+      (rf.machines.result/with-microsteps round-r 1))))
 
 ;; ---- root parallel `:on` — the ancestor fallback --------------------------
 ;;
 ;; XState v5 / SCXML: a transition declared on a `<parallel>`
 ;; node is the ANCESTOR FALLBACK for its regions — deepest-wins with parent
 ;; fallthrough, the parallel analog of the machine-root `:on` fallback every
-;; flat / compound machine already has (`transition/pick-transition` steps
+;; flat / compound machine already has (`rf.machines.transition/pick-transition` steps
 ;; 6-7) and of re-frame2's own compound-root `:on` fallthrough. The selection
 ;; semantic (verified against xstate@5.32.0):
 ;;
@@ -1074,14 +1074,14 @@
   cascade, `:after` (re)scheduling, declarative `:spawn` / history all fire
   exactly as a region-local transition to that target would. The transition
   carries NO `:action` — the root action already ran once at the root level
-  (`transition/run-root-transition-action`); a region target is a pure
+  (`rf.machines.transition/run-root-transition-action`); a region target is a pure
   configuration change. Threads the shared `:data` / `:rf/spawn-counter` /
   `:rf/history` through `acc` `{:data :rf/spawn-counter :rf/history :state-map
   :fx}` (the same flow `reduce-regions` uses) and prefixes per-region fx with
-  the region name. Returns the updated `acc`, or a `result/fail` (a region
+  the region name. Returns the updated `acc`, or a `rf.machines.result/fail` (a region
   `:entry` / `:exit` action threw)."
   [parent-machine event acc [region-name & in-region-path]]
-  (if (result/fail? acc)
+  (if (rf.machines.result/fail? acc)
     acc
     (let [region-spec (region-spec-overlaid parent-machine region-name)
           region-snap (cond-> {:state (get-in acc [:state-map region-name])
@@ -1101,11 +1101,11 @@
                                     (first in-region)
                                     in-region)
                        :decl-path []}
-          step        (transition/apply-transition-once
+          step        (rf.machines.transition/apply-transition-once
                         region-spec region-snap event synthetic :transition)]
-      (if (result/fail? step)
+      (if (rf.machines.result/fail? step)
         step
-        (result/with-ok [reg-snap reg-fx] step
+        (rf.machines.result/with-ok [reg-snap reg-fx] step
           (-> acc
               (assoc :data (:data reg-snap))
               (cond-> (some? (:rf/spawn-counter reg-snap))
@@ -1127,14 +1127,14 @@
   `region-order`, filtered to the targeted regions) so `:data` accumulation
   across multiple region targets is deterministic, consistent with
   `reduce-regions`. Returns
-  a `result/ok` carrying `[merged-snapshot fx]` stamped `::handled? true` (the
-  root transition resolved the event), or a `result/fail` if the root action
+  a `rf.machines.result/ok` carrying `[merged-snapshot fx]` stamped `::handled? true` (the
+  root transition resolved the event), or a `rf.machines.result/fail` if the root action
   or any region cascade threw."
   [machine snapshot event transition]
-  (let [action-r (transition/run-root-transition-action machine snapshot transition event)]
-    (if (result/fail? action-r)
+  (let [action-r (rf.machines.transition/run-root-transition-action machine snapshot transition event)]
+    (if (rf.machines.result/fail? action-r)
       action-r
-      (result/with-ok [snap-after-action action-fx] action-r
+      (rf.machines.result/with-ok [snap-after-action action-fx] action-r
         (let [targets        (normalise-root-targets (:target transition))
               ;; Apply in canonical region-declaration order (`region-order`,
               ;; filtered to targeted regions) for deterministic `:data`
@@ -1152,7 +1152,7 @@
               acc            (reduce (partial apply-root-region-target machine event)
                                      seed
                                      ordered-targets)]
-          (if (result/fail? acc)
+          (if (rf.machines.result/fail? acc)
             acc
             (let [merged (cond-> (-> snapshot
                                      (assoc :state (:state-map acc))
@@ -1161,8 +1161,8 @@
                            (assoc :rf/spawn-counter (:rf/spawn-counter acc))
                            (some? (:rf/history acc))
                            (assoc :rf/history (:rf/history acc)))]
-              (-> (result/ok (commit-tags-parallel machine merged) (:fx acc))
-                  (result/with-handled true)))))))))
+              (-> (rf.machines.result/ok (commit-tags-parallel machine merged) (:fx acc))
+                  (rf.machines.result/with-handled true)))))))))
 
 (defn- drain-parent-queue
   "Stabilize a parallel macrostep under the parent's unified eventless /
@@ -1187,18 +1187,18 @@
   atomic-rollback target on `:raise-depth-limit` abort (the input
   snapshot — for birth, the pre-settle post-cascade snapshot).
 
-  Returns a `result/ok` (snapshot + fx, with `::handled?` / `::microsteps`
-  / `::cascade`) or the first region's `result/fail`."
+  Returns a `rf.machines.result/ok` (snapshot + fx, with `::handled?` / `::microsteps`
+  / `::cascade`) or the first region's `rf.machines.result/fail`."
   [machine snapshot event first-r]
   (let [raise-limit  (get machine :raise-depth-limit
-                          transition/raise-depth-limit-default)
+                          rf.machines.transition/raise-depth-limit-default)
         always-limit (get machine :always-depth-limit
-                          transition/always-depth-limit-default)]
-    (if (result/fail? first-r)
+                          rf.machines.transition/always-depth-limit-default)]
+    (if (rf.machines.result/fail? first-r)
       first-r
-      (result/with-ok [snap0 fx0] first-r
+      (rf.machines.result/with-ok [snap0 fx0] first-r
         (let [[raises0 real0] (split-raises fx0)
-              external-handled? (result/handled? first-r)]
+              external-handled? (rf.machines.result/handled? first-r)]
           ;; `m` is the live parent machine threaded through the
           ;; re-broadcast loop. Each dequeued raise's `ensure-raised-cofx`
           ;; re-stamps it with an augmented `:rf/cofx` so the raised event's
@@ -1213,8 +1213,8 @@
                  ;; queue — symmetric with the flat drain's per-raise count
                  ;; and bounded by the SAME limit / `>=` boundary.
                  depth      0
-                 acc-micro  (result/microsteps first-r)
-                 acc-casc   (result/cascade first-r)
+                 acc-micro  (rf.machines.result/microsteps first-r)
+                 acc-casc   (rf.machines.result/cascade first-r)
                  visited    [(:state snap0)]]
             (let [always-matches (select-always-matches m cur-snap)]
              (cond
@@ -1229,13 +1229,13 @@
                              :path visited
                              :frame (:rf/frame m)
                              :recovery :no-recovery}]
-                   (trace/emit-error! :rf.error/machine-always-depth-exceeded info)
-                   (result/depth-abort info))
+                   (rf.trace/emit-error! :rf.error/machine-always-depth-exceeded info)
+                   (rf.machines.result/depth-abort info))
                  (let [round-r (apply-always-round
                                  m cur-snap always-matches acc-micro)]
-                   (if (result/fail? round-r)
+                   (if (rf.machines.result/fail? round-r)
                      round-r
-                     (result/with-ok [snap2 fx2] round-r
+                     (rf.machines.result/with-ok [snap2 fx2] round-r
                        (let [[new-raises real-fx] (split-raises fx2)]
                          (recur snap2
                                 m
@@ -1243,14 +1243,14 @@
                                 (into acc-fx real-fx)
                                 depth
                                 (inc acc-micro)
-                                (into acc-casc (result/cascade round-r))
+                                (into acc-casc (rf.machines.result/cascade round-r))
                                 (conj visited (:state snap2))))))))
 
                (empty? pending)
-              (let [result (-> (result/ok cur-snap acc-fx)
-                               (result/with-handled external-handled?)
-                               (result/with-microsteps acc-micro)
-                               (result/with-cascade acc-casc))]
+              (let [result (-> (rf.machines.result/ok cur-snap acc-fx)
+                               (rf.machines.result/with-handled external-handled?)
+                               (rf.machines.result/with-microsteps acc-micro)
+                               (rf.machines.result/with-cascade acc-casc))]
                 ;; Per Spec 005 §Transition broadcast: when EVERY region
                 ;; declines the EXTERNAL event the machine emits a SINGLE
                 ;; benign `:rf.machine.event/unhandled-no-op` (op-type
@@ -1258,18 +1258,18 @@
                 ;; parity; canonical id / op-type / tags per Spec 009
                 ;; §`:op-type` vocabulary). Gated on the inbound `event`
                 ;; (not any re-broadcast raise) and on
-                ;; `transition/unhandled-event-no-op?` so reserved-`:rf/*`
+                ;; `rf.machines.transition/unhandled-event-no-op?` so reserved-`:rf/*`
                 ;; framework lifecycle traffic — the synthetic bootstrap,
                 ;; the spawn kick-off, the stories-runtime pings — is NOT
                 ;; classified as an unknown-user-event no-op. On the BIRTH
                 ;; path `event` is `nil`, so the
                 ;; `unhandled-event-no-op?` gate is never reached — birth
                 ;; never emits the no-op. Mirrors the flat-machine emission
-                ;; in `transition/machine-transition-single`.
+                ;; in `rf.machines.transition/machine-transition-single`.
                 (when (and (not external-handled?)
                            (some? event)
-                           (transition/unhandled-event-no-op? event))
-                  (trace/emit! :rf.machine :rf.machine.event/unhandled-no-op
+                           (rf.machines.transition/unhandled-event-no-op? event))
+                  (rf.trace/emit! :rf.machine :rf.machine.event/unhandled-no-op
                                ;; A LIVE actor (every region
                                ;; declined) received the unknown event; address
                                ;; it by `:actor-id`, not `:machine-id` (the
@@ -1289,8 +1289,8 @@
               (>= depth raise-limit)
               ;; A tripped re-broadcast `:raise` depth limit is a
               ;; FAILED macrostep, not a benign no-op (parity with the flat
-              ;; drain in `transition/drain-to-fixed-point`). Emit the precise
-              ;; category, then return a `result/fail` carrying the
+              ;; drain in `rf.machines.transition/drain-to-fixed-point`). Emit the precise
+              ;; category, then return a `rf.machines.result/fail` carrying the
               ;; `::depth-abort?` sentinel so the runaway region raise cycle
               ;; routes through the handler's failure path (atomic rollback
               ;; preserved — no snapshot write reaches runtime-db) instead of
@@ -1304,8 +1304,8 @@
                           :depth      depth
                           :frame      (:rf/frame machine)
                           :recovery   :no-recovery}]
-                (trace/emit-error! :rf.error/machine-raise-depth-exceeded info)
-                (result/depth-abort info))
+                (rf.trace/emit-error! :rf.error/machine-raise-depth-exceeded info)
+                (rf.machines.result/depth-abort info))
 
               :else
               (let [ev   (first pending)
@@ -1318,7 +1318,7 @@
                     ;; augmented `:rf/cofx` overlays onto each region spec via
                     ;; `region-spec-overlaid`, and threads forward so a later
                     ;; re-broadcast re-presents the generated value.
-                    m'    (transition/ensure-raised-cofx m cur-snap ev)
+                    m'    (rf.machines.transition/ensure-raised-cofx m cur-snap ev)
                     bstep (broadcast-once m' cur-snap ev)
                     ;; A raised internal event declined by EVERY region consults
                     ;; the parallel root's own `:on` as the ancestor fallback —
@@ -1336,13 +1336,13 @@
                     ;; transition without local settling. The next parent-loop
                     ;; iteration selects `:always` across the complete moved
                     ;; configuration before any surfaced raises drain FIFO
-                    ;; (rf2-x76af2.8). A `result/fail` short-circuits.
-                    step  (if (result/fail? bstep)
+                    ;; (rf2-x76af2.8). A `rf.machines.result/fail` short-circuits.
+                    step  (if (rf.machines.result/fail? bstep)
                             bstep
                             (root-fallback-seed m' cur-snap ev bstep))]
-                (if (result/fail? step)
+                (if (rf.machines.result/fail? step)
                   step
-                  (result/with-ok [snap2 fx2] step
+                  (rf.machines.result/with-ok [snap2 fx2] step
                     (let [[new-raises real-fx] (split-raises fx2)
                           ;; rf2-nb8nj — group the rebroadcast's rows under ONE
                           ;; `:kind :raised-transition` boundary instead of
@@ -1359,7 +1359,7 @@
                           ;; phantom event edge.
                           ;;
                           ;; Identical shape and gate to the flat/compound drain
-                          ;; (`transition/drain-to-fixed-point`) — one schema-
+                          ;; (`rf.machines.transition/drain-to-fixed-point`) — one schema-
                           ;; approved wrapper across both engines, so a consumer
                           ;; traverses one thing. `:region` is nil: a raise is
                           ;; re-broadcast across EVERY region, so the boundary
@@ -1372,14 +1372,14 @@
                           ;; completion signal enters this same queue, so it is
                           ;; represented by the same mechanism — no parallel
                           ;; done-state dialect.
-                          acc-casc' (if (result/handled? step)
+                          acc-casc' (if (rf.machines.result/handled? step)
                                       (conj acc-casc
                                             {:kind   :raised-transition
                                              :region nil
                                              :event  ev
                                              :from   (:state cur-snap)
                                              :to     (:state snap2)
-                                             :steps  (result/cascade step)})
+                                             :steps  (rf.machines.result/cascade step)})
                                       acc-casc)]
                       (recur snap2
                              m'
@@ -1389,7 +1389,7 @@
                              (into (vec (rest pending)) new-raises)
                              (into acc-fx real-fx)
                              (inc depth)
-                             (+ acc-micro (result/microsteps step))
+                             (+ acc-micro (rf.machines.result/microsteps step))
                              acc-casc'
                              (conj visited (:state snap2)))))))))))))))
 
@@ -1429,7 +1429,7 @@
   declares `:on-done`, run that `:on-done` transition's `:action` against
   `:data` and append its `:fx`, marking the Result so the lifecycle boundary
   does NOT auto-destroy. Returns the (possibly enriched) Result; a
-  `result/fail` (the `:on-done` action threw) short-circuits. A `result/fail`
+  `rf.machines.result/fail` (the `:on-done` action threw) short-circuits. A `rf.machines.result/fail`
   input passes through. When the machine is not parallel, was NOT newly made
   all-final this macrostep, or declares no `:on-done`, returns `result`
   unchanged (the whole-machine finalize path then runs at the lifecycle
@@ -1448,15 +1448,15 @@
   is dispatched exactly once and `:data` does not accumulate on resting
   macrosteps."
   [machine result newly-reached?]
-  (if (result/fail? result)
+  (if (rf.machines.result/fail? result)
     result
     (let [on-done (:on-done machine)]
       (if (or (not (parallel? machine))
               (nil? on-done)
               (not newly-reached?)
-              (not (all-regions-final? machine (:state (result/snap result)))))
+              (not (all-regions-final? machine (:state (rf.machines.result/snap result)))))
         result
-        (result/with-ok [snap fx] result
+        (rf.machines.result/with-ok [snap fx] result
           ;; `:on-done` is an `:on`-shaped transition spec; a parallel root's
           ;; `:on-done` carries only `:action` / `:guard` / `:fx` (registration
           ;; rejects an in-machine `:target`). Run its `:action` against the
@@ -1464,15 +1464,15 @@
           ;; effects-map contract (`{:data .. :fx ..}`). A bare keyword /
           ;; map without `:action` is a no-op data-wise but still suppresses
           ;; auto-destroy (the author opted into "stay done, don't destroy").
-          (let [on-done-r (transition/apply-on-done-action machine snap on-done)]
-            (if (result/fail? on-done-r)
+          (let [on-done-r (rf.machines.transition/apply-on-done-action machine snap on-done)]
+            (if (rf.machines.result/fail? on-done-r)
               on-done-r
-              (result/with-ok [snap2 fx2] on-done-r
-                (-> (result/ok snap2 (into (vec fx) fx2))
-                    (result/with-parallel-done)
-                    (result/with-handled (result/handled? result))
-                    (result/with-microsteps (result/microsteps result))
-                    (result/with-cascade (result/cascade result)))))))))))
+              (rf.machines.result/with-ok [snap2 fx2] on-done-r
+                (-> (rf.machines.result/ok snap2 (into (vec fx) fx2))
+                    (rf.machines.result/with-parallel-done)
+                    (rf.machines.result/with-handled (rf.machines.result/handled? result))
+                    (rf.machines.result/with-microsteps (rf.machines.result/microsteps result))
+                    (rf.machines.result/with-cascade (rf.machines.result/cascade result)))))))))))
 
 (defn- root-fallback-seed
   "Per Spec 005 §Transition broadcast §Root parallel `:on`: when
@@ -1494,11 +1494,11 @@
   the complete post-root configuration and owns the same frozen
   select-then-apply rounds used after regional events and at birth."
   [machine snapshot event first-r]
-  (if (or (result/fail? first-r)
-          (result/handled? first-r)
-          (not (transition/unhandled-event-no-op? event)))
+  (if (or (rf.machines.result/fail? first-r)
+          (rf.machines.result/handled? first-r)
+          (not (rf.machines.transition/unhandled-event-no-op? event)))
     first-r
-    (if-let [t (transition/root-on-match machine event snapshot)]
+    (if-let [t (rf.machines.transition/root-on-match machine event snapshot)]
       (apply-root-parallel-transition machine snapshot event t)
       first-r)))
 
@@ -1516,7 +1516,7 @@
 
   Emits the same timer traces a state's `:after` does (`:rf.machine.timer/
   fired` on a live fire, `/stale-after` on an epoch-stale drop, `/fired
-  :fired? false` on a guard-suppressed drop) via `transition/emit-pick-
+  :fired? false` on a guard-suppressed drop) via `rf.machines.transition/emit-pick-
   traces!`. Returns the SEED Result the macrostep drains from:
    - the applied root-`:after` transition Result (handled) on a live fire;
    - a no-op `(ok snapshot [])` on a stale / guard-suppressed timer (the
@@ -1525,18 +1525,18 @@
   The returned seed is stabilized by the same parent-owned eventless/raise
   loop as every other parallel transition."
   [machine snapshot event]
-  (let [match (transition/root-after-match machine event snapshot)]
+  (let [match (rf.machines.transition/root-after-match machine event snapshot)]
     ;; Trace the firing / staleness / guard-suppression BEFORE applying, so
     ;; listeners observe events in occurrence order (single-machine parity).
     ;; Thread the causal completion timestamp (the firing
     ;; dispatch's router-stamped `:rf/time-ms` off `:rf.cofx`) so the
     ;; parallel-root `:after` completion carries `:completed-at` like the
     ;; single-machine path.
-    (transition/emit-pick-traces! (:rf/frame machine) match
+    (rf.machines.transition/emit-pick-traces! (:rf/frame machine) match
                                   (get-in machine [:rf/cofx :rf/time-ms]))
     (cond
       (or (nil? match) (:stale? match) (:guard-suppressed? match))
-      (result/ok snapshot [])
+      (rf.machines.result/ok snapshot [])
 
       :else
       (apply-root-parallel-transition machine snapshot event
@@ -1547,8 +1547,8 @@
   event, run the parallel MACROSTEP — broadcast the event to every region,
   then run the parent's eventless-round / internal-event loop (region-
   surfaced `:raise`s re-broadcast FIFO across all regions) to a fixed point, and
-  return the merged result. Returns a `result/ok` Result on success or a
-  `result/fail` Result if any region's action threw.
+  return the merged result. Returns a `rf.machines.result/ok` Result on success or a
+  `rf.machines.result/fail` Result if any region's action threw.
 
   Per Spec 005 §Transition broadcast §Root parallel `:on`: when
   NO region selects a transition for the event, the parallel ROOT's own `:on`
@@ -1607,7 +1607,7 @@
         ;; root-owned, not region-scoped: resolve it through the root `:on`
         ;; apply path rather than broadcasting it to the regions (which key off
         ;; a region-name-prefixed decl-path and would all decline it).
-        root-after?   (transition/root-after-elapsed? event)
+        root-after?   (rf.machines.transition/root-after-elapsed? event)
         first-r       (if root-after?
                         (root-after-seed machine snapshot event)
                         (broadcast-once machine snapshot event))
@@ -1633,8 +1633,8 @@
         ;; `:on-done` does not re-fire.
         was-final?    (all-regions-final? machine (:state snapshot))
         newly-final?  (and (not was-final?)
-                           (not (result/fail? settled))
-                           (all-regions-final? machine (:state (result/snap settled))))]
+                           (not (rf.machines.result/fail? settled))
+                           (all-regions-final? machine (:state (rf.machines.result/snap settled))))]
     ;; Per Spec 005 §Final states §The done-state signal: when this
     ;; macrostep NEWLY makes every region final and the parallel root declares
     ;; `:on-done`, fire it (run its action + emit its fx) WITHOUT auto-
@@ -1645,10 +1645,10 @@
 
 (defn machine-transition
   "Pure function. Given a machine definition, current snapshot, and event,
-  return the engine's `re-frame.machines.result` Result — `result/ok`
+  return the engine's `re-frame.machines.result` Result — `rf.machines.result/ok`
   carrying the new snapshot and effects vector (plus the engine-internal
   `::handled?` / `::microsteps` / `::cascade` riders the lifecycle handler
-  reads), or `result/fail` carrying diagnostic info if any guard / action
+  reads), or `rf.machines.result/fail` carrying diagnostic info if any guard / action
   / `:data`-fn threw or a depth limit tripped. This is the engine seam;
   the PUBLIC `re-frame.machines/machine-transition` wraps it and projects
   the Result onto the plain Spec 005 §Level 1 map.
@@ -1670,13 +1670,13 @@
   Flat / compound machines drop straight into the
   single-machine engine in `re-frame.machines.transition`.
 
-  ## Guard-throw → `result/fail` (XState v5 alignment)
+  ## Guard-throw → `rf.machines.result/fail` (XState v5 alignment)
 
   A user GUARD body that throws during transition selection surfaces the
   error and ABORTS the macrostep (XState v5 does not swallow guard
   exceptions). The throw rides up as a tagged signal
-  (`transition/guard-threw-signal?`) from the candidate-walk; this single
-  pure-engine boundary catches it ONCE and converts it to a `result/fail`,
+  (`rf.machines.transition/guard-threw-signal?`) from the candidate-walk; this single
+  pure-engine boundary catches it ONCE and converts it to a `rf.machines.result/fail`,
   so a guard throw routes through the SAME failed-macrostep / atomic-
   rollback surface a thrown ACTION (and a bounded-depth abort) already
   takes. The original exception rides in the failure `::info` so the
@@ -1695,14 +1695,14 @@
   ;; the desugars, so `region-order` is canonical before the parallel engine
   ;; reads it.
   (let [machine (normalise-region-order
-                  (choice/desugar-choices (timeout/desugar-timeouts machine)))]
+                  (rf.machines.choice/desugar-choices (rf.machines.timeout/desugar-timeouts machine)))]
     (try
       (if (parallel? machine)
         (parallel-machine-transition machine snapshot event)
-        (transition/machine-transition-single machine snapshot event))
+        (rf.machines.transition/machine-transition-single machine snapshot event))
       (catch #?(:clj Throwable :cljs :default) e
-        (if (transition/guard-threw-signal? e)
-          (result/fail (transition/guard-threw->fail-info e))
+        (if (rf.machines.transition/guard-threw-signal? e)
+          (rf.machines.result/fail (rf.machines.transition/guard-threw->fail-info e))
           (throw e))))))
 
 ;; ---- birth-time `:always` + raise settle ----------------------------------
@@ -1734,7 +1734,7 @@
   the caller (`apply-initial-entry-cascade`) does NOT re-prepend the entry fx.
 
   For flat / compound machines, seeds the single-machine
-  `transition/drain-to-fixed-point` directly with `entry-r` (its boot
+  `rf.machines.transition/drain-to-fixed-point` directly with `entry-r` (its boot
   snapshot + entry fx).
 
   For parallel-region machines, `drain-parent-queue` starts directly from the
@@ -1744,22 +1744,22 @@
   declaration order, and the loop repeats before any queued initial-entry
   raise is dequeued.
 
-  Returns a `result/ok` carrying the settled snapshot + fx (with
+  Returns a `rf.machines.result/ok` carrying the settled snapshot + fx (with
   `::microsteps` = the count of `:always` iterations and `::cascade` = the
   `:always`-microstep steps; the caller prepends the entry cascade), or a
-  `result/fail` if an `:always` action or a drained raise threw. The
+  `rf.machines.result/fail` if an `:always` action or a drained raise threw. The
   atomic-rollback target on `:always`/`:raise`-depth abort is the
   post-cascade `boot-snapshot` (the initial configuration is the committed
   state — only a runaway settle is abandoned)."
   [machine entry-r]
-  (result/with-ok [boot-snapshot entry-fx] entry-r
+  (rf.machines.result/with-ok [boot-snapshot entry-fx] entry-r
     (if (parallel? machine)
       (let [;; The entry cascade is prepended by the caller. Seed this settle
             ;; with only its snapshot/fx so it contributes eventless rows once.
-            first-r (-> (result/ok boot-snapshot (vec entry-fx))
-                        (result/with-handled false)
-                        (result/with-microsteps 0)
-                        (result/with-cascade []))]
+            first-r (-> (rf.machines.result/ok boot-snapshot (vec entry-fx))
+                        (rf.machines.result/with-handled false)
+                        (rf.machines.result/with-microsteps 0)
+                        (rf.machines.result/with-cascade []))]
         ;; A parallel machine BORN all-regions-final (each
         ;; region's initial+`:always` settles onto a `:final?` leaf) fires the
         ;; parallel root's `:on-done` on birth too — same transitionable signal
@@ -1773,12 +1773,12 @@
         (fire-parallel-on-done machine
                                (drain-parent-queue machine boot-snapshot nil first-r)
                                true))
-      (transition/drain-to-fixed-point
+      (rf.machines.transition/drain-to-fixed-point
         machine
         ;; Seed with the entry Result's fx so an initial-`:entry` `[:raise ...]`
         ;; drains FIFO inside the birth macrostep instead of escaping to the
         ;; outbound fx layer (bz0ox.1).
-        (result/ok boot-snapshot (vec entry-fx))
+        (rf.machines.result/ok boot-snapshot (vec entry-fx))
         0
         false))))
 
@@ -1797,10 +1797,10 @@
       post-cascade snapshot, BEFORE commit, so a transient initial leaf
       whose `:always` guard already holds settles past, unobserved.
 
-  Returns a `result/ok` carrying the settled snapshot + the (drained) entry
+  Returns a `rf.machines.result/ok` carrying the settled snapshot + the (drained) entry
   fx ++ any settle fx, with `::cascade` = the entry cascade ++ the `:always`
   microsteps (so the `:rf.machine/transition` / `:rf.machine/started`
-  trace surfaces both). A `result/fail` from either phase short-circuits.
+  trace surfaces both). A `rf.machines.result/fail` from either phase short-circuits.
 
   `settle-birth` is seeded with the WHOLE `run-initial-cascade` Result so any
   `[:raise ...]` emitted by an initial `:entry` action drains FIFO inside this
@@ -1815,13 +1815,13 @@
   the post-cascade snapshot + the entry fx verbatim with the tag union
   re-stamped.
 
-  Guard-throw → `result/fail` (XState v5 alignment): a guard
+  Guard-throw → `rf.machines.result/fail` (XState v5 alignment): a guard
   body that throws during the birth-time `:always` selection surfaces the
   error and aborts the birth macrostep through the SAME failed-macrostep
   surface a thrown initial-`:entry` action takes. The tagged guard-throw
-  signal (`transition/guard-threw-signal?`) is caught at this birth
+  signal (`rf.machines.transition/guard-threw-signal?`) is caught at this birth
   boundary — the second pure-engine entry point alongside
-  `machine-transition` — and converted to a `result/fail`."
+  `machine-transition` — and converted to a `rf.machines.result/fail`."
   [machine initial-snapshot]
   ;; Desugar `:timeout` / `:on-timeout` so an initial state's
   ;; timeout arms at birth via the same `:after`-schedule fx the cascade
@@ -1831,25 +1831,25 @@
   ;; unaffected. Mirrors the desugar + region-order normalisation at the
   ;; `machine-transition` entry so the birth cascade reads canonical order.
   (let [machine (normalise-region-order
-                  (choice/desugar-choices (timeout/desugar-timeouts machine)))]
+                  (rf.machines.choice/desugar-choices (rf.machines.timeout/desugar-timeouts machine)))]
     (try
       (apply-initial-entry-cascade* machine initial-snapshot)
       (catch #?(:clj Throwable :cljs :default) e
-        (if (transition/guard-threw-signal? e)
-          (result/fail (transition/guard-threw->fail-info e))
+        (if (rf.machines.transition/guard-threw-signal? e)
+          (rf.machines.result/fail (rf.machines.transition/guard-threw->fail-info e))
           (throw e))))))
 
 (defn- apply-initial-entry-cascade*
   "Inner body of `apply-initial-entry-cascade` — wrapped by it for the
-  guard-throw → `result/fail` conversion at the birth boundary."
+  guard-throw → `rf.machines.result/fail` conversion at the birth boundary."
   [machine initial-snapshot]
   (let [entry-r (run-initial-cascade machine initial-snapshot)]
-    (if (result/fail? entry-r)
+    (if (rf.machines.result/fail? entry-r)
       entry-r
       (let [settle-r (settle-birth machine entry-r)]
-        (if (result/fail? settle-r)
+        (if (rf.machines.result/fail? settle-r)
           settle-r
-          (result/with-ok [settled-snap settle-fx] settle-r
+          (rf.machines.result/with-ok [settled-snap settle-fx] settle-r
             ;; `settle-fx` already = entry (non-raise) fx ++ settle fx, with
             ;; the initial-`:entry` raises drained internally (bz0ox.1).
             ;; Cascade: entry cascade ++ the `:always` microstep cascade.
@@ -1857,12 +1857,12 @@
             ;; `:always`). The settle's `parallel-done-handled?`
             ;; flag (set when a parallel machine born all-final fired its root
             ;; `:on-done`) rides through so the birth finalize gate sees it.
-            (cond-> (-> (result/ok settled-snap (vec settle-fx))
-                        (result/with-cascade
-                          (into (vec (result/cascade entry-r))
-                                (result/cascade settle-r)))
-                        (result/with-microsteps (result/microsteps settle-r)))
-              (result/parallel-done-handled? settle-r) (result/with-parallel-done))))))))
+            (cond-> (-> (rf.machines.result/ok settled-snap (vec settle-fx))
+                        (rf.machines.result/with-cascade
+                          (into (vec (rf.machines.result/cascade entry-r))
+                                (rf.machines.result/cascade settle-r)))
+                        (rf.machines.result/with-microsteps (rf.machines.result/microsteps settle-r)))
+              (rf.machines.result/parallel-done-handled? settle-r) (rf.machines.result/with-parallel-done))))))))
 
 ;; ---- destroy-time exit cascade --------------------------------------------
 ;;
@@ -1880,12 +1880,12 @@
   "Synthesise the destroy-time exit cascade for `machine` against its
   active `snapshot`. For parallel-region machines, runs the exit cascade
   for every region in declaration order via `reduce-regions` (the
-  per-region step delegates to `transition/run-active-exit-cascade`).
+  per-region step delegates to `rf.machines.transition/run-active-exit-cascade`).
   For flat / compound machines, drops straight into the single-machine
   helper.
 
   Returns a `re-frame.machines.result/Result` carrying the post-cascade
-  snapshot + accumulated fx, or a `result/fail` if any region's `:exit`
+  snapshot + accumulated fx, or a `rf.machines.result/fail` if any region's `:exit`
   action threw."
   [machine snapshot]
   (if (parallel? machine)
@@ -1893,5 +1893,5 @@
     ;; destroy exit cascade is a public engine entry NOT behind the transition
     ;; desugar seam, so canonicalise here too before `reduce-regions` reads it.
     (reduce-regions (normalise-region-order machine) snapshot
-                    transition/run-active-exit-cascade)
-    (transition/run-active-exit-cascade machine snapshot)))
+                    rf.machines.transition/run-active-exit-cascade)
+    (rf.machines.transition/run-active-exit-cascade machine snapshot)))

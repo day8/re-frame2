@@ -161,8 +161,8 @@
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing]]
       :cljs [cljs.test :refer-macros [deftest is testing]])
-   [re-frame.machines :as machines]
-   [re-frame.machines.transition :as transition]))
+   [re-frame.machines :as rf.machines]
+   [re-frame.machines.transition :as rf.machines.transition]))
 
 ;; ---------------------------------------------------------------------------
 ;; Harness — the pure engine surface (mirrors the sibling corpus file).
@@ -173,7 +173,7 @@
   `machine-transition` engine. Returns the post-macrostep snapshot, the
   emitted fx vector, and the snapshot's `:state` / `:data`."
   [machine snapshot event]
-  (let [r (machines/machine-transition machine snapshot event)]
+  (let [r (rf.machines/machine-transition machine snapshot event)]
     {:snapshot (:snapshot r)
      :fx       (vec (:fx r))
      :state    (:state (:snapshot r))
@@ -434,7 +434,7 @@
     (let [m {:initial :a :data {}
              :states {:a {:on {:go :b}}
                       :b {:entry (fn [_] (throw (ex-info "onentry boom" {})))}}}
-          r (machines/machine-transition m {:state :a :data {}} [:go])]
+          r (rf.machines/machine-transition m {:state :a :data {}} [:go])]
       (is (= :error (:status r))
           "a throwing :entry action produces a failure Result (no partial commit) — re-frame2's single-block divergence from SCXML 376/378 independent-block isolation"))))
 
@@ -467,13 +467,13 @@
                       :done {:final? true}}}
           r (step m {:state :run :data {}} [:finish])]
       (is (= :done (:state r)) "transitioned into the top-level final leaf")
-      (is (true? (transition/top-level-final? m (:state r)))
+      (is (true? (rf.machines.transition/top-level-final? m (:state r)))
           "a top-level :final? leaf IS whole-machine finality (415 — root final halts)")
-      (is (true? (transition/final-on-leaf? m (:state r)))
+      (is (true? (rf.machines.transition/final-on-leaf? m (:state r)))
           "the active leaf is also final (final-on-leaf? agrees on a top-level final)")
-      (is (false? (transition/top-level-final? m :run))
+      (is (false? (rf.machines.transition/top-level-final? m :run))
           "a non-final leaf is not machine-final")
-      (is (false? (transition/final-on-leaf? m :run))
+      (is (false? (rf.machines.transition/final-on-leaf? m :run))
           "a non-final leaf is not a final leaf"))))
 
 (deftest scxml-irp-test415-embedded-final-is-not-machine-final
@@ -494,9 +494,9 @@
           r (step m {:state [:work :step1] :data {}} [:finish])]
       (is (= [:work :step-done] (:state r))
           "transitioned into the embedded final leaf (still inside :work)")
-      (is (true? (transition/final-on-leaf? m (:state r)))
+      (is (true? (rf.machines.transition/final-on-leaf? m (:state r)))
           "final-on-leaf? is TRUE — the active leaf :step-done is :final?")
-      (is (false? (transition/top-level-final? m (:state r)))
+      (is (false? (rf.machines.transition/top-level-final? m (:state r)))
           "top-level-final? is FALSE — an embedded final is compound-done, NOT
            whole-machine finality (the predicates DIVERGE here — this is the
            root-vs-embedded distinction test415 claims to prove)"))))

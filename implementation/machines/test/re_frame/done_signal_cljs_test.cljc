@@ -25,24 +25,24 @@
    ;; late-bind registry so `rf/reg-machine` resolves (mirrors
    ;; `final_state_cljs_test`).
    [re-frame.machines]
-   [re-frame.machines.test-support :as mtest]
-   [re-frame.trace.tooling :as trace-tooling]
-   [re-frame.registrar :as registrar]
-   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
-       :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
+   [re-frame.machines.test-support :as rf.machines.test-support]
+   [re-frame.trace.tooling :as rf.trace.tooling]
+   [re-frame.registrar :as rf.registrar]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture
-    #?(:clj  {:adapter plain-atom/adapter}
-       :cljs {:adapter reagent-adapter/adapter})))
+  (rf.machines.test-support/make-reset-runtime-fixture
+    #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
+       :cljs {:adapter rf.adapter.reagent/adapter})))
 
 ;; snapshot lookup via the shared machines test-support — no hardcoded
 ;; `[:rf.runtime/machines :snapshots …]` path.
-(def ^:private snapshot mtest/snapshot)
+(def ^:private snapshot rf.machines.test-support/snapshot)
 
 (defn- record-traces! [k]
   (let [a (atom [])]
-    (trace-tooling/register-listener! k (fn [ev] (swap! a conj ev)))
+    (rf.trace.tooling/register-listener! k (fn [ev] (swap! a conj ev)))
     a))
 
 (defn- traces-for [traces operation]
@@ -70,7 +70,7 @@
         "the compound :flow reached its final child; :on-done advanced to :next")
     (is (some? (snapshot :rf2-zlmz7/flow))
         "the machine snapshot is INTACT — embedded final did NOT auto-destroy")
-    (is (some? (registrar/lookup :event :rf2-zlmz7/flow))
+    (is (some? (rf.registrar/lookup :event :rf2-zlmz7/flow))
         "the handler is still registered — the machine keeps running")))
 
 (deftest compound-done-no-on-done-rests-without-destroy
@@ -88,7 +88,7 @@
       (rf/dispatch-sync [:rf2-zlmz7/rest [:finish]])
       (is (= [:flow :inner-done] (:state (snapshot :rf2-zlmz7/rest)))
           "machine RESTS at the embedded final leaf — no teardown")
-      (is (some? (registrar/lookup :event :rf2-zlmz7/rest))
+      (is (some? (rf.registrar/lookup :event :rf2-zlmz7/rest))
           "handler still live — the embedded final did not auto-destroy")
       (is (empty? (traces-for traces :rf.machine/done))
           "no whole-machine :rf.machine/done fired (this is an in-machine
@@ -127,7 +127,7 @@
       (rf/dispatch-sync [:rf2-bnjb3/top [:end]])
       (is (nil? (snapshot :rf2-bnjb3/top))
           "top-level final auto-destroyed (snapshot cleared)")
-      (is (nil? (registrar/lookup :event :rf2-bnjb3/top))
+      (is (nil? (rf.registrar/lookup :event :rf2-bnjb3/top))
           "handler unregistered on top-level final")
       (is (= 1 (count (traces-for traces :rf.machine/done)))
           "the whole-machine :rf.machine/done fired (actor finality)"))))
@@ -153,7 +153,7 @@
         "both regions reached :final?")
     (is (= 1 (get-in (snapshot :rf2-bnjb3/par) [:data :completions]))
         "the parallel root :on-done action fired once on all-regions-final")
-    (is (some? (registrar/lookup :event :rf2-bnjb3/par))
+    (is (some? (rf.registrar/lookup :event :rf2-bnjb3/par))
         "the machine SURVIVES (no auto-destroy) — :on-done is the
          transitionable signal, distinct from actor teardown")))
 
@@ -214,7 +214,7 @@
           ":completions did NOT drift — :on-done did not re-fire on resting macrosteps")
       (is (= 1 @continued)
           "the coordinator was NOT re-dispatched on later resting events")
-      (is (some? (registrar/lookup :event :rf2-h3wca/once))
+      (is (some? (rf.registrar/lookup :event :rf2-h3wca/once))
           "machine still alive (no-op events don't tear it down)"))))
 
 (deftest parallel-no-on-done-still-auto-destroys
@@ -227,7 +227,7 @@
     (rf/dispatch-sync [:rf2-bnjb3/par-destroy [:fin]])
     (is (nil? (snapshot :rf2-bnjb3/par-destroy))
         "no :on-done ⇒ all-regions-final auto-destroys (snapshot cleared)")
-    (is (nil? (registrar/lookup :event :rf2-bnjb3/par-destroy))
+    (is (nil? (rf.registrar/lookup :event :rf2-bnjb3/par-destroy))
         "handler unregistered")))
 
 (deftest parallel-one-region-pending-no-on-done-no-destroy
@@ -245,7 +245,7 @@
         "only :a reached final")
     (is (= 0 (get-in (snapshot :rf2-bnjb3/par-partial) [:data :completions]))
         ":on-done did NOT fire (not all-regions-final)")
-    (is (some? (registrar/lookup :event :rf2-bnjb3/par-partial))
+    (is (some? (rf.registrar/lookup :event :rf2-bnjb3/par-partial))
         "machine alive — :b still pending")))
 
 ;; ===========================================================================
@@ -337,7 +337,7 @@
     (is (= {:work :work-done :status :idle}
            (:state (snapshot :rf2-bnjb3/par-compound)))
         ":work's compound advanced via its :on-done; :status untouched")
-    (is (some? (registrar/lookup :event :rf2-bnjb3/par-compound))
+    (is (some? (rf.registrar/lookup :event :rf2-bnjb3/par-compound))
         "the parallel machine survives — only one region's compound is done")))
 
 ;; ===========================================================================

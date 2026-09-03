@@ -43,27 +43,27 @@
       unregistered-type case)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.error-emit :as error-emit]
-            [re-frame.late-bind :as late-bind]
+            [re-frame.error-emit :as rf.error-emit]
+            [re-frame.late-bind :as rf.late-bind]
             ;; Loading the machines facade registers its late-bind hooks +
             ;; the `:rf.machine/spawn` / `:rf.machine/destroy` reserved fxs
             ;; (so `rf/reg-machine` is available when this ns runs alone).
             [re-frame.machines]
-            [re-frame.machines.spawn-order :as spawn-order]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.machines.spawn-order :as rf.machines.spawn-order]
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 ;; Fresh registrar + plain-atom adapter per test; the always-on
 ;; error-listener registry (a `defonce` atom) cleared so a listener from
 ;; one test cannot leak into the next (mirrors
 ;; write_after_destroy_always_on_cljs_test).
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
-     :init-fn (fn [] (error-emit/clear-error-listeners!))})
-  mtest/trace-capture-fixture)
+  (rf.machines.test-support/make-reset-runtime-fixture
+    {:adapter rf.substrate.plain-atom/adapter
+     :init-fn (fn [] (rf.error-emit/clear-error-listeners!))})
+  rf.machines.test-support/trace-capture-fixture)
 
-(def ^:private frame-db mtest/runtime-db)
+(def ^:private frame-db rf.machines.test-support/runtime-db)
 
 (defn- with-error-records
   "Run `thunk` while a corpus-wide always-on error listener records every
@@ -109,16 +109,16 @@
         (is (nil? (get-in db [:rf.runtime/machines :system-ids :ghost-actor]))
             "no :system-id binding for the rejected spawn")
         ;; No spawn-order entry for the rejected actor.
-        (is (not (some #{:ghost/worker#1} (spawn-order/frame-order :rf/default)))
+        (is (not (some #{:ghost/worker#1} (rf.machines.spawn-order/frame-order :rf/default)))
             "no spawn-order entry recorded for the rejected actor")
         ;; The parent itself transitioned to :working (the parent macrostep
         ;; is independent — only the child spawn is rejected).
-        (is (= :working (mtest/machine-state :sup/ghost))
+        (is (= :working (rf.machines.test-support/machine-state :sup/ghost))
             "the parent still transitions; only the unregistered child is rejected"))
       ;; No fx-substrate spawn trace fired for the rejected actor.
-      (is (empty? (mtest/events-of :rf.machine.spawn/spawned))
+      (is (empty? (rf.machines.test-support/events-of :rf.machine.spawn/spawned))
           "NO :rf.machine.spawn/spawned trace for the rejected spawn")
-      (is (empty? (mtest/events-of :rf.machine.lifecycle/spawned))
+      (is (empty? (rf.machines.test-support/events-of :rf.machine.lifecycle/spawned))
           "NO :rf.machine.lifecycle/spawned (registrar-substrate) trace either"))))
 
 ;; ===========================================================================
@@ -178,7 +178,7 @@
                        (vals r)))
             "no record value contains the secret :start / :data payload")
         ;; The dev trace likewise carries no spawn args / secret.
-        (let [trace-ev (first (mtest/events-of :rf.error/machine-spawn-unregistered-type))]
+        (let [trace-ev (first (rf.machines.test-support/events-of :rf.error/machine-spawn-unregistered-type))]
           (is (some? trace-ev) "(precondition) the dev trace fired")
           (is (nil? (get-in trace-ev [:tags :args]))
               "dev trace carries no :args slot")
@@ -239,12 +239,12 @@
         ;; orphan actor installed (rf2-qb1j5z).
         (is (nil? (get-in (frame-db) [:rf.runtime/machines :snapshots :gc/ok#1]))
             "the registered sibling was suppressed — no orphan snapshot")
-        (is (not (some #{:gc/ok#1} (spawn-order/frame-order :rf/default)))
+        (is (not (some #{:gc/ok#1} (rf.machines.spawn-order/frame-order :rf/default)))
             "the registered sibling was suppressed — nothing recorded in spawn-order")
         ;; The parent is still in :forking — it did NOT advance to :ready
         ;; (the join never resolves) but it also did NOT hang the dispatch
         ;; (dispatch-sync returned).
-        (is (= :forking (mtest/machine-state :sup/join))
+        (is (= :forking (rf.machines.test-support/machine-state :sup/join))
             "parent stays in :forking — no deadlock, just a refused join")))))
 
 ;; ---------------------------------------------------------------------------
@@ -256,7 +256,7 @@
   fanned (the always-on axis is captured separately by `with-error-records`)."
   []
   (mapv #(get-in % [:tags :machine-id])
-        (mtest/events-of :rf.error/machine-spawn-unregistered-type)))
+        (rf.machines.test-support/events-of :rf.error/machine-spawn-unregistered-type)))
 
 (defn- spawn-all-parent
   "A `:spawn-all :all` parent over `children`, for cardinality fixtures."
@@ -301,9 +301,9 @@
         ;; The registered sibling was suppressed, not merely un-rejected.
         (is (nil? (get-in (frame-db) [:rf.runtime/machines :snapshots :card/ok#1]))
             "the registered sibling installs no snapshot under the rejected invoke")
-        (is (not (some #{:card/ok#1} (spawn-order/frame-order :rf/default)))
+        (is (not (some #{:card/ok#1} (rf.machines.spawn-order/frame-order :rf/default)))
             "the registered sibling records no spawn-order entry")
-        (is (empty? (mtest/events-of :rf.machine.spawn/spawned))
+        (is (empty? (rf.machines.test-support/events-of :rf.machine.spawn/spawned))
             "no :rf.machine.spawn/spawned trace for ANY child of a rejected invoke")))))
 
 (deftest spawn-all-reject-cardinality-is-order-invariant
@@ -347,7 +347,7 @@
       ;; Leave :forking — `destroy-spawn-all-children!` finds nothing to tear
       ;; down and clears the slot.
       (rf/dispatch-sync [:sup/card3 [:back]])
-      (is (= :idle (mtest/machine-state :sup/card3))
+      (is (= :idle (rf.machines.test-support/machine-state :sup/card3))
           "(precondition) the parent left the :spawn-all state")
       (is (nil? (get-in (frame-db) [:rf.runtime/machines :spawned :sup/card3 [:forking]]))
           "parent exit CLEARS the reject sentinel")
@@ -386,7 +386,7 @@
       ;; the interceptor sees the childless sentinel, treats it as no live
       ;; child-bearing join, and it is a documented no-op — it does NOT throw and does NOT hang.
       (rf/dispatch-sync [:sup/join2 [:gc/done :ok]])
-      (is (= :forking (mtest/machine-state :sup/join2))
+      (is (= :forking (rf.machines.test-support/machine-state :sup/join2))
           "a child-done against a childless reject sentinel (no live join) is a no-op — never resolves, never hangs"))))
 
 ;; ===========================================================================
@@ -444,5 +444,5 @@
             reject reaches the listener via the
             :error-emit/dispatch-error-record late-bind hook — published at
             error-emit ns-load, so the lookup never misses in production"
-    (is (some? (late-bind/get-fn :error-emit/dispatch-error-record))
+    (is (some? (rf.late-bind/get-fn :error-emit/dispatch-error-record))
         "the non-event union-record hook is registered at error-emit ns-load")))

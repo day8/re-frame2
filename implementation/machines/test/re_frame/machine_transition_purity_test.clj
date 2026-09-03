@@ -10,7 +10,7 @@
   \"Pure\" is scoped to the REDUCTION: the Result depends only on the
   arguments, with no module-level mutable state and no `app-db` read. It
   is NOT a claim that the engine emits zero observability — the reducer
-  emits `trace/emit!` diagnostic events on the process-wide Spec 009
+  emits `rf.trace/emit!` diagnostic events on the process-wide Spec 009
   trace stream, inline, exactly as the rest of the framework does (and
   this very namespace's `capture-error-depth!` helper OBSERVES those
   emits through a global listener to read the depth-limit boundary). Per
@@ -40,9 +40,9 @@
       counter 0 still allocates `:worker#1`, not `:worker#3`.
   "
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.machines :as machines]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.trace :as trace]))
+            [re-frame.machines :as rf.machines]
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.trace :as rf.trace]))
 
 (def auth-flow-spec
   "A tiny declarative-`:spawn` machine. On `[:submit]` from `:idle` it
@@ -62,8 +62,8 @@
   (testing "identical args produce identical Result values"
     (let [snap     {:state :idle :data {}}
           event    [:submit]
-          {snap1 :snapshot fx1 :fx} (machines/machine-transition auth-flow-spec snap event)
-          {snap2 :snapshot fx2 :fx} (machines/machine-transition auth-flow-spec snap event)]
+          {snap1 :snapshot fx1 :fx} (rf.machines/machine-transition auth-flow-spec snap event)
+          {snap2 :snapshot fx2 :fx} (rf.machines/machine-transition auth-flow-spec snap event)]
       (is (= snap1 snap2)
           "two pure-call invocations from the same input produce the same next-snapshot")
       (is (= fx1 fx2)
@@ -114,8 +114,8 @@
     ;; snapshot, so the two calls never share state.
     (let [snap-a {:state :idle :data {:tag :a}}
           snap-b {:state :idle :data {:tag :b}}
-          {fx-a :fx} (machines/machine-transition auth-flow-spec snap-a [:submit])
-          {fx-b :fx} (machines/machine-transition auth-flow-spec snap-b [:submit])]
+          {fx-a :fx} (rf.machines/machine-transition auth-flow-spec snap-a [:submit])
+          {fx-b :fx} (rf.machines/machine-transition auth-flow-spec snap-b [:submit])]
       (is (= :http/post#1 (-> fx-a first second :rf/spawned-id))
           "first snapshot's spawn is :http/post#1")
       (is (= :http/post#1 (-> fx-b first second :rf/spawned-id))
@@ -129,7 +129,7 @@
     (let [snap     {:state            :idle
                     :data             {}
                     :rf/spawn-counter {:http/post 3}}
-          {snap' :snapshot fx :fx} (machines/machine-transition auth-flow-spec snap [:submit])]
+          {snap' :snapshot fx :fx} (rf.machines/machine-transition auth-flow-spec snap [:submit])]
       (is (= :http/post#4 (-> fx first second :rf/spawned-id))
           "spawn allocates :http/post#4 — bump of the pre-existing 3")
       (is (= {:http/post 4} (:rf/spawn-counter snap'))
@@ -137,7 +137,7 @@
 
 ;; ---- trace is an observability side channel, not part of the reduction ----
 ;;
-;; The honest-purity contract: the reducer emits `trace/emit!` diagnostic
+;; The honest-purity contract: the reducer emits `rf.trace/emit!` diagnostic
 ;; events inline, but those emits are pure OBSERVABILITY — they never feed
 ;; back into the returned Result. This test pins both halves: (a) the
 ;; RETURNED transition value is identical whether or not a listener is
@@ -155,19 +155,19 @@
                        :done {}}}
           input {:state :idle :data {:n 0}}
           ;; No listener registered: the trace emits are no-op-delivered.
-          r-no-listener (machines/machine-transition m input [:go])
+          r-no-listener (rf.machines/machine-transition m input [:go])
           ;; A listener registered: same call, listener observes the
           ;; emitted diagnostics; assert the RETURNED Result is unchanged.
-          ;; Intentional RAW register/unregister (not mtest/with-trace-capture):
+          ;; Intentional RAW register/unregister (not rf.machines.test-support/with-trace-capture):
           ;; this test's whole point is to compare the reduction WITH a raw
           ;; listener present vs WITHOUT one, binding `r-with-listener` from the
           ;; guarded call and reading `@seen` in the surrounding `let` — the
           ;; scope-macro form cannot express the with/without comparison.
           seen          (atom [])
           r-with-listener
-          (do (trace/register-listener! ::purity-probe (fn [ev] (swap! seen conj ev)))
-              (try (machines/machine-transition m input [:go])
-                   (finally (trace/unregister-listener! ::purity-probe))))]
+          (do (rf.trace/register-listener! ::purity-probe (fn [ev] (swap! seen conj ev)))
+              (try (rf.machines/machine-transition m input [:go])
+                   (finally (rf.trace/unregister-listener! ::purity-probe))))]
       (is (= r-no-listener r-with-listener)
           "the reduction (snapshot + fx) does not depend on listener presence")
       (is (= :done (-> r-with-listener :snapshot :state))
@@ -191,7 +191,7 @@
                                        :join     :all}
                                       :on        {:done :ready}}
                           :ready     {}}}
-          {snap' :snapshot} (machines/machine-transition spec {:state :idle :data {}} [:start])]
+          {snap' :snapshot} (rf.machines/machine-transition spec {:state :idle :data {}} [:start])]
       (is (= {:worker 3} (:rf/spawn-counter snap'))
           "three :worker children bumped the slot to 3"))))
 
@@ -200,7 +200,7 @@
 ;; These pin baseline machine-transition behaviours — flat transitions,
 ;; :always microsteps, and pre-commit :raise routing. Co-located with the
 ;; allocator-purity contract above because they all exercise the pure
-;; `machines/machine-transition` surface from argument to Result.
+;; `rf.machines/machine-transition` surface from argument to Result.
 
 (deftest pure-machine-transition
   (testing "machine-transition is pure"
@@ -211,9 +211,9 @@
              {:red    {:on {:tick {:target :green}}}
               :green  {:on {:tick {:target :yellow}}}
               :yellow {:on {:tick {:target :red}}}}}]
-      (let [{s1 :snapshot} (machines/machine-transition m {:state :red :data {}} [:tick])]
+      (let [{s1 :snapshot} (rf.machines/machine-transition m {:state :red :data {}} [:tick])]
         (is (= :green (:state s1))))
-      (let [{s2 :snapshot} (machines/machine-transition m {:state :green :data {}} [:tick])]
+      (let [{s2 :snapshot} (rf.machines/machine-transition m {:state :green :data {}} [:tick])]
         (is (= :yellow (:state s2)))))))
 
 (deftest machine-always-microstep
@@ -228,7 +228,7 @@
               :idle     {}}}
           ;; Even with a no-op event (no match in :on), :always is checked
           ;; and the guard passes — transition to :authed.
-          {s :snapshot} (machines/machine-transition m {:state :checking :data {:authed? true}} [:noop])]
+          {s :snapshot} (rf.machines/machine-transition m {:state :checking :data {:authed? true}} [:noop])]
       (is (= :authed (:state s))))))
 
 ;; ---- depth-limit boundary parity ------------------------------------------
@@ -249,10 +249,10 @@
   "Drive a pure `machine-transition` while a tooling listener records traces,
   returning the `:depth` tag of the first error trace whose `:operation`
   matches `error-op` (or nil if none fired). Routed through the shared
-  `mtest/with-trace-capture` — guaranteed unregister in a `finally`."
+  `rf.machines.test-support/with-trace-capture` — guaranteed unregister in a `finally`."
   [error-op definition snapshot event]
-  (mtest/with-trace-capture seen
-    (machines/machine-transition definition snapshot event)
+  (rf.machines.test-support/with-trace-capture seen
+    (rf.machines/machine-transition definition snapshot event)
     (->> @seen
          (filter #(= error-op (:operation %)))
          first
@@ -357,7 +357,7 @@
                           :s1 {:on {:e2 {:target :s2 :action :r2}}}
                           :s2 {:on {:e3 {:target :s3 :action :r3}}}
                           :s3 {}}}
-          {s :snapshot} (machines/machine-transition
+          {s :snapshot} (rf.machines/machine-transition
                               spec {:state :s0 :data {}} [:e1])]
       (is (= :s3 (:state s))
           "a 3-deep self-chain under the default limit reaches the terminal
@@ -378,7 +378,7 @@
              {:idle {:on {:start {:target :busy :action :start}
                           :bump  {:action :bump}}}
               :busy {:on {:bump {:action :bump}}}}}
-          {s :snapshot fx :fx} (machines/machine-transition m {:state :idle :data {:n 0}} [:start])]
+          {s :snapshot fx :fx} (rf.machines/machine-transition m {:state :idle :data {:n 0}} [:start])]
       ;; Two raised :bump events should have been processed pre-commit;
       ;; final data :n should be 2.
       (is (= 2 (:n (:data s))))

@@ -57,8 +57,8 @@
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.substrate.plain-atom :as plain-atom])
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom])
   (:import [java.io PushbackReader]))
 
 ;; ---------------------------------------------------------------------------
@@ -715,7 +715,7 @@
 ;; ---------------------------------------------------------------------------
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (deftest executable-explicit-destroy-emits-fx-explicit
   (testing "an explicit teardown (declarative :spawn exit cascade) emits EXACTLY
@@ -726,7 +726,7 @@
                      :states  {:idle    {:on {:start :working}}
                                :working {:spawn {:machine-id :dre/child}
                                          :on    {:stop :idle}}}})
-    (mtest/with-trace-capture captured
+    (rf.machines.test-support/with-trace-capture captured
       (rf/dispatch-sync [:dre/parent [:start]])
       (rf/dispatch-sync [:dre/parent [:stop]])          ; exit :working → destroy-single!
       (let [fx (filter #(= fx-channel (:operation %)) @captured)]
@@ -744,9 +744,9 @@
                      :states  {:running {:on {:end :done}} :done {:final? true}}})
     (rf/reg-machine :drf/parent
                     {:initial :working :states {:working {:spawn {:machine-id :drf/child}}}})
-    (mtest/with-trace-capture captured
+    (rf.machines.test-support/with-trace-capture captured
       (rf/dispatch-sync [:drf/parent [:rf.machine.spawn/spawned]])
-      (let [spawned (get-in (mtest/runtime-db)
+      (let [spawned (get-in (rf.machines.test-support/runtime-db)
                             [:rf.runtime/machines :spawned :drf/parent [:working]])]
         (rf/dispatch-sync [spawned [:end]]))          ; child → :final? → finalize
       (let [fin (filter #(= :rf.machine/finished (-> % :tags :reason)) @captured)]
@@ -782,9 +782,9 @@
                                            :on-child-done    :asset/loaded
                                            :on-child-error   :asset/failed
                                            :on-some-complete [:race/won]}}}})
-      (mtest/with-trace-capture captured
+      (rf.machines.test-support/with-trace-capture captured
         (rf/dispatch-sync [:drj/sup [:start]])
-        (let [a-id (get-in (mtest/runtime-db)
+        (let [a-id (get-in (rf.machines.test-support/runtime-db)
                            [:rf.runtime/machines :spawned :drj/sup [:racing] :children :a])]
           (rf/dispatch-sync [a-id [:go]])              ; :a completes → :any resolves → :a reaped
           (let [reaped (filter #(and (= fx-channel (:operation %))
@@ -808,7 +808,7 @@
                                                                     {:machine-id :drl/child
                                                                      :id-prefix  :drl/child}]]})}}}}})
     (rf/dispatch-sync [:drl/boot [:start]] {:frame :drl/auth})
-    (mtest/with-trace-capture captured
+    (rf.machines.test-support/with-trace-capture captured
       (rf/destroy-frame! :drl/auth)
       (let [lc (filter #(= lifecycle-channel (:operation %)) @captured)]
         (is (seq lc) "a lifecycle-channel destroyed fired on frame destroy")

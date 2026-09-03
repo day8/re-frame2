@@ -23,22 +23,22 @@
   real stamp site in `re-frame.machines.timer`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.interop :as interop]
+            [re-frame.interop :as rf.interop]
             ;; Load the machines artefact so the late-bind hooks for
             ;; `rf/reg-machine`, the `:rf.machine/spawn` / `:rf.machine/destroy`
             ;; reserved fxs, and the `:after`-timer surface register at ns load.
             [re-frame.machines]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             ;; Source-axis tests register listeners through `trace.tooling`
-            ;; directly (not mtest/with-trace-capture): each listener FILTERS
+            ;; directly (not rf.machines.test-support/with-trace-capture): each listener FILTERS
             ;; on a specific :operation at capture time and the test reads
             ;; `@seen` in the surrounding `let` — kept as inline try/finally
             ;; blocks (which already guarantee unregister).
-            [re-frame.trace.tooling :as trace-tooling]))
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- :after-timer --------------------------------------------------------
 
@@ -49,11 +49,11 @@
     ;; substrate's real dispatch path (the stamp site lives in
     ;; re-frame.machines.timer; the executor only governs timing).
     (let [seen (atom [])]
-      (trace-tooling/register-listener! ::after-src
+      (rf.trace.tooling/register-listener! ::after-src
         (fn [ev] (when (= :rf.event/dispatched (:operation ev))
                    (swap! seen conj ev))))
       (try
-        (with-redefs [interop/schedule-after! (fn [f _ms] (f) :stub-handle)]
+        (with-redefs [rf.interop/schedule-after! (fn [f _ms] (f) :stub-handle)]
           (let [machine
                 {:initial :idle
                  :data    {}
@@ -89,7 +89,7 @@
           ;; `:rf/dispatch-origin` tag rides alongside.
           (is (nil? (get-in timer-ev [:tags :rf/dispatch-origin]))
               ":rf/dispatch-origin retired per rf2-1ve9h — `:source` carries the axis"))
-        (finally (trace-tooling/unregister-listener! ::after-src))))))
+        (finally (rf.trace.tooling/unregister-listener! ::after-src))))))
 
 ;; ---- :machine-spawn ------------------------------------------------------
 
@@ -119,7 +119,7 @@
           seen (atom [])]
       (rf/reg-machine :parent-source/proto parent-machine)
       (rf/reg-machine :child-source/worker  child-machine)
-      (trace-tooling/register-listener! ::spawn-src
+      (rf.trace.tooling/register-listener! ::spawn-src
         (fn [ev] (when (= :rf.event/dispatched (:operation ev))
                    (swap! seen conj ev))))
       (try
@@ -136,7 +136,7 @@
               "the substrate dispatched the spawned actor's :start event")
           (is (= :machine-spawn (:source spawn-ev))
               ":source :machine-spawn stamped on the spawn dispatch (rf2-ejtpd)"))
-        (finally (trace-tooling/unregister-listener! ::spawn-src))))))
+        (finally (rf.trace.tooling/unregister-listener! ::spawn-src))))))
 
 (deftest machine-spawn-synthetic-spawned-stamps-source-machine-spawn
   (testing "machine spawn fx stamps :source :machine-spawn on the synthetic [:rf.machine.spawn/spawned] event"
@@ -159,7 +159,7 @@
           seen (atom [])]
       (rf/reg-machine :parent-source2/proto parent-machine)
       (rf/reg-machine :child-source2/proto  child-machine)
-      (trace-tooling/register-listener! ::spawn-src2
+      (rf.trace.tooling/register-listener! ::spawn-src2
         (fn [ev] (when (= :rf.event/dispatched (:operation ev))
                    (swap! seen conj ev))))
       (try
@@ -174,7 +174,7 @@
               "the substrate dispatched the synthetic [:rf.machine.spawn/spawned] event")
           (is (= :machine-spawn (:source synthetic-ev))
               ":source :machine-spawn stamped on the synthetic spawn dispatch (rf2-ejtpd)"))
-        (finally (trace-tooling/unregister-listener! ::spawn-src2))))))
+        (finally (rf.trace.tooling/unregister-listener! ::spawn-src2))))))
 
 ;; ---- :machine-action (actor messages) -----------------------------------
 
@@ -199,7 +199,7 @@
       (rf/reg-event :downstream/note
         (fn [{:keys [db]} _] {:db (assoc db :noted? true)}))
       (rf/reg-machine :machine-action/parent parent-machine)
-      (trace-tooling/register-listener! ::machine-action
+      (rf.trace.tooling/register-listener! ::machine-action
         (fn [ev] (when (= :rf.event/dispatched (:operation ev))
                    (swap! seen conj ev))))
       (try
@@ -213,7 +213,7 @@
               "the machine-emitted :dispatch reached the downstream handler")
           (is (= :machine-action (:source downstream-ev))
               ":source :machine-action stamped on the machine-emitted child envelope (rf2-c3990)"))
-        (finally (trace-tooling/unregister-listener! ::machine-action))))))
+        (finally (rf.trace.tooling/unregister-listener! ::machine-action))))))
 
 (deftest non-machine-dispatch-still-stamps-source-fx-dispatch
   (testing ":dispatch fx from a NON-machine event handler retains :source :fx-dispatch (rf2-c3990)"
@@ -227,7 +227,7 @@
           {:fx [[:dispatch [:downstream/from-ordinary]]]}))
       (rf/reg-event :downstream/from-ordinary
         (fn [{:keys [db]} _] {:db (assoc db :noted? true)}))
-      (trace-tooling/register-listener! ::ordinary
+      (rf.trace.tooling/register-listener! ::ordinary
         (fn [ev] (when (= :rf.event/dispatched (:operation ev))
                    (swap! seen conj ev))))
       (try
@@ -241,7 +241,7 @@
               "the ordinary :dispatch reached the downstream handler")
           (is (= :fx-dispatch (:source downstream-ev))
               ":source :fx-dispatch stamped on the ordinary-handler child envelope (regression guard)"))
-        (finally (trace-tooling/unregister-listener! ::ordinary))))))
+        (finally (rf.trace.tooling/unregister-listener! ::ordinary))))))
 
 ;; ---- :always (microstep trace) ------------------------------------------
 
@@ -263,7 +263,7 @@
             :c {}}}
           microsteps (atom [])]
       (rf/reg-machine :always-source/flow machine)
-      (trace-tooling/register-listener! ::always-src
+      (rf.trace.tooling/register-listener! ::always-src
         (fn [ev]
           (when (= :rf.machine.microstep/transition (:operation ev))
             (swap! microsteps conj ev))))
@@ -278,4 +278,4 @@
               ":source :always stamped on the microstep trace (rf2-ejtpd)")
           (is (= :b (get-in step [:tags :from])))
           (is (= :c (get-in step [:tags :to]))))
-        (finally (trace-tooling/unregister-listener! ::always-src))))))
+        (finally (rf.trace.tooling/unregister-listener! ::always-src))))))

@@ -27,24 +27,24 @@
    ;; load the machines artefact so its fx handlers + late-bind hooks are
    ;; installed when this ns runs in isolation.
    [re-frame.machines]
-   [re-frame.machines.test-support :as mtest]
-   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
-       :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
+   [re-frame.machines.test-support :as rf.machines.test-support]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture
-    #?(:clj  {:adapter plain-atom/adapter}
-       :cljs {:adapter reagent-adapter/adapter}))
-  mtest/trace-capture-fixture)
+  (rf.machines.test-support/make-reset-runtime-fixture
+    #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
+       :cljs {:adapter rf.adapter.reagent/adapter}))
+  rf.machines.test-support/trace-capture-fixture)
 
 (defn- destroyed-traces []
-  (mtest/events-of :rf.machine/destroyed))
+  (rf.machines.test-support/events-of :rf.machine/destroyed))
 
 (defn- bad-arg-traces []
-  (mtest/events-of :rf.error/machine-destroy-bad-arg))
+  (rf.machines.test-support/events-of :rf.error/machine-destroy-bad-arg))
 
 (defn- join-state [parent-id invoke-id]
-  (get-in (mtest/runtime-db)
+  (get-in (rf.machines.test-support/runtime-db)
           [:rf.runtime/machines :spawned parent-id invoke-id]))
 
 ;; A child that stays LIVE (its states are not :final?) and never
@@ -90,7 +90,7 @@
     (is (= pre-join post-join)
         "the join slot is byte-identical — no slot mutation")
     (doseq [[cid spawned-id] children]
-      (is (some? (mtest/snapshot spawned-id))
+      (is (some? (rf.machines.test-support/snapshot spawned-id))
           (str "child " cid " (" spawned-id ") is still live")))
     (is (empty? (destroyed-traces))
         (str "no :rf.machine/destroyed fired; saw "
@@ -107,7 +107,7 @@
             emitted a bogus destroyed trace with zero bad-arg errors."
     (let [pre-join (reg-join-parent! :dcg/p1 :dcg/p1a :dcg/p1b)]
       (is (map? (:children pre-join)) "live two-child join seeded")
-      (mtest/reset-captured!)
+      (rf.machines.test-support/reset-captured!)
       (destroy-with! {:rf/reap      false
                       :rf/parent-id :dcg/p1
                       :rf/invoke-id [:racing]
@@ -124,7 +124,7 @@
   (testing "rf2-3phait — {:rf/reap nil …}: presence of :rf/reap selects the
             reap shape; a nil value is malformed (fail closed, zero mutation)"
     (let [pre-join (reg-join-parent! :dcg/p2 :dcg/p2a :dcg/p2b)]
-      (mtest/reset-captured!)
+      (rf.machines.test-support/reset-captured!)
       (destroy-with! {:rf/reap      nil
                       :rf/parent-id :dcg/p2
                       :rf/invoke-id [:racing]
@@ -136,7 +136,7 @@
   (testing "rf2-3phait — {:rf/reap \"true\" …}: only the exact value true is
             the reap discriminator; truthy aliases are malformed"
     (let [pre-join (reg-join-parent! :dcg/p3 :dcg/p3a :dcg/p3b)]
-      (mtest/reset-captured!)
+      (rf.machines.test-support/reset-captured!)
       (destroy-with! {:rf/reap      "true"
                       :rf/parent-id :dcg/p3
                       :rf/invoke-id [:racing]
@@ -149,7 +149,7 @@
 (deftest reap-missing-coordinate-fails-closed
   (testing "rf2-3phait — a reap missing :rf/invoke-id is malformed"
     (let [pre-join (reg-join-parent! :dcg/p4 :dcg/p4a :dcg/p4b)]
-      (mtest/reset-captured!)
+      (rf.machines.test-support/reset-captured!)
       (destroy-with! {:rf/reap      true
                       :rf/parent-id :dcg/p4
                       :rf/child-id  :a})
@@ -160,7 +160,7 @@
   (testing "rf2-3phait — a reap whose :rf/invoke-id is not a path vector is
             malformed (exact coordinate types, no permissive coercion)"
     (let [pre-join (reg-join-parent! :dcg/p5 :dcg/p5a :dcg/p5b)]
-      (mtest/reset-captured!)
+      (rf.machines.test-support/reset-captured!)
       (destroy-with! {:rf/reap      true
                       :rf/parent-id :dcg/p5
                       :rf/invoke-id :racing
@@ -174,7 +174,7 @@
   (testing "rf2-3phait — a carrier declaring BOTH :rf/reap and :rf/spawn-all
             is an overlapping shape: fail closed, zero mutation"
     (let [pre-join (reg-join-parent! :dcg/p6 :dcg/p6a :dcg/p6b)]
-      (mtest/reset-captured!)
+      (rf.machines.test-support/reset-captured!)
       (destroy-with! {:rf/reap      true
                       :rf/spawn-all true
                       :rf/parent-id :dcg/p6
@@ -189,7 +189,7 @@
             Pre-fix it fell through destroy-machine-fx's truthy routing into
             the tracked branch and corrupted the join slot"
     (let [pre-join (reg-join-parent! :dcg/p7 :dcg/p7a :dcg/p7b)]
-      (mtest/reset-captured!)
+      (rf.machines.test-support/reset-captured!)
       (destroy-with! {:rf/spawn-all false
                       :rf/parent-id :dcg/p7
                       :rf/invoke-id [:racing]})
@@ -200,7 +200,7 @@
   (testing "rf2-3phait — a well-discriminated reap carrying an EXTRA unknown
             key is outside the closed grammar: fail closed"
     (let [pre-join (reg-join-parent! :dcg/p8 :dcg/p8a :dcg/p8b)]
-      (mtest/reset-captured!)
+      (rf.machines.test-support/reset-captured!)
       (destroy-with! {:rf/reap      true
                       :rf/parent-id :dcg/p8
                       :rf/invoke-id [:racing]
@@ -217,7 +217,7 @@
             MAP must fail closed: the tracked branch can never consume a
             join-state map as an actor id"
     (let [pre-join (reg-join-parent! :dcg/p9 :dcg/p9a :dcg/p9b)]
-      (mtest/reset-captured!)
+      (rf.machines.test-support/reset-captured!)
       (destroy-with! {:rf/parent-id :dcg/p9
                       :rf/invoke-id [:racing]})
       (is (= 1 (count (bad-arg-traces)))
@@ -230,7 +230,7 @@
   (testing "rf2-3phait — the imperative form requires a keyword actor id;
             any other non-map arg is outside the closed grammar"
     (let [pre-join (reg-join-parent! :dcg/p10 :dcg/p10a :dcg/p10b)]
-      (mtest/reset-captured!)
+      (rf.machines.test-support/reset-captured!)
       (destroy-with! "not-an-actor-id")
       (is (= 1 (count (bad-arg-traces))))
       (assert-zero-mutation! :dcg/p10 pre-join))))
@@ -247,12 +247,12 @@
                  :working {:spawn {:machine-id :dcg/live-child}
                            :on    {:stop :idle}}}})
     (rf/dispatch-sync [:dcg/tracked-parent [:start]])
-    (let [child-id (get-in (mtest/runtime-db)
+    (let [child-id (get-in (rf.machines.test-support/runtime-db)
                            [:rf.runtime/machines :spawned :dcg/tracked-parent [:working]])]
       (is (keyword? child-id) "single tracked :spawn child live")
-      (mtest/reset-captured!)
+      (rf.machines.test-support/reset-captured!)
       (rf/dispatch-sync [:dcg/tracked-parent [:stop]])
-      (is (nil? (mtest/snapshot child-id)) "tracked child torn down on exit")
+      (is (nil? (rf.machines.test-support/snapshot child-id)) "tracked child torn down on exit")
       (is (= 1 (count (filterv #(= child-id (:actor-id (:tags %)))
                                (destroyed-traces))))
           "exactly one destroyed trace for the tracked child")
@@ -277,11 +277,11 @@
     (rf/dispatch-sync [:dcg/sa-parent [:start]])
     (let [children (:children (join-state :dcg/sa-parent [:racing]))]
       (is (= 2 (count children)))
-      (mtest/reset-captured!)
+      (rf.machines.test-support/reset-captured!)
       (rf/dispatch-sync [:dcg/sa-parent [:abort]])
       (is (nil? (join-state :dcg/sa-parent [:racing])) "join slot cleared")
       (doseq [[cid spawned-id] children]
-        (is (nil? (mtest/snapshot spawned-id))
+        (is (nil? (rf.machines.test-support/snapshot spawned-id))
             (str "child " cid " torn down on exit")))
       (is (empty? (bad-arg-traces))
           "no bad-arg error for the genuine spawn-all exit form"))))

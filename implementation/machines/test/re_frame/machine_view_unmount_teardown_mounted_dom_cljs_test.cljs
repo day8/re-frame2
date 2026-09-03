@@ -56,18 +56,18 @@
             [reagent.dom.client :as rdc]
             ["react-dom" :as react-dom]
             [re-frame.core :as rf]
-            [re-frame.events :as events]
-            [re-frame.registrar :as registrar]
+            [re-frame.events :as rf.events]
+            [re-frame.registrar :as rf.registrar]
             ;; Loading `re-frame.machines` installs the machines-artefact
             ;; late-bind hooks (`reg-machine`, the `[:rf/machine …]` snapshot
             ;; sub, the `:rf.machine/*` reserved fxs).
             [re-frame.machines]
-            [re-frame.machines.test-support :as mtest]
+            [re-frame.machines.test-support :as rf.machines.test-support]
             ;; Loaded for side effect: publishes the `:views/emit-view-unmounted!`
             ;; late-bind hook + the unmount-hook machinery `reg-view*` arms.
             [re-frame.views]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.trace.tooling :as trace-tooling]))
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 ;; EP-0002 (rf2-9o48ih): `:ambient-frame nil` opts out of the fixture's default
 ;; ambient `*current-frame*` :rf/default scope. The mounted views resolve their
@@ -75,8 +75,8 @@
 ;; ambient :rf/default scope would shadow that tier and the participating view
 ;; would read the wrong frame. Every dispatch carries an explicit `{:frame …}`.
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter
+  (rf.machines.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter
      :async? true
      :ambient-frame nil}))
 
@@ -170,18 +170,18 @@
             ;; Bring the machine to a live snapshot in the view's frame
             ;; (xstate `createActor(m).start()`).
             (rf/dispatch-sync [machine-id [:rf.machine/start]] {:frame frame-id})
-            (let [before (mtest/snapshot frame-id machine-id)]
+            (let [before (rf.machines.test-support/snapshot frame-id machine-id)]
               (is (some? before) "precondition: machine snapshot live before mount")
               (is (= :active (:state before)) "precondition: machine in :active")
 
               ;; Capture the REAL teardown emit — register before mount/unmount.
-              (trace-tooling/register-listener! ::mvut-a (fn [ev] (swap! traces conj ev)))
+              (rf.trace.tooling/register-listener! ::mvut-a (fn [ev] (swap! traces conj ev)))
 
               ;; MOUNT the participating view through a real React root.
               (act-fn #(rdc/render root
                                    [rf/frame-provider {:frame frame-id}
                                     [(rf/view :mvut/session-view)]]))
-              (is (some? (mtest/snapshot frame-id machine-id))
+              (is (some? (rf.machines.test-support/snapshot frame-id machine-id))
                   "machine still live while the view is mounted")
               (is (zero? (count (view-ops-of @traces view-unmounted :mvut/session-view)))
                   "no :rf.view/unmounted before the unmount (nothing torn down yet)")
@@ -208,12 +208,12 @@
                           "NO :rf.machine.lifecycle/destroyed (registrar channel) —
                            a view unmount is not a frame-exit reap")
                       ;; (3) snapshot byte-identical + handler still registered.
-                      (let [after (mtest/snapshot frame-id machine-id)]
+                      (let [after (rf.machines.test-support/snapshot frame-id machine-id)]
                         (is (some? after) "machine snapshot STILL LIVE after real unmount")
                         (is (= before after)
                             "machine snapshot UNCHANGED by the unmount (same :state + :data)")
                         (is (= :active (:state after)) "machine still in :active"))
-                      (is (some? (registrar/lookup :event machine-id))
+                      (is (some? (rf.registrar/lookup :event machine-id))
                           "the machine's event handler is still registered after the unmount")
                       ;; (4) belt — no machine-category trace fired at all.
                       (is (empty? (filterv #(= :rf.machine (:op-type %)) @traces))
@@ -262,7 +262,7 @@
             ;; artefact — machines depends only on core, so it dispatches the
             ;; release by NAME). The recorded owner proves the machine's resource
             ;; owner is released on destroy.
-            (events/reg-event :rf.resource/release-owner
+            (rf.events/reg-event :rf.resource/release-owner
               (fn [_ [_ {:keys [owner]}]] (swap! released conj owner) {}))
             (rf/reg-machine machine-id
               {:initial :active :data {} :states {:active {}}})
@@ -271,16 +271,16 @@
                 (let [snap @(rf/subscribe [:rf/machine machine-id])]
                   [:div.mvut-ed (str (:state snap))])))
             (rf/dispatch-sync [machine-id [:rf.machine/start]] {:frame frame-id})
-            (is (some? (mtest/snapshot frame-id machine-id))
+            (is (some? (rf.machines.test-support/snapshot frame-id machine-id))
                 "precondition: machine is live before mount")
 
-            (trace-tooling/register-listener! ::mvut-ed (fn [ev] (swap! traces conj ev)))
+            (rf.trace.tooling/register-listener! ::mvut-ed (fn [ev] (swap! traces conj ev)))
 
             ;; MOUNT the participating view.
             (act-fn #(rdc/render root
                                  [rf/frame-provider {:frame frame-id}
                                   [(rf/view :mvut/ed-view)]]))
-            (is (some? (mtest/snapshot frame-id machine-id))
+            (is (some? (rf.machines.test-support/snapshot frame-id machine-id))
                 "machine live while the view is mounted")
 
             ;; EXPLICIT destroy while the view is still mounted. flushSync so the
@@ -301,9 +301,9 @@
                    NOT a frame-exit reap, so the registrar channel stays silent"))
 
             ;; --- resource release (snapshot storage, handler, resource owner) ---
-            (is (nil? (mtest/snapshot frame-id machine-id))
+            (is (nil? (rf.machines.test-support/snapshot frame-id machine-id))
                 "snapshot cleared — the machine's state storage is released")
-            (is (nil? (registrar/lookup :event machine-id))
+            (is (nil? (rf.registrar/lookup :event machine-id))
                 "event handler unregistered — the machine's handler resource is released")
             (is (= [[:machine machine-id]] @released)
                 "EXACTLY ONE [:machine actor-id] resource owner released on destroy")

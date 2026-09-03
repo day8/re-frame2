@@ -13,15 +13,15 @@
   running actor."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.machines :as machines]
+            [re-frame.machines :as rf.machines]
             ;; listener / buffer surface lives in re-frame.trace.tooling.
-            [re-frame.trace.tooling :as trace-tooling]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.machines.test-support :as mtest]))
+            [re-frame.trace.tooling :as rf.trace.tooling]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.machines.test-support :as rf.machines.test-support]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter}))
 
 (deftest machine-system-id-cljs
   (testing "spawn-with-system-id binds the index, lookup resolves to spawned id, destroy clears"
@@ -45,7 +45,7 @@
       (rf/reg-machine :sup/flow parent)
       (rf/dispatch-sync [:sup/flow [:start]])
       ;; (1) Lookup-by-system-id returns the spawned id.
-      (let [spawned (machines/machine-by-system-id :worker)]
+      (let [spawned (rf.machines/machine-by-system-id :worker)]
         (is (= :worker/proc#1 spawned)
             ":system-id resolves to the spawned machine id")
         (is (= spawned (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
@@ -61,7 +61,7 @@
             "dispatch routed via system-id reached the live actor"))
       ;; (3) Destroy clears system-id binding and snapshot.
       (rf/dispatch-sync [:sup/flow [:done]])
-      (is (nil? (machines/machine-by-system-id :worker))
+      (is (nil? (rf.machines/machine-by-system-id :worker))
           "post-destroy lookup returns nil")
       (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                         [:rf.runtime/machines :system-ids :worker]))
@@ -87,13 +87,13 @@
       (rf/reg-machine :notifier/proc child)
       (rf/reg-machine :sup2/flow parent)
       (rf/dispatch-sync [:sup2/flow [:go]])
-      (let [spawned (machines/machine-by-system-id :notifier)]
+      (let [spawned (rf.machines/machine-by-system-id :notifier)]
         (is (= :notifier/proc#1 spawned))
         ;; A machine IS an event handler: resolve the actor by its
         ;; :system-id, then dispatch to the id you hold — the everyday
         ;; cross-machine send. We use dispatch-sync through the resolved id
         ;; so the assert reads post-drain state without async timing.
-        (rf/dispatch-sync [(machines/machine-by-system-id :notifier) [:notify "hello"]])
+        (rf/dispatch-sync [(rf.machines/machine-by-system-id :notifier) [:notify "hello"]])
         (is (= ["hello"] (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                  [:rf.runtime/machines :snapshots spawned :data :msgs]))
             "dispatch via system-id lookup reached the live actor"))))
@@ -113,12 +113,12 @@
           {:fx [[:rf.machine/spawn {:machine-id :w/proc
                                     :id-prefix  :w/proc
                                     :system-id  :primary}]]}))
-      (trace-tooling/register-listener! ::col (fn [ev] (swap! traces conj ev)))
+      (rf.trace.tooling/register-listener! ::col (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [::spawn1])
       (rf/dispatch-sync [::spawn2])
-      (trace-tooling/unregister-listener! ::col)
+      (rf.trace.tooling/unregister-listener! ::col)
       ;; Second spawn rebinds.
-      (is (= :w/proc#2 (machines/machine-by-system-id :primary))
+      (is (= :w/proc#2 (rf.machines/machine-by-system-id :primary))
           "second spawn rebound :primary to the new actor")
       (is (some (fn [ev]
                   (and (= :rf.error/system-id-collision (:operation ev))
@@ -141,22 +141,22 @@
       (rf/reg-machine :fa/proc child)
       (rf/reg-machine :fa/sup parent)
       (rf/dispatch-sync [:fa/sup [:go]])
-      (let [ambient (machines/machine-by-system-id :fa/named)]
+      (let [ambient (rf.machines/machine-by-system-id :fa/named)]
         (is (= :fa/proc#1 ambient)
             "ambient 1-arity resolves the spawned id under the :rf/default scope")
         ;; (1) PUBLIC opts form — the canonical public shape (mirrors subscribe's frame-first arity).
-        (is (= ambient (machines/machine-by-system-id :fa/named {:frame :rf/default}))
+        (is (= ambient (rf.machines/machine-by-system-id :fa/named {:frame :rf/default}))
             "opts form {:frame :rf/default} binds the same frame and resolves the same id")
         ;; (2) INTERNAL frame-last plumbing — a bare frame-id keyword still resolves.
-        (is (= ambient (machines/machine-by-system-id :fa/named :rf/default))
+        (is (= ambient (rf.machines/machine-by-system-id :fa/named :rf/default))
             "internal frame-last (sid frame-id) plumbing is retained")
         ;; (3) The opts :frame is genuinely threaded: a DIFFERENT frame reads nil
         ;; (proving the frame key is honoured, not the old misbind where the opts
         ;; map would have been mistaken for the frame target).
-        (is (nil? (machines/machine-by-system-id :fa/named {:frame :no/such-frame}))
+        (is (nil? (rf.machines/machine-by-system-id :fa/named {:frame :no/such-frame}))
             "opts {:frame <other>} targets that frame's index (empty) — nil, not the ambient hit")
         ;; (4) Ambient opts (no :frame) falls back to the scope-resolved frame.
-        (is (= ambient (machines/machine-by-system-id :fa/named {}))
+        (is (= ambient (rf.machines/machine-by-system-id :fa/named {}))
             "empty opts map resolves the ambient frame (no :frame ⇒ scope chain)")))))
 
 (deftest machine-spawn-without-system-id-leaves-index-empty-cljs
@@ -169,5 +169,5 @@
       (rf/dispatch-sync [::spawn-anon])
       (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/machines :system-ids]))
           "[:rf.runtime/machines :system-ids] not allocated when no spawns carry :system-id")
-      (is (nil? (machines/machine-by-system-id :anything))
+      (is (nil? (rf.machines/machine-by-system-id :anything))
           "lookup against an unbound system-id returns nil"))))

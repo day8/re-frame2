@@ -75,7 +75,7 @@
     - a choice candidate that targets the choice state's OWN declaring
       state is a self-loop (an immediate eventless cycle), rejected exactly
       as an `:always` self-loop is (`:rf.error/machine-choice-self-loop`)."
-  (:require [re-frame.error :as error]))
+  (:require [re-frame.error :as rf.error]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -202,7 +202,7 @@
   discriminator; `reason` is the human diagnostic; `extra` merges
   per-site slots."
   [error-id reason extra]
-  (error/thrown-ex-info error-id 'rf/reg-machine reason
+  (rf.error/thrown-ex-info error-id 'rf/reg-machine reason
                         {:recovery :fix-registration :extra extra}))
 
 (defn- candidate-vector?

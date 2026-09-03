@@ -28,18 +28,18 @@
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
    [re-frame.machines]
-   [re-frame.machines.test-support :as mtest]
-   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
-       :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
+   [re-frame.machines.test-support :as rf.machines.test-support]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture
-    #?(:clj  {:adapter plain-atom/adapter}
-       :cljs {:adapter reagent-adapter/adapter}))
-  mtest/trace-capture-fixture)
+  (rf.machines.test-support/make-reset-runtime-fixture
+    #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
+       :cljs {:adapter rf.adapter.reagent/adapter}))
+  rf.machines.test-support/trace-capture-fixture)
 
 (defn- join-state [parent-id]
-  (get-in (mtest/runtime-db) [:rf.runtime/machines :spawned parent-id [:racing]]))
+  (get-in (rf.machines.test-support/runtime-db) [:rf.runtime/machines :spawned parent-id [:racing]]))
 
 (defn- mk-child
   "A dispatching child: on `:go` transitions to a terminal and dispatches its
@@ -152,14 +152,14 @@
         (rf/reg-machine cb (mk-child-delayed rp ms))
         (reg-parent! rp ca cb)
         (rf/dispatch-sync [rp [:start]])
-        (let [a (get-in (get-in (mtest/runtime-db)
+        (let [a (get-in (get-in (rf.machines.test-support/runtime-db)
                                 [:rf.runtime/machines :spawned rp [:racing]])
                         [:children :a])]
           (rf/dispatch-sync [a [:go]]
                             {:fx-overrides {:dispatch-later (fn [_ctx args] (swap! captured conj args))}})
           (is (= [{:ms ms :event [rp [:child/done :a]]}] @captured)
               (str ":dispatch-later completion captured with the canonical delayed payload (ms=" ms ")"))
-          (is (= #{} (:done (get-in (mtest/runtime-db)
+          (is (= #{} (:done (get-in (rf.machines.test-support/runtime-db)
                                     [:rf.runtime/machines :spawned rp [:racing]])))
               (str "the parent join folded nothing under the :dispatch-later override (ms=" ms ")")))))))
 

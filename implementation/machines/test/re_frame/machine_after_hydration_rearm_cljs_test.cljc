@@ -15,7 +15,7 @@
   ## These tests FIRE the timer
 
   Every positive case here captures the host-clock thunk
-  (`with-redefs` on `interop/schedule-after!`, the pattern
+  (`with-redefs` on `rf.interop/schedule-after!`, the pattern
   `after_fire_reap_cljs_test` established) and INVOKES it, then asserts the
   machine actually transitioned. Asserting that the timer table is
   non-empty would have passed for the whole life of this defect had the
@@ -37,20 +37,20 @@
   defect, so the CLJS arm is the load-bearing one."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
             ;; Loading `re-frame.machines` installs the artefact's late-bind
             ;; hooks + reserved fxs; under a single-ns run nothing else does.
             [re-frame.machines]
-            [re-frame.machines.hydrate :as m-hydrate]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.machines.timer :as timer]
-            [re-frame.subs :as subs]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.machines.hydrate :as rf.machines.hydrate]
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.machines.timer :as rf.machines.timer]
+            [re-frame.subs :as rf.subs]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter})
-  mtest/trace-capture-fixture)
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})
+  rf.machines.test-support/trace-capture-fixture)
 
 ;; ---------------------------------------------------------------------------
 ;; Fixtures
@@ -76,7 +76,7 @@
 (defn- inner
   "`frame-id`'s inner `:after` timer table, or `{}` when it holds none."
   [frame-id]
-  (get @timer/after-timers frame-id {}))
+  (get @rf.machines.timer/after-timers frame-id {}))
 
 (defn- server-runtime-db
   "Run `machine` on a real SERVER frame through `events`, assert it armed
@@ -88,7 +88,7 @@
       (rf/dispatch-sync [machine-id e] {:frame sfid}))
     (is (empty? (inner sfid))
         "precondition: the SERVER armed no `:after` host timer")
-    (frame/frame-runtime-db-value sfid)))
+    (rf.frame/frame-runtime-db-value sfid)))
 
 (defn- fire!
   "Run a captured host-clock thunk to completion.
@@ -96,7 +96,7 @@
   The thunk dispatches the synthetic
   `[:rf.machine.timer/after-elapsed <delay-key> <epoch> <decl-path>]`
   through the REAL async router (`:router/dispatch!`), whose drain is
-  scheduled on `interop/next-tick` — a background executor on the JVM and
+  scheduled on `rf.interop/next-tick` — a background executor on the JVM and
   a macrotask in CLJS, so a bare call would race every assertion after it.
   Collapsing `next-tick` to an inline call for the duration is the
   established seam (`core/test/re_frame/drain_test.clj`,
@@ -105,7 +105,7 @@
   fail. Nothing here re-implements the timer's own event, which is
   precisely the part under test."
   [thunk]
-  (with-redefs [interop/next-tick (fn [f] (f) nil)]
+  (with-redefs [rf.interop/next-tick (fn [f] (f) nil)]
     (thunk)))
 
 (defn- hydrate-into!
@@ -114,8 +114,8 @@
   has committed. Returns the frame id."
   [runtime-db]
   (let [cfid (fresh-frame! :client)]
-    (frame/replace-runtime-db! cfid runtime-db)
-    (m-hydrate/rearm-after-timers! cfid)
+    (rf.frame/replace-runtime-db! cfid runtime-db)
+    (rf.machines.hydrate/rearm-after-timers! cfid)
     cfid))
 
 ;; ---------------------------------------------------------------------------
@@ -180,7 +180,7 @@
       (is (and (integer? epoch) (pos? epoch))
           "precondition: the durable per-decl-path epoch rode the snapshot")
 
-      (let [cfid (with-redefs [interop/schedule-after!
+      (let [cfid (with-redefs [rf.interop/schedule-after!
                               (fn [thunk ms]
                                 (swap! thunks conj thunk)
                                 (swap! arms conj ms)
@@ -208,10 +208,10 @@
 
         ;; THE FIRE. Not "a table is populated" — the reconstructed timer
         ;; must actually drive the transition.
-        (is (= :waiting (mtest/machine-state cfid :hyd/flat))
+        (is (= :waiting (rf.machines.test-support/machine-state cfid :hyd/flat))
             "precondition: still waiting before the clock runs out")
         (fire! (first @thunks))
-        (is (= :timeout (mtest/machine-state cfid :hyd/flat))
+        (is (= :timeout (rf.machines.test-support/machine-state cfid :hyd/flat))
             (str "the hydrated timer FIRED and performed the declared "
                  "`:after` transition. This is the whole bug: before the fix "
                  "no timer existed, so this state was terminal in practice."))))))
@@ -224,14 +224,14 @@
           snap (get-in rt [:rf.runtime/machines :snapshots :hyd/noreplay])]
       (is (= 1 (get-in snap [:data :entries]))
           "precondition: the server ran `:entry` exactly once")
-      (let [cfid (with-redefs [interop/schedule-after!
+      (let [cfid (with-redefs [rf.interop/schedule-after!
                               (fn [_thunk _ms] ::handle)]
                    (hydrate-into! rt))]
-        (is (= 1 (:entries (mtest/machine-data cfid :hyd/noreplay)))
+        (is (= 1 (:entries (rf.machines.test-support/machine-data cfid :hyd/noreplay)))
             (str "still 1. Re-running entry would have re-armed the timers "
                  "AND re-fired every entry effect the server already "
                  "performed — a different and worse bug than the one fixed."))
-        (is (= :waiting (mtest/machine-state cfid :hyd/noreplay))
+        (is (= :waiting (rf.machines.test-support/machine-state cfid :hyd/noreplay))
             "and the durable state is untouched by the re-arm")))))
 
 (deftest hydration-re-arm-is-idempotent
@@ -239,10 +239,10 @@
             duplicating — one live handle per declaration, always"
     (rf/reg-machine :hyd/idem flat-machine)
     (let [rt (server-runtime-db :hyd/idem flat-machine [[:go]])]
-      (with-redefs [interop/schedule-after! (fn [_thunk _ms] ::handle)]
+      (with-redefs [rf.interop/schedule-after! (fn [_thunk _ms] ::handle)]
         (let [cfid (hydrate-into! rt)]
           (is (= 1 (count (inner cfid))))
-          (m-hydrate/rearm-after-timers! cfid)
+          (rf.machines.hydrate/rearm-after-timers! cfid)
           (is (= 1 (count (inner cfid)))
               "still one entry — the ordinary timer-table key superseded"))))))
 
@@ -259,7 +259,7 @@
           snap   (get-in rt [:rf.runtime/machines :snapshots :hyd/compound])]
       (is (= [:outer :inner] (:state snap))
           "precondition: the server settled on the compound leaf")
-      (let [cfid  (with-redefs [interop/schedule-after!
+      (let [cfid  (with-redefs [rf.interop/schedule-after!
                                (fn [thunk ms] (swap! thunks assoc ms thunk) ::handle)]
                     (hydrate-into! rt))
             table (inner cfid)]
@@ -275,7 +275,7 @@
 
         ;; Fire the ANCESTOR's timer — the one an entry-shaped fix misses.
         (fire! (get @thunks 9000))
-        (is (= :outer-fired (mtest/machine-state cfid :hyd/compound))
+        (is (= :outer-fired (rf.machines.test-support/machine-state cfid :hyd/compound))
             "the hydrated ANCESTOR timer fired and transitioned")))))
 
 ;; ---------------------------------------------------------------------------
@@ -291,7 +291,7 @@
           snap   (get-in rt [:rf.runtime/machines :snapshots :hyd/par])]
       (is (= :ticking (get-in snap [:state :left]))
           "precondition: the `:after`-bearing region is on its timed state")
-      (let [cfid  (with-redefs [interop/schedule-after!
+      (let [cfid  (with-redefs [rf.interop/schedule-after!
                                (fn [thunk ms] (swap! thunks assoc ms thunk) ::handle)]
                     (hydrate-into! rt))
             table (inner cfid)]
@@ -314,9 +314,9 @@
               "root sentinel, matching what birth-time scheduling stamps"))
 
         (fire! (get @thunks 3000))
-        (is (= :left-done (get-in (mtest/snapshot cfid :hyd/par) [:state :left]))
+        (is (= :left-done (get-in (rf.machines.test-support/snapshot cfid :hyd/par) [:state :left]))
             "the hydrated REGION timer fired and moved that region alone")
-        (is (= :steady (get-in (mtest/snapshot cfid :hyd/par) [:state :right])
+        (is (= :steady (get-in (rf.machines.test-support/snapshot cfid :hyd/par) [:state :right])
                )
             "and left its sibling region untouched")))))
 
@@ -338,9 +338,9 @@
           thunk    (atom nil)]
       (rf/reg-sub :t/dyn (fn [_db _] @reaction))
       (rf/reg-machine :hyd/dyn m)
-      (with-redefs [subs/subscribe   (fn ([_q] reaction) ([_q _o] reaction))
-                    subs/unsubscribe (fn ([_] nil) ([_ _] nil))
-                    interop/schedule-after! (fn [t ms]
+      (with-redefs [rf.subs/subscribe   (fn ([_q] reaction) ([_q _o] reaction))
+                    rf.subs/unsubscribe (fn ([_] nil) ([_ _] nil))
+                    rf.interop/schedule-after! (fn [t ms]
                                               (reset! thunk t)
                                               (swap! armed conj ms)
                                               ::handle)]
@@ -358,7 +358,7 @@
                 "and its re-resolution watcher is attached"))
           (is (= [2500] @armed))
           (fire! @thunk)
-          (is (= :fired (mtest/machine-state cfid :hyd/dyn))
+          (is (= :fired (rf.machines.test-support/machine-state cfid :hyd/dyn))
               "the client-resolved dynamic delay fired the transition")
           (is (empty? (inner cfid))
               "and the spent one-shot reaped its entry, releasing the watch"))))))
@@ -377,7 +377,7 @@
     (let [rt (server-runtime-db :hyd/none flat-machine [[:noop]])]
       (is (= :idle (get-in rt [:rf.runtime/machines :snapshots :hyd/none :state]))
           "precondition: parked on the `:after`-free initial state")
-      (with-redefs [interop/schedule-after! (fn [_t _ms] ::handle)]
+      (with-redefs [rf.interop/schedule-after! (fn [_t _ms] ::handle)]
         (let [cfid (hydrate-into! rt)]
           (is (empty? (inner cfid))
               "no live declaration, so nothing armed"))))))
@@ -387,10 +387,10 @@
             loopback or server-side `:rf/hydrate` must not start host clocks"
     (rf/reg-machine :hyd/srv flat-machine)
     (let [rt (server-runtime-db :hyd/srv flat-machine [[:go]])]
-      (with-redefs [interop/schedule-after! (fn [_t _ms] ::handle)]
+      (with-redefs [rf.interop/schedule-after! (fn [_t _ms] ::handle)]
         (let [sfid (fresh-frame! :server)]
-          (frame/replace-runtime-db! sfid rt)
-          (m-hydrate/rearm-after-timers! sfid)
+          (rf.frame/replace-runtime-db! sfid rt)
+          (rf.machines.hydrate/rearm-after-timers! sfid)
           (is (empty? (inner sfid))
               (str "same refusal `build-after-fx` applies, read off the same "
                    "frame `:platform` — the two cannot disagree")))))))
@@ -403,7 +403,7 @@
           ;; A wire-shaped snapshot for an actor no registration backs.
           poisoned (assoc-in rt [:rf.runtime/machines :snapshots :hyd/ghost]
                              {:state :waiting :data {} :rf/machine-type :hyd/never-registered})]
-      (with-redefs [interop/schedule-after! (fn [_t _ms] ::handle)]
+      (with-redefs [rf.interop/schedule-after! (fn [_t _ms] ::handle)]
         (let [cfid (hydrate-into! poisoned)]
           (is (= #{{:parent :hyd/mixed :spawn [:waiting] :delay 5000}}
                  (set (keys (inner cfid))))
@@ -420,13 +420,13 @@
             and not nothing"
     (rf/reg-machine :hyd/trace flat-machine)
     (let [rt (server-runtime-db :hyd/trace flat-machine [[:go]])]
-      (mtest/reset-captured!)
-      (with-redefs [interop/schedule-after! (fn [_t _ms] ::handle)]
+      (rf.machines.test-support/reset-captured!)
+      (with-redefs [rf.interop/schedule-after! (fn [_t _ms] ::handle)]
         (let [cfid  (hydrate-into! rt)
               ;; A trace event carries its payload under `:tags`, not at the
               ;; top level (the shape `after_test` reads).
               rows  (filterv #(= :hyd/trace (:actor-id (:tags %)))
-                             (mtest/events-of :rf.machine.timer/scheduled))
+                             (rf.machines.test-support/events-of :rf.machine.timer/scheduled))
               epoch (get-in rt [:rf.runtime/machines :snapshots :hyd/trace
                                 :data :rf/after-epoch [:waiting]])]
           (is (= 1 (count rows)) "exactly one scheduled row")
@@ -437,5 +437,5 @@
             (is (= epoch (:epoch row))
                 "carrying the persisted epoch, so scheduled→fired pairs")
             (is (= cfid (:frame row))))
-          (is (empty? (mtest/events-of :rf.machine.timer/skipped-on-server))
+          (is (empty? (rf.machines.test-support/events-of :rf.machine.timer/skipped-on-server))
               "and no server-skip row: this arm happened on a client"))))))

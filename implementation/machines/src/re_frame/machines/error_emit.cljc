@@ -14,8 +14,8 @@
   `:recovery`, `:frame`, and the raw `:exception`. Value-bearing `:event`,
   `:input`, `:exception-data`, and free-text diagnostics belong only in the
   privacy-gated dev trace. Per Spec 009 §Error event catalogue."
-  (:require [re-frame.interop   :as interop]
-            [re-frame.late-bind :as late-bind]))
+  (:require [re-frame.interop   :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -31,8 +31,8 @@
   maps can be eliminated from production bundles."
   [always-on]
   ;; Late-bound because this optional artefact cannot require the core emitter.
-  (when-let [dispatch-record! (late-bind/get-fn :error-emit/dispatch-error-record)]
+  (when-let [dispatch-record! (rf.late-bind/get-fn :error-emit/dispatch-error-record)]
     (dispatch-record! (assoc always-on
                              :error :rf.error/machine-action-exception
-                             :time  (interop/now-ms))))
+                             :time  (rf.interop/now-ms))))
   nil)

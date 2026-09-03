@@ -50,7 +50,7 @@
   Enumeration is ACTIVE-configuration-shaped, not whole-spec-shaped:
 
     - flat / compound — every node from the root down to the active leaf
-      (`transition/nodes-along-path`), because a still-active ANCESTOR's
+      (`rf.machines.transition/nodes-along-path`), because a still-active ANCESTOR's
       `:after` is as live as the leaf's;
     - parallel — the same walk inside each region's own active path,
       against the synthetic region-spec so the region's per-region epoch
@@ -83,7 +83,7 @@
 
   Epoch restore is the mirror image and stays that way: it CANCELS the
   frame's in-flight `:after` handles (`:machines/on-frame-restored!` →
-  `timer/cancel-frame-timers-on-restore!`, one
+  `rf.machines.timer/cancel-frame-timers-on-restore!`, one
   `:rf.machine.timer/cancelled :reason :on-restore` per entry) and never
   re-arms, because Managed-Effects §SSR, preload, hydration, and restore
   rules that restore MUST NOT revive host work. The asymmetry is real and
@@ -94,18 +94,18 @@
 
   Pure / host-agnostic CLJC apart from the one arming call — the walk is a
   pure function of `[spec snapshot]` and is tested as such."
-  (:require [re-frame.frame :as frame]
-            [re-frame.machines.lifecycle-fx.resolver :as resolver]
-            [re-frame.machines.parallel :as parallel]
-            [re-frame.machines.paths :as paths]
-            [re-frame.machines.timeout :as timeout]
-            [re-frame.machines.timer :as timer]
-            [re-frame.machines.transition :as transition]))
+  (:require [re-frame.frame :as rf.frame]
+            [re-frame.machines.lifecycle-fx.resolver :as rf.machines.lifecycle-fx.resolver]
+            [re-frame.machines.parallel :as rf.machines.parallel]
+            [re-frame.machines.paths :as rf.machines.paths]
+            [re-frame.machines.timeout :as rf.machines.timeout]
+            [re-frame.machines.timer :as rf.machines.timer]
+            [re-frame.machines.transition :as rf.machines.transition]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
 (defn- walkable-state?
-  "True iff `state` is a shape `transition/state-path` can normalise — a
+  "True iff `state` is a shape `rf.machines.transition/state-path` can normalise — a
   leaf keyword or a vector path.
 
   A snapshot arriving from the wire is deserialised, untrusted data. Per
@@ -130,7 +130,7 @@
   `prefix-fn` maps the in-scope decl-path to the invoke-id the timer table
   is keyed by: identity-ish (`vec`) for a flat/compound machine, and the
   region-name prepend for a region — the same shape
-  `parallel/prefix-region-invoke-id` stamps on the region's own
+  `rf.machines.parallel/prefix-region-invoke-id` stamps on the region's own
   `:rf.machine/after-schedule` fxs, so a hydrated timer lands in the slot
   a subsequent state exit will cancel.
 
@@ -141,14 +141,14 @@
   (into []
         (mapcat (fn [[decl-path node]]
                   (when-let [after-map (:after node)]
-                    (let [epoch (transition/node-epoch machine snapshot decl-path)]
+                    (let [epoch (rf.machines.transition/node-epoch machine snapshot decl-path)]
                       (map (fn [[delay-key _target]]
                              {:invoke-id (prefix-fn decl-path)
                               :state     (last decl-path)
                               :delay-key delay-key
                               :epoch     epoch})
                            after-map)))))
-        (transition/nodes-along-path machine path)))
+        (rf.machines.transition/nodes-along-path machine path)))
 
 (defn- root-parallel-decls
   "The ROOT-owned `:after` declarations of a parallel machine (Spec 005
@@ -159,7 +159,7 @@
   what `root-after-match` expects when the timer fires."
   [spec snapshot]
   (if-let [after-map (:after spec)]
-    (let [epoch (transition/node-epoch spec snapshot [])]
+    (let [epoch (rf.machines.transition/node-epoch spec snapshot [])]
       (mapv (fn [[delay-key _target]]
               {:invoke-id []
                :state     :rf/parallel-root
@@ -173,7 +173,7 @@
   live under `spec`, as
   `[{:invoke-id … :state … :delay-key … :epoch …} …]`.
 
-  `spec` is desugared first (`timeout/desugar-timeouts` — idempotent, and
+  `spec` is desugared first (`rf.machines.timeout/desugar-timeouts` — idempotent, and
   a no-rebuild fast path for the timeout-free common case) so an authored
   `:timeout` / `:on-timeout` is enumerated through the `:after` it lowers
   onto, exactly as the transition engine sees it.
@@ -183,10 +183,10 @@
   correctness point of enumerating the ACTIVE configuration rather than
   the spec."
   [spec snapshot]
-  (let [spec (timeout/desugar-timeouts spec)
+  (let [spec (rf.machines.timeout/desugar-timeouts spec)
         st   (:state snapshot)]
     (cond
-      (parallel/parallel? spec)
+      (rf.machines.parallel/parallel? spec)
       ;; A parallel snapshot's `:state` is a region-name → region-state
       ;; map. Walk each region's own active path against the synthetic
       ;; region-spec (which carries `:rf/region`, so `node-epoch` reads the
@@ -195,14 +195,14 @@
             (mapcat (fn [[region-name region-state]]
                       (when (and (contains? (:regions spec) region-name)
                                  (walkable-state? region-state))
-                        (decls-along-path (parallel/region-machine spec region-name)
+                        (decls-along-path (rf.machines.parallel/region-machine spec region-name)
                                           snapshot
-                                          (transition/state-path region-state)
+                                          (rf.machines.transition/state-path region-state)
                                           #(vec (cons region-name %))))))
             (when (map? st) st))
 
       (walkable-state? st)
-      (decls-along-path spec snapshot (transition/state-path st) vec)
+      (decls-along-path spec snapshot (rf.machines.transition/state-path st) vec)
 
       :else [])))
 
@@ -223,7 +223,7 @@
   [snapshots]
   (vec (for [[actor-id snapshot] snapshots
              :when (map? snapshot)
-             :let  [spec (resolver/spec-from-id-or-snapshot actor-id snapshot)]
+             :let  [spec (rf.machines.lifecycle-fx.resolver/spec-from-id-or-snapshot actor-id snapshot)]
              :when (map? spec)
              decl  (active-after-decls spec snapshot)]
          (assoc decl :actor-id actor-id :snapshot snapshot))))
@@ -245,7 +245,7 @@
   Superseding cannot reach them (`schedule-after-timer!` only ever touches
   the one key it is arming), so the two phases are explicit:
 
-    1. CANCEL — `timer/cancel-timers-absent-from!` takes the set
+    1. CANCEL — `rf.machines.timer/cancel-timers-absent-from!` takes the set
        difference and releases every entry outside the live set, each with
        the ordinary closed-set `:reason` naming why it went
        (`:on-destroy` for a dropped actor, `:on-exit` for a declaring node
@@ -307,17 +307,17 @@
   `:rf.machine.timer/cancelled` trace per released one."
   [frame-id]
   (when (and frame-id
-             (not= :server (or (:platform (frame/frame-meta frame-id)) :client)))
+             (not= :server (or (:platform (rf.frame/frame-meta frame-id)) :client)))
     ;; Captured BEFORE anything callback-bearing runs, so it names the
     ;; incarnation whose runtime-db the declarations below are read from.
-    (let [owner-gone? (timer/successor-published?-fn frame-id)
-          snapshots   (get-in (frame/frame-runtime-db-value frame-id)
-                              (paths/snapshot-path))
+    (let [owner-gone? (rf.machines.timer/successor-published?-fn frame-id)
+          snapshots   (get-in (rf.frame/frame-runtime-db-value frame-id)
+                              (rf.machines.paths/snapshot-path))
           live        (live-declarations snapshots)]
       ;; PHASE 1 — release the host work the replacement snapshots dropped.
       ;; Before the arm, so a declaration that survives is superseded by its
       ;; own re-arm rather than cancelled and re-created.
-      (timer/cancel-timers-absent-from!
+      (rf.machines.timer/cancel-timers-absent-from!
         frame-id
         (into #{} (map (juxt :actor-id :invoke-id :delay-key)) live)
         (set (keys snapshots))
@@ -327,7 +327,7 @@
       (loop [decls live]
         (when (and (seq decls) (not (owner-gone?)))
           (let [decl (first decls)]
-            (timer/rearm-hydrated-after-timer!
+            (rf.machines.timer/rearm-hydrated-after-timer!
               frame-id (:actor-id decl) (:invoke-id decl) (:state decl)
               (:delay-key decl) (:epoch decl) (:snapshot decl) owner-gone?))
           (recur (rest decls))))))

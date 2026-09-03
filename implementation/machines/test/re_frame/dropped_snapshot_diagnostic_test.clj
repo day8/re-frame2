@@ -16,29 +16,29 @@
   JVM-only by intent — the commit path is substrate-independent."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.machines :as machines]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.adapter :as adapter]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]
+            [re-frame.frame :as rf.frame]
+            [re-frame.machines :as rf.machines]
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace :as rf.trace]
             [re-frame.trace.tooling]))
 
 ;; This ns keeps a bespoke reset-runtime fixture (it ALSO clears listeners
 ;; and reloads the machines ns) rather than reusing the shared
 ;; make-reset-runtime-fixture.
 (defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (trace/clear-listeners!)
-  (rf/init! plain-atom/adapter)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.trace/clear-listeners!)
+  (rf/init! rf.substrate.plain-atom/adapter)
   ;; `init!` does not synthesise `:rf/default`, and machine fxs require a
   ;; carried frame stamp. Register `:rf/default` explicitly and pin it as the
   ;; established scope for the body.
-  (frame/ensure-default-frame!)
+  (rf.frame/ensure-default-frame!)
   (require 're-frame.machines :reload)
-  (machines/reset-timers!)
+  (rf.machines/reset-timers!)
   (rf/with-frame :rf/default
     (test-fn)))
 
@@ -54,14 +54,14 @@
 ;; snapshot lookup via the shared machines test-support.
 (defn- live-snapshot?
   [machine-id]
-  (some? (mtest/snapshot machine-id)))
+  (some? (rf.machines.test-support/snapshot machine-id)))
 
 (defn- with-recorder
   "Register a recorder, run `body-fn`, return captured
   :rf.warning/runtime-state-dropped events. Routed through the shared
-  `mtest/with-trace-capture` — guaranteed unregister in a `finally`."
+  `rf.machines.test-support/with-trace-capture` — guaranteed unregister in a `finally`."
   [body-fn]
-  (mtest/with-trace-capture recorded
+  (rf.machines.test-support/with-trace-capture recorded
     (body-fn)
     (->> @recorded
          (filter #(= :rf.warning/runtime-state-dropped (:operation %)))
@@ -110,11 +110,11 @@
     (register-live-machine!)
     ;; Reproduce the revertible-restore path: install a fresh runtime-db that
     ;; carries NO machine snapshot (e.g. restoring to a pre-spawn epoch) via
-    ;; the runtime-db PARTITION write `frame/swap-runtime-db!`. This is the
+    ;; the runtime-db PARTITION write `rf.frame/swap-runtime-db!`. This is the
     ;; LEGITIMATE way machine liveness reverts (Goal 2 — frame state
     ;; revertibility); no warning, the snapshot is gone by design.
     (let [warnings (with-recorder
-                     #(frame/swap-runtime-db! :rf/default (constantly {})))]
+                     #(rf.frame/swap-runtime-db! :rf/default (constantly {})))]
       (is (empty? warnings)
           "a direct runtime-db replace is the revertible-restore path — no footgun")
       (is (not (live-snapshot? :diag/m1))

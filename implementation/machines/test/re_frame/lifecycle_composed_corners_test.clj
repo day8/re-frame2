@@ -23,29 +23,29 @@
   contractual — the runtime always emits the 4-element shape)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
+            [re-frame.frame :as rf.frame]
             [re-frame.machines]
-            [re-frame.machines.spawn-order :as spawn-order]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.machines.timer :as timer]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]))
+            [re-frame.machines.spawn-order :as rf.machines.spawn-order]
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.machines.timer :as rf.machines.timer]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace :as rf.trace]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- helpers --------------------------------------------------------------
 
-;; Intentional RAW manual-stop listener (not mtest/with-trace-capture): hands
+;; Intentional RAW manual-stop listener (not rf.machines.test-support/with-trace-capture): hands
 ;; the caller a [observation-atom unregister-fn] pair so the test controls
 ;; exactly WHEN it stops listening — the scope-macro form cannot express that.
 (defn- record!
   "Attach a trace listener and return [observation-atom unreg-fn]."
   [id]
   (let [a (atom [])]
-    (trace/register-listener! id (fn [ev] (swap! a conj ev)))
-    [a #(trace/unregister-listener! id)]))
+    (rf.trace/register-listener! id (fn [ev] (swap! a conj ev)))
+    [a #(rf.trace/unregister-listener! id)]))
 
 ;; ---------------------------------------------------------------------------
 ;; 1. Stale :after firing AFTER frame destroy
@@ -75,13 +75,13 @@
       (rf/reg-machine :corner.timer/m m)
       (rf/dispatch-sync [:corner.timer/m [:fetch]] {:frame :corner.timer/scoped})
       ;; The timer table now has an entry for the frame.
-      (is (contains? @timer/after-timers :corner.timer/scoped)
+      (is (contains? @rf.machines.timer/after-timers :corner.timer/scoped)
           "precondition: timer table holds an entry for the frame")
 
       ;; Destroy the frame. The :machines/on-frame-destroyed! late-bind
       ;; hook releases the host-clock handle and drops the inner entry.
-      (frame/destroy-frame! :corner.timer/scoped)
-      (is (not (contains? @timer/after-timers :corner.timer/scoped))
+      (rf.frame/destroy-frame! :corner.timer/scoped)
+      (is (not (contains? @rf.machines.timer/after-timers :corner.timer/scoped))
           "post-destroy: timer table no longer holds a residue for the destroyed frame")
 
       ;; The synthetic stale firing — emulates the host clock waking up
@@ -150,7 +150,7 @@
             "actor A snapshot is gone")
         (is (some? (get-in db [:rf.runtime/machines :snapshots :corner.sid/child#2]))
             "actor B snapshot is live")
-        (is (nil? (registrar/lookup :event :corner.sid/child#1))
+        (is (nil? (rf.registrar/lookup :event :corner.sid/child#1))
             "actor A handler is unregistered post-destroy"))
 
       ;; Fire the stale synthetic :after-elapsed keyed on A's id.
@@ -216,8 +216,8 @@
         (is (false? (:resolved? j)) "join not yet resolved"))
 
       ;; Destroy the parent frame BEFORE any child completes.
-      (frame/destroy-frame! :corner.ia/scoped)
-      (is (nil? (frame/frame :corner.ia/scoped))
+      (rf.frame/destroy-frame! :corner.ia/scoped)
+      (is (nil? (rf.frame/frame :corner.ia/scoped))
           "frame is destroyed")
 
       ;; Late child completion: synthetic dispatch into the
@@ -263,7 +263,7 @@
       (rf/reg-machine :corner.dyn/m m)
       (rf/dispatch-sync [:corner.dyn/m [:fetch]])
       ;; Timer table has an entry.
-      (is (seq (get @timer/after-timers :rf/default))
+      (is (seq (get @rf.machines.timer/after-timers :rf/default))
           "precondition: timer table holds the in-flight entry")
 
       ;; Capture the entry's epoch BEFORE we exit :loading.
@@ -281,8 +281,8 @@
         ;; The timer table's inner map should have the entry dropped;
         ;; per timer.cljc when the inner map empties the OUTER frame
         ;; entry is also dropped.
-        (is (or (not (contains? @timer/after-timers :rf/default))
-                (empty? (get @timer/after-timers :rf/default)))
+        (is (or (not (contains? @rf.machines.timer/after-timers :rf/default))
+                (empty? (get @rf.machines.timer/after-timers :rf/default)))
             "timer table residue for the frame is cleared on state exit")
 
         ;; Now the stale firing — synthetic carrying epoch-loading
@@ -364,7 +364,7 @@
       (rf/dispatch-sync [:corner.leak/ia-parent [:start]] {:frame :corner.leak/scoped}))
 
     ;; --- preconditions ----------------------------------------------------
-    (is (contains? @timer/after-timers :corner.leak/scoped)
+    (is (contains? @rf.machines.timer/after-timers :corner.leak/scoped)
         "precondition: timer table holds the :after entry for the frame")
     (let [db (:rf.db/runtime (rf/frame-state-value :corner.leak/scoped))]
       (is (= :corner.leak/child#1
@@ -374,31 +374,31 @@
           "precondition: invoke-all join slot is seeded")
       (is (some? (get-in db [:rf.runtime/machines :snapshots :corner.leak/child#1]))
           "precondition: spawned actor snapshot is live"))
-    (is (pos? (count (spawn-order/frame-order :corner.leak/scoped)))
+    (is (pos? (count (rf.machines.spawn-order/frame-order :corner.leak/scoped)))
         "precondition: spawn-order channel has entries")
     ;; A spawned actor carries NO per-instance registrar entry; its
     ;; liveness is its snapshot's presence in app-db (asserted live above).
     ;; The registrar precondition is therefore inverted.
-    (is (nil? (registrar/lookup :event :corner.leak/child#1))
+    (is (nil? (rf.registrar/lookup :event :corner.leak/child#1))
         "precondition: spawned actor has no per-instance registrar entry (liveness lives in its app-db snapshot)")
 
     ;; --- destroy ----------------------------------------------------------
-    (frame/destroy-frame! :corner.leak/scoped)
+    (rf.frame/destroy-frame! :corner.leak/scoped)
 
     ;; --- composed post-condition: every per-frame slot is cleared -------
-    (is (not (contains? @timer/after-timers :corner.leak/scoped))
+    (is (not (contains? @rf.machines.timer/after-timers :corner.leak/scoped))
         "post: timer table no longer holds an entry for the destroyed frame")
-    (is (nil? (frame/frame :corner.leak/scoped))
+    (is (nil? (rf.frame/frame :corner.leak/scoped))
         "post: frame is dissoc'd from the frames atom")
     (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :corner.leak/scoped))
                       [:rf.runtime/machines :snapshots :corner.leak/child#1]))
         "post: spawned actor's snapshot is gone — its liveness (snapshot-based) is cleared (rf2-a2sn1)")
-    (is (= [] (spawn-order/frame-order :corner.leak/scoped))
+    (is (= [] (rf.machines.spawn-order/frame-order :corner.leak/scoped))
         "post: spawn-order channel is empty for the destroyed frame")
     ;; The singletons (:corner.leak/timer, :corner.leak/boot, :corner.leak/
     ;; ia-parent, :corner.leak/ia-child, :corner.leak/child) stay
     ;; registered — they're global handlers, not frame-scoped.
-    (is (some? (registrar/lookup :event :corner.leak/timer))
+    (is (some? (rf.registrar/lookup :event :corner.leak/timer))
         "post: singleton timer handler stays globally registered (not frame-scoped)")
-    (is (some? (registrar/lookup :event :corner.leak/ia-parent))
+    (is (some? (rf.registrar/lookup :event :corner.leak/ia-parent))
         "post: singleton invoke-all parent handler stays globally registered")))

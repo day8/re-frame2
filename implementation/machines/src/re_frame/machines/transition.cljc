@@ -20,7 +20,7 @@
   determinism the conformance corpus, the SSR pure-fn surface, and
   `machine_transition_purity_test` rely on.
 
-  It is NOT effect-free of observability: the reducer emits `trace/emit!`
+  It is NOT effect-free of observability: the reducer emits `rf.trace/emit!`
   diagnostic events (guard outcomes, action runs, history record/restore,
   timer scheduling, microsteps, depth-limit aborts, unhandled-event
   no-ops) on the process-wide Spec 009 trace stream, exactly as the rest
@@ -49,14 +49,14 @@
   fixtures (Spec 005 §Conformance fixtures)."
   (:require [clojure.set :as set]
             [clojure.string :as str]
-            [re-frame.error :as error]
-            [re-frame.machines.cofx-attach :as cofx-attach]
-            [re-frame.machines.grammar :as grammar]
-            [re-frame.machines.path-walk :as path-walk]
-            [re-frame.machines.reply :as m-reply]
-            [re-frame.machines.result :as result
+            [re-frame.error :as rf.error]
+            [re-frame.machines.cofx-attach :as rf.machines.cofx-attach]
+            [re-frame.machines.grammar :as rf.machines.grammar]
+            [re-frame.machines.path-walk :as rf.machines.path-walk]
+            [re-frame.machines.reply :as rf.machines.reply]
+            [re-frame.machines.result :as rf.machines.result
              #?@(:cljs [:include-macros true])]
-            [re-frame.trace :as trace]))
+            [re-frame.trace :as rf.trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -159,7 +159,7 @@
   `:recovery` defaults to `:fix-registration` (these are caller-fixable
   registration-shape errors) unless overridden in `extras` via `:rf/recovery`."
   [category reason extras]
-  (error/thrown-ex-info category 'rf/reg-machine reason
+  (rf.error/thrown-ex-info category 'rf/reg-machine reason
                         {:recovery (or (:rf/recovery extras) :fix-registration)
                          :extra    (dissoc extras :rf/recovery)}))
 
@@ -355,11 +355,11 @@
 ;; guard SURFACES the error and ABORTS transition selection — it is never
 ;; silently demoted to a lower-priority candidate, a wildcard tier, or an
 ;; ancestor edge. re-frame2 aligns by routing a guard throw through the
-;; SAME failure surface a THROWING ACTION takes: a `result/fail` macrostep
+;; SAME failure surface a THROWING ACTION takes: a `rf.machines.result/fail` macrostep
 ;; (atomic rollback — no snapshot write reaches runtime-db; the handler
 ;; short-circuits to `{}`). This is the exact contract the bounded-depth
 ;; abort already uses (XState v5 THROWS on a runaway cycle → re-frame2's
-;; `result/depth-abort` `:fail`), so a guard throw, an action throw, and a
+;; `rf.machines.result/depth-abort` `:fail`), so a guard throw, an action throw, and a
 ;; depth abort all converge on one failed-macrostep semantic.
 ;;
 ;; `evaluate-guard` is invoked DEEP inside the candidate-walk (`some` over
@@ -368,9 +368,9 @@
 ;; surface across the whole engine. Instead the throw is rethrown as a
 ;; TAGGED signal that the two pure-engine entry boundaries
 ;; (`parallel/machine-transition` + `parallel/apply-initial-entry-cascade`)
-;; catch once and convert to a `result/fail` — the same single-chokepoint
+;; catch once and convert to a `rf.machines.result/fail` — the same single-chokepoint
 ;; shape the engine already uses, and symmetric with how `run-action`
-;; returns its `result/fail` straight out of the cascade.
+;; returns its `rf.machines.result/fail` straight out of the cascade.
 
 (def ^:private guard-threw-key
   "Marker key stamped on the `ex-data` of the tagged guard-throw signal so
@@ -383,17 +383,17 @@
   "True iff `e` is the tagged guard-throw signal `evaluate-guard` rethrows
   when a user guard body throws — distinguishing it from the bad-form /
   unresolved-ref `ex-info`s (which propagate as raw exceptions, never
-  demoted to a `result/fail`)."
+  demoted to a `rf.machines.result/fail`)."
   [e]
   (and #?(:clj (instance? clojure.lang.ExceptionInfo e)
           :cljs (instance? cljs.core/ExceptionInfo e))
        (get (ex-data e) guard-threw-key)))
 
 (defn guard-threw->fail-info
-  "Project a tagged guard-throw signal's `ex-data` into a `result/fail`
+  "Project a tagged guard-throw signal's `ex-data` into a `rf.machines.result/fail`
   `::info` map — carrying the original `:exception`, the throwing
   `:guard-ref`, and the `:state-path` — for the engine boundary to wrap
-  via `result/fail`. The shape mirrors `run-action`'s failure info
+  via `rf.machines.result/fail`. The shape mirrors `run-action`'s failure info
   (`:exception` is the key `trace-action-failure!` reads) so a guard throw
   routes through the SAME `:rf.error/machine-action-exception` handler
   surface as an action throw, per the XState-v5 alignment ruling."
@@ -421,7 +421,7 @@
   selection — it is never swallowed and demoted to a lower-priority
   candidate. The engine boundaries (`parallel/machine-transition` /
   `apply-initial-entry-cascade`) catch the tagged signal and convert it to
-  a `result/fail`, routing it through the SAME failed-macrostep /
+  a `rf.machines.result/fail`, routing it through the SAME failed-macrostep /
   atomic-rollback surface a throwing ACTION takes (and the bounded-depth
   abort takes for the XState-v5-throws runaway cycle). This makes a guard
   throw, an action throw, and a depth abort converge on one failure
@@ -459,7 +459,7 @@
           input      {:data (:data snapshot) :event event}]
       (try
         (let [outcome (boolean (call-guard machine g snapshot event))]
-          (trace/emit! :rf.machine :rf.machine/guard-evaluated
+          (rf.trace/emit! :rf.machine :rf.machine/guard-evaluated
                        {:actor-id   actor-id
                         :guard-id   guard-ref
                         :input      input
@@ -468,7 +468,7 @@
                         :frame      frame-id})
           outcome)
         (catch #?(:clj Throwable :cljs :default) e
-          (trace/emit! :rf.machine :rf.machine/guard-evaluated
+          (rf.trace/emit! :rf.machine :rf.machine/guard-evaluated
                        {:actor-id   actor-id
                         :guard-id   guard-ref
                         :input      input
@@ -479,7 +479,7 @@
           ;; XState v5 alignment: surface the guard error and
           ;; abort selection — do NOT swallow it as `:fail` and walk to the
           ;; next candidate. Rethrow a TAGGED signal the engine boundary
-          ;; converts to a `result/fail` (the same failed-macrostep surface
+          ;; converts to a `rf.machines.result/fail` (the same failed-macrostep surface
           ;; an action throw / depth abort takes). The original exception
           ;; rides under `:exception` so the boundary's failure info matches
           ;; `run-action`'s shape.
@@ -618,14 +618,14 @@
 
 (defn node-at
   "Walk machine.:states down `path` returning the leaf state-node (or nil
-  if path doesn't resolve). Thin wrapper over `grammar/node-at` (the
+  if path doesn't resolve). Thin wrapper over `rf.machines.grammar/node-at` (the
   shared root→leaf descent the registration validators also consume) —
   passes the machine's `:states` scope. Kept as a public name here so
   the engine's many call sites (and `parallel` / `finalize` /
   `registration` / `spawn-error`) need not reach into `grammar`
   directly."
   [machine path]
-  (grammar/node-at (:states machine) path))
+  (rf.machines.grammar/node-at (:states machine) path))
 
 (defn nodes-along-path
   "Return [[prefix-path node] ...] from root down to leaf. Skips nodes
@@ -747,16 +747,16 @@
   `:always` → `machine-bad-always`).
 
   Delegates the value-form → candidate-maps mapping to the SHARED
-  `grammar/candidate-maps`, which returns nil
+  `rf.machines.grammar/candidate-maps`, which returns nil
   for the malformed form so THIS runtime caller keeps its slot-specific error
   taxonomy (`bad-value-id`) while the static cofx / validation walkers degrade
-  malformed input to `[]`. `grammar/candidate-maps` builds on the same
-  `grammar/transition-value-form` recogniser the registration target validator
-  (`grammar/candidate-targets`) also uses, so the runtime normaliser and the
+  malformed input to `[]`. `rf.machines.grammar/candidate-maps` builds on the same
+  `rf.machines.grammar/transition-value-form` recogniser the registration target validator
+  (`rf.machines.grammar/candidate-targets`) also uses, so the runtime normaliser and the
   registration walker can never drift on what shapes the grammar admits."
   [v bad-value-id]
-  (or (grammar/candidate-maps v)
-      ;; `grammar/candidate-maps` returns nil ONLY for the malformed
+  (or (rf.machines.grammar/candidate-maps v)
+      ;; `rf.machines.grammar/candidate-maps` returns nil ONLY for the malformed
       ;; (`:other`) form — every recognised form (incl. the `:nil`
       ;; forbidden-transition / internal no-op → `[{}]`) yields a candidate
       ;; vector. This runtime caller maps that nil to its slot-specific throw.
@@ -780,10 +780,10 @@
   spec-path discriminator: for the index-free forms the
   carried `:candidate-idx` is nil so `cascade-row-source-key` emits the
   bare-slot shape that matches the macro's keying. Delegates to the
-  shared `grammar/candidate-vector-form?` so the per-index decision and
+  shared `rf.machines.grammar/candidate-vector-form?` so the per-index decision and
   the `normalise-candidates` arm read the same recogniser."
   [v]
-  (grammar/candidate-vector-form? v))
+  (rf.machines.grammar/candidate-vector-form? v))
 
 (defn- transition-slot
   "Build the structured spec-path DISCRIMINATOR carried on a
@@ -1284,7 +1284,7 @@
         ;; Fall through to the standard leaf→root `:on` walk (an ancestor's
         ;; explicit `:on {:rf.machine/done …}`), then the root `:on`.
         (or
-          (path-walk/walk-path-leaf-to-root
+          (rf.machines.path-walk/walk-path-leaf-to-root
             machine path
             (fn [prefix n]
               (when-let [hit (match-on-clause machine n done-event-id event snapshot)]
@@ -1387,7 +1387,7 @@
         ;; Fall through to the standard leaf→root `:on` walk (an ancestor's
         ;; explicit `:on {:rf.machine.spawn/error …}`), then the root `:on`.
         (or
-          (path-walk/walk-path-leaf-to-root
+          (rf.machines.path-walk/walk-path-leaf-to-root
             machine path
             (fn [prefix n]
               (when-let [hit (match-on-clause machine n spawn-error-event-id event snapshot)]
@@ -1398,7 +1398,7 @@
 (defn pick-transition
   "Walk path leaf→root looking for a transition that matches event-id and
   whose guard passes. Per Spec 005 §Transition resolution — deepest-wins
-  with parent fallthrough (the rule named in `path-walk/walk-path-leaf-
+  with parent fallthrough (the rule named in `rf.machines.path-walk/walk-path-leaf-
   to-root`).
 
   The walk terminates at the **machine root's own `:on`** (Spec 005
@@ -1431,7 +1431,7 @@
       :else
       (or
         ;; Steps 1-5: leaf→root over the active state-path nodes.
-        (path-walk/walk-path-leaf-to-root
+        (rf.machines.path-walk/walk-path-leaf-to-root
           machine path
           (fn [prefix n]
             (when-let [hit (match-on-clause machine n event-id event snapshot)]
@@ -1563,9 +1563,9 @@
 
 (def history-node?
   "True iff `node` is a history pseudo-state (`:type :history`). The
-  shared `grammar/history-node?` — re-exported here so the engine's
+  shared `rf.machines.grammar/history-node?` — re-exported here so the engine's
   internal call sites need not require `grammar` directly."
-  grammar/history-node?)
+  rf.machines.grammar/history-node?)
 
 (defn state-occupiable?
   "True iff `state` (a flat keyword or compound vector path) resolves
@@ -1790,7 +1790,7 @@
   path `fallback` is absent and `restored-config` carries the recorded
   value."
   [machine compound-path resolved-leaf source kind restored-config fallback]
-  (trace/emit! :rf.machine :rf.machine.history/restored
+  (rf.trace/emit! :rf.machine :rf.machine.history/restored
                ;; The actor whose live transition restored
                ;; history is a running INSTANCE; address it by `:actor-id`
                ;; (`:machine-id` is the registered TYPE).
@@ -1809,7 +1809,7 @@
   `:recorded-config`, `:kind`, and (when not the first-ever recording)
   `:prev-config`."
   [machine recorded]
-  (trace/emit! :rf.machine :rf.machine.history/recorded
+  (rf.trace/emit! :rf.machine :rf.machine.history/recorded
                ;; The actor whose live exit recorded history is
                ;; a running INSTANCE; address it by `:actor-id`
                ;; (`:machine-id` is the registered TYPE).
@@ -1817,7 +1817,7 @@
                        :frame    (:rf/frame machine)}
                       recorded)))
 
-;; When an action throws, `run-action` returns a `result/fail` carrying
+;; When an action throws, `run-action` returns a `rf.machines.result/fail` carrying
 ;; `{:action-ref :exception}`. `collect-actions` propagates the failure;
 ;; `apply-transition-once` / `machine-transition-single` enrich it with
 ;; transition-level context; the outer event handler converts it into a
@@ -1827,7 +1827,7 @@
 
 (defn- run-action
   "Run one action ref and return either a plain effects map (success) or a
-  `result/fail` Result (the action threw). Successful actions may return
+  `rf.machines.result/fail` Result (the action threw). Successful actions may return
   `nil` (treated as `{}`).
 
   Every user-declared action invocation emits
@@ -1870,15 +1870,15 @@
                       transition-slot (assoc :transition-slot transition-slot))]
       (try
         (let [r (call-action machine f snap event)]
-          (trace/emit! :rf.machine :rf.machine/action-ran
+          (rf.trace/emit! :rf.machine :rf.machine/action-ran
                        (assoc base-tags :outcome (if (nil? r) :ok r)))
           (or r {}))
         (catch #?(:clj Throwable :cljs :default) e
-          (trace/emit! :rf.machine :rf.machine/action-ran
+          (rf.trace/emit! :rf.machine :rf.machine/action-ran
                        (assoc base-tags
                               :outcome   :rf.error/action-threw
                               :exception e))
-          (result/fail {:action-ref action-ref
+          (rf.machines.result/fail {:action-ref action-ref
                         :exception  e}))))
     {})))
 
@@ -1896,14 +1896,14 @@
   `{:machine-id :action-id :state-path :offending-value}`, recovery
   `:logged-and-skipped`.
 
-  `r` is the action's plain effects map (a `result/fail` has already been
+  `r` is the action's plain effects map (a `rf.machines.result/fail` has already been
   short-circuited by the caller, so this only ever sees a success map);
   `action-ref` and the `:state` path ride the diagnostic so the operator
   can locate the offending action."
   [machine r action-ref state-path]
   (if (and (map? r) (contains? r :db))
     (do
-      (trace/emit-error! :rf.error/machine-action-wrote-db
+      (rf.trace/emit-error! :rf.error/machine-action-wrote-db
                          ;; The offending action ran against a
                          ;; LIVE actor; address it by `:actor-id` (the
                          ;; running INSTANCE), not `:machine-id` (the TYPE).
@@ -1964,9 +1964,9 @@
 (defn- collect-actions
   "Walk `step` maps in order, calling each step's `:action` with snap+event
   and threading the resulting :data updates forward (so each action sees
-  the previous one's data). Returns a `result/ok` carrying
+  the previous one's data). Returns a `rf.machines.result/ok` carrying
   `[final-snapshot fx-vec cascade-steps]` (the third slot rides the Result
-  via `result/with-cascade`), or the `result/fail` Result the first
+  via `rf.machines.result/with-cascade`), or the `rf.machines.result/fail` Result the first
   throwing action produced — per Spec 005 §Errors, the cascade halts on
   the first throw and the snapshot does not commit.
 
@@ -1992,16 +1992,16 @@
   `:action` / `:data-delta`) — the driver `:phase` is an input that routes
   the emit, not part of the step shape the consumer reads. The accumulated
   cascade-step vector rides the returned `:ok` Result via
-  `result/with-cascade`; a `:fail` (a throwing action) carries no cascade —
+  `rf.machines.result/with-cascade`; a `:fail` (a throwing action) carries no cascade —
   the snapshot does not commit, so the partial walk is not surfaced."
   [machine snap event steps]
   ;; Internal accumulator is a `[result cascade-steps]` tuple so the
-  ;; cascade threads alongside the Result without widening `result/ok`'s
+  ;; cascade threads alongside the Result without widening `rf.machines.result/ok`'s
   ;; arity (which would churn every caller). `reduced` short-circuits on
   ;; the first throwing action, carrying the bare `:fail` Result.
   (let [acc (reduce
               (fn [[acc-r cascade] {:keys [kind phase action state region source transition-slot]}]
-                (result/with-ok [snap fx] acc-r
+                (rf.machines.result/with-ok [snap fx] acc-r
                   (let [before-data (:data snap)
                         emit-phase  (or phase kind)
                         ;; Per spec/009 §History trace events (line 291): a
@@ -2016,7 +2016,7 @@
                                       source (assoc :source source))]
                     (if action
                       (let [r0 (run-action machine snap action event emit-phase transition-slot)]
-                        (if (result/fail? r0)
+                        (if (rf.machines.result/fail? r0)
                           (reduced [r0 cascade])
                           ;; Per Spec 005 §Hard-disallow `:db`: strip any `:db`
                           ;; write (emitting the structured error) through the
@@ -2029,16 +2029,16 @@
                                 new-fx   (vec (concat fx (or (:fx r) [])))
                                 step     (assoc base-step
                                                 :data-delta (data-delta before-data new-data))]
-                            [(result/ok new-snap new-fx) (conj cascade step)])))
+                            [(rf.machines.result/ok new-snap new-fx) (conj cascade step)])))
                       ;; No action declared for this boundary — record the
                       ;; state-entered/exited step anyway (empty delta) so the
                       ;; cascade carries the full configuration walk, then
                       ;; carry the snapshot + fx unchanged.
                       [acc-r (conj cascade (assoc base-step :data-delta {}))]))))
-              [(result/ok snap []) []]
+              [(rf.machines.result/ok snap []) []]
               steps)
         [final-r cascade] acc]
-    (result/with-cascade final-r cascade)))
+    (rf.machines.result/with-cascade final-r cascade)))
 
 ;; ---- apply-transition-once helpers ----------------------------------------
 ;;
@@ -2056,7 +2056,7 @@
   the moment of entry. The fn is invoked with
   the unified context-map shape. The fn runs against the post-action
   snapshot (any :action :data writes are visible). Returns
-  `[::ok-data <materialised-data>]` on success, or a `result/fail` Result
+  `[::ok-data <materialised-data>]` on success, or a `rf.machines.result/fail` Result
   carrying `{:exception <e>}` if the fn threw — caller stamps
   `:action-ref` / `:invoke-id` / `:child-id` onto the Result before
   propagating."
@@ -2065,7 +2065,7 @@
     (try
       [::ok-data (d {:snapshot snap :event event})]
       (catch #?(:clj Throwable :cljs :default) e
-        (result/fail {:exception e})))
+        (rf.machines.result/fail {:exception e})))
     [::ok-data d]))
 
 (defn- build-after-fx
@@ -2116,7 +2116,7 @@
                           ;; actual resolved-ms once it has frame access).
                           ms-tag       delay-key]
                       (if server?
-                        (trace/emit! :rf.machine :rf.machine.timer/skipped-on-server
+                        (rf.trace/emit! :rf.machine :rf.machine.timer/skipped-on-server
                                      (cond-> {;; Owning actor INSTANCE.
                                               :actor-id     parent-id
                                               :state        leaf-state
@@ -2131,7 +2131,7 @@
                                        (= :sub delay-source)
                                        (assoc :rf.sub/id      (first delay-key)
                                               :rf.sub/query-v (vec delay-key))))
-                        (trace/emit! :rf.machine :rf.machine.timer/scheduled
+                        (rf.trace/emit! :rf.machine :rf.machine.timer/scheduled
                                      (cond-> {;; Owning actor INSTANCE.
                                               :actor-id     parent-id
                                               :state        leaf-state
@@ -2334,7 +2334,7 @@
   `(assoc data :pending id)`) has that value silently dropped, which is the
   exact trap the advisory contract sets. Surface it: emit a dev-only
   `:rf.warning/on-spawn-return-ignored` advisory naming the three working
-  id-recording alternatives. `trace/emit!` is gated on
+  id-recording alternatives. `rf.trace/emit!` is gated on
   `interop/debug-enabled?` (Closure DCE / JVM flag) so this is production-
   free and adds no module-level mutable state — the engine stays a pure
   function of `[machine snapshot event]`.
@@ -2343,7 +2343,7 @@
   action like any other, so a THROW must route through the documented
   machine action exception contract — NOT escape as a generic
   `:rf.error/handler-exception`. Mirroring `run-action` / `materialise-data`,
-  the call is wrapped in try/catch: on throw, return a `result/fail`
+  the call is wrapped in try/catch: on throw, return a `rf.machines.result/fail`
   Result stamped with the stable action id `:rf.machine.spawn/on-spawn` plus
   enough context to locate the spawn (`:spawned-id`; the caller adds
   `:invoke-id` / `:child-id`, and `apply-transition-once` stamps
@@ -2364,7 +2364,7 @@
     (try
       (let [ret (f {:data (:data snap) :id spawned-id})]
         (when (some? ret)
-          (trace/emit! :warning :rf.warning/on-spawn-return-ignored
+          (rf.trace/emit! :warning :rf.warning/on-spawn-return-ignored
                        ;; The spawning parent is a LIVE actor
                        ;; INSTANCE; address it by `:actor-id`. `:spawned-id`
                        ;; is the freshly-spawned child's instance address.
@@ -2376,7 +2376,7 @@
                                      :rf.machine/update-snapshot]}))
         snap)
       (catch #?(:clj Throwable :cljs :default) e
-        (result/fail {:action-ref :rf.machine.spawn/on-spawn
+        (rf.machines.result/fail {:action-ref :rf.machine.spawn/on-spawn
                       :spawned-id spawned-id
                       :exception  e})))
     snap))
@@ -2384,10 +2384,10 @@
 (defn- spawn-one
   "Single-spawn primitive shared by `:spawn` and `:spawn-all` per-child.
   Materialises any `:data` fn-form against `mat-snap` + `event` (Spec 005
-  §Spec-spec keys); on failure returns a `result/fail` Result
+  §Spec-spec keys); on failure returns a `rf.machines.result/fail` Result
   stamped with `failure-extra`. On success builds the spawn-args via
   `args-builder` (mode-specific wiring of `:rf/parent-id` /
-  `:rf/invoke-id` / `:rf/spawn-all-id` keys) and returns a `result/ok`
+  `:rf/invoke-id` / `:rf/spawn-all-id` keys) and returns a `rf.machines.result/ok`
   Result carrying the single-element `[[:rf.machine/spawn args]]` fx vec.
 
   `:on-spawn` is intentionally NOT invoked here — the caller threads it
@@ -2397,14 +2397,14 @@
   (let [mat-result (if (contains? spawn-spec :data)
                      (materialise-data (:data spawn-spec) mat-snap event)
                      [::ok-data nil])]
-    (if (result/fail? mat-result)
-      (result/fail-with mat-result failure-extra)
+    (if (rf.machines.result/fail? mat-result)
+      (rf.machines.result/fail-with mat-result failure-extra)
       (let [mat-data    (second mat-result)
             spawn-spec' (if (contains? spawn-spec :data)
                           (assoc spawn-spec :data mat-data)
                           spawn-spec)
             spawn-args  (args-builder spawn-spec' spawned-id)]
-        (result/ok spawn-args [[:rf.machine/spawn spawn-args]])))))
+        (rf.machines.result/ok spawn-args [[:rf.machine/spawn spawn-args]])))))
 
 ;; ---- :spawn / :spawn-all spawn reducers ----------------------------------
 
@@ -2415,7 +2415,7 @@
   runs the `:on-spawn` advisory callback.
 
   Returns `[snap-after acc-fx']` for the reducer, or a `reduced` wrapper
-  around a `result/fail` Result on failure. The failure is stamped
+  around a `rf.machines.result/fail` Result on failure. The failure is stamped
   `:action-ref :rf.machine.spawn/data-fn` + `:invoke-id` for a `:data`-fn throw,
   or `:action-ref :rf.machine.spawn/on-spawn` + `:invoke-id`
   (carried up from `apply-on-spawn`) for a throwing `:on-spawn` callback,
@@ -2435,16 +2435,16 @@
         spawn-r      (spawn-one spawn-spec s-alloc event id args-builder
                                 {:action-ref :rf.machine.spawn/data-fn
                                  :invoke-id  invoke-id})]
-    (if (result/fail? spawn-r)
+    (if (rf.machines.result/fail? spawn-r)
       (reduced spawn-r)
-      (let [spawn-fx (result/fx spawn-r)
+      (let [spawn-fx (rf.machines.result/fx spawn-r)
             ;; A throwing `:on-spawn` callback returns a
-            ;; `result/fail` (not a snapshot) — short-circuit the spawn
+            ;; `rf.machines.result/fail` (not a snapshot) — short-circuit the spawn
             ;; reducer so no parent/child snapshot or registry slot commits
             ;; and the accumulated fx is dropped at the lifecycle boundary.
             s'       (apply-on-spawn machine s-alloc spawn-spec id)]
-        (if (result/fail? s')
-          (reduced (result/fail-with s' {:invoke-id invoke-id}))
+        (if (rf.machines.result/fail? s')
+          (reduced (rf.machines.result/fail-with s' {:invoke-id invoke-id}))
           ;; Bind the assigned actor id into the parent's
           ;; own `:data` under `[:rf/spawned <invoke-id>]` (XState-context
           ;; parity). Threaded onto the parent snapshot AFTER the advisory
@@ -2478,7 +2478,7 @@
       threading `:data` writes across siblings.
 
   Returns `[snap-after acc-fx']` for the reducer, or a `reduced` wrapper
-  around a `result/fail` Result (stamped with
+  around a `rf.machines.result/fail` Result (stamped with
   `:action-ref :rf.machine.spawn-all/data-fn`, `:invoke-id`, and the failing
   `:child-id`) on `:data` failure."
   [machine parent-id s acc-fx prefix n event]
@@ -2520,15 +2520,15 @@
                                {:action-ref :rf.machine.spawn-all/data-fn
                                 :invoke-id  invoke-id
                                 :child-id   (:id child)})]
-              (if (result/fail? r)
+              (if (rf.machines.result/fail? r)
                 (reduced r)
-                (into acc (result/fx r)))))
+                (into acc (rf.machines.result/fx r)))))
           []
           children-with-ids)]
-    (if (result/fail? spawn-fxs-r)
+    (if (rf.machines.result/fail? spawn-fxs-r)
       (reduced spawn-fxs-r)
       ;; (4) Thread :on-spawn advisory callbacks across siblings. Per
-      ;; A throwing child `:on-spawn` returns a `result/fail`
+      ;; A throwing child `:on-spawn` returns a `rf.machines.result/fail`
       ;; (not the threaded snapshot); short-circuit the sibling reduce on
       ;; the FIRST throw — stamping the failing `:child-id` + `:invoke-id`
       ;; onto the failure — so the reducer never terminates mid-spawn
@@ -2557,13 +2557,13 @@
             s' (reduce
                  (fn [snap child]
                    (let [r (apply-on-spawn machine snap child (:rf/spawned-id child))]
-                     (if (result/fail? r)
-                       (reduced (result/fail-with r {:invoke-id invoke-id
+                     (if (rf.machines.result/fail? r)
+                       (reduced (rf.machines.result/fail-with r {:invoke-id invoke-id
                                                      :child-id (:id child)}))
                        r)))
                  s-alloc
                  children-with-ids)]
-        (if (result/fail? s')
+        (if (rf.machines.result/fail? s')
           (reduced s')
           ;; Bind the `:spawn-all`'s children id-map into the
           ;; parent's own `:data` under `[:rf/spawned <invoke-id>]` (the whole
@@ -2754,9 +2754,9 @@
   selected candidate's `:action` and collects its `:fx`. The `:on-done` value
   is normalised through the SAME candidate machinery as an `:on` clause
   (a guarded candidate-vector resolves first-guard-pass-wins; a bare action-
-  less keyword / map is a data no-op). Returns a `result/ok` carrying
+  less keyword / map is a data no-op). Returns a `rf.machines.result/ok` carrying
   `[snap' fx]` (the action's `:data` merged, `:fx` collected), or a
-  `result/fail` if the action threw. A nil / no-candidate `:on-done` returns
+  `rf.machines.result/fail` if the action threw. A nil / no-candidate `:on-done` returns
   `(ok snap [])` unchanged. Invoked with the synthetic
   `[:rf.machine/done []]` event so a 3-arity action introspecting `:event`
   sees the reserved done discriminator.
@@ -2777,14 +2777,14 @@
         event [done-event-id []]
         tspec (select-passing-candidate machine cands snap event)]
     (if (nil? tspec)
-      (result/ok snap [])
+      (rf.machines.result/ok snap [])
       (let [r0 (run-action machine snap (:action tspec) event :transition)]
-        (if (result/fail? r0)
+        (if (rf.machines.result/fail? r0)
           r0
           (let [r        (enforce-db-disallow machine r0 (:action tspec) (:state snap))
                 new-data (cond-> (:data snap)
                            (contains? r :data) (merge (:data r)))]
-            (result/ok (assoc snap :data new-data) (vec (or (:fx r) [])))))))))
+            (rf.machines.result/ok (assoc snap :data new-data) (vec (or (:fx r) [])))))))))
 
 (defn run-root-transition-action
   "Per Spec 005 §Transition broadcast §Root parallel `:on`: run a
@@ -2802,8 +2802,8 @@
   compound `:on-done` path. The action's effects flow through the shared
   `enforce-db-disallow` choke-point so a `:db` write produces the same
   `:rf.error/machine-action-wrote-db` diagnostic + strip as every other
-  phase. Returns a `result/ok` carrying `[snap' fx]` (action's `:data`
-  merged, `:fx` collected), or a `result/fail` if the action threw. A
+  phase. Returns a `rf.machines.result/ok` carrying `[snap' fx]` (action's `:data`
+  merged, `:fx` collected), or a `rf.machines.result/fail` if the action threw. A
   targetless / action-less transition returns `(ok snap [])`."
   [machine snap transition event]
   (let [;; The root `:on` lives OUTSIDE `:states` (decl-path
@@ -2814,12 +2814,12 @@
         transition (finalize-on-transition-slot transition [])
         r0 (run-action machine snap (:action transition) event :transition
                        (:rf/transition-slot transition))]
-    (if (result/fail? r0)
+    (if (rf.machines.result/fail? r0)
       r0
       (let [r        (enforce-db-disallow machine r0 (:action transition) (:state snap))
             new-data (cond-> (:data snap)
                        (contains? r :data) (merge (:data r)))]
-        (result/ok (assoc snap :data new-data) (vec (or (:fx r) [])))))))
+        (rf.machines.result/ok (assoc snap :data new-data) (vec (or (:fx r) [])))))))
 
 ;; ---- destroy-time exit cascade --------------------------------------------
 ;;
@@ -2846,8 +2846,8 @@
   matching how `compute-transition-geometry` orders the exit cascade with
   `lca-len = 0`). Runs them via `collect-actions`.
 
-  Returns a `re-frame.machines.result/Result` — a `result/ok` carrying
-  the post-cascade snapshot + accumulated fx, or a `result/fail` if any
+  Returns a `re-frame.machines.result/Result` — a `rf.machines.result/ok` carrying
+  the post-cascade snapshot + accumulated fx, or a `rf.machines.result/fail` if any
   `:exit` action threw. This cascade threads a `[:rf.machine/destroy-exit]`
   synthetic event (destroy / finalize / `:spawn-all` per-child teardown
   all funnel through here) so 3-arity `:exit` fns that introspect the
@@ -2914,7 +2914,7 @@
 ;;   run-spawn-phase        — reduce over `entered-pairs` dispatching to
 ;;                            `handle-spawn-decl` / `handle-spawn-all-decl`.
 ;;                            Threads snapshot + acc-fx; short-circuits to
-;;                            `result/fail` on `:data`-fn throws.
+;;                            `rf.machines.result/fail` on `:data`-fn throws.
 
 (defn- compute-transition-geometry
   "Phase 1 — derive the transition's geometry. Returns a map with:
@@ -3315,9 +3315,9 @@
 (defn- run-cascade
   "Phase 2 — run the ordered cascade (`exit` deepest-first → `action`
   at LCA → `entry` shallowest-first) via `collect-actions`. Returns the
-  Result from `collect-actions` — either `result/ok` with the post-cascade
+  Result from `collect-actions` — either `rf.machines.result/ok` with the post-cascade
   snapshot + accumulated fx (and the structured `::cascade` step vector
-  via `result/with-cascade`), or a `result/fail` carrying the
+  via `rf.machines.result/with-cascade`), or a `rf.machines.result/fail` carrying the
   throwing action's diagnostic map."
   [machine snapshot event geometry]
   (collect-actions machine snapshot event (:cascade-steps geometry)))
@@ -3399,14 +3399,14 @@
   "Phase 4 — reduce over `entered-pairs` dispatching `:spawn` /
   `:spawn-all` declarations to their respective spawn handlers. Threads
   the post-commit snapshot + an fx accumulator; a `reduced` from either
-  handler short-circuits to a `result/fail` Result. Returns either
-  `result/ok` carrying `[snap-after-spawns spawn-fx]` or the propagated
+  handler short-circuits to a `rf.machines.result/fail` Result. Returns either
+  `rf.machines.result/ok` carrying `[snap-after-spawns spawn-fx]` or the propagated
   failure."
   [machine event snap-final geometry]
   (let [{:keys [internal? entered-pairs]} geometry
         parent-id (or (:rf/parent-id machine) :rf/transition-pure)]
     (if internal?
-      (result/ok snap-final [])
+      (rf.machines.result/ok snap-final [])
       (let [step (reduce
                    (fn [[s acc-fx] [prefix n]]
                      (cond
@@ -3420,15 +3420,15 @@
                        [s acc-fx]))
                    [snap-final []]
                    entered-pairs)]
-        (if (result/fail? step)
+        (if (rf.machines.result/fail? step)
           step
           (let [[snap-after-spawns spawn-fx] step]
-            (result/ok snap-after-spawns spawn-fx)))))))
+            (rf.machines.result/ok snap-after-spawns spawn-fx)))))))
 
 (defn apply-transition-once
   "Apply one transition (exit cascade → action → entry cascade → state
-  change). Returns a `result/ok` Result carrying the new snapshot + fx,
-  or a `result/fail` Result if any action or `:data` fn threw.
+  change). Returns a `rf.machines.result/ok` Result carrying the new snapshot + fx,
+  or a `rf.machines.result/fail` Result if any action or `:data` fn threw.
 
   Per Spec 005 §Entry/exit cascading along the LCA:
    1. Compute LCA of source-path and target-leaf-path.
@@ -3469,17 +3469,17 @@
   ([machine snapshot event transition transition-phase]
   (let [geometry  (compute-transition-geometry machine snapshot transition transition-phase)
         cascade-r (run-cascade machine snapshot event geometry)]
-    (if (result/fail? cascade-r)
-      (result/fail-with cascade-r {:decl-path  (:decl-path geometry)
+    (if (rf.machines.result/fail? cascade-r)
+      (rf.machines.result/fail-with cascade-r {:decl-path  (:decl-path geometry)
                                    :transition transition
                                    :state-path (:src-path geometry)})
-      (result/with-ok [snap-after fx] cascade-r
+      (rf.machines.result/with-ok [snap-after fx] cascade-r
         (let [;; The structured cascade steps `collect-actions`
               ;; recorded ride `cascade-r` via `::cascade`; re-stamp them onto
-              ;; the final Result (the `result/ok` below builds a fresh Result
+              ;; the final Result (the `rf.machines.result/ok` below builds a fresh Result
               ;; that would otherwise drop them) so `machine-transition-single`
               ;; can accumulate the macrostep's full step sequence.
-              cascade-steps   (result/cascade cascade-r)
+              cascade-steps   (rf.machines.result/cascade cascade-r)
               snap-committed  (commit-snapshot machine snapshot snap-after geometry)
               ;; Per Spec 005 §Recording — on compound-state exit:
               ;; as part of the exit-cascade commit, write
@@ -3512,11 +3512,11 @@
               destroy-fx      (build-destroy-fx parent-id (:exited-pairs geometry)
                                                 (:internal? geometry))
               spawn-r         (run-spawn-phase machine event snap-final geometry)]
-          (if (result/fail? spawn-r)
-            (result/fail-with spawn-r {:decl-path  (:decl-path geometry)
+          (if (rf.machines.result/fail? spawn-r)
+            (rf.machines.result/fail-with spawn-r {:decl-path  (:decl-path geometry)
                                        :transition transition
                                        :state-path (:src-path geometry)})
-            (result/with-ok [snap-after-spawns spawn-fx] spawn-r
+            (rf.machines.result/with-ok [snap-after-spawns spawn-fx] spawn-r
               (let [;; Per Spec 005 §Final states §The done-state signal:
                     ;; if the committed configuration
                     ;; makes an EMBEDDED compound newly done (its active direct
@@ -3543,14 +3543,14 @@
                                         spawn-fx
                                         (or after-fx [])
                                         (or done-fx [])))]
-                (result/with-cascade
-                  (result/ok snap-after-spawns all-fx)
+                (rf.machines.result/with-cascade
+                  (rf.machines.result/ok snap-after-spawns all-fx)
                   cascade-steps))))))))))
 
 (defn pick-always-transition
   "Per Spec 005 §Eventless :always transitions: walk path leaf→root for
   an `:always` whose guard passes (the deepest-wins rule named in
-  `path-walk/walk-path-leaf-to-root`). The raw `:always` slot value is
+  `rf.machines.path-walk/walk-path-leaf-to-root`). The raw `:always` slot value is
   normalised through `normalise-candidates` — the SAME shared candidate
   grammar `:on` / `:after` use, so a bare keyword (sibling
   target), a vector-target (absolute path), a single transition map, and
@@ -3572,7 +3572,7 @@
 
   Returns `{:transition t :decl-path p}` or nil."
   [machine path snapshot]
-  (path-walk/walk-path-leaf-to-root
+  (rf.machines.path-walk/walk-path-leaf-to-root
     machine path
     (fn [prefix n]
       (let [raw-always (:always n)
@@ -3688,7 +3688,7 @@
       ;; so the trace stream classifies the drop the same way HTTP /
       ;; resources / routing do (m-reply). The timer's transition does not
       ;; fire.
-      (let [stale-reply (m-reply/after-stale-reply
+      (let [stale-reply (rf.machines.reply/after-stale-reply
                           {:actor-id        (:actor-id match)
                            :state           (:state match)
                            :delay           (:delay match)
@@ -3697,8 +3697,8 @@
                            :current-epoch   (:current-epoch match)
                            :frame           frame-id
                            :completed-at    completed-at})
-            summary     (m-reply/trace-reply stale-reply {:frame frame-id})]
-        (trace/emit! :rf.machine :rf.machine.timer/stale-after
+            summary     (rf.machines.reply/trace-reply stale-reply {:frame frame-id})]
+        (rf.trace/emit! :rf.machine :rf.machine.timer/stale-after
                      (cond->
                      {;; The timer's owning actor
                       ;; INSTANCE (spec/009 §`:rf.machine.timer/*`);
@@ -3734,7 +3734,7 @@
     ;; `:rf.machine.timer/fired` trace so it joins the uniform work/reply rows
     ;; (Managed-Effects §Tracing).
     (when (:guard-suppressed? match)
-      (let [fired-reply (m-reply/after-fired-reply
+      (let [fired-reply (rf.machines.reply/after-fired-reply
                           {:actor-id          (:actor-id match)
                            :state             (:state match)
                            :delay             (:delay match)
@@ -3743,8 +3743,8 @@
                            :frame             frame-id
                            :guard-suppressed? true
                            :completed-at      completed-at})
-            summary     (m-reply/trace-reply fired-reply {:frame frame-id})]
-        (trace/emit! :rf.machine :rf.machine.timer/fired
+            summary     (rf.machines.reply/trace-reply fired-reply {:frame frame-id})]
+        (rf.trace/emit! :rf.machine :rf.machine.timer/fired
                      (cond->
                      {;; Owning actor INSTANCE.
                       :actor-id (:actor-id match)
@@ -3771,7 +3771,7 @@
       ;; suppressed branches' root marker) rather than emitting `:state nil`.
       (let [fired-state (or (last (:decl-path match))
                             (when (empty? (:decl-path match)) :rf/parallel-root))
-            fired-reply (m-reply/after-fired-reply
+            fired-reply (rf.machines.reply/after-fired-reply
                           {:actor-id     (:actor-id match)
                            :state        fired-state
                            :delay        (:delay match)
@@ -3779,8 +3779,8 @@
                            :epoch        (:epoch match)
                            :frame        frame-id
                            :completed-at completed-at})
-            summary     (m-reply/trace-reply fired-reply {:frame frame-id})]
-        (trace/emit! :rf.machine :rf.machine.timer/fired
+            summary     (rf.machines.reply/trace-reply fired-reply {:frame frame-id})]
+        (rf.trace/emit! :rf.machine :rf.machine.timer/fired
                      (cond->
                      {;; Owning actor INSTANCE.
                       :actor-id (:actor-id match)
@@ -3822,7 +3822,7 @@
 
   This is a no-op (returns `machine` unchanged) for the pure-fn engine callers
   (conformance corpus / SSR / JVM fixtures): they carry no `:rf/cofx`, so
-  `cofx-attach/ensure-cofx` short-circuits, the determinism contract is
+  `rf.machines.cofx-attach/ensure-cofx` short-circuits, the determinism contract is
   preserved, and the reduction stays a pure function of its arguments. When a
   router dispatch DID thread the token (`:rf/cofx` present), the ensure mints
   under the resolved effective mint policy stamped on the machine def
@@ -3836,7 +3836,7 @@
   (if-not (contains? machine :rf/cofx)
     machine
     (let [recorded  (:rf/cofx machine)
-          augmented (cofx-attach/ensure-cofx
+          augmented (rf.machines.cofx-attach/ensure-cofx
                       machine snap event recorded
                       (:rf/frame machine)
                       (or (:rf/parent-id machine) (:id machine))
@@ -3880,7 +3880,7 @@
   union (`commit-tags`), `::microsteps` (the count of `:always` iterations),
   and `::cascade` (the structured step vector).
 
-  `start-result` is the `result/ok` carrying the snapshot + fx + cascade
+  `start-result` is the `rf.machines.result/ok` carrying the snapshot + fx + cascade
   that SEEDS the drain. For the event-driven macrostep that is the
   post-exit/action/entry `apply-transition-once` Result; for machine birth
   it is the post-initial-entry cascade Result. Either way its `::cascade`
@@ -3889,7 +3889,7 @@
 
   Atomic rollback on a tripped `:always-depth-limit` / `:raise-depth-limit`
   (Spec 005 §Bounded depth) is enforced by the FAILURE SURFACE:
-  the abort returns a `result/depth-abort` `:fail`, which threads NO snapshot
+  the abort returns a `rf.machines.result/depth-abort` `:fail`, which threads NO snapshot
   / fx, and the lifecycle handler short-circuits to `{}` — so neither a
   partially-advanced snapshot nor accumulated fx reaches runtime-db, and the
   last committed snapshot (the pre-event snapshot for the event-driven caller,
@@ -3906,14 +3906,14 @@
   When `defer?` is false (the queue-owning flat / compound drain) the loop
   drains the queue to quiescence here.
 
-  Returns a `result/ok` (snapshot + fx, with `::microsteps` / `::cascade`)
-  or a `result/fail` if an `:always` action or a handled raise threw."
+  Returns a `rf.machines.result/ok` (snapshot + fx, with `::microsteps` / `::cascade`)
+  or a `rf.machines.result/fail` if an `:always` action or a handled raise threw."
   [machine start-result raise-depth defer?]
   (let [always-limit (get machine :always-depth-limit always-depth-limit-default)
         raise-limit  (get machine :raise-depth-limit  raise-depth-limit-default)]
-    (if (result/fail? start-result)
+    (if (rf.machines.result/fail? start-result)
       start-result
-      (result/with-ok [snap-after-event fx-after-event] start-result
+      (rf.machines.result/with-ok [snap-after-event fx-after-event] start-result
         ;; Split the seeding transition's fx into its raised internal events
         ;; (the seed of the FIFO internal-event queue) and its real
         ;; (do-fx-bound) fx. Per Spec 005 §Drain semantics the raises are
@@ -3927,7 +3927,7 @@
               ;; microstep's own nested cascade). The accumulated vector is
               ;; the structured explanation the outer `:rf.machine/
               ;; transition` trace carries.
-              base-cascade (result/cascade start-result)]
+              base-cascade (rf.machines.result/cascade start-result)]
           ;; The unified SCXML microstep loop. `always-depth` counts the
           ;; `:always` iterations (→ `::microsteps`); `raise-depth` counts
           ;; internal events dequeued (→ `:raise-depth-limit`, seeded from the
@@ -3958,7 +3958,7 @@
                   ;; A tripped `:always` depth limit is a FAILED
                   ;; macrostep, not a benign no-op. XState v5 THROWS on such a
                   ;; runaway eventless cycle. Emit the precise error category
-                  ;; (the single trace for the trip) and return a `result/fail`
+                  ;; (the single trace for the trip) and return a `rf.machines.result/fail`
                   ;; carrying the `::depth-abort?` sentinel so it routes through
                   ;; the handler's failure path (`trace-action-failure!`
                   ;; short-circuits to `{}` — no snapshot write reaches
@@ -3983,10 +3983,10 @@
                               ;; `:frame`.
                               :frame      (:rf/frame m)
                               :recovery   :no-recovery}]
-                    (trace/emit-error! :rf.error/machine-always-depth-exceeded info)
+                    (rf.trace/emit-error! :rf.error/machine-always-depth-exceeded info)
                     ;; Macrostep rolls back atomically — no cascade survives the
-                    ;; abort; the `result/fail` carries no `::snap`/`::fx`.
-                    (result/depth-abort info))
+                    ;; abort; the `rf.machines.result/fail` carries no `::snap`/`::fx`.
+                    (rf.machines.result/depth-abort info))
                   ;; `:always` microstep's transition `:action`
                   ;; `action-ran` emit carries `:phase :always` so the Handler
                   ;; section can group eventless cascades distinctly from
@@ -3994,9 +3994,9 @@
                   (let [step-result (apply-transition-once m snap nil
                                                             (:transition always-m)
                                                             :always)]
-                    (if (result/fail? step-result)
+                    (if (rf.machines.result/fail? step-result)
                       step-result
-                      (result/with-ok [snap2 fx2] step-result
+                      (rf.machines.result/with-ok [snap2 fx2] step-result
                         ;; Per Spec 005 §Trace events: one
                         ;; `:rf.machine.microstep/transition` per microstep,
                         ;; carrying the from/to states and the 0-based
@@ -4009,7 +4009,7 @@
                         ;; do not produce their own envelope (intra-
                         ;; macrostep); the trace is the surface where the
                         ;; closed-set value is observable.
-                        (trace/emit! :rf.machine :rf.machine.microstep/transition
+                        (rf.trace/emit! :rf.machine :rf.machine.microstep/transition
                                      {;; A microstep belongs to a
                                       ;; LIVE actor's macrostep; address it by
                                       ;; `:actor-id` (the running INSTANCE),
@@ -4034,7 +4034,7 @@
                                           :microstep-index always-depth
                                           :from            (:state snap)
                                           :to              (:state snap2)
-                                          :steps           (result/cascade step-result)}
+                                          :steps           (rf.machines.result/cascade step-result)}
                               ;; An `:always` step's OWN raises
                               ;; go to the BACK of the internal-event queue —
                               ;; NOT drained immediately. The loop re-checks
@@ -4065,14 +4065,14 @@
                   ;; internal-event queue back un-drained for the queue-owner
                   ;; above (`drain-to-fixed-point` with `defer?` false, or the
                   ;; parallel parent queue) to harvest and re-feed FIFO.
-                  (-> (result/ok (commit-tags m snap) (into fx pending))
-                      (result/with-microsteps always-depth)
-                      (result/with-cascade cascade))
+                  (-> (rf.machines.result/ok (commit-tags m snap) (into fx pending))
+                      (rf.machines.result/with-microsteps always-depth)
+                      (rf.machines.result/with-cascade cascade))
                   (if (>= raise-depth raise-limit)
                     ;; A tripped `:raise` depth limit is a FAILED
                     ;; macrostep, not a benign no-op (mirrors the `:always`
                     ;; abort above). Emit the precise category, then return a
-                    ;; `result/fail` carrying the `::depth-abort?` sentinel so
+                    ;; `rf.machines.result/fail` carrying the `::depth-abort?` sentinel so
                     ;; the runaway raise cycle routes through the handler's
                     ;; failure path and the triggering event is surfaced as an
                     ;; error rather than silently swallowed.
@@ -4090,11 +4090,11 @@
                                 ;; requires `:frame`.
                                 :frame      (:rf/frame m)
                                 :recovery   :no-recovery}]
-                      (trace/emit-error! :rf.error/machine-raise-depth-exceeded info)
+                      (rf.trace/emit-error! :rf.error/machine-raise-depth-exceeded info)
                       ;; Macrostep rolls back atomically — neither the
                       ;; partially-advanced snapshot nor the accumulated effects
                       ;; survive the abort.
-                      (result/depth-abort info))
+                      (rf.machines.result/depth-abort info))
                     (let [[_ ev]       (first pending)
                           rest-pending (subvec pending 1)
                           ;; Re-run the consumer-attachment ensure
@@ -4122,9 +4122,9 @@
                           ;; drain's count.
                           step-result  (machine-transition-single
                                          m' snap ev (inc raise-depth) true)]
-                      (if (result/fail? step-result)
+                      (if (rf.machines.result/fail? step-result)
                         step-result
-                        (result/with-ok [snap2 fx2] step-result
+                        (rf.machines.result/with-ok [snap2 fx2] step-result
                           ;; Split the deferred result's fx into the surfaced
                           ;; raised events (append to the BACK, behind pending
                           ;; siblings — FIFO) and the real do-fx-bound fx.
@@ -4168,14 +4168,14 @@
                                 ;;
                                 ;; `::microsteps` is untouched: it stays the
                                 ;; `:always`-iteration count, not a step count.
-                                cascade' (if (result/handled? step-result)
+                                cascade' (if (rf.machines.result/handled? step-result)
                                            (conj cascade
                                                  {:kind   :raised-transition
                                                   :region (:rf/region m)
                                                   :event  ev
                                                   :from   (:state snap)
                                                   :to     (:state snap2)
-                                                  :steps  (result/cascade step-result)})
+                                                  :steps  (rf.machines.result/cascade step-result)})
                                            cascade)]
                             (recur snap2
                                    ;; Thread the augmented machine forward so the
@@ -4204,9 +4204,9 @@
                 ;; §Trace events). The `cascade` rides via
                 ;; `::cascade`.
                 :else
-                (-> (result/ok (commit-tags m snap) fx)
-                    (result/with-microsteps always-depth)
-                    (result/with-cascade cascade))))))))))
+                (-> (rf.machines.result/ok (commit-tags m snap) fx)
+                    (rf.machines.result/with-microsteps always-depth)
+                    (rf.machines.result/with-cascade cascade))))))))))
 
 (defn apply-preselected-transition
   "Apply one already-selected `match` without running the `:always` / raised-
@@ -4230,10 +4230,10 @@
         applied
         (cond
           (and match (:stale? match))
-          (result/ok snapshot [])
+          (rf.machines.result/ok snapshot [])
 
           (and match (:guard-suppressed? match))
-          (result/ok snapshot [])
+          (rf.machines.result/ok snapshot [])
 
           match
           (let [phase (or transition-phase
@@ -4254,13 +4254,13 @@
             ;; no-op only when every region and its root fallback decline.
             (when (and (nil? (:rf/region machine))
                        (unhandled-event-no-op? event))
-              (trace/emit! :rf.machine :rf.machine.event/unhandled-no-op
+              (rf.trace/emit! :rf.machine :rf.machine.event/unhandled-no-op
                            {:actor-id (or (:rf/parent-id machine) (:id machine))
                             :event    event
                             :state    (:state snapshot)
                             :frame    (:rf/frame machine)}))
-            (result/ok snapshot [])))]
-    (result/with-handled applied handled?)))
+            (rf.machines.result/ok snapshot [])))]
+    (rf.machines.result/with-handled applied handled?)))
 
 (defn machine-transition-single
   "Pure function. Single-machine (flat or compound) implementation of the
@@ -4281,7 +4281,7 @@
   identical settling tail — see `re-frame.machines.parallel`'s
   `settle-birth` / `apply-initial-entry-cascade`.
 
-  Returns a `result/ok` Result on success or a `result/fail` Result if
+  Returns a `rf.machines.result/ok` Result on success or a `rf.machines.result/fail` Result if
   any action or `:data`-fn threw. Bounded by `:raise-depth-limit` and
   `:always-depth-limit` (both default 16). Parallel-region routing lives
   in `re-frame.machines.parallel`'s `machine-transition` — the dispatch
@@ -4340,6 +4340,6 @@
      ;; Steps 3-5: flat/compound ownership remains here. The parallel parent
      ;; calls `apply-preselected-transition` directly and owns settling across
      ;; the complete regional configuration.
-     (result/with-handled
+     (rf.machines.result/with-handled
        (drain-to-fixed-point machine seed raise-depth defer?)
-       (result/handled? seed)))))
+       (rf.machines.result/handled? seed)))))

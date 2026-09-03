@@ -28,24 +28,24 @@
   nowhere but the JVM and reads as covered (rf2-dn6v7, rf2-lgozq)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.substrate.plain-atom :as plain-atom])
-  ;; `mtest/with-trace-capture` is a `#?(:clj (defmacro …))` in a `.cljc`
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom])
+  ;; `rf.machines.test-support/with-trace-capture` is a `#?(:clj (defmacro …))` in a `.cljc`
   ;; support ns, so the CLJS analyzer needs it required as a MACRO ns under
   ;; the same alias; a plain `:require` leaves the call compiling to a
   ;; function call on an undefined var. This is the JVM-only assumption the
   ;; rf2-lgozq rename exposed — all seven tests here errored on the CLJS lane
   ;; with `No protocol method IDeref.-deref defined for type undefined` until
   ;; this line existed.
-  #?(:cljs (:require-macros [re-frame.machines.test-support :as mtest])))
+  #?(:cljs (:require-macros [re-frame.machines.test-support :as rf.machines.test-support])))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-;; Routed through the shared `mtest/with-trace-capture`
+;; Routed through the shared `rf.machines.test-support/with-trace-capture`
 ;; — guaranteed unregister in a `finally`.
 (defn- record-traces! [body-fn]
-  (mtest/with-trace-capture seen
+  (rf.machines.test-support/with-trace-capture seen
     (body-fn)
     @seen))
 
@@ -348,7 +348,7 @@
           cascade (cascade-of evs)
           raised  (raised-steps cascade)]
       ;; Premise: the FOLD is already correct — only the record was lossy.
-      (is (= :done (:state (mtest/snapshot :casc/settle)))
+      (is (= :done (:state (rf.machines.test-support/snapshot :casc/settle)))
           "the committed snapshot is :done — FIFO raise semantics")
       (is (= :idle (get-in tr [:tags :before :state])))
       (is (= :done (get-in tr [:tags :after :state]))
@@ -400,7 +400,7 @@
     (let [evs    (record-traces!
                    (fn [] (rf/dispatch-sync [:casc/fifo [:go]])))
           raised (raised-steps (cascade-of evs))]
-      (is (= :d (:state (mtest/snapshot :casc/fifo))))
+      (is (= :d (:state (rf.machines.test-support/snapshot :casc/fifo))))
       (is (= [[:first] [:second]] (mapv :event raised))
           "wrappers are ordered by actual FIFO dequeue order")
       (is (= [[:b :c] [:c :d]] (mapv (juxt :from :to) raised))
@@ -426,7 +426,7 @@
           cascade (cascade-of evs)
           raised  (raised-steps cascade)
           w       (first raised)]
-      (is (= :d (:state (mtest/snapshot :casc/raise-always))))
+      (is (= :d (:state (rf.machines.test-support/snapshot :casc/raise-always))))
       (is (= 1 (count raised)))
       (is (empty? (filterv #(= :microstep (:kind %)) cascade))
           "the :always did NOT settle at top level — it was enabled by the raise")
@@ -456,7 +456,7 @@
     (rf/dispatch-sync [:casc/ignored [:rf.machine/start]])
     (let [evs (record-traces!
                 (fn [] (rf/dispatch-sync [:casc/ignored [:go]])))]
-      (is (= :b (:state (mtest/snapshot :casc/ignored))))
+      (is (= :b (:state (rf.machines.test-support/snapshot :casc/ignored))))
       (is (empty? (raised-steps (cascade-of evs)))
           "an IGNORED raised event fabricates no handled-transition wrapper"))
     ;; reset to :a is not needed — re-register a fresh machine for the guard leg
@@ -472,7 +472,7 @@
     (rf/dispatch-sync [:casc/guarded [:rf.machine/start]])
     (let [evs (record-traces!
                 (fn [] (rf/dispatch-sync [:casc/guarded [:go]])))]
-      (is (= :b (:state (mtest/snapshot :casc/guarded)))
+      (is (= :b (:state (rf.machines.test-support/snapshot :casc/guarded)))
           "the guard blocked the raised transition — the machine rests at :b")
       (is (empty? (raised-steps (cascade-of evs)))
           "a GUARD-BLOCKED raised event fabricates no handled-transition wrapper"))))
@@ -520,7 +520,7 @@
                    (fn [] (rf/dispatch-sync [:casc/done [:go]])))
           raised (raised-steps (cascade-of evs))
           w      (first raised)]
-      (is (= :wrapped (:state (mtest/snapshot :casc/done)))
+      (is (= :wrapped (:state (rf.machines.test-support/snapshot :casc/done)))
           "the done signal advanced the enclosing compound")
       (is (= 1 (count raised))
           "the synthetic done signal rides the same raised-transition boundary")
@@ -557,7 +557,7 @@
           cascade (cascade-of evs)
           raised  (raised-steps cascade)
           w       (first raised)]
-      (is (= {:left :l1 :right :r1} (:state (mtest/snapshot :casc/par)))
+      (is (= {:left :l1 :right :r1} (:state (rf.machines.test-support/snapshot :casc/par)))
           "both regions moved — :go in :left, the raised :settle in :right")
       (is (= 1 (count raised))
           "the rebroadcast contributes ONE boundary (RED before rf2-nb8nj:
@@ -608,7 +608,7 @@
           cascade (cascade-of evs)
           w       (first (raised-steps cascade))
           round   (first (filterv #(= :microstep (:kind %)) cascade))]
-      (is (= {:main :r3 :aux :a0} (:state (mtest/snapshot :casc/par-chain)))
+      (is (= {:main :r3 :aux :a0} (:state (rf.machines.test-support/snapshot :casc/par-chain)))
           "the event, the raise it emitted, and the round the raise enabled all
            settle inside ONE macrostep")
       (is (= {:main :r0 :aux :a0} (get-in tr [:tags :before :state])))

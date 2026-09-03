@@ -26,15 +26,15 @@
        `:rf.error/missing-required-cofx` (loud, never re-derived)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.cofx :as cofx]
-            [re-frame.machines :as machines]
-            [re-frame.machines.cofx-attach :as cofx-attach]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.substrate.plain-atom :as plain-atom])
+            [re-frame.cofx :as rf.cofx]
+            [re-frame.machines :as rf.machines]
+            [re-frame.machines.cofx-attach :as rf.machines.cofx-attach]
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom])
   (:import [clojure.lang ExceptionInfo]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; A fixed wall-clock sentinel the host clock never spontaneously returns.
 (def ^:private SCRIPTED-TIME-MS 1234500000)
@@ -47,7 +47,7 @@
   (testing "the machines `allow-sub?` arity parses `{:rf/sub qv :as fact-id}`
             into `{:id fact-id :arg ::no-arg :rf.cofx/sub qv}` — the :as
             fact-id is the dedup / delivery key, NOT the bare :rf/sub id"
-    (let [parsed (cofx/parse-requires
+    (let [parsed (rf.cofx/parse-requires
                    [:actions :capture]
                    [{:rf/sub [:editor/can-submit?] :as :editor/can-submit}]
                    true)
@@ -59,7 +59,7 @@
           "the query rides under :rf.cofx/sub for the delivery step")))
   (testing "two DISTINCT sub queries under distinct fact-ids do NOT collide
             (the reason the map form is mandatory over `[id arg]`)"
-    (is (= 2 (count (cofx/parse-requires
+    (is (= 2 (count (rf.cofx/parse-requires
                       [:actions :capture]
                       [{:rf/sub [:a/x] :as :app/x}
                        {:rf/sub [:a/y] :as :app/y}]
@@ -70,7 +70,7 @@
             `{:rf/sub …}` source is `:rf.error/cofx-request-invalid` — its
             handler already holds :db"
     (let [e (is (thrown? ExceptionInfo
-                  (cofx/parse-requires :some/evt
+                  (rf.cofx/parse-requires :some/evt
                                        [{:rf/sub [:a/x] :as :app/x}])))]
       (is (= :rf.error/cofx-request-invalid (:rf.error/id (ex-data e)))))))
 
@@ -88,7 +88,7 @@
                                :fn (fn [_] nil)}}
            :states  {:idle {:on {:go {:target :done :action :capture}}}
                      :done {}}}]
-    (-> (try (machines/make-machine-handler m) nil
+    (-> (try (rf.machines/make-machine-handler m) nil
              (catch ExceptionInfo e e))
         ex-data
         :rf.error/id)))
@@ -149,7 +149,7 @@
                         {:rf.cofx {:rf/time-ms SCRIPTED-TIME-MS}})
       (is (= true @seen)
           "the action read the resolved (recorded) sub value under fact-id")
-      (is (= :done (mtest/machine-state :sub/records))
+      (is (= :done (rf.machines.test-support/machine-state :sub/records))
           "the transition fired"))))
 
 ;; ===========================================================================
@@ -191,7 +191,7 @@
             `ensure-cofx` (frame-id nil, empty token, `:strict`) so the throw
             surfaces verbatim — dispatch-sync would capture it into the error
             pipeline (macrostep fails atomically, machine does not advance)"
-    (let [m (cofx-attach/index-ensure-sets
+    (let [m (rf.machines.cofx-attach/index-ensure-sets
               {:initial :idle
                :data    {}
                :actions {:capture
@@ -201,7 +201,7 @@
                :states  {:idle {:on {:go {:target :done :action :capture}}}
                          :done {}}})
           e (is (thrown? ExceptionInfo
-                  (cofx-attach/ensure-cofx m {:state :idle :data {}} [:go]
+                  (rf.machines.cofx-attach/ensure-cofx m {:state :idle :data {}} [:go]
                                            {} nil :sub/strict :strict)))]
       (is (= :rf.error/missing-required-cofx (:rf.error/id (ex-data e)))
           "strict refused to re-derive the absent sub fact"))))

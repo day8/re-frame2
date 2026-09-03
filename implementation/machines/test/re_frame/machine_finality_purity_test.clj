@@ -3,9 +3,9 @@
   lifecycle handler recomputes at the macrostep boundary to decide whether
   to fire `:on-done` + auto-destroy:
 
-    - `transition/final-state-node?` — the per-node `:final? true` flag.
-    - `transition/final-on-leaf?`    — the active LEAF of a snapshot is final.
-    - `finalize/all-regions-final?`  — a parallel machine is final iff
+    - `rf.machines.transition/final-state-node?` — the per-node `:final? true` flag.
+    - `rf.machines.transition/final-on-leaf?`    — the active LEAF of a snapshot is final.
+    - `rf.machines.lifecycle-fx.finalize/all-regions-final?`  — a parallel machine is final iff
       EVERY region's active leaf is final.
 
   The riskiest of the three is the parallel union (`all-regions-final?`,
@@ -21,9 +21,9 @@
     - A parallel-region machine is `:final?` only when EVERY region's
       active leaf is `:final?` (§Parallel regions and `:final?`)."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.machines.lifecycle-fx.finalize :as finalize]
-            [re-frame.machines.parallel :as parallel]
-            [re-frame.machines.transition :as transition]))
+            [re-frame.machines.lifecycle-fx.finalize :as rf.machines.lifecycle-fx.finalize]
+            [re-frame.machines.parallel :as rf.machines.parallel]
+            [re-frame.machines.transition :as rf.machines.transition]))
 
 ;; ---------------------------------------------------------------------------
 ;; final-state-node? — the per-node :final? flag (transition.cljc:914)
@@ -31,24 +31,24 @@
 
 (deftest final-state-node?-reads-the-first-class-flag
   (testing ":final? true on a state-node ⇒ true"
-    (is (true? (transition/final-state-node? {:final? true}))
+    (is (true? (rf.machines.transition/final-state-node? {:final? true}))
         "a node declaring :final? true is final"))
 
   (testing "absent / false / non-true :final? ⇒ false (strict true? check)"
-    (is (false? (transition/final-state-node? {}))
+    (is (false? (rf.machines.transition/final-state-node? {}))
         "a node with no :final? key is not final")
-    (is (false? (transition/final-state-node? {:final? false}))
+    (is (false? (rf.machines.transition/final-state-node? {:final? false}))
         ":final? false is explicitly not final")
-    (is (false? (transition/final-state-node? {:on {:go :other}}))
+    (is (false? (rf.machines.transition/final-state-node? {:on {:go :other}}))
         "an ordinary transition-bearing node is not final")
     ;; Per Spec 005 D1 the flag is a FIRST-CLASS key. A truthy-
     ;; but-not-true value (e.g. stashed under :meta, or a non-boolean) is
     ;; NOT final — the predicate is `(true? ...)`, not `(boolean ...)`.
-    (is (false? (transition/final-state-node? {:meta {:final? true}}))
+    (is (false? (rf.machines.transition/final-state-node? {:meta {:final? true}}))
         ":final? under :meta is NOT the first-class key (D1) — not final")
-    (is (false? (transition/final-state-node? {:final? :yes}))
+    (is (false? (rf.machines.transition/final-state-node? {:final? :yes}))
         "a non-true truthy :final? value is not final (strict true? check)")
-    (is (false? (transition/final-state-node? nil))
+    (is (false? (rf.machines.transition/final-state-node? nil))
         "a nil node (path did not resolve) is not final")))
 
 ;; ---------------------------------------------------------------------------
@@ -73,22 +73,22 @@
 
 (deftest final-on-leaf?-flat-state
   (testing "a flat snapshot whose :state is the :final? leaf ⇒ true"
-    (is (true? (transition/final-on-leaf? flat-final-machine :done))
+    (is (true? (rf.machines.transition/final-on-leaf? flat-final-machine :done))
         "the :done leaf is :final?")
-    (is (true? (transition/final-on-leaf? flat-final-machine [:done]))
+    (is (true? (rf.machines.transition/final-on-leaf? flat-final-machine [:done]))
         "vector-form :state resolves to the same leaf"))
 
   (testing "a flat snapshot at a non-final leaf ⇒ false"
-    (is (false? (transition/final-on-leaf? flat-final-machine :running))
+    (is (false? (rf.machines.transition/final-on-leaf? flat-final-machine :running))
         "the :running leaf is not :final?")))
 
 (deftest final-on-leaf?-compound-state
   (testing "a compound snapshot whose active leaf is :final? ⇒ true"
-    (is (true? (transition/final-on-leaf? compound-final-machine [:wrapper :done]))
+    (is (true? (rf.machines.transition/final-on-leaf? compound-final-machine [:wrapper :done]))
         "the deeply-resolved [:wrapper :done] leaf is :final?"))
 
   (testing "a compound snapshot at a non-final leaf ⇒ false"
-    (is (false? (transition/final-on-leaf? compound-final-machine [:wrapper :running]))
+    (is (false? (rf.machines.transition/final-on-leaf? compound-final-machine [:wrapper :running]))
         "the [:wrapper :running] leaf is not :final?"))
 
   (testing "finality keys off the LEAF, not an ancestor"
@@ -96,8 +96,8 @@
     ;; a leaf property. Resolving the parent path (which final-on-leaf?
     ;; never does for a committed leaf snapshot, but pin the leaf-only
     ;; contract anyway via node-at) returns the non-final compound node.
-    (is (false? (transition/final-state-node?
-                  (transition/node-at compound-final-machine [:wrapper])))
+    (is (false? (rf.machines.transition/final-state-node?
+                  (rf.machines.transition/node-at compound-final-machine [:wrapper])))
         "the compound :wrapper ancestor is not itself :final?")))
 
 ;; ---------------------------------------------------------------------------
@@ -124,7 +124,7 @@
 
 (deftest all-regions-final?-every-region-final
   (testing "BOTH regions at their :final? leaf ⇒ true"
-    (is (true? (finalize/all-regions-final?
+    (is (true? (rf.machines.lifecycle-fx.finalize/all-regions-final?
                  parallel-machine
                  {:left :done :right :done}))
         "a parallel machine is final iff EVERY region's leaf is :final?")))
@@ -133,29 +133,29 @@
   (testing "ONE region final, the other still running ⇒ false (the risky branch)"
     ;; This is the premature-finalisation guard: a snapshot where :left has
     ;; reached :done but :right is still :running must NOT report final.
-    (is (false? (finalize/all-regions-final?
+    (is (false? (rf.machines.lifecycle-fx.finalize/all-regions-final?
                   parallel-machine
                   {:left :done :right :running}))
         "left-final + right-running must NOT finalise (partial-final guard)")
-    (is (false? (finalize/all-regions-final?
+    (is (false? (rf.machines.lifecycle-fx.finalize/all-regions-final?
                   parallel-machine
                   {:left :running :right :done}))
         "right-final + left-running must NOT finalise (symmetric)"))
 
   (testing "NEITHER region final ⇒ false"
-    (is (false? (finalize/all-regions-final?
+    (is (false? (rf.machines.lifecycle-fx.finalize/all-regions-final?
                   parallel-machine
                   {:left :running :right :running}))
         "both regions running ⇒ not final")))
 
 (deftest all-regions-final?-non-parallel-or-non-map-state
   (testing "a non-parallel machine ⇒ false regardless of state"
-    (is (false? (finalize/all-regions-final?
+    (is (false? (rf.machines.lifecycle-fx.finalize/all-regions-final?
                   flat-final-machine :done))
         "all-regions-final? short-circuits false for a non-parallel machine"))
 
   (testing "a parallel machine with a non-map :state ⇒ false"
-    (is (false? (finalize/all-regions-final? parallel-machine :done))
+    (is (false? (rf.machines.lifecycle-fx.finalize/all-regions-final? parallel-machine :done))
         "a keyword :state is not a region→leaf map ⇒ not all-regions-final")))
 
 (deftest all-regions-final?-vector-region-leaves
@@ -172,10 +172,10 @@
                        :right {:initial :running
                                :states  {:running {:on {:finish :done}}
                                          :done    {:final? true}}}}}]
-      (is (true? (finalize/all-regions-final?
+      (is (true? (rf.machines.lifecycle-fx.finalize/all-regions-final?
                    m {:left [:wrap :done] :right :done}))
           "a nested region leaf at [:wrap :done] resolves and is :final?")
-      (is (false? (finalize/all-regions-final?
+      (is (false? (rf.machines.lifecycle-fx.finalize/all-regions-final?
                     m {:left [:wrap :running] :right :done}))
           "a nested NON-final region leaf prevents finalisation"))))
 
@@ -192,19 +192,19 @@
 
 (deftest all-regions-final?-missing-region-is-not-final
   (testing "a snapshot MISSING a declared region is NOT all-final (no vacuous done)"
-    (is (false? (finalize/all-regions-final?
+    (is (false? (rf.machines.lifecycle-fx.finalize/all-regions-final?
                   parallel-machine {:left :done}))
         "{:left :done} for a 2-region machine must NOT read all-final — :right is absent")
-    (is (false? (finalize/all-regions-final?
+    (is (false? (rf.machines.lifecycle-fx.finalize/all-regions-final?
                   parallel-machine {:right :done}))
         "symmetric — :left absent")
-    (is (false? (finalize/all-regions-final?
+    (is (false? (rf.machines.lifecycle-fx.finalize/all-regions-final?
                   parallel-machine {}))
         "an empty region map is not all-final (every declared region absent)")))
 
 (deftest all-regions-final?-extra-region-is-not-final
   (testing "a snapshot carrying an EXTRA/stale region is NOT all-final (key parity)"
-    (is (false? (finalize/all-regions-final?
+    (is (false? (rf.machines.lifecycle-fx.finalize/all-regions-final?
                   parallel-machine {:left :done :right :done :middle :done}))
         "a stale :middle region (not declared) breaks exact key parity ⇒ not final")))
 
@@ -219,7 +219,7 @@
                        :right {:initial :running
                                :states  {:running {:on {:finish :done}}
                                          :done    {:final? true}}}}}]
-      (is (false? (finalize/all-regions-final?
+      (is (false? (rf.machines.lifecycle-fx.finalize/all-regions-final?
                     m {:left :hist :right :done}))
           "a region occupying a history pseudo-state is malformed ⇒ not all-final"))))
 
@@ -229,21 +229,21 @@
 
 (deftest parallel-state-valid?-requires-exact-key-parity-and-occupiable-leaves
   (testing "valid iff map? + EXACT declared region keys + every region occupiable"
-    (is (true? (parallel/parallel-state-valid?
+    (is (true? (rf.machines.parallel/parallel-state-valid?
                  parallel-machine {:left :running :right :done}))
         "exactly the declared regions, each resolving to a real leaf ⇒ valid")
-    (is (false? (parallel/parallel-state-valid?
+    (is (false? (rf.machines.parallel/parallel-state-valid?
                   parallel-machine {:left :running}))
         "missing a declared region ⇒ invalid")
-    (is (false? (parallel/parallel-state-valid?
+    (is (false? (rf.machines.parallel/parallel-state-valid?
                   parallel-machine {:left :running :right :done :extra :running}))
         "an extra/stale region ⇒ invalid")
-    (is (false? (parallel/parallel-state-valid?
+    (is (false? (rf.machines.parallel/parallel-state-valid?
                   parallel-machine {:left :nope :right :done}))
         "a region path that does not resolve ⇒ invalid")
-    (is (false? (parallel/parallel-state-valid? parallel-machine :running))
+    (is (false? (rf.machines.parallel/parallel-state-valid? parallel-machine :running))
         "a non-map :state ⇒ invalid")
-    (is (false? (parallel/parallel-state-valid? flat-final-machine {:left :running :right :done}))
+    (is (false? (rf.machines.parallel/parallel-state-valid? flat-final-machine {:left :running :right :done}))
         "a non-parallel machine ⇒ invalid (the predicate is parallel-only)")))
 
 ;; ---------------------------------------------------------------------------
@@ -258,12 +258,12 @@
                                          :b    {}
                                          :hist {:type :history}}}}}]
     (testing "a real occupiable leaf ⇒ true"
-      (is (true? (transition/state-occupiable? m [:playing :a]))
+      (is (true? (rf.machines.transition/state-occupiable? m [:playing :a]))
           "[:playing :a] resolves to a real leaf")
-      (is (true? (transition/state-occupiable? m [:playing :b]))))
+      (is (true? (rf.machines.transition/state-occupiable? m [:playing :b]))))
     (testing "a :type :history pseudo-state is targetable but NEVER occupied ⇒ false"
-      (is (false? (transition/state-occupiable? m [:playing :hist]))
+      (is (false? (rf.machines.transition/state-occupiable? m [:playing :hist]))
           "an occupied history pseudo-state is malformed"))
     (testing "a path that does not resolve ⇒ false"
-      (is (false? (transition/state-occupiable? m [:playing :gone])))
-      (is (false? (transition/state-occupiable? m :no-such-state))))))
+      (is (false? (rf.machines.transition/state-occupiable? m [:playing :gone])))
+      (is (false? (rf.machines.transition/state-occupiable? m :no-such-state))))))

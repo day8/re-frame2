@@ -29,9 +29,9 @@
   storage shape or RAW listener registration still touch those surfaces
   directly; everything else reaches for these helpers."
   (:require [re-frame.core :as rf]
-            [re-frame.machines.paths :as paths]
-            [re-frame.test-support :as core-test-support]
-            [re-frame.trace :as trace]))
+            [re-frame.machines.paths :as rf.machines.paths]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.trace :as rf.trace]))
 
 ;; ---- reset-runtime fixture (re-export) ------------------------------------
 
@@ -39,7 +39,7 @@
   "Core's `make-reset-runtime-fixture`, re-exported so a machines test
   requires ONE support ns. Same options (`{:adapter …}`). See
   `re-frame.test-support/make-reset-runtime-fixture`."
-  core-test-support/make-reset-runtime-fixture)
+  rf.test-support/make-reset-runtime-fixture)
 
 ;; ---- runtime-db + snapshot lookup -----------------------------------------
 
@@ -54,12 +54,12 @@
 (defn snapshot
   "The machine snapshot for `machine-id` (an actor / singleton id) in
   `frame-id` (default `:rf/default`), read through the canonical
-  `paths/snapshot-path` constructor rather than a hardcoded path vector.
+  `rf.machines.paths/snapshot-path` constructor rather than a hardcoded path vector.
   Returns nil when the actor has no snapshot (never spawned, or already
   destroyed)."
   ([machine-id] (snapshot :rf/default machine-id))
   ([frame-id machine-id]
-   (get-in (runtime-db frame-id) (paths/snapshot-path machine-id))))
+   (get-in (runtime-db frame-id) (rf.machines.paths/snapshot-path machine-id))))
 
 (defn machine-state
   "Convenience: the `:state` of `machine-id`'s snapshot (nil if absent)."
@@ -112,9 +112,9 @@
   (let [a  (atom [])
         id ::trace-capture]
     (binding [*captured* a]
-      (trace/register-listener! id (fn [ev] (swap! a conj ev)))
+      (rf.trace/register-listener! id (fn [ev] (swap! a conj ev)))
       (try (f)
-           (finally (trace/unregister-listener! id))))))
+           (finally (rf.trace/unregister-listener! id))))))
 
 #?(:clj
    (defmacro with-trace-capture
@@ -135,6 +135,6 @@
        `(let [~binding-sym (atom [])
               id#          (keyword "re-frame.machines.test-support"
                                     (name '~id-sym))]
-          (trace/register-listener! id# (fn [ev#] (swap! ~binding-sym conj ev#)))
+          (rf.trace/register-listener! id# (fn [ev#] (swap! ~binding-sym conj ev#)))
           (try ~@body
-               (finally (trace/unregister-listener! id#)))))))
+               (finally (rf.trace/unregister-listener! id#)))))))

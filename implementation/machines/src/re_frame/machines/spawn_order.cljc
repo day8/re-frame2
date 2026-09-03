@@ -13,7 +13,7 @@
   ## Two channels, one authority
 
   **The DURABLE vector at `[:rf.runtime/machines :spawn-order]` is the
-  source of truth** (`paths/spawn-order-path`; see that ns docstring for
+  source of truth** (`rf.machines.paths/spawn-order-path`; see that ns docstring for
   the slot's contract). It is an oldest-to-newest vector of live spawned
   actor-ids, written by `record-in-runtime-db` / `forget-in-runtime-db`
   below — each called from inside the SAME runtime-db swap as the
@@ -70,7 +70,7 @@
   final-state auto-destroy) removes; frame destroy walks in reverse and
   clears. The transient atom follows the same pattern as the `:after`
   timer table in `re-frame.machines.timer/after-timers`."
-  (:require [re-frame.machines.paths :as paths]))
+  (:require [re-frame.machines.paths :as rf.machines.paths]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -87,7 +87,7 @@
   lazily) or when every spawned actor has been torn down (it is pruned
   when it empties)."
   [runtime-db]
-  (or (get-in runtime-db (paths/spawn-order-path)) []))
+  (or (get-in runtime-db (rf.machines.paths/spawn-order-path)) []))
 
 (defn record-in-runtime-db
   "Append `actor-id` to the durable spawn-order vector in `runtime-db`,
@@ -98,7 +98,7 @@
   [runtime-db actor-id]
   (if (nil? actor-id)
     runtime-db
-    (update-in runtime-db (paths/spawn-order-path)
+    (update-in runtime-db (rf.machines.paths/spawn-order-path)
                (fn [v]
                  (let [v (or v [])]
                    (if (some #(= actor-id %) v)
@@ -116,10 +116,10 @@
           (not (contains? (get runtime-db :rf.runtime/machines) :spawn-order)))
     runtime-db
     (let [remaining (filterv #(not= actor-id %)
-                             (get-in runtime-db (paths/spawn-order-path)))]
+                             (get-in runtime-db (rf.machines.paths/spawn-order-path)))]
       (if (empty? remaining)
         (update-in runtime-db [:rf.runtime/machines] dissoc :spawn-order)
-        (assoc-in runtime-db (paths/spawn-order-path) remaining)))))
+        (assoc-in runtime-db (rf.machines.paths/spawn-order-path) remaining)))))
 
 ;; ---- transient channel: the process-side cache ---------------------------
 

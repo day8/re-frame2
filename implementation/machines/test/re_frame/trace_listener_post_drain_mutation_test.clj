@@ -46,14 +46,14 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]))
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace :as rf.trace]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter})
-  mtest/trace-capture-fixture)
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})
+  rf.machines.test-support/trace-capture-fixture)
 
 (def ^:private booting-child
   "A child whose synthetic `[:rf.machine.spawn/spawned]` bootstrap causes an
@@ -79,7 +79,7 @@
     :ready   {}}})
 
 (defn- snap-of [actor-id]
-  (get-in (mtest/runtime-db) [:rf.runtime/machines :snapshots actor-id]))
+  (get-in (rf.machines.test-support/runtime-db) [:rf.runtime/machines :snapshots actor-id]))
 
 (defn- observe
   "The arm's observable end state — deliberately NOT a delivery-mechanics
@@ -99,9 +99,9 @@
   (rf/dispatch-sync [child-id [:go]])
   {:pinned?         (map? (:rf/machine-type (snap-of child-id)))
    :installed?      (some? (snap-of child-id))
-   :state           (mtest/machine-state child-id)
+   :state           (rf.machines.test-support/machine-state child-id)
    :no-such-handler (count (filterv #(= child-id (get-in % [:tags :rf.trace/event-id]))
-                                    (mtest/events-of :rf.error/no-such-handler)))})
+                                    (rf.machines.test-support/events-of :rf.error/no-such-handler)))})
 
 (defn- run-arm
   "Register `type-kw` + a `:spawn-all` parent over it, dispatch the fork, and
@@ -114,7 +114,7 @@
   (let [listener-id ::arm
         fired       (atom false)]
     (when during
-      (trace/register-listener!
+      (rf.trace/register-listener!
         listener-id
         (fn [ev]
           (when (and (= :rf.machine.spawn-all/started (:operation ev))
@@ -125,11 +125,11 @@
       (rf/dispatch-sync [parent-kw [:start]])
       (when after (after))
       (finally
-        (when during (trace/unregister-listener! listener-id))))
+        (when during (rf.trace/unregister-listener! listener-id))))
     (when during
       (is (true? @fired)
           "(precondition) the listener ran — deferred delivery still DELIVERS"))
-    (observe (get-in (mtest/runtime-db)
+    (observe (get-in (rf.machines.test-support/runtime-db)
                      [:rf.runtime/machines :spawned parent-kw [:forking] :children :c]))))
 
 ;; ===========================================================================
@@ -144,9 +144,9 @@
             listener body runs at the post-drain boundary, so it cannot
             influence the install it appears to precede (rf2-wxy1c)."
     (let [arm-1 (run-arm :pd/a1 :pd/sup-a1
-                         {:during #(registrar/unregister! :event :pd/a1)})
+                         {:during #(rf.registrar/unregister! :event :pd/a1)})
           arm-2 (run-arm :pd/a2 :pd/sup-a2
-                         {:after  #(registrar/unregister! :event :pd/a2)})
+                         {:after  #(rf.registrar/unregister! :event :pd/a2)})
           arm-3 (run-arm :pd/a3 :pd/sup-a3 {})]
       (is (= arm-1 arm-2)
           (str "ARM 1 ≡ ARM 2 — mid-drain listener mutation lands post-drain. "

@@ -67,30 +67,30 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.fx :as fx]
-   [re-frame.interop :as interop]
-   [re-frame.late-bind :as late-bind]
+   [re-frame.fx :as rf.fx]
+   [re-frame.interop :as rf.interop]
+   [re-frame.late-bind :as rf.late-bind]
    [re-frame.machines]
-   [re-frame.machines.test-support :as mtest]
-   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
-       :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
+   [re-frame.machines.test-support :as rf.machines.test-support]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture
-    #?(:clj  {:adapter plain-atom/adapter}
-       :cljs {:adapter reagent-adapter/adapter}))
-  mtest/trace-capture-fixture)
+  (rf.machines.test-support/make-reset-runtime-fixture
+    #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
+       :cljs {:adapter rf.adapter.reagent/adapter}))
+  rf.machines.test-support/trace-capture-fixture)
 
 ;; ---------------------------------------------------------------------------
 ;; helpers (mirroring the sibling join transport tests)
 ;; ---------------------------------------------------------------------------
 
 (defn- join-state [parent-id]
-  (get-in (mtest/runtime-db) [:rf.runtime/machines :spawned parent-id [:racing]]))
+  (get-in (rf.machines.test-support/runtime-db) [:rf.runtime/machines :spawned parent-id [:racing]]))
 
 (defn- stale-reasons []
   (mapv (comp :rf.reply/stale-reason :tags)
-        (mtest/events-of :rf.machine.spawn-all/stale-completion)))
+        (rf.machines.test-support/events-of :rf.machine.spawn-all/stale-completion)))
 
 (defn- mk-child
   "A dispatching child: on `:go` transitions to a plain terminal and dispatches
@@ -150,12 +150,12 @@
   completion's re-dispatch is observed deterministically on both platforms.
   Restores the real hook in a finally."
   [sink body-fn]
-  (let [real (late-bind/get-fn :router/dispatch!)]
+  (let [real (rf.late-bind/get-fn :router/dispatch!)]
     (try
-      (late-bind/set-fn! :router/dispatch! (fn [event opts] (swap! sink conj [event opts])))
+      (rf.late-bind/set-fn! :router/dispatch! (fn [event opts] (swap! sink conj [event opts])))
       (body-fn)
       (finally
-        (late-bind/set-fn! :router/dispatch! real)))))
+        (rf.late-bind/set-fn! :router/dispatch! real)))))
 
 (defn- completion-opts
   "The opts of the FIRST recorded re-dispatch whose event is the completion
@@ -339,7 +339,7 @@
           a          (get-in j [:children :a])
           mismatched {:parent-id :jae.ha/rp :invoke-id [:racing]
                       :child-id  :a :spawned-id a :attempt -999}]
-      (mtest/reset-captured!)
+      (rf.machines.test-support/reset-captured!)
       (rf/dispatch-sync [:jae.ha/forge [:jae.ha/rp [:child/done :a]] mismatched])
       (is (= #{} (:done (join-state :jae.ha/rp)))
           "the mismatched hand-authored coordinate folded nothing (fail-closed)")
@@ -365,7 +365,7 @@
           a     (get-in j [:children :a])
           exact {:parent-id :jae.hx/rp :invoke-id [:racing]
                  :child-id  :a :spawned-id a :attempt (:rf/attempt j)}]
-      (mtest/reset-captured!)
+      (rf.machines.test-support/reset-captured!)
       (rf/dispatch-sync [:jae.hx/emit [:jae.hx/rp [:child/done :a]] exact])
       (is (= #{:a} (:done (join-state :jae.hx/rp)))
           "the EXACT-CURRENT hand-authored coordinate folded :a — accepted regardless of source")
@@ -395,8 +395,8 @@
         (fn []
           (with-dispatch-stub sink
             (fn []
-              (with-redefs [interop/set-timeout!   (fn [f _ms] (reset! captured-cb f) ::handle)
-                            interop/clear-timeout! (fn [_] nil)]
+              (with-redefs [rf.interop/set-timeout!   (fn [f _ms] (reset! captured-cb f) ::handle)
+                            rf.interop/clear-timeout! (fn [_] nil)]
                 (rf/dispatch-sync [a [:go]] {:fx-overrides {:dispatch-later :jae.dl/nonexistent}})
                 (is (= #{} (:done (join-state :jae.dl/rp)))
                     "the zero-delay completion deferred (did not fold synchronously)")
@@ -438,10 +438,10 @@
       ;; Redirectable TARGET — was WRONGLY `:protected-rejection` under the
       ;; conflated set; now the redirect reaches the real registered handler.
       (is (= {:disposition :applied-redirect :target id}
-             (fx/classify-fx-override {:my/custom id} :my/custom))
+             (rf.fx/classify-fx-override {:my/custom id} :my/custom))
           (str id " is a REDIRECTABLE target — a custom effect reaches the real handler"))
       ;; Non-overridable SOURCE — a direct override is still stripped loudly.
-      (is (= {} (fx/strip-rejected-overrides {id (fn [_ _] :stub)} :rf/default [:some/event]))
+      (is (= {} (rf.fx/strip-rejected-overrides {id (fn [_ _] :stub)} :rf/default [:some/event]))
           (str id " is a NON-OVERRIDABLE source — a direct override is stripped"))))
 
   (testing "rf2-1w4af — vice-versa: `:rf.machine/join-dispatch` retains BOTH
@@ -451,9 +451,9 @@
             redirect-target case above."
     ;; Non-redirectable TARGET — `{:dispatch :rf.machine/join-dispatch}` refused.
     (is (= {:disposition :protected-rejection :target :rf.machine/join-dispatch}
-           (fx/classify-fx-override {:dispatch :rf.machine/join-dispatch} :dispatch))
+           (rf.fx/classify-fx-override {:dispatch :rf.machine/join-dispatch} :dispatch))
         ":rf.machine/join-dispatch stays a NON-REDIRECTABLE target (no recursion escape)")
     ;; Non-overridable SOURCE — a direct override is stripped loudly.
-    (is (= {} (fx/strip-rejected-overrides
+    (is (= {} (rf.fx/strip-rejected-overrides
                 {:rf.machine/join-dispatch (fn [_ _] :stub)} :rf/default [:some/event]))
         ":rf.machine/join-dispatch stays a NON-OVERRIDABLE source")))

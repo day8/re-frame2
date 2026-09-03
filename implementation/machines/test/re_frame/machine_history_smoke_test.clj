@@ -28,32 +28,32 @@
   `:prev-config` / `:resolved-leaf`) + the cascade-step `:source` stamping
   (spec/009 line 291)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.machines :as machines]
-            [re-frame.machines.parallel :as parallel]
-            [re-frame.machines.result :as result]
-            [re-frame.machines.test-support :as mtest]))
+            [re-frame.machines :as rf.machines]
+            [re-frame.machines.parallel :as rf.machines.parallel]
+            [re-frame.machines.result :as rf.machines.result]
+            [re-frame.machines.test-support :as rf.machines.test-support]))
 
 ;; ---- trace capture (spec/009 shape proof) --------------------------------
 ;;
 ;; Trace capture via the shared machines test-support:
-;; the `:each` `trace-capture-fixture` feeds `mtest/*captured*` with guaranteed
+;; the `:each` `trace-capture-fixture` feeds `rf.machines.test-support/*captured*` with guaranteed
 ;; unregister in a `finally`; `events-of` / `reset-captured!` read + clear it.
 
-(use-fixtures :each mtest/trace-capture-fixture)
+(use-fixtures :each rf.machines.test-support/trace-capture-fixture)
 
 (defn- history-events
   "The captured events for the given history `operation`
   (`:rf.machine.history/restored` | `:rf.machine.history/recorded`)."
   [operation]
-  (mtest/events-of operation))
+  (rf.machines.test-support/events-of operation))
 
-(defn- reset-capture! [] (mtest/reset-captured!))
+(defn- reset-capture! [] (rf.machines.test-support/reset-captured!))
 
 (defn- step
   "Apply one macrostep and return the post-transition snapshot. Asserts the
   step did not fail."
   [machine snapshot event]
-  (let [r (machines/machine-transition machine snapshot event)]
+  (let [r (rf.machines/machine-transition machine snapshot event)]
     (is (= :ok (:status r)) (str "transition ok for event " (pr-str event)))
     (:snapshot r)))
 
@@ -165,7 +165,7 @@
     ;; dead path. Benign — no :rf.error/*.
     (let [snap     (assoc (seed [:player :stopped])
                           :rf/history {[:player :playing] [:player :playing :gone]})
-          r        (machines/machine-transition deep-player snap [:play])]
+          r        (rf.machines/machine-transition deep-player snap [:play])]
       (is (= :ok (:status r)) "dangling path is benign — no failure")
       (let [restored (:snapshot r)]
         (is (= [:player :playing :at-start] (:state restored))
@@ -348,13 +348,13 @@
 (deftest cascade-step-source-stamping
   (testing "history-driven :entry cascade steps carry :source (spec/009 line 291)"
     ;; Re-run the restore and read the structured cascade off the ENGINE
-    ;; seam's Result (the `::result/cascade` rider is lifecycle bookkeeping
+    ;; seam's Result (the `::rf.machines.result/cascade` rider is lifecycle bookkeeping
     ;; the public map does not carry) — each :entry step must carry :source
     ;; matching the restored event; non-history steps (exit) carry none.
     (let [after-stop (step deep-player (seed [:player :playing :mid-track]) [:stop])
-          r          (parallel/machine-transition deep-player after-stop [:play])]
-      (is (result/ok? r))
-      (let [cascade (result/cascade r)
+          r          (rf.machines.parallel/machine-transition deep-player after-stop [:play])]
+      (is (rf.machines.result/ok? r))
+      (let [cascade (rf.machines.result/cascade r)
             entries (filterv #(= :entry (:kind %)) cascade)
             exits   (filterv #(= :exit (:kind %)) cascade)]
         (is (seq entries) "the restore produced entry steps")
@@ -366,10 +366,10 @@
 (deftest non-history-transition-has-no-source-on-steps
   (testing "an ordinary (non-history) transition stamps NO :source on cascade steps"
     ;; :seek :at-start→:mid-track is a plain leaf transition — no history.
-    (let [r       (parallel/machine-transition
+    (let [r       (rf.machines.parallel/machine-transition
                     deep-player (seed [:player :playing :at-start]) [:seek])
-          cascade (result/cascade r)]
-      (is (result/ok? r))
+          cascade (rf.machines.result/cascade r)]
+      (is (rf.machines.result/ok? r))
       (is (every? #(not (contains? % :source))
                   (filterv #(= :entry (:kind %)) cascade))
           "no :source on entry steps of a non-history transition")

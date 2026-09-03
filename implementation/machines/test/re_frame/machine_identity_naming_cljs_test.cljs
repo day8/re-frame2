@@ -21,15 +21,15 @@
       keyword address vs a state-path vector)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.trace.tooling :as trace-tooling]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.machines.test-support :as mtest]))
+            [re-frame.trace.tooling :as rf.trace.tooling]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.machines.test-support :as rf.machines.test-support]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter}))
 
-(def ^:private snapshot mtest/snapshot)
+(def ^:private snapshot rf.machines.test-support/snapshot)
 
 (defn- ops [traces op]
   (filter #(= op (:operation %)) traces))
@@ -55,7 +55,7 @@
           traces (atom [])]
       (rf/reg-machine :idn/child child)
       (rf/reg-machine :idn/parent parent)
-      (trace-tooling/register-listener! ::idn (fn [ev] (swap! traces conj ev)))
+      (rf.trace.tooling/register-listener! ::idn (fn [ev] (swap! traces conj ev)))
       ;; Spawn the child (deterministic instance id :idn/child#1).
       (rf/dispatch-sync [:idn/parent [:go]])
       (let [spawned-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
@@ -105,7 +105,7 @@
           traces (atom [])]
       (rf/reg-machine :idn2/child child)
       (rf/reg-machine :idn2/parent parent)
-      (trace-tooling/register-listener! ::idn2 (fn [ev] (swap! traces conj ev)))
+      (rf.trace.tooling/register-listener! ::idn2 (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:idn2/parent [:go]])
       (let [spawned (first (ops @traces :rf.machine.lifecycle/spawned))]
         (is (some? spawned) ":rf.machine.lifecycle/spawned fired")
@@ -164,7 +164,7 @@
     (let [m {:initial :a :states {:a {:on {:go :b}} :b {}}}
           traces (atom [])]
       (rf/reg-machine :idn4/single m)
-      (trace-tooling/register-listener! ::idn4 (fn [ev] (swap! traces conj ev)))
+      (rf.trace.tooling/register-listener! ::idn4 (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:idn4/single [:go]])
       (let [tr (first (ops @traces :rf.machine/transition))]
         (is (some? tr))

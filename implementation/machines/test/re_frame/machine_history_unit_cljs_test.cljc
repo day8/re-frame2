@@ -44,31 +44,31 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    #?(:cljs [cljs.reader])
-   [re-frame.machines :as machines]
-   [re-frame.machines.parallel :as parallel]
-   [re-frame.machines.result :as result]
-   [re-frame.machines.test-support :as mtest]))
+   [re-frame.machines :as rf.machines]
+   [re-frame.machines.parallel :as rf.machines.parallel]
+   [re-frame.machines.result :as rf.machines.result]
+   [re-frame.machines.test-support :as rf.machines.test-support]))
 
 ;; ===========================================================================
 ;; Harness — pure engine + trace capture (shared)
 ;; ===========================================================================
 ;;
 ;; Trace capture (register + guaranteed unregister, CLJ/CLJS-compatible) is
-;; the shared `mtest/trace-capture-fixture`; `history-events` / `reset-
+;; the shared `rf.machines.test-support/trace-capture-fixture`; `history-events` / `reset-
 ;; capture!` are thin wrappers over its `events-of` / `reset-captured!`.
 
-(use-fixtures :each mtest/trace-capture-fixture)
+(use-fixtures :each rf.machines.test-support/trace-capture-fixture)
 
 (defn- history-events
   [operation]
-  (mtest/events-of operation))
+  (rf.machines.test-support/events-of operation))
 
-(defn- reset-capture! [] (mtest/reset-captured!))
+(defn- reset-capture! [] (rf.machines.test-support/reset-captured!))
 
 (defn- step
   "Apply one macrostep; assert it succeeded; return the post snapshot."
   [machine snapshot event]
-  (let [r (machines/machine-transition machine snapshot event)]
+  (let [r (rf.machines/machine-transition machine snapshot event)]
     (is (= :ok (:status r)) (str "transition ok for event " (pr-str event)))
     (:snapshot r)))
 
@@ -267,11 +267,11 @@
     (let [m    (player true)
           snap (assoc (seed :away)
                       :rf/history {[:player] [:player :playing :gone]})
-          r    (machines/machine-transition m snap [:resume])]
+          r    (rf.machines/machine-transition m snap [:resume])]
       (is (= :ok (:status r)) "dangling deep path is benign — no failure Result")
       (is (= [:player :playing :at-start] (:state (:snapshot r)))
           "discarded the dead leaf ⇒ fell back to :default-target → :at-start")
-      (is (empty? (filterv #(= :error (:op-type %)) (mtest/captured-events)))
+      (is (empty? (filterv #(= :error (:op-type %)) (rf.machines.test-support/captured-events)))
           "no :rf.error/* trace for a dangling-at-runtime recording"))))
 
 (deftest dangling-shallow-child-falls-back-no-error
@@ -279,11 +279,11 @@
     (let [m    (player false)
           ;; :ghost is not a child of :player in the current definition.
           snap (assoc (seed :away) :rf/history {[:player] :ghost})
-          r    (machines/machine-transition m snap [:resume])]
+          r    (rf.machines/machine-transition m snap [:resume])]
       (is (= :ok (:status r)) "dangling shallow child is benign")
       (is (= [:player :playing :at-start] (:state (:snapshot r)))
           "discarded the dead child ⇒ fell back to :default-target → :at-start")
-      (is (empty? (filterv #(= :error (:op-type %)) (mtest/captured-events)))
+      (is (empty? (filterv #(= :error (:op-type %)) (rf.machines.test-support/captured-events)))
           "no :rf.error/* for a dangling shallow child"))))
 
 ;; ===========================================================================
@@ -417,11 +417,11 @@
       (reset-capture!)
       ;; The cascade rider is engine bookkeeping the public map does not
       ;; carry, so this one assertion reads the engine seam's Result.
-      (let [r       (parallel/machine-transition nested away [:return])
-            cascade (result/cascade r)
+      (let [r       (rf.machines.parallel/machine-transition nested away [:return])
+            cascade (rf.machines.result/cascade r)
             entries (filterv #(= :entry (:kind %)) cascade)
             restored (history-events :rf.machine.history/restored)]
-        (is (result/ok? r))
+        (is (rf.machines.result/ok? r))
         (is (= 1 (count restored)) "one restored event for the outer history re-entry")
         (is (= :recorded (:source (first restored))) ":source :recorded (hoisted to envelope)")
         (is (= [:outer] (:compound-path (:tags (first restored))))

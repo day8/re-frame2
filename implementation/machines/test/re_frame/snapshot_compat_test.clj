@@ -17,29 +17,29 @@
   `:rf/after-epoch`, region-scoped epochs) reset with the snapshot."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace :as rf.trace]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; snapshot lookup via the shared machines test-support. The bespoke
 ;; `capture-error-traces` below stays local — it is an intentional
 ;; manual-stop idiom (returns a `:stop!` thunk the call sites invoke
 ;; explicitly) rather than a `finally`-scoped block.
-(def ^:private snapshot mtest/snapshot)
+(def ^:private snapshot rf.machines.test-support/snapshot)
 
 (defn- capture-error-traces []
   (let [captured (atom [])
         cb-id    (gensym "snapshot-compat-test")]
-    (trace/register-listener! cb-id
+    (rf.trace/register-listener! cb-id
                               (fn [ev]
                                 (when (= :error (:op-type ev))
                                   (swap! captured conj ev))))
     {:captured captured
-     :stop!    #(trace/unregister-listener! cb-id)}))
+     :stop!    #(rf.trace/unregister-listener! cb-id)}))
 
 ;; ---- (3) state-not-in-definition -----------------------------------------
 
@@ -59,7 +59,7 @@
         ;; Seed an incompatible snapshot directly — a state that's no
         ;; longer in `:states`. Mirrors a hot-reload that dropped a
         ;; state while the snapshot was still live.
-        (frame/swap-runtime-db! :rf/default
+        (rf.frame/swap-runtime-db! :rf/default
                               assoc-in
                               [:rf.runtime/machines :snapshots :compat/m1]
                               {:state :gone
@@ -113,7 +113,7 @@
         ;; Seed a partial snapshot missing :right — :left already final.
         ;; Without strict key parity a snapshot missing :right could vacuously
         ;; read all-final and auto-destroy the machine with a region missing.
-        (frame/swap-runtime-db! :rf/default
+        (rf.frame/swap-runtime-db! :rf/default
                               assoc-in
                               [:rf.runtime/machines :snapshots :compat/par-missing]
                               {:state {:left :done} :data {:corrupt true}})
@@ -140,7 +140,7 @@
       (try
         (rf/reg-machine :compat/par-extra spec)
         ;; Seed a snapshot with a stale :middle region a hot reload removed.
-        (frame/swap-runtime-db! :rf/default
+        (rf.frame/swap-runtime-db! :rf/default
                               assoc-in
                               [:rf.runtime/machines :snapshots :compat/par-extra]
                               {:state {:left :run :right :run :middle :run} :data {}})
@@ -176,7 +176,7 @@
         (rf/reg-machine :compat/hist spec)
         ;; Seed a snapshot occupying the history pseudo-state — node-at
         ;; resolves it, but it is never occupiable.
-        (frame/swap-runtime-db! :rf/default
+        (rf.frame/swap-runtime-db! :rf/default
                               assoc-in
                               [:rf.runtime/machines :snapshots :compat/hist]
                               {:state [:playing :hist] :data {:stale true}})
@@ -207,7 +207,7 @@
         ;; Seed an old-version snapshot — `:state` is otherwise valid
         ;; in the new definition (so we're isolating version-check
         ;; from state-not-in-definition).
-        (frame/swap-runtime-db! :rf/default
+        (rf.frame/swap-runtime-db! :rf/default
                               assoc-in
                               [:rf.runtime/machines :snapshots :compat/m2]
                               {:state :idle
@@ -267,7 +267,7 @@
         (rf/reg-machine :compat/m4 spec)
         ;; Seed a snapshot whose version matches and whose :state is
         ;; in the definition.
-        (frame/swap-runtime-db! :rf/default
+        (rf.frame/swap-runtime-db! :rf/default
                               assoc-in
                               [:rf.runtime/machines :snapshots :compat/m4]
                               {:state :idle

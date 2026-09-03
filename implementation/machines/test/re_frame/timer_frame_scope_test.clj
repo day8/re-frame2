@@ -17,13 +17,13 @@
   the targeted frame."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.machines :as machines]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.machines.timer :as timer]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.machines :as rf.machines]
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.machines.timer :as rf.machines.timer]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- the machine under test -----------------------------------------------
 ;;
@@ -59,7 +59,7 @@
     (rf/dispatch-sync [:iso/m [:fetch]] {:frame :iso/left})
     (rf/dispatch-sync [:iso/m [:fetch]] {:frame :iso/right})
 
-    (let [tt @timer/after-timers]
+    (let [tt @rf.machines.timer/after-timers]
       (is (contains? tt :iso/left)
           "the timer table partitions entries under the left frame")
       (is (contains? tt :iso/right)
@@ -82,8 +82,8 @@
             "inner-key shape is {:parent ... :spawn ... :delay ...}")))
 
     ;; 1-arity reset clears only the targeted frame.
-    (machines/reset-timers! :iso/left)
-    (let [tt @timer/after-timers]
+    (rf.machines/reset-timers! :iso/left)
+    (let [tt @rf.machines.timer/after-timers]
       (is (not (contains? tt :iso/left))
           "1-arity reset-timers! drops the left frame's entire inner table")
       (is (contains? tt :iso/right)
@@ -98,13 +98,13 @@
     (rf/make-frame {:id :ds/discard :doc "destroyed"})
     (rf/dispatch-sync [:ds/m [:fetch]] {:frame :ds/keep})
     (rf/dispatch-sync [:ds/m [:fetch]] {:frame :ds/discard})
-    (is (and (contains? @timer/after-timers :ds/keep)
-             (contains? @timer/after-timers :ds/discard))
+    (is (and (contains? @rf.machines.timer/after-timers :ds/keep)
+             (contains? @rf.machines.timer/after-timers :ds/discard))
         "preconditions: both frames have entries")
     (rf/destroy-frame! :ds/discard)
-    (is (not (contains? @timer/after-timers :ds/discard))
+    (is (not (contains? @rf.machines.timer/after-timers :ds/discard))
         ":machines/on-frame-destroyed! hook clears the destroyed frame's entries")
-    (is (contains? @timer/after-timers :ds/keep)
+    (is (contains? @rf.machines.timer/after-timers :ds/keep)
         "destroy-frame! on the discarded frame must not touch the survivor's entries")))
 
 ;; ---- regression: 0-arity reset still clears everything --------------------
@@ -116,9 +116,9 @@
     (rf/make-frame {:id :iso0/b})
     (rf/dispatch-sync [:iso0/m [:fetch]] {:frame :iso0/a})
     (rf/dispatch-sync [:iso0/m [:fetch]] {:frame :iso0/b})
-    (is (seq @timer/after-timers) "preconditions: both frames have entries")
-    (machines/reset-timers!)
-    (is (= {} @timer/after-timers)
+    (is (seq @rf.machines.timer/after-timers) "preconditions: both frames have entries")
+    (rf.machines/reset-timers!)
+    (is (= {} @rf.machines.timer/after-timers)
         "0-arity clears the whole table — the fixture-teardown shape")))
 
 ;; ---- regression: after-cancel-fx is scoped to the active frame -----------
@@ -130,14 +130,14 @@
     (rf/make-frame {:id :sc/B})
     (rf/dispatch-sync [:sc/m [:fetch]] {:frame :sc/A})
     (rf/dispatch-sync [:sc/m [:fetch]] {:frame :sc/B})
-    (is (and (contains? @timer/after-timers :sc/A)
-             (contains? @timer/after-timers :sc/B))
+    (is (and (contains? @rf.machines.timer/after-timers :sc/A)
+             (contains? @rf.machines.timer/after-timers :sc/B))
         "both frames installed a timer entry on :loading entry")
     ;; Exiting :loading (via :loaded → :ready) on frame :sc/A emits
     ;; :rf.machine/after-cancel; after-cancel-fx must clear only the
     ;; active frame's matching entries.
     (rf/dispatch-sync [:sc/m [:loaded]] {:frame :sc/A})
-    (is (not (contains? @timer/after-timers :sc/A))
+    (is (not (contains? @rf.machines.timer/after-timers :sc/A))
         "frame A's timer table is empty after the state exit")
-    (is (contains? @timer/after-timers :sc/B)
+    (is (contains? @rf.machines.timer/after-timers :sc/B)
         "frame B's table is untouched by frame A's :rf.machine/after-cancel")))

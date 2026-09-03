@@ -15,28 +15,28 @@
   so the test is deterministic under Node."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.machines.timeout :as timeout]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.machines.test-support :as mtest]))
+            [re-frame.machines.timeout :as rf.machines.timeout]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.machines.test-support :as rf.machines.test-support]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter}))
 
-(def ^:private snapshot mtest/snapshot)
+(def ^:private snapshot rf.machines.test-support/snapshot)
 
 (deftest duration-grammar-cljs
   (testing "integer-ms + ISO-8601 resolve cross-host (CLJS parse path)"
-    (is (= 5000   (timeout/resolve-duration-ms 5000)))
-    (is (= 5000   (timeout/resolve-duration-ms "PT5S")))
-    (is (= 120000 (timeout/resolve-duration-ms "PT2M")))
-    (is (= 500    (timeout/resolve-duration-ms "PT0.5S")))
-    (is (= 5400000 (timeout/resolve-duration-ms "PT1H30M"))))
+    (is (= 5000   (rf.machines.timeout/resolve-duration-ms 5000)))
+    (is (= 5000   (rf.machines.timeout/resolve-duration-ms "PT5S")))
+    (is (= 120000 (rf.machines.timeout/resolve-duration-ms "PT2M")))
+    (is (= 500    (rf.machines.timeout/resolve-duration-ms "PT0.5S")))
+    (is (= 5400000 (rf.machines.timeout/resolve-duration-ms "PT1H30M"))))
   (testing "the XState `5s` / `10ms` shorthand is rejected cross-host"
-    (is (nil? (timeout/resolve-duration-ms "5s")))
-    (is (nil? (timeout/resolve-duration-ms "10ms")))
-    (is (nil? (timeout/resolve-duration-ms "P")))
-    (is (nil? (timeout/resolve-duration-ms 0)))))
+    (is (nil? (rf.machines.timeout/resolve-duration-ms "5s")))
+    (is (nil? (rf.machines.timeout/resolve-duration-ms "10ms")))
+    (is (nil? (rf.machines.timeout/resolve-duration-ms "P")))
+    (is (nil? (rf.machines.timeout/resolve-duration-ms 0)))))
 
 (defn- reg-error-id [machine]
   (try (rf/reg-machine (keyword "ttc" (str (gensym))) machine) nil

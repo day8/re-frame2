@@ -19,21 +19,21 @@
        :on-supersede / :on-frame-destroy`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
+            [re-frame.frame :as rf.frame]
             [re-frame.machines]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- helpers ---------------------------------------------------------------
 
-;; Routed through the shared `mtest/with-trace-capture`
+;; Routed through the shared `rf.machines.test-support/with-trace-capture`
 ;; — guaranteed unregister in a `finally`.
 (defn- record-traces!
   [body-fn]
-  (mtest/with-trace-capture seen
+  (rf.machines.test-support/with-trace-capture seen
     (body-fn)
     @seen))
 
@@ -188,7 +188,7 @@
           "the guard throw surfaces a :rf.error/machine-action-exception
            (the machine-scoped throw category — same surface as an action throw)")
       ;; Atomic rollback: no transition fired, the snapshot stays at :idle.
-      (let [db   (frame/frame-runtime-db-value :rf/default)
+      (let [db   (rf.frame/frame-runtime-db-value :rf/default)
             snap (get-in db [:rf.runtime/machines :snapshots :rf2-82a0u/guard-throws])]
         (is (= :idle (:state snap))
             "macrostep aborted atomically — neither :A nor :B was entered")))))
@@ -213,7 +213,7 @@
     ;; The throwing-guard candidate aborts the macrostep — the engine does
     ;; NOT walk past it to the unguarded fallback. Atomic rollback: the
     ;; snapshot stays at :idle and :bump never ran.
-    (let [db   (frame/frame-runtime-db-value :rf/default)
+    (let [db   (rf.frame/frame-runtime-db-value :rf/default)
           snap (get-in db [:rf.runtime/machines :snapshots :rf2-82a0u/threw-fall])]
       (is (= :idle (:state snap))
           "the guard throw aborted the macrostep — the fallback candidate

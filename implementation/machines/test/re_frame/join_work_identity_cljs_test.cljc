@@ -11,19 +11,19 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.interop :as interop]
-   [re-frame.late-bind :as late-bind]
+   [re-frame.interop :as rf.interop]
+   [re-frame.late-bind :as rf.late-bind]
    [re-frame.machines]
-   [re-frame.machines.reply :as m-reply]
-   [re-frame.machines.test-support :as mtest]
-   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
-       :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
+   [re-frame.machines.reply :as rf.machines.reply]
+   [re-frame.machines.test-support :as rf.machines.test-support]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture
-    #?(:clj  {:adapter plain-atom/adapter}
-       :cljs {:adapter reagent-adapter/adapter}))
-  mtest/trace-capture-fixture)
+  (rf.machines.test-support/make-reset-runtime-fixture
+    #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
+       :cljs {:adapter rf.adapter.reagent/adapter}))
+  rf.machines.test-support/trace-capture-fixture)
 
 (defn- dispatching-child [parent-id]
   {:initial :running
@@ -145,15 +145,15 @@
             :done {}}})
 
 (defn- join-state [parent-id]
-  (get-in (mtest/runtime-db)
+  (get-in (rf.machines.test-support/runtime-db)
           [:rf.runtime/machines :spawned parent-id [:racing]]))
 
 (defn- join-attempt [actor-id]
-  (get-in (mtest/runtime-db)
+  (get-in (rf.machines.test-support/runtime-db)
           [:rf.runtime/machines :snapshots actor-id :data :rf/join-child]))
 
 (defn- events-of [op]
-  (mtest/events-of op))
+  (rf.machines.test-support/events-of op))
 
 (defn- work-id-of [event]
   (:rf.reply/work-id (:tags event)))
@@ -164,7 +164,7 @@
               (filter #(= work-id (:rf.reply/work-id %)))
               (keep :rf.reply/work-status)
               (filter #{:completed :failed :cancelled}))
-        (mtest/captured-events)))
+        (rf.machines.test-support/captured-events)))
 
 (defn- forged-completion! [parent-id auth]
   ;; The coordinate rides the recordable `:rf.cofx` slot (rf2-nsbwft) —
@@ -174,14 +174,14 @@
     {:rf.cofx {:rf.machine/join-attempt auth}}))
 
 (defn- capture-dispatch! [sink f]
-  (let [real (late-bind/get-fn :router/dispatch!)]
+  (let [real (rf.late-bind/get-fn :router/dispatch!)]
     (try
-      (late-bind/set-fn! :router/dispatch!
+      (rf.late-bind/set-fn! :router/dispatch!
                          (fn [event opts]
                            (swap! sink conj [event opts])))
       (f)
       (finally
-        (late-bind/set-fn! :router/dispatch! real)))))
+        (rf.late-bind/set-fn! :router/dispatch! real)))))
 
 (deftest numeric-tail-fixed-id-uses-runtime-attempt-not-keyword-spelling
   (testing "sequential attempts at a fixed address ending in #7 get distinct work ids"
@@ -202,7 +202,7 @@
               ;; durable join spec/attempt, never trust this carried value.
               tampered-auth (assoc (join-attempt :jwi/fixed-a#7)
                                    :work-generation tampered-generation)]
-          (mtest/reset-captured!)
+          (rf.machines.test-support/reset-captured!)
           (forged-completion! :jwi/numeric-parent tampered-auth)
           (let [work-b (work-id-of
                          (first (events-of :rf.machine.spawn-all/child-completed)))]
@@ -236,7 +236,7 @@
                               [:children :a])]
         (is (not= :jwi/spec-change-fixed-a#7 successor))
         (is (not= attempt-a (:rf/attempt (join-state :jwi/spec-change-parent))))
-        (mtest/reset-captured!)
+        (rf.machines.test-support/reset-captured!)
         (forged-completion! :jwi/spec-change-parent auth-a)
         (let [stale-work (work-id-of
                            (first (events-of
@@ -307,10 +307,10 @@
   (testing "a delayed exact-attempt carrier is suppressed after its attempt closes"
     (let [callback (atom nil)
           pending  (atom [])]
-      (with-redefs [interop/set-timeout! (fn [f _ms]
+      (with-redefs [rf.interop/set-timeout! (fn [f _ms]
                                           (reset! callback f)
                                           ::timer)
-                    interop/clear-timeout! (fn [_] nil)]
+                    rf.interop/clear-timeout! (fn [_] nil)]
         (register-imperative-destroy-parent!
           :jwi/delayed-cancel-parent
           :jwi/delayed-cancel-a-type :jwi/delayed-cancel-b-type
@@ -397,7 +397,7 @@
             (is (not= attempt-1 attempt-2))
             (is (= :jwi/fixed-a (get-in (join-state :jwi/parent)
                                         [:children :a])))
-            (mtest/reset-captured!)
+            (rf.machines.test-support/reset-captured!)
             (forged-completion! :jwi/parent auth-a-1)
             (let [old-stale (work-id-of (first (events-of
                                                  :rf.machine.spawn-all/stale-completion)))]
@@ -412,7 +412,7 @@
                     "attempt A suppression cannot land on attempt B's arc"))))))))
 
   (testing "join resolution cancellation uses the same exact fixed-id attempt"
-    (mtest/reset-captured!)
+    (rf.machines.test-support/reset-captured!)
     (register-fixed-parent! :jwi/some-parent :jwi/c-type :jwi/d-type
                             :jwi/fixed-c :jwi/fixed-d :any)
     (let [attempt (:rf/attempt (join-state :jwi/some-parent))]
@@ -430,7 +430,7 @@
             "the destroy-side cancellation reuses the join attempt identity"))))
 
   (testing "a fixed join child final leaf and its accepted fold share one id"
-    (mtest/reset-captured!)
+    (rf.machines.test-support/reset-captured!)
     (rf/reg-machine
       :jwi/final-child-type
       {:initial :running
@@ -465,7 +465,7 @@
   (testing "generated actor and ordinary single-spawn identities are unchanged"
     (is (= [:rf.work/machine :jwi/generated#7 [:racing] 7]
            (:rf.reply/work-id
-             (m-reply/join-child-reply
+             (rf.machines.reply/join-child-reply
                {:parent-id :jwi/parent :invoke-id [:racing]
                 :child-id :a :spawned-id :jwi/generated#7
                 :work-generation 7}
@@ -473,7 +473,7 @@
         "a generated actor keeps its exact #n generation")
     (is (= [:rf.work/machine :jwi/single-fixed [:working] 1]
            (:rf.reply/work-id
-             (m-reply/success-reply
+             (rf.machines.reply/success-reply
                {:actor-id :jwi/single-fixed :work-bearing-path [:working]}
                :ok)))
         "normal fixed-id single spawn remains generation 1")))

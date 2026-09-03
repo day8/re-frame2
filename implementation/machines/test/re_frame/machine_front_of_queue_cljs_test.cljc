@@ -24,13 +24,13 @@
   nowhere but the JVM and reads as covered (rf2-dn6v7, rf2-lgozq)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.router :as router]
+            [re-frame.router :as rf.router]
             [re-frame.machines]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (def ^:private run-log (atom []))
 
@@ -62,8 +62,8 @@
       (fn [_ _]
         (log! :seed)
         ;; Machine event queued FIRST, external event SECOND.
-        (router/dispatch! [:rf2-j20a7/leapfrog [:go]] {})
-        (router/dispatch! [:ext] {})
+        (rf.router/dispatch! [:rf2-j20a7/leapfrog [:go]] {})
+        (rf.router/dispatch! [:ext] {})
         {}))
     (rf/dispatch-sync [:seed])
     (is (= [:seed :machine-action :cont :ext] @run-log)
@@ -89,8 +89,8 @@
         ;; Both are EXTERNAL dispatches (origin = this plain handler's fx
         ;; emit). The machine event is queued first; targeting a machine
         ;; must NOT move it relative to the later plain event.
-        (router/dispatch! [:rf2-j20a7/fifo-target [:go]] {})
-        (router/dispatch! [:plain] {})
+        (rf.router/dispatch! [:rf2-j20a7/fifo-target [:go]] {})
+        (rf.router/dispatch! [:plain] {})
         {}))
     (rf/dispatch-sync [:seed])
     (is (= [:seed :machine-ran :plain] @run-log)
@@ -112,7 +112,7 @@
     (rf/reg-event :cont-1
       (fn [_ _]
         (log! :cont-1)
-        (router/dispatch! [:cont-2] {}) ;; plain origin → back of queue
+        (rf.router/dispatch! [:cont-2] {}) ;; plain origin → back of queue
         {}))
     (reg-marker :cont-2)
     (rf/reg-machine :rf2-j20a7/quiesce
@@ -126,8 +126,8 @@
     (rf/reg-event :seed
       (fn [_ _]
         (log! :seed)
-        (router/dispatch! [:rf2-j20a7/quiesce [:go]] {})
-        (router/dispatch! [:ext] {})
+        (rf.router/dispatch! [:rf2-j20a7/quiesce [:go]] {})
+        (rf.router/dispatch! [:ext] {})
         {}))
     (rf/dispatch-sync [:seed])
     ;; Trace through the queue:

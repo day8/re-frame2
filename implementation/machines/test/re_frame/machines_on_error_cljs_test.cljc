@@ -52,19 +52,19 @@
    ;; resolves through (without it, `rf/reg-machine` throws
    ;; `:rf.error/machines-artefact-missing`).
    [re-frame.machines]
-   [re-frame.machines.test-support :as mtest]
-   [re-frame.trace.tooling :as trace-tooling]
-   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
-       :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
+   [re-frame.machines.test-support :as rf.machines.test-support]
+   [re-frame.trace.tooling :as rf.trace.tooling]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture
-    #?(:clj  {:adapter plain-atom/adapter}
-       :cljs {:adapter reagent-adapter/adapter})))
+  (rf.machines.test-support/make-reset-runtime-fixture
+    #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
+       :cljs {:adapter rf.adapter.reagent/adapter})))
 
 ;; snapshot lookup via the shared machines test-support — no hardcoded
 ;; `[:rf.runtime/machines :snapshots …]` path.
-(def ^:private snapshot mtest/snapshot)
+(def ^:private snapshot rf.machines.test-support/snapshot)
 
 (defn- spawned-id-for
   [parent-id invoke-id]
@@ -78,7 +78,7 @@
 (defn- record-traces!
   [k]
   (let [a (atom [])]
-    (trace-tooling/register-listener! k (fn [ev] (swap! a conj ev)))
+    (rf.trace.tooling/register-listener! k (fn [ev] (swap! a conj ev)))
     a))
 
 ;; ---- (a) child reaches error :final? leaf → parent :on-error :target fires ----

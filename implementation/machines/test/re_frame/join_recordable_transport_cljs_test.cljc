@@ -27,18 +27,18 @@
    #?(:clj  [clojure.edn :as edn]
       :cljs [cljs.reader :as edn])
    [re-frame.core :as rf]
-   [re-frame.interop :as interop]
-   [re-frame.late-bind :as late-bind]
+   [re-frame.interop :as rf.interop]
+   [re-frame.late-bind :as rf.late-bind]
    [re-frame.machines]
-   [re-frame.machines.test-support :as mtest]
-   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
-       :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
+   [re-frame.machines.test-support :as rf.machines.test-support]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture
-    #?(:clj  {:adapter plain-atom/adapter}
-       :cljs {:adapter reagent-adapter/adapter}))
-  mtest/trace-capture-fixture)
+  (rf.machines.test-support/make-reset-runtime-fixture
+    #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
+       :cljs {:adapter rf.adapter.reagent/adapter}))
+  rf.machines.test-support/trace-capture-fixture)
 
 (defn- edn-roundtrip
   "Serialize + re-read `x` through EDN — the same value-only round-trip a
@@ -48,11 +48,11 @@
   (edn/read-string (pr-str x)))
 
 (defn- join-state [parent-id]
-  (get-in (mtest/runtime-db) [:rf.runtime/machines :spawned parent-id [:racing]]))
+  (get-in (rf.machines.test-support/runtime-db) [:rf.runtime/machines :spawned parent-id [:racing]]))
 
 (defn- stale-reasons []
   (mapv (comp :rf.reply/stale-reason :tags)
-        (mtest/events-of :rf.machine.spawn-all/stale-completion)))
+        (rf.machines.test-support/events-of :rf.machine.spawn-all/stale-completion)))
 
 (defn- mk-child
   "A dispatching child: on `:go` transitions to a plain terminal and dispatches
@@ -116,12 +116,12 @@
   completion's re-dispatch is observed deterministically on both platforms (no
   async router drain to await). Restores the real hook in a `finally`."
   [sink body-fn]
-  (let [real (late-bind/get-fn :router/dispatch!)]
+  (let [real (rf.late-bind/get-fn :router/dispatch!)]
     (try
-      (late-bind/set-fn! :router/dispatch! (fn [event opts] (swap! sink conj [event opts])))
+      (rf.late-bind/set-fn! :router/dispatch! (fn [event opts] (swap! sink conj [event opts])))
       (body-fn)
       (finally
-        (late-bind/set-fn! :router/dispatch! real)))))
+        (rf.late-bind/set-fn! :router/dispatch! real)))))
 
 (defn- completion-opts
   "The opts of the FIRST recorded re-dispatch whose event is the completion
@@ -148,7 +148,7 @@
     (let [attempt     (attempt-for :jt/rp)
           rec-event   (edn-roundtrip [:jt/rp [:child/done :a]])
           rec-cofx    (edn-roundtrip {:rf.machine/join-attempt attempt})]
-      (mtest/reset-captured!)
+      (rf.machines.test-support/reset-captured!)
       ;; Strict replay: redispatch the recorded event PLUS its recorded causal
       ;; coeffects (the `:rf.cofx` map, EDN-roundtripped).
       (rf/dispatch-sync rec-event {:rf.cofx rec-cofx})
@@ -156,7 +156,7 @@
           "the EDN-roundtripped completion + recorded cofx folded :a (replay-faithful)")
       (is (empty? (stale-reasons)) "no stale suppression for the faithful replay")
       ;; Remove the recordable coordinate fact → fail-closed stale drop.
-      (mtest/reset-captured!)
+      (rf.machines.test-support/reset-captured!)
       (rf/dispatch-sync (edn-roundtrip [:jt/rp [:child/done :b]])
                         {:rf.cofx (edn-roundtrip {})})
       (is (= #{:a} (:done (join-state :jt/rp)))
@@ -177,7 +177,7 @@
           ;; The #5839 wire shape: coordinate on inner-event METADATA.
           meta-event  [:jt/mp (with-meta [:child/done :a] {:rf/join-attempt attempt})]
           replayed    (edn-roundtrip meta-event)]  ;; EDN drops metadata
-      (mtest/reset-captured!)
+      (rf.machines.test-support/reset-captured!)
       (rf/dispatch-sync replayed)
       (is (= #{} (:done (join-state :jt/mp)))
           "the metadata-stripped replay folded nothing")
@@ -206,11 +206,11 @@
     (let [a           (get-in (join-state :jt/dp) [:children :a])
           captured-cb (atom nil)
           sink        (atom [])]
-      (mtest/reset-captured!)
+      (rf.machines.test-support/reset-captured!)
       (with-dispatch-stub sink
         (fn []
-          (with-redefs [interop/set-timeout!   (fn [f _ms] (reset! captured-cb f) ::handle)
-                        interop/clear-timeout! (fn [_] nil)]
+          (with-redefs [rf.interop/set-timeout!   (fn [f _ms] (reset! captured-cb f) ::handle)
+                        rf.interop/clear-timeout! (fn [_] nil)]
             ;; The zero-delay :dispatch-later completion is DEFERRED — armed on
             ;; the host clock, NOT folded synchronously (rf2-21hsb1). Restoring
             ;; the (pos? ms) guard would fold it in THIS drain and fail here.
@@ -247,7 +247,7 @@
       (rf/dispatch-sync [:jt/op [:start]])
       (let [j2 (join-state :jt/op)]
         (is (not= (:attempt attempt1-coord) (:rf/attempt j2)) "attempt 2 minted a new token")
-        (mtest/reset-captured!)
+        (rf.machines.test-support/reset-captured!)
         ;; The stale straggler delivered with attempt-1 coordinate on the cofx.
         (rf/dispatch-sync [:jt/op [:child/done :a]]
                           {:rf.cofx {:rf.machine/join-attempt attempt1-coord}})

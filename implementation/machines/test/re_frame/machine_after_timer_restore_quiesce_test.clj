@@ -18,15 +18,15 @@
   revive host work\")."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.machines :as machines]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.machines.timer :as timer]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace.tooling :as trace-tooling]))
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.machines :as rf.machines]
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.machines.timer :as rf.machines.timer]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; A :loading state with a long-delay :after — the host clock will not fire it
 ;; during the test; it lingers in the timer table so we can assert the handle
@@ -43,7 +43,7 @@
 
 (deftest hook-published
   (testing "the :machines/on-frame-restored! late-bind hook is published"
-    (is (some? (late-bind/get-fn :machines/on-frame-restored!)))))
+    (is (some? (rf.late-bind/get-fn :machines/on-frame-restored!)))))
 
 (deftest cancel-frame-timers-on-restore-releases-the-frames-handles
   (testing "rf2-u5kmf8 — cancel-frame-timers-on-restore! drops the frame's
@@ -53,13 +53,13 @@
     (rf/make-frame {:id :rq/sibling :doc "an unrelated concurrent frame"})
     (rf/dispatch-sync [:rq/m [:fetch]] {:frame :rq/restored})
     (rf/dispatch-sync [:rq/m [:fetch]] {:frame :rq/sibling})
-    (is (and (contains? @timer/after-timers :rq/restored)
-             (contains? @timer/after-timers :rq/sibling))
+    (is (and (contains? @rf.machines.timer/after-timers :rq/restored)
+             (contains? @rf.machines.timer/after-timers :rq/sibling))
         "precondition: both frames armed an :after timer")
-    (timer/cancel-frame-timers-on-restore! :rq/restored)
-    (is (not (contains? @timer/after-timers :rq/restored))
+    (rf.machines.timer/cancel-frame-timers-on-restore! :rq/restored)
+    (is (not (contains? @rf.machines.timer/after-timers :rq/restored))
         "the restored frame's armed timer handles are GONE after the quiesce")
-    (is (contains? @timer/after-timers :rq/sibling)
+    (is (contains? @rf.machines.timer/after-timers :rq/sibling)
         "a sibling frame's timers are untouched (frame-scoped quiesce)")))
 
 (deftest cancel-frame-timers-on-restore-emits-on-restore-reason
@@ -68,15 +68,15 @@
     (rf/reg-machine :rq2/m spec)
     (rf/make-frame {:id :rq2/f :doc "restore-reason trace frame"})
     (rf/dispatch-sync [:rq2/m [:fetch]] {:frame :rq2/f})
-    (is (seq (get @timer/after-timers :rq2/f)) "precondition: a timer is armed")
+    (is (seq (get @rf.machines.timer/after-timers :rq2/f)) "precondition: a timer is armed")
     (let [seen (atom [])
           k    ::on-restore-recorder]
-      (trace-tooling/register-listener!
+      (rf.trace.tooling/register-listener!
         k (fn [ev] (when (= :rf.machine.timer/cancelled (:operation ev))
                      (swap! seen conj ev))))
       (try
-        (timer/cancel-frame-timers-on-restore! :rq2/f)
-        (finally (trace-tooling/unregister-listener! k)))
+        (rf.machines.timer/cancel-frame-timers-on-restore! :rq2/f)
+        (finally (rf.trace.tooling/unregister-listener! k)))
       (is (seq @seen) "a :rf.machine.timer/cancelled trace fired")
       (is (every? #(= :on-restore (:reason (:tags %))) @seen)
           "every cancelled row carries :reason :on-restore")
@@ -85,7 +85,7 @@
 
 (deftest cancel-frame-timers-on-restore-noop-on-unarmed-frame
   (testing "rf2-u5kmf8 — quiescing a frame with no armed timers is a no-op"
-    (is (nil? (timer/cancel-frame-timers-on-restore! :rq/never-armed)))))
+    (is (nil? (rf.machines.timer/cancel-frame-timers-on-restore! :rq/never-armed)))))
 
 (deftest restore-quiesce-hook-clears-the-restored-frames-timers-end-to-end
   (testing "rf2-u5kmf8 — driving the published :machines/on-frame-restored!
@@ -93,7 +93,7 @@
     (rf/reg-machine :rq3/m spec)
     (rf/make-frame {:id :rq3/f :doc "end-to-end hook frame"})
     (rf/dispatch-sync [:rq3/m [:fetch]] {:frame :rq3/f})
-    (is (contains? @timer/after-timers :rq3/f) "precondition: a timer is armed")
-    ((late-bind/get-fn :machines/on-frame-restored!) :rq3/f)
-    (is (not (contains? @timer/after-timers :rq3/f))
+    (is (contains? @rf.machines.timer/after-timers :rq3/f) "precondition: a timer is armed")
+    ((rf.late-bind/get-fn :machines/on-frame-restored!) :rq3/f)
+    (is (not (contains? @rf.machines.timer/after-timers :rq3/f))
         "the published restore hook released the frame's armed timer handles")))

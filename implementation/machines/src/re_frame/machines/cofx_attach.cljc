@@ -76,7 +76,7 @@
   ## Pre-desugar surfaces (`:choice` / state-level `:after`)
 
   The index + ensure-set computation run on the RAW machine (before
-  `choice/desugar-choices` / `timeout/desugar-timeouts` lower the authoring
+  `rf.machines.choice/desugar-choices` / `timeout/desugar-timeouts` lower the authoring
   sugar at transition / birth time). So this ns settles the sugar the way the
   runtime does: a `:type :choice` transient node's `:choice` candidate vector
   is its `:always` candidate set (`always-entries`), and a state-level `:after`
@@ -89,16 +89,16 @@
   for machines)."
   (:require #?(:clj  [clojure.edn :as edn]
                :cljs [cljs.reader :as edn])
-            [re-frame.cofx :as cofx]
-            [re-frame.error :as error]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.machines.choice :as choice]
-            [re-frame.machines.grammar :as grammar]
-            [re-frame.registrar :as registrar]
-            [re-frame.subs :as subs]
-            [re-frame.trace :as trace
+            [re-frame.cofx :as rf.cofx]
+            [re-frame.error :as rf.error]
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.machines.choice :as rf.machines.choice]
+            [re-frame.machines.grammar :as rf.machines.grammar]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.subs :as rf.subs]
+            [re-frame.trace :as rf.trace
              #?@(:cljs [:include-macros true])]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -149,7 +149,7 @@
   §Consumer attachment §Inline callbacks cannot declare requirements +
   Spec 009 §Error catalogue."
   [where detail]
-  (error/throw-error!
+  (rf.error/throw-error!
     :rf.error/machine-cofx-requires-inline
     'rf/reg-machine
     (str ":rf.cofx/requires may be declared ONLY on a NAMED "
@@ -215,7 +215,7 @@
       (not (entry-map? v))
       (requires-inline-error (str slot " " entry-id) {:offending v})
       :else
-      (cofx/parse-requires [slot entry-id] raw true))))
+      (rf.cofx/parse-requires [slot entry-id] raw true))))
 
 ;; ---- machine walkers (mirror validation's coverage) -----------------------
 ;;
@@ -225,7 +225,7 @@
 
 (defn- always-entries
   "Normalise a state-node's `:always` slot to a vector of entry maps through
-  the shared `grammar/candidate-maps`. Two
+  the shared `rf.machines.grammar/candidate-maps`. Two
   caller-specific policies stay HERE, not in the shared normaliser:
 
     1. the optional `:always` nil semantics — an absent `:always` (missing
@@ -239,7 +239,7 @@
 
   A `:type :choice` transient node carries its candidate vector under
   `:choice`, NOT `:always` — the choice lowers to `:always` only at
-  `choice/desugar-node-choice`, and the index + ensure-set run on the RAW
+  `rf.machines.choice/desugar-node-choice`, and the index + ensure-set run on the RAW
   pre-desugar machine. Since a choice state routes through the
   IDENTICAL `:always` cascade the runtime settles it into, treat a choice
   node's `:choice` vector as its `:always` candidates here; validation
@@ -247,10 +247,10 @@
   there is no ambiguity. This choice-node source selection likewise stays at
   the caller — the shared normaliser sees only the resolved slot value."
   [node]
-  (let [a (if (choice/choice-node? node) (:choice node) (:always node))]
+  (let [a (if (rf.machines.choice/choice-node? node) (:choice node) (:always node))]
     (if (nil? a)
       []
-      (or (grammar/candidate-maps a) []))))
+      (or (rf.machines.grammar/candidate-maps a) []))))
 
 (defn- walk-nodes-with-path
   "Yield `[absolute-path node]` pairs for every state node, recursing
@@ -284,7 +284,7 @@
           (let [where       (str "state " (if (seq path) (peek path) :rf/root))
                 ;; a choice node's candidates ride `:choice`; `always-entries`
                 ;; surfaces them, but label the site `:choice` not `:always`.
-                always-label (if (choice/choice-node? node) " :choice" " :always")]
+                always-label (if (rf.machines.choice/choice-node? node) " :choice" " :always")]
             (doseq [[_ev v] (:on node)]    (check-no-inline-requires! (str where " :on") v))
             (doseq [[_d v]  (:after node)] (check-no-inline-requires! (str where " :after") v))
             (doseq [e (always-entries node)] (check-no-inline-requires! (str where always-label) e))
@@ -328,19 +328,19 @@
 
 (defn- candidate-maps
   "Normalise a transition-slot value to its candidate maps (each carrying
-  `:guard` / `:action` / `:target`) via the shared `grammar/candidate-maps`,
+  `:guard` / `:action` / `:target`) via the shared `rf.machines.grammar/candidate-maps`,
   mapping the malformed form (grammar returns
   nil) to NO candidates: `validation` is the designated throw surface, so a
   malformed shape contributes nothing to the static ensure-set here."
   [v]
-  (or (grammar/candidate-maps v) []))
+  (or (rf.machines.grammar/candidate-maps v) []))
 
 (defn- node-at
   "Root→leaf descent into `machine`'s `:states` (or a region body's).
-  Thin wrapper over `grammar/node-at` so the closure walk resolves targets
+  Thin wrapper over `rf.machines.grammar/node-at` so the closure walk resolves targets
   against EXACTLY the tree the runtime drives."
   [states path]
-  (grammar/node-at states (vec path)))
+  (rf.machines.grammar/node-at states (vec path)))
 
 (defn- resolve-target-path
   "Resolve a candidate `:target` (declared at `decl-path`) to an absolute
@@ -876,7 +876,7 @@
   (if (empty? ensure-set)
     recorded
     (:rf.cofx
-     (cofx/deliver-declared-cofx {} ensure-set (or recorded {}) failing-id
+     (rf.cofx/deliver-declared-cofx {} ensure-set (or recorded {}) failing-id
                                  frame-id mint-policy))))
 
 (defn ensure-cofx
@@ -908,7 +908,7 @@
   A no-op (returns `recorded`) when the ensure-set is empty."
   ([machine snapshot event recorded frame-id failing-id]
    (ensure-cofx machine snapshot event recorded frame-id failing-id
-                cofx/default-mint-policy))
+                rf.cofx/default-mint-policy))
   ([machine snapshot event recorded frame-id failing-id mint-policy]
    (ensure-diet-onto (ensure-set-for machine snapshot event)
                      recorded frame-id failing-id mint-policy)))
@@ -923,7 +923,7 @@
   (returns `recorded`) when the bootstrap ensure-set is empty."
   ([machine recorded frame-id failing-id]
    (bootstrap-ensure-cofx machine recorded frame-id failing-id
-                          cofx/default-mint-policy))
+                          rf.cofx/default-mint-policy))
   ([machine recorded frame-id failing-id mint-policy]
    (ensure-diet-onto (bootstrap-ensure-set-for machine)
                      recorded frame-id failing-id mint-policy)))
@@ -977,7 +977,7 @@
 (defn- emit-consume-undeclared!
   "Emit `:rf.warning/machine-cofx-consume-undeclared` (dev-only diagnostic)."
   [machine-id slot entry-id leaf]
-  (trace/emit! :warning :rf.warning/machine-cofx-consume-undeclared
+  (rf.trace/emit! :warning :rf.warning/machine-cofx-consume-undeclared
                {:machine-id machine-id
                 :slot       slot
                 :entry-id   entry-id
@@ -987,7 +987,7 @@
 (defn- emit-ambient-durable!
   "Emit `:rf.warning/machine-cofx-ambient-durable` (dev-only diagnostic)."
   [machine-id slot entry-id cofx-id]
-  (trace/emit! :warning :rf.warning/machine-cofx-ambient-durable
+  (rf.trace/emit! :warning :rf.warning/machine-cofx-ambient-durable
                {:machine-id machine-id
                 :slot       slot
                 :entry-id   entry-id
@@ -997,14 +997,14 @@
 (defn lint-machine!
   "Run the dev-only consumer-attachment lints over `machine` (carrying the
   registration index), tagging diagnostics with `machine-id`. Per Spec 005
-  §Consumer attachment. A no-op under `interop/debug-enabled?
+  §Consumer attachment. A no-op under `rf.interop/debug-enabled?
   false` (production) and when the machine declares no requires.
 
   Recommendation-grade: emits `:rf.warning/*` diagnostics, never throws.
   Called from the registration home AFTER the index is built (so it can read
   the parsed diets and the entry source-forms)."
   [machine-id machine]
-  (when interop/debug-enabled?
+  (when rf.interop/debug-enabled?
     (let [{:keys [by-entry]} (get machine ensure-index-key)]
       (when (seq by-entry)
         (doseq [[[slot entry-id] parsed] by-entry]
@@ -1014,7 +1014,7 @@
             ;; (2) ambient-durable — an ACTION declaring an ambient-grade id.
             (when (= slot :actions)
               (doseq [{:keys [id]} parsed]
-                (let [meta (registrar/lookup :cofx id)]
+                (let [meta (rf.registrar/lookup :cofx id)]
                   (when (and meta (not (:recordable? meta)))
                     (emit-ambient-durable! machine-id slot entry-id id)))))
             ;; (1) consume-without-declaring — heuristic source scan. The
@@ -1037,7 +1037,7 @@
                 (doseq [t tokens
                         :when (and (qualified-keyword? t)
                                    (not (contains? declared t))
-                                   (some? (registrar/lookup :cofx t)))]
+                                   (some? (rf.registrar/lookup :cofx t)))]
                   (emit-consume-undeclared! machine-id slot entry-id t))))))))))
 
 ;; ---- sub-valued recordable source evaluator -------------------------------
@@ -1057,6 +1057,6 @@
 ;; back onto the token under `fact-id`; a same-macrostep `:raise` re-ensure
 ;; then finds it present and re-presents it (no re-evaluation).
 
-(late-bind/set-fn! :cofx/eval-recordable-sub
+(rf.late-bind/set-fn! :cofx/eval-recordable-sub
   (fn eval-recordable-sub [query-v frame-id]
-    (subs/compute-sub query-v (frame/frame-state-value frame-id))))
+    (rf.subs/compute-sub query-v (rf.frame/frame-state-value frame-id))))

@@ -15,22 +15,22 @@
   Mirrors the JVM choice_test.clj."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.machines.choice :as choice]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.machines.test-support :as mtest]))
+            [re-frame.machines.choice :as rf.machines.choice]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.machines.test-support :as rf.machines.test-support]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter}))
 
-(def ^:private snapshot mtest/snapshot)
+(def ^:private snapshot rf.machines.test-support/snapshot)
 
 (deftest desugar-choice-to-always-cljs
   (testing ":type :choice lowers to an :always candidate vector cross-host"
     (is (= {:initial :c
             :states {:c {:always [{:guard :g :target :a} {:target :b}]}
                      :a {} :b {}}}
-           (choice/desugar-choices
+           (rf.machines.choice/desugar-choices
              {:initial :c
               :states {:c {:type :choice
                            :choice [{:guard :g :target :a} {:target :b}]}

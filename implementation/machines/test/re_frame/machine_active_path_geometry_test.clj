@@ -38,11 +38,11 @@
             ;; Loading the machines facade registers `rf/reg-machine` + the
             ;; reserved machine fxs when this ns runs alone.
             [re-frame.machines]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- tag
   "An `:actions` entry that appends `k` to `log` when it fires."
@@ -101,7 +101,7 @@
              (drive! log :geo/parent-leaf (parent-declared-leaf-machine log)
                      [:target-leaf]))
           "the targeted leaf IS re-entered; :parent is neither exited nor entered")
-      (is (= [:parent :leaf] (mtest/machine-state :geo/parent-leaf))
+      (is (= [:parent :leaf] (rf.machines.test-support/machine-state :geo/parent-leaf))
           "the configuration is unchanged in VALUE — the churn is the point"))))
 
 (deftest targetless-control-on-the-same-leaf-runs-the-action-alone
@@ -202,7 +202,7 @@
              (drive! log :geo/ancestor (ancestor-target-machine log)
                      [[:next]] [:restart]))
           "descendants re-resolve; the target node survives")
-      (is (= [:process :step1] (mtest/machine-state :geo/ancestor))
+      (is (= [:process :step1] (rf.machines.test-support/machine-state :geo/ancestor))
           "the active descendant really was reset to :initial"))))
 
 (deftest ancestor-target-with-reenter-restarts-the-target

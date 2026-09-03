@@ -41,7 +41,7 @@
   goes ENTIRELY through the late-bound `:schemas/validate-with-registered-fn`
   hook: an app that registers a Malli (or any other) adapter validates; an
   app that registers none pays zero cost (the hot path short-circuits at
-  `(late-bind/get-fn-cached ...)` returning nil). The declaration grammar and
+  `(rf.late-bind/get-fn-cached ...)` returning nil). The declaration grammar and
   the optional validator adapter are therefore fully decoupled — machine core
   requires neither Malli nor JS Standard Schema.
 
@@ -54,17 +54,17 @@
   hooks (`:schemas/validate-with-registered-fn` /
   `:schemas/explain-with-registered-fn`) so an app that ships no
   schemas artefact pays zero validation cost — the hot path
-  short-circuits at `(late-bind/get-fn-cached ...)` returning nil.
+  short-circuits at `(rf.late-bind/get-fn-cached ...)` returning nil.
 
   Per Spec 009 §Production builds the hot-path body lives inside
-  `(when interop/debug-enabled? ...)` so `:advanced` +
+  `(when rf.interop/debug-enabled? ...)` so `:advanced` +
   `goog.DEBUG=false` DCE-elides every literal reason string,
   keyword, validator deref, and trace call."
-  (:require [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.machines.paths :as paths]
-            [re-frame.trace :as trace]))
+  (:require [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.machines.paths :as rf.machines.paths]
+            [re-frame.trace :as rf.trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -104,8 +104,8 @@
   contract. Shared with `lifecycle-fx.spawn` so the spawn cascade and its
   `validate-spawn-data!` callback fence against the SAME token."
   [frame-id]
-  (if-let [owner-token (frame/current-event-owner-token)]
-    #(frame/event-continuation-live? frame-id owner-token)
+  (if-let [owner-token (rf.frame/current-event-owner-token)]
+    #(rf.frame/event-continuation-live? frame-id owner-token)
     (constantly true)))
 
 (defn- current-owner-continuation
@@ -115,9 +115,9 @@
   they run inside the owning event's fx drain / finalize cascade, so the
   dequeue-time event owner IS their frame."
   []
-  (if-let [owner-token (frame/current-event-owner-token)]
-    (let [owner-frame (frame/current-event-owner-frame-id)]
-      #(frame/event-continuation-live? owner-frame owner-token))
+  (if-let [owner-token (rf.frame/current-event-owner-token)]
+    (let [owner-frame (rf.frame/current-event-owner-frame-id)]
+      #(rf.frame/event-continuation-live? owner-frame owner-token))
     (constantly true)))
 
 (defn- emit-failure!
@@ -166,14 +166,14 @@
    (emit-failure! machine-id where phase value schema explanation rollback?
                   reason (constantly true)))
   ([machine-id where phase value schema explanation rollback? reason continue?]
-   (let [explain-fn (late-bind/get-fn-cached :schemas/explain-with-registered-fn)
+   (let [explain-fn (rf.late-bind/get-fn-cached :schemas/explain-with-registered-fn)
          explanation (or explanation
                          (when (and (continue?) explain-fn)
                            (try
                              (explain-fn schema value)
                              (catch #?(:clj Throwable :cljs :default) e
                                (if (continue?) (throw e) nil)))))
-         redact     (late-bind/get-fn-cached :schemas/redact-validation-tags)
+         redact     (rf.late-bind/get-fn-cached :schemas/redact-validation-tags)
          tags       {:where      where
                      :failing-id machine-id
                      :machine-id machine-id
@@ -192,7 +192,7 @@
                           (if (continue?) (throw e) nil)))
                       tags)]
      (when (continue?)
-       (trace/emit-error! :rf.error/schema-validation-failure tags)))))
+       (rf.trace/emit-error! :rf.error/schema-validation-failure tags)))))
 
 (defn validate-snapshot-data!
   "Validate a single machine snapshot's `:data` against the registered
@@ -215,7 +215,7 @@
   ([machine-id snapshot schema phase]
    (validate-snapshot-data! machine-id snapshot schema phase (constantly true)))
   ([machine-id snapshot schema phase continue?]
-   (if-let [validate-fn (late-bind/get-fn-cached
+   (if-let [validate-fn (rf.late-bind/get-fn-cached
                           :schemas/validate-with-registered-fn)]
      (let [data   (:data snapshot)
            result (try
@@ -259,7 +259,7 @@
   ([machine-id snapshot continue?]
    (let [meta-entry
          (when (continue?)
-           (some-> (when-let [meta-fn (late-bind/get-fn-cached :machines/machine-meta)]
+           (some-> (when-let [meta-fn (rf.late-bind/get-fn-cached :machines/machine-meta)]
                      (try
                        (meta-fn machine-id)
                        (catch #?(:clj Throwable :cljs :default) e
@@ -268,7 +268,7 @@
                    (find :data)))]
      (or meta-entry
          (when (continue?)
-           (some-> (when-let [spec-fn (late-bind/get-fn-cached :machines/spec-from-snapshot)]
+           (some-> (when-let [spec-fn (rf.late-bind/get-fn-cached :machines/spec-from-snapshot)]
                      (try
                        (spec-fn snapshot)
                        (catch #?(:clj Throwable :cljs :default) e
@@ -299,7 +299,7 @@
   pre-install (same mechanism as the `:where :app-db` rejection).
 
   Per Spec 009 §Production builds the body lives inside a
-  `(when interop/debug-enabled? ...)` gate so production builds
+  `(when rf.interop/debug-enabled? ...)` gate so production builds
   return `true` unconditionally."
   ([runtime-db event-id frame-id]
    (validate-machine-data! runtime-db event-id frame-id
@@ -309,7 +309,7 @@
   ;; (the per-snapshot emit already names the machine); the arity matches
   ;; `validate-app-schema!` so the late-bind hook the router consumes can
   ;; be invoked uniformly.
-  (if interop/debug-enabled?
+  (if rf.interop/debug-enabled?
     ;; Per the validate-app-schema! pattern: validate EVERY snapshot (no
     ;; short-circuit) so each failing machine surfaces its
     ;; own trace (consumers see the full set), AND-conjoining the per-
@@ -317,7 +317,7 @@
     ;; deterministically. A snapshot whose machine declares no `[:schemas
     ;; :data]` (or whose spec resolves to nil for both a singleton AND a
     ;; spawned actor) conforms vacuously.
-    (loop [entries (seq (get-in runtime-db (paths/snapshot-path)))
+    (loop [entries (seq (get-in runtime-db (rf.machines.paths/snapshot-path)))
            ok?     true]
       (cond
         (not (continue?)) :rf/stale-incarnation
@@ -360,13 +360,13 @@
   fences its post-callback cascade with so both agree on the token.
 
   Per Spec 009 §Production builds the body lives inside a
-  `(when interop/debug-enabled? ...)` gate so production builds
+  `(when rf.interop/debug-enabled? ...)` gate so production builds
   return `true` unconditionally — the install proceeds unvalidated
   under `:advanced` + `goog.DEBUG=false`."
   ([spawned-id spec snapshot]
    (validate-spawn-data! spawned-id spec snapshot (current-owner-continuation)))
   ([spawned-id spec snapshot continue?]
-   (if interop/debug-enabled?
+   (if rf.interop/debug-enabled?
      ;; KEY-presence, not value truthiness (rf2-6eh5h): a present nil /
      ;; false `[:schemas :data]` is a declaration whose exact token is
      ;; delegated to the registered validator; only an ABSENT key means
@@ -409,12 +409,12 @@
   suppressed too (the callback lost A), so no diagnostic is attributed to B.
 
   Per Spec 009 §Production builds the body lives inside a
-  `(when interop/debug-enabled? ...)` gate so production builds
+  `(when rf.interop/debug-enabled? ...)` gate so production builds
   return `true` unconditionally — the merge proceeds unvalidated under
   `:advanced` + `goog.DEBUG=false`, parity with the macrostep / spawn
   boundaries."
   [machine-id merged-snapshot]
-  (if interop/debug-enabled?
+  (if rf.interop/debug-enabled?
     (let [continue? (current-owner-continuation)]
       ;; Presence-carrying [:data schema] map entry (rf2-6eh5h): the entry
       ;; is truthy whenever the spec DECLARES [:schemas :data], so a
@@ -467,11 +467,11 @@
   suppressed.
 
   Per Spec 009 §Production builds the body lives inside a
-  `(when interop/debug-enabled? ...)` gate so production builds return `true`
+  `(when rf.interop/debug-enabled? ...)` gate so production builds return `true`
   unconditionally — the completion proceeds unvalidated under `:advanced` +
   `goog.DEBUG=false`, parity with the `:where :machine-data` boundaries."
   [machine-id spec result]
-  (if interop/debug-enabled?
+  (if rf.interop/debug-enabled?
     ;; KEY-presence, not value truthiness (rf2-6eh5h): a present nil /
     ;; false `[:schemas :output]` is a declaration whose exact token is
     ;; delegated to the registered validator (default Malli then throws
@@ -481,7 +481,7 @@
     (if-not (contains? (get spec :schemas) :output)
       true
       (let [schema (get-in spec [:schemas :output])]
-        (if-let [validate-fn (late-bind/get-fn-cached
+        (if-let [validate-fn (rf.late-bind/get-fn-cached
                                :schemas/validate-with-registered-fn)]
           ;; A MALFORMED `[:schemas :output]` schema (a bad Malli form) makes the
           ;; registered validator THROW at validate-time (Malli validates forms
@@ -514,7 +514,7 @@
                 ;; Owner still live → a genuine malformed-schema diagnostic.
                 ;; Owner lost (the callback threw AND destroyed A) → suppress it.
                 (if (continue?)
-                  (do (trace/emit-error! :rf.error/malformed-schema
+                  (do (rf.trace/emit-error! :rf.error/malformed-schema
                                          {:where    :machine-output
                                           :reason   (str "Machine " machine-id
                                                          "'s [:schemas :output] schema is malformed — "

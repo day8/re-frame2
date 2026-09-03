@@ -37,18 +37,18 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.events :as events]
+   [re-frame.events :as rf.events]
    [re-frame.machines]
-   [re-frame.machines.test-support :as mtest]
-   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
-       :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
+   [re-frame.machines.test-support :as rf.machines.test-support]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture
-    #?(:clj  {:adapter plain-atom/adapter}
-       :cljs {:adapter reagent-adapter/adapter})))
+  (rf.machines.test-support/make-reset-runtime-fixture
+    #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
+       :cljs {:adapter rf.adapter.reagent/adapter})))
 
-(def ^:private snapshot mtest/snapshot)
+(def ^:private snapshot rf.machines.test-support/snapshot)
 
 ;; ---- stub release-owner handler (stand-in for the resources artefact) ------
 
@@ -59,7 +59,7 @@
   ;; Register a stub `:rf.resource/release-owner` event handler that records
   ;; the released owner — the machine side dispatches this by NAME (it never
   ;; :requires resources). This stands in for the real resources handler.
-  (events/reg-event :rf.resource/release-owner
+  (rf.events/reg-event :rf.resource/release-owner
     (fn [_ [_ {:keys [owner]}]]
       (swap! released conj owner)
       {})))

@@ -33,27 +33,27 @@
   Tests use Malli schemas (the framework default validator)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.machines :as machines]
-            [re-frame.registrar :as registrar]
+            [re-frame.machines :as rf.machines]
+            [re-frame.registrar :as rf.registrar]
             ;; The schemas artefact ships the registered-validator hot
             ;; path the `:where :machine-data` boundary routes through;
             ;; the `.malli` adapter ns publishes Malli's validate/explain
             ;; into the late-bind table.
-            [re-frame.machines.test-support :as mtest]
+            [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.schemas]
             [re-frame.schemas.malli]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- collect-traces!
   "Run `f` while collecting every `:rf.error/schema-validation-failure`
   trace event. Returns the captured trace events as a vector. Routed through
-  the shared `mtest/with-trace-capture` — guaranteed unregister in a
+  the shared `rf.machines.test-support/with-trace-capture` — guaranteed unregister in a
   `finally`."
   [f]
-  (mtest/with-trace-capture traces
+  (rf.machines.test-support/with-trace-capture traces
     (f)
     (filterv #(= :rf.error/schema-validation-failure (:operation %))
              @traces)))
@@ -68,7 +68,7 @@
                       :schemas {:data DataSchema}
                       :states  {:idle {}}}]
       (rf/reg-machine :rf.machine-schema/accepted spec)
-      (let [meta (machines/machine-meta :rf.machine-schema/accepted)]
+      (let [meta (rf.machines/machine-meta :rf.machine-schema/accepted)]
         (is (some? meta) "machine-meta returns the registered spec")
         (is (= DataSchema (get-in meta [:schemas :data]))
             "the [:schemas :data] schema round-trips through machine-meta")))))
@@ -263,9 +263,9 @@
         ;; Atomic reject: a schema-rejected spawn registers NOTHING —
         ;; no event handler, no `(rf.machines/machines)` entry — the install gate
         ;; and registration are in lockstep.
-        (is (nil? (registrar/lookup :event :rf.machine-schema/spawned))
+        (is (nil? (rf.registrar/lookup :event :rf.machine-schema/spawned))
             "rejected spawn: NO event handler is registered (rf2-f3kp7)")
-        (is (not (contains? (set (machines/machines)) :rf.machine-schema/spawned))
+        (is (not (contains? (set (rf.machines/machines)) :rf.machine-schema/spawned))
             "rejected spawn: the actor does NOT appear in (rf.machines/machines) (rf2-f3kp7)")))))
 
 ;; ---- (5) no schema → no validation (control) ------------------------------

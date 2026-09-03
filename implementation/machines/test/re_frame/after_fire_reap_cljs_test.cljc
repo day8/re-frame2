@@ -19,24 +19,24 @@
   change are synchronous on both platforms)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.interop :as interop]
+            [re-frame.interop :as rf.interop]
             ;; Loading `re-frame.machines` installs the machines-artefact
             ;; late-bind hooks (`reg-machine`, `reset-timers!`) the test relies
             ;; on; under a single-ns test run nothing else pulls it in.
             [re-frame.machines]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.machines.timer :as timer]
-            [re-frame.subs :as subs]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.machines.timer :as rf.machines.timer]
+            [re-frame.subs :as rf.subs]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- default-inner
   "The `:rf/default` frame's inner timer table (the `{inner-key entry}`
   map), or `{}` when the frame holds no live `:after` timers."
   []
-  (get @timer/after-timers :rf/default {}))
+  (get @rf.machines.timer/after-timers :rf/default {}))
 
 (deftest guard-suppressed-sub-delay-fire-reaps-entry-and-does-not-rearm
   ;; A sub-vec `:after` delay whose transition is guard-suppressed. The host
@@ -69,18 +69,18 @@
       (rf/reg-machine :reap/sub m)
       (with-redefs [;; Resolve the sub-vec delay to our controllable reaction
                     ;; (both the schedule path and the re-arm path read it).
-                    subs/subscribe   (fn
+                    rf.subs/subscribe   (fn
                                        ([_query-v] delay-reaction)
                                        ([_query-v _opts] delay-reaction))
-                    subs/unsubscribe (fn ([_] nil) ([_ _] nil))
+                    rf.subs/unsubscribe (fn ([_] nil) ([_ _] nil))
                     ;; Capture the host-clock thunk instead of arming a real
                     ;; wall-clock timer; return an opaque sentinel handle.
-                    interop/schedule-after! (fn [thunk _ms]
+                    rf.interop/schedule-after! (fn [thunk _ms]
                                               (swap! arm-count inc)
                                               (reset! last-thunk thunk)
                                               ::handle)]
         (rf/dispatch-sync [:reap/sub [:go]])
-        (is (= :running (mtest/machine-state :reap/sub))
+        (is (= :running (rf.machines.test-support/machine-state :reap/sub))
             "entered the :after-bearing state")
         (is (= 1 (count (default-inner)))
             "precondition: the sub-delay :after timer registered one entry")
@@ -96,7 +96,7 @@
         (@last-thunk)
 
         ;; (a) NO LEAK — the firing entry is reaped.
-        (is (= :running (mtest/machine-state :reap/sub))
+        (is (= :running (rf.machines.test-support/machine-state :reap/sub))
             "guard-suppressed fire did not transition the state")
         (is (empty? (default-inner))
             "(a) the guard-suppressed fire REAPED its registry entry — no leak")
@@ -126,11 +126,11 @@
                        :done    {}}}]
       (rf/reg-sub :t/dyn-delay2 (fn [_db _] @delay-reaction))
       (rf/reg-machine :reap/sub2 m)
-      (with-redefs [subs/subscribe   (fn
+      (with-redefs [rf.subs/subscribe   (fn
                                        ([_query-v] delay-reaction)
                                        ([_query-v _opts] delay-reaction))
-                    subs/unsubscribe (fn ([_] nil) ([_ _] nil))
-                    interop/schedule-after! (fn [_thunk _ms]
+                    rf.subs/unsubscribe (fn ([_] nil) ([_ _] nil))
+                    rf.interop/schedule-after! (fn [_thunk _ms]
                                               (swap! arm-count inc)
                                               ::handle)]
         (rf/dispatch-sync [:reap/sub2 [:go]])

@@ -28,22 +28,22 @@
   callback's own stack, exactly the synchronous re-entry the fence guards."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.machines :as machines]
-            [re-frame.machines.data-validation :as data-validation]
-            [re-frame.machines.lifecycle-fx.spawn :as spawn]
-            [re-frame.machines.lifecycle-fx.update-snapshot :as update-snapshot]
-            [re-frame.machines.spawn-order :as spawn-order]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.machines :as rf.machines]
+            [re-frame.machines.data-validation :as rf.machines.data-validation]
+            [re-frame.machines.lifecycle-fx.spawn :as rf.machines.lifecycle-fx.spawn]
+            [re-frame.machines.lifecycle-fx.update-snapshot :as rf.machines.lifecycle-fx.update-snapshot]
+            [re-frame.machines.spawn-order :as rf.machines.spawn-order]
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 ;; Touch the artefact so the machines registration hooks are wired even when
 ;; this ns runs in isolation (`re-frame.machines` require has side effects).
-(def ^:private _artefact machines/machine-transition)
+(def ^:private _artefact rf.machines/machine-transition)
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; The instance address the fallback allocator mints for the first
 ;; hand-emitted `:machine-id` spawn: `<type>#1`. Constructed the way
@@ -69,7 +69,7 @@
   forbids nested frame creation. The direct call also bypasses the fx-walk's
   outer owner fence, so the assertions pin the MACHINE-layer fence itself."
   [frame-a on-validate]
-  (spawn-order/reset-all!)
+  (rf.machines.spawn-order/reset-all!)
   (rf/reg-machine :rf2-vxgfnd153/child
     {:initial :running
      :data    {:seed :a}
@@ -77,15 +77,15 @@
      :states  {:running {:on {:go :done}}
                :done    {:final? true}}})
   (rf/make-frame {:id frame-a})
-  (let [token-a        (frame/frame-incarnation-token frame-a)
+  (let [token-a        (rf.frame/frame-incarnation-token frame-a)
         b-birth        (atom ::unset)
         fired?         (atom false)
         threw?         (atom false)
         spawn-traces   (atom [])
         fail-traces    (atom [])
         dispatches     (atom [])
-        orig-validate  (late-bind/get-fn :schemas/validate-with-registered-fn)
-        orig-dispatch! (late-bind/get-fn :router/dispatch!)]
+        orig-validate  (rf.late-bind/get-fn :schemas/validate-with-registered-fn)
+        orig-dispatch! (rf.late-bind/get-fn :router/dispatch!)]
     (rf/register-listener! :trace ::spawn-fence
       (fn [ev]
         (let [op (:operation ev)]
@@ -100,27 +100,27 @@
       ;; Capture (never route) any dispatch the spawn cascade attempts — a
       ;; `[<child> <start>]` for an actor that was never legitimately installed
       ;; is itself a fence violation.
-      (late-bind/set-fn! :router/dispatch!
+      (rf.late-bind/set-fn! :router/dispatch!
                          (fn [ev opts] (swap! dispatches conj [ev opts]) nil))
-      (late-bind/set-fn! :schemas/validate-with-registered-fn
+      (rf.late-bind/set-fn! :schemas/validate-with-registered-fn
         (fn [schema data]
           (if (and (= schema ::child-schema)
                    (compare-and-set! fired? false true))
             (do
-              (frame/destroy-frame! frame-a)     ;; destroy incarnation A
+              (rf.frame/destroy-frame! frame-a)     ;; destroy incarnation A
               (rf/make-frame {:id frame-a})       ;; publish same-id successor B
-              (reset! b-birth (mtest/runtime-db frame-a))
+              (reset! b-birth (rf.machines.test-support/runtime-db frame-a))
               (on-validate data))                 ;; verdict / throw
             true)))
       (try
-        (frame/call-with-event-owner-token frame-a token-a
-          (fn [] (spawn/spawn-fx {:frame frame-a}
+        (rf.frame/call-with-event-owner-token frame-a token-a
+          (fn [] (rf.machines.lifecycle-fx.spawn/spawn-fx {:frame frame-a}
                                  {:machine-id :rf2-vxgfnd153/child})))
         (catch Throwable _ (reset! threw? true)))
       {:b-birth      @b-birth
-       :b-after      (mtest/runtime-db frame-a)
-       :child-snap   (mtest/snapshot frame-a child-instance-id)
-       :spawn-order  (spawn-order/frame-order frame-a)
+       :b-after      (rf.machines.test-support/runtime-db frame-a)
+       :child-snap   (rf.machines.test-support/snapshot frame-a child-instance-id)
+       :spawn-order  (rf.machines.spawn-order/frame-order frame-a)
        :spawn-traces @spawn-traces
        :fail-traces  @fail-traces
        :dispatches   @dispatches
@@ -128,8 +128,8 @@
        :threw?       @threw?}
       (finally
         (rf/unregister-listener! :trace ::spawn-fence)
-        (late-bind/set-fn! :schemas/validate-with-registered-fn orig-validate)
-        (late-bind/set-fn! :router/dispatch! orig-dispatch!)))))
+        (rf.late-bind/set-fn! :schemas/validate-with-registered-fn orig-validate)
+        (rf.late-bind/set-fn! :router/dispatch! orig-dispatch!)))))
 
 (defn- assert-successor-untouched
   "Assertions shared by every destroyer variant: the callback ran, and NONE of
@@ -186,7 +186,7 @@
   (testing "control: a CONFORMING validator that does NOT destroy A leaves the
             spawn cascade fully intact — the fence is scoped to owner-loss only,
             so normal successful spawn behavior stays green."
-    (spawn-order/reset-all!)
+    (rf.machines.spawn-order/reset-all!)
     (rf/reg-machine :rf2-vxgfnd153/live-child
       {:initial :running
        :data    {:seed :a}
@@ -197,23 +197,23 @@
       (fn [_ _] {:fx [[:rf.machine/spawn {:machine-id :rf2-vxgfnd153/live-child}]]}))
     (let [frame-a      :rf2-vxgfnd153/live-frame
           spawn-traces (atom [])
-          orig         (late-bind/get-fn :schemas/validate-with-registered-fn)]
+          orig         (rf.late-bind/get-fn :schemas/validate-with-registered-fn)]
       (rf/make-frame {:id frame-a})
       (rf/register-listener! :trace ::live-spawn
         (fn [ev] (when (= :rf.machine.spawn/spawned (:operation ev))
                    (swap! spawn-traces conj ev))))
       (try
-        (late-bind/set-fn! :schemas/validate-with-registered-fn (fn [_ _] true))
+        (rf.late-bind/set-fn! :schemas/validate-with-registered-fn (fn [_ _] true))
         (rf/dispatch-sync [:rf2-vxgfnd153/live-spawn-event] {:frame frame-a})
-        (is (some? (mtest/snapshot frame-a live-child-instance-id))
+        (is (some? (rf.machines.test-support/snapshot frame-a live-child-instance-id))
             "the child snapshot installed (live-owner spawn is unaffected)")
         (is (seq @spawn-traces)
             "the :rf.machine.spawn/spawned trace fired for the live-owner spawn")
-        (is (= [live-child-instance-id] (spawn-order/frame-order frame-a))
+        (is (= [live-child-instance-id] (rf.machines.spawn-order/frame-order frame-a))
             "the spawn-order entry was recorded for the live-owner spawn")
         (finally
           (rf/unregister-listener! :trace ::live-spawn)
-          (late-bind/set-fn! :schemas/validate-with-registered-fn orig))))))
+          (rf.late-bind/set-fn! :schemas/validate-with-registered-fn orig))))))
 
 ;; ---- update-snapshot escape-hatch fence -----------------------------------
 
@@ -232,39 +232,39 @@
                  :done    {:final? true}}})
     (let [frame-a :rf2-vxgfnd153/us-frame
           fired?  (atom false)
-          orig    (late-bind/get-fn :schemas/validate-with-registered-fn)]
+          orig    (rf.late-bind/get-fn :schemas/validate-with-registered-fn)]
       (rf/make-frame {:id frame-a})
-      (let [token-a (frame/frame-incarnation-token frame-a)]
+      (let [token-a (rf.frame/frame-incarnation-token frame-a)]
         ;; Seed A's singleton snapshot so the escape hatch has a live target.
-        (frame/swap-runtime-db! frame-a
+        (rf.frame/swap-runtime-db! frame-a
           (fn [rt] (assoc-in rt [:rf.runtime/machines :snapshots :rf2-vxgfnd153/sing]
                              {:state :running :data {:v :a-init}})))
         (try
-          (late-bind/set-fn! :schemas/validate-with-registered-fn
+          (rf.late-bind/set-fn! :schemas/validate-with-registered-fn
             (fn [schema _data]
               (if (and (= schema ::sing-schema)
                        (compare-and-set! fired? false true))
                 (do
-                  (frame/destroy-frame! frame-a)      ;; destroy A
+                  (rf.frame/destroy-frame! frame-a)      ;; destroy A
                   (rf/make-frame {:id frame-a})        ;; same-id B
-                  (frame/swap-runtime-db! frame-a
+                  (rf.frame/swap-runtime-db! frame-a
                     (fn [rt] (assoc-in rt [:rf.runtime/machines :snapshots :rf2-vxgfnd153/sing]
                                        {:state :running :data {:v :b-sentinel}})))
                   true)                                ;; conforms → red would write
                 true)))
           ;; Drive the escape-hatch fx DIRECTLY under A's bound event owner (the
           ;; destroyer publishes same-id B via make-frame on its own stack).
-          (frame/call-with-event-owner-token frame-a token-a
-            (fn [] (update-snapshot/update-snapshot-fx
+          (rf.frame/call-with-event-owner-token frame-a token-a
+            (fn [] (rf.machines.lifecycle-fx.update-snapshot/update-snapshot-fx
                      {:frame frame-a}
                      {:rf/machine-id :rf2-vxgfnd153/sing
                       :rf/patch      {:data {:v :patched}}})))
           (is (true? @fired?) "the escape-hatch schema validator callback ran")
           (is (= {:v :b-sentinel}
-                 (:data (mtest/snapshot frame-a :rf2-vxgfnd153/sing)))
+                 (:data (rf.machines.test-support/snapshot frame-a :rf2-vxgfnd153/sing)))
               "B's snapshot :data is untouched — the A-derived patch did not merge onto same-id B")
           (finally
-            (late-bind/set-fn! :schemas/validate-with-registered-fn orig)))))))
+            (rf.late-bind/set-fn! :schemas/validate-with-registered-fn orig)))))))
 
 (deftest update-snapshot-db-trace-listener-fences-write-to-successor
   (testing "the :rf.machine/update-snapshot escape hatch, :db-TRACE path (the
@@ -295,11 +295,11 @@
           fired?  (atom false)
           b-snap  (atom ::unset)
           b-epoch (atom ::unset)
-          orig    (late-bind/get-fn :schemas/validate-with-registered-fn)]
+          orig    (rf.late-bind/get-fn :schemas/validate-with-registered-fn)]
       (rf/make-frame {:id frame-a})
-      (let [token-a (frame/frame-incarnation-token frame-a)]
+      (let [token-a (rf.frame/frame-incarnation-token frame-a)]
         ;; Seed A's singleton snapshot so the escape hatch has a live target.
-        (frame/swap-runtime-db! frame-a
+        (rf.frame/swap-runtime-db! frame-a
           (fn [rt] (assoc-in rt [:rf.runtime/machines :snapshots :rf2-vxgfnd22/sing]
                              {:state :running :data {:v :a-init}})))
         ;; The DESTROYER is a :trace listener on the :db hard-disallow trace (NOT
@@ -309,26 +309,26 @@
           (fn [ev]
             (when (and (= :rf.error/machine-action-wrote-db (:operation ev))
                        (compare-and-set! fired? false true))
-              (frame/destroy-frame! frame-a)      ;; destroy incarnation A
+              (rf.frame/destroy-frame! frame-a)      ;; destroy incarnation A
               (rf/make-frame {:id frame-a})        ;; publish same-id successor B
-              (frame/swap-runtime-db! frame-a      ;; B's DISTINCT sentinel snapshot
+              (rf.frame/swap-runtime-db! frame-a      ;; B's DISTINCT sentinel snapshot
                 (fn [rt] (assoc-in rt [:rf.runtime/machines :snapshots :rf2-vxgfnd22/sing]
                                    {:state :running :data {:v :b-sentinel}})))
-              (reset! b-snap  (mtest/snapshot frame-a :rf2-vxgfnd22/sing))
-              (reset! b-epoch (frame/frame-commit-epoch frame-a)))))
+              (reset! b-snap  (rf.machines.test-support/snapshot frame-a :rf2-vxgfnd22/sing))
+              (reset! b-epoch (rf.frame/frame-commit-epoch frame-a)))))
         (try
           ;; A REJECTING validator (false for the machine's schema). It is NEVER
           ;; consulted on the destroyed-A path (`resolve-data-schema` goes nil
           ;; once A is lost) — registered only to prove the validator-callback
           ;; fence leaves this :db-trace path open.
-          (late-bind/set-fn! :schemas/validate-with-registered-fn
+          (rf.late-bind/set-fn! :schemas/validate-with-registered-fn
             (fn [schema _data] (not= schema ::db-trace-schema)))
           ;; Drive the escape-hatch fx DIRECTLY under A's bound event owner. The
           ;; patch carries a `:db` key (the hard-disallow) so the trace fires and
           ;; the listener destroys A on its own stack; `:data` is the escape-hatch
           ;; payload that must not reach same-id B.
-          (frame/call-with-event-owner-token frame-a token-a
-            (fn [] (update-snapshot/update-snapshot-fx
+          (rf.frame/call-with-event-owner-token frame-a token-a
+            (fn [] (rf.machines.lifecycle-fx.update-snapshot/update-snapshot-fx
                      {:frame frame-a}
                      {:rf/machine-id :rf2-vxgfnd22/sing
                       :rf/patch      {:db   {:naughty :write}
@@ -338,13 +338,13 @@
           (is (= {:v :b-sentinel} (:data @b-snap))
               "sanity: B's snapshot at birth carried the distinct sentinel")
           (is (= {:v :b-sentinel}
-                 (:data (mtest/snapshot frame-a :rf2-vxgfnd22/sing)))
+                 (:data (rf.machines.test-support/snapshot frame-a :rf2-vxgfnd22/sing)))
               "B's snapshot :data is untouched — the A-derived patch did not merge onto same-id B")
-          (is (= @b-epoch (frame/frame-commit-epoch frame-a))
+          (is (= @b-epoch (rf.frame/frame-commit-epoch frame-a))
               "B's commit epoch is unbumped — no phantom observation-port signal from an A-derived write")
           (finally
             (rf/unregister-listener! :trace ::db-trace-destroyer)
-            (late-bind/set-fn! :schemas/validate-with-registered-fn orig)))))))
+            (rf.late-bind/set-fn! :schemas/validate-with-registered-fn orig)))))))
 
 ;; ---- completion-output finalize diagnostic fence --------------------------
 
@@ -355,30 +355,30 @@
   `:where :machine-output` schema-validation-failure traces emitted."
   [id destroy?]
   (rf/make-frame {:id id})
-  (let [token-a (frame/frame-incarnation-token id)
+  (let [token-a (rf.frame/frame-incarnation-token id)
         traces  (atom [])
-        orig    (late-bind/get-fn :schemas/validate-with-registered-fn)]
+        orig    (rf.late-bind/get-fn :schemas/validate-with-registered-fn)]
     (rf/register-listener! :trace ::completion-fence
       (fn [ev] (when (and (= :rf.error/schema-validation-failure (:operation ev))
                           (= :machine-output (get-in ev [:tags :where])))
                  (swap! traces conj ev))))
     (try
-      (late-bind/set-fn! :schemas/validate-with-registered-fn
+      (rf.late-bind/set-fn! :schemas/validate-with-registered-fn
         (fn [schema _result]
           (when (and destroy? (= schema ::output-schema))
-            (frame/destroy-frame! id)     ;; destroy A
+            (rf.frame/destroy-frame! id)     ;; destroy A
             (rf/make-frame {:id id}))      ;; same-id B
           false))                          ;; violation
-      (frame/call-with-event-owner-token id token-a
+      (rf.frame/call-with-event-owner-token id token-a
         (fn []
-          (data-validation/validate-completion-output!
+          (rf.machines.data-validation/validate-completion-output!
             :rf2-vxgfnd153/completion-actor
             {:schemas {:output ::output-schema}}
             "bad-output")))
       (count @traces)
       (finally
         (rf/unregister-listener! :trace ::completion-fence)
-        (late-bind/set-fn! :schemas/validate-with-registered-fn orig)))))
+        (rf.late-bind/set-fn! :schemas/validate-with-registered-fn orig)))))
 
 (deftest completion-output-validator-honors-exact-continuation
   (testing "a completion-output validator that destroys A + publishes same-id B

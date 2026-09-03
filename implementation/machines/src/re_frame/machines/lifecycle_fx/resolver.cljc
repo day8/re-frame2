@@ -37,10 +37,10 @@
   `make-machine-handler`) lives in
   `lifecycle-fx.registration/resolve-actor-handler-meta`, the late-bound
   `:machines/resolve-actor-handler-meta` hook body."
-  (:require [re-frame.machines.grammar :as grammar]
-            [re-frame.machines.parallel :as parallel]
-            [re-frame.machines.paths :as paths]
-            [re-frame.registrar :as registrar]))
+  (:require [re-frame.machines.grammar :as rf.machines.grammar]
+            [re-frame.machines.parallel :as rf.machines.parallel]
+            [re-frame.machines.paths :as rf.machines.paths]
+            [re-frame.registrar :as rf.registrar]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -51,12 +51,12 @@
   a registered machine (a plain event handler, or no entry at all).
 
   This is the canonical one-liner over the
-  `(let [m (registrar/lookup :event id)] (when (:rf/machine? m) (:rf/machine m)))`
+  `(let [m (rf.registrar/lookup :event id)] (when (:rf/machine? m) (:rf/machine m)))`
   idiom that several lifecycle-fx + querying call sites repeat — the
   registered-TYPE leg of spawned-actor / parent / singleton spec
   resolution."
   [machine-id]
-  (let [m (registrar/lookup :event machine-id)]
+  (let [m (rf.registrar/lookup :event machine-id)]
     (when (:rf/machine? m)
       (:rf/machine m))))
 
@@ -110,14 +110,14 @@
   no snapshot, or its snapshot carries no resolvable `:rf/machine-type`."
   [db actor-id]
   (boolean
-    (some-> (get-in db (paths/snapshot-path actor-id))
+    (some-> (get-in db (rf.machines.paths/snapshot-path actor-id))
             (spec-from-snapshot))))
 
 (defn spawn-spec-at
   "Walk `parent-spec`'s state tree to the `:spawn`-bearing node at `invoke-id`
   (the absolute prefix-path stamped at spawn time) and return that node's
   `:spawn` map, resolving flat AND region-prefixed invoke paths through
-  `grammar/node-at`. For a parallel-region parent the first element of
+  `rf.machines.grammar/node-at`. For a parallel-region parent the first element of
   `invoke-id` is the region name; strip it and descend into that region's
   body. Returns nil if `parent-spec` is absent, `invoke-id` is not a
   non-empty vector, the path doesn't resolve, or the node declares no
@@ -129,8 +129,8 @@
   [parent-spec invoke-id]
   (when (and parent-spec (vector? invoke-id) (seq invoke-id))
     (let [[head & tail] invoke-id
-          [tree path]   (if (and (parallel/parallel? parent-spec)
+          [tree path]   (if (and (rf.machines.parallel/parallel? parent-spec)
                                  (contains? (:regions parent-spec) head))
                           [(get-in parent-spec [:regions head]) (vec tail)]
                           [parent-spec invoke-id])]
-      (:spawn (grammar/node-at (:states tree) path)))))
+      (:spawn (rf.machines.grammar/node-at (:states tree) path)))))

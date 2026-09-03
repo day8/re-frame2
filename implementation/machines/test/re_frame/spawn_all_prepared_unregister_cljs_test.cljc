@@ -52,24 +52,24 @@
    ;; Loading the machines facade registers `rf/reg-machine` + the reserved
    ;; machine fxs when this ns runs alone.
    [re-frame.machines]
-   [re-frame.machines.test-support :as mtest]
+   [re-frame.machines.test-support :as rf.machines.test-support]
    ;; Unregister a machine TYPE mid-drain (from the child's own `[:schemas :data]`
    ;; validator) by dropping its `:event` registrar entry — the seam the recheck
    ;; tripped on.
-   [re-frame.registrar :as registrar]
+   [re-frame.registrar :as rf.registrar]
    ;; The schemas artefact ships the registered-validator hot path the
    ;; `:where :machine-data` boundary routes through; the `.malli` adapter
    ;; publishes Malli's validate/explain into the late-bind table.
    [re-frame.schemas]
    [re-frame.schemas.malli]
-   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
-       :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture
-    #?(:clj  {:adapter plain-atom/adapter}
-       :cljs {:adapter reagent-adapter/adapter}))
-  mtest/trace-capture-fixture)
+  (rf.machines.test-support/make-reset-runtime-fixture
+    #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
+       :cljs {:adapter rf.adapter.reagent/adapter}))
+  rf.machines.test-support/trace-capture-fixture)
 
 ;; ---------------------------------------------------------------------------
 ;; Fixtures under test.
@@ -159,16 +159,16 @@
     :ready   {}}})
 
 (defn- join-slot [parent-id]
-  (get-in (mtest/runtime-db) [:rf.runtime/machines :spawned parent-id [:forking]]))
+  (get-in (rf.machines.test-support/runtime-db) [:rf.runtime/machines :spawned parent-id [:forking]]))
 
 (defn- snap-of [actor-id]
-  (get-in (mtest/runtime-db) [:rf.runtime/machines :snapshots actor-id]))
+  (get-in (rf.machines.test-support/runtime-db) [:rf.runtime/machines :snapshots actor-id]))
 
 (defn- unregistered-rejects []
-  (mtest/events-of :rf.error/machine-spawn-unregistered-type))
+  (rf.machines.test-support/events-of :rf.error/machine-spawn-unregistered-type))
 
 (defn- no-such-handler-errors []
-  (mtest/events-of :rf.error/no-such-handler))
+  (rf.machines.test-support/events-of :rf.error/no-such-handler))
 
 (defn- type-ref-of
   "The installed snapshot's revertible `:rf/machine-type` TYPE reference — the
@@ -196,7 +196,7 @@
             :rf.error/machine-spawn-unregistered-type reject fires (the pre-fix
             recheck rejected the child + stranded a snapshotless half-live join)."
     (let [child-a (mutating-child plain-child
-                                  #(registrar/unregister! :event :sa/plain-a))]
+                                  #(rf.registrar/unregister! :event :sa/plain-a))]
       (rf/reg-machine :sa/plain-a child-a)
       (rf/reg-machine :sa/plain-b plain-child)
       (rf/reg-machine :sup/unreg (parent-over [{:id :a :machine-id :sa/plain-a}
@@ -212,7 +212,7 @@
         (doseq [id (vals (:children slot))]
           (is (some? (snap-of id))
               (str "child " id " INSTALLED its prepared snapshot even though its TYPE was unregistered mid-drain"))
-          (is (= :running (mtest/machine-state id))
+          (is (= :running (rf.machines.test-support/machine-state id))
               (str "child " id " installed the PREPARED spec verbatim (state :running), not a re-derivation")))
         (is (= child-a (type-ref-of (get (:children slot) :a)))
             "the DIVERGED child pinned its prepared definition — the registrar no longer speaks for it")
@@ -233,9 +233,9 @@
             its prepared entry: the whole batch consumes its authoritative
             verdict; no reject, no partial install."
     (rf/reg-machine :sa/one (mutating-child plain-child
-                                            #(registrar/unregister! :event :sa/one)))
+                                            #(rf.registrar/unregister! :event :sa/one)))
     (rf/reg-machine :sa/two (mutating-child plain-child
-                                            #(registrar/unregister! :event :sa/two)))
+                                            #(rf.registrar/unregister! :event :sa/two)))
     (rf/reg-machine :sup/allunreg (parent-over [{:id :a :machine-id :sa/one}
                                                 {:id :b :machine-id :sa/two}]))
     (rf/dispatch-sync [:sup/allunreg [:start]])
@@ -294,7 +294,7 @@
                                               ;; the preflight→install window.
                                               (when-not @fired
                                                 (reset! fired true)
-                                                (registrar/unregister! :event :sa/counted))
+                                                (rf.registrar/unregister! :event :sa/counted))
                                               (pos-int? (:n v)))]}
                        :states  {:running {}}})
       (rf/reg-machine :sup/count1 (parent-over [{:id :c :machine-id :sa/counted}]))
@@ -353,7 +353,7 @@
             clears, no :rf.error/no-such-handler fires, and a LATER ordinary
             event still runs (:ready → :working)."
     (let [child (mutating-child booting-child
-                                #(registrar/unregister! :event :sa/boot))]
+                                #(rf.registrar/unregister! :event :sa/boot))]
       (rf/reg-machine :sa/boot child)
       (rf/reg-machine :sup/bootunreg (parent-over [{:id :c :machine-id :sa/boot}]))
       (rf/dispatch-sync [:sup/bootunreg [:start]])
@@ -362,7 +362,7 @@
             "the admitted child installed its prepared snapshot (rf2-v4oqd)")
         (is (= child (type-ref-of id))
             "the prepared definition is PINNED verbatim — the diverged registrar keyword is not the authority")
-        (is (= :ready (mtest/machine-state id))
+        (is (= :ready (rf.machines.test-support/machine-state id))
             "the child COMPLETED its synthetic bootstrap — it resolved a handler despite the mid-drain unregister")
         (is (not (:rf/bootstrap-pending? (snap-of id)))
             "the :rf/bootstrap-pending? marker cleared — the initial-entry cascade actually ran")
@@ -370,7 +370,7 @@
             "NO :rf.error/no-such-handler fired — the prepared child's definition rides its snapshot")
         ;; A LATER ordinary event executes against the same coherent definition.
         (rf/dispatch-sync [id [:go]])
-        (is (= :working (mtest/machine-state id))
+        (is (= :working (rf.machines.test-support/machine-state id))
             "a later ordinary event ran against the prepared definition too")
         (is (empty? (no-such-handler-errors))
             "still no :rf.error/no-such-handler after the ordinary event"))
@@ -399,12 +399,12 @@
       (let [id (get (:children (join-slot :sup/swap)) :c)]
         (is (= child (type-ref-of id))
             "the prepared v1 definition is pinned on the snapshot — the diverged registrar keyword is not the authority")
-        (is (= :ready (mtest/machine-state id))
+        (is (= :ready (rf.machines.test-support/machine-state id))
             "the child bootstrapped through the PREPARED v1 definition (:idle → :ready)")
-        (is (not= :v2-boot (mtest/machine-state id))
+        (is (not= :v2-boot (rf.machines.test-support/machine-state id))
             "the child did NOT resolve its handler from the unrelated current v2")
         (rf/dispatch-sync [id [:go]])
-        (is (= :working (mtest/machine-state id))
+        (is (= :working (rf.machines.test-support/machine-state id))
             "a later ordinary event ran against v1 too — one coherent authority, not a v1 snapshot on a v2 handler"))
       (is (empty? (no-such-handler-errors))
           "no :rf.error/no-such-handler fired"))))
@@ -426,12 +426,12 @@
     (let [child (get (:children (join-slot :sup/hot)) :c)]
       (is (= :sa/hot (type-ref-of child))
           "the undisturbed install kept the revertible TYPE keyword — no pinned definition copy")
-      (is (= :ready (mtest/machine-state child))
+      (is (= :ready (rf.machines.test-support/machine-state child))
           "the child bootstrapped through the registered definition")
       ;; Hot-reload the TYPE: `:go` now targets :hot-reloaded instead of :working.
       (rf/reg-machine :sa/hot booting-child-v2)
       (rf/dispatch-sync [child [:go]])
-      (is (= :hot-reloaded (mtest/machine-state child))
+      (is (= :hot-reloaded (rf.machines.test-support/machine-state child))
           "the live child picked up the hot-reloaded definition — hot-reload semantics preserved"))
     (is (empty? (no-such-handler-errors))
         "no :rf.error/no-such-handler fired")))
@@ -452,7 +452,7 @@
             pins its prepared definition and bootstraps to :ready, and exactly
             one collision trace fans for the invoke."
     (let [child-b (mutating-child booting-child
-                                  #(registrar/unregister! :event :sa/sys-b))]
+                                  #(rf.registrar/unregister! :event :sa/sys-b))]
       (rf/reg-machine :sa/sys-a booting-child)
       (rf/reg-machine :sa/sys-b child-b)
       (rf/reg-machine :sup/sys (parent-over
@@ -461,11 +461,11 @@
       (rf/dispatch-sync [:sup/sys [:start]])
       (let [slot  (join-slot :sup/sys)
             child (get (:children slot) :b)]
-        (is (= 1 (count (mtest/events-of :rf.error/system-id-collision)))
+        (is (= 1 (count (rf.machines.test-support/events-of :rf.error/system-id-collision)))
             "the shared :system-id fanned exactly one collision trace (the second child's install)")
         (is (= child-b (type-ref-of child))
             "the rebound child pinned its prepared definition")
-        (is (= :ready (mtest/machine-state child))
+        (is (= :ready (rf.machines.test-support/machine-state child))
             "the rebound child bootstrapped — it is live, not inert")
         (is (empty? (no-such-handler-errors))
             "no :rf.error/no-such-handler fired")))))

@@ -20,14 +20,14 @@
             ;; Loading `re-frame.machines` installs the late-bind hooks +
             ;; reserved fxs `reg-machine` relies on.
             [re-frame.machines]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- record-traces! [body-fn]
-  (mtest/with-trace-capture seen
+  (rf.machines.test-support/with-trace-capture seen
     (body-fn)
     @seen))
 
@@ -76,7 +76,7 @@
       ;; Atomic rollback (Spec 005 §Bounded depth): the macrostep failed, so
       ;; no post-event snapshot reaches runtime-db — the pre-event :start
       ;; snapshot stays committed.
-      (is (= :start (mtest/machine-state :rf2-y3jv8q/always))
+      (is (= :start (rf.machines.test-support/machine-state :rf2-y3jv8q/always))
           "macrostep is atomic; the cycle aborts; snapshot rolls back to :start"))))
 
 ;; ---------------------------------------------------------------------------
@@ -119,7 +119,7 @@
           "the depth-exceeded trace is error-grade (a failed macrostep)")
       (is (= 0 (count no-ops))
           "a runaway raise cycle is NOT a benign no-op — no unhandled-no-op")
-      (is (= :start (mtest/machine-state :rf2-y3jv8q/raise))
+      (is (= :start (rf.machines.test-support/machine-state :rf2-y3jv8q/raise))
           "macrostep is atomic; the cycle aborts; snapshot rolls back to :start"))))
 
 ;; ---------------------------------------------------------------------------
@@ -150,5 +150,5 @@
           "the guard-blocked no-op still emits exactly one unhandled-no-op")
       (is (= 0 (+ (count always-err) (count raise-err)))
           "a benign no-op emits NO depth-exceeded error")
-      (is (= :red (mtest/machine-state :rf2-y3jv8q/blocked))
+      (is (= :red (rf.machines.test-support/machine-state :rf2-y3jv8q/blocked))
           "the guard-blocked event leaves the snapshot at :red"))))

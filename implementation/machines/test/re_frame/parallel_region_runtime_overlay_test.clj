@@ -22,13 +22,13 @@
     - Region timer/action traces carry the LIVE `:rf/frame`, so
       epoch-capture / frame-isolation attribution is correct.
 
-  These tests drive `parallel/machine-transition` directly (pure) with an
+  These tests drive `rf.machines.parallel/machine-transition` directly (pure) with an
   explicitly-stamped parent so the assertion does not depend on a live SSR
   frame."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.core :as rf]
-            [re-frame.machines.parallel :as parallel]
-            [re-frame.machines.test-support :as mtest]))
+            [re-frame.machines.parallel :as rf.machines.parallel]
+            [re-frame.machines.test-support :as rf.machines.test-support]))
 
 ;; ---- helpers ---------------------------------------------------------------
 
@@ -36,10 +36,10 @@
   "Register a trace listener for the duration of `body-fn`; return the
   captured trace vec. (`trace/emit!` delivers to listeners synchronously,
   so a PURE `machine-transition` call surfaces its traces here without a
-  dispatch cycle.) Routed through the shared `mtest/with-trace-capture` —
+  dispatch cycle.) Routed through the shared `rf.machines.test-support/with-trace-capture` —
   guaranteed unregister in a `finally`."
   [body-fn]
-  (mtest/with-trace-capture seen
+  (rf.machines.test-support/with-trace-capture seen
     (body-fn)
     @seen))
 
@@ -62,7 +62,7 @@
   "Build a live initial snapshot for `machine` (region → initial-state map
   + seeded :data / spawn-counter)."
   [machine]
-  (parallel/build-initial-snapshot machine {:bootstrap-pending? false}))
+  (rf.machines.parallel/build-initial-snapshot machine {:bootstrap-pending? false}))
 
 (deftest server-region-after-skips-host-timer-despite-stale-cache
   (testing "rf2-z522n: a parallel-region :after under a `:platform :server`
@@ -73,9 +73,9 @@
     ;; 1. Install the region cache and PRIME it from the UNSTAMPED machine
     ;;    (no :rf/platform / :rf/frame) — reproducing the bug's origin: the
     ;;    cached region spec captures a nil platform.
-    (let [unstamped (parallel/install-region-cache base-spec)]
-      (parallel/region-machine unstamped :climate)   ;; fault the stale entry in
-      (parallel/region-machine unstamped :lights)
+    (let [unstamped (rf.machines.parallel/install-region-cache base-spec)]
+      (rf.machines.parallel/region-machine unstamped :climate)   ;; fault the stale entry in
+      (rf.machines.parallel/region-machine unstamped :lights)
       ;; 2. The LIVE transition runs under a `:platform :server` frame.
       (let [server-machine (assoc unstamped
                                   :rf/platform  :server
@@ -84,7 +84,7 @@
             snap   (parallel-snapshot server-machine)
             traces (record-traces!
                      (fn []
-                       (parallel/machine-transition
+                       (rf.machines.parallel/machine-transition
                          server-machine snap [:start])))
             skipped   (of-op traces :rf.machine.timer/skipped-on-server)
             scheduled (of-op traces :rf.machine.timer/scheduled)]
@@ -102,9 +102,9 @@
    under a `:platform :client` frame DOES schedule (`:scheduled`) and the
    trace carries the live frame — confirming the overlay threads the real
    runtime frame through region pure logic, not a stale cached value."
-    (let [unstamped (parallel/install-region-cache base-spec)]
+    (let [unstamped (rf.machines.parallel/install-region-cache base-spec)]
       ;; Prime the cache from the unstamped machine again.
-      (parallel/region-machine unstamped :climate)
+      (rf.machines.parallel/region-machine unstamped :climate)
       (let [client-machine (assoc unstamped
                                   :rf/platform  :client
                                   :rf/frame     :test/client-frame
@@ -112,7 +112,7 @@
             snap   (parallel-snapshot client-machine)
             traces (record-traces!
                      (fn []
-                       (parallel/machine-transition
+                       (rf.machines.parallel/machine-transition
                          client-machine snap [:start])))
             scheduled (of-op traces :rf.machine.timer/scheduled)]
         (is (= 1 (count scheduled))
@@ -125,13 +125,13 @@
    the SHARED cached region spec — two transitions on different platforms
    must each see their OWN platform (the cache stays platform-agnostic;
    the overlay is per-step)."
-    (let [unstamped (parallel/install-region-cache base-spec)]
-      (parallel/region-machine unstamped :climate)
+    (let [unstamped (rf.machines.parallel/install-region-cache base-spec)]
+      (rf.machines.parallel/region-machine unstamped :climate)
       ;; Server transition first.
       (let [srv  (assoc unstamped :rf/platform :server :rf/frame :test/srv
                         :rf/parent-id :ov/srv)
             srv-tr (record-traces!
-                     (fn [] (parallel/machine-transition
+                     (fn [] (rf.machines.parallel/machine-transition
                               srv (parallel-snapshot srv) [:start])))]
         (is (= 1 (count (of-op srv-tr :rf.machine.timer/skipped-on-server)))
             "server run skipped"))
@@ -139,7 +139,7 @@
       (let [cli  (assoc unstamped :rf/platform :client :rf/frame :test/cli
                         :rf/parent-id :ov/cli)
             cli-tr (record-traces!
-                     (fn [] (parallel/machine-transition
+                     (fn [] (rf.machines.parallel/machine-transition
                               cli (parallel-snapshot cli) [:start])))]
         (is (= 1 (count (of-op cli-tr :rf.machine.timer/scheduled)))
             "client run scheduled — the cache was NOT poisoned by the prior server overlay")
@@ -173,16 +173,16 @@
                                 (swap! seen conj {:has? (contains? ctx :rf.cofx)
                                                   :cofx cofx})
                                 {:data (:data ctx)}))
-          installed (parallel/install-region-cache spec)]
+          installed (rf.machines.parallel/install-region-cache spec)]
       ;; 1. PRIME the cache from a parent carrying a causal coeffect token —
       ;;    reproducing the bug origin: the cached region spec captures the
       ;;    coeffect-carrying parent.
-      (parallel/region-machine (assoc installed :rf/cofx {:rf/time-ms 1}) :a)
-      (parallel/region-machine (assoc installed :rf/cofx {:rf/time-ms 1}) :b)
+      (rf.machines.parallel/region-machine (assoc installed :rf/cofx {:rf/time-ms 1}) :a)
+      (rf.machines.parallel/region-machine (assoc installed :rf/cofx {:rf/time-ms 1}) :b)
       ;; 2. The LIVE transition's parent carries NO `:rf/cofx` (a pure-fn / no-
       ;;    router caller, or a dispatch that simply did not thread the token).
       (let [snap (parallel-snapshot installed)]
-        (parallel/machine-transition installed snap [:go]))
+        (rf.machines.parallel/machine-transition installed snap [:go]))
       (is (= 1 (count @seen)) "the region :capture action ran exactly once")
       (is (false? (:has? (first @seen)))
           "the action ctx carried NO :rf.cofx — the cached coeffect did not leak
@@ -201,13 +201,13 @@
                                 (swap! seen conj {:has? (contains? ctx :rf.cofx)
                                                   :cofx cofx})
                                 {:data (:data ctx)}))
-          installed (parallel/install-region-cache spec)]
+          installed (rf.machines.parallel/install-region-cache spec)]
       ;; Prime under one coeffect …
-      (parallel/region-machine (assoc installed :rf/cofx {:rf/time-ms 1}) :a)
+      (rf.machines.parallel/region-machine (assoc installed :rf/cofx {:rf/time-ms 1}) :a)
       ;; … then transition under a DIFFERENT live coeffect.
       (let [live (assoc installed :rf/cofx {:rf/time-ms 99})
             snap (parallel-snapshot live)]
-        (parallel/machine-transition live snap [:go]))
+        (rf.machines.parallel/machine-transition live snap [:go]))
       (is (= 1 (count @seen)) "the region :capture action ran exactly once")
       (is (true? (:has? (first @seen)))
           "the action ctx carried :rf.cofx (the live parent supplied it)")

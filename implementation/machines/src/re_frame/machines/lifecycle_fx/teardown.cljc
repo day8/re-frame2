@@ -50,8 +50,8 @@
   likewise pure runtime-db → runtime-db; the transient atom that ns also
   owns is untouched here (its `forget!` stays a caller side effect,
   because it must run even when no runtime-db swap lands)."
-  (:require [re-frame.machines.paths :as paths]
-            [re-frame.machines.spawn-order :as spawn-order]))
+  (:require [re-frame.machines.paths :as rf.machines.paths]
+            [re-frame.machines.spawn-order :as rf.machines.spawn-order]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -64,7 +64,7 @@
   (when actor-id
     (some (fn [[sid mid]]
             (when (= mid actor-id) sid))
-          (get-in db (paths/system-id-path)))))
+          (get-in db (rf.machines.paths/system-id-path)))))
 
 (defn teardown-actor
   "Apply the unified runtime-db teardown projection to `db`. Returns a tuple
@@ -105,14 +105,14 @@
         ;; touching it would materialise a phantom `{:data {:rf/spawned {}}}`
         ;; on a dead parent — so guard the parent-side clear on presence.
         clear-parent-data? (and track?
-                                (contains? (get-in db (paths/snapshot-path))
+                                (contains? (get-in db (rf.machines.paths/snapshot-path))
                                            parent-id))
         ;; (1)+(2)+(3)+(4): the primary slot mutations. (4) clears the
         ;; PARENT snapshot's own `[:data :rf/spawned <invoke-id>]` slot so
         ;; the parent-side data slot (mechanism 1) mirrors the runtime
         ;; registry (step 3) EXACTLY — see ns docstring + Spec 005:2938.
         new-db       (cond-> db
-                       actor-id     (update-in (paths/snapshot-path)
+                       actor-id     (update-in (rf.machines.paths/snapshot-path)
                                                dissoc actor-id)
                        ;; (1b) rf2-1vlyg — drop the actor from the DURABLE
                        ;; spawn-order vector in the same swap that dissocs its
@@ -124,26 +124,26 @@
                        ;; second time by a later frame destroy nor accumulate as
                        ;; an unbounded stale entry. The slot is pruned when it
                        ;; empties (`forget-in-runtime-db`), mirroring `:spawned`.
-                       actor-id     (spawn-order/forget-in-runtime-db actor-id)
-                       released-sid (update-in (paths/system-id-path)
+                       actor-id     (rf.machines.spawn-order/forget-in-runtime-db actor-id)
+                       released-sid (update-in (rf.machines.paths/system-id-path)
                                                dissoc released-sid)
-                       track?       (update-in (paths/spawned-path parent-id)
+                       track?       (update-in (rf.machines.paths/spawned-path parent-id)
                                                 dissoc invoke-id)
                        clear-parent-data?
-                       (update-in (paths/snapshot-path parent-id :data :rf/spawned)
+                       (update-in (rf.machines.paths/snapshot-path parent-id :data :rf/spawned)
                                   dissoc invoke-id))
         ;; (5a): prune the per-parent `:spawned` map if empty.
         new-db       (cond-> new-db
                        (and track?
-                            (empty? (get-in new-db (paths/spawned-path parent-id))))
-                       (update-in (paths/spawned-path) dissoc parent-id))
+                            (empty? (get-in new-db (rf.machines.paths/spawned-path parent-id))))
+                       (update-in (rf.machines.paths/spawned-path) dissoc parent-id))
         ;; (5b): prune the `[:rf.runtime/machines :spawned]` slot if
         ;; empty (lazy-allocation mirror — :snapshots and :system-ids
         ;; stay present per fixture contract).
         new-db       (cond-> new-db
                        (and (contains? (get-in new-db [:rf.runtime/machines])
                                        :spawned)
-                            (empty? (get-in new-db (paths/spawned-path))))
+                            (empty? (get-in new-db (rf.machines.paths/spawned-path))))
                        (update-in [:rf.runtime/machines] dissoc :spawned))
         ;; (5c): prune the parent snapshot's now-empty `:rf/spawned` data
         ;; map (lazy-allocation mirror of the registry prune above) so a
@@ -152,8 +152,8 @@
         ;; Only touch a still-present parent snapshot.
         new-db       (cond-> new-db
                        (and clear-parent-data?
-                            (empty? (get-in new-db (paths/snapshot-path parent-id
+                            (empty? (get-in new-db (rf.machines.paths/snapshot-path parent-id
                                                                         :data :rf/spawned))))
-                       (update-in (paths/snapshot-path parent-id :data)
+                       (update-in (rf.machines.paths/snapshot-path parent-id :data)
                                   dissoc :rf/spawned))]
     [new-db released-sid]))

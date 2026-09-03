@@ -21,37 +21,37 @@
             ;; `:machines/reg-machine`) are registered — `rf/reg-machine`
             ;; routes through them.
             [re-frame.machines]
-            [re-frame.machines.internal-events :as internal-events]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.machines.internal-events :as rf.machines.internal-events]
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.subs]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-(def ^:private snapshot mtest/snapshot)
+(def ^:private snapshot rf.machines.test-support/snapshot)
 
 ;; ---- declaration accessor + boundary predicate ----------------------------
 
 (deftest internal-events-accessor
   (testing "internal-events returns the declared SET (or nil when absent)"
-    (is (= #{:tick} (internal-events/internal-events {:internal-events #{:tick}})))
-    (is (nil? (internal-events/internal-events {:initial :a})))))
+    (is (= #{:tick} (rf.machines.internal-events/internal-events {:internal-events #{:tick}})))
+    (is (nil? (rf.machines.internal-events/internal-events {:initial :a})))))
 
 (deftest boundary-predicate-recognises-declared-internal-events
   (testing "internal-event-external? is true ONLY for a declared internal event"
     (let [m {:internal-events #{:tick :retry/internal}}]
-      (is (true?  (internal-events/internal-event-external? m [:tick])))
-      (is (true?  (internal-events/internal-event-external? m [:retry/internal])))
-      (is (false? (internal-events/internal-event-external? m [:public-event])))
-      (is (true?  (internal-events/internal-event-external? m [:tick :arg]))
+      (is (true?  (rf.machines.internal-events/internal-event-external? m [:tick])))
+      (is (true?  (rf.machines.internal-events/internal-event-external? m [:retry/internal])))
+      (is (false? (rf.machines.internal-events/internal-event-external? m [:public-event])))
+      (is (true?  (rf.machines.internal-events/internal-event-external? m [:tick :arg]))
           "the first element is the event id — a declared internal id is rejected even with args")
-      (is (false? (internal-events/internal-event-external? m [:public-event :arg]))
+      (is (false? (rf.machines.internal-events/internal-event-external? m [:public-event :arg]))
           "a non-declared id is public even with args")))
   (testing "internal-event-external? is nil-safe and false for a no-internal-events machine"
-    (is (false? (internal-events/internal-event-external? {:initial :a} [:tick])))
-    (is (false? (internal-events/internal-event-external? {:internal-events #{:tick}} nil)))
-    (is (false? (internal-events/internal-event-external? {:internal-events #{:tick}} [])))))
+    (is (false? (rf.machines.internal-events/internal-event-external? {:initial :a} [:tick])))
+    (is (false? (rf.machines.internal-events/internal-event-external? {:internal-events #{:tick}} nil)))
+    (is (false? (rf.machines.internal-events/internal-event-external? {:internal-events #{:tick}} [])))))
 
 ;; ---- registration-time validation (fail-loud) -----------------------------
 
@@ -130,7 +130,7 @@
       ;; with the private event from outside.
       (rf/dispatch-sync [:iet/reject [:rf.machine/start]])
       (is (= :waiting (:state (snapshot :iet/reject))) "booted at :waiting")
-      (mtest/with-trace-capture captured
+      (rf.machines.test-support/with-trace-capture captured
         (rf/dispatch-sync [:iet/reject [:tick]])
         (is (= :waiting (:state (snapshot :iet/reject)))
             "the external :tick was REJECTED — the machine stayed at :waiting (no transition)")

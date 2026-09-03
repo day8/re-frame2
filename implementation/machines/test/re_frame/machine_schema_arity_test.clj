@@ -38,24 +38,24 @@
             [re-frame.core :as rf]
             ;; Loading the machines artefact publishes its late-bind hooks
             ;; (`:machines/reg-machine` etc.) so `rf/reg-machine` resolves.
-            [re-frame.machines :as machines]
-            [re-frame.machines.test-support :as mtest]
+            [re-frame.machines :as rf.machines]
+            [re-frame.machines.test-support :as rf.machines.test-support]
             ;; The schemas artefact ships the registered-validator hot path the
             ;; `:where :machine-data` / `:where :event` boundaries route through;
             ;; the `.malli` adapter ns publishes Malli validate/explain into the
             ;; late-bind table.
             [re-frame.schemas]
             [re-frame.schemas.malli]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- collect-machine-data-traces!
   "Run `f` while collecting every `:rf.error/schema-validation-failure`
   trace event whose `:where` is `:machine-data`."
   [f]
-  (mtest/with-trace-capture traces
+  (rf.machines.test-support/with-trace-capture traces
     (f)
     (filterv #(and (= :rf.error/schema-validation-failure (:operation %))
                    (= :machine-data (-> % :tags :where)))
@@ -65,7 +65,7 @@
   "Run `f` while collecting every `:rf.error/schema-validation-failure`
   trace event whose `:where` is `:event` (the outer-vector boundary)."
   [f]
-  (mtest/with-trace-capture traces
+  (rf.machines.test-support/with-trace-capture traces
     (f)
     (filterv #(and (= :rf.error/schema-validation-failure (:operation %))
                    (= :event (-> % :tags :where)))
@@ -133,10 +133,10 @@
                 :schemas {:data AuthLoginData}
                 :actions {:break (fn [_] {:data {:attempts "nope" :token nil :error nil}})}
                 :states  {:idle {:on {:auth.login/break {:target :idle :action :break}}}}}]
-      (machines/reg-machine* flow-id {:schema AuthLoginEvent} spec)
+      (rf.machines/reg-machine* flow-id {:schema AuthLoginEvent} spec)
       ;; The machine meta is stamped — machine-meta reads the spec + [:schemas :data]
       ;; back (so the schema is live, not inert).
-      (let [meta (machines/machine-meta flow-id)]
+      (let [meta (rf.machines/machine-meta flow-id)]
         (is (some? meta) "machine-meta is non-nil (meta WAS stamped)")
         (is (= AuthLoginData (get-in meta [:schemas :data]))
             "[:schemas :data] round-trips through machine-meta — it is LIVE"))
@@ -166,7 +166,7 @@
     ;; rather than flattened by `:cat`'s sequence-regex semantics.
     (let [StrictEvent [:tuple [:= flow-id]
                        [:tuple [:= :auth.login/submit] Credentials]]]
-      (machines/reg-machine* flow-id
+      (rf.machines/reg-machine* flow-id
         {:schema StrictEvent}
         {:initial :idle
          :data    {:attempts 0 :token nil :error nil}
@@ -182,12 +182,12 @@
                         [flow-id [:auth.login/submit {:email "a@b.com" :password "short"}]]))]
         (is (<= 1 (count traces))
             "a :where :event boundary trace fired for the malformed event vector")
-        (is (not= :submitting (mtest/machine-state flow-id))
+        (is (not= :submitting (rf.machines.test-support/machine-state flow-id))
             "the malformed event did NOT drive the transition"))
       ;; Well-formed submit transitions normally — :schema accepts it.
       (rf/dispatch-sync
         [flow-id [:auth.login/submit {:email "a@b.com" :password "longenough"}]])
-      (is (= :submitting (mtest/machine-state flow-id))
+      (is (= :submitting (rf.machines.test-support/machine-state flow-id))
           "a well-formed event vector passes the :schema boundary and transitions"))))
 
 ;; ---- (3b) the login examples' SHIPPED event schema rejects malformed submit -
@@ -205,7 +205,7 @@
             :submit at the :where :event boundary (no machine transition, no
             login HTTP effect), while a valid submit + framework reply events
             still pass"
-    (machines/reg-machine* flow-id
+    (rf.machines/reg-machine* flow-id
       {:schema LoginExampleEvent}
       {:initial :idle
        :data    {:attempts 0 :token nil :error nil}
@@ -223,7 +223,7 @@
                       [flow-id [:auth.login/submit {:email "a@b.com" :password "short"}]]))]
       (is (<= 1 (count traces))
           "a :where :event boundary trace fired for the malformed short-password submit")
-      (is (not= :submitting (mtest/machine-state flow-id))
+      (is (not= :submitting (rf.machines.test-support/machine-state flow-id))
           "the malformed submit did NOT transition the machine (no login effect issued)"))
     ;; (b) bad email — also rejected; never reaches :submitting (the rejected
     ;; submits never reached the handler, so the machine is still un-bootstrapped
@@ -233,12 +233,12 @@
                       [flow-id [:auth.login/submit {:email "noat" :password "longenough"}]]))]
       (is (<= 1 (count traces))
           "a :where :event boundary trace fired for the bad-email submit")
-      (is (not= :submitting (mtest/machine-state flow-id))
+      (is (not= :submitting (rf.machines.test-support/machine-state flow-id))
           "the bad-email submit did NOT transition the machine"))
     ;; (c) valid submit passes the boundary and transitions to :submitting.
     (rf/dispatch-sync
       [flow-id [:auth.login/submit {:email "a@b.com" :password "longenough"}]])
-    (is (= :submitting (mtest/machine-state flow-id))
+    (is (= :submitting (rf.machines.test-support/machine-state flow-id))
         "a well-formed submit passes the boundary and transitions")
     ;; (d) the framework reply event (success + trailing payload) still passes —
     ;; the corrected schema must not reject the managed-HTTP reply addressing.
@@ -247,7 +247,7 @@
                       [flow-id [:auth.login/success] {:kind :ok :value {:token "t"}}]))]
       (is (zero? (count traces))
           "the framework success-reply event passes the boundary (no validation failure)")
-      (is (= :authed (mtest/machine-state flow-id))
+      (is (= :authed (rf.machines.test-support/machine-state flow-id))
           "the reply event drove the transition to :authed"))))
 
 ;; ---- (4) fail-loud guard on the bare unstamped-with-schema direct path -----
@@ -257,7 +257,7 @@
             a [:schemas :data]-bearing spec RAISES :rf.error/machine-schema-requires-
             reg-machine rather than silently no-opping"
     (let [ex (try
-               (machines/make-machine-handler
+               (rf.machines/make-machine-handler
                  {:initial :idle
                   :data    {:attempts 0 :token nil :error nil}
                   :schemas {:data AuthLoginData}
@@ -272,7 +272,7 @@
 (deftest bare-direct-path-without-data-schema-stays-legal
   (testing "a schema-LESS spec on the bare make-machine-handler path is
             unaffected — nothing inert to leak, so the guard does NOT fire"
-    (is (fn? (machines/make-machine-handler
+    (is (fn? (rf.machines/make-machine-handler
                {:initial :idle
                 :data    {:n 0}
                 :states  {:idle {}}}))
@@ -284,7 +284,7 @@
   (testing "supplying the framework-owned :rf/machine? / :rf/machine keys in
             opts is rejected — the home stamps them"
     (let [ex (try
-               (machines/reg-machine* :rf.machine-arity/reserved
+               (rf.machines/reg-machine* :rf.machine-arity/reserved
                  {:rf/machine? true}
                  {:initial :idle :states {:idle {}}})
                nil
@@ -302,7 +302,7 @@
   ;; reg-mutation metadata-slot map gate.
   (testing "a vector opts slot is rejected with the canonical error id"
     (let [ex (try
-               (machines/reg-machine* :rf.machine-arity/bad-vec
+               (rf.machines/reg-machine* :rf.machine-arity/bad-vec
                  []
                  {:initial :idle :states {:idle {}}})
                nil
@@ -314,7 +314,7 @@
           "the rejected non-map value rides the :value ex-data slot")))
   (testing "a string opts slot is rejected with the canonical error id"
     (let [ex (try
-               (machines/reg-machine* :rf.machine-arity/bad-str
+               (rf.machines/reg-machine* :rf.machine-arity/bad-str
                  "nope"
                  {:initial :idle :states {:idle {}}})
                nil
@@ -323,7 +323,7 @@
   (testing "the 3-arity with an explicit nil opts is the no-opts path (legal)"
     ;; nil normalises to {} — equivalent to the 2-arity, not a rejection.
     (is (= :rf.machine-arity/nil-opts
-           (machines/reg-machine* :rf.machine-arity/nil-opts
+           (rf.machines/reg-machine* :rf.machine-arity/nil-opts
              nil
              {:initial :idle :states {:idle {}}}))
         "an explicit nil opts is the no-opts path (normalised to {}), not rejected")))
@@ -331,12 +331,12 @@
 (deftest two-arity-reg-machine-still-works
   (testing "the existing 2-arity (reg-machine* id machine) is unchanged — it
             stamps the meta so the [:schemas :data] schema is LIVE"
-    (machines/reg-machine* :rf.machine-arity/plain
+    (rf.machines/reg-machine* :rf.machine-arity/plain
       {:initial :idle
        :data    {:attempts 0 :token nil :error nil}
        :schemas {:data AuthLoginData}
        :states  {:idle {}}})
-    (is (some? (machines/machine-meta :rf.machine-arity/plain))
+    (is (some? (rf.machines/machine-meta :rf.machine-arity/plain))
         "2-arity still stamps machine-meta")
-    (is (= AuthLoginData (get-in (machines/machine-meta :rf.machine-arity/plain) [:schemas :data]))
+    (is (= AuthLoginData (get-in (rf.machines/machine-meta :rf.machine-arity/plain) [:schemas :data]))
         "2-arity stamps the [:schemas :data] schema so it round-trips (validation is LIVE)")))

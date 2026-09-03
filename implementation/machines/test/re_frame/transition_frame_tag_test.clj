@@ -18,11 +18,11 @@
   drops the tag fails at this site test first (clear cause)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- shared spec ----------------------------------------------------------
 
@@ -32,7 +32,7 @@
              :green  {:on {:tick {:target :yellow}}}
              :yellow {:on {:tick {:target :red}}}}})
 
-;; Intentional RAW manual-stop listener (not mtest/with-trace-capture): this
+;; Intentional RAW manual-stop listener (not rf.machines.test-support/with-trace-capture): this
 ;; helper hands the caller a [capture-atom unregister-thunk] pair so the test
 ;; controls exactly WHEN it stops listening — a behaviour the scope-macro form
 ;; (which unregisters at body exit) cannot express.

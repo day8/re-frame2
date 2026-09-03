@@ -11,10 +11,10 @@
 
   THE IMPL (verified correct, NOT changed by this test). `timer.cljc`'s
   `schedule-after-timer!` installs the host-clock callback via
-  `interop/schedule-after!`; that callback calls the late-bound
+  `rf.interop/schedule-after!`; that callback calls the late-bound
   `:router/dispatch!` with `{:frame ... :source :after-timer}` and
   DELIBERATELY supplies NO `:rf.cofx`. So the router (build-envelope)
-  stamps a fresh `{:rf/time-ms (interop/epoch-now-ms)}` at fire time — the
+  stamps a fresh `{:rf/time-ms (rf.interop/epoch-now-ms)}` at fire time — the
   timer-driven guard/action reads the FIRE-time token, not the scheduling-
   time parent token.
 
@@ -30,10 +30,10 @@
   test fails on exactly that regression.
 
   THE RECIPE (adversarial clock separation).
-    1. Stub `interop/schedule-after!` to CAPTURE the timer-callback thunk
+    1. Stub `rf.interop/schedule-after!` to CAPTURE the timer-callback thunk
        (rather than scheduling it on the host clock) so the test owns the
        fire boundary deterministically.
-    2. Stub `interop/epoch-now-ms` to read a MUTABLE clock atom — the
+    2. Stub `rf.interop/epoch-now-ms` to read a MUTABLE clock atom — the
        router's fire-time stamp source.
     3. Enter the `:after`-bearing state under a parent dispatch supplying a
        known PARENT `:time-ms`. The clock atom holds the PARENT value at
@@ -47,19 +47,19 @@
        (fire-time, router-stamped) `:time-ms`, NOT the PARENT scripted one."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
+            [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
             ;; Loaded for its boot side-effect: installs the machines
             ;; artefact's late-bind hooks (`rf/reg-machine` requires them).
             [re-frame.machines]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.router :as router]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.router :as rf.router]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-(def ^:private snapshot mtest/snapshot)
+(def ^:private snapshot rf.machines.test-support/snapshot)
 
 ;; Two clearly-non-ambient, clearly-distinct sentinels. PARENT is the
 ;; scripted token on the state-entry dispatch; CHILD is what the mutable
@@ -73,7 +73,7 @@
   (testing "the :after timer's dispatched event carries a FRESH router-
             stamped :rf.cofx :time-ms at FIRE time (not the parent
             scheduling-time token) — driven through the REAL
-            interop/schedule-after! fire boundary (rf2-hg39nf)"
+            rf.interop/schedule-after! fire boundary (rf2-hg39nf)"
     (let [;; The mutable host clock the router's epoch-now-ms reads. Starts
           ;; at the PARENT value; advanced to CHILD between schedule + fire.
           clock           (atom PARENT-TIME-MS)
@@ -102,16 +102,16 @@
                                                :action :stamp-fire-time}}}
                        :timeout {}}}
           ;; Preserve the production hooks/clock we are about to redefine.
-          orig-schedule   interop/schedule-after!
-          orig-dispatch!  (late-bind/get-fn :router/dispatch!)]
+          orig-schedule   rf.interop/schedule-after!
+          orig-dispatch!  (rf.late-bind/get-fn :router/dispatch!)]
       (rf/reg-machine :after-fresh/m m)
       (with-redefs [;; Capture the callback thunk instead of arming a real
                     ;; host timer — the test owns the fire boundary.
-                    interop/schedule-after!
+                    rf.interop/schedule-after!
                     (fn [f _ms] (reset! captured-thunk f) ::stub-handle)
                     ;; The router's fire-time stamp source — reads the
                     ;; mutable clock so advancing it shifts the fresh stamp.
-                    interop/epoch-now-ms (fn [] @clock)]
+                    rf.interop/epoch-now-ms (fn [] @clock)]
         ;; (1) Enter :loading under the PARENT token. The clock holds PARENT,
         ;; so even if the timer-fire wrongly inherited the parent token it
         ;; would equal PARENT here — but we ADVANCE the clock before firing,
@@ -134,10 +134,10 @@
         ;; {:frame ... :source :after-timer} and NO :rf.cofx, so the
         ;; router stamps {:rf/time-ms @clock} = CHILD afresh.
         (try
-          (late-bind/set-fn! :router/dispatch! router/dispatch-sync!)
+          (rf.late-bind/set-fn! :router/dispatch! rf.router/dispatch-sync!)
           (@captured-thunk)
           (finally
-            (late-bind/set-fn! :router/dispatch! orig-dispatch!))))
+            (rf.late-bind/set-fn! :router/dispatch! orig-dispatch!))))
 
       ;; (4) The transition actually fired through the real boundary.
       (is (= :timeout (:state (snapshot :after-fresh/m)))
@@ -160,5 +160,5 @@
            replay-stable causal write keyed off the timer-fire token")
 
       ;; sanity-restore guard (with-redefs already restored the clock + stub)
-      (is (identical? orig-schedule interop/schedule-after!)
-          "interop/schedule-after! restored after the redef scope"))))
+      (is (identical? orig-schedule rf.interop/schedule-after!)
+          "rf.interop/schedule-after! restored after the redef scope"))))

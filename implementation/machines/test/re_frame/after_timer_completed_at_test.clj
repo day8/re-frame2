@@ -12,7 +12,7 @@
   fired-timer reply, and §Tracing carries it on the stale-timer suppression
   trace too.
 
-  These tests drive the REAL `interop/schedule-after!` fire boundary so the
+  These tests drive the REAL `rf.interop/schedule-after!` fire boundary so the
   timer-fire dispatch is router-stamped with a known fire-time clock value,
   then assert `:rf.reply/completed-at` rides the `:rf.machine.timer/fired`
   and `:rf.machine.timer/stale-after` traces. rf2-o6c2jr — the reply MAP still
@@ -20,18 +20,18 @@
   reply-envelope `:rf.reply/completed-at` (the bare duplicate was dropped)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
+            [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
             [re-frame.machines]
-            [re-frame.machines.reply :as m-reply]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.router :as router]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.machines.reply :as rf.machines.reply]
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.router :as rf.router]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-(def ^:private snapshot mtest/snapshot)
+(def ^:private snapshot rf.machines.test-support/snapshot)
 
 (def ^:private PARENT-TIME-MS 1000000000)
 (def ^:private FIRE-TIME-MS   2000000000)
@@ -40,7 +40,7 @@
 
 (deftest after-fired-reply-carries-completed-at
   (testing "rf2-hawtjr — after-fired-reply threads :completed-at when supplied"
-    (let [r (m-reply/after-fired-reply
+    (let [r (rf.machines.reply/after-fired-reply
               {:actor-id :a/m :state :loading :delay 5000
                :decl-path [:loading] :epoch 1 :frame :rf/default
                :completed-at FIRE-TIME-MS})]
@@ -48,7 +48,7 @@
           "fired reply carries the causal completion timestamp")
       (is (= :ok (:status r))))
     (testing "omitted (not nil-filled) when absent"
-      (let [r (m-reply/after-fired-reply
+      (let [r (rf.machines.reply/after-fired-reply
                 {:actor-id :a/m :state :loading :delay 5000
                  :decl-path [:loading] :epoch 1 :frame :rf/default})]
         (is (not (contains? r :completed-at))
@@ -56,14 +56,14 @@
 
 (deftest after-stale-reply-carries-completed-at
   (testing "rf2-hawtjr — after-stale-reply threads :completed-at when supplied"
-    (let [r (m-reply/after-stale-reply
+    (let [r (rf.machines.reply/after-stale-reply
               {:actor-id :a/m :state :loading :delay 5000
                :decl-path [:loading] :scheduled-epoch 1 :current-epoch 2
                :frame :rf/default :completed-at FIRE-TIME-MS})]
       (is (= FIRE-TIME-MS (:completed-at r)))
       (is (= :stale (:status r))))
     (testing "omitted (not nil-filled) when absent"
-      (let [r (m-reply/after-stale-reply
+      (let [r (rf.machines.reply/after-stale-reply
                 {:actor-id :a/m :state :loading :delay 5000
                  :decl-path [:loading] :scheduled-epoch 1 :current-epoch 2
                  :frame :rf/default})]
@@ -82,12 +82,12 @@
              :states  {:idle    {:on {:fetch :loading}}
                        :loading {:after {5000 :timeout}}
                        :timeout {}}}
-          orig-dispatch! (late-bind/get-fn :router/dispatch!)]
+          orig-dispatch! (rf.late-bind/get-fn :router/dispatch!)]
       (rf/reg-machine :hawtjr/fired m)
-      (mtest/with-trace-capture captured
-        (with-redefs [interop/schedule-after!
+      (rf.machines.test-support/with-trace-capture captured
+        (with-redefs [rf.interop/schedule-after!
                       (fn [f _ms] (reset! captured-thunk f) ::stub-handle)
-                      interop/epoch-now-ms (fn [] @clock)]
+                      rf.interop/epoch-now-ms (fn [] @clock)]
           (rf/dispatch-sync [:hawtjr/fired [:fetch]]
                             {:rf.cofx {:rf/time-ms PARENT-TIME-MS}})
           (is (= :loading (:state (snapshot :hawtjr/fired))))
@@ -95,10 +95,10 @@
           ;; advance the wall clock to a DISTINCT fire-time value
           (reset! clock FIRE-TIME-MS)
           (try
-            (late-bind/set-fn! :router/dispatch! router/dispatch-sync!)
+            (rf.late-bind/set-fn! :router/dispatch! rf.router/dispatch-sync!)
             (@captured-thunk)
             (finally
-              (late-bind/set-fn! :router/dispatch! orig-dispatch!))))
+              (rf.late-bind/set-fn! :router/dispatch! orig-dispatch!))))
         (is (= :timeout (:state (snapshot :hawtjr/fired)))
             "the timer fired and drove the transition")
         (let [fired (->> @captured
@@ -127,7 +127,7 @@
                        :warn    {}
                        :ready   {}}}]
       (rf/reg-machine :hawtjr/stale m)
-      (mtest/with-trace-capture captured
+      (rf.machines.test-support/with-trace-capture captured
         (rf/dispatch-sync [:hawtjr/stale [:fetch]])
         (let [epoch (get-in (snapshot :hawtjr/stale)
                             [:data :rf/after-epoch [:loading]])]

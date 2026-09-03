@@ -29,16 +29,16 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
-            [re-frame.interop :as interop]
+            [re-frame.interop :as rf.interop]
             [re-frame.machines]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.machines.timer :as timer]
-            [re-frame.subs :as subs]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace.tooling :as trace-tooling]))
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.machines.timer :as rf.machines.timer]
+            [re-frame.subs :as rf.subs]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- fresh-handle
   "A process-unique opaque host handle, distinguishable by `identical?` on both
@@ -49,7 +49,7 @@
 (defn- inner
   "The `:rf/default` frame's inner `:after` timer table, or `{}`."
   []
-  (get @timer/after-timers :rf/default {}))
+  (get @rf.machines.timer/after-timers :rf/default {}))
 
 ;; A literal-delay `:after` state — the host clock is stubbed, so the 1-hour
 ;; delay never fires on its own; it lingers as an armed entry we can race.
@@ -79,10 +79,10 @@
         traces       (atom [])
         armed-handle (fresh-handle)
         lkey         ::arm-cleanup-rec]
-    (trace-tooling/register-listener! lkey (cancelled-listener traces))
+    (rf.trace.tooling/register-listener! lkey (cancelled-listener traces))
     (try
-      (with-redefs [interop/cancel-scheduled! (fn [h] (swap! cancelled conj h) nil)
-                    interop/schedule-after!
+      (with-redefs [rf.interop/cancel-scheduled! (fn [h] (swap! cancelled conj h) nil)
+                    rf.interop/schedule-after!
                     (fn [_thunk _ms]
                       ;; The slot is reserved (sentinel) but not yet published:
                       ;; a lifecycle cleanup wins here.
@@ -90,19 +90,19 @@
                         (cleanup! :rf/default k))
                       armed-handle)]
         (rf/dispatch-sync [machine-id [:go]]))
-      (finally (trace-tooling/unregister-listener! lkey)))
+      (finally (rf.trace.tooling/unregister-listener! lkey)))
     {:cancelled @cancelled :traces @traces :handle armed-handle}))
 
 (deftest arm-after-cleanup-leaves-no-entry-and-cancels-orphan-handle
   (doseq [[label reason cleanup!]
           [["frame destroy" :on-frame-destroy
-            (fn [frame _k] (timer/cancel-all-timers! frame))]
+            (fn [frame _k] (rf.machines.timer/cancel-all-timers! frame))]
            ["epoch restore" :on-restore
-            (fn [frame _k] (timer/cancel-frame-timers-on-restore! frame))]
+            (fn [frame _k] (rf.machines.timer/cancel-frame-timers-on-restore! frame))]
            ["actor destroy" :on-destroy
-            (fn [frame k] (timer/cancel-actor-timers! frame (:parent k)))]
+            (fn [frame k] (rf.machines.timer/cancel-actor-timers! frame (:parent k)))]
            ["state exit (:on-exit)" :on-exit
-            (fn [frame k] (timer/after-cancel-fx {:frame frame}
+            (fn [frame k] (rf.machines.timer/after-cancel-fx {:frame frame}
                                                  {:rf/parent-id (:parent k)
                                                   :rf/invoke-id (:spawn k)}))]]]
     (testing (str "cleanup owner: " label)
@@ -132,13 +132,13 @@
         unsub-count  (atom 0)
         cancelled    (atom [])
         armed-handle (fresh-handle)]
-    (with-redefs [subs/subscribe   (fn ([_] reaction) ([_ _] reaction))
-                  subs/unsubscribe (fn ([_] (swap! unsub-count inc) nil)
+    (with-redefs [rf.subs/subscribe   (fn ([_] reaction) ([_ _] reaction))
+                  rf.subs/unsubscribe (fn ([_] (swap! unsub-count inc) nil)
                                      ([_ _] (swap! unsub-count inc) nil))
-                  interop/cancel-scheduled! (fn [h] (swap! cancelled conj h) nil)
-                  interop/schedule-after!
+                  rf.interop/cancel-scheduled! (fn [h] (swap! cancelled conj h) nil)
+                  rf.interop/schedule-after!
                   (fn [_thunk _ms]
-                    (timer/cancel-all-timers! :rf/default) ;; frame destroy mid-arm
+                    (rf.machines.timer/cancel-all-timers! :rf/default) ;; frame destroy mid-arm
                     armed-handle)]
       (rf/dispatch-sync [:armrace/sub [:go]])
       (is (empty? (inner)) "no entry survives the mid-arm frame destroy")
@@ -169,22 +169,22 @@
   (let [hA        (fresh-handle)
         hB        (fresh-handle)
         cancelled (atom [])]
-    (with-redefs [interop/schedule-after! (fn [_thunk _ms] hA)]
+    (with-redefs [rf.interop/schedule-after! (fn [_thunk _ms] hA)]
       (rf/dispatch-sync [:succ/m [:go]]))
     (let [[k a-entry] (first (inner))
           b-entry     (assoc a-entry :handle hB :token ::successor-token)]
       (is (identical? hA (:handle a-entry)) "precondition: A armed with handle hA")
-      (with-redefs [interop/cancel-scheduled!
+      (with-redefs [rf.interop/cancel-scheduled!
                     (fn [h]
                       (swap! cancelled conj h)
                       ;; B lands at the same key while A's handle is being
                       ;; released — the concurrent re-arm publishing a successor.
                       (when (identical? h hA)
-                        (swap! timer/after-timers assoc-in [:rf/default k] b-entry))
+                        (swap! rf.machines.timer/after-timers assoc-in [:rf/default k] b-entry))
                       nil)]
         ;; cancel A (actor destroy) — reads A, claims A by A's token, releases A
-        (timer/cancel-actor-timers! :rf/default (:parent k)))
-      (let [slot (get-in @timer/after-timers [:rf/default k])]
+        (rf.machines.timer/cancel-actor-timers! :rf/default (:parent k)))
+      (let [slot (get-in @rf.machines.timer/after-timers [:rf/default k])]
         (is (= b-entry slot)
             "successor B SURVIVES A's cancellation — the old cancel did not delete it")
         (is (identical? hB (:handle slot)) "B's host handle is intact")
@@ -210,12 +210,12 @@
                             :done    {}}})
   (let [reaction (atom 5000)
         thunks   (atom [])]
-    (with-redefs [subs/subscribe   (fn ([_] reaction) ([_ _] reaction))
-                  subs/unsubscribe (fn ([_] nil) ([_ _] nil))
-                  interop/schedule-after! (fn [thunk _ms]
+    (with-redefs [rf.subs/subscribe   (fn ([_] reaction) ([_ _] reaction))
+                  rf.subs/unsubscribe (fn ([_] nil) ([_ _] nil))
+                  rf.interop/schedule-after! (fn [thunk _ms]
                                             (swap! thunks conj thunk)
                                             (fresh-handle))
-                  interop/cancel-scheduled! (fn [_h] nil)]
+                  rf.interop/cancel-scheduled! (fn [_h] nil)]
       (rf/dispatch-sync [:lose/m [:go]])            ;; arm attempt-1 → thunk-1
       (is (= 1 (count (inner))) "attempt-1 armed")
       (is (= 1 (count @thunks)) "captured thunk-1")
@@ -248,8 +248,8 @@
                             :waiting {:after {3600000 {:guard :no :target :done}}}
                             :done    {}}})
   (let [cancelled (atom [])]
-    (with-redefs [interop/cancel-scheduled! (fn [h] (swap! cancelled conj h) nil)
-                  interop/schedule-after! (fn [thunk _ms]
+    (with-redefs [rf.interop/cancel-scheduled! (fn [h] (swap! cancelled conj h) nil)
+                  rf.interop/schedule-after! (fn [thunk _ms]
                                             (let [h (fresh-handle)]
                                               ;; the host fires the callback
                                               ;; synchronously BEFORE returning

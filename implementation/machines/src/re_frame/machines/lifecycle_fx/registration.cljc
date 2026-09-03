@@ -12,7 +12,7 @@
       `re-frame.machines.lifecycle-fx.validation`: parallel shape,
       `:spawn-all` shape, dropped `:timeout-ms` slots, guard/action
       ref resolution, final-state shape).
-    - `parallel/build-initial-snapshot` — initial-state
+    - `rf.machines.parallel/build-initial-snapshot` — initial-state
       cascade, `:data` / `:meta` / `:rf/spawn-counter` seeding, tag union
       stamping (lazily, on first event). Single source of truth shared
       with the spawn path.
@@ -21,26 +21,26 @@
       detection + initial-entry cascade, machine-transition dispatch,
       action-failure projection, finalize delegation (in
       `lifecycle-fx.finalize`)."
-  (:require [re-frame.cofx :as cofx]
-            [re-frame.error :as error]
-            [re-frame.events :as events]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.machines.classification :as classification]
-            [re-frame.machines.cofx-attach :as cofx-attach]
-            [re-frame.machines.error-emit :as machine-error-emit]
-            [re-frame.machines.internal-events :as internal-events]
-            [re-frame.machines.lifecycle-fx.finalize :as finalize]
-            [re-frame.machines.lifecycle-fx.join :as join]
-            [re-frame.machines.lifecycle-fx.resolver :as resolver]
-            [re-frame.machines.lifecycle-fx.spawn-error :as spawn-error]
-            [re-frame.machines.lifecycle-fx.validation :as validation]
-            [re-frame.machines.parallel :as parallel]
-            [re-frame.machines.paths :as paths]
-            [re-frame.machines.result :as result
+  (:require [re-frame.cofx :as rf.cofx]
+            [re-frame.error :as rf.error]
+            [re-frame.events :as rf.events]
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.machines.classification :as rf.machines.classification]
+            [re-frame.machines.cofx-attach :as rf.machines.cofx-attach]
+            [re-frame.machines.error-emit :as rf.machines.error-emit]
+            [re-frame.machines.internal-events :as rf.machines.internal-events]
+            [re-frame.machines.lifecycle-fx.finalize :as rf.machines.lifecycle-fx.finalize]
+            [re-frame.machines.lifecycle-fx.join :as rf.machines.lifecycle-fx.join]
+            [re-frame.machines.lifecycle-fx.resolver :as rf.machines.lifecycle-fx.resolver]
+            [re-frame.machines.lifecycle-fx.spawn-error :as rf.machines.lifecycle-fx.spawn-error]
+            [re-frame.machines.lifecycle-fx.validation :as rf.machines.lifecycle-fx.validation]
+            [re-frame.machines.parallel :as rf.machines.parallel]
+            [re-frame.machines.paths :as rf.machines.paths]
+            [re-frame.machines.result :as rf.machines.result
              #?@(:cljs [:include-macros true])]
-            [re-frame.machines.transition :as transition]
-            [re-frame.trace :as trace]))
+            [re-frame.machines.transition :as rf.machines.transition]
+            [re-frame.trace :as rf.trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -80,7 +80,7 @@
   false)
 
 ;; The reserved creation marker is `:rf.machine/start`. It is defined once in
-;; the leaf engine namespace as `transition/start-marker` so the handler here
+;; the leaf engine namespace as `rf.machines.transition/start-marker` so the handler here
 ;; and the cascade in `parallel` share one source of truth without a require
 ;; cycle. It is a PURE init-kick: `maybe-boot` runs the initial-entry
 ;; cascade, then the handler STOPS — the marker is NEVER fed into `run-step`
@@ -90,7 +90,7 @@
 ;; `build-initial-snapshot` — single source of truth for both the
 ;; singleton-registration path (here) and the spawn path
 ;; (`lifecycle-fx.spawn/install-spawn!`), so both seed `:rf/spawn-counter` and
-;; `:meta` identically. See `parallel/build-initial-snapshot` for the canonical
+;; `:meta` identically. See `rf.machines.parallel/build-initial-snapshot` for the canonical
 ;; 6-step shape.
 
 ;; ---- handler factory ------------------------------------------------------
@@ -116,7 +116,7 @@
     event))
 
 (defn- trace-action-failure!
-  "Emit `:rf.error/machine-action-exception` for a `result/fail` Result's
+  "Emit `:rf.error/machine-action-exception` for a `rf.machines.result/fail` Result's
   `:error` info map. Returns `{}` so the handler short-circuits.
 
   Privacy (AI/MCP egress + logs threat model): the
@@ -139,7 +139,7 @@
   trigger in addition to the observability trace. When the
   THROWING actor is a `:spawn`-spawned child whose spawning parent declares
   `:spawn :on-error`, route the failure to the parent's declarative
-  `:on-error` transition via `spawn-error/dispatch-spawn-error!` — additive to
+  `:on-error` transition via `rf.machines.lifecycle-fx.spawn-error/dispatch-spawn-error!` — additive to
   (not a replacement for) the trace above, which still fires for every action
   exception. `ctx` carries the failing actor's runtime-db and snapshot (whose
   `:data` was stamped with `:rf/parent-id` / `:rf/invoke-id` at spawn time);
@@ -161,7 +161,7 @@
     ;; Fan out both error channels: the always-on
     ;; production-survivable record (surface #4, carrying `:failing-id` +
     ;; `:state`) AND the dev-only trace. Guard throws converge here too
-    ;; (`transition/guard-threw->fail-info` projects the guard-ref onto
+    ;; (`rf.machines.transition/guard-threw->fail-info` projects the guard-ref onto
     ;; `:action-ref`), so this single site fixes BOTH action and guard throws.
     ;; Axis 1 — STRUCTURAL-ONLY always-on record (no prose / no value-bearing
     ;; slots; see error-emit). The throwing action ran in a LIVE actor's
@@ -170,22 +170,22 @@
     ;; names the registered TYPE only). `:failing-id` is the throwing action /
     ;; guard keyword (else the actor instance); `:state` is the active state
     ;; path (the attribution slot `:rf.machine/guard-evaluated` also uses).
-    (machine-error-emit/emit-machine-action-exception!
+    (rf.machines.error-emit/emit-machine-action-exception!
       {:actor-id          machine-id
        :failing-id        failing-id
        :state             state-path
        :frame             frame-id
        :exception         ex
        :recovery          :no-recovery})
-    ;; Axis 2 — dev-only trace. Wrapped in an EXPLICIT `interop/debug-enabled?`
+    ;; Axis 2 — dev-only trace. Wrapped in an EXPLICIT `rf.interop/debug-enabled?`
     ;; call-site gate so Closure constant-folds the whole form — the dev-only
     ;; PROSE `:reason` / `:exception-message` and the value-bearing `:event` /
     ;; `:exception-data` (redacted downstream at the marks chokepoint) all
     ;; included — away under :advanced + goog.DEBUG=false. Leaving the direct
     ;; call ungated beside the live always-on call above would leak the prose.
     ;; `:state-path` is retained for the dev-trace shape.
-    (when interop/debug-enabled?
-      (trace/emit-error! :rf.error/machine-action-exception
+    (when rf.interop/debug-enabled?
+      (rf.trace/emit-error! :rf.error/machine-action-exception
         {:actor-id          machine-id
          :action-id         action-ref
          :state-path        state-path
@@ -208,8 +208,8 @@
     (let [child-data (:data snapshot)
           parent-id  (:rf/parent-id child-data)
           invoke-id  (:rf/invoke-id child-data)]
-      (when (spawn-error/parent-declares-on-error? runtime-db parent-id invoke-id)
-        (spawn-error/dispatch-spawn-error!
+      (when (rf.machines.lifecycle-fx.spawn-error/parent-declares-on-error? runtime-db parent-id invoke-id)
+        (rf.machines.lifecycle-fx.spawn-error/dispatch-spawn-error!
           frame-id parent-id invoke-id
           {:rf.error/id       :rf.error/machine-action-exception
            ;; The failing child is a LIVE actor INSTANCE.
@@ -222,7 +222,7 @@
     {}))
 
 (defn- handle-step-failure!
-  "Route a `result/fail` macrostep to the handler's `{}` short-circuit
+  "Route a `rf.machines.result/fail` macrostep to the handler's `{}` short-circuit
   (atomic rollback — no snapshot write reaches runtime-db) per Spec 005
   §Bounded depth / §Final states §`:on-error`.
 
@@ -240,9 +240,9 @@
   `{}`, so neither writes the post-event snapshot — the pre-event snapshot
   stays committed in runtime-db (the atomic-rollback contract)."
   [ctx event reason r]
-  (if (result/depth-abort? r)
+  (if (rf.machines.result/depth-abort? r)
     {}
-    (trace-action-failure! ctx event reason (result/info r))))
+    (trace-action-failure! ctx event reason (rf.machines.result/info r))))
 
 ;; ---- 4-step pipeline ------------------------------------------------------
 ;;
@@ -302,21 +302,21 @@
 
   For PARALLEL machines this requires EXACTLY the declared region key set
   (no missing region, no extra/stale region) AND every region's path to
-  resolve to a real non-history leaf — `parallel/parallel-state-valid?`
+  resolve to a real non-history leaf — `rf.machines.parallel/parallel-state-valid?`
   (bz0ox.2 / x4s9t.2). A partial map like `{:left :done}` for a 2-region
   machine fails to resolve, so it can never run a partial configuration that
   vacuously fires root `:on-done` / auto-destroy.
 
   For FLAT / COMPOUND machines the path must resolve to a real, OCCUPIABLE
-  leaf — `transition/state-occupiable?` rejects both a missing state AND a
+  leaf — `rf.machines.transition/state-occupiable?` rejects both a missing state AND a
   `:type :history` pseudo-state, which is targetable but never occupied
   (bz0ox.2). A malformed `:state` shape is caught inside `state-occupiable?`
   and surfaces as not-resolving, so the same reset path covers shape-error,
   missing-state, AND occupied-history alike."
   [machine state]
-  (if (parallel/parallel? machine)
-    (parallel/parallel-state-valid? machine state)
-    (transition/state-occupiable? machine state)))
+  (if (rf.machines.parallel/parallel? machine)
+    (rf.machines.parallel/parallel-state-valid? machine state)
+    (rf.machines.transition/state-occupiable? machine state)))
 
 (defn- snapshot-version
   "Read the `:rf/snapshot-version` int from `(get-in m [:meta :rf/snapshot-version])`.
@@ -339,14 +339,14 @@
   [kind machine-id frame-id machine existing-snap base-initial]
   (case kind
     :state-not-in-definition
-    (trace/emit-error! :rf.error/machine-state-not-in-definition
+    (rf.trace/emit-error! :rf.error/machine-state-not-in-definition
                        {:machine-id machine-id
                         :state      (:state existing-snap)
                         :frame      frame-id
                         :recovery   :reset-to-initial})
 
     :version-mismatch
-    (trace/emit-error! :rf.error/machine-snapshot-version-mismatch
+    (rf.trace/emit-error! :rf.error/machine-snapshot-version-mismatch
                        {:machine-id       machine-id
                         :version-recorded (snapshot-version existing-snap)
                         :version-current  (snapshot-version machine)
@@ -426,7 +426,7 @@
         ;; calling machine handler already asserted via
         ;; `require-frame-stamp!`; no `:rf/default` repair here.
         frame-id      frame
-        platform      (or (:platform (frame/frame-meta frame-id)) :client)
+        platform      (or (:platform (rf.frame/frame-meta frame-id)) :client)
         machine       (cond-> (assoc machine
                                      :rf/frame     frame-id
                                      :rf/platform  platform
@@ -449,8 +449,8 @@
                         ;; SAME stamped policy. Stamped only alongside a
                         ;; threaded token so pure-fn callers stay untouched.
                         (some? cofx) (assoc :rf/cofx-mint-policy
-                                            (or mint-policy cofx/default-mint-policy)))
-        path          (paths/snapshot-path machine-id)
+                                            (or mint-policy rf.cofx/default-mint-policy)))
+        path          (rf.machines.paths/snapshot-path machine-id)
         existing-snap (get-in runtime-db path)
         snapshot      (cond
                         (nil? existing-snap)
@@ -494,7 +494,7 @@
   [ctx]
   (cond
     (:existing-snap? ctx)                                  :spawned
-    (= transition/start-marker (first (:inner-event ctx))) :explicit
+    (= rf.machines.transition/start-marker (first (:inner-event ctx))) :explicit
     :else                                                  :lazy))
 
 (defn- ensure-bootstrap-cofx
@@ -505,7 +505,7 @@
   action (or birth-`:always`-reached action) declaring `:rf.cofx/requires` must
   have its facts ensured BEFORE the cascade runs — otherwise it reads an
   unensured token (the bootstrap hole). Computes
-  `cofx-attach/bootstrap-ensure-set-for` and ensures it onto the in-flight
+  `rf.machines.cofx-attach/bootstrap-ensure-set-for` and ensures it onto the in-flight
   `:rf.cofx` record (re-stamped onto the machine def under `:rf/cofx` so
   `callback-ctx` surfaces it to the bootstrap `:entry` callbacks).
 
@@ -521,7 +521,7 @@
             ;; router stamped (`:rf/cofx-mint-policy`), so a `:strict` replay /
             ;; `:test` birth refuses to mint a declared-absent generator-backed
             ;; `:entry` / birth-`:always` fact (surfacing missing-required).
-            augmented (cofx-attach/bootstrap-ensure-cofx
+            augmented (rf.machines.cofx-attach/bootstrap-ensure-cofx
                         machine recorded (:frame-id ctx) (:machine-id ctx)
                         (:rf/cofx-mint-policy machine))]
         (if (identical? augmented recorded)
@@ -550,12 +550,12 @@
   `:rf.machine/started` fires — the snapshot IS the state."
   [ctx]
   (if (:needs-bootstrap? ctx)
-    (let [r (parallel/apply-initial-entry-cascade (:machine ctx) (:snapshot ctx))]
-      (if (result/fail? r)
+    (let [r (rf.machines.parallel/apply-initial-entry-cascade (:machine ctx) (:snapshot ctx))]
+      (if (rf.machines.result/fail? r)
         r
-        (result/with-ok [snap fx] r
+        (rf.machines.result/with-ok [snap fx] r
           (let [booted (dissoc snap :rf/bootstrap-pending?)]
-            (trace/emit! :rf.machine :rf.machine/started
+            (rf.trace/emit! :rf.machine :rf.machine/started
                          {:machine-id (:machine-id ctx)
                           :frame      (:frame-id ctx)
                           :state      (:state booted)
@@ -564,24 +564,24 @@
             ;; Preserve the bootstrap-entry `::cascade` so
             ;; `commit-or-finalize` can prepend the initial-descent `:entry`
             ;; steps when bootstrap and the user event land in the same call.
-            (result/with-cascade
-              (result/ok booted fx)
-              (result/cascade r))))))
-    (result/ok (:snapshot ctx) [])))
+            (rf.machines.result/with-cascade
+              (rf.machines.result/ok booted fx)
+              (rf.machines.result/cascade r))))))
+    (rf.machines.result/ok (:snapshot ctx) [])))
 
 (defn- run-step
   "Step 3 of 4. Run the pure macrostep against the post-boot
   snapshot + the routed inner event. Returns the Result from
-  `parallel/machine-transition` — caller inspects `result/fail?` /
-  `result/ok?` and projects accordingly."
+  `rf.machines.parallel/machine-transition` — caller inspects `rf.machines.result/fail?` /
+  `rf.machines.result/ok?` and projects accordingly."
   [ctx post-boot-snap]
-  (parallel/machine-transition (:machine ctx) post-boot-snap (:inner-event ctx)))
+  (rf.machines.parallel/machine-transition (:machine ctx) post-boot-snap (:inner-event ctx)))
 
 (defn- ensure-ctx-cofx
   "The dispatch-time consumer-attachment
   ensure step, run between `maybe-boot` and `run-step`. Computes the derived
   per-(state × event-type) ensure-set for the POST-BOOT snapshot's active
-  state + the routed inner event (`cofx-attach/ensure-set-for`, incl. the
+  state + the routed inner event (`rf.machines.cofx-attach/ensure-set-for`, incl. the
   `:always` closure) and ensures it onto the in-flight `:rf.cofx` record
   carried under the machine def's `:rf/cofx`, BEFORE transition selection.
 
@@ -608,7 +608,7 @@
             ;; router stamped (`:rf/cofx-mint-policy`); `:strict` replay / `:test`
             ;; refuses to mint a declared-absent generator-backed guard/action
             ;; fact (surfacing missing-required) rather than defaulting `:live`.
-            augmented (cofx-attach/ensure-cofx
+            augmented (rf.machines.cofx-attach/ensure-cofx
                         machine post-boot-snap (:inner-event ctx)
                         recorded (:frame-id ctx) (:machine-id ctx)
                         (:rf/cofx-mint-policy machine))]
@@ -629,9 +629,9 @@
   only when every region's leaf is `:final?`. The pure-transition
   surface stays free of runtime-only metadata."
   [ctx step-result boot-result]
-  (result/with-ok [next-snapshot fx] step-result
+  (rf.machines.result/with-ok [next-snapshot fx] step-result
     (let [{:keys [machine machine-id frame-id runtime-db path snapshot inner-event]} ctx
-          boot-fx   (result/fx boot-result)
+          boot-fx   (rf.machines.result/fx boot-result)
           merged-fx (vec (concat boot-fx fx))
           ;; When this handler call both bootstrapped the
           ;; machine AND processed a user event, the `:before`/`:after`
@@ -639,8 +639,8 @@
           ;; cascade (the initial-descent `:entry` steps) ahead of the
           ;; event-driven cascade, matching the macrostep the trace reports.
           ;; A no-bootstrap call's `boot-result` carries an empty cascade.
-          cascade   (into (vec (result/cascade boot-result))
-                          (result/cascade step-result))
+          cascade   (into (vec (rf.machines.result/cascade boot-result))
+                          (rf.machines.result/cascade step-result))
           ;; A genuine no-op macrostep emits NO
           ;; `:rf.machine/transition`. An unhandled / guard-blocked event
           ;; already signals the benign `:rf.machine.event/unhandled-no-op`
@@ -666,7 +666,7 @@
           ;; `:action` cascade step, so it is never classified a no-op.
           no-op?    (and (= snapshot next-snapshot)
                          (empty? cascade)
-                         (zero? (result/microsteps step-result)))
+                         (zero? (rf.machines.result/microsteps step-result)))
           ;; Per Spec 005 §Final states §Embedded vs top-level — the D7
           ;; reconciliation. Whole-machine finality (route
           ;; to `finalize-machine`: singleton auto-destroy / spawning parent's
@@ -688,9 +688,9 @@
           ;;     too — `:on-done` fires once on entry (the edge guard) yet
           ;;     the machine must not tear down on the later resting macrosteps
           ;;     where the flag is (correctly) absent.
-          finished? (or (and (not (parallel/parallel? machine))
-                             (transition/top-level-final? machine (:state next-snapshot)))
-                        (and (finalize/all-regions-final? machine (:state next-snapshot))
+          finished? (or (and (not (rf.machines.parallel/parallel? machine))
+                             (rf.machines.transition/top-level-final? machine (:state next-snapshot)))
+                        (and (rf.machines.lifecycle-fx.finalize/all-regions-final? machine (:state next-snapshot))
                              (nil? (:on-done machine))))
           ;; Machine snapshots are durable runtime-db state:
           ;; write the new snapshot into the runtime-db partition value;
@@ -731,7 +731,7 @@
       ;; (per Spec 005 §Privacy), so a sensitive machine's cascade
       ;; `:data-delta`s are scrubbed at egress alongside the snapshot slots.
       (when-not no-op?
-        (trace/emit! :rf.machine :rf.machine/transition
+        (rf.trace/emit! :rf.machine :rf.machine/transition
                      {:frame      frame-id
                       ;; The LIVE actor instance address (the
                       ;; event-handler key: a singleton's registration id, or
@@ -741,10 +741,10 @@
                       :event      inner-event
                       :before     snapshot
                       :after      next-snapshot
-                      :microsteps (result/microsteps step-result)
+                      :microsteps (rf.machines.result/microsteps step-result)
                       :cascade    cascade}))
       (when (not= snapshot next-snapshot)
-        (trace/emit! :rf.machine :rf.machine/snapshot-updated
+        (rf.trace/emit! :rf.machine :rf.machine/snapshot-updated
                      {:actor-id   machine-id
                       :path       path
                       :before     snapshot
@@ -761,9 +761,9 @@
       ;; A non-join-child actor (record nil — the common case) rides through
       ;; untouched. The framework-produced path always stamps the coordinate; the
       ;; parent's fold gate then folds only on exact-current equality.
-      (join/stamp-join-completion-fx
+      (rf.machines.lifecycle-fx.join/stamp-join-completion-fx
         (if finished?
-          (finalize/finalize-machine machine machine-id frame-id
+          (rf.machines.lifecycle-fx.finalize/finalize-machine machine machine-id frame-id
                                      new-runtime-db next-snapshot inner-event merged-fx)
           {:rf.db/runtime new-runtime-db
            :fx            merged-fx})
@@ -788,8 +788,8 @@
   internal event); the `internal-event-external?` membership check naturally
   excludes it."
   [machine machine-id frame-id inner-event]
-  (when (internal-events/internal-event-external? machine inner-event)
-    (trace/emit-error! :rf.error/machine-internal-event-external-dispatch
+  (when (rf.machines.internal-events/internal-event-external? machine inner-event)
+    (rf.trace/emit-error! :rf.error/machine-internal-event-external-dispatch
                        {;; The LIVE actor instance address that received the
                         ;; rejected external dispatch (the running INSTANCE —
                         ;; a singleton's registration id, or a spawned actor's
@@ -815,8 +815,8 @@
   dispatched event vector's first element.
 
   The body is decomposed into:
-    - `validation/validate-machine!` — every registration-time check.
-    - `parallel/build-initial-snapshot` — initial-state cascade, `:data` /
+    - `rf.machines.lifecycle-fx.validation/validate-machine!` — every registration-time check.
+    - `rf.machines.parallel/build-initial-snapshot` — initial-state cascade, `:data` /
       `:meta` seeding, `:rf/spawn-counter` seeding, tag union stamping
       (unified with the spawn path).
     - the returned handler fn — frame stamping, intercept-spawn-all-
@@ -837,8 +837,8 @@
   ;; bare-entry-map-with-requires-no-`:fn` as the generic
   ;; `:rf.error/machine-unresolved-guard`. The indexed spec carries
   ;; `:rf/cofx-ensure-index` for the dispatch-time `ensure-ctx-cofx` to read.
-  (let [machine (cofx-attach/index-ensure-sets machine)]
-  (validation/validate-machine! machine)
+  (let [machine (rf.machines.cofx-attach/index-ensure-sets machine)]
+  (rf.machines.lifecycle-fx.validation/validate-machine! machine)
   ;; Fail-loud guard. A `[:schemas :data]`-bearing spec MUST be
   ;; registered through the single home (`reg-machine` / `reg-machine*` / the
   ;; event-`:schema` arity), which is the ONLY place the `:rf/machine?` /
@@ -855,7 +855,7 @@
   ;; egress — schema is validation-only.)
   (when (and (get-in machine [:schemas :data])
              (not *in-registration-home?*))
-    (error/throw-error!
+    (rf.error/throw-error!
       :rf.error/machine-schema-requires-reg-machine
       'rf-machines/make-machine-handler
       (str "make-machine-handler was handed a machine spec carrying a "
@@ -881,12 +881,12 @@
   ;; to the handler keeps registration tolerant of such specs.
   ;;
   ;; `machine` already carries the consumer-attachment index
-  ;; (`:rf/cofx-ensure-index`, stamped above by `cofx-attach/index-ensure-sets`
+  ;; (`:rf/cofx-ensure-index`, stamped above by `rf.machines.cofx-attach/index-ensure-sets`
   ;; ahead of `validate-machine!`), so the handler closure captures it and
   ;; `prepare-machine-ctx` threads it onto the machine def — the dispatch-time
   ;; `ensure-ctx-cofx` reads it to derive the per-(state × event-type)
   ;; ensure-set (incl. the `:always` closure).
-  (let [base-initial (delay (parallel/build-initial-snapshot
+  (let [base-initial (delay (rf.machines.parallel/build-initial-snapshot
                               machine {:bootstrap-pending? false}))]
     (fn [{:keys [db] frame :rf.frame/id rt :rf.db/runtime
           cofx :rf.cofx mint-policy :rf.cofx/mint-policy :as _cofx} event]
@@ -895,13 +895,13 @@
       ;; `:rf.frame/id` (the HELD stamp). A nil stamp is an invariant
       ;; failure — surface `:rf.error/no-frame-context`, never repair to a
       ;; synthesised `:rf/default`.
-      (frame/require-frame-stamp!
+      (rf.frame/require-frame-stamp!
         frame :rf.machine/event-received
         {:where 'rf-machines/make-machine-handler :event-id (first event)})
       ;; Per Spec 009 §:op-type vocabulary: `:rf.machine/event-received`
       ;; fires at the top of the handler so consumers see the inbound
       ;; event before any state derivation.
-      (trace/emit! :rf.machine :rf.machine/event-received
+      (rf.trace/emit! :rf.machine :rf.machine/event-received
                    {:machine-id (first event)
                     :event      event
                     :frame      frame})
@@ -912,7 +912,7 @@
       ;; and returns its snapshot write under `:rf.db/runtime`.
       (let [runtime-db  (or rt {})
             ctx         (prepare-machine-ctx db runtime-db frame cofx mint-policy event machine base-initial)
-            intercepted (join/intercept-spawn-all-event
+            intercepted (rf.machines.lifecycle-fx.join/intercept-spawn-all-event
                           (:machine ctx) runtime-db (:path ctx) (:snapshot ctx)
                           (:machine-id ctx) (:inner-event ctx))]
         (if intercepted
@@ -936,13 +936,13 @@
           ;; is written back into the record the epoch captures.
           (let [ctx         (ensure-bootstrap-cofx ctx)
                 boot-result (maybe-boot ctx)]
-            (if (result/fail? boot-result)
+            (if (rf.machines.result/fail? boot-result)
               ;; Route both a thrown initial-entry action AND a
               ;; birth-time bounded-depth abort (a born-state `:always` / raise
               ;; runaway) through the shared failure handler: a depth-abort
               ;; skips the misleading action-exception re-emit (its precise
               ;; category fired in-engine) while both atomically roll back.
-              (handle-step-failure! ctx [transition/start-marker]
+              (handle-step-failure! ctx [rf.machines.transition/start-marker]
                                     "Machine initial-entry action threw."
                                     boot-result)
               (let [;; Singleton first-boot: a singleton's actor-id IS its
@@ -987,15 +987,15 @@
                 ;; onto B or bump B's commit epoch. nil token (no event owner)
                 ;; falls back to the historical bare write.
                 (when boot?
-                  (classification/lower-at-spawn! (:frame-id ctx) (:machine-id ctx)
+                  (rf.machines.classification/lower-at-spawn! (:frame-id ctx) (:machine-id ctx)
                                                   (:machine ctx)
-                                                  (frame/current-event-owner-token)))
-              (result/with-ok [post-boot-snap boot-fx] boot-result
+                                                  (rf.frame/current-event-owner-token)))
+              (rf.machines.result/with-ok [post-boot-snap boot-fx] boot-result
                 ;; PURE init-kick: when the routed inner event IS the
                 ;; reserved `:rf.machine/start` marker, `maybe-boot` has
                 ;; already run the INITIAL MACROSTEP — the initial-entry
                 ;; cascade AND the birth-time `:always` + raise settle,
-                ;; via `parallel/apply-initial-entry-cascade`
+                ;; via `rf.machines.parallel/apply-initial-entry-cascade`
                 ;; — and emitted `:rf.machine/started`. STOP here — never
                 ;; feed the synthetic marker into `run-step` as a trigger.
                 ;; This avoids a misleading `before == after` self-
@@ -1022,13 +1022,13 @@
                 ;; birth macrostep is the entry edge — and keeps the machine
                 ;; alive), and an embedded compound born final already raised
                 ;; `[:rf.machine/done …]` through the birth settle's queue.
-                (if (= transition/start-marker (first (:inner-event ctx)))
+                (if (= rf.machines.transition/start-marker (first (:inner-event ctx)))
                   (let [m (:machine ctx)]
-                    (if (or (and (not (parallel/parallel? m))
-                                 (transition/top-level-final? m (:state post-boot-snap)))
-                            (and (finalize/all-regions-final? m (:state post-boot-snap))
+                    (if (or (and (not (rf.machines.parallel/parallel? m))
+                                 (rf.machines.transition/top-level-final? m (:state post-boot-snap)))
+                            (and (rf.machines.lifecycle-fx.finalize/all-regions-final? m (:state post-boot-snap))
                                  (nil? (:on-done m))))
-                      (finalize/finalize-machine m (:machine-id ctx) (:frame-id ctx)
+                      (rf.machines.lifecycle-fx.finalize/finalize-machine m (:machine-id ctx) (:frame-id ctx)
                                                  (assoc-in runtime-db (:path ctx) post-boot-snap)
                                                  post-boot-snap
                                                  (:inner-event ctx)
@@ -1050,7 +1050,7 @@
                   ;; unchanged) and `ctx` is untouched.
                   (let [ctx (ensure-ctx-cofx ctx post-boot-snap)
                         step-result (run-step ctx post-boot-snap)]
-                    (if (result/fail? step-result)
+                    (if (rf.machines.result/fail? step-result)
                       ;; Route both a thrown transition action AND
                       ;; a bounded-depth abort (the runaway `:always` / `:raise`
                       ;; cycle, XState-v5-throws case) through the shared
@@ -1105,7 +1105,7 @@
 ;; and warn. A runtime-built spec structurally CANNOT carry author coords, so
 ;; this is a WARNING (advisory, recoverable), never an error — the message
 ;; tells a runtime-built author they may ignore it. Dev-only (DCE'd in
-;; production via the call-site `interop/debug-enabled?` gate), once per id.
+;; production via the call-site `rf.interop/debug-enabled?` gate), once per id.
 
 (defonce ^:private source-unstamped-warned
   ;; The set of machine-ids already advised (once-per-id). Reset by
@@ -1136,14 +1136,14 @@
 (defn- maybe-warn-source-unstamped!
   "Emit `:rf.warning/machine-source-unstamped` once per `machine-id` when the
   spec arriving at the registration home carries no per-element source
-  metadata. Callers MUST wrap the invocation in `(when interop/debug-enabled?
+  metadata. Callers MUST wrap the invocation in `(when rf.interop/debug-enabled?
   …)` so the production bundle DCEs the consult + emit branch (Spec 009
   §Production builds), mirroring the schema-walker-opaque advisory."
   [machine-id machine]
   (when (and (not (spec-carries-source-metadata? machine))
              (not (contains? @source-unstamped-warned machine-id)))
     (swap! source-unstamped-warned conj machine-id)
-    (trace/emit! :warning :rf.warning/machine-source-unstamped
+    (rf.trace/emit! :warning :rf.warning/machine-source-unstamped
                  {:machine-id machine-id
                   :recovery   :warned-and-proceeded
                   :reason
@@ -1200,7 +1200,7 @@
   ;; diagnostic. Mirrors reg-route's `route-bad-metadata` non-map guard +
   ;; reg-resource/reg-mutation's metadata-slot map gate.
   (when (and (some? opts) (not (map? opts)))
-    (error/throw-error!
+    (rf.error/throw-error!
       :rf.error/invalid-machine-opts
       'rf-machines/reg-machine*
       (str "reg-machine " machine-id "'s opts (the MIDDLE slot) must be a "
@@ -1214,7 +1214,7 @@
                   :value      opts}}))
   (let [opts (or opts {})]
    (when (or (contains? opts :rf/machine?) (contains? opts :rf/machine))
-    (error/throw-error!
+    (rf.error/throw-error!
       :rf.error/machine-reserved-meta-in-opts
       'rf-machines/reg-machine*
       (str "reg-machine opts must not carry the "
@@ -1228,19 +1228,19 @@
    ;; entry). The declaration travels with the machine def and is lowered
    ;; per actor instance at spawn / first-boot — so a shape fault must be
    ;; caught at definition, like every other registration-shape fault.
-   (classification/validate-machine-classification! machine-id machine)
+   (rf.machines.classification/validate-machine-classification! machine-id machine)
    ;; Dev-only source-metadata advisory (once per id). Checked on the RAW
    ;; incoming spec — a bare-def symbol / runtime-built spec arrives here
    ;; source-blind, an inline literal / `defmachine` value source-bearing.
-   ;; Call-site `interop/debug-enabled?`-gated so production DCEs it.
-   (when interop/debug-enabled?
+   ;; Call-site `rf.interop/debug-enabled?`-gated so production DCEs it.
+   (when rf.interop/debug-enabled?
      (maybe-warn-source-unstamped! machine-id machine))
    ;; Install a per-machine region-machine cache before
    ;; the machine value is threaded through the handler closure and
    ;; published to the registrar. Re-registration replaces the machine
    ;; map and its attached cache atom, so no separate invalidation step
    ;; is needed.
-   (let [machine    (parallel/install-region-cache machine)
+   (let [machine    (rf.machines.parallel/install-region-cache machine)
         ;; The home is the legitimate `make-machine-handler` site for a
         ;; `[:schemas :data]`-bearing spec — bind the flag so the fail-loud
         ;; guard passes (the guard exists to catch the bare direct path, not us).
@@ -1251,7 +1251,7 @@
         meta       (assoc opts
                           :rf/machine? true
                           :rf/machine  machine)]
-    (events/reg-event machine-id meta handler-fn)
+    (rf.events/reg-event machine-id meta handler-fn)
     ;; The `[:schemas :data]` schema VALIDATES `:data` (via the
     ;; `:where :machine-data` post-commit walker, resolved through the
     ;; `:rf/machine` meta stamped above); its per-slot props do not classify the
@@ -1262,10 +1262,10 @@
     ;; lints (consume-without-declaring + ambient-durable). Run here in the
     ;; home (with the machine-id known) over a locally-indexed copy so the
     ;; lints read the parsed diets without altering the stored `:rf/machine`
-    ;; meta shape. DCE'd in production (`interop/debug-enabled?`-gated inside
+    ;; meta shape. DCE'd in production (`rf.interop/debug-enabled?`-gated inside
     ;; `lint-machine!`). Idempotent — `index-ensure-sets` is pure.
-    (cofx-attach/lint-machine! machine-id (cofx-attach/index-ensure-sets machine))
-    (trace/emit! :rf.machine.lifecycle/created :rf.machine.lifecycle/created
+    (rf.machines.cofx-attach/lint-machine! machine-id (rf.machines.cofx-attach/index-ensure-sets machine))
+    (rf.trace/emit! :rf.machine.lifecycle/created :rf.machine.lifecycle/created
                  {:machine-id machine-id
                   :initial    (:initial machine)})
     machine-id)))
@@ -1325,7 +1325,7 @@
 
   The region-machine cache is installed (mirroring `reg-machine*`) so
   parallel-region transitions resolve, then `make-machine-handler` builds
-  the handler-fn and `events/event-handler-meta` wraps it into the same
+  the handler-fn and `rf.events/event-handler-meta` wraps it into the same
   `{:rf/machine? true :rf/machine <spec> :handler-fn …
   :interceptors […]}` shape the registrar holds for a registered
   machine. `process-event*` runs the returned meta unchanged — the
@@ -1333,14 +1333,14 @@
   first element, so a single materialised handler serves every instance
   of the type."
   [spec]
-  (let [machine    (parallel/install-region-cache spec)
+  (let [machine    (rf.machines.parallel/install-region-cache spec)
         ;; This materialisation seam stamps the `:rf/machine?` /
         ;; `:rf/machine` meta below, so it is a legitimate `make-machine-handler`
         ;; home for a `[:schemas :data]`-bearing spec — bind the flag so the
         ;; fail-loud guard passes.
         handler-fn (binding [*in-registration-home?* true]
                      (make-machine-handler machine))]
-    (events/event-handler-meta {:rf/machine? true :rf/machine machine}
+    (rf.events/event-handler-meta {:rf/machine? true :rf/machine machine}
                                []
                                handler-fn)))
 
@@ -1355,7 +1355,7 @@
 
   Resolution is purely runtime-db-derived: read the actor's live
   snapshot from the frame's runtime-db, resolve its TYPE spec via
-  `resolver/spec-from-snapshot`, and materialise the handler-meta from
+  `rf.machines.lifecycle-fx.resolver/spec-from-snapshot`, and materialise the handler-meta from
   the spec. No live snapshot (or no resolvable type) → nil: the actor
   isn't alive in this frame value, which is the correct
   `:no-such-handler` — and exactly the property `restore-epoch!` reverts.
@@ -1382,8 +1382,8 @@
         ;; directly, no `:rf/default` repair. (A nil frame-id yields nil
         ;; runtime-db → the genuine `:no-such-handler`, never a read against
         ;; a synthesised default.)
-        runtime-db (frame/frame-runtime-db-value frame-id)
-        snapshot   (when runtime-db (get-in runtime-db (paths/snapshot-path actor-id)))
-        spec       (when snapshot (resolver/spec-from-snapshot snapshot))]
+        runtime-db (rf.frame/frame-runtime-db-value frame-id)
+        snapshot   (when runtime-db (get-in runtime-db (rf.machines.paths/snapshot-path actor-id)))
+        spec       (when snapshot (rf.machines.lifecycle-fx.resolver/spec-from-snapshot snapshot))]
     (when spec
       (handler-meta-for spec))))

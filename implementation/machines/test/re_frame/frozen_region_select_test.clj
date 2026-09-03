@@ -31,17 +31,17 @@
         selected set / same committed state."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.machines :as machines]
-            [re-frame.machines.parallel :as parallel]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.machines :as rf.machines]
+            [re-frame.machines.parallel :as rf.machines.parallel]
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; snapshot lookup via the shared machines test-support
 ;; — no hardcoded `[:rf.runtime/machines :snapshots …]` path.
-(def ^:private snapshot mtest/snapshot)
+(def ^:private snapshot rf.machines.test-support/snapshot)
 
 ;; ---- (1) :data write in A is NOT visible to B's same-event guard -----------
 ;;
@@ -280,9 +280,9 @@
   (testing "pure machine-transition is also declaration-order-independent"
     (let [initial-ab {:state {:a :idle :b :idle} :data {}}
           initial-ba {:state {:b :idle :a :idle} :data {}}
-          {snap-ab :snapshot} (parallel/machine-transition
+          {snap-ab :snapshot} (rf.machines.parallel/machine-transition
                                     (order-machine [:a :b]) initial-ab [:go])
-          {snap-ba :snapshot} (parallel/machine-transition
+          {snap-ba :snapshot} (rf.machines.parallel/machine-transition
                                     (order-machine [:b :a]) initial-ba [:go])]
       (is (= {:a :done :b :idle} (:state snap-ab)))
       (is (= {:a :done :b :idle} (:state snap-ba)))
@@ -294,10 +294,10 @@
             frozen pre-event :data in BOTH orders → same committed state
             (rf2-lq5yo3). Pre-fix, a-then-b leaked a's :x=1 into b's guard and
             b fired → the two orders diverged."
-    (let [{snap-ab :snapshot} (parallel/machine-transition
+    (let [{snap-ab :snapshot} (rf.machines.parallel/machine-transition
                                     (data-order-machine [:a :b])
                                     {:state {:a :idle :b :idle} :data {:x 0}} [:go])
-          {snap-ba :snapshot} (parallel/machine-transition
+          {snap-ba :snapshot} (rf.machines.parallel/machine-transition
                                     (data-order-machine [:b :a])
                                     {:state {:b :idle :a :idle} :data {:x 0}} [:go])]
       (is (= {:a :done :b :idle} (:state snap-ab))

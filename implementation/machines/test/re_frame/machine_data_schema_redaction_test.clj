@@ -17,7 +17,7 @@
   written under `:source :effect` — by the commit-plane classification effects
   or the projection-relative machine declaration lowered per actor; the trace
   egress chokepoint re-roots that snapshot-relative
-  (`classification/frame-snapshot-classification`) and redacts the matching
+  (`rf.classification/frame-snapshot-classification`) and redacts the matching
   slot. A `:sensitive?` / `:large?` Malli prop on a `[:schemas :data]` slot is
   VALIDATION ONLY and does not classify durable `:data` for egress.
 
@@ -50,18 +50,18 @@
             [re-frame.core :as rf]
             ;; Loading the machines artefact publishes its late-bind hooks
             ;; (`:machines/reg-machine` etc.) so `rf/reg-machine` resolves.
-            [re-frame.machines :as machines]
-            [re-frame.classification :as classification]
-            [re-frame.elision :as elision]
-            [re-frame.machines.test-support :as mtest]
+            [re-frame.machines :as rf.machines]
+            [re-frame.classification :as rf.classification]
+            [re-frame.elision :as rf.elision]
+            [re-frame.machines.test-support :as rf.machines.test-support]
             ;; The schemas artefact + Malli adapter — `[:schemas :data]` VALIDATION
             ;; runs; the props do not classify durable :data.
             [re-frame.schemas]
             [re-frame.schemas.malli]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- fixtures -------------------------------------------------------------
 
@@ -82,7 +82,7 @@
   "Register the auth machine carrying `auth-schema` at `[:schemas :data]`."
   ([] (reg-auth-machine! auth-id))
   ([machine-id]
-   (machines/reg-machine* machine-id
+   (rf.machines/reg-machine* machine-id
      {:initial :anon
       :data    {:retries 0 :token nil :blob nil}
       :schemas {:data auth-schema}
@@ -99,12 +99,12 @@
   `frame-snapshot-classification` reads at trace egress."
   ([] (declare-frame-marks! auth-id))
   ([actor-id]
-   (elision/swap-elision-slot! :rf/default
+   (rf.elision/swap-elision-slot! :rf/default
      (fn [reg]
        (-> (or reg {})
-           (elision/add-claims :sensitive-declarations {:source :effect}
+           (rf.elision/add-claims :sensitive-declarations {:source :effect}
                                [[:rf.runtime/machines :snapshots actor-id :data :token]])
-           (elision/add-claims :declarations {:source :effect}
+           (rf.elision/add-claims :declarations {:source :effect}
                                [[:rf.runtime/machines :snapshots actor-id :data :blob]]))))))
 
 (defn- machine-transition-event*
@@ -133,9 +133,9 @@
 
 (deftest frame-snapshot-marks-rooted-under-data
   (testing "the frame's absolute snapshot-path declarations re-root snapshot-
-            relative under [:data …] via classification/frame-snapshot-classification"
+            relative under [:data …] via rf.classification/frame-snapshot-classification"
     (declare-frame-marks!)
-    (let [m (classification/frame-snapshot-classification :rf/default auth-id)]
+    (let [m (rf.classification/frame-snapshot-classification :rf/default auth-id)]
       (is (some? m) "a frame-declared marks set exists for the snapshot")
       (is (= #{[:data :token]} (set (:sensitive m)))
           "sensitive path re-rooted snapshot-relative")
@@ -145,7 +145,7 @@
 (deftest no-frame-declaration-no-marks
   (testing "a machine whose frame declares nothing has no snapshot marks"
     (reg-auth-machine!)
-    (is (nil? (classification/frame-snapshot-classification :rf/default auth-id))
+    (is (nil? (rf.classification/frame-snapshot-classification :rf/default auth-id))
         "no frame declaration → no snapshot marks")))
 
 ;; ---- (2) egress redaction at the chokepoint -------------------------------
@@ -155,7 +155,7 @@
             :before / :after snapshot egress; the plain sibling rides verbatim"
     (reg-auth-machine!)
     (declare-frame-marks!)
-    (let [out  (classification/project-trace-event (machine-transition-event auth-id))
+    (let [out  (rf.classification/project-trace-event (machine-transition-event auth-id))
           tags (:tags out)]
       (is (= :rf/redacted (get-in tags [:before :data :token])))
       (is (= :rf/redacted (get-in tags [:after :data :token])))
@@ -169,7 +169,7 @@
             :rf.size/large-elided marker in snapshot egress"
     (reg-auth-machine!)
     (declare-frame-marks!)
-    (let [out  (classification/project-trace-event (machine-transition-event auth-id))
+    (let [out  (rf.classification/project-trace-event (machine-transition-event auth-id))
           tags (:tags out)]
       (is (contains? (get-in tags [:before :data :blob]) :rf.size/large-elided))
       (is (contains? (get-in tags [:after :data :blob]) :rf.size/large-elided))
@@ -187,7 +187,7 @@
                                          :data  {:retries 2
                                                  :token   "secret-jwt-snap"
                                                  :blob    nil}}}}
-          out  (classification/project-trace-event ev)]
+          out  (rf.classification/project-trace-event ev)]
       (is (= :rf/redacted (get-in out [:tags :snapshot :data :token])))
       (is (not (.contains (pr-str out) "secret-jwt-snap"))))))
 
@@ -206,7 +206,7 @@
                             :data       {:retries 0
                                          :token   "secret-jwt-started"
                                          :blob    "huge-started"}}}
-          out  (classification/project-trace-event ev)
+          out  (rf.classification/project-trace-event ev)
           tags (:tags out)]
       (is (= :rf/redacted (get-in tags [:data :token])))
       (is (contains? (get-in tags [:data :blob]) :rf.size/large-elided))
@@ -228,7 +228,7 @@
                                                  :token   "secret-jwt-guard"
                                                  :blob    "huge-guard"}
                                          :event [:login]}}}
-          out  (classification/project-trace-event ev)
+          out  (rf.classification/project-trace-event ev)
           tags (:tags out)]
       (is (= :rf/redacted (get-in tags [:input :data :token])))
       (is (contains? (get-in tags [:input :data :blob]) :rf.size/large-elided))
@@ -251,7 +251,7 @@
                                                  :token   "secret-jwt-action"
                                                  :blob    "huge-action"}
                                          :event [:login]}}}
-          out  (classification/project-trace-event ev)
+          out  (rf.classification/project-trace-event ev)
           tags (:tags out)]
       (is (= :rf/redacted (get-in tags [:input :data :token])))
       (is (contains? (get-in tags [:input :data :blob]) :rf.size/large-elided))
@@ -282,7 +282,7 @@
                                           :region nil
                                           :action nil
                                           :data-delta {}}]}}
-          out     (classification/project-trace-event ev)
+          out     (rf.classification/project-trace-event ev)
           cascade (get-in out [:tags :cascade])
           step0   (first cascade)]
       (is (= :rf/redacted (get-in step0 [:data-delta :token])))
@@ -303,7 +303,7 @@
                             :frame      :rf/default
                             :state      :idle
                             :data       {:token "not-secret"}}}
-          out  (classification/project-trace-event ev)]
+          out  (rf.classification/project-trace-event ev)]
       (is (= "not-secret" (get-in out [:tags :data :token]))
           "no frame declaration → :data slot verbatim"))))
 
@@ -315,7 +315,7 @@
             :after exactly like the :machine-id case"
     (reg-auth-machine!)
     (declare-frame-marks!)
-    (let [out  (classification/project-trace-event
+    (let [out  (rf.classification/project-trace-event
                  (machine-transition-event* :actor-id auth-id))
           tags (:tags out)]
       (is (= :rf/redacted (get-in tags [:before :data :token])))
@@ -335,7 +335,7 @@
     (declare-frame-marks! auth-id)
     (let [ev   (-> (machine-transition-event* :actor-id auth-id)
                    (assoc-in [:tags :machine-id] :rf.machine-redaction/undeclared-sibling))
-          out  (classification/project-trace-event ev)]
+          out  (rf.classification/project-trace-event ev)]
       (is (= :rf/redacted (get-in out [:tags :after :data :token]))
           "redacted via the PREFERRED :actor-id (declared), not the :machine-id sibling")
       (is (not (.contains (pr-str out) "secret-jwt"))))))
@@ -351,7 +351,7 @@
     ;; auth-schema carries :token {:sensitive? true} + :blob {:large? true},
     ;; but we declare NOTHING on the frame.
     (reg-auth-machine!)
-    (let [out  (classification/project-trace-event (machine-transition-event auth-id))
+    (let [out  (rf.classification/project-trace-event (machine-transition-event auth-id))
           tags (:tags out)]
       (is (= "secret-jwt-after" (get-in tags [:after :data :token]))
           "a :sensitive? [:schemas :data] slot does NOT redact without a frame declaration")
@@ -406,7 +406,7 @@
             "large `:data` path lowered at boot"))
       ;; the lowered registry entry redacts at the egress chokepoint, via the
       ;; SAME read path (frame-snapshot-marks) the frame-declared mechanism uses
-      (let [out  (classification/project-trace-event (machine-transition-event mid))
+      (let [out  (rf.classification/project-trace-event (machine-transition-event mid))
             tags (:tags out)]
         (is (= :rf/redacted (get-in tags [:after :data :token]))
             "machine-declared sensitive slot redacts at snapshot egress")
@@ -462,7 +462,7 @@
               "the spawned instance's :data :token lowered at spawn (per-instance)")
           (is (some #(= :machine (:source %)) (get-in reg [:sensitive-declarations abs-token])))
           ;; egress redacts the spawned instance's declared slot
-          (let [out (classification/project-trace-event
+          (let [out (rf.classification/project-trace-event
                       {:operation :rf.machine/snapshot-updated
                        :tags      {:actor-id spawned-id
                                    :frame    :rf/default
@@ -540,7 +540,7 @@
         (is (contains? (get-in reg [:sensitive-declarations abs-token]) {:source :effect})
             "the app's :source :effect owner survives the actor teardown"))
       ;; And egress still redacts — the fail-open is sealed.
-      (let [out  (classification/project-trace-event (machine-transition-event mid))
+      (let [out  (rf.classification/project-trace-event (machine-transition-event mid))
             tags (:tags out)]
         (is (= :rf/redacted (get-in tags [:after :data :token]))
             "the value stays REDACTED at egress — the teardown did not un-redact it")
@@ -596,12 +596,12 @@
 ;; ---- (6) EFFECT-FIRST boot: the machine's own claim must land DURABLY ------
 ;; rf2-dr0pfi — when an effect PRE-classifies a machine's absolute snapshot
 ;; path BEFORE the singleton boots, the machine's own `:source :machine` claim
-;; (lowered LIVE by `classification/lower-at-spawn!` at first-boot) must SURVIVE
+;; (lowered LIVE by `rf.classification/lower-at-spawn!` at first-boot) must SURVIVE
 ;; the boot snapshot `:rf.db/runtime` commit. Before the fix, that commit was
 ;; built from the STALE `:rf.db/runtime` coeffect — which already carried the
 ;; effect's `[:rf.runtime/elision]` sub-tree — so the returned effect value
 ;; INCLUDED `:rf.runtime/elision` (effect-owner only). At commit,
-;; `elision/reconcile-runtime-db-effect` reads an effect-carried
+;; `rf.elision/reconcile-runtime-db-effect` reads an effect-carried
 ;; `:rf.runtime/elision` as an explicit full-frame install and honours it
 ;; VERBATIM, clobbering the machine owner the live swap had just unioned in.
 ;; The effect owner survived (so the path stayed redacted — BENIGN, no leak),
@@ -655,7 +655,7 @@
       (is (some #(= :machine (:source %)) (owners))
           "the machine's own claim SURVIVES the effect clear — the path stays classified")
       ;; (4) And egress STILL redacts via the machine's surviving claim alone.
-      (let [out  (classification/project-trace-event (machine-transition-event mid))
+      (let [out  (rf.classification/project-trace-event (machine-transition-event mid))
             tags (:tags out)]
         (is (= :rf/redacted (get-in tags [:after :data :token]))
             "the machine's surviving claim keeps the value redacted after the effect cleared")

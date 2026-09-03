@@ -35,24 +35,24 @@
   claim is about a notification channel, not a render."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [reagent.ratom :as ratom]
-            [re-frame.adapter.reagent :as reagent-adapter]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.core :as rf]
-            [re-frame.interop :as interop]
+            [re-frame.interop :as rf.interop]
             ;; Loading `re-frame.machines` installs the machines-artefact
             ;; late-bind hooks (`reg-machine`, `reset-timers!`); under a
             ;; single-ns run nothing else pulls it in.
             [re-frame.machines]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.machines.timer :as timer]))
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.machines.timer :as rf.machines.timer]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter reagent-adapter/adapter})
-  mtest/trace-capture-fixture)
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.adapter.reagent/adapter})
+  rf.machines.test-support/trace-capture-fixture)
 
 (defn- live-entry
   "The `:rf/default` frame's single live `:after` timer entry, or nil."
   []
-  (first (vals (get @timer/after-timers :rf/default {}))))
+  (first (vals (get @rf.machines.timer/after-timers :rf/default {}))))
 
 ;; White-box, and only ever CORROBORATING: `watching` is the Reagent field that
 ;; says \"this reaction is subscribed to its sources\". Read against anything
@@ -87,11 +87,11 @@
       ;; and hand back an opaque sentinel instead of a real setTimeout handle.
       ;; `managed-timer/cancel!` swallows throws, so the sentinel is safe on
       ;; the cancellation path.
-      (with-redefs [interop/schedule-after!
+      (with-redefs [rf.interop/schedule-after!
                     (fn [_thunk ms] (swap! arms conj ms) (js-obj "rf-fake-handle" ms))]
 
         (rf/dispatch-sync [:dyn/timer [:go]])
-        (is (= :running (mtest/machine-state :dyn/timer))
+        (is (= :running (rf.machines.test-support/machine-state :dyn/timer))
             "precondition — entered the `:after`-bearing state")
         (is (= [5000] @arms)
             "precondition — armed once, at the delay sub's current value")
@@ -119,7 +119,7 @@
         (is (= 9000 (:resolved-ms (live-entry)))
             "…and the live registry entry carries the re-resolved duration")
         (is (some #(= :on-resolution (:reason (:tags %)))
-                  (mtest/events-of :rf.machine.timer/cancelled))
+                  (rf.machines.test-support/events-of :rf.machine.timer/cancelled))
             "the cancellation was traced with `:reason :on-resolution` — the
              re-resolution path ran, not some other cancel")
 
@@ -151,7 +151,7 @@
     (register-dynamic-delay-machine!)
     (rf/dispatch-sync [:dyn/set-ms 5000])
     (let [arms (atom [])]
-      (with-redefs [interop/schedule-after!
+      (with-redefs [rf.interop/schedule-after!
                     (fn [_thunk ms] (swap! arms conj ms) (js-obj "rf-fake-handle" ms))]
         (rf/dispatch-sync [:dyn/timer [:go]])
         (is (= [5000] @arms) "precondition — one arming")

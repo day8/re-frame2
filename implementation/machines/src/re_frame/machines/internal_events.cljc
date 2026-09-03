@@ -74,7 +74,7 @@
   can both require it without a load cycle — the sibling of
   `re-frame.machines.choice` / `re-frame.machines.timeout`."
   (:require [clojure.string :as str]
-            [re-frame.error :as error]))
+            [re-frame.error :as rf.error]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -118,7 +118,7 @@
   discriminator; `reason` is the human diagnostic; `extra` merges per-site
   slots."
   [error-id reason extra]
-  (error/thrown-ex-info error-id 'rf/reg-machine reason
+  (rf.error/thrown-ex-info error-id 'rf/reg-machine reason
                         {:recovery :fix-registration :extra extra}))
 
 (defn- reserved-rf-event?

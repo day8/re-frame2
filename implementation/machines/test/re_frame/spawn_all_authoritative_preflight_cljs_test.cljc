@@ -49,20 +49,20 @@
    ;; Loading the machines facade registers `rf/reg-machine` + the reserved
    ;; machine fxs when this ns runs alone.
    [re-frame.machines]
-   [re-frame.machines.test-support :as mtest]
+   [re-frame.machines.test-support :as rf.machines.test-support]
    ;; The schemas artefact ships the registered-validator hot path the
    ;; `:where :machine-data` boundary routes through; the `.malli` adapter
    ;; publishes Malli's validate/explain into the late-bind table.
    [re-frame.schemas]
    [re-frame.schemas.malli]
-   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
-       :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture
-    #?(:clj  {:adapter plain-atom/adapter}
-       :cljs {:adapter reagent-adapter/adapter}))
-  mtest/trace-capture-fixture)
+  (rf.machines.test-support/make-reset-runtime-fixture
+    #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
+       :cljs {:adapter rf.adapter.reagent/adapter}))
+  rf.machines.test-support/trace-capture-fixture)
 
 ;; ---------------------------------------------------------------------------
 ;; Fixtures under test.
@@ -98,14 +98,14 @@
     :ready   {}}})
 
 (defn- join-slot [parent-id]
-  (get-in (mtest/runtime-db) [:rf.runtime/machines :spawned parent-id [:forking]]))
+  (get-in (rf.machines.test-support/runtime-db) [:rf.runtime/machines :spawned parent-id [:forking]]))
 
 (defn- snap-of [actor-id]
-  (get-in (mtest/runtime-db) [:rf.runtime/machines :snapshots actor-id]))
+  (get-in (rf.machines.test-support/runtime-db) [:rf.runtime/machines :snapshots actor-id]))
 
 (defn- spawn-phase-failures []
   (filterv #(= :spawn (get-in % [:tags :phase]))
-           (mtest/events-of :rf.error/schema-validation-failure)))
+           (rf.machines.test-support/events-of :rf.error/schema-validation-failure)))
 
 ;; ===========================================================================
 ;; (1) Validator cardinality — the accepted per-child install does NOT
@@ -199,11 +199,11 @@
     ;; consumed the prepared v1 rather than re-resolving/re-validating v2 (which
     ;; would have omitted the snapshot, stranding an impossible half-live join).
     (is (seq (filterv #(= :sa/strict#1 (get-in % [:tags :spawned-id]))
-                      (mtest/events-of :rf.machine.lifecycle/spawned)))
+                      (rf.machines.test-support/events-of :rf.machine.lifecycle/spawned)))
         "the child's install COMMITTED (a lifecycle/spawned trace fired) — a second verdict did not omit it")
     (is (some? (snap-of :sa/strict#1))
         "the child's snapshot INSTALLED — the install consumed the preflight's prepared v1")
-    (is (= :running (mtest/machine-state :sa/strict#1))
+    (is (= :running (rf.machines.test-support/machine-state :sa/strict#1))
         "the installed snapshot is v1's (state :running) — the prepared result was consumed verbatim, not re-derived from v2")))
 
 ;; ===========================================================================

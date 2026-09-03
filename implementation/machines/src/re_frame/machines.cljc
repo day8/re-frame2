@@ -41,31 +41,31 @@
       `re-frame.machines.lifecycle-fx.spawn`
     - `destroy-machine-fx` — `re-frame.machines.lifecycle-fx.destroy`
     - `after-schedule-fx`, `after-cancel-fx` — `re-frame.machines.timer`"
-  (:require [re-frame.frame :as frame]
-            [re-frame.fx :as fx]
-            [re-frame.image-assembly :as image-assembly]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.machines.data-validation :as data-validation]
-            [re-frame.machines.hydrate :as machines-hydrate]
-            [re-frame.machines.lifecycle-fx.destroy :as destroy]
-            [re-frame.machines.lifecycle-fx.frame-destroy :as frame-destroy]
-            [re-frame.machines.lifecycle-fx.join :as join]
-            [re-frame.machines.lifecycle-fx.registration :as registration]
-            [re-frame.machines.lifecycle-fx.resolver :as resolver]
-            [re-frame.machines.lifecycle-fx.spawn :as spawn]
-            [re-frame.machines.lifecycle-fx.update-snapshot :as update-snapshot]
-            [re-frame.machines.lifecycle-fx.validation :as validation]
-            [re-frame.machines.parallel :as parallel]
-            [re-frame.machines.paths :as paths]
-            [re-frame.machines.result :as result]
-            [re-frame.machines.spawn-order :as spawn-order]
-            [re-frame.machines.ssr :as machines-ssr]
-            [re-frame.machines.timer :as timer]
-            [re-frame.registrar :as registrar]
-            [re-frame.subs :as subs]
+  (:require [re-frame.frame :as rf.frame]
+            [re-frame.fx :as rf.fx]
+            [re-frame.image-assembly :as rf.image-assembly]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.machines.data-validation :as rf.machines.data-validation]
+            [re-frame.machines.hydrate :as rf.machines.hydrate]
+            [re-frame.machines.lifecycle-fx.destroy :as rf.machines.lifecycle-fx.destroy]
+            [re-frame.machines.lifecycle-fx.frame-destroy :as rf.machines.lifecycle-fx.frame-destroy]
+            [re-frame.machines.lifecycle-fx.join :as rf.machines.lifecycle-fx.join]
+            [re-frame.machines.lifecycle-fx.registration :as rf.machines.lifecycle-fx.registration]
+            [re-frame.machines.lifecycle-fx.resolver :as rf.machines.lifecycle-fx.resolver]
+            [re-frame.machines.lifecycle-fx.spawn :as rf.machines.lifecycle-fx.spawn]
+            [re-frame.machines.lifecycle-fx.update-snapshot :as rf.machines.lifecycle-fx.update-snapshot]
+            [re-frame.machines.lifecycle-fx.validation :as rf.machines.lifecycle-fx.validation]
+            [re-frame.machines.parallel :as rf.machines.parallel]
+            [re-frame.machines.paths :as rf.machines.paths]
+            [re-frame.machines.result :as rf.machines.result]
+            [re-frame.machines.spawn-order :as rf.machines.spawn-order]
+            [re-frame.machines.ssr :as rf.machines.ssr]
+            [re-frame.machines.timer :as rf.machines.timer]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.subs :as rf.subs]
             ;; Keep tooling out of CLJS production bundles. CLJS tools require
             ;; the tooling namespace directly; JVM callers get facade aliases.
-            #?@(:clj [[re-frame.machines.tooling :as machines-tooling]])))
+            #?@(:clj [[re-frame.machines.tooling :as rf.machines.tooling]])))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -74,42 +74,42 @@
 ;; These `def`s make the sub-namespace fns reachable as
 ;; `re-frame.machines/<name>` so consumers (the `re-frame.core` late-bind
 ;; bridge, the conformance corpus, the test fixtures, examples that
-;; `:require [re-frame.machines :as machines]`) all see one surface.
+;; `:require [re-frame.machines :as rf.machines]`) all see one surface.
 
 ;; Declarative spawns allocate ids in the parent snapshot's
 ;; `:rf/spawn-counter`; hand-emitted spawns use the frame's runtime-db
 ;; `[:rf.runtime/machines :spawn-counter <machine-id>]` slot.
 
-(def reg-machine*           registration/reg-machine*)
-(def make-machine-handler registration/make-machine-handler)
+(def reg-machine*           rf.machines.lifecycle-fx.registration/reg-machine*)
+(def make-machine-handler rf.machines.lifecycle-fx.registration/make-machine-handler)
 ;; Boundary-validation surface for the `[:schemas :data]` schema on `reg-machine`
 ;; (Spec 005 §Schema validation, Spec 010 §Per-step recovery row 7). The
 ;; post-commit walker validates every snapshot's `:data` against its
 ;; registered machine's `[:schemas :data]` schema; the spawn-time sibling
 ;; validates a spawned actor's initial `:data` before install.
-(def validate-machine-data! data-validation/validate-machine-data!)
-(def validate-spawn-data!   data-validation/validate-spawn-data!)
+(def validate-machine-data! rf.machines.data-validation/validate-machine-data!)
+(def validate-spawn-data!   rf.machines.data-validation/validate-spawn-data!)
 ;; The `:rf.machine/update-snapshot` escape-hatch sibling validates the
 ;; would-be-merged snapshot's `:data` BEFORE the fx writes it, so the
 ;; `[:schemas :data]` boundary covers the escape hatch too.
-(def validate-update-snapshot-data! data-validation/validate-update-snapshot-data!)
+(def validate-update-snapshot-data! rf.machines.data-validation/validate-update-snapshot-data!)
 ;; The pure registration-time validator (Spec 005 §registration validators).
 ;; Re-exported so the conformance corpus's `:reg-machine` Mode-B call op can
 ;; pin the registration-error taxonomy (Spec 009 §thrown-error shape)
-;; directly against the leaf fn — no registrar/substrate fixture.
-(def validate-machine!      validation/validate-machine!)
-(def spawn-fx               spawn/spawn-fx)
-(def spawn-all-init-fx      spawn/spawn-all-init-fx)
-(def destroy-machine-fx     destroy/destroy-machine-fx)
-(def after-schedule-fx      timer/after-schedule-fx)
-(def after-cancel-fx        timer/after-cancel-fx)
+;; directly against the leaf fn — no rf.registrar/substrate fixture.
+(def validate-machine!      rf.machines.lifecycle-fx.validation/validate-machine!)
+(def spawn-fx               rf.machines.lifecycle-fx.spawn/spawn-fx)
+(def spawn-all-init-fx      rf.machines.lifecycle-fx.spawn/spawn-all-init-fx)
+(def destroy-machine-fx     rf.machines.lifecycle-fx.destroy/destroy-machine-fx)
+(def after-schedule-fx      rf.machines.timer/after-schedule-fx)
+(def after-cancel-fx        rf.machines.timer/after-cancel-fx)
 
 ;; ---- the pure transition (Spec 005 §Testing §Level 1) --------------------
 ;;
-;; The engine seam (`parallel/machine-transition`) returns the engine's
-;; internal Result, which rides lifecycle bookkeeping (`::result/handled?`,
-;; `::result/microsteps`, `::result/cascade`, `::result/parallel-done-
-;; handled?`) and a `::result/depth-abort?` sentinel inside a failure's
+;; The engine seam (`rf.machines.parallel/machine-transition`) returns the engine's
+;; internal Result, which rides lifecycle bookkeeping (`::rf.machines.result/handled?`,
+;; `::rf.machines.result/microsteps`, `::rf.machines.result/cascade`, `::rf.machines.result/parallel-done-
+;; handled?`) and a `::rf.machines.result/depth-abort?` sentinel inside a failure's
 ;; diagnostic map. None of that is the app's business. The public fn
 ;; projects the Result onto the one plain map Spec 005 §Level 1 defines,
 ;; and stamps `:kind` with the Spec 009 category the runtime would emit
@@ -119,17 +119,17 @@
 (defn- public-result
   "Project the engine's Result onto the Spec 005 §Level 1 public map."
   [r]
-  (if (result/ok? r)
+  (if (rf.machines.result/ok? r)
     {:status   :ok
-     :snapshot (result/snap r)
-     :fx       (vec (result/fx r))}
-    (let [info (result/info r)
-          kind (if (result/depth-abort? r)
+     :snapshot (rf.machines.result/snap r)
+     :fx       (vec (rf.machines.result/fx r))}
+    (let [info (rf.machines.result/info r)
+          kind (if (rf.machines.result/depth-abort? r)
                  (:error-id info)
                  :rf.error/machine-action-exception)]
       {:status :error
        :error  (merge {:kind kind}
-                      (dissoc info ::result/depth-abort? :error-id))})))
+                      (dissoc info ::rf.machines.result/depth-abort? :error-id))})))
 
 (defn machine-transition
   "The pure transition. Given a machine `definition`, the current
@@ -157,7 +157,7 @@
   module-level state; JVM- and CLJS-runnable. `re-frame.machines` is the
   only namespace a caller needs."
   [definition snapshot event]
-  (public-result (parallel/machine-transition definition snapshot event)))
+  (public-result (rf.machines.parallel/machine-transition definition snapshot event)))
 
 ;; ---- query API (Spec 005 §Querying machines) -----------------------------
 ;;
@@ -178,7 +178,7 @@
   registration metadata carries `:rf/machine? true`. Per Spec 005
   §Querying machines."
   []
-  (->> (registrar/registrations :event)
+  (->> (rf.registrar/registrations :event)
        (keep (fn [[id m]] (when (:rf/machine? m) id)))
        (vec)))
 
@@ -188,14 +188,14 @@
   coords) for `machine-id`, or nil if no machine is registered under
   that id. Per Spec 005 §Querying machines."
   [machine-id]
-  (resolver/spec-from-registry machine-id))
+  (rf.machines.lifecycle-fx.resolver/spec-from-registry machine-id))
 
 (defn machine-by-system-id
   "Look up the spawned-machine id currently bound to `system-id` in the
   active frame's `[:rf.runtime/machines :system-ids]` reverse index, or nil.
 
   The 1-arity ambient form resolves the frame through the scope/hold chain
-  via `frame/require-current-frame!` — a lookup issued under no established
+  via `rf.frame/require-current-frame!` — a lookup issued under no established
   scope raises `:rf.error/no-frame-context` rather than reading an invented
   default's reverse index. Pass the public opts form `(machine-by-system-id
   system-id {:frame target})` to look up a named frame from outside any
@@ -212,18 +212,18 @@
   ([system-id]
    (machine-by-system-id
      system-id
-     (frame/require-current-frame!
+     (rf.frame/require-current-frame!
        :machine-by-system-id
        {:where 're-frame.machines/machine-by-system-id})))
   ([system-id frame-or-opts]
    ;; A live frame is map-shaped, so exclude frame values from the opts branch.
-   (if (and (map? frame-or-opts) (not (frame/frame-value? frame-or-opts)))
+   (if (and (map? frame-or-opts) (not (rf.frame/frame-value? frame-or-opts)))
      (if-some [target (:frame frame-or-opts)]
        (machine-by-system-id system-id target)
        (machine-by-system-id system-id))
      ;; The reverse index is runtime-db state keyed by the bare frame id.
-     (get-in (frame/frame-runtime-db-value (frame/frame-target->id frame-or-opts))
-             (paths/system-id-path system-id)))))
+     (get-in (rf.frame/frame-runtime-db-value (rf.frame/frame-target->id frame-or-opts))
+             (rf.machines.paths/system-id-path system-id)))))
 
 ;; ---- derivation/process algebra views -------------------------------------
 ;;
@@ -242,10 +242,10 @@
 ;; export. Mirrors the `re-frame.flows/flow-algebra-view` JVM alias.
 #?(:clj
    (do
-     (def machine-algebra-view          machines-tooling/machine-algebra-view)
-     (def machine-instance-algebra-view machines-tooling/machine-instance-algebra-view)
-     (def machine-selector?             machines-tooling/machine-selector?)
-     (def machine-selector-targets      machines-tooling/machine-selector-targets)))
+     (def machine-algebra-view          rf.machines.tooling/machine-algebra-view)
+     (def machine-instance-algebra-view rf.machines.tooling/machine-instance-algebra-view)
+     (def machine-selector?             rf.machines.tooling/machine-selector?)
+     (def machine-selector-targets      rf.machines.tooling/machine-selector-targets)))
 
 ;; ---- :rf.machine/dispatch-to-system — action→spawned-actor messaging fx --
 ;;
@@ -280,11 +280,11 @@
   ;; The cascade envelope frame is the fx-context `:frame`; a nil stamp is
   ;; an invariant failure (`:rf.error/no-frame-context`), never a
   ;; synthesised `:rf/default`.
-  (let [frame-id (frame/require-frame-stamp!
+  (let [frame-id (rf.frame/require-frame-stamp!
                    frame-id :rf.machine/dispatch-to-system
                    {:where 'rf.machine/dispatch-to-system :event-id system-id})]
     (when-let [machine-id (machine-by-system-id system-id frame-id)]
-      (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
+      (when-let [dispatch! (rf.late-bind/get-fn :router/dispatch!)]
         (dispatch! [machine-id event] {:frame frame-id}))))
   nil)
 
@@ -295,7 +295,7 @@
   `re-frame.test-support`'s `reset-runtime` and per-feature artefact test
   fixtures. Clears the entire frame-scoped table.
 
-  1-arity: just the given frame's timers — the `frame/destroy-frame!`
+  1-arity: just the given frame's timers — the `rf.frame/destroy-frame!`
   hook shape used to release a destroyed frame's host-clock handles and
   subscription watchers without touching sibling frames.
 
@@ -308,9 +308,9 @@
   aligns with the test-fixture and frame-destroy call sites
   respectively."
   ([]
-   (timer/cancel-all-timers!))
+   (rf.machines.timer/cancel-all-timers!))
   ([frame-id]
-   (timer/cancel-all-timers! frame-id)))
+   (rf.machines.timer/cancel-all-timers! frame-id)))
 
 ;; ---- machine-internal effect handlers ------------------------------------
 ;;
@@ -324,23 +324,23 @@
 ;; `:rf.machine/destroyed`) nor the handler symbols on its production-
 ;; elision bundle.
 
-(fx/reg-fx :rf.machine/spawn
+(rf.fx/reg-fx :rf.machine/spawn
   {:doc "Spawn a machine instance. Per Spec 005 §Declarative :spawn (sugar over spawn). Args carry `:machine-id`, optional `:system-id`, and optional `:data`."}
   spawn-fx)
 
-(fx/reg-fx :rf.machine/destroy
+(rf.fx/reg-fx :rf.machine/destroy
   {:doc "Destroy a spawned machine instance and clear its `[:rf.runtime/machines :snapshots machine-id]` slot. Per Spec 005 §Declarative :spawn."}
   destroy-machine-fx)
 
-(fx/reg-fx :rf.machine/spawn-all-init
+(rf.fx/reg-fx :rf.machine/spawn-all-init
   {:doc "Machine-internal: fire `:initial-entry` cascades for every machine spawned at app boot. Per Spec 005 §Initial entry. Not for direct application use."}
   spawn-all-init-fx)
 
-(fx/reg-fx :rf.machine/after-schedule
+(rf.fx/reg-fx :rf.machine/after-schedule
   {:doc "Machine-internal: schedule an `:after` timer event for a machine state. Per Spec 005 §Timed transitions. Not for direct application use."}
   after-schedule-fx)
 
-(fx/reg-fx :rf.machine/after-cancel
+(rf.fx/reg-fx :rf.machine/after-cancel
   {:doc "Machine-internal: cancel a previously-scheduled `:after` timer. Per Spec 005 §Timed transitions. Not for direct application use."}
   after-cancel-fx)
 
@@ -350,30 +350,30 @@
 ;; both partitions before `run-fx-effects!` walks `:fx`, which is exactly
 ;; the ordering the re-arm needs: it reads the just-installed snapshots.
 ;; Deliberately NOT a state-entry replay — see `re-frame.machines.hydrate`.
-(fx/reg-fx :rf.machine/hydrate-rearm
+(rf.fx/reg-fx :rf.machine/hydrate-rearm
   {:doc "Machine-internal: reconstruct the host `:after` timer table for the frame's just-hydrated machine snapshots, at each snapshot's existing `:rf/after-epoch` and without replaying entry effects. Per Spec 011 §`:after` is no-op under SSR (\"`:after` timers begin running on the client\"). Not for direct application use."}
   (fn [{frame-id :frame} _args]
     (let [;; The cascade envelope frame is the fx-context `:frame`; a nil
           ;; stamp is an invariant failure (`:rf.error/no-frame-context`),
           ;; never a synthesised `:rf/default` — the timers would otherwise
           ;; be armed against a frame nobody hydrated.
-          frame-id (frame/require-frame-stamp!
+          frame-id (rf.frame/require-frame-stamp!
                      frame-id :rf.machine/hydrate-rearm
                      {:where 'rf.machine/hydrate-rearm})]
-      (machines-hydrate/rearm-after-timers! frame-id))
+      (rf.machines.hydrate/rearm-after-timers! frame-id))
     nil))
 
-(fx/reg-fx :rf.machine/update-snapshot
+(rf.fx/reg-fx :rf.machine/update-snapshot
   {:doc "Snapshot-level escape hatch. Emit `[:rf.machine/update-snapshot {:rf/machine-id <id> :rf/patch {:data {...}}}]` from a callback's `:fx` vector to touch `:state` / `:meta` / `:data` atomically. Per Spec 005 §Snapshot-level escape hatch."}
-  update-snapshot/update-snapshot-fx)
+  rf.machines.lifecycle-fx.update-snapshot/update-snapshot-fx)
 
-(fx/reg-fx :rf.machine/dispatch-to-system
+(rf.fx/reg-fx :rf.machine/dispatch-to-system
   {:doc "Dispatch an event to a spawned actor addressed by `:system-id`. Emit `[:rf.machine/dispatch-to-system [<system-id> <event-vector>]]` from a machine action's `:fx` vector. No-op when the system-id is unbound. The single named-addressing escape (advanced/parity tier); zero in-repo consumers, retained for XState v6 actor-system parity. Per Spec 005 §Cross-machine messaging by name."}
   dispatch-to-system-fx)
 
-(fx/reg-fx :rf.machine/join-dispatch
+(rf.fx/reg-fx :rf.machine/join-dispatch
   {:doc "Machine-internal (rf2-t154jx): the recordable transport for a `:spawn-all` child's completion carrier. The runtime rewrites a member child's own outbound `:dispatch` / `:dispatch-later` completion into this fx so the exact-attempt coordinate rides the recordable `:rf.cofx` `:rf.machine/join-attempt` fact (surviving strict replay + delayed dispatch), not event metadata. The coordinate is a recordable correlation record, not authentication; the fold gate accepts it only on exact-current equality (rf2-cpbjfp). Reserved / non-overridable / non-redirectable to protect the framework path from capture or suppression; direct app emission is UNSUPPORTED but not security-prohibited. Per Spec 005 §Spawn-and-join via :spawn-all."}
-  join/join-dispatch-fx)
+  rf.machines.lifecycle-fx.join/join-dispatch-fx)
 
 ;; ---- framework-shipped subs -----------------------------------------------
 ;;
@@ -384,17 +384,17 @@
 ;;
 ;; Registered at the façade (rather than in `re-frame.machines.lifecycle-
 ;; fx`) so the smoke-test fixture's `(require 're-frame.machines :reload)`
-;; re-installs the subs after `registrar/clear-all!`. `:reload` is
+;; re-installs the subs after `rf.registrar/clear-all!`. `:reload` is
 ;; shallow — a sub registered inside the sub-namespace wouldn't re-fire.
 
 ;; Machine snapshots are durable runtime-db state, so the framework machine
 ;; subs read the frame's RUNTIME-DB projection (`reg-runtime-sub`) — the
 ;; `db`-position arg is the runtime-db value (Spec 002 §Subscriptions read
 ;; the partition they belong to).
-(subs/reg-runtime-sub :rf/machine
+(rf.subs/reg-runtime-sub :rf/machine
   {:doc "Subscribe to a machine's current snapshot `{:state <kw> :data <map> :tags <set>}`. Returns nil for an unknown or not-yet-initialised machine. Per Spec 005 §Subscribing to machines via the :rf/machine sub."}
   (fn [runtime-db [_ machine-id]]
-    (get-in runtime-db (paths/snapshot-path machine-id))))
+    (get-in runtime-db (rf.machines.paths/snapshot-path machine-id))))
 
 ;; Per Spec 005 §State tags: the `:rf.machine/has-tag?` framework sub
 ;; returns `true` iff the named machine's current snapshot's `:tags` set
@@ -404,10 +404,10 @@
 ;; Derived sub — reads the snapshot via `get-in` rather than chaining
 ;; off `:rf/machine` — so a view that only cares about whether a specific
 ;; tag is present re-renders only when the containment-bit flips.
-(subs/reg-runtime-sub :rf.machine/has-tag?
+(rf.subs/reg-runtime-sub :rf.machine/has-tag?
   {:doc "Subscribe to a machine's `:tags` containment-bit for `tag`. Returns `true` iff the named machine's snapshot's `:tags` set contains `tag`, `false` otherwise (including unknown / not-yet-initialised machines). Per Spec 005 §State tags."}
   (fn [runtime-db [_ machine-id tag]]
-    (contains? (get-in runtime-db (paths/snapshot-path machine-id :tags)) tag)))
+    (contains? (get-in runtime-db (rf.machines.paths/snapshot-path machine-id :tags)) tag)))
 
 ;; ---- framework-standard registration -------------------------------------
 ;;
@@ -416,17 +416,17 @@
 ;; discover them; the framework-standard union is their generation path.
 ;; Standards are non-replaceable and use the same descriptors as the regular
 ;; registrar. Capture those descriptors at namespace load so reset can restore
-;; both registries after `registrar/clear-all!`.
+;; both registries after `rf.registrar/clear-all!`.
 
 (def ^:private machine-runtime-descriptors
   "Captured at ns-load: the `[kind id descriptor]` triples for every machine
   runtime effect + sub registered above. `descriptor` is the full registration
   metadata map (carrying `:handler-fn`) read off the registrar right after the
   `reg-fx` / `reg-runtime-sub` form ran. `install-machine-runtime!` re-registers
-  from these so the machine runtime survives a `registrar/clear-all!`."
+  from these so the machine runtime survives a `rf.registrar/clear-all!`."
   (vec
     (keep (fn [[kind id]]
-            (when-let [desc (registrar/lookup kind id)]
+            (when-let [desc (rf.registrar/lookup kind id)]
               [kind id desc]))
           [[:fx  :rf.machine/spawn]
            [:fx  :rf.machine/destroy]
@@ -450,8 +450,8 @@
   registrar has been cleared."
   []
   (doseq [[kind id desc] machine-runtime-descriptors]
-    (registrar/register! kind id desc)
-    (image-assembly/register-standard! kind id desc))
+    (rf.registrar/register! kind id desc)
+    (rf.image-assembly/register-standard! kind id desc))
   nil)
 
 ;; Register at namespace load so an image-loaded frame created by a standalone
@@ -461,11 +461,11 @@
 
 ;; Publish a late-bind hook so `re-frame.test-support`'s reset fixture can
 ;; re-install the machine runtime (registrar + standards) after a sibling ns's
-;; `registrar/clear-all!` / `image-assembly/clear-standards!` wipes them — the
+;; `rf.registrar/clear-all!` / `rf.image-assembly/clear-standards!` wipes them — the
 ;; SAME re-seed-on-reset contract `:rf/set-db` carries. test_support ships in
 ;; core and must not static-require machines (separate Maven coordinate), so the
 ;; re-install is reached through this hook (a no-op when machines is not loaded).
-(late-bind/set-fn! :machines/install-runtime! install-machine-runtime!)
+(rf.late-bind/set-fn! :machines/install-runtime! install-machine-runtime!)
 
 ;; ---- spawned-actor ownership ----------------------------------------------
 ;;
@@ -485,9 +485,9 @@
   artefact or duplicate its runtime-db shape. The lookup is a direct snapshot
   path read; it does not scan the actor table."
   [frame-id event-id]
-  (let [rt (frame/frame-runtime-db-value frame-id)]
+  (let [rt (rf.frame/frame-runtime-db-value frame-id)]
     (when (map? rt)
-      (let [snapshot (get-in rt (paths/snapshot-path event-id))]
+      (let [snapshot (get-in rt (rf.machines.paths/snapshot-path event-id))]
         (when (some? (:rf/machine-type snapshot))
           event-id)))))
 
@@ -509,20 +509,20 @@
 ;; import-time-only (CLJS macroexpansion runs before ns-load); the
 ;; runtime always reaches through this hook to the plain-fn surface.
 
-(late-bind/set-fn! :machines/reg-machine            reg-machine*)
-(late-bind/set-fn! :machines/make-machine-handler make-machine-handler)
-(late-bind/set-fn! :machines/machine-transition     machine-transition)
-(late-bind/set-fn! :machines/machines               machines)
-(late-bind/set-fn! :machines/machine-meta           machine-meta)
-(late-bind/set-fn! :machines/machine-by-system-id   machine-by-system-id)
-(late-bind/set-fn! :machines/reset-timers!          reset-timers!)
-;; Per-frame timer-table cleanup wired into `frame/destroy-frame!`.
+(rf.late-bind/set-fn! :machines/reg-machine            reg-machine*)
+(rf.late-bind/set-fn! :machines/make-machine-handler make-machine-handler)
+(rf.late-bind/set-fn! :machines/machine-transition     machine-transition)
+(rf.late-bind/set-fn! :machines/machines               machines)
+(rf.late-bind/set-fn! :machines/machine-meta           machine-meta)
+(rf.late-bind/set-fn! :machines/machine-by-system-id   machine-by-system-id)
+(rf.late-bind/set-fn! :machines/reset-timers!          reset-timers!)
+;; Per-frame timer-table cleanup wired into `rf.frame/destroy-frame!`.
 ;; The timer table is partitioned `{<frame-id> {…}}`; without this
 ;; hook a destroyed frame's inner table would linger as dead
 ;; bookkeeping and in-flight host-clock handles would survive teardown.
 ;; Late-bound so core never statically requires the machines artefact.
-(late-bind/set-fn! :machines/on-frame-destroyed!
-                   (fn [frame-id] (timer/cancel-all-timers! frame-id)))
+(rf.late-bind/set-fn! :machines/on-frame-destroyed!
+                   (fn [frame-id] (rf.machines.timer/cancel-all-timers! frame-id)))
 ;; Epoch-restore host-transient quiesce. The epoch restore boundary
 ;; (`perform-restore!`) installs the captured durable frame-state WHOLESALE,
 ;; but the in-flight `:after` host-clock timers the unwound epochs armed are
@@ -533,8 +533,8 @@
 ;; carries no leaked timers from the discarded epochs (Managed-Effects §restore:
 ;; "epoch restore MUST NOT revive host work"). Late-bound so core / epoch never
 ;; statically require the machines artefact.
-(late-bind/set-fn! :machines/on-frame-restored!
-                   (fn [frame-id] (timer/cancel-frame-timers-on-restore! frame-id)))
+(rf.late-bind/set-fn! :machines/on-frame-restored!
+                   (fn [frame-id] (rf.machines.timer/cancel-frame-timers-on-restore! frame-id)))
 ;; SSR hydration re-arm hook. `re-frame.ssr.hydrate/hydrate-event-handler*`
 ;; consults it purely as a PRESENCE gate — an SSR app without the machines
 ;; artefact finds it unbound and emits no re-arm fx — and the
@@ -546,22 +546,22 @@
 ;; and must keep cancelling (Managed-Effects: "epoch restore MUST NOT revive
 ;; host work"); hydration arms timers that were never armed at all.
 ;; Late-bound so SSR never statically requires the machines artefact.
-(late-bind/set-fn! :machines/rearm-after-hydration!
-                   machines-hydrate/rearm-after-timers!)
-;; Frame-destroy machine-cascade hook. `frame/destroy-frame!` calls this
+(rf.late-bind/set-fn! :machines/rearm-after-hydration!
+                   rf.machines.hydrate/rearm-after-timers!)
+;; Frame-destroy machine-cascade hook. `rf.frame/destroy-frame!` calls this
 ;; hook BEFORE the sub-cache / adapter teardown so each active machine's
 ;; `:exit` cascade runs against a live container in reverse-creation order
 ;; per Spec 005 §Cross-Spec Interactions §1.
-(late-bind/set-fn! :machines/teardown-on-frame-destroy!
-                   frame-destroy/teardown-on-frame-destroy!)
+(rf.late-bind/set-fn! :machines/teardown-on-frame-destroy!
+                   rf.machines.lifecycle-fx.frame-destroy/teardown-on-frame-destroy!)
 ;; Test-isolation hook fired by
 ;; `re-frame.test-support/make-reset-runtime-fixture`. Drops the per-frame
 ;; spawn-order vectors so a stale entry from a sibling test cannot
 ;; contaminate a frame-destroy walk in the next test.
-(late-bind/set-fn! :machines/reset-spawn-order!
-                   spawn-order/reset-all!)
-(late-bind/set-fn! :machines/spawn-fx               spawn-fx)
-(late-bind/set-fn! :machines/destroy-machine-fx     destroy-machine-fx)
+(rf.late-bind/set-fn! :machines/reset-spawn-order!
+                   rf.machines.spawn-order/reset-all!)
+(rf.late-bind/set-fn! :machines/spawn-fx               spawn-fx)
+(rf.late-bind/set-fn! :machines/destroy-machine-fx     destroy-machine-fx)
 ;; The lazy actor-handler resolver. Core's dispatch consults this hook on
 ;; `:rf.error/no-such-handler` BEFORE erroring:
 ;; given an unresolved event-id (a spawned actor-id with no per-instance
@@ -573,9 +573,9 @@
 ;; `:machines/actor-resolvable?` lets the epoch restore precondition
 ;; treat a spawned-actor snapshot whose TYPE still resolves as a VALID
 ;; restore target (not a `:rf.epoch/restore-missing-handler`).
-(late-bind/set-fn! :machines/resolve-actor-handler-meta
-                   registration/resolve-actor-handler-meta)
-(late-bind/set-fn! :machines/actor-resolvable?      resolver/resolvable?)
+(rf.late-bind/set-fn! :machines/resolve-actor-handler-meta
+                   rf.machines.lifecycle-fx.registration/resolve-actor-handler-meta)
+(rf.late-bind/set-fn! :machines/actor-resolvable?      rf.machines.lifecycle-fx.resolver/resolvable?)
 ;; The epoch restore version-drift precondition resolves a SPAWNED actor's
 ;; CURRENT definition the same way dispatch does: from the
 ;; snapshot's `:rf/machine-type` (a registered TYPE keyword resolved through
@@ -585,12 +585,12 @@
 ;; forward surfaces `:rf.epoch/restore-version-mismatch` instead of silently
 ;; accepting an incompatible older snapshot (the snapshot key is an instance id,
 ;; not a registered handler, so the singleton registrar probe never matched it).
-(late-bind/set-fn! :machines/spec-from-snapshot     resolver/spec-from-snapshot)
+(rf.late-bind/set-fn! :machines/spec-from-snapshot     rf.machines.lifecycle-fx.resolver/spec-from-snapshot)
 ;; The post-commit walker the router AND-conjoins with
 ;; `validate-app-schema!` to gate the `:db` commit on the
 ;; `:where :machine-data` boundary (Spec 005 §Schema validation, Spec
 ;; 010 §Per-step recovery row 7).
-(late-bind/set-fn! :machines/validate-machine-data! validate-machine-data!)
+(rf.late-bind/set-fn! :machines/validate-machine-data! validate-machine-data!)
 ;; The SSR hydration projector for durable machine snapshots.
 ;; `re-frame.ssr.payload-policy/project-runtime-db` consults this hook to project
 ;; the `:rf.runtime/machines` slice so each snapshot's `:data` is redacted /
@@ -599,8 +599,8 @@
 ;; keeping classified machine data out of the hydration payload. Machine
 ;; declarations are lowered per actor under `:source :machine`.
 ;; Late-bound so SSR never statically requires the machines artefact.
-(late-bind/set-fn! :machines/project-ssr-runtime-db
-                   machines-ssr/project-ssr-runtime-db)
+(rf.late-bind/set-fn! :machines/project-ssr-runtime-db
+                   rf.machines.ssr/project-ssr-runtime-db)
 ;; Spawned-actor ownership resolver. The http artefact consults this to
 ;; classify whether a managed request's originating event-id belongs to a
 ;; spawned actor (so an actor-destroy cascade can abort it). Machines OWNS
@@ -609,11 +609,11 @@
 ;; state machines pay nothing). See the `owning-actor-id` docstring for the
 ;; set semantics (snapshot `:rf/machine-type` membership — declarative AND
 ;; imperative spawns).
-(late-bind/set-fn! :machines/owning-actor-id        owning-actor-id)
-(late-bind/set-fn! :machines/spawn-all-init-fx      spawn-all-init-fx)
-(late-bind/set-fn! :machines/after-schedule-fx      after-schedule-fx)
-(late-bind/set-fn! :machines/after-cancel-fx        after-cancel-fx)
-(late-bind/set-fn! :machines/update-snapshot-fx     update-snapshot/update-snapshot-fx)
+(rf.late-bind/set-fn! :machines/owning-actor-id        owning-actor-id)
+(rf.late-bind/set-fn! :machines/spawn-all-init-fx      spawn-all-init-fx)
+(rf.late-bind/set-fn! :machines/after-schedule-fx      after-schedule-fx)
+(rf.late-bind/set-fn! :machines/after-cancel-fx        after-cancel-fx)
+(rf.late-bind/set-fn! :machines/update-snapshot-fx     rf.machines.lifecycle-fx.update-snapshot/update-snapshot-fx)
 
 ;; Load-order resilience for the `:rf.http/managed` machine-shape wrapper.
 ;; The wrapper is registered by re-frame.http.managed via the
@@ -624,5 +624,5 @@
 ;; re-invoking the http artefact's `:http/register-managed-machine!` hook
 ;; from here — if http-managed is on the classpath the hook is set and the
 ;; wrapper registers now; if it isn't, the hook is nil and this is a no-op.
-(when-let [reg-fn (late-bind/get-fn :http/register-managed-machine!)]
+(when-let [reg-fn (rf.late-bind/get-fn :http/register-managed-machine!)]
   (reg-fn))

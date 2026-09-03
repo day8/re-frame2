@@ -20,18 +20,18 @@
   the two layers drifting if the grammar evolves.
 
   Both the registration walk (via `rf/reg-machine`) and the runtime
-  resolution (via the pure `machines/machine-transition`) run on the JVM
+  resolution (via the pure `rf.machines/machine-transition`) run on the JVM
   through the plain-atom substrate."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.machines :as machines]
-            [re-frame.machines.grammar :as grammar]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.machines.transition :as transition]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.machines :as rf.machines]
+            [re-frame.machines.grammar :as rf.machines.grammar]
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.machines.transition :as rf.machines.transition]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- registration-error-id
   "Register `machine` and return the thrown `:rf.error/id` discriminator,
@@ -48,37 +48,37 @@
 
 (deftest transition-value-form-closed-set
   (testing "every transition-value form classifies into the closed set"
-    (is (= :nil              (grammar/transition-value-form nil)))
-    (is (= :keyword          (grammar/transition-value-form :authenticated)))
-    (is (= :vec-target       (grammar/transition-value-form [:a :b])))
-    (is (= :vec-target       (grammar/transition-value-form [])))
-    (is (= :candidate-vector (grammar/transition-value-form [{:target :a}
+    (is (= :nil              (rf.machines.grammar/transition-value-form nil)))
+    (is (= :keyword          (rf.machines.grammar/transition-value-form :authenticated)))
+    (is (= :vec-target       (rf.machines.grammar/transition-value-form [:a :b])))
+    (is (= :vec-target       (rf.machines.grammar/transition-value-form [])))
+    (is (= :candidate-vector (rf.machines.grammar/transition-value-form [{:target :a}
                                                              {:target :b}])))
-    (is (= :map              (grammar/transition-value-form {:target :a})))
-    (is (= :other            (grammar/transition-value-form 42)))
-    (is (= :other            (grammar/transition-value-form "soon")))))
+    (is (= :map              (rf.machines.grammar/transition-value-form {:target :a})))
+    (is (= :other            (rf.machines.grammar/transition-value-form 42)))
+    (is (= :other            (rf.machines.grammar/transition-value-form "soon")))))
 
 (deftest candidate-targets-present-marker
   (testing "candidate-targets tags each declared :target with :present?"
-    (is (= [] (grammar/candidate-targets nil))
+    (is (= [] (rf.machines.grammar/candidate-targets nil))
         "nil value (forbidden-transition / internal) declares no target")
     (is (= [{:present? true :target :authed}]
-           (grammar/candidate-targets :authed)))
+           (rf.machines.grammar/candidate-targets :authed)))
     (is (= [{:present? true :target [:a :b]}]
-           (grammar/candidate-targets [:a :b])))
+           (rf.machines.grammar/candidate-targets [:a :b])))
     (is (= [{:present? true :target :x} {:present? false :target nil}]
-           (grammar/candidate-targets [{:target :x} {:action :a}]))
+           (rf.machines.grammar/candidate-targets [{:target :x} {:action :a}]))
         "a vector-of-maps tags each candidate; an action-only map is :target-absent")
     (is (= [{:present? false :target nil}]
-           (grammar/candidate-targets {:action :a}))
+           (rf.machines.grammar/candidate-targets {:action :a}))
         "a single action-only map is an internal transition (:target absent)")))
 
 (deftest node-at-shared-descent
   (testing "node-at resolves an absolute path through a :states scope"
     (let [states {:a {:states {:b {:states {:c {}}}}}}]
-      (is (= {} (grammar/node-at states [:a :b :c])))
-      (is (nil? (grammar/node-at states [:a :missing])))
-      (is (nil? (grammar/node-at states []))
+      (is (= {} (rf.machines.grammar/node-at states [:a :b :c])))
+      (is (nil? (rf.machines.grammar/node-at states [:a :missing])))
+      (is (nil? (rf.machines.grammar/node-at states []))
           "an empty path resolves to nil (the scope root is not a node)"))))
 
 ;; ---- keyword sibling targets ---------------------------------------------
@@ -90,7 +90,7 @@
                        :running {}}}]
       (is (nil? (registration-error-id :kw/ok m))
           "registration accepts the sibling keyword target")
-      (let [{snap :snapshot} (machines/machine-transition
+      (let [{snap :snapshot} (rf.machines/machine-transition
                                    m {:state :idle :data {}} [:go])]
         (is (= :running (:state snap))
             "runtime resolves the SAME keyword to the sibling state"))))
@@ -113,7 +113,7 @@
                                :states  {:leaf {}}}}}]
       (is (nil? (registration-error-id :vec/ok m))
           "registration accepts the absolute vector path")
-      (let [{snap :snapshot} (machines/machine-transition
+      (let [{snap :snapshot} (rf.machines/machine-transition
                                    m {:state [:outer :inner] :data {}} [:deep])]
         (is (= [:other :leaf] (:state snap))
             "runtime resolves the SAME vector to the absolute leaf"))))
@@ -139,7 +139,7 @@
                                 :on    {:ping {:target :same-state}}}}}]
       (is (nil? (registration-error-id :same/ok m))
           "registration accepts the :same-state sentinel")
-      (let [{snap :snapshot} (machines/machine-transition
+      (let [{snap :snapshot} (rf.machines/machine-transition
                                    m {:state :active :data {}} [:ping])]
         (is (= :active (:state snap))
             "runtime keeps the configuration (external self-transition)")))))
@@ -161,15 +161,15 @@
       ;; recorded leaf (:b), proving the SAME pseudo-state both layers
       ;; agree is targetable resolves to a real configuration.
       (let [s0 {:state [:region :a] :data {}}
-            {s1 :snapshot} (machines/machine-transition m s0 [:next])]
+            {s1 :snapshot} (rf.machines/machine-transition m s0 [:next])]
         (is (= [:region :b] (:state s1)) "advanced to :region :b"))))
 
   (testing "the shared history-node? predicate recognises the pseudo-state node"
     (let [states {:region {:states {:hist {:type :history}
                                     :a    {}}}}]
-      (is (grammar/history-node? (grammar/node-at states [:region :hist]))
+      (is (rf.machines.grammar/history-node? (rf.machines.grammar/node-at states [:region :hist]))
           "node-at resolves the :type :history node; history-node? flags it")
-      (is (not (grammar/history-node? (grammar/node-at states [:region :a])))
+      (is (not (rf.machines.grammar/history-node? (rf.machines.grammar/node-at states [:region :a])))
           "a real state node is not a history pseudo-state"))))
 
 (deftest history-node-not-occupiable
@@ -183,9 +183,9 @@
       ;; uses to decide reset) returns false, using the SAME grammar
       ;; history-node? the registration validator uses to accept it as a
       ;; target.
-      (is (false? (transition/state-occupiable? m [:region :hist]))
+      (is (false? (rf.machines.transition/state-occupiable? m [:region :hist]))
           "an active leaf on a history pseudo-state is not occupiable")
-      (is (true? (transition/state-occupiable? m [:region :a]))
+      (is (true? (rf.machines.transition/state-occupiable? m [:region :a]))
           "a real leaf is occupiable"))))
 
 ;; ---- malformed target shapes ---------------------------------------------

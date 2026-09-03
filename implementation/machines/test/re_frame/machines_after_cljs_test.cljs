@@ -22,18 +22,18 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             ;; listener / buffer surface lives in re-frame.trace.tooling.
-            [re-frame.trace.tooling :as trace-tooling]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.machines.test-support :as mtest]))
+            [re-frame.trace.tooling :as rf.trace.tooling]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.machines.test-support :as rf.machines.test-support]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter}))
 
 ;; snapshot lookup via the shared machines test-support
 ;; — no hardcoded `[:rf.runtime/machines :snapshots …]` path. Inline trace
 ;; captures below keep their raw trace.tooling register/unregister.
-(def ^:private snapshot mtest/snapshot)
+(def ^:private snapshot rf.machines.test-support/snapshot)
 
 (deftest machine-after-cljs
   (testing ":after schedules with current epoch on entry; fires on synthetic timer event"
@@ -48,7 +48,7 @@
             :ready   {}}}
           traces (atom [])]
       (rf/reg-machine :http/flow machine)
-      (trace-tooling/register-listener! ::after (fn [ev] (swap! traces conj ev)))
+      (rf.trace.tooling/register-listener! ::after (fn [ev] (swap! traces conj ev)))
       ;; Step 1 — enter :loading; timer schedules at epoch 1.
       (rf/dispatch-sync [:http/flow [:fetch]])
       (let [s (snapshot :http/flow)]
@@ -77,7 +77,7 @@
                        (= 1    (:epoch  (:tags ev)))))
                 @traces)
           "expected :rf.machine.timer/fired trace with matching epoch")
-      (trace-tooling/unregister-listener! ::after)))
+      (rf.trace.tooling/unregister-listener! ::after)))
 
   (testing ":after stale detection — real event beats timer; stale firing must not transition"
     (let [machine
@@ -106,9 +106,9 @@
       ;; (b) the runtime emits :rf.machine.timer/stale-after as the
       ;; canonical signal so observers can distinguish "suppressed stale
       ;; firing" from "no firing at all".
-      (trace-tooling/register-listener! ::stale (fn [ev] (swap! traces conj ev)))
+      (rf.trace.tooling/register-listener! ::stale (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:http2/flow [:rf.machine.timer/after-elapsed 5000 1 [:loading]]])
-      (trace-tooling/unregister-listener! ::stale)
+      (rf.trace.tooling/unregister-listener! ::stale)
       (is (= :ready (:state (snapshot :http2/flow)))
           "stale timer must not fire its transition")
       (is (= 2 (get-in (snapshot :http2/flow) [:data :rf/after-epoch [:loading]]))
@@ -151,7 +151,7 @@
               :ready   {}}}
           traces (atom [])]
       (rf/reg-machine :a/multi-cljs m)
-      (trace-tooling/register-listener! ::mg (fn [ev] (swap! traces conj ev)))
+      (rf.trace.tooling/register-listener! ::mg (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:a/multi-cljs [:fetch]])
       (let [epoch (get-in (snapshot :a/multi-cljs) [:data :rf/after-epoch [:loading]])]
         ;; The 5s timer fires first; guard :slow? false → suppressed.
@@ -167,7 +167,7 @@
         (rf/dispatch-sync [:a/multi-cljs [:rf.machine.timer/after-elapsed 30000 epoch [:loading]]])
         (is (= :timeout (:state (snapshot :a/multi-cljs)))
             "sibling timer transitions on its own")
-        (trace-tooling/unregister-listener! ::mg)))))
+        (rf.trace.tooling/unregister-listener! ::mg)))))
 
 ;; ---- guarded candidate-vector :after -------------------------------------
 ;;
@@ -242,7 +242,7 @@
               :ready   {}}}
           traces (atom [])]
       (rf/reg-machine :a/sub-cljs m)
-      (trace-tooling/register-listener! ::sub (fn [ev] (swap! traces conj ev)))
+      (rf.trace.tooling/register-listener! ::sub (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:a/sub-cljs [:fetch]])
       (is (= :loading (:state (snapshot :a/sub-cljs))))
       (is (some (fn [ev]
@@ -252,4 +252,4 @@
                        (= [:a/timeout-config] (:rf.sub/query-v (:tags ev)))))
                 @traces)
           ":scheduled trace emitted with :delay-source :sub + canonical :rf.sub/id + :rf.sub/query-v (rf2-1b6uh5)")
-      (trace-tooling/unregister-listener! ::sub))))
+      (rf.trace.tooling/unregister-listener! ::sub))))
