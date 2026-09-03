@@ -89,6 +89,32 @@
   TOP of the artefact — because the reader who is going to be misled is
   the one who reads the first summary and stops.
 
+  ## The confident zero came back through the widening itself
+
+  And it came back *because* of it. Recognition is decided per FILE, off
+  the `ns` form; the entries are found per NAME, off the roster. Widening
+  the namespace list without widening the roster moves those two apart,
+  and the gap between them is exactly a confident zero: the file is
+  RECOGNISED, no rostered name matches, so it is counted `:files-clean`
+  and `:recognition` reads `:full`. PR #9132 widened the first and not the
+  second, and a file whose single call was
+  `reagent2.dom.server/render-to-static-markup` — that namespace's ONLY
+  public function — reported `files-recognised 1, files-clean 1, entries
+  0, :recognition :full` under the sentence *A zero below is a
+  measurement*. The unrecognised file was always honest; it was the newly
+  recognised one that lied.
+
+  Three things answer it, and they are different in kind. The roster was
+  reconciled against every recognised namespace's supported public calls;
+  the coupling between the two lists is now a stated law with a test
+  ratchet on
+  [[re-frame.migration.hicasso.rewrite/reagent-namespaces]], so a
+  namespace cannot join the recognition set without a call the census can
+  find in it; and the `:full` wording was weakened to the claim it can
+  actually support — *this census had a population*, which is about the
+  files, rather than *a zero is a measurement*, which is about the roster
+  and was never true of it (rf2-xoal, merged-PR audit of #9132).
+
   ## The law this file exists to obey
 
   **What cannot be resolved is REPORTED, never skipped.** [[ns-context]]
@@ -147,7 +173,45 @@
   those all sit at a crossing. Outside a crossing, Reagent's API asks for a
   state-ownership or lifecycle decision that no source reader can make.
   [[summarise]] therefore emits `:mechanical 0` explicitly rather than
-  leaving the key absent, so an empty bucket reads as a measurement."
+  leaving the key absent, so an empty bucket reads as a measurement.
+
+  ## The roster covers every namespace the tool RECOGNISES, and that is a law
+
+  A row here is looked up by NAME, while
+  [[re-frame.migration.hicasso.rewrite/reagent-namespaces]] decides
+  per-FILE whether the file reaches for Reagent at all. The two must be
+  widened together or the tool starts recognising files it cannot count —
+  see the coupling law on that Var, which is where the reasoning lives.
+  In short: a recognised file with no rostered call in it is scored
+  `:files-clean`, and `:recognition :full` then presents its zero as a
+  measurement. `render-to-static-markup` is the row whose absence proved
+  it (rf2-xoal).
+
+  ## What was deliberately left off
+
+  The ask was every SUPPORTED, MIGRATION-RELEVANT public call, not every
+  Var in a vendored fork, so four kinds of public name are absent on
+  purpose:
+
+  * **Implementation namespaces.** `reagent2.impl.template`,
+    `reagent2.impl.batching`, `reagent2.impl.component` and
+    `reagent2.impl.diag` publish plenty and are not on the recognition
+    roster at all, so a call through one is an UNRECOGNISED file and the
+    caveat says so out loud — the honest answer for a surface nobody is
+    told to call.
+  * **Protocols and types as values.** `IReactiveAtom`, `IDisposable`,
+    `RAtom`, `Reaction` and the `->RAtom` factory are not names a migrator
+    writes in call position; the protocol's own METHODS (`dispose!`,
+    `add-on-dispose!`) are, and they are rostered.
+  * **Dynamic Vars and hooks.** `reagent2.ratom/rea-schedule` is a hook
+    the render scheduler installs, not consumer surface, and it is not
+    called.
+  * **Names no shipped namespace defines.** Nothing here is invented to
+    look thorough: every row is a public Var of a namespace on the
+    recognition roster (`run!`, `cursor`, `track` and `with-let` are stock
+    Reagent's; slim deliberately ships none of them, and one roster
+    covering both families is a superset by design rather than by
+    accident)."
   '{atom                      {:class :local-reactive-cell     :verdict :runtime-blocker}
     cursor                    {:class :derived-cell            :verdict :runtime-blocker}
     track                     {:class :derived-cell            :verdict :runtime-blocker}
@@ -155,6 +219,11 @@
     reaction                  {:class :derived-cell            :verdict :runtime-blocker}
     make-reaction             {:class :derived-cell            :verdict :runtime-blocker}
     run!                      {:class :derived-cell            :verdict :runtime-blocker}
+    activate!                 {:class :reactive-graph-control  :verdict :runtime-blocker}
+    flush!                    {:class :reactive-graph-control  :verdict :runtime-blocker}
+    reactive?                 {:class :reactive-graph-control  :verdict :runtime-blocker}
+    dispose!                  {:class :cell-disposal           :verdict :human-decision}
+    add-on-dispose!           {:class :cell-disposal           :verdict :human-decision}
     with-let                  {:class :with-let                :verdict :human-decision}
     create-class              {:class :lifecycle-class         :verdict :runtime-blocker}
     as-element                {:class :as-element              :verdict :runtime-blocker}
@@ -175,12 +244,17 @@
     force-update              {:class :render-control          :verdict :human-decision}
     force-update-all          {:class :render-control          :verdict :human-decision}
     flush                     {:class :render-control          :verdict :human-decision}
+    flush-render!             {:class :render-control          :verdict :human-decision}
     next-tick                 {:class :render-control          :verdict :human-decision}
     after-render              {:class :render-control          :verdict :human-decision}
+    flush-views!              {:class :substrate-test-seam     :verdict :human-decision}
     render                    {:class :root-mount              :verdict :human-decision}
+    unmount                   {:class :root-mount              :verdict :human-decision}
     unmount-component-at-node {:class :root-mount              :verdict :human-decision}
     create-root               {:class :root-mount              :verdict :human-decision}
-    hydrate-root              {:class :root-mount              :verdict :human-decision}})
+    hydrate-root              {:class :root-mount              :verdict :human-decision}
+    render-to-string          {:class :static-markup           :verdict :human-decision}
+    render-to-static-markup   {:class :static-markup           :verdict :human-decision}})
 
 (def substrate-surface
   "re-frame2's OWN substrate-adapter API — the SECOND roster, and the one
@@ -218,28 +292,73 @@
     `ns` form names the adapter, so nothing rides on catching it.
   * `frame-provider` / `frame-root` — hiccup HEADS rather than calls, and
     frame plumbing that survives the migration rather than migration work.
-  * `re-frame.adapter.test-react`'s `mount!` / `trigger-update!` — the
-    prefix rule binds that namespace, but the roster is the documented
-    consumer surface and the test adapter has no `docs/api/` page.
+  * The test adapter's INTROSPECTION tail — `lifecycle-log`,
+    `current-render-tree`, `mounted-components`, `mounted-children`,
+    `rendering?`. A test that calls one of them calls `mount!` first, so
+    the file is counted either way and rostering the tail would only
+    inflate the number a migrator has to read.
+
+  `re-frame.adapter.test-react`'s `mount!` and `trigger-update!` used to
+  be on that list, refused on the grounds that the test adapter has no
+  `docs/api/` page. **That was the same defect as rf2-xoal's, at a second
+  address**: the prefix rule RECOGNISES the namespace, so a test file
+  reaching for it and calling nothing else on the roster was
+  `:files-clean 1, entries 0, :recognition :full` — a confident zero. Two
+  rows close it, and they earn their place on the migration ask as well:
+  a headless test that mounts a tree and drives an update is exactly the
+  code a Hicasso migration has to re-point.
 
   Nothing here is `:mechanical` either, for the same reason nothing in
   [[surface]] is: no rewrite in this tool family reaches any of it.
 
-  **The two rosters must not share a NAME.** [[scan]] tries Reagent first,
-  so an overlap would silently classify a substrate call under a Reagent
-  class and a Reagent recovery sentence — a wrong answer wearing the right
-  shape, which is the one failure this file's whole design is against.
-  `census_test` asserts the intersection is empty rather than leaving it to
-  whoever adds the next row."
-  '{client-root         {:class :root-mount            :verdict :human-decision}
-    render!             {:class :root-mount            :verdict :human-decision}
-    unmount!            {:class :root-mount            :verdict :human-decision}
-    use-subscribe       {:class :substrate-read-hook   :verdict :human-decision}
-    use-frame           {:class :substrate-read-hook   :verdict :human-decision}
-    use-current-frame   {:class :substrate-read-hook   :verdict :human-decision}
-    wrap-view           {:class :substrate-view-seam   :verdict :human-decision}
-    set-hiccup-emitter! {:class :substrate-view-seam   :verdict :human-decision}
-    flush-views!        {:class :substrate-test-seam   :verdict :human-decision}})
+  ## The rosters MAY share a name, and one of them does
+
+  This file used to assert the two rosters were disjoint, on the reasoning
+  that [[scan]] tries Reagent first so an overlap would classify a
+  substrate call under a Reagent class. **That reasoning does not survive
+  reading [[re-frame.migration.hicasso.rewrite/bound-call?]]**, and the
+  assertion was retired when `reagent2.dom.client/flush-views!` had to be
+  rostered on the Reagent side too (rf2-xoal): the two arms are not
+  decided by name order, they are decided by two SEPARATE `ns` contexts,
+  and each arm fires only when this file's `ns` form binds that arm's
+  alias. `(rdc/flush-views!)` under `[reagent2.dom.client :as rdc]` fails
+  the substrate context's `bound-call?` and `(ad/flush-views!)` under
+  `[re-frame.adapter.uix :as ad]` fails the Reagent one, so the shared
+  name resolves correctly in both directions. The only construction that
+  could reach the wrong arm — the same bare symbol `:refer`red from both
+  families in one file — is a duplicate-refer conflict ClojureScript
+  refuses to compile.
+
+  The shared row is also the SAME SEAM at two addresses:
+  `re-frame.adapter.reagent-slim/flush-views!` is published from the
+  adapter's spine and `reagent2.dom.client/flush-views!` is the
+  promise-returning primitive beside it, so both carry
+  `:substrate-test-seam` and one recovery sentence answers for both.
+  `census_test/a-shared-roster-name-resolves-by-require` pins the
+  disambiguation, which is the property that actually matters, in place of
+  the emptiness assertion that pinned a proxy for it.
+
+  ## The residual, and why the `:full` wording had to weaken
+
+  `reagent-namespaces` is exact membership, so it can carry a ratchet
+  guaranteeing every recognised namespace has a rostered call. **This
+  roster cannot, and deliberately so**: it binds by an open PREFIX, which
+  is what stops the next adapter along reproducing the original silent
+  zero — but it also means an adapter this roster has no rows for is
+  recognised the day it ships. That residual is real, no list closes it,
+  and it is precisely what [[caveat]]'s `:full` sentence now admits to
+  instead of calling its zero a measurement."
+  '{client-root         {:class :root-mount               :verdict :human-decision}
+    render!             {:class :root-mount               :verdict :human-decision}
+    unmount!            {:class :root-mount               :verdict :human-decision}
+    use-subscribe       {:class :substrate-read-hook      :verdict :human-decision}
+    use-frame           {:class :substrate-read-hook      :verdict :human-decision}
+    use-current-frame   {:class :substrate-read-hook      :verdict :human-decision}
+    wrap-view           {:class :substrate-view-seam      :verdict :human-decision}
+    set-hiccup-emitter! {:class :substrate-view-seam      :verdict :human-decision}
+    flush-views!        {:class :substrate-test-seam      :verdict :human-decision}
+    mount!              {:class :substrate-test-harness   :verdict :human-decision}
+    trigger-update!     {:class :substrate-test-harness   :verdict :human-decision}})
 
 (def ^:private notes
   "One recovery sentence per class, in the migrator's vocabulary. The
@@ -308,9 +427,35 @@
         "exposes no equivalent lever; a migration that needed one is usually a migration with a "
         "read still living outside the frame.")
 
+   :reactive-graph-control
+   (str "This drives Reagent's reactive GRAPH directly — draining the pending-reaction queue "
+        "(`flush!`), forcing a Reaction onto the push path (`activate!`), or asking whether the "
+        "current stack is a reactive context (`reactive?`). re-frame2 owns that graph and settles "
+        "it on its own clock, and exposes no consumer-facing lever over it, so this does not port "
+        "as a respelling. Code that branched on `reactive?` has to be re-shaped rather than "
+        "translated: the question it was asking does not exist once every read is a subscription "
+        "at the point of use.")
+
+   :cell-disposal
+   (str "Teardown for a Reagent cell — `dispose!`, or a callback registered with "
+        "`add-on-dispose!`. re-frame2 disposes a subscription when its last reader goes away, "
+        "through the cache rather than at a call site, so an explicit disposal has no counterpart "
+        "to be respelled into. Decide what the callback was really FOR: releasing a host resource "
+        "belongs in a declared native host's release path, and cancelling in-flight work belongs "
+        "in an effect.")
+
    :root-mount
    (str "Root mounting. Hicasso mounts its own root; this call is boot ceremony and is replaced "
         "wholesale rather than edited.")
+
+   :static-markup
+   (str "Hiccup to an HTML STRING, outside the React lifecycle — `render-to-string` or "
+        "`render-to-static-markup`. Hicasso's counterpart is the SSR seam "
+        "(`day8/re-frame2-ssr`'s `re-frame.ssr/render-to-string`), which lowers a HICCASSO tree "
+        "rather than a Reagent one, so this is a re-point rather than an edit. An export that "
+        "only ever wanted static bytes — clipboard HTML, report HTML, email — ports "
+        "straightforwardly; anything whose output is later HYDRATED has to be re-read against "
+        "Spec 011, because the two paths do not agree about hydration attributes.")
 
    :substrate-read-hook
    (str "A read through the substrate adapter's own hook tier - the UIx adapter's "
@@ -330,7 +475,18 @@
    (str "`flush-views!` wraps React's `act()` so a test can settle pending effects before "
         "reading the DOM. It is a REAGENT/UIX-substrate seam, per Spec 008's per-adapter-require "
         "rule, so it does not follow the views across: settle a Hicasso tree the way the "
-        "Hicasso testing chapter directs, and delete the adapter require the call came through.")
+        "Hicasso testing chapter directs, and delete the require the call came through — which "
+        "is the substrate adapter for the re-exported spelling and `reagent2.dom.client` for the "
+        "promise-returning one.")
+
+   :substrate-test-harness
+   (str "`mount!` / `trigger-update!` — the headless test adapter's own harness, which mounts a "
+        "view tree with no browser and drives an update through it. It is test scaffolding "
+        "rather than application code, so it does not port: a Hicasso view is exercised the way "
+        "the Hicasso testing chapter directs, and this call is replaced wholesale along with the "
+        "adapter require it came through. Check what the test was ASSERTING before respelling "
+        "it — a harness that reached into the render tree is usually asserting something a "
+        "subscription-level test says more directly.")
 
    :unresolved-reagent-require
    (str "This file's `ns` form NAMES a Reagent namespace, and the reader could not bind a "
@@ -501,7 +657,19 @@
   Four states, and the middle two are the whole reason this exists.
 
   * `:full` — every scanned file names Reagent or a re-frame2 substrate
-    adapter. A zero here means the tool looked and found nothing.
+    adapter. **This is a statement about the FILES, and it is the only
+    thing it is.** It says the census had a population to look in; it does
+    NOT say the roster covers everything those files could call, and the
+    two are different claims that a zero collapses together. The wording
+    [[caveat]] emits was once the stronger one — *a zero below is a
+    measurement*, full stop — and a file whose one call was
+    `reagent2.dom.server/render-to-static-markup` earned it while the
+    roster had no such row (rf2-xoal). The recognised half is now
+    guaranteed at least one rostered call PER NAMESPACE by
+    `rewrite/reagent-namespaces`' coupling law and its test ratchet, which
+    is the strongest honest claim available: every namespace this tool
+    recognises, it can find something in. It is not a claim that the
+    roster is complete, and no roster ever is.
   * `:partial` — some files named one and some named neither.
   * `:none` — files were scanned and NOT ONE named either. The tool had
     nothing to count, and it says so rather than passing for a clean bill
@@ -554,8 +722,13 @@
 
     :full
     (str "Every one of the " files-scanned " scanned file(s) names Reagent or a re-frame2 "
-         "substrate adapter, so this census had a population throughout. A zero below is a "
-         "measurement.")))
+         "substrate adapter, so this census had a population throughout. THAT IS A STATEMENT "
+         "ABOUT THE FILES, NOT ABOUT THE ROSTER: recognition is decided per FILE, from its `ns` "
+         "form, while the entries below are found per NAME, against a fixed roster of "
+         (count surface) " Reagent names and " (count substrate-surface) " substrate names. A "
+         "zero below therefore means no rostered call was found — not that these files hold no "
+         "migration work. Read it as a measurement of the roster, and port the shapes it does "
+         "not name off the migration chapter's translation table.")))
 
 (defn summarise
   "The census half of the report artefact.
@@ -658,4 +831,11 @@
            " — " (str/join ", " (for [[k v] by-verdict] (str v " " (name k))))
            (when (pos? files-unrecognised)
              (str "; " files-unrecognised " of " files-scanned
-                  " file(s) NOT RECOGNISED — read :census :summary :caveat"))))))
+                  " file(s) NOT RECOGNISED — read :census :summary :caveat"))
+           ;; A ZERO ON THIS LINE IS THE ONE THAT MISLEADS, and until
+           ;; rf2-xoal's audit it was unmarked whenever recognition was
+           ;; `:full` — the reader who stops at the last line of the run
+           ;; got a bare `0` with nothing beside it. The count is bounded
+           ;; by the roster, and only the caveat says by how much.
+           (when (zero? entries)
+             " — ZERO ENTRIES: bounded by the ROSTER, not by the corpus; read :census :summary :caveat")))))
