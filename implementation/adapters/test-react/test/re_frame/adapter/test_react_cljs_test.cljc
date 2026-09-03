@@ -109,8 +109,8 @@
       (is (= [:div "updated"] (test-react/current-render-tree mount)))
       (test-react/unmount! mount)
       ;; Exercise the compatibility alias after canonical-name coverage above.
+      #_{:clj-kondo/ignore [:deprecated-var]}
       (let [legacy-mounted-roots (deref #'test-react/mounted-roots)]
-        #_{:clj-kondo/ignore [:deprecated-var]}
         (is (and (true? (:deprecated (meta #'test-react/mounted-roots)))
                  (zero? (count (legacy-mounted-roots))))))
       (is (nil? (test-react/current-render-tree mount))))))
@@ -338,8 +338,8 @@
       (is (= 2 (count (test-react/mounted-components)))
           "parent + child are both live in the forest")
       ;; Exercise the compatibility alias; later checks use mounted-children.
+      #_{:clj-kondo/ignore [:deprecated-var]}
       (let [legacy-children (deref #'test-react/children)]
-        #_{:clj-kondo/ignore [:deprecated-var]}
         (is (and (true? (:deprecated (meta #'test-react/children)))
                  (= [@child-ref] (legacy-children parent)))
             "the deprecated alias remains callable and returns the live child"))
