@@ -25,7 +25,8 @@
     durable `:entries`, applying per-entry REDACTION / OMISSION through
     the resource's `:sensitive?` / `:large?` classification and the
     shared `rf/elide-wire-value` walker, and `projection-metadata`
-    records the serialized / redacted / omitted / key-projected / fresh /
+    COMPUTES (for a host to record, if it wants to — nothing here does)
+    the serialized / redacted / omitted / key-projected / fresh /
     stale / refetch-on-client decision per entry.
   - **Server blocking drain** — `blocking-settled?` is the drain
     PREDICATE the host loops on (\"have the blocking resources for this
@@ -867,12 +868,14 @@
                            ;; key-id comparison above. Two dispositions reach it
                            ;; (`:key-projected` and both coarse arms), and a
                            ;; caller enumerating those would have to be revisited
-                           ;; every time a projection learns to re-key. The
-                           ;; server's diagnostics still account for a withheld
-                           ;; entry in full — `:disposition` says why it could
-                           ;; not ride, `:projected-key` says what it projected
-                           ;; to, `:refetch-on-client?` says what the client will
-                           ;; do about it.
+                           ;; every time a projection learns to re-key. These
+                           ;; three slots are what let a server ACCOUNT for a
+                           ;; withheld entry in full — `:disposition` says why
+                           ;; it could not ride, `:projected-key` says what it
+                           ;; projected to, `:refetch-on-client?` says what the
+                           ;; client will do about it. Carrying them to a
+                           ;; diagnostic sink is the host's job, not this
+                           ;; namespace's; see `projection-metadata`.
                            :withheld? (not key-derivable?)
                            :refetch-on-client?
                            (boolean (or metadata-only? stale?)))]
@@ -882,8 +885,22 @@
   "Compute the per-entry SSR projection metadata for a frame's resource
   `:entries` against `clock-ms` (Spec 016 §SSR and hydration step 7 — the
   serialized / redacted / omitted / fresh / stale / refetch-on-client
-  decisions). Returns a vector of per-entry metadata maps. PURE; the host
-  adapter records it in route/SSR diagnostics."
+  decisions). Returns a vector of per-entry metadata maps.
+
+  PURE, and an AFFORDANCE rather than a wiring: it computes the decision
+  record and returns it. It does not route it anywhere, and nothing in this
+  repository consumes it outside tests. That is deliberate — Spec 016 §SSR and
+  hydration addresses step 7 to \"Server route handling\", and the host owns the
+  route slice and the diagnostic sink, so a host wanting this accounting calls
+  this and records the result. `:ssr/extend-runtime-db-projection` is NOT that
+  carrier and must not be made one: its single return value is merged onto the
+  hydration WIRE payload, while these maps carry the raw scoped `:resource/key`
+  the withholding rule exists to suppress.
+
+  So do not read this helper's existence as evidence that projection decisions
+  are recorded anywhere — an earlier version of this docstring asserted that the
+  host adapter records it, which was never true of any adapter in-tree
+  (rf2-6r9j.53)."
   [frame-id clock-ms entries]
   (mapv (fn [[_k-id entry]] (second (project-entry frame-id clock-ms entry)))
         entries))
