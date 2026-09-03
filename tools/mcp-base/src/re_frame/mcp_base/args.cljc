@@ -99,8 +99,8 @@
     (long n)))
 
 (defn- parse-int*
-  "Shared helper for `parse-positive-int` / `parse-non-negative-int`.
-  `floor` is the lower clamp (1 for positive, 0 for non-negative).
+  "Cross-host integer coercion behind `parse-positive-int`; the parsed
+  value is clamped to a floor of 1.
   Two input arms: a numeric `raw` is finite/range-guarded then floored
   (out-of-domain — `##Inf` / `##NaN` / past the safe-integer window —
   falls back to `default` rather than throwing or truncating to a real
@@ -109,14 +109,14 @@
   garbage and out-of-range magnitudes fall back to `default`, identically
   on JVM and CLJS). Every other shape falls
   back to `default`."
-  [raw default floor]
+  [raw default]
   (cond
     (nil? raw)
     default
 
     (number? raw)
     (if-let [n (coerce-finite-long raw)]
-      (max floor n)
+      (max 1 n)
       default)
 
     (string? raw)
@@ -133,12 +133,12 @@
         ;; (the JS safe-integer window) instead of two divergent ones.
         #?(:clj  (let [n (try (bigint s) (catch NumberFormatException _ nil))]
                    (if (and n (<= (- max-safe-integer) n max-safe-integer))
-                     (max floor (long n))
+                     (max 1 (long n))
                      default))
            :cljs (let [n (js/parseInt s 10)]
                    (if (and (not (js/isNaN n))
                             (js/Number.isSafeInteger n))
-                     (max floor (long n))
+                     (max 1 (long n))
                      default)))))
 
     :else
@@ -153,37 +153,7 @@
   The caller supplies the documented default (for example, a cursor
   pagination limit)."
   [raw default]
-  (parse-int* raw default 1))
-
-;; rf2-6r9j.104 — disposition: KEPT, deliberately, with no in-repo caller.
-;; Verified 2026-09-03 by a fixed-string census over tracked files: every
-;; live numeric MCP arg is a positive int (`cursor/parse-limit-arg`'s
-;; `:limit`, story-mcp's `:timeout-ms`) or `cap/max-tokens`, which admits
-;; zero but REJECTS its out-of-domain values rather than defaulting and so
-;; cannot route through a defaulting parser. The floor-0 half is retained
-;; because it is the other half of ONE parser: `parse-int*`'s `floor`
-;; parameter exists precisely because both floors are offered, and the
-;; contracts an auditor might fear are being carried for a lone caller —
-;; the finite/safe-integer guard, the strict string grammar, the
-;; cross-host agreement — are `parse-int*`'s and `coerce-finite-long`'s,
-;; shared with `parse-positive-int` and tested once. What is specific to
-;; this var is the floor, and its own tests are a handful of assertions
-;; about exactly that. Deleting it would leave a `floor` parameter with a
-;; single constant argument and force any consumer whose arg admits a
-;; disabling zero to re-derive the guard by hand.
-
-(defn parse-non-negative-int
-  "Like `parse-positive-int` but clamps to zero rather than one — the
-  parser for a numeric arg whose domain INCLUDES zero, typically as a
-  \"disabled\" sentinel. Same accepted shapes, same cross-runtime
-  finite/safe-integer guard, same fall-back-to-`default` posture for
-  everything out of domain.
-
-  Reach for `parse-positive-int` instead when zero is meaningless for the
-  arg, and for a zero-admitting arg that must REJECT rather than default
-  on bad input, see `cap/max-tokens` for the rejection-marker shape."
-  [raw default]
-  (parse-int* raw default 0))
+  (parse-int* raw default))
 
 ;; ---------------------------------------------------------------------------
 ;; Keyword coercion — bounded-allowlist gate
