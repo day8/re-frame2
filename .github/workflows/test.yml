@@ -2656,10 +2656,17 @@ jobs:
     # rf2-dxndhc — the EP-0014 derivation/process-ALGEBRA conformance tier
     # is a src-less `.cljc` test surface on the root test classpath. Its
     # own `:test` alias runs the SAME `.cljc` namespaces under the JVM so
-    # the `:clj`-side composition (JVM default-contributors auto-resolution,
-    # the pure-data algebra views, the whole-value law over JVM data) is
-    # exercised — previously only the always-on `:node-test` gate ran the
-    # `:cljs` side. Mirrors the security tier.
+    # the `:clj`-side composition (the pure-data algebra views, the
+    # whole-value law over JVM data) is exercised — previously only the
+    # always-on `:node-test` gate ran the `:cljs` side. The suite supplies
+    # an EXPLICIT contributor map on BOTH hosts, so it deliberately does
+    # NOT exercise JVM `default-contributors` auto-resolution; that path is
+    # core's, pinned by `default-contributors-resolves-every-jvm-sibling`
+    # and `default-contributors-wires-the-machine-selector-targets-surface`
+    # in implementation/core/test/re_frame/derivation_graph_test.clj. The
+    # tier proves the four EP-0014 laws across all five families —
+    # subscriptions, flows, resources, route facts, machines. Mirrors the
+    # security tier.
     needs: detect_changed_surfaces
     if: needs.detect_changed_surfaces.outputs.implementation_jvm == 'true'
     runs-on: ubuntu-latest
@@ -5016,11 +5023,12 @@ jobs:
         working-directory: implementation
         run: npm ci
 
-      # rf2-qa5ty — the emitted-tests tier carries TWO Chromium proofs: the
-      # SSR DOM-adoption proof and the emitted dev-page boot proof. `npm ci`
-      # above installs the playwright PACKAGE but never a browser BINARY, so
-      # before this step BOTH drivers hit their `chromium.launch()` catch,
-      # exited 2, and the tier reported green with zero browser coverage —
+      # rf2-qa5ty — the emitted-tests tier carries ONE Chromium proof: the
+      # emitted dev-page boot proof, run for Reagent, UIx and the setup-skill
+      # leaf. `npm ci` above installs the playwright PACKAGE but never a
+      # browser BINARY, so before this step that driver hit its
+      # `chromium.launch()` catch, exited 2, and the tier reported green with
+      # zero browser coverage —
       # the mask that let three template defects ship, two of them a BLANK
       # first page on every scaffold variant. Because this job now provisions
       # a browser, an unlaunchable Chromium is a HARD FAILURE here rather
