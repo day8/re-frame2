@@ -712,7 +712,7 @@
   No `type=\"internal|external\"` axis is emitted: a root transition moves
   region substates (never the root itself), so the self/ancestor re-enter
   axis does not apply."
-  [event-name {:keys [target guard action] :as candidate} depth]
+  [event-name {:keys [target guard action]} depth]
   (let [targets   (root-region-qualified-targets target)
         target-id (when (seq targets)
                     (str/join " " (map qualified-id targets)))
@@ -1233,20 +1233,20 @@
                 (update-in acc [:on (id-string->keyword event)]
                            (fnil conj []) cand-map))))
           {}
-          ts)]
-    ;; rf2-mnp93.8 — finalise the candidate vectors via the shared
-    ;; `simplify-candidates`. `:always` keeps the full vector-of-maps form so
-    ;; it lines up with `(transition-candidates ...)`.
-    (let [on*      (when (:on coll)
-                     (into {} (map (fn [[ev cands]] [ev (simplify-candidates cands)]) (:on coll))))
-          after*   (when (:after coll)
-                     (into {} (map (fn [[k cands]] [k (simplify-candidates cands)]) (:after coll))))
-          ondone*  (when (contains? coll :on-done) (simplify-candidates (:on-done coll)))]
-      (cond-> {:children-tokens non-transitions}
-        (:on coll)               (assoc :on on*)
-        (:after coll)            (assoc :after after*)
-        (:always coll)           (assoc :always (:always coll))
-        (contains? coll :on-done) (assoc :on-done ondone*)))))
+          ts)
+        ;; rf2-mnp93.8 — finalise the candidate vectors via the shared
+        ;; `simplify-candidates`. `:always` keeps the full vector-of-maps form
+        ;; so it lines up with `(transition-candidates ...)`.
+        on*      (when (:on coll)
+                   (into {} (map (fn [[ev cands]] [ev (simplify-candidates cands)]) (:on coll))))
+        after*   (when (:after coll)
+                   (into {} (map (fn [[k cands]] [k (simplify-candidates cands)]) (:after coll))))
+        ondone*  (when (contains? coll :on-done) (simplify-candidates (:on-done coll)))]
+    (cond-> {:children-tokens non-transitions}
+      (:on coll)                (assoc :on on*)
+      (:after coll)             (assoc :after after*)
+      (:always coll)            (assoc :always (:always coll))
+      (contains? coll :on-done) (assoc :on-done ondone*))))
 
 (declare parse-state-block)
 

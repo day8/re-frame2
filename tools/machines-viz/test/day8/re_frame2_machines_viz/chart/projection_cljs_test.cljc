@@ -142,12 +142,6 @@
   [elk-children]
   (:children (first elk-children)))
 
-(defn- root-child-by-id
-  "rf2-q129z8 — pluck one effective-top-level elk child by id (an element
-  of `root-children`)."
-  [elk-children id]
-  (first (filter #(= id (:id %)) (root-children elk-children))))
-
 (defn- event-node-for
   "rf2-qo5xy — find the event-node a projected graph emitted for a
   given parsed-edge id. The events-as-nodes paradigm hoists each
@@ -1934,9 +1928,9 @@
 (deftest elk-edge-omits-priority-when-no-initial-set
   (testing "rf2-k504af — with no `initial-ids` (the pre-bead 2-arity
             path), NO edge carries the direction-priority option"
-    (let [parsed  (layout/project-definition idle-loading)
-          elk-eds (projection/->elk-edges parsed)] ;; 2-arity → no initial set...
-      ;; ->elk-edges DOES derive the set, so assert via the bare ->elk-edge.
+    (let [parsed (layout/project-definition idle-loading)]
+      ;; `->elk-edges` DERIVES the initial set itself, so the no-initial-set
+      ;; arity is reachable only through the bare `->elk-edge`.
       (is (every? #(nil? (in-edge-priority %))
                   (mapcat #(projection/->elk-edge % nil nil) (:edges parsed)))
           "the nil initial-ids arity leaves every edge unset"))))

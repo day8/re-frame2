@@ -1361,7 +1361,7 @@
           root-edges (filter :parallel-root-on? edges)
           ids        (map :id root-edges)]
       (is (= 2 (count root-edges)) "both the root :on and root :after edges project")
-      (is (= 1 (count (filter #(and (:parallel-root-after? %)) root-edges)))
+      (is (= 1 (count (filter :parallel-root-after? root-edges)))
           "exactly one is the :after edge")
       (is (= 1 (count (remove :parallel-root-after? root-edges)))
           "exactly one is the plain :on edge")
@@ -1522,6 +1522,46 @@
       (is (not= (:exit-requires audio) (:exit-requires video))
           "region :audio's exit-requires do NOT bleed onto region :video's
            same-named node"))))
+
+(deftest raw-node-at-no-region-node-never-borrows-a-sibling-region
+  (testing "rf2-6r9j.122 — a node with a region-relative `:path` but NO
+            `:region` resolves against the TOP-LEVEL `:states` only, and a
+            parallel definition has none — so the answer is nil, never the
+            first region that happens to carry a state of that name. The
+            retired fallback scanned `(:regions definition)` in map order and
+            returned whichever region matched first, which is exactly the
+            wrong-region lifecycle attribution rf2-6l01c8 fixed; every node
+            `project-parallel` mints carries `:region`, so nothing in the
+            pipeline can reach this shape — a hand-built node that has lost
+            its region identity gets nil rather than a plausible-looking
+            neighbour."
+    (let [m {:type    :parallel
+             :regions {:audio {:initial :active
+                               :states  {:active {:entry :enter-a} :off {}}}
+                       :video {:initial :active
+                               :states  {:active {:entry :enter-b} :off {}}}}}]
+      (is (nil? (layout/raw-node-at m {:path [:active]}))
+          "a no-:region region-relative node resolves to nil, not region
+           :audio's raw node")
+      (is (= {:entry :enter-a} (layout/raw-node-at m {:path [:active] :region :audio}))
+          "the :audio node still resolves strictly within its own region")
+      (is (= {:entry :enter-b} (layout/raw-node-at m {:path [:active] :region :video}))
+          "the :video node still resolves strictly within its own region")))
+  (testing "rf2-6r9j.122 — flat / compound (no-`:region`) lookup is unchanged:
+            a top-level `:states` node and a nested compound descendant both
+            still resolve, and an absent path is still nil"
+    (let [m {:initial :idle
+             :states  {:idle {:entry :log}
+                       :busy {:initial :step1
+                              :states  {:step1 {:exit :cleanup}}}}}]
+      (is (= {:entry :log} (layout/raw-node-at m {:path [:idle]}))
+          "a flat top-level node resolves")
+      (is (= {:exit :cleanup} (layout/raw-node-at m {:path [:busy :step1]}))
+          "a nested compound descendant resolves")
+      (is (nil? (layout/raw-node-at m {:path [:nope]}))
+          "an absent path is nil")
+      (is (nil? (layout/raw-node-at m {:path []}))
+          "the synthetic empty-path node is nil"))))
 
 ;; ---- a REGION's OWN top-level :on-done (rf2-2ydc87) ---------------------
 ;;

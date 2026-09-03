@@ -233,7 +233,7 @@
   resolvers are not deterministic by default; for reproducible tests
   inject a stub resolver that returns canned EDN per known prompt."
   ([user-prompt] (generate-machine user-prompt {}))
-  ([user-prompt {:keys [resolver] :as _opts}]
+  ([user-prompt {:keys [resolver]}]
    (let [resolver-fn   (or resolver default-resolver)
          full-prompt   (build-prompt user-prompt)
          response      (resolver-fn full-prompt)

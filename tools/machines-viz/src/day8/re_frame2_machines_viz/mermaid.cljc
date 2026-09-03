@@ -764,14 +764,14 @@
     (str indent "[*] --> " (sanitise-id (conj region-path initial)))))
 
 (defn- render-region-block
-  [[region-id {:keys [initial states on] :as _region}]]
+  [[region-id {:keys [initial states on]}]]
   (let [region-path (vector region-id)]
     (concat
      [(str "    state " (sanitise-id region-path) " {")
       (region-initial-line region-path initial 3)]
      (render-root-fallback-alias region-path on 3)
      (render-compound-blocks region-path states 3)
-     [(str "    }")])))
+     ["    }"])))
 
 (defn- render-parallel-region-blocks
   [regions]

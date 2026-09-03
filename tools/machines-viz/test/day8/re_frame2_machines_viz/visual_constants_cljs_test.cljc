@@ -91,11 +91,14 @@
     :action-pill-pad-x
     :action-pill-px
     :action-pill-radius
-    :action-pill-gap
     :action-pill-row-gap
     ;; structured topology grammar (rf2-az6e2) — state title/body box,
     ;; compound container, parallel region, event route chip, pseudo-
-    ;; state markers, action-section caption, root chrome.
+    ;; state markers, action-section caption. The root chrome lives in the
+    ;; root-container frame (rf2-q129z8) and reads the `:container-title-*`
+    ;; keys; the `:root-title-*` / `:root-context-pad` keys it superseded
+    ;; retired unread in rf2-6r9j.117, alongside `:action-pill-gap` (an
+    ;; action row paints ONE chip, so nothing ever spaced two).
     :state-title-height
     :state-title-pad-x
     :state-title-px
@@ -122,9 +125,6 @@
     :pseudo-size
     :pseudo-radius
     :pseudo-px
-    :root-title-height
-    :root-title-px
-    :root-context-pad
     ;; dot-grid background (rf2-m4nj4)
     :dot-grid-spacing-px
     :dot-grid-radius-px})
@@ -285,7 +285,7 @@
 (deftest structured-grammar-geometry-monotonic
   (testing "rf2-az6e2 — the structured-topology grammar geometry
             (state title strip, container title, event chip, region
-            title, root title) is monotonic across the density axis:
+            title) is monotonic across the density axis:
             compact < regular < cosy. Density scales QUANTITY; a key
             that walked back or up unexpectedly would ship a mislabelled
             density. The corner-radius lock (6) remains the only
@@ -293,8 +293,7 @@
     (doseq [k [:state-title-height :state-title-px
                :container-title-height :event-chip-min-w
                :event-chip-min-h :event-chip-px
-               :region-title-height :pseudo-size :root-title-height
-               :root-title-px]]
+               :region-title-height :pseudo-size]]
       (is (< (get vc/chart-compact k)
              (get vc/chart-regular k)
              (get vc/chart-cosy k))

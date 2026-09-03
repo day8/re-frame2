@@ -530,7 +530,7 @@
 ;; ---------------------------------------------------------------------------
 ;; rf2-egupfk — the three emitters agree on DEFINITION-SHAPE VALIDATION.
 ;;
-;; Pre-fix each emitter hand-rolled its own `valid-state-tree?` / parallel
+;; Pre-fix each emitter hand-rolled its own shallow state-tree / parallel
 ;; check and the copies had DRIFTED:
 ;;
 ;;   - SCXML accepted MALFORMED PARALLEL REGION BODIES (a region with no
