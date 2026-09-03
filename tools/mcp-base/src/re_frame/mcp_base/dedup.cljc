@@ -14,8 +14,8 @@
   Both MCP servers ship duplicate-rich payloads:
   re-frame2-pair-mcp's `:epochs` slice (`:db-before` + path-keyed
   `:db-after` diff), subscribe progress `:events`; story-mcp's
-  `run-variant` results (`:app-db` + `:snapshot` + `:rendered-hiccup`),
-  assertion vectors, recorder replay tuples. The transform is the same
+  `run-variant` results (`:app-db` + `:snapshot` + the evidence
+  slots) and assertion vectors. The transform is the same
   data transform on both hosts, so it lives here once.
 
   ## Provenance — vendored from `day8/de-dupe` v0.3.0 (rf2-2ii52)
