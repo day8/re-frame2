@@ -18,7 +18,6 @@
   rf2-bt9kct) through the actual `build-final-payload` path."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
             [re-frame.privacy :as privacy]
             [re-frame.ssr.streaming :as streaming]
             [re-frame.ssr.test-fixture :as tf]))

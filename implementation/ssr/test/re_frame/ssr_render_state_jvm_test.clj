@@ -17,7 +17,7 @@
     `:rf.error/ssr-render-state-invalid`, and the same key with an in-domain
     value is the control."
   (:require [clojure.string :as str]
-            [clojure.test :refer [deftest is testing use-fixtures]]
+            [clojure.test :refer [deftest is use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
             [re-frame.ssr.render-state :as render-state]

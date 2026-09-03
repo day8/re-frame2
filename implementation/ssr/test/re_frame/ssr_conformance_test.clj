@@ -152,7 +152,6 @@
             [re-frame.ssr.head :as ssr-head]
             [re-frame.ssr.test-fixture :as tf]
             [re-frame.subs :as subs]
-            [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.trace :as trace]))
 
 ;; The shared reset fixture is `:each` — every fixture in the corpus

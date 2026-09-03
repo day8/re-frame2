@@ -114,10 +114,6 @@
   (str (ssr/streaming-failed-template id fallback-html)
        (ssr/streaming-hydrate-delta-script id (pr-str delta))))
 
-(defn- final-payload-html []
-  (str "<script id=\"" constants/payload-script-id
-       "\" type=\"application/edn\">{:rf/version 1 :rf/app-db {} :rf/render-hash \"00000000\"}</script>"))
-
 ;; ---- DOM scaffolding -------------------------------------------------------
 
 (defn- make-root!
