@@ -243,6 +243,30 @@
 ;; separately requirable BECAUSE they are opt-in, so its door could not
 ;; re-export them. That distinction is the useful predictor for the remaining
 ;; trees, and it is what rf2-hjj4's verdict rests on.
+;;
+;; THAT PREDICTOR IS NOW THE RULE, and it REPLACED the schedule rather than
+;; pausing it (mayor ruling 2026-09-03, rf2-qvhx). Enrol a tree WHEN IT
+;; ACQUIRES A SECOND REQUIRABLE DOOR — never off a queue of trees ordered by
+;; size or by guessed blast radius, which is the axis routing and resources
+;; refuted. Nothing can hide behind a single re-exporting door, because the
+;; door is already rowed. `machines`, `http`, `schemas`, `flows`, `epoch` and
+;; `core` each publish ONE façade namespace already in `jvm-namespaces`, so
+;; the ~190 namespaces beneath them stay unenrolled on present evidence.
+;; Rubber-stamping them to reach a green is not coverage; it is effort spent
+;; producing the appearance of it, and a rubber-stamped classification is
+;; worse than none because it looks like a decision.
+;;
+;; THE ADAPTERS EXCEPTION WAS PRICED AND DECLINED. Adapters are requirable BY
+;; DEFINITION — an app requires the adapter it uses — so they wear the hicasso
+;; shape rather than the façade one, and the ruling named them as the one tree
+;; worth enrolling next, at three namespaces. THE COUNT IS FIFTEEN: four
+;; adapter doors (reagent, uix, test-react, reagent-slim) plus a VENDORED
+;; REAGENT FORK of eleven `reagent2.*` files under reagent-slim. Enrolling a
+;; root obliges a classification for EVERY namespace beneath it, so the real
+;; bill is eleven rubber-stamp entries for somebody else's library internals —
+;; the exact editorial cost this section refuses. Before revisiting it, the
+;; question to answer is what to do about the vendored tree, not whether three
+;; doors are worth enrolling.
 ;; ---------------------------------------------------------------------------
 
 (def roster-covered-roots
