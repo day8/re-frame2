@@ -42,21 +42,21 @@
   cannot create unreachable registry keys. `operation` labels context errors."
   ([opts] (resolve-frame opts :reg-app-schema))
   ([opts operation]
-   (let [override (:frame opts)
-         frame-id (if (some? override)
-                    (frame/frame-target->id override)
-                    (frame/require-current-frame!
-                      operation {:where 'rf/reg-app-schema}))]
+   (let [frame-target (:frame opts)
+         frame-id     (if (some? frame-target)
+                        (frame/frame-target->id frame-target)
+                        (frame/require-current-frame!
+                          operation {:where 'rf/reg-app-schema}))]
      (when-not (keyword? frame-id)
        (error/throw-error!
          :rf.error/app-schemas-bad-arg
          'rf/app-schemas
-         (str "the :frame opt must be a frame-id keyword or a frame value "
-              "(from rf/make-frame); got " (pr-str override)
+          (str "the :frame opt must be a frame-id keyword or a frame value "
+              "(from rf/make-frame); got " (pr-str frame-target)
               ", which resolved to the non-keyword frame target "
               (pr-str frame-id) ". Pass a frame-id keyword or a frame value.")
          {:recovery :supply-a-frame-id-or-frame-value
-          :extra    {:received override
+          :extra    {:received frame-target
                      :resolved frame-id
                      :expected "keyword frame-id or frame value"}}))
      frame-id)))
@@ -96,7 +96,7 @@
     {:frame frame-target}
     {}))
 
-(defn- best-effort-frame
+(defn- best-effort-frame-id
   "Resolve the registration frame for an error payload without throwing:
   the explicit `:frame` opt if present, else the carried-invariant scope
   frame, else `nil` when no scope is established. Used only to enrich the
@@ -472,15 +472,15 @@
   [frame-id path prior-schema new-schema]
   (when (and (some? prior-schema)
              (not= prior-schema new-schema))
-    (when-let [vf @validator/validator-fn]
-      (let [db        (frame/frame-app-db-value frame-id)
-            live-val  (get-in db path)
+    (when-let [validate-fn @validator/validator-fn]
+      (let [app-db      (frame/frame-app-db-value frame-id)
+            live-value (get-in app-db path)
             ;; A malformed new schema can make the validator throw
             ;; (e.g. Malli's `:malli.core/child-error` on a childless
             ;; `[:vector]`). A bad schema is not a hot-reload violation
             ;; and MUST NOT crash registration — treat a throwing
             ;; validator as "cannot determine a violation" (pass).
-            passes?   (try (boolean (vf new-schema live-val))
+            passes?   (try (boolean (validate-fn new-schema live-value))
                            (catch #?(:clj Throwable :cljs :default) _ true))]
         (when-not passes?
           (when-let [emit! (late-bind/get-fn :trace/emit!)]
@@ -504,7 +504,7 @@
                       :post-reload-schema new-schema
                       :mismatching-value  (if sensitive?
                                             redacted-sentinel
-                                            live-val)
+                                            live-value)
                       :frame              frame-id
                       :recovery           :logged-and-skipped
                       :sensitive?         sensitive?}))))))))
@@ -558,7 +558,7 @@
         frame-opts (frame-target->opts (:frame metadata))]
    ;; Reject malformed and runtime-db paths before the store mutation. Frame
    ;; context is best-effort here so a missing scope cannot mask a path error.
-   (assert-app-schema-path! path (best-effort-frame frame-opts))
+   (assert-app-schema-path! path (best-effort-frame-id frame-opts))
    (let [frame-id     (resolve-frame frame-opts)
          ;; Storage, lookup, and digesting share one canonical vector identity.
          path         (path/normalize-concrete path)
@@ -615,8 +615,8 @@
    (assert-bulk-schemas-arg! path->schema)
    ;; Validate every path before mutating so an invalid entry cannot leave a
    ;; partially registered batch.
-   (let [batch-frame (best-effort-frame opts-or-frame-id)]
-     (run! #(assert-app-schema-path! % batch-frame) (keys path->schema)))
+   (let [batch-frame-id (best-effort-frame-id opts-or-frame-id)]
+     (run! #(assert-app-schema-path! % batch-frame-id) (keys path->schema)))
    ;; Delegate each map value through the singular positional schema slot.
    (let [frame-target (:frame (coerce-opts opts-or-frame-id))]
      (mapv (fn [[path schema]]
@@ -639,8 +639,8 @@
    ;; Lookup uses the same canonical concrete path identity as registration.
    (let [frame-id (coerce->frame-id opts-or-frame-id)
          path     (path/normalize-concrete path)]
-     (when-let [m (get-in @schemas-by-frame [frame-id path])]
-       (:schema m)))))
+     (when-let [registration-metadata (get-in @schemas-by-frame [frame-id path])]
+       (:schema registration-metadata)))))
 
 (defn app-schema-meta-at
   "Return the registration metadata map for a path in a frame, or nil.

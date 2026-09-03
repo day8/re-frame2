@@ -40,7 +40,7 @@
   segment as the element's INTEGER POSITION (`[1 :age]`), not the name —
   identical to `:cat`. So `:catn` is position-bearing (see
   `position-bearing-ops`), and its name slot is decorative for the
-  decl-path coordinate system."
+  declaration-path coordinate system."
   #{:multi :orn :altn})
 
 (def ^:private position-bearing-ops
@@ -60,7 +60,7 @@
       the position drives the coordinate. Both descend the element schema
       at `(conj base-path i)`.
 
-  The position-pinned decl-path is matching-safe against the core-elision
+  The position-pinned declaration path is matching-safe against the core-elision
   coordinate system: the runtime elision walk descends a tuple / event-
   vector value (a vector) through its literal-index fork (`fork-index-paths`
   — `(conj c i)` in `re-frame.elision`), which matches a position-pinned
@@ -69,23 +69,24 @@
   all align through the same generic path."
   #{:tuple :cat :catn})
 
-(defn- props-of
+(defn- schema-properties
   "Return the per-slot props map of a Malli vector form, or nil. Convention:
   `[op {props} children...]` carries the map at position 1."
-  [v]
-  (let [p (when (and (vector? v) (>= (count v) 2)) (nth v 1))]
-    (when (map? p) p)))
+  [schema-form]
+  (let [properties (when (and (vector? schema-form) (>= (count schema-form) 2))
+                     (nth schema-form 1))]
+    (when (map? properties) properties)))
 
-(defn- children-of
+(defn- schema-children
   "Return the children portion of a Malli vector form — drop the op
   keyword and the optional props map."
-  [v]
-  (let [tail (subvec v 1)]
-    (if (and (seq tail) (map? (first tail)))
-      (subvec tail 1)
-      tail)))
+  [schema-form]
+  (let [schema-tail (subvec schema-form 1)]
+    (if (and (seq schema-tail) (map? (first schema-tail)))
+      (subvec schema-tail 1)
+      schema-tail)))
 
-(defn- decl-from-props
+(defn- declaration-from-properties
   "Build a declaration map `{flag-key true :source :schema}` (plus
   optional `:hint` propagated verbatim) from a slot's per-slot props,
   or nil when `flag-key` is not set to `true`. Per Spec 009 §Size
@@ -136,7 +137,7 @@
       live in the entry's own props OR the element schema's props, both
       claiming `(conj base i)` — but Malli reports the integer POSITION
       (not the name) in a `:catn` failure's `:in`, so the position drives
-      the coordinate. The position-pinned decl-path is matching-safe
+      the coordinate. The position-pinned declaration path is matching-safe
       against the core-elision coordinate system: the runtime elision walk
       descends a tuple / event-vector value (a vector) through its
       literal-index fork (`fork-index-paths` — `(conj c i)`), which matches
@@ -165,29 +166,32 @@
      ;; Vector form `[op props? children...]` — the structural case.
      (and (vector? schema) (pos? (count schema)))
      (let [op       (nth schema 0)
-           acc'     (if-let [decl (decl-from-props flag-key (props-of schema))]
-                      (assoc acc base-path decl)
+           acc'     (if-let [declaration (declaration-from-properties
+                                           flag-key (schema-properties schema))]
+                      (assoc acc base-path declaration)
                       acc)
-           children (children-of schema)]
+           children (schema-children schema)]
        (cond
          (contains? name-bearing-ops op)
          (reduce
            (fn [acc child]
              (if-not (and (vector? child) (>= (count child) 2))
                acc
-               (let [k          (nth child 0)
-                     maybe-prop (nth child 1)
-                     has-prop?  (map? maybe-prop)
-                     slot-path  (conj base-path k)
-                     tail       (if has-prop?
-                                  (when (>= (count child) 3) (nth child 2))
-                                  maybe-prop)
-                     acc        (if-let [d (and has-prop?
-                                                (decl-from-props flag-key maybe-prop))]
-                                  (assoc acc slot-path d)
-                                  acc)]
-                 (if (some? tail)
-                   (walk-flagged-schema flag-key tail slot-path acc)
+               (let [slot-key             (nth child 0)
+                     schema-or-properties (nth child 1)
+                     properties?          (map? schema-or-properties)
+                     slot-path            (conj base-path slot-key)
+                     child-schema         (if properties?
+                                            (when (>= (count child) 3) (nth child 2))
+                                            schema-or-properties)
+                     acc                  (if-let [declaration
+                                                   (and properties?
+                                                        (declaration-from-properties
+                                                          flag-key schema-or-properties))]
+                                            (assoc acc slot-path declaration)
+                                            acc)]
+                 (if (some? child-schema)
+                   (walk-flagged-schema flag-key child-schema slot-path acc)
                    acc))))
            acc'
            children)
@@ -197,16 +201,19 @@
            (fn [acc child]
              (if-not (vector? child)
                acc
-               (let [maybe-prop (when (>= (count child) 2) (nth child 1))
-                     has-prop?  (map? maybe-prop)
-                     tail-idx   (if has-prop? 2 1)
-                     tail       (when (> (count child) tail-idx) (nth child tail-idx))
-                     acc        (if-let [d (and has-prop?
-                                                (decl-from-props flag-key maybe-prop))]
-                                  (assoc acc base-path d)
-                                  acc)]
-                 (if (some? tail)
-                   (walk-flagged-schema flag-key tail base-path acc)
+               (let [schema-or-properties (when (>= (count child) 2) (nth child 1))
+                     properties?          (map? schema-or-properties)
+                     schema-index         (if properties? 2 1)
+                     child-schema         (when (> (count child) schema-index)
+                                            (nth child schema-index))
+                     acc                  (if-let [declaration
+                                                   (and properties?
+                                                        (declaration-from-properties
+                                                          flag-key schema-or-properties))]
+                                            (assoc acc base-path declaration)
+                                            acc)]
+                 (if (some? child-schema)
+                   (walk-flagged-schema flag-key child-schema base-path acc)
                    acc))))
            acc'
            children)
@@ -233,28 +240,33 @@
                      ;; decorative name (and optional props) to reach the
                      ;; element schema; an entry-level flag claims slot-path.
                      ;; `:tuple`/`:cat` entry is the bare schema itself.
-                     [elem-schema entry-decl]
+                     [element-schema entry-declaration]
                      (if (= op :catn)
                        (if (and (vector? child) (>= (count child) 2))
-                         (let [maybe-prop (nth child 1)
-                               has-prop?  (map? maybe-prop)
-                               schema     (if has-prop?
-                                            (when (>= (count child) 3) (nth child 2))
-                                            maybe-prop)]
-                           [schema (and has-prop?
-                                        (decl-from-props flag-key maybe-prop))])
+                         (let [schema-or-properties (nth child 1)
+                               properties?          (map? schema-or-properties)
+                               schema                (if properties?
+                                                       (when (>= (count child) 3)
+                                                         (nth child 2))
+                                                       schema-or-properties)]
+                           [schema (and properties?
+                                        (declaration-from-properties
+                                          flag-key schema-or-properties))])
                          [nil nil])
                        [child nil])
-                     acc (if entry-decl (assoc acc slot-path entry-decl) acc)]
-                 [(if (some? elem-schema)
-                    (walk-flagged-schema flag-key elem-schema slot-path acc)
+                     acc (if entry-declaration
+                           (assoc acc slot-path entry-declaration)
+                           acc)]
+                 [(if (some? element-schema)
+                    (walk-flagged-schema flag-key element-schema slot-path acc)
                     acc)
                   (inc i)]))
              [acc' 0]
              children))
 
          :else
-         (reduce (fn [acc c] (walk-flagged-schema flag-key c base-path acc))
+         (reduce (fn [acc child]
+                   (walk-flagged-schema flag-key child base-path acc))
                  acc'
                  children)))
 
@@ -409,7 +421,7 @@
 ;; child position. Reuses the walker's `name-bearing-ops` (`:map`) and
 ;; `dispatch-bearing-ops` (`:multi` / `:orn` / `:altn`) categories and adds the
 ;; named sequence combinators (`:catn` / `:andn`). (`:catn` is entry-shaped for
-;; opacity even though the decl-path walk treats it as position-bearing — here
+;; opacity even though the declaration-path walk treats it as position-bearing — here
 ;; only the child-schema position matters, which is the entry tail.)
 (def ^:private opacity-entry-ops
   (into (into name-bearing-ops dispatch-bearing-ops) #{:catn :andn}))
@@ -461,10 +473,10 @@
   (let [op (nth schema 0)]
     (cond
       (contains? opacity-literal-ops op) []
-      (contains? opacity-bare-ops op)    (children-of schema)
+      (contains? opacity-bare-ops op)    (schema-children schema)
       (contains? opacity-entry-ops op)
       (into [] (comp (map entry-child-schema) (remove nil?))
-            (children-of schema))
+            (schema-children schema))
       :else ::opaque)))
 
 (defn- opaque-nested-tail?
@@ -585,7 +597,7 @@
   `schema-has-sensitive?` on the leftover returns false and the failing
   value LEAKS verbatim — the exact data the `:sensitive?` feature exists
   to protect. Returning the prefix lets `schema-sensitive-at?` test the
-  consumed-ancestor sensitivity (`prefix? decl-path aligned-prefix`)
+  consumed-ancestor sensitivity (`prefix? declaration-path aligned-prefix`)
   too, so a descendant failure under a sensitive ancestor stays
   redacted + stamped.
 
@@ -600,35 +612,39 @@
   way to notice the arrival point is opaque; `schema-sensitive-at?`
   consults it via `schema-has-opaque-child?` to fail closed."
   [schema in-path]
-  (loop [schema  schema
-         in      (vec in-path)
-         aligned []]
-    (if (empty? in)
-      [:ok aligned schema]
+  (loop [schema         schema
+         remaining-path (vec in-path)
+         aligned-path   []]
+    (if (empty? remaining-path)
+      [:ok aligned-path schema]
       (if-not (and (vector? schema) (pos? (count schema)))
         ;; Path remains but the schema is a bare keyword / opaque leaf —
         ;; cannot descend further; hand the leaf to the conservative
         ;; fallback (carrying the consumed prefix for ancestor-sensitivity).
-        [:fallback schema aligned]
+        [:fallback schema aligned-path]
         (let [op       (nth schema 0)
-              children (children-of schema)
-              seg      (nth in 0)]
+              children (schema-children schema)
+              segment  (nth remaining-path 0)]
           (cond
             ;; `:map` — the `:in` segment is a real app-db key. Keep it
             ;; and descend into the named child's tail schema.
             (contains? name-bearing-ops op)
-            (if-let [child (some (fn [c]
-                                   (when (and (vector? c) (>= (count c) 2)
-                                              (= (nth c 0) seg))
-                                     c))
+            (if-let [child (some (fn [candidate]
+                                   (when (and (vector? candidate)
+                                              (>= (count candidate) 2)
+                                              (= (nth candidate 0) segment))
+                                     candidate))
                                  children)]
-              (let [has-prop? (and (>= (count child) 2) (map? (nth child 1)))
-                    tail      (if has-prop?
-                                (when (>= (count child) 3) (nth child 2))
-                                (nth child 1))]
-                (recur tail (subvec in 1) (conj aligned seg)))
+              (let [properties? (and (>= (count child) 2)
+                                     (map? (nth child 1)))
+                    child-schema (if properties?
+                                   (when (>= (count child) 3) (nth child 2))
+                                   (nth child 1))]
+                (recur child-schema
+                       (subvec remaining-path 1)
+                       (conj aligned-path segment)))
               ;; Key not found in the schema (shape drift) — fail-SAFE.
-              [:fallback schema aligned])
+              [:fallback schema aligned-path])
 
             ;; `:tuple` / `:cat` / `:catn` — POSITION-bearing (`:tuple`
             ;; rf2-ss06u.4; `:cat`/`:catn` rf2-4q681i). Unlike the
@@ -637,30 +653,33 @@
             ;; positional analogue of a `:map` key). Malli reports the
             ;; integer position in `:in` for ALL THREE (a `:catn` failure
             ;; reports `[1 :age]`, the position not the name). KEEP the index
-            ;; in `aligned` — the walker emits per-position decl-paths
+            ;; in `aligned-path` — the walker emits per-position declaration paths
             ;; (`(conj base i)`), so a failure at element `i` aligns to that
             ;; same `[… i]` and prefix-matches ONLY that position's
             ;; declaration. Dropping it (the prior `:cat` behaviour, which
             ;; collapsed every element onto the shared base-path) made a
             ;; sensitive sibling over-redact an unrelated non-sensitive
-            ;; failure — the rf2-4q681i fix. `:tuple`/`:cat` element `seg` is
-            ;; `children[seg]` (bare schema); `:catn` element `seg` is a
+            ;; failure — the rf2-4q681i fix. `:tuple`/`:cat` element `segment` is
+            ;; `children[segment]` (bare schema); `:catn` element `segment` is a
             ;; NAME-bearing entry (`[name props? schema]`) so we descend into
             ;; its schema part.
             (contains? position-bearing-ops op)
-            (if-let [child (when (and (int? seg) (< seg (count children)))
-                             (nth children seg))]
-              (let [elem-schema (if (= op :catn)
-                                  (if (and (vector? child) (>= (count child) 2))
-                                    (if (map? (nth child 1))
-                                      (when (>= (count child) 3) (nth child 2))
-                                      (nth child 1))
-                                    nil)
-                                  child)]
-                (if (some? elem-schema)
-                  (recur elem-schema (subvec in 1) (conj aligned seg))
-                  [:fallback schema aligned]))
-              [:fallback schema aligned])
+            (if-let [child (when (and (int? segment)
+                                      (< segment (count children)))
+                             (nth children segment))]
+              (let [element-schema (if (= op :catn)
+                                     (if (and (vector? child) (>= (count child) 2))
+                                       (if (map? (nth child 1))
+                                         (when (>= (count child) 3) (nth child 2))
+                                         (nth child 1))
+                                       nil)
+                                     child)]
+                (if (some? element-schema)
+                  (recur element-schema
+                         (subvec remaining-path 1)
+                         (conj aligned-path segment))
+                  [:fallback schema aligned-path]))
+              [:fallback schema aligned-path])
 
             ;; `:map-of` — the `:in` KEY segment is normally dropped (like
             ;; the homogeneous index-bearing ops below) and the walk descends
@@ -690,29 +709,29 @@
             (let [key-schema (nth children 0 nil)]
               (if (or (schema-has-sensitive? key-schema)
                       (schema-has-opaque-child? key-schema))
-                [:fallback schema aligned]
+                [:fallback schema aligned-path]
                 (let [child (nth children 1 nil)]
                   (if (some? child)
-                    (recur child (subvec in 1) aligned)
-                    [:fallback schema aligned]))))
+                    (recur child (subvec remaining-path 1) aligned-path)
+                    [:fallback schema aligned-path]))))
 
             ;; Homogeneous index-bearing container — drop the index
             ;; segment and descend into the element schema.
             ;; `:vector`/`:sequential`/`:set` have one shared element
             ;; schema. The index is not a declarable slot for these, so it
-            ;; is dropped to align with the walker's index-free decl-paths.
+            ;; is dropped to align with the walker's index-free declaration paths.
             (contains? index-bearing-ops op)
             (let [child (nth children 0 nil)]
               (if (some? child)
-                (recur child (subvec in 1) aligned)
-                [:fallback schema aligned]))
+                (recur child (subvec remaining-path 1) aligned-path)
+                [:fallback schema aligned-path]))
 
             ;; Transparent wrappers contribute NO `:in` segment — descend
             ;; into the (single) inner schema without consuming a segment.
             (#{:maybe} op)
             (if-let [child (first children)]
-              (recur child in aligned)
-              [:fallback schema aligned])
+              (recur child remaining-path aligned-path)
+              [:fallback schema aligned-path])
 
             ;; Any other op (`:and`/`:or`/`:multi`/`:orn`/registry refs/
             ;; opaque values) — we can't reliably resolve the segment;
@@ -721,7 +740,7 @@
             ;; the consumed ancestor's `:sensitive?` is invisible in the
             ;; leftover, so the prefix MUST ride along).
             :else
-            [:fallback schema aligned]))))))
+            [:fallback schema aligned-path]))))))
 
 ;; The privacy sentinel substituted for a value-bearing path segment.
 ;; Spec 009 §Privacy — the framework-reserved keyword. Kept as a local
@@ -802,57 +821,65 @@
   Pure; same `(schema, in-path)` always produces the same output.
   Returns a vector."
   [schema in-path]
-  (letfn [(fail-closed-tail [out in]
+  (letfn [(fail-closed-tail [sanitized-path remaining-path]
             ;; Cannot resolve the schema further — scrub EVERY remaining
             ;; segment (rf2-612mri). A tail scalar cannot be proven a
             ;; structural locator past an unresolvable op (it may be a
             ;; value-bearing `:set` element), so keeping it would
             ;; under-redact; the resolvable navigable shapes keep their
             ;; locators on their own branches above and never reach here.
-            (into out (map (constantly path-redacted-sentinel)) in))]
-    (loop [schema schema
-           in     (vec in-path)
-           out    []]
-      (if (empty? in)
-        out
+            (into sanitized-path
+                  (map (constantly path-redacted-sentinel))
+                  remaining-path))]
+    (loop [schema         schema
+           remaining-path (vec in-path)
+           sanitized-path []]
+      (if (empty? remaining-path)
+        sanitized-path
         (if-not (and (vector? schema) (pos? (count schema)))
-          (fail-closed-tail out in)
+          (fail-closed-tail sanitized-path remaining-path)
           (let [op       (nth schema 0)
-                children (children-of schema)
-                seg      (nth in 0)]
+                children (schema-children schema)
+                segment  (nth remaining-path 0)]
             (cond
               ;; `:map` — a DECLARED key is a real app-db locator; keep it
               ;; and descend into the named child's tail schema.
               (contains? name-bearing-ops op)
-              (if-let [child (some (fn [c]
-                                     (when (and (vector? c) (>= (count c) 2)
-                                                (= (nth c 0) seg))
-                                       c))
+              (if-let [child (some (fn [candidate]
+                                     (when (and (vector? candidate)
+                                                (>= (count candidate) 2)
+                                                (= (nth candidate 0) segment))
+                                       candidate))
                                    children)]
-                (let [has-prop? (and (>= (count child) 2) (map? (nth child 1)))
-                      tail      (if has-prop?
-                                  (when (>= (count child) 3) (nth child 2))
-                                  (nth child 1))]
-                  (recur tail (subvec in 1) (conj out seg)))
+                (let [properties? (and (>= (count child) 2)
+                                       (map? (nth child 1)))
+                      child-schema (if properties?
+                                     (when (>= (count child) 3) (nth child 2))
+                                     (nth child 1))]
+                  (recur child-schema
+                         (subvec remaining-path 1)
+                         (conj sanitized-path segment)))
                 ;; Key not found — the segment is NOT a declared slot, so it
                 ;; cannot be proven a structural locator (rf2-j538f7.13). For
                 ;; a `[:map {:closed true} …]` extra-key failure Malli reports
                 ;; the CALLER-SUPPLIED EXTRA KEY VALUE itself as the `:in`
                 ;; segment — arbitrary user data (decoded JSON keys, headers,
                 ;; hostile input) that may itself be a credential. Keeping it
-                ;; (the earlier `(conj out seg)` shape) shipped the secret
+                ;; (the earlier `(conj sanitized-path segment)` shape) shipped the secret
                 ;; VERBATIM through `:path` / `:reason` despite `:value` /
                 ;; `:explain` being redacted. Fail closed INCLUDING the
                 ;; current segment; declared keys keep the precise branch
                 ;; above (an OPEN map never emits an extra-key error, so only
                 ;; undeclared / shape-drift segments land here).
-                (fail-closed-tail out in))
+                (fail-closed-tail sanitized-path remaining-path))
 
               ;; `:set` — the segment is the failing ELEMENT VALUE. ALWAYS
               ;; scrub (unnavigable + value-bearing) and descend into the
               ;; element schema.
               (= op :set)
-              (recur (nth children 0 nil) (subvec in 1) (conj out path-redacted-sentinel))
+              (recur (nth children 0 nil)
+                     (subvec remaining-path 1)
+                     (conj sanitized-path path-redacted-sentinel))
 
               ;; `:map-of` — the segment is the failing entry's KEY (Malli
               ;; reports the key VALUE verbatim, e.g. `["secret-token-123"
@@ -874,31 +901,35 @@
               ;;     explain redaction already takes on an opaque key. Descend
               ;;     into the VALUE schema (child 1) either way.
               (= op :map-of)
-              (let [key-schema (nth children 0 nil)
-                    val-schema (nth children 1 nil)
-                    seg-out    (if (or (schema-has-sensitive? key-schema)
-                                       (schema-has-opaque-child? key-schema))
-                                 path-redacted-sentinel
-                                 seg)]
-                (recur val-schema (subvec in 1) (conj out seg-out)))
+              (let [key-schema        (nth children 0 nil)
+                    value-schema      (nth children 1 nil)
+                    sanitized-segment (if (or (schema-has-sensitive? key-schema)
+                                              (schema-has-opaque-child? key-schema))
+                                        path-redacted-sentinel
+                                        segment)]
+                (recur value-schema
+                       (subvec remaining-path 1)
+                       (conj sanitized-path sanitized-segment)))
 
               ;; Other index-bearing ops — the segment is a navigable index
               ;; (`:vector` / `:sequential` / `:tuple` / `:cat` / `:catn`);
               ;; keep it and descend into the element schema. The
               ;; per-position ops (`:tuple` / `:cat` / `:catn`, rf2-ss06u.4 /
-              ;; rf2-4q681i) index `children[seg]`; `:catn` then strips the
+              ;; rf2-4q681i) index `children[segment]`; `:catn` then strips the
               ;; decorative name (`[name props? schema]`) to reach the
               ;; element schema. The homogeneous ones (`:vector` /
               ;; `:sequential`) share one element schema (child 0).
               (contains? index-bearing-ops op)
               (let [child (cond
                             (#{:tuple :cat} op)
-                            (when (and (int? seg) (< seg (count children)))
-                              (nth children seg))
+                            (when (and (int? segment)
+                                       (< segment (count children)))
+                              (nth children segment))
 
                             (= op :catn)
-                            (when (and (int? seg) (< seg (count children)))
-                              (let [entry (nth children seg)]
+                            (when (and (int? segment)
+                                       (< segment (count children)))
+                              (let [entry (nth children segment)]
                                 (when (and (vector? entry) (>= (count entry) 2))
                                   (if (map? (nth entry 1))
                                     (when (>= (count entry) 3) (nth entry 2))
@@ -906,15 +937,17 @@
 
                             :else
                             (nth children 0 nil))]
-                (recur child (subvec in 1) (conj out seg)))
+                (recur child
+                       (subvec remaining-path 1)
+                       (conj sanitized-path segment)))
 
               ;; `:maybe` — genuinely single-child transparent
               ;; (`[:maybe inner]`); descend into the unambiguous inner
               ;; schema without consuming a segment.
               (= op :maybe)
               (if-let [child (first children)]
-                (recur child in out)
-                (fail-closed-tail out in))
+                (recur child remaining-path sanitized-path)
+                (fail-closed-tail sanitized-path remaining-path))
 
               ;; `:and` / `:or` — MULTI-child wrappers (rf2-jqx2at). With
               ;; more than one child the branch that produced the failing
@@ -929,13 +962,13 @@
               ;; exactly like `:multi` / `:orn` below.
               (#{:and :or} op)
               (if (= (count children) 1)
-                (recur (first children) in out)
-                (fail-closed-tail out in))
+                (recur (first children) remaining-path sanitized-path)
+                (fail-closed-tail sanitized-path remaining-path))
 
               ;; Multi-branch / opaque op — the branch is ambiguous, so the
               ;; lockstep walk cannot continue safely. Fail CLOSED.
               :else
-              (fail-closed-tail out in))))))))
+              (fail-closed-tail sanitized-path remaining-path))))))))
 
 (defn schema-sensitive-at?
   "Path-targeted sensitivity check (rf2-oh4se). Returns true when the
@@ -999,7 +1032,7 @@
   [schema in-path]
   (if (or (nil? in-path) (empty? in-path))
     (or (schema-has-sensitive? schema) (schema-has-opaque-child? schema))
-    (let [[outcome aligned-or-sub aligned-third] (align-in-path schema in-path)]
+    (let [[outcome :as alignment] (align-in-path schema in-path)]
       (if (= outcome :fallback)
         ;; Couldn't fully resolve the path. Redact fail-SAFE iff EITHER:
         ;;   - the leftover subschema carries any sensitive declaration
@@ -1013,38 +1046,39 @@
         ;;     consumed-ancestor `:sensitive?` is invisible in the leftover
         ;;     subtree; without this the failing value under a sensitive
         ;;     ancestor wrapped by :and/:multi/:orn LEAKS verbatim).
-        ;; The ancestor check is `prefix? decl-path aligned-third` only —
+        ;; The ancestor check is `prefix? declaration-path aligned-prefix` only —
         ;; a sensitive SIBLING outside the consumed prefix must NOT taint
         ;; the failing slot (preserves the precise-narrowing win). Here
-        ;; `aligned-third` is the aligned PREFIX (the `:fallback` shape).
+        ;; `aligned-prefix` is the third value in the `:fallback` shape.
         ;;
-        ;; `opaque-nested-tail?`, not `schema-has-opaque-child?`: `aligned-
-        ;; or-sub` was reached by DESCENDING from the root (exactly the
+        ;; `opaque-nested-tail?`, not `schema-has-opaque-child?`:
+        ;; `remaining-schema` was reached by DESCENDING from the root (exactly the
         ;; nested position `schema-has-opaque-child?`'s docstring
         ;; describes), so a bare fn/symbol found here is provably
         ;; flag-free the same way a nested `pos-int?` tail is — it is
         ;; NOT the whole-registration root case `schema-opaque?` fails
         ;; closed on.
-        (or (schema-has-sensitive? aligned-or-sub)
-            (opaque-nested-tail? aligned-or-sub)
-            (let [decls (extract-sensitive-paths-from-schema schema [])]
-              (boolean
-                (some (fn [decl-path] (prefix? decl-path aligned-third))
-                      (keys decls)))))
-        ;; Fully aligned (`:ok`). `aligned-or-sub` is the aligned decl-path;
-        ;; `aligned-third` is the LEAF SCHEMA the walk arrived at (the
+        (let [[_ remaining-schema aligned-prefix] alignment]
+          (or (schema-has-sensitive? remaining-schema)
+              (opaque-nested-tail? remaining-schema)
+              (let [declarations (extract-sensitive-paths-from-schema schema [])]
+                (boolean
+                  (some (fn [declaration-path]
+                          (prefix? declaration-path aligned-prefix))
+                        (keys declarations))))))
+        ;; Fully aligned (`:ok`). `aligned-path` is the declaration path;
+        ;; `leaf-schema` is the schema the walk arrived at (the
         ;; `:ok` shape). Per rf2-hi0tf8 that leaf may itself be a nested
         ;; opaque child the path resolution walked straight into — check
         ;; it alongside the existing ancestor/descendant sensitive-decl
         ;; scan. `opaque-nested-tail?` (not `schema-has-opaque-child?`) for
-        ;; the same reason as the `:fallback` branch above — `leaf` was
+        ;; the same reason as the `:fallback` branch above — `leaf-schema` was
         ;; reached by descent, so a bare fn/symbol there is flag-free.
-        (let [decls   (extract-sensitive-paths-from-schema schema [])
-              in-v    aligned-or-sub
-              leaf    aligned-third]
-          (or (opaque-nested-tail? leaf)
+        (let [[_ aligned-path leaf-schema] alignment
+              declarations (extract-sensitive-paths-from-schema schema [])]
+          (or (opaque-nested-tail? leaf-schema)
               (boolean
-                (some (fn [decl-path]
-                        (or (prefix? decl-path in-v)   ;; ancestor sensitive
-                            (prefix? in-v decl-path))) ;; descendant sensitive
-                      (keys decls)))))))))
+                (some (fn [declaration-path]
+                        (or (prefix? declaration-path aligned-path)   ;; ancestor sensitive
+                            (prefix? aligned-path declaration-path))) ;; descendant sensitive
+                      (keys declarations)))))))))

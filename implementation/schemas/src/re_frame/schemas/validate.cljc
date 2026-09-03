@@ -159,9 +159,9 @@
 ;; broader `schema-has-sensitive?` decision.
 (def ^:private app-db-narrowed-slots
   "The value-bearing slots the app-db hot path NARROWS to the failing leaf
-  (`:value` = `(get-in reg-slice in-path)`). These — and ONLY these — use the
+  (`:value` = `(get-in registered-value in-path)`). These — and ONLY these — use the
   leaf-precise `schema-sensitive-at?` decision; every other value-bearing slot
-  on that surface carries the whole reg-slice and uses the root check."
+  on that surface carries the whole registered value and uses the root check."
   #{:value})
 
 (defn- scrub-slots
@@ -318,8 +318,9 @@
   failure trace itself)."
   [explanation]
   (when (some? explanation)
-    (when-let [hum-fn (late-bind/get-fn :schemas/humanize-explain!)]
-      (try (hum-fn explanation) (catch #?(:clj Throwable :cljs :default) _ nil)))))
+    (when-let [humanize-fn (late-bind/get-fn :schemas/humanize-explain!)]
+      (try (humanize-fn explanation)
+           (catch #?(:clj Throwable :cljs :default) _ nil)))))
 
 (defn- emit-validation-failure!
   "Single emit seam for `:rf.error/schema-validation-failure` traces.
@@ -375,9 +376,9 @@
 
   Catching per entry lets callers emit `:rf.error/malformed-schema`, fail
   closed, and continue validating sibling registrations."
-  [vf schema value]
+  [validate-fn schema value]
   (try
-    (boolean (vf schema value))
+    (boolean (validate-fn schema value))
     (catch #?(:clj Throwable :cljs :default) ex
       [:malformed ex])))
 
@@ -454,15 +455,15 @@
   [reg-meta value walk-schema? build-base-tags continue?]
   (if-not (continue?)
     :rf/stale-incarnation
-    (if-let [vf @validator/validator-fn]
+    (if-let [validate-fn @validator/validator-fn]
       ;; KEY-presence, not value truthiness (rf2-6eh5h): a present nil /
       ;; false `:schema` is delegated verbatim — default Malli then throws
       ;; on the non-schema form and the malformed isolation below fails
       ;; CLOSED; a custom validator interprets its own token.
       (if (contains? reg-meta :schema)
         ;; Isolate malformed schemas before a caller can treat a throw as pass.
-        (let [schema (:schema reg-meta)
-              result (validate-entry-result vf schema value)]
+        (let [schema             (:schema reg-meta)
+              validation-result (validate-entry-result validate-fn schema value)]
           ;; The registered validator is callback-bearing. A destroy+return or
           ;; destroy+throw makes its result inert before explanation, schema
           ;; walking, tag construction, or diagnostic delivery can begin.
@@ -470,7 +471,7 @@
             :rf/stale-incarnation
             (cond
               ;; Conformed.
-              (true? result)
+              (true? validation-result)
               true
 
               ;; Malformed registered schema (validator threw). Surface a
@@ -480,27 +481,28 @@
               ;; proved sensitivity — omitting the value is fail-closed,
               ;; mirroring `validate-app-schema!`). Return false so the caller
               ;; runs its normal recovery instead of the swallowed pass.
-              (and (vector? result) (= :malformed (first result)))
-              (let [ex     (second result)
-                    reason #?(:clj  (.getMessage ^Throwable ex)
-                              :cljs (ex-message ex))
+              (and (vector? validation-result)
+                   (= :malformed (first validation-result)))
+              (let [validator-error (second validation-result)
+                    reason          #?(:clj  (.getMessage ^Throwable validator-error)
+                                       :cljs (ex-message validator-error))
                     ;; build-base-tags called with a nil explanation, then
                     ;; stripped of value-bearing slots — no value leaks into a
                     ;; malformed-schema trace.
-                    base   (apply dissoc (build-base-tags schema nil)
-                                  value-bearing-slots)]
+                    base-tags       (apply dissoc (build-base-tags schema nil)
+                                           value-bearing-slots)]
                 (if-not (continue?)
                   :rf/stale-incarnation
                   (do
                     (emit-malformed-schema!
-                      (assoc base
+                      (assoc base-tags
                              :schema   schema
                              :reason   (str "Registered schema " (pr-str schema)
                                             " is malformed and could not be "
                                             "evaluated: " reason)
                              ;; Preserve the surface-specific recovery the
                              ;; caller supplied; default only when absent.
-                             :recovery (get base :recovery :no-recovery)))
+                             :recovery (get base-tags :recovery :no-recovery)))
                     (if (continue?) false :rf/stale-incarnation))))
 
               ;; Legitimate validation failure — the existing emit path.
@@ -653,7 +655,7 @@
    ;;
    ;; Dereference the validator once outside the per-schema loop.
    (if interop/debug-enabled?
-     (if-let [vf @validator/validator-fn]
+     (if-let [validate-fn @validator/validator-fn]
        ;; reduce + atomic short-circuit replaced doseq so we can emit
        ;; a trace per failure (full surface for consumers) AND return
        ;; a single conjoined boolean (single signal for the rollback
@@ -662,12 +664,12 @@
                ok?     true]
           (if-not (continue?)
             :rf/stale-incarnation
-            (if-let [[reg-path schema-meta] (first entries)]
-            (let [reg-slice (get-in db reg-path)
-                  schema    (:schema schema-meta)
+            (if-let [[registered-path registration-metadata] (first entries)]
+            (let [registered-value  (get-in db registered-path)
+                  schema            (:schema registration-metadata)
                   ;; A malformed schema cannot abort sibling validation or
                   ;; escape to a caller that treats defensive throws as pass.
-                 result    (validate-entry-result vf schema reg-slice)]
+                  validation-result (validate-entry-result validate-fn schema registered-value)]
               (cond
                 ;; The validator callback may synchronously destroy the exact
                 ;; owner. Its result is inert and no sibling/explainer/emit runs.
@@ -675,7 +677,7 @@
                 :rf/stale-incarnation
 
                ;; Conformed — carry the running pass-state forward.
-               (true? result)
+               (true? validation-result)
                (recur (next entries) ok?)
 
                ;; Malformed registered schema (validator threw). Surface a
@@ -683,18 +685,19 @@
                ;; CLOSED (`ok? false` → the router rolls back; we do NOT
                ;; install blind). Continue to the sibling entries so one
                ;; bad schema does not disable validation frame-wide.
-               (and (vector? result) (= :malformed (first result)))
-               (let [ex     (second result)
-                     reason #?(:clj  (.getMessage ^Throwable ex)
-                               :cljs (ex-message ex))]
+               (and (vector? validation-result)
+                    (= :malformed (first validation-result)))
+               (let [validator-error (second validation-result)
+                     reason          #?(:clj  (.getMessage ^Throwable validator-error)
+                                        :cljs (ex-message validator-error))]
                  (emit-malformed-schema!
                    (cond-> {:where           :app-db
-                            :path            reg-path
-                            :registered-path reg-path
+                            :path            registered-path
+                            :registered-path registered-path
                             :schema          schema
                             :frame           frame-id
                             :reason          (str "Registered app-db schema at path "
-                                                  reg-path " is malformed and could "
+                                                  registered-path " is malformed and could "
                                                   "not be evaluated: " reason)
                             :rollback?       true
                             :recovery        :no-recovery}
@@ -736,7 +739,7 @@
                  ;; sensitive does not redact THOSE (the precise-narrowing
                  ;; win; ancestor- OR descendant-sensitive at the leaf
                  ;; counts). The WHOLE-PAYLOAD slots (`:explain` /
-                 ;; `:explain-humanized`, which carry the whole reg-slice)
+                 ;; `:explain-humanized`, which carry the whole registered value)
                  ;; stay under the coarse `schema-has-sensitive?` root
                  ;; check because a conforming sensitive sibling rides inside
                  ;; them.
@@ -748,16 +751,16 @@
                  ;; perform the actual container restoration.
                  ;; Explainer failure is diagnostic only and cannot change the
                  ;; false verdict contributed by this entry.
-                  (let [explanation (safe-explain schema reg-slice)]
+                  (let [explanation (safe-explain schema registered-value)]
                     (if-not (continue?)
                       :rf/stale-incarnation
                       (let [in-path     (failing-in-path explanation)
-                       leaf-value  (if in-path
-                                     (get-in reg-slice in-path)
-                                     reg-slice)
+                             leaf-value (if in-path
+                                          (get-in registered-value in-path)
+                                          registered-value)
                        ;; The app-db
                        ;; hot path is the ONLY surface that NARROWS a slot:
-                       ;; `:value` is `(get-in reg-slice in-path)` — just the
+                       ;; `:value` is `(get-in registered-value in-path)` — just the
                        ;; failing leaf. So it carries TWO redaction decisions
                        ;; scoped to the two value-scopes it ships:
                        ;;
@@ -774,7 +777,7 @@
                        ;;     (`schema-has-sensitive?`). This governs the
                        ;;     WHOLE-PAYLOAD slots `:explain` /
                        ;;     `:explain-humanized`, which carry the WHOLE
-                       ;;     `reg-slice` verbatim (Malli's explanation root
+                       ;;     `registered-value` verbatim (Malli's explanation root
                        ;;     `:value` is the whole input map / the humanized
                        ;;     decomposition is path-shaped over it). A
                        ;;     Conforming sensitive siblings such as a valid jwt
@@ -840,12 +843,12 @@
                        ;; `:vector` / `:tuple` / `:map` segments + NON-sensitive
                        ;; `:map-of` keys are kept so `:path` stays a useful
                        ;; locator for those shapes).
-                       path-in     (if (and in-path leaf-sensitive?)
-                                     (walker/sanitize-sensitive-path schema in-path)
-                                     in-path)
-                        leaf-path   (if path-in
-                                      (vec (concat reg-path path-in))
-                                      reg-path)]
+                            trace-in-path   (if (and in-path leaf-sensitive?)
+                                              (walker/sanitize-sensitive-path schema in-path)
+                                              in-path)
+                            trace-path      (if trace-in-path
+                                              (vec (concat registered-path trace-in-path))
+                                              registered-path)]
                        ;; Humanize from the raw
                        ;; explanation, before redaction, so the
                        ;; `:explain-humanized` slot is scrubbed
@@ -855,33 +858,33 @@
                       (if-not (continue?)
                         :rf/stale-incarnation
                         (let [base-tags   (cond-> {:where           :app-db
-                                            :path            leaf-path
-                                            :registered-path reg-path
-                                            :value           leaf-value
-                                            :frame           frame-id
-                                            :explain         explanation
-                                            :reason          (reason-string
-                                                               "App-db at path "
-                                                               leaf-path
-                                                               " failed schema "
-                                                               schema leaf-value)
-                                            :rollback?       true
-                                            :recovery        :no-recovery}
-                                     event-id          (assoc :failing-id event-id)
-                                     (some? humanized) (assoc :explain-humanized humanized))
+                                                   :path            trace-path
+                                                   :registered-path registered-path
+                                                   :value           leaf-value
+                                                   :frame           frame-id
+                                                   :explain         explanation
+                                                   :reason          (reason-string
+                                                                      "App-db at path "
+                                                                      trace-path
+                                                                      " failed schema "
+                                                                      schema leaf-value)
+                                                   :rollback?       true
+                                                   :recovery        :no-recovery}
+                                            event-id          (assoc :failing-id event-id)
+                                            (some? humanized) (assoc :explain-humanized humanized))
                        ;; PER-SLOT DECISION SCOPING: `:value` (narrowed) under
                        ;; the leaf decision; `:explain` / `:explain-humanized`
-                       ;; (whole reg-slice) under the root decision. When the
+                       ;; (whole registered value) under the root decision. When the
                        ;; schema is `:large?` and not
                        ;; sensitive) the value-bearing slots elide to the size
-                       ;; marker (built from the whole `reg-slice`) — sensitive
+                       ;; marker (built from the whole `registered-value`) — sensitive
                        ;; wins, so this arm only fires when neither the leaf nor
                        ;; the whole-payload decision redacted.
                               tags        (cond-> (redact-tags-per-slot base-tags
-                                                                 whole-sensitive?
-                                                                 leaf-sensitive?
-                                                                 app-db-narrowed-slots)
-                                           whole-large? (elide-large-slots reg-slice))]
+                                                                        whole-sensitive?
+                                                                        leaf-sensitive?
+                                                                        app-db-narrowed-slots)
+                                            whole-large? (elide-large-slots registered-value))]
                           (if-not (continue?)
                             :rf/stale-incarnation
                             (do

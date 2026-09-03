@@ -23,7 +23,7 @@
   pins — both flags share one traversal, so locking both ends pins the
   parameterisation contract.
 
-  `:hint` propagation (decl-from-props): the per-slot props may carry an
+  `:hint` propagation (declaration-from-properties): the per-slot props may carry an
   optional `:hint` that the walker propagates verbatim into the
   declaration and omits when absent (Spec 009 §Size elision marker
   shape). Only one integration test touched `:hint` (and only for
@@ -130,9 +130,9 @@
     (is (= {} (schemas/extract-large-paths-from-schema [] [])))
     (is (= {} (schemas/extract-large-paths-from-schema [:string] [])))))
 
-;; ---- :hint propagation (decl-from-props) ---------------------------------
+;; ---- :hint propagation (declaration-from-properties) ---------------------
 ;;
-;; `decl-from-props` propagates an optional `:hint` verbatim into the
+;; `declaration-from-properties` propagates an optional `:hint` verbatim into the
 ;; declaration and OMITS the key entirely when absent so the marker
 ;; shape stays minimal (Spec 009 §Size elision marker shape). Pinned
 ;; here at the walker level for BOTH flags.
@@ -172,7 +172,7 @@
 (deftest hint-only-rides-when-flag-is-true
   (testing "a slot carrying :hint but NOT the flag set to true produces
             no declaration at all — the :hint is inert without its flag
-            (decl-from-props gates on the flag-key, not on :hint)"
+            (declaration-from-properties gates on the flag-key, not on :hint)"
     (is (= {} (schemas/extract-large-paths-from-schema
                 [:map [:blob {:hint "orphan-hint"} :string]] []))
         ":hint without :large? true → no declaration")
