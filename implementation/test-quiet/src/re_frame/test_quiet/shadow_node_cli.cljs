@@ -51,6 +51,26 @@
     {:test-syms []}
     args))
 
+(defn- test-var-names
+  "The `[namespace-symbol fully-qualified-symbol]` a test var's `{:ns :name}`
+  metadata names — both rebuilt through `str`, deliberately.
+
+  `(symbol <ns-symbol> <name-symbol>)` keeps the two parts UNCONVERTED, and
+  ClojureScript hashes a symbol by hashing those parts as strings: a Symbol
+  object has no `.length`, so every symbol built that way hashes to the same
+  constant.  It stays `=` to the reader's `ns/name`, which is what made this
+  invisible — a set finds such a key by `=` while it is small enough to be
+  array-map-backed, and stops finding it above eight entries, where the set
+  hashes.  So `--test=` selected correctly for up to eight qualified
+  selectors and silently selected NOTHING at nine.  Measured, then fixed,
+  while pointing the contract test at this function (rf2-6r9j.76); the copy
+  of the predicate it replaced could not have found it.  The namespace half
+  is rebuilt the same way so the two cannot drift apart."
+  [test-var]
+  (let [{test-namespace :ns test-name :name} (meta test-var)]
+    [(symbol (str test-namespace))
+     (symbol (str test-namespace) (str test-name))]))
+
 (defn select-matching-test-vars
   "The `--test=` selection rule over an explicit `test-vars` collection: a
   SIMPLE symbol in `test-selectors` selects every var in that namespace, a
@@ -69,10 +89,9 @@
   (let [selected-namespaces  (->> test-selectors (filter simple-symbol?) set)
         selected-var-symbols (->> test-selectors (filter qualified-symbol?) set)]
     (filter (fn [test-var]
-              (let [{test-name :name test-namespace :ns} (meta test-var)]
+              (let [[test-namespace test-var-symbol] (test-var-names test-var)]
                 (or (contains? selected-namespaces test-namespace)
-                    (contains? selected-var-symbols
-                               (symbol test-namespace test-name)))))
+                    (contains? selected-var-symbols test-var-symbol))))
             test-vars)))
 
 ;; ----------------------------------------------------------------------
@@ -127,16 +146,9 @@
   that matches nothing must be rejected, not
   reported as a 0-test success."
   [test-selectors matched-test-vars]
-  (let [matched-namespaces (->> matched-test-vars
-                                (map (comp :ns meta))
-                                set)
-        matched-var-symbols (->> matched-test-vars
-                                 (map (fn [test-var]
-                                        (let [{test-namespace :ns
-                                               test-name      :name}
-                                              (meta test-var)]
-                                          (symbol test-namespace test-name))))
-                                 set)]
+  (let [matched-names       (map test-var-names matched-test-vars)
+        matched-namespaces  (set (map first matched-names))
+        matched-var-symbols (set (map second matched-names))]
     (remove (fn [selector]
               (if (qualified-symbol? selector)
                 (contains? matched-var-symbols selector)
