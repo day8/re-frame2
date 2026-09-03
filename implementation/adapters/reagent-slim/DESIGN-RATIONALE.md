@@ -91,7 +91,9 @@ re-frame2 was already React-18-or-better in practice — every example mounts vi
 
 ### Migration note
 
-Adopting reagent-slim means bumping `react` and `react-dom` to 19.x in your `package.json`. Replace `reagent.dom/render` calls with `reagent2.dom.client/{create-root, render}`. Replace `reagent.dom/unmount-component-at-node` with `reagent2.dom.client/unmount`. If you have a `r/dom-node` call, it must move to a `:ref` callback — `findDOMNode` is gone. Stock-Reagent users on React 17 or 18 stay on `re-frame2-reagent`.
+Adopting reagent-slim means bumping `react` and `react-dom` to 19.x in your `package.json`. Replace `reagent.dom/render` calls with `reagent2.dom.client/{create-root, render}`. Replace `reagent.dom/unmount-component-at-node` with `reagent2.dom.client/unmount`. If you have a `reagent.dom/dom-node` call (historically written `(rdom/dom-node this)` against `[reagent.dom :as rdom]`), it must move to a `:ref` callback — `findDOMNode` is gone.
+
+**Staying on the bridge is not a way to avoid that work (rf2-6r9j.37).** `day8/re-frame2-reagent` is itself pinned to Reagent 2.0.1 on React 19 — see [`../reagent/README.md`](../reagent/README.md) — and the React-19 removals are React's, not the rewrite's. Reagent 2.0.1 deleted `reagent.dom/dom-node` outright, so that call site fails to compile on the bridge too; `reagent.dom/render`, `unmount-component-at-node` and `force-update-all` still exist there as Vars but call `react-dom` functions React 19 no longer provides, so they warn and then fail at runtime. The migration corpus's [M-42](../../../migration/from-re-frame-v1/README.md) is the canonical reference for both targets.
 
 ---
 
@@ -384,13 +386,13 @@ This honesty matters because the doc you are reading is for adopters making a re
 | Dimension | re-frame2-reagent | reagent-slim |
 |---|---|---|
 | Maven coord | `day8/re-frame2-reagent` | `day8/reagent-slim` |
-| React floor | React 17/18 (stock-Reagent constrained) | React 19 |
+| React floor | React 19 (Reagent 2.0.1 pinned; no 17/18 fallback) | React 19 |
 | Surface | full Reagent surface (~30+ symbols) | ~20 symbols, re-com/re-frame2 scoped |
 | Bundle (gzip) vs stock Reagent 1.3 | baseline | -25% to -33% (typical), -70% (SSR-using) |
 | Form-3 keys | all React lifecycle keys | 7-key cap |
 | `convert-prop-value` | stringifies all keywords | HTML-attribute names only |
-| `r/dom-node` / `findDOMNode` | works | absent (React 19 — API gone; compile error) |
-| `reagent.dom/render` | works | absent (React 19 — API gone; compile error) |
+| `reagent.dom/dom-node` / `findDOMNode` | absent (Reagent 2.0.1 deleted the Var; compile error) | absent (React 19 — API gone; compile error) |
+| `reagent.dom/render`, `unmount-component-at-node`, `force-update-all` | Vars still defined, but they call `react-dom` functions React 19 removed — warn, then fail at runtime. Use `reagent.dom.client` | absent (compile error) |
 | Trace integration | requires 10x v1 monkey-patches | native to renderer |
 | Source-coord stamping | post-render tree walk | native to renderer |
 | `r/flush` | brittle under React 18+ concurrent | `flush-views!` deterministic |
@@ -401,8 +403,8 @@ This honesty matters because the doc you are reading is for adopters making a re
 
 Adoption shape:
 
-- **Stock Reagent codebase, full surface usage, on React 17/18:** stay on `re-frame2-reagent`. No reason to migrate.
-- **Stock Reagent codebase, re-com surface only, on React 19:** migrate to `reagent-slim`. The migration is a require-rewrite plus mount-API swap; everything else is unchanged.
+- **Stock Reagent codebase, full surface usage:** stay on `re-frame2-reagent`. No reason to migrate. Note this is not a React-17/18 escape hatch — the bridge is pinned to Reagent 2.0.1 on React 19 as well; what it buys you is the full Reagent surface, not an older React.
+- **Stock Reagent codebase, re-com surface only:** migrate to `reagent-slim`. The migration is a require-rewrite plus mount-API swap; everything else is unchanged.
 - **re-frame2-native codebase, on React 19:** migrate to `reagent-slim`. You get the full integration (trace bus, source-coord, frame-context, deterministic flush) plus the bundle savings.
 - **Codebase using a banned surface (`with-let`, `cursor`, banned Form-3 key, etc.):** either rewrite into the supported surface, or stay on `re-frame2-reagent`. Both are first-class.
 
