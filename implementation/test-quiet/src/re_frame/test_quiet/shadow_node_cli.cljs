@@ -51,6 +51,30 @@
     {:test-syms []}
     args))
 
+(defn select-matching-test-vars
+  "The `--test=` selection rule over an explicit `test-vars` collection: a
+  SIMPLE symbol in `test-selectors` selects every var in that namespace, a
+  QUALIFIED symbol selects exactly the var with that fully-qualified name.
+  Vars are matched through their `{:ns :name}` metadata and returned in
+  `test-vars` order.
+
+  This IS the shipped selector — `shadow-node/find-matching-test-vars` is
+  this function over `shadow.test.env/get-test-vars`.  It lives here, apart
+  from the `:dev/always` runner ns, for the same reason `unmatched-selectors`
+  below does: a test cannot require that ns without forming a compile cycle,
+  so a rule kept there could only be pinned by a second, handwritten copy of
+  the predicate — which is exactly the false green this move closes
+  (rf2-6r9j.76)."
+  [test-selectors test-vars]
+  (let [selected-namespaces  (->> test-selectors (filter simple-symbol?) set)
+        selected-var-symbols (->> test-selectors (filter qualified-symbol?) set)]
+    (filter (fn [test-var]
+              (let [{test-name :name test-namespace :ns} (meta test-var)]
+                (or (contains? selected-namespaces test-namespace)
+                    (contains? selected-var-symbols
+                               (symbol test-namespace test-name)))))
+            test-vars)))
+
 ;; ----------------------------------------------------------------------
 ;; Whole-suite test-count floor (rf2-qqzmf).
 ;;
