@@ -36,9 +36,12 @@ For trivial boots (≤3 steps, no error states, no progress UI), use the chained
    {:under-retry-limit? (fn [{:keys [data]}] (< (:phase-attempt data) 3))}
 
    :actions
-   {:record-config (fn [{data :data [_ c] :event}] {:data (assoc data :config c)})
-    :record-user   (fn [{data :data [_ u] :event}] {:data (assoc data :user u)})
-    :record-error  (fn [{data :data [_ e] :event}] {:data (assoc data :error e)})
+   {:record-config (fn [{machine-data :data [_ config-value] :event}]
+                     {:data (assoc machine-data :config config-value)})
+    :record-user   (fn [{machine-data :data [_ user-value] :event}]
+                     {:data (assoc machine-data :user user-value)})
+    :record-error  (fn [{machine-data :data [_ error-value] :event}]
+                     {:data (assoc machine-data :error error-value)})
     :bump-attempt  (fn [{:keys [data]}]            {:data (update data :phase-attempt inc)})
 
     ;; CONSOLIDATED :entry — :set-phase + :resolve-initial-route in one fn.
@@ -49,10 +52,14 @@ For trivial boots (≤3 steps, no error states, no progress UI), use the chained
       {:data (assoc data :phase :routing :phase-attempt 0)
        :fx   [[:dispatch [:rf.route/handle-url-change (.. js/window -location -href)]]]})
 
-    :phase-configuring (fn [{d :data}] {:data (assoc d :phase :configuring :phase-attempt 0)})
-    :phase-auth        (fn [{d :data}] {:data (assoc d :phase :authenticating)})
-    :phase-profile     (fn [{d :data}] {:data (assoc d :phase :loading-profile)})
-    :phase-hydrate     (fn [{d :data}] {:data (assoc d :phase :hydrating)})}
+    :phase-configuring (fn [{machine-data :data}]
+                         {:data (assoc machine-data :phase :configuring :phase-attempt 0)})
+    :phase-auth        (fn [{machine-data :data}]
+                         {:data (assoc machine-data :phase :authenticating)})
+    :phase-profile     (fn [{machine-data :data}]
+                         {:data (assoc machine-data :phase :loading-profile)})
+    :phase-hydrate     (fn [{machine-data :data}]
+                         {:data (assoc machine-data :phase :hydrating)})}
 
    :states
    {:configuring
