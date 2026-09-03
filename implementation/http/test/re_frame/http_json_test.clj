@@ -1,4 +1,4 @@
-(ns re-frame.util-json-test
+(ns re-frame.http-json-test
   "Unit tests for `re-frame.http.json` on JVM (Cheshire path).
 
   Beads:
@@ -17,7 +17,7 @@
                  are moot — Cheshire is RFC-8259-conforming and bulletproof
                  around `\\uXXXX` escapes by construction."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.http.json :as util-json]))
+            [re-frame.http.json :as http-json]))
 
 ;; ---- rf2-wu1n5 — keyword-interning cap -----------------------------------
 
@@ -34,13 +34,13 @@
   (testing "rf2-wu1n5 — Cheshire branch caps unique-key cardinality"
     (let [s (big-json 50)]
       ;; Under the cap → success.
-      (is (map? (util-json/json-parse s {:max-decoded-keys 100}))
+      (is (map? (http-json/json-parse s {:max-decoded-keys 100}))
           "50 keys under cap=100 should succeed")
       ;; At the cap exactly → success (50 unique strings ≤ 50).
-      (is (map? (util-json/json-parse s {:max-decoded-keys 50}))
+      (is (map? (http-json/json-parse s {:max-decoded-keys 50}))
           "50 keys at cap=50 should succeed")
       ;; Over the cap → throws tagged ex-info.
-      (let [thrown (try (util-json/json-parse s {:max-decoded-keys 10}) ::no-throw
+      (let [thrown (try (http-json/json-parse s {:max-decoded-keys 10}) ::no-throw
                         (catch clojure.lang.ExceptionInfo e e))
             data   (when (instance? clojure.lang.ExceptionInfo thrown)
                      (ex-data thrown))]
@@ -56,11 +56,11 @@
   (testing "rf2-wu1n5 — default cap (`default-max-decoded-keys`) fires
   when no opts supplied."
     ;; Sanity: the documented constant is what we say it is.
-    (is (= 10000 util-json/default-max-decoded-keys))
+    (is (= 10000 http-json/default-max-decoded-keys))
     ;; A payload one-over the documented default trips the cap when no
     ;; per-call override is supplied.
-    (let [s (big-json (inc util-json/default-max-decoded-keys))
-          thrown (try (util-json/json-parse s) ::no-throw
+    (let [s (big-json (inc http-json/default-max-decoded-keys))
+          thrown (try (http-json/json-parse s) ::no-throw
                       (catch clojure.lang.ExceptionInfo e e))
           data   (when (instance? clojure.lang.ExceptionInfo thrown)
                    (ex-data thrown))]
@@ -68,14 +68,14 @@
           "10001-key payload with no opts must trip the default cap")
       (is (= :rf.error/malformed-json (:rf.error/id data)))
       (is (= :too-many-keys (:cause data)))
-      (is (= util-json/default-max-decoded-keys (:limit data))))))
+      (is (= http-json/default-max-decoded-keys (:limit data))))))
 
 (deftest cap-counts-unique-not-total
   (testing "rf2-wu1n5 — repeated keys don't multiply the count"
     ;; 1000 entries but only 5 unique key strings: {\"a\":1,\"a\":2,...}
     (let [pairs (clojure.string/join "," (repeat 200 "\"a\":1,\"b\":2,\"c\":3,\"d\":4,\"e\":5"))
           s     (str "{" pairs "}")]
-      (is (map? (util-json/json-parse s {:max-decoded-keys 10}))
+      (is (map? (http-json/json-parse s {:max-decoded-keys 10}))
           "5 unique keys under cap=10 should succeed even with 1000 entries"))))
 
 ;; ---- rf2-dgsu1 — Cheshire is mandatory; malformed JSON propagates --------
@@ -85,9 +85,9 @@
   `\\uXXXX` escapes correctly. The previous hand-rolled fallback's
   `\\uXXXX` bounds-checking (rf2-263km) is moot — Cheshire is
   RFC-8259-conforming."
-    (is (= "A"   (util-json/json-parse "\"\\u0041\"")))
-    (is (= "AB"  (util-json/json-parse "\"\\u0041\\u0042\"")))
-    (is (= "café" (util-json/json-parse "\"caf\\u00e9\"")))))
+    (is (= "A"   (http-json/json-parse "\"\\u0041\"")))
+    (is (= "AB"  (http-json/json-parse "\"\\u0041\\u0042\"")))
+    (is (= "café" (http-json/json-parse "\"caf\\u00e9\"")))))
 
 (deftest cheshire-rejects-malformed-input-cleanly
   (testing "rf2-dgsu1 — malformed JSON (truncated escape, unterminated
@@ -110,7 +110,7 @@
                "{\"x\":\"\\uZZ"   ; invalid unicode hex
                "tru"               ; truncated `true`
                "{\"x\":nul}"]]      ; misspelt null
-      (let [thrown (try (util-json/json-parse s) ::no-throw
+      (let [thrown (try (http-json/json-parse s) ::no-throw
                         (catch Exception e e))]
         (is (instance? Exception thrown)
             (str "expected a parse exception for " (pr-str s)
@@ -124,10 +124,10 @@
     ;; Cheshire emits standard JSON: keys quoted, strings double-quoted,
     ;; no edn-isms.
     (is (= "{\"a\":1,\"b\":\"hello\"}"
-           (util-json/json-stringify {:a 1 :b "hello"})))
-    (is (= "[1,2,3]" (util-json/json-stringify [1 2 3])))
-    (is (= "true" (util-json/json-stringify true)))
-    (is (= "null" (util-json/json-stringify nil)))))
+           (http-json/json-stringify {:a 1 :b "hello"})))
+    (is (= "[1,2,3]" (http-json/json-stringify [1 2 3])))
+    (is (= "true" (http-json/json-stringify true)))
+    (is (= "null" (http-json/json-stringify nil)))))
 
 ;; ---- rf2-mih7n — non-string / empty input coverage -----------------------
 ;;
@@ -155,18 +155,18 @@
   (string? s) ...)` guard protects the managed-HTTP decode pipeline
   from a programmer error in transport — a malformed input throws
   through to `:rf.http/decode-failure`, a missing input is benign nil."
-    (is (nil? (util-json/json-parse nil))
+    (is (nil? (http-json/json-parse nil))
         "nil input → nil (string? guard short-circuits)")
-    (is (nil? (util-json/json-parse ""))
+    (is (nil? (http-json/json-parse ""))
         "empty string → nil (Cheshire's end-of-stream → nil)")
-    (is (nil? (util-json/json-parse :keyword))
+    (is (nil? (http-json/json-parse :keyword))
         "keyword input → nil (string? guard short-circuits)")
-    (is (nil? (util-json/json-parse 42))
+    (is (nil? (http-json/json-parse 42))
         "number input → nil (string? guard short-circuits)")
-    (is (nil? (util-json/json-parse {:already :clojure}))
+    (is (nil? (http-json/json-parse {:already :clojure}))
         "map input → nil (string? guard short-circuits — caller
          passed an already-parsed value by mistake)")
-    (is (nil? (util-json/json-parse [1 2 3]))
+    (is (nil? (http-json/json-parse [1 2 3]))
         "vector input → nil (same)")))
 
 (deftest jvm-json-parse-whitespace-only-returns-nil
@@ -174,6 +174,6 @@
   are not valid JSON documents per RFC 8259, but Cheshire/Jackson
   surfaces them as end-of-stream → nil (same as the empty-string
   case). Pin the contract."
-    (is (nil? (util-json/json-parse "   ")))
-    (is (nil? (util-json/json-parse "\n")))
-    (is (nil? (util-json/json-parse "\t")))))
+    (is (nil? (http-json/json-parse "   ")))
+    (is (nil? (http-json/json-parse "\n")))
+    (is (nil? (http-json/json-parse "\t")))))

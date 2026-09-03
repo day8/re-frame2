@@ -41,14 +41,14 @@
   See Spec 014 §Privacy and `re-frame.http.managed` / `re-frame.http.privacy`."
   (:refer-clojure :exclude [get]))
 
-(defn- build
+(defn- build-managed-request-fx
   "Build a `[:rf.http/managed args-map]` fx vector for the given verb,
   URL, and caller args. Internal — the public helpers are thin wrappers."
   [method url args]
-  (let [req (assoc (clojure.core/get args :request {})
-                   :method method
-                   :url    url)]
-    [:rf.http/managed (assoc args :request req)]))
+  (let [request (assoc (clojure.core/get args :request {})
+                       :method method
+                       :url    url)]
+    [:rf.http/managed (assoc args :request request)]))
 
 (defn get
   "Spec 014 helper — build a GET `[:rf.http/managed args-map]` fx vector.
@@ -70,7 +70,7 @@
                        {:on-success [:items/loaded]
                         :retry      retry-policy
                         :decode     ItemListSchema})]}"
-  [url args] (build :get url args))
+  [url args] (build-managed-request-fx :get url args))
 
 (defn post
   "Spec 014 helper — build a POST `[:rf.http/managed args-map]` fx vector.
@@ -85,14 +85,14 @@
                   {:request    {:body new-item
                                 :request-content-type :json}
                    :on-success [:items/created]})"
-  [url args] (build :post url args))
+  [url args] (build-managed-request-fx :post url args))
 
 (defn put
   "Spec 014 helper — build a PUT `[:rf.http/managed args-map]` fx vector.
 
   Same shape as `post`; PUT semantics. `args` is required and MUST address
   the reply. See Spec 014 §The args map."
-  [url args] (build :put url args))
+  [url args] (build-managed-request-fx :put url args))
 
 (defn delete
   "Spec 014 helper — build a DELETE `[:rf.http/managed args-map]` fx vector.
@@ -102,14 +102,14 @@
 
     (rf.http/delete \"/api/items/42\"
                     {:on-success [:items/removed 42]})"
-  [url args] (build :delete url args))
+  [url args] (build-managed-request-fx :delete url args))
 
 (defn patch
   "Spec 014 helper — build a PATCH `[:rf.http/managed args-map]` fx vector.
 
   Same shape as `post` / `put`; PATCH semantics. `args` is required and
   MUST address the reply."
-  [url args] (build :patch url args))
+  [url args] (build-managed-request-fx :patch url args))
 
 (defn head
   "Spec 014 helper — build a HEAD `[:rf.http/managed args-map]` fx vector.
@@ -118,7 +118,7 @@
   no body; the caller MUST still set `:on-success` / `:on-failure` (or
   `:reply-to`) to address the reply and branch on status. `args` is
   required."
-  [url args] (build :head url args))
+  [url args] (build-managed-request-fx :head url args))
 
 (defn options
   "Spec 014 helper — build an OPTIONS `[:rf.http/managed args-map]` fx
@@ -126,4 +126,4 @@
   preflight automatically), but provided for symmetry with the other
   verbs and the rare case of explicit capability discovery. `args` is
   required and MUST address the reply."
-  [url args] (build :options url args))
+  [url args] (build-managed-request-fx :options url args))

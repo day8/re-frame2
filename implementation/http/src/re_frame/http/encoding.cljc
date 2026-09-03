@@ -25,7 +25,7 @@
   (:require [clojure.string  :as str]
             [re-frame.error :as error]
             [re-frame.late-bind :as late-bind]
-            [re-frame.http.json :as util-json])
+            [re-frame.http.json :as http-json])
   #?(:clj (:import [java.net URLEncoder])))
 
 ;; ---- query string + URL helpers -------------------------------------------
@@ -135,7 +135,7 @@
     [nil nil]
 
     (= request-content-type :json)
-    [(util-json/json-stringify body) "application/json"]
+    [(http-json/json-stringify body) "application/json"]
 
     (= request-content-type :form)
     [(params->query body) "application/x-www-form-urlencoded"]
@@ -148,7 +148,7 @@
 
     ;; No explicit content-type — heuristics for clj colls (default to JSON).
     (or (map? body) (sequential? body) (set? body))
-    [(util-json/json-stringify body) "application/json"]
+    [(http-json/json-stringify body) "application/json"]
 
     :else
     ;; pass-through (Blob / FormData / ArrayBuffer / pre-encoded string)

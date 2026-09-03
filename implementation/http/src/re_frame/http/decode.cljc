@@ -32,7 +32,7 @@
             [re-frame.error   :as error]
             [re-frame.interop :as interop]
             [re-frame.trace   :as trace]
-            [re-frame.http.json :as util-json]))
+            [re-frame.http.json :as http-json]))
 
 (defn content-type-of
   "Per Spec 014 §Request envelope — HTTP header names are case-insensitive.
@@ -239,7 +239,7 @@
 
   The JSON path enforces a per-call keyword cap; the
   `:max-decoded-keys` slot (from the request args' `:rf.http/max-decoded-keys`,
-  defaulted at the handler) is threaded into `util-json/json-parse`.
+  defaulted at the handler) is threaded into `http-json/json-parse`.
   The Malli-schema branch propagates the cap-throw rather than
   swallowing it — a `:rf.error/id :rf.error/malformed-json`
   (`:cause :too-many-keys`) is a security-relevant signal and must
@@ -270,7 +270,7 @@
       ;; `empty-2xx-json-body?`.
       (if (empty-2xx-json-body? body-text)
         nil
-        (util-json/json-parse body-text parse-opts))
+        (http-json/json-parse body-text parse-opts))
 
       (= :text resolved)
       body-text
@@ -333,7 +333,7 @@
         ;; host-symmetric outcome, not a per-host parse divergence.
         (let [parsed (if (empty-2xx-json-body? body-text)
                        nil
-                       (util-json/json-parse body-text parse-opts))]
+                       (http-json/json-parse body-text parse-opts))]
           (malli-decode resolved parsed)))
 
       :else

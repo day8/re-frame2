@@ -164,30 +164,30 @@
                  (str "unknown :rf.http/managed :carriers key " k "; valid keys "
                       "are :headers and :query-params")
                  {:bad-key [:carriers k] :valid carrier-keys}))))
-    (when-some [hs (:headers carriers)]
-      (validate-carrier-name-vector! :headers [:carriers :headers] hs))
-    (let [qs (:query-params carriers)]
+    (when-some [header-names (:headers carriers)]
+      (validate-carrier-name-vector! :headers [:carriers :headers] header-names))
+    (let [query-param-config (:query-params carriers)]
       (cond
-        (nil? qs) nil
+        (nil? query-param-config) nil
         ;; query-params may carry a {:include :except} policy map.
-        (map? qs)
+        (map? query-param-config)
         (do
-          (doseq [k (keys qs)]
+          (doseq [k (keys query-param-config)]
             (when-not (contains? query-param-policy-keys k)
               (throw (carrier-error
                        (str "unknown :rf.http/managed :carriers :query-params key "
                             k "; valid keys are :include and :except")
                        {:bad-key [:carriers :query-params k]
                         :valid   query-param-policy-keys}))))
-          (when-some [inc (:include qs)]
+          (when-some [include-names (:include query-param-config)]
             (validate-carrier-name-vector!
-              :query-params [:carriers :query-params :include] inc))
-          (when-some [exc (:except qs)]
+              :query-params [:carriers :query-params :include] include-names))
+          (when-some [except-names (:except query-param-config)]
             (validate-carrier-name-vector!
-              :query-params [:carriers :query-params :except] exc)))
+              :query-params [:carriers :query-params :except] except-names)))
         :else
         (validate-carrier-name-vector!
-          :query-params [:carriers :query-params] qs))))
+          :query-params [:carriers :query-params] query-param-config))))
   nil)
 
 (defn- lower-set
@@ -221,34 +221,39 @@
   (let [carriers (:carriers (registrar/handler-meta :fx :rf.http/managed))]
     (when (some? carriers)
       (validate-carriers! carriers)
-      (let [hs     (lower-set (:headers carriers))
-            raw-qs (:query-params carriers)
-            qs     (if (map? raw-qs)
-                     ;; {:include :except} policy map — lower-case both sub-sets,
-                     ;; drop empties, and collapse to nil when nothing remains.
-                     (let [inc (lower-set (:include raw-qs))
-                           exc (lower-set (:except raw-qs))]
-                       (when (or inc exc)
-                         (cond-> {}
-                           inc (assoc :include inc)
-                           exc (assoc :except exc))))
-                     ;; include-only vector → plain extension set
-                     (lower-set raw-qs))]
-        (when (or hs qs)
+      (let [header-carriers        (lower-set (:headers carriers))
+            raw-query-param-policy (:query-params carriers)
+            query-param-policy     (if (map? raw-query-param-policy)
+                                     ;; {:include :except} policy map — lower-case
+                                     ;; both sub-sets, drop empties, and collapse
+                                     ;; to nil when nothing remains.
+                                     (let [included-carriers
+                                           (lower-set (:include raw-query-param-policy))
+                                           excepted-carriers
+                                           (lower-set (:except raw-query-param-policy))]
+                                       (when (or included-carriers excepted-carriers)
+                                         (cond-> {}
+                                           included-carriers
+                                           (assoc :include included-carriers)
+                                           excepted-carriers
+                                           (assoc :except excepted-carriers))))
+                                     ;; include-only vector → plain extension set
+                                     (lower-set raw-query-param-policy))]
+        (when (or header-carriers query-param-policy)
           (cond-> {}
-            hs (assoc :headers hs)
-            qs (assoc :query-params qs)))))))
+            header-carriers    (assoc :headers header-carriers)
+            query-param-policy (assoc :query-params query-param-policy)))))))
 
 ;; ---- trace-event redaction helpers ----------------------------------------
 
 (defn- redact-url-in
-  "Internal helper: if `m` carries a string `:url`, redact it and return
-  `[m' any-redacted?]`. The flag captures whether the query-string walk
-  scrubbed any param value — callers use this to stamp `:sensitive?`
+  "Internal helper: if `payload` carries a string `:url`, redact it and return
+  `[redacted-payload any-redacted?]`. The flag captures whether the query-string
+  walk scrubbed any param value — callers use this to stamp `:sensitive?`
   on the trace event (a denylisted param name is itself a signal that
   the request carries a secret) without re-walking the URL.
 
-  `param-extras` is the registration-owned query-param carrier policy, or
+  `query-param-policy` is the registration-owned query-param carrier policy, or
   `nil` for defaults only.
 
   A self-identifying failure map also carries the request echo
@@ -260,19 +265,25 @@
 
   Redaction and denylist-hit detection share one walk, so the query string is
   parsed once per trace emit."
-  [m sensitive? param-extras]
-  (let [[m top-any?]
-        (if (string? (:url m))
-          (let [[redacted any?] (url/redact-url-query-string (:url m) sensitive? param-extras)]
-            [(assoc m :url redacted) any?])
-          [m false])
-        [m nested-any?]
-        (if (string? (get-in m [:request :url]))
-          (let [[redacted any?] (url/redact-url-query-string
-                                  (get-in m [:request :url]) sensitive? param-extras)]
-            [(assoc-in m [:request :url] redacted) any?])
-          [m false])]
-    [m (or top-any? nested-any?)]))
+  [payload sensitive? query-param-policy]
+  (let [[payload-after-top-level-url top-level-url-redacted?]
+        (if (string? (:url payload))
+          (let [[redacted-url url-redacted?]
+                (url/redact-url-query-string
+                  (:url payload) sensitive? query-param-policy)]
+            [(assoc payload :url redacted-url) url-redacted?])
+          [payload false])
+        [redacted-payload nested-url-redacted?]
+        (if (string? (get-in payload-after-top-level-url [:request :url]))
+          (let [[redacted-url url-redacted?]
+                (url/redact-url-query-string
+                  (get-in payload-after-top-level-url [:request :url])
+                  sensitive?
+                  query-param-policy)]
+            [(assoc-in payload-after-top-level-url [:request :url] redacted-url)
+             url-redacted?])
+          [payload-after-top-level-url false])]
+    [redacted-payload (or top-level-url-redacted? nested-url-redacted?)]))
 
 (defn redact-request-tags-with-flag
   "Like `redact-request-tags` but returns `[tags url-redacted?]` so

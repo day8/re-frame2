@@ -15,7 +15,7 @@
     empty document as end-of-stream → nil → `{:status :ok :value nil …}`,
     while CLJS `js/JSON.parse(\"\")` THREW → `:rf.http/decode-failure`.
     The helper-level divergence stays deliberately pinned at the
-    `util-json` unit altitude (util_json_*_test); the MANAGED path is now
+    `re-frame.http.json` unit altitude (http_json_*_test); the MANAGED path is now
     normalised in `decode-response-body` so both hosts classify an empty
     2xx JSON body identically as nil.
 

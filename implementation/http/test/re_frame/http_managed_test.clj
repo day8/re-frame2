@@ -12,7 +12,7 @@
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.fx :as fx]
-            [re-frame.http.json :as util-json]
+            [re-frame.http.json :as http-json]
             [re-frame.registrar :as registrar]
             [re-frame.http.decode :as http-decode]
             [re-frame.http.encoding :as http-encoding]
@@ -2173,7 +2173,7 @@
         (await-reply! #(some? (:reply %)) 5000)
         (is (= "application/json" @seen-ct)
             ":request-content-type :json sets the Content-Type header")
-        (is (= {:name "widget"} (util-json/json-parse @seen-body))
+        (is (= {:name "widget"} (http-json/json-parse @seen-body))
             "the body is JSON-encoded and round-trips at the server")
         (finally (stop-server! srv))))))
 

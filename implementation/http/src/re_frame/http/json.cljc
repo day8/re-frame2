@@ -11,8 +11,8 @@
   promoting it to `day8/re-frame2`) avoids dragging the
   `json-stringify` / `json-parse` codepaths onto core consumers that
   never issue an HTTP request. If a second consumer needs JSON down the
-  track, lift this namespace to core (the ns name is already neutral —
-  `re-frame.http.json`, not `re-frame.http.util-json`).
+  track, lift this namespace to core; until then, `re-frame.http.json`
+  makes the HTTP ownership explicit.
 
   ## API
 
@@ -103,7 +103,7 @@
                 ;; rf2-x1uhu — mirror the JVM Cheshire branch's
                 ;; `(when (string? s) ...)` guard so both hosts return nil
                 ;; (rather than CLJS throwing inside `js/JSON.parse`) on a
-                ;; non-string input. `util-json` is documented as a
+                ;; non-string input. `re-frame.http.json` is documented as a
                 ;; shared/promotable helper; the two readers must behave
                 ;; identically.
                 (let [parsed (js/JSON.parse s)

@@ -133,7 +133,7 @@
 ;; ---- G1: keyword-cap threaded e2e through the schema branch ----------------
 ;;
 ;; The audit (G1) calls out that the :rf.http/max-decoded-keys cap is
-;; tested at the JSON-reader layer (util_json_test.clj:33) but NOT threaded
+;; tested at the JSON-reader layer (http_json_test.clj:33) but NOT threaded
 ;; end-to-end through the decoder as a thrown :too-many-keys. The schema
 ;; branch is the critical path: per rf2-wu1n5 it must RE-RAISE the
 ;; cap-throw rather than swallow it behind a Malli rejection.
@@ -179,7 +179,7 @@
 ;; degenerate "successful" decode, and not a schema-validation failure.
 
 ;; Genuinely-malformed JSON per Cheshire/Jackson (see
-;; `cheshire-rejects-malformed-input-cleanly` in util_json_test.clj):
+;; `cheshire-rejects-malformed-input-cleanly` in http_json_test.clj):
 ;; Jackson is tolerant of some shapes by design (trailing commas,
 ;; missing close-braces fall through to its end-of-stream handler
 ;; rather than throwing), so these pick inputs definitively rejected —

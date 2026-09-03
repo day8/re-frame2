@@ -138,16 +138,19 @@
   ([param-name frame-policy]
    (boolean
      (when (string? param-name)
-       (let [lowered (str/lower-case param-name)
-             ;; Normalise both accepted shapes to [include except].
-             [include except] (if (map? frame-policy)
-                                [(:include frame-policy) (:except frame-policy)]
-                                [frame-policy nil])
-             included? (and include (contains? include lowered))]
+       (let [lowered-param-name (str/lower-case param-name)
+             ;; Normalise both accepted shapes to [included-names excepted-names].
+             [included-names excepted-names]
+             (if (map? frame-policy)
+               [(:include frame-policy) (:except frame-policy)]
+               [frame-policy nil])
+             included? (and included-names
+                            (contains? included-names lowered-param-name))]
          ;; :include wins over :except (declaring sensitive is never undone).
          (or included?
-             (and (contains? default-query-param-denylist lowered)
-                  (not (and except (contains? except lowered))))))))))
+             (and (contains? default-query-param-denylist lowered-param-name)
+                  (not (and excepted-names
+                            (contains? excepted-names lowered-param-name))))))))))
 
 (defn- percent-decode-name
   "rf2-065xo — percent-decode a query-param NAME for denylist comparison
@@ -220,11 +223,11 @@
   when the URL has no `?`. Preserves URL fragments (`#…`) on the
   query-string side so the redactor can put them back verbatim."
   [url-str]
-  (let [qidx (str/index-of url-str "?")]
-    (if (nil? qidx)
+  (let [query-index (str/index-of url-str "?")]
+    (if (nil? query-index)
       [url-str nil]
-      [(subs url-str 0 qidx)
-       (subs url-str (inc qidx))])))
+      [(subs url-str 0 query-index)
+       (subs url-str (inc query-index))])))
 
 (defn- split-query-on-fragment
   "Split `query-and-fragment` on the first `#` so the fragment can be
@@ -233,11 +236,11 @@
   [query-and-fragment]
   (if (nil? query-and-fragment)
     [nil nil]
-    (let [fidx (str/index-of query-and-fragment "#")]
-      (if (nil? fidx)
+    (let [fragment-index (str/index-of query-and-fragment "#")]
+      (if (nil? fragment-index)
         [query-and-fragment nil]
-        [(subs query-and-fragment 0 fidx)
-         (subs query-and-fragment fidx)]))))
+        [(subs query-and-fragment 0 fragment-index)
+         (subs query-and-fragment fragment-index)]))))
 
 (defn- redact-query-param
   "Given a single `name=value` pair (string), return the redacted form:
@@ -248,7 +251,7 @@
   rf2-065xo — the denylist check is `sensitive-query-param-name?`, which
   compares both the RAW and percent-DECODED name, so an encoded
   denylisted name (`api%5Fkey`, `%61ccess_token`, frame-declared
-  `shop%5Ftoken`) is redacted. The original raw `pname` is preserved
+  `shop%5Ftoken`) is redacted. The original raw `param-name` is preserved
   verbatim in the rebuilt pair — only the value is replaced (decoding is
   comparison-only).
 
@@ -256,13 +259,15 @@
   `:rf.http/managed` `:carriers` block (EP-0025) — an include-only set OR a
   `{:include #{..} :except #{..}}` map (rf2-4wqxq8) — or `nil` for
   defaults-only."
-  [pair force-all? frame-policy]
-  (let [eq-idx (str/index-of pair "=")
-        [pname _pvalue] (if eq-idx
-                          [(subs pair 0 eq-idx) (subs pair (inc eq-idx))]
-                          [pair nil])]
-    (if (or force-all? (sensitive-query-param-name? pname frame-policy))
-      (str pname "=" redacted-url-token)
+  [pair force-all? query-param-policy]
+  (let [equals-index (str/index-of pair "=")
+        [param-name _param-value]
+        (if equals-index
+          [(subs pair 0 equals-index) (subs pair (inc equals-index))]
+          [pair nil])]
+    (if (or force-all?
+            (sensitive-query-param-name? param-name query-param-policy))
+      (str param-name "=" redacted-url-token)
       pair)))
 
 (defn redact-url-query-string
@@ -308,17 +313,20 @@
          ;; detection ran a second `(map not= pairs redacted)` walk and
          ;; allocated a lazy seq of N booleans for the `some true?` test
          ;; despite the rf2-02vzz claim of fusion.
-         (let [force-all? (true? sensitive?)
-               changed?   (volatile! false)
-               pairs      (str/split query #"&")
-               redacted   (mapv (fn [p]
-                                  (let [out (redact-query-param p force-all? frame-policy)]
-                                    (when-not (identical? out p)
-                                      (vreset! changed? true))
-                                    out))
-                                pairs)
-               rebuilt    (str base "?" (str/join "&" redacted) (or fragment ""))]
-           [rebuilt @changed?]))))))
+          (let [force-all?     (true? sensitive?)
+                changed?       (volatile! false)
+                pairs          (str/split query #"&")
+                redacted-pairs (mapv (fn [pair]
+                                       (let [redacted-pair
+                                             (redact-query-param
+                                               pair force-all? frame-policy)]
+                                         (when-not (identical? redacted-pair pair)
+                                           (vreset! changed? true))
+                                         redacted-pair))
+                                     pairs)
+                redacted-url   (str base "?" (str/join "&" redacted-pairs)
+                                    (or fragment ""))]
+            [redacted-url @changed?]))))))
 
 (defn redact-url
   "Convenience wrapper around `redact-url-query-string` that returns only

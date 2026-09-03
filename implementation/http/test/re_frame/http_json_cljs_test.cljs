@@ -1,8 +1,8 @@
-(ns re-frame.util-json-cljs-test
+(ns re-frame.http-json-cljs-test
   "CLJS-side unit coverage for `re-frame.http.json` (rf2-mih7n;
   follow-on from rf2-q1z1u F3).
 
-  Background. The JVM `util_json_test.clj` covers the Cheshire branch
+  Background. The JVM `http_json_test.clj` covers the Cheshire branch
   exhaustively (keyword cap, malformed-input throw shape, non-string
   guard, empty-string fall-through). The CLJS branch is a separate
   reader (`js/JSON.parse`) with materially different malformed-input
@@ -29,7 +29,7 @@
 
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.http.json :as util-json]))
+            [re-frame.http.json :as http-json]))
 
 (deftest cljs-json-parse-malformed-throws
   (testing "rf2-mih7n — malformed JSON inputs throw under
@@ -41,7 +41,7 @@
                "tru"                 ; truncated literal
                "{\"a\":nul}"         ; misspelt null
                "{\"x\":\"\\u\"}"]]   ; truncated unicode escape
-      (let [thrown (try (util-json/json-parse s) ::no-throw
+      (let [thrown (try (http-json/json-parse s) ::no-throw
                         (catch :default e e))]
         (is (not= ::no-throw thrown)
             (str "expected a parse exception for " (pr-str s)
@@ -55,7 +55,7 @@
             CLJS branch by adding an empty-string short-circuit —
             doing so would mask a transport-layer programmer error
             that the current decode-failure path surfaces."
-    (let [thrown (try (util-json/json-parse "") ::no-throw
+    (let [thrown (try (http-json/json-parse "") ::no-throw
                       (catch :default e e))]
       (is (not= ::no-throw thrown)
           (str "empty-string input must throw on CLJS — got "
@@ -70,16 +70,16 @@
             directly: nil coerced to nil, but a keyword/number/map/vector
             THREW where the JVM returned nil — the host asymmetry this
             bead closed."
-    (is (nil? (util-json/json-parse nil))
+    (is (nil? (http-json/json-parse nil))
         "nil input → nil (string? guard short-circuits, cross-host)")
-    (is (nil? (util-json/json-parse :keyword))
+    (is (nil? (http-json/json-parse :keyword))
         "keyword input → nil (was a throw before rf2-x1uhu)")
-    (is (nil? (util-json/json-parse 42))
+    (is (nil? (http-json/json-parse 42))
         "number input → nil (was a throw before rf2-x1uhu)")
-    (is (nil? (util-json/json-parse {:already :clojure}))
+    (is (nil? (http-json/json-parse {:already :clojure}))
         "map input → nil — caller passed an already-parsed value by
          mistake (was a throw before rf2-x1uhu)")
-    (is (nil? (util-json/json-parse [1 2 3]))
+    (is (nil? (http-json/json-parse [1 2 3]))
         "vector input → nil (was a throw before rf2-x1uhu)")))
 
 (deftest cljs-json-stringify-happy-path
@@ -87,7 +87,7 @@
             `js/JSON.stringify` and produces standard JSON output
             (no edn-isms, no host-specific encoding quirks)."
     (is (= "{\"a\":1,\"b\":\"hello\"}"
-           (util-json/json-stringify {:a 1 :b "hello"})))
-    (is (= "[1,2,3]" (util-json/json-stringify [1 2 3])))
-    (is (= "true" (util-json/json-stringify true)))
-    (is (= "null" (util-json/json-stringify nil)))))
+           (http-json/json-stringify {:a 1 :b "hello"})))
+    (is (= "[1,2,3]" (http-json/json-stringify [1 2 3])))
+    (is (= "true" (http-json/json-stringify true)))
+    (is (= "null" (http-json/json-stringify nil)))))

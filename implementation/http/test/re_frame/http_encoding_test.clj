@@ -23,7 +23,7 @@
   (:require [clojure.string]
             [clojure.test :refer [deftest is testing]]
             [re-frame.http.encoding :as encoding]
-            [re-frame.http.json :as util-json]))
+            [re-frame.http.json :as http-json]))
 
 ;; ---- attempt → delay (deterministic, jitter off) -------------------------
 
@@ -406,7 +406,7 @@
             body and returns application/json"
     (let [[body ct] (encoding/encode-body {:a 1 :b "two"} :json)]
       (is (= "application/json" ct))
-      (is (= {:a 1 :b "two"} (util-json/json-parse body))
+      (is (= {:a 1 :b "two"} (http-json/json-parse body))
           "the body round-trips through json-parse (stable across key order)"))))
 
 (deftest encode-body-form-request-content-type
@@ -439,10 +439,10 @@
             tagged application/json (the heuristic at http_encoding.cljc:97)"
     (let [[mbody mct] (encoding/encode-body {:a 1} nil)]
       (is (= "application/json" mct))
-      (is (= {:a 1} (util-json/json-parse mbody))))
+      (is (= {:a 1} (http-json/json-parse mbody))))
     (let [[vbody vct] (encoding/encode-body [1 2 3] nil)]
       (is (= "application/json" vct))
-      (is (= [1 2 3] (util-json/json-parse vbody))))
+      (is (= [1 2 3] (http-json/json-parse vbody))))
     (let [[_ sct] (encoding/encode-body #{1 2 3} nil)]
       (is (= "application/json" sct)
           "a set also trips the coll heuristic"))))

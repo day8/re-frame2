@@ -63,24 +63,25 @@
   both are nil the handle is unindexed and only reachable via natural
   completion."
   [request-id actor-id handle]
-  (let [stamped (cond-> handle
-                  request-id (assoc :request-id request-id)
-                  actor-id   (assoc :actor-id actor-id))]
+  (let [stamped-handle (cond-> handle
+                         request-id (assoc :request-id request-id)
+                         actor-id   (assoc :actor-id actor-id))]
     (when request-id
-      (swap! in-flight assoc request-id stamped))
+      (swap! in-flight assoc request-id stamped-handle))
     (when actor-id
-      (swap! actor-in-flight update actor-id (fnil conj []) stamped))
-    stamped))
+      (swap! actor-in-flight update actor-id (fnil conj []) stamped-handle))
+    stamped-handle))
 
 (defn- remove-from-actor-index! [actor-id handle]
   (when actor-id
     (swap! actor-in-flight
-           (fn [m]
-             (let [v  (get m actor-id [])
-                   v' (vec (remove #(identical? % handle) v))]
-               (if (seq v')
-                 (assoc m actor-id v')
-                 (dissoc m actor-id))))))
+           (fn [actor-index]
+             (let [actor-handles     (get actor-index actor-id [])
+                   remaining-handles (vec (remove #(identical? % handle)
+                                                  actor-handles))]
+               (if (seq remaining-handles)
+                 (assoc actor-index actor-id remaining-handles)
+                 (dissoc actor-index actor-id))))))
   nil)
 
 (defn clear-in-flight!
@@ -127,7 +128,7 @@
   ([request-id handle]
    (when request-id
      (swap! in-flight
-            (fn [m]
+            (fn [request-index]
               ;; rf2-ous9e5 — drop the slot ONLY while it still holds THIS
               ;; handle, so a same-id successor is never evicted. A nil `handle`
               ;; (an abort that fired before the handle was published to
@@ -135,9 +136,10 @@
               ;; unconditional dissoc — that pre-publication window precedes any
               ;; successor, so there is nothing to protect and the slot must
               ;; still be cleared.
-              (if (or (nil? handle) (identical? (get m request-id) handle))
-                (dissoc m request-id)
-                m))))
+              (if (or (nil? handle)
+                      (identical? (get request-index request-id) handle))
+                (dissoc request-index request-id)
+                request-index))))
    (when handle
      (remove-from-actor-index! (:actor-id handle) handle))
    nil))
@@ -247,10 +249,10 @@
   [request-id issuance]
   (when (and (some? request-id) (some? issuance))
     (swap! issuance-counters
-           (fn [m]
-             (if (= issuance (get m request-id))
-               (dissoc m request-id)
-               m))))
+           (fn [counters]
+             (if (= issuance (get counters request-id))
+               (dissoc counters request-id)
+               counters))))
   nil)
 
 (defn reset-issuance-counters-for-test!
@@ -279,12 +281,12 @@
   identity facts (`:work/id`, `:request-id`, `:origin-event`, `:attempt`,
   `:frame`) the stale-reply trace needs."
   [request-id]
-  (when-let [prev (lookup-in-flight request-id)]
+  (when-let [superseded-handle (lookup-in-flight request-id)]
     (clear-in-flight! request-id)
     (try
-      ((:abort-fn prev) :request-id-superseded)
+      ((:abort-fn superseded-handle) :request-id-superseded)
       (catch #?(:clj Throwable :cljs :default) _ nil))
-    prev))
+    superseded-handle))
 
 (defn clear-all-in-flight!
   "Test-time helper: cancel every in-flight managed request, then drop the
@@ -318,10 +320,10 @@
   []
   (let [handles (->> (concat (vals @in-flight)
                              (mapcat val @actor-in-flight))
-                     (reduce (fn [acc h]
-                               (if (some #(identical? % h) acc)
-                                 acc
-                                 (conj acc h)))
+                     (reduce (fn [unique-handles handle]
+                               (if (some #(identical? % handle) unique-handles)
+                                 unique-handles
+                                 (conj unique-handles handle)))
                              []))]
     (doseq [handle handles]
       (when-let [abort-fn (:abort-fn handle)]
@@ -511,8 +513,10 @@
     (let [handles (->> (concat (vals @in-flight)
                                (mapcat val @actor-in-flight))
                        (filter #(= frame-id (:frame %)))
-                       (reduce (fn [acc h]
-                                 (if (some #(identical? % h) acc) acc (conj acc h)))
+                       (reduce (fn [unique-handles handle]
+                                 (if (some #(identical? % handle) unique-handles)
+                                   unique-handles
+                                   (conj unique-handles handle)))
                                []))]
       (doseq [handle handles]
         (emit-frame-boundary-stale-trace! handle recovery)
@@ -586,7 +590,7 @@
 ;; while machines already called http through `:http/abort-on-actor-destroy`
 ;; for the destroy side).
 
-(defn compute-actor-id
+(defn resolve-owning-actor-id
   "Resolve the spawned-actor-id for the request at hand, given the frame
   id and the originating event vector. Returns the actor-id (a keyword,
   the spawned actor's machine address) when the originating event-id is

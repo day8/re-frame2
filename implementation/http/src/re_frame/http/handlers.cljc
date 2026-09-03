@@ -211,13 +211,13 @@
         ;; address, capture it so the in-flight registry can index by
         ;; actor-id alongside :request-id. The destroy cascade then has
         ;; a key to walk on actor-destroy. Ownership is MACHINES-OWNED
-        ;; (rf2-ma0wvq): `compute-actor-id` asks the machines artefact via
+        ;; (rf2-ma0wvq): `resolve-owning-actor-id` asks the machines artefact via
         ;; the `:machines/owning-actor-id` late-bind hook (per Spec 005
         ;; §Declarative :spawn) rather than reading the spawn registry
         ;; itself; ordinary event handlers' dispatches — and every request
         ;; when the machines artefact is absent — yield nil and are not
         ;; tracked.
-        actor-id     (registry/compute-actor-id frame origin-event)
+        actor-id     (registry/resolve-owning-actor-id frame origin-event)
         ;; rf2-bma05 — compute the effective :sensitive? flag once and
         ;; thread it through the attempt-and-retry loop. Two sources
         ;; (OR-reduced): per-call args and per-request (handler-meta
@@ -228,7 +228,7 @@
         ;; rf2-wu1n5 — keyword-interning DoS guard. The reserved
         ;; `:rf.http/max-decoded-keys` arg overrides the JSON reader's
         ;; default cap on unique decoded object keys. Absent → reader
-        ;; default (`util-json/default-max-decoded-keys`, 10000). Per
+        ;; default (`re-frame.http.json/default-max-decoded-keys`, 10000). Per
         ;; Spec 014 §Decoding.
         max-keys     (:rf.http/max-decoded-keys args-map)
         ;; Reply addressing (Spec 014 §Reply addressing; rf2-et4c1s). Three
