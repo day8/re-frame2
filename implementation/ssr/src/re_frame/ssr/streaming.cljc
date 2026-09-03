@@ -206,7 +206,8 @@
     ;; we use only its KEY SET and re-project the full value from
     ;; `after-db`). Falsy keys (`false` / `nil`) survive `data/diff`'s
     ;; slot as map entries, so `keys` is the correct extractor.
-    (reduce (fn [acc k] (assoc acc k (get after-db k)))
+    (reduce (fn [delta-map changed-key]
+              (assoc delta-map changed-key (get after-db changed-key)))
             {}
             (keys only-in-after))))
 
@@ -272,7 +273,7 @@
 ;; side-channel after a render-throw. The host adapter drains the
 ;; returned vector directly.
 
-(defn- new-continuations-acc []
+(defn- new-continuation-accumulator []
   ;; Atom of `[{:id :subtree} …]` so the recursive walker can record
   ;; from nested branches without threading the result through.
   (atom []))
@@ -283,8 +284,9 @@
   drain path (`render-continuation`) can re-materialise it when the
   subtree render throws (Spec 011 §Failure semantics — inline fallback).
   A failed continuation therefore preserves the author-declared loading state."
-  [acc id subtree fallback]
-  (swap! acc conj {:id id :subtree subtree :fallback fallback}))
+  [continuation-accumulator id subtree fallback]
+  (swap! continuation-accumulator conj
+         {:id id :subtree subtree :fallback fallback}))
 
 ;; ---- duplicate-id detection ----------------------------------------------
 
@@ -312,26 +314,31 @@
   string-colliding ids (`:a` keyword vs `\":a\"` string) escape detection
   even though they share one `data-rf2-suspense-id` on the wire, leaving
   two chunks the client can only resolve against the same mount."
-  [conts]
-  (let [by-wire (group-by (comp wire-id :id) conts)
-        dupes   (->> by-wire (filter (fn [[_ vs]] (> (count vs) 1))) (map key))]
-    (when (seq dupes)
-      (doseq [dup dupes]
-        (let [group (by-wire dup)]
+  [continuations]
+  (let [continuations-by-wire-id (group-by (comp wire-id :id) continuations)
+        duplicate-wire-ids (->> continuations-by-wire-id
+                                (filter (fn [[_ grouped-continuations]]
+                                          (> (count grouped-continuations) 1)))
+                                (map key))]
+    (when (seq duplicate-wire-ids)
+      (doseq [duplicate-wire-id duplicate-wire-ids]
+        (let [duplicate-group (continuations-by-wire-id duplicate-wire-id)]
           (trace/emit-error! :rf.error/suspense-boundary-duplicate-id
-                             {:id       dup
-                              :raw-ids  (mapv :id group)
-                              :count    (count group)
+                             {:id       duplicate-wire-id
+                              :raw-ids  (mapv :id duplicate-group)
+                              :count    (count duplicate-group)
                               :recovery :last-write-wins}))))
     ;; Reduce preserving insertion order — keep the LAST registration for
     ;; each WIRE id by walking forward and overwriting.
-    (let [seen (volatile! #{})]
-      (->> (reverse conts)
+    (let [seen-wire-ids (volatile! #{})]
+      (->> (reverse continuations)
            (filter (fn [{:keys [id]}]
-                     (let [w (wire-id id)]
-                       (if (contains? @seen w)
+                     (let [canonical-wire-id (wire-id id)]
+                       (if (contains? @seen-wire-ids canonical-wire-id)
                          false
-                         (do (vswap! seen conj w) true)))))
+                         (do
+                           (vswap! seen-wire-ids conj canonical-wire-id)
+                           true)))))
            reverse
            vec))))
 
@@ -356,27 +363,30 @@
 ;; tree. It would also miss boundaries returned by a callable-headed view
 ;; unless the view were invoked during both passes.
 
-(defn- walk-children [children acc]
-  (clojure.string/join (mapv #(walk-shell % acc) children)))
+(defn- walk-children [children continuation-accumulator]
+  (clojure.string/join
+    (mapv #(walk-shell % continuation-accumulator) children)))
 
 (defn- walk-dom-tag
   "Emit a DOM tag element while recursing into its children with the
   walker (so nested boundaries get caught). Mirrors the non-void branch
-  of `emit/emit-element`, threads `acc`, and reuses the parsed tag."
-  [el acc]
-  (let [head                  (first el)
+  of `emit/emit-element`, threads `continuation-accumulator`, and reuses the
+  parsed tag."
+  [element continuation-accumulator]
+  (let [head                  (first element)
         [tag-name tag-attrs]  (emit/parse-tag-name head)
-        [user-attrs children] (if (map? (second el))
-                                [(second el) (drop 2 el)]
-                                [{} (rest el)])
+        [user-attrs children] (if (map? (second element))
+                                [(second element) (drop 2 element)]
+                                [{} (rest element)])
         merged-attrs          (emit/merge-class-attrs tag-attrs user-attrs)
         ;; Void + raw-text classification are case-insensitive, mirroring
         ;; the non-streaming emitter. A `[:BR]` admitted by
         ;; `validate-tag-name!` must be recognised as void here too, or the
         ;; shell walker emits a `<BR></BR>` open+close pair.
-        norm-tag              (clojure.string/lower-case tag-name)
-        void?                 (contains? emit/void-elements (keyword norm-tag))
-        raw-text?             (contains? html/raw-text-tags norm-tag)]
+        normalised-tag-name   (clojure.string/lower-case tag-name)
+        void?                 (contains? emit/void-elements
+                                         (keyword normalised-tag-name))
+        raw-text?             (contains? html/raw-text-tags normalised-tag-name)]
     (cond
       void?     (str "<" tag-name (emit/attr-string merged-attrs) ">")
       ;; rf2-xbvzh — mirror the non-streaming emitter: an ordinary inline
@@ -387,25 +397,28 @@
       ;; child walk (element children pass through inert).
       (and raw-text? (seq children) (every? string? children))
       (str "<" tag-name (emit/attr-string merged-attrs) ">"
-           (html/escape-raw-text norm-tag (clojure.string/join children))
+           (html/escape-raw-text normalised-tag-name
+                                 (clojure.string/join children))
            "</" tag-name ">")
       :else
       (str "<" tag-name (emit/attr-string merged-attrs) ">"
-           (walk-children children acc)
+           (walk-children children continuation-accumulator)
            "</" tag-name ">"))))
 
-(defn- suspense-attrs? [m]
-  (and (map? m) (contains? m :id) (contains? m :fallback)))
+(defn- suspense-attrs? [boundary-attrs]
+  (and (map? boundary-attrs)
+       (contains? boundary-attrs :id)
+       (contains? boundary-attrs :fallback)))
 
 (defn- walk-suspense-boundary
   "At a `:rf/suspense-boundary`, materialise the fallback inline as a
   `<template>` placeholder + register a continuation for the subtree."
-  [el acc]
-  (let [attrs    (second el)
+  [element continuation-accumulator]
+  (let [attrs    (second element)
         ;; Realise children once so arity checks and rendering share the same
         ;; collection.
-        children (vec (drop 2 el))
-        n        (count children)]
+        children (vec (drop 2 element))
+        child-count (count children)]
     (when-not (suspense-attrs? attrs)
       (error/throw-error!
         :rf.error/suspense-boundary-invalid-attrs
@@ -415,13 +428,13 @@
              "second element.")
         {:recovery :supply-id-and-fallback-attrs
          :extra    {:got     attrs
-                    :element el}}))
+                    :element element}}))
     (let [{:keys [id fallback]} attrs
           ;; The subtree is the rest of the hiccup vector after the
           ;; attrs map. Single-child or multi-child both work — we wrap
           ;; multi-children in a `:<>` fragment so the continuation
           ;; renders one logical hiccup form.
-          subtree (case n
+          subtree (case child-count
                     0 nil
                     1 (nth children 0)
                     (into [:<>] children))
@@ -431,23 +444,23 @@
           ;; render synchronously inline). A `:rf/suspense-boundary`
           ;; INSIDE a fallback is a programmer error; we do not check.
           fallback-html (emit/render-to-string fallback nil)]
-      (record-continuation! acc id subtree fallback)
+      (record-continuation! continuation-accumulator id subtree fallback)
       (fallback-template id fallback-html))))
 
 (defn- walk-shell
   "Walk a hiccup form, building shell HTML and recording continuation
-  entries in `acc` (an atom of vector). Standard hiccup is delegated to
-  `emit-element`; the suspense-boundary head is intercepted.
+  entries in `continuation-accumulator` (an atom of vector). Standard hiccup
+  is delegated to `emit-element`; the suspense-boundary head is intercepted.
 
   Private — the streaming module's recursive shell walker. The public
   entry point is `render-shell` (below), which binds the per-render
   parse-tag-name memo and the continuations accumulator before invoking
   this fn on the root hiccup."
-  [el acc]
+  [element continuation-accumulator]
   (cond
-    (and (vector? el)
-         (= :rf/suspense-boundary (first el)))
-    (walk-suspense-boundary el acc)
+    (and (vector? element)
+         (= :rf/suspense-boundary (first element)))
+    (walk-suspense-boundary element continuation-accumulator)
 
     ;; Recurse into vector children so nested suspense-boundaries are
     ;; reachable. For DOM-tag heads (which is what EVERY keyword head is,
@@ -455,12 +468,12 @@
     ;; tag. For fragments, we splice children. Callable heads — the Var /
     ;; `(rf/view :id)` forms that reference a view — are invoked and their
     ;; output recursed, on the `ifn?` branch further down.
-    (and (vector? el) (keyword? (first el)))
-    (let [head (first el)]
+    (and (vector? element) (keyword? (first element)))
+    (let [head (first element)]
       (cond
         ;; Fragment — splice children, recurse.
         (= :<> head)
-        (walk-children (rest el) acc)
+        (walk-children (rest element) continuation-accumulator)
 
         ;; Reagent-native interop head `:>` — cannot be rendered on the
         ;; JVM (no React). rf2-ee38b.10 — mirror the non-streaming
@@ -468,14 +481,14 @@
         ;; as raw text. Delegate to the standard emitter so the single
         ;; `:rf.error/ssr-reagent-native-head` throw lives in one place.
         (= :> head)
-        (emit/emit-element el)
+        (emit/emit-element element)
 
         ;; An unrecognised head in the reserved `:rf/*` scheme — delegate
         ;; to the standard emitter so the single
         ;; `:rf.error/invalid-hiccup-head` reserved-head throw lives in
         ;; one place, exactly as the `:>` branch above does (rf2-j81hs).
         (emit/reserved-rf-head? head)
-        (emit/reject-reserved-rf-hiccup-head! el head)
+        (emit/reject-reserved-rf-hiccup-head! element head)
 
         ;; DOM / custom element — always recurse via `walk-dom-tag` so
         ;; nested suspense-boundaries are reachable. Per rf2-muasb the
@@ -497,13 +510,13 @@
         ;; through, so a suspense boundary inside a view body is still
         ;; reachable.
         :else
-        (walk-dom-tag el acc)))
+        (walk-dom-tag element continuation-accumulator)))
 
-    (and (vector? el) (ifn? (first el)))
+    (and (vector? element) (ifn? (first element)))
     ;; Callable component head — a plain fn OR a Var reference
     ;; (`[#'component & args]`). On the JVM a Var is `ifn?` but NOT `fn?`,
     ;; so a bare `(fn? …)` test left a Var-headed component falling through
-    ;; to the `(sequential? el)` / scalar arms and emitting EDN text rather
+    ;; to the `(sequential? element)` / scalar arms and emitting EDN text rather
     ;; than resolving it (rf2-wtd8z finding 2 — same gap as the non-
     ;; streaming emitter). The keyword branch above (DOM tags, fragments,
     ;; `:>`, reserved `:rf/*` heads) is reached first, so the only callables
@@ -514,23 +527,24 @@
     ;; (outer fn → inner render fn) identically to the sync emitter: the
     ;; inner fn is invoked once with the same args rather than left to
     ;; stringify its `.toString` as page text.
-    (walk-shell (emit/resolve-component-head (first el) (rest el)) acc)
+    (walk-shell (emit/resolve-component-head (first element) (rest element))
+                continuation-accumulator)
 
     ;; rf2-y1jbaq — a vector reaching here (not a suspense boundary, not a
     ;; keyword head, not a callable head) has a malformed head (string / nil /
     ;; number / boolean / collection). Fail loud via the shared emit reject —
     ;; identical to the sync emitter — rather than fall through to
-    ;; `(sequential? el)` and splice it as a child-seq, which silently drops
+    ;; `(sequential? element)` and splice it as a child-seq, which silently drops
     ;; the bad head and could ride attacker-controlled child strings.
-    (vector? el)
-    (emit/reject-invalid-hiccup-head! el)
+    (vector? element)
+    (emit/reject-invalid-hiccup-head! element)
 
-    (sequential? el)
-    (walk-children el acc)
+    (sequential? element)
+    (walk-children element continuation-accumulator)
 
     :else
     ;; Scalar / no-recursion-needed — delegate to the standard emitter.
-    (emit/emit-element el)))
+    (emit/emit-element element)))
 
 ;; ---- public surface ------------------------------------------------------
 
@@ -557,11 +571,12 @@
   ;; one cache for the whole shell pass. The cache lives only for the
   ;; duration of `render-shell`.
   (binding [emit/*tag-name-cache* (volatile! {})]
-    (let [acc       (new-continuations-acc)
-          shell     (walk-shell root-hiccup acc)
-          conts     (dedupe-continuations @acc)]
-      {:shell-html shell
-       :continuations conts})))
+    (let [continuation-accumulator (new-continuation-accumulator)
+          shell-html               (walk-shell root-hiccup
+                                                continuation-accumulator)
+          continuations            (dedupe-continuations @continuation-accumulator)]
+      {:shell-html shell-html
+       :continuations continuations})))
 
 (defn render-continuation
   "Drain one continuation. `frame-id` is the per-request frame whose
@@ -614,21 +629,23 @@
       ;; applies the same last-write-wins duplicate-id contract within
       ;; this continuation's nested registrations.
       (binding [emit/*tag-name-cache* (volatile! {})]
-        (let [acc           (new-continuations-acc)
-              resolved-html (walk-shell subtree acc)
-              nested        (dedupe-continuations @acc)
+        (let [continuation-accumulator (new-continuation-accumulator)
+              resolved-html (walk-shell subtree continuation-accumulator)
+              nested-continuations (dedupe-continuations
+                                     @continuation-accumulator)
               after-db      (frame/frame-app-db-value frame-id)
               delta         (subtree-delta before-db after-db)]
           {:id            id
            :html          resolved-html
            :delta         delta
            :failed?       false
-           :continuations nested}))
-      (catch #?(:clj Throwable :cljs :default) t
+           :continuations nested-continuations}))
+      (catch #?(:clj Throwable :cljs :default) render-throwable
         (trace/emit-error! :rf.ssr/suspense-boundary-failed
                            {:id        id
                             :frame     frame-id
-                            :exception (#?(:clj .getMessage :cljs ex-message) t)
+                            :exception (#?(:clj .getMessage :cljs ex-message)
+                                        render-throwable)
                             :recovery  :inline-fallback})
         (let [fallback-html (try
                               (emit/render-to-string fallback nil)

@@ -283,7 +283,9 @@
             whole, which the `when-not` arm executes"
     ;; Malli app-db schema: [:derived :doubled] must be a NON-NEGATIVE int.
     (rf/reg-app-schema [:derived] [:map [:doubled [:int {:min 0}]]])
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 1 :derived {:doubled 0}}}))
+    (rf/reg-event :seed
+                  (fn [_coeffects _event]
+                    {:db {:n 1 :derived {:doubled 0}}}))
     ;; The handler writes :n; the flow reads :n and writes a value that the
     ;; app-db schema will REJECT (negative when :n is negative).
     (rf/reg-event :set-n (fn [{:keys [db]} [_ v]] {:db (assoc db :n v)}))
@@ -397,7 +399,7 @@
             is discarded, NO :rf.event/db-changed fires, the handler's own
             :db does NOT land — distinct from the schema-rollback signature
             (no commit at all, vs commit-then-unwind)"
-    (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
+    (rf/reg-event :seed (fn [_coeffects _event] {:db {:n 0}}))
     ;; The handler writes :n; the flow reads :n and THROWS.
     (rf/reg-event :bump (fn [{:keys [db]} _] {:db (update db :n inc)}))
     ;; Seed a clean baseline FIRST, then register the throwing flow — the
@@ -463,7 +465,9 @@
   (testing "under SSR's synchronous drain a sub over a flow's :output-path renders
             the flow-augmented value into the output HTML — the flow ran
             before install; the render reads the installed flow-augmented db"
-    (rf/reg-event :ssr/seed (fn [{:keys [db]} _] {:db {:user {:first "Ada" :last "Lovelace"}}}))
+    (rf/reg-event :ssr/seed
+                  (fn [_coeffects _event]
+                    {:db {:user {:first "Ada" :last "Lovelace"}}}))
     ;; A flow derives a display name from the user map into [:derived :full-name].
     (rf/reg-flow :user/full-name {:inputs [[:user :first] [:user :last]] :output-path [:derived :full-name]} (fn [first last] (str first " " last)))
     ;; A sub reads the FLOW's output path (not the raw inputs) — so what it

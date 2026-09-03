@@ -159,9 +159,10 @@
 (defn- parse-tag-name*
   "Pure parse — the body the memo wraps."
   [tag-kw]
-  (let [s     (name tag-kw)
+  (let [tag-expression (name tag-kw)
         ;; Match: tag-name optionally followed by #id and .class fragments.
-        [_ tag id classes] (re-matches #"([^#.]+)(?:#([^.]+))?(.*)" s)
+        [_ tag id classes] (re-matches #"([^#.]+)(?:#([^.]+))?(.*)"
+                                       tag-expression)
         class-list (when (and classes (seq classes))
                      (->> (clojure.string/split classes #"\.")
                           (remove empty?)
@@ -228,11 +229,11 @@
   [children root-attrs]
   (if (nil? root-attrs)
     (emit-children children)
-    (let [v (vec children)]
+    (let [child-vector (vec children)]
       (clojure.string/join
-        (map-indexed (fn [i child]
-                       (emit-element child (when (zero? i) root-attrs)))
-                     v)))))
+        (map-indexed (fn [child-index child]
+                       (emit-element child (when (zero? child-index) root-attrs)))
+                     child-vector)))))
 
 ;; ---- source-coord annotation: NOT the emitter's job ----------------------
 ;;
@@ -274,8 +275,10 @@
   added when the key isn't already present, so a caller-supplied
   `data-rf-render-hash` on the root never gets overwritten."
   [attrs root-attrs]
-  (reduce-kv (fn [m k v]
-               (if (contains? m k) m (assoc m k v)))
+  (reduce-kv (fn [merged-attrs attr-name attr-value]
+               (if (contains? merged-attrs attr-name)
+                 merged-attrs
+                 (assoc merged-attrs attr-name attr-value)))
              attrs
              root-attrs))
 
@@ -318,13 +321,13 @@
   `re-frame.error` §cycle-safe diagnostic printing. `head` needs no such
   crossing: this arm is
   reached only for a keyword in the reserved `:rf/*` namespace."
-  [el head]
-  (let [el (error/safe-form el)]
+  [element head]
+  (let [safe-element (error/safe-form element)]
     (error/throw-error!
       :rf.error/invalid-hiccup-head
       'rf.ssr/emit
       (str "hiccup vector head " (pr-str head)
-           " (in element " (pr-str el) ") is in the framework-reserved"
+           " (in element " (pr-str safe-element) ") is in the framework-reserved"
            " :rf/* namespace but is not a hiccup head this emitter"
            " recognises. The recognised reserved heads are :<> (fragment),"
            " :> (Reagent-native interop) and :rf/suspense-boundary"
@@ -335,7 +338,7 @@
            " unreserved keyword if you meant a custom element.")
       {:recovery :use-a-recognised-reserved-head-or-an-unreserved-keyword
        :extra    {:head    head
-                  :element el}})))
+                  :element safe-element}})))
 
 (defn reject-invalid-hiccup-head!
   "Throw `:rf.error/invalid-hiccup-head` for a hiccup vector whose head is
@@ -358,24 +361,24 @@
   defect was reported against: a React context provider is neither
   `keyword?` nor `ifn?`, so `[ctx.Provider {…}]` falls here, and `pr-str` of
   a self-referential JS object blew the stack — `RangeError` instead of the
-  message this function exists to produce. `el` crosses
-  `error/safe-form` first; `(first el)` is read from the crossed value,
+  message this function exists to produce. `element` crosses
+  `error/safe-form` first; `(first element)` is read from the crossed value,
   so the head is covered by the same one crossing."
-  [el]
-  (let [el (error/safe-form el)]
+  [element]
+  (let [safe-element (error/safe-form element)]
     (error/throw-error!
       :rf.error/invalid-hiccup-head
       'rf.ssr/emit
-      (str "hiccup vector head " (pr-str (first el))
-           " (in element " (pr-str el) ") is not a valid hiccup head — a head"
+      (str "hiccup vector head " (pr-str (first safe-element))
+           " (in element " (pr-str safe-element) ") is not a valid hiccup head — a head"
            " must be a keyword (DOM tag / :<> / :> /"
            " :rf/suspense-boundary) or a callable component (fn / Var). A"
            " string / nil / number / boolean / collection head has no HTML"
            " interpretation; emitting its EDN form raw would bypass output"
            " escaping (XSS). Produce a valid hiccup head.")
       {:recovery :use-a-keyword-or-callable-hiccup-head
-       :extra    {:head    (first el)
-                  :element el}})))
+       :extra    {:head    (first safe-element)
+                  :element safe-element}})))
 
 #?(:clj
    (defn- declared-fixed-arities
@@ -409,17 +412,18 @@
 
 #?(:clj
    (defn- form-2-invocation-arity
-     "How many of the component's `n` args to hand `inner` — modelling which
-     arm the SAME `inner`, compiled by ClojureScript, would SELECT — or `nil`
-     when no declared arm fits `n`, in which case the JVM passes all `n` and
-     lets its own `ArityException` report the real call.
+     "How many of the component's `argument-count` args to hand
+      `inner-render-fn` — modelling which arm the SAME function, compiled by
+      ClojureScript, would SELECT — or `nil` when no declared arm fits, in
+      which case the JVM passes all arguments and lets its own `ArityException`
+      report the real call.
 
      `nil` covers two situations that are NOT the same, and only one of them
      is host agreement (rf2-mocn3, mayor ruling 2026-09-01):
 
        • TOO MANY args for every arm of a multi-arm inner — the compiled
-         CLJS dispatcher throws `Invalid arity: n` as well, so both hosts
-         refuse and the shared component is rejected identically.
+         CLJS dispatcher throws `Invalid arity: <count>` as well, so both
+         hosts refuse and the shared component is rejected identically.
        • TOO FEW args — CLJS does NOT refuse. JavaScript binds the missing
          parameters to `undefined` and the render proceeds. The JVM refuses
          instead, DELIBERATELY. See `invoke-form-2-render-fn` for the
@@ -430,7 +434,7 @@
      does. Only a fn with a SINGLE fixed arity and no variadic tail compiles
      to a bare JavaScript function, and only a bare JavaScript function drops
      extra arguments. Anything with more than one arm compiles to a dispatcher
-     that switches on `arguments.length` and throws `Invalid arity: n` when no
+     that switches on `arguments.length` and throws on an unsupported arity when no
      arm matches. Measured on node against `cljs.core/apply`, which is exactly
      what the `:cljs` branch of `invoke-form-2-render-fn` calls:
 
@@ -444,28 +448,34 @@
 
      So the three selection rules mirror the three shapes the dispatcher has:
 
-       1. an EXACT fixed arm for `n`               → `n`
+       1. an EXACT fixed arm for `argument-count`  → `argument-count`
        2. a variadic arm whose required count is
-          satisfied by `n`                         → `n` (the whole arg list)
+          satisfied by `argument-count`            → the whole arg list
        3. exactly ONE fixed arity, no variadic
-          tail, shorter than `n`                   → that arity (truncate)
+          tail, shorter than `argument-count`      → that arity (truncate)
 
      Rule 3 is deliberately narrow, and widening it would be a DIFFERENT
      behaviour wearing this name. There is deliberately no fourth rule for
      TOO FEW args: nothing here ever SUPPLIES an argument the caller did not
-     pass, so an inner that declares only arities above `n` falls through to
+     pass, so an inner that declares only larger arities falls through to
      `nil` and the JVM raises. That is the one place the hosts disagree, and
      `invoke-form-2-render-fn` states the contract and the reason."
-     [inner n]
-     (let [fixed    (declared-fixed-arities inner)
-           required (variadic-required-arity inner)]
+     [inner-render-fn argument-count]
+     (let [fixed-arities  (declared-fixed-arities inner-render-fn)
+           required-arity (variadic-required-arity inner-render-fn)]
        (cond
-         (contains? fixed n)            n
-         (and required (>= n required)) n
-         (and (nil? required)
-              (= 1 (count fixed))
-              (< (first fixed) n))      (first fixed)
-         :else                          nil))))
+         (contains? fixed-arities argument-count)
+         argument-count
+
+         (and required-arity (>= argument-count required-arity))
+         argument-count
+
+         (and (nil? required-arity)
+              (= 1 (count fixed-arities))
+              (< (first fixed-arities) argument-count))
+         (first fixed-arities)
+
+         :else nil))))
 
 (defn- invoke-form-2-render-fn
   "Invoke a Form-2 inner render fn with `args`, on the JVM under the arity
@@ -519,10 +529,14 @@
   with nil props instead of failing where it can be seen. So do NOT \"fix\"
   this by filling the missing slots with nil. Both cases are pinned on both
   hosts, divergence included, by `re-frame.ssr.form2-arity-cljs-test`."
-  [inner args]
-  #?(:clj  (let [k (form-2-invocation-arity inner (count args))]
-             (apply inner (if k (take k args) args)))
-     :cljs (apply inner args)))
+  [inner-render-fn args]
+  #?(:clj  (let [invocation-arity (form-2-invocation-arity inner-render-fn
+                                                            (count args))]
+             (apply inner-render-fn
+                    (if invocation-arity
+                      (take invocation-arity args)
+                      args)))
+     :cljs (apply inner-render-fn args)))
 
 (defn resolve-component-head
   "Resolve a callable-head hiccup component (`[component & args]`, where
@@ -757,9 +771,9 @@
                ;; and a `[:SCRIPT "a<b"]` would classify wrongly. Normalise
                ;; for classification while preserving the author's emitted
                ;; case.
-               norm-tag     (clojure.string/lower-case tag-name)
-               void?        (contains? void-elements (keyword norm-tag))
-               raw-text?    (contains? html/raw-text-tags norm-tag)]
+               normalised-tag-name (clojure.string/lower-case tag-name)
+               void?        (contains? void-elements (keyword normalised-tag-name))
+               raw-text?    (contains? html/raw-text-tags normalised-tag-name)]
            (cond
              void?     (str "<" tag-name (attr-string attrs) ">")
              ;; rf2-xbvzh — an ordinary inline <script>/<style> with STRING
@@ -773,7 +787,8 @@
              ;; no compiled child-shape grammar).
              (and raw-text? (seq children) (every? string? children))
              (str "<" tag-name (attr-string attrs) ">"
-                  (html/escape-raw-text norm-tag (clojure.string/join children))
+                  (html/escape-raw-text normalised-tag-name
+                                        (clojure.string/join children))
                   "</" tag-name ">")
              :else
              (str "<" tag-name (attr-string attrs) ">"

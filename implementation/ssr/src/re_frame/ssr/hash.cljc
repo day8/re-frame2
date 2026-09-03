@@ -59,58 +59,58 @@
   and no cheap normalisation closes it. Such values are vanishingly rare in
   SSR view output; the common price/progress `9.0`/`0.0` case is fully
   canonical."
-  [x]
+  [number]
   #?(:clj
      (cond
-       (ratio? x)
-       (canonical-number (double x))
+       (ratio? number)
+       (canonical-number (double number))
 
-       (and (or (instance? Double x) (instance? Float x))
-            (let [d (double x)]
+       (and (or (instance? Double number) (instance? Float number))
+            (let [d (double number)]
               (and (not (Double/isNaN d))
                    (not (Double/isInfinite d))
                    (== d (Math/rint d))                       ;; whole-valued
                    (<= -9.007199254740992E15 d 9.007199254740992E15))))
-       (str (long x))
+       (str (long number))
 
-       :else (pr-str x))
+       :else (pr-str number))
      :cljs
-     (pr-str x)))
+     (pr-str number)))
 
 (defn- append-children!
-  "Append canonical-EDN of each non-nil child of `xs` into `sb`,
-  separated by `sep`. Maps with nil values and sequential children
-  that are nil are pruned at the parent per Spec 011 §Hydration-mismatch
-  detection."
-  [sb xs sep]
-  (loop [xs    (seq xs)
-         first? true]
-    (when xs
-      (let [x (first xs)]
-        (if (nil? x)
-          (recur (next xs) first?)
+  "Append canonical-EDN of each non-nil child of `children` into
+  `accumulator`, separated by `separator`. Maps with nil values and
+  sequential children that are nil are pruned at the parent per Spec 011
+  §Hydration-mismatch detection."
+  [accumulator children separator]
+  (loop [remaining-children (seq children)
+         first?             true]
+    (when remaining-children
+      (let [child (first remaining-children)]
+        (if (nil? child)
+          (recur (next remaining-children) first?)
           (do
             (when-not first?
-              #?(:clj (.append ^StringBuilder sb ^String sep)
-                 :cljs (.push sb sep)))
-            (canonical-edn-into sb x)
-            (recur (next xs) false)))))))
+              #?(:clj (.append ^StringBuilder accumulator ^String separator)
+                 :cljs (.push accumulator separator)))
+            (canonical-edn-into accumulator child)
+            (recur (next remaining-children) false)))))))
 
 (defn- member-canonical
   "Render one set/seq member's canonical form to a fresh accumulator.
   Used for the set branch where members must be lexicographically
   sorted by their canonical form before appending. Returns nil for
   nil so the caller can `keep`-prune."
-  [x]
-  (when-not (nil? x)
+  [member]
+  (when-not (nil? member)
     #?(:clj
-       (let [sb (StringBuilder.)]
-         (canonical-edn-into sb x)
-         (.toString sb))
+       (let [accumulator (StringBuilder.)]
+         (canonical-edn-into accumulator member)
+         (.toString accumulator))
        :cljs
-       (let [sb (array)]
-         (canonical-edn-into sb x)
-         (.join sb "")))))
+       (let [accumulator (array)]
+         (canonical-edn-into accumulator member)
+         (.join accumulator "")))))
 
 (defn- append-sorted-set!
   "Sets: emit `#{` + sorted-by-canonical-EDN members + `}`. Members can
@@ -118,24 +118,24 @@
   sort the strings, then append. The set branch is the only place
   intermediate strings remain — sets need a comparator, and string
   comparison is the spec-stable one across both runtimes."
-  [sb s]
-  (let [items (->> s (keep member-canonical) sort)]
+  [accumulator members]
+  (let [canonical-members (->> members (keep member-canonical) sort)]
     #?(:clj
-       (do (.append ^StringBuilder sb "#{")
-           (loop [items (seq items) first? true]
-             (when items
-               (when-not first? (.append ^StringBuilder sb \space))
-               (.append ^StringBuilder sb ^String (first items))
-               (recur (next items) false)))
-           (.append ^StringBuilder sb \}))
+       (do (.append ^StringBuilder accumulator "#{")
+           (loop [remaining-members (seq canonical-members) first? true]
+             (when remaining-members
+               (when-not first? (.append ^StringBuilder accumulator \space))
+               (.append ^StringBuilder accumulator ^String (first remaining-members))
+               (recur (next remaining-members) false)))
+           (.append ^StringBuilder accumulator \}))
        :cljs
-       (do (.push sb "#{")
-           (loop [items (seq items) first? true]
-             (when items
-               (when-not first? (.push sb " "))
-               (.push sb (first items))
-               (recur (next items) false)))
-           (.push sb "}")))))
+       (do (.push accumulator "#{")
+           (loop [remaining-members (seq canonical-members) first? true]
+             (when remaining-members
+               (when-not first? (.push accumulator " "))
+               (.push accumulator (first remaining-members))
+               (recur (next remaining-members) false)))
+           (.push accumulator "}")))))
 
 (defn- key-canonical
   "The canonical-EDN string of a map KEY, used as the map's sort key
@@ -149,8 +149,8 @@
   parity-pinned fixtures stay green. A nil key (not pruned — only nil
   VALUES are) canonicalises to the empty string, mirroring the prior
   `(str nil)` => `\"\"` sort position."
-  [k]
-  (or (member-canonical k) ""))
+  [map-key]
+  (or (member-canonical map-key) ""))
 
 (defn- append-map!
   "Maps: emit `{` + sorted key-value pairs (`key value`, comma-joined) + `}`.
@@ -158,30 +158,30 @@
   total, cross-runtime-stable order, unlike `(comp str key)` which
   collides string-form-equal keys of different types. Nil-valued entries
   pruned per Spec 011 §Hydration-mismatch detection."
-  [sb m]
-  (let [entries (->> m
+  [accumulator entries-map]
+  (let [entries (->> entries-map
                      (remove (comp nil? val))
                      (sort-by (comp key-canonical key)))]
-    #?(:clj  (.append ^StringBuilder sb \{)
-       :cljs (.push sb "{"))
-    (loop [es (seq entries) first? true]
-      (when es
+    #?(:clj  (.append ^StringBuilder accumulator \{)
+       :cljs (.push accumulator "{"))
+    (loop [remaining-entries (seq entries) first? true]
+      (when remaining-entries
         (when-not first?
-          #?(:clj  (.append ^StringBuilder sb \,)
-             :cljs (.push sb ",")))
-        (let [[k v] (first es)]
-          (canonical-edn-into sb k)
-          #?(:clj  (.append ^StringBuilder sb \space)
-             :cljs (.push sb " "))
-          (canonical-edn-into sb v))
-        (recur (next es) false)))
-    #?(:clj  (.append ^StringBuilder sb \})
-       :cljs (.push sb "}"))))
+          #?(:clj  (.append ^StringBuilder accumulator \,)
+             :cljs (.push accumulator ",")))
+        (let [[map-key entry-value] (first remaining-entries)]
+          (canonical-edn-into accumulator map-key)
+          #?(:clj  (.append ^StringBuilder accumulator \space)
+             :cljs (.push accumulator " "))
+          (canonical-edn-into accumulator entry-value))
+        (recur (next remaining-entries) false)))
+    #?(:clj  (.append ^StringBuilder accumulator \})
+       :cljs (.push accumulator "}"))))
 
 (defn canonical-edn-into
   "Streaming canonical-EDN walker (rf2-8otin). Appends the canonical
-  serialisation of `x` into the accumulator `sb` — a `StringBuilder`
-  on JVM, a JS array on CLJS. Returns `sb`. Nil scalars are pruned at
+  serialisation of `value` into the `accumulator` — a `StringBuilder`
+  on JVM, a JS array on CLJS. Returns the accumulator. Nil scalars are pruned at
   the parent (this fn no-ops on nil; callers walking a collection use
   `append-children!` which skips nil children).
 
@@ -192,33 +192,33 @@
   Output is byte-identical to (the now-thin) `canonical-edn`; the
   parity-pinned literals at `re-frame.ssr.hash-parity-fixtures` are
   the cross-runtime contract."
-  [sb x]
+  [accumulator value]
   (cond
-    (nil? x) sb                                     ;; pruned at parent
+    (nil? value) accumulator                         ;; pruned at parent
 
-    (map? x)
-    (do (append-map! sb x) sb)
+    (map? value)
+    (do (append-map! accumulator value) accumulator)
 
-    (vector? x)
-    (do #?(:clj  (.append ^StringBuilder sb \[)
-           :cljs (.push sb "["))
-        (append-children! sb x " ")
-        #?(:clj  (.append ^StringBuilder sb \])
-           :cljs (.push sb "]"))
-        sb)
+    (vector? value)
+    (do #?(:clj  (.append ^StringBuilder accumulator \[)
+           :cljs (.push accumulator "["))
+        (append-children! accumulator value " ")
+        #?(:clj  (.append ^StringBuilder accumulator \])
+           :cljs (.push accumulator "]"))
+        accumulator)
 
-    (sequential? x)
-    (do #?(:clj  (.append ^StringBuilder sb \()
-           :cljs (.push sb "("))
-        (append-children! sb x " ")
-        #?(:clj  (.append ^StringBuilder sb \))
-           :cljs (.push sb ")"))
-        sb)
+    (sequential? value)
+    (do #?(:clj  (.append ^StringBuilder accumulator \()
+           :cljs (.push accumulator "("))
+        (append-children! accumulator value " ")
+        #?(:clj  (.append ^StringBuilder accumulator \))
+           :cljs (.push accumulator ")"))
+        accumulator)
 
-    (set? x)
-    (do (append-sorted-set! sb x) sb)
+    (set? value)
+    (do (append-sorted-set! accumulator value) accumulator)
 
-    (fn? x)
+    (fn? value)
     ;; A raw fn head — `[my-component props]`, the idiomatic Reagent/UIx
     ;; SSR shape where `my-component` is the deref'd defn VALUE (a raw
     ;; fn, not a Var). `(.toString fn)` is NOT cross-runtime stable: JVM =
@@ -233,19 +233,19 @@
     ;; still hash, and a Var head stays identity-stable — a Var is NOT `fn?`
     ;; on the JVM, so `[#'ns/view …]` falls to `:else` → `(pr-str …)` →
     ;; `#'ns/view`, identical on both runtimes.
-    (do #?(:clj  (.append ^StringBuilder sb "#fn[]")
-           :cljs (.push sb "#fn[]"))
-        sb)
+    (do #?(:clj  (.append ^StringBuilder accumulator "#fn[]")
+           :cljs (.push accumulator "#fn[]"))
+        accumulator)
 
-    (number? x)
+    (number? value)
     ;; Canonicalise the numeric print form so the JVM `1.0`/`1/2` and the
     ;; CLJS `1`/`0.5` agree (rf2-0ypnnk) — see `canonical-number`. The
     ;; emitter (`re-frame.ssr.emit`) applies the SAME normalisation to the
     ;; HTML so the structural hash and the rendered markup stay byte-
     ;; consistent for the same logical tree.
-    (do #?(:clj  (.append ^StringBuilder sb ^String (canonical-number x))
-           :cljs (.push sb (canonical-number x)))
-        sb)
+    (do #?(:clj  (.append ^StringBuilder accumulator ^String (canonical-number value))
+           :cljs (.push accumulator (canonical-number value)))
+        accumulator)
 
     ;; ---- the foreign crossing (rf2-56iys) ---------------------------------
     ;;
@@ -294,16 +294,16 @@
     ;; and keeps two distinguishable shapes distinguishable; neither form
     ;; carries identity.
     #?@(:cljs
-        [(object? x)
-         (do (.push sb "#js{}") sb)
+        [(object? value)
+         (do (.push accumulator "#js{}") accumulator)
 
-         (array? x)
-         (do (.push sb "#js[]") sb)])
+         (array? value)
+         (do (.push accumulator "#js[]") accumulator)])
 
     :else
-    (do #?(:clj  (.append ^StringBuilder sb ^String (pr-str x))
-           :cljs (.push sb (pr-str x)))
-        sb)))
+    (do #?(:clj  (.append ^StringBuilder accumulator ^String (pr-str value))
+           :cljs (.push accumulator (pr-str value)))
+        accumulator)))
 
 (defn canonical-edn
   "Print a render-tree node in a stable order. Maps are sorted by the
@@ -331,16 +331,16 @@
   Delegates to `canonical-edn-into` with a fresh accumulator (rf2-8otin) —
   the public surface is unchanged but the production hash path skips this
   allocation entirely (see `render-tree-hash`)."
-  [x]
-  (when-not (nil? x)
+  [value]
+  (when-not (nil? value)
     #?(:clj
-       (let [sb (StringBuilder.)]
-         (canonical-edn-into sb x)
-         (.toString sb))
+       (let [accumulator (StringBuilder.)]
+         (canonical-edn-into accumulator value)
+         (.toString accumulator))
        :cljs
-       (let [sb (array)]
-         (canonical-edn-into sb x)
-         (.join sb "")))))
+       (let [accumulator (array)]
+         (canonical-edn-into accumulator value)
+         (.join accumulator "")))))
 
 ;; FNV-1a runs over a UTF-8 byte stream on both sides.
 ;; Why UTF-8 bytes, not UTF-16 code units?
@@ -352,7 +352,7 @@
 ;;
 ;; Byte-identity: UTF-8 is byte-deterministic, so a UTF-8 byte sequence
 ;; computed by `String.getBytes(UTF_8)` on JVM is identical to the one
-;; produced by `TextEncoder('utf-8').encode(s)` in JavaScript. The hash
+;; produced by `TextEncoder('utf-8').encode(canonical-string)` in JavaScript. The hash
 ;; output is therefore byte-identical across runtimes for any input the
 ;; canonical-EDN serializer can produce.
 ;;
@@ -371,9 +371,9 @@
   32-bit multiply (CLJS via `Math.imul`, JVM via long-multiply-then-mask).
   Output hex string is byte-identical across runtimes for byte-identical
   input strings."
-  [s]
+  [canonical-string]
   #?(:clj
-     (let [bytes ^bytes (.getBytes ^String s java.nio.charset.StandardCharsets/UTF_8)
+     (let [bytes ^bytes (.getBytes ^String canonical-string java.nio.charset.StandardCharsets/UTF_8)
            len   (alength bytes)]
        (loop [i (int 0)
               h (long 2166136261)]                       ;; FNV offset basis
@@ -385,7 +385,7 @@
                              (bit-xor h (bit-and (aget bytes i) 0xff))
                              16777619))))))             ;; FNV prime
      :cljs
-     (let [bytes (.encode (js/TextEncoder.) s)           ;; Uint8Array
+     (let [bytes (.encode (js/TextEncoder.) canonical-string) ;; Uint8Array
            len   (.-length bytes)]
        (loop [i 0
               h 2166136261]                              ;; FNV offset basis
@@ -409,10 +409,10 @@
   are the cross-runtime contract."
   [render-tree]
   #?(:clj
-     (let [sb (StringBuilder.)]
-       (canonical-edn-into sb render-tree)
-       (fnv-1a-32 (.toString sb)))
+     (let [accumulator (StringBuilder.)]
+       (canonical-edn-into accumulator render-tree)
+       (fnv-1a-32 (.toString accumulator)))
      :cljs
-     (let [sb (array)]
-       (canonical-edn-into sb render-tree)
-       (fnv-1a-32 (.join sb "")))))
+     (let [accumulator (array)]
+       (canonical-edn-into accumulator render-tree)
+       (fnv-1a-32 (.join accumulator "")))))

@@ -155,12 +155,12 @@
   reader-significant chars) we fall back to the raw attribute string. The id
   is only ever used as a map/DOM-attribute key or a trace payload, never
   evaluated."
-  [s]
+  [wire-id-string]
   (let [parsed (try
-                 (reader/read-string s)
+                 (reader/read-string wire-id-string)
                  (catch :default _ ::fail))]
     (cond
-      (= ::fail parsed) s
+      (= ::fail parsed) wire-id-string
       ;; A bare-token parse is a symbol — the server emitted a STRING id via
       ;; `(str id)`, dropping the quotes; recover the string.
       (symbol? parsed)  (str parsed)
@@ -171,30 +171,30 @@
 (defn- query-by-attr
   "Return a seq of elements under `root` carrying attribute `attr`
   (presence, any value). `root` is a Document or Element."
-  [root attr]
-  (array-seq (.querySelectorAll root (str "[" attr "]"))))
+  [root attribute-name]
+  (array-seq (.querySelectorAll root (str "[" attribute-name "]"))))
 
 (defn- template-content-fragment
   "Materialise a `<template>`'s parsed content as a DocumentFragment
   ready to insert. `<template>` elements expose their parsed children
   via `.content` (a DocumentFragment); we clone it so the source
   template can be removed without detaching the inserted nodes."
-  [tmpl]
-  (.cloneNode (.-content tmpl) true))
+  [template]
+  (.cloneNode (.-content template) true))
 
 (defn- mounts-for
   "Every live `<rf-suspense data-rf2-suspense-mount=\"<id>\">` wrapper for
-  boundary `id-str` under `root`, in document order. A well-formed page has
+  boundary `wire-id-string` under `root`, in document order. A well-formed page has
   exactly one per id; a DUPLICATE-id boundary (a programmer error the server
   surfaces with `:rf.error/suspense-boundary-duplicate-id`, fail-soft
   last-write-wins) yields more than one — one live mount per declared
   boundary, all carrying the same id."
-  [root id-str]
+  [root wire-id-string]
   (->> (query-by-attr root attr-suspense-mount)
-       (filter #(= id-str (.getAttribute % attr-suspense-mount)))))
+       (filter #(= wire-id-string (.getAttribute % attr-suspense-mount)))))
 
 (defn- mount-for
-  "The swap-target live mount for boundary `id-str` under `root`, or nil.
+  "The swap-target live mount for boundary `wire-id-string` under `root`, or nil.
   Matching is by the id attribute so the swap is exact even across nested
   boundaries. For a DUPLICATE-id boundary the target is the LAST mount in
   document order — the server keeps the LAST registration (last-write-wins,
@@ -202,8 +202,8 @@
   continuation's resolved chunk, so the resolved content must land in the
   last boundary's position; the earlier mounts keep showing their fallback
   For the common single-id case this is just that one mount."
-  [root id-str]
-  (last (mounts-for root id-str)))
+  [root wire-id-string]
+  (last (mounts-for root wire-id-string)))
 
 (defn- materialise-fallback!
   "Turn one inert `data-rf2-suspense-fallback` `<template>` into a LIVE
@@ -223,15 +223,15 @@
   (`mount-for`).
 
   Returns the new mount element, or nil if the template carried no id."
-  [fb-tmpl]
-  (when-let [id-str (.getAttribute fb-tmpl attr-suspense-id)]
-    (let [parent (.-parentNode fb-tmpl)
+  [fallback-template]
+  (when-let [wire-id-string (.getAttribute fallback-template attr-suspense-id)]
+    (let [parent (.-parentNode fallback-template)
           mount  (.createElement js/document mount-tag)]
-      (.setAttribute mount attr-suspense-mount id-str)
-      (.appendChild mount (template-content-fragment fb-tmpl))
+      (.setAttribute mount attr-suspense-mount wire-id-string)
+      (.appendChild mount (template-content-fragment fallback-template))
       (when parent
-        (.insertBefore parent mount fb-tmpl)
-        (.removeChild parent fb-tmpl))
+        (.insertBefore parent mount fallback-template)
+        (.removeChild parent fallback-template))
       mount)))
 
 (defn- materialise-fallbacks!
@@ -239,11 +239,11 @@
   live mount. Run on install + on observed additions so a fallback that
   streamed in after install still becomes visible."
   [root]
-  (doseq [t (query-by-attr root attr-suspense-fallback)]
-    (materialise-fallback! t)))
+  (doseq [fallback-template (query-by-attr root attr-suspense-fallback)]
+    (materialise-fallback! fallback-template)))
 
 (defn- replace-mount-content!
-  "Replace the live mount's children for `id-str` with the resolved
+  "Replace the live mount's children for `wire-id-string` with the resolved
   `<template>`'s parsed content, in-place. Targets `mount-for` — the LAST
   mount for the id, so a DUPLICATE-id boundary's single resolved chunk
   (the server's last-write-wins registration) lands in the LAST boundary's
@@ -252,13 +252,13 @@
   with no matching fallback mount yet — e.g. a nested inner chunk racing
   ahead of its mount). The mount wrapper itself stays in the DOM carrying
   its id — harmless, and it keeps the swap target stable."
-  [root id-str resolved-tmpl]
-  (if-let [mount (mount-for root id-str)]
+  [root wire-id-string resolved-template]
+  (if-let [mount (mount-for root wire-id-string)]
     (do
       (set! (.-innerHTML mount) "")
-      (.appendChild mount (template-content-fragment resolved-tmpl))
-      (when-let [rp (.-parentNode resolved-tmpl)]
-        (.removeChild rp resolved-tmpl))
+      (.appendChild mount (template-content-fragment resolved-template))
+      (when-let [resolved-parent (.-parentNode resolved-template)]
+        (.removeChild resolved-parent resolved-template))
       true)
     false))
 
@@ -298,8 +298,8 @@
   page is left painting, and the client `boundary` component renders that
   same declared fallback for a failed id, so the two agree."
   [root]
-  (doseq [m (query-by-attr root attr-suspense-mount)]
-    (unwrap-mount! m)))
+  (doseq [mount (query-by-attr root attr-suspense-mount)]
+    (unwrap-mount! mount)))
 
 ;; ---- delta merge -----------------------------------------------------------
 
@@ -314,7 +314,9 @@
   canonical replace."
   [frame-id delta]
   (when (and (map? delta) (seq delta))
-    (frame/swap-frame-db! frame-id (fn [db] (into db delta)))))
+    (frame/swap-frame-db! frame-id
+                          (fn [app-db]
+                            (into app-db delta)))))
 
 ;; ---- chunk processing ------------------------------------------------------
 
@@ -327,9 +329,9 @@
   `:rf.ssr/suspense-boundary-failed`, `:recovery :skipped-delta`). `extra` is
   merged in to carry the branch-specific field (`:exception` for the reader
   throw, `:malformed-value-type` for a non-map parse)."
-  [frame-id id-str reason extra]
+  [frame-id wire-id-string reason extra]
   (trace/emit-error! :rf.ssr/suspense-boundary-failed
-                     (merge {:id       (read-boundary-id id-str)
+                     (merge {:id       (read-boundary-id wire-id-string)
                              :frame    frame-id
                              :where    'rf.ssr/streaming-client
                              :reason   reason
@@ -354,12 +356,13 @@
   prior `(when delta …)` no-op. The bare delta-map EDN body is the shipped
   wire contract (Spec 011 §Hydration interleaving — \"the per-subtree delta
   is shipped as the bare delta-map EDN\"); anything else is the bug."
-  [frame-id id-str body]
+  [frame-id wire-id-string delta-edn]
   (let [parsed (try
-                 (reader/read-string body)
+                 (reader/read-string delta-edn)
                  (catch :default e
-                   (malformed-delta! frame-id id-str
-                                     (str "Malformed hydration-delta EDN for boundary " id-str)
+                   (malformed-delta! frame-id wire-id-string
+                                     (str "Malformed hydration-delta EDN for boundary "
+                                          wire-id-string)
                                      {:exception (ex-message e)})
                    ::skip))]
     (cond
@@ -368,8 +371,8 @@
       (map? parsed)     parsed
       :else
       (do
-        (malformed-delta! frame-id id-str
-                          (str "Hydration-delta EDN for boundary " id-str
+        (malformed-delta! frame-id wire-id-string
+                          (str "Hydration-delta EDN for boundary " wire-id-string
                                " parsed to a non-map (got " (pr-str (type parsed))
                                "); skipped — the delta-map wire contract was violated")
                           {:malformed-value-type (pr-str (type parsed))})
@@ -389,12 +392,13 @@
   event with a distinct `:recovery :quarantined-delta` disposition — the
   sibling of `malformed-delta!`'s `:skipped-delta` and the swap-time
   `:inline-fallback`."
-  [frame-id id-str]
+  [frame-id wire-id-string]
   (trace/emit-error! :rf.ssr/suspense-boundary-failed
-                     {:id       (read-boundary-id id-str)
+                     {:id       (read-boundary-id wire-id-string)
                       :frame    frame-id
                       :where    'rf.ssr/streaming-client
-                      :reason   (str "Hydration-delta script present for boundary " id-str
+                      :reason   (str "Hydration-delta script present for boundary "
+                                     wire-id-string
                                       " which the server flagged FAILED; a failed continuation "
                                       "carries no delta — quarantined without merging "
                                       "(contradictory/reordered wire shape)")
@@ -402,8 +406,8 @@
 
 (defn- apply-ready-deltas!
   "Apply, quarantine, or defer every `data-rf2-suspense-hydrate` delta
-  `<script>` by its boundary's recorded SWAP OUTCOME (`@seen` maps
-  `id-str → :resolved | :failed`), independent of whether the resolved
+  `<script>` by its boundary's recorded SWAP OUTCOME (`@boundary-outcomes` maps
+  `wire-id-string → :resolved | :failed`), independent of whether the resolved
   `<template>` is still in the DOM. Matched by id attribute (not sibling
   position) — DOM order after a swap is not guaranteed.
 
@@ -418,8 +422,8 @@
       delta is therefore a contradictory / duplicated / reordered stream:
       QUARANTINE it (never merged) with one bounded diagnostic, then drop the
       script. This is the fail-closed rule (rf2-x76af2.40) — #5728's
-      undifferentiated `seen` set would otherwise merge a failed boundary's
-      delta.
+      former undifferentiated `seen` set would otherwise merge a failed
+      boundary's delta.
     - not yet swapped (`nil` outcome) — a delta racing ahead of its template:
       LEFT in the DOM (not consumed) for a future sweep to reclassify.
 
@@ -445,28 +449,29 @@
   `<script>` is dropped from the DOM, so no later sweep can re-process it —
   mirroring the swap's own once-only-by-node-removal guarantee, so no separate
   `delta-applied` set is needed."
-  [root frame-id seen]
+  [root frame-id boundary-outcomes]
   (doseq [script (query-by-attr root attr-suspense-hydrate)]
-    (let [id-str  (.getAttribute script attr-suspense-hydrate)
-          outcome (get @seen id-str)]
+    (let [wire-id-string (.getAttribute script attr-suspense-hydrate)
+          outcome        (get @boundary-outcomes wire-id-string)]
       ;; `:resolved` and `:failed` both CONSUME the script (drop it) so it
       ;; cannot be reconsidered on a later sweep; a nil outcome (boundary not
       ;; swapped yet — a delta racing ahead of its template) leaves it for a
       ;; future sweep to reclassify.
       (when (some? outcome)
         (case outcome
-          :resolved (when-let [delta (read-delta frame-id id-str (.-textContent script))]
+          :resolved (when-let [delta (read-delta frame-id wire-id-string
+                                                 (.-textContent script))]
                       (merge-delta! frame-id delta))
-          :failed   (quarantined-failed-delta! frame-id id-str))
+          :failed   (quarantined-failed-delta! frame-id wire-id-string))
         ;; The delta is consumed (merged, skipped, or quarantined); drop the
         ;; script so the DOM is left in its final, script-free shape.
-        (when-let [sp (.-parentNode script)]
-          (.removeChild sp script))))))
+        (when-let [script-parent (.-parentNode script)]
+          (.removeChild script-parent script))))))
 
 (defn- process-resolved-template!
   "Process one resolved-subtree `<template>` (carrying
   `data-rf2-suspense-resolved`): swap the live mount's content for the
-  resolved HTML and mark the boundary `seen`. The matching per-subtree
+  resolved HTML and record the boundary outcome. The matching per-subtree
   hydration-delta `<script>` is applied SEPARATELY by `apply-ready-deltas!`
   at the sweep level (not here), so a delta arriving in a later observer
   batch than this template is still merged (rf2-x76af2.35). A
@@ -476,7 +481,7 @@
   for observability without a 500 (Spec 011 §Failure semantics — inline
   fallback).
 
-  `seen` is an atom MAP of `id-str → outcome` (`:resolved` for a successful
+  `boundary-outcomes` is an atom MAP of `wire-id-string → outcome` (`:resolved` for a successful
   content swap, `:failed` for a failed-boundary fallback swap) recording every
   boundary already processed, so a chunk is applied at most once even if the
   observer fires twice for the same node (defensive — MutationObserver
@@ -485,7 +490,7 @@
   boundary while quarantining one matching a `:failed` boundary
   (rf2-x76af2.40). Idempotent.
 
-  An id is marked `seen` only after a successful
+  An id is recorded in `boundary-outcomes` only after a successful
   swap, and the swapped-in content is re-scanned for fallback templates
   before later resolved templates are processed. Two coupled corners for
   a NESTED boundary whose inner chunk is ALREADY present when the client
@@ -497,37 +502,41 @@
        not live DOM). It only enters the live tree when the outer mount
        is swapped. If we processed the (already-present) inner resolved
        chunk before its mount existed, `replace-mount-content!` would
-       return false. Previously the id was marked seen FIRST, so that
+       return false. Previously the id was recorded FIRST, so that
        failed inner swap was skipped permanently and no later sweep could
        recover it → the nested boundary stuck on fallback forever.
        Fix: after a successful outer swap, immediately materialise any
        fallbacks the new content introduced, so the inner mount exists
        before the inner resolved template is processed later in the
        SAME `doseq`.
-    2. Mark `seen` only on a successful swap. A resolved template whose
+    2. Record an outcome only on a successful swap. A resolved template whose
        mount does not exist yet (raced ahead of its fallback) stays
-       un-`seen` and is retried on the next sweep instead of being burned.
+       outcome is absent is retried on the next sweep instead of being burned.
        Idempotency is still guaranteed: a successful swap REMOVES the
        resolved template node (`replace-mount-content!`), so a re-fire
-       cannot re-process it even before consulting `seen`.
+       cannot re-process it even before consulting `boundary-outcomes`.
 
   Returns `true` when this call made PROGRESS (a swap happened, or a
   failed-boundary fallback was applied) so the sweep can iterate to a
   fixpoint — a nested inner chunk whose mount only appeared after the
   outer swap is recovered within the same sweep even when document order
   put the inner resolved template before the outer one."
-  [root frame-id seen resolved-tmpl]
-  (let [id-str  (.getAttribute resolved-tmpl attr-suspense-id)
-        failed? (= "1" (.getAttribute resolved-tmpl attr-suspense-failed))]
-    (if (and id-str (not (contains? @seen id-str)))
-      (let [swapped? (replace-mount-content! root id-str resolved-tmpl)]
+  [root frame-id boundary-outcomes resolved-template]
+  (let [wire-id-string (.getAttribute resolved-template attr-suspense-id)
+        failed?        (= "1" (.getAttribute resolved-template
+                                              attr-suspense-failed))]
+    (if (and wire-id-string
+             (not (contains? @boundary-outcomes wire-id-string)))
+      (let [swapped? (replace-mount-content! root wire-id-string
+                                             resolved-template)]
         (when swapped?
           ;; Record the OUTCOME ONLY on success — an unresolved mount is
           ;; retryable on the next pass rather than permanently skipped
           ;; (finding 4). The outcome (`:resolved` vs `:failed`) is what gates
           ;; delta application: a `:failed` boundary's delta is quarantined,
           ;; not merged (rf2-x76af2.40).
-          (swap! seen assoc id-str (if failed? :failed :resolved))
+          (swap! boundary-outcomes assoc wire-id-string
+                 (if failed? :failed :resolved))
           ;; The just-swapped content may carry NESTED fallback templates
           ;; that were inert inside the resolved <template> and are now
           ;; live DOM. Materialise them so a nested resolved chunk found
@@ -536,12 +545,12 @@
         ;; The failed-boundary trace is gated on swap success.
         ;; The failed content (the author's fallback HTML) only lands when
         ;; `replace-mount-content!` finds a live mount, so emitting exactly
-        ;; when the swap happens is both correct and exactly-once: `seen` is
-        ;; conj'd only on a successful swap and the swapped-in <template> is
+        ;; when the swap happens is both correct and exactly-once: the outcome is
+        ;; recorded only on a successful swap and the swapped-in <template> is
         ;; removed, so a re-fire cannot re-process it. Previously the failed
         ;; arm fired regardless of `swapped?`, so a resolved-failed
         ;; <template> swept before its mount existed (a nested-boundary race
-        ;; / out-of-order stream) stayed un-`seen` and RE-EMITTED the trace
+        ;; / out-of-order stream) had no outcome and RE-EMITTED the trace
         ;; on every MutationObserver re-sweep — multi-emit.
         ;;
         ;; A non-failed boundary's DELTA is NOT applied here — it is handled
@@ -549,7 +558,7 @@
         ;; in a later observer batch than this template (rf2-x76af2.35).
         (when (and failed? swapped?)
           (trace/emit-error! :rf.ssr/suspense-boundary-failed
-                             {:id        (read-boundary-id id-str)
+                             {:id        (read-boundary-id wire-id-string)
                               :frame     frame-id
                               :where     'rf.ssr/streaming-client
                               :reason    "Server-side continuation render failed; client swapped the fallback HTML, no delta applied."
@@ -560,20 +569,20 @@
 (defn- sweep!
   "One full sweep: materialise any un-mounted fallback `<template>`s into
   live visible mounts, process every `data-rf2-suspense-resolved`
-  `<template>` (swap the mount + mark `seen`), then apply every ready
+  `<template>` (swap the mount + record its outcome), then apply every ready
   per-subtree delta `<script>` (`apply-ready-deltas!`). Called once on
   install (chunks that streamed in before the bundle ran) and again whenever
   the observer reports new nodes. Fallback materialisation runs FIRST so a
   resolved chunk in the same batch always finds a live mount to swap into;
-  delta application runs LAST so every boundary swapped this sweep is `seen`
-  before its delta is scanned for.
+  delta application runs LAST so every boundary swapped this sweep has an
+  outcome before its delta is scanned for.
 
   Swap and delta application are DECOUPLED: the server flushes a boundary's
   resolved `<template>` and its delta `<script>` as two separate chunks that
   the parser can surface in separate observer batches, so applying the delta
   only as a side effect of the swap would drop it whenever the delta lands in
   a later batch than its (already-swapped, already-removed) template. Running
-  a `seen`-gated delta scan every sweep makes delta application retryable
+  an outcome-gated delta scan every sweep makes delta application retryable
   across sweeps just like the swap (rf2-x76af2.35).
 
   The resolved-processing pass iterates to a fixpoint. A nested boundary whose
@@ -582,29 +591,30 @@
   the outer mount is swapped (the inner fallback was inert template
   content inside the outer resolved <template>). A single document-order
   pass can therefore visit the inner resolved template before its mount
-  exists; gating `seen` on success (above) keeps it retryable, and this
-  loop re-runs the pass while any swap is still making progress, so the
+  exists; recording outcomes only on success (above) keeps it retryable, and
+  this loop re-runs the pass while any swap is still making progress, so the
   inner chunk lands within the same sweep instead of being stranded on
   fallback until the final payload. The loop terminates because every
   iteration that continues swapped at least one boundary (monotone:
   boundaries only move resolved-ward, never back), and the total boundary
   count is finite."
-  [root frame-id seen]
+  [root frame-id boundary-outcomes]
   (materialise-fallbacks! root)
   (loop []
-    (let [progress? (reduce (fn [acc t]
-                              (or (process-resolved-template! root frame-id seen t)
-                                  acc))
+    (let [progress? (reduce (fn [made-progress? resolved-template]
+                              (or (process-resolved-template!
+                                    root frame-id boundary-outcomes resolved-template)
+                                  made-progress?))
                             false
                             (query-by-attr root attr-suspense-resolved))]
       (when progress?
         (recur))))
   ;; Apply any per-subtree deltas whose boundary has now swapped in. Runs
-  ;; AFTER the swap fixpoint (so every boundary swapped this sweep is `seen`)
-  ;; and independent of resolved-`<template>` presence (so a delta arriving in
-  ;; a later batch than its template — the two are separate flushed chunks —
-  ;; is still merged) (rf2-x76af2.35).
-  (apply-ready-deltas! root frame-id seen))
+  ;; AFTER the swap fixpoint (so every boundary swapped this sweep has an
+  ;; outcome) and independent of resolved-`<template>` presence (so a delta
+  ;; arriving in a later batch than its template — the two are separate flushed
+  ;; chunks — is still merged) (rf2-x76af2.35).
+  (apply-ready-deltas! root frame-id boundary-outcomes))
 
 (defn- element-by-id
   "Find an element with id `id` under `root` without building a raw `#id`
@@ -643,12 +653,14 @@
   #{ids}}` over the boundary ids this runtime actually processed, with
   ids parsed back to the values the author wrote. Empty sets on a page
   that carried no boundaries."
-  [seen]
-  (reduce-kv (fn [acc id-str outcome]
-               (update acc (case outcome :failed :failed :resolved)
-                       conj (read-boundary-id id-str)))
+  [boundary-outcomes]
+  (reduce-kv (fn [readiness-report wire-id-string outcome]
+               (update readiness-report
+                       (case outcome :failed :failed :resolved)
+                       conj
+                       (read-boundary-id wire-id-string)))
              {:resolved #{} :failed #{}}
-             @seen))
+             @boundary-outcomes))
 
 (defn- finalize!
   "The one-time FINALIZATION step, run when the final `__rf_payload`
@@ -679,9 +691,9 @@
   `ready?` is the once-only latch: a `compare-and-set!` on it, not a
   boolean read, so an observer batch that races the initial sweep cannot
   fire `on-ready` twice."
-  [root frame seen ready? stop! on-ready]
-  (sweep! root frame seen)
-  (let [report (readiness-report seen)]
+  [root frame-id boundary-outcomes ready? stop! on-ready]
+  (sweep! root frame-id boundary-outcomes)
+  (let [report (readiness-report boundary-outcomes)]
     ;; Publish the failed set BEFORE unwrapping / readiness: the
     ;; `boundary` component reads it during the hydration render that
     ;; `on-ready` triggers, so it has to be in place by then.
@@ -780,32 +792,32 @@
    ;; A nil stamp is an absent target,
    ;; not a request to synthesise `:rf/default`; surface the always-on
    ;; `:rf.error/no-frame-context`. Per Spec 002 §Frame target resolution.
-   (let [frame (frame/require-frame-stamp!
-                 frame :rf.ssr/streaming-install
-                 {:where 'rf.ssr.streaming.client/install!})]
+   (let [frame-id (frame/require-frame-stamp!
+                    frame :rf.ssr/streaming-install
+                    {:where 'rf.ssr.streaming.client/install!})]
      ;; No DOM (a non-browser runtime / a host calling install! too early)
      ;; → no-op stop fn. The runtime is a DOM consumer by definition.
      (if (or (nil? root) (not (exists? js/MutationObserver)))
        (fn no-op-stop! [])
-       (let [seen      (atom {})   ;; id-str → :resolved | :failed (swap outcome)
-             observer  (atom nil)
-             ready?    (atom false) ;; once-only finalization latch
-             stop!     (fn stop! []
-                         (when-let [o @observer]
-                           (.disconnect o)
-                           (reset! observer nil)))
-             finish!   (fn finish! []
-                         (finalize! root frame seen ready? stop! on-ready))
+       (let [boundary-outcomes (atom {}) ;; wire-id-string → :resolved | :failed
+             observer          (atom nil)
+             ready?            (atom false) ;; once-only finalization latch
+             stop!             (fn stop! []
+                                 (when-let [observer-instance @observer]
+                                   (.disconnect observer-instance)
+                                   (reset! observer nil)))
+             finish!           (fn finish! []
+                                 (finalize! root frame-id boundary-outcomes
+                                            ready? stop! on-ready))
              on-mutations
-             (fn [_mutations _obs]
+             (fn [_mutations _observer]
                ;; A cheap full re-sweep on any mutation is correct + simple:
-               ;; `seen` makes re-processing idempotent, and the resolved-
-               ;; chunk count over a page's lifetime is small (one per
-               ;; suspense boundary). Walking the mutation records to find
-               ;; only the added resolved templates is a micro-opt that adds
-               ;; tree-walking complexity for no measurable win at these
-               ;; cardinalities.
-               (sweep! root frame seen)
+               ;; `boundary-outcomes` makes re-processing idempotent, and the
+               ;; resolved-chunk count over a page's lifetime is small (one per
+               ;; suspense boundary). Walking the mutation records to find only
+               ;; the added resolved templates is a micro-opt that adds tree-
+               ;; walking complexity for no measurable win at these cardinalities.
+               (sweep! root frame-id boundary-outcomes)
                ;; The payload is the LAST chunk: its arrival means the
                ;; stream is done, so run finalization (which re-sweeps for
                ;; anything in this same batch, unwraps the protocol DOM,
@@ -816,7 +828,7 @@
          ;; executed (the common case: the shell + several cards land while
          ;; main.js downloads + boots). Materialises fallbacks into visible
          ;; mounts + applies any resolved chunks already present.
-         (sweep! root frame seen)
+         (sweep! root frame-id boundary-outcomes)
          (if (final-payload-present? root payload-id)
            ;; Stream already complete by the time we installed — the whole
            ;; response buffered before the bundle booted. There is nothing
@@ -827,10 +839,10 @@
            ;; readiness-driven bootstrap must not hang on.
            (do (finish!)
                (fn already-complete-stop! []))
-           (let [obs (js/MutationObserver. on-mutations)]
-             (reset! observer obs)
+           (let [observer-instance (js/MutationObserver. on-mutations)]
+             (reset! observer observer-instance)
              ;; Observe the whole subtree: resolved `<template>`s + the
              ;; final payload `<script>` arrive as descendant additions of
              ;; `<body>` / `#app` as the response streams.
-             (.observe obs root #js {:childList true :subtree true})
+             (.observe observer-instance root #js {:childList true :subtree true})
              stop!)))))))

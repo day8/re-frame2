@@ -53,7 +53,9 @@
   [test-fn]
   (tf/reset-runtime
     (fn []
-      (rf/reg-event :rf.test/seed-db (fn [{:keys [db]} [_ db]] {:db db}))
+      (rf/reg-event :rf.test/seed-db
+                    (fn [_coeffects [_event-id seed-db]]
+                      {:db seed-db}))
       (rf/reg-event :rf.test/noop    (fn [{:keys [db]} _] {:db db}))
       (test-fn))))
 
@@ -493,7 +495,7 @@
       ;; inline-fallback contract. Either is acceptable per Spec 011
       ;; §Failure semantics; what is NOT acceptable is an uncaught
       ;; throw.
-      (with-trace-recorder! [captured]
+      (with-trace-recorder! [_captured-traces]
         (let [result (streaming/render-continuation fid entry)]
           (is (map? result)
               "render-continuation returned a result map — did NOT

@@ -145,7 +145,7 @@
       (rf/reg-event :req/inspect-record
         {:platforms        #{:server}
          :rf.cofx/requires [:rf.server/request]}
-        (fn [{:as ctx :keys [rf.server/request]} _]
+        (fn [{:as ctx _request :rf.server/request} _event]
           (reset! seen-cofx (:rf.cofx ctx))
           {}))
       (rf/dispatch-sync [:req/inspect-record] {:frame server-frame})

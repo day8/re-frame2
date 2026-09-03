@@ -33,16 +33,16 @@
   (when (and title (not= "" title))
     (str "<title>" (html/escape-html title) "</title>")))
 
-(defn- emit-meta-tag [m]
-  (str "<meta" (html/attr-string m) ">"))
+(defn- emit-meta-tag [attrs]
+  (str "<meta" (html/attr-string attrs) ">"))
 
-(defn- emit-link-tag [m]
-  (str "<link" (html/attr-string m) ">"))
+(defn- emit-link-tag [attrs]
+  (str "<link" (html/attr-string attrs) ">"))
 
-(defn- emit-script-tag [m]
+(defn- emit-script-tag [attrs]
   ;; `attr-string` already iterates the whole map in declaration order;
-  ;; pass `m` straight through.
-  (str "<script" (html/attr-string m) "></script>"))
+  ;; pass `attrs` straight through.
+  (str "<script" (html/attr-string attrs) "></script>"))
 
 (defn- ld-json-string
   "Serialise a JSON-LD object map to its `<script type=\"application/ld+json\">`
@@ -63,10 +63,10 @@
   / `[` / quote chars are unaffected (they're not user-controlled
   data). JSON.parse on the client accepts `\\u003c` as a string-
   literal escape for `<`, so the payload round-trips unchanged."
-  [x]
-  #?(:cljs (-> (js/JSON.stringify (clj->js x))
+  [value]
+  #?(:cljs (-> (js/JSON.stringify (clj->js value))
                html/escape-script-body-string)
-     :clj  (letfn [(emit-number [v]
+     :clj  (letfn [(emit-number [number]
                      ;; `(str v)` produces non-JSON for two
                      ;; numeric shapes the JVM admits but JSON.parse rejects:
                      ;;   • Ratios print as `1/3` — coerce to a double so the
@@ -75,20 +75,21 @@
                      ;;     `##NaN`) have no JSON representation — fail-fast,
                      ;;     same posture as the tag-name / header-value gates.
                      (cond
-                       (ratio? v) (str (double v))
-                       (and (or (instance? Double v) (instance? Float v))
-                            (not (Double/isFinite (double v))))
+                       (ratio? number) (str (double number))
+                       (and (or (instance? Double number)
+                                (instance? Float number))
+                            (not (Double/isFinite (double number))))
                        (error/throw-error!
                          :rf.error/invalid-json-ld-number
                          'rf.ssr.head/emit
-                         (str "JSON-LD number " (pr-str v)
+                         (str "JSON-LD number " (pr-str number)
                               " is non-finite — JSON has no"
                               " representation for ##Inf /"
                               " ##-Inf / ##NaN. Emit a finite number in"
                               " the JSON-LD head model.")
                          {:recovery :supply-a-finite-number
-                          :extra    {:value v}})
-                       :else (str v)))
+                          :extra    {:value number}})
+                       :else (str number)))
                    (escape-json-control [^String s]
                      ;; JSON requires every control
                      ;; char (U+0000..U+001F) inside a string literal to be
@@ -120,9 +121,9 @@
                                         (if (< (int c) 0x20)
                                           (format "\\u%04x" (int c))
                                           c)))))))))
-                   (emit-string [v]
+                   (emit-string [string-value]
                      (str "\""
-                          (-> v
+                          (-> string-value
                               (str/replace "\\" "\\\\")
                               (str/replace "\"" "\\\"")
                               escape-json-control
@@ -131,7 +132,7 @@
                               ;; surrounding <script>.
                               html/escape-script-body-string)
                           "\""))
-                   (emit-key [k]
+                   (emit-key [map-key]
                      ;; JSON object keys must be quoted
                      ;; strings. `js/JSON.stringify` (the CLJS branch)
                      ;; coerces every key to a string; the JVM branch must
@@ -142,11 +143,12 @@
                      ;; string; nil keys throw (no JSON representation —
                      ;; same fail-fast posture as the non-finite-number gate).
                      (cond
-                       (string? k)  (emit-string k)
-                       (keyword? k) (emit-string (if-let [ns (namespace k)]
-                                                   (str ns "/" (name k))
-                                                   (name k)))
-                       (nil? k)
+                       (string? map-key)  (emit-string map-key)
+                       (keyword? map-key) (emit-string
+                                            (if-let [key-namespace (namespace map-key)]
+                                              (str key-namespace "/" (name map-key))
+                                              (name map-key)))
+                       (nil? map-key)
                        (error/throw-error!
                          :rf.error/invalid-json-ld-key
                          'rf.ssr.head/emit
@@ -156,31 +158,33 @@
                               " representation. Use a string or keyword"
                               " key in the JSON-LD head model.")
                          {:recovery :supply-a-non-nil-key})
-                       (number? k)  (emit-string (emit-number k))
-                       :else        (emit-string (str k))))
-                   (emit [v]
+                       (number? map-key)  (emit-string (emit-number map-key))
+                       :else              (emit-string (str map-key))))
+                   (emit [value]
                      (cond
-                       (nil? v)     "null"
-                       (boolean? v) (if v "true" "false")
-                       (number? v)  (emit-number v)
-                       (string? v)  (emit-string v)
-                       (keyword? v) (emit (if-let [ns (namespace v)]
-                                            (str ns "/" (name v))
-                                            (name v)))
-                       (map? v)     (str "{"
-                                         (str/join "," (map (fn [[k val]]
-                                                              (str (emit-key k)
+                       (nil? value)     "null"
+                       (boolean? value) (if value "true" "false")
+                       (number? value)  (emit-number value)
+                       (string? value)  (emit-string value)
+                       (keyword? value) (emit
+                                          (if-let [value-namespace (namespace value)]
+                                            (str value-namespace "/"
+                                                 (name value))
+                                            (name value)))
+                       (map? value)     (str "{"
+                                         (str/join "," (map (fn [[map-key map-value]]
+                                                              (str (emit-key map-key)
                                                                    ":"
-                                                                   (emit val)))
-                                                            v))
+                                                                   (emit map-value)))
+                                                            value))
                                          "}")
-                       (sequential? v) (str "[" (str/join "," (map emit v)) "]")
-                       :else (emit (str v))))]
-             (emit x))))
+                       (sequential? value) (str "[" (str/join "," (map emit value)) "]")
+                       :else (emit (str value))))]
+             (emit value))))
 
-(defn- emit-json-ld [m]
+(defn- emit-json-ld [json-ld-value]
   (str "<script type=\"application/ld+json\">"
-       (ld-json-string m)
+       (ld-json-string json-ld-value)
        "</script>"))
 
 ;; ---- head-model->html -----------------------------------------------------
@@ -216,16 +220,16 @@
   Per Spec 011 §Default flow step 4."
   ([head-model] (head-model->html head-model {}))
   ([head-model {:keys [wrap?]}]
-   (let [title-part (when-let [t (:title head-model)]
-                      (emit-title t))
+   (let [title-part (when-let [title (:title head-model)]
+                      (emit-title title))
          collection-parts
          (apply str
-                (for [[k tag-fn] emission-order
-                      :let       [coll (get head-model k)]
-                      :when      (seq coll)
-                      item       coll]
-                  (tag-fn item)))
-         inner (str title-part collection-parts)]
+                (for [[model-key emit-tag] emission-order
+                      :let       [tag-models (get head-model model-key)]
+                      :when      (seq tag-models)
+                      item       tag-models]
+                  (emit-tag item)))
+         inner-html (str title-part collection-parts)]
      (if wrap?
-       (str "<head>" inner "</head>")
-       inner))))
+       (str "<head>" inner-html "</head>")
+       inner-html))))

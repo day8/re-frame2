@@ -239,12 +239,12 @@
   status)
 
 (defn- validate-string-arg!
-  "Throw `:rf.error/server-fx-args-invalid` unless `v` is a string. Used for
+  "Throw `:rf.error/server-fx-args-invalid` unless `value` is a string. Used for
   the args a host adapter writes VERBATIM onto the response head."
-  [fx-id arg-key v]
-  (when-not (string? v)
-    (reject-arg! fx-id arg-key v "a string"))
-  v)
+  [fx-id arg-key value]
+  (when-not (string? value)
+    (reject-arg! fx-id arg-key value "a string"))
+  value)
 
 (def ^:private cookie-attr-shape
   "The published TYPE contract of the `:rf.server/cookie` attributes, as a
@@ -323,13 +323,13 @@
 ;; char.
 
 (defn- validate-header-value!
-  "Throw `:rf.error/header-invalid-value` if the header value `v`
+  "Throw `:rf.error/header-invalid-value` if the header `value`
   contains CR / LF / NUL. Per RFC 7230 §3.2.4 — `field-value` is
   `*( field-content / obs-fold )` and obs-fold (CRLF + WSP) is
   deprecated; no CTLs allowed in `field-content`."
-  [header-name v]
-  (let [s (str v)]
-    (when (http-validation/contains-injection-char? s)
+  [header-name value]
+  (let [header-value (str value)]
+    (when (http-validation/contains-injection-char? header-value)
       (error/throw-error!
         :rf.error/header-invalid-value
         'rf.ssr/response
@@ -340,12 +340,12 @@
              " setting it.")
         {:recovery :remove-injection-chars-from-header-value
          :extra    {:header header-name
-                    :value  v}}))
-    s))
+                    :value  value}}))
+    header-value))
 
 (defn- validate-redirect-location!
   "Throw `:rf.error/redirect-invalid-location` if the redirect location
-  `loc` contains CR / LF / NUL. Same CRLF-injection vector as a
+  `location` contains CR / LF / NUL. Same CRLF-injection vector as a
   user-controlled `Location` header value: a query param like
   `?next=https://example.com%0d%0aSet-Cookie:%20stolen=1` URL-decodes
   into literal CRLF and would split the header on the wire.
@@ -359,9 +359,9 @@
   validation: `safe-redirect-fx` does its own full parse + scheme + host
   gate (emitting the specific `:rf.error/safe-redirect-*` categories) for
   the caller-untrusted path."
-  [loc]
-  (let [s (str loc)]
-    (when (http-validation/contains-injection-char? s)
+  [location]
+  (let [location-string (str location)]
+    (when (http-validation/contains-injection-char? location-string)
       (error/throw-error!
         :rf.error/redirect-invalid-location
         'rf.ssr/response
@@ -370,8 +370,8 @@
              " (header-splitting injection). Strip CR/LF/NUL from the"
              " redirect :location before setting it.")
         {:recovery :remove-injection-chars-from-location
-         :extra    {:location loc}}))
-    s))
+         :extra    {:location location}}))
+    location-string))
 
 ;; Header-name and cookie-field gates run at the effect boundary. The Ring
 ;; host adapter re-validates at materialisation time, but the SSR layer is also the
@@ -392,19 +392,19 @@
   "Throw `:rf.error/header-invalid-name` if the header name violates the
   RFC 7230 §3.2.6 token grammar — empty, contains CR / LF / NUL,
   whitespace, or separators. Same gate as the cookie-name validator."
-  [n]
-  (let [s (str n)]
-    (when-not (http-validation/valid-token-name? s)
+  [header-name]
+  (let [header-name-string (str header-name)]
+    (when-not (http-validation/valid-token-name? header-name-string)
       (error/throw-error!
         :rf.error/header-invalid-name
         'rf.ssr/response
-        (str "header :name " (pr-str s)
+        (str "header :name " (pr-str header-name-string)
              " violates RFC 7230 §3.2.6 token grammar"
              " (no CTLs, whitespace, or separators"
              " ()<>@,;:\\\"/[]?={}). Use a token-grammar header name.")
         {:recovery :use-a-token-grammar-header-name
-         :extra    {:header n}}))
-    s))
+         :extra    {:header header-name}}))
+    header-name-string))
 
 (defn- validate-cookie-name!
   "Throw `:rf.error/cookie-invalid-name` if the cookie name is nil, is not a
@@ -413,20 +413,20 @@
   validation.
 
   This is the NAME gate, not the whole contract: a keyword / symbol survives it
-  (`(name n)` reads either) and is then refused by the always-on SHAPE gate in
-  `validate-cookie!`, which holds `:name` to the `:string` Spec 011 §Cookie
-  shape publishes. The split is deliberate and mirrors `set-header-fx`: the
-  values this gate refuses keep the specific catalogued id they have always
-  thrown, and what the type check adds — a name that is not a `Named` at all —
-  is the case `(name n)` cannot survive."
-  [n]
-  (when (nil? n)
+  (`(name cookie-name)` reads either) and is then refused by the always-on
+  SHAPE gate in `validate-cookie!`, which holds `:name` to the `:string`
+  Spec 011 §Cookie shape publishes. The split is deliberate and mirrors
+  `set-header-fx`: the values this gate refuses keep the specific catalogued
+  id they have always thrown, and what the type check adds — a name that is
+  not a `Named` at all — is the case `(name cookie-name)` cannot survive."
+  [cookie-name]
+  (when (nil? cookie-name)
     (error/throw-error!
       :rf.error/cookie-invalid-name
       'rf.ssr/response
       "cookie :name is required; supply a non-nil :name on the cookie map."
       {:recovery :supply-a-cookie-name
-       :extra    {:name n}}))
+       :extra    {:name cookie-name}}))
   ;; Type-guard before `(name n)`: a cookie `:name` is only a
   ;; string or a Named (keyword / symbol); anything else (a Long `42`, a
   ;; vector `[]`, a map `{}`, a boolean `true`, …) makes `name` throw a raw
@@ -440,30 +440,31 @@
   ;; materialiser's guard; the JVM branch matches Ring's
   ;; `clojure.lang.Named` check exactly (the fx runs
   ;; server-only, `:platforms #{:server}`).
-  (when-not (or (string? n)
-                #?(:clj  (instance? clojure.lang.Named n)
-                   :cljs (or (keyword? n) (symbol? n))))
+  (when-not (or (string? cookie-name)
+                #?(:clj  (instance? clojure.lang.Named cookie-name)
+                   :cljs (or (keyword? cookie-name) (symbol? cookie-name))))
     (error/throw-error!
       :rf.error/cookie-invalid-name
       'rf.ssr/response
       (str "cookie :name must be a string or a keyword/symbol; got "
-           (pr-str n)
-           #?(:clj (str " (a " (.getName (class n)) ")") :cljs "")
+           (pr-str cookie-name)
+           #?(:clj (str " (a " (.getName (class cookie-name)) ")") :cljs "")
            ". Use a string or keyword token-grammar cookie name.")
       {:recovery :use-a-token-grammar-cookie-name
-       :extra    {:name n}}))
-  (let [s (#?(:clj clojure.core/name :cljs cljs.core/name) n)]
-    (when-not (http-validation/valid-token-name? s)
+       :extra    {:name cookie-name}}))
+  (let [cookie-name-string (#?(:clj clojure.core/name :cljs cljs.core/name)
+                            cookie-name)]
+    (when-not (http-validation/valid-token-name? cookie-name-string)
       (error/throw-error!
         :rf.error/cookie-invalid-name
         'rf.ssr/response
-        (str "cookie :name " (pr-str s)
+        (str "cookie :name " (pr-str cookie-name-string)
              " violates RFC 6265 §4.1.1 token grammar"
              " (no CTLs, whitespace, or separators"
              " ()<>@,;:\\\"/[]?={}). Use a token-grammar cookie name.")
         {:recovery :use-a-token-grammar-cookie-name
-         :extra    {:name n}}))
-    s))
+         :extra    {:name cookie-name}}))
+    cookie-name-string))
 
 (def ^:private checked-cookie-attrs
   "The cookie attributes a host adapter concatenates verbatim into the
@@ -506,32 +507,33 @@
   fail-fast mandates checking EVERY attribute, not just :value — an attacker
   who controls any one attribute must not be able to re-enter the header
   line as CRLF- or delimiter-bearing payload)."
-  [attr-key v]
-  (let [s      (str v)
+  [attribute-key attribute-value]
+  (let [serialised-value (str attribute-value)
         ;; `:value` is percent-encoded downstream, so `;` there is data;
         ;; every other attribute is concatenated verbatim and must also
         ;; reject the `;` cookie-attribute delimiter.
-        value? (= attr-key :value)
-        bad?   (if value?
-                 (http-validation/contains-injection-char? s)
-                 (http-validation/contains-cookie-attr-injection-char? s))]
-    (when bad?
+        value-attribute? (= attribute-key :value)
+        invalid? (if value-attribute?
+                   (http-validation/contains-injection-char? serialised-value)
+                   (http-validation/contains-cookie-attr-injection-char?
+                     serialised-value))]
+    (when invalid?
       (error/throw-error!
         :rf.error/cookie-invalid-attribute
         'rf.ssr/response
-        (str "cookie attribute " attr-key " " (pr-str s)
-             (if value?
+        (str "cookie attribute " attribute-key " " (pr-str serialised-value)
+             (if value-attribute?
                " contains CR/LF/NUL — forbidden by RFC 7230 §3.2.4"
                (str " contains CR/LF/NUL or a `;` — forbidden by"
                     " RFC 7230 §3.2.4 and RFC 6265 §4.1.1 (the `;` is the"
                     " cookie-attribute delimiter)"))
              " (header-splitting / attribute injection). Strip "
-             (if value? "CR/LF/NUL" "CR/LF/NUL and `;`")
-             " from the cookie " (name attr-key) ".")
+             (if value-attribute? "CR/LF/NUL" "CR/LF/NUL and `;`")
+             " from the cookie " (name attribute-key) ".")
         {:recovery :remove-injection-chars-from-cookie-attr
-         :extra    {:attribute attr-key
-                    :value     v}}))
-    s))
+         :extra    {:attribute attribute-key
+                    :value     attribute-value}}))
+    serialised-value))
 
 (defn- validate-cookie!
   "Run name and field validators across the cookie map. Gate the structured
@@ -585,25 +587,26 @@
    :redirect nil})
 
 (defn- ensure-response
-  "Return resp with defaults applied. nil-tolerant — a frame whose slot
+  "Return `response` with defaults applied. nil-tolerant — a frame whose slot
   has never been touched by an :rf.server/* fx still resolves to the
   default response shape."
-  [resp]
-  (if resp
-    (merge (default-response) resp)
+  [response]
+  (if response
+    (merge (default-response) response)
     (default-response)))
 
 (defn swap-response!
-  "Mutate the response accumulator slot for `frame-id` with `f`. Returns
+  "Mutate the response accumulator slot for `frame-id` with `update-fn`. Returns
   the post-swap response map. The substrate is a side-channel atom keyed
   on the process-local frame address — O(small-map) swap, no app-db
   ping-pong. `frame-address` is the bare process-local frame id."
-  [frame-id f]
-  (let [addr      (frame/frame-address frame-id)
-        next-resp (-> (swap! response-slots
-                             update addr #(f (ensure-response %)))
-                      (get addr))]
-    next-resp))
+  [frame-id update-fn]
+  (let [frame-address (frame/frame-address frame-id)
+        updated-response (-> (swap! response-slots
+                                    update frame-address
+                                    #(update-fn (ensure-response %)))
+                             (get frame-address))]
+    updated-response))
 
 (defn response-of
   "Read the current response accumulator (with defaults applied)."
@@ -625,49 +628,52 @@
   "Replace the (first matching, case-insensitive) header pair with [name value],
   or append if none matched. Subsequent matches are dropped — set-header
   replaces the entire header value per Spec 011 §Header replacement vs append."
-  [headers name value]
-  (let [normalised (str name)
-        target     (clojure.string/lower-case normalised)
-        [seen? pruned]
+  [headers header-name header-value]
+  (let [normalised-header-name (str header-name)
+        target-header-name     (clojure.string/lower-case normalised-header-name)
+        [matched? updated-headers]
         (reduce
-          (fn [[seen acc] [h-name _h-val :as pair]]
+          (fn [[matched? accumulated-headers]
+               [existing-name _existing-value :as header-pair]]
             (cond
-              (not= (clojure.string/lower-case (str h-name)) target)
-              [seen (conj acc pair)]
+              (not= (clojure.string/lower-case (str existing-name))
+                    target-header-name)
+              [matched? (conj accumulated-headers header-pair)]
 
-              seen
-              [seen acc]    ;; drop subsequent matches
+              matched?
+              [matched? accumulated-headers]    ;; drop subsequent matches
 
               :else
-              [true (conj acc [normalised value])]))
+              [true (conj accumulated-headers
+                          [normalised-header-name header-value])]))
           [false []]
           headers)]
-    (if seen?
-      pruned
-      (conj pruned [normalised value]))))
+    (if matched?
+      updated-headers
+      (conj updated-headers [normalised-header-name header-value]))))
 
 (defn- append-header-pair
   "Append [name value] to headers — preserves any existing header with the
   same name. Per Spec 011 §Header replacement vs append; required for
   Set-Cookie-style multi-valued headers."
-  [headers name value]
-  (conj (vec headers) [(str name) value]))
+  [headers header-name header-value]
+  (conj (vec headers) [(str header-name) header-value]))
 
 (defn- warn-on-multiple-writes!
   "Emit `warning-id` (a `:rf.warning/multiple-*` trace) when more than one
   write to the last-write-wins slot recorded under `writes-key` has landed
-  on `resp`. `final-key` (`:final-status` / `:final-redirect`) names the
+  on `response`. `final-key` (`:final-status` / `:final-redirect`) names the
   tag the consumer reads the winning write off. Shared by `set-status-fx`,
   `redirect-fx`, and `safe-redirect-fx` — all three record every write for
   the multi-write policy and warn on the second-and-later one while
   preserving last-write-wins for the public slot."
-  [resp writes-key warning-id final-key frame]
-  (let [writes (get resp writes-key)]
-    (when (and resp (> (count writes) 1))
+  [response writes-key warning-id final-key frame-id]
+  (let [writes (get response writes-key)]
+    (when (and response (> (count writes) 1))
       (trace/emit! :warning warning-id
                    {:writes   writes
                     final-key (last writes)
-                    :frame    frame
+                    :frame    frame-id
                     :recovery :warned-and-replaced}))))
 
 ;; ---- handler fns for the seven :rf.server/* fxs --------------------------
@@ -680,13 +686,13 @@
   reach `ssr/get-response`."
   [{:keys [frame]} status]
   (validate-status! :rf.server/set-status status)
-  (let [resp (swap-response!
-               frame
-               (fn [r]
-                 (-> r
-                     (update status-writes-key (fnil conj []) status)
-                     (assoc :status status))))]
-    (warn-on-multiple-writes! resp status-writes-key
+  (let [updated-response (swap-response!
+                           frame
+                           (fn [response]
+                             (-> response
+                                 (update status-writes-key (fnil conj []) status)
+                                 (assoc :status status))))]
+    (warn-on-multiple-writes! updated-response status-writes-key
                               :rf.warning/multiple-status-set :final-status frame)))
 
 (defn set-header-fx
@@ -710,7 +716,8 @@
   (validate-header-value! name value)
   (swap-response!
     frame
-    (fn [r] (update r :headers replace-header name value))))
+    (fn [response]
+      (update response :headers replace-header name value))))
 
 (defn append-header-fx
   "Handler fn for `:rf.server/append-header`. Preserves any existing
@@ -728,7 +735,8 @@
   (validate-header-value! name value)
   (swap-response!
     frame
-    (fn [r] (update r :headers append-header-pair name value))))
+    (fn [response]
+      (update response :headers append-header-pair name value))))
 
 (defn set-cookie-fx
   "Handler fn for `:rf.server/set-cookie`. Cookie attributes are stored
@@ -750,7 +758,8 @@
   (validate-cookie! :rf.server/set-cookie cookie-map)
   (swap-response!
     frame
-    (fn [r] (update r :cookies (fnil conj []) cookie-map))))
+    (fn [response]
+      (update response :cookies (fnil conj []) cookie-map))))
 
 (defn delete-cookie-fx
   "Handler fn for `:rf.server/delete-cookie`. Sugar over set-cookie
@@ -770,7 +779,8 @@
     (validate-cookie! :rf.server/delete-cookie cookie)
     (swap-response!
       frame
-      (fn [r] (update r :cookies (fnil conj []) cookie)))))
+      (fn [response]
+        (update response :cookies (fnil conj []) cookie)))))
 
 ;; The redirect target key is `:location`, matching the HTTP `Location` response
 ;; header, so it uses header vocabulary (routing/navigation surfaces may
@@ -794,20 +804,21 @@
   programmer rewrites the spelling rather than seeing the generic
   no-target warning the host adapter emits for a target-less redirect."
   [redirect-map]
-  (let [retired (filterv #(contains? redirect-map %) retired-redirect-target-keys)]
-    (when (seq retired)
+  (let [retired-keys (filterv #(contains? redirect-map %)
+                              retired-redirect-target-keys)]
+    (when (seq retired-keys)
       (error/throw-error!
         :rf.error/redirect-retired-target-key
         'rf.ssr/response
-        (str "redirect target key(s) " (pr-str retired)
+        (str "redirect target key(s) " (pr-str retired-keys)
              " are retired — the canonical redirect"
              " target key is :location. The SSR redirect"
              " fx writes an HTTP Location response header,"
              " so it uses header vocabulary; rewrite "
-             (pr-str (first retired)) " as :location."
+             (pr-str (first retired-keys)) " as :location."
              " (EP-0007 one-name-per-fact; no back-compat alias.)")
         {:recovery :rewrite-the-target-key-as-location
-         :extra    {:retired-keys  retired
+         :extra    {:retired-keys  retired-keys
                     :canonical-key :location}}))))
 
 (defn redirect-fx
@@ -862,21 +873,22 @@
         ;; (Spec 011 §Redirect precedence step 1), so it is held to the same
         ;; always-on range gate as :rf.server/set-status.
         _          (validate-status! :rf.server/redirect status)
-        normalised (cond-> (assoc redirect-map :status status)
-                     location (assoc :location location))
-        resp (swap-response!
-               frame
-               (fn [r]
-                 (-> r
-                     (update redirect-writes-key (fnil conj []) normalised)
-                     (assoc :redirect normalised)
-                     ;; Spec 011 §Redirect precedence step 1: the
-                     ;; redirect's :status flows through to the
-                     ;; response :status so the host adapter writes
-                     ;; the redirect status on the wire even if no
-                     ;; explicit :rf.server/set-status fired.
-                     (assoc :status status))))]
-    (warn-on-multiple-writes! resp redirect-writes-key
+        normalised-redirect (cond-> (assoc redirect-map :status status)
+                              location (assoc :location location))
+        updated-response (swap-response!
+                           frame
+                           (fn [response]
+                             (-> response
+                                 (update redirect-writes-key (fnil conj [])
+                                         normalised-redirect)
+                                 (assoc :redirect normalised-redirect)
+                                 ;; Spec 011 §Redirect precedence step 1: the
+                                 ;; redirect's :status flows through to the
+                                 ;; response :status so the host adapter writes
+                                 ;; the redirect status on the wire even if no
+                                 ;; explicit :rf.server/set-status fired.
+                                 (assoc :status status))))]
+    (warn-on-multiple-writes! updated-response redirect-writes-key
                               :rf.warning/multiple-redirects :final-redirect frame)))
 
 ;; ---- :rf.server/safe-redirect ---------------------------------------------
@@ -960,26 +972,26 @@
 
 (defn- detect-scheme
   "Cheap pre-parse scheme detection. Returns the lowercased scheme
-  string (e.g. \"javascript\") if `loc` begins with `<scheme>:`, else
+  string (e.g. \"javascript\") if `location` begins with `<scheme>:`, else
   nil. Used to short-circuit the rejected-schemes check before URI
   parsing — `data:text/html,<script>` is a security-relevant input
   whose body fails java.net.URI parsing but whose scheme should still
   be the visible failure mode."
-  [loc]
-  (when (string? loc)
-    (when-some [m (re-find scheme-prefix-re loc)]
-      (clojure.string/lower-case (second m)))))
+  [location]
+  (when (string? location)
+    (when-some [scheme-match (re-find scheme-prefix-re location)]
+      (clojure.string/lower-case (second scheme-match)))))
 
 (defn- parse-url-safely
-  "Parse `loc` as a URL. Returns the parsed URI on success, nil on a
+  "Parse `location` as a URL. Returns the parsed URI on success, nil on a
   parse failure (caller emits the trace). Empty / blank strings count
   as unparseable — a redirect to an empty location has no defensible
   interpretation."
-  [loc]
+  [location]
   #?(:clj
-     (when (and (string? loc) (not (clojure.string/blank? loc)))
+     (when (and (string? location) (not (clojure.string/blank? location)))
        (try
-         (URI. ^String loc)
+         (URI. ^String location)
          (catch URISyntaxException _ nil)
          (catch NullPointerException _ nil)
          (catch IllegalArgumentException _ nil)))
@@ -1183,16 +1195,16 @@
   ;; A simple `<scheme>:` prefix match is enough to identify the rejected
   ;; schemes; the URI parser is still the source of truth for everything
   ;; else (host extraction, allowlist matching).
-  (let [pre-scheme (detect-scheme location)]
-    (if (and pre-scheme (rejected-schemes pre-scheme))
+  (let [detected-scheme (detect-scheme location)]
+    (if (and detected-scheme (rejected-schemes detected-scheme))
       (emit-safe-redirect-error! :rf.error/safe-redirect-scheme-rejected
                                  {:frame    frame
                                   :location location
-                                  :scheme   pre-scheme})
-      (let [uri (parse-url-safely location)]
+                                  :scheme   detected-scheme})
+      (let [parsed-uri (parse-url-safely location)]
         (cond
           ;; Step 1: parse failure
-          (nil? uri)
+          (nil? parsed-uri)
           ;; `:reason` is a closed framework keyword, not prose (rf2-6jqa8):
           ;; this slot rides the always-on record off-box, where an
           ;; aggregatable value is worth more than a sentence — and free
@@ -1205,10 +1217,11 @@
                                       :reason   :parse-failed})
 
           :else
-          (let [scheme    #?(:clj (.getScheme    ^URI uri) :cljs nil)
-                host      #?(:clj (.getHost       ^URI uri) :cljs nil)
-                authority #?(:clj (.getAuthority  ^URI uri) :cljs nil)
-                scheme-lc (when scheme (clojure.string/lower-case scheme))
+          (let [scheme            #?(:clj (.getScheme    ^URI parsed-uri) :cljs nil)
+                host              #?(:clj (.getHost       ^URI parsed-uri) :cljs nil)
+                authority         #?(:clj (.getAuthority  ^URI parsed-uri) :cljs nil)
+                normalised-scheme (when scheme
+                                    (clojure.string/lower-case scheme))
                 ;; A relative reference carries neither a scheme nor an
                 ;; authority — `/dashboard`, `dashboard`, `a/b`. This is
                 ;; the open-redirect-safe shape: the browser resolves it
@@ -1223,7 +1236,7 @@
               ;; Step 2: scheme rejection (post-parse path — covers
               ;; schemes whose body DID parse cleanly, e.g.
               ;; `javascript:foo` without parens).
-              (and scheme-lc (rejected-schemes scheme-lc))
+              (and normalised-scheme (rejected-schemes normalised-scheme))
               (emit-safe-redirect-error! :rf.error/safe-redirect-scheme-rejected
                                          {:frame    frame
                                           :location location
@@ -1234,7 +1247,7 @@
               ;; relative reference — mailto:, ftp:, file:, tel:, etc.
               ;; have no defensible redirect interpretation and would
               ;; otherwise slip the host-based gates (nil host).
-              (and scheme-lc (not (allowed-schemes scheme-lc)))
+              (and normalised-scheme (not (allowed-schemes normalised-scheme)))
               (emit-safe-redirect-error! :rf.error/safe-redirect-scheme-rejected
                                          {:frame    frame
                                           :location location
@@ -1248,7 +1261,7 @@
               ;; gates below cannot see them, yet a browser navigates
               ;; off-origin on `Location: http:evil.example.com`. No
               ;; defensible redirect interpretation.
-              (and scheme-lc (nil? host))
+              (and normalised-scheme (nil? host))
               (emit-safe-redirect-error! :rf.error/safe-redirect-invalid-url
                                          {:frame    frame
                                           :location location
@@ -1290,21 +1303,22 @@
               ;; from the persisted shape — they're policy inputs, not part
               ;; of the wire redirect.
               :else
-              (let [final-status (or status 302)
-                    normalised   (-> redirect-map
-                                     (dissoc :allow :relative-only?)
-                                     (assoc :status   final-status
-                                            :location location))
-                    resp         (swap-response!
-                                   frame
-                                   (fn [r]
-                                     (-> r
-                                         (update redirect-writes-key
-                                                 (fnil conj []) normalised)
-                                         (assoc :redirect normalised)
-                                         ;; Spec 011 §Redirect precedence step 1:
-                                         ;; status flows through.
-                                         (assoc :status final-status))))]
-                (warn-on-multiple-writes! resp redirect-writes-key
-                                          :rf.warning/multiple-redirects
-                                          :final-redirect frame)))))))))
+               (let [final-status        (or status 302)
+                     normalised-redirect (-> redirect-map
+                                             (dissoc :allow :relative-only?)
+                                             (assoc :status   final-status
+                                                    :location location))
+                     updated-response    (swap-response!
+                                           frame
+                                           (fn [response]
+                                             (-> response
+                                                 (update redirect-writes-key
+                                                         (fnil conj [])
+                                                         normalised-redirect)
+                                                 (assoc :redirect normalised-redirect)
+                                                 ;; Spec 011 §Redirect precedence
+                                                 ;; step 1: status flows through.
+                                                 (assoc :status final-status))))]
+                 (warn-on-multiple-writes! updated-response redirect-writes-key
+                                           :rf.warning/multiple-redirects
+                                           :final-redirect frame)))))))))

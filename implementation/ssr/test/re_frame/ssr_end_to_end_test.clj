@@ -3177,8 +3177,9 @@
     ;; Register a trivial articles app — an event seeds state, a sub
     ;; reads it, a view renders it.
     (rf/reg-event :articles/seed
-      (fn [{:keys [db]} _] {:db {:articles [{:id "a" :title "Article A" :body "Body A"}
-                            {:id "b" :title "Article B" :body "Body B"}]}}))
+      (fn [_coeffects _event]
+        {:db {:articles [{:id "a" :title "Article A" :body "Body A"}
+                         {:id "b" :title "Article B" :body "Body B"}]}}))
     (rf/reg-sub :articles (fn [db _] (:articles db)))
     ;; Test exercises the `(rf/view :id)` callable head — the runtime
     ;; handle, as opposed to the Var the defn-shape macro defs — so it

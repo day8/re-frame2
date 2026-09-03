@@ -40,7 +40,7 @@
   head-snapshots
   (atom {}))
 
-(defn- record-fragment!
+(defn- record-head-model!
   "Stash the just-produced head-model under (frame-address, head-id) so
   `head-snapshot` reflects the most recent render-head output. Keyed by the
   process-local frame address shared by all SSR side channels."
@@ -123,14 +123,15 @@
 
 ;; ---- render-head ----------------------------------------------------------
 
-(defn- frame-route
+(defn- frame-current-route
   "Read the route slice from a frame's RUNTIME-DB at
   `[:rf.runtime/routing :current]`. Nil-safe: a frame whose runtime-db has
   never been written resolves to nil."
   [frame-id]
   (when frame-id
-    (let [rt (frame/frame-runtime-db-value frame-id)]
-      (when rt (get-in rt [:rf.runtime/routing :current])))))
+    (let [runtime-db (frame/frame-runtime-db-value frame-id)]
+      (when runtime-db
+        (get-in runtime-db [:rf.runtime/routing :current])))))
 
 (defn- render-head*
   "Resolve a normalised opts map and run the registered head fn. The
@@ -148,13 +149,13 @@
                    {:where 'rf/render-head :event-id head-id})
         route    (if (contains? opts :route)
                    (:route opts)
-                   (frame-route frame))
+                   (frame-current-route frame))
         ;; Resolve the `:head` registration from the process registrar
         ;; (rf2-afdlyr realm collapse: the realm substrate is a single default
         ;; realm, whose registrar IS the process-global table, so the former
         ;; per-frame realm-registrar binding was always the no-op default path).
-        head-reg (registrar/lookup :head head-id)]
-    (when-not head-reg
+        head-registration (registrar/lookup :head head-id)]
+    (when-not head-registration
       (error/throw-error!
         :rf.error/no-such-head
         'rf/active-head
@@ -163,13 +164,13 @@
              "head-id that has been registered.")
         {:recovery :register-the-head-id
          :extra    {:head-id head-id}}))
-    (let [head-fn (:handler-fn head-reg)
+    (let [head-fn (:handler-fn head-registration)
           ;; `frame` is a required non-nil stamp here (require-frame-stamp!
           ;; above), so the app-db read is unconditional.
-          db      (frame/frame-app-db-value frame)
-          model   (head-fn db route)]
-      (record-fragment! frame head-id model)
-      model)))
+          app-db     (frame/frame-app-db-value frame)
+          head-model (head-fn app-db route)]
+      (record-head-model! frame head-id head-model)
+      head-model)))
 
 (defn render-head
   "Apply the head fn registered under `head-id` against a frame's
@@ -187,9 +188,9 @@
 
   When `:route` is absent, the active route slice (at
   `[:rf.runtime/routing :current]`) is read from the frame's runtime-db
-  (via `frame-route` → `frame-runtime-db-value`; the head fn itself
+  (via `frame-current-route` → `frame-runtime-db-value`; the head fn itself
   reads the frame's app-db for its model, but the route slice is a
-  runtime-db read). The produced fragment is recorded in
+  runtime-db read). The produced head model is recorded in
   the per-frame snapshot so `head-snapshot` reflects the most recent
   render-head output.
 
@@ -244,7 +245,7 @@
   (let [frame-id (frame/require-frame-stamp!
                    frame-id :rf.ssr/active-head
                    {:where 'rf/active-head})
-        route    (frame-route frame-id)
+        route    (frame-current-route frame-id)
         head-id  (route-head-id route)]
     (if head-id
       ;; The route declares an id but it may not be registered — surface

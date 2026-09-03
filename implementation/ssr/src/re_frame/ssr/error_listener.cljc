@@ -189,9 +189,10 @@
   next drain). No trace is dropped either way. `swap-vals!` is available
   on both the JVM (Clojure ≥1.9) and ClojureScript."
   [frame-id]
-  (let [addr       (frame/frame-address frame-id)
-        [old _new] (swap-vals! pending-error-traces dissoc addr)]
-    (get old addr [])))
+  (let [frame-address (frame/frame-address frame-id)
+        [prior-traces _updated-traces]
+        (swap-vals! pending-error-traces dissoc frame-address)]
+    (get prior-traces frame-address [])))
 
 (defn apply-error-projection!
   "Project an error trace event via the active projector for frame-id
@@ -225,12 +226,13 @@
      (apply-error-projection! frame-id last-trace)))
   ([frame-id trace-event]
    (when (and frame-id trace-event (error-projector/server-frame? frame-id))
-     (let [public-error (error-projector/project-error frame-id trace-event)
-           existing     (response/response-of frame-id)
-           redirect?    (:redirect existing)]
-       (when-not redirect?
+     (let [public-error     (error-projector/project-error frame-id trace-event)
+           current-response (response/response-of frame-id)
+           redirect         (:redirect current-response)]
+       (when-not redirect
          (response/swap-response! frame-id
-                                  (fn [r] (assoc r :status (:status public-error)))))
+                                  (fn [response]
+                                    (assoc response :status (:status public-error)))))
        public-error))))
 
 (defn project-render-exception!
@@ -374,14 +376,14 @@
   witness, and it runs under the REAL gate."
   [event]
   (when (= :error (:op-type event))
-    (let [op (:operation event)]
+    (let [operation (:operation event)]
       ;; Skip our own sanitisation traces to avoid recursion, and skip
       ;; recoverable-degradation categories (for example,
       ;; `:rf.error/ssr-head-resolution-failed`,
       ;; `:rf.error/ssr-ring-error-view-failed`) that must ship their
       ;; trace for observability without projecting a non-200 status.
-      (when-not (or (= :rf.error/sanitised-on-projection op)
-                    (non-projection-eligible-error? op))
+      (when-not (or (= :rf.error/sanitised-on-projection operation)
+                    (non-projection-eligible-error? operation))
         (when-let [frame-id (candidate-frame-for-error event)]
           (buffer-error-trace! frame-id event))))))
 
@@ -408,7 +410,7 @@
   Survives `interop/debug-enabled? = false` — Spec 011 §Server error
   projection holds when development tracing is disabled."
   [record]
-  (let [op (:error record)]
+  (let [operation (:error record)]
     ;; Symmetric with the trace-cb guard above — refuse our own
     ;; sanitisation records to avoid recursion. The record is not currently
     ;; delivered through this substrate, but keep the guard so a future routing
@@ -422,8 +424,8 @@
     ;; STILL not project a non-200 — the skip is symmetric across both
     ;; buffering paths so the degraded-200 contract holds regardless of
     ;; which substrate carries the trace.
-    (when-not (or (= :rf.error/sanitised-on-projection op)
-                  (non-projection-eligible-error? op))
+    (when-not (or (= :rf.error/sanitised-on-projection operation)
+                  (non-projection-eligible-error? operation))
       (let [;; The error-emit record carries the frame on its flat `:frame`
             ;; slot directly. Every error site reachable inside a server-frame
             ;; drain stamps that slot from the
@@ -441,13 +443,13 @@
             ;; when the record didn't supply one. Generic-lift means a newly
             ;; promoted category's tags ride through without re-listing each
             ;; slot here.
-            event {:operation op
-                   :op-type   :error
-                   :tags      (-> (dissoc record :error)
-                                  (update :recovery #(or % :no-recovery)))}]
+            trace-event {:operation operation
+                         :op-type   :error
+                         :tags      (-> (dissoc record :error)
+                                        (update :recovery #(or % :no-recovery)))}]
         (when (and direct-frame-id
                    (error-projector/server-frame? direct-frame-id))
-          (buffer-error-trace! direct-frame-id event))))))
+          (buffer-error-trace! direct-frame-id trace-event))))))
 
 (defn peek-response
   "PURE read of the resolved response accumulator for a frame — does

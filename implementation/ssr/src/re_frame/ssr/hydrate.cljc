@@ -53,7 +53,7 @@
              :else (pr-str (type slice-val)))
        "); hydration rejected — the client frame-state is left unchanged"))
 
-(defn- malformed-hydration-payload!
+(defn- malformed-hydration-payload-reason
   "Fail-closed guard for the `:rf/hydrate` boundary.
   The payload is a DESERIALISED, UNTRUSTED transport input (the server's
   `pr-str`'d EDN, round-tripped through `cljs.reader/read-string` at the
@@ -253,19 +253,19 @@
   runtime-db are left unchanged and `:rf.error/hydration-frame-id-mismatch`
   is emitted (carrying `:target-frame` / `:payload-frame-id`)."
   [{:keys [db] frame :rf.frame/id rt :rf.db/runtime} [_ payload]]
-  (let [new-db (or (:rf/app-db payload) db)
+  (let [hydrated-app-db (or (:rf/app-db payload) db)
         ;; A frame-id mismatch is checked BEFORE the structural shape: a
         ;; payload rendered for a DIFFERENT frame is rejected outright,
         ;; regardless of slice shape. Only fires for a present-
         ;; and-DIFFERENT `:rf/frame-id` against a non-nil target — an absent
         ;; frame-id (or nil target) is no conflict.
-        frame-mismatch (when (some? frame)
-                         (frame-id-mismatch-reason frame payload))]
+        frame-mismatch-reason (when (some? frame)
+                                (frame-id-mismatch-reason frame payload))]
     (cond
-      frame-mismatch
+      frame-mismatch-reason
       (do
         (emit-rejected-hydration! :rf.error/hydration-frame-id-mismatch
-                                  frame frame-mismatch
+                                  frame frame-mismatch-reason
                                   {:target-frame     frame
                                    :payload-frame-id (:rf/frame-id payload)})
         ;; Fail CLOSED: leave BOTH partitions untouched, fire no
@@ -277,17 +277,17 @@
       ;; non-map payload, or present-but-non-map app-db / runtime-db slice
       ;; The slice would otherwise be coerced into
       ;; the partition (a fail-OPEN).
-      (if-let [reason (malformed-hydration-payload! payload)]
+      (if-let [reason (malformed-hydration-payload-reason payload)]
         (do
           (emit-rejected-hydration! :rf.error/malformed-hydration-payload
                                     frame reason)
           {:db db})
-        (hydrate-event-handler* db rt frame payload new-db)))))
+        (hydrate-event-handler* db rt frame payload hydrated-app-db)))))
 
 (defn- hydrate-event-handler*
-  "The structurally valid hydration path. `new-db` is the
+  "The structurally valid hydration path. `hydrated-app-db` is the
   resolved server slice (or the existing `db` when the payload carried no
-  app-db slice — the client-only fallback). `runtime-db` is the
+  app-db slice — the client-only fallback). `current-runtime-db` is the
   `:rf.db/runtime` coeffect; the hydration metadata
   is durable runtime-db state, written under `[:rf.runtime/ssr :hydration]`."
   ;; A cross-feature artefact may reconcile its OWN installed runtime-db
@@ -301,7 +301,7 @@
   ;; below (rf2-jqvgp): machine `:after` timers are suppressed server-side
   ;; and cannot ride the wire, so the machines artefact re-arms them from
   ;; the hydrated snapshots once the runtime-db has committed.
-  [db runtime-db frame payload new-db]
+  [_app-db current-runtime-db frame-id payload hydrated-app-db]
   (let [version       (:rf/version payload)
         schema-digest (:rf/schema-digest payload)
         ;; Server-settled durable runtime state
@@ -314,12 +314,13 @@
         ;; merge is the payload slice when present, else the existing
         ;; runtime-db coeffect.
         ;; A present-but-non-map :rf/runtime-db is already REJECTED by the
-        ;; fail-closed guard, so by the time we get here `pr`
+        ;; fail-closed guard, so by the time we get here `runtime-db-slice`
         ;; is either absent (nil → no-server-runtime fallback) or a map.
-        ;; The `(when (map? pr) pr)` is a belt-and-braces no-op on the
-        ;; validated path.
-        payload-rt    (let [pr (:rf/runtime-db payload)] (when (map? pr) pr))
-        runtime-base  (or payload-rt runtime-db {})
+        ;; The `(when (map? runtime-db-slice) runtime-db-slice)` is a
+        ;; belt-and-braces no-op on the validated path.
+        payload-runtime-db (let [runtime-db-slice (:rf/runtime-db payload)]
+                             (when (map? runtime-db-slice) runtime-db-slice))
+        hydration-runtime-db-base (or payload-runtime-db current-runtime-db {})
         ;; Declarative hydration-metadata construction — additive,
         ;; nil-pruned. New keys land here as kv pairs without re-ordering
         ;; the previous `cond->` clauses.
@@ -334,7 +335,7 @@
         ;; themselves remain `:platforms #{:client}` so any direct
         ;; caller still gets the gate; the handler simply doesn't
         ;; request them on a known non-client run.
-        client?       (client-platform? frame)]
+        client?       (client-platform? frame-id)]
     ;; Per Spec 011 §The :rf/hydrate event: dispatch the compatibility-
     ;; check fxs as part of `:fx` so a mismatch surfaces a structured
     ;; trace event without crashing the hydration path. Both fxs gate on
@@ -358,7 +359,7 @@
     ;; metadata). The reference `:rf/hydrate` handler is framework code, so
     ;; emitting the reserved `:rf.db/runtime` effect is in-bounds (decision
     ;; #4 — reserved by convention).
-    (cond-> {:db new-db
+    (cond-> {:db hydrated-app-db
              :fx (cond-> []
                    (and client? version)
                    (conj [:rf.ssr/check-version       version])
@@ -388,41 +389,44 @@
                    ;; Gated three ways, each of which independently means "no
                    ;; timers": `client?` (a server-side / isomorphic-loopback
                    ;; hydrate arms nothing, same gate the two `:rf.ssr/check-*`
-                   ;; fxs use), `payload-rt` (only a server-settled runtime-db
-                   ;; slice needs reconstructing — a client-only payload's
-                   ;; machines are already running their own timers), and the
-                   ;; hook's presence (an SSR app without the machines artefact
-                   ;; emits nothing, so `:rf.machine/hydrate-rearm` is never
-                   ;; requested from a runtime that has no handler for it).
+                   ;; fxs use), `payload-runtime-db` (only a server-settled
+                   ;; runtime-db slice needs reconstructing — a client-only
+                   ;; payload's machines are already running their own timers),
+                   ;; and the hook's presence (an SSR app without the machines
+                   ;; artefact emits nothing, so `:rf.machine/hydrate-rearm` is
+                   ;; never requested from a runtime that has no handler for it).
                    ;; The rejected paths — malformed payload, wrong frame-id —
                    ;; return before this handler and so arm nothing either.
                    (and client?
-                        (some? payload-rt)
+                        (some? payload-runtime-db)
                         (some? (late-bind/get-fn :machines/rearm-after-hydration!)))
                    (conj [:rf.machine/hydrate-rearm {}]))}
       ;; Install the runtime-db partition when EITHER a server-settled
       ;; runtime-db slice rode the payload OR hydration metadata was produced.
       ;; The metadata merges on top of the payload slice (server-hash/version
       ;; sit alongside the hydrated machine snapshots / route slice).
-      (or payload-rt (seq metadata))
+      (or payload-runtime-db (seq metadata))
       (assoc :rf.db/runtime
-             (let [base (if (seq metadata)
-                          (assoc-in runtime-base [:rf.runtime/ssr :hydration] metadata)
-                          runtime-base)]
+             (let [hydration-runtime-db (if (seq metadata)
+                                          (assoc-in hydration-runtime-db-base
+                                                    [:rf.runtime/ssr :hydration]
+                                                    metadata)
+                                          hydration-runtime-db-base)]
                ;; LATE-BOUND cross-subsystem hydration RECONCILE. A cross-feature
                ;; artefact (Resources, Spec 016 §SSR and hydration) reconciles its
                ;; OWN durable runtime-db subtree once installed — recompute reverse
                ;; indexes from entries (never trust the wire), orphan SSR owners,
                ;; clear transient host pointers, surface server clock skew — without
                ;; SSR statically `:require`ing it. Absent hook (no resources
-               ;; artefact) leaves `base` unchanged, so an SSR app without resources
-               ;; sees no behaviour change. Resources is the first consumer
-               ;; reconciles `:rf.runtime/resources`. The
+               ;; artefact) leaves `hydration-runtime-db` unchanged, so an SSR
+               ;; app without resources sees no behaviour change. Resources is
+               ;; the first consumer; it reconciles `:rf.runtime/resources`. The
                ;; symmetric COUNTERPART of `:ssr/extend-runtime-db-projection`
                ;; (the server projection hook in `project-runtime-db`).
-               (if-let [reconcile (late-bind/get-fn :resources/hydrate-runtime-db)]
-                 (reconcile base frame)
-                 base))))))
+               (if-let [reconcile-runtime-db
+                        (late-bind/get-fn :resources/hydrate-runtime-db)]
+                 (reconcile-runtime-db hydration-runtime-db frame-id)
+                 hydration-runtime-db))))))
 
 ;; ---- :rf.ssr/check-version + :rf.ssr/check-schema-digest fxs --------------
 ;;
@@ -556,18 +560,19 @@
   win, at the cost of silent mismatches. Absence of the key (the common
   case) leaves detection ON."
   [frame-id]
-  (let [v (get-in (frame/frame-meta frame-id) [:ssr :detect-mismatch?])]
-    (if (some? v) (boolean v) true)))
+  (let [configured-value (get-in (frame/frame-meta frame-id)
+                                 [:ssr :detect-mismatch?])]
+    (if (some? configured-value) (boolean configured-value) true)))
 
-(defn- on-mismatch
+(defn- mismatch-policy
   "Per Spec 011 §Mismatch recovery and configuration item 2. Read the
   frame's `:ssr {:on-mismatch …}` knob — default `:warn` (the
   `:warned-and-replaced` recovery). `:hard-error` escalates a mismatch to
   a thrown structured exception (dev/CI fail-fast). Any other value falls
   back to `:warn`."
   [frame-id]
-  (let [v (get-in (frame/frame-meta frame-id) [:ssr :on-mismatch])]
-    (if (= :hard-error v) :hard-error :warn)))
+  (let [configured-value (get-in (frame/frame-meta frame-id) [:ssr :on-mismatch])]
+    (if (= :hard-error configured-value) :hard-error :warn)))
 
 (defn verify-hydration!
   "Per Spec 011 §Hydration-mismatch detection + §Mismatch recovery and
@@ -605,47 +610,49 @@
      ;; SSR hydration metadata is durable runtime-db
      ;; state at `[:rf.runtime/ssr :hydration]` — read it off the runtime-db
      ;; partition.
-     (let [rt          (frame/frame-runtime-db-value frame-id)
+     (let [runtime-db (frame/frame-runtime-db-value frame-id)
            server-hash (or server-hash
-                           (get-in rt [:rf.runtime/ssr :hydration :server-hash]))
+                           (get-in runtime-db
+                                   [:rf.runtime/ssr :hydration :server-hash]))
            client-hash (cond
                          (string? tree-or-hash) tree-or-hash
                          tree-or-hash           (hash/render-tree-hash tree-or-hash))]
        (when (and server-hash client-hash (not= server-hash client-hash))
-         (let [strict?  (= :hard-error (on-mismatch frame-id))
-               recovery (if strict? :hard-error :warned-and-replaced)
+         (let [hard-error? (= :hard-error (mismatch-policy frame-id))
+               recovery (if hard-error? :hard-error :warned-and-replaced)
                ;; ONE shared payload reused by both the dev-trace emit AND the
                ;; strict-mode throw (the build-shared-payload-then-throw-and-emit
                ;; idiom error/ex-info-from-data was purpose-built for). It carries
                ;; the canonical thrown-error slots — :rf.error/id, :reason,
                ;; :recovery, and :where.
-               payload  (cond-> {:rf.error/id :rf.ssr/hydration-mismatch
-                                 :where       'rf/verify-hydration!
-                                 :server-hash server-hash
-                                 :client-hash client-hash
-                                 :frame       frame-id
-                                 :failing-id  (or failing-id :rf/hydrate)
-                                 :reason      (str "Hydration mismatch: server hash '"
-                                                   server-hash
-                                                   "' != client hash '"
-                                                   client-hash
-                                                   "'. "
-                                                   (if strict?
-                                                     "Strict mode — throwing."
-                                                     "Re-rendering client-side."))
-                                 :recovery    recovery}
-                          first-diff-path (assoc :first-diff-path first-diff-path))
-               trace-fn (late-bind/get-fn :trace/emit-error!)]
+               mismatch-data (cond-> {:rf.error/id :rf.ssr/hydration-mismatch
+                                      :where       'rf/verify-hydration!
+                                      :server-hash server-hash
+                                      :client-hash client-hash
+                                      :frame       frame-id
+                                      :failing-id  (or failing-id :rf/hydrate)
+                                      :reason      (str "Hydration mismatch: server hash '"
+                                                        server-hash
+                                                        "' != client hash '"
+                                                        client-hash
+                                                        "'. "
+                                                        (if hard-error?
+                                                          "Strict mode — throwing."
+                                                          "Re-rendering client-side."))
+                                      :recovery    recovery}
+                               first-diff-path
+                               (assoc :first-diff-path first-diff-path))
+               emit-error! (late-bind/get-fn :trace/emit-error!)]
            ;; Always emit the trace (monitoring integrations rely on it),
            ;; THEN escalate in strict mode. The thrown ex-info carries the
            ;; same structured payload so a CI run sees the full diff.
-           (when trace-fn
-             (trace-fn :rf.ssr/hydration-mismatch payload))
-           (when strict?
+           (when emit-error!
+             (emit-error! :rf.ssr/hydration-mismatch mismatch-data))
+           (when hard-error?
              ;; Route the shared-payload throw through error/ex-info-from-data;
              ;; it derives the human
              ;; message from the payload's own :rf.error/id + :reason (LEADING
              ;; the sentence, TRAILING the [:rf.ssr/hydration-mismatch] token)
              ;; in ONE call, instead of re-deriving error/human-message inline.
              ;; The payload IS the ex-data verbatim (one map, throw + trace agree).
-             (throw (error/ex-info-from-data payload)))))))))
+             (throw (error/ex-info-from-data mismatch-data)))))))))

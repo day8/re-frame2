@@ -81,13 +81,14 @@
   shared `:rf.error/ui-tree-malformed` (004B §The SSR consumption
   boundary). `integer?` matches the Tier-1 gate's predicate."
   [tree]
-  (let [v (:rf.ui/tree-version tree)]
-    (when-not (and (integer? v) (contains? supported-tree-versions v))
+  (let [tree-version (:rf.ui/tree-version tree)]
+    (when-not (and (integer? tree-version)
+                   (contains? supported-tree-versions tree-version))
       (error/throw-error!
         :rf.error/ssr-ui-tree-version-unsupported
         'rf.ssr/emit-ui-tree
         (str "re-frame.ssr/emit-ui-tree requires a root :rf.ui/tree-version in "
-             (pr-str supported-tree-versions) " — got " (error/pr-form v)
+             (pr-str supported-tree-versions) " — got " (error/pr-form tree-version)
              ". The serialiser validates the version FIRST, before any emission, so "
              "a future-version or corrupt tree never emits plausible markup. This is "
              "an OPERATIONAL deploy-skew condition (the server is too old for the tree "
@@ -96,10 +97,10 @@
              "fix deploy skew) or fall back to client render — nothing is wrong with "
              "the view code.")
         {:recovery :no-recovery
-         ;; rf2-9s68n — `v` is read straight off a caller-supplied tree, so
+         ;; rf2-9s68n — `tree-version` is read straight off a caller-supplied tree, so
          ;; it crosses `error/safe-form` on the ex-data side exactly as
          ;; it crosses `error/pr-form` on the message side above.
-         :extra    {:got (error/safe-form v)
+         :extra    {:got (error/safe-form tree-version)
                     :supported supported-tree-versions}}))))
 
 ;; ---------------------------------------------------------------------------
@@ -411,7 +412,9 @@
   (react-dom 19.2.0 emits e.g. `readOnly` verbatim — HTML attribute names
   are ASCII case-insensitive)."
   (merge (into {}
-               (keep (fn [[k v]] (when (str/includes? k "-") [v k])))
+               (keep (fn [[attribute-key attribute-value]]
+                       (when (str/includes? attribute-key "-")
+                         [attribute-value attribute-key])))
                standard-names)
          {"className"    "class"
           "htmlFor"      "for"
@@ -428,30 +431,33 @@
           "xmlSpace"     "xml:space"
           "xmlnsXlink"   "xmlns:xlink"}))
 
-(defn- collapsed [n] (str/replace n "-" ""))
+(defn- remove-hyphens [attribute-name]
+  (str/replace attribute-name "-" ""))
 
 (defn- react-prop-name
   "Author kebab prop NAME (string, no namespace) -> React prop name.
   data-*/aria-* verbatim; recognized names via the react-dom vocabulary
   (kebab or hyphen-collapsed hit); unrecognized names verbatim (React 16+
   pass-through)."
-  [n]
-  (if (or (str/starts-with? n "data-") (str/starts-with? n "aria-"))
-    n
-    (or (get standard-names n)
-        (get standard-names (collapsed n))
-        n)))
+  [attribute-name]
+  (if (or (str/starts-with? attribute-name "data-")
+          (str/starts-with? attribute-name "aria-"))
+    attribute-name
+    (or (get standard-names attribute-name)
+        (get standard-names (remove-hyphens attribute-name))
+        attribute-name)))
 
 (defn- dom-attr-name
   "Author kebab attr NAME (string, no namespace) -> the serialised DOM
   attribute name. data-*/aria-* verbatim; otherwise the React prop name
   mapped through `dom-attr-aliases`, falling back to the prop name
   verbatim."
-  [n]
-  (if (or (str/starts-with? n "data-") (str/starts-with? n "aria-"))
-    n
-    (let [p (react-prop-name n)]
-      (get dom-attr-aliases p p))))
+  [attribute-name]
+  (if (or (str/starts-with? attribute-name "data-")
+          (str/starts-with? attribute-name "aria-"))
+    attribute-name
+    (let [react-name (react-prop-name attribute-name)]
+      (get dom-attr-aliases react-name react-name))))
 
 (def void-tags
   "Tags that self-close and carry no children. react-dom/
@@ -491,8 +497,8 @@
   escapeTextForBrowser (
   `'` -> `&#x27;`, NOT the `&#39;` `re-frame.ssr.html-helpers` uses for the
   hiccup tier)."
-  [s]
-  (-> (str s)
+  [text]
+  (-> (str text)
       (str/replace "&" "&amp;")
       (str/replace "<" "&lt;")
       (str/replace ">" "&gt;")
@@ -540,13 +546,13 @@
   trusted-markup child."
   [tag-lc content]
   (when (= 1 (count content))
-    (let [c (first content)]
+    (let [sole-content (first content)]
       (cond
-        (string? c)
-        c
-        (and (map? c) (string? (:html c))
+        (string? sole-content)
+        sole-content
+        (and (map? sole-content) (string? (:html sole-content))
              (contains? trusted-html-newline-eating-tags tag-lc))
-        (:html c)
+        (:html sole-content)
         :else
         nil))))
 
@@ -565,8 +571,9 @@
   applies but React does not doctor a multi-child body."
   [tag-lc content]
   (if (and (contains? newline-eating-tags tag-lc)
-           (let [c (sole-newline-content tag-lc content)]
-             (and (some? c) (str/starts-with? c "\n"))))
+           (let [content-string (sole-newline-content tag-lc content)]
+             (and (some? content-string)
+                  (str/starts-with? content-string "\n"))))
     "\n"
     ""))
 
@@ -574,69 +581,77 @@
 ;; Attribute value serialisation (the value half of the table).
 ;; ---------------------------------------------------------------------------
 
-(defn- coerce-val
+(defn- coerce-value
   "Tree attr/text values are canonical strings already (numbers went
   through JS ToString, `:style` px was applied, at tree build). Coerce
   defensively: string verbatim; number via the cross-runtime canonical
   form (`hash/canonical-number` — the same JS-ToString parity the hiccup
   emitter uses); keyword/symbol via `name` (namespace dropped, matching the
   shipped dynamic path); everything else `str`-ed."
-  [v]
+  [value]
   (cond
-    (string? v)                    v
-    (number? v)                    (hash/canonical-number v)
-    (or (keyword? v) (symbol? v))  (name v)
-    :else                          (str v)))
+    (string? value)                          value
+    (number? value)                          (hash/canonical-number value)
+    (or (keyword? value) (symbol? value))    (name value)
+    :else                                    (str value)))
 
 (defn- truthy-attr?
   "React's boolean-attribute presence test over TREE-SPACE values: `true`
   -> present; `false` -> absent; a non-empty string is present (`hidden
   \"until-found\"` renders bare presence on react-dom/server 19.2.0)."
-  [v]
+  [value]
   (cond
-    (boolean? v) v
-    (string? v)  (not (str/blank? v))
-    :else        (some? v)))
+    (boolean? value) value
+    (string? value)  (not (str/blank? value))
+    :else            (some? value)))
 
 (defn- serialise-attr
   "One author-space `[k v]` -> `[final-name serialised-value]` or nil
   (attribute absent from markup). `:class` / `:style` are handled by
   the caller before this."
-  [k v]
-  (let [n         (name k)
-        collapsed (str/lower-case (str/replace n "-" ""))]
+  [attribute-key attribute-value]
+  (let [attribute-name (name attribute-key)
+        collapsed-name (str/lower-case (remove-hyphens attribute-name))]
     (cond
-      (str/starts-with? n "aria-")
+      (str/starts-with? attribute-name "aria-")
       ;; aria-* values ALWAYS stringify — :aria-hidden false ->
       ;; aria-hidden="false", never omitted.
-      [n (if (boolean? v) (str v) (coerce-val v))]
+      [attribute-name (if (boolean? attribute-value)
+                        (str attribute-value)
+                        (coerce-value attribute-value))]
 
-      (str/starts-with? n "data-")
+      (str/starts-with? attribute-name "data-")
       ;; data-* verbatim names; boolean values stringify.
-      [n (if (boolean? v) (str v) (coerce-val v))]
+      [attribute-name (if (boolean? attribute-value)
+                        (str attribute-value)
+                        (coerce-value attribute-value))]
 
-      (contains? booleanish-attrs collapsed)
+      (contains? booleanish-attrs collapsed-name)
       ;; true/false -> "true"/"false", never omitted.
-      [(dom-attr-name n) (if (boolean? v) (str v) (coerce-val v))]
+      [(dom-attr-name attribute-name)
+       (if (boolean? attribute-value)
+         (str attribute-value)
+         (coerce-value attribute-value))]
 
-      (contains? overloaded-boolean-attrs collapsed)
+      (contains? overloaded-boolean-attrs collapsed-name)
       ;; true -> bare presence, false -> omitted, other values stringify.
       (cond
-        (true? v)  [(dom-attr-name n) ""]
-        (false? v) nil
-        :else      [(dom-attr-name n) (coerce-val v)])
+        (true? attribute-value)  [(dom-attr-name attribute-name) ""]
+        (false? attribute-value) nil
+        :else                    [(dom-attr-name attribute-name)
+                                  (coerce-value attribute-value)])
 
-      (contains? boolean-attrs collapsed)
+      (contains? boolean-attrs collapsed-name)
       ;; presence/absence; presence serialises as attr="".
-      (when (truthy-attr? v)
-        [(dom-attr-name n) ""])
+      (when (truthy-attr? attribute-value)
+        [(dom-attr-name attribute-name) ""])
 
-      (boolean? v)
+      (boolean? attribute-value)
       ;; a boolean on a non-boolean-class attribute never reaches markup.
       nil
 
       :else
-      [(dom-attr-name n) (coerce-val v)])))
+      [(dom-attr-name attribute-name) (coerce-value attribute-value)])))
 
 (defn- style-map->css
   "A tree `:style` map (kebab keyword -> canonical CSS value string, px
@@ -645,11 +660,11 @@
   order (004B §Emission is pure — map iteration order is trusted here
   exactly as little as in the `:class` flag-map row). nil-valued entries
   dropped."
-  [m]
-  (->> m
-       (keep (fn [[k v]]
-               (when (some? v)
-                 (str (name k) ":" (coerce-val v)))))
+  [style-map]
+  (->> style-map
+       (keep (fn [[property-name property-value]]
+               (when (some? property-value)
+                 (str (name property-name) ":" (coerce-value property-value)))))
        sort
        (str/join ";")))
 
@@ -664,13 +679,14 @@
   `:rf.ui/property-props`) are OMITTED (applied at hydration, never markup)."
   [attrs property-props]
   (->> attrs
-       (keep (fn [[k v]]
+       (keep (fn [[attribute-key attribute-value]]
                (cond
-                 (contains? property-props k) nil
-                 (= k :class)                 (when (some? v) ["class" (coerce-val v)])
-                 (= k :style)                 (let [css (style-map->css v)]
-                                                (when (seq css) ["style" css]))
-                 :else                        (serialise-attr k v))))
+                 (contains? property-props attribute-key) nil
+                 (= attribute-key :class) (when (some? attribute-value)
+                                            ["class" (coerce-value attribute-value)])
+                 (= attribute-key :style) (let [css (style-map->css attribute-value)]
+                                            (when (seq css) ["style" css]))
+                 :else (serialise-attr attribute-key attribute-value))))
        (sort-by first)))
 
 (defn- attrs->string
@@ -678,9 +694,10 @@
   space when non-empty; empty string otherwise). Presence attributes emit
   `name=\"\"`. Values are `escape-html`-escaped."
   [attrs property-props]
-  (let [rendered (map (fn [[nm v]]
-                        (str " " nm "=\"" (escape-html v) "\""))
-                      (element-attr-pairs attrs property-props))]
+  (let [rendered (map (fn [[attribute-name attribute-value]]
+                         (str " " attribute-name "=\""
+                              (escape-html attribute-value) "\""))
+                       (element-attr-pairs attrs property-props))]
     (str/join rendered)))
 
 ;; ---------------------------------------------------------------------------
@@ -733,7 +750,8 @@
   [children parent-path]
   (str/join
     (map-indexed
-      (fn [i c] (emit-node c (conj parent-path :children i)))
+      (fn [child-index child]
+        (emit-node child (conj parent-path :children child-index)))
       children)))
 
 (defn- emit-raw-text-children
@@ -783,9 +801,9 @@
   string are OPAQUE — never descended."
   [node]
   (and (map? node)
-       (let [ds (filterv #(contains? node %) node-discriminators)]
-         (or (= ds [:view-id])
-             (and (empty? ds) (contains? node :children))))))
+       (let [discriminators (filterv #(contains? node %) node-discriminators)]
+         (or (= discriminators [:view-id])
+             (and (empty? discriminators) (contains? node :children))))))
 
 (defn- effective-children
   "The EFFECTIVE child stream a host sees beneath a node, after ERASING every
@@ -799,11 +817,11 @@
   [children parent-path]
   (vec
     (mapcat
-      (fn [i c]
-        (let [p (conj parent-path :children i)]
-          (if (transparent-wrapper? c)
-            (effective-children (:children c) p)
-            [[c p]])))
+      (fn [child-index child]
+        (let [child-path (conj parent-path :children child-index)]
+          (if (transparent-wrapper? child)
+            (effective-children (:children child) child-path)
+            [[child child-path]])))
       (range)
       children)))
 
@@ -817,47 +835,50 @@
   rejects (`dangerouslySetInnerHTML` / value+children) or misrenders (`[object
   Object]`). A sole string child, and `:value` alone, stay valid.
 
-  `ta-val` is the textarea's already-resolved `:value`/`:default-value`, or nil;
+  `textarea-value` is the textarea's already-resolved `:value`/`:default-value`, or nil;
   `raw-children` the element's source children (carried in ex-data); `path` the
   element's root-relative path (each spliced leaf carries its own real path)."
-  [ta-val raw-children path]
-  (let [eff (effective-children raw-children path)]
+  [textarea-value raw-children path]
+  (let [effective-child-entries (effective-children raw-children path)]
     (cond
-      (and (some? ta-val) (seq eff))
-      (let [[c p] (first eff)]
+      (and (some? textarea-value) (seq effective-child-entries))
+      (let [[child child-path] (first effective-child-entries)]
         (malformed-node!
           (str "a <textarea> takes its content from EITHER :value / "
                ":default-value OR a single text child, never both — "
                "react-dom/server 19.2 rejects a textarea given a value AND a "
-               "child: " (error/pr-form c))
-          p {:value raw-children}))
+               "child: " (error/pr-form child))
+          child-path {:value raw-children}))
 
-      (> (count eff) 1)
-      (let [[_ p] (second eff)]
+      (> (count effective-child-entries) 1)
+      (let [[_ second-child-path] (second effective-child-entries)]
         (malformed-node!
-          (str "a <textarea> takes at most ONE child, but " (count eff)
+          (str "a <textarea> takes at most ONE child, but "
+               (count effective-child-entries)
                " reached it after splicing — react-dom/server 19.2 rejects a "
-               "textarea with more than one child: " (error/pr-form (mapv first eff)))
-          p {:value raw-children}))
+               "textarea with more than one child: "
+               (error/pr-form (mapv first effective-child-entries)))
+          second-child-path {:value raw-children}))
 
-      (= 1 (count eff))
-      (let [[c p] (first eff)]
+      (= 1 (count effective-child-entries))
+      (let [[child child-path] (first effective-child-entries)]
         (cond
-          (and (map? c) (contains? c :html))
+          (and (map? child) (contains? child :html))
           (malformed-node!
             (str "a <textarea> cannot carry a trusted-markup (:html) child — "
                  "react-dom/server 19.2 rejects dangerouslySetInnerHTML on a "
                  "textarea (its content is value/defaultValue or a text child); "
-                 "supply the text via :value or a string child: " (error/pr-form c))
-            p {:value raw-children})
+                 "supply the text via :value or a string child: "
+                 (error/pr-form child))
+            child-path {:value raw-children})
 
-          (and (map? c) (contains? c :tag))
+          (and (map? child) (contains? child :tag))
           (malformed-node!
             (str "a <textarea> takes a single TEXT child, not a structural "
                  "element — react-dom/server 19.2 renders an element child as "
                  "\"[object Object]\"; supply the text via :value or a string "
-                 "child: " (error/pr-form c))
-            p {:value raw-children}))))))
+                 "child: " (error/pr-form child))
+            child-path {:value raw-children}))))))
 
 (defn- emit-element
   "Emit an element node. Applies the form-control special forms
@@ -865,31 +886,33 @@
   `:textarea` -> the text child; `:value` on `:select` -> `selected` on the
   matching option), then the attribute conversion, then children. `:events`
   and `:key` have no HTML presence and are never read here."
-  [el path]
-  (let [tag       (:tag el)
-        tag-name  (name tag)
-        norm-tag  (str/lower-case tag-name)
-        void?     (contains? void-tags (keyword norm-tag))
-        raw-text? (contains? html/raw-text-tags norm-tag)
-        pp        (if (custom-element-tag? tag)
-                    (set (or (:rf.ui/property-props el) #{}))
-                    #{})
+  [element path]
+  (let [tag                 (:tag element)
+        tag-name            (name tag)
+        normalised-tag-name (str/lower-case tag-name)
+        void?               (contains? void-tags (keyword normalised-tag-name))
+        raw-text?           (contains? html/raw-text-tags normalised-tag-name)
+        property-props      (if (custom-element-tag? tag)
+                              (set (or (:rf.ui/property-props element) #{}))
+                              #{})
         ;; form-control pre-pass (004B §Property-only and form-control
         ;; special forms): default-value/default-checked serialise as
         ;; value/checked.
-        attrs     (reduce (fn [m [from to]]
-                            (if (contains? m from)
-                              (-> m (dissoc from) (assoc to (get m from)))
-                              m))
-                          (or (:attrs el) {})
-                          [[:default-value :value] [:default-checked :checked]])
-        textarea? (= tag :textarea)
-        select?   (= tag :select)
-        ta-val    (when textarea? (get attrs :value))
-        sel-val   (when select? (get attrs :value))
+        attrs (reduce (fn [normalised-attrs [source-key target-key]]
+                        (if (contains? normalised-attrs source-key)
+                          (-> normalised-attrs
+                              (dissoc source-key)
+                              (assoc target-key (get normalised-attrs source-key)))
+                          normalised-attrs))
+                      (or (:attrs element) {})
+                      [[:default-value :value] [:default-checked :checked]])
+        textarea?     (= tag :textarea)
+        select?       (= tag :select)
+        textarea-value (when textarea? (get attrs :value))
+        select-value   (when select? (get attrs :value))
         ;; textarea/select :value never serialises as a `value` attribute.
         attrs     (cond-> attrs (or textarea? select?) (dissoc :value))
-        open      (str "<" tag-name (attrs->string attrs pp))]
+        open-tag  (str "<" tag-name (attrs->string attrs property-props))]
     ;; rf2-ib4fd — a <textarea>'s content is host-divergent unless it is a single
     ;; text child or its :value/:default-value. Validate the EFFECTIVE child
     ;; stream (after transparent fragment / view-boundary splicing), not merely
@@ -897,30 +920,35 @@
     ;; several children, or a value-plus-child shape fails loud at its actual
     ;; path rather than emitting a body react-dom/server 19.2 rejects/misrenders.
     (when textarea?
-      (reject-textarea-content! ta-val (:children el) path))
+      (reject-textarea-content! textarea-value (:children element) path))
     (cond
-      void?          (str open ">")
+      void?          (str open-tag ">")
       ;; rf2-2dh3b — <script>/<style> content is HTML raw text: emit it
       ;; unescaped (only the closing-sequence escape), matching react-dom/server.
       ;; rf2-0spji — but honor a sole `{:html s}` child (the ui/html trusted
       ;; bypass) verbatim, and fail loud on any other structural child instead of
       ;; stringifying it.
-      raw-text?      (str open ">" (emit-raw-text-children norm-tag (:children el) path)
+      raw-text?      (str open-tag ">"
+                          (emit-raw-text-children normalised-tag-name
+                                                  (:children element) path)
                           "</" tag-name ">")
       ;; rf2-z05di — a textarea :value beginning with LF needs the compensating
       ;; leading LF the parser will eat back off (single-string content).
-      (some? ta-val) (let [cv (coerce-val ta-val)]
-                       (str open ">"
-                            (leading-newline-compensation norm-tag [cv])
-                            (escape-html cv) "</" tag-name ">"))
+      (some? textarea-value)
+      (let [coerced-textarea-value (coerce-value textarea-value)]
+        (str open-tag ">"
+             (leading-newline-compensation normalised-tag-name
+                                           [coerced-textarea-value])
+             (escape-html coerced-textarea-value) "</" tag-name ">"))
       :else
-      (let [children (if (some? sel-val)
-                       (mark-selected (:children el) (selected-values sel-val))
-                       (:children el))]
+      (let [children (if (some? select-value)
+                       (mark-selected (:children element)
+                                      (selected-values select-value))
+                       (:children element))]
         ;; rf2-z05di — <pre>/<listing>/<textarea> with a single string child
         ;; beginning with LF get the one compensating LF react-dom/server emits.
-        (str open ">"
-             (leading-newline-compensation norm-tag children)
+        (str open-tag ">"
+             (leading-newline-compensation normalised-tag-name children)
              (emit-children children path) "</" tag-name ">")))))
 
 (defn- node-text
@@ -938,29 +966,32 @@
   the one attribute value in the tree that is not a scalar — and selects
   every option named in it. Both answer a set, so the marking below is one
   membership test rather than two shapes of comparison."
-  [sel-val]
-  (if (vector? sel-val)
-    (into #{} (map coerce-val) sel-val)
-    #{(coerce-val sel-val)}))
+  [select-value]
+  (if (vector? select-value)
+    (into #{} (map coerce-value) select-value)
+    #{(coerce-value select-value)}))
 
 (defn- mark-selected
   "The `:value`-on-`:select` row: inject `:selected true` into the option
   child(ren) whose value (their `:value` attr, else their text content) is
   in `selected`. Recurses into non-option element children (e.g.
   `:optgroup`). Operates at the raw-tree (author-space) level."
-  [children selected]
-  (mapv (fn [c]
+  [children selected-value-set]
+  (mapv (fn [child]
           (cond
-            (and (map? c) (= :option (:tag c)))
-            (let [ov (coerce-val (or (get-in c [:attrs :value]) (node-text c)))]
-              (if (contains? selected ov)
-                (assoc-in c [:attrs :selected] true)
-                c))
+            (and (map? child) (= :option (:tag child)))
+            (let [option-value (coerce-value
+                                 (or (get-in child [:attrs :value])
+                                     (node-text child)))]
+              (if (contains? selected-value-set option-value)
+                (assoc-in child [:attrs :selected] true)
+                child))
 
-            (and (map? c) (:tag c) (:children c))
-            (assoc c :children (mark-selected (:children c) selected))
+            (and (map? child) (:tag child) (:children child))
+            (assoc child :children
+                   (mark-selected (:children child) selected-value-set))
 
-            :else c))
+            :else child))
         children))
 
 (defn- emit-node
@@ -977,24 +1008,25 @@
     (escape-html node)
 
     (map? node)
-    (let [ds (filterv #(contains? node %) node-discriminators)]
+    (let [discriminators (filterv #(contains? node %) node-discriminators)]
       (cond
-        (> (count ds) 1)
+        (> (count discriminators) 1)
         (malformed-node!
-          (str "a tree node carries multiple node discriminators " (pr-str ds)
+          (str "a tree node carries multiple node discriminators "
+               (pr-str discriminators)
                " — every map node is EXACTLY ONE of :tag (element), :view-id "
                "(view boundary), :html (trusted markup), or a fragment (none of "
                "these, splicing its :children); an ambiguous map must not be "
                "interpreted by branch order: " (error/pr-form node))
-          path {:value node :got ds})
+          path {:value node :got discriminators})
 
-        (= 1 (count ds))
-        (case (first ds)
+        (= 1 (count discriminators))
+        (case (first discriminators)
           :tag     (emit-element node path)
           ;; trusted markup writes verbatim; a non-string :html is malformed.
-          :html    (let [h (:html node)]
-                     (if (string? h)
-                       h
+          :html    (let [trusted-html (:html node)]
+                     (if (string? trusted-html)
+                       trusted-html
                        (malformed-node!
                          (str "a trusted-HTML node's :html is not a string: "
                               (error/pr-form node))

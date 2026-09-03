@@ -116,8 +116,8 @@
   writes it and `release-claim!` matches against it — a claim and its
   release must agree on the shape by construction, not by two literals
   kept in step by hand."
-  [digest root-id]
-  {:digest digest :installed-by root-id})
+  [payload-digest root-id]
+  {:digest payload-digest :installed-by root-id})
 
 (defn release-payload!
   "Release `payload-id`'s install claim. Called from the SSR per-frame
@@ -130,7 +130,7 @@
   nil)
 
 (defn release-claim!
-  "Release `payload-id` ONLY IF the ledger still holds exactly `record`
+  "Release `payload-id` ONLY IF the ledger still holds exactly `claim`
   — the claim-side counterpart of the atomic claim in
   `payload-install-decision!`, and the mechanism that keeps a FAILED
   root from poisoning a payload id ([Spec 011 §Failed-root isolation]).
@@ -154,10 +154,10 @@
   Returns `true` when this call released the claim, `false` when it did
   not hold it (already released, or replaced by another claim).
   Idempotent."
-  [payload-id record]
+  [payload-id claim]
   (loop []
     (let [ledger @installed-payloads]
-      (if (= record (get ledger payload-id))
+      (if (= claim (get ledger payload-id))
         (or (compare-and-set! installed-payloads ledger (dissoc ledger payload-id))
             (recur))
         false))))
@@ -174,15 +174,15 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- throw-payload-conflict!
-  [where payload-id digest root-id installed]
+  [where payload-id arriving-digest root-id existing-claim]
   (error/throw-error!
    :rf.error/frame-payload-conflict where
    (str "root " (pr-str root-id) " references payload "
         (pr-str payload-id) ", but a DIFFERENT payload is already "
         "installed under that id (installed by root "
-        (pr-str (:installed-by installed)) "). Content digests disagree: "
-        "installed " (pr-str (:digest installed)) ", arriving "
-        (pr-str digest) ". One payload id, one content: two roots on a "
+        (pr-str (:installed-by existing-claim)) "). Content digests disagree: "
+        "installed " (pr-str (:digest existing-claim)) ", arriving "
+        (pr-str arriving-digest) ". One payload id, one content: two roots on a "
         "page must hydrate the same server slice for a frame they share. "
         "This usually means the page composed fragments rendered from "
         "two different server responses. The installed payload and the "
@@ -190,8 +190,8 @@
         "any install")
    {:recovery :render-the-page-from-one-response
     :extra    {:payload-id payload-id
-               :installed  installed
-               :arriving   {:digest digest :root-id root-id}}}))
+               :installed  existing-claim
+               :arriving   {:digest arriving-digest :root-id root-id}}}))
 
 (defn payload-install-decision!
   "The idempotence gate. -> `:install` when `payload-id` is unclaimed (the
@@ -207,22 +207,24 @@
 
   The conflict throw happens with the ledger UNCHANGED — a conflicting
   root never overwrites, never merges, and never partially claims."
-  [where payload-id digest root-id]
-  (let [record     (claim-record digest root-id)
-        [old _new] (swap-vals! installed-payloads
-                               (fn [ledger]
-                                 (if (contains? ledger payload-id)
-                                   ledger
-                                   (assoc ledger payload-id record))))
-        installed  (get old payload-id)]
+  [where payload-id arriving-digest root-id]
+  (let [arriving-claim (claim-record arriving-digest root-id)
+        [prior-ledger _updated-ledger]
+        (swap-vals! installed-payloads
+                    (fn [ledger]
+                      (if (contains? ledger payload-id)
+                        ledger
+                        (assoc ledger payload-id arriving-claim))))
+        existing-claim (get prior-ledger payload-id)]
     (cond
       ;; We won the claim — the id was unheld when the swap landed.
-      (nil? installed) :install
+      (nil? existing-claim) :install
 
       ;; The ratified idempotent no-op: same content, already live.
-      (= digest (:digest installed)) :already-installed
+      (= arriving-digest (:digest existing-claim)) :already-installed
 
-      :else (throw-payload-conflict! where payload-id digest root-id installed))))
+      :else
+      (throw-payload-conflict! where payload-id arriving-digest root-id existing-claim))))
 
 ;; ---------------------------------------------------------------------------
 ;; Manifest resolution (preflight step 1)
@@ -315,13 +317,16 @@
   different payload already holds `:payload-id`. Both throw BEFORE the
   caller hydrates, which is the whole point of a preflight."
   [where {:keys [payload payload-id root-id] :as opts}]
-  (let [m        (resolve-manifest! where opts)
-        rid      (or root-id (:root-id m))
-        digest   (payload-content-digest payload)
-        decision (payload-install-decision! where payload-id digest rid)]
-    (cond-> {:manifest   m
-             :root-id    rid
+  (let [resolved-manifest (resolve-manifest! where opts)
+        resolved-root-id  (or root-id (:root-id resolved-manifest))
+        payload-digest    (payload-content-digest payload)
+        decision          (payload-install-decision! where payload-id
+                                                     payload-digest
+                                                     resolved-root-id)]
+    (cond-> {:manifest   resolved-manifest
+             :root-id    resolved-root-id
              :payload-id payload-id
-             :digest     digest
+             :digest     payload-digest
              :decision   decision}
-      (= :install decision) (assoc :claim (claim-record digest rid)))))
+      (= :install decision)
+      (assoc :claim (claim-record payload-digest resolved-root-id)))))

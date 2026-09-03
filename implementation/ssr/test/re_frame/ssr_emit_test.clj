@@ -864,8 +864,9 @@
             inner fn's .toString, through BOTH the sync emit and streaming paths"
     ;; The idiomatic Reagent/UIx Form-2 shapes: a 0-arity inner closing
     ;; over the outer's args, AND a same-arity inner taking the args.
-    (let [form2-closed (fn [x] (fn [] [:div x]))
-          form2-arg    (fn [x] (fn [x] [:p (str "v=" x)]))]
+    (let [form2-closed (fn [value] (fn [] [:div value]))
+          form2-arg    (fn [_outer-value]
+                         (fn [value] [:p (str "v=" value)]))]
       (is (= "<div>hello</div>" (emit/emit-element [form2-closed "hello"]))
           "sync emit renders the 0-arity-inner Form-2 output")
       (is (= "<div>hello</div>"
@@ -938,7 +939,8 @@
     ;; Fixed arity 1, taking the first of the outer's two props — the
     ;; failure scenario on the bead: the client drops the extra JS argument,
     ;; the JVM used to try 2 args, catch, retry at 0, and throw.
-    (let [form2-partial (fn [kept _ignored] (fn [kept] [:p kept]))]
+    (let [form2-partial (fn [_outer-value _ignored]
+                          (fn [kept] [:p kept]))]
       (is (= "<p>kept</p>" (emit/emit-element [form2-partial "kept" "ignored"]))
           "sync emit passes the inner the longest prefix it accepts")
       (is (= "<p>kept</p>"
@@ -992,13 +994,13 @@
     ;; here; the invocation counter cannot tell these two apart.
     (let [calls       (atom 0)
           needs-two   (fn [a b] [:span a b])
-          form2-buggy (fn [x] (fn [x]
+          form2-buggy (fn [_outer-value] (fn [value]
                                 (swap! calls inc)
                                 ;; Deliberately wrong arity — this call IS the fixture payload: the row needs
                                 ;; a genuine ArityException raised INSIDE the render body. clj-kondo is right
                                 ;; that it is a mismatch and cannot know it is intentional.
                                 [:div #_{:clj-kondo/ignore [:invalid-arity]}
-                                      (needs-two x)]))]
+                                      (needs-two value)]))]
       (reset! calls 0)
       (is (thrown-with-msg? clojure.lang.ArityException
                             #"Wrong number of args \(1\)"

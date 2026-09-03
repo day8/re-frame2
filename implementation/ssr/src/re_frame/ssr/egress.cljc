@@ -123,7 +123,7 @@
    "http"       :http
    "https"      :https})
 
-(def ^:private longest-known-scheme
+(def ^:private longest-known-scheme-length
   "Length of the longest scheme in [[scheme-classes]]. A scheme longer than
   this cannot be one of them, so [[safe-redirect-scheme-class]] can answer
   `:other` without lower-casing — an oversized scheme is then never copied,
@@ -153,7 +153,7 @@
   the signal."
   [scheme]
   (when (string? scheme)
-    (if (<= (count scheme) longest-known-scheme)
+    (if (<= (count scheme) longest-known-scheme-length)
       (get scheme-classes (str/lower-case scheme) :other)
       :other)))
 
@@ -198,7 +198,7 @@
   standing at their own process."
   #{:frame :recovery :reason :scheme-class})
 
-(def ^:private record-slot-sources
+(def ^:private record-slot-derivations
   "For each slot in [[safe-redirect-record-slots]], the DIAGNOSTIC tag it
   derives from and the fn that derives it. Two maps rather than one because
   the record's vocabulary is deliberately NOT the diagnostics' — `:scheme-class`
@@ -215,7 +215,7 @@
 (defn safe-redirect-record-tags
   "Project the safe-redirect DIAGNOSTIC tag map down to the closed structural
   map the always-on error axis may ship off-box: [[safe-redirect-record-slots]]
-  only, each slot derived through [[record-slot-sources]].
+  only, each slot derived through [[record-slot-derivations]].
 
   Applied by `re-frame.ssr.response`'s `dispatch-safe-redirect-record!` — the
   one function that reaches the `:error-emit/dispatch-error-record` hook — so
@@ -238,8 +238,10 @@
   rather than widening what a `-Dre-frame.debug=false` build sends to Sentry."
   [tags]
   (into {}
-        (keep (fn [slot]
-                (let [[source derive] (record-slot-sources slot)]
-                  (when-some [v (some-> (get tags source) derive)]
-                    [slot v]))))
+        (keep (fn [record-slot]
+                (let [[source-slot derive-value]
+                      (record-slot-derivations record-slot)]
+                  (when-some [slot-value (some-> (get tags source-slot)
+                                                 derive-value)]
+                    [record-slot slot-value]))))
         safe-redirect-record-slots))
