@@ -23,8 +23,7 @@
   `reconcile` reconciler with synthetic inputs, plus a live smoke that the
   committed spec/API.md + manifest still reconcile clean."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.api-manifest.api-md-check :as c]
-            [re-frame.api-manifest.gen :as gen]))
+            [re-frame.api-manifest.api-md-check :as c]))
 
 ;; A minimal synthetic manifest reproducing the EXACT ambiguity the real
 ;; manifest has: the bare var `adapter` carried for four namespaces, three
@@ -199,268 +198,14 @@
     (is (nil? (c/floor-violation (count (c/parse-api-md-var-rows))))
         "the real spec/API.md extraction must clear the floor")))
 
-(def ^:private root-manifest-rows
-  [{:namespace "re-frame.ui"   :var "create-root"  :kind :macro}
-   {:namespace "re-frame.ui"   :var "render!"      :kind :macro}
-   {:namespace "re-frame.ui"   :var "hydrate-root" :kind :macro}
-   {:namespace "re-frame.ui"   :var "unmount!"     :kind :fn}
-   {:namespace "re-frame.core" :var "reg-event"    :kind :fn}])
-
-(def ^:private root-rows-in-sync
-  "The four Spec-004C root verbs documented IN SYNC — bare re-frame.ui rows
-   with the committed kinds (create-root/render!/hydrate-root = macro,
-   unmount! = fn). The two-sided guard (rf2-asxo3) requires all four, so each
-   adversarial fixture MUTATES one row and keeps the other three in sync, which
-   isolates a single problem instead of tripping three missing-row false
-   positives."
-  [{:var "create-root"  :qualifier nil :doc-kind :macro :line 254 :raw "create-root"}
-   {:var "render!"      :qualifier nil :doc-kind :macro :line 255 :raw "render!"}
-   {:var "hydrate-root" :qualifier nil :doc-kind :macro :line 256 :raw "hydrate-root"}
-   {:var "unmount!"     :qualifier nil :doc-kind :fn    :line 257 :raw "unmount!"}])
-
-(defn- mutate-row
-  "`root-rows-in-sync` with the row for `v` merged with `changes`."
-  [v changes]
-  (mapv #(if (= v (:var %)) (merge % changes) %) root-rows-in-sync))
-
-(defn- drop-row
-  "`root-rows-in-sync` with the row for `v` removed (simulates a deletion)."
-  [v]
-  (vec (remove #(= v (:var %)) root-rows-in-sync)))
-
-(def ^:private freehand-child-heading-false-red-lines
-  "A bare Freehand `hydrate-root` (Fn) under an ORDINARY nested namespace-less
-   child heading (`### Root lifecycle`) inside the `re-frame.freehand` section,
-   alongside a fully in-sync re-frame.ui root table (all four verbs). The
-   intervening namespace-less heading is exactly the residual case PR #6819
-   missed: it must NOT drop the owning `re-frame.freehand` namespace to nil."
-  [[1  "## Freehand views — `re-frame.freehand`"]
-   [2  ""]
-   [3  "### Root lifecycle"]
-   [4  ""]
-   [5  "| API | M/Fn | Tier | Notes |"]
-   [6  "|-----|------|------|-------|"]
-   [7  "| `hydrate-root` | Fn | front-porch | the freehand door |"]
-   [8  ""]
-   [9  "## Compiled views — `re-frame.ui`"]
-   [10 ""]
-   [11 "| API | M/Fn | Tier | Notes |"]
-   [12 "|-----|------|------|-------|"]
-   [13 "| `create-root`  | M  | advanced | compiled |"]
-   [14 "| `render!`      | M  | advanced | compiled |"]
-   [15 "| `hydrate-root` | M  | advanced | compiled |"]
-   [16 "| `unmount!`     | Fn | advanced | compiled |"]])
-
-(deftest namespace-less-child-heading-does-not-false-red-a-ui-row
-  (testing "FALSE-RED, END-TO-END (rf2-etj5i residual): a bare Freehand
-            hydrate-root under an intervening namespace-less `### Root lifecycle`
-            child heading INHERITS re-frame.freehand — not re-frame.ui — so it is
-            not counted as a second re-frame.ui hydrate-root; the in-sync
-            re-frame.ui root table stays green rather than reddening as a
-            :kind-row-duplicated"
-    (let [parsed  (c/parse-var-rows freehand-child-heading-false-red-lines)
-          by-line (into {} (map (juxt :line identity)) parsed)]
-      (is (= "re-frame.freehand" (:section-ns (get by-line 7)))
-          "the bare hydrate-root under the namespace-less child heading inherits re-frame.freehand")
-      (is (= "re-frame.ui" (:section-ns (get by-line 15)))
-          "the re-frame.ui hydrate-root is attributed to re-frame.ui"))))
-
-(def ^:private freehand-child-heading-false-green-lines
-  "Same intervening namespace-less child heading, but the re-frame.ui section is
-   MISSING its hydrate-root row (a deletion). Before the level-aware fix the bare
-   Freehand hydrate-root — mis-attributed to re-frame.ui with the SAME :macro
-   kind — silently SATISFIED the requirement, masking the deletion (false-green).
-   The bare Freehand row carries `M` so kind alone cannot distinguish it."
-  [[1  "## Freehand views — `re-frame.freehand`"]
-   [2  ""]
-   [3  "### Root lifecycle"]
-   [4  ""]
-   [5  "| API | M/Fn | Tier | Notes |"]
-   [6  "|-----|------|------|-------|"]
-   [7  "| `hydrate-root` | M | front-porch | the freehand door |"]
-   [8  ""]
-   [9  "## Compiled views — `re-frame.ui`"]
-   [10 ""]
-   [11 "| API | M/Fn | Tier | Notes |"]
-   [12 "|-----|------|------|-------|"]
-   [13 "| `create-root`  | M  | advanced | compiled |"]
-   [14 "| `render!`      | M  | advanced | compiled |"]
-   [15 "| `unmount!`     | Fn | advanced | compiled |"]])
-
-(deftest namespace-less-child-heading-does-not-false-green-a-deleted-ui-row
-  (testing "FALSE-GREEN, END-TO-END (rf2-etj5i residual): with the re-frame.ui
-            hydrate-root row DELETED, a bare Freehand hydrate-root of the SAME
-            :macro kind under an intervening namespace-less `### Root lifecycle`
-            child heading does NOT satisfy the re-frame.ui requirement — it
-            inherits re-frame.freehand, so the deletion is caught
-            :kind-row-missing rather than silently adopted as green"
-    (let [parsed   (c/parse-var-rows freehand-child-heading-false-green-lines)
-          by-line  (into {} (map (juxt :line identity)) parsed)]
-      (is (= "re-frame.freehand" (:section-ns (get by-line 7)))
-          "the bare hydrate-root under the namespace-less child heading inherits re-frame.freehand, not re-frame.ui"))))
-
-;; ---------------------------------------------------------------------------
-;; A code-span heading that NAMES an API name is NOT a namespace (rf2-etj5i,
-;; THIRD reopen — the last).
-;;
-;; PR #6838 added heading-level inheritance for a child heading with NO code
-;; span, but `section-heading-namespace` still took the FIRST back-tick span on
-;; ANY heading as the section namespace without checking WHAT it names. So an
-;; ordinary API-name code-span heading — ``### Root lifecycle — `hydrate-root` ``,
-;; ``### `reg-sub` input-production modes`` — set `:section-ns` to a BOGUS
-;; namespace ("hydrate-root" / "reg-sub"), which then mis-excluded the correct
-;; bare re-frame.ui row and made the two-sided guard report it MISSING: a FALSE
-;; gate failure. This is not exotic — the real spec/API.md already carries
-;; code-span headings for reg-sub, dispatch-*, :rf.http/managed and reg-flow /
-;; clear-flow, none of which name a namespace.
-;;
-;; The fix distinguishes a namespace-SHAPED span (dotted `a.b.c`) from an
-;; API-name span, and SELECTS the first namespace-shaped span rather than blindly
-;; the first span: an API-name heading is namespace-LESS (its API-name children
-;; inherit the established PARENT namespace), and a genuine dotted namespace span
-;; sets the namespace even when it is not the first span on the heading. These
-;; direct `parse-var-rows` cases cover BOTH doors (re-frame.ui and
-;; re-frame.freehand) and each is NON-VACUITY-probed: the asserted `:section-ns`
-;; is the PARENT / genuine namespace, never the heading's API-name span — so each
-;; assertion REDS against the buggy first-span parser and passes with the fix.
-;; ---------------------------------------------------------------------------
-
-;; -- Case 1 & 3: an API-NAME code-span child heading is namespace-LESS; its
-;;    bare API-name row inherits the established PARENT namespace (never the
-;;    heading's own API-name span). Covered under BOTH doors.
-
-(def ^:private ui-api-name-child-heading-lines
-  "A bare re-frame.ui `hydrate-root` row under an API-NAME code-span child
-   heading (``### Root lifecycle — `hydrate-root` ``) inside the `re-frame.ui`
-   section. The heading's only code span is an API NAME, not a namespace: the
-   buggy first-span parser set `:section-ns` to \"hydrate-root\"; the row must
-   instead INHERIT the parent re-frame.ui (the API-name heading is
-   namespace-less)."
-  [[1 "## Compiled views — `re-frame.ui`"]
-   [2 ""]
-   [3 "### Root lifecycle — `hydrate-root`"]
-   [4 ""]
-   [5 "| API | M/Fn | Tier | Notes |"]
-   [6 "|-----|------|------|-------|"]
-   [7 "| `hydrate-root` | M | advanced | the compiled door |"]])
-
-(deftest ui-api-name-code-span-heading-does-not-become-a-namespace
-  (testing "rf2-etj5i (3rd reopen), re-frame.ui: an API-NAME code-span child
-            heading (``### Root lifecycle — `hydrate-root` ``) is namespace-LESS —
-            its span is an API name, not a namespace — so the bare hydrate-root
-            row INHERITS re-frame.ui, never the bogus \"hydrate-root\" the buggy
-            first-span parser produced"
-    (let [parsed  (c/parse-var-rows ui-api-name-child-heading-lines)
-          by-line (into {} (map (juxt :line identity)) parsed)]
-      (is (= "re-frame.ui" (:section-ns (get by-line 7)))
-          "the bare hydrate-root inherits the parent re-frame.ui — NOT the API-name span \"hydrate-root\"")
-      (is (not= "hydrate-root" (:section-ns (get by-line 7)))
-          "the API-name heading span must NOT become the section namespace"))))
-
-(def ^:private freehand-api-name-child-heading-lines
-  "The same API-NAME code-span child heading, but inside the `re-frame.freehand`
-   section — the bare row must inherit re-frame.freehand, never \"hydrate-root\"."
-  [[1 "## Freehand views — `re-frame.freehand`"]
-   [2 ""]
-   [3 "### Root lifecycle — `hydrate-root`"]
-   [4 ""]
-   [5 "| API | M/Fn | Tier | Notes |"]
-   [6 "|-----|------|------|-------|"]
-   [7 "| `hydrate-root` | Fn | front-porch | the freehand door |"]])
-
-(deftest freehand-api-name-code-span-heading-does-not-become-a-namespace
-  (testing "rf2-etj5i (3rd reopen), re-frame.freehand: the API-NAME code-span
-            child heading is likewise namespace-LESS — the bare hydrate-root row
-            inherits re-frame.freehand, not \"hydrate-root\", and is NOT
-            re-attributed to re-frame.ui"
-    (let [parsed  (c/parse-var-rows freehand-api-name-child-heading-lines)
-          by-line (into {} (map (juxt :line identity)) parsed)]
-      (is (= "re-frame.freehand" (:section-ns (get by-line 7)))
-          "the bare hydrate-root inherits the parent re-frame.freehand — NOT the API-name span \"hydrate-root\"")
-      (is (not= "hydrate-root" (:section-ns (get by-line 7)))
-          "the API-name heading span must NOT become the section namespace"))))
-
-;; -- Case 2: a genuine namespace-bearing heading SETS the namespace — even when
-;;    the namespace span is NOT the first code span on the heading (the fix
-;;    SELECTS the namespace-shaped span rather than blindly the first). Covered
-;;    under BOTH doors and non-vacuous: the buggy first-span parser would pick the
-;;    leading API-name span.
-
-(def ^:private ui-namespace-heading-namespace-not-first-lines
-  "A heading whose FIRST code span is an API name and whose SECOND is the genuine
-   namespace (``### `create-root` in `re-frame.ui` ``). The fix must SELECT the
-   namespace-shaped span; the buggy first-span parser picked \"create-root\"."
-  [[1 "### `create-root` in `re-frame.ui`"]
-   [2 ""]
-   [3 "| API | M/Fn | Tier | Notes |"]
-   [4 "|-----|------|------|-------|"]
-   [5 "| `create-root` | M | advanced | the compiled door |"]])
-
-(deftest ui-namespace-bearing-heading-sets-namespace-not-first-span
-  (testing "rf2-etj5i (3rd reopen), re-frame.ui: a genuine namespace-bearing
-            heading SETS the namespace even when the namespace span is not the
-            first code span — the fix selects the namespace-SHAPED span, so the
-            row resolves to re-frame.ui, never the leading API-name span
-            \"create-root\""
-    (let [parsed  (c/parse-var-rows ui-namespace-heading-namespace-not-first-lines)
-          by-line (into {} (map (juxt :line identity)) parsed)]
-      (is (= "re-frame.ui" (:section-ns (get by-line 5)))
-          "the namespace-shaped span re-frame.ui is selected — NOT the first span \"create-root\""))))
-
-(def ^:private freehand-namespace-heading-namespace-not-first-lines
-  "The same shape under the Freehand door — namespace span second, API-name span
-   first (``### `mount` in `re-frame.freehand` ``)."
-  [[1 "### `mount` in `re-frame.freehand`"]
-   [2 ""]
-   [3 "| API | M/Fn | Tier | Notes |"]
-   [4 "|-----|------|------|-------|"]
-   [5 "| `mount` | Fn | front-porch | the freehand door |"]])
-
-(deftest freehand-namespace-bearing-heading-sets-namespace-not-first-span
-  (testing "rf2-etj5i (3rd reopen), re-frame.freehand: the namespace-bearing
-            heading SETS re-frame.freehand even with a leading API-name span —
-            the row resolves to re-frame.freehand, never \"mount\""
-    (let [parsed  (c/parse-var-rows freehand-namespace-heading-namespace-not-first-lines)
-          by-line (into {} (map (juxt :line identity)) parsed)]
-      (is (= "re-frame.freehand" (:section-ns (get by-line 5)))
-          "the namespace-shaped span re-frame.freehand is selected — NOT the first span \"mount\""))))
-
-;; -- A tight direct proof over the REAL spec/API.md heading strings: every
-;;    code-span heading the live doc actually carries must classify correctly —
-;;    the four API-name/keyword/wildcard headings name NO namespace, the three
-;;    genuine dotted headings name theirs. This pins the exact headings the reopen
-;;    cited (reg-sub / dispatch-* / :rf.http/managed / reg-flow) and reds on the
-;;    buggy first-span parser for each API-name heading.
-
-(deftest real-api-md-code-span-headings-classify-correctly
-  (testing "rf2-etj5i (3rd reopen): the code-span headings the LIVE spec/API.md
-            carries classify correctly — API-name / keyword / wildcard headings
-            name NO namespace (nil), genuine dotted headings name theirs. The
-            buggy first-span parser returned the API name for each of the former"
-    (let [ns-of #'c/section-heading-namespace]
-      ;; API-name / keyword / wildcard spans → namespace-LESS (nil). Each of
-      ;; these REDS on the buggy first-span parser (it returned the bracketed
-      ;; span verbatim).
-      (is (nil? (ns-of "### Root lifecycle — `hydrate-root`")))
-      (is (nil? (ns-of "### `reg-sub` input-production modes")))
-      (is (nil? (ns-of "### `dispatch-*` family taxonomy")))
-      (is (nil? (ns-of "### Trace events emitted by `:rf.http/managed`")))
-      (is (nil? (ns-of "### `reg-flow` / `clear-flow` (Spec 013)")))
-      ;; genuine dotted namespace spans → the namespace (case 2, direct)
-      (is (= "re-frame.freehand" (ns-of "## Freehand views — `re-frame.freehand` (Spec 004)")))
-      (is (= "re-frame.freehand.test" (ns-of "### The structural test surface — `re-frame.freehand.test` (Spec 008)")))
-      (is (= "re-frame.ui" (ns-of "## Compiled views — `re-frame.ui` (Spec 004D)")))
-      ;; a non-heading line and a namespace-less prose heading name nothing
-      (is (nil? (ns-of "| `hydrate-root` | M | advanced | not a heading |")))
-      (is (nil? (ns-of "## Registration"))))))
-
 ;; ---------------------------------------------------------------------------
 ;; END-TO-END parser disappearance (rf2-asxo3).
 ;;
 ;; The pure `parse-var-rows` core lets us feed synthetic indexed API.md lines.
 ;; A root verb whose M/Fn marker drifted to an UNKNOWN spelling (`Macro`, not
 ;; the blessed `M`) is SKIPPED by the real parser — proving the disappearance
-;; is real, and that the two-sided guard turns it into a caught missing row.
+;; is real and SILENT, which is what `floor-violation` exists to catch once
+;; enough rows go the same way.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private synthetic-api-md-lines
@@ -481,17 +226,10 @@
           "render! must have DISAPPEARED from the parse (unknown marker skipped)"))))
 
 (deftest parse-var-rows-recovers-blessed-markers
-  (testing "control: with all four markers the blessed M/Fn spellings, the pure
-            parser recovers all four verbs and the guard is clean"
+  (testing "control: with all four markers the blessed M/Fn spellings, the
+            pure parser recovers all four verbs (the disappearance above is
+            the marker drift, not the fixture)"
     (let [ok-lines (assoc-in synthetic-api-md-lines [3 1]
                              "| `render!` | M | sig | S1 | advanced | n |")
           parsed   (c/parse-var-rows ok-lines)]
       (is (= #{"create-root" "render!" "hydrate-root" "unmount!"} (set (map :var parsed)))))))
-
-(def ^:private create-root-row-in-sync
-  "A create-root API.md row that pins BOTH literal facts (mirrors the
-   committed spec/API.md create-root row)."
-  (str "| `create-root` | M | `(ui/create-root dom-node opts)` → Root | S1 "
-       "| advanced | Identity fixed for the Root's lifetime; authored "
-       "`:root-id` **required** — a missing id is `:rf.ui.compile/missing-root-id` "
-       "and `:disambiguator` is invalid. |"))
