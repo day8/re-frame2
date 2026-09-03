@@ -86,9 +86,9 @@
             [re-frame.core :as rf]
             [re-frame.ssr.ring :as ssr-ring]
             [re-frame.ssr.ring.test-support :as ts])
-  (:import [java.io InputStream IOException]
+  (:import [java.io InputStream]
            [java.net.http HttpResponse$BodyHandlers]
-           [java.util.concurrent CountDownLatch TimeUnit]
+           [java.util.concurrent CountDownLatch]
            [java.util.concurrent.atomic AtomicInteger AtomicLong]))
 
 (use-fixtures :each ts/reset-runtime)

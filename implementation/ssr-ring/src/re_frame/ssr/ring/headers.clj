@@ -45,8 +45,8 @@
   fabricated into an empty header."
   [ring-headers [header-name header-value]]
   (when (and interop/debug-enabled?
-             (and (some? header-value)
-                  (not (string? header-value))))
+             (some? header-value)
+             (not (string? header-value)))
     (trace/emit! :warning :rf.ssr/ssr-non-string-header-value
                  {:where      :ssr-ring/merge-pair-into-header-map
                   :header     header-name

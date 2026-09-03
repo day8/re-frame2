@@ -26,7 +26,7 @@
   (ts/reset-runtime
     (fn []
       (rf/reg-event :rf.test/seed-articles
-        (fn [{:keys [db]} [_ arts]] {:db {:articles arts}}))
+        (fn [_ [_ arts]] {:db {:articles arts}}))
       (rf/reg-event :rf.test.server/init
         {:platforms #{:server}}
         (fn [_ _]
