@@ -27,27 +27,27 @@
   asserted on it directly.
 
   What is dev-only is the `:rf.error/navigate-bad-request` TRACE the gate
-  emits: `trace/emit-error!` sits behind `interop/debug-enabled?`, read once
+  emits: `trace/emit-error!` sits behind `rf.interop/debug-enabled?`, read once
   at load time, so under `-Dre-frame.debug=false` the framework emits nothing
   BY DESIGN. Those assertions are kept VERBATIM inside a
-  `(when interop/debug-enabled? …)` arm marked `rf2-o5dbf`. Nothing was
+  `(when rf.interop/debug-enabled? …)` arm marked `rf2-o5dbf`. Nothing was
   deleted or weakened."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.identity :as identity]
-   [re-frame.interop :as interop]
-   [re-frame.routing :as routing]
-   [re-frame.routing.address :as address]
-   [re-frame.test-support :as test-support]
+   [re-frame.identity :as rf.identity]
+   [re-frame.interop :as rf.interop]
+   [re-frame.routing :as rf.routing]
+   [re-frame.routing.address :as rf.routing.address]
+   [re-frame.test-support :as rf.test-support]
    #?(:clj  [re-frame.substrate.plain-atom :as substrate]
       :cljs [re-frame.adapter.reagent :as substrate])))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
+  (rf.test-support/make-reset-runtime-fixture
     {:adapter substrate/adapter
-     :init-fn routing/reset-counters!}))
+     :init-fn rf.routing/reset-counters!}))
 
 (defn- thrown
   "Call `f` and return the thrown ExceptionInfo (or nil)."
@@ -59,7 +59,7 @@
 (deftest route-url-non-map-address-rejects-cross-host
   (testing "a non-map address rejects with :rf.error/route-url-validation
             (:reason :not-a-map) on both hosts — not a raw `(keys …)` throw"
-    (let [ex (thrown #(routing/route-url "/dest"))]
+    (let [ex (thrown #(rf.routing/route-url "/dest"))]
       (is (some? ex))
       (is (= :rf.error/route-url-validation (:rf.error/id (ex-data ex))))
       (is (= :not-a-map (:reason (ex-data ex)))))))
@@ -68,7 +68,7 @@
   (testing "a missing-:to address rejects with :rf.error/route-url-validation
             (:reason :missing-to) on both hosts — not the misleading
             :rf.error/no-such-route 'id nil'"
-    (let [ex (thrown #(routing/route-url {:params {:id "x"}}))]
+    (let [ex (thrown #(rf.routing/route-url {:params {:id "x"}}))]
       (is (some? ex))
       (is (= :rf.error/route-url-validation (:rf.error/id (ex-data ex))))
       (is (= :missing-to (:reason (ex-data ex)))))))
@@ -78,11 +78,11 @@
             canonical order (no raw compare throw) on both hosts"
     ;; :url is address-rejected; "s" and 3 are unknown keys of DIFFERENT
     ;; kinds — a plain `(sort #{:url \"s\" 3})` throws on the JVM.
-    (let [ex (thrown #(routing/route-url {:to :route/x :url "/x" "s" 1 3 2}))]
+    (let [ex (thrown #(rf.routing/route-url {:to :route/x :url "/x" "s" 1 3 2}))]
       (is (some? ex))
       (is (= :rf.error/route-url-validation (:rf.error/id (ex-data ex))))
       (is (= :bad-address-keys (:reason (ex-data ex))))
-      (is (= (vec (sort-by identity/canonical-bytes #{:url "s" 3}))
+      (is (= (vec (sort-by rf.identity/canonical-bytes #{:url "s" 3}))
              (:keys (ex-data ex)))))))
 
 ;; ---- navigate unknown-key reporting is total on both hosts ---------------
@@ -111,11 +111,11 @@
           ;; Assert it on `classify` directly — this is the assertion that
           ;; would have caught the raw-`compare` throw, and it survives
           ;; -Dre-frame.debug=false because `classify` does.
-          bad     (address/classify request nil)
+          bad     (rf.routing.address/classify request nil)
           err     (navigate-error request)]
       (is (= :unknown-keys (:reason bad))
           "the always-on structural gate classifies the request :unknown-keys")
-      (is (= (vec (sort-by identity/canonical-bytes #{:a/b "s" 3}))
+      (is (= (vec (sort-by rf.identity/canonical-bytes #{:a/b "s" 3}))
              (:keys bad))
           "…and orders the offending keys by CEDN-1 identity (no raw compare throw)")
       ;; …and the REJECTION really held: the dispatch above completed without
@@ -124,8 +124,8 @@
                         [:rf.runtime/routing :current]))
           "the rejected navigate left the route slice unchanged (no commit)")
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (some? err) ":rf.error/navigate-bad-request emitted (no raw compare throw)")
         (is (= :unknown-keys (-> err :tags :reason)))
-        (is (= (vec (sort-by identity/canonical-bytes #{:a/b "s" 3}))
+        (is (= (vec (sort-by rf.identity/canonical-bytes #{:a/b "s" 3}))
                (-> err :tags :keys)))))))

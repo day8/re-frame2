@@ -38,9 +38,9 @@
   in `re-frame.routing-history-cljs-test`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.schemas :as schemas]
-            [re-frame.test-support :as test-support]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.test-support :as rf.test-support]
             ;; Touch the routing namespace directly so its ns body
             ;; (including the gated `trace/emit!` call sites) is in
             ;; the reachability graph for the closure compiler. Per
@@ -48,7 +48,7 @@
             ;; the gates do the elision work inside the closed body.
             [re-frame.routing]
             ;; rf2-qwm0a — listener surface lives in `re-frame.trace.tooling`.
-            [re-frame.trace.tooling :as trace-tooling]))
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 ;; rf2-ps05ug: the routing entry points exercised below run the RECORDABLE
 ;; `:rf.route/nav-allocation` cofx generator, whose registration declares a
@@ -68,14 +68,14 @@
 ;; restore so the suite leaves no cross-test residue — identical to the
 ;; resources prod-elision fixture (rf2-rsmiru).
 (defn- disable-schema-validation-fixture [f]
-  (let [snapshot (schemas/snapshot-schema-fns)]
-    (schemas/set-schema-validator! nil)
+  (let [snapshot (rf.schemas/snapshot-schema-fns)]
+    (rf.schemas/set-schema-validator! nil)
     (try (f)
-         (finally (schemas/restore-schema-fns! snapshot)))))
+         (finally (rf.schemas/restore-schema-fns! snapshot)))))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter})
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter})
   disable-schema-validation-fixture)
 
 ;; ---- helpers --------------------------------------------------------------
@@ -87,14 +87,14 @@
   [body-fn]
   (let [seen   (atom [])
         cb-key (keyword (str "elision-prod-" (gensym)))]
-    (trace-tooling/register-listener!
+    (rf.trace.tooling/register-listener!
       cb-key
       (fn [ev] (swap! seen conj ev)))
     (try
       (body-fn)
       @seen
       (finally
-        (trace-tooling/unregister-listener! cb-key)
+        (rf.trace.tooling/unregister-listener! cb-key)
         (reset! seen [])))))
 
 ;; ---- :rf.route.nav-token/allocated + lifecycle trio elide under prod -----

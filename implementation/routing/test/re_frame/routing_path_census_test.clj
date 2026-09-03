@@ -113,7 +113,7 @@
             [clojure.test :refer [deftest is testing]]
             [clojure.tools.reader :as rdr]
             [clojure.tools.reader.reader-types :as rt]
-            [re-frame.routing.match :as match]))
+            [re-frame.routing.match :as rf.routing.match]))
 
 ;; ---- the allowlist ---------------------------------------------------------
 
@@ -453,7 +453,7 @@
 
           :else
           {:id   id'
-           :path (match/canonical-route-pattern path)
+           :path (rf.routing.match/canonical-route-pattern path)
            :file label
            :line line})))))
 

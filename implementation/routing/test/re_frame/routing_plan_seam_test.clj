@@ -13,7 +13,7 @@
   tests at the foot prove the doors actually reach it — that the link door and
   the commit hop resolve one URL to ONE target, and that the URL-change door
   reports which of its three sub-doors fired. A test that only loops
-  `resolver/causes` against the pure constructor cannot fail when a door passes
+  `rf.routing.resolve/causes` against the pure constructor cannot fail when a door passes
   the wrong cause or resolves its own target.
 
   ## Posture split (rf2-o5dbf)
@@ -30,8 +30,8 @@
   What IS dev-only is the `:rf.route/planned` TRACE — the one bus the R0
   projection rides — and the two `:rf.warning/*` fail-closed advisories. All
   three go through `trace/emit!` / `trace/emit-error!`, gated on
-  `interop/debug-enabled?` and read once at load time. Their assertions are
-  kept VERBATIM inside `(when interop/debug-enabled? …)` arms marked
+  `rf.interop/debug-enabled?` and read once at load time. Their assertions are
+  kept VERBATIM inside `(when rf.interop/debug-enabled? …)` arms marked
   `rf2-o5dbf`.
 
   EIGHT assertions in this namespace would have passed VACUOUSLY the moment
@@ -53,7 +53,7 @@
       value and fragment stayed out of an egress copy THAT WAS NEVER MADE.
 
   PRODUCTION WITNESSES were added rather than assertions dropped. The
-  projection is a PURE function (`resolver/plan-trace-tags`, pinned
+  projection is a PURE function (`rf.routing.resolve/plan-trace-tags`, pinned
   posture-independently above), so the redaction the trace relies on is
   checkable with no gate between the call and the verdict — read it as \"what
   the bus WOULD carry if the emit were running\". The commits themselves are
@@ -64,21 +64,21 @@
   was deleted or weakened."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.fx :as fx]
-            [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.registrar :as registrar]
-            [re-frame.routing :as routing]
-            [re-frame.routing.events :as routing-events]
-            [re-frame.routing.registry :as registry]
-            [re-frame.routing.resolve :as resolver]
-            [re-frame.routing.subs :as routing-subs]
-            [re-frame.routing.url-change :as url-change]
-            [re-frame.routing-test-support :as rts]
+            [re-frame.frame :as rf.frame]
+            [re-frame.fx :as rf.fx]
+            [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.routing :as rf.routing]
+            [re-frame.routing.events :as rf.routing.events]
+            [re-frame.routing.registry :as rf.routing.registry]
+            [re-frame.routing.resolve :as rf.routing.resolve]
+            [re-frame.routing.subs :as rf.routing.subs]
+            [re-frame.routing.url-change :as rf.routing.url-change]
+            [re-frame.routing-test-support :as rf.routing-test-support]
             [re-frame.test-support :refer [with-trace-recorder!]]))
 
-(use-fixtures :each rts/reset-runtime)
+(use-fixtures :each rf.routing-test-support/reset-runtime)
 
 ;; ---- ResolvedTarget: facts, not intent ------------------------------------
 
@@ -89,7 +89,7 @@
             :query    {:tab "comments"}
             :fragment "reply-42"
             :url      "/articles/routing-as-data?tab=comments#reply-42"}
-           (resolver/resolved-target
+           (rf.routing.resolve/resolved-target
              {:route-id :route/article
               :params   {:slug "routing-as-data"}
               :query    {:tab "comments"}
@@ -98,7 +98,7 @@
   (testing ":route-id / :params / :url are reflected verbatim — for a route
             declaring no :query-defaults an empty :query stays {} exactly as the
             door resolved it, and a non-empty fragment passes through"
-    (is (= {} (:query (resolver/resolved-target {:route-id :route/home :params {} :query {}}))))))
+    (is (= {} (:query (rf.routing.resolve/resolved-target {:route-id :route/home :params {} :query {}}))))))
 
 ;; ---- the normalisations only ONE door used to apply (rf2-kqxe6.7) ----------
 ;;
@@ -116,60 +116,60 @@
 ;; neither.
 
 (deftest resolved-target-drops-nil-valued-query-keys
-  (routing/reg-route :route/page
+  (rf.routing/reg-route :route/page
     {:query-defaults {:tab :overview}} "/p/:slug")
-  (routing/reg-route :route/plain {} "/plain/:slug")
+  (rf.routing/reg-route :route/plain {} "/plain/:slug")
   (testing "a nil value is the caller spelling ABSENCE — the target carries the
             absence, because route-url elides the key from the URL"
-    (is (= {} (:query (resolver/resolved-target {:route-id :route/plain
+    (is (= {} (:query (rf.routing.resolve/resolved-target {:route-id :route/plain
                                                  :params   {:slug "x"}
                                                  :query    {:drop nil}}))))
     (is (= {:keep "y"}
-           (:query (resolver/resolved-target {:route-id :route/plain
+           (:query (rf.routing.resolve/resolved-target {:route-id :route/plain
                                               :params   {:slug "x"}
                                               :query    {:keep "y" :drop nil}})))))
   (testing "the strip runs BEFORE the defaults fill, so a declared default still
             lands on a key the caller nilled out"
     (is (= {:tab :overview}
-           (:query (resolver/resolved-target {:route-id :route/page
+           (:query (rf.routing.resolve/resolved-target {:route-id :route/page
                                               :params   {:slug "x"}
                                               :query    {:tab nil}})))))
   (testing "a query holding no nil is returned IDENTICALLY — the URL doors'
             query arrives in canonical key order and rebuilding it would throw
             that order away"
     (let [q (array-map :b 2 :a 1)]
-      (is (identical? q (:query (resolver/resolved-target {:route-id :route/plain
+      (is (identical? q (:query (rf.routing.resolve/resolved-target {:route-id :route/plain
                                                            :params   {:slug "x"}
                                                            :query    q}))))))
   (testing "and when a nil IS present the survivors keep their order"
     (is (= [:b :a]
-           (keys (:query (resolver/resolved-target
+           (keys (:query (rf.routing.resolve/resolved-target
                            {:route-id :route/plain
                             :params   {:slug "x"}
                             :query    (array-map :b 2 :drop nil :a 1)}))))))
   (testing "nil / empty queries are untouched"
-    (is (nil? (:query (resolver/resolved-target {:route-id :route/plain :params {}}))))
-    (is (= {} (:query (resolver/resolved-target {:route-id :route/plain
+    (is (nil? (:query (rf.routing.resolve/resolved-target {:route-id :route/plain :params {}}))))
+    (is (= {} (:query (rf.routing.resolve/resolved-target {:route-id :route/plain
                                                  :params   {} :query {}}))))))
 
 (deftest resolved-target-collapses-an-empty-fragment-to-nil
-  (routing/reg-route :route/page {} "/p/:slug")
+  (rf.routing/reg-route :route/page {} "/p/:slug")
   (testing "\"\" is truthy, so an un-normalised empty fragment made the slice say
             :fragment \"\" while route-url emitted /p/x with no trailing #"
-    (is (nil? (:fragment (resolver/resolved-target {:route-id :route/page
+    (is (nil? (:fragment (rf.routing.resolve/resolved-target {:route-id :route/page
                                                     :params   {:slug "x"}
                                                     :fragment ""})))))
   (testing "a real fragment and an absent one are untouched"
-    (is (= "reply-42" (:fragment (resolver/resolved-target {:route-id :route/page
+    (is (= "reply-42" (:fragment (rf.routing.resolve/resolved-target {:route-id :route/page
                                                             :params   {:slug "x"}
                                                             :fragment "reply-42"}))))
-    (is (nil? (:fragment (resolver/resolved-target {:route-id :route/page
+    (is (nil? (:fragment (rf.routing.resolve/resolved-target {:route-id :route/page
                                                     :params   {:slug "x"}})))))
   (testing "the collapse is IDEMPOTENT, so the programmatic door's own earlier
             normalisation lowers through unchanged"
-    (let [once  (resolver/resolved-target {:route-id :route/page :params {:slug "x"}
+    (let [once  (rf.routing.resolve/resolved-target {:route-id :route/page :params {:slug "x"}
                                            :fragment ""})
-          twice (resolver/resolved-target once)]
+          twice (rf.routing.resolve/resolved-target once)]
       (is (= (:fragment once) (:fragment twice))))))
 
 (deftest a-bare-trailing-hash-url-resolves-to-no-fragment
@@ -186,16 +186,16 @@
   ;; change, emitting `:rf.route/fragment-changed` for a move between two URLs
   ;; that denote the same place. It is now the exact no-op rule 3 already
   ;; describes.
-  (routing/reg-route :route/page {} "/page")
-  (is (= "" (:fragment (routing/match-url "/page#")))
+  (rf.routing/reg-route :route/page {} "/page")
+  (is (= "" (:fragment (rf.routing/match-url "/page#")))
       "match-url's own contract is untouched")
-  (is (nil? (:fragment (resolver/target-of-url "/page#")))
+  (is (nil? (:fragment (rf.routing.resolve/target-of-url "/page#")))
       "but the resolved target carries no fragment")
-  (is (= (dissoc (resolver/target-of-url "/page")  :url)
-         (dissoc (resolver/target-of-url "/page#") :url))
+  (is (= (dissoc (rf.routing.resolve/target-of-url "/page")  :url)
+         (dissoc (rf.routing.resolve/target-of-url "/page#") :url))
       "so both spellings resolve to one target, differing only in the requested
        :url each preserves verbatim")
-  (is (= "/page" (routing/route-url {:to :route/page}))
+  (is (= "/page" (rf.routing/route-url {:to :route/page}))
       "which is the URL that target derives — slice and address bar agree"))
 
 ;; ---- the ONE place `:query-defaults` are filled (rf2-kqxe6.23) -------------
@@ -208,45 +208,45 @@
 ;; URL doors for one destination.
 
 (deftest resolved-target-fills-the-routes-declared-query-defaults
-  (routing/reg-route :route/page
+  (rf.routing/reg-route :route/page
     {:params         [:map [:slug :string]]
      :query          [:map [:tab {:optional true} [:enum :overview :comments]]]
      :query-defaults {:tab :overview}}
     "/p/:slug")
-  (routing/reg-route :route/plain {:params [:map [:slug :string]]} "/plain/:slug")
+  (rf.routing/reg-route :route/plain {:params [:map [:slug :string]]} "/plain/:slug")
   (testing "an absent declared-default key is filled — the named-address door
             resolves the SAME :query match-url gives the URL doors"
     (is (= {:tab :overview}
-           (:query (resolver/resolved-target {:route-id :route/page
+           (:query (rf.routing.resolve/resolved-target {:route-id :route/page
                                               :params   {:slug "x"}
                                               :query    {}}))))
-    (is (= (:query (routing/match-url "/p/x"))
-           (:query (resolver/resolved-target {:route-id :route/page
+    (is (= (:query (rf.routing/match-url "/p/x"))
+           (:query (rf.routing.resolve/resolved-target {:route-id :route/page
                                               :params   {:slug "x"}
                                               :query    {}})))
         "the two halves of the prism agree on what an absent key means"))
   (testing "an explicit value WINS over the declared default — the fill is
             membership-only, never a value transform"
     (is (= {:tab :comments}
-           (:query (resolver/resolved-target {:route-id :route/page
+           (:query (rf.routing.resolve/resolved-target {:route-id :route/page
                                               :params   {:slug "x"}
                                               :query    {:tab :comments}})))))
   (testing "the fill is IDEMPOTENT, so a URL door whose query match-url already
             filled lowers through the seam unchanged"
-    (let [once  (resolver/resolved-target {:route-id :route/page :params {:slug "x"} :query {}})
-          twice (resolver/resolved-target once)]
+    (let [once  (rf.routing.resolve/resolved-target {:route-id :route/page :params {:slug "x"} :query {}})
+          twice (rf.routing.resolve/resolved-target once)]
       (is (= (:query once) (:query twice)))))
   (testing "a route declaring no defaults is untouched — the common case is a
             passthrough"
-    (is (= {} (:query (resolver/resolved-target {:route-id :route/plain
+    (is (= {} (:query (rf.routing.resolve/resolved-target {:route-id :route/plain
                                                  :params   {:slug "x"}
                                                  :query    {}}))))
-    (is (nil? (:query (resolver/resolved-target {:route-id :route/plain
+    (is (nil? (:query (rf.routing.resolve/resolved-target {:route-id :route/plain
                                                  :params   {:slug "x"}})))
         "an absent :query stays absent rather than being conjured into {}"))
   (testing "an UNREGISTERED target resolves without throwing — the seam reads the
             route table, so a not-found target simply has no defaults to fill"
-    (is (= {} (:query (resolver/resolved-target {:route-id :rf.route/not-found
+    (is (= {} (:query (rf.routing.resolve/resolved-target {:route-id :rf.route/not-found
                                                  :params   {:url "/nope"}
                                                  :query    {}}))))))
 
@@ -256,28 +256,28 @@
   "The route plan for a bare `route-id` — the branch / branch-error fields are
   derived from it alone."
   [route-id]
-  (resolver/route-plan {:cause  :navigate
+  (rf.routing.resolve/route-plan {:cause  :navigate
                         :source {:to route-id}
-                        :target (resolver/resolved-target {:route-id route-id})}))
+                        :target (rf.routing.resolve/resolved-target {:route-id route-id})}))
 
 (deftest plan-branch-is-the-parent-to-leaf-chain
-  (routing/reg-route :route/dashboard {} "/dashboard")
-  (routing/reg-route :route/reports {:parent :route/dashboard} "/dashboard/reports")
-  (routing/reg-route :route/report {:parent :route/reports} "/dashboard/reports/:id")
+  (rf.routing/reg-route :route/dashboard {} "/dashboard")
+  (rf.routing/reg-route :route/reports {:parent :route/dashboard} "/dashboard/reports")
+  (rf.routing/reg-route :route/report {:parent :route/reports} "/dashboard/reports/:id")
   (testing "the plan branch is [parent-most … leaf]"
     (is (= [:route/dashboard :route/reports :route/report]
            (:branch (plan-for :route/report))))
     (is (nil? (:branch-error (plan-for :route/report)))))
   (testing "on a chain that RESOLVES it agrees with the :rf.route/chain display
             sub — the display walk is still correct for what it does"
-    (is (= (routing-subs/chain-from-meta :route/report)
+    (is (= (rf.routing.subs/chain-from-meta :route/report)
            (:branch (plan-for :route/report)))))
   (testing "the plan also carries the walk's CONTRIBUTORS (route-id + route-meta
             per segment) — the value commit-navigation hands the resource plan,
             resolved once per navigation rather than re-walked at the commit"
     (is (= [:route/dashboard :route/reports :route/report]
            (mapv :route-id (:branch-contributors (plan-for :route/report)))))
-    (is (= (registrar/lookup :route :route/reports)
+    (is (= (rf.registrar/lookup :route :route/reports)
            (:route-meta (second (:branch-contributors (plan-for :route/report))))))))
 
 ;; ---- the plan branch is the FAIL-LOUD walk (rf2-cqyq2) ---------------------
@@ -295,13 +295,13 @@
 ;; malformed-registration cases where a diagnostic earns its keep.
 
 (deftest plan-branch-never-names-an-unregistered-route
-  (routing/reg-route :route/leaf {:parent :route/nowhere} "/leaf")
+  (rf.routing/reg-route :route/leaf {:parent :route/nowhere} "/leaf")
   (testing "the premise: the two walks answer differently for an unregistered
             :parent, and the display walk is the one that invents a route"
-    (is (= [:route/nowhere :route/leaf] (routing-subs/chain-from-meta :route/leaf))
+    (is (= [:route/nowhere :route/leaf] (rf.routing.subs/chain-from-meta :route/leaf))
         "the display walk includes an id no route table entry backs")
     (is (= {:kind :unknown-parent :route-id* :route/nowhere}
-           (:branch-error (routing-events/resolve-branch :route/leaf)))
+           (:branch-error (rf.routing.events/resolve-branch :route/leaf)))
         "the planning walk refuses to resolve it"))
   (testing "the PLAN now reports the fail-loud answer — an empty branch plus the
             error, rather than a plausible two-segment branch naming
@@ -315,11 +315,11 @@
            composing over a truncated branch"))))
 
 (deftest plan-branch-reports-a-parent-cycle-rather-than-truncating-at-it
-  (routing/reg-route :route/ping {:parent :route/pong} "/ping")
-  (routing/reg-route :route/pong {:parent :route/ping} "/pong")
+  (rf.routing/reg-route :route/ping {:parent :route/pong} "/ping")
+  (rf.routing/reg-route :route/pong {:parent :route/ping} "/pong")
   (testing "the display walk terminates silently at the cycle entry — a chain
             that looks perfectly ordinary"
-    (is (= [:route/pong :route/ping] (routing-subs/chain-from-meta :route/ping))))
+    (is (= [:route/pong :route/ping] (rf.routing.subs/chain-from-meta :route/ping))))
   (testing "the plan reports the cycle"
     (let [plan (plan-for :route/ping)]
       (is (= [] (:branch plan)))
@@ -327,26 +327,26 @@
       (is (= :route/ping (:route-id* (:branch-error plan)))))))
 
 (deftest leaf-plan-of-is-the-behaviour-preserving-on-match-loader
-  (routing/reg-route :route/article
+  (rf.routing/reg-route :route/article
     {:on-match [[:article/load] [:comments/load]]} "/articles/:slug")
-  (routing/reg-route :route/home {} "/")
+  (rf.routing/reg-route :route/home {} "/")
   (testing "the leaf plan is the route's :on-match loader vector (the loaders that already fire)"
-    (is (= [[:article/load] [:comments/load]] (resolver/leaf-plan-of :route/article))))
+    (is (= [[:article/load] [:comments/load]] (rf.routing.resolve/leaf-plan-of :route/article))))
   (testing "a route with no :on-match has an empty leaf plan"
-    (is (= [] (resolver/leaf-plan-of :route/home))))
+    (is (= [] (rf.routing.resolve/leaf-plan-of :route/home))))
   (testing "an unregistered / not-found target has an empty leaf plan"
-    (is (= [] (resolver/leaf-plan-of :rf.route/not-found)))))
+    (is (= [] (rf.routing.resolve/leaf-plan-of :rf.route/not-found)))))
 
 ;; ---- the route plan every door builds -------------------------------------
 
 (deftest route-plan-carries-source-cause-target-branch-leaf-plan
-  (routing/reg-route :route/section {} "/section")
-  (routing/reg-route :route/article
+  (rf.routing/reg-route :route/section {} "/section")
+  (rf.routing/reg-route :route/article
     {:parent :route/section :on-match [[:article/load]]} "/section/:slug")
-  (let [target (resolver/resolved-target
+  (let [target (rf.routing.resolve/resolved-target
                  {:route-id :route/article :params {:slug "x"} :query {}
                   :fragment nil :url "/section/x"})
-        plan   (resolver/route-plan {:source {:to :route/article :params {:slug "x"}}
+        plan   (rf.routing.resolve/route-plan {:source {:to :route/article :params {:slug "x"}}
                                      :cause  :navigate
                                      :target target})]
     (testing "the plan carries the caller's source and cause"
@@ -359,11 +359,11 @@
       (is (= [[:article/load]] (:leaf-plan plan))))))
 
 (deftest route-plan-is-cause-parametric-across-the-doors
-  (routing/reg-route :route/home {} "/")
-  (let [target (resolver/resolved-target {:route-id :route/home :params {} :query {} :url "/"})]
+  (rf.routing/reg-route :route/home {} "/")
+  (let [target (rf.routing.resolve/resolved-target {:route-id :route/home :params {} :query {} :url "/"})]
     (testing "every door builds the plan through the same fn, differing ONLY in cause"
-      (doseq [cause resolver/causes]
-        (let [plan (resolver/route-plan {:source {:url "/"} :cause cause :target target})]
+      (doseq [cause rf.routing.resolve/causes]
+        (let [plan (rf.routing.resolve/route-plan {:source {:url "/"} :cause cause :target target})]
           (is (= cause (:cause plan)))
           (is (= target (:target plan)))
           (is (= [:route/home] (:branch plan))))))))
@@ -371,16 +371,16 @@
 ;; ---- the R0 diagnostic projection -----------------------------------------
 
 (deftest plan-projection-exposes-only-the-r0-keys
-  (routing/reg-route :route/home {} "/")
-  (let [plan (resolver/route-plan
+  (rf.routing/reg-route :route/home {} "/")
+  (let [plan (rf.routing.resolve/route-plan
                {:source {:url "/"} :cause :popstate
-                :target (resolver/resolved-target {:route-id :route/home :params {} :query {} :url "/"})})
-        proj (resolver/plan-projection plan)]
+                :target (rf.routing.resolve/resolved-target {:route-id :route/home :params {} :query {} :url "/"})})
+        proj (rf.routing.resolve/plan-projection plan)]
     (testing "the projection is exactly the R0 keys — the minimum needed to prove the shared spine"
       (is (= #{:source :cause :target :branch :leaf-plan} (set (keys proj))))
-      (is (= (set resolver/r0-projection-keys) (set (keys proj)))))
+      (is (= (set rf.routing.resolve/r0-projection-keys) (set (keys proj)))))
     (testing "the projection is a pure view of the plan the doors already build"
-      (is (= (select-keys plan resolver/r0-projection-keys) proj)))))
+      (is (= (select-keys plan rf.routing.resolve/r0-projection-keys) proj)))))
 
 ;; ---- the projection as trace tags (mayor ruling on rf2-kqxe6.3) ------------
 ;;
@@ -392,20 +392,20 @@
 ;; runtime-db slice PATHS) cannot reach.
 
 (deftest plan-trace-tags-carries-the-projection-without-the-carriers
-  (routing/reg-route :route/section {} "/section")
-  (routing/reg-route :route/article
+  (rf.routing/reg-route :route/section {} "/section")
+  (rf.routing/reg-route :route/article
     {:parent :route/section :on-match [[:article/load] [:comments/load 7]]}
     "/section/:slug")
-  (let [plan (resolver/route-plan
+  (let [plan (rf.routing.resolve/route-plan
                {:cause  :navigate
                 :source {:to :route/article :params {:slug "x"} :query {:invite "SECRET100"}}
-                :target (resolver/resolved-target
+                :target (rf.routing.resolve/resolved-target
                           {:route-id :route/article
                            :params   {:slug "x"}
                            :query    {:invite "SECRET100" :tab :comments}
                            :fragment "reply-42"
                            :url      "/section/x?invite=SECRET100&tab=comments#reply-42"})})
-        tags (resolver/plan-trace-tags plan)]
+        tags (rf.routing.resolve/plan-trace-tags plan)]
     (testing "the non-carrier halves of the projection ride WHOLE"
       (is (= :navigate (:cause tags)))
       (is (= :route/article (:route-id tags)))
@@ -429,10 +429,10 @@
       (is (not (re-find #"reply-42" (pr-str tags))))
       (is (not (contains? tags :source))))
     (testing "a param-less / query-less target yields empty key sets, never nil"
-      (let [bare (resolver/plan-trace-tags
-                   (resolver/route-plan
+      (let [bare (rf.routing.resolve/plan-trace-tags
+                   (rf.routing.resolve/route-plan
                      {:cause :initial :source {:url "/section"}
-                      :target (resolver/resolved-target
+                      :target (rf.routing.resolve/resolved-target
                                 {:route-id :route/section :params {} :query {}
                                  :url "/section"})}))]
         (is (= [] (:param-keys bare)))
@@ -462,10 +462,10 @@
   `-Dre-frame.debug=false` exactly as it does in dev."
   [f]
   (let [seen  (atom [])
-        prior (late-bind/get-fn :routing/on-route-entry)]
-    (late-bind/set-fn! :routing/on-route-entry (fn [ctx] (swap! seen conj ctx) {}))
+        prior (rf.late-bind/get-fn :routing/on-route-entry)]
+    (rf.late-bind/set-fn! :routing/on-route-entry (fn [ctx] (swap! seen conj ctx) {}))
     (try (f)
-         (finally (late-bind/set-fn! :routing/on-route-entry prior)))
+         (finally (rf.late-bind/set-fn! :routing/on-route-entry prior)))
     @seen))
 
 (defn- quiet-nav-fx!
@@ -475,7 +475,7 @@
   (doseq [fx-id [:rf.nav/push-url :rf.nav/replace-url
                  :rf.nav/capture-scroll :rf.nav/scroll
                  :rf.server/set-status]]
-    (fx/reg-fx fx-id {:platforms #{:server :client}} (fn [_ _] nil))))
+    (rf.fx/reg-fx fx-id {:platforms #{:server :client}} (fn [_ _] nil))))
 
 (defmacro ^:private planned
   "The `:rf.route/planned` traces emitted while `body` runs."
@@ -485,8 +485,8 @@
      @traces#))
 
 (deftest every-door-commit-branch-emits-one-plan-trace
-  (routing/reg-route :route/home {} "/")
-  (routing/reg-route :route/article {:on-match [[:article/load]]} "/articles/:slug")
+  (rf.routing/reg-route :route/home {} "/")
+  (rf.routing/reg-route :route/article {:on-match [[:article/load]]} "/articles/:slug")
   (quiet-nav-fx!)
   ;; rf2-o5dbf — the LEAF PLAN made production-visible. `:leaf-plan-ids` on the
   ;; trace names the loaders the plan carries; registering that loader turns
@@ -509,7 +509,7 @@
         (is (= {:slug "a"} (:params (nav-slice))))
         (is (= ["a"] @loaded) "the :leaf-plan the projection names really dispatched")
         ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (= 1 (count ts)) "exactly one plan trace per commit")
           (let [{:keys [cause route-id branch leaf-plan-ids frame]} (:tags (first ts))]
             (is (= :navigate cause))
@@ -537,13 +537,13 @@
           (is (= slug (last @loaded))
               (str cause " re-ran the leaf plan for /articles/" slug))
           ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
-          (when interop/debug-enabled?
+          (when rf.interop/debug-enabled?
             (is (= 1 (count ts)) (str cause " emitted exactly one plan trace"))
             (is (= cause (:cause (:tags (first ts))))
                 (str "a door that hardcoded one cause for four sub-doors fails here"))
             (is (= :rf/default (:frame (:tags (first ts)))))))))
     (testing "the SSR feed reports :ssr off the frame's :platform"
-      (let [f  (frame/make-anon-frame-record! {:platform :server})
+      (let [f  (rf.frame/make-anon-frame-record! {:platform :server})
             ts (planned (rf/dispatch-sync [:rf.route/handle-url-change "/articles/e"]
                                           {:frame f}))]
         ;; SEMANTIC, posture-independent (rf2-o5dbf): the ATTRIBUTION the
@@ -556,7 +556,7 @@
         (is (= {:slug "d"} (:params (nav-slice)))
             "…and left the ambient :rf/default frame's slice alone")
         ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (= 1 (count ts)))
           (is (= :ssr (:cause (:tags (first ts)))))
           (is (= f (:frame (:tags (first ts))))
@@ -578,7 +578,7 @@
               "an exact no-op allocates no fresh nav-token")
           (is (= loads (count @loaded))
               "an exact no-op re-fires no loader")
-          (when interop/debug-enabled?
+          (when rf.interop/debug-enabled?
             (is (empty? ts) "an exact no-op plans nothing")))
         (let [ts (planned (rf/dispatch-sync [:rf.route/handle-url-change "/articles/f#anchor"]))]
           (is (= "anchor" (:fragment (nav-slice)))
@@ -587,13 +587,13 @@
               "…with no fresh nav-token")
           (is (= loads (count @loaded))
               "…and no leaf-plan re-fire")
-          (when interop/debug-enabled?
+          (when rf.interop/debug-enabled?
             (is (empty? ts)
                 "a fragment-only transition plans nothing (no nav-token, no re-plan)")))))))
 
 (deftest an-executed-navigations-plan-trace-is-not-a-carrier
-  (routing/reg-route :route/home {} "/")
-  (routing/reg-route :route/invite {} "/invite/:id")
+  (rf.routing/reg-route :route/home {} "/")
+  (rf.routing/reg-route :route/invite {} "/invite/:id")
   (quiet-nav-fx!)
   (testing "a real navigation carrying a secret in its query and fragment emits a
             plan trace that reproduces NEITHER — the projection became reachable
@@ -613,11 +613,11 @@
           ;; fn the emit site calls, though — pinned posture-independently in
           ;; `plan-trace-tags-carries-the-projection-without-the-carriers` —
           ;; so the redaction is checkable with no gate in between.
-          would-carry (resolver/plan-trace-tags
-                        (resolver/route-plan
+          would-carry (rf.routing.resolve/plan-trace-tags
+                        (rf.routing.resolve/route-plan
                           {:cause  :navigate
                            :source request
-                           :target (resolver/resolved-target
+                           :target (rf.routing.resolve/resolved-target
                                      {:route-id :route/invite
                                       :params   {:id "acct-42"}
                                       :query    {:invite "SECRET100"}
@@ -640,7 +640,7 @@
           "the structured PATH survives — it is what a consumer branches on")
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring): the same
       ;; guarantees, read off the bus that actually carried them.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (= 1 (count ts)))
         (is (= [:id] (:param-keys tags)))
         (is (= [:invite] (:query-keys tags)))
@@ -650,8 +650,8 @@
             "the structured PATH survives — it is what a consumer branches on")))))
 
 (deftest planned-traces-branch-agrees-with-the-activation-rf2-cqyq2
-  (routing/reg-route :route/home {} "/")
-  (routing/reg-route :route/leaf {:parent :route/nowhere} "/leaf")
+  (rf.routing/reg-route :route/home {} "/")
+  (rf.routing/reg-route :route/leaf {:parent :route/nowhere} "/leaf")
   (quiet-nav-fx!)
   (testing "a navigation to a route whose :parent is unregistered emits a
             :rf.route/planned whose :branch names NO unregistered route, and
@@ -680,19 +680,19 @@
              (select-keys (:branch-error (first @entries)) [:kind :route-id*]))
           "…and carries the fail-loud error itself")
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (= 1 (count ts)))
         (is (= [] (:branch tags)))
         (is (not-any? #{:route/nowhere} (:branch tags))
             "a tool reading the trace is not told a route exists that does not")
-        (is (= (select-keys (:branch-error (routing-events/resolve-branch :route/leaf))
+        (is (= (select-keys (:branch-error (rf.routing.events/resolve-branch :route/leaf))
                             [:kind :route-id*])
                (:branch-error tags))
             "the trace's failure signal IS the activation's"))))
   (testing "and a well-formed branch carries no :branch-error at all — the tag is
             a failure signal, not a slot that is always present"
-    (routing/reg-route :route/shell {} "/shell")
-    (routing/reg-route :route/child {:parent :route/shell} "/shell/child")
+    (rf.routing/reg-route :route/shell {} "/shell")
+    (rf.routing/reg-route :route/child {:parent :route/shell} "/shell/child")
     (let [entries (atom [])
           tags    (:tags (first (planned
                                   (reset! entries
@@ -707,14 +707,14 @@
       (is (nil? (:branch-error (first @entries)))
           "…and the well-formed walk really produced no error to report")
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (= [:route/shell :route/child] (:branch tags)))
         (is (not (contains? tags :branch-error))))))
   (testing "the :branch-error tag carries only registration-time identifiers —
             a kind and a route id, never a route-meta map (a cycle's :chain
             rides on the plan value, not on the trace bus)"
-    (routing/reg-route :route/ping {:parent :route/pong} "/ping")
-    (routing/reg-route :route/pong {:parent :route/ping} "/pong")
+    (rf.routing/reg-route :route/ping {:parent :route/pong} "/ping")
+    (rf.routing/reg-route :route/pong {:parent :route/ping} "/pong")
     (rf/dispatch-sync [:rf.route/handle-url-change "/"])
     (let [entries (atom [])
           tags    (:tags (first (planned
@@ -730,7 +730,7 @@
           "the activation is handed the cycle, not a silently truncated chain")
       (is (= :route/ping (:route-id* (:branch-error (first @entries)))))
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (= {:kind :parent-cycle :route-id* :route/ping} (:branch-error tags)))
         (is (not (re-find #":path|:rf.route/compiled|:chain" (pr-str (:branch-error tags))))
             "no route metadata and no meta-bearing :chain reaches the trace")))))
@@ -738,14 +738,14 @@
 ;; ---- the URL -> ResolvedTarget extraction (ONE definition) ----------------
 
 (deftest url-resolution-normalises-every-fallback-to-the-canonical-target
-  (routing/reg-route :route/article {} "/articles/:slug")
-  (routing/reg-route :route/typed {:params [:map [:id :int]]} "/typed/:id")
+  (rf.routing/reg-route :route/article {} "/articles/:slug")
+  (rf.routing/reg-route :route/typed {:params [:map [:id :int]]} "/typed/:id")
   (testing "a match resolves to the matched route's facts"
     (is (= {:route-id :route/article :params {:slug "x"} :query {}
             :fragment nil :url "/articles/x"}
-           (:target (resolver/url-resolution "/articles/x")))))
+           (:target (rf.routing.resolve/url-resolution "/articles/x")))))
   (testing "a bare miss normalises to the reserved :rf.route/not-found target"
-    (let [{:keys [target fallback? matched?]} (resolver/url-resolution "/no-such-thing")]
+    (let [{:keys [target fallback? matched?]} (rf.routing.resolve/url-resolution "/no-such-thing")]
       (is (= {:route-id :rf.route/not-found
               :params   {:url "/no-such-thing"}
               :query    {}
@@ -756,20 +756,20 @@
       (is fallback?)
       (is (not matched?))))
   (testing "a validation fail is a MATCH that still normalises to not-found, with :reason"
-    (let [{:keys [target validation-fail? matched?]} (resolver/url-resolution "/typed/not-an-int")]
+    (let [{:keys [target validation-fail? matched?]} (rf.routing.resolve/url-resolution "/typed/not-an-int")]
       (is (= :rf.route/not-found (:route-id target)))
       (is (= {:url "/typed/not-an-int" :reason :validation} (:params target)))
       (is validation-fail?)
       (is matched? "the pattern matched — the SCHEMA rejected it")))
   (testing "a malformed URL carries :reason :malformed-url and NO fragment"
-    (let [{:keys [target malformed?]} (resolver/url-resolution "/articles/%zz#frag")]
+    (let [{:keys [target malformed?]} (rf.routing.resolve/url-resolution "/articles/%zz#frag")]
       (is (= :rf.route/not-found (:route-id target)))
       (is (= :malformed-url (:reason (:params target))))
       (is (nil? (:fragment target)) "the fragment may itself be the decode-fail site")
       (is malformed?)))
   (testing "target-of-url is url-resolution's :target — one definition, two arities of need"
-    (is (= (:target (resolver/url-resolution "/no-such-thing"))
-           (resolver/target-of-url "/no-such-thing")))))
+    (is (= (:target (rf.routing.resolve/url-resolution "/no-such-thing"))
+           (rf.routing.resolve/target-of-url "/no-such-thing")))))
 
 ;; ===========================================================================
 ;; Door wiring — the doors REACH the seam
@@ -788,9 +788,9 @@
     (rf/reg-route :rf.route/not-found {:can-enter [:deny/not-found]} "/not-found")
     (rf/reg-sub :deny/not-found (fn [_ _] (swap! calls inc) false))
     (rf/reg-event :rf.route/entry-denied (fn [_ [_ d]] (swap! seen conj d) {}))
-    (fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}}
+    (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}}
                (fn [_ url] (swap! pushed conj url)))
-    (fx/reg-fx :rf.nav/replace-url {:platforms #{:server :client}} (fn [_ _] nil))
+    (rf.fx/reg-fx :rf.nav/replace-url {:platforms #{:server :client}} (fn [_ _] nil))
     [calls seen pushed]))
 
 (deftest link-door-decides-the-same-target-the-commit-hop-would-commit
@@ -822,9 +822,9 @@
             slice carries, so no history entry is pushed"
     (rf/reg-route :home {} "/home")
     (let [pushed (atom [])]
-      (fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}}
+      (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
-      (fx/reg-fx :rf.nav/replace-url {:platforms #{:server :client}} (fn [_ _] nil))
+      (rf.fx/reg-fx :rf.nav/replace-url {:platforms #{:server :client}} (fn [_ _] nil))
       ;; Land on the not-found slice for /same-miss.
       (rf/dispatch-sync [:rf.route/handle-url-change "/same-miss"])
       (is (= :rf.route/not-found (current-id)))
@@ -864,9 +864,9 @@
      :warnings (mapv :operation @traces)}))
 
 (deftest both-url-bearing-doors-stamp-the-same-not-found-reason
-  (routing/reg-route :route/home {} "/home")
-  (routing/reg-route :route/typed {:params [:map [:id :int]]} "/typed/:id")
-  (routing/reg-route :rf.route/not-found {} "/not-found")
+  (rf.routing/reg-route :route/home {} "/home")
+  (rf.routing/reg-route :route/typed {:params [:map [:id :int]]} "/typed/:id")
+  (rf.routing/reg-route :rf.route/not-found {} "/not-found")
   (quiet-nav-fx!)
   (testing "a BARE miss — the discriminator that already agreed"
     (let [url-driven   (door-fallback [:rf.route/handle-url-change "/miss-a"])
@@ -883,7 +883,7 @@
           "a well-formed miss stamps no :reason on the slice")
       (is (not (contains? (:params programmatic) :reason)))
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (= [] (:warnings url-driven) (:warnings programmatic))
             "a well-formed miss is not a malformed URL"))))
   (testing "a MALFORMED percent-encoding — the discriminator that did NOT agree.
@@ -900,13 +900,13 @@
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring). The
       ;; per-route error UI branches on the always-on `:reason` above; the
       ;; EP-0015 DIAGNOSTIC rides `trace/emit!` and is dev-only.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (= [:rf.warning/malformed-url] (:warnings url-driven)))
         (is (= [:rf.warning/malformed-url] (:warnings programmatic))
             "EP-0015's malformed-URL diagnostic fires on BOTH doors"))))
   (testing "a match-url THROW — the second discriminator that already agreed,
             pinned so the merge onto the shared extraction cannot lose it"
-    (with-redefs [registry/match-url
+    (with-redefs [rf.routing.registry/match-url
                   (fn [_] (throw (ex-info "simulated hostile-URL parse failure" {})))]
       (let [url-driven   (door-fallback [:rf.route/handle-url-change "/throw-a"])
             programmatic (door-fallback [:rf.route/navigate {:url "/throw-b"}])]
@@ -914,7 +914,7 @@
         (is (= {:url "/throw-a" :reason :match-error} (:params url-driven)))
         (is (= {:url "/throw-b" :reason :match-error} (:params programmatic)))
         ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (= [:rf.warning/malformed-url] (:warnings url-driven)))
           (is (= [:rf.warning/malformed-url] (:warnings programmatic)))))))
   (testing "a VALIDATION miss is the RATIFIED asymmetry, not a defect: Spec 012's
@@ -935,17 +935,17 @@
 
 (deftest url-change-cause-resolves-the-true-sub-door
   (testing "the framework listener's :rf.route/cause rider wins"
-    (is (= :popstate (url-change/url-change-cause :rf/default {:rf.route/cause :popstate})))
-    (is (= :initial  (url-change/url-change-cause :rf/default {:rf.route/cause :initial}))))
+    (is (= :popstate (rf.routing.url-change/url-change-cause :rf/default {:rf.route/cause :popstate})))
+    (is (= :initial  (rf.routing.url-change/url-change-cause :rf/default {:rf.route/cause :initial}))))
   (testing "a rider outside the closed cause set cannot invent a sixth cause"
-    (is (= :initial (url-change/url-change-cause :rf/default {:rf.route/cause :not-a-cause})))
-    (is (= :initial (url-change/url-change-cause :rf/default {:rf.route/cause "popstate"}))))
+    (is (= :initial (rf.routing.url-change/url-change-cause :rf/default {:rf.route/cause :not-a-cause})))
+    (is (= :initial (rf.routing.url-change/url-change-cause :rf/default {:rf.route/cause "popstate"}))))
   (testing "no rider on a CLIENT frame is the initial / direct-URL feed"
-    (is (= :initial (url-change/url-change-cause :rf/default {})))
-    (is (= :initial (url-change/url-change-cause :rf/default nil))))
+    (is (= :initial (rf.routing.url-change/url-change-cause :rf/default {})))
+    (is (= :initial (rf.routing.url-change/url-change-cause :rf/default nil))))
   (testing "no rider on a SERVER frame is the SSR request-URL feed"
-    (is (= :ssr (url-change/url-change-cause
-                  (frame/make-anon-frame-record! {:platform :server}) {})))))
+    (is (= :ssr (rf.routing.url-change/url-change-cause
+                  (rf.frame/make-anon-frame-record! {:platform :server}) {})))))
 
 (deftest executed-url-change-navigation-carries-its-true-cause
   (testing "the cause the DOOR passes is observable on the denial payload, so a
@@ -968,8 +968,8 @@
   (testing "the SSR feed — dispatched by the app's own :initial-events, so it
             carries no rider — reports :ssr off the frame's :platform"
     (let [[_ seen _] (register-denying-not-found!)
-          f          (frame/make-anon-frame-record! {:platform :server})]
-      (fx/reg-fx :rf.server/set-status {:platforms #{:server :client}} (fn [_ _] nil))
+          f          (rf.frame/make-anon-frame-record! {:platform :server})]
+      (rf.fx/reg-fx :rf.server/set-status {:platforms #{:server :client}} (fn [_ _] nil))
       (reset! seen [])
       (rf/dispatch-sync [:rf.route/handle-url-change "/miss-ssr"] {:frame f})
       (is (= [:ssr] (mapv :cause @seen)))))

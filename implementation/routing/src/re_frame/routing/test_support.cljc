@@ -41,9 +41,9 @@
   routing test fixture that wipes the registrar should also
   `(require 're-frame.routing.test-support :reload)` so the fixture event
   re-seats."
-  (:require [re-frame.events :as events]
-            [re-frame.routing.nav-token :as nav-token]
-            [re-frame.routing.reply :as route-reply]))
+  (:require [re-frame.events :as rf.events]
+            [re-frame.routing.nav-token :as rf.routing.nav-token]
+            [re-frame.routing.reply :as rf.routing.reply]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -79,7 +79,7 @@
   ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state.
   (let [slice   (get-in (or rdb {}) [:rf.runtime/routing :current])
         current (:nav-token slice)]
-    (if-not (route-reply/suppress? carried-nav-token current)
+    (if-not (rf.routing.reply/suppress? carried-nav-token current)
       ;; Gate matches (token current) — dispatch the continuation.
       {:fx [[:dispatch on-success-event]]}
 
@@ -88,7 +88,7 @@
       ;; the production `with-nav-token-handler` path) so it lands in the
       ;; emitting frame's epoch / Xray.
       (let [event-id (when (vector? on-success-event) (first on-success-event))]
-        (nav-token/emit-stale-suppressed!
+        (rf.routing.nav-token/emit-stale-suppressed!
           {:carried-token carried-nav-token
            :current-token current
            :event-id      event-id
@@ -108,11 +108,11 @@
 ;; ---- test-only fixture event registration --------------------------------
 ;;
 ;; Per the namespace docstring: the gate is "explicit test-support
-;; import". This (events/reg-event ...) call fires iff some namespace
+;; import". This (rf.events/reg-event ...) call fires iff some namespace
 ;; in the require closure pulled `re-frame.routing.test-support` in.
 ;; Production / SSR app code must NOT. Spec 012 §Navigation tokens —
 ;; stale-result suppression documents the production `:rf.route/with-nav-token`
 ;; counterpart; this fixture event is test-runner-internal (`:rf.test/*`).
 
-(events/reg-event :rf.test/simulate-http-resolution
+(rf.events/reg-event :rf.test/simulate-http-resolution
                      simulate-http-resolution-handler)

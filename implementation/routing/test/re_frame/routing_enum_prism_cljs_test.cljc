@@ -27,16 +27,16 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.routing :as routing]
+   [re-frame.routing :as rf.routing]
    [re-frame.schemas]
-   [re-frame.test-support :as test-support]
+   [re-frame.test-support :as rf.test-support]
    #?(:clj  [re-frame.substrate.plain-atom :as substrate]
       :cljs [re-frame.adapter.reagent :as substrate])))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
+  (rf.test-support/make-reset-runtime-fixture
     {:adapter substrate/adapter
-     :init-fn routing/reset-counters!}))
+     :init-fn rf.routing/reset-counters!}))
 
 (deftest keyword-enum-query-round-trips-cross-host
   (testing "a keyword-enum :query value emits its token name and round-trips
@@ -44,8 +44,8 @@
     (rf/reg-route :route/sorted
                   {:query [:map [:sort [:enum :asc :desc]]]} "/items")
     (doseq [kw [:asc :desc]]
-      (let [u (routing/route-url {:to :route/sorted :params {} :query {:sort kw}})
-            m (routing/match-url u)]
+      (let [u (rf.routing/route-url {:to :route/sorted :params {} :query {:sort kw}})
+            m (rf.routing/match-url u)]
         (is (= (str "/items?sort=" (name kw)) u)
             (str "enum keyword " kw " emits its token name (not %3A…)"))
         (is (= kw (get-in m [:query :sort]))
@@ -58,8 +58,8 @@
             on BOTH hosts"
     (rf/reg-route :route/sort-path
                   {:params [:map [:dir [:enum :asc :desc]]]} "/items/:dir")
-    (let [u (routing/route-url {:to :route/sort-path :params {:dir :desc}})
-          m (routing/match-url u)]
+    (let [u (rf.routing/route-url {:to :route/sort-path :params {:dir :desc}})
+          m (rf.routing/match-url u)]
       (is (= "/items/desc" u)
           "path enum keyword :desc emits `desc`, not %3Adesc")
       (is (= :route/sort-path (:route-id m)))
@@ -74,20 +74,20 @@
             explicit fold over the destination address."
     (rf/reg-route :route/list
                   {:query [:map [:sort [:enum :asc :desc]]]} "/list")
-    (let [carried (get-in (routing/match-url "/list?sort=asc") [:query :sort])]
+    (let [carried (get-in (rf.routing/match-url "/list?sort=asc") [:query :sort])]
       (is (= :asc carried)
           "the carried value is the coerced KEYWORD, not a string")
-      (let [u (routing/route-url {:to :route/list :params {} :query {:sort carried}})]
+      (let [u (rf.routing/route-url {:to :route/list :params {} :query {:sort carried}})]
         (is (= "/list?sort=asc" u)
             "the carried keyword re-emits as its token name")
-        (is (= :asc (get-in (routing/match-url u) [:query :sort])))))))
+        (is (= :asc (get-in (rf.routing/match-url u) [:query :sort])))))))
 
 (deftest invalid-keyword-enum-fails-validation-cross-host
   (testing "an INVALID keyword-enum value is NOT stringified into a URL —
             route-url fails validation on BOTH hosts (the schema bites)"
     (rf/reg-route :route/sorted2
                   {:query [:map [:sort [:enum :asc :desc]]]} "/items")
-    (let [ex (try (routing/route-url {:to :route/sorted2 :params {} :query {:sort :sideways}})
+    (let [ex (try (rf.routing/route-url {:to :route/sorted2 :params {} :query {:sort :sideways}})
                   nil
                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) e e))]
       (is (some? ex)

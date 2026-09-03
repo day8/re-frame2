@@ -26,9 +26,9 @@
   and then `commit-navigation`.
 
   Internal namespace; the public facade is `re-frame.routing`."
-  (:require [re-frame.privacy.url :as url-egress]
-            [re-frame.routing.scroll :as scroll]
-            [re-frame.trace :as trace]))
+  (:require [re-frame.privacy.url :as rf.privacy.url]
+            [re-frame.routing.scroll :as rf.routing.scroll]
+            [re-frame.trace :as rf.trace]))
 
 ;; ---- fragment normalisation ----------------------------------------------
 
@@ -142,16 +142,16 @@
   saved-position lookup. Returns a map; either fx may be nil (no current
   route to capture from; `:scroll false` suppression)."
   [{:keys [rdb scroll-cache route-meta opts default-strategy route-id params query fragment url]}]
-  (let [strategy (scroll/resolve-scroll-strategy route-meta opts default-strategy)]
-    {:capture-fx (scroll/capture-scroll-fx-entry rdb)
-     :scroll-fx  (scroll/scroll-fx-entry
+  (let [strategy (rf.routing.scroll/resolve-scroll-strategy route-meta opts default-strategy)]
+    {:capture-fx (rf.routing.scroll/capture-scroll-fx-entry rdb)
+     :scroll-fx  (rf.routing.scroll/scroll-fx-entry
                    {:strategy  strategy
-                    :from      (scroll/route-descriptor
+                    :from      (rf.routing.scroll/route-descriptor
                                  (get-in rdb [:rf.runtime/routing :current]))
-                    :to        (scroll/route-descriptor* route-id params query)
+                    :to        (rf.routing.scroll/route-descriptor* route-id params query)
                     ;; rf2-g1i5m6: CANONICALISE the restore lookup key,
                     ;; symmetric with capture. Capture keys the leaving
-                    ;; position under `scroll/route-slice-url` (the canonical
+                    ;; position under `rf.routing.scroll/route-slice-url` (the canonical
                     ;; `route-url` reconstruction); the raw incoming popstate
                     ;; `url` may be spelled non-canonically (trailing slash,
                     ;; reordered query), so look up under the SAME canonical
@@ -160,14 +160,14 @@
                     ;; `route-slice-url` yields nil / a non-matching key, still
                     ;; attempts the raw lookup).
                     :saved-pos (when (= :restore strategy)
-                                 (let [canonical (scroll/route-slice-url
+                                 (let [canonical (rf.routing.scroll/route-slice-url
                                                    {:route-id route-id
                                                     :params   params
                                                     :query    query
                                                     :fragment fragment})]
                                    (or (when canonical
-                                         (scroll/lookup-scroll-position scroll-cache canonical))
-                                       (scroll/lookup-scroll-position scroll-cache url))))
+                                         (rf.routing.scroll/lookup-scroll-position scroll-cache canonical))
+                                       (rf.routing.scroll/lookup-scroll-position scroll-cache url))))
                     :fragment  fragment})}))
 
 ;; ---- pre-commit telemetry intents ----------------------------------------
@@ -220,7 +220,7 @@
         ;; `navigate/redact-route-error-tags`.
         tag (fn [base] (-> base
                            (cond-> frame (assoc :frame frame))
-                           (url-egress/redact-url-tag :url)))]
+                           (rf.privacy.url/redact-url-tag :url)))]
     (cond-> []
       throw-reason
       (conj [:emit :warning :rf.warning/malformed-url
@@ -237,11 +237,11 @@
 (defn emit-intents!
   "Impure driver: run a vector of telemetry intents (from
   `fallback-telemetry-intents` or assembled at a call site) through the
-  trace bus. `[:emit level op tags]` → `trace/emit!`;
-  `[:emit-error op tags]` → `trace/emit-error!`. Returns nil."
+  trace bus. `[:emit level op tags]` → `rf.trace/emit!`;
+  `[:emit-error op tags]` → `rf.trace/emit-error!`. Returns nil."
   [intents]
   (doseq [intent intents]
     (case (first intent)
-      :emit       (let [[_ level op tags] intent] (trace/emit! level op tags))
-      :emit-error (let [[_ op tags] intent]       (trace/emit-error! op tags))))
+      :emit       (let [[_ level op tags] intent] (rf.trace/emit! level op tags))
+      :emit-error (let [[_ op tags] intent]       (rf.trace/emit-error! op tags))))
   nil)

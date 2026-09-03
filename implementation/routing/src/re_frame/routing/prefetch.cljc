@@ -41,19 +41,19 @@
   Internal namespace; the public facade is `re-frame.routing`. The facade owns
   the `events/reg-event :rf.route/prefetch` call so a `:reload` re-wires it on a
   fresh registrar."
-  (:require [re-frame.frame :as frame]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.routing.address :as address]
-            [re-frame.routing.events :as routing-events]
-            [re-frame.routing.registry :as registry]
-            [re-frame.routing.resolve :as resolver]
-            [re-frame.trace :as trace]))
+  (:require [re-frame.frame :as rf.frame]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.routing.address :as rf.routing.address]
+            [re-frame.routing.events :as rf.routing.events]
+            [re-frame.routing.registry :as rf.routing.registry]
+            [re-frame.routing.resolve :as rf.routing.resolve]
+            [re-frame.trace :as rf.trace]))
 
 (defn- destination-error
   "The named-destination RESOLUTION / VALIDATION gate — run after the structural
   address gate and BEFORE any planning.
 
-  `address/prefetch-address-error` proves the request is a closed
+  `rf.routing.address/prefetch-address-error` proves the request is a closed
   `:rf/route-address`; it cannot know whether that destination is REGISTERED, or
   whether the supplied `:params` / `:query` satisfy the route's declared schemas.
   While the structural gate was the only gate, prefetch warmed destinations a
@@ -63,7 +63,7 @@
   address through `route-url` raises `:rf.error/no-such-route` /
   `:rf.error/missing-route-param`.
 
-  So the destination resolves through `registry/route-url`, the ONE
+  So the destination resolves through `rf.routing.registry/route-url`, the ONE
   named-destination resolution / validation boundary the programmatic door
   already lowers to (Spec 012 §Bidirectional URL ↔ params): the only surface that
   adjudicates a NAMED address against the route's registration AND its `:params`
@@ -88,7 +88,7 @@
   carries the offending KEY and the route id and never a value."
   [address]
   (try
-    (registry/route-url address)
+    (rf.routing.registry/route-url address)
     nil
     (catch #?(:clj Throwable :cljs :default) ex
       (let [{:keys [route-id param slot] :as data} (ex-data ex)]
@@ -129,7 +129,7 @@
   [{frame  :rf.frame/id
     app-db :db}
    [_ request]]
-  (let [frame (frame/require-frame-stamp!
+  (let [frame (rf.frame/require-frame-stamp!
                 frame :rf.route/prefetch
                 {:where 'rf.route/prefetch-handler})]
     ;; TWO gates, in this order, both BEFORE planning: the STRUCTURAL address
@@ -138,14 +138,14 @@
     ;; destination?). `or` short-circuits, so a malformed request never reaches
     ;; the registry and the structural `:reason` still wins — Spec 012 §Route-plan
     ;; prefetch's "an invalid address rejects BEFORE planning".
-    (if-let [bad (or (address/prefetch-address-error request)
+    (if-let [bad (or (rf.routing.address/prefetch-address-error request)
                      (destination-error request))]
       ;; Invalid address: reject BEFORE planning. No ensures dispatched, NO
       ;; success summary trace, current route readiness untouched. Distinct
       ;; channel from a resource PLANNING failure (a well-formed address, for a
       ;; destination that DOES resolve, whose resource plan can't be built).
       (do
-        (trace/emit-error! :rf.error/prefetch-bad-address
+        (rf.trace/emit-error! :rf.error/prefetch-bad-address
                            (cond-> {:where    :event
                                     :reason   (:reason bad)
                                     :keys     (:keys bad)
@@ -154,7 +154,7 @@
                              frame           (assoc :frame frame)))
         {})
       (let [;; The destination lowers to the ONE ResolvedTarget seam every
-            ;; navigation door lowers to (`resolver/resolved-target`), so a warm
+            ;; navigation door lowers to (`rf.routing.resolve/resolved-target`), so a warm
             ;; plan is built from the SAME facts the activation will commit —
             ;; including the route's declared `:query-defaults`. Prefetch
             ;; resolving the address itself is what made R3's headline capability
@@ -165,7 +165,7 @@
             ;; click arriving as a fresh `:attempt 1`. No error, no warning; the
             ;; feature simply did nothing.
             {:keys [route-id params query fragment]}
-            (resolver/resolved-target {:route-id (:to request)
+            (rf.routing.resolve/resolved-target {:route-id (:to request)
                                        :params   (:params request {})
                                        :query    (:query request {})
                                        :fragment (:fragment request)})
@@ -173,12 +173,12 @@
             ;; the contributors. Branch resolution is fail-loud — an unresolved
             ;; / cyclic `:parent` rides down as `:branch-error` and becomes a
             ;; warm-mode planning failure (never a silently-truncated branch).
-            {:keys [branch branch-error]} (routing-events/resolve-branch route-id)
+            {:keys [branch branch-error]} (rf.routing.events/resolve-branch route-id)
             ;; The optional Resources artefact publishes `:routing/on-route-
             ;; prefetch`; it returns `{:fx [ensure-dispatch …] :warmed <n>
             ;; :plan-error err?}` or nil when there is nothing to warm. No-op
             ;; (nil) when no Resources artefact / no branch resources.
-            plan (when-let [warm (late-bind/get-fn :routing/on-route-prefetch)]
+            plan (when-let [warm (rf.late-bind/get-fn :routing/on-route-prefetch)]
                    (warm {:route-id     route-id
                           :params       params
                           :query        query
@@ -189,7 +189,7 @@
         ;; The ONE summary trace (Spec 012 §Trace events — :rf.route/prefetched).
         ;; Frame-stamped for epoch capture. NOT an activation trace: no
         ;; activated / nav-token-allocated pair fires for a prefetch.
-        (trace/emit! :rf.event :rf.route/prefetched
+        (rf.trace/emit! :rf.event :rf.route/prefetched
                      (cond-> {:route-id route-id
                               :warmed   (or (:warmed plan) 0)}
                        (:plan-error plan) (assoc :plan-error true)

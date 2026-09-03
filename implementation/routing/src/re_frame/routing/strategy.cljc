@@ -63,9 +63,9 @@
 
   Internal namespace; the public facade is `re-frame.routing`, which
   re-exports the two shipped strategies."
-  (:require [re-frame.error :as error]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]))
+  (:require [re-frame.error :as rf.error]
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]))
 
 ;; ---- history strategy (default) ------------------------------------------
 ;; Path-form. `:encode` / `:decode` are identity over the app-relative URL —
@@ -317,8 +317,8 @@
 
       (rf/make-frame {:id :app
                       :url-bound?   true
-                          :url-strategy (routing/with-base-path
-                                          routing/history-url-strategy
+                          :url-strategy (rf.routing/with-base-path
+                                          rf.routing/history-url-strategy
                                           \"/realworld\")})"
   [strategy base]
   (let [b (normalize-base-path base)]
@@ -369,7 +369,7 @@
 ;; are TRUSTED READS — they resolve an already-validated strategy VERBATIM and
 ;; do NOT re-validate per consult (the ~90 ns/consult `route-link` used to pay
 ;; per render; rf2-ecb4sx). `url-strategy-from-config` keeps only a dev-only
-;; (`interop/debug-enabled?`, DCE'd in production) tripwire so a future
+;; (`rf.interop/debug-enabled?`, DCE'd in production) tripwire so a future
 ;; config-write bypass still fails loud in development.
 
 (def ^:private url-strategy-required-legs
@@ -402,7 +402,7 @@
   call-site slots (e.g. a frame id) into the ex-data."
   [strategy where-sym context]
   (when-not (map? strategy)
-    (throw (error/thrown-ex-info
+    (throw (rf.error/thrown-ex-info
              :rf.error/invalid-url-strategy where-sym
              (str ":url-strategy must be a map carrying callable "
                   (clojure.string/join " / " url-strategy-required-legs)
@@ -412,7 +412,7 @@
                             context)})))
   (let [missing (vec (remove #(fn? (get strategy %)) url-strategy-required-legs))]
     (when (seq missing)
-      (throw (error/thrown-ex-info
+      (throw (rf.error/thrown-ex-info
                :rf.error/invalid-url-strategy where-sym
                (str ":url-strategy is missing a callable value for "
                     (clojure.string/join " / " missing)
@@ -476,7 +476,7 @@
   ~90 ns/consult, dead work re-checking an immutable, already-validated map
   on every render).
 
-  A dev-only tripwire (`interop/debug-enabled?` — `goog.DEBUG` on CLJS, the
+  A dev-only tripwire (`rf.interop/debug-enabled?` — `goog.DEBUG` on CLJS, the
   `re-frame.debug` gate on the JVM) re-runs `validate-url-strategy!` on the
   declared strategy so a config-write bypass introduced by a FUTURE refactor
   still fails loud in development; it is dead-code-eliminated from production
@@ -484,13 +484,13 @@
   unset/default branch skips even that: `history-url-strategy` is known-good."
   [config]
   (let [declared (when (map? config) (:url-strategy config))]
-    (when (and interop/debug-enabled? (some? declared))
+    (when (and rf.interop/debug-enabled? (some? declared))
       (validate-url-strategy! declared 'rf/make-frame nil))
     (or declared history-url-strategy)))
 
 (defn url-strategy-for-frame-id
   "Resolve the `:url-strategy` for `frame-id` by reading its stored frame
-  config off the frames store (`frame/frame-config` — rf2-h1vqa4: frames have
+  config off the frames store (`rf.frame/frame-config` — rf2-h1vqa4: frames have
   no registrar rows), defaulting to `history-url-strategy`. `nil` frame-id
   (or an unregistered / destroyed frame — `frame-config` returns nil) resolves
   to the history default. Used by the `route-link` href render (per render),
@@ -502,15 +502,15 @@
   per-consult validation. See `url-strategy-from-config`.
 
   rf2-ecb4sx removed the per-consult VALIDATION and left the per-consult
-  ALLOCATION: the read went through `frame/frame-meta`, which builds the
+  ALLOCATION: the read went through `rf.frame/frame-meta`, which builds the
   canonical `:rf/frame-meta` shape by merging the config, the lifecycle and
   the id into a fresh map — a whole map, per rendered link, to reach one key.
   rf2-cno31's census probe measured this consult at 0.72 µs per link against a
   `route-url` synthesis of 4.71. It now reads the config map directly
-  (`frame/frame-config`). The answer is unchanged for every input: the
+  (`rf.frame/frame-config`). The answer is unchanged for every input: the
   lifecycle fields and the stamped `:id` that `frame-meta` merges on top are
   disjoint from `:url-strategy`, and a missing frame yields nil from either."
   [frame-id]
   (if (nil? frame-id)
     history-url-strategy
-    (url-strategy-from-config (frame/frame-config frame-id))))
+    (url-strategy-from-config (rf.frame/frame-config frame-id))))

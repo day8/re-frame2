@@ -28,19 +28,19 @@
   stays intact."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.emit :as emit]
+            [re-frame.emit :as rf.emit]
             ;; The always-on error-emit listener registry has no public
             ;; introspection surface (register / unregister / clear only), so
             ;; the presence check reads its `defonce` `listeners` atom directly.
             [re-frame.error-emit]
-            [re-frame.events :as events]
-            [re-frame.fx :as fx]
-            [re-frame.registrar :as registrar]
-            [re-frame.routing :as routing]
+            [re-frame.events :as rf.events]
+            [re-frame.fx :as rf.fx]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.routing :as rf.routing]
             [re-frame.routing.test-support]
-            [re-frame.routing-test-support :as rts]))
+            [re-frame.routing-test-support :as rf.routing-test-support]))
 
-(use-fixtures :each rts/reset-runtime)
+(use-fixtures :each rf.routing-test-support/reset-runtime)
 
 ;; ---- the three retired framework ids --------------------------------------
 
@@ -55,7 +55,7 @@
 (defn- event-registered?
   "True iff an `:event`-kind handler is registered under `id`."
   [id]
-  (some? (registrar/lookup :event id)))
+  (some? (rf.registrar/lookup :event id)))
 
 (defn- error-listener-registered?
   "True iff an always-on error-emit listener is registered under `id`. The
@@ -66,18 +66,18 @@
 
 (defn- seed-retired-registrations!
   "Install exactly what a pre-R1 generation left in the `defonce` registries:
-  the two internal events (via the framework-internal `events/reg-event`, the
+  the two internal events (via the framework-internal `rf.events/reg-event`, the
   same call the pre-R1 façade used — reserved ids are legitimate on that path)
   and the corpus-wide error trap. Each records into `seen` if it ever runs, so
   a surviving registration is behaviourally observable."
   [seen]
-  (events/reg-event :rf.route.internal/settle-transition
+  (rf.events/reg-event :rf.route.internal/settle-transition
                     {:rf/framework-authority? true}
                     (fn [{:keys [db]} _] (swap! seen conj :settle) {:db db}))
-  (events/reg-event :rf.route.internal/on-match-error
+  (rf.events/reg-event :rf.route.internal/on-match-error
                     {:rf/framework-authority? true}
                     (fn [{:keys [db]} _] (swap! seen conj :on-match-error) {:db db}))
-  (emit/register-error-listener! retired-trap
+  (rf.emit/register-error-listener! retired-trap
                                  (fn [_record] (swap! seen conj :trap))))
 
 ;; ============================================================================
@@ -95,7 +95,7 @@
       ;; A user registration + a framework registration that MUST survive the
       ;; reload — proves the purge is surgical (not a registry reset).
       (rf/reg-event :app/keep-me (fn [{:keys [db]} _] {:db db}))
-      (emit/register-error-listener! ::user-probe (constantly nil))
+      (rf.emit/register-error-listener! ::user-probe (constantly nil))
 
       ;; Sanity: the seed actually landed in the live registries.
       (is (every? event-registered? retired-events)
@@ -129,7 +129,7 @@
       (is (empty? @seen)
           "no seeded registration ever ran — the purge was clean")
 
-      (emit/unregister-error-listener! ::user-probe))))
+      (rf.emit/unregister-error-listener! ::user-probe))))
 
 ;; ============================================================================
 ;; Acceptance criterion 2 — no stale machinery can convert an :on-match throw
@@ -155,12 +155,12 @@
       ;; A fresh ordinary error listener under a DISTINCT id — proves the
       ;; always-on error channel still delivers after the purge.
       (let [channel (atom [])]
-        (emit/register-error-listener! ::channel-probe
+        (rf.emit/register-error-listener! ::channel-probe
                                        (fn [record] (swap! channel conj record)))
         (rf/reg-event :load/boom
                       (fn [_ _] (throw (ex-info "on-match-boom" {:why :test}))))
         (rf/reg-route :route/boom {:on-match [[:load/boom]]} "/boom")
-        (fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
+        (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
 
         (rf/dispatch-sync [:rf.route/transitioned "/boom"])
 
@@ -182,4 +182,4 @@
             "the throw reached the ordinary always-on event error channel,
              attributed to the throwing event")
 
-        (emit/unregister-error-listener! ::channel-probe)))))
+        (rf.emit/unregister-error-listener! ::channel-probe)))))

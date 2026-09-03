@@ -45,7 +45,7 @@
       (the activation commit's conditional write is safe only because a FRESH
       token has no old slot) — and re-projects `:transition` / `:error` on
       `:current` through the one commit-time projector
-      (`readiness/project-at-commit`), so a successful replan CLEARS an earlier
+      (`rf.routing.readiness/project-at-commit`), so a successful replan CLEARS an earlier
       `:rf.error/resource-route-plan` on the slice — which is the repair;
     - FAILS CLOSED: a planning failure is a COMMITTED FAILED REPLAN with the
       same semantics as a committed failed activation — no partial ensures,
@@ -76,13 +76,13 @@
   the `events/reg-event :rf.route/replan-resources` call so a `:reload`
   re-wires it on a fresh registrar."
   (:require [clojure.set :as set]
-            [re-frame.frame :as frame]
-            [re-frame.identity :as identity]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.registrar :as registrar]
-            [re-frame.routing.events :as routing-events]
-            [re-frame.routing.readiness :as readiness]
-            [re-frame.trace :as trace]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.identity :as rf.identity]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.routing.events :as rf.routing.events]
+            [re-frame.routing.readiness :as rf.routing.readiness]
+            [re-frame.trace :as rf.trace]))
 
 (def ^:private request-keys
   "The CLOSED replan payload roster. One key, required."
@@ -98,7 +98,7 @@
   naming the first violation, which the handler surfaces as
   `:rf.error/replan-bad-request`. Structure is checked before content — an
   unknown key is reported ahead of a missing cause — and offending unknown
-  keys ride in the same total canonical order (`identity/canonical-bytes`) the
+  keys ride in the same total canonical order (`rf.identity/canonical-bytes`) the
   navigate and prefetch gates use, so heterogeneous EDN keys never trip a
   `compare`-based sort. Total over the roster. The fifth reason,
   `:no-active-route`, is the handler's own (it needs the slice)."
@@ -113,7 +113,7 @@
 
       (seq (set/difference (set (keys request)) request-keys))
       {:reason :unknown-key
-       :keys   (vec (sort-by identity/canonical-bytes
+       :keys   (vec (sort-by rf.identity/canonical-bytes
                              (set/difference (set (keys request)) request-keys)))}
 
       (nil? (:cause request))
@@ -153,7 +153,7 @@
        previous membership. Hook unbound (no Resources artefact), or nothing to
        replan (no branch resources, no prior plan, no branch error) → `{}`;
     4. on a plan: REPLACES both per-token slots unconditionally, re-projects
-       `:transition` / `:error` through `readiness/project-at-commit`, and
+       `:transition` / `:error` through `rf.routing.readiness/project-at-commit`, and
        splices the plan's fx (attach effects, then the same-owner subset release
        — or, on a failed plan, the whole-owner release) into the returned fx.
 
@@ -166,7 +166,7 @@
     rdb-raw :rf.db/runtime
     app-db  :db}
    [_ request :as event-vec]]
-  (let [frame   (frame/require-frame-stamp!
+  (let [frame   (rf.frame/require-frame-stamp!
                   frame :rf.route/replan-resources
                   {:where 'rf.route/replan-handler})
         rdb     (or rdb-raw {})
@@ -184,7 +184,7 @@
       ;; with `:plan-cause :replan`). Frame-attributed so it lands in the
       ;; emitting frame's epoch.
       (do
-        (trace/emit-error! :rf.error/replan-bad-request
+        (rf.trace/emit-error! :rf.error/replan-bad-request
                            (cond-> {:where    :event
                                     :reason   (:reason bad)
                                     :keys     (:keys bad)
@@ -192,18 +192,18 @@
                              frame (assoc :frame frame)))
         {})
       (let [{:keys [route-id params query fragment nav-token]} current
-            route-meta (registrar/lookup :route route-id)
+            route-meta (rf.registrar/lookup :route route-id)
             ;; Routing owns the `:parent` walk — the SAME fail-loud resolution
             ;; `commit-navigation` uses, never a second one. An unresolved /
             ;; cyclic `:parent` rides down as `:branch-error` and becomes a
             ;; committed failed replan.
-            {:keys [branch branch-error]} (routing-events/resolve-branch route-id)
+            {:keys [branch branch-error]} (rf.routing.events/resolve-branch route-id)
             ;; The token's recorded plan identities are the diff's PREVIOUS
             ;; membership (byte-keyed, rf2-btdl1). Absent after a committed
             ;; failed activation — then everything is `added`, which is the
             ;; repair.
             prev-identities (get-in rdb [:rf.runtime/routing :resource-plan nav-token])
-            plan (when-let [replan (late-bind/get-fn :routing/on-route-replan)]
+            plan (when-let [replan (rf.late-bind/get-fn :routing/on-route-replan)]
                    (replan {:route-meta      route-meta
                             :route-id        route-id
                             :params          params
@@ -221,7 +221,7 @@
           ;; No Resources artefact, or nothing to replan. Not an error: the
           ;; event ships with routing, the semantics with Resources.
           {}
-          (let [{r-transition :transition r-error :error} (readiness/project-at-commit plan)
+          (let [{r-transition :transition r-error :error} (rf.routing.readiness/project-at-commit plan)
                 rdb' (-> rdb
                          (assoc-in [:rf.runtime/routing :current :transition] r-transition)
                          (assoc-in [:rf.runtime/routing :current :error] r-error)

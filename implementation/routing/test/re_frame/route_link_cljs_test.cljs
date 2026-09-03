@@ -24,17 +24,17 @@
             [re-frame.core :as rf]
             ;; rf2-o3nam4: the delayed-click regression rebinds the ambient
             ;; frame scope directly to model a real browser click firing
-            ;; after the render-time frame/provider scope has unwound.
-            [re-frame.frame :as frame]
+            ;; after the render-time rf.frame/provider scope has unwound.
+            [re-frame.frame :as rf.frame]
             ;; rf2-qwm0a: listener / buffer surface lives in re-frame.trace.tooling.
-            [re-frame.trace.tooling :as trace-tooling]
-            [re-frame.routing :as routing]
+            [re-frame.trace.tooling :as rf.trace.tooling]
+            [re-frame.routing :as rf.routing]
             ;; rf2-3u16e: the credible-intent position class is pinned against
             ;; its one published definition, so this file's literal cannot
             ;; silently fall behind it.
-            [re-frame.routing.link :as link]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]))
+            [re-frame.routing.link :as rf.routing.link]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; Snapshot/restore the registrar around each test (rf2-am9d) — same
 ;; pattern as routing_cljs_test.cljs. We do NOT use registrar/clear-all!
@@ -44,9 +44,9 @@
 ;; resurrect them. test-support's make-reset-runtime-fixture snapshots the
 ;; registrar and rolls back per-test changes only.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter
-     :init-fn routing/reset-counters!}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter
+     :init-fn rf.routing/reset-counters!}))
 
 ;; ---- synthetic event helper --------------------------------------------
 
@@ -89,7 +89,7 @@
   (let [dispatched (atom nil)
         source     (atom nil)
         cb-key     (keyword (gensym "click-capture-"))]
-    (trace-tooling/register-listener!
+    (rf.trace.tooling/register-listener!
       cb-key
       (fn [ev]
         (when (and (= :rf.event/dispatched (:operation ev))
@@ -98,7 +98,7 @@
           (reset! dispatched (-> ev :tags :rf.event/v))
           (reset! source     (:source ev)))))
     (try
-      (let [[_ attrs] (routing/route-link-render props)
+      (let [[_ attrs] (rf.routing/route-link-render props)
             on-click (:on-click attrs)]
         (on-click event)
         {:dispatched @dispatched
@@ -106,7 +106,7 @@
          :prevented? (.-defaultPrevented event)
          :href       (:href attrs)})
       (finally
-        (trace-tooling/unregister-listener! cb-key)))))
+        (rf.trace.tooling/unregister-listener! cb-key)))))
 
 ;; ---- href synthesis (CLJS sanity) --------------------------------------
 
@@ -115,9 +115,9 @@
     (rf/reg-route :route/cart    {} "/cart")
     (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
 
-    (let [[_ attrs] (routing/route-link-render {:to :route/cart})]
+    (let [[_ attrs] (rf.routing/route-link-render {:to :route/cart})]
       (is (= "/cart" (:href attrs))))
-    (let [[_ attrs] (routing/route-link-render
+    (let [[_ attrs] (rf.routing/route-link-render
                      {:to :route/article :params {:id "intro"}})]
       (is (= "/articles/intro" (:href attrs))))))
 
@@ -344,7 +344,7 @@
   (let [target (atom nil)
         source (atom nil)
         cb-key (keyword (gensym "delayed-click-"))]
-    (trace-tooling/register-listener!
+    (rf.trace.tooling/register-listener!
       cb-key
       (fn [ev]
         (when (and (= :rf.event/dispatched (:operation ev))
@@ -358,12 +358,12 @@
     (try
       ;; RENDER under the render-frame scope, capture the closure.
       (let [on-click (rf/with-frame render-frame
-                       (let [[_ attrs] (routing/route-link-render props)]
+                       (let [[_ attrs] (rf.routing/route-link-render props)]
                          (:on-click attrs)))
             ;; FIRE after the render scope has unwound, under the click-time
             ;; ambient scope (nil ⇒ no scope at all).
             raised (try
-                     (binding [frame/*current-frame* click-scope-frame]
+                     (binding [rf.frame/*current-frame* click-scope-frame]
                        (on-click (mk-event {})))
                      nil
                      (catch :default e
@@ -372,7 +372,7 @@
          :source       @source
          :raised       raised})
       (finally
-        (trace-tooling/unregister-listener! cb-key)))))
+        (rf.trace.tooling/unregister-listener! cb-key)))))
 
 (deftest delayed-click-with-no-ambient-scope-carries-render-frame-rf2-o3nam4
   (testing "a link rendered under :route/owner, clicked after the render
@@ -423,7 +423,7 @@
          source     (atom nil)
          target     (atom nil)
          cb-key     (keyword (gensym "intent-capture-"))]
-     (trace-tooling/register-listener!
+     (rf.trace.tooling/register-listener!
        cb-key
        (fn [ev]
          (when (and (= :rf.event/dispatched (:operation ev))
@@ -434,8 +434,8 @@
            (reset! target     (-> ev :tags :frame)))))
      (try
        (let [attrs (second (if render-frame
-                             (rf/with-frame render-frame (routing/route-link-render props))
-                             (routing/route-link-render props)))]
+                             (rf/with-frame render-frame (rf.routing/route-link-render props))
+                             (rf.routing/route-link-render props)))]
          (when-let [h (get attrs attr-key)]
            (h (mk-event {})))
          {:dispatched @dispatched
@@ -444,7 +444,7 @@
           :installed? (contains? attrs attr-key)
           :attrs      attrs})
        (finally
-         (trace-tooling/unregister-listener! cb-key))))))
+         (rf.trace.tooling/unregister-listener! cb-key))))))
 
 (deftest prefetch-intent-dispatches-on-each-credible-intent-position
   (testing "hover, focus and touch-start each warm the link's own destination"
@@ -453,13 +453,13 @@
       ;; ROSTER PIN (rf2-3u16e). The positions stay written out, because naming
       ;; them is what tells a reader which gestures this file exercises — but a
       ;; literal alone fails CLOSED: `prefetch-intent-attrs` maps over
-      ;; `link/prefetch-intent-keys`, so a position added to that class would be
+      ;; `rf.routing.link/prefetch-intent-keys`, so a position added to that class would be
       ;; installed correctly, go untested here, and nothing would say so.
       ;; Iterating the class instead would absorb the new position silently and
       ;; would not red either; only pinning the two against each other does.
-      (is (= (set link/prefetch-intent-keys) (set positions))
+      (is (= (set rf.routing.link/prefetch-intent-keys) (set positions))
           (str "the credible-intent class has changed to "
-               (pr-str link/prefetch-intent-keys)
+               (pr-str rf.routing.link/prefetch-intent-keys)
                " — extend this test's positions to match it"))
       (doseq [pos positions]
         (let [{:keys [dispatched source installed?]}
@@ -511,25 +511,25 @@
     (rf/reg-route :route/cart {} "/cart")
     (let [dispatched (atom nil)
           cb-key     (keyword (gensym "render-only-"))]
-      (trace-tooling/register-listener!
+      (rf.trace.tooling/register-listener!
         cb-key
         (fn [ev] (when (and (= :rf.event/dispatched (:operation ev))
                             (= :rf.route/prefetch (-> ev :tags :rf.event/v first)))
                    (reset! dispatched (-> ev :tags :rf.event/v)))))
       (try
-        (routing/route-link-render {:to :route/cart :prefetch :intent})
+        (rf.routing/route-link-render {:to :route/cart :prefetch :intent})
         (is (nil? @dispatched) "a render is not an intent")
-        (finally (trace-tooling/unregister-listener! cb-key))))))
+        (finally (rf.trace.tooling/unregister-listener! cb-key))))))
 
 (deftest an-unsupported-prefetch-value-fails-loud-at-render
   (testing ":intent is the only accepted value — an unsupported mode is a caller
             bug at the render site, not a silently passive link"
     (rf/reg-route :route/cart {} "/cart")
     (doseq [v [true :render :viewport nil]]
-      (let [data (try (routing/route-link-render {:to :route/cart :prefetch v}) nil
+      (let [data (try (rf.routing/route-link-render {:to :route/cart :prefetch v}) nil
                       (catch :default e (ex-data e)))]
         (is (= :rf.error/route-link-bad-prefetch (:rf.error/id data))
             (str "prefetch " (pr-str v) " must throw"))
         (is (= v (:value data)))))
     (testing "and :intent still renders"
-      (is (some? (routing/route-link-render {:to :route/cart :prefetch :intent}))))))
+      (is (some? (rf.routing/route-link-render {:to :route/cart :prefetch :intent}))))))

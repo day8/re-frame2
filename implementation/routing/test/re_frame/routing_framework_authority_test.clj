@@ -26,7 +26,7 @@
 
   READ THIS BEFORE ADDING A CASE. Every `@warns` assertion in this namespace
   reads the DEV trace bus: `:rf.warning/app-handler-runtime-effect` is emitted
-  through `trace/emit!`, which sits behind `interop/debug-enabled?`, read once
+  through `trace/emit!`, which sits behind `rf.interop/debug-enabled?`, read once
   at load time. Under `-Dre-frame.debug=false` there is no diagnostic to
   observe, so ALL FIVE `(is (empty? @warns))` legs pass VACUOUSLY — they
   would report \"the framework navigation is quiet\" about a framework that
@@ -35,7 +35,7 @@
   are not vacuous. It cannot do that job in a posture where the diagnostic is
   gone.
 
-  All six are therefore inside `(when interop/debug-enabled? …)` arms marked
+  All six are therefore inside `(when rf.interop/debug-enabled? …)` arms marked
   `rf2-o5dbf`, kept VERBATIM. What runs under the gate is the navigation
   SCAFFOLDING each case drives — the route really commits, the pending slot
   really fills and clears, `:rf.route/continue` really completes — which is
@@ -49,13 +49,13 @@
   file says what it says."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.fx :as fx]
-            [re-frame.interop :as interop]
-            [re-frame.routing :as routing]
+            [re-frame.fx :as rf.fx]
+            [re-frame.interop :as rf.interop]
+            [re-frame.routing :as rf.routing]
             [re-frame.routing.test-support]
-            [re-frame.routing-test-support :as rts]))
+            [re-frame.routing-test-support :as rf.routing-test-support]))
 
-(use-fixtures :each rts/reset-runtime)
+(use-fixtures :each rf.routing-test-support/reset-runtime)
 
 ;; ---- helpers --------------------------------------------------------------
 
@@ -73,7 +73,7 @@
     a))
 
 (defn- stub-push-url! []
-  (fx/reg-fx :rf.nav/push-url
+  (rf.fx/reg-fx :rf.nav/push-url
              {:platforms #{:server :client}}
              (fn [_ _] nil)))
 
@@ -93,7 +93,7 @@
                                     [:rf.runtime/routing :current :route-id]))
           "the navigate handler wrote the route slice (:rf.db/runtime applied)")
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (empty? @warns)
             ":rf.route/navigate is a framework-authority writer — no ownership diagnostic")))))
 
@@ -107,7 +107,7 @@
                                    [:rf.runtime/routing :current :route-id]))
           "the url-change handler wrote the route slice")
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (empty? @warns)
             ":rf.route/transitioned is a framework-authority writer — no diagnostic")))))
 
@@ -143,7 +143,7 @@
                                  [:rf.runtime/routing :current :route-id]))
           ":rf.route/continue completed the navigation")
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (empty? @warns)
             "url-requested / continue / cancel are framework-authority writers — no diagnostic")))))
 
@@ -162,7 +162,7 @@
                                    [:rf.runtime/routing :current :route-id]))
           "the :on-match route committed onto the slice")
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (empty? @warns)
             "the commit-navigation path is a framework-authority writer — no diagnostic")))))
 
@@ -181,7 +181,7 @@
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring). This deftest
       ;; IS the non-vacuity control for the five quiet cases above, and it can
       ;; only do that job in the posture where the diagnostic exists.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (= 1 (count @warns))
             "a non-framework handler writing :rf.db/runtime trips exactly one diagnostic")
         (is (= :app/sneaky-runtime-write (-> @warns first :tags :rf.trace/event-id))
@@ -199,6 +199,6 @@
     (let [warns (record-runtime-warnings! ::machine)]
       (rf/dispatch-sync [:machine/runtime-write])
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (empty? @warns)
             ":rf/machine? still implies framework-write authority via framework-authority?")))))

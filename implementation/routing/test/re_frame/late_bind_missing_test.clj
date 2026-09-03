@@ -35,7 +35,7 @@
             ;; through `re-frame.core`) so the wrapper-deletion assertions read
             ;; a genuinely loaded namespace.
             [re-frame.core-routing]
-            [re-frame.late-bind :as late-bind]
+            [re-frame.late-bind :as rf.late-bind]
             ;; Loading routing registers its late-bind hooks. The
             ;; `with-hook-as-nil` helper below re-establishes the absent
             ;; state by flipping the hook value at runtime; restoration
@@ -46,12 +46,12 @@
   "Run `f` with the named late-bind hook set to nil. Restores the
   original value after `f` returns or throws."
   [hook-key f]
-  (let [original (late-bind/get-fn hook-key)]
+  (let [original (rf.late-bind/get-fn hook-key)]
     (try
-      (late-bind/set-fn! hook-key nil)
+      (rf.late-bind/set-fn! hook-key nil)
       (f)
       (finally
-        (late-bind/set-fn! hook-key original)))))
+        (rf.late-bind/set-fn! hook-key original)))))
 
 (deftest reg-route-raises-when-routing-artefact-missing
   (testing "rf/reg-route (macro) raises :rf.error/routing-artefact-missing when the :routing/reg-route hook is nil"
@@ -193,11 +193,11 @@
   (testing "routing publishes no hook for the four demoted surfaces"
     (doseq [hook [:routing/clear-route :routing/current-url
                   :routing/match-url :routing/route-url]]
-      (is (nil? (late-bind/get-fn hook))
+      (is (nil? (rf.late-bind/get-fn hook))
           (str hook " is unpublished — core has no wrapper to late-bind to")))
     ;; Positive control: routing IS loaded and DOES publish its live hooks, so
     ;; the nils above are real deletions rather than an unloaded artefact.
-    (is (some? (late-bind/get-fn :routing/reg-route))
+    (is (some? (rf.late-bind/get-fn :routing/reg-route))
         "control — :routing/reg-route IS published (the routing artefact is loaded)")
-    (is (some? (late-bind/get-fn :routing/route-link))
+    (is (some? (rf.late-bind/get-fn :routing/route-link))
         "control — :routing/route-link IS published")))

@@ -62,13 +62,13 @@
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             ["react-dom" :as react-dom]
             [reagent.dom.client :as rdc]
-            [re-frame.adapter.reagent :as reagent-adapter]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.core :as rf]
-            [re-frame.fx :as fx]
-            [re-frame.recipes.async-nav :as app]
-            [re-frame.routing :as routing]
-            [re-frame.substrate.adapter :as substrate]
-            [re-frame.test-support :as test-support]))
+            [re-frame.fx :as rf.fx]
+            [re-frame.recipes.async-nav :as rf.recipes.async-nav]
+            [re-frame.routing :as rf.routing]
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
+            [re-frame.test-support :as rf.test-support]))
 
 (defn- browser? []
   (and (exists? js/document) (some? (.-createElement js/document))))
@@ -81,8 +81,8 @@
 ;; ---------------------------------------------------------------------------
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       reagent-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.reagent/adapter
      ;; This suite creates its own top-level url-bound frame, so it needs a
      ;; clear ambient scope: the frame's `:initial-events` and routing's
      ;; synchronous initial URL sync must drain as a top-level cascade.
@@ -90,18 +90,18 @@
      :async?        true
      :init-fn       (fn []
                       (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
-                      (routing/reset-counters!)
+                      (rf.routing/reset-counters!)
                       ;; The scroll cache is a module-level `defonce` that
                       ;; survives the runtime reset, so a position saved by
                       ;; a neighbouring namespace would still be there.
-                      (routing/reset-scroll-cache!)
-                      (app/register-routes!)
-                      (app/register-resources!)
+                      (rf.routing/reset-scroll-cache!)
+                      (rf.recipes.async-nav/register-routes!)
+                      (rf.recipes.async-nav/register-resources!)
                       ;; Recipe 1's load has no server here, and this file is
                       ;; not measuring it. A recorder keeps the editor's
                       ;; draft empty and untouched until a row types into
                       ;; it, so "dirty" means exactly what this row did.
-                      (fx/reg-fx :rf.http/managed (fn [_ _] nil)))}))
+                      (rf.fx/reg-fx :rf.http/managed (fn [_ _] nil)))}))
 
 ;; ---------------------------------------------------------------------------
 ;; Borrowing the address bar
@@ -135,13 +135,13 @@
   was created in."
   [frame-id]
   (let [container (.createElement js/document "div")]
-    (.setAttribute container "id" app/root-id)
+    (.setAttribute container "id" rf.recipes.async-nav/root-id)
     (.appendChild js/document.body container)
     (let [root (rdc/create-root container)]
       (react-dom/flushSync
         (fn []
           (rdc/render root [rf/frame-provider {:frame frame-id}
-                            [app/app]])))
+                            [rf.recipes.async-nav/app]])))
       {:container container :root root})))
 
 (defn- teardown!
@@ -177,25 +177,25 @@
   "Wait until the route slice reads `expected`, then flush the render so
   the pane the assertions read is the pane the route names."
   [frame-id expected label]
-  (-> (test-support/poll-until #(= expected (route-id frame-id)) {:label label})
-      (.then (fn [_] (substrate/flush-render!) true))))
+  (-> (rf.test-support/poll-until #(= expected (route-id frame-id)) {:label label})
+      (.then (fn [_] (rf.substrate.adapter/flush-render!) true))))
 
 (defn- parked
   "Wait until a blocked navigation has been PARKED, then flush the render
   so the prompt the assertions read is on the page."
   [frame-id label]
-  (-> (test-support/poll-until #(some? (pending frame-id)) {:label label})
-      (.then (fn [_] (substrate/flush-render!) (pending frame-id)))))
+  (-> (rf.test-support/poll-until #(some? (pending frame-id)) {:label label})
+      (.then (fn [_] (rf.substrate.adapter/flush-render!) (pending frame-id)))))
 
 (defn- open-dirty-editor!
   "Navigate to the editor and leave one field of unsaved work in it, then
   flush so the badge is on the page."
   [frame-id]
-  (rf/dispatch-sync [:rf.route/navigate {:to     app/editor-route
+  (rf/dispatch-sync [:rf.route/navigate {:to     rf.recipes.async-nav/editor-route
                                          :params {:slug "welcome"}}]
                     {:frame frame-id})
-  (rf/dispatch-sync [::app/edit :title "My own title"] {:frame frame-id})
-  (substrate/flush-render!)
+  (rf/dispatch-sync [::rf.recipes.async-nav/edit :title "My own title"] {:frame frame-id})
+  (rf.substrate.adapter/flush-render!)
   nil)
 
 ;; ---------------------------------------------------------------------------
@@ -206,23 +206,23 @@
   (if-not (browser?)
     (skip! ":node-test has no document to mount into")
     (let [frame-id ::quiet
-          _        (at-url! app/list-url)
+          _        (at-url! rf.recipes.async-nav/list-url)
           _        (rf/make-frame {:id             frame-id
                                    :url-bound?     true
-                                   :initial-events [[::app/seed]]})
+                                   :initial-events [[::rf.recipes.async-nav/seed]]})
           m        (mount! frame-id)]
       (try
-        (is (= app/list-route (route-id frame-id))
+        (is (= rf.recipes.async-nav/list-route (route-id frame-id))
             "precondition: the frame's initial sync read the address bar")
         (is (nil? (pending frame-id)))
-        (is (nil? (node m app/prompt-selector))
+        (is (nil? (node m rf.recipes.async-nav/prompt-selector))
             "the confirm UI is ordinary view code over `:rf/pending-navigation`,
              so with nothing pending it puts NO node on the page — which is
              what makes the rows below able to assert its presence")
         (open-dirty-editor! frame-id)
-        (is (some? (node m app/dirty-badge-selector))
+        (is (some? (node m rf.recipes.async-nav/dirty-badge-selector))
             "the editor is dirty and says so")
-        (is (nil? (node m app/prompt-selector))
+        (is (nil? (node m rf.recipes.async-nav/prompt-selector))
             "and being dirty is not being blocked — nothing has tried to
              leave yet, so there is still no prompt")
         (finally (teardown! m frame-id))))))
@@ -239,20 +239,20 @@
             ;; Entry 0 is the list. The editor is a REAL pushState on top of
             ;; it, so the Back button below never goes past where this row
             ;; started.
-            _        (at-url! app/list-url)
+            _        (at-url! rf.recipes.async-nav/list-url)
             _        (rf/make-frame {:id             frame-id
                                      :url-bound?     true
-                                     :initial-events [[::app/seed]]})
+                                     :initial-events [[::rf.recipes.async-nav/seed]]})
             m        (mount! frame-id)]
         (-> (js/Promise.resolve
               (testing "forward into the editor, and dirty it"
                 (open-dirty-editor! frame-id)
-                (is (= app/editor-route (route-id frame-id)))
-                (is (= (app/editor-url "welcome") (path))
+                (is (= rf.recipes.async-nav/editor-route (route-id frame-id)))
+                (is (= (rf.recipes.async-nav/editor-url "welcome") (path))
                     (str "precondition: `:rf.nav/push-url` is a real"
                          " `history.pushState`, so the address bar reads the"
                          " editor; it reads " (pr-str (path))))
-                (is (some? (node m app/dirty-badge-selector))
+                (is (some? (node m rf.recipes.async-nav/dirty-badge-selector))
                     "precondition: there is unsaved work to protect")))
             (.then (fn [_]
                      ;; THE BACK BUTTON. Not a dispatch standing in for one:
@@ -264,10 +264,10 @@
             (.then
               (fn [p]
                 (testing "the leave was refused, and the URL came back with it"
-                  (is (= app/editor-route (route-id frame-id))
+                  (is (= rf.recipes.async-nav/editor-route (route-id frame-id))
                       "the navigation did not commit — the user is still in
                        the editor with their draft")
-                  (is (= (app/editor-url "welcome") (path))
+                  (is (= (rf.recipes.async-nav/editor-url "welcome") (path))
                       (str "AND THE ADDRESS BAR WAS PUT BACK. It reads "
                            (pr-str (path)) ". `popstate` had already moved it"
                            " before the application heard about it, so a guard"
@@ -281,27 +281,27 @@
                       "and the pending value records that the restore happened,
                        so a confirm dialog reading `current-url` sees the
                        restored value rather than the one the browser moved to")
-                  (is (= app/editor-route (:rejecting-route p)))
-                  (is (= ::app/can-leave? (:rejecting-guard p))))
+                  (is (= rf.recipes.async-nav/editor-route (:rejecting-route p)))
+                  (is (= ::rf.recipes.async-nav/can-leave? (:rejecting-guard p))))
 
                 (testing "and the prompt is on the page — ordinary view code"
-                  (is (some? (node m app/prompt-selector))
+                  (is (some? (node m rf.recipes.async-nav/prompt-selector))
                       "no `window.confirm` and no `beforeunload`: a blocked
                        attempt is a value, and the dialog is a view over it")
-                  (is (some? (node m app/leave-selector))))
+                  (is (some? (node m rf.recipes.async-nav/leave-selector))))
 
                 ;; A REAL CLICK on the reader's own choice.
-                (.click (node m app/leave-selector))
-                (settled-at frame-id app/list-route
+                (.click (node m rf.recipes.async-nav/leave-selector))
+                (settled-at frame-id rf.recipes.async-nav/list-route
                             "the reader's `Discard and leave` completing the parked navigation")))
             (.then
               (fn [_]
                 (is (nil? (pending frame-id))
                     "the slot cleared, so the prompt cannot come back")
-                (is (nil? (node m app/prompt-selector)))
-                (is (= app/list-url (path))
+                (is (nil? (node m rf.recipes.async-nav/prompt-selector)))
+                (is (= rf.recipes.async-nav/list-url (path))
                     (str "and the address bar followed the completed"
-                         " navigation to " (pr-str app/list-url) "; it reads "
+                         " navigation to " (pr-str rf.recipes.async-nav/list-url) "; it reads "
                          (pr-str (path)) ". A continue that landed the route"
                          " without landing the URL would leave the two"
                          " disagreeing in exactly the state the guard was"
@@ -317,10 +317,10 @@
     (skip! ":node-test has no click model")
     (async done
       (let [frame-id ::stay
-            _        (at-url! app/list-url)
+            _        (at-url! rf.recipes.async-nav/list-url)
             _        (rf/make-frame {:id             frame-id
                                      :url-bound?     true
-                                     :initial-events [[::app/seed]]})
+                                     :initial-events [[::rf.recipes.async-nav/seed]]})
             m        (mount! frame-id)]
         (-> (js/Promise.resolve (open-dirty-editor! frame-id))
             (.then (fn [_]
@@ -329,28 +329,28 @@
                      ;; restore. The row is here for the OTHER button, and
                      ;; deliberately touches no history: it must not go back
                      ;; past the entry it started on.
-                     (rf/dispatch-sync [:rf.route/navigate {:to app/list-route}]
+                     (rf/dispatch-sync [:rf.route/navigate {:to rf.recipes.async-nav/list-route}]
                                        {:frame frame-id})
                      (parked frame-id "the programmatic leave's blocked attempt")))
             (.then
               (fn [_]
-                (is (= app/editor-route (route-id frame-id)))
-                (is (= (app/editor-url "welcome") (path))
+                (is (= rf.recipes.async-nav/editor-route (route-id frame-id)))
+                (is (= (rf.recipes.async-nav/editor-url "welcome") (path))
                     "a forward door never moved the address bar, so there was
                      nothing to put back — the asymmetry the Back-button row
                      exists for")
-                (is (some? (node m app/stay-selector)))
-                (.click (node m app/stay-selector))
-                (test-support/poll-until #(nil? (pending frame-id))
+                (is (some? (node m rf.recipes.async-nav/stay-selector)))
+                (.click (node m rf.recipes.async-nav/stay-selector))
+                (rf.test-support/poll-until #(nil? (pending frame-id))
                                          {:label "the reader's `Stay` clearing the parked attempt"})))
             (.then
               (fn [_]
-                (substrate/flush-render!)
-                (is (= app/editor-route (route-id frame-id))
+                (rf.substrate.adapter/flush-render!)
+                (is (= rf.recipes.async-nav/editor-route (route-id frame-id))
                     "still in the editor")
-                (is (nil? (node m app/prompt-selector))
+                (is (nil? (node m rf.recipes.async-nav/prompt-selector))
                     "the prompt went with the pending value")
-                (is (some? (node m app/dirty-badge-selector))
+                (is (some? (node m rf.recipes.async-nav/dirty-badge-selector))
                     "and the work is still there — cancelling the leave must
                      not also cancel the edits it was protecting")
                 (is (= "My own title"

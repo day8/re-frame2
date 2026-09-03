@@ -18,7 +18,7 @@
   lane).
 
   What is dev-only is the CHANNEL each of those was observed through. Three
-  families of assertion read the trace bus, which `interop/debug-enabled?`
+  families of assertion read the trace bus, which `rf.interop/debug-enabled?`
   closes at namespace-load time:
 
     * the lifecycle / nav-token / fragment-changed / plan traces
@@ -29,7 +29,7 @@
       structural gate's DIAGNOSTIC) and `:rf.error/schema-validation-failure`
       (the param-validation diagnostic).
 
-  Their assertions are kept VERBATIM inside `(when interop/debug-enabled? …)`
+  Their assertions are kept VERBATIM inside `(when rf.interop/debug-enabled? …)`
   arms marked `rf2-o5dbf`.
 
   READ THIS BEFORE FILING THE NEXT LOOK-ALIKE AS A DEFECT. Every rejection
@@ -57,7 +57,7 @@
 
   PRODUCTION WITNESSES were added rather than assertions dropped:
 
-    * `address/classify` is the very fn the handler consults, pure and
+    * `rf.routing.address/classify` is the very fn the handler consults, pure and
       always-on, so every structural-gate `:reason` / `:keys` claim is now
       asserted against ITS verdict outside the arm — same rule, same input,
       no gate between the call and the answer. That also re-proves the
@@ -76,15 +76,15 @@
   Nothing was deleted or weakened."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.fx :as fx]
-            [re-frame.identity :as identity]
-            [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.routing.address :as address]
+            [re-frame.fx :as rf.fx]
+            [re-frame.identity :as rf.identity]
+            [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.routing.address :as rf.routing.address]
             [re-frame.routing.test-support]
-            [re-frame.routing-test-support :as rts]))
+            [re-frame.routing-test-support :as rf.routing-test-support]))
 
-(use-fixtures :each rts/reset-runtime)
+(use-fixtures :each rf.routing-test-support/reset-runtime)
 
 ;; ---- rf2-o5dbf: the runtime-db facts a navigation leaves behind -----------
 ;;
@@ -111,7 +111,7 @@
     (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
     ;; Capture the URL that lands at :rf.nav/push-url.
     (let [pushed (atom [])]
-      (fx/reg-fx :rf.nav/push-url
+      (rf.fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
       (rf/dispatch-sync [:rf.route/navigate {:to :route/article :params {:id "intro"}}])
@@ -157,7 +157,7 @@
     (rf/reg-route :route/search {} "/search")
     (rf/reg-route :route/cart   {} "/cart")
     (let [pushed (atom [])]
-      (fx/reg-fx :rf.nav/push-url
+      (rf.fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
       (rf/dispatch-sync [:rf.route/transitioned "/search?theme=dark&locale=en"])
@@ -183,7 +183,7 @@
                                 [:locale {:optional true} :string]]}
                   "/cart")
     (let [pushed (atom [])]
-      (fx/reg-fx :rf.nav/push-url
+      (rf.fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
 
@@ -277,7 +277,7 @@
   ;; rf2-kqxe6.7: the strip above moved to the ResolvedTarget seam, where an
   ;; ABSENT `:query` must stay absent rather than be conjured into `{}`. This
   ;; door's OTHER normalisation therefore stays here: presence — not
-  ;; truthiness — discriminates (`address/edit-keys`), so a present-but-nil
+  ;; truthiness — discriminates (`rf.routing.address/edit-keys`), so a present-but-nil
   ;; `:query` is the same "clear the query" instruction as `:query {}`, and the
   ;; branch that reads it hands it through as nil.
   (testing "{:to … :query nil} writes {} — the same slice :query {} writes"
@@ -300,7 +300,7 @@
     ;; is the canonical builder; the navigate handler routes opts → 4-arity.
     (rf/reg-route :route/docs {} "/docs/:page")
     (let [pushed (atom [])]
-      (fx/reg-fx :rf.nav/push-url
+      (rf.fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
       (rf/dispatch-sync [:rf.route/navigate {:to :route/docs :params {:page "routing"} :fragment "scroll-restoration"}])
@@ -312,7 +312,7 @@
             embedded #fragment in the pushed URL"
     (rf/reg-route :route/docs {} "/docs/:page")
     (let [pushed (atom [])]
-      (fx/reg-fx :rf.nav/push-url
+      (rf.fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
       (rf/dispatch-sync [:rf.route/navigate {:url "/docs/routing#scroll-restoration"}])
@@ -345,7 +345,7 @@
     (rf/reg-route :route/home {} "/")
     (rf/reg-route :rf.route/not-found {} "/404")
     (let [pushed (atom [])]
-      (fx/reg-fx :rf.nav/push-url
+      (rf.fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
       (rf/dispatch-sync [:rf.route/navigate {:url "/no/such/path"}])
@@ -375,7 +375,7 @@
     (rf/reg-route :route/home {} "/")
     (let [pushed (atom [])
           traces (atom [])]
-      (fx/reg-fx :rf.nav/push-url
+      (rf.fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
       ;; Land on home so the not-found commit displaces a known slice.
@@ -399,7 +399,7 @@
       ;; no longer REJECTS" — is the always-on pair above: the slice committed
       ;; to :rf.route/not-found and the requested url was pushed. A rejection
       ;; would have left both empty.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (some (fn [ev] (= :rf.warning/no-not-found-route (:operation ev)))
                   @traces)
             ":rf.warning/no-not-found-route fires when no 404 route is
@@ -428,7 +428,7 @@
     ;; The not-found route's literal :path is /404; the fix must NOT push it.
     (rf/reg-route :rf.route/not-found {} "/404")
     (let [pushed (atom [])]
-      (fx/reg-fx :rf.nav/push-url
+      (rf.fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
 
@@ -463,12 +463,12 @@
   (testing ":rf.route/transitioned for a structurally-matched URL whose params
             fail schema validation routes to :rf.route/not-found with
             `:reason :validation` in :params (Spec 012 §Param validation)"
-    (let [restore (rts/with-stub-validator)]
+    (let [restore (rf.routing-test-support/with-stub-validator)]
       (try
         (rf/reg-route :route/article
                       {:params (fn [{:keys [id]}] (clojure.string/starts-with? (or id "") "a"))} "/articles/:id")
         (rf/reg-route :rf.route/not-found {} "/404")
-        (fx/reg-fx :rf.nav/push-url
+        (rf.fx/reg-fx :rf.nav/push-url
                    {:platforms #{:server :client}}
                    (fn [_ _] nil))
         (rf/dispatch-sync [:rf.route/transitioned "/articles/zoo"])
@@ -486,7 +486,7 @@
     (rf/reg-route :route/home {} "/")
     (let [pushed (atom [])
           traces (atom [])]
-      (fx/reg-fx :rf.nav/push-url
+      (rf.fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
       (rf/dispatch-sync [:rf.route/transitioned "/"])
@@ -501,7 +501,7 @@
       ;; CLASSIFICATION is always-on (the two legs above are its production
       ;; consequence: no push, no slice rewrite); only its OBSERVABILITY is a
       ;; trace-stream fact, and the assertion says so in as many words.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (some #(= :rf.route/external-url-requested (:operation %)) @traces)
             "external classification is observable in the trace stream")))))
 
@@ -515,7 +515,7 @@
   (testing ":rf.route/navigate writes :fragment + :nav-token into the slice
             and emits :rf.route.nav-token/allocated"
     (rf/reg-route :route/docs {} "/docs/:page")
-    (fx/reg-fx :rf.nav/push-url
+    (rf.fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     (let [traces (atom [])]
@@ -529,7 +529,7 @@
             ":nav-token is allocated (pre-fix: missing)"))
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring). The ALLOCATION
       ;; the trace announces is the slice fact asserted just above.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (some (fn [ev]
                     (and (= :rf.route.nav-token/allocated (:operation ev))
                          (= :route/docs (-> ev :tags :route-id))))
@@ -539,7 +539,7 @@
 (deftest navigate-no-fragment-still-allocates-nav-token
   (testing ":rf.route/navigate without a :fragment opt still writes :nav-token"
     (rf/reg-route :route/home {} "/")
-    (fx/reg-fx :rf.nav/push-url
+    (rf.fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     (rf/dispatch-sync [:rf.route/navigate {:to :route/home}])
@@ -560,7 +560,7 @@
   (testing ":rf.route/handle-url-change writes :fragment and :nav-token
             into the slice (the seven-key canonical shape)"
     (rf/reg-route :route/docs {} "/docs/:page")
-    (fx/reg-fx :rf.nav/push-url
+    (rf.fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     ;; URL with a fragment so we can assert :fragment is populated.
@@ -583,7 +583,7 @@
 (deftest handle-url-change-allocates-nav-token-trace
   (testing ":rf.route/handle-url-change emits :rf.route.nav-token/allocated"
     (rf/reg-route :route/home {} "/")
-    (fx/reg-fx :rf.nav/push-url
+    (rf.fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     (let [traces (atom [])]
@@ -603,7 +603,7 @@
         (is (string? (:nav-token slice))
             "…and the allocated token is a string, exactly as the tag reports it"))
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (some (fn [ev]
                     (and (= :rf.route.nav-token/allocated (:operation ev))
                          (= :route/home (-> ev :tags :route-id))
@@ -624,7 +624,7 @@
             :rf.route/not-found slice with {:url url} in :params"
     (rf/reg-route :route/home {} "/")
     (rf/reg-route :rf.route/not-found {} "/404")
-    (fx/reg-fx :rf.nav/push-url
+    (rf.fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     ;; Land on home first so we have a previous slice to displace.
@@ -647,7 +647,7 @@
   (testing "when :rf.route/not-found is NOT registered, an unmatched URL
             still rewrites the slice AND emits :rf.warning/no-not-found-route"
     (rf/reg-route :route/home {} "/")
-    (fx/reg-fx :rf.nav/push-url
+    (rf.fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     (let [traces (atom [])]
@@ -662,7 +662,7 @@
             "…carrying the unmatched URL, which is the CONDITION the advisory
              reports on — an unmatched URL with no route to render it"))
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (some (fn [ev]
                     (= :rf.warning/no-not-found-route (:operation ev)))
                   @traces)
@@ -685,7 +685,7 @@
     (rf/reg-route :route/home    {} "/")
     (rf/reg-route :route/search  {} "/search")
     (rf/reg-route :rf.route/not-found {} "/404")
-    (fx/reg-fx :rf.nav/push-url
+    (rf.fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     ;; Path: a bare `%` in a captured segment.
@@ -717,7 +717,7 @@
             standard :rf.error/no-such-handler when the URL is malformed"
     (rf/reg-route :route/home {} "/")
     (rf/reg-route :rf.route/not-found {} "/404")
-    (fx/reg-fx :rf.nav/push-url
+    (rf.fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     (let [traces (atom [])]
@@ -736,7 +736,7 @@
                               [:rf.runtime/routing :current])))
           "the offending URL and its :malformed-url reason reach the slice")
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (some (fn [ev]
                     (and (= :rf.warning/malformed-url (:operation ev))
                          (= "/articles/%" (-> ev :tags :url))))
@@ -763,7 +763,7 @@
     (rf/reg-route :route/home {} "/")
     ;; No :rf.route/not-found registered → the bare-miss path also emits
     ;; :rf.warning/no-not-found-route.
-    (fx/reg-fx :rf.nav/push-url
+    (rf.fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
 
@@ -789,7 +789,7 @@
         (is (nil? (:route-id (frame-slice :rf/default)))
             "…and :rf/default was not touched")
         ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (some (fn [ev]
                       (and (= :rf.warning/malformed-url (:operation ev))
                            (= "/articles/%" (-> ev :tags :url))
@@ -816,7 +816,7 @@
         (is (nil? (:route-id (frame-slice :rf/default)))
             "…and :rf/default was not touched")
         ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (some (fn [ev]
                       (and (= :rf.warning/no-not-found-route (:operation ev))
                            (= :route/owner (-> ev :tags :frame))))
@@ -841,7 +841,7 @@
                (:params (frame-slice :rf/default)))
             "the default-frame dispatch really was carried out in :rf/default")
         ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (some (fn [ev]
                       (and (= :rf.error/no-such-handler (:operation ev))
                            (= :rf/default (-> ev :tags :frame))))
@@ -853,7 +853,7 @@
   (testing "the regular happy path emits NO :rf.warning/malformed-url"
     (rf/reg-route :route/home    {} "/")
     (rf/reg-route :route/search  {} "/search")
-    (fx/reg-fx :rf.nav/push-url
+    (rf.fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     (let [traces (atom [])]
@@ -874,7 +874,7 @@
         (is (= {} (:params slice))
             "…with no {:url … :reason :malformed-url} not-found params"))
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (not-any? (fn [ev] (= :rf.warning/malformed-url (:operation ev)))
                       @traces)
             "well-formed URL → no malformed-URL trace")))))
@@ -893,7 +893,7 @@
     (rf/reg-route :route/cart
                   {:on-match [[:prefs/loaded]]} "/cart")
     (rf/reg-route :route/home {} "/")
-    (fx/reg-fx :rf.nav/push-url
+    (rf.fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     ;; The slice is written FIRST and then :on-match dispatches, so the
@@ -936,7 +936,7 @@
                          {:db (assoc db :load/b-done? true)}))
       (rf/reg-route :route/dashboard
                     {:on-match [[:load/a] [:load/b]]} "/dashboard")
-      (fx/reg-fx :rf.nav/push-url
+      (rf.fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ _] nil))
       (rf/dispatch-sync [:rf.route/navigate {:to :route/dashboard}])
@@ -957,7 +957,7 @@
             (rf2-cj9fn; pre-rename `:rf.route/fragment-changed`) with
             :prev-fragment / :next-fragment under :tags (Spec 012 §Fragments)"
     (rf/reg-route :route/docs {} "/docs/:page")
-    (fx/reg-fx :rf.nav/push-url
+    (rf.fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     ;; Land on /docs/routing first (no fragment).
@@ -985,7 +985,7 @@
       (is (= :route/docs (:route-id (frame-slice :rf/default)))
           "…on :route/docs, the route the traces tag")
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [frag-events (filter #(= :rf.route/fragment-changed (:operation %)) @traces)]
           (is (= 2 (count frag-events))
               "two fragment-only changes emit two :rf.route/fragment-changed traces")
@@ -1034,7 +1034,7 @@
                          (swap! on-match-calls inc)
                          {:db db}))
       (rf/reg-route :route/docs {:on-match [[:docs/load]]} "/docs/:page")
-      (fx/reg-fx :rf.nav/push-url
+      (rf.fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ _] nil))
       ;; Land on /docs/routing via popstate (handle-url-change). This is
@@ -1068,7 +1068,7 @@
         ;; nav-token denial — a NEGATIVE over the ring, green for free under
         ;; the gate), and the whole nav ran on the :rf/default frame whose
         ;; slice those legs read (the frame stamp).
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (some #(= :rf.route/fragment-changed (:operation %)) @traces)
               "fragment-only popstate emits :rf.route/fragment-changed")
           (is (not-any? #(= :rf.route.nav-token/allocated (:operation %)) @traces)
@@ -1104,7 +1104,7 @@
     (let [on-match-calls (atom 0)]
       (rf/reg-event :cart/load (fn [{:keys [db]} _] (swap! on-match-calls inc) {:db db}))
       (rf/reg-route :route/cart {:on-match [[:cart/load]]} "/cart")
-      (fx/reg-fx :rf.nav/push-url
+      (rf.fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ _] nil))
       ;; First nav: full rewrite, loader fires once, nav-1 allocated.
@@ -1126,7 +1126,7 @@
         ;; over the trace ring: green for free under the gate. Its subject —
         ;; "no fresh token was allocated" — is the `(= "nav-1" (:nav-token …))`
         ;; leg above, which is always-on and has teeth.
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (not-any? #(= :rf.route.nav-token/allocated (:operation %)) @traces)
               "identical re-navigation emits NO :rf.route.nav-token/allocated"))))))
 
@@ -1137,7 +1137,7 @@
       (rf/reg-event :article/load (fn [{:keys [db]} _] (swap! on-match-calls inc) {:db db}))
       (rf/reg-route :route/article
                     {:on-match [[:article/load]]} "/articles/:id")
-      (fx/reg-fx :rf.nav/push-url
+      (rf.fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ _] nil))
       (rf/dispatch-sync [:rf.route/transitioned "/articles/A"])
@@ -1155,7 +1155,7 @@
           pushed         (atom 0)]
       (rf/reg-event :cart/load (fn [{:keys [db]} _] (swap! on-match-calls inc) {:db db}))
       (rf/reg-route :route/cart {:on-match [[:cart/load]]} "/cart")
-      (fx/reg-fx :rf.nav/push-url
+      (rf.fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ _] (swap! pushed inc)))
       (rf/dispatch-sync [:rf.route/navigate {:to :route/cart}])
@@ -1184,14 +1184,14 @@
   (testing "rf2-ee38b.8: [:rf.route/navigate] with params that fail the
             route's :params schema rejects — slice unchanged, no push,
             :rf.error/schema-validation-failure (:where :event) emitted"
-    (let [restore (rts/with-stub-validator)
+    (let [restore (rf.routing-test-support/with-stub-validator)
           pushed  (atom [])]
       (try
         (rf/reg-route :route/home {} "/")
         (rf/reg-route :route/article
                       {:params (fn [{:keys [id]}]
                                  (clojure.string/starts-with? (or id "") "a"))} "/articles/:id")
-        (fx/reg-fx :rf.nav/push-url
+        (rf.fx/reg-fx :rf.nav/push-url
                    {:platforms #{:server :client}}
                    (fn [_ url] (swap! pushed conj url)))
         ;; Land somewhere valid first so we can prove the slice is left
@@ -1223,7 +1223,7 @@
             ;; fx-args gate in `routing-nav-fx-schemas-test`, where the
             ;; VERDICT short-circuits to `true` under the gate per Spec 010
             ;; §Production builds; here the verdict is computed either way.
-            (when interop/debug-enabled?
+            (when rf.interop/debug-enabled?
               (let [err (first (filter #(= :rf.error/schema-validation-failure
                                            (:operation %))
                                        @traces))]
@@ -1239,7 +1239,7 @@
   (testing ":fragment in URL flows into the slice on every URL-driven nav
             (Spec 012 §The :rf/route slice — :fragment row)"
     (rf/reg-route :route/docs {} "/docs/:page")
-    (fx/reg-fx :rf.nav/push-url
+    (rf.fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     (rf/dispatch-sync [:rf.route/transitioned "/docs/routing#scroll-restoration"])
@@ -1262,7 +1262,7 @@
             push through. rf2-3bv8o."
     (rf/reg-route :route/home {} "/")
     (let [pushed (atom [])]
-      (fx/reg-fx :rf.nav/push-url
+      (rf.fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
       (rf/dispatch-sync [:rf.route/transitioned "/"])
@@ -1309,7 +1309,7 @@
     (rf/reg-route :route/home {} "/")
     (rf/reg-route :route/cart {} "/cart")
     (let [pushed (atom [])]
-      (fx/reg-fx :rf.nav/push-url
+      (rf.fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
       ;; Land on a known route first so we can prove the slice does not move.
@@ -1365,7 +1365,7 @@
             while the URL had no #, a slice/URL divergence)"
     (rf/reg-route :route/docs {} "/docs/:page")
     (let [pushed (atom [])]
-      (fx/reg-fx :rf.nav/push-url
+      (rf.fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
 
@@ -1409,10 +1409,10 @@
     (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
     (let [pushed   (atom [])
           replaced (atom [])]
-      (fx/reg-fx :rf.nav/push-url
+      (rf.fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
-      (fx/reg-fx :rf.nav/replace-url
+      (rf.fx/reg-fx :rf.nav/replace-url
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! replaced conj url)))
       ;; [target] — no path-params, no opts.
@@ -1440,7 +1440,7 @@
             path-param, not a misplaced opt"
     (rf/reg-route :route/anchor {} "/anchor/:fragment")
     (let [pushed (atom [])]
-      (fx/reg-fx :rf.nav/push-url
+      (rf.fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
       (rf/dispatch-sync [:rf.route/navigate {:to :route/anchor :params {:fragment "intro"}}])
@@ -1473,7 +1473,7 @@
     (rf/make-frame {:id :route/owner})
     (rf/reg-route :route/from {} "/from")
     (rf/reg-route :route/to   {} "/to")
-    (fx/reg-fx :rf.nav/push-url
+    (rf.fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     ;; rf2-o5dbf: every assertion here reads a trace tag. The tags' CLAIM is
@@ -1496,7 +1496,7 @@
       (is (nil? (:route-id (frame-slice :rf/default)))
           "…while :rf/default never moved")
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (some (fn [ev]
                     (and (= :rf.route.nav-token/allocated (:operation ev))
                          (= :route/from (-> ev :tags :route-id))
@@ -1522,7 +1522,7 @@
       (is (nil? (:route-id (frame-slice :rf/default)))
           "…and :rf/default still never moved")
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (some (fn [ev]
                     (and (= :rf.route/deactivated (:operation ev))
                          (= :route/from (-> ev :tags :route-id))
@@ -1544,7 +1544,7 @@
     (rf/make-frame {:id :route/owner})
     (rf/reg-route :route/from {} "/from")
     (rf/reg-route :route/to   {} "/to")
-    (fx/reg-fx :rf.nav/push-url
+    (rf.fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     ;; rf2-o5dbf: as in the programmatic sibling above, the tags claim an
@@ -1564,7 +1564,7 @@
       (is (nil? (:route-id (frame-slice :rf/default)))
           "transitioned: …and :rf/default never moved")
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (some (fn [ev]
                     (and (= :rf.route.nav-token/allocated (:operation ev))
                          (= :route/owner (-> ev :tags :frame))))
@@ -1586,7 +1586,7 @@
       (is (nil? (:route-id (frame-slice :rf/default)))
           "handle-url-change: …and :rf/default still never moved")
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (some (fn [ev]
                     (and (= :rf.route/deactivated (:operation ev))
                          (= :route/from (-> ev :tags :route-id))
@@ -1622,7 +1622,7 @@
     (rf/make-frame {:id :rf/tool :rf.trace/frame-no-emit? true})
     (rf/reg-route :route/from {} "/from")
     (rf/reg-route :route/to   {} "/to")
-    (fx/reg-fx :rf.nav/push-url
+    (rf.fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     ;; Seed a prior route in the tool frame so a cross-route nav would emit
@@ -1647,7 +1647,7 @@
            frame-attributed, which is the same `:tags :frame` condition the
            suppression gate and epoch capture both read")
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (empty? (filter #(#{:rf.route.nav-token/allocated
                                 :rf.route/activated
                                 :rf.route/deactivated}
@@ -1668,7 +1668,7 @@
       (is (= :route/to (:route-id (frame-slice :rf/default)))
           "control: the identical dispatch commits from an ordinary frame")
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (some #(= :rf.route.nav-token/allocated (:operation %)) @app-traces)
             "control: :rf.route.nav-token/allocated DOES fire from an emitting frame")
         (is (some #(= :rf.route/activated (:operation %)) @app-traces)
@@ -1695,7 +1695,7 @@
   and pushes no URL. This reads the same rule on the same input with no bus in
   between: what the reject WOULD report."
   [request]
-  (address/classify request (nav-slice)))
+  (rf.routing.address/classify request (nav-slice)))
 
 (deftest routing-in-place-target-stays-on-current-route
   (testing "an in-place request patches the CURRENT route's query, holding id + path-params"
@@ -1707,7 +1707,7 @@
                    :query  [:map [:tab {:optional true} :string]]}
                   "/articles/:id")
     (let [pushed (atom [])]
-      (fx/reg-fx :rf.nav/push-url
+      (rf.fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
       ;; Land on /articles/intro?tab=notes.
@@ -1734,7 +1734,7 @@
                                 [:sort {:optional true} :string]]}
                   "/search")
     (let [pushed (atom [])]
-      (fx/reg-fx :rf.nav/push-url
+      (rf.fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
       ;; Land on /search?q=clojure&page=1&sort=recent.
@@ -1760,7 +1760,7 @@
                                 [:sort {:optional true} :string]]}
                   "/search")
     (let [pushed (atom [])]
-      (fx/reg-fx :rf.nav/push-url
+      (rf.fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
       (rf/dispatch-sync [:rf.route/transitioned "/search?q=clojure&sort=recent"])
@@ -1783,7 +1783,7 @@
                                 [:flag {:optional true} :string]]}
                   "/search")
     (let [pushed (atom [])]
-      (fx/reg-fx :rf.nav/push-url
+      (rf.fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
       (rf/dispatch-sync [:rf.route/transitioned "/search?page=1"])
@@ -1803,7 +1803,7 @@
                   {:query [:map [:page {:optional true} :int]]}
                   "/search")
     (let [pushed (atom [])]
-      (fx/reg-fx :rf.nav/push-url
+      (rf.fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
       (rf/dispatch-sync [:rf.route/transitioned "/search?page=5"])
@@ -1828,7 +1828,7 @@
                                 [:page {:optional true} :int]]} "/b")
     (let [pushed (atom [])
           errors (atom [])]
-      (fx/reg-fx :rf.nav/push-url
+      (rf.fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
       (rf/dispatch-sync [:rf.route/transitioned "/a?theme=dark"])
@@ -1846,7 +1846,7 @@
              (:reason (gate-verdict {:to :route/b :query-merge {:page 3}})))
           "the gate names the query-merge-on-destination violation")
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [err (first (filter #(= :rf.error/navigate-bad-request (:operation %)) @errors))]
           (is (some? err) ":rf.error/navigate-bad-request emitted")
           (is (= :query-merge-in-place-only (-> err :tags :reason))
@@ -1860,7 +1860,7 @@
     ;; (:reason :no-current-route), slice unchanged, no push.
     (let [pushed  (atom [])
           errors  (atom [])]
-      (fx/reg-fx :rf.nav/push-url
+      (rf.fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
       (rf/register-listener! :trace ::inplace-reject
@@ -1878,7 +1878,7 @@
       (is (nil? (:route-id (nav-slice)))
           "the route slice stays empty (unchanged)")
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [err (first (filter #(= :rf.error/navigate-bad-request (:operation %)) @errors))]
           (is (some? err) ":rf.error/navigate-bad-request emitted")
           (is (= :no-current-route (-> err :tags :reason))
@@ -1893,7 +1893,7 @@
     (rf/reg-route :route/search
                   {:query [:map [:page {:optional true} :int]]} "/search")
     (let [pushed (atom [])]
-      (fx/reg-fx :rf.nav/push-url
+      (rf.fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
       (rf/dispatch-sync [:rf.route/transitioned "/search?page=2"])
@@ -1930,13 +1930,13 @@
         replaced (atom [])
         scrolled (atom [])
         order    (atom [])]
-    (fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}}
+    (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}}
                (fn [_ url]  (swap! pushed conj url)   (swap! order conj [:rf.nav/push-url url])))
-    (fx/reg-fx :rf.nav/replace-url {:platforms #{:server :client}}
+    (rf.fx/reg-fx :rf.nav/replace-url {:platforms #{:server :client}}
                (fn [_ url]  (swap! replaced conj url) (swap! order conj [:rf.nav/replace-url url])))
-    (fx/reg-fx :rf.nav/scroll {:platforms #{:server :client}}
+    (rf.fx/reg-fx :rf.nav/scroll {:platforms #{:server :client}}
                (fn [_ args] (swap! scrolled conj args) (swap! order conj [:rf.nav/scroll args])))
-    (fx/reg-fx :rf.nav/capture-scroll {:platforms #{:server :client}}
+    (rf.fx/reg-fx :rf.nav/capture-scroll {:platforms #{:server :client}}
                (fn [_ args] (swap! order conj [:rf.nav/capture-scroll args])))
     {:push pushed :replace replaced :scroll scrolled :order order}))
 
@@ -1987,7 +1987,7 @@
               ;; (:nav-token slice-after))`, the activated denial is
               ;; `(= 1 @on-match-calls)`, and the `:frame` tag is the fact that
               ;; this default-frame nav moved the default frame's slice.
-              (when interop/debug-enabled?
+              (when rf.interop/debug-enabled?
                 (let [frag (filter #(= :rf.route/fragment-changed (:operation %)) @traces)
                       tags (-> frag first :tags)]
                   (is (= 1 (count frag))
@@ -2101,7 +2101,7 @@
         ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring). A NEGATIVE
         ;; over the trace ring, green for free under the gate; the always-on
         ;; legs above are what "complete no-op" means in runtime-db terms.
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (not-any? #(= :rf.route/fragment-changed (:operation %)) @traces)
               "identical target emits NO :rf.route/fragment-changed (it is a complete no-op)"))))))
 
@@ -2115,10 +2115,10 @@
     (rf/reg-event :docs/load (fn [{:keys [db]} _] {:db db}))
     (let [fxs        (reg-nav-fxs-capturing!)
           plan-calls (atom [])
-          prior      (late-bind/get-fn :routing/on-route-entry)]
+          prior      (rf.late-bind/get-fn :routing/on-route-entry)]
       ;; Spy the route-entry hook the Resources artefact publishes; return an
       ;; empty plan (no blocking, no fx, no error) so commit-navigation proceeds.
-      (late-bind/set-fn! :routing/on-route-entry
+      (rf.late-bind/set-fn! :routing/on-route-entry
                          (fn [ctx] (swap! plan-calls conj ctx) {}))
       (try
         ;; Full nav → the route-entry plan runs once.
@@ -2137,7 +2137,7 @@
         (finally
           ;; Restore the prior hook binding (nil in the resources-free routing
           ;; suite) so this spy never leaks into a sibling test.
-          (late-bind/set-fn! :routing/on-route-entry prior))))))
+          (rf.late-bind/set-fn! :routing/on-route-entry prior))))))
 
 ;; ============================================================================
 ;; rf2-p1aipi — URL-driven fragment-only path emits the resolved scroll-fx
@@ -2166,11 +2166,11 @@
         captured (atom [])
         pushed   (atom [])
         order    (atom [])]
-    (fx/reg-fx :rf.nav/scroll {:platforms #{:server :client}}
+    (rf.fx/reg-fx :rf.nav/scroll {:platforms #{:server :client}}
                (fn [_ args] (swap! scrolled conj args) (swap! order conj [:rf.nav/scroll args])))
-    (fx/reg-fx :rf.nav/capture-scroll {:platforms #{:server :client}}
+    (rf.fx/reg-fx :rf.nav/capture-scroll {:platforms #{:server :client}}
                (fn [_ args] (swap! captured conj args) (swap! order conj [:rf.nav/capture-scroll args])))
-    (fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}}
+    (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}}
                (fn [_ url]  (swap! pushed conj url)   (swap! order conj [:rf.nav/push-url url])))
     {:scroll scrolled :capture captured :push pushed :order order}))
 
@@ -2279,7 +2279,7 @@
   (let [pushed (atom [])
         slice  (fn [] (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                               [:rf.runtime/routing :current]))]
-    (fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}}
+    (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}}
                (fn [_ url] (swap! pushed conj url)))
     ;; Establish a current route so in-place requests have something to patch.
     (rf/dispatch-sync [:rf.route/navigate {:to :route/gate-a}])
@@ -2290,7 +2290,7 @@
     ;; pass. What is dev-only is the `:rf.error/navigate-bad-request`
     ;; DIAGNOSTIC each block reads. Every `:reason` / `:keys` claim therefore
     ;; gets an always-on counterpart from `gate-verdict` — the same
-    ;; `address/classify` call the handler makes, on the same request, with no
+    ;; `rf.routing.address/classify` call the handler makes, on the same request, with no
     ;; bus in between. Without it, the per-rule discrimination would go
     ;; untested under the gate and only the coarse "nothing moved" pair below
     ;; would survive.
@@ -2298,7 +2298,7 @@
     (testing "empty map rejects (:no-destination-or-change)"
       (is (= :no-destination-or-change (:reason (gate-verdict {}))))
       (let [err (gate-reject {} pushed)]
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (= :no-destination-or-change (-> err :tags :reason)))
           (is (= :event (-> err :tags :where))))
         (is (empty? @pushed))))
@@ -2306,45 +2306,45 @@
     (testing "pure-policy map rejects (:no-destination-or-change)"
       (is (= :no-destination-or-change (:reason (gate-verdict {:replace? true}))))
       (let [err (gate-reject {:replace? true} pushed)]
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (= :no-destination-or-change (-> err :tags :reason)))))
       (is (empty? @pushed)))
 
     (testing ":to + :url are mutually exclusive"
       (is (= :to-url-exclusive (:reason (gate-verdict {:to :route/gate-b :url "/gate-b"}))))
       (let [err (gate-reject {:to :route/gate-b :url "/gate-b"} pushed)]
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (= :to-url-exclusive (-> err :tags :reason))))))
 
     (testing ":url excludes :params / :query / :query-merge"
       (is (= :url-excludes-address (:reason (gate-verdict {:url "/gate-b" :query {:q "x"}}))))
       (let [err (gate-reject {:url "/gate-b" :query {:q "x"}} pushed)]
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (= :url-excludes-address (-> err :tags :reason))))))
 
     (testing ":query + :query-merge are mutually exclusive"
       (is (= :query-exclusive (:reason (gate-verdict {:query {:q "x"} :query-merge {:q "y"}}))))
       (let [err (gate-reject {:query {:q "x"} :query-merge {:q "y"}} pushed)]
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (= :query-exclusive (-> err :tags :reason))))))
 
     (testing ":query-merge on a destination request rejects"
       (is (= :query-merge-in-place-only
              (:reason (gate-verdict {:to :route/gate-b :query-merge {:q "x"}}))))
       (let [err (gate-reject {:to :route/gate-b :query-merge {:q "x"}} pushed)]
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (= :query-merge-in-place-only (-> err :tags :reason))))))
 
     (testing "unknown keys reject (namespaced INCLUDED)"
       (is (= :unknown-keys (:reason (gate-verdict {:to :route/gate-b :bogus 1}))))
       (let [err (gate-reject {:to :route/gate-b :bogus 1} pushed)]
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (= :unknown-keys (-> err :tags :reason)))))
       (is (= {:reason :unknown-keys :keys [:my-app/replace?]}
              (gate-verdict {:to :route/gate-b :my-app/replace? true}))
           "a namespaced unknown key fails as loudly as a bare typo")
       (let [err (gate-reject {:to :route/gate-b :my-app/replace? true} pushed)]
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (= :unknown-keys (-> err :tags :reason)))
           (is (= [:my-app/replace?] (-> err :tags :keys))
               "a namespaced unknown key fails as loudly as a bare typo"))))
@@ -2361,7 +2361,7 @@
             rider rejects as an ordinary unknown key."
     (rf/reg-route :route/rider {} "/rider")
     (let [errors (atom [])]
-      (fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
+      (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
       (rf/register-listener! :trace ::rider
                              (fn [ev] (when (= :error (:op-type ev))
                                         (swap! errors conj ev))))
@@ -2377,7 +2377,7 @@
              (gate-verdict {:to :route/rider :rf.route/enter-attempts 2}))
           "the retired rider is an ORDINARY unknown key to the closed roster")
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (some (fn [ev] (and (= :rf.error/navigate-bad-request (:operation ev))
                                 (= :unknown-keys (-> ev :tags :reason))
                                 (= [:rf.route/enter-attempts] (-> ev :tags :keys))))
@@ -2403,7 +2403,7 @@
     (rf/reg-route :route/home {} "/")
     (rf/reg-route :rf.route/not-found {} "/404")
     (let [pushed (atom [])]
-      (fx/reg-fx :rf.nav/push-url
+      (rf.fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
       ;; ---- override: explicit :fragment replaces the embedded one ----
@@ -2435,7 +2435,7 @@
     (rf/reg-route :route/home {} "/")
     (rf/reg-route :rf.route/not-found {} "/404")
     (let [pushed (atom [])]
-      (fx/reg-fx :rf.nav/push-url
+      (rf.fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
       (rf/dispatch-sync [:rf.route/navigate {:url "/no/such/path#keep"}])
@@ -2464,7 +2464,7 @@
     (rf/reg-route :route/items {:params [:map [:id :string]]} "/items/:id")
     (let [pushed (atom [])
           errors (atom [])]
-      (fx/reg-fx :rf.nav/push-url
+      (rf.fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
       ;; Land on /items/old so an in-place patch has a current route.
@@ -2488,7 +2488,7 @@
           "the slice params are UNCHANGED — the supplied :params did not sneak in")
       (is (empty? @pushed) "no URL is pushed for the rejected request")
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [err (first (filter #(= :rf.error/navigate-bad-request (:operation %)) @errors))]
           (is (some? err) ":rf.error/navigate-bad-request emitted")
           (is (= :params-requires-destination (-> err :tags :reason))
@@ -2504,10 +2504,10 @@
     (rf/reg-route :route/dest {} "/dest")
     (let [pushed (atom [])
           errors (atom [])]
-      (fx/reg-fx :rf.nav/push-url
+      (rf.fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
-      (fx/reg-fx :rf.nav/replace-url
+      (rf.fx/reg-fx :rf.nav/replace-url
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
       ;; Establish a current route so the slice-unchanged assertion is meaningful.
@@ -2534,7 +2534,7 @@
         (is (= :route/home (:route-id (nav-slice)))
             "the non-map payload neither threw nor navigated")
         ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (let [err (first (filter #(= :rf.error/navigate-bad-request (:operation %)) @errors))]
             (is (some? err) ":rf.error/navigate-bad-request emitted for a non-map payload")
             (is (= :request-not-a-map (-> err :tags :reason))))))
@@ -2550,7 +2550,7 @@
             "the 3-element event did NOT navigate to :route/dest — the extra
              element was rejected, not dropped")
         ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (let [err (first (filter #(= :rf.error/navigate-bad-request (:operation %)) @errors))]
             (is (some? err) ":rf.error/navigate-bad-request emitted for a 3-element event")
             (is (= :bad-event-arity (-> err :tags :reason))))))
@@ -2567,7 +2567,7 @@
     (rf/reg-route :route/gate {} "/gate")
     (let [pushed (atom [])
           errors (atom [])]
-      (fx/reg-fx :rf.nav/push-url
+      (rf.fx/reg-fx :rf.nav/push-url
                  {:platforms #{:server :client}}
                  (fn [_ url] (swap! pushed conj url)))
       (rf/dispatch-sync [:rf.route/navigate {:to :route/gate}])
@@ -2579,23 +2579,23 @@
       ;; `(sort #{:a/b "s" 3})` throws a ClassCastException on the JVM.
       ;;
       ;; SEMANTIC, posture-independent (rf2-o5dbf): the ORDERING is computed
-      ;; inside `address/classify`, which is where the raw `compare` throw
+      ;; inside `rf.routing.address/classify`, which is where the raw `compare` throw
       ;; would happen — so the always-on gate's verdict is the direct witness
       ;; for both halves of this deftest's title, and it is the total order
       ;; the diagnostic merely relays.
       (is (= {:reason :unknown-keys
-              :keys   (vec (sort-by identity/canonical-bytes #{:a/b "s" 3}))}
+              :keys   (vec (sort-by rf.identity/canonical-bytes #{:a/b "s" 3}))}
              (gate-verdict {:to :route/gate :a/b 1 "s" 2 3 4}))
           "the gate orders the heterogeneous unknown keys canonically, with no
            raw compare throw")
       (rf/dispatch-sync [:rf.route/navigate {:to :route/gate :a/b 1 "s" 2 3 4}])
       (rf/unregister-listener! :trace ::hetero)
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [err (first (filter #(= :rf.error/navigate-bad-request (:operation %)) @errors))]
           (is (some? err) ":rf.error/navigate-bad-request emitted (no raw compare throw)")
           (is (= :unknown-keys (-> err :tags :reason)))
-          (is (= (vec (sort-by identity/canonical-bytes #{:a/b "s" 3}))
+          (is (= (vec (sort-by rf.identity/canonical-bytes #{:a/b "s" 3}))
                  (-> err :tags :keys))
               ":keys are the heterogeneous unknown keys in total canonical order")))
       (is (empty? @pushed) "no URL is pushed for the rejected request"))))

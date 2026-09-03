@@ -15,23 +15,23 @@
 
   ## Posture split (rf2-o5dbf)
 
-  The request GATE (`replan/replan-request-error`), the hook consultation
+  The request GATE (`rf.routing.replan/replan-request-error`), the hook consultation
   (`@calls` — a late-bound fn, not a trace), the slice / slot writes and the
   captured nav fxs are all production-real and carry no posture guard. What is
   dev-only is the REPORTING: the `:rf.error/replan-bad-request` rejection
   reaches the caller through `trace/emit-error!`, gated on
-  `interop/debug-enabled?`; those assertions sit inside
-  `(when interop/debug-enabled? …)` arms."
+  `rf.interop/debug-enabled?`; those assertions sit inside
+  `(when rf.interop/debug-enabled? …)` arms."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.fx :as fx]
-            [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.routing.replan :as replan]
-            [re-frame.routing-test-support :as rts]
+            [re-frame.fx :as rf.fx]
+            [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.routing.replan :as rf.routing.replan]
+            [re-frame.routing-test-support :as rf.routing-test-support]
             [re-frame.test-support :refer [with-trace-recorder!]]))
 
-(use-fixtures :each rts/reset-runtime)
+(use-fixtures :each rf.routing-test-support/reset-runtime)
 
 ;; ---- helpers --------------------------------------------------------------
 
@@ -52,10 +52,10 @@
   so they route on the JVM) with capturing handlers. Returns the atoms."
   []
   (let [pushed (atom []) replaced (atom []) scrolled (atom [])]
-    (fx/reg-fx :rf.nav/push-url       {:platforms #{:server :client}} (fn [_ url]  (swap! pushed conj url)))
-    (fx/reg-fx :rf.nav/replace-url    {:platforms #{:server :client}} (fn [_ url]  (swap! replaced conj url)))
-    (fx/reg-fx :rf.nav/scroll         {:platforms #{:server :client}} (fn [_ args] (swap! scrolled conj args)))
-    (fx/reg-fx :rf.nav/capture-scroll {:platforms #{:server :client}} (fn [_ _] nil))
+    (rf.fx/reg-fx :rf.nav/push-url       {:platforms #{:server :client}} (fn [_ url]  (swap! pushed conj url)))
+    (rf.fx/reg-fx :rf.nav/replace-url    {:platforms #{:server :client}} (fn [_ url]  (swap! replaced conj url)))
+    (rf.fx/reg-fx :rf.nav/scroll         {:platforms #{:server :client}} (fn [_ args] (swap! scrolled conj args)))
+    (rf.fx/reg-fx :rf.nav/capture-scroll {:platforms #{:server :client}} (fn [_ _] nil))
     {:push pushed :replace replaced :scroll scrolled}))
 
 (defn- with-replan-hook
@@ -63,12 +63,12 @@
   `(plan-fn call)`, run `(f calls)`, then unpublish it."
   [plan-fn f]
   (let [calls (atom [])]
-    (late-bind/set-fn! :routing/on-route-replan
+    (rf.late-bind/set-fn! :routing/on-route-replan
                        (fn [entry]
                          (swap! calls conj entry)
                          (plan-fn entry)))
     (try (f calls)
-         (finally (late-bind/set-fn! :routing/on-route-replan nil)))))
+         (finally (rf.late-bind/set-fn! :routing/on-route-replan nil)))))
 
 (defn- replan!
   "Dispatch `event-vec` synchronously and return the
@@ -87,34 +87,34 @@
 
 (deftest replan-request-error-is-total-over-the-closed-payload
   (testing "a two-element vector carrying a map with a non-nil :cause passes"
-    (is (nil? (replan/replan-request-error [:rf.route/replan-resources {:cause [:session-restore]}])))
-    (is (nil? (replan/replan-request-error [:rf.route/replan-resources {:cause :tenant-switch}])))
-    (is (nil? (replan/replan-request-error [:rf.route/replan-resources {:cause false}]))
+    (is (nil? (rf.routing.replan/replan-request-error [:rf.route/replan-resources {:cause [:session-restore]}])))
+    (is (nil? (rf.routing.replan/replan-request-error [:rf.route/replan-resources {:cause :tenant-switch}])))
+    (is (nil? (rf.routing.replan/replan-request-error [:rf.route/replan-resources {:cause false}]))
         "any non-nil edn is a cause — the gate checks presence, not truthiness"))
   (testing "the event-VECTOR shape gate runs first"
     (is (= {:reason :bad-event-arity :keys []}
-           (replan/replan-request-error [:rf.route/replan-resources])))
+           (rf.routing.replan/replan-request-error [:rf.route/replan-resources])))
     (is (= {:reason :bad-event-arity :keys []}
-           (replan/replan-request-error [:rf.route/replan-resources {:cause [:x]} :extra])))
+           (rf.routing.replan/replan-request-error [:rf.route/replan-resources {:cause [:x]} :extra])))
     (is (= {:reason :not-a-map :keys []}
-           (replan/replan-request-error [:rf.route/replan-resources "session-restore"])))
+           (rf.routing.replan/replan-request-error [:rf.route/replan-resources "session-restore"])))
     (is (= {:reason :not-a-map :keys []}
-           (replan/replan-request-error [:rf.route/replan-resources nil]))))
+           (rf.routing.replan/replan-request-error [:rf.route/replan-resources nil]))))
   (testing "the payload is a CLOSED map over #{:cause} — structure before content"
     (is (= {:reason :unknown-key :keys [:force?]}
-           (replan/replan-request-error [:rf.route/replan-resources {:cause [:x] :force? true}])))
+           (rf.routing.replan/replan-request-error [:rf.route/replan-resources {:cause [:x] :force? true}])))
     (is (= {:reason :unknown-key :keys [:a :b]}
-           (replan/replan-request-error [:rf.route/replan-resources {:b 1 :a 2 :cause [:x]}]))
+           (rf.routing.replan/replan-request-error [:rf.route/replan-resources {:b 1 :a 2 :cause [:x]}]))
         "offending keys ride in total canonical order")
     (is (= {:reason :unknown-key :keys [:to]}
-           (replan/replan-request-error [:rf.route/replan-resources {:to :route/docs}]))
+           (rf.routing.replan/replan-request-error [:rf.route/replan-resources {:to :route/docs}]))
         "a route address is NOT a replan payload — the command replans the ACTIVE route"))
   (testing ":cause is REQUIRED and non-nil — silently defaulting the one field the
             command exists to carry would defeat it"
     (is (= {:reason :missing-cause :keys [:cause]}
-           (replan/replan-request-error [:rf.route/replan-resources {}])))
+           (rf.routing.replan/replan-request-error [:rf.route/replan-resources {}])))
     (is (= {:reason :missing-cause :keys [:cause]}
-           (replan/replan-request-error [:rf.route/replan-resources {:cause nil}])))))
+           (rf.routing.replan/replan-request-error [:rf.route/replan-resources {:cause nil}])))))
 
 ;; ---- the handler: rejections before planning ------------------------------
 
@@ -127,7 +127,7 @@
         (let [rejected (replan! [:rf.route/replan-resources {:cause [:boot]}])]
           (is (empty? @calls) "planning never ran")
           (is (nil? (slice)) "no slice was minted")
-          (when interop/debug-enabled?
+          (when rf.interop/debug-enabled?
             (is (= 1 (count rejected)))
             (let [tags (:tags (first rejected))]
               (is (= :no-active-route (:reason tags)))
@@ -151,14 +151,14 @@
             (let [rejected (replan! event-vec)]
               (is (empty? @calls) (str (pr-str event-vec) " — the hook was never consulted"))
               (is (= before (slice)) (str (pr-str event-vec) " — the slice is untouched"))
-              (when interop/debug-enabled?
+              (when rf.interop/debug-enabled?
                 (is (= 1 (count rejected)) (str (pr-str event-vec) " — one rejection"))
                 (is (= reason (:reason (:tags (first rejected)))))
                 (is (= keys* (:keys (:tags (first rejected)))))))))
         (testing "the request gate wins over the slice gate: a malformed event on a
                   frame with a route is reported as malformed, not as no-active-route"
           (let [rejected (replan! [:rf.route/replan-resources {}])]
-            (when interop/debug-enabled?
+            (when rf.interop/debug-enabled?
               (is (= :missing-cause (:reason (:tags (first rejected))))))))))))
 
 ;; ---- the handler: the hook contract + the unconditional slot writes -------
@@ -223,12 +223,12 @@
               (is (empty? @(:push fxs)) "no push")
               (is (empty? @(:replace fxs)) "no replace")
               (is (empty? @(:scroll fxs)) "no scroll")
-              (when interop/debug-enabled?
+              (when rf.interop/debug-enabled?
                 (is (empty? @traces)
                     "no nav-token allocation, no activation pair, no planned projection, no fragment trace"))))
           (testing "UNCONDITIONAL replacement: an EMPTY next plan under the SAME token
                     removes both slots — never leaves them holding the prior value"
-            (late-bind/set-fn! :routing/on-route-replan
+            (rf.late-bind/set-fn! :routing/on-route-replan
                                (fn [entry] (swap! calls conj entry) {:fx [] :blocking {} :identities {}}))
             (rf/dispatch-sync [:rf.route/replan-resources {:cause [:tenant-switch]}])
             (is (= {k1 id1 k2 id2} (:prev-identities (last @calls)))
@@ -240,11 +240,11 @@
             (is (nil? (:error (slice)))))
           (testing "a FAILED plan installs the error, projects :error, and clears both slots"
             ;; seed a slot first so the clear is observable
-            (late-bind/set-fn! :routing/on-route-replan
+            (rf.late-bind/set-fn! :routing/on-route-replan
                                (fn [entry] (swap! calls conj entry) {:fx [] :blocking {k1 id1} :identities {k1 id1}}))
             (rf/dispatch-sync [:rf.route/replan-resources {:cause [:seed]}])
             (is (= {k1 id1} (plan-slot token)))
-            (late-bind/set-fn! :routing/on-route-replan
+            (rf.late-bind/set-fn! :routing/on-route-replan
                                (fn [entry]
                                  (swap! calls conj entry)
                                  {:fx         [[:dispatch [:replan/ensured :released-whole-owner]]]
@@ -265,7 +265,7 @@
             (is (= :released-whole-owner (last (:ensured (rf/app-db-value :rf/default))))
                 "the plan's release fx still rides")
             (testing "…and a later SUCCESSFUL replan REPAIRS it (the error is cleared)"
-              (late-bind/set-fn! :routing/on-route-replan
+              (rf.late-bind/set-fn! :routing/on-route-replan
                                  (fn [entry] (swap! calls conj entry) {:fx [] :blocking {} :identities {k2 id2}}))
               (rf/dispatch-sync [:rf.route/replan-resources {:cause [:repaired]}])
               (is (nil? (:error (slice))))
@@ -279,11 +279,11 @@
         rdb    (runtime-db)]
     (testing "no Resources artefact (hook unbound) → {} — the event ships with routing,
               the semantics with Resources"
-      (is (nil? (late-bind/get-fn :routing/on-route-replan)) "the routing suite carries no Resources")
+      (is (nil? (rf.late-bind/get-fn :routing/on-route-replan)) "the routing suite carries no Resources")
       (let [rejected (replan! [:rf.route/replan-resources {:cause [:x]}])]
         (is (= before (slice)) "slice untouched")
         (is (= rdb (runtime-db)) "runtime-db untouched — no slot, no readiness write")
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (empty? rejected) "a well-formed request on a live route is NOT a bad request"))))
     (testing "a bound hook that finds nothing to replan (nil) is the same no-op"
       (with-replan-hook

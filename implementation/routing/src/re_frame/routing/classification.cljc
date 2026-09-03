@@ -99,10 +99,10 @@
   HEAD (the head key is what must promote).
 
   Internal namespace; the public facade is `re-frame.routing`."
-  (:require [re-frame.elision :as elision]
-            [re-frame.error :as error]
-            [re-frame.path :as path]
-            [re-frame.trace :as trace]))
+  (:require [re-frame.elision :as rf.elision]
+            [re-frame.error :as rf.error]
+            [re-frame.path :as rf.path]
+            [re-frame.trace :as rf.trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -133,7 +133,7 @@
   inner `:rf.error/id` of a wrapped path error — kept distinct so it never
   clobbers this error's own id)."
   [route-id reason extras]
-  (error/thrown-ex-info
+  (rf.error/thrown-ex-info
     :rf.error/invalid-route-classification
     'rf/reg-route
     reason
@@ -146,7 +146,7 @@
 ;; paths; each path is a sequential collection of CONCRETE EDN segments (the
 ;; empty path `[]` is legal — it marks the whole route projection). The author
 ;; declares them relative to the route's `{:query … :params …}` projection;
-;; lowering re-roots them under `current-route-root`. `path/normalize-concrete`
+;; lowering re-roots them under `current-route-root`. `rf.path/normalize-concrete`
 ;; is the EP-0012 VALIDATED concrete boundary: it canonicalises a sequential
 ;; path to a vector AND fails closed with `:rf.error/bad-path` on a
 ;; non-sequential path OR any segment outside the concrete EDN domain. This is
@@ -187,7 +187,7 @@
                             "collection of segments)")
                        {:axis axis :bad-path p})))
             (try
-              (path/normalize-concrete p)
+              (rf.path/normalize-concrete p)
               (catch #?(:clj Exception :cljs :default) e
                 (throw (classification-error
                          route-id
@@ -251,7 +251,7 @@
 (def ^:private route-owner
   "The multi-owner elision-registry owner identity route activation claims
   under. A route is a SINGLETON current-route (only one active per frame), so
-  the owner needs no instance id — `elision/replace-owner-claims` under this
+  the owner needs no instance id — `rf.elision/replace-owner-claims` under this
   owner drops the leaving route's claims and installs the entering route's in
   one reconcile."
   {:source :route})
@@ -294,8 +294,8 @@
         large   (mapv #(into current-route-root %) (:large classification))
         reg     (get base :rf.runtime/elision)
         new-reg (-> (or reg {})
-                    (elision/replace-owner-claims :sensitive-declarations route-owner sens)
-                    (elision/replace-owner-claims :declarations route-owner large))]
+                    (rf.elision/replace-owner-claims :sensitive-declarations route-owner sens)
+                    (rf.elision/replace-owner-claims :declarations route-owner large))]
     (cond
       ;; The lowering produced declarations → install the registry verbatim.
       (seq new-reg)
@@ -378,7 +378,7 @@
   (when-some [classification (validate+extract route-id route-meta)]
     (let [missing (unpromoted-query-keys classification promoted-keys)]
       (when (seq missing)
-        (trace/emit! :warning :rf.warning/route-classification-query-key-unpromoted
+        (rf.trace/emit! :warning :rf.warning/route-classification-query-key-unpromoted
                      {:route-id      route-id
                       :query-keys    (vec (sort-by str missing))
                       :promoted-keys (vec (sort-by str promoted-keys))

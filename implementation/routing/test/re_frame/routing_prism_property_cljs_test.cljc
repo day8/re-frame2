@@ -51,16 +51,16 @@
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [clojure.string :as str]
    [re-frame.core :as rf]
-   [re-frame.identity :as identity]
-   [re-frame.routing :as routing]
-   [re-frame.test-support :as test-support]
+   [re-frame.identity :as rf.identity]
+   [re-frame.routing :as rf.routing]
+   [re-frame.test-support :as rf.test-support]
    #?(:clj  [re-frame.substrate.plain-atom :as substrate]
       :cljs [re-frame.adapter.reagent :as substrate])))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
+  (rf.test-support/make-reset-runtime-fixture
     {:adapter substrate/adapter
-     :init-fn routing/reset-counters!}))
+     :init-fn rf.routing/reset-counters!}))
 
 ;; ---- a deterministic, host-portable PRNG ---------------------------------
 ;;
@@ -130,7 +130,7 @@
   "The CEDN-1 canonical order of `ks` — the order BOTH prism legs use,
   computed via the shared identity rule the implementation sorts by."
   [ks]
-  (vec (sort-by identity/canonical-bytes ks)))
+  (vec (sort-by rf.identity/canonical-bytes ks)))
 
 ;; ---- the property --------------------------------------------------------
 
@@ -148,8 +148,8 @@
                     [b  s2] (gen-token s1)
                     [q  s3] (gen-query s2)
                     params {:a a :b b}
-                    url    (routing/route-url {:to :route/item :params params :query q})
-                    m      (routing/match-url url)]
+                    url    (rf.routing/route-url {:to :route/item :params params :query q})
+                    m      (rf.routing/match-url url)]
                 (cond
                   ;; (1) the built URL must be matchable
                   (nil? m)
@@ -221,13 +221,13 @@
               (let [[q  s1] (gen-query s)
                     [pg s2] (gen-page-variant s1)
                     query   (merge q pg)
-                    url     (routing/route-url {:to :route/dflt :query query})
-                    m       (routing/match-url url)
+                    url     (rf.routing/route-url {:to :route/dflt :query query})
+                    m       (rf.routing/match-url url)
                     ;; the target the URL leg recovers: the drawn query with
                     ;; every absent declared default filled in.
                     expected (merge {:page default-page} query)
                     ;; the URL that target derives — the fixed-point leg.
-                    url'     (routing/route-url {:to    :route/dflt
+                    url'     (rf.routing/route-url {:to    :route/dflt
                                                  :query (:query m)})]
                 (cond
                   (nil? m)
@@ -280,10 +280,10 @@
                         ;; build the query string in caller-insertion order
                         ;; and in REVERSED order; route-url must emit BOTH as
                         ;; the byte-identical canonical-order URL.
-                        url-fwd  (routing/route-url {:to :route/list :params {} :query (into {} (map (fn [k] [k (get q k)]) ks))})
-                        url-rev  (routing/route-url {:to :route/list :params {} :query (into {} (map (fn [k] [k (get q k)]) (reverse ks)))})
-                        m-fwd    (routing/match-url url-fwd)
-                        m-rev    (routing/match-url url-rev)
+                        url-fwd  (rf.routing/route-url {:to :route/list :params {} :query (into {} (map (fn [k] [k (get q k)]) ks))})
+                        url-rev  (rf.routing/route-url {:to :route/list :params {} :query (into {} (map (fn [k] [k (get q k)]) (reverse ks)))})
+                        m-fwd    (rf.routing/match-url url-fwd)
+                        m-rev    (rf.routing/match-url url-rev)
                         expected (canonical-key-order ks)]
                     (cond
                       (not= url-fwd url-rev)

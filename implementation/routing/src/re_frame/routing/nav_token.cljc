@@ -36,11 +36,11 @@
   Internal namespace; the public facade is `re-frame.routing`. The
   facade registers the fx so a `:reload` of the façade re-wires it on a
   fresh registrar. Per the rf2-2yabr cohesion split: NAV-TOKEN seam."
-  (:require [re-frame.frame :as frame]
-            [re-frame.fx :as fx]
-            [re-frame.interop :as interop]
-            [re-frame.routing.reply :as route-reply]
-            [re-frame.trace :as trace]))
+  (:require [re-frame.frame :as rf.frame]
+            [re-frame.fx :as rf.fx]
+            [re-frame.interop :as rf.interop]
+            [re-frame.routing.reply :as rf.routing.reply]
+            [re-frame.trace :as rf.trace]))
 
 (def nav-token-cofx-meta
   "Metadata for the `:rf.route/nav-token` cofx registration. Per Spec 012
@@ -64,7 +64,7 @@ superseding navigation suppresses the stale result. Per Spec 012
   "Value-returning AMBIENT supplier for the `:rf.route/nav-token` cofx (EP-0017 §2).
   Reads the current navigation epoch token from the active frame's runtime-db
   route slice (`[:rf.runtime/routing :current :nav-token]`, read via
-  `frame/frame-runtime-db-value` of `frame/*current-frame*` — bound by the
+  `rf.frame/frame-runtime-db-value` of `rf.frame/*current-frame*` — bound by the
   router during processing). EP-0001 (rf2-vzld77): the route slice is durable
   routing runtime-db state. Never recorded; replay re-runs it (the token is
   re-presented because the route slice itself is recorded durable state).
@@ -78,7 +78,7 @@ superseding navigation suppresses the stale result. Per Spec 012
   conformance harnesses re-register the supplier to assert the threading
   shape without standing up a route slice."
   []
-  (let [rdb (frame/frame-runtime-db-value frame/*current-frame*)]
+  (let [rdb (rf.frame/frame-runtime-db-value rf.frame/*current-frame*)]
     (get-in rdb [:rf.runtime/routing :current :nav-token])))
 
 (def route-id-cofx-meta
@@ -122,7 +122,7 @@ identity. Per Spec 012 §Lowering onto the uniform reply envelope."})
   recorded; replay re-runs it (the route slice itself is recorded durable
   state)."
   []
-  (let [rdb (frame/frame-runtime-db-value frame/*current-frame*)]
+  (let [rdb (rf.frame/frame-runtime-db-value rf.frame/*current-frame*)]
     (get-in rdb [:rf.runtime/routing :current :route-id])))
 
 (defn emit-stale-suppressed!
@@ -139,7 +139,7 @@ identity. Per Spec 012 §Lowering onto the uniform reply envelope."})
   `target-event-id`); `frame-id` (when non-nil) frame-attributes the
   suppression so it lands in the emitting frame's epoch / Xray
   (rf2-7d30s). The work-id is built from the route context
-  (`{:route-id … :nav-token <carried> :loader-id …}`) — `route-reply/
+  (`{:route-id … :nav-token <carried> :loader-id …}`) — `rf.routing.reply/
   suppress` carries it on the reply + trace.
 
   rf2-6mfkp3 — the canonical EP-0011 reply-envelope facts ride ADDITIVELY
@@ -150,7 +150,7 @@ identity. Per Spec 012 §Lowering onto the uniform reply envelope."})
   loader (an EP-0011 managed async family) is classifiable on the
   production trace via the identical canonical facts as every other family,
   not only the route-specific `:carried-token` / `:current-token` tokens.
-  The facts are read off the `route-reply/suppress` `:reply` (the
+  The facts are read off the `rf.routing.reply/suppress` `:reply` (the
   `:status :stale` / `:rf.reply/work-status :suppressed` / `:rf.reply/stale-reason` the
   shared substrate produced).
 
@@ -160,13 +160,13 @@ identity. Per Spec 012 §Lowering onto the uniform reply envelope."})
   replayed completion time, not drop it. The caller sources it from the
   declared `:rf.cofx/requires [:rf/time-ms]` reply fact (NOT an ambient
   clock read) and threads it here; it rides verbatim through
-  `route-reply/suppress` onto the stale reply and is stamped on the trace
+  `rf.routing.reply/suppress` onto the stale reply and is stamped on the trace
   when present, so route completion time tracks the HTTP / resource /
   mutation families that already carry `:completed-at`. Absent ⇒ omitted
   (a route loader that did not source a completion time).
 
   rf2-2avo53 / rf2-j538f7.14 — `:target` is the (optional) normalized
-  `:rf/reply-to` reply target. It is threaded into `route-reply/suppress` for
+  `:rf/reply-to` reply target. It is threaded into `rf.routing.reply/suppress` for
   call-site uniformity, but a stale completion is UNIVERSALLY non-delivering at
   the production routing surface: the app reply target MUST NOT run on a
   superseded completion (it would mutate app state for a newer navigation), so
@@ -175,7 +175,7 @@ identity. Per Spec 012 §Lowering onto the uniform reply envelope."})
   the suppression trace and dispatches nothing (the app target is never run)."
   [{:keys [carried-token current-token event-id frame-id route-id loader-id completed-at target]}]
   (let [{:keys [reply trace] :as outcome}
-        (route-reply/suppress
+        (rf.routing.reply/suppress
                           {;; rf2-azcmd3 — `route-id` is the route id CAPTURED
                            ;; at scheduling time (carried with the nav-token),
                            ;; NOT the live route slice id read at stale-arrival.
@@ -194,7 +194,7 @@ identity. Per Spec 012 §Lowering onto the uniform reply envelope."})
                            :loader-id loader-id
                            :frame     frame-id
                            ;; rf2-ux8sgg — the recordable reply completion
-                           ;; time. `route-reply/suppress` only carries it onto
+                           ;; time. `rf.routing.reply/suppress` only carries it onto
                            ;; the reply when non-nil, so a route loader without
                            ;; a sourced completion time is unaffected.
                            :completed-at completed-at}
@@ -203,7 +203,7 @@ identity. Per Spec 012 §Lowering onto the uniform reply envelope."})
                           ;; threaded for call-site uniformity but not consulted
                           ;; for delivery (a stale outcome never app-delivers).
                           target)]
-    (trace/emit-error! :rf.route.nav-token/stale-suppressed
+    (rf.trace/emit-error! :rf.route.nav-token/stale-suppressed
                        (cond-> {:carried-token     carried-token
                                 :current-token     current-token
                                 :rf.trace/event-id event-id
@@ -238,7 +238,7 @@ identity. Per Spec 012 §Lowering onto the uniform reply envelope."})
                          ;; rf2-ux8sgg — the recordable reply completion
                          ;; time rides on the stale trace when the loader
                          ;; sourced it (read off the suppressed `:reply`,
-                         ;; where `route-reply/suppress` placed it). The
+                         ;; where `rf.routing.reply/suppress` placed it). The
                          ;; uniform reply-envelope view ties the stale route
                          ;; reply to the actual replayed completion token —
                          ;; the same `:completed-at` the HTTP / resource /
@@ -360,19 +360,19 @@ continuation surface."
         ;; EP-0002 carried invariant — the fx context carries the cascade
         ;; envelope frame as `:frame`; a nil stamp is an invariant failure
         ;; (`:rf.error/no-frame-context`), never a synthesised `:rf/default`.
-        frame-id        (frame/require-frame-stamp!
+        frame-id        (rf.frame/require-frame-stamp!
                           frame :rf.route/with-nav-token
                           {:where 'rf.route/with-nav-token-handler})
-        frame-record    (frame/frame frame-id)
+        frame-record    (rf.frame/frame frame-id)
         ;; EP-0001 (rf2-vzld77): the route slice is durable routing runtime-db state.
-        rdb             (frame/frame-runtime-db-value frame-id)
+        rdb             (rf.frame/frame-runtime-db-value frame-id)
         slice           (get-in rdb [:rf.runtime/routing :current])
         current         (:nav-token slice)
         ;; The continuation's loader/event-id, derived from the `:rf/reply-to`
         ;; target. Shared by the live-dispatch and the suppression trace.
         loader-id       (target-event-id reply-target)
         active-platform (or (get-in frame-record [:config :platform])
-                            (interop/active-platform))
+                            (rf.interop/active-platform))
         ;; The identity-fact context the reply substrate keys on (rf2-2avo53 /
         ;; rf2-azcmd3 / rf2-ux8sgg). Shared by both branches so a LIVE and a
         ;; STALE completion of the same attempt correlate by the identical
@@ -382,22 +382,22 @@ continuation surface."
                          :loader-id    loader-id
                          :frame        frame-id
                          :completed-at completed-at}
-        ;; Route an event vector through `fx/handle-one-fx` via `:dispatch`.
+        ;; Route an event vector through `rf.fx/handle-one-fx` via `:dispatch`.
         ;; `handle-one-fx` rather than `do-fx` so the cascade's single
         ;; `:event/do-fx` boundary marker stays on the outer walk (the inner
         ;; re-entry must not double-emit it — the epoch projection's
         ;; six-domino bucketing keys off that marker). The active-platform
         ;; resolution mirrors `router/run-fx-effects!`.
         dispatch!       (fn [fx-entry]
-                          (fx/handle-one-fx frame-id fx-entry active-platform {} nil))]
-    (if-not (route-reply/suppress? nav-token current)
+                          (rf.fx/handle-one-fx frame-id fx-entry active-platform {} nil))]
+    (if-not (rf.routing.reply/suppress? nav-token current)
       ;; Gate matches (token current) — complete the continuation.
       ;; rf2-2avo53 — CANONICAL `:rf/reply-to`: build the `:status :ok` reply
       ;; map and APPEND it to the target through the shared
       ;; `re-frame.reply/complete`, then dispatch the completed event. The
       ;; route surface normalizes + completes the reply target through the
       ;; shared substrate at the actual navigation wrapper.
-      (dispatch! [:dispatch (route-reply/complete-live reply-ctx reply-target value)])
+      (dispatch! [:dispatch (rf.routing.reply/complete-live reply-ctx reply-target value)])
 
       ;; Stale — suppress through the shared reply-envelope correctness
       ;; boundary. rf2-7d30s — `frame-id` frame-attributes the suppression so

@@ -49,12 +49,12 @@
   flips the raw-URL rows AND the in-place rows from gated to open."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.fx :as fx]
-            [re-frame.routing :as routing]
+            [re-frame.fx :as rf.fx]
+            [re-frame.routing :as rf.routing]
             [re-frame.routing.test-support]
-            [re-frame.routing-test-support :as rts]))
+            [re-frame.routing-test-support :as rf.routing-test-support]))
 
-(use-fixtures :each rts/reset-runtime)
+(use-fixtures :each rf.routing-test-support/reset-runtime)
 
 ;; ---------------------------------------------------------------------------
 ;; The canonical guard — byte-faithful to the shipped recipe. Registered as
@@ -71,7 +71,7 @@
     (let [{:keys [to url params]} a]                       ;; a is the flat request map
       (cond
         to  {:id to :params (or params {})}               ;; route-id destination
-        url (when-let [{:keys [route-id params]} (routing/match-url url)]  ;; {:url ...} escape hatch
+        url (when-let [{:keys [route-id params]} (rf.routing/match-url url)]  ;; {:url ...} escape hatch
               {:id route-id :params (or params {})})
         :else                                             ;; in-place — stays on the current route
         {:id (:route-id current) :params (or (:params current) {})}))
@@ -80,11 +80,11 @@
     (let [{:keys [to params url]} a]
       (cond
         to  {:id to :params (or params {})}
-        url (when-let [{:keys [route-id params]} (routing/match-url url)]
+        url (when-let [{:keys [route-id params]} (rf.routing/match-url url)]
               {:id route-id :params (or params {})})))
 
     :rf.route/handle-url-change
-    (when-let [{:keys [route-id params]} (routing/match-url a)]
+    (when-let [{:keys [route-id params]} (rf.routing/match-url a)]
       {:id route-id :params (or params {})})
 
     nil))
@@ -113,8 +113,8 @@
   (rf/reg-route :app/home     {} "/")
   (rf/reg-route :app/login    {} "/login")
   (rf/reg-route :app/settings {:tags #{:requires-auth}} "/settings")
-  (fx/reg-fx :rf.nav/push-url    {:platforms #{:server :client}} (fn [_ _] nil))
-  (fx/reg-fx :rf.nav/replace-url {:platforms #{:server :client}} (fn [_ _] nil))
+  (rf.fx/reg-fx :rf.nav/push-url    {:platforms #{:server :client}} (fn [_ _] nil))
+  (rf.fx/reg-fx :rf.nav/replace-url {:platforms #{:server :client}} (fn [_ _] nil))
   (rf/reg-interceptor :app/auth-guard
     {:doc "Redirect signed-out users away from :requires-auth routes."}
     {:before auth-guard-before}))
@@ -262,7 +262,7 @@
            (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                    [:rf.runtime/routing :current :route-id]))
         "raw-URL navigate lands the slice on the protected route-id")
-    (is (= :app/settings (:route-id (routing/match-url "/settings")))
+    (is (= :app/settings (:route-id (rf.routing/match-url "/settings")))
         "match-url hands the recipe the same route-id the runtime used")))
 
 (deftest runtime-resolves-self-to-the-current-protected-route

@@ -15,19 +15,19 @@
   Internal namespace; the public facade is `re-frame.routing`. The
   facade owns the `events/reg-event :rf.route/navigate` call so a
   `:reload` re-wires it on a fresh registrar."
-  (:require [re-frame.frame :as frame]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.privacy :as privacy]
-            [re-frame.registrar :as registrar]
-            [re-frame.routing.address :as address]
-            [re-frame.routing.decisions :as decisions]
-            [re-frame.routing.events :as routing-events]
-            [re-frame.routing.plan :as plan]
-            [re-frame.routing.registry :as registry]
-            [re-frame.routing.resolve :as resolver]
-            [re-frame.routing.scroll :as scroll]
-            [re-frame.routing.url :as url]
-            [re-frame.trace :as trace]))
+  (:require [re-frame.frame :as rf.frame]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.privacy :as rf.privacy]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.routing.address :as rf.routing.address]
+            [re-frame.routing.decisions :as rf.routing.decisions]
+            [re-frame.routing.events :as rf.routing.events]
+            [re-frame.routing.plan :as rf.routing.plan]
+            [re-frame.routing.registry :as rf.routing.registry]
+            [re-frame.routing.resolve :as rf.routing.resolve]
+            [re-frame.routing.scroll :as rf.routing.scroll]
+            [re-frame.routing.url :as rf.routing.url]
+            [re-frame.trace :as rf.trace]))
 
 (defn- validate-event-shape
   "The event-VECTOR shape gate for `:rf.route/navigate`, run BEFORE the
@@ -67,7 +67,7 @@
   fall-through every other off-namespace seam consumer uses."
   [route-meta]
   (boolean
-    (when-let [redact (late-bind/get-fn-cached :schemas/redact-validation-tags)]
+    (when-let [redact (rf.late-bind/get-fn-cached :schemas/redact-validation-tags)]
       (some (fn [slot]
               (when-let [schema (get route-meta slot)]
                 (true? (:sensitive? (redact schema {})))))
@@ -102,7 +102,7 @@
   [tags route-meta]
   (if (and (contains? tags :error)
            (route-schema-sensitive? route-meta))
-    (assoc tags :error privacy/redacted-sentinel :sensitive? true)
+    (assoc tags :error rf.privacy/redacted-sentinel :sensitive? true)
     tags))
 
 (defn- fragment-only-nav-fx
@@ -137,7 +137,7 @@
        replace (`{:replace? true}`) the new URL via `:rf.nav/push-url` /
        `:rf.nav/replace-url` (never `window.location.hash`), then the resolved
        `:rf.nav/scroll` unless `:scroll false` suppresses it (via
-       `plan/scroll-plan`). Default `:top` scrolls to the new fragment (or top
+       `rf.routing.plan/scroll-plan`). Default `:top` scrolls to the new fragment (or top
        when the fragment is cleared/missing); `:restore`/`:preserve`/map-form
        retain today's meanings. `pushState`/`replaceState` do NOT scroll to a
        fragment natively, so `:rf.nav/scroll` IS required — this makes NO focus
@@ -151,7 +151,7 @@
   verbatim — that helper carries scroll CAPTURE only; the programmatic path
   also drives the URL and the resolved scroll."
   [{:keys [rdb current fragment url opts route-meta route-id params query frame]}]
-  (trace/emit! :rf.event :rf.route/fragment-changed
+  (rf.trace/emit! :rf.event :rf.route/fragment-changed
                {:route-id      (:route-id current)
                 :prev-fragment (:fragment current)
                 :next-fragment fragment
@@ -160,12 +160,12 @@
                   [:rf.nav/replace-url url]
                   [:rf.nav/push-url    url])
         {:keys [capture-fx scroll-fx]}
-        (plan/scroll-plan {:rdb              rdb
+        (rf.routing.plan/scroll-plan {:rdb              rdb
                            ;; rf2-1hncp2: saved scroll positions are a
                            ;; host-side transient cache — thread the active
                            ;; frame's cache in explicitly so the planner stays
                            ;; pure (same shape the full commit branch passes).
-                           :scroll-cache     (scroll/frame-scroll-cache frame)
+                           :scroll-cache     (rf.routing.scroll/frame-scroll-cache frame)
                            :route-meta       route-meta
                            :opts             opts
                            :default-strategy :top
@@ -215,7 +215,7 @@
           ;; event, so the cofx carries the frame stamp under `:rf.frame/id`;
           ;; a nil stamp is an invariant failure (`:rf.error/no-frame-context`),
           ;; never a synthesised `:rf/default`.
-          frame (frame/require-frame-stamp!
+          frame (rf.frame/require-frame-stamp!
                   frame :rf.route/navigate
                   {:where 'rf.route/navigate-handler})
           rdb  (or rdb-raw {})
@@ -231,7 +231,7 @@
           ;; then the request-MAP structural gate. Both surface the same
           ;; `:rf.error/navigate-bad-request` channel.
           bad     (or (validate-event-shape event-vec)
-                      (address/classify request current))]
+                      (rf.routing.address/classify request current))]
       (if bad
         ;; Spec 012 §Error surfaces #1: the always-on structural gate rejected
         ;; the request. `:rf.error/navigate-bad-request` is a DISTINCT channel
@@ -241,22 +241,22 @@
         ;; rf2-7d30s: frame-attribute the reject so it lands in the emitting
         ;; frame's epoch.
         (do
-          (trace/emit-error! :rf.error/navigate-bad-request
+          (rf.trace/emit-error! :rf.error/navigate-bad-request
                              (cond-> {:where    :event
                                       :reason   (:reason bad)
                                       :keys     (:keys bad)
                                       :recovery :no-recovery}
                                frame (assoc :frame frame)))
           {})
-        (let [destination? (address/destination? request)
+        (let [destination? (rf.routing.address/destination? request)
               url-target   (:url request)
               {:keys [route-id path-params query-params matched-fragment unmatched-url
                       throw-reason malformed? requested-url external-url-target?]}
               (cond
                 ;; rf2-cylse.4 (SECURITY -- open-redirect): an external-classed
                 ;; `:url` target fails closed BEFORE match-url, identical to
-                ;; `url-requested-handler` (the shared `url/external-url?` gate).
-                (and (some? url-target) (url/external-url? url-target))
+                ;; `url-requested-handler` (the shared `rf.routing.url/external-url?` gate).
+                (and (some? url-target) (rf.routing.url/external-url? url-target))
                 {:route-id             :rf.route/not-found
                  :path-params          {}
                  :query-params         {}
@@ -264,7 +264,7 @@
                  :external-url-target? true}
 
                 ;; URL-string target (escape hatch). rf2-teov0: this door lowers
-                ;; to the SAME `resolver/url-resolution` extraction every other
+                ;; to the SAME `rf.routing.resolve/url-resolution` extraction every other
                 ;; URL-bearing door reaches, rather than reading the URL a second
                 ;; time. It was the last surviving second reader of "what does
                 ;; this URL mean", and `plan.cljc`'s not-found section claims the
@@ -304,7 +304,7 @@
                 ;;     matched fragment otherwise.
                 (some? url-target)
                 (let [{:keys [match matched? malformed? throw-reason target]}
-                      (resolver/url-resolution url-target)]
+                      (rf.routing.resolve/url-resolution url-target)]
                   {:route-id         (or (:route-id match) :rf.route/not-found)
                    :path-params      (if matched? (:params match) (:params target))
                    :query-params     (:query match {})
@@ -345,7 +345,7 @@
               ;; unmatched raw-URL rebuild immediately below consumes the
               ;; fragment before the seam runs, and `normalize-fragment` is
               ;; idempotent so lowering through it twice changes nothing.
-              fragment (plan/normalize-fragment
+              fragment (rf.routing.plan/normalize-fragment
                          (cond
                            (contains? request :fragment) (:fragment request)
                            destination?                  matched-fragment
@@ -372,14 +372,14 @@
                                                unmatched-url
                                                (subs unmatched-url 0 hash-idx))]
                                 (if (some? fragment)
-                                  (str base "#" (url/url-encode fragment))
+                                  (str base "#" (rf.routing.url/url-encode fragment))
                                   base))
                               unmatched-url)
               requested-url (if override-unmatched-fragment? unmatched-url requested-url)
               path-params   (if override-unmatched-fragment?
                               (assoc path-params :url unmatched-url)
                               path-params)
-              route-meta (registrar/lookup :route route-id)
+              route-meta (rf.registrar/lookup :route route-id)
               ;; EP-0037 R5: a DESTINATION address is taken literally. The
               ;; router no longer folds ambient current-route query state into
               ;; a fresh destination -- the retired `:query-retain` metadata
@@ -402,7 +402,7 @@
               ;; did, kept because it is load-bearing and was not the rule that
               ;; moved: a present-but-nil `:query` (`{:to :x :query nil}`) means
               ;; the same "clear the query" as `:query {}` — presence, not
-              ;; truthiness, discriminates (`address/edit-keys`) — and the
+              ;; truthiness, discriminates (`rf.routing.address/edit-keys`) — and the
               ;; branches above hand it through as nil. The seam must NOT do
               ;; this one: there, an ABSENT `:query` stays absent rather than
               ;; being conjured into `{}`, which is a different fact.
@@ -413,7 +413,7 @@
               ;; EP-0037 R0b: shape the ResolvedTarget ONCE, HERE — before the
               ;; URL, before stage 3's no-op classification, before the guards
               ;; and before the commit — so every one of them sees the same
-              ;; facts. `resolver/resolved-target` is the seam that fills the
+              ;; facts. `rf.routing.resolve/resolved-target` is the seam that fills the
               ;; route's declared `:query-defaults` (rf2-kqxe6.23) and drops
               ;; nil-valued query keys, which `match-url` / `route-url` have
               ;; always done for the URL-bearing doors and this door did only
@@ -430,7 +430,7 @@
               ;; the two consumers assoc it on. One target value feeds the
               ;; guards, the plan and the commit — no door spells the
               ;; ResolvedTarget shape twice.
-              resolved     (resolver/resolved-target {:route-id route-id
+              resolved     (rf.routing.resolve/resolved-target {:route-id route-id
                                                       :params   path-params
                                                       :query    query-params
                                                       :fragment fragment})
@@ -443,12 +443,12 @@
                     external-url-target? nil
                     unmatched-url        unmatched-url
                     :else
-                    (try (registry/route-url {:to       route-id
+                    (try (rf.routing.registry/route-url {:to       route-id
                                               :params   path-params
                                               :query    query-params
                                               :fragment fragment})
                          (catch #?(:clj Throwable :cljs :default) ex
-                           (trace/emit-error! :rf.error/schema-validation-failure
+                           (rf.trace/emit-error! :rf.error/schema-validation-failure
                                               (-> (cond-> {:where    :event
                                                            :route-id route-id
                                                            :error    (or (ex-data ex)
@@ -461,11 +461,11 @@
               ;; Rule-3 no-op: an exactly-identical target skips the on-match
               ;; re-fire + nav-token allocation. The fragment-only sibling
               ;; (same route/params/query, different #fragment) is an anchor
-              ;; change routed through the shared `plan/fragment-only?`.
-              identical-nav? (plan/identical-route-target?
+              ;; change routed through the shared `rf.routing.plan/fragment-only?`.
+              identical-nav? (rf.routing.plan/identical-route-target?
                                current route-id path-params query-params fragment)
               fragment-only? (and (not unmatched-url)
-                                  (plan/fragment-only?
+                                  (rf.routing.plan/fragment-only?
                                     current route-id path-params query-params fragment))]
           (cond
             ;; Caller-bug schema failure on `route-url`: reject (slice
@@ -478,7 +478,7 @@
             ;; and return `{}` (no push, no slice rewrite).
             external-url-target?
             (do
-              (trace/emit! :rf.event :rf.route/external-url-requested
+              (rf.trace/emit! :rf.event :rf.route/external-url-requested
                            (cond-> {:url requested-url}
                              frame (assoc :frame frame)))
               {})
@@ -496,7 +496,7 @@
             ;; `:query-merge`, which is data-bearing -- and a fragment-only
             ;; transition both evaluate the pair.
             :else
-            (if-let [decided (decisions/decide
+            (if-let [decided (rf.routing.decisions/decide
                                {:rdb                    rdb
                                 :frame                  frame
                                 ;; the ONE resolved target, plus the URL derived
@@ -504,7 +504,7 @@
                                 :target                 (assoc resolved :url url)
                                 :requested-url          url
                                 :cause                  :navigate
-                                :policy                 (decisions/normalize-policy request)
+                                :policy                 (rf.routing.decisions/normalize-policy request)
                                 :bypass-leave?          (:bypass-leave? request)
                                 :url-driven?            false
                                 :pending-nav-allocation pending-nav-allocation})]
@@ -531,8 +531,8 @@
                                    [:rf.nav/replace-url url]
                                    [:rf.nav/push-url    url])
                       {:keys [capture-fx scroll-fx]}
-                      (plan/scroll-plan {:rdb              rdb
-                                         :scroll-cache     (scroll/frame-scroll-cache frame)
+                      (rf.routing.plan/scroll-plan {:rdb              rdb
+                                         :scroll-cache     (rf.routing.scroll/frame-scroll-cache frame)
                                          :route-meta       route-meta
                                          :opts             request
                                          :default-strategy :top
@@ -551,12 +551,12 @@
                       ;; Its `:branch` / `:leaf-plan` are the R0 diagnostic
                       ;; projection (Spec 012 §Resolved target and the plan
                       ;; diagnostic projection).
-                      route-plan (resolver/route-plan
+                      route-plan (rf.routing.resolve/route-plan
                                    {:cause  :navigate
                                     :source (cond
                                               url-target              {:url url-target}
-                                              (contains? request :to) (address/extract-address request)
-                                              :else                   (select-keys request address/edit-keys))
+                                              (contains? request :to) (rf.routing.address/extract-address request)
+                                              :else                   (select-keys request rf.routing.address/edit-keys))
                                     :target (assoc resolved :url url)})]
                   ;; Shared fail-closed telemetry (rf2-2zyvj / rf2-u8qe7y): a
                   ;; match-url throw on a `:url` target surfaces
@@ -570,8 +570,8 @@
                   ;; from DIFFERENT inputs, so the one input that mattered never
                   ;; reached it. Mutually exclusive with `:throw-reason` by
                   ;; construction (a throw pre-empts the malformed scan).
-                  (plan/emit-intents!
-                    (plan/fallback-telemetry-intents
+                  (rf.routing.plan/emit-intents!
+                    (rf.routing.plan/fallback-telemetry-intents
                       {:throw-reason  throw-reason
                        :malformed?    malformed?
                        :no-not-found? (boolean (and unmatched-url (nil? route-meta)))
@@ -580,22 +580,22 @@
                   ;; EP-0037 R0b: ONE `:rf.route/planned` trace per door commit
                   ;; branch, so the R0 diagnostic projection is REACHABLE from an
                   ;; executed navigation rather than only from a tool holding a
-                  ;; plan value. `resolver/plan-trace-tags` is the ONE
+                  ;; plan value. `rf.routing.resolve/plan-trace-tags` is the ONE
                   ;; projection-to-tags mapping (the URL-driven door emits through
                   ;; it too) and it is what keeps the trace from becoming a
                   ;; carrier: the URL rides the existing `redact-url-tag` path and
                   ;; `:params` / `:query` contribute KEY SETS, not values.
                   ;; Emitted before the commit so the stream reads
                   ;; planned -> nav-token allocated -> deactivated/activated.
-                  (trace/emit! :rf.event :rf.route/planned
-                               (cond-> (resolver/plan-trace-tags route-plan)
+                  (rf.trace/emit! :rf.event :rf.route/planned
+                               (cond-> (rf.routing.resolve/plan-trace-tags route-plan)
                                  frame (assoc :frame frame)))
                   ;; commit-navigation: nav-token alloc, allocated/activation
                   ;; traces, slice publish, fx assembly -- the shared commit
                   ;; shape. The programmatic path is the only one that drives the
                   ;; browser URL, so it passes `push-fx`. The slice is the plan's
                   ;; resolved `:target` (facts) plus the resolved transition.
-                  (routing-events/commit-navigation
+                  (rf.routing.events/commit-navigation
                     rdb
                     ;; EP-0037 R1: :on-match never drives readiness. The base
                     ;; transition is :idle; commit-navigation projects

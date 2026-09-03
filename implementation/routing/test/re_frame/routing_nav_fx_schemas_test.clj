@@ -49,7 +49,7 @@
   about why because it looks like a defect and is not.
   `re-frame.schemas.validate/validate-fx!` is literally
 
-      (if interop/debug-enabled? (run-validation …) true)
+      (if rf.interop/debug-enabled? (run-validation …) true)
 
   so under `-Dre-frame.debug=false` the hot-path fx-args gate returns `true`
   — accept, do not skip — for EVERY input, conforming or not. That is Spec 010
@@ -57,7 +57,7 @@
   and production-build validation is the opt-in boundary interceptor
   `:rf.schema/at-boundary`, which routes through `validate-with-registered-fn`
   OUTSIDE the gate. So the layer-3 assertions are kept VERBATIM inside
-  `(when interop/debug-enabled? …)` arms marked `rf2-o5dbf`.
+  `(when rf.interop/debug-enabled? …)` arms marked `rf2-o5dbf`.
 
   Note what that short-circuit does to the POSITIVE control. Every
   `(is (true? (validate-through-hook …)))` still passes under the gate — but
@@ -72,24 +72,24 @@
   was deleted or weakened."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [malli.core :as m]
-            [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.registrar :as registrar]
-            [re-frame.routing.nav-fx :as nav-fx]
-            [re-frame.routing.nav-fx-schemas :as nav-fx-schemas]
-            [re-frame.routing.scroll :as scroll]
+            [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.routing.nav-fx :as rf.routing.nav-fx]
+            [re-frame.routing.nav-fx-schemas :as rf.routing.nav-fx-schemas]
+            [re-frame.routing.scroll :as rf.routing.scroll]
             [re-frame.test-support :refer [with-trace-recorder!]]
-            [re-frame.routing-test-support :as rts]))
+            [re-frame.routing-test-support :as rf.routing-test-support]))
 
-(use-fixtures :each rts/reset-runtime)
+(use-fixtures :each rf.routing-test-support/reset-runtime)
 
 (def ^:private fx-id->schema-var
   "The four standard navigation fx and the `nav-fx-schemas` var each
   MUST carry, per [Spec-Schemas §Standard fx args schemas]."
-  {:rf.nav/push-url       #'nav-fx-schemas/push-url-args
-   :rf.nav/replace-url    #'nav-fx-schemas/replace-url-args
-   :rf.nav/scroll         #'nav-fx-schemas/scroll-args
-   :rf.nav/capture-scroll #'nav-fx-schemas/capture-scroll-args})
+  {:rf.nav/push-url       #'rf.routing.nav-fx-schemas/push-url-args
+   :rf.nav/replace-url    #'rf.routing.nav-fx-schemas/replace-url-args
+   :rf.nav/scroll         #'rf.routing.nav-fx-schemas/scroll-args
+   :rf.nav/capture-scroll #'rf.routing.nav-fx-schemas/capture-scroll-args})
 
 (defn- registered-schema
   "The `:schema` on the LIVE `:rf.nav/*` fx registration — read through
@@ -97,7 +97,7 @@
   would actually validate against rather than a var the registration
   might not reference."
   [fx-id]
-  (:schema (registrar/lookup :fx fx-id)))
+  (:schema (rf.registrar/lookup :fx fx-id)))
 
 ;; =========================================================================
 ;; 1. Wiring — every standard nav fx registration carries its :schema
@@ -108,7 +108,7 @@
             carries a :schema, and it is the corresponding nav-fx-schemas
             var — the drift tooth that keeps the four-member set aligned"
     (doseq [[fx-id schema-var] fx-id->schema-var]
-      (let [meta* (registrar/lookup :fx fx-id)]
+      (let [meta* (rf.registrar/lookup :fx fx-id)]
         (is (some? meta*)
             (str fx-id " is registered by the routing facade"))
         (is (contains? meta* :schema)
@@ -121,19 +121,19 @@
 (deftest nav-fx-meta-vars-carry-schema
   (testing "the :schema rides on the exported meta vars themselves, so a
             facade `:reload` (which re-reads these vars) re-wires the gate"
-    (is (= nav-fx-schemas/push-url-args       (:schema nav-fx/push-url-meta)))
-    (is (= nav-fx-schemas/replace-url-args    (:schema nav-fx/replace-url-meta)))
-    (is (= nav-fx-schemas/scroll-args         (:schema scroll/scroll-fx-meta)))
-    (is (= nav-fx-schemas/capture-scroll-args (:schema scroll/capture-scroll-meta))))
+    (is (= rf.routing.nav-fx-schemas/push-url-args       (:schema rf.routing.nav-fx/push-url-meta)))
+    (is (= rf.routing.nav-fx-schemas/replace-url-args    (:schema rf.routing.nav-fx/replace-url-meta)))
+    (is (= rf.routing.nav-fx-schemas/scroll-args         (:schema rf.routing.scroll/scroll-fx-meta)))
+    (is (= rf.routing.nav-fx-schemas/capture-scroll-args (:schema rf.routing.scroll/capture-scroll-meta))))
 
   (testing "the pre-existing EP-0015 :sensitive marks and :platforms survive —
             :schema is additive, it does not displace the other meta"
-    (is (= #{:client} (:platforms scroll/scroll-fx-meta)))
+    (is (= #{:client} (:platforms rf.routing.scroll/scroll-fx-meta)))
     (is (= [[:from :params] [:from :query]
             [:to :params]   [:to :query]
             [:fragment]]
-           (:sensitive scroll/scroll-fx-meta)))
-    (is (= [[:url]] (:sensitive scroll/capture-scroll-meta)))))
+           (:sensitive rf.routing.scroll/scroll-fx-meta)))
+    (is (= [[:url]] (:sensitive rf.routing.scroll/capture-scroll-meta)))))
 
 (deftest nav-fx-schemas-are-valid-malli-schemas
   (testing "every registered nav-fx schema compiles under Malli — an
@@ -357,23 +357,23 @@
   `true` unconditionally — see the ns docstring's posture split. Use
   `schema-verdict` below for the always-on half."
   [fx-id args]
-  (let [validate-fx! (late-bind/get-fn :schemas/validate-fx!)]
+  (let [validate-fx! (rf.late-bind/get-fn :schemas/validate-fx!)]
     (validate-fx! fx-id :test/originating-event args
-                  (registrar/lookup :fx fx-id))))
+                  (rf.registrar/lookup :fx fx-id))))
 
 (defn- schema-verdict
   "The ALWAYS-ON half of the wired gate (rf2-o5dbf): `m/validate` run against
   the `:schema` on `fx-id`'s LIVE registration — the very schema
-  `validate-fx!` would consult. Pure Malli, no `interop/debug-enabled?`
+  `validate-fx!` would consult. Pure Malli, no `rf.interop/debug-enabled?`
   anywhere between the call and the answer, so it holds under the production
   gate. Read it as \"what the hook WOULD relay if the hot path were running\"."
   [fx-id args]
-  (m/validate (:schema (registrar/lookup :fx fx-id)) args))
+  (m/validate (:schema (rf.registrar/lookup :fx fx-id)) args))
 
 (deftest validate-fx-hook-is-wired-for-the-nav-fx
   (testing "the schemas artefact is on the routing test classpath and has
             published :schemas/validate-fx! — the hook re-frame.fx consults"
-    (is (fn? (late-bind/get-fn :schemas/validate-fx!)))))
+    (is (fn? (rf.late-bind/get-fn :schemas/validate-fx!)))))
 
 (deftest nav-fx-args-pass-the-real-validation-hook-when-conforming
   (testing "POSITIVE control through the WIRED path: everything the runtime
@@ -394,7 +394,7 @@
           "the full five-slot args with a FRACTIONAL :saved-pos pass the registered schema")
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring): the WIRED
       ;; hot path, plus a NEGATIVE over the trace ring.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (with-trace-recorder! [traces]
           (is (true? (validate-through-hook :rf.nav/push-url "/cart")))
           (is (true? (validate-through-hook :rf.nav/replace-url "/checkout")))
@@ -418,13 +418,13 @@
                               :rf.nav/replace-url    42
                               :rf.nav/scroll         {:strategy :smooth}
                               :rf.nav/capture-scroll {:position [0 0]}}]
-      (let [validate-fx!    (late-bind/get-fn :schemas/validate-fx!)
-            pre-sqams-meta  (dissoc (registrar/lookup :fx fx-id) :schema)]
+      (let [validate-fx!    (rf.late-bind/get-fn :schemas/validate-fx!)
+            pre-sqams-meta  (dissoc (rf.registrar/lookup :fx fx-id) :schema)]
         ;; SEMANTIC, posture-independent (rf2-o5dbf): the control's real
         ;; subject is that a `:schema` IS installed and DOES reject these
         ;; args. That is what a future edit dropping a `:schema` would break,
         ;; and it is checkable without the hot path.
-        (is (some? (:schema (registrar/lookup :fx fx-id)))
+        (is (some? (:schema (rf.registrar/lookup :fx fx-id)))
             (str fx-id " still carries a :schema on its live registration"))
         (is (false? (schema-verdict fx-id bad-args))
             (str fx-id "'s registered schema rejects " (pr-str bad-args)
@@ -432,7 +432,7 @@
         ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring). Both legs
         ;; go through the hot path, which returns `true` unconditionally under
         ;; -Dre-frame.debug=false, so neither can discriminate there.
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (true? (validate-fx! fx-id :test/originating-event
                                    bad-args pre-sqams-meta))
               (str fx-id " with a schema-less meta soft-passes " (pr-str bad-args)
@@ -456,7 +456,7 @@
       (is (false? (schema-verdict fx-id bad-args))
           (str fx-id "'s registered schema rejects " (pr-str bad-args)))
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (with-trace-recorder! [traces]
           (is (false? (validate-through-hook fx-id bad-args))
               (str fx-id " with " (pr-str bad-args) " fails the wired gate"))

@@ -4,7 +4,7 @@
 
   ## The gap this file closes
 
-  Every other route-link suite in the tree calls `routing/route-link-render`
+  Every other route-link suite in the tree calls `rf.routing/route-link-render`
   — the bare render fn — directly, and every one of them establishes the
   frame with `rf/with-frame`. That is the DYNAMIC-VAR tier, tier 1 of the
   three-tier chain `frame/resolve-current-frame` reads, and it answers
@@ -49,10 +49,10 @@
   (:require [cljs.test :refer-macros [async deftest is testing use-fixtures]]
             ["react-dom" :as react-dom]
             [reagent.dom.client :as rdc]
-            [re-frame.adapter.reagent :as reagent-adapter]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.core :as rf]
-            [re-frame.routing :as routing]
-            [re-frame.test-support :as test-support]))
+            [re-frame.routing :as rf.routing]
+            [re-frame.test-support :as rf.test-support]))
 
 (defn- browser? []
   (and (exists? js/document) (some? (.-createElement js/document))))
@@ -82,7 +82,7 @@
   namespace's match table in the shared bundle (TESTING.md §Test authoring
   policy)."
   []
-  (routing/reg-route articles-route {:doc "The article list."} articles-url)
+  (rf.routing/reg-route articles-route {:doc "The article list."} articles-url)
   nil)
 
 (rf/reg-view* ::app
@@ -100,8 +100,8 @@
 ;; ---------------------------------------------------------------------------
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       reagent-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.reagent/adapter
      ;; THE LOAD-BEARING LINE. With an ambient frame bound, tier 1 answers
      ;; every resolution and both rows below pass without the React-context
      ;; tier ever being consulted — which is precisely the blind spot that
@@ -110,7 +110,7 @@
      :async?        true
      :init-fn       (fn []
                       (set! (.-IS_REACT_ACT_ENVIRONMENT js/globalThis) false)
-                      (routing/reset-counters!)
+                      (rf.routing/reset-counters!)
                       (register-routes!))}))
 
 ;; ---------------------------------------------------------------------------
@@ -207,7 +207,7 @@
               m        (mount! [rf/frame-root {:id  frame-id
                                                :doc "route-link render witness (ENSURE)."}
                                 [(rf/view ::app)]])]
-          (-> (test-support/poll-until
+          (-> (rf.test-support/poll-until
                 #(some? (anchor m))
                 {:label "the route-link's anchor under a frame-root"})
               (.then  (fn [_] (assert-link-rendered! m "frame-root")))

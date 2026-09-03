@@ -31,13 +31,13 @@
   Internal namespace; the public facade is `re-frame.routing`. The
   facade owns the two `fx/reg-fx` calls so a `:reload` re-wires them on
   a fresh registrar."
-  (:require [re-frame.error :as error]
-            [re-frame.error-emit :as error-emit]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.routing.nav-fx-schemas :as nav-fx-schemas]
-            [re-frame.routing.registry :as registry]
-            [re-frame.trace :as trace]))
+  (:require [re-frame.error :as rf.error]
+            [re-frame.error-emit :as rf.error-emit]
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.routing.nav-fx-schemas :as rf.routing.nav-fx-schemas]
+            [re-frame.routing.registry :as rf.routing.registry]
+            [re-frame.trace :as rf.trace]))
 
 (def scroll-positions-cap
   "Soft upper bound on tracked URLs in the per-frame scroll-positions cache.
@@ -181,7 +181,7 @@
 
 (defn route-slice-url
   "Best-effort CANONICAL URL reconstruction for a route-slice-shaped map
-  `{:route-id :params :query :fragment}` via `registry/route-url`. Returns
+  `{:route-id :params :query :fragment}` via `rf.routing.registry/route-url`. Returns
   nil (rather than throwing) for a slice with no `:route-id` or one
   `route-url` can't build (an unregistered/invalid route), so callers skip
   rather than failing navigation.
@@ -196,7 +196,7 @@
   [route-slice]
   (when-let [id (:route-id route-slice)]
     (try
-      (registry/route-url {:to       id
+      (rf.routing.registry/route-url {:to       id
                            :params   (or (:params route-slice) {})
                            :query    (or (:query route-slice) {})
                            :fragment (:fragment route-slice)})
@@ -238,7 +238,7 @@
   `:position` test-injection seam still validates."
   {:platforms #{:client}
    :sensitive [[:url]]
-   :schema    nav-fx-schemas/capture-scroll-args
+   :schema    rf.routing.nav-fx-schemas/capture-scroll-args
    :doc       "Capture the current browser scroll position into the
 host-side per-frame transient scroll-position cache (keyed by url)
 before leaving a route. The cache is NOT runtime-db state and does not
@@ -259,7 +259,7 @@ egress to trace / epochs / SSR (rf2-1hncp2)."})
              ;; cascade envelope frame as `:frame`; a nil stamp is an
              ;; invariant failure (`:rf.error/no-frame-context`), never a
              ;; synthesised `:rf/default`.
-             frame-id (frame/require-frame-stamp!
+             frame-id (rf.frame/require-frame-stamp!
                         frame :rf.nav/capture-scroll
                         {:where 'rf.nav/capture-scroll-handler})
              pos (or position
@@ -267,7 +267,7 @@ egress to trace / epochs / SSR (rf2-1hncp2)."})
                       (or (.-scrollY js/window) (.-pageYOffset js/window) 0)])]
          (save-scroll-position! frame-id url pos)))
      :clj
-     (trace/emit! :rf.fx :rf.fx/skipped-on-platform
+     (rf.trace/emit! :rf.fx :rf.fx/skipped-on-platform
                   {:rf.fx/id :rf.nav/capture-scroll :url url})))
 
 (def scroll-fx-meta
@@ -300,12 +300,12 @@ egress to trace / epochs / SSR (rf2-1hncp2)."})
   EGRESS copy (after). `:saved-pos` members are `number?` rather than
   `:int` because `window.scrollX/Y` are fractional at non-100% zoom and
   on HiDPI displays; the `:fragment` slot is optional. See
-  `nav-fx-schemas/scroll-args` for the full rationale."
+  `rf.routing.nav-fx-schemas/scroll-args` for the full rationale."
   {:platforms #{:client}
    :sensitive [[:from :params] [:from :query]
                [:to :params]   [:to :query]
                [:fragment]]
-   :schema    nav-fx-schemas/scroll-args
+   :schema    rf.routing.nav-fx-schemas/scroll-args
    :doc       "Per Spec 012 §Scroll restoration. Args: {:strategy :from
 :to :saved-pos :fragment}. `:strategy` is the closed three-value enum
 :top / :restore / :preserve; any other value is rejected loudly
@@ -314,7 +314,7 @@ egress to trace / epochs / SSR (rf2-1hncp2)."})
 (def supported-scroll-strategies
   "The CLOSED `:rf.nav/scroll` `:strategy` vocabulary, per Spec 012
   §Scroll restoration. Ordered for the diagnostic message; the schema
-  (`nav-fx-schemas/scroll-args`) carries the same three as an `:enum`."
+  (`rf.routing.nav-fx-schemas/scroll-args`) carries the same three as an `:enum`."
   [:top :restore :preserve])
 
 (def unsupported-strategy-reason
@@ -333,11 +333,11 @@ egress to trace / epochs / SSR (rf2-1hncp2)."})
 
 (defn- emit-unsupported-strategy!
   "Fan the closed-vocabulary rejection out on BOTH error channels through the
-  shared `error-emit/emit-error-both!` seam (rf2-2hkfy).
+  shared `rf.error-emit/emit-error-both!` seam (rf2-2hkfy).
 
   rf2-px26m made the handler's default branch loud instead of nil, but it
-  emitted through `trace/emit-error!` ALONE — and that surface is wrapped in
-  `interop/debug-enabled?`, so it DCEs under CLJS `:advanced` +
+  emitted through `rf.trace/emit-error!` ALONE — and that surface is wrapped in
+  `rf.interop/debug-enabled?`, so it DCEs under CLJS `:advanced` +
   `goog.DEBUG=false`. The rejection therefore only ever fired where the
   OPTIONAL schemas artefact had already caught the same value one step
   earlier at the Spec 010 §step-5 `:fx-args` boundary. On a schemas-less
@@ -349,8 +349,8 @@ egress to trace / epochs / SSR (rf2-1hncp2)."})
   `emit-error-both!` is the existing two-channel helper every catalogued
   production-reachable runtime error site already uses. Axis 1 is the
   always-on `dispatch-on-error!` listener registry — NOT gated on
-  `interop/debug-enabled?`, so the record survives `goog.DEBUG=false` and
-  reaches off-box shippers. Axis 2 is the dev-only `trace/emit-error!`
+  `rf.interop/debug-enabled?`, so the record survives `goog.DEBUG=false` and
+  reaches off-box shippers. Axis 2 is the dev-only `rf.trace/emit-error!`
   surface, which keeps the EXACT tag map rf2-px26m shipped, so dev-trace
   consumers (the existing suite, Xray, epoch capture) see no change. One
   call, one record per channel — no double emission.
@@ -405,19 +405,19 @@ egress to trace / epochs / SSR (rf2-1hncp2)."})
   it safe on axis 1, and it also removes the `pr-str` of an arbitrary value from
   the rejection path entirely — no gate needed, on any build. The rejection
   itself is unchanged and remains unconditional: nothing here is wrapped in
-  `interop/debug-enabled?`, so #6376's always-on guarantee stands."
+  `rf.interop/debug-enabled?`, so #6376's always-on guarantee stands."
   [frame event strategy]
-  (error-emit/emit-error-both!
+  (rf.error-emit/emit-error-both!
     :rf.error/unsupported-scroll-strategy
     event
     (when (vector? event) (first event))
     frame
     nil                                   ;; no exception — a rejected value, not a throw
     0                                     ;; not a timed path
-    (interop/now-ms)
+    (rf.interop/now-ms)
     ;; Axis 2 — the dev-trace tags. Keeps the RAW rejected value (this channel
     ;; is DCE'd in production and does not egress). `:recovery` is hoisted to
-    ;; the envelope top level by `trace/build-event`.
+    ;; the envelope top level by `rf.trace/build-event`.
     (cond-> {:strategy  strategy
              :supported supported-scroll-strategies
              :reason    unsupported-strategy-reason
@@ -428,7 +428,7 @@ egress to trace / epochs / SSR (rf2-1hncp2)."})
     ;; production. Every one is fixed-size and value-free, so the record's size
     ;; does not track the rejected value at all.
     {:supported     supported-scroll-strategies
-     :strategy-type (:type (error/diag-value-summary strategy))
+     :strategy-type (:type (rf.error/diag-value-summary strategy))
      :reason        unsupported-strategy-reason
      :recovery      :no-scroll}))
 
@@ -468,5 +468,5 @@ egress to trace / epochs / SSR (rf2-1hncp2)."})
        :preserve nil
        (emit-unsupported-strategy! frame event strategy))
      :clj
-     (trace/emit! :rf.fx :rf.fx/skipped-on-platform
+     (rf.trace/emit! :rf.fx :rf.fx/skipped-on-platform
                   {:rf.fx/id :rf.nav/scroll :strategy strategy})))

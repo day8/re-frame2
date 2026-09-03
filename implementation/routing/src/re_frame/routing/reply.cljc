@@ -42,7 +42,7 @@
   family-private elider (Managed-Effects §Tracing).
 
   Internal namespace; the public facade is `re-frame.routing`."
-  (:require [re-frame.reply :as reply]))
+  (:require [re-frame.reply :as rf.reply]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -112,7 +112,7 @@
   the regression guard for the pre-fix nil-cofx bug); a nil captured
   token against a nil current (no live navigation) matches."
   [carried-nav-token current-nav-token]
-  (reply/stale? (gate carried-nav-token) (current-gate current-nav-token)))
+  (rf.reply/stale? (gate carried-nav-token) (current-gate current-nav-token)))
 
 ;; ---------------------------------------------------------------------------
 ;; Stale suppression — THE correctness boundary, delegated to the shared
@@ -183,7 +183,7 @@
   entry that never touches the reply envelope."
   ([ctx target] (complete-live ctx target nil))
   ([ctx target value]
-   (reply/complete target (live-reply ctx value))))
+   (rf.reply/complete target (live-reply ctx value))))
 
 (defn suppress
   "Produce the stale-suppression outcome for a route-loader completion
@@ -218,7 +218,7 @@
   ([ctx current] (suppress ctx current nil))
   ([{:keys [nav-token frame completed-at] :as ctx} current target]
    (let [wid (work-id ctx)]
-     (reply/suppress target
+     (rf.reply/suppress target
                      (gate nav-token)
                      (current-gate current)
                      (cond-> {:status       :stale
@@ -245,4 +245,4 @@
   `:rf.reply/work-kind`, `:rf.reply/work-status`, `:rf.frame/id`, `:completed-at`) ride
   verbatim. `opts` is forwarded to the walker (e.g. `:frame`)."
   ([reply] (trace-reply reply nil))
-  ([reply opts] (reply/trace-summary reply opts)))
+  ([reply opts] (rf.reply/trace-summary reply opts)))

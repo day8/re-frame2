@@ -22,7 +22,7 @@
   Internal namespace; the public facade is `re-frame.routing`. The
   facade owns the `subs/reg-sub` calls so a `:reload` re-wires them on a
   fresh registrar."
-  (:require [re-frame.registrar :as registrar]))
+  (:require [re-frame.registrar :as rf.registrar]))
 
 (defn route-sub-fn
   "Layer-1 sub fn for `:rf/route` — reads the route slice from
@@ -51,7 +51,7 @@
       (cond
         (nil? cur)      (vec acc)
         (seen cur)      (vec acc)
-        :else           (recur (:parent (registrar/lookup :route cur))
+        :else           (recur (:parent (rf.registrar/lookup :route cur))
                                (conj acc cur)
                                (conj seen cur))))))
 

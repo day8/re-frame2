@@ -8,7 +8,7 @@
   rejection was emitted through `trace/emit-error!` alone, which DCEs under
   `:advanced` + `goog.DEBUG=false`, so the one configuration the branch exists
   to cover — a schemas-less PRODUCTION host — got no scroll and no record. It
-  now fans through `error-emit/emit-error-both!`, and it must STAY that way:
+  now fans through `rf.error-emit/emit-error-both!`, and it must STAY that way:
   every assertion in this file is about the record's SHAPE, never about
   whether it fires. `re-frame.routing-scroll-always-on-elision-prod-test` owns
   the survives-production proof.
@@ -48,19 +48,19 @@
   recovery and re-escalation rather than at one high-water mark."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
-            [re-frame.adapter.reagent :as reagent-adapter]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.core :as rf]
-            [re-frame.error-emit :as error-emit]
-            [re-frame.routing.scroll :as scroll]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace.tooling :as trace-tooling]))
+            [re-frame.error-emit :as rf.error-emit]
+            [re-frame.routing.scroll :as rf.routing.scroll]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter
      :init-fn (fn []
-                (error-emit/clear-error-listeners!)
-                (scroll/reset-cache!))}))
+                (rf.error-emit/clear-error-listeners!)
+                (rf.routing.scroll/reset-cache!))}))
 
 ;; ---- harness ---------------------------------------------------------------
 
@@ -82,7 +82,7 @@
   ([strategy] (reject! strategy nil))
   ([strategy event]
    (let [records (record-always-on-errors!)]
-     (scroll/scroll-fx-handler
+     (rf.routing.scroll/scroll-fx-handler
        (cond-> {:frame :bounded.scroll/frame} event (assoc :event event))
        {:strategy strategy})
      (let [errs (unsupported-records @records)]
@@ -184,11 +184,11 @@
     (let [strategy (adversarial-strategy 3)
           traces   (atom [])
           cb-key   :bounded.scroll/trace-recorder]
-      (trace-tooling/register-listener! cb-key (fn [ev] (swap! traces conj ev)))
+      (rf.trace.tooling/register-listener! cb-key (fn [ev] (swap! traces conj ev)))
       (try
-        (scroll/scroll-fx-handler {:frame :bounded.scroll/frame}
+        (rf.routing.scroll/scroll-fx-handler {:frame :bounded.scroll/frame}
                                   {:strategy strategy})
-        (finally (trace-tooling/unregister-listener! cb-key)))
+        (finally (rf.trace.tooling/unregister-listener! cb-key)))
       (let [errs (filterv #(= :rf.error/unsupported-scroll-strategy (:operation %))
                           @traces)]
         (is (= 1 (count errs)) "exactly one dev trace")
@@ -211,7 +211,7 @@
   ([strategy] (reject-on-default! strategy nil))
   ([strategy event]
    (let [records (record-always-on-errors!)]
-     (scroll/scroll-fx-handler
+     (rf.routing.scroll/scroll-fx-handler
        (cond-> {:frame :rf/default} event (assoc :event event))
        {:strategy strategy})
      (first (unsupported-records @records)))))

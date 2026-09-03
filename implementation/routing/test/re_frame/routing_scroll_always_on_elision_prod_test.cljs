@@ -30,7 +30,7 @@
   reproduced for the consumers least likely to notice it.
 
   rf2-2hkfy fans the category through the existing two-channel seam
-  (`error-emit/emit-error-both!`) instead. Axis 1 — the `dispatch-on-error!`
+  (`rf.error-emit/emit-error-both!`) instead. Axis 1 — the `dispatch-on-error!`
   listener registry — is NOT gated on `interop/debug-enabled?`, so the record
   survives here.
 
@@ -64,22 +64,22 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.error-emit :as error-emit]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.routing.scroll :as scroll]
-            [re-frame.test-support :as test-support]
+            [re-frame.error-emit :as rf.error-emit]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.routing.scroll :as rf.routing.scroll]
+            [re-frame.test-support :as rf.test-support]
             ;; rf2-qwm0a — the dev trace listener surface. Registered here to
             ;; prove the dev channel is genuinely DCE'd in this build, which
             ;; is what makes the always-on assertion non-vacuous.
-            [re-frame.trace.tooling :as trace-tooling]))
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter
      :init-fn (fn []
                 ;; The always-on listener registry is a `defonce` atom.
-                (error-emit/clear-error-listeners!)
-                (scroll/reset-cache!))}))
+                (rf.error-emit/clear-error-listeners!)
+                (rf.routing.scroll/reset-cache!))}))
 
 ;; ---- helpers --------------------------------------------------------------
 
@@ -132,7 +132,7 @@
       (fn []
         (set-scroll! 0 700)
         (let [records (record-always-on-errors!)]
-          (scroll/scroll-fx-handler
+          (rf.routing.scroll/scroll-fx-handler
             {:frame :prod.scroll/frame}
             {:strategy {:to :element :selector "#article"}})
           (let [errs (unsupported-records @records)]
@@ -182,12 +182,12 @@
         (let [traces  (atom [])
               records (record-always-on-errors!)
               cb-key  :prod.scroll/trace-recorder]
-          (trace-tooling/register-listener! cb-key (fn [ev] (swap! traces conj ev)))
+          (rf.trace.tooling/register-listener! cb-key (fn [ev] (swap! traces conj ev)))
           (try
-            (scroll/scroll-fx-handler {:frame :prod.scroll/frame}
+            (rf.routing.scroll/scroll-fx-handler {:frame :prod.scroll/frame}
                                       {:strategy :bogus})
             (finally
-              (trace-tooling/unregister-listener! cb-key)))
+              (rf.trace.tooling/unregister-listener! cb-key)))
           (is (empty? @traces)
               "no trace events under :advanced + goog.DEBUG=false — the dev
                half of the two-channel seam is DCE'd, as designed")
@@ -210,16 +210,16 @@
         (let [records (record-always-on-errors!)]
           ;; :top — no fragment element, so it falls back to (0,0).
           (set-scroll! 0 700)
-          (scroll/scroll-fx-handler {:frame :prod.scroll/frame} {:strategy :top})
+          (rf.routing.scroll/scroll-fx-handler {:frame :prod.scroll/frame} {:strategy :top})
           (is (= [0 0] (scroll-xy)) ":top scrolled to the top under prod")
           ;; :restore — drives .scrollTo with the saved position.
           (set-scroll! 0 700)
-          (scroll/scroll-fx-handler {:frame :prod.scroll/frame}
+          (rf.routing.scroll/scroll-fx-handler {:frame :prod.scroll/frame}
                                     {:strategy :restore :saved-pos [0 420]})
           (is (= [0 420] (scroll-xy)) ":restore restored the saved position")
           ;; :preserve — nothing moves, nothing emits.
           (set-scroll! 0 700)
-          (scroll/scroll-fx-handler {:frame :prod.scroll/frame}
+          (rf.routing.scroll/scroll-fx-handler {:frame :prod.scroll/frame}
                                     {:strategy :preserve})
           (is (= [0 700] (scroll-xy))
               ":preserve left the scroll position alone")

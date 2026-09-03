@@ -30,18 +30,18 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.fx :as fx]
-            [re-frame.registrar :as registrar]
-            [re-frame.routing :as routing]
-            [re-frame.routing.link :as link]
-            [re-frame.routing-test-support :as rts]))
+            [re-frame.fx :as rf.fx]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.routing :as rf.routing]
+            [re-frame.routing.link :as rf.routing.link]
+            [re-frame.routing-test-support :as rf.routing-test-support]))
 
 ;; rf2-6qclsc: use the shared `reset-runtime` fixture directly rather than a
 ;; drifting local copy. The route-link suite has no suite-specific reset
 ;; extras, so the shared fixture (which additionally reloads ssr /
 ;; test-support and drops the host-side scroll / nav-counter caches) applies
 ;; verbatim.
-(use-fixtures :each rts/reset-runtime)
+(use-fixtures :each rf.routing-test-support/reset-runtime)
 
 ;; ---- registry registration ----------------------------------------------
 
@@ -53,7 +53,7 @@
     ;; `[rf/route-link ...]` resolve identically client- and server-side.
     (is (some? (rf/handler-meta :view :route/link))
         ":route/link is registered when re-frame.routing is loaded")
-    (is (fn? (:handler-fn (registrar/lookup :view :route/link)))
+    (is (fn? (:handler-fn (rf.registrar/lookup :view :route/link)))
         "the registered slot carries a callable :handler-fn")))
 
 ;; ---- href synthesis -----------------------------------------------------
@@ -63,13 +63,13 @@
     (rf/reg-route :route/cart    {} "/cart")
     (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
 
-    (let [render  routing/route-link-render-ssr
+    (let [render  rf.routing/route-link-render-ssr
           [tag attrs] (render {:to :route/cart})]
       (is (= :a tag) "renders an <a> element")
       (is (= "/cart" (:href attrs))
           ":href is the route-url for :route/cart"))
 
-    (let [[_ attrs] (routing/route-link-render-ssr
+    (let [[_ attrs] (rf.routing/route-link-render-ssr
                      {:to :route/article :params {:id "intro"}})]
       (is (= "/articles/intro" (:href attrs))
           ":href substitutes :params into the route's :path pattern"))))
@@ -80,20 +80,20 @@
     ;; the empty-:fragment sub-case below); when present it must be a string.
     (rf/reg-route :route/search {:query [:map [:q {:optional true} :string]]} "/search")
 
-    (let [[_ attrs] (routing/route-link-render-ssr
+    (let [[_ attrs] (rf.routing/route-link-render-ssr
                      {:to    :route/search
                       :query {:q "clojure"}})]
       (is (= "/search?q=clojure" (:href attrs))
           ":query lands as ?key=value on the href"))
 
-    (let [[_ attrs] (routing/route-link-render-ssr
+    (let [[_ attrs] (rf.routing/route-link-render-ssr
                      {:to       :route/search
                       :query    {:q "clojure"}
                       :fragment "results"})]
       (is (= "/search?q=clojure#results" (:href attrs))
           ":fragment is appended after #"))
 
-    (let [[_ attrs] (routing/route-link-render-ssr
+    (let [[_ attrs] (rf.routing/route-link-render-ssr
                      {:to       :route/search
                       :fragment ""})]
       (is (= "/search" (:href attrs))
@@ -105,7 +105,7 @@
   (testing "props other than :to / :params / :query / :fragment / :on-click pass through"
     (rf/reg-route :route/home {} "/")
 
-    (let [[_ attrs children] (routing/route-link-render-ssr
+    (let [[_ attrs children] (rf.routing/route-link-render-ssr
                               {:to    :route/home
                                :class "nav-link"
                                :id    "home-link"
@@ -145,10 +145,10 @@
   (rf/reg-route :route/active {} "/active")
   (rf/reg-route :route/article {:params [:map [:id :string]]} "/articles/:id")
   (server-frame! :ssr/history-base
-                 (routing/with-base-path routing/history-url-strategy "/demos"))
-  (server-frame! :ssr/hash routing/hash-url-strategy)
+                 (rf.routing/with-base-path rf.routing/history-url-strategy "/demos"))
+  (server-frame! :ssr/hash rf.routing/hash-url-strategy)
   (server-frame! :ssr/hash-base
-                 (routing/with-base-path routing/hash-url-strategy "/demos"))
+                 (rf.routing/with-base-path rf.routing/hash-url-strategy "/demos"))
 
   (testing "the SSR emitter renders the based href for a with-base-path server
             frame — the production path: `[rf/route-link …]` in a render tree,
@@ -180,16 +180,16 @@
 
   (testing "the :routing/link-model seam agrees, and its navigation payload stays
             path-form — only the rendered href is encoded"
-    (let [model (link/link-model {:to :route/active} :ssr/history-base)]
+    (let [model (rf.routing.link/link-model {:to :route/active} :ssr/history-base)]
       (is (= "/demos/active" (:href model)))
       (is (= [:rf.route/url-requested {:url "/active" :to :route/active}]
              (:payload model))
           "the cascade is path-form throughout; the base never enters the payload"))
-    (is (= "/demos#/active" (:href (link/link-model {:to :route/active} :ssr/hash-base)))))
+    (is (= "/demos#/active" (:href (rf.routing.link/link-model {:to :route/active} :ssr/hash-base)))))
 
   (testing "a bare call outside any frame scope still renders path-form (the
             direct-call ergonomics above do not regress)"
-    (is (= "/active" (:href (second (routing/route-link-render-ssr {:to :route/active})))))))
+    (is (= "/active" (:href (second (rf.routing/route-link-render-ssr {:to :route/active})))))))
 
 ;; ---- missing route ------------------------------------------------------
 
@@ -201,7 +201,7 @@
     ;; delegates href synthesis to route-url, so the same error
     ;; surfaces from the link layer.
     (let [thrown (try
-                   (routing/route-link-render-ssr {:to :route/nope})
+                   (rf.routing/route-link-render-ssr {:to :route/nope})
                    nil
                    (catch clojure.lang.ExceptionInfo e e))]
       (is (some? thrown) "route-link raises when :to is unregistered")
@@ -227,7 +227,7 @@
 
     ;; Suppress the :client-only :rf.nav/push-url fx on the JVM (matches
     ;; the pattern in routing_test.clj).
-    (fx/reg-fx :rf.nav/push-url
+    (rf.fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
 

@@ -31,9 +31,9 @@
   Per [Derivations.md](../../../../../../spec/Derivations.md) (graduated
   from EP-0014; §Routes expose algebra views) and the projected Malli
   shapes in [Spec-Schemas §`:rf/derivation-node`](../../../../../../spec/Spec-Schemas.md)."
-  (:require [re-frame.registrar :as registrar]
-            [re-frame.frame :as frame]
-            [re-frame.derivation.node :as node]))
+  (:require [re-frame.registrar :as rf.registrar]
+            [re-frame.frame :as rf.frame]
+            [re-frame.derivation.node :as rf.derivation.node]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -165,7 +165,7 @@
   are auto-captured by `reg-route` via `re-frame.source-coords/merge-coords`
   (Spec 001 §Source-coordinate capture)."
   [node route-meta]
-  (cond-> (node/attach-source node route-meta)
+  (cond-> (rf.derivation.node/attach-source node route-meta)
     (contains? route-meta :doc) (assoc :doc (:doc route-meta))))
 
 (defn- node-for
@@ -189,7 +189,7 @@
   the `:source-form`, the route-owned resource activation `:resource-edges`
   (when declared), and source coords / doc."
   [route-id route-meta]
-  (-> (node/node-base :rf/route route-output
+  (-> (rf.derivation.node/node-base :rf/route route-output
                       {:kind          :process
                        :storage       :runtime-db
                        :evaluation    :on-route
@@ -267,14 +267,14 @@
   conformance fixtures; the public name is deferred until a third consumer
   needs it. There is no `re-frame.core/route-algebra-view` facade export."
   ([]
-   (let [routes (registrar/registrations :route)]
+   (let [routes (rf.registrar/registrations :route)]
      (reduce-kv
        (fn [acc route-id route-meta]
          (assoc acc route-id (node-for route-id route-meta)))
        {}
        routes)))
   ([route-id]
-   (when-let [route-meta (registrar/lookup :route route-id)]
+   (when-let [route-meta (rf.registrar/lookup :route route-id)]
      (node-for route-id route-meta))))
 
 (defn route-slice-algebra-view
@@ -318,7 +318,7 @@
   works there too, unlike the sub-cache reaction-deref slice-2 helper).
   Returns `nil` for a missing/destroyed frame or an unmaterialized slice."
   [frame-id]
-  (when-let [runtime-db (frame/frame-runtime-db-value frame-id)]
+  (when-let [runtime-db (rf.frame/frame-runtime-db-value frame-id)]
     (when-let [slice (get-in runtime-db [routing-runtime-key :current])]
       (let [route-id  (:route-id slice)
             nav-token (:nav-token slice)]

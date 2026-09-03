@@ -36,7 +36,7 @@
 
   Internal namespace; the public facade is `re-frame.routing`."
   (:require [clojure.set :as set]
-            [re-frame.identity :as identity]))
+            [re-frame.identity :as rf.identity]))
 
 ;; ---- the closed key classes (Spec 012 §The extraction law) ----------------
 
@@ -166,10 +166,10 @@
   :prefetch`).
 
   The offending unknown keys are reported in the same total canonical order
-  (`identity/canonical-bytes`) the navigate gate uses, so heterogeneous EDN keys
+  (`rf.identity/canonical-bytes`) the navigate gate uses, so heterogeneous EDN keys
   never trip a `compare`-based `sort`."
   [request]
-  (let [sorted-keys (fn [kws] (vec (sort-by identity/canonical-bytes kws)))]
+  (let [sorted-keys (fn [kws] (vec (sort-by rf.identity/canonical-bytes kws)))]
     (cond
       (not (map? request))
       {:reason :request-not-a-map :keys []}
@@ -210,7 +210,7 @@
      PRESENCE discriminates. Empty maps and pure-policy maps reject loud.
   7. An in-place request before any current route exists rejects loud.
   8. Unknown keys reject (namespaced included), reported in a total canonical
-     order (`identity/canonical-bytes`) so heterogeneous EDN keys never trip a
+     order (`rf.identity/canonical-bytes`) so heterogeneous EDN keys never trip a
      `compare`-based `sort`.
 
   This is the byte-for-byte gate `:rf.route/navigate` ran inline before R0b;
@@ -226,7 +226,7 @@
         ;; plain `sort` throws when a request carries mixed-kind keys (a
         ;; keyword beside a string / number), so the offending-key report is
         ;; ordered by the shared CEDN-1 identity the whole prism sorts by.
-        sorted-keys  (fn [kws] (vec (sort-by identity/canonical-bytes kws)))]
+        sorted-keys  (fn [kws] (vec (sort-by rf.identity/canonical-bytes kws)))]
     (cond
       (seq unknown)
       {:reason :unknown-keys :keys (sorted-keys unknown)}

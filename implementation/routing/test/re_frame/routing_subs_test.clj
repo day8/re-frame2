@@ -13,8 +13,8 @@
 
   The activated/deactivated LIFECYCLE TRACE is not a sub — it is dev
   instrumentation emitted through `trace/emit!`, gated on
-  `interop/debug-enabled?` and read once at load time. Its assertions are kept
-  VERBATIM inside a `(when interop/debug-enabled? …)` arm marked `rf2-o5dbf`.
+  `rf.interop/debug-enabled?` and read once at load time. Its assertions are kept
+  VERBATIM inside a `(when rf.interop/debug-enabled? …)` arm marked `rf2-o5dbf`.
   Two of them are NEGATIVE (`(is (empty? …))` for the first-nav and same-id
   cases); with no trace bus they would pass vacuously, which is why they are
   inside the arm rather than left beside the semantics. In their place the
@@ -22,13 +22,13 @@
   which is posture-independent and asserted outside the arm."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.fx :as fx]
-            [re-frame.interop :as interop]
-            [re-frame.routing :as routing]
+            [re-frame.fx :as rf.fx]
+            [re-frame.interop :as rf.interop]
+            [re-frame.routing :as rf.routing]
             [re-frame.routing.test-support]
-            [re-frame.routing-test-support :as rts]))
+            [re-frame.routing-test-support :as rf.routing-test-support]))
 
-(use-fixtures :each rts/reset-runtime)
+(use-fixtures :each rf.routing-test-support/reset-runtime)
 
 ;; ---- Spec 012 §Nested layouts ---------------------------------------------
 
@@ -63,7 +63,7 @@
 (deftest sub-rf-route-fragment
   (testing ":rf.route/fragment reads the slice's :fragment"
     (rf/reg-route :route/docs {} "/docs/:page")
-    (fx/reg-fx :rf.nav/push-url
+    (rf.fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     ;; Land on a URL with a fragment — the slice carries :fragment "x"
@@ -81,7 +81,7 @@
     (rf/reg-route :route/account             {} "/account")
     (rf/reg-route :route/account.settings    {:parent :route/account} "/account/settings")
     (rf/reg-route :route/account.profile     {:parent :route/account.settings} "/account/settings/profile")
-    (fx/reg-fx :rf.nav/push-url
+    (rf.fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     ;; Land on the deepest leaf — chain walks up to the root.
@@ -109,7 +109,7 @@
     (rf/reg-event :editor/dirty (fn [{:keys [db]} [_ v]] {:db (assoc-in db [:editor :dirty?] v)}))
     (rf/reg-sub :editor/can-leave?
                 (fn [db _] (not (get-in db [:editor :dirty?]))))
-    (fx/reg-fx :rf.nav/push-url
+    (rf.fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     ;; No pending nav yet
@@ -140,7 +140,7 @@
   (testing "the durable route slice is keyed :route-id (not bare :id);
             the :rf.route/id sub-id is unchanged and reads the new key"
     (rf/reg-route :route/cart {} "/cart")
-    (fx/reg-fx :rf.nav/push-url
+    (rf.fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     (rf/dispatch-sync [:rf.route/navigate {:to :route/cart}])
@@ -167,7 +167,7 @@
             navigation (rf2-dn26r). Same-id navigation emits NEITHER."
     (rf/reg-route :route/from {} "/from")
     (rf/reg-route :route/to   {} "/to")
-    (fx/reg-fx :rf.nav/push-url
+    (rf.fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
     ;; First nav: no prior route → only :rf.route/activated fires.
@@ -182,7 +182,7 @@
           "first nav landed on :route/from")
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring); the second leg
       ;; is NEGATIVE over the trace ring, hence guarded.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (= [:route/from]
                (map #(-> % :tags :route-id)
                     (filter #(= :rf.route/activated (:operation %)) @traces)))
@@ -199,7 +199,7 @@
       (is (= :route/to @(rf/subscribe [:rf.route/id]))
           "cross-route nav moved the slice from :route/from to :route/to")
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [lifecycle (filter #(#{:rf.route/activated :rf.route/deactivated}
                                   (:operation %))
                                 @traces)]
@@ -225,7 +225,7 @@
           "same-id navigation left the slice on :route/to (the route stayed active)")
       ;; rf2-o5dbf — dev-instrumentation arm (see ns docstring); NEGATIVE over
       ;; the trace ring, hence guarded.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [lifecycle (filter #(#{:rf.route/activated :rf.route/deactivated}
                                   (:operation %))
                                 @traces)]

@@ -1,6 +1,6 @@
 (ns re-frame.route-link-seam-cljs-test
-  "The substrate-neutral link seam (rf2-vxgfnd.95.5) — `link/link-model` +
-  `link/activate-link!`. These are the two routing-owned late-bound hooks a
+  "The substrate-neutral link seam (rf2-vxgfnd.95.5) — `rf.routing.link/link-model` +
+  `rf.routing.link/activate-link!`. These are the two routing-owned late-bound hooks a
   view artefact's own route-link consumes so that artefact
   reimplements NONE of the routing link law.
 
@@ -15,16 +15,16 @@
   Per Spec 012 §Linking from views and the rf2-5yovjt ruling."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.trace.tooling :as trace-tooling]
-            [re-frame.routing :as routing]
-            [re-frame.routing.link :as link]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]))
+            [re-frame.trace.tooling :as rf.trace.tooling]
+            [re-frame.routing :as rf.routing]
+            [re-frame.routing.link :as rf.routing.link]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter
-     :init-fn routing/reset-counters!}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter
+     :init-fn rf.routing/reset-counters!}))
 
 (defn- mk-event
   [{:keys [button meta ctrl shift alt default-prevented]
@@ -36,7 +36,7 @@
     o))
 
 (defn- activate!
-  "Run `link/activate-link!` against a synthetic event; capture whether a
+  "Run `rf.routing.link/activate-link!` against a synthetic event; capture whether a
   `:rf.route/url-requested` was dispatched, its `:source` tag and target
   `:frame`, and whether preventDefault fired."
   [{:keys [event on-click render-frame payload native?]}]
@@ -44,7 +44,7 @@
         source     (atom nil)
         frame-tag  (atom nil)
         cb-key     (keyword (gensym "seam-capture-"))]
-    (trace-tooling/register-listener!
+    (rf.trace.tooling/register-listener!
       cb-key
       (fn [ev]
         (when (and (= :rf.event/dispatched (:operation ev))
@@ -55,10 +55,10 @@
           ;; :frame rides on :tags (only :source is hoisted top-level, per Spec 009)
           (reset! frame-tag (-> ev :tags :frame)))))
     (try
-      (link/activate-link! event on-click render-frame payload native?)
+      (rf.routing.link/activate-link! event on-click render-frame payload native?)
       {:dispatched @dispatched :source @source :frame @frame-tag
        :prevented? (.-defaultPrevented event)}
-      (finally (trace-tooling/unregister-listener! cb-key)))))
+      (finally (rf.trace.tooling/unregister-listener! cb-key)))))
 
 ;; ---------------------------------------------------------------------------
 ;; link-model — the pure routing calculation
@@ -70,12 +70,12 @@
                                 :query  [:map [:tab [:enum :summary :details]]]}
                 "/articles/:id")
   (testing "href + payload for a plain route (history default → path-form)"
-    (let [{:keys [href payload native?]} (link/link-model {:to :route/cart} nil)]
+    (let [{:keys [href payload native?]} (rf.routing.link/link-model {:to :route/cart} nil)]
       (is (= "/cart" href))
       (is (false? native?))
       (is (= [:rf.route/url-requested {:url "/cart" :to :route/cart}] payload))))
   (testing "params + query synthesise into href AND payload (route-url includes the query string, matching rf/route-link)"
-    (let [{:keys [href payload]} (link/link-model {:to :route/article
+    (let [{:keys [href payload]} (rf.routing.link/link-model {:to :route/article
                                                    :params {:id "intro"}
                                                    :query {:tab :summary}}
                                                   nil)]
@@ -89,7 +89,7 @@
   ;; pinned here and at the `rf/route-link` click (see
   ;; `plain-left-click-passes-params-query-and-fragment`).
   (testing "a fragment rides the payload as well as the href"
-    (let [{:keys [href payload]} (link/link-model {:to :route/cart :fragment "totals"} nil)]
+    (let [{:keys [href payload]} (rf.routing.link/link-model {:to :route/cart :fragment "totals"} nil)]
       (is (= "/cart#totals" href))
       (is (= {:url "/cart#totals" :to :route/cart :fragment "totals"}
              (second payload))))))
@@ -97,12 +97,12 @@
 (deftest link-model-detects-native-anchors
   (rf/reg-route :route/cart {} "/cart")
   (testing "target=_blank / _top / a download name mark the anchor native"
-    (is (true? (:native? (link/link-model {:to :route/cart :target "_blank"} nil))))
-    (is (true? (:native? (link/link-model {:to :route/cart :target "_top"} nil))))
-    (is (true? (:native? (link/link-model {:to :route/cart :download "f.pdf"} nil)))))
+    (is (true? (:native? (rf.routing.link/link-model {:to :route/cart :target "_blank"} nil))))
+    (is (true? (:native? (rf.routing.link/link-model {:to :route/cart :target "_top"} nil))))
+    (is (true? (:native? (rf.routing.link/link-model {:to :route/cart :download "f.pdf"} nil)))))
   (testing "target=_self / no native attrs stay interceptable"
-    (is (false? (:native? (link/link-model {:to :route/cart :target "_self"} nil))))
-    (is (false? (:native? (link/link-model {:to :route/cart} nil))))))
+    (is (false? (:native? (rf.routing.link/link-model {:to :route/cart :target "_self"} nil))))
+    (is (false? (:native? (rf.routing.link/link-model {:to :route/cart} nil))))))
 
 ;; ---------------------------------------------------------------------------
 ;; activate-link! — the router-attributed click decision
@@ -111,7 +111,7 @@
 (deftest activate-plain-left-click-dispatches-to-render-frame
   (rf/reg-route :route/cart {} "/cart")
   (rf/make-frame {:id :frame/main :initial-events [[:rf/set-db {}]]})
-  (let [model   (link/link-model {:to :route/cart} :frame/main)
+  (let [model   (rf.routing.link/link-model {:to :route/cart} :frame/main)
         {:keys [dispatched source frame prevented?]}
         (activate! {:event (mk-event {}) :on-click nil
                     :render-frame :frame/main
@@ -124,7 +124,7 @@
 
 (deftest activate-modifier-and-middle-clicks-defer
   (rf/reg-route :route/cart {} "/cart")
-  (let [model (link/link-model {:to :route/cart} nil)
+  (let [model (rf.routing.link/link-model {:to :route/cart} nil)
         defer (fn [ev] (activate! {:event ev :on-click nil :render-frame nil
                                    :payload (:payload model) :native? false}))]
     (doseq [ev [(mk-event {:meta true}) (mk-event {:ctrl true})
@@ -136,7 +136,7 @@
 
 (deftest activate-native-anchor-defers
   (rf/reg-route :route/cart {} "/cart")
-  (let [model (link/link-model {:to :route/cart :target "_blank"} nil)
+  (let [model (rf.routing.link/link-model {:to :route/cart :target "_blank"} nil)
         {:keys [dispatched prevented?]}
         (activate! {:event (mk-event {}) :on-click nil :render-frame nil
                     :payload (:payload model) :native? (:native? model)})]
@@ -145,7 +145,7 @@
 
 (deftest activate-runs-caller-on-click-first-and-honours-its-veto
   (rf/reg-route :route/cart {} "/cart")
-  (let [model  (link/link-model {:to :route/cart} nil)
+  (let [model  (rf.routing.link/link-model {:to :route/cart} nil)
         order  (atom [])
         ;; the caller's :on-click runs first and vetoes by preventing default
         veto   (fn [e] (swap! order conj :caller) (.preventDefault e))
@@ -157,7 +157,7 @@
     (is (nil? dispatched)
         "the framework skipped its interception once the caller prevented default"))
   (testing "a non-vetoing caller :on-click still runs, then the framework dispatches"
-    (let [model  (link/link-model {:to :route/cart} nil)
+    (let [model  (rf.routing.link/link-model {:to :route/cart} nil)
           ran    (atom false)
           {:keys [dispatched prevented?]}
           (activate! {:event (mk-event {}) :on-click (fn [_] (reset! ran true))

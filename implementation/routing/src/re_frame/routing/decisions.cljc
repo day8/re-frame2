@@ -35,15 +35,15 @@
   `:rf.route/navigation-blocked`, `:rf.route/entry-denied`,
   `:rf.route/continue`, `:rf.route/cancel`) so a `:reload` of the façade
   re-wires them on a fresh registrar (the `clear-all!` test-fixture path)."
-  (:require [re-frame.frame :as frame]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.privacy.url :as url-egress]
-            [re-frame.registrar :as registrar]
-            [re-frame.routing.plan :as plan]
-            [re-frame.routing.registry :as registry]
-            [re-frame.routing.resolve :as resolver]
-            [re-frame.routing.url :as url]
-            [re-frame.trace :as trace]))
+  (:require [re-frame.frame :as rf.frame]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.privacy.url :as rf.privacy.url]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.routing.plan :as rf.routing.plan]
+            [re-frame.routing.registry :as rf.routing.registry]
+            [re-frame.routing.resolve :as rf.routing.resolve]
+            [re-frame.routing.url :as rf.routing.url]
+            [re-frame.trace :as rf.trace]))
 
 ;; ---------------------------------------------------------------------------
 ;; Guard resolution — shared by `:can-leave` (current route) and
@@ -116,7 +116,7 @@
   tag under `:tags :frame`."
   [frame route-id route-meta guard-key target error-id]
   (if-let [query (guard-query route-meta guard-key)]
-    (if-let [subscribe-once (late-bind/get-fn :subs/subscribe-once)]
+    (if-let [subscribe-once (rf.late-bind/get-fn :subs/subscribe-once)]
       ;; Append the target so the guard sub receives it as
       ;; `(fn [inputs [_ target] ...])`.
       (let [query-with-target (conj (vec query) target)
@@ -127,7 +127,7 @@
           :else
           ;; Closed contract: a non-boolean FAILS CLOSED + emits `error-id`.
           ;; The carried `:frame` reaches epoch capture / Xray.
-          (do (trace/emit-error! error-id
+          (do (rf.trace/emit-error! error-id
                                  (cond-> {:route-id route-id
                                           :query    query
                                           :value    v
@@ -138,7 +138,7 @@
                                           :recovery :blocked-navigation}
                                    frame (assoc :frame frame)))
               false)))
-      (do (trace/emit! :warning :rf.warning/can-leave-subs-artefact-missing
+      (do (rf.trace/emit! :warning :rf.warning/can-leave-subs-artefact-missing
                        (cond-> {:query query}
                          frame (assoc :frame frame)))
           true))
@@ -177,7 +177,7 @@
   [{:keys [route-id params query fragment]} requested-url]
   (if (and (keyword? route-id)
            (not= :rf.route/not-found route-id)
-           (registrar/lookup :route route-id))
+           (rf.registrar/lookup :route route-id))
     (cond-> {:to route-id}
       (seq params)     (assoc :params params)
       (seq query)      (assoc :query query)
@@ -199,9 +199,9 @@
   spelling."
   [current-route]
   (let [{:keys [route-id params query fragment]} current-route]
-    (when (and route-id (keyword? route-id) (registrar/lookup :route route-id))
+    (when (and route-id (keyword? route-id) (rf.registrar/lookup :route route-id))
       (try
-        (registry/route-url {:to route-id :params (or params {}) :query (or query {}) :fragment fragment})
+        (rf.routing.registry/route-url {:to route-id :params (or params {}) :query (or query {}) :fragment fragment})
         (catch #?(:clj Throwable :cljs :default) _ nil)))))
 
 (defn server-frame?
@@ -215,7 +215,7 @@
   (`re-frame.routing.url-change/url-change-cause`) — one platform read, two
   callers, rather than a second notion of what a server frame is."
   [frame-id]
-  (= :server (:platform (frame/frame-meta frame-id))))
+  (= :server (:platform (rf.frame/frame-meta frame-id))))
 
 ;; ---------------------------------------------------------------------------
 ;; Stages 4-5 — the one decision seam every door shares.
@@ -260,8 +260,8 @@
   [{:keys [rdb frame target requested-url cause policy bypass-leave?
            url-driven? pending-nav-allocation]}]
   (let [current      (get-in rdb [:rf.runtime/routing :current])
-        current-meta (registrar/lookup :route (:route-id current))
-        target-meta  (registrar/lookup :route (:route-id target))
+        current-meta (rf.registrar/lookup :route (:route-id current))
+        target-meta  (rf.registrar/lookup :route (:route-id target))
         ;; The public `:bypass-leave?` is a plain boolean (OI-3). Only the
         ;; literal `true` bypasses; every other value (nil, false, a stray
         ;; set left over from a retired spelling) bypasses nothing.
@@ -298,8 +298,8 @@
         ;; transition for tools. EP-0015: redact the query/fragment carrier
         ;; VALUES of `:requested-url` before egress. The `:phase` tag is the
         ;; route-phase taxonomy Xray's routing panel reads (021 §7).
-        (trace/emit! :rf.event :rf.route/navigation-blocked
-                     (url-egress/redact-url-tag
+        (rf.trace/emit! :rf.event :rf.route/navigation-blocked
+                     (rf.privacy.url/redact-url-tag
                        (cond-> {:requested-url   requested-url
                                 :rejecting-route (:route-id current)
                                 :rejecting-guard rejecting-guard
@@ -323,8 +323,8 @@
                     :cause         cause
                     :requested-url requested-url
                     :guard         (guard-id target-meta :can-enter)}]
-        (trace/emit! :rf.event :rf.route/entry-denied
-                     (url-egress/redact-url-tag
+        (rf.trace/emit! :rf.event :rf.route/entry-denied
+                     (rf.privacy.url/redact-url-tag
                        (cond-> {:requested-url   requested-url
                                 :rejecting-route (:route-id target)
                                 :rejecting-guard (guard-id target-meta :can-enter)
@@ -391,7 +391,7 @@
 ;; The URL -> ResolvedTarget extraction (including the `:rf.route/not-found`
 ;; fallback normalisation) is the ONE shared definition in
 ;; `re-frame.routing.resolve/url-resolution` — the seam the commit hop lowers
-;; to as well. The link door reads it through `resolver/target-of-url`, so
+;; to as well. The link door reads it through `rf.routing.resolve/target-of-url`, so
 ;; stage 3, the guards, and the commit all resolve the same URL to the same
 ;; target (EP-0037 R0b). Deriving it locally is what let a dead link bypass the
 ;; `:rf.route/not-found` route's `:can-enter` guard and push a history entry for
@@ -418,23 +418,23 @@
   [{frame :rf.frame/id rdb :rf.db/runtime
     pending-nav-allocation :rf.route/pending-nav-allocation}
    [_ {:keys [url replace? bypass-leave?] :as request}]]
-  (let [frame     (frame/require-frame-stamp!
+  (let [frame     (rf.frame/require-frame-stamp!
                     frame :rf.route/url-requested
                     {:where 'rf.route/url-requested-handler})
         rdb       (or rdb {})
-        external? (url/external-url? url)
-        app-url   (url/request-url->app-url url)]
+        external? (rf.routing.url/external-url? url)
+        app-url   (rf.routing.url/request-url->app-url url)]
     (if external?
       (do
-        (trace/emit! :rf.event :rf.route/external-url-requested
+        (rf.trace/emit! :rf.event :rf.route/external-url-requested
                      (cond-> {:url url}
                        frame (assoc :frame frame)))
         {})
-      (let [target  (resolver/target-of-url app-url)
+      (let [target  (rf.routing.resolve/target-of-url app-url)
             current (get-in rdb [:rf.runtime/routing :current])
             ;; Stage 3 — an exact no-op (the link points at the already-active
             ;; target) terminates before guards, pending state, and history.
-            no-op?  (plan/identical-route-target? current (:route-id target)
+            no-op?  (rf.routing.plan/identical-route-target? current (:route-id target)
                                                   (:params target) (:query target)
                                                   (:fragment target))]
         (if no-op?
