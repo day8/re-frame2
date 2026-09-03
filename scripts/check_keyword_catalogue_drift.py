@@ -189,7 +189,27 @@ _ERR_WARN_RE = re.compile(r":rf\.(?:error|warning)/[a-z0-9]+(?:-[a-z0-9]+)*")
 # Any reserved-root keyword; group 1 is its NAMESPACE (`rf`, `rf.error`,
 # `rf.machine.event`, …). Matches the bare `:rf/x` root (namespace `rf`) and any
 # dotted `:rf.<seg>…/x`.
-_RF_KEYWORD_RE = re.compile(r":(rf(?:\.[a-z][\w.-]*)?)/[\w.*+!?<>=-]+")
+#
+# THE LOOKBEHIND IS LOAD-BEARING (rf2-ydpr, measured on the machines sweep).
+# `::rf.x/y` is an AUTO-RESOLVED keyword: it resolves through the require alias
+# `rf.x` and denotes `:re-frame.x/y`, reserving nothing at all. Without the
+# lookbehind it reads here as the literal reserved-root keyword `:rf.x/y` and
+# CHECK B demands a reserved-namespace row for it in `spec/Conventions.md` —
+# a FALSE reservation, in a one-toucher hot-zone file.
+#
+# The collision is inherent to the dialect rather than incidental: Conventions
+# §Require-alias dialect makes the canonical alias for `re-frame.<tail>` the
+# dotted `rf.<tail>`, which TEXTUALLY SHADOWS the `:rf.<area>` reserved keyword
+# root. machines was the first artefact to produce one — `git grep '::rf\.'`
+# over `implementation/*/src` returned nothing before PR #9114, which is why
+# the core and routing sweeps never met it — and PR #9114 worked around its one
+# instance inside its own fence by spelling the sentinel fully-qualified.
+#
+# Excluding the `::` form is strictly safe in BOTH directions: `::x/y` always
+# resolves through an alias, and every framework namespace is `re-frame.*`, so
+# no `::` form can ever denote a literal `:rf.*` value. Both directions are
+# pinned by the self-test.
+_RF_KEYWORD_RE = re.compile(r"(?<!:):(rf(?:\.[a-z][\w.-]*)?)/[\w.*+!?<>=-]+")
 
 # A reserved-namespace GLOB DECLARATION as it appears in the reserved-namespace
 # table — a backticked `:rf.<ns>/*` token whose NAME is literally `*` (rf2-qriq8).
@@ -950,6 +970,26 @@ def _run_self_tests(verbose: bool = False) -> int:
     expect("B: a parent row citing its child in prose STILL reserves",
            b_fire('(x :rf.route/navigate :rf.interceptor/path)', reserved)
            == set())
+
+    # (9) AUTO-RESOLVED vs LITERAL (rf2-ydpr) — the require-alias dialect makes
+    #     the canonical alias `rf.<tail>` textually shadow the `:rf.<area>`
+    #     reserved keyword root, so `::rf.machines.result/depth-abort?` (which
+    #     resolves through the alias and denotes `:re-frame.machines.result/…`,
+    #     reserving nothing) used to read as a literal reserved-root keyword and
+    #     demand a FALSE Conventions row. Pinned in BOTH directions on the SAME
+    #     namespace, so the exclusion cannot be mistaken for the namespace
+    #     simply being reserved.
+    expect("B: an auto-resolved ::rf.x/y does NOT fire (it is alias-resolved)",
+           b_fire('(dissoc info ::rf.machines.result/depth-abort?)', reserved)
+           == set())
+    expect("B: the same namespace spelled :rf.x/y STILL fires",
+           b_fire('(dissoc info :rf.machines.result/depth-abort?)', reserved)
+           == {"rf.machines.result"})
+    #     And the exclusion must not swallow a literal that merely FOLLOWS one:
+    #     a single pass over a map literal carries both spellings.
+    expect("B: a literal beside an auto-resolved one still fires",
+           b_fire('{::rf.machines.result/depth-abort? true '
+                  ':rf.zzzliteral/member 1}', reserved) == {"rf.zzzliteral"})
 
     # CHECK C teeth (rf2-d89rs) --------------------------------------------
     #
