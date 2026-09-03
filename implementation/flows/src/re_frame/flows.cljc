@@ -67,7 +67,7 @@
   "Read a bare input from app-db or a qualified input from runtime-db."
   [db runtime-db path]
   (if (registry/runtime-input? path)
-    (get-in runtime-db (registry/input-resolve-path path))
+    (get-in runtime-db (registry/partition-relative-input-path path))
     (get-in db path)))
 
 (defn- read-inputs
@@ -84,7 +84,8 @@
   [frame-id flow input-values]
   (mapv (fn [input-path v]
           (elision/elide-wire-value
-            v {:frame frame-id :path (registry/input-resolve-path input-path)}))
+            v {:frame frame-id
+               :path  (registry/partition-relative-input-path input-path)}))
         (:inputs flow)
         input-values))
 
@@ -247,23 +248,23 @@
         ;; declared `:output-path` into the pending app-db is structurally
         ;; unreachable from the derive handler, so it can never be reported as
         ;; the programmer's `:derive` fn throwing (rf2-gpj9r).
-        (let [t0      (when interop/debug-enabled? (interop/now-ms))
-              derived (try
-                        {::output (apply (:derive flow) new-inputs)}
-                        (catch #?(:clj Throwable :cljs :default) e
-                          {::thrown e}))]
-          (if (contains? derived ::thrown)
+        (let [started-at-ms  (when interop/debug-enabled? (interop/now-ms))
+              derive-outcome (try
+                               {::output (apply (:derive flow) new-inputs)}
+                               (catch #?(:clj Throwable :cljs :default) e
+                                 {::thrown e}))]
+          (if (contains? derive-outcome ::thrown)
             (flow-eval-failure! frame-id owner-token exact-owner?
-                                flow new-inputs :derive (::thrown derived))
+                                flow new-inputs :derive (::thrown derive-outcome))
             ;; `:derive` is the principal authored callback boundary.  Its
             ;; value is inert once A loses ownership; no cache write, trace,
             ;; validation or later flow may be attributed to B.
             (if-not (owner-live? frame-id owner-token exact-owner?)
               stale-incarnation
               (try
-                (let [new-output      (::output derived)
+                (let [new-output      (::output derive-outcome)
                       flow-elapsed-ms (when interop/debug-enabled?
-                                        (- (interop/now-ms) t0))
+                                        (- (interop/now-ms) started-at-ms))
                       old-output      (when interop/debug-enabled?
                                         (get-in db (:output-path flow)))
                       new-db          (assoc-in db (:output-path flow)

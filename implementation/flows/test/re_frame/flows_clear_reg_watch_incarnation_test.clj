@@ -158,7 +158,8 @@
       (rf/reg-flow :flow.incarnation/g
         {:frame id :inputs [[:n]] :output-path [:out] :sensitive [[:out]]}
         (fn [n] (or n 0)))
-      ;; Prime a dirty-check row for A so the (unfixed) stale drop-frame-flow-row!
+      ;; Prime a dirty-check row for A so the (unfixed) stale
+      ;; drop-frame-flow-last-inputs!
       ;; would have something to drop off the successor.
       (registry/set-frame-flow-last-inputs! id :flow.incarnation/g [::a-input])
       (reset! armed? true)

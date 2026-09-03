@@ -6,7 +6,7 @@
   output-mark refresh + path vacation + the bare-id registry / dirty-check /
   commit-epoch mutations), but the first-time `:rf.flow/registered` trace was
   emitted OUTSIDE the exact-owner continuation, gated only on
-  `(nil? prior-on-frame)`. A first-time flow that declares output marks reaches
+  `(nil? prior-frame-flow)`. A first-time flow that declares output marks reaches
   a callback-bearing runtime-db write (`write-flow-output-marks!`); a
   synchronous container watch can destroy incarnation A there and publish a
   same-id B. The merged .155 fixtures only exercise the REPLACEMENT branch

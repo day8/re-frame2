@@ -22,8 +22,8 @@
   "Lower a flow input to `[:db path]` or `[:runtime path]`."
   [path]
   (if (registry/runtime-input? path)
-    [:runtime (registry/input-resolve-path path)]
-    [:db (registry/input-resolve-path path)]))
+    [:runtime (registry/partition-relative-input-path path)]
+    [:db (registry/partition-relative-input-path path)]))
 
 (defn- declared-inputs
   "Project inputs in the positional order expected by `:derive`."

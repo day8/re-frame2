@@ -208,7 +208,7 @@
 ;; runtime-db at `[:rt :val]`, and the frame's elision registry keys its
 ;; declaration at that STRIPPED `[:rt :val]` path (the registry is
 ;; partition-blind). `elide-inputs` normalizes the per-input trace `:path`
-;; through `registry/input-resolve-path`, so the `:rf.flow/computed`
+;; through `registry/partition-relative-input-path`, so the `:rf.flow/computed`
 ;; `:input-values` entry for the runtime input elides against the runtime-db
 ;; slot's declaration. Seeding the raw `[:rf.db/runtime :rt :val]` path would
 ;; miss the declaration and surface the value RAW — this test fails loudly if

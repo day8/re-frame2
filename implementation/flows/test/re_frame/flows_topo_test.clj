@@ -6,7 +6,8 @@
   Pins the defensive throw in `extract-cycle-path` (the closing-repeat
   cycle-path extractor). The branch is unreachable by
   construction — by Kahn's algorithm every stuck node has at least one
-  stuck dep, so the next-dep lookup never returns nil — but the throw
+  stuck dependency, so the `next-dependency-id` lookup never returns nil —
+  but the throw
   is load-bearing defence: a closing-repeat vector built from a dead
   end would lie to tools (Xray flow panel, re-frame-10x cycle
   visualisation) about the offending chain. Pin the throw + ex-data
@@ -23,7 +24,8 @@
 ;; Construct a graph + remaining-set whose entries violate Kahn's stuck-
 ;; node invariant: a stuck node whose graph entry has no edges into the
 ;; stuck-set. With `:a` in `remaining` and `(graph :a) = #{}`, the
-;; `(filter remaining (graph node))` cull yields `()` → next-dep is nil
+;; `(filter remaining (graph node-id))` cull yields `()` →
+;; `next-dependency-id` is nil
 ;; → the defensive throw fires.
 ;;
 ;; The throw site is private; reach it via `#'` resolution. The branch

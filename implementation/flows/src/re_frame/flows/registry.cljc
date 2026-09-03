@@ -57,15 +57,15 @@
   "Coerce a frame target or opts map to the `flow-meta-at` opts shape.
 
   Test frame values before `map?` because frame values are maps."
-  [opts-or-frame-id]
+  [opts-or-frame-target]
   (cond
-    (nil? opts-or-frame-id) {}
-    (or (keyword? opts-or-frame-id)
-        (frame/frame-value? opts-or-frame-id)) {:frame opts-or-frame-id}
-    (map? opts-or-frame-id) opts-or-frame-id
-    :else {:frame opts-or-frame-id}))
+    (nil? opts-or-frame-target) {}
+    (or (keyword? opts-or-frame-target)
+        (frame/frame-value? opts-or-frame-target)) {:frame opts-or-frame-target}
+    (map? opts-or-frame-target) opts-or-frame-target
+    :else {:frame opts-or-frame-target}))
 
-(defn- resolve-read-frame
+(defn- resolve-read-frame-id
   "Resolve an explicit frame target or require an ambient frame."
   [opts]
   (let [override (:frame opts)]
@@ -80,9 +80,9 @@
   With one argument, use the ambient frame. The second argument accepts either
   `{:frame target}` or a frame target directly."
   ([flow-id] (flow-meta-at flow-id {}))
-  ([flow-id opts-or-frame-id]
-   (let [opts     (coerce-flow-opts opts-or-frame-id)
-         frame-id (resolve-read-frame opts)]
+  ([flow-id opts-or-frame-target]
+   (let [opts     (coerce-flow-opts opts-or-frame-target)
+         frame-id (resolve-read-frame-id opts)]
      (get-in @flows [frame-id flow-id]))))
 
 (defn ^:no-doc last-inputs-snapshot
@@ -249,11 +249,11 @@
 
 ;; ---- last-inputs row maintenance -----------------------------------------
 ;;
-(defn- drop-frame-flow-row!
+(defn- drop-frame-flow-last-inputs!
   "Drop a flow's frame-local dirty-check row, if present."
   [frame-id flow-id]
-  (when-let [a (get @frame-last-inputs frame-id)]
-    (swap! a dissoc flow-id)))
+  (when-let [frame-cache (get @frame-last-inputs frame-id)]
+    (swap! frame-cache dissoc flow-id)))
 
 ;; ---- validation ----------------------------------------------------------
 ;;
@@ -408,13 +408,17 @@
 (defn- explicit-flow-output-mark-paths
   "Return `[sensitive-paths large-paths]` as absolute app-db paths."
   [flow]
-  (let [base       (vec (:output-path flow))
-        abs        (fn [sub] (into base sub))
-        per-sens   (->> (:sensitive flow) (filter vector?) (map abs))
-        per-large  (->> (:large flow)     (filter vector?) (map abs))
-        whole-lg   (when (true? (:large? flow))     [base])]
-    [(vec per-sens)
-     (vec (concat whole-lg per-large))]))
+  (let [output-path        (vec (:output-path flow))
+        absolute-path      (fn [subpath] (into output-path subpath))
+        sensitive-paths    (->> (:sensitive flow)
+                                (filter vector?)
+                                (map absolute-path))
+        large-paths        (->> (:large flow)
+                                (filter vector?)
+                                (map absolute-path))
+        whole-output-large (when (true? (:large? flow)) [output-path])]
+    [(vec sensitive-paths)
+     (vec (concat whole-output-large large-paths))]))
 
 ;; ---- partition-qualified input primitives -------------------------------
 ;;
@@ -429,7 +433,7 @@
   [path]
   (= runtime-partition-key (first path)))
 
-(defn ^:no-doc input-resolve-path
+(defn ^:no-doc partition-relative-input-path
   "Strip the runtime qualifier, leaving the path within its partition."
   [input-path]
   (if (runtime-input? input-path)
@@ -617,7 +621,7 @@
                        :flow  flow}}))
      ;; Capture the prior value inside the retrying swap so lifecycle decisions
      ;; use the state observed by the winning CAS.
-     (let [prior-on-frame (volatile! nil)]
+     (let [prior-frame-flow (volatile! nil)]
        ;; Publish, path vacation, mark replacement, and cache invalidation are
        ;; serialized with the frame drain. The registry swap keeps topology
        ;; validation inside the CAS retry, preventing concurrent registrations
@@ -650,21 +654,22 @@
                 :extra    {:frame frame-id
                            :flow  flow}}))
            (swap! flows
-                  (fn [m]
-                    (let [prior-frame (get m frame-id)]
-                      (vreset! prior-on-frame (get prior-frame flow-id))
-                      (let [prospective (assoc prior-frame flow-id flow)]
+                  (fn [flows-by-frame]
+                    (let [prior-frame-flows (get flows-by-frame frame-id)]
+                      (vreset! prior-frame-flow (get prior-frame-flows flow-id))
+                      (let [prospective-frame-flows
+                            (assoc prior-frame-flows flow-id flow)]
                         ;; Prefer the specific output-overlap diagnostic before
                         ;; the dependency-cycle check.
-                        (topo/detect-output-path-overlap! prospective)
-                        (topo/topo-sort prospective)
-                        (assoc m frame-id prospective)))))
+                        (topo/detect-output-path-overlap! prospective-frame-flows)
+                        (topo/topo-sort prospective-frame-flows)
+                        (assoc flows-by-frame frame-id prospective-frame-flows)))))
            ;; A moved output must vacate the old path. Queue the vacation during
            ;; a drain so it is applied to the pending db; otherwise write now.
            ;; rf2-vxgfnd.155: the direct-path vacation is a callback-bearing
            ;; app-db write — thread A's pinned incarnation so a watch that loses
            ;; A cannot bump same-id B's commit epoch or write B's app-db.
-           (when-let [prior @prior-on-frame]
+           (when-let [prior @prior-frame-flow]
              (let [old-path (:output-path prior)]
                (when (not= old-path (:output-path flow))
                  (if (frame/in-drain? frame-id)
@@ -683,7 +688,7 @@
            ;; downstream exact fences stay explicit: the mark write's internal
            ;; owner-token guard, and the postcheck below.
            (when (or (flow-declares-marks? flow)
-                     (some? @prior-on-frame))
+                     (some? @prior-frame-flow))
              (write-flow-output-marks! frame-id pinned-incarnation flow))
            ;; Exact-owner postcheck after the (callback-bearing) output-mark
            ;; container write: if a synchronous container watch destroyed A and
@@ -693,8 +698,8 @@
              ;; A replacement invalidates the cache even when inputs are equal.
              ;; Hot-reload trace dedup compares the prior and new stored flow
              ;; shapes of THIS frame slot (`flow-reload-shape`, rf2-soyqfn).
-             (when (some? @prior-on-frame)
-               (drop-frame-flow-row! frame-id flow-id)
+             (when (some? @prior-frame-flow)
+               (drop-frame-flow-last-inputs! frame-id flow-id)
                ;; rf2-rxsldx: the replacement dedup consultation and the
                ;; :rf.registry/handler-replaced emit form ONE synchronous,
                ;; callback-bearing pipeline — dedup-by-shape projection, then,
@@ -719,8 +724,8 @@
                  (trace/call-with-continuation-predicate
                    #(frame/event-continuation-live? frame-id pinned-incarnation)
                    (fn []
-                     (let [prior          @prior-on-frame
-                           different?     (not= (:derive prior) (:derive flow))
+                     (let [prior              @prior-frame-flow
+                           derive-fn-changed? (not= (:derive prior) (:derive flow))
                            ;; rf2-soyqfn: decide replacement suppression from THIS
                            ;; frame's authoritative slot — the prior/new stored
                            ;; values — not the generic process-global
@@ -738,12 +743,12 @@
                            ;; flow registry is introduced.
                            shape-changed? (not= (flow-reload-shape prior)
                                                 (flow-reload-shape flow))]
-                       (when shape-changed?
-                         (trace/emit! :rf.registry :rf.registry/handler-replaced
+                        (when shape-changed?
+                          (trace/emit! :rf.registry :rf.registry/handler-replaced
                                       {:kind          :flow
                                        :id            flow-id
                                        :frame         frame-id
-                                       :different-fn? different?})))))))
+                                       :different-fn? derive-fn-changed?})))))))
              ;; rf2-ytpeqf: first-registration evidence, kept INSIDE the exact-
              ;; owner postcheck. Registration is first-time per frame; replacements
              ;; use the hot-reload dedup trace above. A first-time flow with output
@@ -770,7 +775,7 @@
              ;; starts after A's exact ownership is lost. AND-composes with any parent
              ;; predicate, so the reserved-effect route's router predicate is
              ;; preserved.
-             (when (and interop/debug-enabled? (nil? @prior-on-frame))
+             (when (and interop/debug-enabled? (nil? @prior-frame-flow))
                (trace/call-with-continuation-predicate
                  #(frame/event-continuation-live? frame-id pinned-incarnation)
                  (fn []
@@ -886,7 +891,7 @@
                               (let [m' (update m frame-id dissoc id)]
                                 (cond-> m'
                                   (empty? (get m' frame-id)) (dissoc frame-id)))))
-               (drop-frame-flow-row! frame-id id)
+               (drop-frame-flow-last-inputs! frame-id id)
                ;; rf2-rxsldx: emit :rf.flow/cleared HERE — inside the exact-owner
                ;; serialization, while `pinned` is authoritative. `trace/emit!` is
                ;; a synchronous, callback-bearing pipeline (classification

@@ -30,22 +30,24 @@
   Scan each unordered pair once. `(juxt hash str)` gives deterministic reports
   without requiring heterogeneous ids to be comparable."
   [flow-map]
-  (let [entries (vec flow-map)
-        n       (count entries)]
+  (let [entries     (vec flow-map)
+        entry-count (count entries)]
     (some (fn [[i j]]
             (let [[a-id a-flow] (nth entries i)
                   [b-id b-flow] (nth entries j)
                   a-path        (:output-path a-flow)
                   b-path        (:output-path b-flow)]
               (when (output-paths-overlap? a-path b-path)
-                (let [[lo-id hi-id]     (sort-by (juxt hash str) [a-id b-id])
-                      [lo-path hi-path] (if (= lo-id a-id)
-                                          [a-path b-path]
-                                          [b-path a-path])]
-                  {:flow-ids [lo-id hi-id]
-                   :paths    [lo-path hi-path]}))))
-          (for [i (range n)
-                j (range (inc i) n)]
+                (let [[first-flow-id second-flow-id]
+                      (sort-by (juxt hash str) [a-id b-id])
+                      [first-output-path second-output-path]
+                      (if (= first-flow-id a-id)
+                        [a-path b-path]
+                        [b-path a-path])]
+                  {:flow-ids [first-flow-id second-flow-id]
+                   :paths    [first-output-path second-output-path]}))))
+          (for [i (range entry-count)
+                j (range (inc i) entry-count)]
             [i j]))))
 
 (defn detect-output-path-overlap!
@@ -69,36 +71,39 @@
   mutated while peeling acyclic nodes."
   [graph remaining]
   ;; Hash ordering is deterministic enough here: any cycle path is valid.
-  (let [stuck-sorted (vec (sort-by hash remaining))
-        start        (first stuck-sorted)]
-    (loop [stack [start]
-           seen  #{start}]
-      (let [node (peek stack)
+  (let [stuck-node-ids (vec (sort-by hash remaining))
+        start-node-id  (first stuck-node-ids)]
+    (loop [stack [start-node-id]
+           seen  #{start-node-id}]
+      (let [node-id (peek stack)
             ;; Only follow edges into other stuck nodes — edges to
             ;; already-peeled nodes can't be part of a remaining cycle.
-            next-dep (first (sort-by hash (filter remaining (graph node))))]
+            next-dependency-id
+            (first (sort-by hash (filter remaining (graph node-id))))]
         (cond
-          (nil? next-dep)
+          (nil? next-dependency-id)
           ;; Every unpeeled node must have an unpeeled dependency.
           (error/throw-error!
             :rf.error/flow-cycle-extract-invariant 'rf/reg-flow
             "Cycle-path extraction reached a dead end: a stuck node found no stuck dependency to follow. Internal topo invariant violated — report with the :node / :stack / :seen / :remaining payload."
-            {:extra {:node      node
+            {:extra {:node      node-id
                      :stack     stack
                      :seen      seen
                      :remaining remaining}})
 
-          (contains? seen next-dep)
+          (contains? seen next-dependency-id)
           ;; Slice from the revisited node and append it to close the cycle.
-          (let [idx (loop [i 0]
-                      (cond
-                        (= i (count stack))      0
-                        (= (nth stack i) next-dep) i
-                        :else                    (recur (inc i))))]
-            (conj (subvec stack idx) next-dep))
+          (let [cycle-start-index
+                (loop [i 0]
+                  (cond
+                    (= i (count stack))                 0
+                    (= (nth stack i) next-dependency-id) i
+                    :else                               (recur (inc i))))]
+            (conj (subvec stack cycle-start-index) next-dependency-id))
 
           :else
-          (recur (conj stack next-dep) (conj seen next-dep)))))))
+          (recur (conj stack next-dependency-id)
+                 (conj seen next-dependency-id)))))))
 
 (defn topo-sort
   "Return flow ids in Kahn topological order.
@@ -137,12 +142,17 @@
             ;; `remaining-without-node`), so it stays stuck → cycle.
             (let [remaining-without-node (dissoc remaining node-id)
                   [remaining' ready']
-                  (reduce-kv (fn [[acc-remaining acc-ready] dep-id dep-set]
-                               (if-not (contains? dep-set node-id)
+                  (reduce-kv (fn [[acc-remaining acc-ready]
+                                  dependent-id dependency-ids]
+                               (if-not (contains? dependency-ids node-id)
                                  [acc-remaining acc-ready]
-                                 (let [dep-set' (disj dep-set node-id)]
-                                   [(assoc acc-remaining dep-id dep-set')
-                                    (cond-> acc-ready (empty? dep-set') (conj dep-id))])))
+                                 (let [remaining-dependency-ids
+                                       (disj dependency-ids node-id)]
+                                   [(assoc acc-remaining dependent-id
+                                           remaining-dependency-ids)
+                                    (cond-> acc-ready
+                                      (empty? remaining-dependency-ids)
+                                      (conj dependent-id))])))
                              [remaining-without-node (pop ready)]
                              remaining-without-node)]
               (recur ready' remaining' (conj order node-id)))

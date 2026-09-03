@@ -21,7 +21,7 @@
 
     1. Resets the runtime (registrar, frames, flow registry,
        last-inputs, schemas, routing, ssr) — the same shape as
-       `re-frame.flows-test`'s reset-runtime.
+       `re-frame.flows-test`'s reset fixture.
     2. Realises the fixture's `:fixture/handlers` (event, sub, fx) into
        native fns via the `re-frame.conformance` DSL interpreter (the
        interpreter is in `core/src` so the flows artefact has it on the
@@ -31,7 +31,7 @@
        (via `re-frame.conformance/realise-flow-output-fn`).
     4. Registers the default frame with the fixture's
        `:fixture/frame-config` (including any `:initial-events` seed events).
-       Re-registers because reset-runtime created a vanilla
+       Re-registers because the reset fixture created a vanilla
        `:rf/default`; the fixture's `:initial-events` cascade fires here.
     5. Drives `:fixture/dispatches` through `rf/dispatch-sync`. Dispatches
        are either bare event vectors or envelope maps `{:event [...]
@@ -141,7 +141,7 @@
 ;; Bound as the `:each` fixture AND called directly by
 ;; `run-flows-conformance-corpus` to reset between the fixtures it iterates
 ;; inside a single deftest.
-(def ^:private reset-runtime
+(def ^:private reset-runtime-fixture
   (let [standard (test-support/make-reset-runtime-fixture
                    {:adapter       plain-atom/adapter
                     :ambient-frame nil})]
@@ -150,7 +150,7 @@
                   (error-emit/clear-error-listeners!)
                   (test-fn))))))
 
-(use-fixtures :each reset-runtime)
+(use-fixtures :each reset-runtime-fixture)
 
 ;; ---- fixture discovery ----------------------------------------------------
 
@@ -575,12 +575,12 @@
           ;; Always register an error-emit listener so the
           ;; `:error-emit-records` matcher has a captured
           ;; stream to assert against. Listeners with no expectations
-          ;; cost nothing — the registry is cleared in `reset-runtime`
+          ;; cost nothing — the registry is cleared in `reset-runtime-fixture`
           ;; between fixtures.
           err-records  (collect-error-emit-records fid)
           frame-config (or (:fixture/frame-config fixture) {})
           frames-spec  (:fixture/frames fixture)
-          ;; `reset-runtime` already created :rf/default WITHOUT any
+          ;; `reset-runtime-fixture` already created :rf/default WITHOUT any
           ;; :initial-events. `make-frame` against an existing id is a
           ;; surgical update that does NOT re-fire :initial-events (Spec 002).
           ;; Destroy first so the fixture's :initial-events cascade fires
@@ -777,7 +777,7 @@
       ;; Each fixture needs a clean runtime — reset between fixtures even
       ;; though `use-fixtures :each` already reset at deftest entry, because
       ;; the deftest itself iterates the whole corpus.
-      (reset-runtime
+      (reset-runtime-fixture
         (fn []
           (cond
             ;; A flow fixture that will not parse, declares a spec-version
@@ -926,7 +926,7 @@
         "the flow-frame-destroy-teardown fixture must be discoverable in the corpus")
     ;; Positive control: a clean run reads the real registrar and finds it
     ;; empty — the matcher is now anchored to the authoritative slot.
-    (reset-runtime
+    (reset-runtime-fixture
       (fn []
         (let [result (run-fixture destroy-fixture)]
           (is (:passed? result)
@@ -939,7 +939,7 @@
     ;; `run-fixture` never clears it, so this row survives the whole fixture to
     ;; the matcher — the exact pollution the reserved-empty invariant forbids
     ;; and the pre-fix matcher could not observe.
-    (reset-runtime
+    (reset-runtime-fixture
       (fn []
         (registrar/register! :flow :rf.test/forbidden-registrar-row
                              {:doc "rf2-3neiv pollution control — teardown must not leave this behind"})

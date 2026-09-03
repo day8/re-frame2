@@ -57,21 +57,21 @@
 
 ;; ---- helpers --------------------------------------------------------------
 
-(defn- listener-fixture
+(defn- capture-traces
   "Install a recording trace listener, run `body-fn`, and return the
   captured events vector. Records EVERY trace event so the test asserts
   on `empty?` without filtering — any leak surfaces."
   [body-fn]
-  (let [seen   (atom [])
-        cb-key (keyword (str "elision-prod-" (gensym)))]
+  (let [captured-traces (atom [])
+        listener-id     (keyword (str "elision-prod-" (gensym)))]
     (trace-tooling/register-listener!
-      cb-key
-      (fn [ev] (swap! seen conj ev)))
+      listener-id
+      (fn [event] (swap! captured-traces conj event)))
     (try
       (body-fn)
-      @seen
+      @captured-traces
       (finally
-        (trace-tooling/unregister-listener! cb-key)))))
+        (trace-tooling/unregister-listener! listener-id)))))
 
 ;; ---- :rf.flow/registered elides under prod --------------------------------
 
@@ -81,13 +81,13 @@
             `:rf.flow/registered` trace under `:advanced` +
             `goog.DEBUG=false`. The listener records EVERY event, so the
             assertion below is total — no trace of any kind is delivered."
-    (let [seen (listener-fixture
+    (let [traces (capture-traces
                  (fn []
                    (rf/reg-flow :prod-elision/area
                      {:inputs      [[:w] [:h]]
                       :output-path [:rect :area]}
                      (fn [w h] (* (or w 0) (or h 0))))))]
-      (is (empty? seen)
+      (is (empty? traces)
           "no trace events delivered under :advanced + goog.DEBUG=false"))
     ;; Cross-check: the flow IS registered — the per-frame store write
     ;; happened, only the trace surface elided. The per-frame flow
@@ -105,7 +105,7 @@
             the app-db slot but emits NO `:rf.flow/computed` trace
             under prod. The wire-value elision walker is also gated,
             so the result/input-values payload construction elides too."
-    (let [seen (listener-fixture
+    (let [traces (capture-traces
                  (fn []
                    (rf/reg-event :prod-elision/seed-rect
                      (fn [{:keys [db]} _] {:db (assoc db :w 3 :h 4)}))
@@ -115,7 +115,7 @@
                      (fn [w h] (* (or w 0) (or h 0))))
                    ;; Seed inputs; the drain runs the flow.
                    (rf/dispatch-sync [:prod-elision/seed-rect])))]
-      (is (empty? seen)
+      (is (empty? traces)
           "no trace events delivered for the recompute under prod"))
     ;; Cross-check: the flow computed the correct value into app-db.
     (is (= 12
@@ -133,7 +133,7 @@
             that pin); a `register-error-listener!` here would
             fire. We assert only on the TRACE listener, which must see
             nothing."
-    (let [seen (listener-fixture
+    (let [traces (capture-traces
                  (fn []
                    (rf/reg-event :prod-elision/seed-throw-input
                      (fn [{:keys [db]} _] {:db (assoc db :trigger? true)}))
@@ -144,7 +144,7 @@
                        (when t?
                          (throw (ex-info "prod-elision throw" {})))))
                    (rf/dispatch-sync [:prod-elision/seed-throw-input])))]
-      (is (empty? seen)
+      (is (empty? traces)
           "no :rf.flow/failed (or any other) trace events under prod"))))
 
 ;; ---- :rf.flow/skip elides under prod --------------------------------------
@@ -166,10 +166,10 @@
       (fn [a] (* (or a 0) 2)))
     (rf/dispatch-sync [:prod-elision/seed-skip])
     ;; Second dispatch leaves :a unchanged → inputs value-equal → skip.
-    (let [seen (listener-fixture
+    (let [traces (capture-traces
                  (fn []
                    (rf/dispatch-sync [:prod-elision/touch-skip])))]
-      (is (empty? seen)
+      (is (empty? traces)
           "no :rf.flow/skip trace under prod for the value-equal recompute"))))
 
 ;; ---- :rf.flow/cleared elides under prod -----------------------------------
@@ -183,10 +183,10 @@
       {:inputs      [[:w]]
        :output-path [:prod-elision/copy]}
       (fn [w] (or w 0)))
-    (let [seen (listener-fixture
+    (let [traces (capture-traces
                  (fn []
                    (flows/clear-flow :prod-elision/clearable)))]
-      (is (empty? seen)
+      (is (empty? traces)
           "no :rf.flow/cleared trace under prod"))
     (is (nil? (get-in (flows/flows-snapshot) [:rf/default :prod-elision/clearable]))
         "flow removed from per-frame index — only trace surface elided")))
@@ -212,10 +212,10 @@
        :output-path [:prod-elision/area]
        :schema      (fn [_] false)}
       (fn [w h] (* (or w 0) (or h 0))))
-    (let [seen (listener-fixture
+    (let [traces (capture-traces
                  (fn []
                    (rf/dispatch-sync [:prod-elision/seed-validate])))]
-      (is (empty? seen)
+      (is (empty? traces)
           "no schema-validation-failure (or any other) trace under prod"))
     (is (= 12 (get-in (rf/app-db-value :rf/default) [:prod-elision/area]))
         "flow output still written — only the validation/trace surface elided")))
