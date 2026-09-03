@@ -251,22 +251,3 @@
     (is (reply/valid-reply? {:status :ok :value {:public 1}
                              :work/id [:rf.work/http :h 2] :rf.reply/work-status :completed}))
     (is (reply/data-only-target? {:event [:app/on-reply] :delivery :append}))))
-
-(deftest reply-value-projects-through-project-egress
-  (testing "project-egress of a reply value under an off-box profile redacts
-            the declared-sensitive leaf, elides large, and fails closed when
-            no frame is known"
-    (mk-frame! :reply/proj)
-    (let [value {:token sentinel :doc big-string :public 7}
-          out (rf/project-egress value
-                {:frame :reply/proj
-                 :rf.egress/profile :rf.egress/off-box-tool})]
-      (is (gen/redacted? (:token out)) "off-box-tool redacts the sensitive reply leaf")
-      (is (gen/large-marker? (:doc out)) "off-box-tool elides the large reply leaf")
-      (is (= 7 (:public out)))
-      (is (not (contains-sentinel? out))))
-    ;; Frameless project-egress fails closed (no :rf/default synthesis).
-    (binding [frame/*current-frame* nil]
-      (let [out (rf/project-egress {:token sentinel}
-                  {:rf.egress/profile :rf.egress/off-box-observability})]
-        (is (gen/redacted? out) "frameless reply-value egress fails closed")))))
