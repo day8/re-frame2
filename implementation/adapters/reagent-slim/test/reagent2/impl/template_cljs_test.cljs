@@ -194,46 +194,99 @@
           out (template/convert-prop-value :on-click f)]
       (is (fn? out)))))
 
+;; rf2-6r9j.30 — a fixture that actually REACHES `convert-prop-value`'s
+;; `ifn?` arm: object-backed, satisfies IFn, and satisfies none of the
+;; arms that come first (`js-val?`, `named?`, `map?`, `coll?`, `fn?`).
+;; A deftype implementing IFn does NOT satisfy the `Fn` marker protocol,
+;; which is what separates it from a function. Each -invoke records its
+;; own arguments so a call through the wrapper can be proven to have
+;; reached the fixture rather than merely returned something.
+(deftype CallableProbe [calls]
+  IFn
+  (-invoke [_]     (swap! calls conj [])       :called-0)
+  (-invoke [_ a]   (swap! calls conj [a])      [:called-1 a])
+  (-invoke [_ a b] (swap! calls conj [a b])    [:called-2 a b]))
+
 (deftest convert-prop-value-fn-preserves-identity-rf2-wyocr
-  (testing "rf2-wyocr: fn props pass through with === identity preserved
-            so React.memo / shouldComponentUpdate bail-outs work. Two
-            calls with the SAME fn return the SAME reference."
-    (let [handler (fn [_e] :clicked)
-          ;; 2-arg form — the production path through
-          ;; `add-converted-nested-prop!`.
-          a (template/convert-prop-value :on-click handler)
-          b (template/convert-prop-value :on-click handler)]
-      (is (identical? handler a)
-          "fn returned is the SAME reference passed in (=== check)")
-      (is (identical? a b)
-          "two conversions of the same fn produce the same reference"))
-    (let [handler (fn [_e] :nested)
-          ;; 1-arg form — used for nested map values.
-          a (template/convert-prop-value handler)
-          b (template/convert-prop-value handler)]
-      (is (identical? handler a)
-          "1-arg form preserves identity too")
-      (is (identical? a b)
-          "1-arg form: repeat conversions return the same reference"))))
+  (testing "rf2-wyocr: an object-backed Fn prop — a fn carrying metadata,
+            i.e. cljs.core/MetaFn — passes through the `fn?` arm with ===
+            identity preserved, so React.memo / shouldComponentUpdate
+            bail-outs work on a metadata-bearing handler.
+
+            rf2-6r9j.30: this test used to pass a PLAIN fn, which
+            `goog/typeOf`s as \"function\" and therefore returns from the
+            earlier `js-val?` arm — so it would have stayed green with
+            both `fn?` arms deleted. MetaFn is the ordinary value shape
+            that actually reaches the arm this regression names."
+    (let [handler (with-meta (fn [_e] :clicked) {:rf/probe true})]
+      ;; Preconditions, asserted rather than assumed — these are what
+      ;; route the value past the earlier arms and INTO `fn?`.
+      (is (= "object" (goog/typeOf handler))
+          "precondition: a metadata-bearing fn is object-backed, so js-val? declines it")
+      (is (fn? handler)
+          "precondition: MetaFn satisfies Fn, so the fn? arm takes it")
+      ;; 2-arg form — the production path through `add-converted-nested-prop!`.
+      (let [a (template/convert-prop-value :on-click handler)
+            b (template/convert-prop-value :on-click handler)]
+        (is (identical? handler a)
+            "2-arg: fn returned is the SAME reference passed in (=== check)")
+        (is (identical? a b)
+            "2-arg: two conversions of the same fn produce the same reference"))
+      ;; 1-arg form — used for nested map values.
+      (let [a (template/convert-prop-value handler)
+            b (template/convert-prop-value handler)]
+        (is (identical? handler a)
+            "1-arg form preserves identity too")
+        (is (identical? a b)
+            "1-arg form: repeat conversions return the same reference")))
+    ;; A plain JS fn still passes through unchanged — by the js-val? arm.
+    (let [plain (fn [_e] :plain)]
+      (is (identical? plain (template/convert-prop-value :on-click plain))
+          "a plain JS fn is still returned unchanged (js-val? arm)")
+      (is (identical? plain (template/convert-prop-value plain))
+          "1-arg form: plain JS fn unchanged too"))))
 
 (deftest convert-prop-value-non-fn-ifn-still-wrapped
-  (testing "rf2-wyocr: keyword (IFn but not fn?) still wraps via shim
-            so the React side can invoke it as a JS function"
-    (let [out (template/convert-prop-value :on-click :some-kw)]
-      ;; Keyword is named? so it hits the named? branch first; this is
-      ;; the warn-once path, not the ifn wrap. Verify a true non-fn IFn
-      ;; (a map-as-fn) goes through the wrapper path.
-      (is (or (keyword? out) (string? out))
-          "keyword routed through named? branch (warn-once path)"))
-    (let [m   {:a 1 :b 2}
-          out (template/convert-prop-value :custom-lookup m)]
-      ;; Maps are routed to the map? branch (recursive conversion), not
-      ;; the ifn? branch — that's correct (a prop-map value is recursively
-      ;; converted as a JS object, not invoked as a fn).
-      (is (= "object" (goog/typeOf out))
-          "map value recursively converts to JS object (map? branch wins)")
-      (is (= 1 (aget out "a")) "key a flows through")
-      (is (= 2 (aget out "b")) "key b flows through"))))
+  (testing "rf2-wyocr: an object-backed callable that satisfies IFn but
+            not Fn reaches the `ifn?` arm and comes back as a genuinely
+            JavaScript-invokable function.
+
+            rf2-6r9j.30: this test used to offer a keyword and a map, and
+            said so in its own comments — the keyword is taken by the
+            `named?` arm and the map by `map?`, so neither could reach
+            the wrapper and the test would have stayed green with both
+            `ifn?` arms deleted."
+    (let [calls (atom [])
+          probe (->CallableProbe calls)]
+      ;; Preconditions: every earlier arm of the cond must decline this.
+      (is (= "object" (goog/typeOf probe))
+          "precondition: object-backed, so js-val? declines it")
+      (is (not (or (keyword? probe) (symbol? probe)))
+          "precondition: not named?, so the named? arm declines it")
+      (is (not (map? probe))  "precondition: not a map")
+      (is (not (coll? probe)) "precondition: not a coll")
+      (is (not (fn? probe))
+          "precondition: does NOT satisfy Fn, so the fn? arm declines it")
+      (is (ifn? probe)
+          "precondition: satisfies IFn — this is the arm under test")
+      (let [out (template/convert-prop-value :on-select probe)]
+        (is (= "function" (goog/typeOf out))
+            "the ifn? arm returns a real JS function React can call")
+        (is (not (identical? probe out))
+            "the wrapper is a distinct value — this arm allocates, by design")
+        ;; Invoke it the way React would: as a plain JS function.
+        (is (= [:called-1 :a] (.call out nil :a))
+            "1-arg JS call forwards to the fixture and returns its value")
+        (is (= [:called-2 :a :b] (.call out nil :a :b))
+            "2-arg JS call forwards both arguments")
+        (is (= [[:a] [:a :b]] @calls)
+            "the fixture's own -invoke ran for each call (not a stub returning shapes)"))
+      ;; The 1-arg form takes the same arm.
+      (let [out1 (template/convert-prop-value probe)]
+        (is (= "function" (goog/typeOf out1))
+            "1-arg form also wraps into a JS function")
+        (is (= :called-0 (.call out1 nil))
+            "0-arg JS call forwards")))))
 
 (deftest nested-style-keyword-value-stringifies-on-live-path-rf2-fdm4rm
   (testing "rf2-fdm4rm: a nested style-map keyword value reaches React as
