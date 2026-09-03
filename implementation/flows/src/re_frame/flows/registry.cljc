@@ -126,12 +126,10 @@
 
 (defn ^:no-doc reset-frame-last-inputs-to!
   "Restore one frame's dirty-check cache from a prior snapshot."
-  ([frame-id prior]
-   (reset! (ensure-frame-last-inputs-atom! frame-id) prior))
-  ([frame-id owner-token prior]
-   (when (frame/event-continuation-live? frame-id owner-token)
-     (when-let [a (get @frame-last-inputs frame-id)]
-       (reset! a prior)))))
+  [frame-id owner-token prior]
+  (when (frame/event-continuation-live? frame-id owner-token)
+    (when-let [a (get @frame-last-inputs frame-id)]
+      (reset! a prior))))
 
 ;; ---- pending abandoned output paths --------------------------------------
 ;;
@@ -172,28 +170,12 @@
    (when (frame/event-continuation-live? frame-id owner-token)
      (abandoned-output-paths-snapshot frame-id))))
 
-(defn ^:no-doc drain-abandoned-output-paths!
-  "Atomically read-and-clear `frame-id`'s pending abandoned output paths,
-  returning the set that was pending. The current drain's `run-flows-on-db`
-  consumes these once — dissocing each from the pending
-  `:db` BEFORE the flow walk — and a throw / post-commit rollback re-records
-  them via `restore-abandoned-output-paths!` so the move re-attempts cleanly
-  next drain. Frame-local: returns an empty set when the frame has no
-  container."
-  [frame-id]
-  (when-let [a (get @frame-abandoned-output-paths frame-id)]
-    (let [drained (volatile! #{})]
-      (swap! a (fn [s] (vreset! drained s) #{}))
-      @drained)))
-
 (defn ^:no-doc restore-abandoned-output-paths!
   "Restore one frame's pending output-path vacations from a prior snapshot."
-  ([frame-id prior]
-   (reset! (ensure-frame-abandoned-paths-atom! frame-id) (set prior)))
-  ([frame-id owner-token prior]
-   (when (frame/event-continuation-live? frame-id owner-token)
-     (when-let [a (get @frame-abandoned-output-paths frame-id)]
-       (reset! a (set prior))))))
+  [frame-id owner-token prior]
+  (when (frame/event-continuation-live? frame-id owner-token)
+    (when-let [a (get @frame-abandoned-output-paths frame-id)]
+      (reset! a (set prior)))))
 
 ;; ---- exact-incarnation flow-pass ownership -------------------------------
 
@@ -472,15 +454,12 @@
 (defn- write-flow-output-marks!
   "Install or refresh one flow's output declarations in its frame.
 
-  rf2-vxgfnd.155 — the 3-arity threads A's `owner-token` through the exact-
-  incarnation elision write so a synchronous container watch that destroys A
-  mid-write cannot bump same-id B's commit epoch or write B's runtime-db."
-  ([frame-id flow] (write-flow-output-marks! frame-id nil flow))
-  ([frame-id owner-token flow]
-   (let [xf (fn [reg] (fold-flow-declarations reg flow))]
-     (if owner-token
-       (elision/swap-elision-slot! frame-id owner-token xf)
-       (elision/swap-elision-slot! frame-id xf)))))
+  rf2-vxgfnd.155 — `owner-token` is threaded through the exact-incarnation
+  elision write so a synchronous container watch that destroys A mid-write
+  cannot bump same-id B's commit epoch or write B's runtime-db."
+  [frame-id owner-token flow]
+  (elision/swap-elision-slot! frame-id owner-token
+                              (fn [reg] (fold-flow-declarations reg flow))))
 
 (defn- clear-flow-output-marks!
   "Remove one flow's declarations while preserving every other declaration
@@ -490,19 +469,17 @@
   Frame teardown needs no per-flow scrub because the elision registry belongs
   to the frame-state container that destruction removes.
 
-  rf2-vxgfnd.155 — the 3-arity threads A's `owner-token` through the exact-
-  incarnation elision write so a synchronous container watch that destroys A
-  mid-write cannot bump same-id B's commit epoch or write B's runtime-db."
-  ([frame-id flow-id] (clear-flow-output-marks! frame-id nil flow-id))
-  ([frame-id owner-token flow-id]
-   (let [owner (flow-owner flow-id)
-         xf    (fn [reg]
-                 (-> (or reg {})
-                     (elision/remove-owner :sensitive-declarations owner)
-                     (elision/remove-owner :declarations owner)))]
-     (if owner-token
-       (elision/swap-elision-slot! frame-id owner-token xf)
-       (elision/swap-elision-slot! frame-id xf)))))
+  rf2-vxgfnd.155 — `owner-token` is threaded through the exact-incarnation
+  elision write so a synchronous container watch that destroys A mid-write
+  cannot bump same-id B's commit epoch or write B's runtime-db."
+  [frame-id owner-token flow-id]
+  (let [owner (flow-owner flow-id)]
+    (elision/swap-elision-slot!
+      frame-id owner-token
+      (fn [reg]
+        (-> (or reg {})
+            (elision/remove-owner :sensitive-declarations owner)
+            (elision/remove-owner :declarations owner))))))
 
 ;; ---- registration --------------------------------------------------------
 
@@ -821,17 +798,14 @@
 (defn- vacate-output-path!
   "Remove an output path from a frame's app-db, skipping no-op writes.
 
-  rf2-vxgfnd.155 — the 3-arity threads A's `owner-token` through the exact-
-  incarnation app-db write so a synchronous container watch that destroys A
-  mid-vacation cannot bump same-id B's commit epoch or write B's app-db."
-  ([frame-id path] (vacate-output-path! frame-id nil path))
-  ([frame-id owner-token path]
-   (when-let [db (frame/frame-app-db-value frame-id)]
-     (let [new-db (vacate-path-in-db db path)]
-       (when-not (identical? new-db db)
-         (if owner-token
-           (frame/swap-frame-db-exact! frame-id owner-token (constantly new-db))
-           (frame/swap-frame-db! frame-id (constantly new-db))))))))
+  rf2-vxgfnd.155 — `owner-token` is threaded through the exact-incarnation
+  app-db write so a synchronous container watch that destroys A mid-vacation
+  cannot bump same-id B's commit epoch or write B's app-db."
+  [frame-id owner-token path]
+  (when-let [db (frame/frame-app-db-value frame-id)]
+    (let [new-db (vacate-path-in-db db path)]
+      (when-not (identical? new-db db)
+        (frame/swap-frame-db-exact! frame-id owner-token (constantly new-db))))))
 
 (defn clear-flow
   "Deregister a flow and remove its output leaf from the selected frame.
