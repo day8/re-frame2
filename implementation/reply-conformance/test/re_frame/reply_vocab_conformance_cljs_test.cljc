@@ -492,7 +492,9 @@
 (defn- exclusions-for
   "The `exclusions` entries naming this family/situation cell."
   [exclusions family situation]
-  (filterv (fn [[f s]] (and (= f family) (= s situation))) exclusions))
+  (filterv (fn [[entry-family entry-situation]]
+             (and (= entry-family family) (= entry-situation situation)))
+           exclusions))
 
 (defn- time-pair-partition-problems
   "Classify EVERY family × non-success-situation cell of `descriptors` against
@@ -504,7 +506,7 @@
   [descriptors exclusions]
   (let [cells  (for [{:keys [family] :as family-spec} descriptors
                      [situation with-key no-key] time-pair-situations]
-                 (let [supported?   (some? (get f situation))
+                 (let [supported?   (some? (get family-spec situation))
                        with-builder (get family-spec with-key)
                        no-builder   (get family-spec no-key)
                        declared     (remove nil? [with-builder no-builder])
@@ -601,7 +603,7 @@
    control, which asserts the row count is UNCHANGED by deleting a `:work-head`."
   [descriptors]
   (vec (for [{:keys [family work-head] :as family-spec} descriptors
-             [situation builder] (select-keys f [:success :error :cancel :stale])
+             [situation builder] (select-keys family-spec [:success :error :cancel :stale])
              :when builder]
          {:family    family
           :situation situation
@@ -786,9 +788,9 @@
                (string/join "\n  " problems)))))
   (testing "the partition accounts for EVERY cell of the matrix"
     (let [cells       (* (count families) (count time-pair-situations))
-          unsupported (count (for [f families
+          unsupported (count (for [family-spec families
                                    [situation] time-pair-situations
-                                   :when (nil? (get f situation))]
+                                   :when (nil? (get family-spec situation))]
                                situation))]
       (is (pos? (count time-paired-rows))
           "the completion-time gate must drive off a NON-EMPTY set of paired rows")
@@ -831,7 +833,8 @@
             (conj time-pair-exclusions [:nope :error route-live-reply "orphan"])]
            ["an exclusion missing its reason (:http/:stale)"
             families
-            (conj (vec (remove (fn [[f s]] (and (= :http f) (= :stale s)))
+            (conj (vec (remove (fn [[entry-family entry-situation]]
+                                 (and (= :http entry-family) (= :stale entry-situation)))
                                time-pair-exclusions))
                   [:http :stale #(:reply (http-stale-out)) nil])]]]
     (testing label
