@@ -451,7 +451,7 @@
    :static-markup
    (str "Hiccup to an HTML STRING, outside the React lifecycle — `render-to-string` or "
         "`render-to-static-markup`. Hicasso's counterpart is the SSR seam "
-        "(`day8/re-frame2-ssr`'s `re-frame.ssr/render-to-string`), which lowers a HICCASSO tree "
+        "(`day8/re-frame2-ssr`'s `re-frame.ssr/render-to-string`), which lowers a HICASSO tree "
         "rather than a Reagent one, so this is a re-point rather than an edit. An export that "
         "only ever wanted static bytes — clipboard HTML, report HTML, email — ports "
         "straightforwardly; anything whose output is later HYDRATED has to be re-read against "
