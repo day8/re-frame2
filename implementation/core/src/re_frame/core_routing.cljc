@@ -64,10 +64,18 @@
                     :fragment \"...\"
                     & passthrough-html-attrs} & children]
 
-  The CLJS hook publishes the Reagent-wrapped render fn (returned by
-  `reg-view*`); the JVM hook publishes the SSR-side render fn. Either
-  way `[rf/route-link ...]` in a `.cljc` render tree renders correctly
-  on both platforms."
+  The CLJS hook publishes `re-frame.routing/route-link-element` — a fn that
+  EMITS the hiccup element `[(views/view-head :route/link) props & children]`
+  rather than one that renders. `defwrapper` CALLS whatever its hook holds
+  (see `defwrapper`'s docstring §A hook value MUST be a FUNCTION, never a
+  COMPONENT), and a view head that is called never becomes a component, so it
+  reads its caller's React context instead of its own; publishing the
+  registered head itself is what blanked every routed application in
+  rf2-nvcp. Emitting the element hands the head to the substrate as an
+  element TYPE, which componentizes it exactly as a `reg-view` view. The JVM
+  hook publishes the SSR-side render fn directly — SSR has no React context
+  to read. Either way `[rf/route-link ...]` in a `.cljc` render tree renders
+  correctly on both platforms."
   {:hook :routing/route-link :artefact routing-artefact :on-absent :throw
    :arglists '([props & children])}
   ([& args] :apply))
