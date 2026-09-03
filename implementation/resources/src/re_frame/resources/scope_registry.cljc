@@ -456,20 +456,6 @@
       (assoc acc input-name (path/get db rf-path)))
     {} (or inputs {})))
 
-(defn input-db-paths
-  "Return the vector of CONCRETE app-db paths a resolver's declared `:inputs`
-  read off the frame app-db — the `<rf-path>` of each `[:db <rf-path>]` source
-  (the only shipped source). The whole-db fn sugar's synthetic `[:db []]`
-  returns `[[]]` (the root path). EP-0025 (rf2-71dr8t) removed the derived-
-  sensitivity propagation pass that read this dependency graph; the accessor
-  remains for tooling that surfaces a resolver's declared db reads (the
-  whole-db cost on the narrow-re-resolution axis). Pure; nil/empty `:inputs` →
-  `[]`. Per Spec 016 §The `:inputs` grammar."
-  [inputs]
-  (into []
-        (keep (fn [[_input-name [_source rf-path]]] rf-path))
-        (or inputs {})))
-
 ;; ---- off-box trace egress projection of scope-resolution rows (rf2-84l82t) -
 ;;
 ;; The `:rf.resource/scope-resolved` trace row carries the resolver's resolved
