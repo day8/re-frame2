@@ -9,9 +9,8 @@ is removed from production builds.
 
 ## Diagnose an interaction
 
-1. Load Xray through the development preload. [Xray's installation
-   chapter](../../xray/01-installation.md) carries the dependency coordinate,
-   the host element, and the preload namespace.
+1. Load Xray through the development preload. [The coordinate, the host
+   element, and the preload namespace](#load-xray) are below.
 2. Reproduce the click, keystroke, or update.
 3. Open Xray's **Hicasso** tab and select the view occurrence that ran.
 4. Read its cause, fan-out, and attribution.
@@ -26,6 +25,51 @@ what to change.
 
 An **epoch** is one event pipeline run, from dispatch through its state commit.
 Xray organises its evidence around epochs.
+
+### Load Xray
+
+Xray is a tool, not application code: the dependency belongs in a dev alias, and
+the preload belongs in the dev build, never in a release build.
+
+While re-frame2 is pre-alpha the dependency is a checkout-local one, resolved
+relative to your own `deps.edn`. It becomes an ordinary Maven coordinate once
+Xray is published.
+
+```clojure
+;; deps.edn
+{:aliases
+ {:dev
+  {:extra-deps
+   {day8/re-frame2-xray {:local/root "../re-frame2/tools/xray"}}}}}
+```
+
+The preload namespace is `day8.re-frame2-xray.preload`:
+
+```clojure
+;; shadow-cljs.edn
+{:builds
+ {:app
+  {:devtools
+   {:preloads [day8.re-frame2-xray.preload]}}}}
+```
+
+Xray renders into a host element your page reserves, marked
+`data-rf-xray-host`:
+
+```html
+<div class="app-shell">
+  <main id="app"></main>
+  <aside data-rf-xray-host></aside>
+</div>
+```
+
+That is the whole setup. The preload registers the collectors, installs the
+browser API, and opens Xray into the host once the substrate adapter is ready,
+so you do not call `init!` yourself. `Ctrl+Shift+C` hides and shows the panel.
+
+[Xray's installation chapter](../../xray/01-installation.md) is the reference
+for the rest: styling the host, choosing a different selector, jump-to-source
+editor configuration, popping out to a second window, and production posture.
 
 ## Why did this view run?
 
@@ -161,7 +205,7 @@ Examples from the guide:
 | `:rf.error/hicasso-intent-outside-boundary` | An event intent reached a position with no frame | Keep it under a view boundary; use `h/event` at a foreign callback edge |
 | `:rf.error/hicasso-host-unclaimed-callback` | `h/event` was passed to a host prop declared a ReactNode slot | Write markup there, or take the prop out of `:slots` |
 | `:rf.error/hicasso-revision-not-controlled` | `::h/revision` appeared on a non-controlled field | Control the text field or remove the revision |
-| `:rf.warning/hicasso-entity-key` | A sequence child's `:key` is a map, collection, date or other entity value React would coerce by content | Key on a stable primitive identifier |
+| `:rf.warning/hicasso-entity-key` | A boundary-headed sequence child's `:key` is a map, collection, date or other entity value React would coerce by content | Key on a stable primitive identifier |
 | `:rf.error/frame-destroyed` | An operation captured from a destroyed frame incarnation fired later | Drop the stale handle and capture from the current frame |
 
 Follow the named recovery before changing unrelated code.

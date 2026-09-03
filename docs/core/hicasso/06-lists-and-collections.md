@@ -31,26 +31,77 @@ With domain ids, existing rows retain their identity and equal-props bail-outs
 can skip their bodies.
 
 !!! warning "Do not key by index or by the complete entity"
-    An index changes meaning after insertion or reorder. A complete entity
-    changes when the entity is edited; React also coerces non-primitive keys,
-    which can remount or collide. Hicasso reports
-    `:rf.warning/hicasso-entity-key` and identifies the child.
+    An index changes meaning after insertion or reorder.
+
+    A complete entity changes when the entity is edited. React coerces every
+    key to a string, so keying by the entity keys the child by its *content*:
+    edit the entity and the child silently remounts, losing focus, scroll
+    position, and any presence retention. That hazard applies to every
+    non-primitive key.
+
+    A foreign JS object is the sharper case, because every one of them coerces
+    to the same `[object Object]` — distinct children collapse onto one key and
+    React reconciles them as the same child. A ClojureScript collection coerces
+    to its own printed form, so it stays distinct per value; remounting, not
+    collision, is what bites there.
 
     Strings, numbers, keywords, UUIDs, and symbols are valid keys.
     Collections, JS objects, dates, booleans, and functions are not.
 
 Missing keys produce React's own warning in development; Hicasso adds nothing
-to it. The entity-key warning names the child head and the first offending
-index, and it fires per call site rather than relying on React's page-lifetime
-deduplication.
+to it.
 
-It also runs where React never looks: a sequence passed as a Hicasso view's
-children is flattened before reaching React, and the flattened elements already
-appear validated to it. The check disappears from production.
+Hicasso's own entity-key warning is narrower than the rule above, and it is
+worth knowing what it does and does not cover.
+`:rf.warning/hicasso-entity-key` fires for a member of a **sequence** whose head
+is a **view boundary** — an `h/defview` head, as in `[order-row {:key …}]` —
+and whose key is none of string, number, keyword, UUID, or symbol. It names the
+child head, the shape it found at `:key`, and the first offending index; the key
+value itself never reaches the console, so a cyclic or throwing value cannot
+break the diagnostic. It fires once per site rather than relying on React's
+page-lifetime deduplication, and it disappears from production.
+
+It does not fire for a native tag. `[:li {:key {:id id}} …]` inside a `for` is
+the same mistake and passes in silence, because Hicasso reads `:key` off a
+native tag without classifying it. Treat the rule above as the standard, not the
+warning as complete cover.
+
+The warning does, however, run where React never looks: a sequence passed as a
+Hicasso view's children is flattened before reaching React, and the flattened
+elements already appear validated to it.
 
 ??? info "For readers coming from Reagent"
     Hicasso does not read `^{:key id}` metadata. Use
     `[order-row {:key id :id id}]`.
+
+## Write the sequence in child position
+
+A `for` that produces a view's children has two spellings, and they put the same
+elements on the page:
+
+```clojure
+;; Prefer this: the sequence sits in child position.
+[:ul.orders
+ (for [id ids]
+   [order-row {:key id :id id}])]
+
+;; This splices the sequence away before Hicasso sees it.
+(into [:ul.orders]
+      (for [id ids]
+        [order-row {:key id :id id}]))
+```
+
+Prefer the first. A sequence in child position is spliced by Hicasso itself, and
+that splice is the only place the entity-key check runs: Hicasso walks the
+sequence's members and classifies each `:key` on the way past. `into` produces
+an ordinary vector of children before Hicasso is involved, so no sequence
+survives for it to walk and the check cannot run. The same applies to React's
+missing-key warning, because spliced children arrive as direct arguments, which
+React treats as already validated.
+
+So the two spellings render alike and diagnose differently. Reach for `into`
+when you are genuinely assembling one children vector out of several pieces —
+just know that the keyed members inside it are no longer inspected by anything.
 
 ## Choose where rows read
 
