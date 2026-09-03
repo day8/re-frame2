@@ -25,18 +25,18 @@
   backoff `maybe-retry!` decides between retry, immediate-final-failure,
   and successful completion based on the failing attempt's failure
   category and the request's `:retry` config."
-  (:require [re-frame.error             :as error]
-            [re-frame.http.decode       :as decode]
-            [re-frame.http.encoding     :as encoding]
-            [re-frame.http.middleware   :as middleware]
-            [re-frame.http.privacy      :as privacy]
-            [re-frame.http.privacy-body :as privacy-body]
-            [re-frame.http.registry     :as registry]
-            [re-frame.http.reply        :as http-reply]
-            [re-frame.http.transport-cljs :as transport-cljs]
-            [re-frame.http.transport-jvm  :as transport-jvm]
-            [re-frame.interop           :as interop]
-            [re-frame.trace             :as trace])
+  (:require [re-frame.error             :as rf.error]
+            [re-frame.http.decode       :as rf.http.decode]
+            [re-frame.http.encoding     :as rf.http.encoding]
+            [re-frame.http.middleware   :as rf.http.middleware]
+            [re-frame.http.privacy      :as rf.http.privacy]
+            [re-frame.http.privacy-body :as rf.http.privacy-body]
+            [re-frame.http.registry     :as rf.http.registry]
+            [re-frame.http.reply        :as rf.http.reply]
+            [re-frame.http.transport-cljs :as rf.http.transport-cljs]
+            [re-frame.http.transport-jvm  :as rf.http.transport-jvm]
+            [re-frame.interop           :as rf.interop]
+            [re-frame.trace             :as rf.trace])
   #?(:clj (:import [java.util.concurrent CompletableFuture])))
 
 ;; ---- shared attempt-and-retry loop ----------------------------------------
@@ -119,7 +119,7 @@
   a completed request's listener. Phase-to-phase ownership transfer detaches
   the prior listener inside `bind-external-abort!` itself, not here."
   [ctx]
-  #?(:cljs (transport-cljs/detach-external-abort! (:external-abort ctx)))
+  #?(:cljs (rf.http.transport-cljs/detach-external-abort! (:external-abort ctx)))
   nil)
 
 (defn- emit-reply-tail-error!
@@ -150,15 +150,15 @@
   URL redacts under the per-call `:sensitive?` flag / query-param denylist)
   matching the sibling `:rf.http/*` error rows."
   [ctx e]
-  (when interop/debug-enabled?
+  (when rf.interop/debug-enabled?
     (let [reply-error-id (:rf.error/id (ex-data e))]
-      (trace/emit-error!
+      (rf.trace/emit-error!
         :rf.error/http-reply-tail-failed
-        (privacy/prepare-emit-tags
+        (rf.http.privacy/prepare-emit-tags
           {:url            (:url ctx)
            :kind           (:kind ctx)
            :reply-error-id reply-error-id
-           :cause          (error/ex-message-safe e)
+           :cause          (rf.error/ex-message-safe e)
            :recovery       :no-recovery
            :reason         (str "A managed-HTTP reply tail threw AFTER the "
                                 "transport completed"
@@ -215,7 +215,7 @@
     ;; `:after` chain is skipped when no middleware-ctx is present
     ;; (synthetic / test-path callers).
     (try
-      (middleware/run-after-then-dispatch!
+      (rf.http.middleware/run-after-then-dispatch!
         {:frame          frame
          :middleware-ctx middleware-ctx
          :origin-event   origin-event
@@ -272,7 +272,7 @@
    :issuance     (:issuance ctx)
    :attempt      (:attempt ctx)
    :frame        (:frame ctx)
-   :completed-at (interop/epoch-now-ms)})
+   :completed-at (rf.interop/epoch-now-ms)})
 
 (defn- self-identify
   "Stamp the four self-identifying fields (`:request
@@ -287,7 +287,7 @@
   `:retry` policy, plus `:url` / `:request-id` / `:origin-event` / `:issuance`
   / `:attempt`). Applies uniformly to ALL eight failure categories."
   [failure ctx]
-  (http-reply/self-identify-failure
+  (rf.http.reply/self-identify-failure
     failure
     {:method       (:method (:request ctx))
      :url          (:url ctx)
@@ -330,11 +330,11 @@
   request that no longer wants its reply is correct-by-design silence,
   not a swallowed error."
   [failure url sensitive?]
-  (when (and interop/debug-enabled?
+  (when (and rf.interop/debug-enabled?
              (not= :rf.http/aborted (:kind failure))
              (compare-and-set! failure-swallowed-warned? false true))
-    (trace/emit! :warning :rf.warning/failure-swallowed
-                 (privacy/prepare-emit-tags
+    (rf.trace/emit! :warning :rf.warning/failure-swallowed
+                 (rf.http.privacy/prepare-emit-tags
                    {:url     url
                     :failure failure
                     :reason  (str "an HTTP request failed with `:kind "
@@ -378,7 +378,7 @@
   `:completed-at`) ride verbatim. Gated on `debug-enabled?` like the other
   `:rf.http/*` trace rows."
   [ctx reply]
-  (when interop/debug-enabled?
+  (when rf.interop/debug-enabled?
     ;; The success reply's decoded body is classified through its schema
     ;; before it reaches the trace stream. It is a registration-
     ;; owned transient payload classified per-slot via `:sensitive?` props on
@@ -395,8 +395,8 @@
     ;; through the shared marks walker.
     (let [reply' (if (and (= :ok (:status reply))
                           (contains? reply :value)
-                          (privacy-body/schema-decode? (:decode ctx)))
-                   (update reply :value privacy-body/classify-decoded (:decode ctx))
+                          (rf.http.privacy-body/schema-decode? (:decode ctx)))
+                   (update reply :value rf.http.privacy-body/classify-decoded (:decode ctx))
                    reply)
           ;; rf2-lddbk — the success reply's `:meta` carries the response
           ;; wire facts (status / status-text / normalized headers). The
@@ -407,7 +407,7 @@
           ;; summary walk, matching the failure-map `:headers` posture.
           ;; Per-call `:sensitive?` then force-redacts the whole `:meta`
           ;; wire slot via `trace-reply` below, as for every wire slot.
-          reply' (privacy/redact-response-meta reply')]
+          reply' (rf.http.privacy/redact-response-meta reply')]
       ;; Thread the CARRIED frame into the elider opts (EP-0002 — wire-egress
       ;; frame resolves from the carried stamp; HTTP completions fire from the
       ;; transport callback, OUTSIDE any `with-frame` scope, so without an
@@ -425,12 +425,12 @@
       ;; `:rf.http/off-box-body`; the off-box trace-events projector
       ;; (`re-frame.epoch.tool-pair`) consults it and omits / classifies the
       ;; body slot. Only the success status carries a body slot to gate.
-      (trace/emit! :info :rf.http/replied
-                   (cond-> (http-reply/trace-reply reply' (cond-> {:sensitive? (true? (:sensitive? ctx))}
+      (rf.trace/emit! :info :rf.http/replied
+                   (cond-> (rf.http.reply/trace-reply reply' (cond-> {:sensitive? (true? (:sensitive? ctx))}
                                                             (:frame ctx) (assoc :frame (:frame ctx))))
                      (= :ok (:status reply))
                      (assoc :rf.http/off-box-body
-                            (privacy-body/off-box-body-disposition (:decode ctx))))))))
+                            (rf.http.privacy-body/off-box-body-disposition (:decode ctx))))))))
 
 (defn emit-superseded-stale-trace!
   "Emit the canonical `:status :stale` /
@@ -458,18 +458,18 @@
   it as a uniform stale-suppression row. Gated on `debug-enabled?` like the
   other `:rf.http/*` trace rows."
   [superseded-handle current-work-id]
-  (when interop/debug-enabled?
+  (when rf.interop/debug-enabled?
     (let [stale-ctx {:request-id   (:request-id superseded-handle)
                      :origin-event (:origin-event superseded-handle)
                      :issuance     (:issuance superseded-handle)
                      :attempt      (:attempt superseded-handle)
                      :frame        (:frame superseded-handle)}
-          {:keys [reply trace]} (http-reply/suppress stale-ctx current-work-id)
-          summary (http-reply/trace-reply
+          {:keys [reply trace]} (rf.http.reply/suppress stale-ctx current-work-id)
+          summary (rf.http.reply/trace-reply
                     reply
                     (cond-> {:sensitive? (true? (:sensitive? superseded-handle))}
                       (:frame superseded-handle) (assoc :frame (:frame superseded-handle))))]
-      (trace/emit! :info :rf.http/stale-suppressed
+      (rf.trace/emit! :info :rf.http/stale-suppressed
                    (cond-> {:rf.reply/status       (:status summary)
                             :rf.reply/work-status   (:rf.reply/work-status summary)
                             :rf.reply/stale-reason  (:rf.reply/stale-reason summary)
@@ -501,7 +501,7 @@
   [ctx failure]
   (when (on-failure-silenced? ctx)
     (warn-failure-swallowed! failure (:url ctx) (:sensitive? ctx)))
-  (let [reply (http-reply/failure-reply (reply-ctx ctx) failure)]
+  (let [reply (rf.http.reply/failure-reply (reply-ctx ctx) failure)]
     (emit-reply-trace! ctx reply)
     (dispatch-reply! (assoc ctx
                             :kind          :failure
@@ -522,7 +522,7 @@
   `handle-response!`'s 2xx branch) rides the canonical reply under `:meta`
   so both the `:after` chain and the app reply target can read it."
   [ctx value]
-  (let [reply (http-reply/success-reply (reply-ctx ctx) value (:response-meta ctx))]
+  (let [reply (rf.http.reply/success-reply (reply-ctx ctx) value (:response-meta ctx))]
     (emit-reply-trace! ctx reply)
     (dispatch-reply! (assoc ctx
                             :kind          :success
@@ -546,13 +546,13 @@
   `re-frame.elision/elide-wire-value` walker. Gated on `debug-enabled?` like
   the other `:rf.http/*` trace rows."
   [ctx]
-  (when interop/debug-enabled?
-    (let [{:keys [reply trace]} (http-reply/actor-destroy-suppress ctx)
-          summary (http-reply/trace-reply
+  (when rf.interop/debug-enabled?
+    (let [{:keys [reply trace]} (rf.http.reply/actor-destroy-suppress ctx)
+          summary (rf.http.reply/trace-reply
                     reply
                     (cond-> {:sensitive? (true? (:sensitive? ctx))}
                       (:frame ctx) (assoc :frame (:frame ctx))))]
-      (trace/emit! :info :rf.http/stale-suppressed
+      (rf.trace/emit! :info :rf.http/stale-suppressed
                    (cond-> {:rf.reply/status       (:status summary)
                             :rf.reply/work-status   (:rf.reply/work-status summary)
                             :rf.reply/stale-reason  (:rf.reply/stale-reason summary)
@@ -615,14 +615,14 @@
                                 :reason   reason
                                 :actor-id (:actor-id ctx)}
                                ctx)]
-    (when interop/debug-enabled?
+    (when rf.interop/debug-enabled?
       (let [sensitive? (true? (:sensitive? ctx))
-            redacted   (privacy/prepare-emit-failure
+            redacted   (rf.http.privacy/prepare-emit-failure
                          (assoc failure
                                 :url      (:url ctx)
                                 :recovery :no-recovery)
                          sensitive?)]
-        (trace/emit-error! :rf.http/aborted redacted)))
+        (rf.trace/emit-error! :rf.http/aborted redacted)))
     ;; An abort is terminal for this request-id (this is the
     ;; direct abort-fn choke: user / actor-destroy / supersede / epoch-restore
     ;; all land here). Evict the issuance counter so an unbounded distinct-id
@@ -630,7 +630,7 @@
     ;; supersede has ALREADY bumped the counter past this (superseded) attempt's
     ;; issuance, so the evict skips and the live successor keeps the id; only a
     ;; genuinely-quiescent id is dropped.
-    (registry/evict-issuance-on-completion! (:request-id ctx) (:issuance ctx))
+    (rf.http.registry/evict-issuance-on-completion! (:request-id ctx) (:issuance ctx))
     ;; rf2-3fc89f.9 — terminal for this request: detach the external
     ;; `:abort-signal` listener so a shared / parent controller retains no
     ;; completed-request listener. Fires for every abort reason (this is the
@@ -650,7 +650,7 @@
       ;; delivery as a canonical `:status :stale` / `:rf.reply/work-status :suppressed`
       ;; outcome (Managed-Effects §Cancellation). The app target MUST NOT run.
       (and (= :actor-destroyed reason)
-           (http-reply/actor-destroy-target-obsolete?
+           (rf.http.reply/actor-destroy-target-obsolete?
              (reply-target-id ctx) (:actor-id ctx)))
       (emit-actor-destroy-stale-trace! (reply-ctx ctx))
 
@@ -724,13 +724,13 @@
   reply names which request failed."
   [ctx failure]
   (let [failure (self-identify failure ctx)]
-  (when interop/debug-enabled?
+  (when rf.interop/debug-enabled?
     ;; Redact response-side payload slots (body, body-text,
     ;; decoded, detail) and the headers denylist before the trace surface
     ;; sees them; stamp :sensitive? when applicable. The CLJS and JVM
     ;; transports share the same contract.
     (let [sensitive? (true? (:sensitive? ctx))
-          redacted   (privacy/prepare-emit-failure
+          redacted   (rf.http.privacy/prepare-emit-failure
                        (assoc failure
                               :request-id (:request-id ctx)
                               :url        (:url ctx)
@@ -761,12 +761,12 @@
           redacted   (cond-> redacted
                        (contains? failure :decoded)
                        (assoc :rf.http/off-box-body
-                              (privacy-body/off-box-body-disposition (:decode ctx)))
+                              (rf.http.privacy-body/off-box-body-disposition (:decode ctx)))
 
                        (or (contains? failure :body)
                            (contains? failure :body-text))
                        (assoc :rf.http/off-box-body :omit))]
-      (trace/emit-error! (:kind failure) redacted)))
+      (rf.trace/emit-error! (:kind failure) redacted)))
   (cond
     ;; rf2-lxd3 / rf2-u5kmf8 — supersede / epoch-restore reasons suppress the
     ;; reply outright; the canonical stale trace for those is emitted at
@@ -791,7 +791,7 @@
     ;; snapshot (`aborted-failure`), falling back to the ctx's actor-id.
     (and (= :rf.http/aborted (:kind failure))
          (= :actor-destroyed (:reason failure))
-         (http-reply/actor-destroy-target-obsolete?
+         (rf.http.reply/actor-destroy-target-obsolete?
            (reply-target-id ctx) (:actor-id failure)))
     (emit-actor-destroy-stale-trace! (reply-ctx ctx))
 
@@ -815,10 +815,10 @@
   (if-let [abort-state (aborted-snapshot ctx)]
     (finalise-failure! ctx (aborted-failure ctx abort-state))
     (when-not (already-replied? ctx)
-      (registry/clear-in-flight! (:request-id ctx) (:handle ctx))
+      (rf.http.registry/clear-in-flight! (:request-id ctx) (:handle ctx))
       ;; rf2-k47b3d — terminal completion: evict this id's issuance counter
       ;; (conditional-atomic; skips when a live re-issue has bumped past it).
-      (registry/evict-issuance-on-completion! (:request-id ctx) (:issuance ctx))
+      (rf.http.registry/evict-issuance-on-completion! (:request-id ctx) (:issuance ctx))
       ;; rf2-3fc89f.9 — terminal: detach the external abort-signal listener
       ;; (covers the success, accept-failure, and sample-(2) abort branches
       ;; below; idempotent with the abort-path detach in `dispatch-aborted!`).
@@ -861,7 +861,7 @@
           (emit-and-dispatch-failure!
             ctx {:kind       :rf.http/accept-failure
                  :detail     (:failure accepted)
-                 :decoded    (privacy-body/classify-decoded (:decoded ctx) (:decode ctx))
+                 :decoded    (rf.http.privacy-body/classify-decoded (:decoded ctx) (:decode ctx))
                  :request-id (:request-id ctx)}))))))
 
 (defn- finalise-failure!
@@ -907,12 +907,12 @@
                                (not= :rf.http/aborted (:kind failure)))
                         (aborted-failure ctx abort-state)
                         failure)]
-      (registry/clear-in-flight! (:request-id ctx) (:handle ctx))
+      (rf.http.registry/clear-in-flight! (:request-id ctx) (:handle ctx))
       ;; rf2-k47b3d — terminal completion: evict this id's issuance counter
       ;; (conditional-atomic; skips when a live re-issue has bumped past it, so
       ;; a superseded-then-reclassified attempt does not drop the successor's
       ;; live counter).
-      (registry/evict-issuance-on-completion! (:request-id ctx) (:issuance ctx))
+      (rf.http.registry/evict-issuance-on-completion! (:request-id ctx) (:issuance ctx))
       ;; rf2-3fc89f.9 — terminal: detach the external abort-signal listener
       ;; (natural terminal failure + the abort-precedence reclassification;
       ;; idempotent with the abort-path detach in `dispatch-aborted!`).
@@ -948,8 +948,8 @@
   the off-box trace-events projector omits the nested `[:failure :body]`
   slot off-box."
   [ctx failure next-backoff-ms recovery]
-  (trace/emit! :info :rf.http/retry-attempt
-               (cond-> (privacy/prepare-emit-tags
+  (rf.trace/emit! :info :rf.http/retry-attempt
+               (cond-> (rf.http.privacy/prepare-emit-tags
                          {:request-id      (:request-id ctx)
                           :url             (:url ctx)
                           :attempt         (:attempt ctx)
@@ -1058,7 +1058,7 @@
                      ;; fire that loses here bails without retrying.
                      (when (compare-and-set! fired? false true)
                        (when-let [t @timer-cell]
-                         (interop/clear-timeout! t))
+                         (rf.interop/clear-timeout! t))
                        ;; rf2-meq28 — drop the backoff handle from both
                        ;; indexes via the 2-arg `clear-in-flight!`, passing
                        ;; the stamped handle (through `@handle-cell`) so the
@@ -1067,7 +1067,7 @@
                        ;; This mirrors the rf2-lz7se fix at the live-fetch
                        ;; abort-fn in `run-attempt!` and the by-identity
                        ;; clear the timer-fires path below already uses.
-                       (registry/clear-in-flight! request-id @handle-cell)
+                       (rf.http.registry/clear-in-flight! request-id @handle-cell)
                        ;; rf2-6nczv9 — dispatch guarded by the SHARED once-only
                        ;; reply guard so a prior-phase abort-fn (the just-
                        ;; completed live-fetch handle, resolvable during the
@@ -1079,7 +1079,7 @@
                        ;; as before.
                        (when (compare-and-set! finalised? false true)
                          (dispatch-aborted! ctx reason))))
-        handle     (registry/record-in-flight!
+        handle     (rf.http.registry/record-in-flight!
                      request-id actor-id
                      {:abort-fn   abort-fn
                       :url        (:url ctx)
@@ -1129,7 +1129,7 @@
         ;; index and only drops the prior handle from the actor index (rf2-wvkn
         ;; — no stale accumulation across retries).
         _          (when prev-handle
-                     (registry/clear-in-flight! request-id prev-handle))
+                     (rf.http.registry/clear-in-flight! request-id prev-handle))
         ;; rf2-3fc89f.9 — ownership transfer: rebind the external
         ;; `:abort-signal` from the just-completed live-fetch handle onto THIS
         ;; sleeping-backoff handle's canonical abort-fn, so a signal that fires
@@ -1140,7 +1140,7 @@
         ;; backoff abort-fn synchronously (winning `fired?`); the trailing
         ;; re-check below then disarms the armed timer.
         #?@(:cljs
-            [_     (transport-cljs/bind-external-abort!
+            [_     (rf.http.transport-cljs/bind-external-abort!
                      (:external-abort ctx)
                      (fn [] ((:abort-fn handle) :user)))])
         ;; rf2-6nczv9 — test-only interleaving seam: an abort injected HERE
@@ -1151,7 +1151,7 @@
         ;; instant the timer is armed. The callback wins/loses the same
         ;; `fired?` CAS: on a win it clears its own handle and proceeds;
         ;; on a loss (a cancel beat it) it does nothing.
-        timer      (interop/set-timeout!
+        timer      (rf.interop/set-timeout!
                      (fn []
                        (when (compare-and-set! fired? false true)
                          ;; rf2-6nczv9 — CONTINUOUS HANDOFF into attempt N+1.
@@ -1195,7 +1195,7 @@
       ;; read `timer-cell` as nil and skipped `clear-timeout!`; re-check and
       ;; disarm the now-known timer so the scheduler carries no doomed task.
       @fired?
-      (interop/clear-timeout! timer)
+      (rf.interop/clear-timeout! timer)
 
       ;; rf2-6nczv9 — the SHARED abort cell is flipped but this backoff's own
       ;; abort-fn never ran: an abort resolved the PRIOR live-fetch handle
@@ -1207,8 +1207,8 @@
       (and (some? @aborted?)
            (compare-and-set! fired? false true))
       (do
-        (interop/clear-timeout! timer)
-        (registry/clear-in-flight! request-id handle)))
+        (rf.interop/clear-timeout! timer)
+        (rf.http.registry/clear-in-flight! request-id handle)))
     nil))
 
 (defn- maybe-retry!
@@ -1251,7 +1251,7 @@
                          (not= :rf.http/aborted kind)
                          (not aborted?))]
     (if can-retry?
-      (let [delay-ms (encoding/compute-backoff-ms (or backoff {}) attempt)]
+      (let [delay-ms (rf.http.encoding/compute-backoff-ms (or backoff {}) attempt)]
         ;; rf2-fyt5i — HONEST timing: the intermediate `:recovery :retried`
         ;; disposition is deliberately NOT emitted here. This point only
         ;; DECIDES a retry is eligible and arms the backoff; the request can
@@ -1309,7 +1309,7 @@
         ;;       (e.g. attempt 1 retries a 5xx, attempt 2 hits a non-retryable
         ;;       decode failure under `:max-attempts 3`).
         ;; A non-retried, non-eligible terminal failure emits nothing.
-        (when (and interop/debug-enabled?
+        (when (and rf.interop/debug-enabled?
                    (some? max-attempts)
                    (> max-attempts 1)
                    (or (> attempt 1)
@@ -1371,7 +1371,7 @@
       (let [decode-result
             (try
               {:decoded
-               (decode/decode-response-body
+               (rf.http.decode/decode-response-body
                  {:body-text        body-text
                   ;; rf2-5zj6t — the CLJS transport reads a native
                   ;; Blob / ArrayBuffer / FormData for binary decode
@@ -1458,9 +1458,9 @@
                 ;; request was not declared per-call `:sensitive?`. A
                 ;; non-schema `:decode` is a no-op here (the per-call flag /
                 ;; off-box disposition govern an unschematized body).
-                decoded' (privacy-body/classify-decoded decoded decode)
+                decoded' (rf.http.privacy-body/classify-decoded decoded decode)
                 outcome (try
-                          {:accepted (encoding/run-accept accept decoded)}
+                          {:accepted (rf.http.encoding/run-accept accept decoded)}
                           (catch #?(:clj Throwable :cljs :default) e
                             {:accept-error e}))]
             (cond
@@ -1474,7 +1474,7 @@
                  :decoded    decoded'
                  :request-id request-id})
 
-              (encoding/valid-accept-return? (:accepted outcome))
+              (rf.http.encoding/valid-accept-return? (:accepted outcome))
               (finalise-success! ctx' (:accepted outcome))
 
               :else
@@ -1533,9 +1533,9 @@
   [request]
   (try
     (let [body          (let [b (:body request)] (if (fn? b) (b) b))
-          [enc-body ct] (encoding/encode-body body (:request-content-type request))
+          [enc-body ct] (rf.http.encoding/encode-body body (:request-content-type request))
           headers       (cond-> (or (:headers request) {})
-                          (and ct (nil? (decode/content-type-of (:headers request))))
+                          (and ct (nil? (rf.http.decode/content-type-of (:headers request))))
                           (assoc "Content-Type" ct))]
       {:ok {:enc-body enc-body :headers headers}})
     (catch #?(:clj Throwable :cljs :default) e
@@ -1572,7 +1572,7 @@
         ctx      (dissoc ctx :rf.http/retry-handoff)
         {:keys [request timeout-ms request-id actor-id abort-signal]} ctx
         method   (or (:method request) :get)
-        url      (encoding/merge-params (:url request) (:params request))
+        url      (rf.http.encoding/merge-params (:url request) (:params request))
         ;; rf2-065xo — body realization + encoding are DEFERRED past handle
         ;; registration and run inside `prepare-body!` as a managed
         ;; request-preparation PHASE (see below). Realizing a `:body` thunk
@@ -1596,7 +1596,7 @@
         ;; JVM treats `:abort-signal` as a degraded no-op (a one-line trace via
         ;; `check-cljs-only-keys!`), so no binding is made there.
         external-abort #?(:cljs (or (:external-abort ctx)
-                                    (transport-cljs/make-external-abort abort-signal))
+                                    (rf.http.transport-cljs/make-external-abort abort-signal))
                           :clj  nil)
         ctx-no-handle (cond-> (assoc ctx :url url)
                         external-abort (assoc :external-abort external-abort))
@@ -1698,7 +1698,7 @@
         ;; Register the abort handle. The handle ref is stamped into ctx
         ;; so finalise-* can clear it from both indexes without needing
         ;; the request-id, including anonymous actor-owned requests.
-        handle   (registry/record-in-flight!
+        handle   (rf.http.registry/record-in-flight!
                    request-id actor-id
                    {:abort-fn (fn [reason]
                                 ;; Flip `:aborted?` before the
@@ -1792,7 +1792,7 @@
                                   ;; the vector) while closing the gap for
                                   ;; any future trigger that does not
                                   ;; pre-clear.
-                                  (registry/clear-in-flight! request-id @handle-holder)
+                                  (rf.http.registry/clear-in-flight! request-id @handle-holder)
                                   ;; The abort closure dispatches a synthesised reply directly
                                   ;; (no finalise-failure! re-entry). The
                                   ;; shared `dispatch-aborted!` reuses the
@@ -1845,7 +1845,7 @@
         ;; removes the predecessor from the actor index (no stale accumulation
         ;; across retries, rf2-wvkn). No-op on the first attempt (no handoff).
         _        (when-let [prev (:prev-handle handoff)]
-                   (registry/clear-in-flight! request-id prev))
+                   (rf.http.registry/clear-in-flight! request-id prev))
         ;; rf2-3fc89f.9 — bind the external `:abort-signal` to THIS live-fetch
         ;; handle's canonical abort-fn (`:reason :user`), detaching the prior
         ;; phase's listener (ownership transfer). An ALREADY-aborted signal
@@ -1857,7 +1857,7 @@
         ;; cancellation, Spec 014 §Abort precedence). Must run AFTER
         ;; `handle-holder` is published (the abort-fn reads `@handle-holder`).
         #?@(:cljs
-            [_   (transport-cljs/bind-external-abort!
+            [_   (rf.http.transport-cljs/bind-external-abort!
                    external-abort
                    (fn [] ((:abort-fn handle) :user)))])
         ctx'     (assoc ctx-no-handle :handle handle)]
@@ -1875,7 +1875,7 @@
     ;; (On the first attempt / steady-state retry the cell is nil and this is a
     ;; single volatile read.)
     (when (some? @aborted?)
-      (registry/clear-in-flight! request-id handle)
+      (rf.http.registry/clear-in-flight! request-id handle)
       (when (compare-and-set! finalised? false true)
         (dispatch-aborted! ctx-no-handle (:reason @aborted?))))
     ;; rf2-6nczv9 / rf2-fyt5i — HONEST `:retried` (retry handoff only): the
@@ -1888,7 +1888,7 @@
     (when (and (some? handoff)
                (not (some? @aborted?))
                (not @finalised?)
-               interop/debug-enabled?)
+               rf.interop/debug-enabled?)
       (emit-retry-attempt! (:emit-ctx handoff) (:failure handoff) (:delay-ms handoff) :retried))
     ;; rf2-3fc89f.9 — short-circuit when an already-aborted external signal
     ;; won the CAS synchronously during the bind above: the request is already
@@ -1939,7 +1939,7 @@
         (interleave! :issue/before-send ctx')
         #?(:cljs
            (when (compare-and-set! issue-phase nil :issued)
-           (-> (transport-cljs/cljs-fetch
+           (-> (rf.http.transport-cljs/cljs-fetch
                            {:method              method
                             :url                 url
                             :headers             headers
@@ -1985,7 +1985,7 @@
                ;; natural-completion sink without a bespoke "did we abort?"
                ;; check here.
                (.catch (fn [err]
-                         (maybe-retry! ctx' (transport-cljs/classify-cljs-error err url))))))
+                         (maybe-retry! ctx' (rf.http.transport-cljs/classify-cljs-error err url))))))
            :clj
            ;; Monotonic start mark for the per-host timeout
            ;; `:elapsed-ms`. `System/nanoTime` is the JDK's monotonic clock
@@ -2012,7 +2012,7 @@
                (when-let [^CompletableFuture cf
                           (locking issue-lock
                             (when (compare-and-set! issue-phase nil :issued)
-                              (let [cf (transport-jvm/jvm-fetch
+                              (let [cf (rf.http.transport-jvm/jvm-fetch
                                          {:method     method
                                           :url        url
                                           :headers    headers
@@ -2058,7 +2058,7 @@
                                 (reify java.util.function.BiConsumer
                                   (accept [_ result throwable]
                                     (if throwable
-                                      (maybe-retry! ctx' (transport-jvm/classify-jvm-error throwable timeout-ms (elapsed-ms)))
+                                      (maybe-retry! ctx' (rf.http.transport-jvm/classify-jvm-error throwable timeout-ms (elapsed-ms)))
                                       (handle-response! ctx' result))))))
                (catch Throwable t
-                 (maybe-retry! ctx' (transport-jvm/classify-jvm-error t timeout-ms (elapsed-ms)))))))))))))
+                 (maybe-retry! ctx' (rf.http.transport-jvm/classify-jvm-error t timeout-ms (elapsed-ms)))))))))))))

@@ -23,9 +23,9 @@
   Per Spec 014 §Body encoding, §`:accept`, §Failure categories,
   §Reply addressing, §Retry and backoff."
   (:require [clojure.string  :as str]
-            [re-frame.error :as error]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.http.json :as http-json])
+            [re-frame.error :as rf.error]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.http.json :as rf.http.json])
   #?(:clj (:import [java.net URLEncoder])))
 
 ;; ---- query string + URL helpers -------------------------------------------
@@ -135,7 +135,7 @@
     [nil nil]
 
     (= request-content-type :json)
-    [(http-json/json-stringify body) "application/json"]
+    [(rf.http.json/json-stringify body) "application/json"]
 
     (= request-content-type :form)
     [(params->query body) "application/x-www-form-urlencoded"]
@@ -148,7 +148,7 @@
 
     ;; No explicit content-type — heuristics for clj colls (default to JSON).
     (or (map? body) (sequential? body) (set? body))
-    [(http-json/json-stringify body) "application/json"]
+    [(rf.http.json/json-stringify body) "application/json"]
 
     :else
     ;; pass-through (Blob / FormData / ArrayBuffer / pre-encoded string)
@@ -255,7 +255,7 @@
   as usual."
   [args frame]
   (when-let [ev (build-reply-event args)]
-    (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
+    (when-let [dispatch! (rf.late-bind/get-fn :router/dispatch!)]
       (dispatch! ev (cond-> {:source :http}
                       frame                  (assoc :frame frame)
                       (:completed-at args)   (assoc :rf.cofx
@@ -298,7 +298,7 @@
       ;; addressing types the reply target as "event vector or nil". Reject it
       ;; at the dispatch site rather than swallow the misuse.
       supplied?
-      (error/throw-error!
+      (rf.error/throw-error!
         :rf.error/http-bad-reply-target :rf.http/managed
         "`:reply-to` / `:on-success` / `:on-failure` must be an event vector or nil per Spec 014 §Reply addressing; a non-vector non-nil value cannot be dispatched as an event"
         {:extra {:value value}})

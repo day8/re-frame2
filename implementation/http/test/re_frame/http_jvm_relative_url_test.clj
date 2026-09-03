@@ -31,15 +31,15 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.http.managed :as http-managed]
-            [re-frame.http.transport-jvm :as transport-jvm]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.http.managed :as rf.http.managed]
+            [re-frame.http.transport-jvm :as rf.http.transport-jvm]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; ---- per-test reset --------------------------------------------------------
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- helpers ---------------------------------------------------------------
 
@@ -49,7 +49,7 @@
   `await-reply!` (rf2-fun38's `poll-until` idiom)."
   ([pred] (await-reply! pred 5000))
   ([pred timeout-ms]
-   (test-support/poll-until
+   (rf.test-support/poll-until
      #(let [db (rf/app-db-value :rf/default)] (when (pred db) db))
      {:timeout-ms timeout-ms :label "jvm relative-url reply"})))
 
@@ -59,7 +59,7 @@
   (testing "rf2-4y04lq — a relative :url throws an ex-info naming the url
             and the absolute-url requirement, NOT the JDK's opaque
             \"URI with undefined scheme\" message"
-    (let [ex (try (transport-jvm/jvm-build-request
+    (let [ex (try (rf.http.transport-jvm/jvm-build-request
                     {:method :get :url "/api/items"})
                   nil
                   (catch clojure.lang.ExceptionInfo e e))]
@@ -75,7 +75,7 @@
   (testing "rf2-4y04lq — a protocol-relative url (`//host/path`, no scheme)
             is ALSO relative per `URI/isAbsolute` and is rejected the same
             way as a path-only relative url"
-    (let [ex (try (transport-jvm/jvm-build-request
+    (let [ex (try (rf.http.transport-jvm/jvm-build-request
                     {:method :get :url "//example.invalid/api/items"})
                   nil
                   (catch clojure.lang.ExceptionInfo e e))]
@@ -85,7 +85,7 @@
 (deftest absolute-url-does-not-throw
   (testing "rf2-4y04lq (complement) — an absolute :url builds normally,
             unaffected by the new guard"
-    (let [req (transport-jvm/jvm-build-request
+    (let [req (rf.http.transport-jvm/jvm-build-request
                 {:method :get :url "https://example.invalid/api/items"})]
       (is (some? req)))))
 

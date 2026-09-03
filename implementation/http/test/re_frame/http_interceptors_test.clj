@@ -23,13 +23,13 @@
   transformation the interceptor produced."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.http.managed :as http-managed]
-            [re-frame.http.middleware :as http-mw]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace :as trace])
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.http.managed :as rf.http.managed]
+            [re-frame.http.middleware :as rf.http.middleware]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.trace :as rf.trace])
   (:import [com.sun.net.httpserver HttpServer HttpHandler HttpExchange]
            [java.net InetSocketAddress]))
 
@@ -45,7 +45,7 @@
 ;; locally. The canonical post-dispose reset now also clears the per-frame
 ;; HTTP interceptor chain (rf2-q14tde), so no explicit clear-all is needed.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- in-process server harness --------------------------------------------
 
@@ -77,7 +77,7 @@
   the per-file `(pred db)` arity that read sites here expect."
   ([pred] (await-reply! pred 5000))
   ([pred timeout-ms]
-   (test-support/poll-until
+   (rf.test-support/poll-until
      #(let [db (rf/app-db-value :rf/default)] (when (pred db) db))
      {:timeout-ms timeout-ms :label "http-interceptors reply"})))
 
@@ -139,7 +139,7 @@
       (try
         ;; (a) reproduce the example bug: bare reg under NO ambient scope
         ;; fails closed and installs nothing.
-        (binding [frame/*current-frame* nil]
+        (binding [rf.frame/*current-frame* nil]
           (let [thrown (try (rf/reg-http-interceptor :realworld/bearer-auth
                               {:before identity})
                             nil
@@ -148,7 +148,7 @@
                 "a bare reg-http-interceptor under no frame scope must throw")
             (is (= :rf.error/no-frame-context (:rf.error/id (ex-data thrown)))
                 "the throw is the always-on :rf.error/no-frame-context")
-            (is (empty? (http-managed/interceptors-snapshot :rf/default))
+            (is (empty? (rf.http.managed/interceptors-snapshot :rf/default))
                 "nothing was installed on the :rf/default chain"))
           ;; (b) the fix: with-frame supplies the frame context, so the reg
           ;; installs on :rf/default even under no ambient scope.
@@ -158,7 +158,7 @@
                          (assoc-in ctx [:request :headers "Authorization"]
                                    "Token stub.demo.jwt"))})))
         (is (= [:realworld/bearer-auth]
-               (mapv :id (http-managed/interceptors-snapshot :rf/default)))
+               (mapv :id (rf.http.managed/interceptors-snapshot :rf/default)))
             "with-frame scoped the reg onto the app frame's chain (the fix)")
         ;; (c) an authenticated request from that frame carries the header the
         ;; interceptor stamped — proving the fix actually decorates the wire.
@@ -272,7 +272,7 @@
         ;; Header values are NOT a valid readiness signal here — the
         ;; :other-frame request is expected to carry a nil header, which is
         ;; indistinguishable from "request has not yet landed" (rf2-fun38).
-        (test-support/poll-until
+        (rf.test-support/poll-until
           #(and @hit-default @hit-other)
           {:timeout-ms 5000 :label "both server hits landed"})
         (is (= "default-only" @seen-on-default)
@@ -294,7 +294,7 @@
               (swap! server-hits inc)
               (write-response! ex 200 "application/json" "{}")))]
       (try
-        (trace/register-listener! listener-id
+        (rf.trace/register-listener! listener-id
                                   (fn [ev] (swap! traces conj ev)))
         (rf/reg-http-interceptor :boom
           {:before (fn [_ctx]
@@ -316,7 +316,7 @@
         ;; Wait for the interceptor-failure trace to land (rf2-fun38) —
         ;; the trace event IS the observable signal. server-hits is then
         ;; asserted as zero (proven absence within the trace-fired window).
-        (test-support/poll-until
+        (rf.test-support/poll-until
           #(some (fn [t] (= :rf.error/http-interceptor-failed (:operation t)))
                  @traces)
           {:label ":rf.error/http-interceptor-failed surfaced"})
@@ -326,7 +326,7 @@
                   @traces)
             ":rf.error/http-interceptor-failed appears on the trace stream")
         (finally
-          (trace/unregister-listener! listener-id)
+          (rf.trace/unregister-listener! listener-id)
           (stop-server! srv))))))
 
 ;; ---- 4a. rf2-1jcpm — interceptor-failure URL redaction --------------------
@@ -340,7 +340,7 @@
     (let [traces      (atom [])
           listener-id (gensym "interceptor-redact-")]
       (try
-        (trace/register-listener! listener-id
+        (rf.trace/register-listener! listener-id
                                   (fn [ev] (swap! traces conj ev)))
         (rf/reg-http-interceptor :boom
           {:before (fn [_ctx]
@@ -354,7 +354,7 @@
                     :on-failure nil}]]}))
         (rf/dispatch-sync [:load])
         ;; Wait for the redacted-trace event to land (rf2-fun38).
-        (test-support/poll-until
+        (rf.test-support/poll-until
           #(some (fn [t] (= :rf.error/http-interceptor-failed (:operation t)))
                  @traces)
           {:label ":rf.error/http-interceptor-failed surfaced (redacted variant)"})
@@ -369,7 +369,7 @@
             (is (true? (:sensitive? w))
                 ":sensitive? stamped on the trace (denylist hit = signal)")))
         (finally
-          (trace/unregister-listener! listener-id))))))
+          (rf.trace/unregister-listener! listener-id))))))
 
 ;; ---- 5. clear-http-interceptor unregisters cleanly ------------------------
 
@@ -424,7 +424,7 @@
             it does NOT synthesise a :rf/default target. The facade must
             delegate frame resolution to the impl's require-current-frame!,
             never inject :rf/default from absence."
-    (binding [frame/*current-frame* nil]
+    (binding [rf.frame/*current-frame* nil]
       (let [thrown (try (rf/clear-http-interceptor :some-id)
                         nil
                         (catch clojure.lang.ExceptionInfo e e))]
@@ -454,22 +454,22 @@
     ;; sibling `per-frame-scope` CLJS test registers on `:other` the same way).
     (rf/reg-http-interceptor :fa/on-other   {:frame :fa/other :before (fn [c] c)})
     (rf/reg-http-interceptor :fa/on-default {:before (fn [c] c)})
-    (is (= [:fa/on-other]   (mapv :id (http-managed/interceptors-snapshot :fa/other))))
-    (is (= [:fa/on-default] (mapv :id (http-managed/interceptors-snapshot :rf/default))))
+    (is (= [:fa/on-other]   (mapv :id (rf.http.managed/interceptors-snapshot :fa/other))))
+    (is (= [:fa/on-default] (mapv :id (rf.http.managed/interceptors-snapshot :rf/default))))
     ;; (1) PUBLIC opts form clears the NAMED frame from the :rf/default scope —
     ;; the natural `(clear id {:frame f})` guess from the reg shape that USED to
     ;; silently no-op under the old public frame-first arity. It now binds
     ;; :fa/other correctly.
     (rf/clear-http-interceptor :fa/on-other {:frame :fa/other})
-    (is (zero? (count (http-managed/interceptors-snapshot :fa/other)))
+    (is (zero? (count (rf.http.managed/interceptors-snapshot :fa/other)))
         "opts {:frame :fa/other} cleared the named frame's slot (misbind closed)")
-    (is (= [:fa/on-default] (mapv :id (http-managed/interceptors-snapshot :rf/default)))
+    (is (= [:fa/on-default] (mapv :id (rf.http.managed/interceptors-snapshot :rf/default)))
         "the :rf/default chain is untouched by the explicit-frame clear")
     ;; (2) INTERNAL frame-first seam still clears a named frame's slot.
     (rf/reg-http-interceptor :fa/again {:frame :fa/other :before (fn [c] c)})
-    (is (= [:fa/again] (mapv :id (http-managed/interceptors-snapshot :fa/other))))
-    (http-mw/clear-http-interceptor* :fa/other :fa/again)   ;; private seam: (frame id)
-    (is (zero? (count (http-managed/interceptors-snapshot :fa/other)))
+    (is (= [:fa/again] (mapv :id (rf.http.managed/interceptors-snapshot :fa/other))))
+    (rf.http.middleware/clear-http-interceptor* :fa/other :fa/again)   ;; private seam: (frame id)
+    (is (zero? (count (rf.http.managed/interceptors-snapshot :fa/other)))
         "internal frame-first seam (clear-http-interceptor*) cleared the slot")))
 
 ;; ---- 5c. rf2-s32bf — the public opts form is EXACT + FAIL-CLOSED ----------
@@ -496,7 +496,7 @@
       ;; ambient scope is :rf/default (fixture) — seed a slot there.
       (rf/reg-http-interceptor :s32bf/ambient {:before (fn [c] c)})
       (is (= [:s32bf/ambient]
-             (mapv :id (http-managed/interceptors-snapshot :rf/default))))
+             (mapv :id (rf.http.managed/interceptors-snapshot :rf/default))))
       ;; every malformed 2-arg form fails closed
       (is (threw-bad? #(rf/clear-http-interceptor :s32bf/ambient {}))
           "empty opts map (no :frame) fails closed")
@@ -514,11 +514,11 @@
           "old two-scalar frame-first is not a public shape — fails closed")
       ;; NO rejected call touched the ambient chain
       (is (= [:s32bf/ambient]
-             (mapv :id (http-managed/interceptors-snapshot :rf/default)))
+             (mapv :id (rf.http.managed/interceptors-snapshot :rf/default)))
           "no malformed clear touched the ambient :rf/default interceptor")
       ;; the exact opts form still clears the ambient frame
       (rf/clear-http-interceptor :s32bf/ambient {:frame :rf/default})
-      (is (zero? (count (http-managed/interceptors-snapshot :rf/default)))
+      (is (zero? (count (rf.http.managed/interceptors-snapshot :rf/default)))
           "the exact {:frame target} form clears the named frame"))))
 
 ;; ---- 6. re-registering an id replaces in place ---------------------------
@@ -543,7 +543,7 @@
                     :on-success nil}]]}))
         (rf/dispatch-sync [:load])
         ;; Wait for both :before fns to fire (rf2-fun38).
-        (test-support/poll-until
+        (rf.test-support/poll-until
           #(= 2 (count @order))
           {:label "both interceptors in chain fired"})
         (is (= [:a-v2 :b] @order)
@@ -586,7 +586,7 @@
 
         ;; Confirm the chain order in the registry directly so the test
         ;; pins the slot ordering before the dispatch ever runs.
-        (let [chain (http-managed/interceptors-snapshot :rf/default)]
+        (let [chain (rf.http.managed/interceptors-snapshot :rf/default)]
           (is (= [:b :c :a] (mapv :id chain))
               "after clear-then-reg, :a moved to the end (was first; now last)"))
 
@@ -598,7 +598,7 @@
                     :on-success nil}]]}))
         (rf/dispatch-sync [:kg5nw/load])
         ;; Wait for all three :before fns to fire (rf2-fun38).
-        (test-support/poll-until
+        (rf.test-support/poll-until
           #(= 3 (count @order))
           {:label "all post-clear-then-reg interceptors fired"})
         (is (= [:b :c :a-fresh] @order)
@@ -613,17 +613,17 @@
     ;; Register in order :a, :b.
     (rf/reg-http-interceptor :a {:before identity})
     (rf/reg-http-interceptor :b {:before identity})
-    (is (= [:a :b] (mapv :id (http-managed/interceptors-snapshot :rf/default))))
+    (is (= [:a :b] (mapv :id (rf.http.managed/interceptors-snapshot :rf/default))))
 
     ;; Bare re-reg of :a — replaces in place; order unchanged.
     (rf/reg-http-interceptor :a {:before (fn [c] c)})
-    (is (= [:a :b] (mapv :id (http-managed/interceptors-snapshot :rf/default)))
+    (is (= [:a :b] (mapv :id (rf.http.managed/interceptors-snapshot :rf/default)))
         "bare re-reg preserves position (Spec 014 §Chain order, replace-in-place)")
 
     ;; Clear-then-reg of :a — appends to end; order changes.
     (rf/clear-http-interceptor :a)
     (rf/reg-http-interceptor :a {:before (fn [c] c)})
-    (is (= [:b :a] (mapv :id (http-managed/interceptors-snapshot :rf/default)))
+    (is (= [:b :a] (mapv :id (rf.http.managed/interceptors-snapshot :rf/default)))
         "clear-then-reg lands at the end (rf2-kg5nw contract)")))
 
 ;; ---- 7. invalid interceptor shape raises ---------------------------------
@@ -700,7 +700,7 @@
           {:before (fn [ctx] (assoc-in ctx [:request :headers "X-C"] "3"))})
 
         ;; Confirm the per-frame chain has all three before the bulk-clear.
-        (let [chain (http-managed/interceptors-snapshot :rf/default)]
+        (let [chain (rf.http.managed/interceptors-snapshot :rf/default)]
           (is (= 3 (count chain)))
           (is (= #{:hdr-a :hdr-b :hdr-c}
                  (set (map :id chain)))
@@ -724,10 +724,10 @@
 
         ;; Bulk clear.
         (reset! seen-headers [])
-        (http-managed/clear-all-http-interceptors!)
+        (rf.http.managed/clear-all-http-interceptors!)
 
         ;; Atom is now empty.
-        (is (= {} (http-managed/interceptors-snapshot))
+        (is (= {} (rf.http.managed/interceptors-snapshot))
             "the per-frame chain atom is now empty across every frame")
 
         ;; Second dispatch — none of the cleared interceptors fire.
@@ -748,29 +748,29 @@
     (rf/reg-sub :test.lfvi/sub (fn [_ _] :stub))
     (rf/reg-fx :test.lfvi/fx (fn [_ _] nil))
 
-    (is (seq (http-managed/interceptors-snapshot))
+    (is (seq (rf.http.managed/interceptors-snapshot))
         "pre-clear: interceptor atom has entries")
 
-    (http-managed/clear-all-http-interceptors!)
+    (rf.http.managed/clear-all-http-interceptors!)
 
-    (is (= {} (http-managed/interceptors-snapshot))
+    (is (= {} (rf.http.managed/interceptors-snapshot))
         ":http interceptor atom is empty")
-    (is (some? (registrar/lookup :event :test.lfvi/ev))
+    (is (some? (rf.registrar/lookup :event :test.lfvi/ev))
         ":event kind is untouched by the bulk-clear")
-    (is (some? (registrar/lookup :sub :test.lfvi/sub))
+    (is (some? (rf.registrar/lookup :sub :test.lfvi/sub))
         ":sub kind is untouched")
-    (is (some? (registrar/lookup :fx :test.lfvi/fx))
+    (is (some? (rf.registrar/lookup :fx :test.lfvi/fx))
         ":fx kind is untouched")))
 
 (deftest clear-all-http-interceptors-is-idempotent
   (testing "calling clear-all-http-interceptors! on an empty registry is a no-op"
-    (is (= {} (http-managed/interceptors-snapshot))
+    (is (= {} (rf.http.managed/interceptors-snapshot))
         "starting clean (per fixture)")
-    (is (nil? (http-managed/clear-all-http-interceptors!))
+    (is (nil? (rf.http.managed/clear-all-http-interceptors!))
         "first call returns nil")
-    (is (nil? (http-managed/clear-all-http-interceptors!))
+    (is (nil? (rf.http.managed/clear-all-http-interceptors!))
         "second call on the already-empty registry is also nil")
-    (is (= {} (http-managed/interceptors-snapshot))
+    (is (= {} (rf.http.managed/interceptors-snapshot))
         "atom stays empty")))
 
 ;; ---- rf2-rznrz — sensitivity recomputed from the POST-:before request -----
@@ -792,7 +792,7 @@
     (let [traces      (atom [])
           listener-id (gensym "rznrz-mark-sensitive-")]
       (try
-        (trace/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
+        (rf.trace/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
         ;; First :before marks the request sensitive.
         (rf/reg-http-interceptor :mark-sensitive
           {:before (fn [ctx] (assoc-in ctx [:request :sensitive?] true))})
@@ -809,7 +809,7 @@
                     :on-success nil
                     :on-failure nil}]]}))
         (rf/dispatch-sync [:rznrz/load])
-        (test-support/poll-until
+        (rf.test-support/poll-until
           #(some (fn [t] (= :rf.error/http-interceptor-failed (:operation t))) @traces)
           {:label ":rf.error/http-interceptor-failed surfaced (sensitivity recompute)"})
         (let [w    (first (filter #(= :rf.error/http-interceptor-failed (:operation %)) @traces))
@@ -828,7 +828,7 @@
           (is (true? (:sensitive? w))
               ":sensitive? stamped because the effective request is sensitive"))
         (finally
-          (trace/unregister-listener! listener-id))))))
+          (rf.trace/unregister-listener! listener-id))))))
 
 ;; ---- rf2-rznrz — CLJS-only-key check runs on the POST-:before request -----
 ;;
@@ -850,7 +850,7 @@
             (fn [^HttpExchange ex]
               (write-response! ex 200 "application/json" "{\"ok\":true}")))]
       (try
-        (trace/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
+        (rf.trace/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
         ;; The request as DISPATCHED carries no CLJS-only key; the :before
         ;; adds :credentials into the request map.
         (rf/reg-http-interceptor :add-credentials
@@ -872,7 +872,7 @@
                warning — proving check-cljs-only-keys! ran on the post-chain
                request, not the original (key-free) args"))
         (finally
-          (trace/unregister-listener! listener-id)
+          (rf.trace/unregister-listener! listener-id)
           (stop-server! srv))))))
 
 ;; ---- rf2-oyd1b — direct unit tests for the fx wrappers --------------------
@@ -896,12 +896,12 @@
                 :doc    "fixture interceptor"
                 :tags   #{:auth}}]]}))
 
-    (is (empty? (http-managed/interceptors-snapshot :rf/default))
+    (is (empty? (rf.http.managed/interceptors-snapshot :rf/default))
         "pre-dispatch: no interceptors on :rf/default")
 
     (rf/dispatch-sync [:oyd1b/register])
 
-    (let [chain (http-managed/interceptors-snapshot :rf/default)
+    (let [chain (rf.http.managed/interceptors-snapshot :rf/default)
           slot  (first (filter #(= :oyd1b/auth (:id %)) chain))]
       (is (= 1 (count chain))
           "the fx wrapper actually mutates the atom (not just a return-value smoke)")
@@ -921,17 +921,17 @@
 
     (rf/dispatch-sync [:oyd1b/register-on-named])
 
-    (is (empty? (http-managed/interceptors-snapshot :rf/default))
+    (is (empty? (rf.http.managed/interceptors-snapshot :rf/default))
         ":rf/default is not touched by an :rf/api registration")
-    (let [chain (http-managed/interceptors-snapshot :rf/api)]
+    (let [chain (rf.http.managed/interceptors-snapshot :rf/api)]
       (is (= 1 (count chain)))
       (is (= :oyd1b/named (:id (first chain)))))))
 
 (deftest clear-http-interceptor-fx-mutates-the-atom-rf2-oyd1b
   (testing "rf2-oyd1b — [:rf.fx/clear-http-interceptor {:id ...}] removes
             the slot from :rf/default (the implicit frame)."
-    (http-managed/reg-http-interceptor :oyd1b/to-clear {:before identity})
-    (is (= 1 (count (http-managed/interceptors-snapshot :rf/default)))
+    (rf.http.managed/reg-http-interceptor :oyd1b/to-clear {:before identity})
+    (is (= 1 (count (rf.http.managed/interceptors-snapshot :rf/default)))
         "pre-clear: the slot is present")
 
     (rf/reg-event :oyd1b/clear
@@ -939,13 +939,13 @@
         {:fx [[:rf.fx/clear-http-interceptor {:id :oyd1b/to-clear}]]}))
     (rf/dispatch-sync [:oyd1b/clear])
 
-    (is (empty? (http-managed/interceptors-snapshot :rf/default))
+    (is (empty? (rf.http.managed/interceptors-snapshot :rf/default))
         "the slot is gone after the fx")))
 
 (deftest clear-http-interceptor-fx-honours-explicit-frame-rf2-oyd1b
   (testing "rf2-oyd1b — explicit :frame on the clear fx scopes the removal"
-    (http-managed/reg-http-interceptor :oyd1b/scoped {:frame :rf/api :before identity})
-    (http-managed/reg-http-interceptor :oyd1b/default-survivor {:before identity})
+    (rf.http.managed/reg-http-interceptor :oyd1b/scoped {:frame :rf/api :before identity})
+    (rf.http.managed/reg-http-interceptor :oyd1b/default-survivor {:before identity})
 
     (rf/reg-event :oyd1b/clear-on-named
       (fn [_ _]
@@ -953,21 +953,21 @@
                {:frame :rf/api :id :oyd1b/scoped}]]}))
     (rf/dispatch-sync [:oyd1b/clear-on-named])
 
-    (is (empty? (http-managed/interceptors-snapshot :rf/api))
+    (is (empty? (rf.http.managed/interceptors-snapshot :rf/api))
         ":rf/api lost its slot")
-    (is (= 1 (count (http-managed/interceptors-snapshot :rf/default)))
+    (is (= 1 (count (rf.http.managed/interceptors-snapshot :rf/default)))
         ":rf/default is unaffected — the clear was scoped to :rf/api")))
 
 (deftest clear-http-interceptor-fx-defaults-frame-to-rf-default-rf2-oyd1b
   (testing "rf2-oyd1b — when :frame is nil/absent the fx routes to :rf/default
             (matching the fn-form behaviour)."
-    (http-managed/reg-http-interceptor :oyd1b/dflt {:before identity})
+    (rf.http.managed/reg-http-interceptor :oyd1b/dflt {:before identity})
     (rf/reg-event :oyd1b/clear-no-frame
       (fn [_ _]
         ;; No :frame key — must default to :rf/default.
         {:fx [[:rf.fx/clear-http-interceptor {:id :oyd1b/dflt}]]}))
     (rf/dispatch-sync [:oyd1b/clear-no-frame])
-    (is (empty? (http-managed/interceptors-snapshot :rf/default)))))
+    (is (empty? (rf.http.managed/interceptors-snapshot :rf/default)))))
 
 (deftest reg-http-interceptor-fx-rejects-invalid-args-rf2-oyd1b
   (testing "rf2-oyd1b + rf2-uheqq — invalid args (missing :id, missing both
@@ -979,7 +979,7 @@
     (let [errors (atom [])
           cb-id  ::oyd1b-bad-args]
       (try
-        (trace/register-listener!
+        (rf.trace/register-listener!
           cb-id
           (fn [ev]
             (when (= :error (:op-type ev))
@@ -991,7 +991,7 @@
             {:fx [[:rf.fx/reg-http-interceptor {:before identity}]]}))
         (try (rf/dispatch-sync [:oyd1b/bad-no-id])
              (catch Throwable _ nil))
-        (is (empty? (http-managed/interceptors-snapshot :rf/default))
+        (is (empty? (rf.http.managed/interceptors-snapshot :rf/default))
             "missing :id → no interceptor registered")
 
         ;; missing both :before AND :after (a no-op interceptor is rejected
@@ -1001,7 +1001,7 @@
             {:fx [[:rf.fx/reg-http-interceptor {:id :x}]]}))
         (try (rf/dispatch-sync [:oyd1b/bad-no-fns])
              (catch Throwable _ nil))
-        (is (empty? (http-managed/interceptors-snapshot :rf/default))
+        (is (empty? (rf.http.managed/interceptors-snapshot :rf/default))
             "missing both :before and :after → no interceptor registered")
 
         ;; non-keyword :id
@@ -1011,11 +1011,11 @@
                    {:id "not-a-keyword" :before identity}]]}))
         (try (rf/dispatch-sync [:oyd1b/bad-string-id])
              (catch Throwable _ nil))
-        (is (empty? (http-managed/interceptors-snapshot :rf/default))
+        (is (empty? (rf.http.managed/interceptors-snapshot :rf/default))
             "non-keyword :id → no interceptor registered")
 
         (finally
-          (trace/unregister-listener! cb-id))))))
+          (rf.trace/unregister-listener! cb-id))))))
 
 (deftest reg-and-clear-http-interceptor-fxs-roundtrip-rf2-oyd1b
   (testing "rf2-oyd1b — register-then-clear via fxs round-trips cleanly,
@@ -1027,7 +1027,7 @@
               [:rf.fx/clear-http-interceptor
                {:id :oyd1b/rt}]]}))
     (rf/dispatch-sync [:oyd1b/round-trip])
-    (is (empty? (http-managed/interceptors-snapshot :rf/default))
+    (is (empty? (rf.http.managed/interceptors-snapshot :rf/default))
         "register followed by clear in the same event leaves the chain empty")))
 
 ;; ===========================================================================

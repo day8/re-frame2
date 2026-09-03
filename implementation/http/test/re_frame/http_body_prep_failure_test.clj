@@ -28,14 +28,14 @@
   through the router on `dispatch-sync`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.http.managed :as http-managed]
-            [re-frame.http.registry :as registry]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace :as trace]))
+            [re-frame.http.managed :as rf.http.managed]
+            [re-frame.http.registry :as rf.http.registry]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.trace :as rf.trace]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- a throwing body thunk -------------------------------------------------
 
@@ -45,7 +45,7 @@
           traces      (atom [])
           listener-id ::body-thunk]
       (try
-        (trace/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
+        (rf.trace/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
         (rf/reg-event :reply/recorder
           (fn [_ [_ payload]] (swap! replies conj payload) {}))
         (rf/reg-event :issue/throwing-thunk
@@ -74,10 +74,10 @@
               "the thrown message rides the failure for diagnostics"))
         (is (not-any? #(= :rf.error/fx-handler-exception (:operation %)) @traces)
             "NO generic :rf.error/fx-handler-exception escaped — the throw is caught in the prep phase")
-        (is (empty? (registry/in-flight-snapshot))
+        (is (empty? (rf.http.registry/in-flight-snapshot))
             "the in-flight registry is cleared — the failed-prep request is not pinned")
         (finally
-          (trace/unregister-listener! listener-id))))))
+          (rf.trace/unregister-listener! listener-id))))))
 
 ;; ---- a body that fails to encode -------------------------------------------
 
@@ -87,7 +87,7 @@
           traces      (atom [])
           listener-id ::encode-fail]
       (try
-        (trace/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
+        (rf.trace/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
         (rf/reg-event :reply/recorder
           (fn [_ [_ payload]] (swap! replies conj payload) {}))
         (rf/reg-event :issue/unencodable
@@ -113,9 +113,9 @@
           (is (= :request-prep (get-in reply [:error :stage]))))
         (is (not-any? #(= :rf.error/fx-handler-exception (:operation %)) @traces)
             "NO generic :rf.error/fx-handler-exception escaped")
-        (is (empty? (registry/in-flight-snapshot)))
+        (is (empty? (rf.http.registry/in-flight-snapshot)))
         (finally
-          (trace/unregister-listener! listener-id))))))
+          (rf.trace/unregister-listener! listener-id))))))
 
 ;; ---- retry when configured -------------------------------------------------
 
@@ -125,7 +125,7 @@
           invocations (atom 0)
           listener-id ::retry-thunk]
       (try
-        (trace/register-listener! listener-id (fn [_] nil))
+        (rf.trace/register-listener! listener-id (fn [_] nil))
         (rf/reg-event :reply/recorder
           (fn [_ [_ payload]] (swap! replies conj payload) {}))
         (rf/reg-event :issue/retry-thunk
@@ -163,7 +163,7 @@
           (is (= :error (:status reply)))
           (is (= :rf.http/transport (get-in reply [:error :kind]))
               "the final reply carries the :rf.http/transport prep-failure category"))
-        (is (empty? (registry/in-flight-snapshot))
+        (is (empty? (rf.http.registry/in-flight-snapshot))
             "the registry is clean after the retry sequence exhausts")
         (finally
-          (trace/unregister-listener! listener-id))))))
+          (rf.trace/unregister-listener! listener-id))))))

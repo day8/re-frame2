@@ -16,16 +16,16 @@
     (:require [re-frame.http.managed]
               [re-frame.http.test-support]))
   ```"
-  (:require [re-frame.events               :as events]
-            [re-frame.frame                :as frame]
-            [re-frame.fx                   :as fx]
-            [re-frame.http.encoding        :as encoding]
-            [re-frame.http.handlers        :as handlers]
-            [re-frame.http.middleware      :as middleware]
-            [re-frame.http.privacy         :as privacy]
-            [re-frame.late-bind            :as late-bind]
-            [re-frame.registrar            :as registrar]
-            [re-frame.router               :as router]))
+  (:require [re-frame.events               :as rf.events]
+            [re-frame.frame                :as rf.frame]
+            [re-frame.fx                   :as rf.fx]
+            [re-frame.http.encoding        :as rf.http.encoding]
+            [re-frame.http.handlers        :as rf.http.handlers]
+            [re-frame.http.middleware      :as rf.http.middleware]
+            [re-frame.http.privacy         :as rf.http.privacy]
+            [re-frame.late-bind            :as rf.late-bind]
+            [re-frame.registrar            :as rf.registrar]
+            [re-frame.router               :as rf.router]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -86,17 +86,17 @@
         ;; cascade, so the fx context carries the envelope frame as
         ;; `:frame`; a nil stamp is an invariant failure
         ;; (`:rf.error/no-frame-context`), never a synthesised `:rf/default`.
-        frame-id     (frame/require-frame-stamp!
+        frame-id     (rf.frame/require-frame-stamp!
                        (:frame frame-ctx) :rf.http/managed-canned
                        {:where 'rf.http/run-request-chain})
-        origin-event (encoding/resolve-origin-event frame-ctx args-map)
-        sensitive?   (privacy/request-sensitive? args-map)
+        origin-event (rf.http.encoding/resolve-origin-event frame-ctx args-map)
+        sensitive?   (rf.http.privacy/request-sensitive? args-map)
         ctx0         {:request    (:request args-map)
                       :args       args-map
                       :frame      frame-id
                       :event      origin-event
                       :sensitive? sensitive?}]
-    (middleware/run-interceptor-chain! frame-id ctx0)))
+    (rf.http.middleware/run-interceptor-chain! frame-id ctx0)))
 
 (defn- dispatch-canned-reply!
   "rf2-r5m22 — the canned-stub reply tail, mirroring
@@ -128,7 +128,7 @@
   a `:middleware-ctx` (produced by `run-request-chain`), so the `:after`
   chain always runs here."
   [{:keys [origin-event explicit-on reply-payload kind frame middleware-ctx]}]
-  (middleware/run-after-then-dispatch!
+  (rf.http.middleware/run-after-then-dispatch!
     {:frame          frame
      :middleware-ctx middleware-ctx
      :origin-event   origin-event
@@ -152,11 +152,11 @@
   (let [;; EP-0002 carried invariant — fx-context `:frame` is the cascade
         ;; envelope stamp; a nil stamp is an invariant failure, never a
         ;; synthesised `:rf/default`.
-        frame-id     (frame/require-frame-stamp!
+        frame-id     (rf.frame/require-frame-stamp!
                        (:frame frame-ctx) :rf.http/managed-canned-success
                        {:where 'rf.http/emit-canned-success!})
         value        (get args-map :value {:stubbed true})
-        origin-event (encoding/resolve-origin-event frame-ctx args-map)
+        origin-event (rf.http.encoding/resolve-origin-event frame-ctx args-map)
         ;; rf2-ibksxg — the canned stub delivers a MINIMAL canonical reply
         ;; (`:status :ok` + `:value`), the shape a handler actually branches
         ;; on. A stub has no real request lifecycle, so the identity facts the
@@ -197,13 +197,13 @@
   (let [;; EP-0002 carried invariant — fx-context `:frame` is the cascade
         ;; envelope stamp; a nil stamp is an invariant failure, never a
         ;; synthesised `:rf/default`.
-        frame-id     (frame/require-frame-stamp!
+        frame-id     (rf.frame/require-frame-stamp!
                        (:frame frame-ctx) :rf.http/managed-canned-failure
                        {:where 'rf.http/emit-canned-failure!})
         kind         (or (:kind args-map) :rf.http/transport)
         tags         (or (:tags args-map) {})
         failure      (assoc tags :kind kind)
-        origin-event (encoding/resolve-origin-event frame-ctx args-map)
+        origin-event (rf.http.encoding/resolve-origin-event frame-ctx args-map)
         ;; rf2-ibksxg — deliver a MINIMAL canonical reply: the classified
         ;; `:rf.http/*` failure map rides verbatim under `:error`, and an
         ;; `:rf.http/aborted` kind maps to `:status :cancelled` (mirroring the
@@ -290,7 +290,7 @@
 
 (def ^:private deliver-canned-reply-id :rf.http/deliver-canned-reply)
 
-(events/reg-event deliver-canned-reply-id
+(rf.events/reg-event deliver-canned-reply-id
   {:doc "Framework-private (rf2-j1mo4). Delivers a canned HTTP reply, optionally
          after an `:after-ms` delay. Dispatched by the `:rf.http/managed-canned-*`
          fxs when their args-map carries a positive `:after-ms`; self-recurses
@@ -330,9 +330,9 @@
       (if (and after-ms (pos? after-ms))
         ;; Deferred path — pin the origin, then hand off to the deliverer
         ;; event which schedules the `:dispatch-later`.
-        (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
+        (when-let [dispatch! (rf.late-bind/get-fn :router/dispatch!)]
           (let [pinned (assoc args-map :rf.http/origin-event
-                              (encoding/resolve-origin-event frame-ctx args-map))]
+                              (rf.http.encoding/resolve-origin-event frame-ctx args-map))]
             (dispatch! [deliver-canned-reply-id fx-id pinned]
                        (cond-> {} (:frame frame-ctx) (assoc :frame (:frame frame-ctx))))))
         ;; Immediate path. On the deferred re-entry the ambient `:event`
@@ -356,7 +356,7 @@
 ;; `:after-ms` delay around those same bodies without changing their
 ;; contract.
 
-(fx/reg-fx :rf.http/managed-canned-success
+(rf.fx/reg-fx :rf.http/managed-canned-success
            {:doc "Spec 014 — synthesised success reply (test stub).
                   Registration gated on explicit `re-frame.http.test-support`
                   require per rf2-cdmle. Optional `:after-ms` (rf2-j1mo4)
@@ -364,7 +364,7 @@
            (with-after-ms :rf.http/managed-canned-success
                           canned-success-handler))
 
-(fx/reg-fx :rf.http/managed-canned-failure
+(rf.fx/reg-fx :rf.http/managed-canned-failure
            {:doc "Spec 014 — synthesised failure reply (test stub).
                   Registration gated on explicit `re-frame.http.test-support`
                   require per rf2-cdmle. Optional `:after-ms` (rf2-j1mo4)
@@ -408,7 +408,7 @@
   ;; that blanks the url now throws here instead of receiving a synthetic
   ;; stubbed reply.
   (let [middleware-ctx (run-request-chain frame-ctx args-map)
-        _              (handlers/validate-url! (:request middleware-ctx))
+        _              (rf.http.handlers/validate-url! (:request middleware-ctx))
         ;; Match against the POST-`:before` request — the url the managed
         ;; pipeline would actually send.
         req            (:request middleware-ctx)
@@ -490,8 +490,8 @@
 
   Per Spec 014 §Testing — the framework ships canonical stub fxs."
   [stubs]
-  (swap! stub-fx-handler-stack conj (registrar/handler :fx stub-fx-id))
-  (fx/reg-fx stub-fx-id
+  (swap! stub-fx-handler-stack conj (rf.registrar/handler :fx stub-fx-id))
+  (rf.fx/reg-fx stub-fx-id
              {:doc "with-managed-request-stubs synthesised stub"}
              (fn [frame-ctx args-map]
                (stub-handler stubs frame-ctx args-map)))
@@ -510,10 +510,10 @@
   []
   (let [[prior] (peek-and-pop! stub-fx-handler-stack)]
     (if prior
-      (fx/reg-fx stub-fx-id
+      (rf.fx/reg-fx stub-fx-id
                  {:doc "with-managed-request-stubs synthesised stub"}
                  prior)
-      (fx/clear-fx stub-fx-id)))
+      (rf.fx/clear-fx stub-fx-id)))
   nil)
 
 ;; rf2-bxc8kf — the scoped wrapper's override target is registered at
@@ -574,7 +574,7 @@
 ;; current scope's route map from `*scope-stubs*` and delegates to the shared
 ;; `stub-handler` (which runs the `:before` chain, keys the match off the
 ;; post-`:before` url, and emits through the `:after` chain).
-(fx/reg-fx scope-stub-fx-id
+(rf.fx/reg-fx scope-stub-fx-id
            {:doc "with-managed-request-stubs (scoped) synthesised stub — reads the
                   current scope's route map from `*scope-stubs*` (rf2-bxc8kf).
                   Registered at load time so a pre-created SEALED frame can
@@ -623,7 +623,7 @@
   ;; per-scope registration to tear down (rf2-bxc8kf). The `*scope-stubs*`
   ;; binding SHADOWS an enclosing scope's route map for nesting.
   (binding [*scope-stubs*             stubs
-            router/*fx-overrides*     (merge router/*fx-overrides*
+            rf.router/*fx-overrides*     (merge rf.router/*fx-overrides*
                                              {:rf.http/managed scope-stub-fx-id})]
     (thunk)))
 
@@ -654,4 +654,4 @@
 ;; pair is NOT a `re-frame.core` façade export (rf2-ntwwyt), so it publishes no
 ;; late-bind hook — tests call these two defns directly from this namespace.
 
-(late-bind/set-fn! :http/with-managed-request-stubs*      with-managed-request-stubs*)
+(rf.late-bind/set-fn! :http/with-managed-request-stubs*      with-managed-request-stubs*)

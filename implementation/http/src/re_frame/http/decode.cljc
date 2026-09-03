@@ -29,10 +29,10 @@
   (`http-transport/handle-response!`) classifies as
   `:rf.http/decode-failure :schema-validation-failure? true`."
   (:require [clojure.string  :as str]
-            [re-frame.error   :as error]
-            [re-frame.interop :as interop]
-            [re-frame.trace   :as trace]
-            [re-frame.http.json :as http-json]))
+            [re-frame.error   :as rf.error]
+            [re-frame.interop :as rf.interop]
+            [re-frame.trace   :as rf.trace]
+            [re-frame.http.json :as rf.http.json]))
 
 (defn content-type-of
   "Per Spec 014 §Request envelope — HTTP header names are case-insensitive.
@@ -194,9 +194,9 @@
   ;; to nil and validation is skipped — unchecked data flows to
   ;; `:accept`. Emit a `:rf.warning/http-malli-absent` so the dropped
   ;; validation is observable rather than silent.
-  (when (and interop/debug-enabled?
+  (when (and rf.interop/debug-enabled?
              (compare-and-set! malli-absent-warned? false true))
-    (trace/emit! :warning :rf.warning/http-malli-absent
+    (rf.trace/emit! :warning :rf.warning/http-malli-absent
                  {:reason (str "a `:decode` schema was supplied but malli.core is "
                                "not on the classpath; schema validation is SKIPPED "
                                "and the parsed value flows to `:accept` unchecked. "
@@ -226,7 +226,7 @@
       (warn-malli-absent! schema))
     (when validate
       (when-not (validate schema decoded)
-        (error/throw-error!
+        (rf.error/throw-error!
           :rf.error/http-schema-validation-failed 'rf.http/decode-response-body
           "the decoded response body failed Malli schema validation; the caller classifies this as :rf.http/decode-failure"
           {:extra {:schema schema
@@ -270,7 +270,7 @@
       ;; `empty-2xx-json-body?`.
       (if (empty-2xx-json-body? body-text)
         nil
-        (http-json/json-parse body-text parse-opts))
+        (rf.http.json/json-parse body-text parse-opts))
 
       (= :text resolved)
       body-text
@@ -315,7 +315,7 @@
       ;; the diagnostic names the actual problem. A nil/absent Content-
       ;; Type stays JSON-eligible (many JSON APIs omit the header).
       (if-not (json-content-type? content-type)
-        (error/throw-error!
+        (rf.error/throw-error!
           :rf.error/http-schema-non-json-content-type 'rf.http/decode-response-body
           (str "a Malli `:decode` schema was supplied but the response "
                "declared a non-JSON Content-Type (" content-type "); the "
@@ -333,5 +333,5 @@
         ;; host-symmetric outcome, not a per-host parse divergence.
         (let [parsed (if (empty-2xx-json-body? body-text)
                        nil
-                       (http-json/json-parse body-text parse-opts))]
+                       (rf.http.json/json-parse body-text parse-opts))]
           (malli-decode resolved parsed))))))

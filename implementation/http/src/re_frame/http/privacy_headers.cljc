@@ -35,11 +35,11 @@
   `trace/emit!`). In production builds the trace surface elides
   entirely; this namespace's walker never runs."
   (:require [clojure.string :as str]
-            [re-frame.http.url :as url]))
+            [re-frame.http.url :as rf.http.url]))
 
 ;; Keep the sentinel in the dependency-leaf URL namespace so every HTTP
 ;; redactor can share it without creating a privacy dependency cycle.
-(def ^:private redacted-sentinel url/redacted-sentinel)
+(def ^:private redacted-sentinel rf.http.url/redacted-sentinel)
 
 (def default-header-denylist
   "Canonical always-sensitive HTTP header names, lower-cased. These are

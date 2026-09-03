@@ -11,21 +11,21 @@
   (:require [clojure.string]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.fx :as fx]
-            [re-frame.http.json :as http-json]
-            [re-frame.registrar :as registrar]
-            [re-frame.http.decode :as http-decode]
-            [re-frame.http.managed :as http-managed]
-            [re-frame.http.registry :as registry]
-            [re-frame.late-bind :as late-bind]
+            [re-frame.fx :as rf.fx]
+            [re-frame.http.json :as rf.http.json]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.http.decode :as rf.http.decode]
+            [re-frame.http.managed :as rf.http.managed]
+            [re-frame.http.registry :as rf.http.registry]
+            [re-frame.late-bind :as rf.late-bind]
             ;; This suite uses
             ;; `:fx-overrides {:rf.http/managed :rf.http/managed-canned-success}`
             ;; throughout, so it opts in by requiring the test-support ns.
             ;; Requiring test support registers both canned effect ids.
             [re-frame.http.test-support]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace :as trace])
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.trace :as rf.trace])
   (:import [com.sun.net.httpserver HttpServer HttpHandler HttpExchange]
            [java.net InetSocketAddress]
            [java.util.concurrent CountDownLatch TimeUnit]))
@@ -41,7 +41,7 @@
 ;; `re-frame.http.middleware`), so a leaked `:before` / `:after` would
 ;; otherwise mutate every subsequent test's reply payload.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- a tiny in-process HTTP server ----------------------------------------
 ;;
@@ -85,7 +85,7 @@
   `db`-closing-arity shape that read sites here expect."
   ([pred] (await-reply! pred 5000))
   ([pred timeout-ms]
-   (test-support/poll-until
+   (rf.test-support/poll-until
      #(let [db (rf/app-db-value :rf/default)] (when (pred db) db))
      {:timeout-ms timeout-ms :label "http-managed reply"})))
 
@@ -115,7 +115,7 @@
             :reply-to / :on-success / :on-failure throws
             :rf.error/http-no-reply-target at fx-call time (the co-located
             default was retired pre-alpha)"
-    (let [ex (try (http-managed/managed-handler
+    (let [ex (try (rf.http.managed/managed-handler
                     {:frame :rf/default :event [:no-op]}
                     {:request {:method :get :url "/x"}})
                   nil
@@ -125,7 +125,7 @@
       (is (= :rf.http/managed (:where (ex-data ex)))))
     ;; Supplying ANY one of the three satisfies the guard (an explicit nil counts).
     (doseq [k [:reply-to :on-success :on-failure]]
-      (let [ex (try (http-managed/managed-handler
+      (let [ex (try (rf.http.managed/managed-handler
                       {:frame :rf/default :event [:no-op]}
                       {:request {:method :get :url "http://127.0.0.1:1/x"} k nil})
                     nil
@@ -255,7 +255,7 @@
     (let [traces      (atom [])
           listener-id ::j1mo4-after-ms]
       (try
-        (trace/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
+        (rf.trace/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
         (canned-success-reply-event {:value {:n 3} :after-ms 30})
         ;; The reply must NOT be present synchronously — the dispatch-sync
         ;; drain only schedules the :dispatch-later; nothing has delivered yet.
@@ -279,7 +279,7 @@
                     later)
               "the deferred dispatch is the framework canned-reply deliverer"))
         (finally
-          (trace/unregister-listener! listener-id))))))
+          (rf.trace/unregister-listener! listener-id))))))
 
 (deftest after-ms-positive-on-failure-defers
   (testing ":after-ms N also defers the canned-FAILURE reply by a
@@ -571,7 +571,7 @@
               ;; (NOT in the :on set, so non-retryable).
               (write-response! ex 200 "application/json" "{\"ok\":true}")))]
       (try
-        (trace/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
+        (rf.trace/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
         (rf/reg-event :upexd3/load
           (fn [{:keys [db]} [_ msg reply]]
             (if reply
@@ -597,7 +597,7 @@
                      (count retry-traces) " — "
                      (pr-str (mapv #(get-in % [:tags :failure :kind]) retry-traces))))))
         (finally
-          (trace/unregister-listener! listener-id)
+          (rf.trace/unregister-listener! listener-id)
           (stop-server! srv))))))
 
 (deftest jvm-retry-eligible-exhaustion-still-emits-retry-attempts
@@ -625,7 +625,7 @@
             (fn [^HttpExchange ex]
               (write-response! ex 500 "application/json" "{\"err\":true}")))]
       (try
-        (trace/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
+        (rf.trace/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
         (rf/reg-event :upexd3b/load
           (fn [{:keys [db]} [_ msg reply]]
             (if reply
@@ -669,7 +669,7 @@
                      "phantom `:retried`; saw "
                      (pr-str (mapv :recovery terminal))))))
         (finally
-          (trace/unregister-listener! listener-id)
+          (rf.trace/unregister-listener! listener-id)
           (stop-server! srv))))))
 
 ;; ---- 5d. Content-Type lookup is case-insensitive (rf2-6hbo8) -------------
@@ -697,28 +697,28 @@
 (deftest content-type-of-case-insensitive
   (testing "lowercase key"
     (is (= "application/json"
-           (http-decode/content-type-of {"content-type" "application/json"}))))
+           (rf.http.decode/content-type-of {"content-type" "application/json"}))))
   (testing "canonical Title-Case key"
     (is (= "application/json"
-           (http-decode/content-type-of {"Content-Type" "application/json"}))))
+           (rf.http.decode/content-type-of {"Content-Type" "application/json"}))))
   (testing "all-caps key (the original bug — CONTENT-TYPE)"
     (is (= "application/json"
-           (http-decode/content-type-of {"CONTENT-TYPE" "application/json"}))))
+           (rf.http.decode/content-type-of {"CONTENT-TYPE" "application/json"}))))
   (testing "mixed casing"
     (is (= "application/json"
-           (http-decode/content-type-of {"Content-type" "application/json"})))
+           (rf.http.decode/content-type-of {"Content-type" "application/json"})))
     (is (= "text/plain"
-           (http-decode/content-type-of {"cOnTeNt-TyPe" "text/plain"}))))
+           (rf.http.decode/content-type-of {"cOnTeNt-TyPe" "text/plain"}))))
   (testing "keyword key (some middlewares use keywords)"
     (is (= "application/json"
-           (http-decode/content-type-of {:content-type "application/json"})))
+           (rf.http.decode/content-type-of {:content-type "application/json"})))
     (is (= "application/json"
-           (http-decode/content-type-of {:Content-Type "application/json"}))))
+           (rf.http.decode/content-type-of {:Content-Type "application/json"}))))
   (testing "absent / unrelated headers"
-    (is (nil? (http-decode/content-type-of {})))
-    (is (nil? (http-decode/content-type-of {"X-Foo" "bar"})))
-    (is (nil? (http-decode/content-type-of nil)))
-    (is (nil? (http-decode/content-type-of "not-a-map")))))
+    (is (nil? (rf.http.decode/content-type-of {})))
+    (is (nil? (rf.http.decode/content-type-of {"X-Foo" "bar"})))
+    (is (nil? (rf.http.decode/content-type-of nil)))
+    (is (nil? (rf.http.decode/content-type-of "not-a-map")))))
 
 (deftest decode-response-body-resolves-content-type-case-insensitively
   (testing "JSON decode under :auto fires when Content-Type has non-canonical casing"
@@ -729,7 +729,7 @@
     ;; header regardless of casing and JSON decodes correctly.
     (doseq [ct-key ["CONTENT-TYPE" "Content-type" "content-type" "Content-Type" "cOnTeNt-TyPe"]]
       (testing (str "casing: " ct-key)
-        (let [decoded (http-decode/decode-response-body
+        (let [decoded (rf.http.decode/decode-response-body
                         {:body-text        "{\"ok\":true}"
                          :headers          {ct-key "application/json"}
                          :decode           :auto})]
@@ -758,24 +758,24 @@
 
 (deftest binary-read-kind-resolves-binary-decode-modes
   (testing "explicit binary modes resolve to themselves"
-    (is (= :blob         (http-decode/binary-read-kind :blob {})))
-    (is (= :array-buffer (http-decode/binary-read-kind :array-buffer {})))
-    (is (= :form-data    (http-decode/binary-read-kind :form-data {}))))
+    (is (= :blob         (rf.http.decode/binary-read-kind :blob {})))
+    (is (= :array-buffer (rf.http.decode/binary-read-kind :array-buffer {})))
+    (is (= :form-data    (rf.http.decode/binary-read-kind :form-data {}))))
   (testing "text-based / structured modes resolve to nil (read .text)"
-    (is (nil? (http-decode/binary-read-kind :json {})))
-    (is (nil? (http-decode/binary-read-kind :text {})))
-    (is (nil? (http-decode/binary-read-kind (fn [_ _] :decoded) {})))
-    (is (nil? (http-decode/binary-read-kind [:map] {}))
+    (is (nil? (rf.http.decode/binary-read-kind :json {})))
+    (is (nil? (rf.http.decode/binary-read-kind :text {})))
+    (is (nil? (rf.http.decode/binary-read-kind (fn [_ _] :decoded) {})))
+    (is (nil? (rf.http.decode/binary-read-kind [:map] {}))
         "a Malli schema is a text (JSON-parse) mode, not binary"))
   (testing ":auto sniffs the Content-Type — binary type → :blob (rf2-5zj6t)"
-    (is (= :blob (http-decode/binary-read-kind :auto {"content-type" "image/png"}))
+    (is (= :blob (rf.http.decode/binary-read-kind :auto {"content-type" "image/png"}))
         ":auto over a binary Content-Type reads as a Blob, not lossy text")
-    (is (= :blob (http-decode/binary-read-kind nil {"content-type" "application/octet-stream"}))
+    (is (= :blob (rf.http.decode/binary-read-kind nil {"content-type" "application/octet-stream"}))
         "omitted :decode (== :auto) over a binary Content-Type also reads binary"))
   (testing ":auto sniffs the Content-Type — text/JSON → nil (read .text)"
-    (is (nil? (http-decode/binary-read-kind :auto {"content-type" "application/json"})))
-    (is (nil? (http-decode/binary-read-kind :auto {"content-type" "text/plain"})))
-    (is (nil? (http-decode/binary-read-kind nil  {"content-type" "text/html"})))))
+    (is (nil? (rf.http.decode/binary-read-kind :auto {"content-type" "application/json"})))
+    (is (nil? (rf.http.decode/binary-read-kind :auto {"content-type" "text/plain"})))
+    (is (nil? (rf.http.decode/binary-read-kind nil  {"content-type" "text/html"})))))
 
 (deftest decode-response-body-returns-native-binary-for-binary-modes
   (testing "binary decode modes return the pre-read :body-binary verbatim"
@@ -786,7 +786,7 @@
       (doseq [mode [:blob :array-buffer :form-data]]
         (testing (str "mode: " mode)
           (is (identical? native
-                          (http-decode/decode-response-body
+                          (rf.http.decode/decode-response-body
                             {:body-text   "lossy-utf8-text"
                              :body-binary native
                              :headers     {}
@@ -795,7 +795,7 @@
   (testing "binary mode with no :body-binary (e.g. JVM transport) falls back to body-text"
     (doseq [mode [:blob :array-buffer :form-data]]
       (is (= "raw-payload"
-             (http-decode/decode-response-body
+             (rf.http.decode/decode-response-body
                {:body-text        "raw-payload"
                 :headers          {}
                 :decode           mode}))
@@ -896,7 +896,7 @@
           traces       (atom [])
           listener-id  ::kdwnq-trace]
       (try
-        (trace/register-listener! listener-id
+        (rf.trace/register-listener! listener-id
                                   (fn [ev] (swap! traces conj ev)))
         ;; If a reply ever dispatches the test will catch it (silently
         ;; ignored handler) — but the load-bearing assertion is that no
@@ -927,7 +927,7 @@
               (str "no :rf.error/* trace fired for the abort no-op; saw: "
                    (mapv :operation errors))))
         (finally
-          (trace/unregister-listener! listener-id))))))
+          (rf.trace/unregister-listener! listener-id))))))
 
 ;; ---- 9. abort by request-id -----------------------------------------------
 
@@ -955,8 +955,8 @@
         ;; Poll until the request is actually registered as in-flight —
         ;; aborting before the executor has stamped the handle is a no-op
         ;; (rf2-fun38 — replaces fixed Thread/sleep 50).
-        (test-support/poll-until
-          #(contains? (http-managed/in-flight-snapshot) :slow)
+        (rf.test-support/poll-until
+          #(contains? (rf.http.managed/in-flight-snapshot) :slow)
           {:label ":slow registered as in-flight before abort"})
         (rf/dispatch-sync [:slow/abort])
         (let [db (await-reply! #(some? (:reply %)) 5000)]
@@ -1023,8 +1023,8 @@
         (rf/dispatch-sync [:on7sj/load])
         ;; Poll until the request is registered in-flight before aborting
         ;; (rf2-fun38 — replaces fixed Thread/sleep 50).
-        (test-support/poll-until
-          #(contains? (http-managed/in-flight-snapshot) :on7sj/req)
+        (rf.test-support/poll-until
+          #(contains? (rf.http.managed/in-flight-snapshot) :on7sj/req)
           {:label ":on7sj/req registered as in-flight before abort"})
         ;; Abort while server is still blocked. The synthesised
         ;; :rf.http/aborted reply should fire immediately.
@@ -1198,7 +1198,7 @@
     (let [real-fx-invoked? (atom false)]
       ;; Shadow the production fx slot with a sentinel. Reaching THIS proves
       ;; the override was absent (the pre-fix bug). The stub path bypasses it.
-      (fx/reg-fx :rf.http/managed
+      (rf.fx/reg-fx :rf.http/managed
                  (fn [_frame-ctx _args] (reset! real-fx-invoked? true) nil))
       (rf/reg-event :rzqan/load
         (fn [{:keys [db]} [_ msg reply]]
@@ -1326,13 +1326,13 @@
     ;; Install the stub fx directly so the throw is observable (a throw
     ;; inside dispatch-sync's fx phase is swallowed into the error sink).
     (let [recorded (atom [])
-          original (late-bind/get-fn :router/dispatch!)]
-      (late-bind/set-fn! :router/dispatch!
+          original (rf.late-bind/get-fn :router/dispatch!)]
+      (rf.late-bind/set-fn! :router/dispatch!
                          (fn [ev opts] (swap! recorded conj [ev opts])))
       (try
         (re-frame.http.test-support/install-managed-request-stubs!
           {[:get "/x"] {:reply {:ok {:stubbed true}}}})
-        (let [stub-fx (registrar/handler :fx :rf.http/managed-test-stub)
+        (let [stub-fx (rf.registrar/handler :fx :rf.http/managed-test-stub)
               ex      (try (stub-fx {:frame :rf/default :event [:azrcs/erase]}
                                     {:request {:method :get :url "/x"}})
                            nil
@@ -1344,7 +1344,7 @@
               "NO synthetic reply was dispatched — the invalid request is rejected, not masked"))
         (finally
           (re-frame.http.test-support/uninstall-managed-request-stubs!)
-          (late-bind/set-fn! :router/dispatch! original))))))
+          (rf.late-bind/set-fn! :router/dispatch! original))))))
 
 ;; ---- 11a-vn8qjv. scoped stubs compose under nesting -----------------------
 ;;
@@ -1419,7 +1419,7 @@
   `await-reply!` but keyed to a `with-new-frame` frame VALUE rather than
   `:rf/default`, so a SEALED-generation frame's reply is observable."
   [f pred]
-  (test-support/poll-until
+  (rf.test-support/poll-until
     #(let [db (rf/app-db-value f)] (when (pred db) db))
     {:timeout-ms 2000 :label "sealed-frame http-managed reply"}))
 
@@ -1431,7 +1431,7 @@
       ;; Shadow the production fx slot with a sentinel — reaching it proves the
       ;; override was absent (the pre-fix sealed-frame bug). Registered BEFORE
       ;; make-frame so it is in the sealed generation either way.
-      (fx/reg-fx :rf.http/managed
+      (rf.fx/reg-fx :rf.http/managed
                  (fn [_frame-ctx _args] (reset! real-fx-invoked? true) nil))
       (rf/reg-event :bxc8kf/load
         (fn [{:keys [db]} [_ msg reply]]
@@ -1519,28 +1519,28 @@
   (testing "rf2-vn8qjv — nested install/uninstall on the stable id restores the
             outer handler; balanced top-level pair leaks no test fx"
     (let [stub-id :rf.http/managed-test-stub]
-      (is (nil? (registrar/handler :fx stub-id))
+      (is (nil? (rf.registrar/handler :fx stub-id))
           "no stub fx registered before install")
       (re-frame.http.test-support/install-managed-request-stubs!
         {[:get "/outer"] {:reply {:ok {:from :outer}}}})
-      (let [outer-handler (registrar/handler :fx stub-id)]
+      (let [outer-handler (rf.registrar/handler :fx stub-id)]
         (is (some? outer-handler) "outer install registered the stub fx")
         ;; Nested install replaces the handler in place.
         (re-frame.http.test-support/install-managed-request-stubs!
           {[:get "/inner"] {:reply {:ok {:from :inner}}}})
-        (is (not (identical? outer-handler (registrar/handler :fx stub-id)))
+        (is (not (identical? outer-handler (rf.registrar/handler :fx stub-id)))
             "inner install replaced the handler")
         ;; Inner uninstall RESTORES the outer handler (stack discipline).
         (re-frame.http.test-support/uninstall-managed-request-stubs!)
-        (is (identical? outer-handler (registrar/handler :fx stub-id))
+        (is (identical? outer-handler (rf.registrar/handler :fx stub-id))
             "inner uninstall restored the outer install's handler")
         ;; Outer uninstall clears (no prior on the stack).
         (re-frame.http.test-support/uninstall-managed-request-stubs!)
-        (is (nil? (registrar/handler :fx stub-id))
+        (is (nil? (rf.registrar/handler :fx stub-id))
             "balanced top-level install/uninstall leaves no leaked test fx")
         ;; Idempotent: an extra uninstall is a safe no-op.
         (re-frame.http.test-support/uninstall-managed-request-stubs!)
-        (is (nil? (registrar/handler :fx stub-id))
+        (is (nil? (rf.registrar/handler :fx stub-id))
             "extra uninstall is an idempotent no-op")))))
 
 ;; ---- 11b. canned-stub fxs gated on explicit test-support require (rf2-cdmle)
@@ -1579,13 +1579,13 @@
             be vacuous if this side did not actually register the stubs."
     ;; The fixture has just reloaded http-test-support, so the canned
     ;; stubs are present. The production-eligible fxs are present too.
-    (is (some? (registrar/lookup :fx :rf.http/managed))
+    (is (some? (rf.registrar/lookup :fx :rf.http/managed))
         ":rf.http/managed is dev+prod — always registered by re-frame.http.managed")
-    (is (some? (registrar/lookup :fx :rf.http/managed-abort))
+    (is (some? (rf.registrar/lookup :fx :rf.http/managed-abort))
         ":rf.http/managed-abort is dev+prod — always registered by re-frame.http.managed")
-    (is (some? (registrar/lookup :fx :rf.http/managed-canned-success))
+    (is (some? (rf.registrar/lookup :fx :rf.http/managed-canned-success))
         ":rf.http/managed-canned-success registered when re-frame.http.test-support is required")
-    (is (some? (registrar/lookup :fx :rf.http/managed-canned-failure))
+    (is (some? (rf.registrar/lookup :fx :rf.http/managed-canned-failure))
         ":rf.http/managed-canned-failure registered when re-frame.http.test-support is required")))
 
 ;; ---- 12. decode reflection metadata ---------------------------------------
@@ -1620,7 +1620,7 @@
   `:rf.error/poll-until-timeout` on timeout. Thin alias over
   `test-support/poll-until` (rf2-fun38)."
   [pred timeout-ms]
-  (test-support/poll-until pred {:timeout-ms timeout-ms
+  (rf.test-support/poll-until pred {:timeout-ms timeout-ms
                                  :label "http-managed condition"})
   :done)
 
@@ -1671,13 +1671,13 @@
 
         ;; Wait for both requests to be in-flight under the same actor.
         (await-condition!
-          #(let [snap (http-managed/actor-in-flight-snapshot)]
+          #(let [snap (rf.http.managed/actor-in-flight-snapshot)]
              (and (= 1 (count snap))
                   (= 2 (count (val (first snap))))))
           5000)
 
         ;; ---- actor-in-flight-snapshot shape ----
-        (let [actor-snap (http-managed/actor-in-flight-snapshot)]
+        (let [actor-snap (rf.http.managed/actor-in-flight-snapshot)]
           (is (map? actor-snap)
               "actor-in-flight-snapshot returns a map")
           (is (= 1 (count actor-snap))
@@ -1705,7 +1705,7 @@
                   ":request-id stamped on the handle matches the user-supplied id"))))
 
         ;; ---- in-flight-snapshot shape (request-id-keyed) ----
-        (let [req-snap (http-managed/in-flight-snapshot)]
+        (let [req-snap (rf.http.managed/in-flight-snapshot)]
           (is (map? req-snap)
               "in-flight-snapshot returns a map")
           (is (= 2 (count req-snap))
@@ -1799,7 +1799,7 @@
         (rf/dispatch-sync [:search/run "stale"])
         ;; Let the first request reach in-flight.
         (await-condition!
-          #(seq (http-managed/in-flight-snapshot))
+          #(seq (rf.http.managed/in-flight-snapshot))
           2000)
         ;; Fire the superseding request — same :request-id.
         (rf/dispatch-sync [:search/run-superseding])
@@ -1831,7 +1831,7 @@
               (.await latch 5 TimeUnit/SECONDS)
               (write-response! ex 200 "application/json" "{\"ok\":true}")))]
       (try
-        (trace/register-listener! cb-id
+        (rf.trace/register-listener! cb-id
                                   (fn [ev]
                                     (when (= :rf.http/aborted (:operation ev))
                                       (swap! events conj ev))))
@@ -1855,7 +1855,7 @@
 
         (rf/dispatch-sync [:search/run])
         (await-condition!
-          #(seq (http-managed/in-flight-snapshot))
+          #(seq (rf.http.managed/in-flight-snapshot))
           2000)
         (rf/dispatch-sync [:search/run-superseding])
         (await-condition! #(seq @events) 2000)
@@ -1871,7 +1871,7 @@
 
         (.countDown latch)
         (finally
-          (trace/unregister-listener! cb-id)
+          (rf.trace/unregister-listener! cb-id)
           (stop-server! srv))))))
 
 (deftest jvm-non-superseded-abort-still-fires-reply
@@ -1904,7 +1904,7 @@
 
         (rf/dispatch-sync [:slow/load])
         (await-condition!
-          #(seq (http-managed/in-flight-snapshot))
+          #(seq (rf.http.managed/in-flight-snapshot))
           2000)
         ;; User-initiated abort — the abort fn passes `:user` as the reason.
         (rf/dispatch-sync [:slow/abort])
@@ -2172,7 +2172,7 @@
         (await-reply! #(some? (:reply %)) 5000)
         (is (= "application/json" @seen-ct)
             ":request-content-type :json sets the Content-Type header")
-        (is (= {:name "widget"} (http-json/json-parse @seen-body))
+        (is (= {:name "widget"} (rf.http.json/json-parse @seen-body))
             "the body is JSON-encoded and round-trips at the server")
         (finally (stop-server! srv))))))
 
@@ -2426,17 +2426,17 @@
     (let [traces      (atom [])
           listener-id (gensym "xmp74u-stub-sensitive-")
           recorded    (atom [])
-          original    (late-bind/get-fn :router/dispatch!)]
-      (late-bind/set-fn! :router/dispatch!
+          original    (rf.late-bind/get-fn :router/dispatch!)]
+      (rf.late-bind/set-fn! :router/dispatch!
                          (fn [ev opts] (swap! recorded conj [ev opts])))
       (try
-        (trace/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
+        (rf.trace/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
         ;; A :before that throws AFTER the chain starts.
         (rf/reg-http-interceptor :xmp74u/boom
           {:before (fn [_ctx] (throw (ex-info "kaboom" {})))})
         (re-frame.http.test-support/install-managed-request-stubs!
           {[:get "https://api.example.invalid/v1"] {:reply {:ok {:stubbed true}}}})
-        (let [stub-fx (registrar/handler :fx :rf.http/managed-test-stub)
+        (let [stub-fx (rf.registrar/handler :fx :rf.http/managed-test-stub)
               ;; TOP-LEVEL :sensitive? true (NOT [:request :sensitive?]).
               ;; customer_email is NOT in the query-param denylist, so it
               ;; only redacts when the request is effectively sensitive.
@@ -2467,8 +2467,8 @@
               ":sensitive? stamped on the stub-path failure trace, matching production"))
         (finally
           (re-frame.http.test-support/uninstall-managed-request-stubs!)
-          (trace/unregister-listener! listener-id)
-          (late-bind/set-fn! :router/dispatch! original))))))
+          (rf.trace/unregister-listener! listener-id)
+          (rf.late-bind/set-fn! :router/dispatch! original))))))
 
 (deftest stub-request-chain-failure-non-sensitive-leaves-query-value-rf2-xmp74u
   (testing "rf2-xmp74u (complement) — WITHOUT :sensitive?, the same throwing
@@ -2478,16 +2478,16 @@
     (let [traces      (atom [])
           listener-id (gensym "xmp74u-stub-nonsensitive-")
           recorded    (atom [])
-          original    (late-bind/get-fn :router/dispatch!)]
-      (late-bind/set-fn! :router/dispatch!
+          original    (rf.late-bind/get-fn :router/dispatch!)]
+      (rf.late-bind/set-fn! :router/dispatch!
                          (fn [ev opts] (swap! recorded conj [ev opts])))
       (try
-        (trace/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
+        (rf.trace/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
         (rf/reg-http-interceptor :xmp74u/boom2
           {:before (fn [_ctx] (throw (ex-info "kaboom" {})))})
         (re-frame.http.test-support/install-managed-request-stubs!
           {[:get "https://api.example.invalid/v1"] {:reply {:ok {:stubbed true}}}})
-        (let [stub-fx (registrar/handler :fx :rf.http/managed-test-stub)
+        (let [stub-fx (rf.registrar/handler :fx :rf.http/managed-test-stub)
               _ex     (try
                         (stub-fx {:frame :rf/default :event [:xmp74u/load2]}
                                  {:request {:method :get
@@ -2505,8 +2505,8 @@
               ":sensitive? not stamped for a non-sensitive request"))
         (finally
           (re-frame.http.test-support/uninstall-managed-request-stubs!)
-          (trace/unregister-listener! listener-id)
-          (late-bind/set-fn! :router/dispatch! original))))))
+          (rf.trace/unregister-listener! listener-id)
+          (rf.late-bind/set-fn! :router/dispatch! original))))))
 
 ;; ---- rf2-k47b3d — issuance-counter eviction bounds the map -----------------
 
@@ -2516,21 +2516,21 @@
   distinct-id space (e.g. `[:fetch-doc uuid]` over an unbounded id space) does
   NOT accumulate one permanent `issuance-counters` entry per id ever requested
   on a long-running JVM (the leak the monotonic-forever design carried)."
-    (registry/reset-issuance-counters-for-test!)
-    (is (zero? (registry/issuance-counter-count)))
+    (rf.http.registry/reset-issuance-counters-for-test!)
+    (is (zero? (rf.http.registry/issuance-counter-count)))
     ;; Adversarial: 500 DISTINCT single-issuance request-ids, each issued once
     ;; then completed. Pre-fix the map would end holding 500 entries; the
     ;; conditional-atomic evict on completion keeps it at zero.
     (doseq [i (range 500)]
       (let [rid      [:fetch-doc i]
-            issuance (registry/next-issuance! rid)]
+            issuance (rf.http.registry/next-issuance! rid)]
         (is (= 1 issuance) "a fresh distinct id starts at issuance 1")
-        (is (= 1 (registry/issuance-counter-count))
+        (is (= 1 (rf.http.registry/issuance-counter-count))
             "exactly one live counter while the request is in flight")
-        (registry/evict-issuance-on-completion! rid issuance)
-        (is (zero? (registry/issuance-counter-count))
+        (rf.http.registry/evict-issuance-on-completion! rid issuance)
+        (is (zero? (rf.http.registry/issuance-counter-count))
             "the counter is evicted the moment the request completes")))
-    (is (zero? (registry/issuance-counter-count))
+    (is (zero? (rf.http.registry/issuance-counter-count))
         "the map stays bounded across 500 distinct single-issuance request-ids")))
 
 (deftest issuance-counter-eviction-preserves-live-successor
@@ -2539,26 +2539,26 @@
   rf2-azcmd3 anti-collision invariant: a SUPERSEDED attempt's terminal eviction
   MUST NOT drop the live successor's counter, because `next-issuance!` already
   bumped it past the superseded attempt's issuance BEFORE the supersede."
-    (registry/reset-issuance-counters-for-test!)
+    (rf.http.registry/reset-issuance-counters-for-test!)
     (let [rid [:search-box :q]
-          n1  (registry/next-issuance! rid)   ; attempt A: issuance 1
-          n2  (registry/next-issuance! rid)]  ; supersede → attempt B: issuance 2
+          n1  (rf.http.registry/next-issuance! rid)   ; attempt A: issuance 1
+          n2  (rf.http.registry/next-issuance! rid)]  ; supersede → attempt B: issuance 2
       (is (= 1 n1))
       (is (= 2 n2) "the superseding attempt gets a distinct, higher issuance")
       ;; Attempt A (the SUPERSEDED one) terminates. Its evict keys on issuance 1,
       ;; but the counter is already at 2 → the atomic compare-and-drop SKIPS.
-      (registry/evict-issuance-on-completion! rid n1)
-      (is (= 1 (registry/issuance-counter-count))
+      (rf.http.registry/evict-issuance-on-completion! rid n1)
+      (is (= 1 (rf.http.registry/issuance-counter-count))
           "the superseded attempt's eviction does NOT drop the live counter")
-      (is (= 3 (registry/next-issuance! rid))
+      (is (= 3 (rf.http.registry/next-issuance! rid))
           "the counter survived at 2, so the next issuance is 3 — no work-id collision")
       ;; The final live attempt terminates with the counter at its own issuance.
-      (registry/evict-issuance-on-completion! rid 3)
-      (is (zero? (registry/issuance-counter-count))
+      (rf.http.registry/evict-issuance-on-completion! rid 3)
+      (is (zero? (rf.http.registry/issuance-counter-count))
           "the id's final attempt evicts cleanly, bounding the map")))
   ;; A nil request-id never had a counter (anonymous requests stay at issuance 1
   ;; without touching the map) — eviction is a no-op.
-  (registry/reset-issuance-counters-for-test!)
-  (registry/evict-issuance-on-completion! nil 1)
-  (is (zero? (registry/issuance-counter-count))
+  (rf.http.registry/reset-issuance-counters-for-test!)
+  (rf.http.registry/evict-issuance-on-completion! nil 1)
+  (is (zero? (rf.http.registry/issuance-counter-count))
       "evicting a nil request-id is a no-op"))

@@ -25,19 +25,19 @@
   reply-tail throw does NOT re-send an already-completed request."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.http.handlers :as handlers]
+            [re-frame.http.handlers :as rf.http.handlers]
             ;; Requiring the managed artefact publishes the `:rf.http/managed`
             ;; fx + the `reg-http-interceptor` late-bind hooks the tests drive.
-            [re-frame.http.managed :as http-managed]
-            [re-frame.test-support :as test-support]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace])
+            [re-frame.http.managed :as rf.http.managed]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace :as rf.trace])
   (:import [com.sun.net.httpserver HttpServer HttpHandler HttpExchange]
            [java.net InetSocketAddress]
            [java.util.concurrent.atomic AtomicInteger]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- in-process server harness (hit-counting) ------------------------------
 
@@ -66,10 +66,10 @@
   (let [captured (atom [])
         cb-id    (gensym "reply-tail-cap-")]
     (try
-      (trace/register-listener! cb-id (fn [ev] (swap! captured conj ev)))
+      (rf.trace/register-listener! cb-id (fn [ev] (swap! captured conj ev)))
       (body-fn captured)
       (finally
-        (trace/unregister-listener! cb-id)))))
+        (rf.trace/unregister-listener! cb-id)))))
 
 (defn- ops [captured op]
   (filter #(= op (:operation %)) @captured))
@@ -78,7 +78,7 @@
 ;; rf2-bvw9ut — dispatch-time reply-target SHAPE validation
 ;; ===========================================================================
 
-(def ^:private validate-reply-target! @#'handlers/validate-reply-target!)
+(def ^:private validate-reply-target! @#'rf.http.handlers/validate-reply-target!)
 
 (deftest bvw9ut-shape-validated-at-dispatch-time-unit
   (testing "rf2-bvw9ut — validate-reply-target! rejects a non-vector non-nil
@@ -184,7 +184,7 @@
             ;; The observable post-fix signal: the reply-tail failure surfaces
             ;; (rather than vanishing into the whenComplete future). Poll for it
             ;; — a regression that reclassified/retried would never emit it.
-            (test-support/poll-until
+            (rf.test-support/poll-until
               #(seq (ops captured :rf.error/http-reply-tail-failed))
               {:timeout-ms 5000 :label ":rf.error/http-reply-tail-failed surfaced"})
             ;; EXACTLY ONE wire hit — no re-send of the already-completed 2xx.

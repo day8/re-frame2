@@ -14,13 +14,13 @@
   `:router/dispatch!`), so calling the failure-dispatch helper with a
   synthetic ctx fires the swallow-detection path without needing a runtime."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.http.transport :as transport]
-            [re-frame.trace :as trace]))
+            [re-frame.http.transport :as rf.http.transport]
+            [re-frame.trace :as rf.trace]))
 
 ;; Private surface reached via #' (same discipline as http_decode_test.clj).
-(def ^:private dispatch-failure!         @#'transport/dispatch-failure!)
-(def ^:private on-failure-silenced?      @#'transport/on-failure-silenced?)
-(def ^:private failure-swallowed-warned? @#'transport/failure-swallowed-warned?)
+(def ^:private dispatch-failure!         @#'rf.http.transport/dispatch-failure!)
+(def ^:private on-failure-silenced?      @#'rf.http.transport/on-failure-silenced?)
+(def ^:private failure-swallowed-warned? @#'rf.http.transport/failure-swallowed-warned?)
 
 (defn- reset-latch [t]
   ;; The one-shot latch is a `defonce` that persists across deftests in the
@@ -34,10 +34,10 @@
   (let [captured (atom [])
         cb-id    ::http-swallowed-failure-cap]
     (try
-      (trace/register-listener! cb-id (fn [ev] (swap! captured conj ev)))
+      (rf.trace/register-listener! cb-id (fn [ev] (swap! captured conj ev)))
       (body-fn captured)
       (finally
-        (trace/unregister-listener! cb-id)))))
+        (rf.trace/unregister-listener! cb-id)))))
 
 (defn- swallowed-warnings [captured]
   (filter #(= :rf.warning/failure-swallowed (:operation %)) @captured))

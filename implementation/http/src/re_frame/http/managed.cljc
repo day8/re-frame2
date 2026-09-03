@@ -120,14 +120,14 @@
   AND performs the artefact's load-time side-effects: the
   `:rf.http/*` fx registrations and the `late-bind/set-fn!` hook
   publications that `re-frame.core` reaches through."
-  (:require [re-frame.fx                   :as fx]
-            [re-frame.http.handlers        :as handlers]
-            [re-frame.http.machine-wrapper :as machine-wrapper]
-            [re-frame.http.middleware      :as middleware]
-            [re-frame.http.privacy         :as privacy]
-            [re-frame.http.privacy-headers :as privacy-headers]
-            [re-frame.http.registry        :as registry]
-            [re-frame.late-bind            :as late-bind]))
+  (:require [re-frame.fx                   :as rf.fx]
+            [re-frame.http.handlers        :as rf.http.handlers]
+            [re-frame.http.machine-wrapper :as rf.http.machine-wrapper]
+            [re-frame.http.middleware      :as rf.http.middleware]
+            [re-frame.http.privacy         :as rf.http.privacy]
+            [re-frame.http.privacy-headers :as rf.http.privacy-headers]
+            [re-frame.http.registry        :as rf.http.registry]
+            [re-frame.late-bind            :as rf.late-bind]))
 
 ;; ---- public-surface re-exports --------------------------------------------
 ;;
@@ -143,21 +143,21 @@
 ;; via `record-in-flight!`); the raw `in-flight` / `actor-in-flight` atoms
 ;; are not re-exported because direct mutation would bypass the two-index
 ;; cleanup invariant.
-(def clear-all-in-flight!        registry/clear-all-in-flight!)
-(def in-flight-snapshot          registry/in-flight-snapshot)
-(def actor-in-flight-snapshot    registry/actor-in-flight-snapshot)
-(def seed-in-flight-for-test!    registry/seed-in-flight-for-test!)
-(def abort-on-actor-destroy      registry/abort-on-actor-destroy)
+(def clear-all-in-flight!        rf.http.registry/clear-all-in-flight!)
+(def in-flight-snapshot          rf.http.registry/in-flight-snapshot)
+(def actor-in-flight-snapshot    rf.http.registry/actor-in-flight-snapshot)
+(def seed-in-flight-for-test!    rf.http.registry/seed-in-flight-for-test!)
+(def abort-on-actor-destroy      rf.http.registry/abort-on-actor-destroy)
 
 ;; The per-frame interceptor chain is
 ;; internal storage; tests observe it through the immutable
 ;; `interceptors-snapshot` helper rather than deref'ing the `interceptors`
 ;; atom. Registration and clearing
 ;; route through `reg-http-interceptor` / `clear-http-interceptor`.
-(def reg-http-interceptor        middleware/reg-http-interceptor)
-(def clear-http-interceptor      middleware/clear-http-interceptor)
-(def clear-all-http-interceptors! middleware/clear-all-http-interceptors!)
-(def interceptors-snapshot       middleware/interceptors-snapshot)
+(def reg-http-interceptor        rf.http.middleware/reg-http-interceptor)
+(def clear-http-interceptor      rf.http.middleware/clear-http-interceptor)
+(def clear-all-http-interceptors! rf.http.middleware/clear-all-http-interceptors!)
+(def interceptors-snapshot       rf.http.middleware/interceptors-snapshot)
 
 ;; Privacy surface — Spec 014 §Privacy. Header denylist lives
 ;; in `re-frame.http.privacy-headers`; the orchestrating composers
@@ -167,7 +167,7 @@
 ;; :query-params [..]}` block (the transient-payload case — see the
 ;; ## HTTP carriers section in the ns docstring). The immutable built-in
 ;; default denylist is re-exported for tests.
-(def default-header-denylist    privacy-headers/default-header-denylist)
+(def default-header-denylist    rf.http.privacy-headers/default-header-denylist)
 
 ;; The `:rf.http/managed` fx handler body — re-exported so an app can
 ;; RE-REGISTER `:rf.http/managed` to declare its `:carriers` block without
@@ -180,7 +180,7 @@
 ;; `re-frame.http.privacy/managed-carriers` reads the registration's
 ;; `:carriers` block and unions the (lower-cased) names onto the immutable
 ;; built-in carrier denylists at trace-emit time.
-(def managed-handler            handlers/managed-handler)
+(def managed-handler            rf.http.handlers/managed-handler)
 
 ;; ---- registration ---------------------------------------------------------
 ;;
@@ -192,13 +192,13 @@
 ;; anchor. The two canned-stub fxs register from
 ;; `re-frame.http.test-support`.
 
-(fx/reg-fx :rf.http/managed
+(rf.fx/reg-fx :rf.http/managed
            {:doc "Spec 014 — managed HTTP request."}
-           handlers/managed-handler)
+           rf.http.handlers/managed-handler)
 
-(fx/reg-fx :rf.http/managed-abort
+(rf.fx/reg-fx :rf.http/managed-abort
            {:doc "Spec 014 — abort an in-flight :rf.http/managed by request-id."}
-           handlers/managed-abort-handler)
+           rf.http.handlers/managed-abort-handler)
 
 ;; ---- middleware fx wrappers -----------------------------------------------
 ;;
@@ -223,7 +223,7 @@
 ;; alternative to the fn-call shape for codebases that prefer to drive
 ;; bootstrap through the dispatch surface.
 
-(fx/reg-fx :rf.fx/reg-http-interceptor
+(rf.fx/reg-fx :rf.fx/reg-http-interceptor
            {:doc "Spec 014 §Middleware — register an
                   HTTP interceptor as an fx. Args is a map carrying
                   `:id` (kw), at least one of `:before` / `:after`,
@@ -240,11 +240,11 @@
                   synthesised `:rf/default` (a frameless cascade would have
                   failed at dispatch already)."}
            (fn [{ctx-frame :frame} {:keys [id] :as args}]
-             (middleware/reg-http-interceptor
+             (rf.http.middleware/reg-http-interceptor
                id (-> (dissoc args :id)
                       (update :frame #(or % ctx-frame))))))
 
-(fx/reg-fx :rf.fx/clear-http-interceptor
+(rf.fx/reg-fx :rf.fx/clear-http-interceptor
            {:doc "Spec 014 §Middleware — clear a request-side
                   interceptor by id as an fx. Args is the map
                   `{:frame <id> :id <kw>}` (NOT positional, matching the
@@ -263,7 +263,7 @@
                   frame-first seam so it never repairs to a synthesised
                   `:rf/default`."}
            (fn [{ctx-frame :frame} {:keys [frame id]}]
-             (middleware/clear-http-interceptor* (or frame ctx-frame) id)))
+             (rf.http.middleware/clear-http-interceptor* (or frame ctx-frame) id)))
 
 ;; The canned effects and stub helpers are registered only when
 ;; `re-frame.http.test-support` is explicitly required. The namespace boundary,
@@ -281,27 +281,27 @@
 ;; effects share one require gate. Raw install/uninstall helpers publish no
 ;; hook and are called directly from that namespace.
 
-(late-bind/set-fn! :http/abort-in-flight!                 registry/abort-in-flight!)
-(late-bind/set-fn! :http/abort-on-actor-destroy           abort-on-actor-destroy)
+(rf.late-bind/set-fn! :http/abort-in-flight!                 rf.http.registry/abort-in-flight!)
+(rf.late-bind/set-fn! :http/abort-on-actor-destroy           abort-on-actor-destroy)
 ;; Epoch restore aborts pre-restore host work after installing the epoch. The
 ;; abort suppresses app replies and records stale-suppression facts. This remains
 ;; late-bound so the epoch artefact does not acquire an HTTP dependency.
-(late-bind/set-fn! :http/abort-in-flight-for-frame!       registry/abort-in-flight-for-frame!)
+(rf.late-bind/set-fn! :http/abort-in-flight-for-frame!       rf.http.registry/abort-in-flight-for-frame!)
 ;; Frame destroy aborts the destroyed frame's still-in-flight PLAIN managed HTTP
 ;; (rf2-j538f7.8). Called from core `frame/destroy-frame!` AFTER machine +
 ;; resource teardown, suppressing app replies (`:reason :frame-destroyed`) so no
 ;; late completion routes into the dead frame. Late-bound so core does not
 ;; acquire an HTTP dependency; the frame-teardown counterpart of the restore hook.
-(late-bind/set-fn! :http/on-frame-destroyed!              registry/abort-in-flight-on-frame-destroyed!)
-(late-bind/set-fn! :http/clear-all-http-interceptors!     clear-all-http-interceptors!)
-(late-bind/set-fn! :http/clear-all-in-flight!             clear-all-in-flight!)
-(late-bind/set-fn! :http/clear-http-interceptor           clear-http-interceptor)
-(late-bind/set-fn! :http/reg-http-interceptor             reg-http-interceptor)
-(late-bind/set-fn! :http/register-managed-machine!        machine-wrapper/register-managed-machine!)
+(rf.late-bind/set-fn! :http/on-frame-destroyed!              rf.http.registry/abort-in-flight-on-frame-destroyed!)
+(rf.late-bind/set-fn! :http/clear-all-http-interceptors!     clear-all-http-interceptors!)
+(rf.late-bind/set-fn! :http/clear-all-in-flight!             clear-all-in-flight!)
+(rf.late-bind/set-fn! :http/clear-http-interceptor           clear-http-interceptor)
+(rf.late-bind/set-fn! :http/reg-http-interceptor             reg-http-interceptor)
+(rf.late-bind/set-fn! :http/register-managed-machine!        rf.http.machine-wrapper/register-managed-machine!)
 ;; rf2-32ffq1 — the core classification projector consults this to redact a
 ;; `:rf.http/managed` entry's args at the generic fx-arg-bearing trace slots
 ;; (the `:rf.event/fx` aggregate + `:rf.fx/handled`-shaped slots), honouring
 ;; the DYNAMIC per-call `:sensitive?` flag + carrier denylists that a static
 ;; registration `:sensitive` path cannot express.
-(late-bind/set-fn! :http/project-managed-fx-args          privacy/project-managed-fx-args)
-(machine-wrapper/register-managed-machine!)
+(rf.late-bind/set-fn! :http/project-managed-fx-args          rf.http.privacy/project-managed-fx-args)
+(rf.http.machine-wrapper/register-managed-machine!)

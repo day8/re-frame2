@@ -19,10 +19,10 @@
   interceptor surface."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.http.managed :as http-managed]
-            [re-frame.http.middleware :as http-mw]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.http.managed :as rf.http.managed]
+            [re-frame.http.middleware :as rf.http.middleware]))
 
 ;; EP-0002 (rf2-nn0jqa): the no-`:frame` `reg-http-interceptor` /
 ;; `clear-http-interceptor` calls below resolve the frame through the
@@ -33,22 +33,22 @@
 ;; frame explicitly (the per-frame-scope case) still override it.
 (use-fixtures :each
   (fn [t]
-    (http-managed/clear-all-http-interceptors!)
-    (frame/ensure-default-frame!)
-    (binding [frame/*current-frame* :rf/default]
+    (rf.http.managed/clear-all-http-interceptors!)
+    (rf.frame/ensure-default-frame!)
+    (binding [rf.frame/*current-frame* :rf/default]
       (t))
-    (http-managed/clear-all-http-interceptors!)))
+    (rf.http.managed/clear-all-http-interceptors!)))
 
 ;; ---- 1. round-trip register / clear ---------------------------------------
 
 (deftest register-and-clear-round-trip
   (testing "reg-http-interceptor adds a slot; clear removes it"
     (rf/reg-http-interceptor :a {:before (fn [ctx] ctx)})
-    (let [chain (http-managed/interceptors-snapshot :rf/default)]
+    (let [chain (rf.http.managed/interceptors-snapshot :rf/default)]
       (is (= 1 (count chain)))
       (is (= :a (:id (first chain)))))
     (rf/clear-http-interceptor :a)
-    (let [chain (http-managed/interceptors-snapshot :rf/default)]
+    (let [chain (rf.http.managed/interceptors-snapshot :rf/default)]
       (is (zero? (count chain))))))
 
 ;; ---- 1a. rf2-vl5xsp — single-arity clear FAILS CLOSED under no scope ------
@@ -64,7 +64,7 @@
   (testing "rf2-vl5xsp — single-arity `rf/clear-http-interceptor` under NO
             ambient frame raises :rf.error/no-frame-context; it does NOT
             synthesise a :rf/default target."
-    (binding [frame/*current-frame* nil]
+    (binding [rf.frame/*current-frame* nil]
       (let [thrown (try (rf/clear-http-interceptor :some-id)
                         nil
                         (catch :default e e))]
@@ -94,7 +94,7 @@
   (testing "rf2-9ynwvx — a bare reg under no ambient scope raises
             :rf.error/no-frame-context and installs nothing; a
             (with-frame f …) reg installs on f's chain (the RealWorld fix)"
-    (binding [frame/*current-frame* nil]
+    (binding [rf.frame/*current-frame* nil]
       ;; (a) reproduce the example bug: bare reg with no scope fails closed.
       (let [thrown (try (rf/reg-http-interceptor :realworld/bearer-auth
                           {:before (fn [c] c)})
@@ -103,14 +103,14 @@
         (is (some? thrown) "bare reg under no ambient scope must throw")
         (is (= :rf.error/no-frame-context (:rf.error/id (ex-data thrown)))
             "the throw is the always-on :rf.error/no-frame-context — nothing installed")
-        (is (empty? (http-managed/interceptors-snapshot :realworld/app))
+        (is (empty? (rf.http.managed/interceptors-snapshot :realworld/app))
             "no slot landed on the app-frame chain"))
       ;; (b) the fix: with-frame supplies the frame context, so the reg lands
       ;; on :realworld/app's chain even though it was never `make-frame`d.
       (rf/with-frame :realworld/app
         (rf/reg-http-interceptor :realworld/bearer-auth {:before (fn [c] c)}))
       (is (= [:realworld/bearer-auth]
-             (mapv :id (http-managed/interceptors-snapshot :realworld/app)))
+             (mapv :id (rf.http.managed/interceptors-snapshot :realworld/app)))
           "with-frame scoped the reg onto the app frame's chain (the example fix)"))))
 
 ;; ---- 2. registration order is preserved -----------------------------------
@@ -120,7 +120,7 @@
     (rf/reg-http-interceptor :first  {:before (fn [c] c)})
     (rf/reg-http-interceptor :second {:before (fn [c] c)})
     (rf/reg-http-interceptor :third  {:before (fn [c] c)})
-    (let [chain (http-managed/interceptors-snapshot :rf/default)]
+    (let [chain (rf.http.managed/interceptors-snapshot :rf/default)]
       (is (= [:first :second :third] (mapv :id chain))))))
 
 ;; ---- 3. re-register replaces in place -------------------------------------
@@ -130,7 +130,7 @@
     (rf/reg-http-interceptor :a {:before (fn [c] (assoc c ::v 1))})
     (rf/reg-http-interceptor :b {:before (fn [c] c)})
     (rf/reg-http-interceptor :a {:before (fn [c] (assoc c ::v 2))})
-    (let [chain (http-managed/interceptors-snapshot :rf/default)]
+    (let [chain (rf.http.managed/interceptors-snapshot :rf/default)]
       (is (= [:a :b] (mapv :id chain)))
       (is (= {::v 2} ((:before (first chain)) {}))
           ":a's :before fn is the v2 fn (replacement)"))))
@@ -141,12 +141,12 @@
   (testing "interceptors registered on different frames do not collide"
     (rf/reg-http-interceptor :on-default {:frame :rf/default :before (fn [c] c)})
     (rf/reg-http-interceptor :on-other   {:frame :other      :before (fn [c] c)})
-    (is (= [:on-default] (mapv :id (http-managed/interceptors-snapshot :rf/default))))
-    (is (= [:on-other]   (mapv :id (http-managed/interceptors-snapshot :other))))
+    (is (= [:on-default] (mapv :id (rf.http.managed/interceptors-snapshot :rf/default))))
+    (is (= [:on-other]   (mapv :id (rf.http.managed/interceptors-snapshot :other))))
     ;; clear-http-interceptor on :rf/default doesn't touch :other
     (rf/clear-http-interceptor :on-default)
-    (is (zero? (count (http-managed/interceptors-snapshot :rf/default))))
-    (is (= [:on-other] (mapv :id (http-managed/interceptors-snapshot :other))))))
+    (is (zero? (count (rf.http.managed/interceptors-snapshot :rf/default))))
+    (is (= [:on-other] (mapv :id (rf.http.managed/interceptors-snapshot :other))))))
 
 ;; ---- 4a. rf2-f28bno / rf2-s32bf — the public {:frame} opts form ------------
 ;;
@@ -164,22 +164,22 @@
     ;; The ambient scope is :rf/default (fixture). Register on the OTHER frame.
     (rf/reg-http-interceptor :fa/on-other {:frame :fa/other :before (fn [c] c)})
     (rf/reg-http-interceptor :fa/on-default {:before (fn [c] c)})
-    (is (= [:fa/on-other]   (mapv :id (http-managed/interceptors-snapshot :fa/other))))
-    (is (= [:fa/on-default] (mapv :id (http-managed/interceptors-snapshot :rf/default))))
+    (is (= [:fa/on-other]   (mapv :id (rf.http.managed/interceptors-snapshot :fa/other))))
+    (is (= [:fa/on-default] (mapv :id (rf.http.managed/interceptors-snapshot :rf/default))))
     ;; (1) PUBLIC opts form clears the NAMED frame from the :rf/default scope —
     ;; this is exactly the natural guess `(clear id {:frame f})` from the reg
     ;; shape that used to SILENTLY NO-OP under the old frame-first arity. It now
     ;; binds :fa/other correctly.
     (rf/clear-http-interceptor :fa/on-other {:frame :fa/other})
-    (is (zero? (count (http-managed/interceptors-snapshot :fa/other)))
+    (is (zero? (count (rf.http.managed/interceptors-snapshot :fa/other)))
         "opts {:frame :fa/other} cleared the named frame's slot (misbind closed)")
-    (is (= [:fa/on-default] (mapv :id (http-managed/interceptors-snapshot :rf/default)))
+    (is (= [:fa/on-default] (mapv :id (rf.http.managed/interceptors-snapshot :rf/default)))
         "the :rf/default chain is untouched by the explicit-frame clear")
     ;; (2) INTERNAL frame-first seam still clears a named frame's slot.
     (rf/reg-http-interceptor :fa/again {:frame :fa/other :before (fn [c] c)})
-    (is (= [:fa/again] (mapv :id (http-managed/interceptors-snapshot :fa/other))))
-    (http-mw/clear-http-interceptor* :fa/other :fa/again)   ;; private seam: (frame id)
-    (is (zero? (count (http-managed/interceptors-snapshot :fa/other)))
+    (is (= [:fa/again] (mapv :id (rf.http.managed/interceptors-snapshot :fa/other))))
+    (rf.http.middleware/clear-http-interceptor* :fa/other :fa/again)   ;; private seam: (frame id)
+    (is (zero? (count (rf.http.managed/interceptors-snapshot :fa/other)))
         "internal frame-first seam (clear-http-interceptor*) cleared the slot")))
 
 ;; ---- 4b. rf2-s32bf — the public opts form is EXACT + FAIL-CLOSED -----------
@@ -198,7 +198,7 @@
       ;; ambient scope is :rf/default (fixture) — seed a slot there.
       (rf/reg-http-interceptor :s32bf/ambient {:before (fn [c] c)})
       (is (= [:s32bf/ambient]
-             (mapv :id (http-managed/interceptors-snapshot :rf/default))))
+             (mapv :id (rf.http.managed/interceptors-snapshot :rf/default))))
       (is (threw-bad? #(rf/clear-http-interceptor :s32bf/ambient {}))
           "empty opts map (no :frame) fails closed")
       (is (threw-bad? #(rf/clear-http-interceptor :s32bf/ambient {:frame nil}))
@@ -214,10 +214,10 @@
       (is (threw-bad? #(rf/clear-http-interceptor :s32bf/ambient :some-frame))
           "old two-scalar frame-first is not a public shape — fails closed")
       (is (= [:s32bf/ambient]
-             (mapv :id (http-managed/interceptors-snapshot :rf/default)))
+             (mapv :id (rf.http.managed/interceptors-snapshot :rf/default)))
           "no malformed clear touched the ambient :rf/default interceptor")
       (rf/clear-http-interceptor :s32bf/ambient {:frame :rf/default})
-      (is (zero? (count (http-managed/interceptors-snapshot :rf/default)))
+      (is (zero? (count (rf.http.managed/interceptors-snapshot :rf/default)))
           "the exact {:frame target} form clears the named frame"))))
 
 ;; ---- 5. invalid shape raises ----------------------------------------------
@@ -261,7 +261,7 @@
     (let [after-fn (fn [_ctx resp] resp)]
       (rf/reg-http-interceptor :uheqq/with-after {:after after-fn})
       (let [slot (first (filter #(= :uheqq/with-after (:id %))
-                                (http-managed/interceptors-snapshot :rf/default)))]
+                                (rf.http.managed/interceptors-snapshot :rf/default)))]
         (is (some? slot) "slot is in the chain")
         (is (= after-fn (:after slot))
             ":after fn stored verbatim on the slot")
@@ -272,6 +272,6 @@
 
 (deftest late-bind-hooks-published
   (testing ":http/reg-http-interceptor and :http/clear-http-interceptor land in the late-bind registry"
-    (is (some? (late-bind/get-fn :http/reg-http-interceptor)))
-    (is (some? (late-bind/get-fn :http/clear-http-interceptor)))
-    (is (some? (late-bind/get-fn :http/clear-all-http-interceptors!)))))
+    (is (some? (rf.late-bind/get-fn :http/reg-http-interceptor)))
+    (is (some? (rf.late-bind/get-fn :http/clear-http-interceptor)))
+    (is (some? (rf.late-bind/get-fn :http/clear-all-http-interceptors!)))))

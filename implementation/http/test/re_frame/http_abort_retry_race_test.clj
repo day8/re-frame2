@@ -57,19 +57,19 @@
       a completing OLD attempt does NOT evict a same-id SUCCESSOR's handle."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.http.managed :as http-managed]
-            [re-frame.http.registry :as registry]
-            [re-frame.http.transport :as transport]
+            [re-frame.http.managed :as rf.http.managed]
+            [re-frame.http.registry :as rf.http.registry]
+            [re-frame.http.transport :as rf.http.transport]
             [re-frame.machines]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace :as trace])
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.trace :as rf.trace])
   (:import [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]
            [java.net InetSocketAddress]
            [java.util.concurrent.atomic AtomicInteger]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- hit-counting always-500 server ---------------------------------------
 
@@ -109,7 +109,7 @@
 (defn- await-condition!
   ([pred] (await-condition! pred 5000))
   ([pred timeout-ms]
-   (test-support/poll-until pred {:timeout-ms timeout-ms :interval-ms 10
+   (rf.test-support/poll-until pred {:timeout-ms timeout-ms :interval-ms 10
                                   :label "http-abort-retry-race condition"})
    true))
 
@@ -144,7 +144,7 @@
         listener-id ::retry-timeline-honesty
         fired?      (atom false)]
     (try
-      (trace/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
+      (rf.trace/register-listener! listener-id (fn [ev] (swap! traces conj ev)))
       (rf/reg-event :reply/recorder
         (fn [_ [_ payload]] (swap! replies conj payload) {}))
       (rf/reg-event :issue
@@ -158,13 +158,13 @@
                   :on-success [:reply/recorder]}]]}))
       ;; The seam: fire the abort exactly once, when the retry lifecycle
       ;; reaches `inject-point`, resolving the still-registered prior handle.
-      (transport/set-test-interleave-hook!
+      (rf.http.transport/set-test-interleave-hook!
         (fn [point ctx]
           (when (and (= point inject-point)
                      (= :race (:request-id ctx))
                      (compare-and-set! fired? false true))
             ;; Same seam the `:rf.http/managed-abort` fx routes through.
-            (registry/abort-in-flight! (:request-id ctx) :user))))
+            (rf.http.registry/abort-in-flight! (:request-id ctx) :user))))
       (rf/dispatch-sync [:issue])
       ;; The abort's reply must arrive.
       (await-condition! #(seq @replies))
@@ -182,9 +182,9 @@
         (is (= :rf.http/aborted (get-in reply [:error :kind]))
             "the single reply is the canonical :rf.http/aborted")
         (is (= :user (get-in reply [:error :reason]))))
-      (is (empty? (registry/in-flight-snapshot))
+      (is (empty? (rf.http.registry/in-flight-snapshot))
           "the request-id registry is clean after the cancelled transition")
-      (is (empty? (registry/actor-in-flight-snapshot))
+      (is (empty? (rf.http.registry/actor-in-flight-snapshot))
           "the actor registry is clean")
       ;; rf2-fyt5i — the honesty assertion (red before the fix): a retry that
       ;; NEVER started must not surface a `:retried` disposition. The abort
@@ -200,8 +200,8 @@
                                          :next-backoff-ms (get-in ev [:tags :next-backoff-ms])})
                                retried)))))
       (finally
-        (trace/unregister-listener! listener-id)
-        (transport/set-test-interleave-hook! nil)
+        (rf.trace/unregister-listener! listener-id)
+        (rf.http.transport/set-test-interleave-hook! nil)
         (stop-server! srv)))))
 
 ;; ---- (1) abort in maybe-retry!'s transitional window -----------------------
@@ -226,35 +226,35 @@
 
 (deftest clear-in-flight-2arg-is-identity-conditional
   (testing "rf2-ous9e5 — clear-in-flight! (2-arg) does NOT evict a same-id successor's live handle; a completing OLD attempt clearing by its own handle leaves the successor in place"
-    (registry/clear-all-in-flight!)
-    (let [h-a (registry/seed-in-flight-for-test! :R nil {:abort-fn (fn [_] nil) :url "a"})
-          h-b (registry/seed-in-flight-for-test! :R nil {:abort-fn (fn [_] nil) :url "b"})]
+    (rf.http.registry/clear-all-in-flight!)
+    (let [h-a (rf.http.registry/seed-in-flight-for-test! :R nil {:abort-fn (fn [_] nil) :url "a"})
+          h-b (rf.http.registry/seed-in-flight-for-test! :R nil {:abort-fn (fn [_] nil) :url "b"})]
       ;; H_B (the successor) took over the request-id slot.
-      (is (identical? h-b (get (registry/in-flight-snapshot) :R))
+      (is (identical? h-b (get (rf.http.registry/in-flight-snapshot) :R))
           "the successor H_B is the live occupant under :R")
       ;; The OLD attempt (H_A) completes and clears BY ITS OWN handle.
-      (registry/clear-in-flight! :R h-a)
-      (is (identical? h-b (get (registry/in-flight-snapshot) :R))
+      (rf.http.registry/clear-in-flight! :R h-a)
+      (is (identical? h-b (get (rf.http.registry/in-flight-snapshot) :R))
           "the successor H_B SURVIVES — a stale completion must not evict it (the pre-fix unconditional dissoc did)")
       ;; Single-request cleanup is unchanged: clearing by the LIVE handle removes it.
-      (registry/clear-in-flight! :R h-b)
-      (is (not (contains? (registry/in-flight-snapshot) :R))
+      (rf.http.registry/clear-in-flight! :R h-b)
+      (is (not (contains? (rf.http.registry/in-flight-snapshot) :R))
           "clearing by the live handle removes the slot exactly as before"))
-    (registry/clear-all-in-flight!)))
+    (rf.http.registry/clear-all-in-flight!)))
 
 ;; ---- (4) actor-index identity clear survives a successor -------------------
 
 (deftest clear-in-flight-2arg-preserves-successor-actor-index
   (testing "rf2-ous9e5 — an OLD attempt's identity-conditional clear does not evict a same-id successor even when actor-indexed (mirrors remove-from-actor-index!)"
-    (registry/clear-all-in-flight!)
-    (let [h-a (registry/seed-in-flight-for-test! :R :actor {:abort-fn (fn [_] nil) :url "a"})
-          h-b (registry/seed-in-flight-for-test! :R :actor {:abort-fn (fn [_] nil) :url "b"})]
-      (is (identical? h-b (get (registry/in-flight-snapshot) :R)))
-      (registry/clear-in-flight! :R h-a)
-      (is (identical? h-b (get (registry/in-flight-snapshot) :R))
+    (rf.http.registry/clear-all-in-flight!)
+    (let [h-a (rf.http.registry/seed-in-flight-for-test! :R :actor {:abort-fn (fn [_] nil) :url "a"})
+          h-b (rf.http.registry/seed-in-flight-for-test! :R :actor {:abort-fn (fn [_] nil) :url "b"})]
+      (is (identical? h-b (get (rf.http.registry/in-flight-snapshot) :R)))
+      (rf.http.registry/clear-in-flight! :R h-a)
+      (is (identical? h-b (get (rf.http.registry/in-flight-snapshot) :R))
           "successor survives in the request-id index")
       ;; H_A is removed from the actor vector (by identity); H_B remains.
-      (let [v (get (registry/actor-in-flight-snapshot) :actor)]
+      (let [v (get (rf.http.registry/actor-in-flight-snapshot) :actor)]
         (is (some #(identical? % h-b) v) "H_B still actor-indexed")
         (is (not (some #(identical? % h-a) v)) "H_A dropped from the actor index by identity")))
-    (registry/clear-all-in-flight!)))
+    (rf.http.registry/clear-all-in-flight!)))

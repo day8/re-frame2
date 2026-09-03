@@ -26,18 +26,18 @@
   delivers nothing."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.http.managed :as http-managed]
-            [re-frame.http.registry :as http-registry]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace :as trace])
+            [re-frame.http.managed :as rf.http.managed]
+            [re-frame.http.registry :as rf.http.registry]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.trace :as rf.trace])
   (:import [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]
            [java.net InetSocketAddress]
            [java.util.concurrent CountDownLatch TimeUnit]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- start-blocking-server!
   [^CountDownLatch latch status content-type body]
@@ -66,7 +66,7 @@
 (defn- await-condition!
   ([pred] (await-condition! pred 5000))
   ([pred timeout-ms]
-   (test-support/poll-until pred {:timeout-ms timeout-ms :interval-ms 10
+   (rf.test-support/poll-until pred {:timeout-ms timeout-ms :interval-ms 10
                                   :label "http-frame-destroy condition"})
    true))
 
@@ -75,9 +75,9 @@
 (deftest hook-published
   (testing "rf2-j538f7.8 — the :http/on-frame-destroyed! hook is published and
             resolves to the frame-destroy abort walker"
-    (is (some? (late-bind/get-fn :http/on-frame-destroyed!)))
-    (is (= http-registry/abort-in-flight-on-frame-destroyed!
-           (late-bind/get-fn :http/on-frame-destroyed!)))))
+    (is (some? (rf.late-bind/get-fn :http/on-frame-destroyed!)))
+    (is (= rf.http.registry/abort-in-flight-on-frame-destroyed!
+           (rf.late-bind/get-fn :http/on-frame-destroyed!)))))
 
 ;; ---- registry-level: frame-scoped abort + reason (crit 1) -----------------
 
@@ -85,40 +85,40 @@
   (testing "rf2-j538f7.8 — abort-in-flight-on-frame-destroyed! fires each of the
             destroyed frame's handles exactly once with :reason :frame-destroyed
             and leaves a SIBLING frame's request byte-for-byte live"
-    (http-managed/clear-all-in-flight!)
+    (rf.http.managed/clear-all-in-flight!)
     (let [seen (atom [])
           ;; production abort-fns clear their own slot via the finalise cascade;
           ;; model that here so the sibling-survival + idempotence checks below
           ;; observe the real post-abort index shape.
           mk   (fn [frame-id request-id]
-                 (http-registry/seed-in-flight-for-test!
+                 (rf.http.registry/seed-in-flight-for-test!
                    request-id nil
                    {:abort-fn   (fn [reason]
                                   (swap! seen conj [frame-id reason])
-                                  (http-registry/clear-in-flight! request-id))
+                                  (rf.http.registry/clear-in-flight! request-id))
                     :request-id request-id
                     :url        "http://x/y"
                     :frame      frame-id}))]
       (mk :frame/a :req-a1)
       (mk :frame/a :req-a2)
       (mk :frame/b :req-b)
-      (http-registry/abort-in-flight-on-frame-destroyed! :frame/a)
+      (rf.http.registry/abort-in-flight-on-frame-destroyed! :frame/a)
       (is (= #{[:frame/a :frame-destroyed]} (set @seen))
           "only frame A's handles fired, each with :reason :frame-destroyed")
       (is (= 2 (count @seen)) "both of frame A's requests were aborted, once each")
-      (is (nil? (http-registry/lookup-in-flight :req-a1))
+      (is (nil? (rf.http.registry/lookup-in-flight :req-a1))
           "frame A's first request cleared from the index")
-      (is (nil? (http-registry/lookup-in-flight :req-a2))
+      (is (nil? (rf.http.registry/lookup-in-flight :req-a2))
           "frame A's second request cleared from the index")
-      (is (= :frame/b (:frame (http-registry/lookup-in-flight :req-b)))
+      (is (= :frame/b (:frame (rf.http.registry/lookup-in-flight :req-b)))
           "the SIBLING frame's request remains live and untouched")
-      (http-managed/clear-all-in-flight!))))
+      (rf.http.managed/clear-all-in-flight!))))
 
 (deftest frame-destroy-noop-on-frame-with-no-requests
   (testing "rf2-j538f7.8 — a frame with no in-flight managed HTTP is a clean no-op"
-    (http-managed/clear-all-in-flight!)
-    (is (nil? (http-registry/abort-in-flight-on-frame-destroyed! :frame/none)))
-    (is (nil? (http-registry/abort-in-flight-on-frame-destroyed! nil)))))
+    (rf.http.managed/clear-all-in-flight!)
+    (is (nil? (rf.http.registry/abort-in-flight-on-frame-destroyed! :frame/none)))
+    (is (nil? (rf.http.registry/abort-in-flight-on-frame-destroyed! nil)))))
 
 ;; ---- ordering / idempotence: no duplicate abort on a cleared handle (crit 4)
 
@@ -126,12 +126,12 @@
   (testing "rf2-j538f7.8 — when an earlier teardown (actor-destroy / resource
             teardown) already cleared a frame's HTTP slot, the later generic
             frame-destroy sweep produces NO duplicate abort or stale trace"
-    (http-managed/clear-all-in-flight!)
+    (rf.http.managed/clear-all-in-flight!)
     (let [aborts (atom [])
           traces (atom [])]
       (try
-        (trace/register-listener! ::idem (fn [ev] (swap! traces conj ev)))
-        (http-registry/seed-in-flight-for-test!
+        (rf.trace/register-listener! ::idem (fn [ev] (swap! traces conj ev)))
+        (rf.http.registry/seed-in-flight-for-test!
           :req/gone nil
           {:abort-fn   (fn [reason] (swap! aborts conj reason))
            :request-id :req/gone
@@ -139,16 +139,16 @@
            :frame      :frame/a})
         ;; A more-specific teardown wins first and clears the slot WITHOUT the
         ;; generic sweep's involvement.
-        (http-registry/clear-in-flight! :req/gone)
+        (rf.http.registry/clear-in-flight! :req/gone)
         ;; The generic HTTP frame-destroy sweep then runs — and finds nothing.
-        (http-registry/abort-in-flight-on-frame-destroyed! :frame/a)
+        (rf.http.registry/abort-in-flight-on-frame-destroyed! :frame/a)
         (is (empty? @aborts)
             "the already-cleared handle is NOT aborted a second time")
         (is (empty? (filter #(= :rf.http/stale-suppressed (:operation %)) @traces))
             "no duplicate stale-suppressed trace for the already-cleared handle")
         (finally
-          (trace/unregister-listener! ::idem)
-          (http-managed/clear-all-in-flight!))))))
+          (rf.trace/unregister-listener! ::idem)
+          (rf.http.managed/clear-all-in-flight!))))))
 
 ;; ---- end-to-end: destroy-frame! aborts a genuinely in-flight request -------
 ;; (crit 2 — the adversarial regression: FAILS before the destroy-frame! wiring)
@@ -165,7 +165,7 @@
           replies (atom [])
           traces  (atom [])]
       (try
-        (trace/register-listener! ::j538f7 (fn [ev] (swap! traces conj ev)))
+        (rf.trace/register-listener! ::j538f7 (fn [ev] (swap! traces conj ev)))
         (rf/make-frame {:id :frame/req :doc "the frame that owns the in-flight request"})
         (rf/reg-event :reply/recorder
           (fn [_ [_ payload]] (swap! replies conj payload) {}))
@@ -182,10 +182,10 @@
                     :on-success [:reply/recorder]
                     :on-failure [:reply/recorder]}]]}))
         (rf/dispatch-sync [:load] {:frame :frame/req})
-        (await-condition! #(seq (http-managed/in-flight-snapshot)))
-        (is (= 1 (count (http-managed/in-flight-snapshot)))
+        (await-condition! #(seq (rf.http.managed/in-flight-snapshot)))
+        (is (= 1 (count (rf.http.managed/in-flight-snapshot)))
             "precondition: the request is in flight")
-        (is (= :frame/req (:frame (http-registry/lookup-in-flight :destroy/req)))
+        (is (= :frame/req (:frame (rf.http.registry/lookup-in-flight :destroy/req)))
             "precondition: the in-flight handle carries its originating frame")
         ;; Destroy the owning frame via the REAL recipe — this is the wiring
         ;; under test (before the fix, destroy-frame! left the slot in flight).
@@ -193,8 +193,8 @@
         ;; The abort cascade clears the registry slot — and it clears while the
         ;; server is STILL BLOCKED, so the clear is the abort, not a natural
         ;; completion.
-        (await-condition! #(empty? (http-managed/in-flight-snapshot)))
-        (is (empty? (http-managed/in-flight-snapshot))
+        (await-condition! #(empty? (rf.http.managed/in-flight-snapshot)))
+        (is (empty? (rf.http.managed/in-flight-snapshot))
             "the in-flight slot cleared promptly on frame destroy")
         ;; Release the server so any late completion would arrive.
         (.countDown latch)
@@ -219,5 +219,5 @@
             (is (= :frame/req (:frame tags))
                 "the trace names the destroyed frame")))
         (finally
-          (trace/unregister-listener! ::j538f7)
+          (rf.trace/unregister-listener! ::j538f7)
           (stop-server! srv))))))

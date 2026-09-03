@@ -22,8 +22,8 @@
      floor of zero (never negative)"
   (:require [clojure.string]
             [clojure.test :refer [deftest is testing]]
-            [re-frame.http.encoding :as encoding]
-            [re-frame.http.json :as http-json]))
+            [re-frame.http.encoding :as rf.http.encoding]
+            [re-frame.http.json :as rf.http.json]))
 
 ;; ---- attempt → delay (deterministic, jitter off) -------------------------
 
@@ -31,21 +31,21 @@
   (testing "rf2-9dro2 — default config (base-ms 250, factor 2,
             max-ms 5000) produces the documented exponential curve:
             250, 500, 1000, 2000, 4000, then clamped to 5000."
-    (is (= 250  (encoding/compute-backoff-ms {} 1))
+    (is (= 250  (rf.http.encoding/compute-backoff-ms {} 1))
         "attempt 1 = base-ms × factor^0 = 250 × 1 = 250")
-    (is (= 500  (encoding/compute-backoff-ms {} 2))
+    (is (= 500  (rf.http.encoding/compute-backoff-ms {} 2))
         "attempt 2 = 250 × 2 = 500")
-    (is (= 1000 (encoding/compute-backoff-ms {} 3))
+    (is (= 1000 (rf.http.encoding/compute-backoff-ms {} 3))
         "attempt 3 = 250 × 4 = 1000")
-    (is (= 2000 (encoding/compute-backoff-ms {} 4))
+    (is (= 2000 (rf.http.encoding/compute-backoff-ms {} 4))
         "attempt 4 = 250 × 8 = 2000")
-    (is (= 4000 (encoding/compute-backoff-ms {} 5))
+    (is (= 4000 (rf.http.encoding/compute-backoff-ms {} 5))
         "attempt 5 = 250 × 16 = 4000")
-    (is (= 5000 (encoding/compute-backoff-ms {} 6))
+    (is (= 5000 (rf.http.encoding/compute-backoff-ms {} 6))
         "attempt 6 = 250 × 32 = 8000, clamped to max-ms 5000")
-    (is (= 5000 (encoding/compute-backoff-ms {} 10))
+    (is (= 5000 (rf.http.encoding/compute-backoff-ms {} 10))
         "attempt 10 = 250 × 512 = 128000, clamped to max-ms 5000")
-    (is (= 5000 (encoding/compute-backoff-ms {} 20))
+    (is (= 5000 (rf.http.encoding/compute-backoff-ms {} 20))
         "attempt 20 = very large, clamped to max-ms 5000")))
 
 (deftest default-backoff-is-the-single-source-of-truth
@@ -53,25 +53,25 @@
             defaults Spec 014 §Retry and backoff documents (base-ms 250,
             factor 2, max-ms 5000), and `compute-backoff-ms` draws its `:or`
             defaults from it so the two can't drift"
-    (is (= {:base-ms 250 :factor 2 :max-ms 5000} encoding/default-backoff)
+    (is (= {:base-ms 250 :factor 2 :max-ms 5000} rf.http.encoding/default-backoff)
         "the named def matches the spec-documented defaults")
     ;; An empty config must produce exactly the curve the named defaults imply.
-    (is (= 250 (encoding/compute-backoff-ms {} 1)))
-    (is (= 500 (encoding/compute-backoff-ms {} 2)))
-    (is (= (:max-ms encoding/default-backoff)
-           (encoding/compute-backoff-ms {} 20))
+    (is (= 250 (rf.http.encoding/compute-backoff-ms {} 1)))
+    (is (= 500 (rf.http.encoding/compute-backoff-ms {} 2)))
+    (is (= (:max-ms rf.http.encoding/default-backoff)
+           (rf.http.encoding/compute-backoff-ms {} 20))
         "deep-attempt delay clamps to default-backoff's :max-ms")))
 
 (deftest compute-backoff-ms-custom-base-and-factor
   (testing "rf2-9dro2 — caller-supplied :base-ms and :factor override
             the defaults"
-    (is (= 100 (encoding/compute-backoff-ms {:base-ms 100 :factor 3} 1))
+    (is (= 100 (rf.http.encoding/compute-backoff-ms {:base-ms 100 :factor 3} 1))
         "attempt 1 with base=100, factor=3 → 100 × 3^0 = 100")
-    (is (= 300 (encoding/compute-backoff-ms {:base-ms 100 :factor 3} 2))
+    (is (= 300 (rf.http.encoding/compute-backoff-ms {:base-ms 100 :factor 3} 2))
         "attempt 2 with base=100, factor=3 → 100 × 3 = 300")
-    (is (= 900 (encoding/compute-backoff-ms {:base-ms 100 :factor 3} 3))
+    (is (= 900 (rf.http.encoding/compute-backoff-ms {:base-ms 100 :factor 3} 3))
         "attempt 3 with base=100, factor=3 → 100 × 9 = 900")
-    (is (= 2700 (encoding/compute-backoff-ms {:base-ms 100 :factor 3} 4))
+    (is (= 2700 (rf.http.encoding/compute-backoff-ms {:base-ms 100 :factor 3} 4))
         "attempt 4 with base=100, factor=3 → 100 × 27 = 2700")))
 
 (deftest compute-backoff-ms-linear-when-factor-is-one
@@ -79,10 +79,10 @@
             every attempt waits :base-ms. Spec 014 §Retry config
             allows :factor 1 as the linear escape hatch."
     (let [cfg {:base-ms 500 :factor 1 :max-ms 10000}]
-      (is (= 500 (encoding/compute-backoff-ms cfg 1)))
-      (is (= 500 (encoding/compute-backoff-ms cfg 2)))
-      (is (= 500 (encoding/compute-backoff-ms cfg 5)))
-      (is (= 500 (encoding/compute-backoff-ms cfg 100))
+      (is (= 500 (rf.http.encoding/compute-backoff-ms cfg 1)))
+      (is (= 500 (rf.http.encoding/compute-backoff-ms cfg 2)))
+      (is (= 500 (rf.http.encoding/compute-backoff-ms cfg 5)))
+      (is (= 500 (rf.http.encoding/compute-backoff-ms cfg 100))
           "factor=1 produces a constant base-ms delay regardless of
            attempt number — never grows, never clamps"))))
 
@@ -91,30 +91,30 @@
             delay; once raw exceeds :max-ms the result is exactly
             :max-ms (not bigger, not jittered)"
     (let [cfg {:base-ms 1000 :factor 2 :max-ms 3000}]
-      (is (= 1000 (encoding/compute-backoff-ms cfg 1)))
-      (is (= 2000 (encoding/compute-backoff-ms cfg 2)))
-      (is (= 3000 (encoding/compute-backoff-ms cfg 3))
+      (is (= 1000 (rf.http.encoding/compute-backoff-ms cfg 1)))
+      (is (= 2000 (rf.http.encoding/compute-backoff-ms cfg 2)))
+      (is (= 3000 (rf.http.encoding/compute-backoff-ms cfg 3))
           "raw 4000 clamped to max 3000")
-      (is (= 3000 (encoding/compute-backoff-ms cfg 4))
+      (is (= 3000 (rf.http.encoding/compute-backoff-ms cfg 4))
           "raw 8000 clamped to max 3000")
-      (is (= 3000 (encoding/compute-backoff-ms cfg 50))
+      (is (= 3000 (rf.http.encoding/compute-backoff-ms cfg 50))
           "raw 1000 × 2^49 clamped to max 3000"))))
 
 (deftest compute-backoff-ms-handles-low-attempt-numbers
   (testing "rf2-9dro2 — attempt 0 / negative is guarded by `(max 0
             (dec attempt))` in the exponent so it does not produce a
             negative exponent / fractional delay"
-    (is (= 250 (encoding/compute-backoff-ms {} 0))
+    (is (= 250 (rf.http.encoding/compute-backoff-ms {} 0))
         "attempt 0 → exponent (max 0 -1) = 0 → 250 × 1 = 250
          (same as attempt 1; the floor is documented in the source)")
-    (is (= 250 (encoding/compute-backoff-ms {} -5))
+    (is (= 250 (rf.http.encoding/compute-backoff-ms {} -5))
         "negative attempt → same floor at 250")))
 
 (deftest compute-backoff-ms-returns-long-integer
   (testing "rf2-9dro2 — the return type is `long` (the source coerces
             via `(long jittered)`), suitable for direct use as a
             timeout argument"
-    (let [result (encoding/compute-backoff-ms {} 3)]
+    (let [result (rf.http.encoding/compute-backoff-ms {} 3)]
       (is (integer? result))
       (is (instance? Long result)))))
 
@@ -136,7 +136,7 @@
           capped  4000.0
           low     (* capped 0.75)
           high    (* capped 1.25)
-          samples (repeatedly 200 #(encoding/compute-backoff-ms cfg attempt))]
+          samples (repeatedly 200 #(rf.http.encoding/compute-backoff-ms cfg attempt))]
       (doseq [s samples]
         (is (and (<= low s) (<= s high))
             (str "jittered sample " s " sits in ±25% window ["
@@ -154,7 +154,7 @@
             could go negative, the floor protects the caller from a
             negative timeout"
     (let [cfg     {:base-ms 100 :factor 1 :max-ms 100 :jitter true}
-          samples (repeatedly 200 #(encoding/compute-backoff-ms cfg 1))]
+          samples (repeatedly 200 #(rf.http.encoding/compute-backoff-ms cfg 1))]
       (doseq [s samples]
         (is (<= 0 s)
             (str "jittered sample " s " is non-negative (floor at 0)"))))))
@@ -167,7 +167,7 @@
     (let [cfg     {:base-ms 1000 :factor 2 :max-ms 2000 :jitter true}
           ;; attempt 10 — raw = 1000 × 512 = 512000, clamped to 2000.
           ;; Jittered samples should sit in [1500, 2500] (±25% of 2000).
-          samples (repeatedly 200 #(encoding/compute-backoff-ms cfg 10))]
+          samples (repeatedly 200 #(rf.http.encoding/compute-backoff-ms cfg 10))]
       (doseq [s samples]
         (is (and (<= 1500 s) (<= s 2500))
             (str "post-clamp jittered sample " s " sits in ±25% window
@@ -189,7 +189,7 @@
 
 (deftest build-reply-event-explicit-nil-is-silenced
   (testing "explicit :on-success nil silences the reply"
-    (is (nil? (encoding/build-reply-event
+    (is (nil? (rf.http.encoding/build-reply-event
                 {:origin-event  [:items/load {:page 1}]
                  :explicit-on   {:supplied? true :value nil}
                  :reply-payload reply-payload})))))
@@ -197,13 +197,13 @@
 (deftest build-reply-event-explicit-vector-appends-payload
   (testing "explicit event vector gets the reply payload appended as last arg"
     (is (= [:items/loaded reply-payload]
-           (encoding/build-reply-event
+           (rf.http.encoding/build-reply-event
              {:origin-event  [:items/load {:page 1}]
               :explicit-on   {:supplied? true :value [:items/loaded]}
               :reply-payload reply-payload})))
     (testing "extra args on the supplied vector are preserved before the payload"
       (is (= [:items/loaded 7 reply-payload]
-             (encoding/build-reply-event
+             (rf.http.encoding/build-reply-event
                {:origin-event  [:items/load]
                 :explicit-on   {:supplied? true :value [:items/loaded 7]}
                 :reply-payload reply-payload}))))))
@@ -215,11 +215,11 @@
             pre-alpha. A wholly-unaddressed request fails loud upstream at
             validate-reply-target!; an unsupplied branch reaching here is
             the partial-addressing silence case."
-    (is (nil? (encoding/build-reply-event
+    (is (nil? (rf.http.encoding/build-reply-event
                 {:origin-event  [:items/load {:page 1}]
                  :explicit-on   {:supplied? false :value nil}
                  :reply-payload reply-payload})))
-    (is (nil? (encoding/build-reply-event
+    (is (nil? (rf.http.encoding/build-reply-event
                 {:origin-event  [:items/load]
                  :explicit-on   {:supplied? false :value nil}
                  :reply-payload reply-payload})))))
@@ -233,7 +233,7 @@
     (let [ex (is (thrown-with-msg?
                    clojure.lang.ExceptionInfo
                    #":rf.error/http-bad-reply-target"
-                   (encoding/build-reply-event
+                   (rf.http.encoding/build-reply-event
                      {:origin-event  [:items/load {:page 1}]
                       :explicit-on   {:supplied? true :value :items/loaded}
                       :reply-payload reply-payload})))]
@@ -244,13 +244,13 @@
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #":rf.error/http-bad-reply-target"
-          (encoding/build-reply-event
+          (rf.http.encoding/build-reply-event
             {:origin-event  [:items/load]
              :explicit-on   {:supplied? true :value {:dispatch :items/loaded}}
              :reply-payload reply-payload})))
     (testing "the malformed value is NOT silently re-routed to the originator"
       (is (not= [:items/load {:page 1 :rf/reply reply-payload}]
-                (try (encoding/build-reply-event
+                (try (rf.http.encoding/build-reply-event
                        {:origin-event  [:items/load {:page 1}]
                         :explicit-on   {:supplied? true :value :items/loaded}
                         :reply-payload reply-payload})
@@ -272,64 +272,64 @@
 (deftest url-encode-escapes-reserved-characters
   (testing "rf2-ohwgm — url-encode percent-escapes reserved query
             characters so a value never breaks out of its key=value slot"
-    (is (= "hello%20world" (encoding/url-encode "hello world"))
+    (is (= "hello%20world" (rf.http.encoding/url-encode "hello world"))
         "JVM maps the URLEncoder `+` to `%20` (space) per the source")
-    (is (= "a%26b" (encoding/url-encode "a&b"))
+    (is (= "a%26b" (rf.http.encoding/url-encode "a&b"))
         "ampersand escaped so it can't be read as a param separator")
-    (is (= "a%3Db" (encoding/url-encode "a=b"))
+    (is (= "a%3Db" (rf.http.encoding/url-encode "a=b"))
         "equals escaped so it can't be read as a key/value delimiter")
-    (is (= "a%2Bb" (encoding/url-encode "a+b"))
+    (is (= "a%2Bb" (rf.http.encoding/url-encode "a+b"))
         "literal plus escaped to %2B (not collapsed with the space encoding)"))
   (testing "non-string args are coerced via (str ...) before encoding"
-    (is (= "42" (encoding/url-encode 42)))
-    (is (= "true" (encoding/url-encode true)))))
+    (is (= "42" (rf.http.encoding/url-encode 42)))
+    (is (= "true" (rf.http.encoding/url-encode true)))))
 
 ;; ---- params->query — keyword keys, escaping, joining ----------------------
 
 (deftest params->query-encodes-keyword-keys-and-escapes-values
   (testing "rf2-ohwgm — params->query renders keyword keys via `name`,
             escapes values, and joins pairs with `&` (no leading `?`)"
-    (is (= "page=2" (encoding/params->query {:page 2}))
+    (is (= "page=2" (rf.http.encoding/params->query {:page 2}))
         "keyword key → name; numeric value coerced via url-encode")
-    (is (= "q=a%20b" (encoding/params->query {:q "a b"}))
+    (is (= "q=a%20b" (rf.http.encoding/params->query {:q "a b"}))
         "value with a space is percent-escaped")
-    (is (= "q=a%26b" (encoding/params->query {:q "a&b"}))
+    (is (= "q=a%26b" (rf.http.encoding/params->query {:q "a&b"}))
         "value with an ampersand is escaped so it can't forge a new param"))
   (testing "string keys pass through, keyword keys lose their colon"
-    (is (= "limit=10" (encoding/params->query {"limit" 10}))))
+    (is (= "limit=10" (rf.http.encoding/params->query {"limit" 10}))))
   (testing "an empty params map renders an empty string"
-    (is (= "" (encoding/params->query {})))))
+    (is (= "" (rf.http.encoding/params->query {})))))
 
 (deftest params->query-multi-valued-uses-repeat-key
   (testing "rf2-mag59 — a sequential value (vector / seq / list) encodes
             as one repeated k=v pair per element (repeat-key idiom),
             NOT a single (str coll) blob"
     (is (= "tag=a&tag=b"
-           (encoding/params->query {:tag ["a" "b"]}))
+           (rf.http.encoding/params->query {:tag ["a" "b"]}))
         "a vector value repeats the key per element — not tag=%5B%22a%22...")
     (is (= "id=1&id=2&id=3"
-           (encoding/params->query {:id [1 2 3]}))
+           (rf.http.encoding/params->query {:id [1 2 3]}))
         "numeric elements coerce via url-encode like scalar values")
     (is (= "id=1&id=2"
-           (encoding/params->query {:id (list 1 2)}))
+           (rf.http.encoding/params->query {:id (list 1 2)}))
         "a list (seq) value is treated the same as a vector")
     (is (= "q=a%20b&q=c%26d"
-           (encoding/params->query {:q ["a b" "c&d"]}))
+           (rf.http.encoding/params->query {:q ["a b" "c&d"]}))
         "each element is independently percent-escaped"))
   (testing "an empty sequential value contributes no pair"
-    (is (= "" (encoding/params->query {:tag []}))
+    (is (= "" (rf.http.encoding/params->query {:tag []}))
         "an empty vector value emits nothing")
     (is (= "page=2"
-           (encoding/params->query {:page 2 :tag []}))
+           (rf.http.encoding/params->query {:page 2 :tag []}))
         "an empty seq value drops out, scalar siblings still encode"))
   (testing "a single-element sequential still uses the key once"
     (is (= "tag=only"
-           (encoding/params->query {:tag ["only"]}))))
+           (rf.http.encoding/params->query {:tag ["only"]}))))
   (testing "a set value (also sequential? false) is NOT repeat-keyed — only
             ordered seqs are; a set falls through to scalar (str ...)"
     ;; sets are unordered so repeat-key has no stable shape; treat as scalar.
     (is (clojure.string/starts-with?
-          (encoding/params->query {:tag #{"a"}})
+          (rf.http.encoding/params->query {:tag #{"a"}})
           "tag=")
         "a set value encodes via the scalar path (no defined repeat order)")))
 
@@ -340,14 +340,14 @@
             when the URL has none, and `&` when the URL already carries a
             `?` (http_encoding.cljc:60-67)"
     (is (= "/items?page=2"
-           (encoding/merge-params "/items" {:page 2}))
+           (rf.http.encoding/merge-params "/items" {:page 2}))
         "no existing `?` → join with `?`")
     (is (= "/items?sort=asc&page=2"
-           (encoding/merge-params "/items?sort=asc" {:page 2}))
+           (rf.http.encoding/merge-params "/items?sort=asc" {:page 2}))
         "existing `?` → join with `&`"))
   (testing "no params (empty or nil) returns the URL unchanged"
-    (is (= "/items" (encoding/merge-params "/items" {})))
-    (is (= "/items" (encoding/merge-params "/items" nil)))))
+    (is (= "/items" (rf.http.encoding/merge-params "/items" {})))
+    (is (= "/items" (rf.http.encoding/merge-params "/items" nil)))))
 
 (deftest merge-params-splices-before-fragment
   (testing "rf2-rznrz — params are spliced BEFORE a `#fragment`, never after.
@@ -355,16 +355,16 @@
             the fragment to nobody, so appending the query AFTER the `#` (the
             prior `(str url sep qs)` shape) silently drops the params."
     (is (= "/items?page=2#frag"
-           (encoding/merge-params "/items#frag" {:page 2}))
+           (rf.http.encoding/merge-params "/items#frag" {:page 2}))
         "no existing `?` → the query is inserted with `?` BEFORE `#frag`,
          and the fragment is reattached verbatim AFTER the query")
     (is (= "/items?sort=asc&page=2#frag"
-           (encoding/merge-params "/items?sort=asc#frag" {:page 2}))
+           (rf.http.encoding/merge-params "/items?sort=asc#frag" {:page 2}))
         "existing `?` in the pre-fragment part → join with `&`, fragment
          stays at the very end")
     (testing "the broken `#frag?page=2` shape is NOT produced"
       (is (not= "/items#frag?page=2"
-                (encoding/merge-params "/items#frag" {:page 2}))
+                (rf.http.encoding/merge-params "/items#frag" {:page 2}))
           "params MUST NOT land after the `#` where they'd be dropped on the wire"))))
 
 (deftest merge-params-no-encoded-pairs-leaves-url-unchanged
@@ -373,17 +373,17 @@
             returned UNCHANGED — no dangling `?` / `&`. The decision keys off
             the ENCODED query string, not `(seq params)`."
     (is (= "/items"
-           (encoding/merge-params "/items" {:tag []}))
+           (rf.http.encoding/merge-params "/items" {:tag []}))
         "an all-empty-sequential params map yields no pairs → no dangling `?`")
     (is (= "/items?sort=asc"
-           (encoding/merge-params "/items?sort=asc" {:tag []}))
+           (rf.http.encoding/merge-params "/items?sort=asc" {:tag []}))
         "an existing query is preserved with no dangling `&`")
     (is (= "/items#frag"
-           (encoding/merge-params "/items#frag" {:tag []}))
+           (rf.http.encoding/merge-params "/items#frag" {:tag []}))
         "a fragment-only URL with no encodable params is returned verbatim")
     (testing "a mix of empty + non-empty still encodes the non-empty pairs"
       (is (= "/items?page=2#frag"
-             (encoding/merge-params "/items#frag" {:tag [] :page 2}))
+             (rf.http.encoding/merge-params "/items#frag" {:tag [] :page 2}))
           "the empty-sequential drops out; the scalar sibling still splices
            before the fragment"))))
 
@@ -397,22 +397,22 @@
 (deftest encode-body-nil-body-emits-no-content-type
   (testing "rf2-ohwgm — a nil body encodes to [nil nil] (no body, no
             Content-Type header)"
-    (is (= [nil nil] (encoding/encode-body nil :json))
+    (is (= [nil nil] (rf.http.encoding/encode-body nil :json))
         "nil body short-circuits regardless of the requested content-type")
-    (is (= [nil nil] (encoding/encode-body nil nil)))))
+    (is (= [nil nil] (rf.http.encoding/encode-body nil nil)))))
 
 (deftest encode-body-json-request-content-type
   (testing "rf2-ohwgm — :request-content-type :json JSON-stringifies the
             body and returns application/json"
-    (let [[body ct] (encoding/encode-body {:a 1 :b "two"} :json)]
+    (let [[body ct] (rf.http.encoding/encode-body {:a 1 :b "two"} :json)]
       (is (= "application/json" ct))
-      (is (= {:a 1 :b "two"} (http-json/json-parse body))
+      (is (= {:a 1 :b "two"} (rf.http.json/json-parse body))
           "the body round-trips through json-parse (stable across key order)"))))
 
 (deftest encode-body-form-request-content-type
   (testing "rf2-ohwgm — :request-content-type :form URL-encodes the map as
             a form body and returns application/x-www-form-urlencoded"
-    (let [[body ct] (encoding/encode-body {:q "a b" :page 2} :form)]
+    (let [[body ct] (rf.http.encoding/encode-body {:q "a b" :page 2} :form)]
       (is (= "application/x-www-form-urlencoded" ct))
       ;; form body is `params->query` of the map — assert each escaped pair
       ;; is present (map iteration order is not guaranteed).
@@ -423,27 +423,27 @@
 (deftest encode-body-text-request-content-type
   (testing "rf2-ohwgm — :request-content-type :text stringifies the body
             and returns text/plain"
-    (is (= ["hello" "text/plain"] (encoding/encode-body "hello" :text)))
-    (is (= ["42" "text/plain"] (encoding/encode-body 42 :text))
+    (is (= ["hello" "text/plain"] (rf.http.encoding/encode-body "hello" :text)))
+    (is (= ["42" "text/plain"] (rf.http.encoding/encode-body 42 :text))
         "non-string body coerced via (str ...)")))
 
 (deftest encode-body-explicit-mime-string-request-content-type
   (testing "rf2-ohwgm — an explicit MIME-string :request-content-type
             stringifies the body and returns that exact MIME unchanged"
     (is (= ["<x/>" "application/xml"]
-           (encoding/encode-body "<x/>" "application/xml")))))
+           (rf.http.encoding/encode-body "<x/>" "application/xml")))))
 
 (deftest encode-body-coll-heuristic-defaults-to-json
   (testing "rf2-ohwgm — with no explicit :request-content-type, a raw
             Clojure coll (map / sequential / set) is JSON-encoded and
             tagged application/json (the heuristic at http_encoding.cljc:97)"
-    (let [[mbody mct] (encoding/encode-body {:a 1} nil)]
+    (let [[mbody mct] (rf.http.encoding/encode-body {:a 1} nil)]
       (is (= "application/json" mct))
-      (is (= {:a 1} (http-json/json-parse mbody))))
-    (let [[vbody vct] (encoding/encode-body [1 2 3] nil)]
+      (is (= {:a 1} (rf.http.json/json-parse mbody))))
+    (let [[vbody vct] (rf.http.encoding/encode-body [1 2 3] nil)]
       (is (= "application/json" vct))
-      (is (= [1 2 3] (http-json/json-parse vbody))))
-    (let [[_ sct] (encoding/encode-body #{1 2 3} nil)]
+      (is (= [1 2 3] (rf.http.json/json-parse vbody))))
+    (let [[_ sct] (rf.http.encoding/encode-body #{1 2 3} nil)]
       (is (= "application/json" sct)
           "a set also trips the coll heuristic"))))
 
@@ -452,7 +452,7 @@
             pre-encoded string / opaque value) passes through unchanged
             with a nil content-type (the caller sets no header)"
     (is (= ["already-encoded" nil]
-           (encoding/encode-body "already-encoded" nil))
+           (rf.http.encoding/encode-body "already-encoded" nil))
         "a bare string is pass-through: body kept, content-type nil")))
 
 ;; ---- run-accept — Spec 014 §`:accept` default normalisation (G2) ----------
@@ -473,9 +473,9 @@
             unconditionally as {:ok decoded} (run-accept only ever runs
             against an already-classified 2xx response)"
     (is (= {:ok {:title "hello"}}
-           (encoding/run-accept nil {:title "hello"})))
+           (rf.http.encoding/run-accept nil {:title "hello"})))
     (is (= {:ok nil}
-           (encoding/run-accept nil nil))
+           (rf.http.encoding/run-accept nil nil))
         "a nil decoded body still wraps as {:ok nil}")))
 
 (deftest run-accept-default-never-produces-http-status-rf2-xmp74u
@@ -494,7 +494,7 @@
                      [1 2 3]
                      "raw text"
                      42]]
-      (let [result (encoding/run-accept nil decoded)]
+      (let [result (rf.http.encoding/run-accept nil decoded)]
         (is (contains? result :ok)
             (str "default accept yields {:ok ...} for " (pr-str decoded)))
         (is (not (contains? result :failure))
@@ -511,9 +511,9 @@
                      {:ok (:data decoded)}
                      {:failure {:kind :domain :reason :invalid}}))]
       (is (= {:ok 42}
-             (encoding/run-accept accept {:valid? true :data 42})))
+             (rf.http.encoding/run-accept accept {:valid? true :data 42})))
       (is (= {:failure {:kind :domain :reason :invalid}}
-             (encoding/run-accept accept {:valid? false}))
+             (rf.http.encoding/run-accept accept {:valid? false}))
           "the user :accept can fail a 2xx response (domain-level rejection)"))))
 
 ;; ---- valid-accept-return? — Spec 014 §`:accept` shape validation ----------
@@ -521,30 +521,30 @@
 (deftest valid-accept-return-recognises-ok-and-failure
   (testing "rf2-rznrz — a map carrying EXACTLY one of :ok / :failure is the
             recognised accept-return shape"
-    (is (encoding/valid-accept-return? {:ok 42}))
-    (is (encoding/valid-accept-return? {:ok nil})
+    (is (rf.http.encoding/valid-accept-return? {:ok 42}))
+    (is (rf.http.encoding/valid-accept-return? {:ok nil})
         "{:ok nil} is valid — the key presence is what matters, not the value")
-    (is (encoding/valid-accept-return? {:failure {:kind :domain}}))
-    (is (encoding/valid-accept-return? {:ok 1 :extra :ignored})
+    (is (rf.http.encoding/valid-accept-return? {:failure {:kind :domain}}))
+    (is (rf.http.encoding/valid-accept-return? {:ok 1 :extra :ignored})
         "extra keys alongside the single recognised key are tolerated")))
 
 (deftest valid-accept-return-rejects-malformed-shapes
   (testing "rf2-rznrz — nil, non-maps, and maps without exactly one of
             :ok/:failure are MALFORMED (these previously stranded the
             request with no reply)"
-    (is (not (encoding/valid-accept-return? nil))
+    (is (not (rf.http.encoding/valid-accept-return? nil))
         "nil return is malformed")
-    (is (not (encoding/valid-accept-return? {}))
+    (is (not (rf.http.encoding/valid-accept-return? {}))
         "an empty map carries neither key")
-    (is (not (encoding/valid-accept-return? {:status :good}))
+    (is (not (rf.http.encoding/valid-accept-return? {:status :good}))
         "a map without :ok/:failure is malformed")
-    (is (not (encoding/valid-accept-return? {:ok 1 :failure {}}))
+    (is (not (rf.http.encoding/valid-accept-return? {:ok 1 :failure {}}))
         "a map carrying BOTH keys is ambiguous → rejected")
-    (is (not (encoding/valid-accept-return? :ok))
+    (is (not (rf.http.encoding/valid-accept-return? :ok))
         "a bare keyword is not a map")
-    (is (not (encoding/valid-accept-return? [:ok 1]))
+    (is (not (rf.http.encoding/valid-accept-return? [:ok 1]))
         "a vector is not a map")
-    (is (not (encoding/valid-accept-return? "ok"))
+    (is (not (rf.http.encoding/valid-accept-return? "ok"))
         "a string is not a map")))
 
 ;; ---- normalize-header-pairs — Spec 014 §Request envelope (multi-valued) ---
@@ -553,9 +553,9 @@
   (testing "rf2-rznrz — a scalar header value yields exactly one [name value]
             wire pair, stringified"
     (is (= [["Accept" "application/json"]]
-           (encoding/normalize-header-pairs {"Accept" "application/json"})))
+           (rf.http.encoding/normalize-header-pairs {"Accept" "application/json"})))
     (is (= [["X-Count" "42"]]
-           (encoding/normalize-header-pairs {"X-Count" 42}))
+           (rf.http.encoding/normalize-header-pairs {"X-Count" 42}))
         "a non-string scalar value is stringified per element")))
 
 (deftest normalize-header-pairs-vector-yields-pair-per-element
@@ -563,16 +563,16 @@
             element (the HTTP multi-valued idiom = repeat the name), NOT a
             single pair carrying the vector"
     (is (= [["Accept" "text/html"] ["Accept" "application/json"]]
-           (encoding/normalize-header-pairs {"Accept" ["text/html" "application/json"]}))
+           (rf.http.encoding/normalize-header-pairs {"Accept" ["text/html" "application/json"]}))
         "each element gets its own [name value] pair, in order")
     (is (= [["X-Tag" "1"] ["X-Tag" "2"] ["X-Tag" "3"]]
-           (encoding/normalize-header-pairs {"X-Tag" [1 2 3]}))
+           (rf.http.encoding/normalize-header-pairs {"X-Tag" [1 2 3]}))
         "numeric elements are stringified per element")
     (is (= [["X-Tag" "a"] ["X-Tag" "b"]]
-           (encoding/normalize-header-pairs {"X-Tag" (list "a" "b")}))
+           (rf.http.encoding/normalize-header-pairs {"X-Tag" (list "a" "b")}))
         "a seq value is treated like a vector"))
   (testing "an empty sequential value contributes NO pair (header absent)"
-    (is (= [] (encoding/normalize-header-pairs {"X-Empty" []})))
+    (is (= [] (rf.http.encoding/normalize-header-pairs {"X-Empty" []})))
     (is (= [["Accept" "application/json"]]
-           (encoding/normalize-header-pairs {"X-Empty" [] "Accept" "application/json"}))
+           (rf.http.encoding/normalize-header-pairs {"X-Empty" [] "Accept" "application/json"}))
         "the empty-sequential drops out; scalar siblings still emit")))

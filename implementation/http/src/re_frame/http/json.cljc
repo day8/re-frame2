@@ -34,7 +34,7 @@
   Overflow throws `:rf.error/id :rf.error/malformed-json` with
   `:cause :too-many-keys` — the `:rf.http/managed` cascade classifies
   this as `:rf.http/decode-failure`."
-  (:require [re-frame.error :as error]
+  (:require [re-frame.error :as rf.error]
             #?(:clj [cheshire.core :as cheshire])))
 
 ;; Reflection warnings catch unhinted calls in the Cheshire/HashSet JVM path.
@@ -64,7 +64,7 @@
   Carries `:rf.error/id :rf.error/malformed-json` + `:cause :too-many-keys`
   + the configured `:limit`."
   [max-keys]
-  (error/thrown-ex-info
+  (rf.error/thrown-ex-info
     :rf.error/malformed-json
     'rf.http/json-parse
     (str "JSON payload exceeded the per-call unique-key cap (" max-keys ") — a keyword-interning DoS guard")

@@ -16,7 +16,7 @@
   plus the back-channel to the parent."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.adapter.reagent :as reagent-adapter]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
             ;; re-frame.machines and re-frame.http.managed cross-publish their
             ;; registration hooks through `re-frame.late-bind` (machines
             ;; publishes `:machines/reg-machine`; http-managed publishes
@@ -24,22 +24,22 @@
             ;; whichever loads second triggers the wrapper registration
             ;; (rf2-ijm7). Listing both here makes the dependency closure
             ;; explicit so the bundle includes both producers.
-            [re-frame.machines :as machines]
-            [re-frame.http.managed :as http-managed]
+            [re-frame.machines :as rf.machines]
+            [re-frame.http.managed :as rf.http.managed]
             ;; rf2-lwmgw — the stub macros / install fn live in
             ;; `re-frame.http.test-support` (alongside the canned-stub fx
             ;; registrations). This test calls `install-managed-request-stubs!`
             ;; directly, so it requires that ns.
-            [re-frame.http.test-support :as http-test-support]
-            [re-frame.registrar :as registrar]
-            [re-frame.test-support :as test-support]))
+            [re-frame.http.test-support :as rf.http.test-support]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter
      :init-fn (fn []
-                (machines/reset-timers!)
-                (http-managed/clear-all-in-flight!))}))
+                (rf.machines/reset-timers!)
+                (rf.http.managed/clear-all-in-flight!))}))
 
 (defn- snapshot [machine-id]
   (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) [:rf.runtime/machines :snapshots machine-id]))
@@ -48,7 +48,7 @@
 
 (deftest wrapper-is-registered-when-machines-is-present
   (testing "loading both re-frame.machines and re-frame.http.managed registers `:rf.http/managed` as a machine"
-    (let [meta (registrar/lookup :event :rf.http/managed)]
+    (let [meta (rf.registrar/lookup :event :rf.http/managed)]
       (is (some? meta) ":rf.http/managed is registered as an :event")
       (is (true? (:rf/machine? meta))
           ":rf/machine? metadata flag is set — it's an actual machine, not a vanilla event")
@@ -67,7 +67,7 @@
   (testing "parent :spawn {:machine-id :rf.http/managed ...} spawns the wrapper actor and stamps :rf/parent-id / :rf/self-id / :rf/invoke-id into the wrapper's :data (rf2-ijm7)"
     ;; Install a stub that NEVER replies — gives us a stable
     ;; :requesting snapshot to inspect without racing against Fetch.
-    (http-test-support/install-managed-request-stubs! {})
+    (rf.http.test-support/install-managed-request-stubs! {})
     (try
       (rf/reg-machine :cljs/auth2
         {:initial :idle
@@ -104,7 +104,7 @@
           (is (= {:url "/api/me" :method :get} (:request wrapper-data))
               "the user's :request is preserved verbatim under :data")))
       (finally
-        (http-test-support/uninstall-managed-request-stubs!)))))
+        (rf.http.test-support/uninstall-managed-request-stubs!)))))
 
 ;; ---- (2b) nested :request-content-type survives the wrapper pass-through -
 
@@ -115,7 +115,7 @@
     ;; `(:request-content-type request)`), so the Args-carrier example
     ;; MUST nest it under `:request`, not at the top level of `:data`.
     ;; This proves the corrected example shape threads through.
-    (http-test-support/install-managed-request-stubs! {})  ;; no-reply stub: stable :requesting snapshot
+    (rf.http.test-support/install-managed-request-stubs! {})  ;; no-reply stub: stable :requesting snapshot
     (try
       (rf/reg-machine :cljs/poster
         {:initial :idle
@@ -141,13 +141,13 @@
         (is (not (contains? wrapper-data :request-content-type))
             ":request-content-type is NOT promoted to the top level of :data"))
       (finally
-        (http-test-support/uninstall-managed-request-stubs!)))))
+        (rf.http.test-support/uninstall-managed-request-stubs!)))))
 
 ;; ---- (3) parent state-exit destroys wrapper child + clears registry ----
 
 (deftest parent-exit-destroys-wrapper-child
   (testing "transition out of the :spawn-bearing state destroys the wrapper actor — registry slot cleared, snapshot gone (rf2-ijm7 + rf2-wvkn destroy cascade)"
-    (http-test-support/install-managed-request-stubs! {})  ;; no-match stub: synthesises a failure (which we will not observe)
+    (rf.http.test-support/install-managed-request-stubs! {})  ;; no-match stub: synthesises a failure (which we will not observe)
     (try
       (rf/reg-machine :cljs/cancellable
         {:initial :idle
@@ -175,4 +175,4 @@
         (is (nil? (get-in db [:rf.runtime/machines :snapshots :rf.http/managed#1]))
             "wrapper actor's snapshot is gone after the parent's cancel"))
       (finally
-        (http-test-support/uninstall-managed-request-stubs!)))))
+        (rf.http.test-support/uninstall-managed-request-stubs!)))))

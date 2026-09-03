@@ -19,15 +19,15 @@
   had weaker guarding than the optional ones."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.http.handlers :as handlers]
-            [re-frame.http.managed :as http-managed]
-            [re-frame.test-support :as test-support]))
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.http.handlers :as rf.http.handlers]
+            [re-frame.http.managed :as rf.http.managed]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; ---- per-test reset --------------------------------------------------------
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- helpers ---------------------------------------------------------------
 
@@ -38,7 +38,7 @@
   Supplies a `:reply-to` so the request satisfies the mandatory reply
   addressing (rf2-et4c1s) and this suite isolates the `:url` guard."
   [request]
-  (try (handlers/managed-handler {:frame :rf/default :event [:no-op]}
+  (try (rf.http.handlers/managed-handler {:frame :rf/default :event [:no-op]}
                                  {:request request :reply-to [:no-op]})
        nil
        (catch clojure.lang.ExceptionInfo e e)))

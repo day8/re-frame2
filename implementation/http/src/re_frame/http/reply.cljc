@@ -52,7 +52,7 @@
   `re-frame.reply/trace-summary` (which calls `re-frame.elision/
   elide-wire-value`) — never a family-private elider (Managed-Effects
   §Tracing)."
-  (:require [re-frame.reply :as reply]))
+  (:require [re-frame.reply :as rf.reply]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -266,7 +266,7 @@
   issuance counter bumped (`work-id` embeds the per-request-id issuance)."
   [ctx current-work-id]
   (let [carried-wid (work-id ctx)]
-    (reply/suppress nil
+    (rf.reply/suppress nil
                     {:work/id carried-wid}
                     {:work/id current-work-id}
                     (cond-> {:rf.reply/work-id      carried-wid
@@ -339,7 +339,7 @@
   unknown)."
   [ctx]
   (let [carried-wid (work-id ctx)]
-    (reply/suppress nil
+    (rf.reply/suppress nil
                     {:work/id carried-wid}
                     nil
                     (cond-> {:rf.reply/work-id      carried-wid
@@ -392,6 +392,6 @@
                      `:sensitive?` / `:large?` app-db policy as usual."
   ([reply] (trace-reply reply nil))
   ([reply {:keys [sensitive?] :as opts}]
-   (reply/trace-summary reply
+   (rf.reply/trace-summary reply
                         (cond-> (dissoc opts :sensitive?)
                           sensitive? (assoc :rf.privacy/force-redact-wire? true)))))

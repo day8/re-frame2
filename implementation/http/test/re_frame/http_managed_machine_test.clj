@@ -29,11 +29,11 @@
   uses the same wrapper registration via Fetch."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.http.managed :as http-managed]
+            [re-frame.http.managed :as rf.http.managed]
             [re-frame.machines]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace :as trace])
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.trace :as rf.trace])
   (:import [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]
            [java.net InetSocketAddress]
            [java.util.concurrent CountDownLatch TimeUnit]))
@@ -41,7 +41,7 @@
 ;; ---- per-test reset --------------------------------------------------------
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- helpers --------------------------------------------------------------
 
@@ -99,7 +99,7 @@
   per-file arity (`pred`, optional `timeout-ms`)."
   ([pred] (await-condition! pred 5000))
   ([pred timeout-ms]
-   (test-support/poll-until pred {:timeout-ms timeout-ms :interval-ms 10
+   (rf.test-support/poll-until pred {:timeout-ms timeout-ms :interval-ms 10
                                   :label "http-managed-machine condition"})
    true))
 
@@ -195,7 +195,7 @@
           {:keys [port]} srv
           traces (atom [])]
       (try
-        (trace/register-listener! ::ijm7-3 (fn [ev] (swap! traces conj ev)))
+        (rf.trace/register-listener! ::ijm7-3 (fn [ev] (swap! traces conj ev)))
         (rf/reg-machine :app/cancel
           {:initial :idle
            :states
@@ -214,8 +214,8 @@
         (rf/dispatch-sync [:app/cancel [:login]])
         ;; Wait until the wrapper's underlying fx has recorded the
         ;; request in-flight against the wrapper actor's id.
-        (await-condition! #(seq (http-managed/actor-in-flight-snapshot)))
-        (let [snap (http-managed/actor-in-flight-snapshot)]
+        (await-condition! #(seq (rf.http.managed/actor-in-flight-snapshot)))
+        (let [snap (rf.http.managed/actor-in-flight-snapshot)]
           (is (= 1 (count snap)))
           (is (contains? snap :rf.http/managed#1)
               "in-flight indexed by the spawned wrapper actor's id"))
@@ -223,7 +223,7 @@
         ;; is destroyed, and the abort cascade fires.
         (rf/dispatch-sync [:app/cancel [:cancel]])
         (is (= :idle (:state (snapshot :app/cancel))))
-        (is (empty? (http-managed/actor-in-flight-snapshot))
+        (is (empty? (rf.http.managed/actor-in-flight-snapshot))
             "in-flight registry cleared after parent's cancel")
         (let [abort-traces (filter #(= :rf.http/aborted-on-actor-destroy
                                        (:operation %))
@@ -235,7 +235,7 @@
                 "trace identifies the destroyed wrapper actor")))
         (.countDown latch)
         (finally
-          (trace/unregister-listener! ::ijm7-3)
+          (rf.trace/unregister-listener! ::ijm7-3)
           (stop-server! srv))))))
 
 ;; ---- (4) composes with :after — whichever fires first wins ----------------
@@ -247,7 +247,7 @@
           {:keys [port]} srv
           traces (atom [])]
       (try
-        (trace/register-listener! ::ijm7-4 (fn [ev] (swap! traces conj ev)))
+        (rf.trace/register-listener! ::ijm7-4 (fn [ev] (swap! traces conj ev)))
         (rf/reg-machine :app/after-test
           {:initial :idle
            :states
@@ -271,8 +271,8 @@
             :authenticated {}
             :timed-out     {}}})
         (rf/dispatch-sync [:app/after-test [:login]])
-        (await-condition! #(seq (http-managed/actor-in-flight-snapshot)))
-        (is (contains? (http-managed/actor-in-flight-snapshot)
+        (await-condition! #(seq (rf.http.managed/actor-in-flight-snapshot)))
+        (is (contains? (rf.http.managed/actor-in-flight-snapshot)
                        :rf.http/managed#1))
         ;; Simulate the :after firing by dispatching the synthetic
         ;; timer-elapsed event directly (the after_test.clj pattern —
@@ -285,7 +285,7 @@
                              [:rf.machine.timer/after-elapsed 30000 epoch [:authenticating]]]))
         (is (= :timed-out (:state (snapshot :app/after-test)))
             ":after firing exited :authenticating to :timed-out")
-        (is (empty? (http-managed/actor-in-flight-snapshot))
+        (is (empty? (rf.http.managed/actor-in-flight-snapshot))
             "the cancellation cascade aborted the in-flight HTTP")
         (let [abort-traces (filter #(= :rf.http/aborted-on-actor-destroy
                                        (:operation %))
@@ -294,7 +294,7 @@
               "wall-clock timeout cancelled the wrapper child + fired the rf2-wvkn trace"))
         (.countDown latch)
         (finally
-          (trace/unregister-listener! ::ijm7-4)
+          (rf.trace/unregister-listener! ::ijm7-4)
           (stop-server! srv))))))
 
 ;; ---- (5) sibling fx-form continues to work alongside the machine wrapper -
@@ -318,7 +318,7 @@
                       :decode  :json}]]})))
         (rf/dispatch-sync [:legacy/load {}])
         ;; rf2-fun38: deterministic gate via canonical poll-until.
-        (test-support/poll-until
+        (rf.test-support/poll-until
           #(some? (:result (rf/app-db-value :rf/default)))
           {:timeout-ms 5000 :label "fx-form reply landed on :rf/default"})
         (is (= {:ok true} (:result (rf/app-db-value :rf/default)))

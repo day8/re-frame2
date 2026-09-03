@@ -77,9 +77,9 @@
   Like the rest of the HTTP privacy machinery, the classification runs only
   at trace-emit / capture sites that gate on `interop/debug-enabled?`; in
   production builds the trace surface elides entirely and no body walk runs."
-  (:require [re-frame.late-bind :as late-bind]
-            [re-frame.error :as error]
-            [re-frame.classification :as classification]))
+  (:require [re-frame.late-bind :as rf.late-bind]
+            [re-frame.error :as rf.error]
+            [re-frame.classification :as rf.classification]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -186,8 +186,8 @@
   is unknown, and reporting it as empty would ride the marked slot verbatim."
   [hook schema]
   (if (declares-marks? schema)
-    (let [extract (or (late-bind/get-fn-cached hook)
-                      (error/throw-error!
+    (let [extract (or (rf.late-bind/get-fn-cached hook)
+                      (rf.error/throw-error!
                         :rf.error/schemas-artefact-missing
                         'rf.http/classify-response-body
                         (str "the request's `:decode` schema declares a `:sensitive?` / "
@@ -289,5 +289,5 @@
   [decoded decode]
   (let [{:keys [sensitive large]} (decode-schema-marks decode)]
     (if (or (seq sensitive) (seq large))
-      (classification/redact-with-paths decoded (keys sensitive) (keys large))
+      (rf.classification/redact-with-paths decoded (keys sensitive) (keys large))
       decoded)))

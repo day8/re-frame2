@@ -34,23 +34,23 @@
   app-db) is exercised by `re-frame.http-managed-test` and the
   corresponding CLJS smoke under `implementation/adapters/*`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.registrar :as registrar]
-            [re-frame.http.test-support :as http-test-support]))
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.http.test-support :as rf.http.test-support]))
 
 ;; Ensure each test starts from a known registrar — clear, then reload
 ;; the test-support ns so its load-time registration fires.
 (use-fixtures :each
   (fn [t]
-    (registrar/clear-all!)
+    (rf.registrar/clear-all!)
     (require 're-frame.http.test-support :reload)
     (t)))
 
 (deftest canned-stub-fxs-register-on-test-support-load
   (testing "loading re-frame.http.test-support registers both canned-stub fx ids"
-    (is (some? (registrar/lookup :fx :rf.http/managed-canned-success))
+    (is (some? (rf.registrar/lookup :fx :rf.http/managed-canned-success))
         ":rf.http/managed-canned-success registered")
-    (is (some? (registrar/lookup :fx :rf.http/managed-canned-failure))
+    (is (some? (rf.registrar/lookup :fx :rf.http/managed-canned-failure))
         ":rf.http/managed-canned-failure registered")))
 
 (deftest canned-stub-fxs-delegate-to-canned-handlers
@@ -72,13 +72,13 @@
           ;; null it. Nulling `:router/dispatch!` is global state that
           ;; would silently break every subsequent test's `:dispatch`
           ;; cascade (it is published once at router load, not per-test).
-          original   (late-bind/get-fn :router/dispatch!)]
-      (late-bind/set-fn! :router/dispatch!
+          original   (rf.late-bind/get-fn :router/dispatch!)]
+      (rf.late-bind/set-fn! :router/dispatch!
                          (fn [ev opts] (swap! dispatched conj [ev opts])))
       (try
         ;; Immediate path — no :after-ms. The wrapper must delegate to the
         ;; canned handler body, which calls dispatch-reply-via-late-bind!.
-        ((registrar/handler :fx :rf.http/managed-canned-success)
+        ((rf.registrar/handler :fx :rf.http/managed-canned-success)
          {:frame :rf/default :event [:t/load]}
          {:value {:ok true} :reply-to [:t/load]})
         (is (= 1 (count @dispatched))
@@ -86,7 +86,7 @@
         (is (= :ok (-> @dispatched first first (nth 1) :status))
             "the synthesised reply is the canned handler's success envelope (appended last arg)")
         (finally
-          (late-bind/set-fn! :router/dispatch! original))))))
+          (rf.late-bind/set-fn! :router/dispatch! original))))))
 
 (deftest stub-family-late-bind-hooks-publish-on-test-support-load
   (testing "rf2-lwmgw — loading re-frame.http.test-support publishes the
@@ -97,6 +97,6 @@
             install/uninstall pair is no longer a re-frame.core façade export
             (rf2-ntwwyt) and carries no late-bind hook — it is reached directly
             via this namespace."
-    (is (identical? http-test-support/with-managed-request-stubs*
-                    (late-bind/get-fn :http/with-managed-request-stubs*))
+    (is (identical? rf.http.test-support/with-managed-request-stubs*
+                    (rf.late-bind/get-fn :http/with-managed-request-stubs*))
         ":http/with-managed-request-stubs* → http-test-support/with-managed-request-stubs*")))

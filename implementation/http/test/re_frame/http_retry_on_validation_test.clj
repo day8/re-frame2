@@ -17,15 +17,15 @@
   absent `:on`, and an empty `:on` set, all pass through cleanly."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.http.handlers :as handlers]
-            [re-frame.http.managed :as http-managed]
-            [re-frame.test-support :as test-support]))
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.http.handlers :as rf.http.handlers]
+            [re-frame.http.managed :as rf.http.managed]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; ---- per-test reset --------------------------------------------------------
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- closed-set assertion --------------------------------------------------
 
@@ -37,7 +37,7 @@
              :rf.http/timeout
              :rf.http/http-4xx
              :rf.http/http-5xx}
-           handlers/retryable-categories))))
+           rf.http.handlers/retryable-categories))))
 
 ;; ---- helpers ---------------------------------------------------------------
 
@@ -47,7 +47,7 @@
   [retry]
   (let [args {:request {:method :get :url "http://localhost/x"}
               :retry   retry}]
-    (try (handlers/managed-handler {:frame :rf/default :event [:no-op]} args)
+    (try (rf.http.handlers/managed-handler {:frame :rf/default :event [:no-op]} args)
          nil
          (catch clojure.lang.ExceptionInfo e e))))
 
@@ -58,7 +58,7 @@
          (and (= :rf.error/http-bad-retry-on (:rf.error/id data))
               (= :rf.http/managed         (:where data))
               (= :no-recovery             (:recovery data))
-              (= handlers/retryable-categories (:retryable-set data))
+              (= rf.http.handlers/retryable-categories (:retryable-set data))
               (= bad-members               (:bad-members data))
               (string?                     (:reason data))))))
 
@@ -169,7 +169,7 @@
     validation. The `run-attempt!` that follows attempts the network
     request synchronously on JVM; we don't care about the eventual
     failure here, only that the validator did NOT throw."
-    (doseq [k handlers/retryable-categories]
+    (doseq [k rf.http.handlers/retryable-categories]
       (let [ex (call-managed! {:on #{k} :max-attempts 1})]
         (is (not (and (some? ex)
                       (= :rf.error/http-bad-retry-on (:rf.error/id (ex-data ex)))))
@@ -178,7 +178,7 @@
 (deftest full-closed-set-passes-through
   (testing "rf2-apwkm — the entire closed set as `:on` passes."
     (let [ex (call-managed!
-               {:on  handlers/retryable-categories
+               {:on  rf.http.handlers/retryable-categories
                 :max-attempts 1})]
       (is (not (and (some? ex)
                     (= :rf.error/http-bad-retry-on (:rf.error/id (ex-data ex)))))))))
@@ -187,7 +187,7 @@
   (testing "rf2-apwkm — no `:retry` key at all: the validator is a
     no-op. Most calls don't configure retry."
     (let [args {:request {:method :get :url "http://localhost/x"}}
-          ex   (try (handlers/managed-handler {:frame :rf/default :event [:no-op]} args)
+          ex   (try (rf.http.handlers/managed-handler {:frame :rf/default :event [:no-op]} args)
                     nil
                     (catch clojure.lang.ExceptionInfo e e))]
       (is (not (and (some? ex)

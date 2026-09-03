@@ -25,11 +25,11 @@
   snapshot teardown)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.http.managed :as http-managed]
+            [re-frame.http.managed :as rf.http.managed]
             [re-frame.machines]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace :as trace])
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.trace :as rf.trace])
   (:import [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]
            [java.net InetSocketAddress]
            [java.util.concurrent CountDownLatch TimeUnit]))
@@ -37,7 +37,7 @@
 ;; ---- per-test reset (mirrors http_actor_destroy_cancellation_test.clj) ----
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- in-process latch server ----------------------------------------------
 
@@ -68,7 +68,7 @@
 (defn- await-condition!
   ([pred] (await-condition! pred 5000))
   ([pred timeout-ms]
-   (test-support/poll-until pred {:timeout-ms timeout-ms :interval-ms 10
+   (rf.test-support/poll-until pred {:timeout-ms timeout-ms :interval-ms 10
                                   :label "http-actor-destroy-stale condition"})
    true))
 
@@ -88,7 +88,7 @@
           dispatched (atom [])
           traces  (atom [])]
       (try
-        (trace/register-listener! ::yrrpe2-1
+        (rf.trace/register-listener! ::yrrpe2-1
           (fn [ev]
             (swap! traces conj ev)
             (when (= :rf.event/dispatched (:operation ev))
@@ -119,8 +119,8 @@
                                :start      [:start]}
                       :on    {:cancel :idle}}}})
         (rf/dispatch-sync [:sup/flow [:start]])
-        (await-condition! #(seq (http-managed/actor-in-flight-snapshot)))
-        (is (contains? (http-managed/actor-in-flight-snapshot) :worker/proc#1))
+        (await-condition! #(seq (rf.http.managed/actor-in-flight-snapshot)))
+        (is (contains? (rf.http.managed/actor-in-flight-snapshot) :worker/proc#1))
         ;; Snapshot how many times the actor's own event-id was dispatched
         ;; up to (and including) the spawn/start sequence — the suppressed
         ;; reply must add NO further dispatch to it.
@@ -144,11 +144,11 @@
         (Thread/sleep 150)
         (is (= self-dispatches-before (count (filter #{:worker/proc#1} @dispatched)))
             "the app reply target (addressing the destroyed actor) MUST NOT be dispatched post-destroy")
-        (is (empty? (http-managed/actor-in-flight-snapshot))
+        (is (empty? (rf.http.managed/actor-in-flight-snapshot))
             "actor index is empty after the suppressed abort")
         (.countDown latch))
         (finally
-          (trace/unregister-listener! ::yrrpe2-1)
+          (rf.trace/unregister-listener! ::yrrpe2-1)
           (stop-server! srv))))))
 
 ;; ---- (2) meaningful (ordinary-event) target stays a live :cancelled --------
@@ -161,7 +161,7 @@
           replies (atom [])
           traces  (atom [])]
       (try
-        (trace/register-listener! ::yrrpe2-2 (fn [ev] (swap! traces conj ev)))
+        (rf.trace/register-listener! ::yrrpe2-2 (fn [ev] (swap! traces conj ev)))
         (rf/reg-event :reply/recorder
           (fn [_ [_ payload]] (swap! replies conj payload) {}))
         (rf/reg-machine :worker/proc
@@ -186,7 +186,7 @@
                                :start      [:start]}
                       :on    {:cancel :idle}}}})
         (rf/dispatch-sync [:sup/flow [:start]])
-        (await-condition! #(seq (http-managed/actor-in-flight-snapshot)))
+        (await-condition! #(seq (rf.http.managed/actor-in-flight-snapshot)))
         (rf/dispatch-sync [:sup/flow [:cancel]])
         (await-condition! #(seq @replies))
         (let [reply (first @replies)]
@@ -198,7 +198,7 @@
             "a meaningful target emits NO stale-suppression trace")
         (.countDown latch)
         (finally
-          (trace/unregister-listener! ::yrrpe2-2)
+          (rf.trace/unregister-listener! ::yrrpe2-2)
           (stop-server! srv))))))
 
 ;; ---- (3) rf2-4teurt — the abort-precedence RECLASSIFICATION path -----------
@@ -212,7 +212,7 @@
           dispatched (atom [])
           traces  (atom [])]
       (try
-        (trace/register-listener! ::teurt-3
+        (rf.trace/register-listener! ::teurt-3
           (fn [ev]
             (swap! traces conj ev)
             (when (= :rf.event/dispatched (:operation ev))
@@ -240,8 +240,8 @@
                                :start      [:start]}
                       :on    {:cancel :idle}}}})
         (rf/dispatch-sync [:sup/flow [:start]])
-        (await-condition! #(seq (http-managed/actor-in-flight-snapshot)))
-        (is (contains? (http-managed/actor-in-flight-snapshot) :worker/proc#1))
+        (await-condition! #(seq (rf.http.managed/actor-in-flight-snapshot)))
+        (is (contains? (rf.http.managed/actor-in-flight-snapshot) :worker/proc#1))
         (let [self-dispatches-before (count (filter #{:worker/proc#1} @dispatched))
               ;; Reach the LIVE in-flight handle and reproduce Path B
               ;; DETERMINISTICALLY: flip its abort-precedence cell EXACTLY as
@@ -252,7 +252,7 @@
               ;; finalise-* → emit-and-dispatch-failure! rather than through
               ;; dispatch-aborted!. This isolates the exact reclassification
               ;; path from the inherently-flaky real thread race.
-              handle (first (get (http-managed/actor-in-flight-snapshot) :worker/proc#1))]
+              handle (first (get (rf.http.managed/actor-in-flight-snapshot) :worker/proc#1))]
           (is (some? handle) "the actor-bound in-flight handle is reachable")
           (is (some? (:aborted? handle)) "the handle carries the abort-precedence cell")
           (reset! (:aborted? handle) {:reason :actor-destroyed :actor-id :worker/proc#1})
@@ -274,5 +274,5 @@
           (is (= self-dispatches-before (count (filter #{:worker/proc#1} @dispatched)))
               "the abort-precedence reclassification MUST NOT deliver a live :cancelled reply to the destroyed actor's self-addressed target"))
         (finally
-          (trace/unregister-listener! ::teurt-3)
+          (rf.trace/unregister-listener! ::teurt-3)
           (stop-server! srv))))))

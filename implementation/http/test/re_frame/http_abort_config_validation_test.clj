@@ -36,11 +36,11 @@
   single-outcome."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.http.handlers :as handlers]
-            [re-frame.http.managed :as http-managed]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace :as trace])
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.http.handlers :as rf.http.handlers]
+            [re-frame.http.managed :as rf.http.managed]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.trace :as rf.trace])
   (:import [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]
            [java.net InetSocketAddress]
            [java.util.concurrent CountDownLatch TimeUnit]))
@@ -48,7 +48,7 @@
 ;; ---- per-test reset --------------------------------------------------------
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- helpers ---------------------------------------------------------------
 
@@ -56,7 +56,7 @@
   "Invoke `:rf.http/managed` via the public handler with the given full
   args-map. Returns nil on success / no-throw, or the ex-info on a throw."
   [args-map]
-  (try (handlers/managed-handler {:frame :rf/default :event [:no-op]}
+  (try (rf.http.handlers/managed-handler {:frame :rf/default :event [:no-op]}
                                  args-map)
        nil
        (catch clojure.lang.ExceptionInfo e e)))
@@ -166,7 +166,7 @@
           (fn [_ _] {:fx [[:rf.http/managed-abort :dual]]}))
 
         (rf/dispatch-sync [:issue])
-        (await-condition! #(seq (http-managed/in-flight-snapshot)) 2000)
+        (await-condition! #(seq (rf.http.managed/in-flight-snapshot)) 2000)
         ;; Fire the user abort while the request is in-flight (server blocked).
         (rf/dispatch-sync [:do/abort])
         (await-condition! #(seq @replies))
@@ -184,7 +184,7 @@
               "the user-abort source determines :reason :user"))
         (is (= 1 (count @replies))
             "AT MOST ONE terminal outcome — the once-only :finalised? CAS")
-        (is (empty? (http-managed/in-flight-snapshot))
+        (is (empty? (rf.http.managed/in-flight-snapshot))
             "in-flight registry is clean after the single aborted reply")
         (finally
           (.countDown release)
@@ -210,7 +210,7 @@
           stale-traces (atom [])
           cb-id        ::q8vbna-stale]
       (try
-        (trace/register-listener! cb-id
+        (rf.trace/register-listener! cb-id
           (fn [ev]
             (when (= :rf.http/stale-suppressed (:operation ev))
               (swap! stale-traces conj ev))))
@@ -236,7 +236,7 @@
         (rf/reg-event :search/fresh-ok    (fn [_ _] (reset! fresh-ok?    true) {}))
 
         (rf/dispatch-sync [:search/prior])
-        (await-condition! #(seq (http-managed/in-flight-snapshot)) 2000)
+        (await-condition! #(seq (rf.http.managed/in-flight-snapshot)) 2000)
         ;; Supersede with the same :request-id BEFORE the server answers.
         (rf/dispatch-sync [:search/fresh])
         ;; Release the server so the fresh request can complete.
@@ -260,6 +260,6 @@
           (is (= :rf.http/request-id-superseded (:rf.reply/stale-reason tags))
               ":stale-reason names the supersession"))
         (finally
-          (trace/unregister-listener! cb-id)
+          (rf.trace/unregister-listener! cb-id)
           (.countDown release)
           (stop-server! srv))))))

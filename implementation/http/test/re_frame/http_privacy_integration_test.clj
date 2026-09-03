@@ -16,14 +16,14 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.fx :as fx]
-            [re-frame.http.managed :as http-managed]
+            [re-frame.fx :as rf.fx]
+            [re-frame.http.managed :as rf.http.managed]
             ;; load-bearing: binds the shared schema walker hooks the
             ;; `:decode`-schema redaction/elision path late-binds (rf2-zvbm9).
             [re-frame.schemas]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace :as trace])
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.trace :as rf.trace])
   (:import [com.sun.net.httpserver HttpServer HttpHandler HttpExchange]
            [java.net InetSocketAddress]))
 
@@ -35,7 +35,7 @@
 ;; them between tests (it also clears trace listeners, so no explicit
 ;; clear-listeners! is needed).
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- a tiny in-process HTTP server ----------------------------------------
 
@@ -61,7 +61,7 @@
   "Thin alias over `test-support/poll-until` (rf2-fun38) — preserves
   the per-file arity (`pred`, `timeout-ms`)."
   [pred timeout-ms]
-  (test-support/poll-until pred {:timeout-ms timeout-ms
+  (rf.test-support/poll-until pred {:timeout-ms timeout-ms
                                  :label "http-privacy wait-for"}))
 
 (defn- find-header
@@ -96,7 +96,7 @@
           port (:port srv)
           captured (atom [])]
       (try
-        (trace/register-listener! :test/capture
+        (rf.trace/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
 
         (rf/reg-event :api/fetch
@@ -132,7 +132,7 @@
           port (:port srv)
           captured (atom [])]
       (try
-        (trace/register-listener! :test/capture
+        (rf.trace/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
 
         (rf/reg-event :api/fetch
@@ -170,7 +170,7 @@
           port (:port srv)
           captured (atom [])]
       (try
-        (trace/register-listener! :test/capture
+        (rf.trace/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
 
         (rf/reg-event :api/fetch
@@ -202,9 +202,9 @@
             extends header redaction to app-defined names"
     ;; EP-0025 — re-register :rf.http/managed with the app's :carriers block;
     ;; the redactor unions it onto the immutable defaults at trace egress.
-    (fx/reg-fx :rf.http/managed
+    (rf.fx/reg-fx :rf.http/managed
       {:carriers {:headers ["X-Honeycomb-Team"]}}
-      http-managed/managed-handler)
+      rf.http.managed/managed-handler)
     (let [srv (start-server!
                 (fn [^HttpExchange ex]
                   (-> ex .getResponseHeaders (.set "X-Honeycomb-Team" "hc-token"))
@@ -212,7 +212,7 @@
           port (:port srv)
           captured (atom [])]
       (try
-        (trace/register-listener! :test/capture
+        (rf.trace/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
 
         (rf/reg-event :api/fetch
@@ -247,7 +247,7 @@
           port (:port srv)
           captured (atom [])]
       (try
-        (trace/register-listener! :test/capture
+        (rf.trace/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
 
         (rf/reg-event :api/fetch
@@ -288,7 +288,7 @@
           port (:port srv)
           captured (atom [])]
       (try
-        (trace/register-listener! :test/capture
+        (rf.trace/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
 
         (rf/reg-event :auth/login
@@ -322,16 +322,16 @@
   (testing "a :rf.http/managed :carriers {:query-params [..]} carrier
             (EP-0025) extends URL redaction to app-defined params"
     ;; EP-0025 — re-register :rf.http/managed with the app's query-param carrier.
-    (fx/reg-fx :rf.http/managed
+    (rf.fx/reg-fx :rf.http/managed
       {:carriers {:query-params ["shop_token"]}}
-      http-managed/managed-handler)
+      rf.http.managed/managed-handler)
     (let [srv (start-server!
                 (fn [^HttpExchange ex]
                   (write-response! ex 500 "text/plain" "boom")))
           port (:port srv)
           captured (atom [])]
       (try
-        (trace/register-listener! :test/capture
+        (rf.trace/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
 
         (rf/reg-event :api/fetch
@@ -370,7 +370,7 @@
           port (:port srv)
           captured (atom [])]
       (try
-        (trace/register-listener! :test/capture
+        (rf.trace/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
         ;; The :decode schema is the owner's declaration: [:token] is
         ;; sensitive, [:user-id] is not. No per-call :sensitive? flag.
@@ -409,7 +409,7 @@
           port (:port srv)
           captured (atom [])]
       (try
-        (trace/register-listener! :test/capture
+        (rf.trace/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
         (rf/reg-event :auth/refresh
           (fn [_ _]
@@ -443,7 +443,7 @@
           port (:port srv)
           captured (atom [])]
       (try
-        (trace/register-listener! :test/capture
+        (rf.trace/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
         (rf/reg-event :api/big
           (fn [_ _]
@@ -484,7 +484,7 @@
           port (:port srv)
           captured (atom [])]
       (try
-        (trace/register-listener! :test/capture
+        (rf.trace/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
         ;; No :decode ⇒ :auto ⇒ unschematized ⇒ off-box :omit.
         (rf/reg-event :api/opaque
@@ -520,7 +520,7 @@
           port (:port srv)
           captured (atom [])]
       (try
-        (trace/register-listener! :test/capture
+        (rf.trace/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
         (rf/reg-event :api/login
           (fn [_ _]
@@ -580,7 +580,7 @@
           port (:port srv)
           captured (atom [])]
       (try
-        (trace/register-listener! :test/capture
+        (rf.trace/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
         ;; NO per-call :sensitive? flag — the disposition-5 fix must fire anyway.
         (rf/reg-event :api/fetch
@@ -616,7 +616,7 @@
           port (:port srv)
           captured (atom [])]
       (try
-        (trace/register-listener! :test/capture
+        (rf.trace/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
         (rf/reg-event :api/fetch
           (fn [_ _]
@@ -651,7 +651,7 @@
           port (:port srv)
           captured (atom [])]
       (try
-        (trace/register-listener! :test/capture
+        (rf.trace/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
         ;; :json decode of a non-JSON body throws → :rf.http/decode-failure.
         (rf/reg-event :api/fetch
@@ -702,7 +702,7 @@
           port (:port srv)
           captured (atom [])]
       (try
-        (trace/register-listener! :test/capture
+        (rf.trace/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
         (rf/reg-event :api/login
           (fn [_ _]
@@ -759,7 +759,7 @@
           port (:port srv)
           captured (atom [])]
       (try
-        (trace/register-listener! :test/capture
+        (rf.trace/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
         (rf/reg-event :api/login
           (fn [_ _]
@@ -827,7 +827,7 @@
           port (:port srv)
           captured (atom [])]
       (try
-        (trace/register-listener! :test/capture
+        (rf.trace/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
         (rf/reg-event :api/meta-load
           (fn [{:keys [db]} [_ msg reply]]
@@ -862,9 +862,9 @@
             redacted at [:tags :meta :headers] on the :rf.http/replied trace
             (union onto the immutable defaults), while the delivered reply
             keeps it raw"
-    (fx/reg-fx :rf.http/managed
+    (rf.fx/reg-fx :rf.http/managed
       {:carriers {:headers ["X-Honeycomb-Team"]}}
-      http-managed/managed-handler)
+      rf.http.managed/managed-handler)
     (let [srv (start-server!
                 (fn [^HttpExchange ex]
                   (-> ex .getResponseHeaders (.set "X-Honeycomb-Team" "hc-token"))
@@ -872,7 +872,7 @@
           port (:port srv)
           captured (atom [])]
       (try
-        (trace/register-listener! :test/capture
+        (rf.trace/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
         (rf/reg-event :api/carrier-load
           (fn [{:keys [db]} [_ msg reply]]
@@ -905,7 +905,7 @@
           port (:port srv)
           captured (atom [])]
       (try
-        (trace/register-listener! :test/capture
+        (rf.trace/register-listener! :test/capture
                                   (fn [ev] (swap! captured conj ev)))
         (rf/reg-event :api/sensitive-load
           (fn [{:keys [db]} [_ msg reply]]

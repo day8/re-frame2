@@ -30,12 +30,12 @@
    4. GUARD: an uncancelled backoff still retries (no regression)"
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.http.managed :as http-managed]
-            [re-frame.http.registry :as registry]
+            [re-frame.http.managed :as rf.http.managed]
+            [re-frame.http.registry :as rf.http.registry]
             [re-frame.machines]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace :as trace])
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.trace :as rf.trace])
   (:import [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]
            [java.net InetSocketAddress]
            [java.util.concurrent.atomic AtomicInteger]))
@@ -43,7 +43,7 @@
 ;; ---- per-test reset --------------------------------------------------------
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- hit-counting always-500 server ---------------------------------------
 
@@ -88,7 +88,7 @@
 (defn- await-condition!
   ([pred] (await-condition! pred 5000))
   ([pred timeout-ms]
-   (test-support/poll-until pred {:timeout-ms timeout-ms :interval-ms 10
+   (rf.test-support/poll-until pred {:timeout-ms timeout-ms :interval-ms 10
                                   :label "http-backoff-cancellation condition"})
    true))
 
@@ -142,7 +142,7 @@
         (rf/dispatch-sync [:issue])
         ;; Attempt #1 fails 500 → request sleeps in the backoff window.
         (await-backoff-sleeping! hits)
-        (is (contains? (registry/in-flight-snapshot) :race)
+        (is (contains? (rf.http.registry/in-flight-snapshot) :race)
             "the sleeping request is visible in the in-flight registry during backoff (the defect made it invisible here)")
         ;; Abort squarely inside the 2000ms window.
         (rf/dispatch-sync [:do/abort])
@@ -152,7 +152,7 @@
           (is (= :rf.http/aborted (get-in reply [:error :kind]))
               "abort during backoff dispatches the canonical :rf.http/aborted reply")
           (is (= :user (get-in reply [:error :reason]))))
-        (is (empty? (registry/in-flight-snapshot))
+        (is (empty? (rf.http.registry/in-flight-snapshot))
             "the registry is cleared the instant the backoff is cancelled")
         (assert-no-retry-fired! hits)
         (is (= 1 (count @replies))
@@ -193,7 +193,7 @@
         ;; Attempt #1 fails 500 → request sleeps in the backoff window,
         ;; registered under BOTH the request-id and actor-in-flight index.
         (await-backoff-sleeping! hits)
-        (is (= 1 (count (registry/actor-in-flight-snapshot)))
+        (is (= 1 (count (rf.http.registry/actor-in-flight-snapshot)))
             "the sleeping retry is indexed under its issuing actor during backoff (the defect emptied this slot)")
         ;; Destroy the actor squarely inside the backoff window.
         (rf/dispatch-sync [:sup/race [:cancel]])
@@ -203,9 +203,9 @@
           (is (= :rf.http/aborted (get-in reply [:error :kind])))
           (is (= :actor-destroyed (get-in reply [:error :reason]))
               "actor-destroy during backoff surfaces :reason :actor-destroyed"))
-        (is (empty? (registry/actor-in-flight-snapshot))
+        (is (empty? (rf.http.registry/actor-in-flight-snapshot))
             "the actor index is clean — no stale entry left for a destroyed actor")
-        (is (empty? (registry/in-flight-snapshot)))
+        (is (empty? (rf.http.registry/in-flight-snapshot)))
         (assert-no-retry-fired! hits)
         (is (= 1 (count @replies)))
         (finally
@@ -246,7 +246,7 @@
         (rf/dispatch-sync [:issue-old])
         ;; Old request's attempt #1 fails 500 → sleeps in the backoff window.
         (await-backoff-sleeping! hits)
-        (is (contains? (registry/in-flight-snapshot) :shared))
+        (is (contains? (rf.http.registry/in-flight-snapshot) :shared))
         ;; Supersede with a fresh same-id request, squarely inside the
         ;; old request's backoff window.
         (rf/dispatch-sync [:issue-new])
@@ -282,7 +282,7 @@
           traces  (atom [])
           lid     ::supersede-backoff-stale]
       (try
-        (trace/register-listener! lid (fn [ev] (swap! traces conj ev)))
+        (rf.trace/register-listener! lid (fn [ev] (swap! traces conj ev)))
         (rf/reg-event :reply/recorder
           (fn [_ [_ payload]] (swap! replies conj payload) {}))
         (rf/reg-event :issue-old
@@ -313,11 +313,11 @@
         ;; sleeping handle now represents attempt #2 (issuance 1, attempt 2).
         (await-condition! #(>= (.get hits) 2))
         (Thread/sleep 150)
-        (is (contains? (registry/in-flight-snapshot) :shared)
+        (is (contains? (rf.http.registry/in-flight-snapshot) :shared)
             "the old request is still registered, sleeping in attempt #2's backoff window")
         ;; Supersede with a fresh same-id request squarely inside that window.
         (rf/dispatch-sync [:issue-new])
-        (test-support/poll-until
+        (rf.test-support/poll-until
           #(some (fn [ev] (= :rf.http/stale-suppressed (:operation ev))) @traces)
           {:timeout-ms 5000 :label "supersede-backoff-stale"})
         (let [stale (filter #(= :rf.http/stale-suppressed (:operation %)) @traces)]
@@ -349,7 +349,7 @@
         (is (every? #(not= :request-id-superseded (get-in % [:error :reason])) @replies)
             "no :request-id-superseded reply is dispatched to the user")
         (finally
-          (trace/unregister-listener! lid)
+          (rf.trace/unregister-listener! lid)
           (stop-server! srv)
           (stop-server! new-srv))))))
 
@@ -384,7 +384,7 @@
           (is (= :error (:status reply)))
           (is (= :rf.http/http-5xx (get-in reply [:error :kind]))
               "after the retry exhausts, the final reply carries the real failure category, not :rf.http/aborted"))
-        (is (empty? (registry/in-flight-snapshot))
+        (is (empty? (rf.http.registry/in-flight-snapshot))
             "the registry is clean after the retry exhausts")
         (is (= 1 (count @replies))
             "exactly one final reply across the retry sequence")
