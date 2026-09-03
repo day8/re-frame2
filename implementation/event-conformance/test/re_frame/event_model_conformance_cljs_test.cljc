@@ -249,19 +249,42 @@
         (is (false? @handler-ran?)
             "the handler never ran — missing-required halts the cascade before the handler")))))
 
-(deftest reg-event-explicit-live-mint-policy-mints-the-declared-nondeterminism-escape
-  (testing "explicit-live policy opts into minting a missing recordable fact"
-    (let [delivered (atom ::unset)]
+(deftest reg-event-explicit-live-mint-policy-overrides-a-strict-frame
+  (testing "the per-call :explicit-live opt is the DISCRIMINATOR: on a `:preset
+            :test` frame — whose mint policy defaults to :strict — the SAME
+            dispatch mints only when the opt rides it (EP-0017 §6). Dispatched
+            into the fixture's ambient :rf/default frame the row would pass
+            whether or not the opt was honoured, since that frame is already
+            :live (rf2-6r9j.99)."
+    (let [generator-call-count (atom 0)
+          delivered            (atom ::unset)]
+      (rf/make-frame {:id :evt-conf/escape-frame :preset :test})
       (rf/reg-cofx :evt-conf/escape-fact
         {:recordable? true}
-        (fn [] :minted-under-escape))
+        (fn [] (swap! generator-call-count inc) :minted-under-escape))
       (rf/reg-event :evt-conf/uses-escape-fact
         {:rf.cofx/requires [:evt-conf/escape-fact]}
         (fn [{:keys [evt-conf/escape-fact]} _] (reset! delivered escape-fact) {}))
-      (rf/dispatch-sync [:evt-conf/uses-escape-fact]
-                        {:rf.cofx/mint-policy :explicit-live})
-      (is (= :minted-under-escape @delivered)
-          ":explicit-live mints a declared-absent generator-backed fact (the declared-nondeterminism escape, NOT strict)"))))
+      (testing "CONTROL — the SAME dispatch WITHOUT the opt is refused by the
+                frame's :strict default: no mint, no host read, no delivery"
+        (is (= :rf.error/missing-required-cofx
+               (thrown-error-id
+                 #(rf/dispatch-sync [:evt-conf/uses-escape-fact]
+                                    {:frame :evt-conf/escape-frame})))
+            "without the opt the :test frame's :strict default refuses the declared-absent fact")
+        (is (zero? @generator-call-count)
+            "the generator NEVER ran under the frame's :strict default")
+        (is (= ::unset @delivered)
+            "the handler never ran — missing-required halted the cascade"))
+      (testing "the per-call :explicit-live opt ALONE flips that same dispatch
+                to exactly one mint plus flat delivery"
+        (rf/dispatch-sync [:evt-conf/uses-escape-fact]
+                          {:frame               :evt-conf/escape-frame
+                           :rf.cofx/mint-policy :explicit-live})
+        (is (= 1 @generator-call-count)
+            ":explicit-live overrode the frame's :strict — the generator ran exactly once")
+        (is (= :minted-under-escape @delivered)
+            "the minted fact was delivered flat (the declared-nondeterminism escape, NOT strict)")))))
 
 (deftest reg-event-typo-cofx-is-the-hard-error
   (testing "requiring an unregistered coeffect is a hard error"
@@ -691,6 +714,13 @@
       (is (not (contains? event-metadata :event/kind))
           "the `:event/kind` sub-tag is GONE (one form, no kind discriminator)")
       ;; THE wrapper lock — exactly ONE framework wrapper, named :rf/event-handler.
+      ;; This EXACT-VECTOR equality is also what excludes the retired per-kind
+      ;; wrapper ids (`:rf/db-handler` / `:rf/fx-handler` / `:rf/ctx-handler`):
+      ;; a singleton `[:rf/event-handler]` cannot contain any of them, and it
+      ;; refuses an extra wrapper and a wrong order too. A second registration
+      ;; asserting those three non-memberships restates a consequence of this
+      ;; line rather than exercising another path — every `reg-event` takes the
+      ;; one form (rf2-6r9j.101).
       (is (= [:rf/event-handler] (mapv :id (:interceptors event-metadata)))
           "the ONLY framework wrapper is the single :rf/event-handler interceptor")
       (let [event-wrapper (first (:interceptors event-metadata))]
@@ -698,16 +728,6 @@
             "the wrapper id is :rf/event-handler")
         (is (true? (:rf/default? event-wrapper))
             "the wrapper carries :rf/default? true (filtered as a framework auto-wrapper)")))))
-
-(deftest reg-event-no-per-kind-wrapper-ids-survive
-  (testing "the unified event wrapper excludes the retired per-kind wrapper ids"
-    (rf/reg-event :evt-conf/wrapper-drift (fn [_ _] {}))
-    (let [ids (set (mapv :id (:interceptors (rf/handler-meta :event :evt-conf/wrapper-drift))))]
-      (is (= #{:rf/event-handler} ids)
-          "exactly one wrapper id; the unified :rf/event-handler")
-      (is (not (contains? ids :rf/db-handler))  "the retired :rf/db-handler wrapper is gone")
-      (is (not (contains? ids :rf/fx-handler))  "the retired :rf/fx-handler wrapper is gone")
-      (is (not (contains? ids :rf/ctx-handler)) "the retired :rf/ctx-handler wrapper is gone"))))
 
 (deftest reg-event-chain-references-an-interceptor-from-public-reg-interceptor
   (testing "an event chain resolves an interceptor registered through the public facade"

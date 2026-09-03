@@ -20,10 +20,19 @@
       stale reply is a well-formed envelope, so non-delivery is not confused with
       malformed data.
 
-  Both stale cases route to an EXPLICIT non-default frame carrying its OWN image
+  The stale case routes to an EXPLICIT non-default frame carrying its OWN image
   handler PLUS a same-id default-registrar sentinel, so neither a targeting
   fall-through (to the ambient default frame) nor a resolution fall-through (to
-  the default registrar) can hide behind an ambient dispatch."
+  the default registrar) can hide behind an ambient dispatch. Its non-delivery
+  tooth is the PAIR of call-count reads that straddle the observer's dispatch —
+  zero before, exactly one after — so a runtime that app-delivered the stale
+  reply itself would be caught. A second row that only built the `suppress`
+  outcome and then asserted nothing had happened was removed (rf2-6r9j.97): it
+  invoked no delivery code, so its zero-call and unchanged-app-db assertions
+  followed from the test rather than from the runtime. The pure `suppress` laws
+  — universal `:deliver? false`, the stale envelope's shape, the absent
+  `:value` — are `re-frame.reply-cljs-test`'s, asserted there across every
+  target shape; this suite does not restate them."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
@@ -213,57 +222,3 @@
             "targeting did NOT fall through to the ambient default frame")
         (is (nil? registrar/*generation*)
             "the image generation binding unwound after the dispatch")))))
-
-(deftest a-stale-completion-is-non-delivering-without-an-explicit-observer
-  (testing "an app reply target with a superseded correlation is NON-delivering:
-            with NO observer self-dispatch, the app handler never runs on ANY
-            frame, yet the stale reply is well-formed data"
-    ;; Same-id global sentinel again: a leaked delivery WOULD be observable.
-    (rf/reg-event :article/loaded
-      (fn [{:keys [db]} _] {:db (assoc db :delivered-by :global)}))
-    (is (some? (registrar/lookup :event :article/loaded))
-        "the same-id global sentinel is armed (a delivery WOULD be observable)")
-    (let [seen-event (atom ::unset)
-          call-count (atom 0)
-          pool [(event-desc "evt.reply.app" :article/loaded
-                  (fn [{:keys [db]} event]
-                    (swap! call-count inc)
-                    (reset! seen-event event)
-                    {:db (assoc db :delivered-by :image)}))]
-          img  (image/image {:id :evt.reply/app-img :select-ns {:include ["evt.reply.app"]}})
-          _    (lf/make-frame {:id :evt.reply/app-frame :images [img]} pool)
-          ;; A NORMAL app target: the bare public short form built from
-          ;; `:rf/reply-to` data. `suppress` is UNIVERSALLY non-delivering, and
-          ;; nobody self-dispatches — so the app handler never runs.
-          target  [:article/loaded {:id 42}]
-          carried {:work/id [:rf.work/resource [:rf.scope/global :r {}] 4] :generation 4}
-          current {:work/id [:rf.work/resource [:rf.scope/global :r {}] 5] :generation 5}
-          outcome (reply/suppress target carried current
-                    {:rf.reply/work-id (:work/id carried)
-                     :work/kind        :resource
-                     :rf.frame/id      :evt.reply/app-frame})]
-      (testing "the suppression outcome is NON-delivering"
-        (is (false? (:deliver? outcome))
-            "a stale outcome yields :deliver? false — no app delivery"))
-      (testing "no handler ran and NO app-db mutated — on EITHER the explicit
-                frame or the ambient default frame (nobody self-dispatched)"
-        (is (= ::unset @seen-event) "the app handler was never invoked")
-        (is (zero? @call-count)     "the target handler ran zero times")
-        (is (nil? (:delivered-by (rf/app-db-value :evt.reply/app-frame)))
-            "the explicit frame's app-db is unmutated (no stale write leaked in)")
-        (is (nil? (:delivered-by (rf/app-db-value :rf/default)))
-            "the ambient default frame's app-db is unmutated"))
-      (testing "non-delivery is NOT malformed data (AC #4) — the suppressed reply
-                is still a valid, well-formed stale envelope"
-        (let [reply (:reply outcome)]
-          (is (reply/valid-reply? reply)
-              (str "the non-delivered reply is still a canonical stale envelope: "
-                   (reply/validate-reply reply)))
-          (is (= :stale (:status reply))                    ":status :stale")
-          (is (= :suppressed (:rf.reply/work-status reply)) ":rf.reply/work-status :suppressed")
-          (is (true? (:stale? reply))                       "the :stale? marker rides")
-          (is (some? (:rf.reply/stale-reason reply))        "a :rf.reply/stale-reason rides")
-          (is (not (contains? reply :value))
-              "a stale reply carries NO :value — non-delivery, not a partial write")
-          (is (contains? reply/statuses (:status reply))
-              ":stale is in the ONE closed status vocabulary"))))))
