@@ -204,8 +204,7 @@
           ;; absorbs. The contract under test is unchanged: `catch
           ;; Throwable, then finally close out` — the writer returns
           ;; normally and the OutputStream is left closed.
-          rendered {:hiccup        [:div]
-                    :head-html     ""
+          rendered {:head-html     ""
                     :html-attrs    nil
                     :body-attrs    nil
                     :shell-html    "<div></div>"

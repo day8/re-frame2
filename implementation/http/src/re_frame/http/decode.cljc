@@ -302,7 +302,7 @@
       ;; parsing is attempted). Any throw propagates untouched to
       ;; the transport's decode try/catch, which classifies it as
       ;; `:rf.http/decode-failure`.
-      (some? resolved)
+      :else
       ;; The schema decode path is JSON-only: the only
       ;; Malli transformer the decoder wires is the `json-transformer`,
       ;; so a schema rides a JSON body by construction (Spec 014
@@ -334,7 +334,4 @@
         (let [parsed (if (empty-2xx-json-body? body-text)
                        nil
                        (http-json/json-parse body-text parse-opts))]
-          (malli-decode resolved parsed)))
-
-      :else
-      body-text)))
+          (malli-decode resolved parsed))))))

@@ -125,8 +125,7 @@
   Returns the pre-rendered pieces the daemon writer needs to drain the
   chunk stream:
 
-    {:hiccup        <resolved root hiccup>     ;; for the final-hash
-     :head-html     \"…\"                        ;; resolved <head> fragment
+    {:head-html     \"…\"                        ;; resolved <head> fragment
      :html-attrs    {…} or nil                  ;; stamped on <html>
      :body-attrs    {…} or nil                  ;; stamped on <body>
      :head-hash     \"…\" or nil                  ;; client-reconstructible head-model hash
@@ -198,8 +197,7 @@
           ;; string / degraded resolution).
           head-hash  (lifecycle/render-head-hash (:head-model head-bag))
           {:keys [shell-html continuations]} (streaming/render-shell hiccup)]
-      {:hiccup        hiccup
-       :head-html     head-html
+      {:head-html     head-html
        :html-attrs    html-attrs
        :body-attrs    body-attrs
         ;; Head state is drain-invariant, so the writer reuses this pre-drain
