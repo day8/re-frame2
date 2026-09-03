@@ -53,7 +53,7 @@ unless the user asked for the inventory.
 | The evidence sought | First surface | First interaction | Natural next step |
 |---|---|---|---|
 | What did this one dispatch do — the whole cascade, where it failed, what fx fired | **Dynamic → Epoch** (the default landing tab) | pick the frame, click the event row in the L2 list | **Trace** for raw op ordering |
-| What changed in state — is the value I expect actually there | **Dynamic → app-db** | pick the event; changed paths carry inline `← was X` diffs | hover a changed path for its downstream subs |
+| What changed in state — is the value I expect actually there | **Dynamic → app-db** | pick the event; changed paths carry inline `← was X` diffs | **Views** for what re-rendered off the change |
 | Why did this render — sub change or props, what recomputed | **Dynamic → Views** | pick the event; read the render-cause chips (`← :sub-id` vs `← props`) | **app-db** at the sub's input path |
 | Exact raw ordering / payloads the friendly views summarise | **Dynamic → Trace** | pick the event; click a row to expand it | — |
 | What this event did to a state machine — transition, guards, actions | **Dynamic → Machine** (event-driven; blank when the event touched no machine) | pick the event | **Static → Machines** to browse a full topology cold |

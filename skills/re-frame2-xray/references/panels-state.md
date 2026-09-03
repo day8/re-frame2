@@ -33,16 +33,12 @@ clutter. The operator-facing section labels map onto framework state in
 the runtime-db partition; the mapping is normative in
 [`004-App-DB-Diff.md` §Reserved-keys group](../../../tools/xray/spec/004-App-DB-Diff.md).
 
-**Downstream-subs hover popover** — hover any changed path to surface
-the subs depending on it + the views they render + an inline `⤴` jump to
-the Views panel scrolled to those subs. Keyboard-dismissable.
-
 When the L2 spine is at head (no historical epoch focused), sections show
 the most-recent epoch's state with its inline diffs — current db,
 sectioned. Same render shape, no second mode.
 
-**Open when:** "what just changed in app-db?", "what's downstream of
-`[:cart :items]`?", "show me the full db at this epoch."
+**Open when:** "what just changed in app-db?", "when did
+`[:cart :items]` last change?", "show me the full db at this epoch."
 
 Spec: [`021-Dynamic-Panel-Designs.md` §4](../../../tools/xray/spec/021-Dynamic-Panel-Designs.md)
 + [`004-App-DB-Diff.md`](../../../tools/xray/spec/004-App-DB-Diff.md).

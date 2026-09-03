@@ -59,7 +59,7 @@
  "name": "panel-route-state",
  "should_trigger": true,
  "prompt": "Which Xray panel shows me when [:cart :items] last changed in app-db?",
- "expected_output": "The agent's first paragraph routes to ONE first surface: the Dynamic app-db tab (with the L2 spine to locate the epoch that changed the path). It names the first interaction — pick the frame/event; changed paths carry the inline `← was X` diff — and may offer the downstream-subs hover as the natural next step. It does NOT enumerate the full tab inventory for this one routed question.",
+ "expected_output": "The agent's first paragraph routes to ONE first surface: the Dynamic app-db tab (with the L2 spine to locate the epoch that changed the path). It names the first interaction — pick the frame/event; changed paths carry the inline `← was X` diff. It does NOT enumerate the full tab inventory for this one routed question.",
  "expectations": [
  "The output's first paragraph names the Dynamic app-db tab as the first surface (using the L2 event spine to find the epoch that changed the path).",
  "The output names the first interaction — pick the frame and event; changed paths carry the inline `← was X` diff annotation.",
