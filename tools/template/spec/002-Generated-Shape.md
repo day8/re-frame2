@@ -68,9 +68,12 @@ bundle load, and thereafter invokes only `^:dev/after-load` hooks
 therefore carries such a hook — `mount!` — and that hook, not `init`, is
 what a save re-runs:
 
-1. **One retained root.** The React root lives in a `defonce` cell;
-   `mount!` creates it once and renders into it on every call rather
-   than creating a second root over a live DOM node.
+1. **One retained root.** The React root lives in a `defonce` cell and
+   is created once, then rendered into on every later call rather than
+   a second root going over a live DOM node. Reagent puts an
+   adapter-owned `client-root` handle in that cell and lets the first
+   `reagent-adapter/render!` create the underlying Root; UIx puts the
+   `uix.dom/create-root` Root there itself.
 2. **The frame is created by the view, and reused.** `rf/frame-root`
    (or `uix-adapter/frame-root`) creates `:rf/default` the first time,
    running `:initial-events [[:counter/initialise]]` synchronously so
@@ -83,7 +86,9 @@ what a save re-runs:
 
 `template_emission_test.clj` pins these facts on the emitted
 `core.cljs`: exactly one `^:dev/after-load` hook, its body renders,
-`init` calls it, exactly one `create-root`, a `defonce` root, and the
+`init` calls it, exactly one root allocation
+(`reagent-adapter/client-root` or `uix-dom/create-root`), a `defonce`
+cell holding it, and the
 `:initial-events` seed. The behavioural tier then proves the page a
 newcomer opens actually mounts and moves the counter 0 → 1 in Chromium.
 

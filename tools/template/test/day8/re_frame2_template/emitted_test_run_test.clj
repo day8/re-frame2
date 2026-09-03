@@ -74,13 +74,17 @@
 ;; --- deps.edn local-root rewrite ------------------------------------------
 
 (defn- rewrite-deps-for-local-run!
-  "Swap the `day8/re-frame2*` :mvn/version coords in a project's deps.edn
-  for `:local/root` paths into the in-repo source tree, then write it
-  back. Core and the substrate adapter are always rewritten; schemas and
-  Xray only when the deps.edn names them (neither the template nor the
-  setup skill's derived scaffold does any more — the arms stay for a
-  project that added them) — an unconditional assoc would ADD a
-  coordinate the project does not declare."
+  "Swap the two `day8/re-frame2*` :mvn/version coords in a project's
+  deps.edn for `:local/root` paths into the in-repo source tree, then
+  write it back. Core and the substrate adapter are the whole set: since
+  rf2-zq34m both callers hand this a deps.edn carrying exactly those two
+  framework coords (the emitted scaffold; the setup skill's derived leaf,
+  which `mount-skill-scaffold!` asserts against `reduced-day-one-coords`
+  right after this call), and `template_test.clj` forbids every other
+  `day8/re-frame2*` coordinate in an emitted project. A future fixture
+  that deliberately adds an optional artefact adds its rewrite here
+  together with a test that reaches the new arm — speculative arms for
+  coordinates no caller declares are what this docstring replaced."
   [^java.io.File root ^java.io.File proj-dir substrate]
   (let [deps-file (io/file proj-dir "deps.edn")
         deps      (edn/read-string (slurp deps-file))
@@ -92,17 +96,11 @@
         adapter-coord (symbol "day8" (str "re-frame2-" (name substrate)))
         adapter-path  (str "implementation/adapters/" (name substrate))
         rewritten
-        (cond-> (-> deps
-                    (assoc-in [:deps 'day8/re-frame2]
-                              {:local/root (rel-of "implementation/core")})
-                    (assoc-in [:deps adapter-coord]
-                              {:local/root (rel-of adapter-path)}))
-          (contains? (:deps deps) 'day8/re-frame2-schemas)
-          (assoc-in [:deps 'day8/re-frame2-schemas]
-                    {:local/root (rel-of "implementation/schemas")})
-          (contains? (:deps deps) 'day8/re-frame2-xray)
-          (assoc-in [:deps 'day8/re-frame2-xray]
-                    {:local/root (rel-of "tools/xray")}))]
+        (-> deps
+            (assoc-in [:deps 'day8/re-frame2]
+                      {:local/root (rel-of "implementation/core")})
+            (assoc-in [:deps adapter-coord]
+                      {:local/root (rel-of adapter-path)}))]
     (spit deps-file (with-out-str (pprint/pprint rewritten)))))
 
 ;; --- node_modules symlink --------------------------------------------------

@@ -430,9 +430,10 @@ is_story_xray_node_test_path() {
 #     one should be a deliberate edit here rather than a silent widening.
 #
 # Its NON-CLJS fan-out is unchanged and already correct: `tools/story/src/*`
-# arms examples_compile, and the `tools/{story,xray}/*` case arms tools_jvm,
-# mcp_conformance and template_expensive (the emitted-`:app` compile), for
-# macros.clj as for any other src file.
+# arms examples_compile, and the `tools/{story,xray}/*` case arms tools_jvm
+# and mcp_conformance, for macros.clj as for any other src file. (It does NOT
+# arm template_expensive: rf2-6r9j.108 removed that fan-out when rf2-zq34m's
+# reduced scaffold stopped compiling against either tool. See that case.)
 is_story_xray_dom_test_path() {
   case "$1" in
     tools/story/test/*_dom_cljs_test.cljs|tools/story/test/*_dom_cljs_test.cljc)
@@ -721,9 +722,10 @@ else
     # is what `skills_structural=true` actually means here. The three added
     # roots also each already have an arm in the big `case` below (the
     # per-feature fan-out), so the shadowing argument above applies to them
-    # unchanged — epoch keeps `mcp_conformance`/`mcp_live`, schemas keeps
-    # `template_expensive`, machines keeps the machines-viz and `playground`
-    # lanes. This dispatch only ever SETS the flag; it cannot narrow them.
+    # unchanged — epoch keeps `mcp_conformance`/`mcp_live`, schemas keeps its
+    # own per-feature lanes (implementation_jvm, cljs_*, bundle_isolation),
+    # machines keeps the machines-viz and `playground` lanes. This dispatch
+    # only ever SETS the flag; it cannot narrow them.
     #
     # The over-fire trade is the same one, and no larger: ssr and hicasso
     # over-fire `re-frame2-pair-fixture-pure`, epoch/schemas/machines over-fire
@@ -1154,24 +1156,22 @@ else
         cljs_browser=true
         cljs_prod=true
         bundle_isolation=true
-        # rf2-jdj17.1 — false-green fix. The template's generated `:app`
-        # build compiles `day8/re-frame2-schemas` (events.cljs side-loads
-        # re-frame.schemas + re-frame.schemas.malli; schema.cljs calls
-        # rf/reg-app-schema). The ONLY PR-time gate that compiles the
-        # emitted `:app` (emitted_test_run_test, RF2_TEMPLATE_RUN_EMITTED_TESTS)
-        # fires only under template_expensive. So a PR breaking the
-        # re-frame.schemas / reg-app-schema surface used to merge GREEN at
-        # PR time and surface only in the nightly cron. Fire
-        # template_expensive for an implementation/schemas/* change so
-        # jvm-tools-template runs the emitted-app compile at PR time.
-        # (The other per-feature artefacts here — machines/routing/flows/
-        # http/ssr/ssr-ring — are NOT pulled into today's scaffold,
-        # so they do not arm template_expensive; add them here if a future
-        # scaffold flag wires one in. epoch has its own case above,
-        # rf2-ribu5a.)
-        case "$file" in
-          implementation/schemas/*) template_expensive=true ;;
-        esac
+        # rf2-6r9j.108 — NO template_expensive arm here, for schemas or for
+        # any other per-feature artefact. rf2-jdj17.1 armed it for
+        # implementation/schemas/* because the then-current scaffold's
+        # events.cljs side-loaded re-frame.schemas and its schema.cljs called
+        # rf/reg-app-schema. rf2-zq34m (18b9486664) deleted both: today's
+        # twelve-file emission requires core, the selected adapter and the
+        # view library only, and `template_test.clj` FORBIDS
+        # `day8/re-frame2-schemas` in an emitted deps.edn and the strings
+        # `re-frame.schemas` / `reg-app-schema` in any emitted text file. So
+        # the generated `:app` has no schemas edge for a schemas change to
+        # break, and firing the ~30-minute jvm-tools-template job (npm ci +
+        # Playwright Chromium) for one bought nothing. schemas keeps every
+        # lane of its own above — implementation_jvm, cljs_node_test,
+        # cljs_browser, cljs_prod, bundle_isolation. Re-add an arm here only
+        # WITH a real emitted dependency and a fixture that compiles it.
+        # (epoch has its own case above, rf2-ribu5a.)
         # rf2-2h1yhk / rf2-tzy13 — the docs/cljs live-cell SCI bundle BAKES IN
         # the machines and flows artefacts (`re-frame.machines` +
         # `re-frame.flows` are :require'd at bundle init, and the bundle carries
@@ -2107,24 +2107,26 @@ else
           *)
             tools_jvm=true
             mcp_conformance=true
-            # rf2-jdj17.1 — false-green fix. The template's generated
-            # `:app` build compiles against Story + Xray: the with-story
-            # scaffold's core requires re-frame.story and calls
-            # story/mount-shell! / unmount-shell!, and EVERY scaffold wires
-            # day8.re-frame2-xray.preload via :devtools/preloads in
-            # shadow-cljs.edn. The ONLY PR-time gate that compiles the
-            # emitted `:app` (emitted_test_run_test,
-            # RF2_TEMPLATE_RUN_EMITTED_TESTS) fires only under
-            # template_expensive — so a PR breaking the re-frame.story
-            # shell API or renaming/removing the xray preload ns used to
-            # merge GREEN at PR time and surface only in the nightly cron
-            # (generated apps then fail their first `shadow-cljs watch app`
-            # / `release app`). Fire template_expensive for any non-spec-md
-            # Story/Xray change so jvm-tools-template runs the emitted-app
-            # compile at PR time. Scoped exactly like tools_jvm/mcp above:
-            # a pure spec-md change can't break the generated `:app`
-            # compile, so it stays excluded.
-            template_expensive=true
+            # rf2-6r9j.108 — deliberately NO template_expensive arm.
+            # rf2-jdj17.1 fired it here because the then-current scaffold
+            # compiled against both tools: a `:with-story` variant whose core
+            # required re-frame.story and called story/mount-shell!, and
+            # `:devtools/preloads [day8.re-frame2-xray.preload]` in every
+            # emitted shadow-cljs.edn. rf2-zq34m (18b9486664) removed the
+            # Story variant and the preload outright. Today's emitted
+            # shadow-cljs.edn declares no `:devtools/preloads` at all, no
+            # emitted file names either tool (the generated README links their
+            # docs under `docs/`, which is not this surface), and
+            # `template_test.clj` FORBIDS `day8/re-frame2-xray` /
+            # `day8/re-frame2-story` in deps.edn plus the strings
+            # `day8.re-frame2-xray`, `data-rf-xray-host` and `include-story?`
+            # in any emitted text file. So a Story/Xray change cannot break
+            # the generated `:app` compile, and queueing the ~30-minute
+            # jvm-tools-template job (npm ci + Playwright Chromium) for one
+            # bought nothing. Both tools keep every lane of their own —
+            # tools_jvm and mcp_conformance right here, and story_xray_browser
+            # below. Re-add an arm only WITH a real emitted dependency and a
+            # fixture that compiles it.
             ;;
         esac
         # story_xray_browser is narrowed (rf2-k9ekz): it fires ONLY when

@@ -5,39 +5,39 @@
  * `npx shadow-cljs watch app`.
  *
  * Driven by `emitted_test_run_test.clj` (behind `RF2_TEMPLATE_RUN_EMITTED_TESTS`),
- * as a sibling of `ssr-hydration-dom-proof.cjs`. The JVM half has already
- * generated the scaffold, rewritten its deps to :local/root, linked
- * node_modules, and run `shadow compile app` — so `<proj>/resources/public`
- * holds the emitted `index.html`, `css/app.css`, and the DEV (`:optimizations
- * :none`) bundle at `js/main.js` + `js/cljs-runtime/`.
+ * which runs it for the Reagent variant, the UIx variant, and the setup
+ * skill's shipped leaf scaffold. The JVM half has already generated the
+ * scaffold, rewritten its deps to :local/root, linked node_modules, and run
+ * `shadow compile app` — so `<proj>/resources/public` holds the emitted
+ * `index.html`, `css/app.css`, and the DEV (`:optimizations :none`) bundle at
+ * `js/main.js` + `js/cljs-runtime/`.
  *
- * WHY THIS EXISTS. Until this proof, no gate anywhere loaded the emitted
- * `index.html` in a browser. Everything upstream compiles through the pure-JVM
- * route, and the only browser proof drives a SYNTHETIC `_ssr_proof.html`
- * rendered by the SSR server — a page that never carries the emitted
- * `index.html`'s `<meta http-equiv="Content-Security-Policy">`. So a CSP that
- * blocks the dev bundle outright shipped green: shadow's `:none` builds load
- * every namespace through `goog.globalEval`, and without `'unsafe-eval'` in
- * `script-src` the documented first run is a BLANK PAGE on every variant.
- * That is the defect this driver exists to catch, and it can only be caught by
- * loading the REAL emitted page.
+ * WHY THIS EXISTS. Every other gate over the generated app stops at the
+ * pure-JVM route: it compiles, so it is presumed to boot. But a scaffold can
+ * compile clean and still hand a newcomer a BLANK PAGE — an `:output-dir` /
+ * `:asset-path` that disagrees with the `<script src>`, a `:init-fn` that never
+ * fires, a namespace that throws on load. Nothing but loading the REAL emitted
+ * page in a REAL browser catches that class, which is what this driver does.
  *
  * The three teeth, in order:
  *
  *   1. MOUNT — `#app` must paint the scaffold's counter (an `<h1>` with the
- *      project name, a `<button>`, and the counter `<span>`). A CSP that
- *      blocks `eval`, a broken `:init-fn`, or a namespace that throws on load
+ *      project name, a `<button>`, and the counter `<span>`). A bundle that
+ *      does not load, a broken `:init-fn`, or a namespace that throws on load
  *      all leave `#app` empty; this is the blank-first-page tooth.
  *   2. LIVE — clicking the `+1` button must move the counter 0 -> 1, so the
  *      dataflow (event -> app-db -> subscription -> re-render) is actually
- *      wired, not just server-shaped markup.
+ *      wired, not just static markup.
  *   3. CLEAN — ZERO uncaught `pageerror`s. Console noise stays diagnostic
  *      (a 404 favicon, a dev-only warn); only `pageerror` is fatal, matching
  *      every adjacent runner's policy in this repo.
  *
- * The static server sets NO Content-Security-Policy response header — the
- * emitted `<meta>` CSP is the only policy in play, which is exactly the
- * surface under test.
+ * NO CONTENT-SECURITY-POLICY IS IN PLAY, by design on both ends: the emitted
+ * `index.html` carries no `<meta http-equiv="Content-Security-Policy">` (both
+ * `template_test.clj` and the setup skill's drift lock forbid one), and the
+ * static server below sets no CSP response header. A CSP recipe added later
+ * brings its own policy-bearing fixture and its own diagnostics — this driver
+ * deliberately keeps none for a policy no page under it can have.
  *
  * Usage:  node dev-page-boot-proof.cjs <publicRoot> <implRoot> [label]
  *   publicRoot — <proj>/resources/public (holds index.html + js/ + css/)
@@ -84,8 +84,8 @@ const MIME = {
 
 // A tiny contained static file server rooted at PUBLIC_ROOT — enough to serve
 // the emitted index.html, the dev bundle, its cljs-runtime chunks and the CSS.
-// Never escapes the root, and deliberately sets no CSP header so the emitted
-// page's own <meta> policy is the one under test.
+// Never escapes the root, and sets no security headers of its own: the page
+// under test is served exactly as emitted.
 function startStaticServer(root) {
   const canonRoot = path.resolve(root);
   const server = http.createServer((req, res) => {
@@ -114,24 +114,10 @@ function startStaticServer(root) {
 
 // Turn the captured browser noise into a POINTED diagnosis where we can. A
 // bare "the counter never appeared" is a true but useless verdict; naming the
-// CSP as the blocker is what makes this gate worth having.
+// unloadable bundle is what makes this gate worth having.
 function diagnose(lines) {
   const blob = lines.join('\n');
   const hints = [];
-  if (/Content Security Policy|EvalError|unsafe-eval|refused to evaluate/i.test(blob)) {
-    hints.push(
-      "the emitted index.html's <meta> Content-Security-Policy BLOCKS the dev " +
-        "bundle: shadow-cljs :none builds load every namespace through " +
-        "goog.globalEval, so `script-src` must admit 'unsafe-eval' or the " +
-        'documented first run is a blank page.',
-    );
-  }
-  if (/Refused to load|violates the following Content Security Policy/i.test(blob)) {
-    hints.push(
-      'a resource the emitted page needs was refused by its own <meta> CSP — ' +
-        'widen the offending directive or drop the resource.',
-    );
-  }
   if (/Failed to load resource.*(main\.js|cljs-runtime)/i.test(blob)) {
     hints.push(
       'the dev bundle (js/main.js or a js/cljs-runtime chunk) did not load — ' +
