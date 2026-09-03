@@ -193,32 +193,15 @@
           (.delete ^java.io.File file))))))
 
 ;; ----------------------------------------------------------------------
-;; Green path.
-
-(deftest green-runner-contract
-  (testing "a green suite through the real -main: exit 0, silent-on-success"
-    (with-fixture-dir
-      (fn [dir]
-        (write-fixture! dir "green_jvm_fixture_test" "green-jvm-fixture-test"
-                        "(deftest a-passing-test (is (= 1 1)))")
-        (let [{:keys [exit out err]} (invoke-quiet-runner dir)
-              non-blank (->> (str/split-lines out)
-                             (remove str/blank?))]
-          (is (zero? exit)
-              (str "green suite must exit 0; got " exit
-                   "\n--- stdout ---\n" out "\n--- stderr ---\n" err))
-          (is (not (str/includes? out discovery-banner-marker))
-              (str "the cognitect discovery banner must be swallowed on"
-                   " green; captured stdout:\n" out))
-          (is (<= (count non-blank) 3)
-              (str "green stdout must be the canonical <=3-line summary;"
-                   " got " (count non-blank) " non-blank lines:\n"
-                   (str/join "\n" non-blank)))
-          (is (str/includes? out "0 failures, 0 errors.")
-              (str "green stdout must carry the summary line; got:\n" out)))))))
-
-;; ----------------------------------------------------------------------
-;; Exact green stdout shape.
+;; Green path — the exact green stdout shape.
+;;
+;; This is the ONE one-passing-test green subprocess row. A weaker sibling
+;; (`green-runner-contract`) spawned the same fixture through the same
+;; `-main` and asserted a strict subset of what follows: exit 0, no
+;; `Running tests in`, at most three non-blank lines, and `0 failures,
+;; 0 errors.` appearing somewhere. Every one of those clauses follows from
+;; the pins below, which fix the exact line at each position, so it bought
+;; nothing but a second JVM process start (rf2-6r9j.92).
 ;;
 ;; cognitect's banner is `\nRunning tests in #{...}\n` — it opens with a
 ;; BLANK LINE.  Dropping only the `Running tests in #{...}` text left that

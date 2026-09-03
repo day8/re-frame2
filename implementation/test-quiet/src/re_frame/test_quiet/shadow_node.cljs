@@ -133,6 +133,14 @@
 ;;      match the `[:cljs.test/default …]` dispatch key — leaves the process
 ;;      to drain its event loop and exit with the seeded 1, failing loudly
 ;;      instead of a silent false-green.
+;;
+;; Neither hazard is reachable from an ORDINARY red run, so each has its own
+;; fault fixture in `re-frame.test-quiet-exit-integrity-fixture-cljs-test`,
+;; driven across a real process boundary by
+;; `re-frame.test-quiet-shadow-node-cljs-test`: one buffers a warning whose
+;; printing throws, the other replaces this defmethod with a no-op so the run
+;; drains on the seeded code.  Removing either safeguard reds its own row and
+;; only that row (rf2-6r9j.89).
 
 (defmethod ct/report [:cljs.test/default :end-run-tests] [summary]
   (if (ct/successful? summary)
@@ -168,19 +176,21 @@
       (env/reset-test-data!)))
 
 ;; ----------------------------------------------------------------------
-;; CLI arg parsing lives in `re-frame.test-quiet.shadow-node-cli` so it
-;; can be unit-pinned without a compile cycle (this ns is `:dev/always`
-;; + expands the `env/get-test-data` test-ns-enumeration macro).
+;; CLI arg parsing AND the pure `--test=` selection rule live in
+;; `re-frame.test-quiet.shadow-node-cli` so they can be unit-pinned without a
+;; compile cycle (this ns is `:dev/always` + expands the `env/get-test-data`
+;; test-ns-enumeration macro).
 
-(defn find-matching-test-vars [test-selectors]
-  (let [test-namespaces  (->> test-selectors (filter simple-symbol?) set)
-        test-var-symbols (->> test-selectors (filter qualified-symbol?) set)]
-    (->> (env/get-test-vars)
-         (filter (fn [test-var]
-                   (let [{test-name :name test-namespace :ns} (meta test-var)]
-                     (or (contains? test-namespaces test-namespace)
-                         (contains? test-var-symbols
-                                    (symbol test-namespace test-name)))))))))
+(defn find-matching-test-vars
+  "`cli/select-matching-test-vars` over the build's live test-var registry.
+
+  The selection RULE deliberately does NOT live here.  No test can require
+  this ns (`:dev/always` + the test-ns-enumeration macro is a compile cycle),
+  so a rule kept here could only ever be pinned by a second copy of itself —
+  and that copy drifted silently for as long as it existed (rf2-6r9j.76).
+  What stays here is the registry lookup the cycle actually forces."
+  [test-selectors]
+  (cli/select-matching-test-vars test-selectors (env/get-test-vars)))
 
 (def ^:private min-tests-env-var
   "Environment variable naming this lane's test-count floor. ONE name across
