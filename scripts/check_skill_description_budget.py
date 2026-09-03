@@ -1,35 +1,48 @@
 #!/usr/bin/env python3
-"""Guard the two SKILL.md description limits Claude Code actually ENFORCES (rf2-w9p2).
+"""Guard the SKILL.md description limits: the portable 1,024 and the Claude 1,536.
 
-WHY THIS EXISTS, and why it does not check the number everybody quotes.
+WHY THIS EXISTS, and why it checks TWO numbers rather than one.
 
 rf2-cupfi observed that six of nine `skills/*/SKILL.md` descriptions exceeded
-1,024 characters and asked whether that truncates at runtime.  It ruled: *do not
-add a gate unless truncation is confirmed*.  A worker then confirmed truncation
-against the SHIPPED runtime rather than against documentation, and found the
-1,024 figure is **not the enforced one**:
+1,024 characters and asked whether that truncates at runtime.  A worker measured
+the SHIPPED Claude Code runtime and found 1,024 is *not* what that runtime
+enforces — it slices at 1,536.  The first version of this gate therefore checked
+only 1,536, and the merged-PR audit of #9051 reopened rf2-cupfi for exactly that:
+**a particular runtime not enforcing a validation does not make an over-limit
+package conforming.**  `skills/README.md` advertises every skill here as
+distributable as an Agent Skill via `npx skills add`, and the canonical Agent
+Skills specification requires `description` to be 1-1,024 characters:
 
-  * 1,024 is the Agent Skills PACKAGING spec's figure.  Claude Code's SKILL.md
-    frontmatter validator checks only that `description` is a string ("description
-    must be a string, got <type>.  At runtime this value is dropped.") and applies
-    NO length check whatsoever.  The one enforced 1,024 in the runtime is a
-    `.max(1024)` on the *plugin marketplace manifest* description — a different
-    field on a different surface, and this repo's nine `plugin.json` descriptions
-    run 146-418 characters, nowhere near it.
+    https://github.com/agentskills/agentskills/blob/main/docs/specification.mdx#description-field
 
-  * The enforced per-description cap is **1,536** (`skillListingMaxDescChars`),
+So there are two ceilings, and they are not alternatives:
+
+  * **1,024 is the PORTABLE PACKAGE ceiling** — the contract this repo advertises,
+    and what any conforming Agent Skills host may validate against.  It is the
+    number this gate FAILS on, because it is the tighter one and the one that
+    makes a package conforming everywhere rather than in one runtime.
+
+  * **1,536 is what Claude Code ENFORCES today** (`skillListingMaxDescChars`),
     applied as a HARD SLICE — `.slice(0, 1536)`, no ellipsis, no warning in the
     listing the model reads, and the cut lands mid-word.  So the TAIL is always
-    what is lost.
+    what is lost.  A description that clears 1,024 clears this automatically; the
+    figure is retained because it explains WHY the tail matters, and it is
+    reported on every run.
 
-  * A SECOND mechanism has no per-skill spelling at all: the listing carries a
+  * **A THIRD mechanism has no per-skill spelling at all**: the listing carries a
     TOTAL budget, and past it Claude Code stops trimming tails and starts dropping
     ENTIRE descriptions, lowest-priority first, rendering those skills as a bare
-    `- name` with NOTHING for the model to route on.
+    `- name` with NOTHING for the model to route on.  No per-description cap can
+    see that, so it is guarded separately, as a ratchet.
 
-A gate written against 1,024 would therefore red six descriptions that are fine
-and miss the mechanism that actually degrades this family.  This gate is written
-against what is enforced.
+Claude Code's own SKILL.md frontmatter validator, for the record, checks only that
+`description` is a string ("description must be a string, got <type>.  At runtime
+this value is dropped.") and applies no length check at all.  The one enforced
+1,024 inside that runtime is a `.max(1024)` on the *plugin marketplace manifest*
+description — a different field on a different surface (this repo's nine
+`plugin.json` descriptions run 146-418 characters, nowhere near it).  Neither
+observation licenses shipping a non-conforming package: the packaging spec is the
+contract, and the runtime measurement is only evidence about one consumer of it.
 
 THE RUNTIME MECHANISM, transcribed from the shipped bundle (Claude Code 2.1.258,
 `claude.exe`; the listing planner and its renderer):
@@ -57,22 +70,27 @@ THE RUNTIME MECHANISM, transcribed from the shipped bundle (Claude Code 2.1.258,
 
 WHAT THIS GATE CHECKS, and why each is the severity it is.
 
-  C1  PER-DESCRIPTION CAP (hard fail).  Every skill's resolved description must
-      be <= 1,536 characters.  This is a real cliff, it is local, and its remedy
+  C1  PER-DESCRIPTION CAP (hard fail) at **1,024**, the portable package ceiling.
+      Every skill's resolved description must be <= 1,024 characters.  The remedy
       is local: shorten or reorder ONE description.  All nine currently pass, so
       the gate lands green and stays a regression guard rather than a backlog.
+      A failure escalates its message when the description is ALSO past Claude
+      Code's 1,536 slice, because then it is not merely non-portable — it is
+      being silently truncated in the listing today.
 
   C2  FAMILY LISTING FOOTPRINT (hard fail, RATCHETED — not the absolute).  The
       family's contribution to the listing is computed with the runtime's own
       formula and compared against a pinned ceiling.
 
       The absolute 8,000 budget is NOT the fail threshold, deliberately.  The
-      family already costs 10,727 characters — 134% of the entire listing budget
-      — before the consumer installs a single skill of their own and before
-      Claude Code's own bundled commands take their share.  Failing at 8,000
-      would red this repo on day one with no in-repo remedy, because the remedy
-      is not "shorten a description": nine skills averaging ~1,200 characters
-      cannot all fit in 8,000 no matter how they are written.  That is a product
+      family still costs well over the entire listing budget (see the summary
+      the gate prints) — before the consumer installs a single skill of their
+      own and before Claude Code's own bundled commands take their share.
+      Failing at 8,000 would red this repo on day one with no in-repo remedy,
+      because the remedy is not "shorten a description": nine skills each
+      carrying a routing contract cannot all fit in 8,000 no matter how they are
+      written — bringing every one of them under 1,024 did not achieve it and
+      could not have.  That is a product
       decision (ship fewer skills, or accept that the lowest-priority ones render
       bare), and a gate cannot make it.
 
@@ -86,20 +104,17 @@ WHAT THIS GATE DOES NOT CHECK — stated because a gate's silence reads as cover
 
   DISQUALIFIER-FIRST ORDERING IS NOT MECHANICALLY CHECKABLE HERE, and pretending
   otherwise would be worse than omitting it.  Ordering is the half that makes a
-  truncation survivable — whatever is last is what the slice removes, which is
-  why PR #9051 moved re-frame2-xray's "**Do not use** ... re-frame2-pair" clause
-  to the FRONT.  But detecting the two halves requires agreed markers, and there
-  are none: measured across the nine live descriptions, only six contain any
-  "trigger" marker at all, only eight contain any recognisable disqualifier
-  phrasing (spelled variously "Do not use", "Not for", "Never", "Activates only
-  on explicit pull", "... instead"), and among the six carrying both, the
-  disqualifier follows the trigger list in five.  A mechanical assertion would
-  red four to five compliant descriptions on a heuristic nobody agreed to.
+  truncation survivable — whatever is last is what a slice removes, which is why
+  every description in this family now leads with its disqualifier and trails
+  its trigger phrases.  But detecting the two halves requires agreed markers,
+  and there are none: disqualifiers are spelled variously ("Do not use", "Not
+  for", "Never", "Activates only on explicit pull", "... instead"), several
+  descriptions carry no "trigger" marker at all, and a mechanical assertion
+  would red compliant descriptions on a heuristic nobody agreed to.
 
   What IS mechanical, and what this gate prints instead, is HEADROOM: how many
-  characters each description has before the slice starts eating its tail.  That
-  is the actionable form of the same concern — reagent-migration currently sits
-  49 characters from the cliff — and it needs no guess about phrasing.
+  characters each description has before it crosses the portable cap.  That is
+  the actionable form of the same concern, and it needs no guess about phrasing.
 
 CAVEAT, carried deliberately.  1,536 and 0.01 are DEFAULTS of user-configurable
 settings (`skillListingMaxDescChars`, `skillListingBudgetFraction`), and the
@@ -151,10 +166,18 @@ SKILLS_DIR = REPO_ROOT / "skills"
 # Pinned runtime constants.  Read from the shipped bundle, not from docs.
 # ---------------------------------------------------------------------------
 
-#: Version of Claude Code these numbers were read out of.
+#: Version of Claude Code the RUNTIME numbers below were read out of.
 PINNED_RUNTIME_VERSION = "2.1.258"
 
+#: The Agent Skills packaging specification's `description` ceiling (1-1,024).
+#: This is the ENFORCED number here: it is the portable contract this repo
+#: advertises with `npx skills add`, and it is tighter than the runtime slice.
+#: https://github.com/agentskills/agentskills/blob/main/docs/specification.mdx#description-field
+PACKAGE_MAX_DESC_CHARS = 1024
+
 #: `skillListingMaxDescChars` default.  Applied as a hard `.slice(0, N)`.
+#: NOT the fail threshold — anything within 1,024 is within this — but retained
+#: because it is what makes a lost TAIL the specific risk, and it is reported.
 LISTING_MAX_DESC_CHARS = 1536
 
 #: `skillListingBudgetFraction` default.
@@ -170,10 +193,11 @@ DEFAULT_CONTEXT_WINDOW = 200_000
 ENTRY_OVERHEAD_CHARS = 4
 
 #: Ratchet ceiling for the family's listing footprint (see C2 above).
-#: Measured 2026-09-03 over the nine live SKILL.md files at 10,727.  LOWER this
-#: when descriptions shrink; RAISING it is a deliberate act that says the family
-#: now costs the listing more, and wants a reason in the commit message.
-FAMILY_FOOTPRINT_CEILING = 10_727
+#: Re-measured 2026-09-03 at 8,864, after rf2-cupfi brought all nine
+#: descriptions under the portable 1,024 cap (was 10,727).  LOWER this when
+#: descriptions shrink; RAISING it is a deliberate act that says the family now
+#: costs the listing more, and wants a reason in the commit message.
+FAMILY_FOOTPRINT_CEILING = 8_864
 
 
 def listing_budget(context_window: int = DEFAULT_CONTEXT_WINDOW) -> int:
@@ -210,12 +234,18 @@ class SkillEntry:
 
     @property
     def over_cap(self) -> bool:
+        """Past the portable Agent Skills ceiling — the number this gate fails on."""
+        return self.resolved_len > PACKAGE_MAX_DESC_CHARS
+
+    @property
+    def sliced_by_runtime(self) -> bool:
+        """Past Claude Code's hard slice as well, so the tail is being cut today."""
         return self.resolved_len > LISTING_MAX_DESC_CHARS
 
     @property
     def headroom(self) -> int:
-        """Characters left before the hard slice starts removing the tail."""
-        return LISTING_MAX_DESC_CHARS - self.resolved_len
+        """Characters left before the portable ceiling is crossed."""
+        return PACKAGE_MAX_DESC_CHARS - self.resolved_len
 
     @property
     def rel(self) -> str:
@@ -289,19 +319,29 @@ def check(entries: list[SkillEntry], ceiling: int = FAMILY_FOOTPRINT_CEILING) ->
     """Return a list of failure messages; empty means clean."""
     failures: list[str] = []
 
-    # C1 - per-description hard cap.
+    # C1 - per-description hard cap, at the portable packaging ceiling.
     for entry in sorted(entries, key=lambda e: e.name):
         if entry.over_cap:
-            lost = entry.resolved_len - LISTING_MAX_DESC_CHARS
-            failures.append(
+            over = entry.resolved_len - PACKAGE_MAX_DESC_CHARS
+            message = (
                 f"{entry.rel}: resolved description is {entry.resolved_len} chars, "
-                f"over the enforced {LISTING_MAX_DESC_CHARS}-char cap "
-                f"(skillListingMaxDescChars, Claude Code {PINNED_RUNTIME_VERSION}). "
-                f"The listing hard-slices it, so the LAST {lost} char"
-                f"{'' if lost == 1 else 's'} are dropped mid-word with no ellipsis "
-                f"and no warning. Shorten it, or move whatever must survive "
-                f"(a disqualifier clause especially) ahead of the cut."
+                f"{over} over the {PACKAGE_MAX_DESC_CHARS}-char Agent Skills "
+                f"packaging cap. skills/README.md advertises this skill as "
+                f"distributable via `npx skills add`, and the specification "
+                f"requires description to be 1-{PACKAGE_MAX_DESC_CHARS} characters, "
+                f"so an over-limit package is non-conforming wherever that "
+                f"validation runs. Shorten it, and keep whatever must survive a "
+                f"truncation (the disqualifier clause especially) at the FRONT."
             )
+            if entry.sliced_by_runtime:
+                lost = entry.resolved_len - LISTING_MAX_DESC_CHARS
+                message += (
+                    f" It is ALSO past Claude Code's {LISTING_MAX_DESC_CHARS}-char "
+                    f"slice (skillListingMaxDescChars, {PINNED_RUNTIME_VERSION}), so "
+                    f"the last {lost} char{'' if lost == 1 else 's'} are being cut "
+                    f"mid-word from the listing today, with no ellipsis and no warning."
+                )
+            failures.append(message)
 
     # C2 - family footprint ratchet.
     total = family_footprint(entries)
@@ -328,7 +368,11 @@ def render_table(entries: list[SkillEntry]) -> str:
         f"{'-' * 24} {'-' * 8} {'-' * 7} {'-' * 6} {'-' * 9}",
     ]
     for entry in sorted(entries, key=lambda e: -e.resolved_len):
-        flag = "  OVER CAP" if entry.over_cap else ""
+        flag = ""
+        if entry.sliced_by_runtime:
+            flag = "  OVER CAP + SLICED"
+        elif entry.over_cap:
+            flag = "  OVER CAP"
         lines.append(
             f"{entry.name:<24} {entry.resolved_len:>8} {entry.capped_len:>7} "
             f"{entry.entry_len:>6} {entry.headroom:>9}{flag}"
@@ -345,6 +389,11 @@ def render_summary(entries: list[SkillEntry], ceiling: int = FAMILY_FOOTPRINT_CE
     return "\n".join(
         [
             f"family entries              : {len(entries)}",
+            f"portable description cap    : {PACKAGE_MAX_DESC_CHARS} chars "
+            f"(Agent Skills packaging spec; the ENFORCED number here)",
+            f"Claude Code listing slice   : {LISTING_MAX_DESC_CHARS} chars "
+            f"(skillListingMaxDescChars, {PINNED_RUNTIME_VERSION}; hard slice, "
+            f"tail lost, no warning)",
             f"family listing footprint    : {total} chars",
             f"pinned ratchet ceiling      : {ceiling} chars",
             f"whole-listing budget        : {budget} chars "
@@ -394,39 +443,57 @@ def run_self_test() -> int:
         root.mkdir()
 
         # --- C1 negative: a compliant description passes. -------------------
-        _write_skill(root, "compliant", "x" * (LISTING_MAX_DESC_CHARS - 1))
+        _write_skill(root, "compliant", "x" * (PACKAGE_MAX_DESC_CHARS - 1))
         entries, errors = collect_skills(root)
         expect("C1 fixture parses", not errors and len(entries) == 1, str(errors))
         expect(
-            "C1 PASSES a description one char under the cap",
+            "C1 PASSES a description one char under the portable cap",
             check(entries, ceiling=10**9) == [],
         )
 
-        # --- C1 positive: one char over the cap reds it. --------------------
-        _write_skill(root, "compliant", "x" * (LISTING_MAX_DESC_CHARS + 1))
+        # --- C1 positive: one char over the portable cap reds it. -----------
+        _write_skill(root, "compliant", "x" * (PACKAGE_MAX_DESC_CHARS + 1))
         entries, _ = collect_skills(root)
         failures_seen = check(entries, ceiling=10**9)
         expect(
-            "C1 FAILS a description one char over the cap",
-            len(failures_seen) == 1 and "over the enforced" in failures_seen[0],
+            "C1 FAILS a description one char over the portable cap",
+            len(failures_seen) == 1
+            and "Agent Skills packaging cap" in failures_seen[0],
             str(failures_seen),
         )
         expect(
-            "C1 boundary: exactly AT the cap passes",
+            "C1 message does NOT claim runtime truncation below 1,536",
+            "being cut" not in failures_seen[0],
+            failures_seen[0],
+        )
+        expect(
+            "C1 boundary: exactly AT the portable cap passes",
             (
-                _write_skill(root, "compliant", "x" * LISTING_MAX_DESC_CHARS),
+                _write_skill(root, "compliant", "x" * PACKAGE_MAX_DESC_CHARS),
                 check(collect_skills(root)[0], ceiling=10**9),
             )[1]
             == [],
         )
 
+        # --- C1 escalation: past the runtime slice too, the message says so. -
+        _write_skill(root, "compliant", "x" * (LISTING_MAX_DESC_CHARS + 1))
+        entries, _ = collect_skills(root)
+        escalated = check(entries, ceiling=10**9)
+        expect(
+            "C1 ESCALATES when the description is also past the 1,536 slice",
+            len(escalated) == 1
+            and "Agent Skills packaging cap" in escalated[0]
+            and "being cut" in escalated[0],
+            str(escalated),
+        )
+
         # --- when_to_use is folded into the measured length. ----------------
-        _write_skill(root, "compliant", "x" * 1000, when_to_use="y" * 600)
+        _write_skill(root, "compliant", "x" * 800, when_to_use="y" * 300)
         entries, _ = collect_skills(root)
         entry = entries[0]
         expect(
             "resolved length includes ' - ' + when_to_use",
-            entry.resolved_len == 1000 + 3 + 600,
+            entry.resolved_len == 800 + 3 + 300,
             f"got {entry.resolved_len}",
         )
         expect(
@@ -503,6 +570,10 @@ def run_self_test() -> int:
 
     # --- the pinned budget arithmetic. -------------------------------------
     expect("listing budget is 8000 at a 200K window", listing_budget() == 8000)
+    expect(
+        "the portable cap is the tighter of the two, so it is the one enforced",
+        PACKAGE_MAX_DESC_CHARS < LISTING_MAX_DESC_CHARS,
+    )
 
     print()
     if failures:
@@ -584,9 +655,10 @@ def main(argv: Iterable[str]) -> int:
 
     if args.verbose:
         print(
-            f"OK: all {len(entries)} descriptions are within the "
-            f"{LISTING_MAX_DESC_CHARS}-char cap, and the family footprint is "
-            f"within the pinned ceiling."
+            f"OK: all {len(entries)} descriptions are within the portable "
+            f"{PACKAGE_MAX_DESC_CHARS}-char Agent Skills cap (and so within "
+            f"Claude Code's {LISTING_MAX_DESC_CHARS}-char slice), and the family "
+            f"footprint is within the pinned ceiling."
         )
     return 0
 

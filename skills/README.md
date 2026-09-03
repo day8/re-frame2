@@ -285,16 +285,23 @@ ceiling is not unreachable in general: de-duplication brought
 `re-frame2/references/cross-cutting/testing.md` was genuinely split, carving
 out `testing-views.md`. Try both before recording an exception.
 
-### `SKILL.md` frontmatter `description` — the cap that actually bites
+### `SKILL.md` frontmatter `description` — two ceilings, author to the tighter
 
-**The 1,024-character figure from the Agent Skills packaging spec is not
-the one to author against, because Claude Code does not enforce it**
-(measured against the shipped v2.1.258 runtime, rf2-cupfi). Its frontmatter
-validator checks that `description` is a string and warns when it is
-missing; it applies no length check at all, and no packaging gate in this
-repo checks one either.
+**Author to 1,024 characters.** That is the Agent Skills packaging
+specification's ceiling on `description` (1–1,024 characters), and every
+skill in this directory is advertised above as distributable via
+`npx skills add`, so it is the contract we ship under. A host that
+validates it will reject an over-limit package; the fact that one
+particular runtime does not validate it does not make an over-limit
+package conforming. `scripts/check_skill_description_budget.py` enforces
+1,024, and all nine descriptions are inside it.
 
-What Claude Code *does* enforce is a **per-skill cap of 1,536 characters**
+Claude Code, measured against the shipped v2.1.258 runtime (rf2-cupfi),
+enforces something looser and differently shaped, and it is worth knowing
+because it explains *which part* of a description is at risk. Its
+frontmatter validator checks only that `description` is a string and warns
+when it is missing — no length check at all. What it *does* enforce is a
+**per-skill cap of 1,536 characters**
 on the entry it puts in the skill listing — the setting is
 `skillListingMaxDescChars`, and the default is 1,536. The value it caps is
 the `description` alone, or `"<description> - <when_to_use>"` where a
@@ -309,10 +316,11 @@ Two consequences for authoring, and the first is the one that matters:
   must never be the sentence a silent slice removes. Trigger-phrase lists
   are the right thing to carry the risk: they are long, they are
   redundant by design, and losing the last few costs almost nothing.
-  `re-frame2-xray` was the one description over the enforced cap (1,713
-  characters, so 177 were being cut — and what they cut was exactly its
-  `re-frame2-pair` disqualifier, mid-word); it now leads with the
-  disqualifier and measures 1,482.
+  `re-frame2-xray` was once over even the 1,536 slice (1,713 characters,
+  so 177 were being cut — and what they cut was exactly its
+  `re-frame2-pair` disqualifier, mid-word). Every description in the
+  family now leads with its disqualifier and trails its trigger phrases,
+  and every one is under 1,024.
 - **A second, blunter mechanism can drop a description whole.** The
   listing also has a total budget — the context window times four bytes
   per token times `skillListingBudgetFraction`, which defaults to `0.01`,
@@ -321,14 +329,20 @@ Two consequences for authoring, and the first is the one that matters:
   descriptions, lowest-priority first, rendering those skills as a bare
   `- <name>` with nothing to route on. **Skills bundled with Claude Code
   are exempt from that pass; skills installed by a consumer — every skill
-  in this directory — are not.** This family currently totals ~10.8K
-  characters of listing across nine skills, so a consumer who installs
-  several of them alongside their own is already in the regime where the
-  budget, not the per-skill cap, decides what survives.
+  in this directory — are not.** Bringing every description under 1,024
+  took this family from ~10.7K to ~8.9K characters of listing across nine
+  skills — a real improvement that still does not clear an ~8,000
+  budget, so a consumer who installs several of them alongside their own
+  remains in the regime where the budget, not the per-skill cap, decides
+  what survives. Nine skills each carrying a routing contract cannot fit
+  in 8,000 however they are written; that is a product decision (ship
+  fewer skills, or accept that the lowest-priority ones render bare), not
+  something more trimming can reach.
 
-Keeping each description meaningfully under 1,536 is therefore worth
-doing for the listing budget's sake even where nothing is being sliced
-today. Treat the ordering rule as the load-bearing half of this section.
+So: 1,024 is the number to author against and the number the gate
+enforces; 1,536 and the listing budget are why the *tail* is the part
+that must be expendable. Treat the ordering rule as the load-bearing
+half of this section.
 
 ### Published-skill `allowed-tools` baseline (security policy)
 

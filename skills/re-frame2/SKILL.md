@@ -2,24 +2,19 @@
 name: re-frame2
 description: >
   Writes re-frame2 ClojureScript application code — events, subscriptions,
-  effects, flows, frames, state machines (reg-machine, parallel regions,
-  tags, spawn), schemas, stories, routing, tests, and the canonical patterns
-  (RemoteData, Resources, ResourcesMutations, Forms, Boot, WebSocket,
-  NineStates, ManagedHTTP, AsyncEffect, LongRunningWork, StaleDetection,
-  ReusableComponents, StatefulComponents, FormAction). Use whenever the user
-  mentions re-frame2, reg-event, reg-sub, reg-fx,
-  reg-cofx, reg-flow, reg-view, reg-machine, reg-route, reg-story,
-  reg-app-schema, reg-resource, reg-mutation, dispatch, subscribe, app-db,
-  flows, frames, regions, tags, the nine UI states, managed HTTP,
-  RemoteData lifecycles, cached server-state / query-cache / TanStack-Query
-  shapes, writing tests for a re-frame2 app, or state-machine-for-HTTP
-  shapes — even when re-frame2 is not named explicitly. **Authoring only**
-  (writing new code).
-  **Do not use** for: live-app inspection (use `re-frame2-pair`),
-  greenfield project bootstrap (use `re-frame2-setup`), v1→v2 migration
-  (use `re-frame-migration`), porting existing Reagent views onto Hicasso,
-  re-frame2's re-frame-native view layer (use `reagent-migration`), or
-  porting re-frame2 itself (use `re-frame2-implementor`).
+  effects, flows, frames, state machines (reg-machine, parallel regions, tags,
+  spawn), schemas, stories, routing, tests, and the canonical patterns
+  (RemoteData, Resources, Forms, Boot, WebSocket, NineStates, ManagedHTTP,
+  AsyncEffect, StaleDetection, FormAction). **Authoring only.** **Do not use**
+  for: live-app inspection (`re-frame2-pair`), greenfield bootstrap
+  (`re-frame2-setup`), v1→v2 migration (`re-frame-migration`), porting Reagent
+  views onto Hicasso (`reagent-migration`), or porting re-frame2 itself
+  (`re-frame2-implementor`). Use whenever the user mentions re-frame2,
+  reg-event, reg-sub, reg-fx, reg-cofx, reg-flow, reg-view, reg-machine,
+  reg-route, reg-resource, reg-mutation, dispatch, subscribe, app-db, flows,
+  frames, regions, tags, the nine UI states, managed HTTP, RemoteData
+  lifecycles, cached server-state / query-cache / TanStack-Query shapes, or
+  tests for a re-frame2 app — even when re-frame2 is not named explicitly.
 allowed-tools:
   - Read
   - Edit

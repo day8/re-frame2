@@ -2,24 +2,19 @@
 name: re-frame2-implementor
 description: >
   Guides an engineer building a NEW re-frame2 implementation in one of the
-  eight in-scope JS-cross-compile-to-React+VDOM host languages —
-  ClojureScript (the reference), TypeScript, Melange/ReScript/Reason,
-  F# (Fable), Squint, Scala.js, PureScript, Kotlin/JS. Drives a two-phase
-  workflow (Phase 1: record the port profile; Phase 2: one EP loop driven
-  by the pinned spec and live conformance fixtures, with the conformance
-  corpus as the acceptance test).
-  Trigger on phrasing like "port re-frame2", "implement re-frame2 in
-  <language>", "second re-frame2 implementation", "implementor checklist",
-  "conformance corpus", or any prompt about building re-frame2 itself.
-  **Do not use** for: writing apps on the CLJS reference (use
-  `re-frame2`), greenfield bootstrap (use `re-frame2-setup`), v1→v2
-  migration (use `re-frame-migration`), live-app inspection (use
-  `re-frame2-pair`), or a port to an out-of-scope target — a non-React
-  substrate (Vue, Solid, Svelte, vanilla DOM) or a host that does not
-  cross-compile to JS (Python, Ruby, native Rust, Go, server-side JVM):
-  out of scope by deliberate spec choice, so surface the
-  `spec/000-Vision.md` scope footnote and stop rather than starting
-  Phase 1.
+  eight in-scope JS-cross-compile-to-React+VDOM host languages — ClojureScript
+  (the reference), TypeScript, Melange/ReScript/Reason, F# (Fable), Squint,
+  Scala.js, PureScript, Kotlin/JS — over a two-phase workflow (record the port
+  profile, then one EP loop driven by the pinned spec and live conformance
+  fixtures, with the conformance corpus as the acceptance test). **Do not
+  use** for: writing apps on the CLJS reference (`re-frame2`), greenfield
+  bootstrap (`re-frame2-setup`), v1→v2 migration (`re-frame-migration`),
+  live-app inspection (`re-frame2-pair`), or an out-of-scope target — a
+  non-React substrate (Vue, Solid, Svelte, vanilla DOM) or a host that does
+  not cross-compile to JS (Python, Ruby, native Rust, Go, server-side JVM):
+  out of scope by deliberate spec choice, so surface the `spec/000-Vision.md`
+  scope footnote and stop. Trigger on "port re-frame2", "implement re-frame2
+  in <language>", "conformance corpus".
 allowed-tools:
   - Bash(gh issue *)
   - Bash(git -C * rev-parse *)

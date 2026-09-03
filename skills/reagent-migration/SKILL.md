@@ -1,28 +1,20 @@
 ---
 name: reagent-migration
 description: >
-  Rewrites Reagent VIEW code into **Hicasso** (`re-frame.hicasso`, alias
-  `h`) — re-frame2's re-frame-native view layer. A Reagent hiccup view
-  becomes an `h/defview` mounted in brackets; `@(subscribe …)` becomes
-  `(h/sub …)`; `#(dispatch …)` handlers become event vectors in the tree;
-  Form-2 atoms and Form-3 lifecycle move out of the component.
-  **First establish whether the user needs this at all.** re-frame2's
-  Reagent adapter is first-class and actively supported, so an app moving
-  from re-frame v1 keeps its view code and needs NO rewrite to land on
-  re-frame2 — that is the `re-frame-migration` skill, and it finishes the
-  job. This skill is a genuinely OPTIONAL second step, chosen for what
-  Hicasso offers, and Hicasso is **pre-publication with no released Maven
-  coordinate**. Staying on Reagent is a complete, supported configuration.
-  Trigger on phrasing like "migrate my Reagent views to Hicasso", "port
-  this component to h/defview", "what does r/atom become under Hicasso",
-  "move off Reagent hiccup", or a Reagent view surface named in a Hicasso
-  context (`reagent.core` / `r/atom` / `r/with-let` / `r/create-class` /
-  `reagent.dom` `render` / `adapt-react-class` / `[:> …]` prop dialect /
-  `@(subscribe …)` in a view).
-  **Do not use** for: the re-frame v1→v2 events/subs/db migration
-  (`re-frame-migration`), writing new re-frame2 code (`re-frame2`),
-  greenfield setup (`re-frame2-setup`), or live-runtime inspection
-  (`re-frame2-pair`). See `skills/README.md` §Skill routing for the map.
+  Rewrites Reagent VIEW code into **Hicasso** (`re-frame.hicasso`, alias `h`)
+  — re-frame2's re-frame-native view layer: a view becomes an `h/defview`
+  mounted in brackets, `@(subscribe …)` becomes `(h/sub …)`, handlers become
+  event vectors, Form-2/Form-3 state moves out of the component. **First
+  establish whether the user needs this at all**: re-frame2's Reagent adapter
+  is first-class and supported, so a v1 app keeps its view code and needs NO
+  rewrite to land on re-frame2 — that is `re-frame-migration`, and it finishes
+  the job. This is an OPTIONAL second step, and Hicasso is pre-publication
+  with no released Maven coordinate. **Do not use** for: the v1→v2
+  events/subs/db migration (`re-frame-migration`), writing new re-frame2 code
+  (`re-frame2`), greenfield setup (`re-frame2-setup`), or live-runtime
+  inspection (`re-frame2-pair`). Trigger on "migrate my Reagent views to
+  Hicasso", "port this component to h/defview", or a Reagent view surface
+  (`r/atom`, `@(subscribe …)` in a view) named in a Hicasso context.
 allowed-tools:
   - Bash(rg *)
   - Bash(rg -l *)
