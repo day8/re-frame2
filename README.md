@@ -201,7 +201,8 @@ implementation/                CLJS reference implementation — per-artefact su
   security/                    Cross-cutting security regression tests (MCP egress, schema
                                redaction, SSR escaping) — test-only, no shipped namespace
   derivation-conformance/      test-only, not published — cross-family derivation/process
-                               conformance (subscriptions + flows + resources + machines composed)
+                               conformance (subscriptions + flows + resources + route facts +
+                               machines composed)
   event-conformance/           test-only, not published — cross-artefact public event-model
                                conformance (registration, coeffects, replies, error channels)
   reply-conformance/           test-only, not published — managed-async reply-envelope
