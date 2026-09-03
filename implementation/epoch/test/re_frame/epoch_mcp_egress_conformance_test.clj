@@ -637,10 +637,12 @@
     continuation reply through a DIFFERENT handler, and none had ever been
     projected. The read-failure `:error` envelope — the decoded error body,
     which routinely echoes the submitted form fields — was structurally
-    unreachable by the suite rather than merely unnoticed. All five now carry a
-    whole-record canary drive there, and the standing rule is stated on
-    §(rf2-uufoe): a new settle branch that fans out a continuation gets a canary
-    drive in the PR that adds it.
+    unreachable by the suite rather than merely unnoticed. Every one of them
+    carries a whole-record canary drive there now — four branches rather than
+    the five named above, because rf2-6r9j.52 retired the legacy abort event as
+    unreachable and its settle path was `failed-handler`'s abort branch all
+    along. The standing rule is stated on §(rf2-uufoe): a new settle branch
+    that fans out a continuation gets a canary drive in the PR that adds it.
 
   The rows are harvested off the trace bus rather than read out of the settled
   epoch records because ONE record is one dequeued event: this cascade is five
