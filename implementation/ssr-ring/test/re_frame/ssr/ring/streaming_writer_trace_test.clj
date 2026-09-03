@@ -80,7 +80,7 @@
       (with-trace-recorder! [captured]
         (@#'streaming/run-streaming-writer!
           pipe-out :no-such-frame
-          {:hiccup [:div] :head-html "" :html-attrs nil :body-attrs nil
+          {:head-html "" :html-attrs nil :body-attrs nil
            :shell-html "<div></div>" :continuations []}
           {:root-view [:div]})
         (let [hits (filterv #(= :rf.error/ssr-streaming-writer-failed (:operation %))
@@ -329,7 +329,7 @@
       (with-redefs [interop/debug-enabled? false]
         (@#'streaming/run-streaming-writer!
           pipe-out :no-such-frame
-          {:hiccup [:div] :head-html "" :html-attrs nil :body-attrs nil
+          {:head-html "" :html-attrs nil :body-attrs nil
            :shell-html "<div></div>" :continuations []}
           {:root-view [:div]}))
       (error-emit/clear-error-listeners!)
