@@ -107,10 +107,14 @@
 ;; ---- the pure transition (Spec 005 §Testing §Level 1) --------------------
 ;;
 ;; The engine seam (`rf.machines.parallel/machine-transition`) returns the engine's
-;; internal Result, which rides lifecycle bookkeeping (`::rf.machines.result/handled?`,
-;; `::rf.machines.result/microsteps`, `::rf.machines.result/cascade`, `::rf.machines.result/parallel-done-
-;; handled?`) and a `::rf.machines.result/depth-abort?` sentinel inside a failure's
-;; diagnostic map. None of that is the app's business. The public fn
+;; internal Result, which rides lifecycle bookkeeping keyed in
+;; `re-frame.machines.result` (`handled?`, `microsteps`, `cascade`,
+;; `parallel-done-handled?`) and a `:re-frame.machines.result/depth-abort?`
+;; sentinel inside a failure's diagnostic map. That sentinel is spelled
+;; FULLY-QUALIFIED below rather than auto-resolved: under the canonical
+;; `rf.<tail>` require alias, `::rf.machines.result/depth-abort?` reads to a text
+;; scanner as a literal reserved-root `:rf.*` keyword, which it is not.
+;; None of that is the app's business. The public fn
 ;; projects the Result onto the one plain map Spec 005 §Level 1 defines,
 ;; and stamps `:kind` with the Spec 009 category the runtime would emit
 ;; for the same failure — so a test reads the pure result with the same
@@ -129,7 +133,7 @@
                  :rf.error/machine-action-exception)]
       {:status :error
        :error  (merge {:kind kind}
-                      (dissoc info ::rf.machines.result/depth-abort? :error-id))})))
+                      (dissoc info :re-frame.machines.result/depth-abort? :error-id))})))
 
 (defn machine-transition
   "The pure transition. Given a machine `definition`, the current
