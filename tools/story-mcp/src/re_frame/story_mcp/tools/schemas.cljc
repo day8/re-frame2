@@ -295,7 +295,8 @@
    :openWorldHint  false})
 
 (def destructive-write-annotations
-  "Annotations for mutating tools (register / unregister / record).
+  "Annotations for the gated write tools (`register-variant`,
+  `unregister-variant` — the two consumers of this map).
   `:destructiveHint true` so agent hosts gate behind explicit
   confirmation. `:openWorldHint false` — writes land in the JVM-side
   story registry, not an external system."

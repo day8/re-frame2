@@ -34,7 +34,7 @@
   surfaces where repeated subtrees dominate the wire cost. For story-
   mcp those are `preview-variant` / `run-variant`
   — the two tools whose payload re-keys the same value into multiple
-  derived slots (`:app-db` + `:rendered-hiccup` + `:snapshot`). For
+  derived slots (`:app-db` + `:snapshot` + the evidence slots). For
   every other tool dedup is a net loss: `list-stories` /
   `get-story` / `register-variant` and friends ship small bespoke
   shapes where the cache-of-one wrap adds bytes for zero compression.
@@ -86,8 +86,8 @@
 
   Mirrors re-frame2-pair-mcp's local hint table — the hint is the agent's
   shortest path back into budget."
-  {"preview-variant"   "Tighten scope: drop `:cell-overrides` or pass a smaller `:active-modes`. The :app-db / :rendered-hiccup slots dominate; raise `max-tokens` (0 disables) if the full payload is genuinely needed."
-   "run-variant"       "Tighten scope: pass `:cell-overrides` to shrink the run, or omit `:active-modes`. The :app-db / :rendered-hiccup slots dominate; raise `max-tokens` (0 disables) if the full payload is genuinely needed."
+  {"preview-variant"   "Tighten scope: drop `:cell-overrides` or pass a smaller `:active-modes`. The :app-db / :snapshot slots dominate; raise `max-tokens` (0 disables) if the full payload is genuinely needed."
+   "run-variant"       "Tighten scope: pass `:cell-overrides` to shrink the run, or omit `:active-modes`. The :app-db / :snapshot slots dominate; raise `max-tokens` (0 disables) if the full payload is genuinely needed."
    "get-story"         "Story body is large — request `list-stories` for a slimmer overview, or raise `max-tokens` (0 disables)."
    "get-variant"       "Variant body is large — request `variant->edn` if you want EDN-only, or raise `max-tokens` (0 disables)."
    "variant->edn"      "Variant EDN body is large — narrow the variant or raise `max-tokens` (0 disables)."
@@ -216,8 +216,11 @@
   - `:max-tokens` is injected on every tool (`schemas/with-max-tokens`),
     so it is always in the advertised set; listed here only for symmetry
     with the dispatcher's read.
-  - `:dedup` is advertised ONLY on the three dedup-eligible tools
-    (`schemas/with-dedup`), but is DOCUMENTED as silently ignored on
+  - `:dedup` is advertised ONLY on the dedup-eligible tools
+    (`preview-variant` and `run-variant`, via `schemas/with-dedup`;
+    the exact set is pinned by `dedup_test.clj`'s
+    `descriptor-dedup-eligibility-matches-the-documented-set`), but is
+    DOCUMENTED as silently ignored on
     ineligible tools (`schemas/with-dedup` docstring — the dispatcher
     gates dedup on `:dedup-eligible?`, not on the arg's presence). A
     caller leaving `:dedup` at its default on a non-eligible tool is a

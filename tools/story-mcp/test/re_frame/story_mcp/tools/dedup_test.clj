@@ -44,7 +44,7 @@
 ;; ---------------------------------------------------------------------------
 ;; Reduction-ratio sanity. The bead requires a non-trivial ratio on a
 ;; realistic story-mcp fixture; we assert against the current run-
-;; variant shape (`:app-db` + `:rendered-hiccup` + `:snapshot` carrying
+;; variant shape (`:app-db` + `:effective-args` + `:snapshot` carrying
 ;; the same large nested map) since that's the wire surface this work
 ;; targets. The deduper is shape-agnostic — it collapses repeated big-db
 ;; refs regardless of the surrounding verdict keys. This is the
@@ -53,9 +53,9 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest reduction-ratio-run-variant-shape
-  ;; A realistic story-mcp tool return: `run-variant`'s structured
+  ;; A realistic story-mcp tool return: `preview-variant`'s structured
   ;; payload re-keys the same `:app-db` value into three slots
-  ;; (`:app-db`, `:rendered-hiccup` carries it as `[:value <db>]`, and
+  ;; (`:app-db`, `:effective-args` carries it under `:state`, and
   ;; `:snapshot` carries it as the snapshot body). The structural
   ;; deduper collapses those three references into one.
   (let [big-db (into {} (for [i (range 256)]
@@ -63,7 +63,7 @@
                            (apply str (repeat 256 \x))]))
         payload {:frame           :story.cart/full
                  :app-db          big-db
-                 :rendered-hiccup [:div.cart {:data-state big-db}]
+                 :effective-args  {:state big-db}
                  :snapshot        {:body big-db}
                  :assertions      [{:assertion :rf.assert/path-equals
                                     :passed?   true

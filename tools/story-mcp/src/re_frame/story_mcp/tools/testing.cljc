@@ -71,10 +71,11 @@
                         non-app-db position ships RAW — classify the app-db
                         PATH to redact it at the source)
     :app-db             post-run app-db, elided at egress
-    :rendered-hiccup / :snapshot  PATH-projected derived trees (EP-0025
-                                  fail-open: value at a classified path ->
-                                  :rf/redacted / :rf.size/large-elided; a
-                                  re-keyed copy ships raw)
+    :snapshot           the PATH-projected derived tree (EP-0025 fail-open:
+                        value at a classified path -> :rf/redacted /
+                        :rf.size/large-elided; a re-keyed copy ships raw).
+                        Rendered output is NOT a run-variant slot — it is
+                        `story/render-variant`'s `:rendered`.
     :elapsed-ms         wall-clock run time
     :cannot-run         present iff the run carried :cannot-run refusals
 
@@ -126,7 +127,7 @@
                                   ;; Evidence-slot projections (.4 — one tape, one
                                   ;; projection). Every value-bearing slot is
                                   ;; PATH-projected against the frame's
-                                  ;; classification, same as :rendered-hiccup.
+                                  ;; classification, same as :snapshot.
                                   ;; EP-0025 FAIL-OPEN: :narrative beats carry
                                   ;; :db-before/:db-after FULL app-db snapshots,
                                   ;; :warnings are trace-event records, :sub-runs
@@ -154,10 +155,11 @@
                                   :sub-runs           (egress/scrub-rendered (vec (:sub-runs outcome)) raw-db vk incl?)
                                   :renders            (egress/scrub-rendered (vec (:renders outcome)) raw-db vk incl?)
                                   :narrative          (egress/scrub-rendered (vec (:narrative outcome)) raw-db vk incl?)
-                                  ;; Derived trees: PATH-projected. A value AT a
+                                  ;; Derived tree: PATH-projected. A value AT a
                                   ;; classified path redacts; a re-keyed copy ships
-                                  ;; raw (EP-0025 fail-open).
-                                  :rendered-hiccup    (egress/scrub-rendered (:rendered-hiccup outcome) raw-db vk incl?)
+                                  ;; raw (EP-0025 fail-open). `run-variant` produces
+                                  ;; no rendered output — rendering is
+                                  ;; `story/render-variant`'s (rf2-6r9j.13).
                                   :elapsed-ms         (:elapsed-ms outcome)
                                   :snapshot           (egress/scrub-rendered (:snapshot outcome) raw-db vk incl?)}
                            ;; Surface the :cannot-run refusals only when present —
@@ -302,7 +304,7 @@
   "Testing-category descriptors, in spec/002-Tool-Registry.md order."
   [{:name           "run-variant"
     :category       :testing
-    :description    (str "Execute a variant's four-phase lifecycle (loaders → setup → render → script); return the UNIFIED run-result — the same shape the human Story UI reads. Host prerequisite: running a variant needs an installed re-frame adapter (the frame's state substrate). With none, this REFUSES up front — `isError true`, `:rf.error :rf.error/no-adapter-installed` — rather than settling a success-shaped non-run; install one in the namespace your launch alias preloads (`(rf/init! plain-atom/adapter)` is the renderer-free headless choice). Catalogue reads need no adapter. An explicit `:substrate` is validated, not silently dropped: it requires a REACHED substrate registry (unreachable on the JVM stdio host → `:rf.error/story-mcp-capability-unavailable`; reached-but-unknown id → `:rf.error/story-mcp-unknown-substrate`). The headline is `:status` ∈ {:pass :fail :cannot-run :error}; the result also carries unified `:assertions` records (each with a derived `:status`), `:checks` groups, `:consumed-selectors`, the evidence-slot projections (`:schema-violations :warnings :effects :sub-runs :renders :narrative`), `:app-db`, `:rendered-hiccup`, `:snapshot`, and `:elapsed-ms`. `:cannot-run` means the runner could not even attempt the plan — handle it as 'not runnable here', NOT as a fail. The `:app-db` slot is routed through `re-frame.core/elide-wire-value` against the variant frame's `[:rf.runtime/elision]` runtime-db registry — declared-sensitive paths return `:rf/redacted` and oversize slots return the `:rf.size/large-elided` marker by default. The derived `:rendered-hiccup` / `:snapshot` and ALL evidence value-slots (`:schema-violations :warnings :effects :sub-runs :renders :narrative`) are PATH-projected on BOTH egress axes against the same frame classification. EP-0025 FAIL-OPEN: a value AT a classified path redacts, but a value RE-KEYED to a non-matching position (a token at hiccup `[1 :value]`, a `:narrative` beat's `:db-before` snapshot, a `:sub-runs` `:value`) ships RAW — value-match was removed; classify the app-db PATH to redact a value before a view renders it. Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
+    :description    (str "Execute a variant's four-phase lifecycle (loaders → setup → render → script); return the UNIFIED run-result — the same shape the human Story UI reads. Host prerequisite: running a variant needs an installed re-frame adapter (the frame's state substrate). With none, this REFUSES up front — `isError true`, `:rf.error :rf.error/no-adapter-installed` — rather than settling a success-shaped non-run; install one in the namespace your launch alias preloads (`(rf/init! plain-atom/adapter)` is the renderer-free headless choice). Catalogue reads need no adapter. An explicit `:substrate` is validated, not silently dropped: it requires a REACHED substrate registry (unreachable on the JVM stdio host → `:rf.error/story-mcp-capability-unavailable`; reached-but-unknown id → `:rf.error/story-mcp-unknown-substrate`). The headline is `:status` ∈ {:pass :fail :cannot-run :error}; the result also carries unified `:assertions` records (each with a derived `:status`), `:checks` groups, `:consumed-selectors`, the evidence-slot projections (`:schema-violations :warnings :effects :sub-runs :renders :narrative`), `:app-db`, `:snapshot`, and `:elapsed-ms`. Rendered output is NOT part of this result — `story/render-variant` owns rendering and returns it as `:rendered`. `:cannot-run` means the runner could not even attempt the plan — handle it as 'not runnable here', NOT as a fail. The `:app-db` slot is routed through `re-frame.core/elide-wire-value` against the variant frame's `[:rf.runtime/elision]` runtime-db registry — declared-sensitive paths return `:rf/redacted` and oversize slots return the `:rf.size/large-elided` marker by default. The derived `:snapshot` and ALL evidence value-slots (`:schema-violations :warnings :effects :sub-runs :renders :narrative`) are PATH-projected on BOTH egress axes against the same frame classification. EP-0025 FAIL-OPEN: a value AT a classified path redacts, but a value RE-KEYED to a non-matching position (a `:snapshot` nested under `:db`, a `:narrative` beat's `:db-before` snapshot, a `:sub-runs` `:value`) ships RAW — value-match was removed; classify the app-db PATH to redact a value before a derived tree re-surfaces it. Pass `:include-sensitive true` to opt out (per spec/Tool-Pair.md §Direct-read privacy posture). "
                          "Examples: "
                          "1. Green run: {:variant-id \":story.cart/full\"} -> {:status :pass :frame :story.cart/full :app-db {...} :assertions [{:assertion :rf.assert/path-equals :passed? true :status :pass}] :checks [] :elapsed-ms 42}. "
                          "2. Red run: {:variant-id \":story.cart/bad\"} -> {:status :fail :assertions [{:assertion :rf.assert/sub-equals :passed? false :status :fail :actual nil :expected 3}]}. "
@@ -310,7 +312,7 @@
                          "4. Clamped timeout / error: {:variant-id \":story.slow/loader\" :timeout-ms 60000} -> runs with timeout clamped to 30000ms (max-timeout-ms ceiling); on overrun returns {:status :error :assertions [{:assertion :rf.error/run-failed :status :error ...}]}.")
     :typicalTokens  2000
     ;; `run-variant` ships the variant's `:app-db` re-keyed
-    ;; into `:rendered-hiccup` and `:snapshot`; structural dedup
+    ;; into `:snapshot` and the evidence slots; structural dedup
     ;; collapses those three references into one cache slot at the wire
     ;; boundary. Mirrors pair-mcp's selective `:dedup` knob on
     ;; `snapshot` / `trace-window` (descriptors_data.cljs).

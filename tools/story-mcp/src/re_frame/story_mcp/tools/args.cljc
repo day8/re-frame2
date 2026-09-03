@@ -267,10 +267,13 @@
   fed a scalar, `:active-modes` silently degrades (a string iterates
   character-by-character) rather than erroring.
 
-  Shared by `tool-preview-variant`, `tool-run-variant`,
-  `tool-snapshot-identity`, and `tool-variant-share-url` — all four
-  advertise the same `:substrate` / `:active-modes` / `:cell-overrides`
-  tuple in their descriptors. `:cell-overrides` is identity-bearing for
+  Shared by the `preview-variant`, `run-variant`, and
+  `snapshot-identity` handlers — the same set `run-opts-shape-error`
+  gates — each advertising the same `:substrate` / `:active-modes` /
+  `:cell-overrides` tuple in its descriptor. (`preview-variant` also
+  threads the resulting opts into `story/variant-share-url`; that is a
+  Story call inside the handler, not a fourth tool.)
+  `:cell-overrides` is identity-bearing for
   `snapshot-identity` — it perturbs the snapshot `:content-hash` via the
   resolved `:effective-args`. The absent-slot-not-present rule keeps the
   helper general. All call sites resolve `vk` via `with-variant` /
@@ -281,8 +284,13 @@
   `args/safe-keyword` against the live registry's bounded set — an
   unrecognised id surfaces as `nil` (which `run-variant`'s opts contract
   tolerates as 'no override') rather than as a freshly-interned keyword.
-  The substrates set is CLJS-only (the JVM-standalone deploy reads
-  `nil`); the modes set is the registered-mode id set.
+  The substrate registry is CLJS-only, so on a JVM-standalone deploy
+  `cljs-resolve/registered-substrates-set` normalises the absent provider
+  to `#{}` — never `nil`. That empty allowlist is not this function's
+  refusal boundary: an EXPLICIT `:substrate` against an unreachable
+  provider is rejected upstream by `substrate-arg-error`, which gates on
+  `cljs-resolve/substrate-provider-available?`. The modes set is the
+  registered-mode id set.
 
   `:cell-overrides` arrives string-keyed off the JSON wire (the
   no-intern ingress leaves nested arg keys as strings). Its KEYS are

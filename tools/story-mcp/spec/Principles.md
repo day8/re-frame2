@@ -268,15 +268,16 @@ namespaced symbols.
 Dedup is applied only where it pays for itself. The eligibility
 contract is the descriptor flag `:dedup-eligible? true`, asserted at
 load time by `tools/story-mcp/test/re_frame/story_mcp/tools/dedup_test.clj`'s
-`descriptor-dedup-eligibility-matches-the-documented-set`. Adding a
-fourth eligible tool requires updating both the descriptor AND that
-test's canonical set; the friction is deliberate (mirrors pair-mcp's
-selective `dedup-property` assignment in `descriptors_data.cljs`).
+`descriptor-dedup-eligibility-matches-the-documented-set`. The eligible
+set is exactly `preview-variant` and `run-variant`; adding another
+eligible tool requires updating both the descriptor AND that test's
+canonical set; the friction is deliberate (mirrors pair-mcp's selective
+`dedup-property` assignment in `descriptors_data.cljs`).
 
-The other seventeen tools ship small, bespoke shapes — `list-stories`,
+Every other tool ships a small, bespoke shape — `list-stories`,
 `get-story`, `register-variant`, the docs / read-failures family —
-where the cache-of-one wrap would add bytes for zero compression. They
-emit raw `:structuredContent` and carry no `:dedup` slot in their
+where the cache-of-one wrap would add bytes for zero compression. Those
+tools emit raw `:structuredContent` and carry no `:dedup` slot in their
 input schema.
 
 ### Wire shape

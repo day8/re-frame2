@@ -28,7 +28,7 @@
   CLOSED: the whole tree redacts to `:rf/redacted`
   rather than ship raw — the earlier carve-out that shipped the raw tree on a
   non-live frame was retired. `scrub-rendered` (the LIVE-state tools'
-  `:rendered-hiccup` / `:snapshot` / `:effective-args`) and the live arm of
+  `:snapshot` / `:effective-args` / evidence trees) and the live arm of
   the re-keyed-runtime scrub therefore redact-or-fail-closed by frame liveness.
 
   ## The Story-MCP re-keyed-runtime egress exception (`scrub-re-keyed-runtime`)
@@ -95,8 +95,9 @@
   ## Derived-tree PATH-based projection (`scrub-rendered`, EP-0025 fail-open)
 
   `elide-app-db` redacts the `:app-db` slot. The same value also appears in
-  `:rendered-hiccup` (the variant view renders `[:input {:value <token>}]`),
-  in `:effective-args` (the resolved arg map), and in any `:snapshot` body.
+  `:effective-args` (the resolved arg map), in any `:snapshot` body, and in
+  the evidence trees (a `:narrative` beat's `:db-before`, a `:sub-runs`
+  `:value`).
   Some of those derived positions still match a classified path (an
   `:effective-args {:token …}` slice with `[:token]` classified); others
   re-key the value to a position the path cannot reach (the token at hiccup
@@ -241,7 +242,7 @@
 ;; ---------------------------------------------------------------------------
 ;;
 ;; `elide-app-db` redacts the `:app-db` slot by PATH. A derived tree
-;; (`:rendered-hiccup`, `:effective-args`, a `:snapshot` body, the explain
+;; (`:effective-args`, a `:snapshot` body, an evidence tree, the explain
 ;; plan-resolved value slots) re-surfaces the same app-db value at a position
 ;; that MAY or MAY NOT still match a classified path.
 ;;
@@ -480,7 +481,7 @@
   `scrub-rendered` left in `payload`, via the shared mcp-base walker.
   This is the `:elided-large` indicator the caller threads onto its
   response envelope. Walk the FINAL payload (post-elision) so every
-  elided slot — `:app-db`, `:rendered-hiccup`, `:snapshot`, the evidence
+  elided slot — `:app-db`, `:snapshot`, `:effective-args`, the evidence
   trees — contributes; the marker is the same shape regardless of which
   slot produced it.
 
