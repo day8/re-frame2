@@ -337,6 +337,12 @@
   halted event made no write. Residual capture is cleared before commit, and
   `committed-at` comes from the halted event's already-stamped envelope.
 
+  ONE frame-state parameter, not a before/after pair (rf2-6r9j.75). The hook
+  once took both and read neither — `commit-record!` receives the SAME value in
+  both slots, sourced from the last settled record (or, on a first-cascade halt,
+  from this fallback). A second slot could only ever carry a value this path
+  discards, so the pair implied two meaningful snapshots the halt never had.
+
   rf2-vxgfnd.154 — EXACT-INCARNATION halt commit. `exact-owner-token` is A's
   event-owner token (its `:drain-lock`); the router threads it so a depth-error
   listener that destroyed A and published a same-id B cannot have this terminal
@@ -350,7 +356,7 @@
   outermost so the epoch's trace-event-projection keyword references stay DCE-
   able in production (multi-arity perturbed Closure's `:advanced` reachability —
   the rf2-cprm0q elision trap)."
-  [frame-id frame-state-before frame-state-after committed-at outcome halt-reason
+  [frame-id frame-state-after committed-at outcome halt-reason
    trigger-event exact-owner-token]
   (when interop/debug-enabled?
     (when (or (nil? exact-owner-token)

@@ -167,7 +167,6 @@
           put-doc    (var-doc #'state/put-listener!)
           drop-doc   (var-doc #'state/drop-listener!)
           rec-doc    (var-doc #'state/record-observation!)
-          reserve    (var-doc #'state/claim-delayed-silence!)
           publish    (var-doc #'state/claim-and-publish-delayed-silence!)]
 
       ;; --- NO emit-under-lock authority (a lock spanning the external emit) ---
@@ -180,13 +179,17 @@
       (is (not (str/includes? rec-doc "between its reservation and emit"))
           "record-observation! must NOT exclude a re-arm from the reservation→emit window")
 
-      ;; --- NO reserve-only-emits authority (the reserve-only helper emits none) ---
-      (is (not (str/includes? reserve "primitive emits an UNQUALIFIED signal"))
-          "claim-delayed-silence! must NOT describe the reserve-only primitive as emitting")
-      (is (str/includes? reserve "RESERVES ONLY")
-          "claim-delayed-silence! states it reserves only")
-      (is (str/includes? reserve "EMITS NOTHING")
-          "claim-delayed-silence! states it emits nothing")
+      ;; --- NO reserve-only API at all (rf2-6r9j.78) ---
+      ;; The reserve-only pair was retired: it left a claim→emit window it could
+      ;; not qualify, so its own docstring conceded it was for staged tests and
+      ;; for callers that provably cannot race a registry mutation. Only the
+      ;; integrated generation-qualified operation ships now, and re-introducing
+      ;; a reserve-only seam here flips this RED. (Neither name is a substring of
+      ;; `claim-and-publish-delayed-silence!`, so the correct helper is unaffected.)
+      (is (not (str/includes? src "claim-delayed-silence!"))
+          "the retired reserve-only claim helper must not return")
+      (is (not (str/includes? src "rollback-delayed-silence!"))
+          "the retired reserve-only rollback helper must not return")
 
       ;; --- the CORRECT protocol is stated positively ---
       (is (str/includes? src "runs OUTSIDE both locks")

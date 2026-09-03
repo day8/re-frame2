@@ -220,31 +220,69 @@
         (rf/unregister-listener! :trace ::vxgfnd285-rearm-silencing)))))
 
 (deftest failed-delivery-rolls-back-the-reservation-only-then
-  ;; A granted claim RESERVES the signal (mark written) before external delivery,
-  ;; so a concurrent re-claim of the same identity is refused. Rolling back the
-  ;; reservation (the delivery-failed path) releases it so the one signal can be
-  ;; legitimately re-attempted; a successful reservation that is NOT rolled back
-  ;; stays claimed.
-  (let [id       :vxgfnd285/rollback
-        cb       ::vxgfnd285-rollback-cb]
+  ;; A granted claim RESERVES the signal (mark written, under both ledger locks)
+  ;; before the external publish runs OUTSIDE them, so a concurrent re-claim of
+  ;; the same identity is refused. A publish that THROWS rolls the reservation
+  ;; back and propagates, releasing the one signal so it can be legitimately
+  ;; re-attempted; a reservation whose publish SUCCEEDED stays claimed.
+  ;;
+  ;; rf2-6r9j.78: exercised through the shipped
+  ;; `claim-and-publish-delayed-silence!` — the reserve-only
+  ;; `claim-delayed-silence!` / `rollback-delayed-silence!` pair this used to
+  ;; drive is retired, so there is no shipped reserve-only API to stage against.
+  (let [id :vxgfnd285/rollback
+        cb ::vxgfnd285-rollback-cb]
     (rf/register-listener! :epoch cb (fn [_] nil))
     (try
       ;; cb is owed (not a live observer of id), so the claim reserves the signal.
-      (let [g        (cb-generation cb)
-            baseline 0
-            reserved (epoch-state/claim-delayed-silence! id cb g baseline)]
-        (is (some? reserved) "the first claim reserves the signal")
-        (is (nil? (epoch-state/claim-delayed-silence! id cb g baseline))
-            "a second claim is refused while the reservation stands")
-        (epoch-state/rollback-delayed-silence! id cb reserved)
-        (is (some? (epoch-state/claim-delayed-silence! id cb g baseline))
-            "after rollback the one signal can be re-claimed")
-        ;; A stale rollback (wrong seq) must NOT release a standing reservation.
-        (let [current (epoch-state/claim-delayed-silence! id cb g baseline)]
-          (is (nil? current) "reservation still stands")
-          (epoch-state/rollback-delayed-silence! id cb (- reserved 1))
-          (is (nil? (epoch-state/claim-delayed-silence! id cb g baseline))
-              "a rollback for a superseded seq is a no-op")))
+      (let [g      (cb-generation cb)
+            claim! (fn [publish!]
+                     (epoch-state/claim-and-publish-delayed-silence! id cb g 0 publish!))]
+        ;; A publish that throws propagates AND releases the reservation.
+        (is (thrown? clojure.lang.ExceptionInfo
+              (claim! (fn [] (throw (ex-info "delivery failed" {})))))
+            "a throwing publish propagates contained")
+        (is (zero? (total-marks))
+            "the failed delivery left no phantom mark behind")
+        (is (true? (claim! (fn [] nil)))
+            "after the rollback the one signal can be re-claimed and published")
+        (is (pos? (total-marks)) "the successful claim's mark stands")
+        ;; Ineligible short-circuits the `when-let` — nil, not false.
+        (is (nil? (claim! (fn [] nil)))
+            "a second claim is refused while that reservation stands"))
+      (finally
+        (rf/unregister-listener! :epoch cb)))))
+
+(deftest a-failed-publish-prunes-only-its-own-seq-never-a-fresher-mark
+  ;; The rollback is a COMPARE-and-prune: it releases the mark only while OUR
+  ;; reserved seq is still the one standing. A fresher publisher that claimed the
+  ;; same identity while our publish ran outside the ledger locks owns the signal
+  ;; now, and our late failure must not release ITS mark — that would let the one
+  ;; signal be emitted twice.
+  (let [id :vxgfnd285/rollback-stale
+        cb ::vxgfnd285-rollback-stale-cb]
+    (rf/register-listener! :epoch cb (fn [_] nil))
+    (try
+      (let [g           (cb-generation cb)
+            superseded? (atom nil)]
+        (is (thrown? clojure.lang.ExceptionInfo
+              (epoch-state/claim-and-publish-delayed-silence! id cb g 0
+                (fn []
+                  ;; Locks are released here, so a successor publisher — whose
+                  ;; baseline sits above our fresh mark — can claim the identity
+                  ;; between our reservation and our (failing) delivery.
+                  (reset! superseded?
+                          (epoch-state/claim-and-publish-delayed-silence!
+                            id cb g (epoch-state/current-terminal-silence-seq)
+                            (fn [] nil)))
+                  (throw (ex-info "delivery failed" {})))))
+            "our publish still throws contained")
+        (is (true? @superseded?)
+            "the successor reserved and published while we held no lock")
+        (is (pos? (total-marks))
+            "our failed publish compare-and-pruned only its OWN seq — the fresher mark stands")
+        (is (nil? (epoch-state/claim-and-publish-delayed-silence! id cb g 0 (fn [] nil)))
+            "and that fresher mark still refuses a claim at the original baseline"))
       (finally
         (rf/unregister-listener! :epoch cb)))))
 
@@ -341,7 +379,8 @@
     ;; A destroyed predecessor left a terminal-silence mark that `reset-listeners!`
     ;; must clear (cb is owed — not a live observer — so the claim reserves it).
     (epoch-state/open-silence-lineage! id)
-    (epoch-state/claim-delayed-silence! id cb (cb-generation cb) 0)
+    (epoch-state/claim-and-publish-delayed-silence! id cb (cb-generation cb) 0
+                                                    (fn [] nil))
     (is (pos? (total-marks)) "a terminal-silence mark is present")
     (epoch-state/reset-listeners!)
     (is (zero? (total-marks))

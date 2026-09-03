@@ -716,7 +716,8 @@
       (rf/register-listener! :epoch cb (fn [_] nil))
       ;; cb is owed (never a live observer of id), so the claim reserves a mark.
       (state/open-silence-lineage! id)
-      (state/claim-delayed-silence! id cb (:generation (get (state/listeners-snapshot) cb)) 0)
+      (state/claim-and-publish-delayed-silence!
+        id cb (:generation (get (state/listeners-snapshot) cb)) 0 (fn [] nil))
       (is (pos? (vxgfnd285-total-marks)) "a terminal-silence mark is present")
       (state/reset-listeners!)
       (is (zero? (vxgfnd285-total-marks))
