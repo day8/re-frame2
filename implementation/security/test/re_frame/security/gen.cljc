@@ -74,25 +74,25 @@
   the full ~2^62 product in a `long` then truncates; CLJS uses `Math.imul`
   (exact low-32-bit product) then coerces to unsigned 32-bit. Both yield the
   identical unsigned-32 state sequence (rf2-h2yvs finding 2)."
-  [s]
-  #?(:clj  (bit-and (unchecked-add (unchecked-multiply (long s) lcg-mult) lcg-inc)
+  [current-state]
+  #?(:clj  (bit-and (unchecked-add (unchecked-multiply (long current-state) lcg-mult) lcg-inc)
                     mask32)
-     :cljs (unsigned-bit-shift-right (+ (js/Math.imul s lcg-mult) lcg-inc) 0)))
+     :cljs (unsigned-bit-shift-right (+ (js/Math.imul current-state lcg-mult) lcg-inc) 0)))
 
 (defn next-int
   "Return `[n rng']` where `0 <= n < bound`. `bound` must be positive."
   [rng bound]
-  (let [s' (next-state rng)
+  (let [next-state-value (next-state rng)
         ;; take the high bits (low bits of an LCG are low-quality)
-        hi (bit-and (bit-shift-right s' 8) 0x7FFFFF)]
-    [(mod hi bound) s']))
+        high-bits (bit-and (bit-shift-right next-state-value 8) 0x7FFFFF)]
+    [(mod high-bits bound) next-state-value]))
 
 (defn rand-nth
   "Draw a uniformly-random element of `coll`. Returns `[elem rng']`."
   [rng coll]
-  (let [v (vec coll)
-        [i rng'] (next-int rng (count v))]
-    [(nth v i) rng']))
+  (let [collection-values (vec coll)
+        [element-index next-rng] (next-int rng (count collection-values))]
+    [(nth collection-values element-index) next-rng]))
 
 ;; ---------------------------------------------------------------------------
 ;; Generator combinators - `(g rng) -> [value rng']`.
@@ -107,35 +107,35 @@
   "Generator for an int in [lo, hi)."
   [lo hi]
   (fn [rng]
-    (let [[n rng'] (next-int rng (- hi lo))]
-      [(+ lo n) rng'])))
+    (let [[drawn-offset next-rng] (next-int rng (- hi lo))]
+      [(+ lo drawn-offset) next-rng])))
 
 (defn gen-one-of
   "Generator that picks one of the supplied generators uniformly, then
   draws from it."
   [& gens]
   (fn [rng]
-    (let [[g rng'] (rand-nth rng (vec gens))]
-      (g rng'))))
+    (let [[selected-generator next-rng] (rand-nth rng (vec gens))]
+      (selected-generator next-rng))))
 
 (defn gen-fmap
   "Generator that maps `f` over `g`'s drawn value."
   [f g]
   (fn [rng]
-    (let [[v rng'] (g rng)]
-      [(f v) rng'])))
+    (let [[drawn-value next-rng] (g rng)]
+      [(f drawn-value) next-rng])))
 
 (defn gen-vec
   "Generator for a vector of `n` draws from `g` (n itself may be a draw -
   pass an int for fixed length, or a `[lo hi)` generator via `gen-int`)."
   [n-or-gen g]
   (fn [rng]
-    (let [[n rng0] (if (fn? n-or-gen) (n-or-gen rng) [n-or-gen rng])]
-      (loop [i 0, rng rng0, acc []]
-        (if (< i n)
-          (let [[v rng'] (g rng)]
-            (recur (inc i) rng' (conj acc v)))
-          [acc rng])))))
+    (let [[draw-count initial-rng] (if (fn? n-or-gen) (n-or-gen rng) [n-or-gen rng])]
+      (loop [draw-index 0, current-rng initial-rng, accumulated-values []]
+        (if (< draw-index draw-count)
+          (let [[drawn-value next-rng] (g current-rng)]
+            (recur (inc draw-index) next-rng (conj accumulated-values drawn-value)))
+          [accumulated-values current-rng])))))
 
 (defn sample
   "Draw `n` values from generator `g` starting at `seed`. Returns a vector
@@ -143,11 +143,11 @@
   `(seed, g, n)`."
   ([g n] (sample g n 0))
   ([g n seed]
-   (loop [i 0, rng (make-rng seed), acc []]
-     (if (< i n)
-       (let [[v rng'] (g rng)]
-         (recur (inc i) rng' (conj acc v)))
-       acc))))
+   (loop [draw-index 0, current-rng (make-rng seed), accumulated-values []]
+     (if (< draw-index n)
+       (let [[drawn-value next-rng] (g current-rng)]
+         (recur (inc draw-index) next-rng (conj accumulated-values drawn-value)))
+       accumulated-values))))
 
 (defn for-all
   "Run `pred` over `n` draws of generator `g` (seeded at `seed`, default
@@ -157,16 +157,16 @@
   treated as a failure and the exception is captured under `:threw`."
   ([g n pred] (for-all g n 0 pred))
   ([g n seed pred]
-   (loop [i 0, rng (make-rng seed)]
-     (if (< i n)
-       (let [[v rng'] (g rng)
-             [ok? threw] (try [(boolean (pred v)) nil]
+   (loop [draw-index 0, current-rng (make-rng seed)]
+     (if (< draw-index n)
+       (let [[drawn-value next-rng] (g current-rng)
+             [ok? thrown-exception] (try [(boolean (pred drawn-value)) nil]
                               (catch #?(:clj Throwable :cljs :default) e
                                 [false e]))]
          (if ok?
-           (recur (inc i) rng')
-           (cond-> {:fail v :index i :seed seed}
-             threw (assoc :threw threw))))
+           (recur (inc draw-index) next-rng)
+           (cond-> {:fail drawn-value :index draw-index :seed seed}
+             thrown-exception (assoc :threw thrown-exception))))
        nil))))
 
 ;; ---------------------------------------------------------------------------
@@ -277,62 +277,63 @@
     (fn [rng]
       [[[:string {:sensitive? true}] [sentinel]] rng])
     (fn [rng]
-      (let [[wrap rng1] (rand-nth rng arms)
-            [[inner-schema inner-val] rng2] ((sensitive-shape sentinel arms (dec depth)) rng1)]
-        (case wrap
+      (let [[wrapper-arm next-rng] (rand-nth rng arms)
+            [[inner-schema inner-value] after-inner-rng]
+            ((sensitive-shape sentinel arms (dec depth)) next-rng)]
+        (case wrapper-arm
           :map
-          (let [[k rng3] (gen-sensitive-key rng2)]
-            [[[:map [k inner-schema]] {k inner-val}] rng3])
+          (let [[generated-key after-key-rng] (gen-sensitive-key after-inner-rng)]
+            [[[:map [generated-key inner-schema]] {generated-key inner-value}] after-key-rng])
 
           :vector
-          [[[:vector inner-schema] [inner-val]] rng2]
+          [[[:vector inner-schema] [inner-value]] after-inner-rng]
 
           :sequential
-          [[[:sequential inner-schema] [inner-val]] rng2]
+          [[[:sequential inner-schema] [inner-value]] after-inner-rng]
 
           :map-of
-          [[[:map-of :string inner-schema] {"k" inner-val}] rng2]
+          [[[:map-of :string inner-schema] {"k" inner-value}] after-inner-rng]
 
           ;; The sensitive slot is the :map-of KEY (not the value); the sentinel
           ;; is planted AS the key. BOTH the key and the leaf value carry the
           ;; sentinel; both must redact.
           :map-of-key
-          [[[:map-of [:string {:sensitive? true}] inner-schema] {sentinel inner-val}] rng2]
+          [[[:map-of [:string {:sensitive? true}] inner-schema] {sentinel inner-value}] after-inner-rng]
 
           :tuple
           ;; sensitive slot is element 1; element 0 is an int filler.
-          [[[:tuple :int inner-schema] [0 inner-val]] rng2]
+          [[[:tuple :int inner-schema] [0 inner-value]] after-inner-rng]
 
           ;; A :set wraps a MAP carrying the sensitive inner slot (so the set
           ;; element is a navigable map) under a random key.
           :set
-          (let [[k rng3] (gen-sensitive-key rng2)]
-            [[[:set [:map [k inner-schema]]] #{{k inner-val}}] rng3])
+          (let [[generated-key after-key-rng] (gen-sensitive-key after-inner-rng)]
+            [[[:set [:map [generated-key inner-schema]]] #{{generated-key inner-value}}] after-key-rng])
 
           ;; Transparent single-child wrappers: the WRAPPER slot is the
           ;; sensitive container (props on the named :map slot) so the
           ;; sensitivity is on a CONSUMED ANCESTOR; the failing leaf lives
           ;; under the :and/:or/:multi/:orn.
           :and
-          (let [[k rng3] (gen-sensitive-key rng2)]
-            [[[:map [k {:sensitive? true} [:and inner-schema]]] {k inner-val}] rng3])
+          (let [[generated-key after-key-rng] (gen-sensitive-key after-inner-rng)]
+            [[[:map [generated-key {:sensitive? true} [:and inner-schema]]] {generated-key inner-value}] after-key-rng])
 
           :or
-          (let [[k rng3] (gen-sensitive-key rng2)]
-            [[[:map [k {:sensitive? true} [:or inner-schema]]] {k inner-val}] rng3])
+          (let [[generated-key after-key-rng] (gen-sensitive-key after-inner-rng)]
+            [[[:map [generated-key {:sensitive? true} [:or inner-schema]]] {generated-key inner-value}] after-key-rng])
 
           :multi
-          (let [[k rng3] (gen-sensitive-key rng2)]
+          (let [[generated-key after-key-rng] (gen-sensitive-key after-inner-rng)]
             ;; :multi needs a dispatch; wrap the inner under a single branch
             ;; keyed by a fixed dispatch value carried in the value map.
-            [[[:map [k {:sensitive? true}
+            [[[:map [generated-key {:sensitive? true}
                      [:multi {:dispatch :rf2/d}
                       [:x [:map [:rf2/d :keyword] [:v inner-schema]]]]]]
-              {k {:rf2/d :x :v inner-val}}] rng3])
+              {generated-key {:rf2/d :x :v inner-value}}] after-key-rng])
 
           :orn
-          (let [[k rng3] (gen-sensitive-key rng2)]
-            [[[:map [k {:sensitive? true} [:orn [:x inner-schema]]]] {k inner-val}] rng3]))))))
+          (let [[generated-key after-key-rng] (gen-sensitive-key after-inner-rng)]
+            [[[:map [generated-key {:sensitive? true} [:orn [:x inner-schema]]]] {generated-key inner-value}] after-key-rng]))))))
 
 (defn nested-sensitive-generator
   "Generator drawing `[schema db-value]` where a `sentinel`-bearing
@@ -346,5 +347,5 @@
   range - see the block comment above for the historical arm-order drift."
   [sentinel arms max-depth]
   (fn [rng]
-    (let [[depth rng1] (next-int rng max-depth)]
-      ((sensitive-shape sentinel arms (inc depth)) rng1))))
+    (let [[depth after-depth-rng] (next-int rng max-depth)]
+      ((sensitive-shape sentinel arms (inc depth)) after-depth-rng))))
