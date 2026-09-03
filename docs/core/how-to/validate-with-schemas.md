@@ -156,6 +156,31 @@ These paths address *your* data only. The framework's [runtime-db partition next
     - **A path that reaches into runtime-db is a hard error.** App-db schemas validate the [app-db](../glossary.md#app-db) partition only. Register one whose first segment is a reserved `:rf.runtime/*` key (or the retired `:rf/runtime` root) and you get `:rf.error/app-schema-runtime-path` at registration — [runtime-db](../glossary.md#runtime-db) is framework-owned, with no public schema surface; the remedy is to drop the runtime path. (See [app-db's two partitions](../app-db.md) for why the boundary is structural.)
     - **A malformed schema value fails closed at first check.** Malli validates schema *forms* lazily, so a structurally-broken schema (a childless `[:vector]`, an unknown op) registers cleanly and then throws on the first candidate validation. The runtime isolates that per-entry: a distinct `:rf.error/malformed-schema` trace, the candidate rejected (it does *not* install unvalidated state), and the frame's sibling schemas keep validating — so one bad schema can't disable validation frame-wide.
 
+## Every registered path is checked on every commit
+
+One property of that registry decides whether your app boots at all, and it's the one most people assume backwards: **validation is not scoped to the paths the committing event touched.** After a handler returns `:db`, the runtime walks *every* path registered for the frame, `get-in`s the candidate app-db at each one, and rejects the **whole** transaction if any single path fails. A handler that writes only `[:auth]` is still checked against your `[:articles]` schema, and against every other schema the frame holds.
+
+That matters because `get-in` on a path nothing has written yet returns `nil` — and `nil` is a value like any other, checked like any other. A `[:map …]` over a slice that hasn't been seeded doesn't get skipped; it *fails*. So a schema registered before its slice exists rejects every commit until the seed lands.
+
+Where that bites is the shape most apps boot in, and it's a shape this guide has already taught you twice: a bulk `reg-app-schemas` at namespace load, and a boot event that fans out per-feature `:*/initialise` events to seed the slices. Put those together and the first seed to commit is validated against every sibling that hasn't run yet, fails on their `nil`s, and is rejected. And because a rejected transition doesn't walk `:fx` either, the very dispatch that would have fanned out the remaining seeds never fires them. Nothing can ever land, app-db never leaves `{}`, and each attempt reports a failure naming a path the handler never touched.
+
+Two ways out. **Seed before you register, or seed in one commit** — have the boot write put every schema'd slice in place in a single `:db`, so there's no window in which a registered path reads `nil`. **Or wear a `:maybe` for the boot window**, which is the honest move when a slice is legitimately empty until data arrives:
+
+```clojure
+(rf/with-frame :rf/default
+  (rf/reg-app-schemas
+   {[:config] [:maybe Config]     ;; nil until the config request returns
+    [:flags]  [:maybe Flags]
+    [:user]   [:maybe User]
+    [:routes] [:maybe Routes]}))
+```
+
+That's the [boot example](../../../examples/patterns/boot/schema.cljs)'s house style: each slot starts out nil — the boot machine fills it in later — so every registration wears a `:maybe` to stay valid through the loading phases. It costs you the guarantee that the slice is *populated*, which is exactly the right trade while it legitimately isn't.
+
+!!! warning "This one is broken in dev and fine in production"
+
+    Every other bug you meet runs the other way, which is what makes this one so disorienting to walk into. The candidate validator is **dev-only** — a release build elides it entirely, so nothing consults your app-db schemas there ([In production](#in-production-what-goes-what-stays) draws the whole line). An app with this defect therefore *works* when you build it for release, and is bricked at boot the moment you go back to a dev build. A dead dev app beside a healthy release build is the signature: read it as a schema registered ahead of its data, not as a broken release pipeline.
+
 ## Put a schema on the event too
 
 App-db schemas check writes *after* the fact. The complementary move is to refuse bad input *before* it ever reaches a handler — and that's what an event schema does. `reg-event` takes an optional metadata map between the id and the handler; the `:schema` key there describes the **event vector**, positionally, with `[:cat …]`:
