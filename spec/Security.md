@@ -16,7 +16,7 @@ Six sections:
 3. **[Catalogue references](#catalogue-references)** — pointers (not duplication) into [Conventions.md](Conventions.md) and Spec 009 for the `:rf.error/*` / `:rf.warning/*` rows, reserved config slots, and `:sensitive?` / `:large?` meta keys.
 4. **[Trust-boundary matrix](#trust-boundary-matrix)** — surface-keyed index: each row pins the owner doc, default, opt-in escape, implementation hook, conformance coverage, and downstream tool consumers for one trust boundary. The matrix is a projection of §Categories above; it does not invent normative claims.
 5. **[Pragmatic stance](#pragmatic-stance)** — the working principle that governs every call below.
-6. **[Decisions log](#decisions-log)** — bead IDs + one-line behavioural rationales for every concrete call. The full *implementation-side* audit trail (38 beads with named functions, numeric defaults, stub semantics) lives in [`implementation/SECURITY.md` §Decisions log](../implementation/SECURITY.md#decisions-log--the-38-bead-audit-trail).
+6. **[Decisions log](#decisions-log)** — bead IDs + one-line behavioural rationales for every concrete call. The full *implementation-side* audit trail (45 beads with named functions, numeric defaults, stub semantics) lives in [`implementation/SECURITY.md` §Decisions log](../implementation/SECURITY.md#decisions-log--the-45-bead-audit-trail).
 
 The mirror to this doc is [Ownership.md](Ownership.md) — Security here names *what is defended*; Ownership names *where the defense's contract lives*. Where the two overlap (the `:sensitive?` slot, the wire-elision walker, the keyword-interning cap), Ownership wins on the "who owns the surface" question; Security names the threat the surface defends against.
 
@@ -299,7 +299,7 @@ The stance composes with [Principles §Regularity over cleverness](Principles.md
 
 ## Decisions log
 
-Every concrete security call recorded as a bead, with one-line *behavioural* rationale. Ordered roughly by category. The bead's `bd show <id>` carries the full context; this log is the audit trail of "this is the call we made, here is the why." The CLJS reference's binding of each call (named functions, numeric defaults, exact event keywords) lives in [`implementation/SECURITY.md` §Decisions log](../implementation/SECURITY.md#decisions-log--the-38-bead-audit-trail).
+Every concrete security call recorded as a bead, with one-line *behavioural* rationale. Ordered roughly by category. The bead's `bd show <id>` carries the full context; this log is the audit trail of "this is the call we made, here is the why." The CLJS reference's binding of each call (named functions, numeric defaults, exact event keywords) lives in [`implementation/SECURITY.md` §Decisions log](../implementation/SECURITY.md#decisions-log--the-45-bead-audit-trail).
 
 ### Input validation / DoS
 
@@ -397,7 +397,7 @@ Every concrete security call recorded as a bead, with one-line *behavioural* rat
 
 ## Cross-references
 
-- [`../implementation/SECURITY.md`](../implementation/SECURITY.md) — the CLJS-reference companion: named functions, numeric defaults, JVM-vs-CLJS stub semantics, the full 38-bead audit trail with concrete implementation specifics.
+- [`../implementation/SECURITY.md`](../implementation/SECURITY.md) — the CLJS-reference companion: named functions, numeric defaults, JVM-vs-CLJS stub semantics, the full 45-bead audit trail with concrete implementation specifics.
 - [Principles.md](Principles.md) — the discipline principles this doc applies to attack surfaces.
 - [Conventions.md](Conventions.md) — reserved namespaces, fx-ids, app-db keys, and meta keys cited throughout.
 - [Ownership.md](Ownership.md) — the contract-surface → owning-spec table; this doc cites owners, Ownership pins them.

@@ -851,15 +851,13 @@
                 (is (= 27 line)   "the line survived to the launcher")
                 (is (= 9 column)  "the column survived to the launcher")))))))))
 
-(deftest declined-windsurf-launch-would-have-lost-the-coordinate
-  (testing "the file spec the endpoint WOULD have handed launch-editor still
-            carries 27:9 — the loss happens inside the dependency's argv
-            mapping, which is why the decline sits at the endpoint boundary
-            and not in build-file-spec"
-    (is (= "/abs/src/app.cljs:27:9"
-           (#'oies/build-file-spec "/abs/src/app.cljs" 27 9))
-        "the endpoint's own encoding is correct; launch-editor 2.14.1's
-         get-args.js drops it for a command it has no case for")))
+;; The endpoint's own `path:line:column` encoding is pinned by
+;; `build-file-spec-normalizes-column-only-to-line-1` above, which walks all
+;; four coordinate branches; the dependency-side loss the decline exists for is
+;; pinned by `launch-editor-2-14-1-really-does-drop-these-positions` below,
+;; which asks the installed `launch-editor/get-args` and proves windsurf is
+;; invoked with the bare file. A third test asserting only
+;; `(build-file-spec "/abs/src/app.cljs" 27 9)` witnessed neither (rf2-6r9j.123).
 
 ;; Windows paths exercise the JSON backslash and quote rules.
 

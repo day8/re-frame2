@@ -2238,13 +2238,16 @@ else
         #
         # src+test are :source-paths of the consolidated :node-test AND
         # :browser-test builds, exactly like machines-viz above, so the same
-        # two gates own them: `config_cljs_test.cljs` +
+        # two gates own them: `open_in_editor_client_cljs_test.cljs` +
         # `story_host_cljs_test.cljs` under node, and
         # `story_host_dom_cljs_test.cljs` (matching `-dom-cljs-test$`) under
         # headless Chromium for its real React-root handoff assertions.
+        # (`config_cljs_test.cljs` and the `re-frame.testbed.config` ns it
+        # exercised went with the browser-side project-root setup in
+        # 2eb0df5bdd — the endpoint resolves source coordinates JVM-side now.)
         #
-        # The `.clj` half — `open_in_editor_server_test.clj`, 32 tests / 153
-        # assertions, which no CLJS build can load — now has a lane too
+        # The `.clj` half — `open_in_editor_server_test.clj`, which no CLJS
+        # build can load — now has a lane too
         # (rf2-wq17m): `jvm-tools-testbed-support`, gated on the dedicated
         # output below. `tools_jvm` stays deliberately unset for the same reason
         # as machines-viz above: none of the four jobs `tools_jvm` gates (xray /

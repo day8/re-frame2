@@ -4945,12 +4945,15 @@ jobs:
         working-directory: implementation
         run: npm ci
 
-      # `open_in_editor_server_test.clj`, 32 tests / 153 assertions, covering the
-      # dev-only open-in-editor server the browser testbeds consume. It is `.clj`,
-      # so the `:node-test` build that carries this tree on its source paths
-      # cannot load it: this job is the artefact's only PR-time JVM lane. Found by
-      # the test-lane bijection gate as an ORPHAN (rf2-4hc9p) — a fully wired
-      # `:test` alias no lane ran.
+      # `open_in_editor_server_test.clj`, covering the dev-only open-in-editor
+      # server the browser testbeds consume. It is the artefact's whole JVM
+      # suite — the sole `.clj` among its four, the other three being the
+      # node/browser CLJS suites (`open_in_editor_client_cljs_test.cljs`,
+      # `story_host_cljs_test.cljs`, `story_host_dom_cljs_test.cljs`). Being
+      # `.clj`, the `:node-test` build that carries this tree on its source
+      # paths cannot load it: this job is the artefact's only PR-time JVM
+      # lane. Found by the test-lane bijection gate as an ORPHAN (rf2-4hc9p)
+      # — a fully wired `:test` alias no lane ran.
       #
       # RF2_REQUIRE_NODE_PROBES closes the loop the install alone cannot: the
       # blocks self-skip on a node-less developer box by design, so installing
