@@ -46,15 +46,18 @@
        "meta_fixtures_test.cljc")
 
      (defn- test-root
-       "Resolve `tools/story/test/` on disk, cwd-independently. The per-tool
-       `:test` alias runs from `tools/story` (a cwd-relative `(io/file
-       \"test\")` works), but the tools-root aggregate (`tools/deps.edn
-       :test`, rf2-f2tkbt) runs from `tools/`, where a bare `test` would miss.
-       `test` is a classpath `:extra-paths` root, so this meta-check's own
-       source file is a classpath resource on the JVM regardless of cwd; its
-       parent chain up to the `test`-root anchors the walk. Falls back to the
-       cwd-relative path if the resource is absent. Mirrors the xray guard
-       tests' src-root pattern."
+       "Resolve `tools/story/test/` on disk, cwd-independently. Every shipped
+       invocation runs from `tools/story` (`clojure -M:test`, typed by hand or
+       driven by `scripts/test-jvm-tools.sh`, which cds into the artefact), so
+       a cwd-relative `(io/file \"test\")` would happen to work there — but
+       keying the walk to cwd makes it wrong from any other working directory
+       (a REPL or editor rooted at the repo root). `test` is a classpath
+       `:extra-paths` root, so this meta-check's own source file is a
+       classpath resource on the JVM regardless of cwd; its parent chain up to
+       the `test`-root anchors the walk. Falls back to the cwd-relative path
+       if the resource is absent; the companion `(is (seq files) …)` assertion
+       below turns a mis-resolved root into a loud failure rather than a
+       vacuous pass. Mirrors the xray guard tests' src-root pattern."
        []
        (let [marker (io/resource "re_frame/story/meta_fixtures_test.cljc")]
          (if (and marker (= "file" (.getProtocol marker)))
@@ -66,8 +69,9 @@
        "Walk `test/` and return every `.cljc` file as a `java.io.File`,
        excluding this meta-check (which quotes the forbidden form in its
        own docs/message). The root is resolved via `test-root` so the walk is
-       cwd-independent (per-tool `clojure -M:test` AND the tools-root
-       aggregate), mirroring `story-substrate-isolation-test`."
+       cwd-independent rather than tied to the artefact directory the shipped
+       `clojure -M:test` happens to run from, mirroring
+       `story-substrate-isolation-test`."
        []
        (let [root (test-root)]
          (when (.isDirectory root)

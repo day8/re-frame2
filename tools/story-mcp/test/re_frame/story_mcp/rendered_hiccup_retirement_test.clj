@@ -74,10 +74,11 @@
   (config/set-allow-sensitive-reads! false)
   (schemas/clear-schemas-by-frame!)
   (recorder/clear!)
-  ;; story-mcp's own artefact carries no epoch dep; under the tools-root
-  ;; aggregate a Story namespace installs the capture hooks process-wide and
-  ;; the `:narrative` projection then balloons the payload past the token cap.
-  ;; Reproduce the artefact's epoch-free posture either way.
+  ;; story-mcp's own artefact carries no epoch dep, so this suite never loads
+  ;; `re-frame.epoch`. PIN that posture rather than inherit it: `re-frame.epoch`
+  ;; installs its capture hooks PROCESS-WIDE at ns-load, so any JVM that puts
+  ;; epoch on this suite's classpath would switch the `:narrative` projection
+  ;; to a full per-event tape and balloon the payload past the token cap.
   (rf/configure! {:epoch-history {:depth 0}})
   (story/reg-story :story.cart
     {:doc "A cart." :component :app.ui/cart :tags #{:dev :test} :args {}})
