@@ -54,17 +54,6 @@
       (mount-stories!)
       (mount-app!))))
 
-(defn- mount-router!
-  "Replace the hash listener and render the surface selected by the URL."
-  [root-view]
-  (reset! root-view* root-view)
-  ;; The previous function may have a different pre-reload identity.
-  (when-let [prev @hash-listener*]
-    (.removeEventListener js/window "hashchange" prev))
-  (.addEventListener js/window "hashchange" on-hash-change!)
-  (reset! hash-listener* on-hash-change!)
-  (on-hash-change!))
-
 (defn mount-with-hash-routing!
   "Mount `root-view` for normal hashes and the Story shell for `#/stories...`.
 
@@ -74,4 +63,10 @@
   Story configuration belongs to the consumer: this host neither reads nor
   writes `:rf.story/project-root`."
   [root-view]
-  (mount-router! root-view))
+  (reset! root-view* root-view)
+  ;; The previous function may have a different pre-reload identity.
+  (when-let [prev @hash-listener*]
+    (.removeEventListener js/window "hashchange" prev))
+  (.addEventListener js/window "hashchange" on-hash-change!)
+  (reset! hash-listener* on-hash-change!)
+  (on-hash-change!))

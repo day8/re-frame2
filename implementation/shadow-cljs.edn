@@ -792,10 +792,14 @@
   ;; rf2-fzgcii — FOCUSED node-test build for the tools/testbed-support slice.
   ;;
   ;; tools/testbed-support is a tiny but cross-platform-load-bearing helper
-  ;; library (the open-in-editor project-root resolver + the live-app ↔
-  ;; Story-shell hash host). Its `deps.edn` exists only for the JVM endpoint
-  ;; tests (not a packaging surface — the library is consumed as an extra
-  ;; source path), so the node-runnable CLJS suites' only executable home was
+  ;; library (the JVM open-in-editor endpoint and its browser client + the
+  ;; live-app ↔ Story-shell hash host). The browser-side project-root
+  ;; resolver it used to carry went away in 2eb0df5bdd — the endpoint
+  ;; resolves classpath-relative coordinates JVM-side at request time, so a
+  ;; repository testbed configures no project root at all. Its `deps.edn`
+  ;; exists only for the JVM endpoint tests (not a packaging surface — the
+  ;; library is consumed as an extra source path), so the node-runnable CLJS
+  ;; suites' only executable home was
   ;; the full consolidated `npm run test:cljs` build — which compiles + runs the whole
   ;; ~3500-test node suite and, in a fresh worker worktree, may not even start
   ;; without a local shadow-cljs binary. That made this small slice expensive

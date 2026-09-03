@@ -9,20 +9,20 @@
 
 A TypeScript / Fable / Squint port reads [`../spec/Security.md`](../spec/Security.md) and re-binds these names to its host (`elideWireValue`, `RF_HTTP_MAX_DECODED_KEYS`, …). This doc tells a CLJS reader (or a v1 conformance gate) the concrete names and numbers that gate "did the reference actually ship the obligation?"
 
-Four sections:
+Five sections:
 
 1. **[Named functions and namespaces](#named-functions-and-namespaces)** — the CLJS-side names for every behavioural primitive Security.md names abstractly.
 2. **[Numeric defaults](#numeric-defaults)** — every default the reference ships, with its config slot and its overflow surface.
 3. **[JVM-vs-CLJS stub semantics](#jvm-vs-cljs-stub-semantics)** — how the per-platform `re-frame.interop` seam realises the production-elision and dev-flag contracts.
 4. **[Fail-fast event ids](#fail-fast-event-ids)** — the exact `:rf.error/*` keywords each safety check surfaces (the pattern-level "structured error category"; the CLJS reference's concrete keyword).
-5. **[Decisions log — the 38-bead audit trail](#decisions-log--the-38-bead-audit-trail)** — every concrete CLJS-reference call recorded as a bead with one-line rationale.
+5. **[Decisions log — the 45-bead audit trail](#decisions-log--the-45-bead-audit-trail)** — every concrete CLJS-reference call recorded as a bead with one-line rationale.
 
 ## Named functions and namespaces
 
 | Pattern obligation (`../spec/Security.md`) | CLJS reference name | Owning artefact / namespace |
 |---|---|---|
 | Wire-elision walker — the low-level VALUE primitive, single emission site for `:rf/redacted` and `:rf.size/large-elided` | `re-frame.core/elide-wire-value` | `day8/re-frame2` (core) — `re-frame.elision` |
-| Record-level egress projection — THE boundary primitive (the normal call before any off-box sink); resolves a `:rf.egress/*` profile + known `:frame`, applies frame-owned classification, delegates tree slots to `elide-wire-value`, fails closed with no frame | `re-frame.core/project-egress` | `day8/re-frame2` (core) — `re-frame.projection` |
+| Record-level egress projection — THE boundary primitive, the required step before any off-box sink. A tool / direct read / sink names a `:rf.egress/*` profile and a known `:frame`; the projector applies the frame-owned classification and delegates every tree-shaped slot to `elide-wire-value`. Fails closed with no frame (Spec 015 §Direct reads). | `re-frame.core/project-egress` (over `re-frame.core/elide-wire-value`) | `day8/re-frame2` (core) — `re-frame.projection` |
 | Production-elision gate (CLJS) | `re-frame.interop/debug-enabled?` — alias of `goog.DEBUG` | `day8/re-frame2` (core) — `re-frame.interop` |
 | Open-redirect-mitigating fx | `:rf.server/safe-redirect` (registered fx; handler `re-frame.ssr.response/safe-redirect-fx`) | `day8/re-frame2-ssr` (registered in `re-frame.ssr`; handler in `re-frame.ssr.response`) |
 | Header CRLF check site | `:rf.server/set-header` / `:rf.server/append-header` fx (handlers `re-frame.ssr.response/set-header-fx` / `append-header-fx`) | `day8/re-frame2-ssr` (registered in `re-frame.ssr`; handlers in `re-frame.ssr.response`) |
@@ -38,12 +38,11 @@ Four sections:
 | Recordable-coeffect value redaction (EP-0017) | A `reg-cofx` recordable value that fails its `:schema` surfaces `:rf.error/cofx-value-invalid`; when the `:schema` marks any slot `{:sensitive? true}` the value-bearing slots (`:value` / `:explain`) of BOTH the emitted trace AND the thrown `ex-info` ex-data scrub to `:rf/redacted` (fails closed off-box) via the shared `redact-validation-tags` seam. The delivered ambient/recordable `:rf.cofx/value` is projected by the classification chokepoint (`project-cofx-run-tags`) before it surfaces in trace, honouring `reg-cofx` `:sensitive` / `:large` path declarations | `day8/re-frame2` (core) — `re-frame.cofx` (`emit-cofx-value-invalid!`); `re-frame.classification` (`project-cofx-run-tags`) |
 | Declared-only cofx delivery + generator EDN-always guard (EP-0017) | `:rf.cofx/requires` delivers EXACTLY the declared facts, flat — nothing implicit. A generator-backed recordable value is dev-mode walked for ordinary-EDN-ness at the write-back site (a minted host handle — DOM node, Promise, fn, atom — throws `:rf.error/cofx-value-invalid` reason `:non-edn-recordable-value` at the source, not far away at replay / SSR / Xray). The recordable grade is the durable-write surface — secrets MUST NOT be carried as recordable coeffects (see the Privacy / secret-handling decisions-log row) | `day8/re-frame2` (core) — `re-frame.cofx` (`deliver-declared-cofx` / `run-generator`); `re-frame.recordable` (`explain-non-recordable`) |
 | Epoch projected-record helper (off-box egress emission site) | `re-frame.epoch/projected-record` (uses `re-frame.core/project-egress` under a named off-box profile; `project-egress` delegates tree slots to `re-frame.core/elide-wire-value`) | `day8/re-frame2-epoch` — `re-frame.epoch` |
-| Record-level egress projection (the boundary primitive — off-box default) | `re-frame.core/project-egress` (over `re-frame.core/elide-wire-value`) — the required step before any off-box sink. A tool / direct read / sink names a `:rf.egress/*` profile and a known `:frame`; the projector applies the frame-owned classification and delegates every tree-shaped slot to `elide-wire-value`. Fails closed with no frame (Spec 015 §Direct reads). | `day8/re-frame2` (core) — `re-frame.projection` |
 | MCP-tool wire-egress INDICATOR walkers (downstream of projection) | `re-frame.mcp-base.elision/count-elided-markers` (counts `:rf.size/large-elided` markers for the `:elided-large` envelope slot) and `re-frame.mcp-base.sensitive/strip-sensitive` (drops `:sensitive?`-stamped trace EVENTS, returning `[kept dropped-count]` for the `:dropped-sensitive` slot). These are envelope-indicator counters over an ALREADY-projected payload — NOT the redaction boundary: `re-frame.core/project-egress` (over `elide-wire-value`) runs at the runtime boundary, under the frame's classification + the tool's `:rf.egress/off-box-tool` profile, before the payload reaches these walkers. | `day8/re-frame2-mcp-base` (`re-frame.mcp-base.elision` / `re-frame.mcp-base.sensitive`) |
 | Hiccup → HTML attribute-key gate (HTML5-grammar reject, applied at attribute emit) | `re-frame.ssr.html-helpers/validate-attr-name!` (applied via `re-frame.ssr.html-helpers/attr-string`) | `day8/re-frame2-ssr` (`re-frame.ssr.html-helpers`) |
 | JSON-LD `<script>` body `<` escape | `re-frame.ssr.html-helpers/escape-script-body-string` | `day8/re-frame2-ssr` (`re-frame.ssr.html-helpers`) |
-| Reagent-slim event-handler-prop filter | `reagent2.dom.server/event-handler-prop?` (applied in `emit-attribute`; also drops fn-valued props) | `day8/re-frame2-reagent` slim build — `reagent2.dom.server` |
-| Reagent-slim reserved-prop-keys gate | `reagent2.impl.template/reserved-prop-key?` over the set `reserved-prop-keys` (`#{"__proto__" "prototype" "constructor"}`) | `day8/re-frame2-reagent` slim build — `reagent2.impl.template` |
+| Reagent-slim event-handler-prop filter | `reagent2.dom.server/event-handler-prop?` (applied in `emit-attribute`; also drops fn-valued props) | `day8/reagent-slim` (the slim Reagent rewrite) — `reagent2.dom.server` |
+| Reagent-slim reserved-prop-key gate | `reagent2.impl.template/reserved-prop-key?` — the roster IS the predicate body: three `identical?` comparisons against `"__proto__"`, `"prototype"` and `"constructor"` (the backing `reserved-prop-keys` set was removed under rf2-lhdp0; same three names, no data structure to look up) | `day8/reagent-slim` (the slim Reagent rewrite) — `reagent2.impl.template` |
 
 The public surface (the names a user types into their code) is consolidated in [`../spec/API.md`](../spec/API.md). This table is the contract for *internal CLJS implementation conformance* — a future port would re-bind every row to host-idiomatic names.
 
@@ -139,7 +138,7 @@ Every safety check the reference performs surfaces a structured `:rf.error/*` ke
 | Large string reaches wire elision without schema metadata | `:rf.warning/large-value-unschema'd` | One-shot at wire-elision time per (frame-id, path); idempotent |
 | Async-callback dispatch landed on `:rf/default` because frame-context binding did not survive | `:rf.warning/dispatch-from-async-callback-fell-through-to-default` | Per dispatch site |
 
-## Decisions log — the 38-bead audit trail
+## Decisions log — the 45-bead audit trail
 
 Every concrete CLJS-reference security call recorded as a bead, with one-line rationale. The pattern-level doc carries the *abstract* obligations; this log is the *implementation's* binding of those obligations to specific dates, choices, and bead IDs. Ordered roughly by category.
 
