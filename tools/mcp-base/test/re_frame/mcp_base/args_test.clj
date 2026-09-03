@@ -61,17 +61,6 @@
   (is (= 50 (args/parse-positive-int "" 50))))
 
 ;; ---------------------------------------------------------------------------
-;; parse-non-negative-int
-;; ---------------------------------------------------------------------------
-
-(deftest parse-non-negative-int-admits-zero
-  (is (zero? (args/parse-non-negative-int 0 5000)))
-  (is (zero? (args/parse-non-negative-int "0" 5000))))
-
-(deftest parse-non-negative-int-clamps-negative-to-zero
-  (is (zero? (args/parse-non-negative-int -5 5000))))
-
-;; ---------------------------------------------------------------------------
 ;; Cross-host strict-parse contract.
 ;;
 ;; Pin the trailing-garbage case where the hosts could diverge: JVM
@@ -97,10 +86,6 @@
   (is (= 12 (args/parse-positive-int "  12  " 50)) "surrounding whitespace trimmed")
   (is (= 12 (args/parse-positive-int "+12" 50)) "leading plus accepted")
   (is (= 1 (args/parse-positive-int "-5" 50)) "negative parses then clamps to floor"))
-
-(deftest parse-non-negative-int-rejects-trailing-garbage
-  (is (= 5000 (args/parse-non-negative-int "12abc" 5000)))
-  (is (= 5000 (args/parse-non-negative-int "100x" 5000))))
 
 (deftest parse-positive-int-rejects-out-of-long-range
   ;; A digit string that overflows a JVM long is a parse failure →
@@ -128,11 +113,6 @@
   (is (= 50 (args/parse-positive-int ##NaN 50)) "##NaN defaults (was a real floor of 1)")
   (is (= 50 (args/parse-positive-int 1.0E20 50)) "1.0E20 defaults (was IllegalArgumentException)")
   (is (= 50 (args/parse-positive-int -1.0E20 50)) "-1.0E20 defaults"))
-
-(deftest parse-non-negative-int-out-of-domain-numerics-default-not-throw
-  (is (= 5000 (args/parse-non-negative-int ##Inf 5000)) "##Inf defaults")
-  (is (= 5000 (args/parse-non-negative-int ##NaN 5000)) "##NaN defaults (was a real floor of 0)")
-  (is (= 5000 (args/parse-non-negative-int 1.0E20 5000)) "1.0E20 defaults"))
 
 (deftest parse-positive-int-in-domain-numerics-still-parse
   ;; The guard must not regress the legitimate small-int surface.

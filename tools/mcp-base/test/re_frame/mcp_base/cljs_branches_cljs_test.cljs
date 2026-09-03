@@ -228,8 +228,7 @@
     (is (= 50 (args/parse-positive-int "12abc" 50)) "was 12 on CLJS before the fix")
     (is (= 50 (args/parse-positive-int "5xyz" 50)))
     (is (= 50 (args/parse-positive-int "1.5" 50)))
-    (is (= 50 (args/parse-positive-int "1e3" 50)))
-    (is (= 5000 (args/parse-non-negative-int "100x" 5000))))
+    (is (= 50 (args/parse-positive-int "1e3" 50))))
   (testing "clean and signed strings still parse"
     (is (= 12 (args/parse-positive-int "12" 50)))
     (is (= 12 (args/parse-positive-int "+12" 50)))
@@ -252,8 +251,7 @@
     (is (= 50 (args/parse-positive-int js/Infinity 50)) "Infinity defaults")
     (is (= 50 (args/parse-positive-int (- js/Infinity) 50)) "-Infinity defaults")
     (is (= 50 (args/parse-positive-int js/NaN 50)) "NaN defaults (not a real floor)")
-    (is (= 50 (args/parse-positive-int 1e20 50)) "1e20 defaults (past safe-integer window)")
-    (is (= 5000 (args/parse-non-negative-int js/NaN 5000)) "NaN defaults (not a real 0)"))
+    (is (= 50 (args/parse-positive-int 1e20 50)) "1e20 defaults (past safe-integer window)"))
   (testing "in-domain numerics still parse"
     (is (= 5 (args/parse-positive-int 5 50)))
     (is (= 2 (args/parse-positive-int 2.9 50)) "in-range fractional floors")

@@ -9,7 +9,7 @@ This doc is one of thirteen per-namespace contracts indexed from [`README.md`](R
 
 `args` owns:
 
-- The cross-MCP parser catalogue (`parse-boolean`, `parse-positive-int`, `parse-non-negative-int`, `fresh-keyword`, `safe-keyword`, `parse-mode`).
+- The cross-MCP parser catalogue (`parse-boolean`, `parse-positive-int`, `fresh-keyword`, `safe-keyword`, `parse-mode`).
 - The default-handling posture for each parser (call-sites supply the default; the parser is policy-free).
 - The keyword-interning safety rule: bounded lookups route through `safe-keyword`; only deliberate, operator-gated allocation paths use `fresh-keyword`.
 
@@ -31,7 +31,6 @@ The rejection posture (default-suppress vs default-allow) is named at the call-s
 |---|---|---|---|
 | `parse-boolean` | bools, strings (`"true"`/`"false"`/`"1"`/`"0"`/`"yes"`/`"no"`/`"y"`/`"n"`/`"on"`/`"off"`, case-insensitive), keywords (`:true`/`:false`), nil | boolean | Unrecognised → `default`. Call-sites wrap to bake the default. |
 | `parse-positive-int` | finite in-range numbers, integer strings | positive int or `default` | Numbers floor toward zero, then clamp to 1. Invalid or out-of-domain inputs return `default`. |
-| `parse-non-negative-int` | ints, parsable strings | non-negative int or `default` | Zero allowed. Out-of-domain numerics → `default` (same cross-runtime guard). |
 | `fresh-keyword` | keywords, strings (leading `:` optional), nil | keyword or `nil` | INTERNS by design — reserved for operator-gated paths that deliberately allocate a new id. It is not a registry lookup helper. |
 | `fresh-keyword-checked` | keywords, strings (leading `:` optional), nil; a `[ns name] → bool` shape predicate; optional `max-len` | keyword or `nil` | Validates a string's decomposed shape and length before interning. Keyword inputs are already interned, so they are shape-checked but not length-checked. |
 | `safe-keyword` | keywords, strings, nil | keyword from `allowed` set, or `nil` | Bounded-allowlist gate — never interns a fresh JVM keyword on rejection. Use for finite options and live registry lookups. |
@@ -51,7 +50,7 @@ The keyword-interning cap (`:rf.http/max-decoded-keys`) defends against the body
 
 ## Cross-runtime numeric domain
 
-`parse-positive-int` / `parse-non-negative-int` (and, via `cursor/parse-limit-arg` and `cap/max-tokens`, every numeric MCP arg) coerce through one shared finite/range guard (`coerce-finite-long`) BEFORE `(long raw)`. The guard exists because `(long raw)` is unsafe at the arg boundary:
+`parse-positive-int` (and, via `cursor/parse-limit-arg` and `cap/max-tokens`, every numeric MCP arg) coerces through one shared finite/range guard (`coerce-finite-long`) BEFORE `(long raw)`. The guard exists because `(long raw)` is unsafe at the arg boundary:
 
 - On the JVM `(long ##Inf)` and `(long 1.0E20)` THROW `IllegalArgumentException` — a crash at the wire boundary instead of a recoverable default; `(long ##NaN)` truncates to a real `0` (a real, non-sentinel value).
 - The hosts have different numeric ranges and parsing behavior, so both arms enforce the JS safe-integer window before returning a value.
