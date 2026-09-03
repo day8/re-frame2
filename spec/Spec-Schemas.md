@@ -4587,6 +4587,15 @@ The host-agnostic conformance fixture format. Per [conformance/README.md](confor
    ;; with no error. Each arm is `{:closed true}`, which is what refuses
    ;; the second axis and the unknown key; requiring the arm's own key is
    ;; what refuses the empty map.
+   ;;
+   ;; The DURABLE NEGATIVE is `classification-op-map-guard` in
+   ;; `implementation/core/test/re_frame/conformance_test.clj` and its CLJS
+   ;; mirror `classification-op-map-guard-cljs` — the live corpus carries
+   ;; only valid single-axis ops, so nothing in it reds when the harness's
+   ;; matching pre-apply check is deleted. Those two tests feed the runner an
+   ;; empty, a multi-axis, an unknown-axis and a mixed op-map, and assert a
+   ;; FAILED fixture naming the classification-op error, with a valid
+   ;; single-axis op as the control.
    [:fixture/classification-effects
     {:optional true}
     [:vector

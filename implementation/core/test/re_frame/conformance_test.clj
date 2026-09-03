@@ -386,3 +386,52 @@
     (is (:passed? (run {:call :derivation-graph :mode :static
                         :expect-graph {:mode :static}}))
         "the true static graph shape must pass")))
+
+;; ---- rf2-7yth0 NEGATIVE self-test for the classification-op guard ---------
+;;
+;; `realise-classification-effects!` refuses a `:fixture/classification-effects`
+;; op-map that does not carry EXACTLY ONE of the four commit-plane axes, and
+;; the FixtureFile schema in `spec/Spec-Schemas.md` states the same contract.
+;; Nothing in the corpus exercises the refusal: every live op is a valid
+;; single-axis map, so deleting the guard leaves the corpus green. Without it
+;; the runner's priority-ordered `cond` silently applies a multi-axis op's
+;; FIRST arm only, and applies nothing at all for an empty or unknown-key op
+;; -- a fixture author writing two axes gets one, with no error. This is the
+;; durable negative; the CLJS leaf carries the mirror.
+
+(defn- classification-op-fixture
+  "A minimal runnable fixture whose only variable is its
+  `:fixture/classification-effects` vector."
+  [ops]
+  {:fixture/id           :rf.test/classification-op-guard
+   :fixture/spec-version "1.0"
+   :fixture/capabilities #{:core/event-handler}
+   :fixture/handlers     {:event {:dc/store [[:set [:secret] "s"]]}}
+   :fixture/frame-config {}
+   :fixture/classification-effects ops
+   :fixture/dispatches   [[:dc/store]]
+   :fixture/expect       {:final-app-db {:secret "s"}}})
+
+(def ^:private refused-classification-ops
+  "The three shapes the closed four-way schema refuses, plus the mixed case."
+  [["an empty op-map"        [{}]]
+   ["a multi-axis op-map"    [{:sensitive [[:secret]] :large [[:secret]]}]]
+   ["an unknown-axis op-map" [{:rf.test/bogus [[:secret]]}]]
+   ["a known axis beside an unknown key"
+    [{:sensitive [[:secret]] :rf.test/bogus [[:secret]]}]]])
+
+(deftest classification-op-map-guard
+  (doseq [[label ops] refused-classification-ops]
+    (let [result (rf.conformance-runner/run-fixture (classification-op-fixture ops) host)]
+      (is (not (:passed? result))
+          (str label " in :fixture/classification-effects MUST fail the fixture, not silently no-op"))
+      (is (some? (re-find #"unrecognised :fixture/classification-effects op-map"
+                          (str (:error result))))
+          (str label " must be refused BY THE CLASSIFICATION-OP GUARD, not by some later check"))))
+  ;; Control: the valid single-axis shape the whole live corpus uses still runs
+  ;; the fixture to a pass, so the guard is not simply refusing everything.
+  (let [result (rf.conformance-runner/run-fixture
+                 (classification-op-fixture [{:sensitive [[:secret]]}]) host)]
+    (is (:passed? result)
+        (str "a valid single-axis op-map must still run the fixture to a pass; got "
+             (pr-str (select-keys result [:error :final-db :expected-db]))))))
