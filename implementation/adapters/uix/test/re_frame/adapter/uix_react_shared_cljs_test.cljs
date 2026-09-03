@@ -33,7 +33,7 @@
   runtime slice, :rf.view/rendered, make-derived-value per-arity +
   watch-baseline, managed-HTTP, the cross-Spec headless subset, and
   (rf2-6j09b) the public-surface guard: presence/kind/cross-wiring
-  distinctness of the seven re-exported Vars + the adapter-map :kind +
+  distinctness of the eight re-exported Vars + the adapter-map :kind +
   contract-fn shape, folded from the former uix_public_surface_cljs_test.cljs.
 
   The async *current-frame*-across-dispatch contract (rf2-l5q3) is
@@ -72,20 +72,32 @@
    :name             "UIx"
    :producer-ns      're-frame.adapter.uix
    :wrap-view        uix-adapter/wrap-view
-   :clear-warn!      uix-adapter/clear-warned-non-dom-roots!
    :set-emitter!     uix-adapter/set-hiccup-emitter!
    :render-to-string (:render-to-string uix-adapter/adapter)
-   ;; rf2-6j09b — the seven public Vars the suite's public-surface guard
-   ;; asserts (presence/kind/distinctness). Substrate-specific because each
-   ;; adapter's re-exports are distinct objects the suite cannot name
+   ;; rf2-6j09b / rf2-6r9j.36 — the public Vars the suite's public-surface
+   ;; guard asserts (presence/kind/distinctness). Substrate-specific because
+   ;; each adapter's re-exports are distinct objects the suite cannot name
    ;; directly; folded from the former uix_public_surface_cljs_test.cljs.
-   :public-surface   {:set-hiccup-emitter!         uix-adapter/set-hiccup-emitter!
-                      :use-current-frame           uix-adapter/use-current-frame
-                      :frame-provider              uix-adapter/frame-provider
-                      :use-subscribe               uix-adapter/use-subscribe
-                      :flush-views!                uix-adapter/flush-views!
-                      :wrap-view                   uix-adapter/wrap-view
-                      :clear-warned-non-dom-roots! uix-adapter/clear-warned-non-dom-roots!}})
+   ;;
+   ;; The roster IS `spec/api-manifest.edn`'s `re-frame.adapter.uix` rows
+   ;; minus `adapter` — eight supported fns; `adapter` is checked by the
+   ;; suite's adapter-map assertion off the `:adapter` key above. Keep the
+   ;; two in step: a manifest row added here without a row there (or the
+   ;; reverse) is the drift this roster exists to catch. It deliberately
+   ;; does NOT name the spine's warn-once clear thunk — that is internal,
+   ;; carries no manifest row, and is reached through the chained
+   ;; `:adapter/clear-warn-once-caches!` hook (rf2-6r9j.36).
+   :public-surface-keys [:set-hiccup-emitter! :use-current-frame :frame-provider
+                         :frame-root :use-subscribe :use-frame :flush-views!
+                         :wrap-view]
+   :public-surface   {:set-hiccup-emitter! uix-adapter/set-hiccup-emitter!
+                      :use-current-frame   uix-adapter/use-current-frame
+                      :frame-provider      uix-adapter/frame-provider
+                      :frame-root          uix-adapter/frame-root
+                      :use-subscribe       uix-adapter/use-subscribe
+                      :use-frame           uix-adapter/use-frame
+                      :flush-views!        uix-adapter/flush-views!
+                      :wrap-view           uix-adapter/wrap-view}})
 
 ;; Emit one (deftest name (re-frame.adapter.react-shared-suite/assert-name cfg))
 ;; per row in `react-shared-suite-tests/test-specs`. The macro ns owns

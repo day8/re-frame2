@@ -168,8 +168,6 @@
    {:section "chained clear-warn-once-caches! (*_clear_warn_once_chain)"}
    {:test 'clear-warn-chain-empties-cache
     :fn   'assert-chained-clear-warn-once-empties-cache}
-   {:test 'clear-warn-direct-resets-cache
-    :fn   'assert-clear-warned-non-dom-roots-resets-directly}
 
    {:section "routing pipeline (Spec 012 / *_routing)"}
    {:test 'routing-handle-url-change
