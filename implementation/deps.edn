@@ -15,6 +15,7 @@
 ;;   - ssr/      (day8/re-frame2-ssr,      rf2-uo7v)
 ;;   - ssr-ring/ (day8/re-frame2-ssr-ring, rf2-ny6v7)
 ;;   - epoch/    (day8/re-frame2-epoch,    rf2-lt4e)
+;;   - hicasso/  (day8/re-frame2-hicasso,  rf2-gra70)
 ;; see implementation/core/deps.edn,
 ;; implementation/adapters/reagent/deps.edn,
 ;; implementation/adapters/uix/deps.edn,
@@ -48,7 +49,17 @@
          ;; EP-0003). Managed resource queries: reg-resource, the
          ;; :rf.resource/* events + passive subs, work ledger,
          ;; invalidation/GC, and hydration — runtime landed and tested.
-         day8/re-frame2-resources {:local/root "resources"}}
+         day8/re-frame2-resources {:local/root "resources"}
+         ;; rf2-6r9j.133 — Hicasso, re-frame2's own native view
+         ;; substrate. It became a PUBLISHED artefact under rf2-gra70 — its
+         ;; `:clein/build` alias carries the coordinate and it is enrolled in
+         ;; .github/scripts/verify-version-lockstep.sh and release.yml's
+         ;; deploy DAG — but this coordinator did not follow, so `hicasso/src`
+         ;; was off the aggregate classpath while the `:test` alias below
+         ;; already carried `hicasso/test`. The shadow coordinator is
+         ;; unaffected either way: implementation/shadow-cljs.edn enumerates
+         ;; its own `:source-paths` and does not read this map.
+         day8/re-frame2-hicasso  {:local/root "hicasso"}}
 
  :aliases
  {;; Combined CLJS-test path: convenient for ad-hoc REPL work that wants
@@ -80,7 +91,15 @@
                  ;; bench/hicasso/, its own project off this classpath.
                  ;; This alias is REPL convenience; production CI still runs
                  ;; each artefact's own :test alias separately.
+                 ;;
+                 ;; `test_kit/src` is the supported L0–L2 testing surface
+                 ;; (rf2-hic-020). It sits deliberately OUTSIDE the artefact's
+                 ;; `:paths`, so the `:local/root` dep above does not carry it;
+                 ;; Hicasso's own `:test` alias names it as an `:extra-path`
+                 ;; and this aggregate has to do the same to match it
+                 ;; (rf2-6r9j.133).
                  "hicasso/test"
+                 "hicasso/test_kit/src"
                  ;; examples are organised by concept; each bucket is a
                  ;; classpath root so JVM tests can `require` the example
                  ;; source namespaces like `ssr.core` (under
