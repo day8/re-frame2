@@ -120,7 +120,81 @@ Migrate a complete screen rather than changing all component declarations,
 then all handlers, then all crossings across the repository. A screen-level
 port gives shadow comparison a useful unit.
 
-Common translations:
+### Two starting points
+
+"Reagent" names two codebases here, and they do not migrate the same way.
+
+A **Reagent application** writes views as `defn`s returning Hiccup, reads with
+`@(rf/subscribe [:q])`, and hands `#(rf/dispatch [:x])` closures to callbacks.
+That is the left-hand column of the first table below.
+
+A **re-frame2 application on the Reagent adapter** writes views as `rf/reg-view`
+forms under a `[rf/frame-root {...}]` wrapper, and reads and dispatches through
+the lexical `subscribe` and `dispatch` that `reg-view` injects into every body.
+It may call no Reagent API anywhere. The second table below is its column, and
+it is the easier of the two ports: the reads and the dispatches are already
+data, and only the spellings move.
+
+§1's "absence from the report is meaningful" is a statement about the
+populations the report counts, both of which are Reagent's own API. Where your
+views are `reg-view` forms, a screen the report never mentions can still be a
+screen to port. Count your own `reg-view` forms and work the second table.
+
+### The half-migrated tree
+
+Porting a screen at a time means the two view layers share one page for the
+length of the migration. Three facts make that work, and none of them asks for
+a second root.
+
+**One frame serves both halves.** Every React-shaped adapter in re-frame2
+publishes the frame through one shared React context, and a Hicasso boundary
+reads that same context. A shell already mounted under `[rf/frame-root {:id
+...}]` — or under `[rf/frame-provider {:frame ...}]` — therefore supplies the
+frame to any Hicasso subtree beneath it. A ported screen needs no `h/mount!`,
+no second frame, and no second React root.
+
+**Keep the adapter you have.** `(rf/init! reagent-adapter/adapter)` stays as it
+is: installing a Reagent, reagent-slim or UIx adapter under a Hicasso tree is
+supported. `re-frame.hicasso.substrate/adapter` is what lets a *finished*
+application drop its view-library dependency; it is not a prerequisite for
+rendering a Hicasso view.
+
+**The unported shell reaches the ported screen through a bridge.** There are
+two doors, and the choice is about who owns the mount:
+
+```clojure
+(ns app.views.shell
+  (:require [re-frame.core :as rf]
+            [re-frame.hicasso :as h]
+            [app.views.feed :as feed]))         ;; the ported screen
+
+;; Door 1 — h/as-element, called inside the Reagent body. The props never
+;; cross React's prop channel, so they stay ClojureScript values.
+(defn root-view []
+  (case @(rf/subscribe [:app/page])
+    :feed    (h/as-element [feed/feed {:page 0}])
+    :profile [profile-page]                     ;; still Reagent
+    [not-found]))
+
+;; Door 2 — h/as-component, minted ONCE at top level, beside the view it
+;; bridges. Reach for it when the Reagent parent must key, mount and
+;; re-render the screen as a component.
+(def feed-component (h/as-component feed/feed))
+
+(defn root-view-2 []
+  [:> feed-component {:page 0}])
+```
+
+Minting the component inside a render would allocate a fresh element type on
+every pass and remount the subtree, which is `React.memo`'s own law rather than
+a Hicasso rule.
+
+`h/mount!` ([Installation](00-installation.md)) is the whole-application door.
+It is where the migration ends rather than where it starts: when the last
+screen is ported, the Reagent root and its `frame-root` wrapper give way to one
+`h/mount!` naming the same frame.
+
+### Common translations
 
 | Reagent | Hicasso |
 | --- | --- |
@@ -137,6 +211,24 @@ Common translations:
 | `r/as-element` inside a render prop | `h/as-element` inside an `h/event` at the render prop |
 | `r/reactify-component` | `h/as-component`, the outward bridge |
 
+The same table for the second starting point. Every row is a spelling change;
+none of them is a change of shape:
+
+| re-frame2 on the Reagent adapter | Hicasso |
+| --- | --- |
+| `rf/reg-view` | `h/defview`. The view is no longer registered under an id; the var is the head |
+| `subscribe`, injected into a `reg-view` body | `h/sub`. A `h/defview` body binds nothing you did not write |
+| `dispatch`, injected into a `reg-view` body | the intent vector itself, or `h/event` when the event matters |
+| `#(do (.preventDefault %) (dispatch [:e]))` | `[::h/prevent [:e]]` at the same prop |
+| `[rf/route-link {...}]`, a Hiccup head | `(h/route-link {...})`, a plain call |
+| `[rf/frame-root {:id :app ...}]` around the tree | `h/mount!`'s `{:frame :app ...}` root configuration, once the whole application is ported |
+
+A `reg-view` body's `subscribe` and `dispatch` are lexical bindings the macro
+installs. `h/defview` installs none, so the same source text means something
+different under it: a bare `rf/subscribe` in a Hicasso body throws rather than
+resolving. Translate every read and every dispatch in a body you move, not only
+the ones the compiler complains about.
+
 Two common mistakes fail loudly:
 
 - A Reagent-style `#(rf/dispatch ...)` callback has no captured frame when the
@@ -149,27 +241,132 @@ Two common mistakes fail loudly:
   than a vendor's on*-named render prop, which needs a `:callbacks` override on
   a declared host.
 
+### Views shared across the boundary
+
+In a real application at least one view is rendered by both a ported screen and
+an unported one — a card, a paginator, an avatar. "Port a complete screen"
+does not say what happens to it, and duplicating it is the one answer
+[§3](#3-prove-the-port-with-shadow-comparison) rules out.
+
+Port the shared view once, with the first screen that needs it, and bridge it
+back out to the callers that are still Reagent:
+
+```clojure
+;; app.views.article-preview — now Hicasso
+(h/defview article-preview [{:keys [id]}]
+  (let [article (h/sub [:article id])]
+    [:article.preview
+     [:h2 (:title article)]
+     [:button {:on-click [:article/favourite id]} "Favourite"]]))
+
+;; Minted once, beside the view, for the callers that have not moved.
+(def article-preview-component (h/as-component article-preview))
+```
+
+```clojure
+;; app.views.profile — still Reagent, still a defn
+(defn profile-page []
+  [:div.profile
+   (for [id @(rf/subscribe [:profile/article-ids])]
+     ^{:key id} [:> article-preview-component {:id id}])])
+```
+
+The boundary lands on the **view**, so there is one implementation and nothing
+to keep in step. The unported caller changes by one line, and it changes again
+— back to an ordinary Hiccup head — on the day that screen is ported.
+
+**Cross an id, not a value.** Props on the `h/as-component` route travel through
+React, so the Reagent parent converts them on the way in exactly as it converts
+any other `[:>]` crossing: a keyword becomes its name, a map becomes a
+camel-cased JavaScript object, any other collection is deeply `clj->js`'d, and
+strings, numbers, booleans, `nil` and functions cross unchanged. Prop *names*
+survive the round trip — `:article-id` is camel-cased on the way out and read
+back as `:article-id` — but values do not. A ported view handed an id, reading
+the rest with `h/sub`, never meets the conversion at all, and that is the shape
+re-frame2 wants anyway.
+
+`h/as-element` performs no such conversion, because the props stay inside
+ClojureScript. Prefer it wherever the Reagent caller is an ordinary body rather
+than something that must own the mount.
+
 ## 3. Prove the port with shadow comparison
 
 `hm/shadow!` mounts the original and candidate against isolated copies of the
 same seeded frame. One interaction script drives both implementations. At
 each checkpoint it compares canonical DOM and the intent stream.
 
+### What this step needs first
+
+`hm/shadow!` lives in `re-frame.hicasso.test.mounted`, so it is an L3 door: it
+needs the test kit on the classpath and a build target that gives it real React
+and a real DOM. [Testing](15-testing.md) carries the kit setup and the level
+ladder. A project with no L3 lane has to stand one up before this step, not as
+part of it — and if that is more than the screen is worth,
+[When not to use the full process](#when-not-to-use-the-full-process) says so.
+
+### The intermediate state
+
+Shadow comparison needs the Reagent original still compiling and still
+mountable, which is a state the rest of this page does not show. For one screen
+it is three namespaces:
+
+| Namespace | What it holds | Who renders it |
+| --- | --- | --- |
+| `app.views.article-row-reagent` | the original, moved verbatim and otherwise untouched | the shadow test, as `:reference` |
+| `app.views.article-row` | the Hicasso port | the shell, and the shadow test as `:candidate` |
+| `app.views.shell` | the unported shell | the Reagent root |
+
+Move the original into a namespace of its own rather than putting the port
+beside it under a second name. Every caller then points at one name, the port,
+and deleting the original at the end is deleting a file.
+
+Point the callers at the **port**, including the ones that have not been ported
+themselves — bridging them out is what
+[Views shared across the boundary](#views-shared-across-the-boundary) is for.
+The original exists for the comparator and for nothing else; a caller left
+pointing at it is a screen that never migrates.
+
+### The comparison
+
 ```clojure
 (ns app.migration.article-row-shadow
-  (:require [re-frame.hicasso.test.mounted :as hm]
+  (:require [reagent.core :as r]
+            [re-frame.hicasso.test.mounted :as hm]
             [app.views.article-row-reagent :as old]
             [app.views.article-row :as new]))
 
+;; Once, at top level, for the same reason h/as-component is: a component
+;; allocated per render is a new element type and remounts the subtree.
+(def old-article-row (r/reactify-component old/article-row))
+
 (hm/shadow!
- {:reference      [old/article-row {:article-id 7}]
-  :candidate      [new/article-row {:article-id 7}]
+ {:reference      [:> old-article-row {:id 7}]
+  :candidate      [new/article-row {:id 7}]
   :initial-events [[:demo/install-fixture]]
   :script         [{:click "button.edit"}
                    {:type  ["input.title" "Better title"]}
                    {:click "button.save"}]})
 ;; => {:status :green :checkpoints 4}
 ```
+
+Both sides are mounted by Hicasso, so the original arrives the way every
+foreign component arrives: through a `[:>]` crossing or a declared `h/defhost`,
+the same door the translation table above already sends it through. A Reagent
+`defn` written directly in head position is a loud refusal rather than a
+Reagent render, which is why `:reference` is a crossing and `:candidate` is a
+plain Hiccup head.
+
+Two consequences of that crossing decide how the pair is written.
+
+- **Cross single-word props.** Hicasso camel-cases the key on the way out and
+  a reactified Reagent component reads back the name React actually carried, so
+  `:article-id` reaches the original as `:articleId`. An id both sides agree on
+  — and a seeded frame both sides read — avoids the question and makes the
+  comparison worth taking.
+- **Hand the original its callbacks as intent vectors.** A declared callback
+  contract lowers them into functions closed over that mount's frame, which is
+  how a foreign original reaches the frame at all. The original's own
+  `#(rf/dispatch ...)` closures capture no frame, exactly as §2 says.
 
 Each side receives its own frame copy, so writes cannot leak between the two
 implementations. A different intent at the first checkpoint causes the states
@@ -194,8 +391,12 @@ Shadow comparison covers canonical DOM and intent streams. It does not prove
 focus, caret, IME, layout, or paint behaviour. Use the browser levels from
 [Testing](15-testing.md) for those claims.
 
-When the screen is green and its browser tests pass, remove the Reagent
-original. Keeping both copies invites future divergence.
+When the screen is green and its browser tests pass, delete
+`app.views.article-row-reagent` and the shadow test together: the comparator is
+the only thing the original was still for, and keeping both copies invites
+future divergence. Check first that no caller still points at the original —
+a shared view reaches its unported callers through the bridge, not through the
+Reagent copy.
 
 ## 4. Apply the mechanical codemod
 
