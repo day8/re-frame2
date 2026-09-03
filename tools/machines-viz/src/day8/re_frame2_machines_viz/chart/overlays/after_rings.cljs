@@ -179,7 +179,6 @@
                                  (vec (measure-rings root @latest-specs)))))]
     (scaffold/make-resizing-overlay-class
       {:display-name "MachinesViz.AfterRingsOverlay"
-       :root-ref     root-ref
        :remeasure!   remeasure!
        :render
        (fn [{:keys [ring-specs tick testid on-hover on-leave]

@@ -35,5 +35,23 @@ see [Xray's Machine Inspector spec](../../xray/spec/003-Machine-Inspector.md).
 - AI generation through a caller-supplied resolver. No provider bridge or
   credentials ship in this artefact.
 
-The JVM-runnable pure-data suite runs with `clojure -M:test`. CLJS and DOM
-coverage use the consolidated builds in `implementation/shadow-cljs.edn`.
+## Test lanes
+
+Three, not two:
+
+- **JVM pure-data** - `clojure -M:test` from `tools/machines-viz`. The
+  `.cljc` grammar / layout / projection / emitter corpus.
+- **Artefact-owned CLJS (node)** - this artefact's own
+  `tools/machines-viz/shadow-cljs.edn` `:machines-viz-node-test` build on
+  its own `:cljs-test` classpath, run as `npm run test:tools-machines-viz`
+  from `implementation/`. Its `-test$` selector reaches the suites the
+  consolidated `cljs-test$` one does not (rf2-odlm3), and it carries the
+  `page` root, so the viewer entry is covered here.
+- **Consolidated CLJS + browser DOM** - `implementation/shadow-cljs.edn`
+  borrows this artefact's `src`, `test` and `page` roots onto its
+  `:node-test` (`cljs-test$`) and `:browser-test` (`-dom-cljs-test$`)
+  builds. The real-DOM chart and export suites run there.
+
+The viewer page is built and staged by `npm run build:machines-viz-viewer`
+(the consolidated `:machines-viz-viewer` release build plus
+`scripts/stage-viewer-page.cjs`).

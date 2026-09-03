@@ -88,14 +88,23 @@ it ships as the compiled `viewer.js` beside that HTML — the jar was never
 its delivery vehicle. Only `src` is on `:paths` and on `:clein/build
 :src-dirs`, so only `src` reaches a consumer.
 
-The split earns its keep rather than merely tidying: the page is the only
-namespace here that picks a substrate (`rf/init!` with the Reagent
-adapter), and picking one is an application's job. Had it stayed in `src`,
-the jar would have had to declare `day8/re-frame2-reagent` to be loadable
-at all — and `day8/reagent-slim` publishes its adapter at the same
-canonical `re-frame.adapter.reagent` namespace, so a slim app taking
-machines-viz would have ended up with two implementations of that
-namespace on one classpath, load order picking the substrate.
+The page boots no framework. `MachineChart` is an ordinary Reagent
+component, so `viewer.cljs` mounts it through a plain
+`reagent.dom.client` root and stops there — no `rf/init!`, no substrate
+adapter, no frame, no dispatch (rf2-6r9j.115). The chart's own DOM suite
+mounts the same component through `adapters/react-chart` and a bare
+`react-dom/client` root, which is the standing proof that no framework
+boot is a rendering prerequisite.
+
+When rf2-k7l2o made the `src`/`page` split the page did still require
+`re-frame.adapter.reagent`, and that require was the sharper half of the
+argument: had it stayed in `src`, the jar would have had to declare
+`day8/re-frame2-reagent` to be loadable at all — and `day8/reagent-slim`
+publishes its adapter at the same canonical `re-frame.adapter.reagent`
+namespace, so a slim app taking machines-viz would have ended up with two
+implementations of that namespace on one classpath, load order picking
+the substrate. The require is gone now, so what keeps the split is the
+application-versus-library-surface line above.
 
 ## Building and hosting the viewer page
 

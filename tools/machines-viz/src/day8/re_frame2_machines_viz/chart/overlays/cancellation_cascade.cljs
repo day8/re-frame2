@@ -160,7 +160,6 @@
                                    anchor/anchor-below root (:node-id spec))))))]
     (scaffold/make-resizing-overlay-class
       {:display-name "MachinesViz.CancellationCascadeOverlay"
-       :root-ref     root-ref
        :remeasure!   remeasure!
        :render
        (fn [{:keys [cascade-spec tick testid]

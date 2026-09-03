@@ -195,7 +195,6 @@
                                    anchor/anchor-right-of root (:node-id spec))))))]
     (scaffold/make-resizing-overlay-class
       {:display-name "MachinesViz.SpawnAllJoinOverlay"
-       :root-ref     root-ref
        :remeasure!   remeasure!
        :render
        (fn [{:keys [join-spec tick testid on-child-click]

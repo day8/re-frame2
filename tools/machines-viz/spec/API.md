@@ -1669,18 +1669,31 @@ namespace a consumer can `:require`. Self-hosting means serving the two
 static files, exactly as [DESIGN-RATIONALE Lock #7](./DESIGN-RATIONALE.md)
 describes; it never meant requiring the entry namespace.
 
-The reason is a contract, not a packaging preference. The viewer is the
-only namespace in this artefact that chooses a **substrate** — it calls
-`rf/init!` with the Reagent adapter — and choosing one is an
-application's job, which is why `implementation/core` is adapter-free.
-A library jar carrying that require would have to declare
-`day8/re-frame2-reagent`, and `day8/reagent-slim` publishes its own
-adapter at the same canonical `re-frame.adapter.reagent` namespace; a
-slim application adding machines-viz would then hold two implementations
-of one namespace, with classpath order deciding which its own
-`(:require [re-frame.adapter.reagent])` resolved to. Keeping the page
-off `:src-dirs` removes the require from the jar and the choice from the
-consumer (rf2-k7l2o).
+The reason is a contract, not a packaging preference. The viewer is an
+**application**: an `^:export` entry a browser calls, a `#app` lookup,
+and a mount root it owns. A consumer requiring this jar wants the chart,
+not a page's mount code, and `:src-dirs ["src"]` is the line that draws
+that boundary.
+
+The page boots **no framework**. `MachineChart` is an ordinary Reagent
+component, so the viewer mounts it through a plain `reagent.dom.client`
+root — no `rf/init!`, no substrate adapter, no frame, no dispatch
+(rf2-6r9j.115). `rf/init!` installs a substrate and re-seeds framework
+registrations; neither is a Reagent rendering prerequisite, which the
+chart's own DOM suite demonstrates by mounting the same component
+through `adapters/react-chart` and a bare `react-dom/client` root.
+
+Until rf2-6r9j.115 the page did require `re-frame.adapter.reagent`, and
+that require was the sharper half of the rf2-k7l2o argument: a library
+jar carrying it would have to declare `day8/re-frame2-reagent`, and
+`day8/reagent-slim` publishes its own adapter at the same canonical
+`re-frame.adapter.reagent` namespace, so a slim application adding
+machines-viz would then hold two implementations of one namespace with
+classpath order deciding which its own
+`(:require [re-frame.adapter.reagent])` resolved to. That hazard is now
+discharged at the source rather than merely fenced by the source-root
+split — no adapter coordinate appears anywhere in
+`tools/machines-viz/deps.edn`, test aliases included.
 
 Source: lifted from
 [Xray 003 §Share affordance](../../xray/spec/003-Machine-Inspector.md#share-affordance).
