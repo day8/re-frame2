@@ -14,6 +14,11 @@ The test kit is split across two namespaces:
 - `re-frame.hicasso.test.mounted`, usually aliased `hm`, for real React and DOM
   tests.
 
+Each level has preconditions — a classpath entry, a subscription fixture, a
+document. A level whose preconditions are unmet rarely fails honestly: it
+passes for the wrong reason, or never runs at all. Each is stated below beside
+the level that needs it.
+
 ## Put the test kit on the classpath
 
 Where the kit comes from depends on how you resolve Hicasso, and the two routes
@@ -75,6 +80,66 @@ Testing Library is the one further thing L3 reaches for, and it is an npm packag
 rather than a classpath entry: `npm install --save-dev @testing-library/dom`, plus
 `@testing-library/user-event` if your tests drive real interactions.
 
+## Where L3's DOM comes from
+
+L0–L2 never touch a document, so any target runs them. L3 is different, and it
+is the one setup step the classpath does not cover: `hm/mount!` renders through
+`react-dom/client`, which needs a real `document` to mount into. Nothing on the
+classpath supplies one, and neither does Testing Library —
+`@testing-library/dom` *queries* a DOM, it does not create one. On a
+shadow-cljs `:node-test` build there is no `document` at all, so every `hm`
+name resolves, compiles, and then fails at run time.
+
+Two build shapes answer it, and they are not equivalent.
+
+**A `:browser-test` target** compiles the suite into a page and runs it in a
+real engine, so the document is a browser's. This is what Hicasso's own mounted
+suites use, and it is the recommendation: L3 exists to prove React and DOM
+facts, and a real engine is the only thing that knows them.
+
+**A DOM shim on `:node-test`** — `jsdom` or `happy-dom`, installed as globals
+before the suite loads — is cheaper, and enough for structural assertions. It
+is a reimplementation though, and what it is least reliable about is focus,
+selection and layout. Those are L4's subject, so a shim narrows what L3 can
+honestly claim rather than moving L4's work down a rung.
+
+Split the two lanes by namespace suffix, so the browser-free bulk of the suite
+never pays for a browser:
+
+```clojure
+;; shadow-cljs.edn -- :builds, beside the :deps entry above
+{:builds
+ {:node-test    {:target    :node-test
+                 :ns-regexp "-cljs-test$"
+                 :output-to "out/node-test.js"}
+
+  :browser-test {:target    :browser-test
+                 :ns-regexp "-dom-cljs-test$"
+                 :test-dir  "out/browser-test"}}}
+```
+
+Then name a mounted test's namespace `...-dom-cljs-test` and a browser-free one
+`...-cljs-test`.
+
+Those two regexes overlap: `-cljs-test$` also matches `-dom-cljs-test`, so a
+mounted file compiles on the Node lane as well unless you narrow it. Overlap is
+often what you want, because a cross-runtime file then gets asserted twice —
+but each mounted row has to say so rather than fail:
+
+```clojure
+(defn- browser? [] (exists? js/document))
+
+(deftest toggle-reaches-the-real-dom
+  (async done
+    (if-not (browser?)
+      (do (println "SKIP (no document): the toggle on a real checkbox")
+          (done))
+      (run-the-mounted-body done))))
+```
+
+A stated skip is a true report. A row that passes because it never ran is the
+failure this chapter is most concerned with.
+
 ## The testing ladder
 
 | Level | What it proves | Mechanism |
@@ -82,7 +147,7 @@ rather than a classpath entry: `npm install --save-dev @testing-library/dom`, pl
 | **L0** | Handler behaviour, subscription output, state transitions | Pure function calls |
 | **L1** | Intent values, prevent/navigate decisions, codecs, merge laws, macro expansion | Plain data and property tests |
 | **L2** | The semantic output of one hook-free view body | `ht/tree` with injected subscription fixtures |
-| **L3** | React lifecycle, hooks, context, refs, hosts, error boundaries, real DOM | Mounted facade with Testing Library and user-event |
+| **L3** | React lifecycle, hooks, context, refs, hosts, error boundaries, real DOM | Mounted facade with Testing Library and user-event, on a target that has a [DOM](#where-l3s-dom-comes-from) |
 | **L4** | IME, caret, focus traversal, layout, hydration, browser performance | Chromium, Firefox, and WebKit |
 
 These levels prove different kinds of equality. A passing semantic-tree test
@@ -242,10 +307,74 @@ Useful tree helpers include:
 - `ht/text` — collect its text;
 - `ht/intents` — collect event intents in the tree.
 
-A node's `:tag` identifies an element. `:view-id` identifies a child view call.
+A node's `:tag` identifies an element. `:view-id` identifies a child view call,
+and it is a **string** — the `"<ns>/<sym>"` name `ht/view-name` answers for
+that view, not the view value itself. Spell it from the var rather than typing
+the string, so a rename moves the test with the code:
+
+```clojure
+(ht/find tree #(= (ht/view-name views/todo-row) (:view-id %)))
+```
+
+It is the same name React DevTools shows for the boundary.
 
 The head may be the `defview` or its underlying body function. No React
 element is created, and nothing mounts or paints.
+
+### The intent stream carries more than your events
+
+`ht/intents` answers **every** event vector in the tree, and an application's
+own events are not always all of them. A tree holding an `h/route-link` also
+carries routing's click decision, and that decision embeds the frame it was
+minted under — which, under `ht/tree`, is a fresh probe keyword per call,
+numbered in the order the tests happened to run:
+
+```clojure
+[:re-frame.hicasso.impl.intent/navigate
+ {:frame   :re-frame.hicasso.test/probe-7
+  :payload [:rf.route/url-requested {:url "/profile/jane" ...}]
+  :native? false
+  :veto    nil}]
+```
+
+So the exact-equality assertion above is right for the todo row, whose tree has
+no link in it, and fragile for any tree that has one: adding a test *above* it
+renumbers the probe and reds it. Where a link is in play, assert what you
+actually meant — that your intent is offered:
+
+```clojure
+(is (contains? (set (ht/intents tree)) [:todo/toggle 7]))
+```
+
+or, when the order of your own events is the claim, filter to the heads you
+own before comparing:
+
+```clojure
+(is (= [[:todo/toggle 7] [:todo/destroy 7]]
+       (filterv #(= "todo" (namespace (first %))) (ht/intents tree))))
+```
+
+For the link itself, assert its `:href`. Routing synthesised it from `:to` and
+`:params`, which is the fact worth pinning, and it does not move.
+
+### The root is always a node
+
+`ht/tree` answers a node map, never `nil`. A body that returned one element
+roots in that element; a body that returned text, several forms, or **nothing
+at all** roots in a fragment, which is a map carrying the version and a
+`:children` vector. So a body whose whole return is `nil` — the usual shape
+being a `when` that did not fire — answers this, and `(nil? tree)` is false:
+
+```clojure
+{:rf.ui/tree-version 1 :children []}
+```
+
+Assert `(empty? (:children tree))`. Asserting the absence of the node you care
+about is stronger still, because it survives the body later gaining a wrapper:
+
+```clojure
+(is (nil? (ht/find tree #(= :nav (:tag %)))))
+```
 
 ### Subscription fixtures
 
@@ -294,7 +423,9 @@ Use the mounted facade when the claim depends on React, hooks, context, refs,
 error boundaries, hosts, or real DOM nodes.
 
 Each mount receives its own frame, app-db, queue, subscription cache, React
-root, and residue baseline.
+root, and residue baseline. It also needs a document: see
+[Where L3's DOM comes from](#where-l3s-dom-comes-from) for the build target
+that supplies one.
 
 | Call | Behaviour |
 | --- | --- |
@@ -465,6 +596,9 @@ props. The row's own test proves what a row renders.
 | `hm/assert-clean!` fails | A subscription, listener, task, or foreign callback survived unmount | Fix the leak; retained host callbacks are a common cause ([Interop](09-interop.md)) |
 | Data test passes but mounted test fails | React lifecycle, effect order, StrictMode, or commit timing changed the result | Treat the mounted result as authoritative for React behaviour |
 | Tree assertion sees `nil` | A `when` returned `nil`; it renders nothing but still appears in authored data | Assert that `nil`, or filter it before comparing |
+| `(nil? (ht/tree ...))` fails on a body that renders nothing | The root is always a node; a body returning `nil` roots in an empty fragment | Assert `(empty? (:children tree))` ([The root is always a node](#the-root-is-always-a-node)) |
+| Every `hm` name resolves but nothing mounts | The test lane has no `document` | Run L3 on a `:browser-test` target ([Where L3's DOM comes from](#where-l3s-dom-comes-from)) |
+| An `ht/intents` equality reds when an unrelated test is added | The tree holds a route link, whose navigate decision carries a per-call probe frame id | Compare by membership, or filter to the heads you own ([The intent stream carries more than your events](#the-intent-stream-carries-more-than-your-events)) |
 | A collection test remains green with an empty list | The assertion is vacuously true | Assert the count and add a sabotage twin |
 
 ## When not to test through a view
