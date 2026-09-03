@@ -33,7 +33,7 @@
 
 const path = require('node:path');
 const { Worker } = require('node:worker_threads');
-const { CODE, Refusal } = require('./protocol.cjs');
+const { CODE, Refusal, chunkFrame } = require('./protocol.cjs');
 
 const WORKER_PATH = path.join(__dirname, 'worker.cjs');
 
@@ -175,7 +175,13 @@ class Isolate {
 
     if (message.t === 'chunk') {
       pendingRender.chunkCount += 1;
-      pendingRender.onChunk({ type: 'chunk', seq: message.seq, html: message.html });
+      // Through the protocol's own constructor, and named fields either
+      // way — the worker's message carries `t` and `id` too, and the
+      // public frame is the three fields `chunkFrame` names. It is the
+      // chunk half of the pair `completeFrame` is the terminal half of;
+      // the boundary spelling the shape a second time by hand is a field
+      // list that can drift from the one the contract publishes.
+      pendingRender.onChunk(chunkFrame(message.seq, message.html));
       return;
     }
     if (message.t === 'complete') {
