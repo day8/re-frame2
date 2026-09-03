@@ -125,6 +125,39 @@ test('the STREAMING mode delivers byte-identical output to the buffered one', as
   });
 });
 
+test('the query is the ONLY streaming selector — the retired header changes nothing', async () => {
+  // `?stream=1` is the whole of the supported contract. The entry point
+  // used to honour an `x-rf-ssr-stream: 1` request header too, with no
+  // consumer, no documentation and no test — a caller could be handed
+  // chunked framing by a header the README never mentioned. It is gone
+  // (rf2-6r9j.72), and "gone" is pinned rather than assumed: a request
+  // carrying it must come back BUFFERED, which `content-length` says and
+  // a streamed response cannot.
+  await withService('chunked', { isolates: 1 }, async (service) => {
+    const http = await serve({ service, port: 0 });
+    const body = { protocol: 1, entry: 'app/root', state: { ':bytes': '["<a>","—","<c/>"]' } };
+    try {
+      const plain = await post(`http://127.0.0.1:${http.port}/render`, body);
+      const withHeader = await post(`http://127.0.0.1:${http.port}/render`, body, {
+        'x-rf-ssr-stream': '1',
+      });
+      assert.strictEqual(withHeader.status, 200);
+      assert.strictEqual(
+        withHeader.headers.get('content-length'),
+        String(utf8(withHeader.text)),
+        'the header must not have selected streaming — a streamed response carries no content-length',
+      );
+      assert.strictEqual(
+        sha256(withHeader.text),
+        sha256(plain.text),
+        'and the bytes are the ordinary buffered response, unchanged',
+      );
+    } finally {
+      await http.close();
+    }
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Separability: N chunks stay N chunks
 // ---------------------------------------------------------------------------
