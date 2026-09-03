@@ -9,8 +9,11 @@
 ;; Packaging status: this is a development/test fixture, NOT a published
 ;; Maven artefact. It deliberately carries NO Maven coordinate and NO
 ;; :clein/build descriptor, and is absent from the lockstep array
-;; (.github/scripts/verify-version-lockstep.sh), the release deploy
-;; matrix, and the CI JVM job set. Unlike the four published adapters
+;; (.github/scripts/verify-version-lockstep.sh) and the release deploy
+;; matrix. That is a PUBLISHING status, not a testing one: this suite IS
+;; in the CI JVM job set — the required `jvm-adapters-test-react` job in
+;; .github/workflows/test.yml runs the `clojure -M:test` alias below.
+;; Unlike the three published adapters
 ;; (reagent, reagent-slim, uix — each its own Clojars artefact),
 ;; consumers never depend on this; it supplies the
 ;; re-frame.adapter.test-react ns ONLY for the project's own unit tests,

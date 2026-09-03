@@ -1,7 +1,7 @@
 (ns re-frame.adapter.test-react-cljs-test
   "Tests for the Test-React adapter.
 
-  Two layers:
+  Three layers:
 
   A. Demonstration scenarios — the original skeleton coverage (rf2-gqyqv):
      happy-path lifecycle ordering, render-tree tracking, adapter-disposal
@@ -27,8 +27,8 @@
           expected; the symptom is an extra :render (and :did-update) entry in
           the lifecycle log — the render counter is higher than the contract.
 
-  C. Harness-contract guards (rf2-ynjts.6) — the documented public-surface
-     invariants the uix browser suites lean on. Each pins a guard /
+  C. Harness-contract guards (rf2-ynjts.6) — self-tests of this local
+     harness's OWN documented public surface. Each pins a guard /
      error / two-entry-point behaviour the harness PROMISES in its docstrings
      but the A/B layers above never exercised: trigger-update! / unmount!
      after teardown, mount-child! outside a render body, mount! under the
@@ -37,11 +37,8 @@
      unmount thunk, and deep (grandchild) leaf-upward cascade ordering."
   (:require [re-frame.adapter.test-react :as test-react]
             [re-frame.substrate.adapter :as substrate-adapter]
-            [re-frame.core :as rf]
-            [re-frame.subs :as subs]
-            [re-frame.frame :as frame]
-            #?(:clj  [clojure.test :as ctest :refer [deftest is testing use-fixtures]]
-               :cljs [cljs.test :as ctest :refer-macros [deftest is testing use-fixtures]])))
+            #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
+               :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])))
 
 ;; ---- fixture ---------------------------------------------------------------
 
@@ -99,6 +96,25 @@
       (is (= [:constructor :render :did-mount :render :did-update :will-unmount]
              (mapv :phase (test-react/lifecycle-log mount)))
           "the simulated lifecycle records constructor, mount-render+did-mount, update-render+did-update, will-unmount"))))
+
+(deftest lifecycle-log-entries-carry-exactly-phase-and-seq
+  (testing "every lifecycle entry is EXACTLY #{:phase :seq} — the shape
+            `lifecycle-log`'s docstring publishes as its contract. `log-phase!`
+            is fixed-arity precisely so nothing can smuggle an extra key in
+            (rf2-6r9j.83); this pins that, and would fail if a stray field —
+            or a merge that clobbered :phase / :seq — ever reappeared."
+    (let [mount (test-react/mount! [:div "v1"])]
+      (test-react/trigger-update! mount [:div "v2"])
+      (test-react/unmount! mount)
+      (let [log (test-react/lifecycle-log mount)]
+        (is (seq log) "precondition: the log recorded entries at all")
+        (is (= #{#{:phase :seq}}
+               (into #{} (map (comp set keys)) log))
+            "every entry's key set is exactly #{:phase :seq} — no extras arm")
+        (is (every? (comp keyword? :phase) log)
+            ":phase is always a keyword")
+        (is (apply < (mapv :seq log))
+            ":seq is strictly increasing across the entries, in firing order")))))
 
 (deftest mounted-components-and-current-render-tree
   (testing "mounted-components tracks live mounts; current-render-tree returns the latest hiccup"
@@ -217,103 +233,6 @@
              the tree and never throws :rf.error/no-hiccup-emitter-bound"))
       (finally
         (test-react/set-hiccup-emitter! nil)))))
-
-;; ---- dispose-adapter! clears every live frame's sub-cache (rf2-ghfkkk) ----
-;;
-;; The HIGH-severity finding: test-react's `dispose-adapter!` drained
-;; active-mounts (the host-resource MUST) but did NOT walk per-frame
-;; sub-caches the way the React adapters do via `spine/dispose-frame-sub-
-;; caches!`. Because `make-derived-value` is a plain IDeref reify whose
-;; reaction never auto-disposes (no IWatchable, no published :adapter/dispose!
-;; hook on CLJS), the `{:reaction … :ref-count n}` CACHE ENTRY — which lives
-;; on the FRAME, not the reaction — survived a dispose/reinstall cycle. A
-;; later subscribe could then read the stale cached value instead of
-;; recomputing from fresh state, breaking process isolation.
-;;
-;; The fix routes `dispose-adapter!` through the CLJC-safe shared helper
-;; `re-frame.subs.cache/clear-all-frame-sub-caches!`, the externally-visible
-;; counterpart of the spine walk. This test materializes a real frame
-;; sub-cache entry (with a ref-count), disposes the adapter, asserts the
-;; sub-cache is empty + the ref-count is gone, and verifies a re-subscribe
-;; after reinstall recomputes from the CURRENT app-db rather than serving a
-;; stale slot. Runs on both the JVM (`clojure -M:test`) and — now that this
-;; ns ends in `-cljs-test` — under CLJS via `npm run test:cljs` (rf2-ezbzvm).
-;; The standalone `test_react_dispose_sub_cache_cljs_test.cljc` companion
-;; pins the same contract independently.
-
-(defn- default-sub-cache-keys
-  "The set of cache-keys currently materialised in the :rf/default frame's
-  per-frame sub-cache. Empty when the frame is absent."
-  []
-  (if-let [cache (:sub-cache (frame/frame :rf/default))]
-    (set (keys @cache))
-    #{}))
-
-(defn- default-entry-ref-count
-  "The :ref-count on the :rf/default frame's sub-cache slot for `query-v`,
-  or nil if the slot is absent."
-  [query-v]
-  (get-in @(:sub-cache (frame/frame :rf/default)) [query-v :ref-count]))
-
-(deftest dispose-adapter-clears-frame-sub-cache-no-stale-cross-lifecycle-reads
-  (testing "dispose-adapter! clears every live frame's sub-cache entries +
-            ref-counts (the rf2-ghfkkk High finding): a materialised slot does
-            NOT survive a dispose/reinstall cycle, and a re-subscribe after
-            reinstall recomputes from the CURRENT app-db — no stale read."
-    ;; Start from a clean frame registry so prior tests in this ns can't leak
-    ;; a frame/cache in. The :each fixture installed test-react; ensure the
-    ;; :rf/default frame exists under it.
-    (reset! frame/frames {})
-    (frame/ensure-default-frame!)
-    (rf/reg-event ::seed (fn [{:keys [db]} [_ v]] {:db {:n v}}))
-    (rf/reg-sub ::n (fn [db _] (:n db)))
-    (try
-      ;; Seed app-db = {:n 1} and materialise a sub-cache entry by subscribing.
-      ;; Both the dispatch and the subscribe pin `:rf/default` explicitly: per
-      ;; EP-0002 there is no ambient `:rf/default` floor, so the AMBIENT
-      ;; 1-arity form (no `:frame` opt) would resolve a render-time frame
-      ;; context this headless test does not establish and raise
-      ;; `:rf.error/no-frame-context`. Use the explicit-frame 2-arity opts
-      ;; form (and `subs/subscribe` below) which carries the target frame
-      ;; directly — an explicit `:frame` opt always wins over ambient scope
-      ;; (Spec 002 §Frame target resolution), macro or fn-form alike.
-      (rf/dispatch-sync [::seed 1] {:frame :rf/default})
-      (let [r (subs/subscribe [::n] {:frame :rf/default})]
-        (is (= 1 @r) "sub reads the seeded value")
-        (is (contains? (default-sub-cache-keys) [::n])
-            "subscribe materialised a cache slot on the frame")
-        (is (= 1 (default-entry-ref-count [::n]))
-            "the slot carries a ref-count of 1"))
-
-      ;; Dispose the adapter. Pre-fix this left the [::n] slot + its ref-count
-      ;; in the frame's sub-cache (the reaction never auto-disposes, so the
-      ;; entry survived). The fix walks every live frame's sub-cache and resets
-      ;; it.
-      (substrate-adapter/dispose-adapter!)
-      (is (empty? (default-sub-cache-keys))
-          "dispose-adapter! cleared the frame's sub-cache — no surviving slot")
-      (is (nil? (default-entry-ref-count [::n]))
-          "the stale ref-count is gone — not carried across the dispose")
-
-      ;; Reinstall and change the app-db. A re-subscribe MUST recompute from
-      ;; the new state (98 → 99 below), not serve a stale cached 1. If the
-      ;; pre-fix slot had survived, the re-subscribe would have aliased the old
-      ;; reaction and the isolation guarantee would be broken.
-      (substrate-adapter/install-adapter! test-react/adapter)
-      (rf/dispatch-sync [::seed 99] {:frame :rf/default})
-      (let [r2 (subs/subscribe [::n] {:frame :rf/default})]
-        (is (= 99 @r2)
-            "re-subscribe after reinstall recomputed from the CURRENT app-db")
-        (is (= 1 (default-entry-ref-count [::n]))
-            "the rebuilt slot is a FRESH cache miss (ref-count back to 1), not
-             a resurrected stale entry")
-        (subs/unsubscribe :rf/default [::n]))
-      (finally
-        ;; Clean up: drop the test registrations + the frame so the ns's other
-        ;; tests (and the :each fixture's outer dispose) start clean. The
-        ;; adapter is left installed for the fixture's dispose to tear down.
-        (rf/clear-sub ::n)
-        (reset! frame/frames {})))))
 
 ;; ----------------------------------------------------------------------------
 ;; A'. Recursive child mounting — the structural seam the regressions ride on
@@ -980,16 +899,21 @@
 ;; C. Harness-contract guards (rf2-ynjts.6)
 ;; ----------------------------------------------------------------------------
 ;;
-;; The uix browser suites consume this harness's PUBLIC surface
-;; (`mount!` / `trigger-update!` / `unmount!` / `mount-child!` / the substrate
-;; `:render` entry point / `render-to-string`). Each of the following pins a
-;; guard or two-entry-point behaviour the harness docstrings PROMISE but the
-;; A/B layers above never exercised. A silent regression in any of these would
-;; weaken the downstream suites without tripping their own assertions — e.g. a
-;; `trigger-update!` that no longer throws after teardown would let a test
-;; re-render a dead mount and read a stale tree; a `mount!` that dropped its
-;; installed-adapter guard would silently mount under whatever adapter the
-;; suite forgot to install. These are the harness's own contract.
+;; These pin the harness's OWN documented PUBLIC surface — `mount!` /
+;; `trigger-update!` / `unmount!` / `mount-child!` / the substrate `:render`
+;; entry point / `render-to-string` — the contract its docstrings promise to
+;; whoever writes a lifecycle test against it. There is no downstream
+;; consumer: nothing outside this artefact requires `re-frame.adapter.test-
+;; react` (the only non-test mention anywhere is the quoted producer roster in
+;; `re-frame.late-bind.directory`), so these guards are self-tests, not a
+;; proxy for some other suite's coverage. Each pins a guard or two-entry-point
+;; behaviour the harness docstrings PROMISE but the A/B layers above never
+;; exercised. A silent regression in any of them would weaken every test
+;; WRITTEN AGAINST this harness without tripping that test's own assertions —
+;; e.g. a `trigger-update!` that no longer throws after teardown would let a
+;; test re-render a dead mount and read a stale tree; a `mount!` that dropped
+;; its installed-adapter guard would silently mount under whatever adapter the
+;; test forgot to install.
 
 ;; ---- trigger-update! after unmount throws ---------------------------------
 
@@ -1120,13 +1044,13 @@
 ;; ---- the substrate :render entry point returns a working unmount thunk ----
 
 (deftest substrate-render-entry-point-returns-working-thunk
-  (testing "the substrate contract's :render fn (the path the runtime / browser
-            suites actually drive, distinct from the public mount! driver)
-            returns a thunk that, when called, tears the mount down. mount! and
-            :render share the internal mount-tree! seam; :render discards the
-            record and hands back ONLY the thunk. Pinning this proves the
-            substrate-facing surface the uix adapters route through stays
-            a live unmount handle, not just the inspection-friendly mount!."
+  (testing "the substrate contract's :render fn (the slot the core runtime
+            drives, distinct from the public mount! driver) returns a thunk
+            that, when called, tears the mount down. mount! and :render share
+            the internal mount-tree! seam; :render discards the record and
+            hands back ONLY the thunk. Pinning this proves THIS fixture's
+            substrate-facing :render slot stays a live unmount handle, not just
+            the inspection-friendly mount!."
     (let [thunk (substrate-adapter/render [:div "via-render"] nil nil)]
       (is (fn? thunk)
           ":render returns a callable unmount thunk")
