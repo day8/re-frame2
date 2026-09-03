@@ -308,8 +308,11 @@
 ;; (rf2-6r9j.11) — it had drifted from the compiled-plan merge semantics, so a
 ;; green witness there proved nothing about the shipped runtime. Both now sit
 ;; on the merge authority in `re-frame.story.plan-test`
-;; (§`extends-cycle-fails`, §`extends-depth-cap-fails`), where they run on the
-;; JVM and CLJS alike.
+;; (§`extends-cycle-fails`, §`extends-depth-cap-fails`). Being `.cljc` they are
+;; host-free, but the gate that RUNS them is the JVM one (`jvm-tools-story` /
+;; `clojure -M:test` here) — the CLJS `:node-test` build selects on
+;; `cljs-test$`, which a plain `-test` namespace does not match. Same reach as
+;; the JVM-only witnesses they replaced.
 
 ;; ---- Form-B desugaring -------------------------------------------------
 
