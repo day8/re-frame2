@@ -3913,13 +3913,43 @@ test('implementation/resources/deps.edn arms implementation_jvm + cljs_node_test
   assert.equal(result.cljs_node_test, 'true');
 });
 
+// rf2-z23f — EVERY PATH HERE IS TRACKED, and the `fs.existsSync` guard below
+// is what keeps it that way. The row this list replaces named
+// `reply_vocabulary_conformance_cljs_test.cljc`; the tracked file is
+// `reply_vocab_conformance_cljs_test.cljc` — "vocab", not "vocabulary". That
+// spelling was never a tracked path at any point in history (`git log --all
+// --diff-filter=A` finds no commit adding it), so it was wrong when written
+// rather than drift from a rename.
+//
+// It cost nothing visible and that is the point: the classifier arm for these
+// tiers is a DIRECTORY-prefix glob (`implementation/reply-conformance/*`), so
+// the phantom classified identically to the real file and the row passed —
+// inert rather than earning its green. A tier pin naming a file that does not
+// exist cannot fail, which makes it a fail-OPEN: the suite reported coverage of
+// a conformance tier it had never actually reached.
+//
+// The SECURITY_TIER_FILES block below is the same bug, found and fixed one tier
+// over (rf2-qxg24, whose row asserted from a `security.cljc` that has never
+// existed). This list now carries that block's discipline AND the executable
+// guard the prose alone could not supply.
+//
+// The reply tier contributes BOTH of its live suites — the vocabulary suite and
+// the egress-projection suite — because the tier owns two guarantees and a
+// prefix glob is exactly the thing that would hide a future arm narrowing to
+// one of them.
 const CONFORMANCE_TIERS = [
-  'implementation/reply-conformance/test/re_frame/reply_vocabulary_conformance_cljs_test.cljc',
+  'implementation/reply-conformance/test/re_frame/reply_vocab_conformance_cljs_test.cljc',
+  'implementation/reply-conformance/test/re_frame/reply_egress_projection_conformance_cljs_test.cljc',
   'implementation/derivation-conformance/test/re_frame/derivation_algebra_conformance_cljs_test.cljc',
   'implementation/event-conformance/test/re_frame/event_model_conformance_cljs_test.cljc',
 ];
 for (const file of CONFORMANCE_TIERS) {
   test(`${file} arms implementation_jvm + cljs_node_test (cross-conformance tier, rf2-dxndhc)`, () => {
+    assert.ok(
+      fs.existsSync(path.join(REPO_ROOT, file)),
+      `${file} must exist — a tier pin on a phantom path cannot fail, so it ` +
+        'reports coverage the suite never reached (rf2-z23f)',
+    );
     const result = classify(file);
     assert.equal(
       result.implementation_jvm,
