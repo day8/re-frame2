@@ -72,53 +72,74 @@
   routes out). Mirrors the rounded-orthogonal look of a hand-routed
   statechart edge without depending on a layout-engine path string."
   [pts]
-  (let [n (alength pts)]
-    (if (<= n 2)
+  (let [point-count (alength pts)]
+    (if (<= point-count 2)
       ;; A straight start→end run — no interior bend to round.
-      (let [a (aget pts 0) b (aget pts (dec n))]
-        (str "M " (.-x a) "," (.-y a) " L " (.-x b) "," (.-y b)))
-      (let [sb   (js/Array.)
-            p0   (aget pts 0)]
-        (.push sb (str "M " (.-x p0) "," (.-y p0)))
+      (let [start-point (aget pts 0)
+            end-point   (aget pts (dec point-count))]
+        (str "M " (.-x start-point) "," (.-y start-point)
+             " L " (.-x end-point) "," (.-y end-point)))
+      (let [path-commands (js/Array.)
+            start-point   (aget pts 0)]
+        (.push path-commands (str "M " (.-x start-point) "," (.-y start-point)))
         ;; For each interior point, draw a line up TO a point shy of the
         ;; corner, then a quadratic curve THROUGH the corner to a point
         ;; just past it — rounding the bend.
-        (dotimes [i (- n 2)]
-          (let [prev (aget pts i)
-                cur  (aget pts (inc i))
-                nxt  (aget pts (+ i 2))
-                dx1  (- (.-x cur) (.-x prev))
-                dy1  (- (.-y cur) (.-y prev))
-                dx2  (- (.-x nxt) (.-x cur))
-                dy2  (- (.-y nxt) (.-y cur))
-                len1 (js/Math.hypot dx1 dy1)
-                len2 (js/Math.hypot dx2 dy2)
+        (dotimes [point-index (- point-count 2)]
+          (let [incoming-point  (aget pts point-index)
+                corner-point    (aget pts (inc point-index))
+                outgoing-point  (aget pts (+ point-index 2))
+                incoming-dx     (- (.-x corner-point) (.-x incoming-point))
+                incoming-dy     (- (.-y corner-point) (.-y incoming-point))
+                outgoing-dx     (- (.-x outgoing-point) (.-x corner-point))
+                outgoing-dy     (- (.-y outgoing-point) (.-y corner-point))
+                incoming-length (js/Math.hypot incoming-dx incoming-dy)
+                outgoing-length (js/Math.hypot outgoing-dx outgoing-dy)
                 ;; clamp the rounding to half of the shorter incident
                 ;; segment so adjacent corners never overlap.
-                r    (js/Math.min corner-radius (/ len1 2) (/ len2 2))
-                ;; entry point: r before the corner along the incoming seg
-                ex   (if (pos? len1) (- (.-x cur) (* (/ dx1 len1) r)) (.-x cur))
-                ey   (if (pos? len1) (- (.-y cur) (* (/ dy1 len1) r)) (.-y cur))
-                ;; exit point: r after the corner along the outgoing seg
-                xx   (if (pos? len2) (+ (.-x cur) (* (/ dx2 len2) r)) (.-x cur))
-                xy   (if (pos? len2) (+ (.-y cur) (* (/ dy2 len2) r)) (.-y cur))]
-            (.push sb (str "L " ex "," ey))
-            (.push sb (str "Q " (.-x cur) "," (.-y cur) " " xx "," xy))))
-        (let [last-pt (aget pts (dec n))]
-          (.push sb (str "L " (.-x last-pt) "," (.-y last-pt))))
-        (.join sb " ")))))
+                clamped-radius (js/Math.min corner-radius
+                                            (/ incoming-length 2)
+                                            (/ outgoing-length 2))
+                ;; entry point: radius before the corner along the incoming seg
+                entry-x        (if (pos? incoming-length)
+                                 (- (.-x corner-point)
+                                    (* (/ incoming-dx incoming-length)
+                                       clamped-radius))
+                                 (.-x corner-point))
+                entry-y        (if (pos? incoming-length)
+                                 (- (.-y corner-point)
+                                    (* (/ incoming-dy incoming-length)
+                                       clamped-radius))
+                                 (.-y corner-point))
+                ;; exit point: radius after the corner along the outgoing seg
+                exit-x         (if (pos? outgoing-length)
+                                 (+ (.-x corner-point)
+                                    (* (/ outgoing-dx outgoing-length)
+                                       clamped-radius))
+                                 (.-x corner-point))
+                exit-y         (if (pos? outgoing-length)
+                                 (+ (.-y corner-point)
+                                    (* (/ outgoing-dy outgoing-length)
+                                       clamped-radius))
+                                 (.-y corner-point))]
+            (.push path-commands (str "L " entry-x "," entry-y))
+            (.push path-commands (str "Q " (.-x corner-point) ","
+                                      (.-y corner-point) " " exit-x "," exit-y))))
+        (let [end-point (aget pts (dec point-count))]
+          (.push path-commands (str "L " (.-x end-point) "," (.-y end-point))))
+        (.join path-commands " ")))))
 
 (defn- path-midpoint
   "The label anchor for a routed edge: the midpoint of the path's
   middle segment (so the label sits ON the route, not floating at the
   bezier midpoint). `pts` is the JS points array (≥ 2)."
   [pts]
-  (let [n (alength pts)
-        i (quot n 2)
-        a (aget pts (max 0 (dec i)))
-        b (aget pts i)]
-    [(/ (+ (.-x a) (.-x b)) 2)
-     (/ (+ (.-y a) (.-y b)) 2)]))
+  (let [point-count       (alength pts)
+        middle-index      (quot point-count 2)
+        before-middle     (aget pts (max 0 (dec middle-index)))
+        middle-point      (aget pts middle-index)]
+    [(/ (+ (.-x before-middle) (.-x middle-point)) 2)
+     (/ (+ (.-y before-middle) (.-y middle-point)) 2)]))
 
 ;; ---- cross-hierarchy label placement -----------------------------------
 ;;
@@ -139,26 +160,33 @@
   array (≥ 2). Falls back to the midpoint of the first segment for
   degenerate two-point routes (no bend to anchor on)."
   [pts]
-  (let [n (alength pts)]
-    (if (< n 3)
+  (let [point-count (alength pts)]
+    (if (< point-count 3)
       ;; No interior bend — anchor on the midpoint of the only segment.
-      (let [a (aget pts 0) b (aget pts (dec n))]
-        [(/ (+ (.-x a) (.-x b)) 2)
-         (/ (+ (.-y a) (.-y b)) 2)])
+      (let [start-point (aget pts 0)
+            end-point   (aget pts (dec point-count))]
+        [(/ (+ (.-x start-point) (.-x end-point)) 2)
+         (/ (+ (.-y start-point) (.-y end-point)) 2)])
       ;; Anchor at the first bend after the source handle. With a slight
       ;; bias along the incoming segment so the label sits just past the
       ;; corner, not on top of it.
-      (let [a    (aget pts 0)
-            b    (aget pts 1)
-            dx   (- (.-x b) (.-x a))
-            dy   (- (.-y b) (.-y a))
-            len  (js/Math.hypot dx dy)
-            bias 6
-            ;; Step `bias` px back from the bend along the incoming
+      (let [source-point     (aget pts 0)
+            first-bend-point (aget pts 1)
+            segment-dx       (- (.-x first-bend-point) (.-x source-point))
+            segment-dy       (- (.-y first-bend-point) (.-y source-point))
+            segment-length   (js/Math.hypot segment-dx segment-dy)
+            label-bias       6
+            ;; Step `label-bias` px back from the bend along the incoming
             ;; segment so the label sits in the routed channel.
-            bx   (if (pos? len) (- (.-x b) (* (/ dx len) bias)) (.-x b))
-            by   (if (pos? len) (- (.-y b) (* (/ dy len) bias)) (.-y b))]
-        [bx by]))))
+            label-x          (if (pos? segment-length)
+                               (- (.-x first-bend-point)
+                                  (* (/ segment-dx segment-length) label-bias))
+                               (.-x first-bend-point))
+            label-y          (if (pos? segment-length)
+                               (- (.-y first-bend-point)
+                                  (* (/ segment-dy segment-length) label-bias))
+                               (.-y first-bend-point))]
+        [label-x label-y]))))
 
 (defn edge-path
   "Pure path-selection for a transition edge — the single source of
