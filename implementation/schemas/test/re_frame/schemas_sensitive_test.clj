@@ -42,8 +42,6 @@
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.schemas :as schemas]
-            ;; Explicit test dependency; the facade also loads this adapter.
-            [re-frame.schemas.malli]
             ;; Compiled schemas exercise fail-closed opaque handling.
             [malli.core :as m]
             ;; White-box tests cover the internal path sanitizer.

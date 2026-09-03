@@ -67,9 +67,11 @@
             [re-frame.conformance :as conformance]
             [re-frame.core :as rf]
             [re-frame.frame :as frame]
+            ;; Load-bearing beyond its alias: loading the facade is what
+            ;; publishes the Malli validate/explain hooks (rf2-v96fh) and
+            ;; binds core's `reg-app-schema` re-export through late-bind.
+            ;; clj-kondo reports the ALIAS unused here; the require is not.
             [re-frame.schemas :as schemas]
-            ;; Explicit test dependency; the facade also loads this adapter.
-            [re-frame.schemas.malli]
             [re-frame.schemas.test-fixture :as tf]
             [re-frame.subs :as subs]
             [re-frame.test-support :refer [with-trace-recorder!]]))

@@ -38,7 +38,6 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.schemas :as schemas]
-            [re-frame.schemas.malli]
             [re-frame.schemas.test-fixture :as tf]
             [re-frame.test-support :refer [with-trace-recorder!]]))
 

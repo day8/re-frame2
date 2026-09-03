@@ -37,7 +37,6 @@
             [re-frame.core :as rf]
             [re-frame.registrar :as registrar]
             [re-frame.schemas :as schemas]
-            [re-frame.schemas.malli]
             [re-frame.schemas.test-fixture :as tf]
             [re-frame.spec :as spec]
             [re-frame.test-support :refer [with-trace-recorder!]]))
