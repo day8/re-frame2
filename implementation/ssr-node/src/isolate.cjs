@@ -51,7 +51,6 @@ class Isolate {
     this.dead = false;
     /** The one in-flight render, or null. Guarantee 3, in one field. */
     this.pendingRender = null;
-    this.renders = 0;
     this._nextRenderId = 0;
   }
 
@@ -135,7 +134,6 @@ class Isolate {
     }
 
     const renderId = this._nextRenderId++;
-    this.renders += 1;
 
     return new Promise((resolve, reject) => {
       const deadlineTimer = setTimeout(() => {
@@ -257,4 +255,4 @@ class Isolate {
   }
 }
 
-module.exports = { Isolate, WORKER_PATH };
+module.exports = { Isolate };

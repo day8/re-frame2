@@ -67,4 +67,4 @@ function observationsIn(html) {
   return JSON.parse(Buffer.from(m[1], 'base64').toString('utf8'));
 }
 
-module.exports = { ATTR, encode, observationsIn };
+module.exports = { encode, observationsIn };
