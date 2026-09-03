@@ -124,7 +124,7 @@ function readBody(req, maxBytes) {
   });
 }
 
-async function handleRender(service, req, res, { maxRequestBytes, streamingDefault }) {
+async function handleRender(service, req, res, { maxRequestBytes }) {
   let parsed;
   let requestId;
   try {
@@ -140,11 +140,17 @@ async function handleRender(service, req, res, { maxRequestBytes, streamingDefau
     return;
   }
 
+  // ONE SELECTOR. Buffered is the default and `?stream=1` is the opt-in,
+  // and there is no second way to say it: the entry point also honoured an
+  // `x-rf-ssr-stream: 1` request header and a `streamingDefault` serve
+  // option (with a `?stream=0` escape that only ever mattered when that
+  // option was on). Neither had a consumer anywhere — no CLI flag, no
+  // README contract, no test, no JVM adapter — so the response framing a
+  // caller got could be changed by a magic header or an unpinned
+  // in-process option that the operational docs did not teach. Retired
+  // under rf2-6r9j.72; `test/bytes.test.cjs` pins that the header is inert.
   const url = new URL(req.url, 'http://localhost');
-  const streaming =
-    url.searchParams.get('stream') === '1' ||
-    req.headers['x-rf-ssr-stream'] === '1' ||
-    (streamingDefault && url.searchParams.get('stream') !== '0');
+  const streaming = url.searchParams.get('stream') === '1';
 
   const buffered = [];
   try {
@@ -218,12 +224,12 @@ function handleHealth(service, res) {
  * the node `Server` plus the port actually bound — which matters because
  * the tests bind port 0 and a fixed test port is a fixed test collision.
  */
-function serve({ service, port = 8148, host = '127.0.0.1', maxRequestBytes = 1 << 20, streamingDefault = false }) {
+function serve({ service, port = 8148, host = '127.0.0.1', maxRequestBytes = 1 << 20 }) {
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://localhost');
     if (req.method === 'GET' && url.pathname === '/health') return handleHealth(service, res);
     if (req.method === 'POST' && url.pathname === '/render') {
-      return void handleRender(service, req, res, { maxRequestBytes, streamingDefault });
+      return void handleRender(service, req, res, { maxRequestBytes });
     }
     const body = JSON.stringify({
       type: 'refusal',
