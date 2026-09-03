@@ -195,10 +195,20 @@ bar (HD-012) and this package does not quietly re-open it.
 | p50 service overhead | **5 ms** |
 | p95 service overhead | **25 ms** |
 | worst single sample | **250 ms** |
-| samples | 200, sequential, warm pool, free isolate, `state` ≤ 64 KiB |
+| samples | 200, sequential, warm pool, free isolate, `state` + `runtime` ≤ 64 KiB |
 
 The upper two are deliberately loose, and the reasoning is written where
 the numbers are.
+
+The size condition is one budget over **both** request partitions, keys
+and values, counted in UTF-8 bytes exactly as `src/protocol.cjs` counts
+them — the ceilings are not claimed for a request larger than that. It is
+the envelope's own sampling condition and not the service's refusal
+ceiling, which is `--max-request-bytes` and an order of magnitude higher.
+The condition originally named `state` alone, because that was the only
+partition a request carried when the envelope was registered; widening it
+to the request moved no ceiling and no sample count, and the amendment
+note in `src/envelope.cjs` records that separation.
 
 ## The measured envelope
 

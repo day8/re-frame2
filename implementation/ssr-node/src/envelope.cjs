@@ -37,9 +37,38 @@
 //   - a FREE isolate at dispatch, so no sample includes admission queueing
 //     behind another request (bounded concurrency is guarantee 3's subject,
 //     measured there, and would otherwise be double-counted here);
-//   - a request whose `state` is at most 64 KiB of EDN text in total;
+//   - a request whose `state` and `runtime` partitions are at most 64 KiB
+//     of EDN text TOGETHER, counted the way `protocol.cjs` counts them —
+//     every UTF-8 key byte plus every UTF-8 value byte, over both
+//     partitions (see the amendment below);
 //   - sequential requests — one in flight at a time;
 //   - Node 24 on one box.
+//
+// ## AMENDMENT, AND WHAT IT DID NOT TOUCH (rf2-6r9j.71)
+//
+// The registration above was written when a request carried ONE
+// partition, and it bounded `state` alone. `runtime` became a second
+// cloned partition later (9a42302f7a) and `protocol.cjs` now counts every
+// key and value of BOTH against one combined ceiling — but the condition
+// here was never widened to follow, so the published envelope could be
+// read as covering a runtime-heavy request that its witness never sent,
+// and the witness's own byte definition (two values, no keys) was not the
+// validator's.
+//
+// The condition's DOMAIN is corrected here; its NUMBER is not, and
+// neither is any ceiling. `p50Ms`, `p95Ms`, `maxMs` and `samples` carry
+// the values they were registered with in f39829caa6, before any
+// measurement code existed, and `git log --follow` on this file still
+// separates that registration from this repair. A ceiling moved after a
+// run would be a description of the run; a condition corrected to name
+// the requests the validator actually admits is the opposite — it makes
+// the claim harder to satisfy, not easier.
+//
+// The 64 KiB here is the ENVELOPE's sampling condition and is not
+// `protocol.cjs`'s refusal ceiling, which is `maxRequestBytes` (1 MiB by
+// default). Two different layers: the service refuses above one, and the
+// latency figures are only claimed below the other. What the two must
+// share — and now do — is how a byte is counted.
 //
 // ## Why the ceilings are where they are
 //
@@ -59,6 +88,8 @@
 // milliseconds at the median and never runs away — and never as a
 // benchmark to diff a future run against.
 
+const { PARTITIONS } = require('./protocol.cjs');
+
 const ENVELOPE = Object.freeze({
   /** Median service overhead, milliseconds. */
   p50Ms: 5,
@@ -68,9 +99,37 @@ const ENVELOPE = Object.freeze({
   maxMs: 250,
   /** How many samples the witness takes. */
   samples: 200,
-  /** The total `state` EDN budget the ceilings are stated under. */
-  stateBudgetBytes: 64 * 1024,
+  /**
+   * The total request EDN budget the ceilings are stated under — `state`
+   * and `runtime` together, keys and values. Named for the request rather
+   * than for one partition because a partition is a way of naming the
+   * budget, not a second allowance; `protocol.cjs` says the same thing
+   * about its own ceiling.
+   */
+  requestBudgetBytes: 64 * 1024,
 });
+
+/**
+ * The EDN text a request carries, in UTF-8 bytes, counted the way
+ * `validatePartition` counts it: every key plus every value, across every
+ * partition the protocol names.
+ *
+ * It reads `PARTITIONS` from `protocol.cjs` rather than naming `state`
+ * and `runtime` here, so a third partition cannot be added to the wire
+ * and leave this condition silently measuring two of three — which is
+ * precisely how the condition came to bound `state` alone.
+ */
+function requestBytes(request) {
+  let bytes = 0;
+  for (const { field } of PARTITIONS) {
+    const partition = request[field];
+    if (partition === undefined || partition === null) continue;
+    for (const [k, v] of Object.entries(partition)) {
+      bytes += Buffer.byteLength(k, 'utf8') + Buffer.byteLength(String(v), 'utf8');
+    }
+  }
+  return bytes;
+}
 
 /**
  * Percentile of an ARRAY OF NUMBERS, nearest-rank on the sorted sample.
@@ -105,4 +164,4 @@ function judge(overheadsMs, envelope = ENVELOPE) {
   return { ok: breaches.length === 0, p50, p95, max, n: overheadsMs.length, breaches };
 }
 
-module.exports = { ENVELOPE, percentile, judge };
+module.exports = { ENVELOPE, requestBytes, percentile, judge };
