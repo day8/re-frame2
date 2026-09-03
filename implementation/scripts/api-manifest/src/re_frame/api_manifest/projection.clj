@@ -36,24 +36,15 @@
   []
   (:vars (gen/read-committed-manifest)))
 
-(defn index-by-var-name
-  "`{bare-var-name -> #{manifest-row ...}}` over the supplied rows. A bare
-   var name can be ambiguous across namespaces (e.g. `configure!` lives on
-   both `re-frame.core` and `re-frame.story`); a projection reference that
-   does not pin a namespace resolves if ANY manifest row carries the name,
-   which is the same name-resolution latitude `api-md-check` takes."
-  [rows]
-  (reduce (fn [acc {:keys [var] :as row}]
-            (update acc var (fnil conj #{}) row))
-          {} rows))
-
-(defn index-by-ns+var
-  "`{[ns-str var-str] -> manifest-row}` over the supplied rows — the strict
-   index for fully-namespace-qualified references (the Xray panel symbols)."
-  [rows]
-  (reduce (fn [acc {:keys [namespace var] :as row}]
-            (assoc acc [namespace var] row))
-          {} rows))
+;; NB (rf2-6r9j.137): there is deliberately NO shared row index here. Each
+;; check builds the projection its own contract needs — a bare-name set
+;; (`doc-api-check`), a per-namespace var set (`rows-in-ns` below), tier sets
+;; (`api-md-check`), a strict `[namespace var]` set (`xray-spec-check`) — and
+;; those are DISTINCT contracts, not four spellings of one. Bare-name latitude
+;; is sound where a surface names vars across several public namespaces under
+;; one alias; it is unsound for the Xray panel symbols, where ten namespaces
+;; carry the same `:var "Panel"`. Consolidating them would trade a real
+;; guarantee for a shared helper.
 
 (defn rows-in-ns
   "Manifest rows whose `:namespace` is `ns-str`."

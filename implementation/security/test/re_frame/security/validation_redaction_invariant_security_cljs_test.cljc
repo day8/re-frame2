@@ -70,7 +70,13 @@
             ;; transform on `dispatch-sync`; `plain-atom` is the substrate the
             ;; drain / subscribe paths run against.
             [re-frame.flows]
-            [re-frame.late-bind :as late-bind]
+            ;; CLJS-only: the sole `late-bind` use left in this ns is the
+            ;; `:subs/resolve-sub-override` publish inside the `#?(:cljs …)`
+            ;; sub-override driver below (the `:sub-overrides` subscribe seam
+            ;; is a CLJS-only dev surface). Scoping the require to `:cljs`
+            ;; keeps the JVM branch honest rather than carrying a require no
+            ;; `:clj` form reads.
+            #?(:cljs [re-frame.late-bind :as late-bind])
             [re-frame.substrate.plain-atom :as plain-atom]
             #?(:clj  [re-frame.test-support :as test-support :refer [with-trace-recorder!]]
                :cljs [re-frame.test-support :as test-support :refer-macros [with-trace-recorder!]])
@@ -390,22 +396,38 @@
 
 (defn- with-runtime*
   "Install the plain-atom substrate + ensure the `:rf/default` frame for the
-  extent of `thunk`, then dispose. The shared adapter-less reset fixture
-  (which `:clear-app-schemas?`-resets and pins `:rf/default` as the ambient
-  scope) does NOT install an adapter — the flow drain / subscribe production
-  paths need one. The outer fixture's `frame/*current-frame* :rf/default`
-  binding supplies the ambient scope; we just stand up the substrate and the
-  default frame here, and the next test's fixture run disposes the adapter on
-  the way in (we dispose eagerly too for symmetry)."
+  extent of `thunk`. The shared adapter-less reset fixture (which
+  `:clear-app-schemas?`-resets and pins `:rf/default` as the ambient scope)
+  does NOT install an adapter — the flow drain / subscribe production paths
+  need one. The outer fixture's `frame/*current-frame* :rf/default` binding
+  supplies the ambient scope; we just stand up the substrate and the default
+  frame here.
+
+  ## Setup failures PROPAGATE (rf2-6r9j.102)
+
+  `rf/init!` is documented idempotent and raises only on a nil / non-map
+  adapter, so in this fixture state a throw out of it is a genuine setup
+  failure — a partially-initialised runtime, not a benign re-entry. This
+  helper therefore does NOT catch it. A security invariant asserted against
+  a runtime that failed to stand up is worth nothing: swallowing the throw
+  converts it into a misleading downstream assertion failure or, worse, a
+  false green on a suite whose whole job is to fail RED on a leak.
+
+  ## Adapter lifetime is the OUTER fixture's (rf2-6r9j.102)
+
+  Teardown is DELEGATED, deliberately and in full, to
+  `make-reset-runtime-fixture` above: it disposes the installed adapter on
+  its way IN to every test (`reset-runtime!` → `adapter/dispose-adapter!`)
+  and, in its own post-test `finally`, resets `frame/frames` AND the flow
+  registry (`finish-runtime-reset!` → the `:flows/reset-flows!` late-bind
+  hook) without swallowing failure. So this helper disposes nothing and
+  resets nothing: there is no within-test lifecycle here that the outer
+  fixture's boundary does not already cover, and every caller wraps its
+  whole test body in exactly one `with-runtime*`."
   [thunk]
-  (try (rf/init! plain-atom/adapter) (catch #?(:clj Throwable :cljs :default) _ nil))
+  (rf/init! plain-atom/adapter)
   (frame/ensure-default-frame!)
-  (try (thunk)
-       (finally
-         ;; Drop the flow registry + dirty-check rows so a sibling test in
-         ;; this ns does not re-run our flow on its own dispatch.
-         (when-let [reset! (late-bind/get-fn :flows/reset-flows!)]
-           (try (reset!) (catch #?(:clj Throwable :cljs :default) _ nil))))))
+  (thunk))
 
 (deftest flow-output-production-path-redacts-sensitive
   (testing "rf2-g1a4ho — :where :flow-output PRODUCTION PATH: a flow whose
@@ -421,7 +443,7 @@
         ;; the :sensitive? output schema. The failing value carries the
         ;; sentinel so, absent redaction, it rides verbatim in :value /
         ;; :explain on the trace bus.
-        (rf/reg-event :flow/seed (fn [{:keys [db]} _] {:db {:in failing-sensitive-value}}))
+        (rf/reg-event :flow/seed (fn [_ _] {:db {:in failing-sensitive-value}}))
         (rf/reg-flow :flow/secret {:inputs [[:in]] :output-path [:derived] :schema sensitive-map-schema} (fn [in] in))
         (let [trace (capture-failure
                       #(rf/dispatch-sync [:flow/seed]))]

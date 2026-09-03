@@ -806,8 +806,9 @@
    a duplicated `:cljs-only` entry, or a `:cljs-only` row colliding with a
    JVM-derived row, produced a manifest with two rows for one var (possibly
    with conflicting tier/kind/status/runtime metadata) and an inflated
-   `:var-count`. Downstream projections then either silently overwrite one
-   row (`index-by-ns+var` `assoc`) or tolerate multiple tiers — masking the
+   `:var-count`. Downstream projections then either collapse the two rows to
+   one (`xray-spec-check`'s strict `[namespace var]` SET, which cannot
+   represent a duplicate at all) or tolerate multiple tiers — masking the
    contradiction. Detecting duplicates HERE, before write / `--check`, keeps
    the one-row-per-var invariant where it is generated."
   [rows]

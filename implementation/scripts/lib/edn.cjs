@@ -1,8 +1,16 @@
 'use strict';
 
 /*
- * A small, complete EDN reader for the G-13 production-dependency boundary
- * proof (rf2-2n0cv).
+ * A small, complete EDN reader shared by the release-policy gates that must
+ * read a `deps.edn` as STRUCTURE rather than as text (rf2-2n0cv).
+ *
+ * Current consumers, all of them reading `deps.edn` coordinates / aliases:
+ *
+ *   implementation/scripts/lib/publishable-runtimes.cjs   — the publishable
+ *     runtime roster (a `:clein/build` alias makes an artefact publishable)
+ *   implementation/scripts/_release-dag-policy.test.cjs   — release DAG policy
+ *   implementation/scripts/_preflight-xray-package.test.cjs — release preflight
+ *   .github/scripts/verify-version-lockstep.sh            — version lockstep
  *
  * Where a balanced-brace byte scan cannot tell a real `}` from one that sits
  * inside a `; comment`, a "string", or a `#_` reader-discarded form, this
@@ -262,15 +270,6 @@ function isMap(form) {
   return form !== null && typeof form === 'object' && form.edn === 'map';
 }
 
-function isSymbol(form, name) {
-  return (
-    form !== null &&
-    typeof form === 'object' &&
-    form.edn === 'symbol' &&
-    (name === undefined || form.name === name)
-  );
-}
-
 function isKeyword(form, name) {
   return (
     form !== null &&
@@ -288,36 +287,10 @@ function mapGetKeyword(mapForm, name) {
   return undefined;
 }
 
-// True iff the EDN map form has a symbol key named `name`.
-function mapHasSymbolKey(mapForm, name) {
-  return mapForm.entries.some(([k]) => isSymbol(k, name));
-}
-
-// Parse `uiDepsEdn` and return the real, top-level production `:deps` map
-// form — reading EDN structure, never text slices. Fail-closed on unreadable
-// input, a non-map top-level form, a missing `:deps`, or a non-map `:deps`
-// value, routing every rejection through the injected gate `fail`.
-function productionDepsMap(uiDepsEdn, fail) {
-  let top;
-  try {
-    top = readEdn(uiDepsEdn);
-  } catch (err) {
-    fail(`ui/deps.edn is not readable EDN (${err.message})`);
-  }
-  if (!isMap(top)) fail('ui/deps.edn top-level form is not a map');
-  const deps = mapGetKeyword(top, 'deps');
-  if (deps === undefined) fail('ui/deps.edn has no production :deps map');
-  if (!isMap(deps)) fail('ui/deps.edn production :deps is not a map');
-  return deps;
-}
-
 module.exports = {
   EdnReadError,
   readEdn,
   isMap,
-  isSymbol,
   isKeyword,
   mapGetKeyword,
-  mapHasSymbolKey,
-  productionDepsMap,
 };

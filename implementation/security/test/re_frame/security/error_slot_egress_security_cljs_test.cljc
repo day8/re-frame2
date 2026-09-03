@@ -16,9 +16,13 @@
             ;; without it `route-url` soft-passes (no validation throw) and the
             ;; `:schemas/redact-validation-tags` sensitivity oracle is unbound.
             [re-frame.schemas.malli]
-            [re-frame.classification :as classification]
             [re-frame.mcp-base.sensitive :as sens]
-            [re-frame.routing :as routing]
+            ;; SIDE-EFFECT REQUIRE, no alias: `rf/reg-route` is a late-bound
+            ;; facade over the OPTIONAL `day8/re-frame2-routing` artefact,
+            ;; which `re-frame.core` deliberately does not require. Loading
+            ;; this ns is what publishes the routing implementation the facade
+            ;; binds to; no `routing/` var is named here.
+            [re-frame.routing]
             ;; A validation reject short-circuits before browser effects, so
             ;; the handler can be driven directly with synthetic coeffects.
             [re-frame.routing.navigate :as navigate]

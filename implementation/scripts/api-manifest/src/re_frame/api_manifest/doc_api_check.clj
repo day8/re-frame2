@@ -27,8 +27,8 @@
                         reference (`docs/story/api/**`).
 
   RESOLUTION LATITUDE. A reference resolves when its bare var name is carried
-  by ANY manifest row — the same bare-name latitude the secondary projection
-  checks take (`projection/index-by-var-name`). This is correct here: the
+  by ANY manifest row — `check!` below builds exactly that: a BARE-NAME SET
+  over every manifest row (`(set (map :var rows))`). This is correct here: the
   API reference legitimately names vars across several public namespaces
   (`re-frame.core`, `re-frame.story`, `re-frame.machines`, …) under the `rf`
   alias, and a REMOVED var has no manifest row in ANY namespace, so it is
