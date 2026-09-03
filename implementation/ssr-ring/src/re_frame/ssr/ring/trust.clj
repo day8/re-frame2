@@ -79,14 +79,14 @@
   Returns `opts` unchanged on success — composes into a `let` /
   threading position cleanly, like `payload-policy/validate-policy-opts!`."
   [opts]
-  (doseq [k trusted-shell-string-opts]
-    (when (contains? opts k)
-      (let [v (get opts k)]
-        (when (and (some? v) (not (string? v)))
+  (doseq [option-key trusted-shell-string-opts]
+    (when (contains? opts option-key)
+      (let [option-value (get opts option-key)]
+        (when (and (some? option-value) (not (string? option-value)))
           (error/throw-error!
             :rf.error/ssr-trusted-shell-opt-invalid
             'rf.ssr/trusted-shell
-            (str "ssr-handler / stream-handler " (pr-str k)
+            (str "ssr-handler / stream-handler " (pr-str option-key)
                  " must be a string (or nil) — the four "
                  "trusted shell-hook string opts ("
                  (str/join ", " (map pr-str trusted-shell-string-opts))
@@ -95,9 +95,9 @@
                  ":script-src / :app-element-id as escaped attribute "
                  "hooks; trusted-string contract per "
                  "Spec 011 §Trusted shell hook contract). "
-                 "Got: " (pr-str (type v)) ".")
+                 "Got: " (pr-str (type option-value)) ".")
             {:recovery :supply-string-or-nil
-             :extra    {:opt-key  k
-                        :got      v
-                        :got-type (type v)}})))))
+             :extra    {:opt-key  option-key
+                        :got      option-value
+                        :got-type (type option-value)}})))))
   opts)

@@ -34,14 +34,14 @@
   ;; subset of RFC 1123): "Sun, 06 Nov 1994 08:49:37 GMT".
   (.withZone DateTimeFormatter/RFC_1123_DATE_TIME ZoneOffset/UTC))
 
-(defn- url-encode
+(defn- encode-cookie-value
   "URL-encode a cookie value. java.net.URLEncoder emits `+` for space
   (form-encoded shape, RFC 1866), but RFC 6265 cookie values follow
   RFC 3986 percent-encoding — space is `%20`. Post-process the
   form-encoded output to convert `+` back to `%20` so the wire shape is
   RFC-3986-clean."
-  [s]
-  (-> (URLEncoder/encode (str s) (.name StandardCharsets/UTF_8))
+  [cookie-value]
+  (-> (URLEncoder/encode (str cookie-value) (.name StandardCharsets/UTF_8))
       (str/replace "+" "%20")))
 
 ;; Cookie attributes (:domain / :path / :max-age / :same-site) are
@@ -53,63 +53,65 @@
 ;; predicate keeps the effect boundary and this last wire boundary on one
 ;; grammar.
 
-(defn- validate-attribute-string!
-  [attr-key v]
-  (let [s (str v)]
-    (when (http-validation/contains-cookie-attr-injection-char? s)
+(defn- validate-cookie-attribute!
+  [attribute-key attribute-value]
+  (let [wire-value (str attribute-value)]
+    (when (http-validation/contains-cookie-attr-injection-char? wire-value)
       (error/throw-error!
         :rf.error/cookie-invalid-attribute
         'rf.ssr/cookie->set-cookie-header
-        (str "cookie attribute " attr-key
+        (str "cookie attribute " attribute-key
              " contains CR/LF/NUL or a `;` — forbidden by"
              " RFC 7230 §3.2.4 (header-splitting injection) and"
              " RFC 6265 §4.1.1 (the `;` is the cookie-attribute delimiter,"
              " so it would fabricate extra Set-Cookie attributes). Strip"
              " CR/LF/NUL and `;` from the attribute value.")
         {:recovery :remove-injection-chars-from-cookie-attr
-         :extra    {:attribute attr-key
-                    :value     v}}))
-    s))
+         :extra    {:attribute attribute-key
+                    :value     attribute-value}}))
+    wire-value))
 
 ;; RFC 6265 cookie names use the shared RFC 7230 token grammar.
 
 (defn- validate-cookie-name!
-  [n]
+  [cookie-name]
   ;; Guard the type before `name` so every invalid shape uses the structured
   ;; cookie-name error instead of leaking a ClassCastException.
-  (when-not (or (string? n) (instance? clojure.lang.Named n))
+  (when-not (or (string? cookie-name)
+                (instance? clojure.lang.Named cookie-name))
     (error/throw-error!
       :rf.error/cookie-invalid-name
       'rf.ssr/cookie->set-cookie-header
       (str "cookie :name must be a string or a keyword/symbol; got a "
-           (.getName (class n)) " (" (pr-str n) "). Use a string or"
+           (.getName (class cookie-name)) " (" (pr-str cookie-name)
+           "). Use a string or"
            " keyword token-grammar cookie name.")
       {:recovery :use-a-token-grammar-cookie-name
-       :extra    {:name n
-                  :type (.getName (class n))}}))
-  (let [s (clojure.core/name n)]
-    (if (http-validation/valid-token-name? s)
-      s
+       :extra    {:name cookie-name
+                  :type (.getName (class cookie-name))}}))
+  (let [wire-name (clojure.core/name cookie-name)]
+    (if (http-validation/valid-token-name? wire-name)
+      wire-name
       (error/throw-error!
         :rf.error/cookie-invalid-name
         'rf.ssr/cookie->set-cookie-header
         (str "cookie :name violates RFC 6265 §4.1.1"
              " token grammar (no CTLs, whitespace,"
              " or separators ()<>@,;:\\\"/[]?={}); got "
-             (pr-str s) ". Use a token-grammar cookie name.")
+             (pr-str wire-name) ". Use a token-grammar cookie name.")
         {:recovery :use-a-token-grammar-cookie-name
-         :extra    {:name n}}))))
+         :extra    {:name cookie-name}}))))
 
-(defn- same-site-token [v]
-  (case v
+(defn- same-site-token [same-site]
+  (case same-site
     :strict "Strict"
     :lax    "Lax"
     :none   "None"
     ;; tolerant of string-shaped values
     (cond
-      (string? v) v
-      (keyword? v) (str/capitalize (name v))
-      :else (str v))))
+      (string? same-site) same-site
+      (keyword? same-site) (str/capitalize (name same-site))
+      :else (str same-site))))
 
 (defn cookie->set-cookie-header
   "Serialise one re-frame.ssr cookie map to a Set-Cookie header value
@@ -144,7 +146,7 @@
       {:recovery :supply-a-cookie-name
        :extra    {:cookie cookie}}))
   ;; Reuse the validated name string so the wire path cannot skip the guard.
-  (let [name-str (validate-cookie-name! name)]
+  (let [wire-name (validate-cookie-name! name)]
     ;; `Instant/ofEpochMilli` takes a primitive long; passing anything
     ;; else (a string-shaped epoch from a misconfigured projector, a
     ;; `java.util.Date`, …) would NPE deep inside the format path. Catch
@@ -163,13 +165,13 @@
                     :cookie  cookie}}))
     ;; Validate the attributes that reach the wire as caller-shaped strings.
     ;; Values are URL-encoded, expiry is formatter-owned, and flags are booleans.
-    (when (some? domain)    (validate-attribute-string! :domain    domain))
-    (when (some? path)      (validate-attribute-string! :path      path))
-    (when (some? max-age)   (validate-attribute-string! :max-age   max-age))
-    (when (some? same-site) (validate-attribute-string! :same-site same-site))
-    (let [parts (cond-> [(str name-str
+    (when (some? domain)    (validate-cookie-attribute! :domain    domain))
+    (when (some? path)      (validate-cookie-attribute! :path      path))
+    (when (some? max-age)   (validate-cookie-attribute! :max-age   max-age))
+    (when (some? same-site) (validate-cookie-attribute! :same-site same-site))
+    (let [header-parts (cond-> [(str wire-name
                               "="
-                              (url-encode (or value "")))]
+                              (encode-cookie-value (or value "")))]
                   ;; Order doesn't matter to the RFC, but the canonical
                   ;; serving order in most libraries is:
                   ;;   Max-Age, Domain, Path, Expires, Secure, HttpOnly, SameSite
@@ -190,4 +192,4 @@
                   (true? secure)    (conj "Secure")
                   (true? http-only) (conj "HttpOnly")
                   (some? same-site) (conj (str "SameSite=" (same-site-token same-site))))]
-      (str/join "; " parts))))
+      (str/join "; " header-parts))))

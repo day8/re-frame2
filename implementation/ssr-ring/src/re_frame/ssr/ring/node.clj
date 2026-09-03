@@ -123,7 +123,7 @@
 
 (set! *warn-on-reflection* true)
 
-(def ^:private where 'rf.ssr.ring.node/renderer)
+(def ^:private error-origin 'rf.ssr.ring.node/renderer)
 
 (def default-endpoint
   "The launcher's default bind — what a JVM host assumes when told nothing
@@ -147,33 +147,34 @@
   loopback round trip, JSON framing, a busy event loop answering."
   500)
 
-(def ^:private deadline-status
+(def ^:private sidecar-deadline-status
   "The HTTP status the sidecar's transport answers a deadline with — the
   one refusal this adapter reports as a deadline rather than a refusal."
   504)
 
-(def ^:private defaults
+(def ^:private renderer-defaults
   {:endpoint     default-endpoint
    :timeout-ms   default-timeout-ms
    :admission-ms default-admission-ms})
 
 ;; ---- construction validation ----------------------------------------------
 
-(defn- throw-opt-invalid! [opt got reason]
+(defn- throw-opt-invalid! [option-key received reason]
   (error/throw-error!
-    :rf.error/ssr-node-renderer-opt-invalid where
-    (str "re-frame.ssr.ring.node/renderer " opt " " reason ".")
+    :rf.error/ssr-node-renderer-opt-invalid error-origin
+    (str "re-frame.ssr.ring.node/renderer " option-key " " reason ".")
     {:recovery :correct-the-renderer-opt
-     :extra    {:opt opt :got got}}))
+     :extra    {:opt option-key :got received}}))
 
-(defn- require-non-empty-string! [opt v]
-  (when-not (and (string? v) (seq v))
-    (throw-opt-invalid! opt v "must be a non-empty string")))
+(defn- require-non-empty-string! [option-key value]
+  (when-not (and (string? value) (seq value))
+    (throw-opt-invalid! option-key value "must be a non-empty string")))
 
-(defn- require-integer! [opt v min-inclusive]
-  (when-not (and (integer? v) (>= v min-inclusive))
-    (throw-opt-invalid! opt v (str "must be an integer of at least "
-                                   min-inclusive " (milliseconds)"))))
+(defn- require-integer! [option-key value minimum]
+  (when-not (and (integer? value) (>= value minimum))
+    (throw-opt-invalid! option-key value
+                        (str "must be an integer of at least "
+                             minimum " (milliseconds)"))))
 
 (defn- endpoint-uri
   "`:endpoint` as a `URI`, or the construction error. Absolute, http(s),
@@ -239,12 +240,12 @@
 (defn- render-uri ^URI [^URI endpoint]
   (URI/create (str (str/replace (str endpoint) #"/+$" "") "/render")))
 
-(defn- build-client ^HttpClient [http-timeout-ms]
+(defn- build-client ^HttpClient [transport-timeout-ms]
   (-> (HttpClient/newBuilder)
       ;; The sidecar is `node:http` — HTTP/1.1. Pinning it skips the h2c
       ;; upgrade dance the JDK client otherwise opens with.
       (.version HttpClient$Version/HTTP_1_1)
-      (.connectTimeout (Duration/ofMillis (long http-timeout-ms)))
+      (.connectTimeout (Duration/ofMillis (long transport-timeout-ms)))
       (.build)))
 
 (defn- request-body
@@ -252,37 +253,39 @@
   field names, both partitions as per-key EDN text. `args` rides only when
   the caller gave one (the protocol makes it optional)."
   [{:keys [entry args build-id timeout-ms] :as opts} frame-id partitions]
-  (let [wire (render-state/serialize partitions)]
+  (let [serialized-partitions (render-state/serialize partitions)]
     (cond-> {"protocol"  1
              "entry"     entry
-             "state"     (:rf/app-db wire)
-             "runtime"   (:rf/runtime-db wire)
+             "state"     (:rf/app-db serialized-partitions)
+             "runtime"   (:rf/runtime-db serialized-partitions)
              "buildId"   build-id
              "timeoutMs" timeout-ms
              "requestId" (str (symbol frame-id))}
       (contains? opts :args) (assoc "args" (pr-str args)))))
 
-(defn- build-request ^HttpRequest [^URI uri ^String json http-timeout-ms]
-  (-> (HttpRequest/newBuilder uri)
-      (.timeout (Duration/ofMillis (long http-timeout-ms)))
+(defn- build-request
+  ^HttpRequest [^URI render-endpoint ^String request-json transport-timeout-ms]
+  (-> (HttpRequest/newBuilder render-endpoint)
+      (.timeout (Duration/ofMillis (long transport-timeout-ms)))
       (.header "content-type" "application/json; charset=utf-8")
-      (.POST (HttpRequest$BodyPublishers/ofString json StandardCharsets/UTF_8))
+      (.POST (HttpRequest$BodyPublishers/ofString request-json
+                                                  StandardCharsets/UTF_8))
       (.build)))
 
-(defn- throw-unreachable! [{:keys [endpoint]} ^Throwable t]
+(defn- throw-unreachable! [{:keys [endpoint]} ^Throwable cause]
   (error/throw-error!
-    :rf.error/ssr-node-unreachable where
+    :rf.error/ssr-node-unreachable error-origin
     (str "the Node render sidecar at " endpoint " gave no HTTP answer ("
-         (.getName (class t)) "). Start the sidecar (re-frame2-ssr-node "
+         (.getName (class cause)) "). Start the sidecar (re-frame2-ssr-node "
          "--module <bundle>) or correct :endpoint.")
     {:recovery :start-the-sidecar-or-correct-the-endpoint
      :extra    {:endpoint   endpoint
-                :ex-class   (.getName (class t))
-                :ex-message (.getMessage t)}}))
+                :ex-class   (.getName (class cause))
+                :ex-message (.getMessage cause)}}))
 
 (defn- throw-deadline! [{:keys [timeout-ms] :as opts} observed-by]
   (error/throw-error!
-    :rf.error/ssr-node-deadline where
+    :rf.error/ssr-node-deadline error-origin
     (str "the Node render did not finish within its " timeout-ms " ms deadline "
          "(observed by the " (name observed-by) "). Raise :timeout-ms, or make "
          "the entry render faster.")
@@ -293,7 +296,7 @@
 
 (defn- throw-refused! [{:keys [endpoint]} status refusal message detail]
   (error/throw-error!
-    :rf.error/ssr-node-refused where
+    :rf.error/ssr-node-refused error-origin
     (str "the Node render sidecar at " endpoint " refused the render (HTTP "
          status (when refusal (str ", " refusal)) ")"
          (when message (str ": " message)) ". Read the refusal code.")
@@ -305,7 +308,7 @@
 
 (defn- throw-build-skew! [{:keys [build-id endpoint]} serving]
   (error/throw-error!
-    :rf.error/ssr-node-build-skew where
+    :rf.error/ssr-node-build-skew error-origin
     (str "the Node render sidecar at " endpoint " answered from build "
          (pr-str serving) " where this renderer was built against "
          (pr-str build-id) ". Redeploy the bundle that matches the JVM host.")
@@ -317,43 +320,51 @@
   "The `x-rf-ssr-refusal` header text as its keyword — `\":ns/code\"` ->
   `:ns/code` — or nil for anything that is not that shape. The sidecar's
   vocabulary is carried, never spelled here."
-  [s]
-  (when (and (string? s) (str/starts-with? s ":") (> (count s) 1))
-    (keyword (subs s 1))))
+  [header-value]
+  (when (and (string? header-value)
+             (str/starts-with? header-value ":")
+             (> (count header-value) 1))
+    (keyword (subs header-value 1))))
 
-(defn- header [^HttpResponse resp ^String name]
-  (.orElse (.firstValue (.headers resp) name) nil))
+(defn- response-header [^HttpResponse http-response ^String header-name]
+  (.orElse (.firstValue (.headers http-response) header-name) nil))
 
-(defn- exchange!
-  "Send `req` on `client`; the response, or the transport-class throw
+(defn- send-request!
+  "Send `http-request` on `client`; the response, or the transport-class throw
   (`unreachable` for no answer, `deadline` for the JVM's own timeout)."
-  ^HttpResponse [^HttpClient client ^HttpRequest req opts]
+  ^HttpResponse [^HttpClient client ^HttpRequest http-request opts]
   (try
-    (.send client req (HttpResponse$BodyHandlers/ofString))
+    (.send client http-request (HttpResponse$BodyHandlers/ofString))
     ;; Order matters: HttpConnectTimeoutException IS-A HttpTimeoutException
     ;; IS-A IOException. A connect timeout is unreachability, not a
     ;; deadline; a body-read timeout is the JVM observing the deadline.
-    (catch HttpConnectTimeoutException t (throw-unreachable! opts t))
+    (catch HttpConnectTimeoutException cause
+      (throw-unreachable! opts cause))
     (catch HttpTimeoutException _ (throw-deadline! opts :jvm))
-    (catch IOException t (throw-unreachable! opts t))))
+    (catch IOException cause
+      (throw-unreachable! opts cause))))
 
-(defn- answer!
+(defn- interpret-response!
   "The seam result from a sidecar response, or the sidecar-class throw."
-  [{:keys [build-id] :as opts} ^HttpResponse resp]
-  (let [status (.statusCode resp)
-        body   (.body resp)]
+  [{:keys [build-id] :as opts} ^HttpResponse http-response]
+  (let [status (.statusCode http-response)
+        body   (.body http-response)]
     (if (= 200 status)
-      (let [serving (header resp "x-rf-ssr-build")]
+      (let [serving (response-header http-response "x-rf-ssr-build")]
         (when (and serving (not= serving build-id))
           (throw-build-skew! opts serving))
         {:body-html (str body) :render-hash nil})
-      (let [frame   (try (json/read-str (str body)) (catch Exception _ nil))
-            refusal (refusal-keyword (or (header resp "x-rf-ssr-refusal")
-                                         (get frame "code")))]
-        (if (= deadline-status status)
+      (let [error-payload (try
+                            (json/read-str (str body))
+                            (catch Exception _ nil))
+            refusal (refusal-keyword
+                      (or (response-header http-response "x-rf-ssr-refusal")
+                          (get error-payload "code")))]
+        (if (= sidecar-deadline-status status)
           (throw-deadline! opts :sidecar)
           (throw-refused! opts status refusal
-                          (get frame "message") (get frame "detail")))))))
+                          (get error-payload "message")
+                          (get error-payload "detail")))))))
 
 ;; ---- the renderer ---------------------------------------------------------
 
@@ -377,13 +388,17 @@
   See the namespace docstring for the opts, the transport and the error
   codes."
   [opts]
-  (let [opts        (validate-opts! (merge defaults opts))
-        timeout     (http-timeout-ms opts)
-        uri         (render-uri (endpoint-uri (:endpoint opts)))
-        client      (build-client timeout)]
+  (let [validated-opts       (validate-opts! (merge renderer-defaults opts))
+        transport-timeout-ms (http-timeout-ms validated-opts)
+        render-endpoint      (render-uri
+                               (endpoint-uri (:endpoint validated-opts)))
+        client               (build-client transport-timeout-ms)]
     (fn node-renderer [{:keys [frame-id]}]
-      (let [partitions (render-state/project frame-id opts)
-            json       (json/write-str (request-body opts frame-id partitions)
-                                       :escape-slash false)
-            resp       (exchange! client (build-request uri json timeout) opts)]
-        (answer! opts resp)))))
+      (let [partitions   (render-state/project frame-id validated-opts)
+            request-json (json/write-str
+                           (request-body validated-opts frame-id partitions)
+                           :escape-slash false)
+            http-request (build-request render-endpoint request-json
+                                        transport-timeout-ms)
+            http-response (send-request! client http-request validated-opts)]
+        (interpret-response! validated-opts http-response)))))

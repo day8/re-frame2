@@ -24,7 +24,8 @@
 //   `:delay-ms`    a sleep, so one entry can be made to overrun `timeoutMs`
 //                  and the sidecar's 504 can be crossed back (d).
 
-const text = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const escapeHtmlText = (value) =>
+  String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
 module.exports = {
   protocol: 1,
@@ -40,9 +41,9 @@ module.exports = {
     const delay = Number(state[':delay-ms'] ?? 0);
     if (delay > 0) await new Promise((r) => setTimeout(r, delay));
     emit(
-      `<main data-entry="${text(entry)}" data-args="${text(args)}">` +
-        `<h1 class="crossing-heading">${text(state[':heading'])}</h1>` +
-        `<p class="crossing-server-only">${text(state[':server-only'])}</p>` +
+      `<main data-entry="${escapeHtmlText(entry)}" data-args="${escapeHtmlText(args)}">` +
+        `<h1 class="crossing-heading">${escapeHtmlText(state[':heading'])}</h1>` +
+        `<p class="crossing-server-only">${escapeHtmlText(state[':server-only'])}</p>` +
         `</main>`,
     );
   },

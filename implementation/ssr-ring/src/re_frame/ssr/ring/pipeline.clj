@@ -339,20 +339,24 @@
   Carries no internal trace detail — the wire surface is locked to the
   public-error keys; the internal Throwable already rode the trace bus
   via `project-render-exception!`."
-  [{:keys [status code message]}]
-  (let [status* (or status 500)
-        code*   (when code (name code))
-        msg*    (or message "Something went wrong")
-        hiccup  [:html
+  [{projected-error-status  :status
+    projected-error-code    :code
+    projected-error-message :message}]
+  (let [error-status   (or projected-error-status 500)
+        error-code     (when projected-error-code (name projected-error-code))
+        error-message  (or projected-error-message "Something went wrong")
+        error-document [:html
                  [:head
                   [:meta {:charset "utf-8"}]
-                  [:title msg*]]
+                  [:title error-message]]
                  [:body
-                  [:h1 msg*]
-                  (when code*
-                    [:p {:data-rf-error-code code*}
-                     (str "Error code: " code* " (status " status* ")")])]]]
-    (ssr/render-to-string hiccup {:doctype? true :emit-hash? false})))
+                  [:h1 error-message]
+                  (when error-code
+                    [:p {:data-rf-error-code error-code}
+                     (str "Error code: " error-code
+                          " (status " error-status ")")])]]]
+    (ssr/render-to-string error-document
+                          {:doctype? true :emit-hash? false})))
 
 (defn ^:private emit-error-view-failed!
   "Emit the recoverable-degradation `:rf.error/ssr-ring-error-view-failed`
@@ -434,30 +438,35 @@
   (if (nil? error-view)
     (render-error-body public-error)
     (try
-      (let [hiccup (cond
-                     (keyword? error-view)
-                     (if-let [view-fn (rf/view error-view)]
-                       [view-fn public-error]
-                       (error/throw-error!
-                         :rf.error/ssr-ring-invalid-error-view
-                         'rf.ssr/ssr-handler
-                         (str ":error-view keyword " error-view " names no "
-                              "registered view. Register it with reg-view, or "
-                              "pass a 1-arity fn to ssr-handler.")
-                         {:recovery :register-the-view-or-supply-a-1-arity-fn
-                          :extra    {:received error-view}}))
+      (let [error-view-hiccup
+            (cond
+              (keyword? error-view)
+              (if-let [view-fn (rf/view error-view)]
+                [view-fn public-error]
+                (error/throw-error!
+                  :rf.error/ssr-ring-invalid-error-view
+                  'rf.ssr/ssr-handler
+                  (str ":error-view keyword " error-view " names no "
+                       "registered view. Register it with reg-view, or "
+                       "pass a 1-arity fn to ssr-handler.")
+                  {:recovery :register-the-view-or-supply-a-1-arity-fn
+                   :extra    {:received error-view}}))
 
-                     (fn? error-view)      (error-view public-error)
-                     :else
-                     (error/throw-error!
-                       :rf.error/ssr-ring-invalid-error-view
-                       'rf.ssr/ssr-handler
-                       (str ":error-view must be a registered-view keyword "
-                            "or a 1-arity fn; pass one of those to ssr-handler.")
-                       {:recovery :supply-a-view-keyword-or-1-arity-fn
-                        :extra    {:received error-view}}))
-            body   (rf/with-frame frame-id
-                     (ssr/render-to-string hiccup {:doctype? false :emit-hash? false}))]
+              (fn? error-view)
+              (error-view public-error)
+
+              :else
+              (error/throw-error!
+                :rf.error/ssr-ring-invalid-error-view
+                'rf.ssr/ssr-handler
+                (str ":error-view must be a registered-view keyword "
+                     "or a 1-arity fn; pass one of those to ssr-handler.")
+                {:recovery :supply-a-view-keyword-or-1-arity-fn
+                 :extra    {:received error-view}}))
+            error-view-html
+            (rf/with-frame frame-id
+              (ssr/render-to-string error-view-hiccup
+                                    {:doctype? false :emit-hash? false}))]
         ;; Open-proof containment (rf2-oytx7j): a reactive sub inside the
         ;; error view that recovered-to-nil buffered a fail-closed projection
         ;; without throwing. Detect it (pure peek), fall back ONCE to the
@@ -468,7 +477,7 @@
                                      :reactive-sub-recovered-to-nil-in-error-view)
             (ssr/clear-pending-error-traces! frame-id)
             (render-error-body public-error))
-          body))
+          error-view-html))
       (catch Throwable t
         ;; A buggy error-view must not bypass the error boundary — surface
         ;; the throw on both observability axes and fall back to the locked
@@ -491,8 +500,8 @@
   after the initial-event drain and again after the render/shell work; a
   redirect is checked FIRST, so a pending projection never overrides it."
   [public-error]
-  (boolean (when-let [s (:status public-error)]
-             (<= 500 s 599))))
+  (boolean (when-let [status (:status public-error)]
+             (<= 500 status 599))))
 
 (defn ^:private materialise-error-arm
   "Materialise the projected-error arm onto `resp`: resolve the error body
@@ -502,10 +511,10 @@
   `:content-type` override does not apply). Shared by the render-throw path
   (`project-render-throw->ring-response`) and the already-projected drain /
   post-render 5xx path (`materialise-projected-error`)."
-  [frame-id resp public-error opts]
+  [frame-id response public-error opts]
   (rf/with-frame frame-id
     (ssr-response->ring-response
-      resp
+      response
       (resolve-error-body frame-id (:error-view opts) public-error))))
 
 (defn materialise-projected-error
@@ -522,8 +531,8 @@
   branches on `:redirect` first); stale Content-Length is stripped by the
   shared materialiser. Per Spec 011 §Drain-time error classification
   (rf2-oytx7j)."
-  [frame-id resp public-error opts]
-  (materialise-error-arm frame-id resp public-error opts))
+  [frame-id response public-error opts]
+  (materialise-error-arm frame-id response public-error opts))
 
 (defn local-renderer
   "The DEFAULT `:renderer` — the JVM-local render body `build-full-response*`
@@ -554,17 +563,17 @@
   constant that root is being spared."
   [{:keys [opts]}]
   (let [{:keys [root-view emit-hash?]} opts
-        hiccup   (lifecycle/resolve-root-view root-view)
+        resolved-root (lifecycle/resolve-root-view root-view)
         ;; Compute the body hash once for both the emitted marker and the
         ;; payload. nil for an unresolved root form — that root gets NO hash
         ;; on either channel (rf2-q1b96; see `render-document-hash`).
-        hash-str (lifecycle/render-document-hash hiccup)]
+        render-hash (lifecycle/render-document-hash resolved-root)]
     {:body-html   (ssr/render-to-string
-                    hiccup
-                    {:doctype?    false
-                     :emit-hash?  (and emit-hash? (some? hash-str))
-                     :render-hash (when emit-hash? hash-str)})
-     :render-hash hash-str}))
+                     resolved-root
+                     {:doctype?    false
+                      :emit-hash?  (and emit-hash? (some? render-hash))
+                      :render-hash (when emit-hash? render-hash)})
+     :render-hash render-hash}))
 
 (defn ^:private build-full-response*
   "The non-error path of `build-full-response`. Split into its own fn
@@ -587,7 +596,8 @@
         ;; registry), AND the hydration-payload build. One push/pop per
         ;; request.
         explicit-head (:head opts)
-        {:keys [head-html html-attrs body-attrs body-html head-hash rf-payload]}
+        {:keys [head-html html-attrs body-attrs body-html head-hash]
+         hydration-payload :rf-payload}
         ;; Pin the request frame across the body render, head lookups and
         ;; payload projection.
         (rf/with-frame frame-id
@@ -597,38 +607,39 @@
                 ;; post-drain frame. The pipeline consumes that pair and owns
                 ;; everything else: head, payload, shell, status, headers,
                 ;; cookies, error projection and teardown.
-                render (or renderer local-renderer)
+                render-body (or renderer local-renderer)
                 {:keys [body-html render-hash]}
-                (render {:frame-id frame-id
-                         :request  (ssr/get-request frame-id)
-                         :opts     opts})
+                (render-body {:frame-id frame-id
+                              :request  (ssr/get-request frame-id)
+                              :opts     opts})
                 ;; Explicit head HTML bypasses route-derived attributes and has
                 ;; no client-reconstructible model.
-                head-bag  (if explicit-head
-                            {:head-html explicit-head
+                head-data (if explicit-head
+                            {:head-html  explicit-head
                              :html-attrs nil
                              :body-attrs nil}
                             (lifecycle/resolve-head frame-id))
                 ;; Hash the head model on its separate reconstructible channel.
-                head-hash (lifecycle/render-head-hash (:head-model head-bag))
+                head-hash (lifecycle/render-head-hash (:head-model head-data))
                 ;; Read after rendering and inside the frame scope. Optional
                 ;; resource projection uses the carried frame to apply derived
                 ;; sensitivity before serializing the durable runtime slice.
                 app-db     (rf/app-db-value frame-id)
                 runtime-db (:rf.db/runtime (rf/frame-state-value frame-id))
-                rf-payload (payload/build-payload frame-id app-db runtime-db render-hash
-                                                  {:version         version
-                                                   :schema-digest   schema-digest
-                                                   :payload         payload
-                                                   :head-hash       head-hash
-                                                   ;; rf2-lm2yzy — stable WIRE
-                                                   ;; :rf/frame-id (nil ⇒ omit).
-                                                   :client-frame-id client-frame-id})]
-            (assoc head-bag
+                hydration-payload
+                (payload/build-payload frame-id app-db runtime-db render-hash
+                                       {:version         version
+                                        :schema-digest   schema-digest
+                                        :payload         payload
+                                        :head-hash       head-hash
+                                        ;; rf2-lm2yzy — stable WIRE
+                                        ;; :rf/frame-id (nil ⇒ omit).
+                                        :client-frame-id client-frame-id})]
+            (assoc head-data
                    :body-html  body-html
                    :head-hash  head-hash
-                   :rf-payload rf-payload)))
-        payload-edn (pr-str rf-payload)
+                   :rf-payload hydration-payload)))
+        payload-edn (pr-str hydration-payload)
         shell-opts  (assoc opts
                            :head        head-html
                            :html-attrs  html-attrs
@@ -636,26 +647,29 @@
                            ;; The WIRE `data-rf-head-hash` marker is gated by
                            ;; `:emit-hash?`, mirroring `data-rf-render-hash`
                            ;; (the payload's `:rf/head-hash` stays unconditional
-                           ;; — see `rf-payload` above).
+                            ;; — see `hydration-payload` above).
                            :head-hash   (when emit-hash? head-hash))
-        html        (html-shell body-html payload-edn shell-opts)
+        response-html (html-shell body-html payload-edn shell-opts)
         ;; Re-flush after rendering. A hardened reactive subscription may recover
         ;; to nil while buffering a projected failure; reading only the pre-render
         ;; response would incorrectly ship that broken render as 200. Re-read the
         ;; full accumulator (AND the projected public-error) so post-render
         ;; headers and cookies survive AND a post-render projected 5xx diverts
         ;; to the error arm (rf2-oytx7j).
-        {post-render-resp :response post-error :public-error}
+        {post-render-response     :response
+         post-render-public-error :public-error}
         (ssr/flush-response-result! frame-id)]
-    (if (projected-5xx? post-error)
+    (if (projected-5xx? post-render-public-error)
       ;; A recovered-to-nil sub buffered a fail-closed 5xx during the render
       ;; walk. DISCARD the degraded html + hydration payload and materialise
       ;; the projected-error arm instead (Spec 011 §Drain-time error
       ;; classification — projected 5xx before commit → error page, no
       ;; hydration; never a degraded body shipped under a 500).
-      (materialise-projected-error frame-id post-render-resp post-error opts)
+      (materialise-projected-error
+        frame-id post-render-response post-render-public-error opts)
       ;; A non-nil construction option overrides the seeded/app Content-Type.
-      (ssr-response->ring-response post-render-resp html content-type))))
+      (ssr-response->ring-response
+        post-render-response response-html content-type))))
 
 (defn project-render-throw->ring-response
   "Route a render-time `Throwable` through the SSR error projector and
@@ -691,20 +705,21 @@
   `[error-view public-error]` view lookup); `resolve-error-body` re-pins
   `*current-frame*` around its own render."
   [frame-id ^Throwable t opts]
-  (let [public-error  (ssr/project-render-exception! frame-id t)
-        resp*         (ssr/peek-response frame-id)
+  (let [public-error       (ssr/project-render-exception! frame-id t)
+        projected-response (ssr/peek-response frame-id)
         ;; An unrenderable root/shell throw cannot supply a body, so it ALWAYS
         ;; takes the error page — even when a custom projector chose a 4xx
         ;; (e.g. the 418 teapot test): classification-by-status is the
         ;; drain/post-render rule; a render throw is the necessary exception
         ;; (Spec 011 §Drain-time error classification). When projection returns
         ;; nil (no server frame) the locked generic-500 is substituted.
-        public-error* (or public-error ssr/fallback-public-error)]
+        resolved-public-error (or public-error ssr/fallback-public-error)]
     ;; The construction-time Content-Type labels only successful bodies; a
     ;; projected error is HTML, so `materialise-error-arm` keeps the
     ;; accumulator's header. It re-pins the request frame for the error-body
     ;; render, mirroring the happy path.
-    (materialise-error-arm frame-id resp* public-error* opts)))
+    (materialise-error-arm
+      frame-id projected-response resolved-public-error opts)))
 
 (defn build-full-response
   "Render the body against `frame-id` through the render-body seam — the

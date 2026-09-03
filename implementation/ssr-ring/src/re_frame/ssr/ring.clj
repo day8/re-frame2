@@ -47,13 +47,13 @@
            "required at the top of re-frame.ssr.ring.")
       {:recovery :correct-the-import-fn-source-symbol
        :extra    {:sym src-sym}}))
-  (let [nm (symbol (name src-sym))]
+  (let [exported-sym (symbol (name src-sym))]
     `(do
-       (def ~nm ~src-sym)
-       (alter-meta! (var ~nm) merge
+       (def ~exported-sym ~src-sym)
+       (alter-meta! (var ~exported-sym) merge
                     (select-keys (meta (var ~src-sym))
                                  [:doc :arglists :added :deprecated]))
-       (var ~nm))))
+       (var ~exported-sym))))
 
 (import-fn cookie/cookie->set-cookie-header)
 (import-fn shell/default-html-shell)
@@ -364,11 +364,11 @@
               :match?         (fn [req] (= :get (:request-method req)))}))
           wrap-static-assets))"
   [{:keys [match?] :as opts}]
-  (let [match? (or match? (fn default-match? [req]
-                            (= :get (:request-method req))))
-        ssr   (ssr-handler (dissoc opts :match?))]
+  (let [match?             (or match? (fn default-match? [request]
+                                        (= :get (:request-method request))))
+        ssr-request-handler (ssr-handler (dissoc opts :match?))]
     (fn middleware [handler]
       (fn wrapped [request]
         (if (match? request)
-          (ssr request)
+          (ssr-request-handler request)
           (handler request))))))

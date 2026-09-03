@@ -474,7 +474,8 @@
       {:platforms #{:server}}
       (fn [_ _]
         {:fx [[:rf.server/redirect {:status 302 :location "/login"}]]}))
-    (rf/reg-view ^{:rf/id :test/should-not-stream2} should-not-stream2 []
+    (rf/reg-view ^{:rf/id :test/should-not-stream2}
+      incarnation-exact-should-not-stream []
       [:div "should not render under redirect"])
     (let [real-destroy    rf/destroy-frame!
           teardown-target (atom ::none)
@@ -822,18 +823,22 @@
       {:platforms #{:server}}
       (fn [_ _] {:db {:comments [{:body "First!"}]}}))
     (rf/reg-sub :comments (fn [db _] (:comments db)))
-    (rf/reg-view ^{:rf/id :test/comments-section} comments-view []
-      (let [cs @(subscribe [:comments])]
-        (into [:ul.comments] (for [{:keys [body]} cs] [:li body]))))
+    (rf/reg-view ^{:rf/id :test/comments-section} hash-comments-view []
+      (let [comments @(subscribe [:comments])]
+        (into [:ul.comments]
+              (for [{:keys [body]} comments]
+                [:li body]))))
     (rf/reg-view ^{:rf/id :test/hash-root} hash-root []
       [:main [:h1 "News"]
        [:rf/suspense-boundary {:id :test/comments :fallback [:p "Loading…"]}
         [(rf/view :test/comments-section)]]
        [:footer "End"]])
-    (let [fid (keyword "rf.frame" (str (gensym "f")))]
-      (rf/make-frame {:id fid :platform :server :initial-events [[:rf.test.server/init]]})
+    (let [frame-id (keyword "rf.frame" (str (gensym "f")))]
+      (rf/make-frame {:id frame-id
+                      :platform :server
+                      :initial-events [[:rf.test.server/init]]})
       (try
-        (rf/with-frame fid
+        (rf/with-frame frame-id
           (let [;; The server streaming handler computes the final hash over
                 ;; `hiccup` = (resolve-root-view root-view). When the host
                 ;; passes an EXPANDED form (symmetric with the client's
@@ -859,7 +864,7 @@
                  successful streaming hydration fires NO spurious
                  :rf.ssr/hydration-mismatch (rf2-5knxf.2)")))
         (finally
-          (rf/destroy-frame! fid))))))
+          (rf/destroy-frame! frame-id))))))
 
 ;; ===========================================================================
 ;; rf2-7rkc0 — STREAMING-path counterpart of the non-streaming

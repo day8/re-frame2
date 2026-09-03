@@ -26,13 +26,13 @@
 // them on the wire, and what the JVM reads back out of the document is
 // byte-for-byte what it sent.
 
-const text = (s) =>
-  String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const escapeHtmlText = (value) =>
+  String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-const list = (name) => {
-  const raw = process.env[name];
-  if (!raw) return [];
-  return JSON.parse(raw);
+const readJsonListEnv = (environmentKey) => {
+  const rawValue = process.env[environmentKey];
+  if (!rawValue) return [];
+  return JSON.parse(rawValue);
 };
 
 const entry = process.env.RF2_LOGIN_ENTRY || 'hicasso.login/root';
@@ -42,20 +42,20 @@ module.exports = {
   buildId: process.env.RF2_LOGIN_BUILD_ID || 'login-hicasso-dev',
   entries: {
     [entry]: {
-      stateAllowlist: list('RF2_LOGIN_STATE_ALLOWLIST'),
-      runtimeAllowlist: list('RF2_LOGIN_RUNTIME_ALLOWLIST'),
+      stateAllowlist: readJsonListEnv('RF2_LOGIN_STATE_ALLOWLIST'),
+      runtimeAllowlist: readJsonListEnv('RF2_LOGIN_RUNTIME_ALLOWLIST'),
     },
   },
 
   async render({ entry, state, runtime }, emit) {
-    const keys = (o) => Object.keys(o ?? {}).sort().join(' ');
+    const sortedKeyList = (partition) => Object.keys(partition ?? {}).sort().join(' ');
     emit(
-      `<main data-entry="${text(entry)}">` +
-        `<div class="login-state-keys">${text(keys(state))}</div>` +
-        `<div class="login-runtime-keys">${text(keys(runtime))}</div>` +
-        `<div class="login-draft">${text(state[':auth'])}</div>` +
-        `<div class="login-notice">${text(state[':auth.login/server-notice'])}</div>` +
-        `<div class="login-machines">${text(runtime[':rf.runtime/machines'])}</div>` +
+      `<main data-entry="${escapeHtmlText(entry)}">` +
+        `<div class="login-state-keys">${escapeHtmlText(sortedKeyList(state))}</div>` +
+        `<div class="login-runtime-keys">${escapeHtmlText(sortedKeyList(runtime))}</div>` +
+        `<div class="login-draft">${escapeHtmlText(state[':auth'])}</div>` +
+        `<div class="login-notice">${escapeHtmlText(state[':auth.login/server-notice'])}</div>` +
+        `<div class="login-machines">${escapeHtmlText(runtime[':rf.runtime/machines'])}</div>` +
         `</main>`,
     );
   },

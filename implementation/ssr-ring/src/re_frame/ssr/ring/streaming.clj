@@ -116,9 +116,9 @@
 ;; projected non-200; after the writer starts, failures can only use inline
 ;; continuation fallback or truncate-and-close.
 
-(defn- write-chunk! [^OutputStream out ^String s]
-  (.write out (.getBytes s StandardCharsets/UTF_8))
-  (.flush out))
+(defn- write-chunk! [^OutputStream output-stream ^String chunk]
+  (.write output-stream (.getBytes chunk StandardCharsets/UTF_8))
+  (.flush output-stream))
 
 (defn render-streaming-shell!
   "Resolve + render the streaming shell on the CALLING (request) thread.
@@ -267,17 +267,17 @@
   shape lets ops distinguish a broken client pipe from a bad final payload
   from a specific boundary drain in JFR / log streams instead of seeing
   one undifferentiated writer-failed event."
-  [^OutputStream out frame-id rendered opts]
+  [^OutputStream output-stream frame-id rendered-shell opts]
   ;; Phase tracker — a 2-tuple `[phase boundary-id]`. `boundary-id` is nil
   ;; outside a continuation drain. Updated as the writer advances so the
   ;; catch arm can name the in-flight phase.
-  (let [phase (volatile! [:shell-prefix nil])]
+  (let [writer-position (volatile! [:shell-prefix nil])]
    (try
     (let [{:keys [emit-hash? version schema-digest payload root-view client-frame-id]} opts
           ;; Body and head hashes were computed before the drain. The body may
           ;; be recomputed for final payload state; the head is drain-invariant.
           {:keys [head-html html-attrs body-attrs
-                  doc-hash head-hash shell-html continuations]} rendered
+                   doc-hash head-hash shell-html continuations]} rendered-shell
           shell-opts (merge opts
                             {:html-attrs  html-attrs
                              :body-attrs  body-attrs
@@ -298,12 +298,13 @@
       ;; so the catch arm names the in-flight chunk. `:shell-prefix` is
       ;; already the initial volatile value, set explicitly here for
       ;; symmetry/readability.
-      (vreset! phase [:shell-prefix nil])
-      (write-chunk! out (default-streaming-prefix head-html shell-opts))
+      (vreset! writer-position [:shell-prefix nil])
+      (write-chunk! output-stream
+                    (default-streaming-prefix head-html shell-opts))
       ;; Close the app root in chunk 1. Continuation templates, protocol
       ;; scripts, payload, and bootstrap must remain outside the hydrated root.
-      (vreset! phase [:shell-html nil])
-      (write-chunk! out (str shell-html "</div>"))
+      (vreset! writer-position [:shell-html nil])
+      (write-chunk! output-stream (str shell-html "</div>"))
       ;; Chunks 2..N+1 — one per continuation, FIFO over registration.
       ;;
       ;; Drain a growable FIFO: a nested
@@ -316,21 +317,26 @@
       ;; boundary's resolved chunk streams AFTER all originally-registered
       ;; continuations, exactly as the document-order contract requires.
       (loop [queue (into clojure.lang.PersistentQueue/EMPTY continuations)]
-        (when-let [entry (peek queue)]
-          (let [{:keys [id html delta failed? continuations]}
+        (when-let [continuation (peek queue)]
+          (let [{boundary-id         :id
+                 continuation-html   :html
+                 delta               :delta
+                 failed?             :failed?
+                 nested-continuations :continuations}
                 ;; Pin `*current-frame*` on this daemon thread; bindings do not cross
                 ;; the thread boundary), so `render-continuation`'s frame lookups
                 ;; + registered-view resolution operate on the request frame.
                 (rf/with-frame frame-id
-                  (streaming/render-continuation frame-id entry))
-                tmpl-fn (if failed?
-                          streaming/failed-template
-                          streaming/resolved-template)]
+                  (streaming/render-continuation frame-id continuation))
+                render-template (if failed?
+                                  streaming/failed-template
+                                  streaming/resolved-template)]
             ;; A continuation write names
             ;; the boundary :id so ops correlate the failure to a specific
             ;; deferred subtree (not just "some continuation broke").
-            (vreset! phase [:continuation-template id])
-            (write-chunk! out (tmpl-fn id html))
+            (vreset! writer-position [:continuation-template boundary-id])
+            (write-chunk! output-stream
+                          (render-template boundary-id continuation-html))
             ;; Emit the per-boundary hydration-delta script
             ;; ONLY when the delta carries something to hydrate. A
             ;; continuation that merely READS app-db (the common case —
@@ -354,15 +360,21 @@
             ;; registry). A delta that projects to empty (every changed key
             ;; off-allowlist, or all redacted away to an empty map) emits NO
             ;; script.
-            (let [projected (rf/with-frame frame-id
-                              (streaming/project-delta delta frame-id
-                                                       {:payload payload}))]
-              (when (and (not failed?) (map? projected) (seq projected))
-                (vreset! phase [:continuation-delta id])
-                (write-chunk! out (streaming/hydrate-delta-script id (pr-str projected)))))
+            (let [projected-delta
+                  (rf/with-frame frame-id
+                    (streaming/project-delta delta frame-id
+                                             {:payload payload}))]
+              (when (and (not failed?)
+                         (map? projected-delta)
+                         (seq projected-delta))
+                (vreset! writer-position [:continuation-delta boundary-id])
+                (write-chunk!
+                  output-stream
+                  (streaming/hydrate-delta-script
+                    boundary-id (pr-str projected-delta)))))
             ;; Pop the drained entry, append any nested continuations at
             ;; the tail (FIFO), continue until empty.
-            (recur (into (pop queue) continuations)))))
+            (recur (into (pop queue) nested-continuations)))))
       ;; Chunk N+2 — final canonical __rf_payload.
       ;;
       ;; The final payload reads post-drain app-db. If any continuation ran,
@@ -378,7 +390,7 @@
       ;; at all (rf2-q1b96).
       ;;
       ;; Set phase before both payload construction and its write.
-      (vreset! phase [:final-payload nil])
+      (vreset! writer-position [:final-payload nil])
       ;; Dynamic frame bindings do not cross the request/writer thread boundary.
       (let [final-payload
             (rf/with-frame frame-id
@@ -398,11 +410,12 @@
                    ;; rf2-lm2yzy — stable WIRE :rf/frame-id (nil ⇒ omit).
                    :client-frame-id client-frame-id})))]
         ;; Shared id-pinned, script-body-escaped payload element.
-        (write-chunk! out (shell/payload-script-tag (pr-str final-payload))))
+        (write-chunk! output-stream
+                      (shell/payload-script-tag (pr-str final-payload))))
       ;; Chunk N+3 — shell suffix close.
-      (vreset! phase [:suffix nil])
-      (write-chunk! out (default-streaming-suffix opts)))
-    (catch Throwable t
+      (vreset! writer-position [:suffix nil])
+      (write-chunk! output-stream (default-streaming-suffix opts)))
+    (catch Throwable cause
       ;; Stamp the in-flight phase and, inside a
       ;; continuation drain) the boundary id + a coarse `:committed?` so
       ;; the writer-failed trace names WHERE the post-commit stream broke.
@@ -411,22 +424,24 @@
       ;; ride in `:tags`. `:boundary-id` is omitted entirely (not nil)
       ;; outside a continuation phase so the tag's presence is itself the
       ;; "failed inside a boundary drain" signal.
-      (let [[ph boundary-id] @phase
-            tags (cond-> {:frame      frame-id
-                          :exception  (.getMessage t)
-                          :ex-class   (.getName (class t))
-                          :phase      ph
-                          :committed? true
-                          :recovery   :truncate-and-close}
-                   (some? boundary-id) (assoc :boundary-id boundary-id))]
-        (trace/emit-error! :rf.error/ssr-streaming-writer-failed tags)
+      (let [[writer-phase boundary-id] @writer-position
+            failure-tags (cond-> {:frame      frame-id
+                                  :exception  (.getMessage cause)
+                                  :ex-class   (.getName (class cause))
+                                  :phase      writer-phase
+                                  :committed? true
+                                  :recovery   :truncate-and-close}
+                           (some? boundary-id)
+                           (assoc :boundary-id boundary-id))]
+        (trace/emit-error! :rf.error/ssr-streaming-writer-failed failure-tags)
         ;; Post-commit writer errors are always-on, non-projecting telemetry;
         ;; the status is already on the wire and cannot change.
         (lifecycle/emit-always-on-error!
-          (assoc tags :error :rf.error/ssr-streaming-writer-failed
-                      :time  (interop/now-ms)))))
+          (assoc failure-tags
+                 :error :rf.error/ssr-streaming-writer-failed
+                 :time  (interop/now-ms)))))
     (finally
-      (try (.close out) (catch Throwable _ nil))))))
+      (try (.close output-stream) (catch Throwable _ nil))))))
 
 ;; ---- public surface ------------------------------------------------------
 
@@ -434,7 +449,7 @@
   "Short-circuit a streaming request to a bodiless Location response and
   destroy the per-request frame inline. Shared by both redirect branches in
   `stream-handler`: the early `:initial-events`-drain redirect and the
-  post-shell `resp2` re-read redirect.
+  post-shell response re-read redirect.
 
   A redirect short-circuits the stream — no chunked body, so the writer thread
   (whose `finally` normally tears the frame down) is never spawned on this
@@ -449,9 +464,9 @@
 
   `frame` is the per-request frame VALUE (incarnation-EXACT teardown authority,
   rf2-moftbs); `frame-id` remains the keyword for the failure trace."
-  [resp frame-id frame]
+  [response frame-id frame]
   (try
-    (pipeline/ssr-response->ring-response resp nil)
+    (pipeline/ssr-response->ring-response response nil)
     (finally
       (lifecycle/destroy-frame-quietly! frame frame-id))))
 
@@ -470,9 +485,9 @@
   `frame` is the per-request frame VALUE (incarnation-EXACT teardown authority,
   rf2-moftbs); `frame-id` remains the keyword the address-directed materialise +
   the failure trace use."
-  [frame-id resp public-error opts frame]
+  [frame-id response public-error opts frame]
   (try
-    (pipeline/materialise-projected-error frame-id resp public-error opts)
+    (pipeline/materialise-projected-error frame-id response public-error opts)
     (finally
       (lifecycle/destroy-frame-quietly! frame frame-id))))
 
@@ -509,16 +524,17 @@
   (try
     (render-streaming-shell! frame-id opts)
     (catch Throwable t
-      (let [err-resp (pipeline/project-render-throw->ring-response frame-id t opts)]
+      (let [projected-error-response
+            (pipeline/project-render-throw->ring-response frame-id t opts)]
         (lifecycle/destroy-frame-quietly! frame frame-id)
-        (reduced err-resp)))))
+        (reduced projected-error-response)))))
 
 (defn- stream-rendered-response
   "Materialise the streaming response head from the post-shell response
-  accumulator `resp2`, wire the pipe, and spawn the daemon writer — the
+  accumulator `post-shell-response`, wire the pipe, and spawn the daemon writer — the
   non-redirect leaf of `stream-handler` once the shell is known-renderable.
 
-  Materialise the head (status / headers / cookies) from `resp2` before
+  Materialise the head (status / headers / cookies) from `post-shell-response` before
   constructing the pipe or spawning the writer. Cookie / header
   serialisation CAN throw at materialise time on a value that escaped the fx
   boundary's partial validation — e.g. a `:max-age` carrying CR/LF, which
@@ -550,11 +566,12 @@
   `frame` is the per-request frame VALUE (incarnation-EXACT teardown authority,
   rf2-moftbs); `frame-id` remains the keyword the address-directed materialise,
   writer, thread name, and failure trace use."
-  [frame-id rendered resp2 content-type opts frame]
+  [frame-id rendered-shell post-shell-response content-type opts frame]
   (let [;; No body default-stamp here (we pass our own InputStream); `:body` is
         ;; assoc'd after the writer is wired below. Content-Length is already
         ;; stripped by the shared materialiser.
-        resp-map (pipeline/ssr-response->ring-response resp2 "" content-type)
+        ring-response (pipeline/ssr-response->ring-response
+                        post-shell-response "" content-type)
         ;; 16 KiB pipe buffer — large enough to absorb the shell chunk in one
         ;; write so the writer rarely blocks on a slow consumer, small enough
         ;; that one stuck client doesn't pin a non-trivial chunk of heap.
@@ -565,7 +582,7 @@
         ^Runnable
         (fn writer-thread []
           (try
-            (run-streaming-writer! pipe-out frame-id rendered opts)
+            (run-streaming-writer! pipe-out frame-id rendered-shell opts)
             (finally
               ;; The writer's own finally closes the pipe; the frame teardown
               ;; happens here so it does NOT block the response close on the
@@ -575,7 +592,7 @@
         ^String (str "rf2-ssr-streaming-" (name frame-id)))
       (.setDaemon true)
       (.start))
-    (assoc resp-map :body pipe-in)))
+    (assoc ring-response :body pipe-in)))
 
 (defn stream-handler
   "Return a synchronous Ring handler that streams SSR responses via
@@ -744,15 +761,17 @@
                 (stream-projected-error! frame-id response public-error opts frame)
 
                 :else
-                (let [rendered (render-shell-or-projected-error frame-id opts frame)]
-                  (if (reduced? rendered)
+                (let [rendered-shell
+                      (render-shell-or-projected-error frame-id opts frame)]
+                  (if (reduced? rendered-shell)
                     ;; Shell render threw — return the projected error page
                     ;; (frame already torn down inline).
-                    @rendered
+                    @rendered-shell
                     ;; Shell rendered cleanly. Re-read the accumulator AND the
                     ;; projected public-error to surface any fail-closed status
                     ;; before materialising the head.
-                    (let [{resp2 :response err2 :public-error}
+                    (let [{post-shell-response     :response
+                           post-shell-public-error :public-error}
                           (ssr/flush-response-result! frame-id)]
                       (cond
                         ;; A redirect here is defense in depth: in v1 it
@@ -763,8 +782,8 @@
                         ;; branch aligns the streaming path with the
                         ;; non-streaming handler's redirect-ignores-body parity
                         ;; for a future render-phase fx that learns to redirect.
-                        (some? (:redirect resp2))
-                        (redirect-response! resp2 frame-id frame)
+                        (some? (:redirect post-shell-response))
+                        (redirect-response! post-shell-response frame-id frame)
 
                         ;; A recovered-to-nil sub during the shell render
                         ;; buffered a fail-closed 5xx — take the NON-STREAMED
@@ -772,12 +791,15 @@
                         ;; rf2-oytx7j SUPERSEDES the old stream-the-degraded-
                         ;; shell-under-500 behaviour: a 5xx before the chunked
                         ;; head commits never ships a partial-state shell.
-                        (pipeline/projected-5xx? err2)
-                        (stream-projected-error! frame-id resp2 err2 opts frame)
+                        (pipeline/projected-5xx? post-shell-public-error)
+                        (stream-projected-error!
+                          frame-id post-shell-response
+                          post-shell-public-error opts frame)
 
                         :else
                         (stream-rendered-response
-                          frame-id rendered resp2 content-type opts frame)))))))
+                          frame-id rendered-shell post-shell-response
+                          content-type opts frame)))))))
             (catch Throwable t
               ;; A get-response, redirect-materialisation, or head-materialisation
               ;; throw raised before the
