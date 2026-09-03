@@ -324,11 +324,12 @@
   (is (false? (cap/over-cap? 4999 6000 5000)) "tokens < cap does NOT trip"))
 
 (deftest over-cap?-secondary-char-gate-trips-in-isolation
-  ;; The branch the live `apply-cap` path cannot reach: tokens UNDER
-  ;; cap but chars OVER `cap * byte-cap-multiplier`. Reachable only when
-  ;; a future token rule decouples chars from tokens (e.g. base64 / CJK
-  ;; recognised at a lower per-char token cost). `over-cap?` MUST still
-  ;; trip — that is the whole point of the defence-in-depth gate.
+  ;; The secondary disjunct in ISOLATION: tokens UNDER cap but chars
+  ;; OVER `cap * byte-cap-multiplier`. Feeding decoupled sums straight
+  ;; in pins the EXACT boundary (strict `>`) without depending on how
+  ;; `apply-cap` derives its sums; `apply-cap-many-short-strings-trips-
+  ;; char-gate` below proves the same arm is reached through the live
+  ;; path. Two different failure modes, both worth a test.
   (let [cap-tokens 100
         byte-cap   (* cap-tokens cap/byte-cap-multiplier)] ;; 800
     (is (true? (cap/over-cap? 50 (inc byte-cap) cap-tokens))
@@ -339,15 +340,18 @@
         "chars < cap*8 and tokens under cap ⇒ no trip")))
 
 (deftest reported-count-selects-chars-when-char-gate-tripped
-  ;; The `reported = (if (> chars byte-cap) chars tokens)` selector. The
-  ;; chars arm is the one the live path never reaches; pin both arms.
+  ;; The `reported = (if (> chars byte-cap) chars tokens)` selector,
+  ;; pinned at the boundary from ONE computed `byte-cap` so the three
+  ;; cases sit either side of the same number. Both arms are live —
+  ;; `apply-cap-many-short-strings-trips-char-gate` reaches the chars
+  ;; arm through the real pipeline.
   (let [cap-tokens 100
         byte-cap   (* cap-tokens cap/byte-cap-multiplier)] ;; 800
-    (is (= 999 (cap/reported-count 50 999 cap-tokens))
-        "char gate tripped (999 > 800) ⇒ report the char count")
-    (is (= 50 (cap/reported-count 50 800 cap-tokens))
-        "char gate NOT tripped (800 = byte-cap, not >) ⇒ report tokens")
-    (is (= 150 (cap/reported-count 150 700 cap-tokens))
+    (is (= (inc byte-cap) (cap/reported-count 50 (inc byte-cap) cap-tokens))
+        "char gate tripped (chars > byte-cap) ⇒ report the char count")
+    (is (= 50 (cap/reported-count 50 byte-cap cap-tokens))
+        "char gate NOT tripped (chars = byte-cap, not >) ⇒ report tokens")
+    (is (= 150 (cap/reported-count 150 (dec byte-cap) cap-tokens))
         "only the token gate tripped ⇒ report tokens")))
 
 (deftest over-cap?-and-reported-count-agree-with-apply-cap
