@@ -26,7 +26,6 @@
    mount requires with no consumer coordinate that owns it."
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
-            [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]))
 
 ;; ---------------------------------------------------------------------------
