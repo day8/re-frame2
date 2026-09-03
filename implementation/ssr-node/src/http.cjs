@@ -253,7 +253,7 @@ function serve({ service, port = 8148, host = '127.0.0.1', maxRequestBytes = 1 <
 
 const closeServer = (server) =>
   new Promise((resolve) => {
-    server.closeAllConnections?.();
+    server.closeAllConnections();
     server.close(() => resolve());
   });
 

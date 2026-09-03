@@ -78,7 +78,7 @@ class Isolate {
           ),
         );
       }, this.bootTimeoutMs);
-      bootTimer.unref?.();
+      bootTimer.unref();
 
       const onReady = (msg) => {
         if (msg.t === 'ready') {
@@ -151,7 +151,7 @@ class Isolate {
         );
         this._die();
       }, timeoutMs);
-      timer.unref?.();
+      timer.unref();
 
       this.pending = { id, timer, resolve, reject, onChunk, chunks: 0 };
       this.worker.postMessage({ t: 'render', id, request });
