@@ -37,40 +37,43 @@
 
   Compiled to a single bundle the static `public/viewer.html` loads.
   `(viewer/run)` is the `^:export` entry. The page is presentation-only:
-  it initialises re-frame purely so the Reagent adapter is live (the
-  chart is a Reagent component); it registers no frame, dispatches no
-  events, and reads no `[:rf.runtime/machines :snapshots]` runtime-db slot.
+  it mounts `MachineChart` — an ordinary Reagent component — through a
+  plain `reagent.dom.client` root and stops there. There is NO
+  `rf/init!` and no substrate adapter (rf2-6r9j.115): `init!` installs a
+  framework substrate and re-seeds framework registrations, none of
+  which a Reagent render needs, and this page registers no frame,
+  dispatches no event, and reads no `[:rf.runtime/machines :snapshots]`
+  runtime-db slot. The chart's own DOM suite mounts the same component
+  through `adapters.react-chart/chart-element` + a bare
+  `react-dom/client` root with no framework boot at all, which is the
+  standing proof that none is a rendering prerequisite.
 
   ## Why this file lives under `page/` and not `src/` (rf2-k7l2o)
 
   It is the artefact's only APPLICATION. Everything under `src/` is
   library surface a host requires; this namespace is an entry point a
-  browser loads, and it is the only one in the tree that picks a
-  substrate — `(rf/init! reagent-adapter/adapter)` on the line below.
-  Picking a substrate is an application's job. `implementation/core` is
-  deliberately adapter-free for exactly that reason, and a library jar
-  that named `re-frame.adapter.reagent` in its dependency graph would
-  force the choice on every consumer: `day8/reagent-slim` publishes ITS
-  adapter at the same canonical namespace (`release.yml` renames
-  `reagent_slim.cljs` → `reagent.cljs` at publication), so a slim app
-  taking machines-viz would get two `re-frame.adapter.reagent`
-  implementations on one classpath — one bound to `reagent.*`, one to
-  `reagent2.*` — with classpath order deciding which its own
-  `(:require [re-frame.adapter.reagent])` resolved to.
+  browser loads — an `^:export` symbol, a DOM lookup, and a mount root
+  it owns. A consumer that requires the jar wants the chart, not a
+  page's mount code.
 
   `page/` is a source root the jar does not carry (`:clein/build
-  :src-dirs [\"src\"]`), so the require never reaches a consumer's
-  classpath and no dependency is needed to satisfy it. The page is
-  shipped as the compiled `viewer.js` beside `public/viewer.html`, which
-  is how a static page ships anyway — the jar was never its delivery
-  vehicle.
+  :src-dirs [\"src\"]`), and the compiled `viewer.js` ships beside
+  `public/viewer.html`, which is how a static page ships anyway — the
+  jar was never its delivery vehicle.
+
+  Historical note: when rf2-k7l2o moved this file out of `src/` the
+  argument was sharper still, because the page then required
+  `re-frame.adapter.reagent` and a library jar naming that namespace
+  would have forced a substrate on every consumer (`day8/reagent-slim`
+  publishes ITS adapter at the same canonical namespace). That require
+  is gone as of rf2-6r9j.115, so the dependency-forcing half of the
+  argument no longer applies; the application-versus-library-surface
+  half is what keeps the split.
 
   Per [`API.md`](../../../spec/API.md) §Read-only viewer + §Share-URL
   encoding."
   (:require [reagent.core :as r]
             [reagent.dom.client :as rdc]
-            [re-frame.core :as rf]
-            [re-frame.adapter.reagent :as reagent-adapter]
             [day8.re-frame2-machines-viz.chart :as chart]
             [day8.re-frame2-machines-viz.share :as share]))
 
@@ -170,10 +173,10 @@
   (try (.. js/window -location -href) (catch :default _ "")))
 
 (defn ^:export run
-  "Viewer entry. Initialises re-frame (so the Reagent component renders),
-  decodes the current location, and mounts the viewer into `#app`."
+  "Viewer entry. Decodes the current location and mounts the viewer into
+  `#app` through a `reagent.dom.client` root. No framework boot — see the
+  ns docstring §Build."
   []
-  (rf/init! reagent-adapter/adapter)
   (let [el (.getElementById js/document "app")]
     (when el
       (when (nil? @app-root)

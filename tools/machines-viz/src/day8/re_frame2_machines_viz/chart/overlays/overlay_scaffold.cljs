@@ -8,10 +8,10 @@
   measure-on-mount/update/resize lifecycle and an absolutely-positioned
   full-bleed root `<div>` that captures its `offsetParent` so the DOM
   walk shares the chart wrapper's coordinate origin. That scaffold —
-  the `root-ref` atom, the `remeasure!`-on-resize listener, the three
-  `create-class` lifecycle hooks, and the overlay root `<div>` style —
-  lives here ONCE so each overlay keeps only its measurement strategy +
-  paint.
+  the `remeasure!`-on-resize listener, the three `create-class`
+  lifecycle hooks, and the overlay root `<div>` style (including the
+  `:ref` that fills the overlay's own `root-ref` atom) — lives here
+  ONCE so each overlay keeps only its measurement strategy + paint.
 
   CLJS-only: the lifecycle + DOM ref plumbing is browser-specific
   (`reagent.core/create-class`, `js/window`, `offsetParent`). The PURE
@@ -27,21 +27,20 @@
   Args (single map):
 
     :display-name — the React `:display-name`.
-    :root-ref     — the `r/atom` the render fn populates with the
-                    overlay's `offsetParent` (the shared coordinate
-                    origin). The scaffold reads it only to gate the
-                    resize listener teardown; the caller's `remeasure!`
-                    closure already reads it.
     :remeasure!   — `(fn [] ...)` the caller supplies; invoked on mount,
                     every did-update, and every window resize. It reads
                     the latest props/specs (which the render fn stashes
                     in atoms) and re-measures the DOM.
     :render       — the `:reagent-render` fn `(fn [props] hiccup)`.
 
+  The overlay's `root-ref` atom is NOT one of these. Each overlay owns
+  its own — `overlay-root-props` below wires the `:ref` that fills it,
+  and the caller's `remeasure!` closure is the only thing that reads it.
+  The scaffold never needs it: teardown removes the resize listener
+  unconditionally.
+
   Returns the form-3 component. The resize listener is registered on
-  mount and torn down on unmount (the `_root-ref` is unused directly but
-  kept in the arg map so a future scaffold variant can key teardown on
-  it without a signature change)."
+  mount and torn down on unmount."
   [{:keys [display-name remeasure! render]}]
   (let [resize-fn (fn [_] (remeasure!))]
     (r/create-class

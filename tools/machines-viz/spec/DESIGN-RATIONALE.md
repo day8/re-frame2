@@ -645,25 +645,33 @@ rf2-j3iwt.
 
 ## Lock #10 — Source migration from Xray 003
 
-**Locked 2026-05-13 (Mike).** **The following content migrates
-from Xray 003 to this jar's spec when implementation work
-begins. Until then, Xray 003 remains the read-the-spec source of
-truth.**
+**Locked 2026-05-13 (Mike). MIGRATION COMPLETE — reconciled against
+the shipped tree 2026-09-03 (rf2-6r9j.126).** Every row below has
+landed. Machines-Viz's own spec is the read-the-spec source of truth
+for the chart component; Xray 003 keeps the embedding-host side listed
+further down. **There is no `001-Rendering.md`, and nothing is waiting
+on one** — the rendering contract lives in [`API.md`](./API.md) and the
+parity / layout analysis in
+[`001-Topology-Parity.md`](./001-Topology-Parity.md), which took the
+`001-` slot. (That doc's §5 roadmap row D1 leaves open whether a
+narrower "rendering pipeline internals" reference is ever worth
+writing; it would be a new document, not this lock's unfinished
+business.)
 
-### Migrating content
+### Where each topic landed
 
-| Topic | Xray 003 section | Lands in Machines-Viz spec at |
+| Topic | Xray 003 section | Lives in Machines-Viz spec at |
 |---|---|---|
-| `MachineChart` prop contract | §Embedding posture | [`API.md`](./API.md) §MachineChart (already lifted) |
-| Share-URL encoding pipeline | §Share affordance §Share URL + §Performance | [`API.md`](./API.md) §Share-URL encoding (already lifted) |
-| Read-only viewer behaviour | §Share-URL §Read-only viewer | [`API.md`](./API.md) §Read-only viewer (already lifted) |
+| `MachineChart` prop contract | §Embedding posture | [`API.md`](./API.md) §`MachineChart` component |
+| Share-URL encoding pipeline | §Share affordance §Share URL + §Performance | [`API.md`](./API.md) §Share-URL encoding |
+| Read-only viewer behaviour | §Share-URL §Read-only viewer | [`API.md`](./API.md) §Read-only viewer |
 | `:after` countdown rings — render rules | §Performance | [`API.md`](./API.md) §Performance invariants + Lock #8 above |
 | Layout-recompute rules | §Performance | [`API.md`](./API.md) §Performance invariants + Lock #9 above |
 | Topology / runtime-highlight separation (load-bearing) | (originated here 2026-05-14 per rf2-t1yvw) | [`API.md`](./API.md) §Performance invariants + Lock #11 below |
-| `:spawn-all` viz — row of mini-machines | §`:spawn-all` viz | future 001-Rendering.md (post-scaffold; not in this PR) |
+| `:spawn-all` viz | §`:spawn-all` viz | [`API.md`](./API.md) §`:overlays` slot descriptor schema — the `:spawn-all-join` descriptor (rf2-3ow55, re-slotted rf2-7w4qr). The row-of-mini-machines sketch was NOT what shipped: it is a host-fed join inspector anchored beside the spawn-all-bearing state |
 | PNG / SVG export — accessibility | §Accessibility | [`API.md`](./API.md) §Exporters |
-| Privacy posture for share-URL | §Privacy posture | [Principles §No session data in shares](./Principles.md) (already lifted) |
-| Auto-pan on transition | §Auto-pan | future 001-Rendering.md |
+| Privacy posture for share-URL | §Privacy posture | [Principles §No session data in shares](./Principles.md) |
+| Auto-pan on transition | §Auto-pan | [`API.md`](./API.md) §Auto-fit on async layout settle + §Fit-on-entry signal (rf2-6tw7t). The chart owns viewport re-fitting; the auto-pan TOGGLE and its persistence stayed with Xray, below |
 
 ### What stays in Xray 003 (the embedding-host side)
 
@@ -682,14 +690,13 @@ concerns**. Everything that's about rendering / encoding /
 export lives here; everything that's about Xray's panel chrome
 or Story's per-variant ribbon lives in those tools' spec.
 
-The migration is staged: this scaffold PR (rf2-x50eu) covers
-[`API.md`](./API.md) + this rationale + Principles + Vision. The
-detailed rendering / layout / export specs (a future
-`001-Rendering.md`, possibly more) land as separate beads once
-implementation work picks up.
-
-Until those land, **Xray 003 is the source of truth for
-unmigrated content**, and this DESIGN-RATIONALE cites back to it.
+The migration was staged. The scaffold PR (rf2-x50eu) covered
+[`API.md`](./API.md) + this rationale + Principles + Vision; the
+rendering, layout and export detail then landed **into `API.md` and
+[`001-Topology-Parity.md`](./001-Topology-Parity.md)** rather than into
+the separate `001-Rendering.md` this lock originally anticipated. Read
+that as a filed plan superseded by where the content actually went, not
+as a document still owed.
 
 ---
 
@@ -787,29 +794,56 @@ Per `ai/findings/perf-audit-machines-viz-2026-05-14.md` findings 1+2
 
 ---
 
-## Open questions
+## Questions the implementation settled
 
-The locks above cover the v1.0 surface. Open questions deferred
-to implementation:
+The locks above cover the v1.0 surface. Five questions were left open
+at scaffold time and deferred to implementation. All five are now
+answered by shipped code; they are recorded here with their outcomes so
+a reader does not re-open them (reconciled 2026-09-03, rf2-6r9j.126).
 
-- **Layout algorithm** — Dagre? ELK? Custom? (Xray 003 doesn't
-  pick; defer until first cut.)
-- **SVG primitive vs Canvas vs HTML/CSS** — Xray 003 hints
-  "SVG primitive" (per §Share affordance §Performance) but
-  doesn't lock; defer to a `001-Rendering.md` bead.
-- **Component substrate** — `MachineChart` is registered via
-  `reg-view` (Spec 001 §Allowed forms of the middle slot) so it works
-  across Reagent / UIx;
-  the registration spec lives in a future capability doc.
-- **Test corpus shape** — a snapshot-tested fixture per
-  rendering case (compound, parallel, `:after`, `:spawn-all`,
-  `:final?`); shape mirrors the framework's conformance corpus.
-  Defer to implementation.
-- **Edge labels on dense graphs** — Xray 003 doesn't address
-  label collision; defer.
+- **Layout algorithm** — was "Dagre? ELK? Custom?". **ELK (`elkjs`),
+  Layered algorithm, `ORTHOGONAL` edge routing with
+  `elk.json.edgeCoords ROOT`.** `chart.cljs` requires
+  `elkjs/lib/elk.bundled.js` and holds `default-elk-options`; the
+  reasoning and the parity bar are
+  [`001-Topology-Parity.md`](./001-Topology-Parity.md) §1.7, and the
+  measure-then-relayout pass is [`API.md`](./API.md) §Measure-then-relayout.
+- **SVG primitive vs Canvas vs HTML/CSS** — **none of the three alone:
+  `@xyflow/react`.** Nodes are HTML/CSS `<div>`s (`chart/nodes.cljs`),
+  edges are SVG paths through xyflow's `BaseEdge`, and edge labels are
+  HTML through `EdgeLabelRenderer` (`chart/edges.cljs`). Canvas was
+  never taken — a DOM node tree is what makes the testids, the
+  hover/click surface and the SVG exporter possible.
+- **Component substrate** — the scaffold's guess was that `MachineChart`
+  would be registered via `reg-view`. **It is not, and never was.** The
+  chart is a plain **host-fed Reagent component** the host passes props
+  to; it touches no registry and no frame. Substrate reach comes from
+  one bridge, not from registration: `adapters/react-chart` reactifies
+  the component ONCE and exposes `chart-element`, and
+  `adapters/uix.cljs` is a thin `defui` shell over it. See
+  [`API.md`](./API.md) §Substrate adapters and
+  [`Principles.md`](./Principles.md) §Embedding-host-agnostic.
+- **Test corpus shape** — **not snapshot fixtures.** Three lanes:
+  a JVM `.cljc` pure-data suite (`clojure -M:test`), the
+  artefact-owned CLJS node lane
+  (`npm run test:tools-machines-viz`), and real-DOM browser suites
+  (`*-dom-cljs-test`) on the consolidated `:browser-test` build. The
+  rendered-topology geometry gate ([`API.md`](./API.md) §Rendered-topology
+  geometry gate) is what pins each rendering case, in place of a
+  golden-image snapshot.
+- **Edge labels on dense graphs** — **dissolved rather than solved.**
+  Under events-as-nodes (rf2-qo5xy) each transition gets its own
+  event-node carrying the label, and the in/out edges are label-less, so
+  the post-render collision-avoidance overlay (rf2-r7vsr) was inert and
+  was retired (rf2-0xbgx). ELK's `elk.edgeLabels.placement` /
+  `elk.spacing.edgeLabel` handle what remains. See
+  [`001-Topology-Parity.md`](./001-Topology-Parity.md) §1.5 and
+  [`API.md`](./API.md) §Post-render label-collision avoidance — RETIRED.
 
-Each of these will land as a Locked entry above when picked, or
-as a bead against this jar.
+Genuinely open scope lives in [`000-Vision.md`](./000-Vision.md)
+§Scope and roadmap — its §What v1.0 does NOT do, §Committed with a
+trigger and §Candidates on demand — and in beads against this jar, not
+here.
 
 ---
 
