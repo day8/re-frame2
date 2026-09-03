@@ -381,7 +381,7 @@
 (defn- poll [pred label]
   (test-support/poll-until pred {:label label :timeout-ms 4000}))
 
-(defn- k [query-v] [frame-id query-v])
+(defn- sub-key [query-v] [frame-id query-v])
 
 (defn- ownership [] (dissoc (runtime/residue) :entries))
 
@@ -390,10 +390,10 @@
   acquired hold each other, so `cljs.test`'s failure printer walks a cycle
   and dies on the vector."
   [query-v]
-  (count (runtime/cell-readers (k query-v))))
+  (count (runtime/cell-readers (sub-key query-v))))
 
 (defn- sole-reader [query-v]
-  (let [rs (runtime/cell-readers (k query-v))]
+  (let [rs (runtime/cell-readers (sub-key query-v))]
     (when (= 1 (count rs)) (first rs))))
 
 (defn- teardown-census! [handle]

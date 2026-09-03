@@ -16,7 +16,7 @@
  * testbed.cjs` runs `shadow-cljs watch`, rewrites one marked line in
  * `hicasso/testbed/hicasso_hmr_testbed/views.cljs`, and shadow recompiles
  * that namespace, pushes the module to the live page, re-evaluates it and
- * runs the app's `^:dev/after-load` hook. `ctx.save()` returns only once
+ * runs the app's `^:dev/after-load` hook. `runContext.save()` returns only once
  * the page has reported the new literal on screen — so nothing here can
  * pass on a reload that fired without carrying code.
  *
@@ -232,7 +232,7 @@ const islandState = (page) => page.evaluate((slots) => {
 // A reload counter alone proves only the first; a counter plus a rendered
 // literal proves shadow carried code; the head identity is what ties it to
 // `defview` rather than to any other top-level form in the file.
-async function reloadIsReal(page, w, ctx) {
+async function reloadIsReal(page, witness, runContext) {
   // NEGATIVE CONTROL, taken FIRST so the identity instrument is proven
   // able to report SAMENESS before it is asked to report a change. Without
   // this every `head-same?: false` below would be vacuous — an instrument
@@ -240,24 +240,24 @@ async function reloadIsReal(page, w, ctx) {
   await capture(page);
   await page.evaluate(() => window.__HMR__.settle());
   const quiet = await identity(page);
-  w.eq(quiet['head-same?'], true,
+  witness.eq(quiet['head-same?'], true,
     'with no save, the head is the same object — the instrument can see sameness');
 
   const before = await reloads(page);
   const labelBefore = await page.evaluate(() => window.__HMR__.text('alpha', 'gen-label'));
 
   await capture(page);
-  const label = await ctx.save();
+  const label = await runContext.save();
 
-  w.eq(await reloads(page) > before, true, 'the ^:dev/after-load hook ran');
-  w.eq(label === labelBefore, false, 'the save really changed the source literal');
-  w.eq(await page.evaluate(() => window.__HMR__.text('alpha', 'gen-label')), label,
+  witness.eq(await reloads(page) > before, true, 'the ^:dev/after-load hook ran');
+  witness.eq(label === labelBefore, false, 'the save really changed the source literal');
+  witness.eq(await page.evaluate(() => window.__HMR__.text('alpha', 'gen-label')), label,
     'the NEW literal is on screen — shadow carried code, it did not merely fire');
-  w.eq(await page.evaluate(() => window.__HMR__.text('beta', 'gen-label')), label,
+  witness.eq(await page.evaluate(() => window.__HMR__.text('beta', 'gen-label')), label,
     'and in the second root too');
 
   const after = await identity(page);
-  w.eq(after['head-same?'], false,
+  witness.eq(after['head-same?'], false,
     'the head the real defview macro produced was replaced by the real reload — ' +
     'which is the drift the node lane could not have caught');
 }
@@ -271,12 +271,12 @@ async function reloadIsReal(page, w, ctx) {
 // so the characters on screen are IDENTICAL either side of the reload.
 // This section asserts that identity deliberately — it is the blindness,
 // on the record — and then reads the three things that move.
-async function focusedControlledInput(page, w, ctx) {
+async function focusedControlledInput(page, witness, runContext) {
   // Type into the middle of the string and leave the caret there.
   const typed = await page.evaluate(() =>
     window.__HMR__.edit('alpha', 'field', 'abZcdef', 3, { data: 'Z' }));
-  w.eq(typed.value, 'abZcdef', 'the keystroke was accepted');
-  w.eq(typed.start, 3, 'and the caret is mid-string, where a remount can be seen to lose it');
+  witness.eq(typed.value, 'abZcdef', 'the keystroke was accepted');
+  witness.eq(typed.start, 3, 'and the caret is mid-string, where a remount can be seen to lose it');
   await page.evaluate(() => window.__HMR__.markNode('alpha', 'field', 'N1'));
 
   // CONTROL: a turn passes with NO save. If focus, caret or the node's
@@ -284,23 +284,23 @@ async function focusedControlledInput(page, w, ctx) {
   // rather than the reload.
   await page.evaluate(() => window.__HMR__.settle());
   const held = await page.evaluate(() => window.__HMR__.read('alpha', 'field'));
-  w.eq(held.mark, 'N1', 'CONTROL — with no save the node is the same node');
-  w.eq(held.active, true, 'CONTROL — and it still holds focus');
-  w.eq(held.start, 3, 'CONTROL — and the caret has not moved');
+  witness.eq(held.mark, 'N1', 'CONTROL — with no save the node is the same node');
+  witness.eq(held.active, true, 'CONTROL — and it still holds focus');
+  witness.eq(held.start, 3, 'CONTROL — and the caret has not moved');
 
   await capture(page);
-  await ctx.save();
+  await runContext.save();
 
   const after = await page.evaluate(() => window.__HMR__.read('alpha', 'field'));
-  w.eq(after.value, 'abZcdef',
+  witness.eq(after.value, 'abZcdef',
     'the VALUE is byte-identical across the save — a value assertion sees nothing here');
-  w.eq(after.mark, null,
+  witness.eq(after.mark, null,
     'but the node that held the caret is gone: the expando cannot survive a replacement');
-  w.eq(after.active, false, 'so focus is lost, which is what the contract promises');
+  witness.eq(after.active, false, 'so focus is lost, which is what the contract promises');
   // The caret a freshly-mounted, unfocused control reports is the
   // browser's business, not this runtime's, so it is measured rather than
   // required — and compared across engines by the runner.
-  w.record('caret-after-a-save', { start: after.start, end: after.end });
+  witness.record('caret-after-a-save', { start: after.start, end: after.end });
 }
 
 // ---------------------------------------------------------------------------
@@ -313,7 +313,7 @@ async function focusedControlledInput(page, w, ctx) {
 // not survive" would be satisfied by a runtime that preserved everything.
 // Here the model never took the draft, so the characters on screen after
 // the save can only be the committed value.
-async function compositionInFlight(page, w, ctx) {
+async function compositionInFlight(page, witness, runContext) {
   const live = await page.evaluate(() => {
     const node = window.__HMR__.el('alpha', 'digits');
     node.focus();
@@ -324,26 +324,26 @@ async function compositionInFlight(page, w, ctx) {
     window.__HMR__.markNode('alpha', 'digits', 'D1');
     return { draft, model: window.__HMR__.model('alpha').digits };
   });
-  w.eq(live.draft.value, '123あ', 'the field is holding a composing draft');
-  w.eq(live.model, '123', 'and the model refused it, so the draft is nowhere but the DOM');
+  witness.eq(live.draft.value, '123あ', 'the field is holding a composing draft');
+  witness.eq(live.model, '123', 'and the model refused it, so the draft is nowhere but the DOM');
 
   // CONTROL: the draft survives a turn in which nothing reloaded. Without
   // this, "the draft is gone after the save" could be an ordinary converge
   // having wiped it a moment later.
   await page.evaluate(() => window.__HMR__.settle());
   const held = await page.evaluate(() => window.__HMR__.read('alpha', 'digits'));
-  w.eq(held.value, '123あ', 'CONTROL — with no save the composition is still in flight');
-  w.eq(held.mark, 'D1', 'CONTROL — on the same node');
+  witness.eq(held.value, '123あ', 'CONTROL — with no save the composition is still in flight');
+  witness.eq(held.mark, 'D1', 'CONTROL — on the same node');
 
   await capture(page);
-  await ctx.save();
+  await runContext.save();
 
   const after = await page.evaluate(() => window.__HMR__.read('alpha', 'digits'));
-  w.eq(after.mark, null, 'the composing node was destroyed by the save');
-  w.eq(after.value, '123',
+  witness.eq(after.mark, null, 'the composing node was destroyed by the save');
+  witness.eq(after.value, '123',
     'and the field shows the committed value — the in-flight composition is lost, ' +
     'not stranded on screen as a draft the model never agreed to');
-  w.eq(after.active, false, 'the composing field is no longer focused');
+  witness.eq(after.active, false, 'the composing field is no longer focused');
 }
 
 // ---------------------------------------------------------------------------
@@ -356,7 +356,7 @@ async function compositionInFlight(page, w, ctx) {
 // the per-fiber instance id — because a counter alone cannot separate
 // "the state was reset" from "the component was rebuilt", and only the
 // second is the claim.
-async function childHookStateInAHost(page, w, ctx) {
+async function childHookStateInAHost(page, witness, runContext) {
   await page.evaluate(async () => {
     for (let i = 0; i < 3; i += 1) {
       window.__HMR__.el('alpha', 'hook-bump').click();
@@ -367,7 +367,7 @@ async function childHookStateInAHost(page, w, ctx) {
     count: window.__HMR__.text('alpha', 'hook-count'),
     instance: window.__HMR__.text('alpha', 'hook-instance'),
   }));
-  w.eq(before.count, '3', 'the child is holding three clicks of its own hook state');
+  witness.eq(before.count, '3', 'the child is holding three clicks of its own hook state');
 
   // CONTROL: no save, so the state must still be there. A row asserting
   // "0 after a save" is worthless if the counter resets on its own.
@@ -376,20 +376,20 @@ async function childHookStateInAHost(page, w, ctx) {
     count: window.__HMR__.text('alpha', 'hook-count'),
     instance: window.__HMR__.text('alpha', 'hook-instance'),
   }));
-  w.eq(held.count, '3', 'CONTROL — with no save the hook state is still three');
-  w.eq(held.instance, before.instance, 'CONTROL — and it is the same fiber');
+  witness.eq(held.count, '3', 'CONTROL — with no save the hook state is still three');
+  witness.eq(held.instance, before.instance, 'CONTROL — and it is the same fiber');
 
   await capture(page);
-  await ctx.save();
+  await runContext.save();
 
   const after = await page.evaluate(() => ({
     count: window.__HMR__.text('alpha', 'hook-count'),
     instance: window.__HMR__.text('alpha', 'hook-instance'),
   }));
-  w.eq(after.count, '0', 'the save cleared the child hook state');
-  w.eq(after.instance === before.instance, false,
+  witness.eq(after.count, '0', 'the save cleared the child hook state');
+  witness.eq(after.instance === before.instance, false,
     'and it is a different fiber — the state was not reset, the component was rebuilt');
-  w.eq(Number(after.instance) > Number(before.instance), true,
+  witness.eq(Number(after.instance) > Number(before.instance), true,
     'from a counter that outlived the reload, so the two ids are comparable');
 }
 
@@ -402,14 +402,14 @@ async function childHookStateInAHost(page, w, ctx) {
 // component owns, directly, with React never learning about it. No
 // re-render can restore that text and no subscription repaints it — so if
 // it is gone after the save, the node it was written on is gone.
-async function activeImperativeHost(page, w, ctx) {
+async function activeImperativeHost(page, witness, runContext) {
   const before = await page.evaluate(() => {
     const id = window.__HMR__.door().note('alpha', 'LIVE');
     return { id, text: window.__HMR__.text('alpha', 'note'),
              instanceId: window.__HMR__.door().instanceId('alpha') };
   });
-  w.eq(before.text, 'LIVE', 'the imperative handle really drove the host');
-  w.eq(before.id, before.instanceId, 'and the call was served by the attached instance');
+  witness.eq(before.text, 'LIVE', 'the imperative handle really drove the host');
+  witness.eq(before.id, before.instanceId, 'and the call was served by the attached instance');
 
   // ONE baseline, taken here and used by BOTH readings below — which is
   // what makes the pair a proof rather than two separate claims: the
@@ -427,12 +427,12 @@ async function activeImperativeHost(page, w, ctx) {
   // imperative write must still be on screen.
   await page.evaluate(() => window.__HMR__.settle());
   const quiet = await identity(page);
-  w.eq(quiet.frames.alpha['instance-same?'], true,
+  witness.eq(quiet.frames.alpha['instance-same?'], true,
     'CONTROL — with no save the host instance is the same object');
-  w.eq(await page.evaluate(() => window.__HMR__.text('alpha', 'note')), 'LIVE',
+  witness.eq(await page.evaluate(() => window.__HMR__.text('alpha', 'note')), 'LIVE',
     'CONTROL — and its imperative write is still there');
 
-  await ctx.save();
+  await runContext.save();
 
   const after = await page.evaluate(() => ({
     text: window.__HMR__.text('alpha', 'note'),
@@ -440,15 +440,15 @@ async function activeImperativeHost(page, w, ctx) {
     attach: window.__HMR__.door().instance('alpha'),
   }));
   const ids = await identity(page);
-  w.eq(ids.frames.alpha['instance-same?'], false,
+  witness.eq(ids.frames.alpha['instance-same?'], false,
     'the ref now holds a DIFFERENT instance object — the host was torn down and rebuilt');
-  w.eq(after.instanceId === before.instanceId, false, 'with a new instance id to match');
-  w.eq(after.text, '',
+  witness.eq(after.instanceId === before.instanceId, false, 'with a new instance id to match');
+  witness.eq(after.text, '',
     'and the imperative write is gone, which only a destroyed node can explain');
   // A ref callback firing is not by itself evidence of a remount — React
   // detaches and re-attaches on plenty of occasions — so the counts are
   // measured rather than required.
-  w.record('ref-traffic-across-a-save', after.attach);
+  witness.record('ref-traffic-across-a-save', after.attach);
 }
 
 // ---------------------------------------------------------------------------
@@ -461,36 +461,36 @@ async function activeImperativeHost(page, w, ctx) {
 // static half (each root paints its own label) and the LIVE half (a write
 // to one frame after the reload does not move the other), because a
 // routing table that survived as stale text would pass the first alone.
-async function frameRoutingAcrossASave(page, w, ctx) {
+async function frameRoutingAcrossASave(page, witness, runContext) {
   await page.evaluate(() => window.__HMR__.door().setLabel('alpha', 'ALPHA-2'));
   await page.evaluate(() => window.__HMR__.settle());
-  w.eq(await page.evaluate(() => window.__HMR__.text('alpha', 'frame-label')), 'ALPHA-2',
+  witness.eq(await page.evaluate(() => window.__HMR__.text('alpha', 'frame-label')), 'ALPHA-2',
     'the write reached its own frame');
-  w.eq(await page.evaluate(() => window.__HMR__.text('beta', 'frame-label')), 'BETA',
+  witness.eq(await page.evaluate(() => window.__HMR__.text('beta', 'frame-label')), 'BETA',
     'and did not reach the other one');
 
   await capture(page);
-  await ctx.save();
+  await runContext.save();
 
-  w.eq(await page.evaluate(() => window.__HMR__.text('alpha', 'frame-label')), 'ALPHA-2',
+  witness.eq(await page.evaluate(() => window.__HMR__.text('alpha', 'frame-label')), 'ALPHA-2',
     'after the save each root still paints its own frame');
-  w.eq(await page.evaluate(() => window.__HMR__.text('beta', 'frame-label')), 'BETA');
+  witness.eq(await page.evaluate(() => window.__HMR__.text('beta', 'frame-label')), 'BETA');
 
   const ids = await identity(page);
-  w.eq(ids.frames.alpha['token-same?'], true,
+  witness.eq(ids.frames.alpha['token-same?'], true,
     'the reload hook re-ran make-frame and did NOT reincarnate — same token object');
-  w.eq(ids.frames.beta['token-same?'], true);
-  w.eq(ids.frames.alpha['row-same?'], true,
+  witness.eq(ids.frames.beta['token-same?'], true);
+  witness.eq(ids.frames.alpha['row-same?'], true,
     "and the arm's frame-op row is the same object, so a bundle captured before " +
     'the save still addresses the same incarnation');
-  w.eq(ids.frames.beta['row-same?'], true);
+  witness.eq(ids.frames.beta['row-same?'], true);
 
   // The LIVE half: routing is still wired, not merely still painted.
   await page.evaluate(() => window.__HMR__.door().setLabel('alpha', 'ALPHA-3'));
   await page.evaluate(() => window.__HMR__.settle());
-  w.eq(await page.evaluate(() => window.__HMR__.text('alpha', 'frame-label')), 'ALPHA-3',
+  witness.eq(await page.evaluate(() => window.__HMR__.text('alpha', 'frame-label')), 'ALPHA-3',
     'a write after the reload still reaches the remounted root');
-  w.eq(await page.evaluate(() => window.__HMR__.text('beta', 'frame-label')), 'BETA',
+  witness.eq(await page.evaluate(() => window.__HMR__.text('beta', 'frame-label')), 'BETA',
     'and frame isolation survived the save');
 
   // NEGATIVE CONTROL. The token reader is worth nothing unless it can
@@ -502,11 +502,11 @@ async function frameRoutingAcrossASave(page, w, ctx) {
   await page.evaluate(() => window.__HMR__.door().reincarnate('beta', 'BETA-R'));
   await page.evaluate(() => window.__HMR__.settle());
   const control = await identity(page);
-  w.eq(control.frames.beta['token-same?'], false,
+  witness.eq(control.frames.beta['token-same?'], false,
     'CONTROL — destroying and rebuilding a frame DOES reincarnate it');
-  w.eq(control.frames.alpha['token-same?'], true,
+  witness.eq(control.frames.alpha['token-same?'], true,
     'CONTROL — and only the frame it was done to; alpha is untouched');
-  w.eq(await page.evaluate(() => window.__HMR__.text('beta', 'frame-label')), 'BETA-R',
+  witness.eq(await page.evaluate(() => window.__HMR__.text('beta', 'frame-label')), 'BETA-R',
     'CONTROL — the rebuilt frame paints its re-seeded state');
 }
 
@@ -534,7 +534,7 @@ async function frameRoutingAcrossASave(page, w, ctx) {
 // paint: a re-fetched chunk and a preserved one paint the same island, in
 // the same place, with the same text — which is exactly how the prose
 // survived unmeasured.
-async function nativeLazyIslandAcrossASave(page, w, ctx) {
+async function nativeLazyIslandAcrossASave(page, witness, runContext) {
   await waitForIslands(page);
   await quiesce(page);
   await capture(page);
@@ -550,18 +550,18 @@ async function nativeLazyIslandAcrossASave(page, w, ctx) {
   // ticked on its own would satisfy the whole section.
   await page.evaluate(() => window.__HMR__.settle());
   const quiet = await identity(page);
-  w.eq(quiet.heads.hostHead['same?'], true,
+  witness.eq(quiet.heads.hostHead['same?'], true,
     'CONTROL — with no save the defhost crossing\'s lazy head is the same object');
-  w.eq(quiet.heads.escapeHead['same?'], true,
+  witness.eq(quiet.heads.escapeHead['same?'], true,
     'CONTROL — and so is the [:>] crossing\'s');
-  w.eq(quiet.heads.islandMemo['same?'], true,
+  witness.eq(quiet.heads.islandMemo['same?'], true,
     'CONTROL — and the memo record around the island');
-  w.eq(quiet.heads.islandBody['same?'], true,
+  witness.eq(quiet.heads.islandBody['same?'], true,
     'CONTROL — and the island itself');
-  w.eq(await islandLoads(page), loadsBefore,
+  witness.eq(await islandLoads(page), loadsBefore,
     'CONTROL — and nothing re-fetched the chunk, so the count below is the save\'s');
 
-  await ctx.save();
+  await runContext.save();
   await waitForIslands(page);
 
   // ------------------------------------------------------------------
@@ -579,20 +579,20 @@ async function nativeLazyIslandAcrossASave(page, w, ctx) {
   // The `+ 2` is the whole assertion: `> loadsBefore` would be green for a
   // bridge that re-fetched once and shared, and `>= loadsBefore` would be
   // green for one that never re-fetched at all.
-  w.eq(await islandLoads(page), loadsBefore + 2,
+  witness.eq(await islandLoads(page), loadsBefore + 2,
     'THE ANSWER: the boundary RE-LOADS. Each re-minted head gets a fresh, '
     + 'Uninitialized payload, so the chunk is fetched again — once per head, '
     + 'and the loaded module did not survive');
 
   const after = await identity(page);
-  w.eq(after.heads.hostHead['same?'], false,
+  witness.eq(after.heads.hostHead['same?'], false,
     'the defhost crossing\'s lazy head was re-minted by the save');
-  w.eq(after.heads.escapeHead['same?'], false, 'and the [:>] crossing\'s');
-  w.eq(after.heads.islandMemo['same?'], false,
+  witness.eq(after.heads.escapeHead['same?'], false, 'and the [:>] crossing\'s');
+  witness.eq(after.heads.islandMemo['same?'], false,
     'and the `react/memo` record — a memo record is the element type React '
     + 'reconciles on, so it must NOT survive a hot reload, and nothing had run '
     + 'one to check');
-  w.eq(after.heads.islandBody['same?'], false,
+  witness.eq(after.heads.islandBody['same?'], false,
     'and the island function itself — allocation, never a lookup by name, '
     + 'which is React\'s own remount rule');
 
@@ -601,19 +601,19 @@ async function nativeLazyIslandAcrossASave(page, w, ctx) {
   // traffic itself.
   const state = await islandState(page);
   for (const key of Object.keys(before)) {
-    w.eq(state[key].instance === before[key].instance, false,
+    witness.eq(state[key].instance === before[key].instance, false,
       `the island at ${key} is a different fiber — the subtree was rebuilt`);
-    w.eq(Number(state[key].instance) > Number(before[key].instance), true,
+    witness.eq(Number(state[key].instance) > Number(before[key].instance), true,
       `from the counter that outlived the reload, so the two ids are comparable (${key})`);
-    w.eq(after.islands[key]['node-same?'], false,
+    witness.eq(after.islands[key]['node-same?'], false,
       `and its ref re-attached to a NEW node at ${key}`);
-    w.eq(after.islands[key]['attached?'], true,
+    witness.eq(after.islands[key]['attached?'], true,
       `and is attached, not merely detached and dropped (${key})`);
     // Not an identity claim: `generation-label` is a live namespace read,
     // so even a stale closure would answer the new literal. It says the
     // island is painting THIS generation's label, which is what makes the
     // region live rather than a fallback the row mistook for an island.
-    w.eq(state[key].gen === before[key].gen, false,
+    witness.eq(state[key].gen === before[key].gen, false,
       `and it is painting the new generation's label at ${key}`);
   }
 
@@ -625,7 +625,7 @@ async function nativeLazyIslandAcrossASave(page, w, ctx) {
   // lazy re-load and a full remount of the split region leak nothing into
   // it.
   await quiesce(page);
-  w.same(await residue(page), censusBefore,
+  witness.same(await residue(page), censusBefore,
     'and the retained census is unchanged across the save: a re-loaded split '
     + 'region and a fully rebuilt island subtree leak nothing into it');
 }
@@ -650,43 +650,43 @@ async function nativeLazyIslandAcrossASave(page, w, ctx) {
 //
 // Unlike the lost-cleanup sabotage this one is RECOVERABLE, so all four
 // phases assert: arm, confirm red, disarm, confirm green.
-async function pinnedLazyHeadSabotage(page, w, ctx) {
+async function pinnedLazyHeadSabotage(page, witness, runContext) {
   await waitForIslands(page);
   await capture(page);
   const loadsBefore = await islandLoads(page);
 
-  w.eq(await pinEscapeHead(page, true), true, 'the sabotage is armed');
-  await ctx.save();
+  witness.eq(await pinEscapeHead(page, true), true, 'the sabotage is armed');
+  await runContext.save();
   await waitForIslands(page);
 
   const red = await identity(page);
   // THE PREMISE, and the row is worthless without it: the save really did
   // re-mint the head. The fault is not that the module failed to reload —
   // it is that the app went on rendering the head it had.
-  w.eq(red.heads.escapeHead['same?'], false,
+  witness.eq(red.heads.escapeHead['same?'], false,
     'the premise — the module DID re-evaluate and mint a fresh head');
-  w.eq(red.heads.hostHead['same?'], false,
+  witness.eq(red.heads.hostHead['same?'], false,
     'and the unsabotaged crossing beside it took its own fresh head');
 
-  w.eq(red.heads.rendered['same?'], true,
+  witness.eq(red.heads.rendered['same?'], true,
     'RED — but the head the app RENDERS survived the save: a bridge that '
     + 'cached by name, which is the conduct React\'s remount rule forbids');
-  w.eq(await islandLoads(page), loadsBefore + 1,
+  witness.eq(await islandLoads(page), loadsBefore + 1,
     'RED — and the chunk was fetched ONCE, not twice: a resolved payload is '
     + 'never re-read, so the pinned crossing silently skipped its re-load. '
     + 'This is the exact number the row above asserts, and it is wrong here');
 
   // RESTORE.
-  w.eq(await pinEscapeHead(page, false), false, 'the sabotage is disarmed');
+  witness.eq(await pinEscapeHead(page, false), false, 'the sabotage is disarmed');
   await capture(page);
   const loadsRestored = await islandLoads(page);
-  await ctx.save();
+  await runContext.save();
   await waitForIslands(page);
 
   const green = await identity(page);
-  w.eq(green.heads.rendered['same?'], false,
+  witness.eq(green.heads.rendered['same?'], false,
     'GREEN — the app renders the head the save minted again');
-  w.eq(await islandLoads(page), loadsRestored + 2,
+  witness.eq(await islandLoads(page), loadsRestored + 2,
     'GREEN — and both crossings re-loaded, so the red above was the pin and '
     + 'not a broken instrument');
 }
@@ -706,13 +706,13 @@ async function pinnedLazyHeadSabotage(page, w, ctx) {
 // right now are the SAME OBJECTS that were reading it before the save —
 // and it is computed with `identical?` inside ClojureScript, so no cyclic
 // object is ever serialised to reach this assertion.
-async function zeroStaleRegistrations(page, w, ctx) {
+async function zeroStaleRegistrations(page, witness, runContext) {
   await quiesce(page);
   await page.evaluate(() => window.__HMR__.markNode('alpha', 'field', 'R1'));
   await capture(page);
   const baseline = await residue(page);
 
-  await ctx.save();
+  await runContext.save();
   await quiesce(page);
 
   const ids = await identity(page);
@@ -722,36 +722,36 @@ async function zeroStaleRegistrations(page, w, ctx) {
   // would report a perfect hand-over for a reload that never reached the
   // boundary. Both are read the way the sections above read them: the
   // head by identity, the subtree by an expando the runtime cannot see.
-  w.eq(ids['head-same?'], false,
+  witness.eq(ids['head-same?'], false,
     'the save this row measures really did re-mint the head');
-  w.eq(await page.evaluate(() => window.__HMR__.read('alpha', 'field').mark), null,
+  witness.eq(await page.evaluate(() => window.__HMR__.read('alpha', 'field').mark), null,
     'and really did replace the subtree — so a clean hand-over is a claim ' +
     'about a hand-over that happened');
   for (const key of KEYS) {
     const row = ids.keys[key];
     const seen = `now ${JSON.stringify(row.now)} was ${JSON.stringify(row.was)}`;
-    w.eq(row.count, 1, `exactly one boundary reads ${key} after the save — ${seen}`);
-    w.eq(row.stale, 0,
+    witness.eq(row.count, 1, `exactly one boundary reads ${key} after the save — ${seen}`);
+    witness.eq(row.stale, 0,
       `and it is the SUCCESSOR's registration — no predecessor is still ` +
       `reading ${key} — ${seen}`);
   }
-  w.same(await residue(page), baseline,
+  witness.same(await residue(page), baseline,
     'and the whole retained census is unchanged: the save cost nothing');
 
   // Saves do not accumulate. A per-generation leak of any size shows as
   // growth here, and section 8 is this row's proof that the instrument
   // does grow when something is retained.
   await capture(page);
-  await ctx.save();
-  await ctx.save();
+  await runContext.save();
+  await runContext.save();
   await quiesce(page);
   const after = await identity(page);
   for (const key of KEYS) {
-    w.eq(after.keys[key].count, 1, `three saves later, still one reader on ${key}`);
-    w.eq(after.keys[key].stale, 0, `and still no predecessor on ${key}`);
+    witness.eq(after.keys[key].count, 1, `three saves later, still one reader on ${key}`);
+    witness.eq(after.keys[key].stale, 0, `and still no predecessor on ${key}`);
   }
-  w.same(await residue(page), baseline, 'three saves later, the same census');
-  w.record('retained-census', baseline);
+  witness.same(await residue(page), baseline, 'three saves later, the same census');
+  witness.record('retained-census', baseline);
 }
 
 // ---------------------------------------------------------------------------
@@ -772,26 +772,26 @@ async function zeroStaleRegistrations(page, w, ctx) {
 // asserted, is that the count HOLDS at two across two further clean saves
 // — exactly one casualty, from exactly one sabotaged save, and the
 // hand-over working correctly again either side of it.
-async function lostCleanupSabotage(page, w, ctx) {
+async function lostCleanupSabotage(page, witness, runContext) {
   await quiesce(page);
   await capture(page);
   const clean = await residue(page);
 
-  w.eq(await page.evaluate(() => window.__HMR__.door().sabotage(true)), true,
+  witness.eq(await page.evaluate(() => window.__HMR__.door().sabotage(true)), true,
     'the sabotage is armed');
-  await ctx.save();
+  await runContext.save();
   await quiesce(page);
 
   const red = await identity(page);
   for (const key of KEYS) {
-    w.eq(red.keys[key].count, 2, `RED — two registrations are now reading ${key}`);
-    w.eq(red.keys[key].stale, 1,
+    witness.eq(red.keys[key].count, 2, `RED — two registrations are now reading ${key}`);
+    witness.eq(red.keys[key].stale, 1,
       `RED — and one of them is the predecessor, by identity, on ${key}`);
   }
   const grown = await residue(page);
-  w.eq(grown['cell-refs'] > clean['cell-refs'], true,
+  witness.eq(grown['cell-refs'] > clean['cell-refs'], true,
     'RED — the retained census grew, which the clean saves never did');
-  w.eq(grown.cells, clean.cells,
+  witness.eq(grown.cells, clean.cells,
     'RED — one cell still, because the leak is a reader that never let go ' +
     'rather than a second key');
 
@@ -801,27 +801,27 @@ async function lostCleanupSabotage(page, w, ctx) {
   const notifiedBefore = await page.evaluate(() => window.__HMR__.door().staleNotified());
   await page.evaluate(() => window.__HMR__.door().setLabel('alpha', 'ALPHA-4'));
   await page.evaluate(() => window.__HMR__.settle());
-  w.eq(await page.evaluate(() => window.__HMR__.door().staleNotified()) > notifiedBefore, true,
+  witness.eq(await page.evaluate(() => window.__HMR__.door().staleNotified()) > notifiedBefore, true,
     'RED — the unmounted generation was told the store moved');
 
   // RESTORE.
-  w.eq(await page.evaluate(() => window.__HMR__.door().sabotage(false)), false,
+  witness.eq(await page.evaluate(() => window.__HMR__.door().sabotage(false)), false,
     'the sabotage is disarmed');
   await capture(page);
-  await ctx.save();
-  await ctx.save();
+  await runContext.save();
+  await runContext.save();
   await quiesce(page);
 
   const green = await identity(page);
   for (const key of KEYS) {
-    w.eq(green.keys[key].count, 2,
+    witness.eq(green.keys[key].count, 2,
       `GREEN — two further saves added NOTHING to ${key}: the count holds at the ` +
       'one registration the sabotage stranded');
-    w.eq(green.keys[key].stale, 1,
+    witness.eq(green.keys[key].stale, 1,
       `GREEN — and exactly one of the two is old, so the predecessor of each ` +
       `clean save did let go on ${key}`);
   }
-  w.same(await residue(page), grown,
+  witness.same(await residue(page), grown,
     'GREEN — the census is unchanged across the restored saves, so the red above ' +
     'was the swallowed cleanup and not a broken instrument');
 }
@@ -856,13 +856,13 @@ module.exports = {
   pageHelpers: PAGE_HELPERS,
   SECTIONS,
 
-  run: async (page, ctx) => {
-    const w = new Witness(ctx.engine);
+  run: async (page, runContext) => {
+    const witness = new Witness(runContext.engine);
     for (const [name, section] of SECTIONS) {
-      const before = w.checks;
-      await section(page, w, ctx);
-      w.sections[name] = w.checks - before;
+      const before = witness.checks;
+      await section(page, witness, runContext);
+      witness.sections[name] = witness.checks - before;
     }
-    return { checks: w.checks, recorded: w.recorded, sections: w.sections };
+    return { checks: witness.checks, recorded: witness.recorded, sections: witness.sections };
   },
 };

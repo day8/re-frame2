@@ -125,7 +125,7 @@
   (rf/with-frame frame-id (rf/dispatch-sync [:kco/seed {:left 1 :right 2 :flag false}]))
   frame-id)
 
-(defn- k
+(defn- sub-key
   "A sub-key: the runtime keys cells by `[frame-kw query-v]`, because two
   frames are isolated contexts holding two different app-dbs."
   [query-v]
@@ -186,8 +186,8 @@
 
       (testing "the individually-named keys confirm it per key, which a
                 summed census could hide"
-        (is (= [] (runtime/cell-readers (k [:kco/left]))))
-        (is (= [] (runtime/cell-readers (k [:kco/right])))))
+        (is (= [] (runtime/cell-readers (sub-key [:kco/left]))))
+        (is (= [] (runtime/cell-readers (sub-key [:kco/right])))))
 
       (testing "the read-set entries ARE there — a render-phase cache is the
                 one thing a probing render leaves, and calling it out is
@@ -214,19 +214,19 @@
           !notified (atom 0)]
 
       (testing "the render resolved the read set without owning it"
-        (is (= #{(k [:kco/left])} (runtime/reads-of entry)))
+        (is (= #{(sub-key [:kco/left])} (runtime/reads-of entry)))
         (is (= nothing-owned (ownership))))
 
       (let [cleanup (collector/commit-boundary! entry (fn [] (swap! !notified inc)))]
 
         (testing "the commit takes exactly one cell, one reference, one edge"
           (is (= {:cells 1 :cell-refs 1 :boundaries 1 :edges 1} (ownership)))
-          (is (= 1 (count (runtime/cell-readers (k [:kco/left]))))))
+          (is (= 1 (count (runtime/cell-readers (sub-key [:kco/left]))))))
 
         (testing "and NOTHING for a key this body did not read — the
                   acquisition is the read set, not the registrar"
-          (is (= [] (runtime/cell-readers (k [:kco/right]))))
-          (is (nil? (runtime/cell-reaction (k [:kco/right])))))
+          (is (= [] (runtime/cell-readers (sub-key [:kco/right]))))
+          (is (nil? (runtime/cell-reaction (sub-key [:kco/right])))))
 
         (testing "the acquired boundary is a live reader: a write to its key
                   notifies it exactly once"
@@ -265,9 +265,9 @@
 
     (testing "flag is false, so the guarded read never ran and its key is
               not in the set"
-      (is (= #{(k [:kco/flag])} (runtime/reads-of cold)))
+      (is (= #{(sub-key [:kco/flag])} (runtime/reads-of cold)))
       (is (= {:cells 1 :cell-refs 1 :boundaries 1 :edges 1} (ownership)))
-      (is (= [] (runtime/cell-readers (k [:kco/right])))))
+      (is (= [] (runtime/cell-readers (sub-key [:kco/right])))))
 
     (cleanup)
     (rf/with-frame frame-id (rf/dispatch-sync [:kco/raise]))
@@ -276,8 +276,9 @@
           cleanup2 (collector/commit-boundary! warm (fn []))]
       (testing "flag is true, so the same body reads two keys and the commit
                 acquires both — the edge set followed the branch"
-        (is (= #{(k [:kco/flag]) (k [:kco/right])} (runtime/reads-of warm)))
-        (is (= 1 (count (runtime/cell-readers (k [:kco/right]))))))
+        (is (= #{(sub-key [:kco/flag]) (sub-key [:kco/right])}
+               (runtime/reads-of warm)))
+        (is (= 1 (count (runtime/cell-readers (sub-key [:kco/right]))))))
       (cleanup2))))
 
 ;; ---------------------------------------------------------------------------
@@ -313,14 +314,14 @@
 
       (testing "the next body's read set is ITS OWN, not the throwing run's
                 concatenated with it"
-        (is (= #{(k [:kco/flag])} (runtime/reads-of entry)))
+        (is (= #{(sub-key [:kco/flag])} (runtime/reads-of entry)))
         (is (= {:cells 1 :cell-refs 1 :boundaries 1 :edges 1} (ownership))))
 
       (testing "named per key, because `:cells 1` alone could be the right
                 count of the wrong keys"
-        (is (= 1 (count (runtime/cell-readers (k [:kco/flag])))))
-        (is (= [] (runtime/cell-readers (k [:kco/left]))))
-        (is (= [] (runtime/cell-readers (k [:kco/right])))))
+        (is (= 1 (count (runtime/cell-readers (sub-key [:kco/flag])))))
+        (is (= [] (runtime/cell-readers (sub-key [:kco/left]))))
+        (is (= [] (runtime/cell-readers (sub-key [:kco/right])))))
 
       (cleanup))))
 
@@ -341,10 +342,10 @@
 
     (testing "React selected the second attempt, so the second attempt's set
               is what got acquired — in full and in isolation"
-      (is (= #{(k [:kco/flag])} (runtime/reads-of second-entry)))
+      (is (= #{(sub-key [:kco/flag])} (runtime/reads-of second-entry)))
       (is (= {:cells 1 :cell-refs 1 :boundaries 1 :edges 1} (ownership)))
-      (is (= [] (runtime/cell-readers (k [:kco/left]))))
-      (is (= [] (runtime/cell-readers (k [:kco/right])))))
+      (is (= [] (runtime/cell-readers (sub-key [:kco/left]))))
+      (is (= [] (runtime/cell-readers (sub-key [:kco/right])))))
 
     (cleanup)))
 
@@ -366,12 +367,12 @@
       (testing "two boundaries, two memberships, still ONE cell — the cell
                 is shared per unique key and the reader list is the count"
         (is (= {:cells 1 :cell-refs 2 :boundaries 2 :edges 2} (ownership)))
-        (is (= 2 (count (runtime/cell-readers (k [:kco/left]))))))
+        (is (= 2 (count (runtime/cell-readers (sub-key [:kco/left]))))))
 
       (testing "and the two registrations are distinct objects: the
                 registration IS the boundary id, so a second subscribe
                 cannot be mistaken for the first"
-        (let [[a b] (runtime/cell-readers (k [:kco/left]))]
+        (let [[a b] (runtime/cell-readers (sub-key [:kco/left]))]
           (is (not (identical? a b)))))
 
       (c1)
@@ -413,7 +414,7 @@
         at-render (runtime/snapshot-of entry)]
 
     (testing "the key really is staged: no cell holds it at render time"
-      (is (nil? (get @collector/!cells (k [:kco/left])))))
+      (is (nil? (get @collector/!cells (sub-key [:kco/left])))))
 
     ;; The write lands AFTER the body returned and BEFORE React acquires.
     (rf/with-frame frame-id (rf/dispatch-sync [:kco/bump-left]))
@@ -458,12 +459,12 @@
 
       (testing "and on the per-key reader list, which is the observable the
                 acquisition rows actually assert on"
-        (is (= 1 (count (runtime/cell-readers (k [:kco/left]))))))
+        (is (= 1 (count (runtime/cell-readers (sub-key [:kco/left]))))))
 
       (.then (runtime/quiesced!)
              (fn [_]
                (testing "quiescence does NOT launder it: the reapers drop
                          what nothing holds, and this is held"
-                 (is (= 1 (count (runtime/cell-readers (k [:kco/left])))))
+                 (is (= 1 (count (runtime/cell-readers (sub-key [:kco/left])))))
                  (is (not= 0 (:cell-refs (runtime/residue)))))
                (done))))))

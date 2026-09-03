@@ -401,9 +401,10 @@
 (defn- skip! [why]
   (is true (str "a keyboard round trip needs a real React DOM — " why)))
 
-(defn- q [m sel] (.querySelector (:container m) sel))
+(defn- query-node [mount selector] (.querySelector (:container mount) selector))
 (defn- active-el [] (.-activeElement js/document))
-(defn- attr-of [m sel a] (some-> (q m sel) (.getAttribute a)))
+(defn- attr-of [mount selector attribute-name]
+  (some-> (query-node mount selector) (.getAttribute attribute-name)))
 
 (defn- key!
   "A real `keydown` carrying `key`, on the trigger. React's synthetic
@@ -411,7 +412,7 @@
   trusted one — the DEFAULT ACTION is what an untrusted event does not
   get, and this handler is not one."
   [m k]
-  (.dispatchEvent (q m (str "#" trigger-id))
+  (.dispatchEvent (query-node m (str "#" trigger-id))
                   (js/KeyboardEvent. "keydown" #js {:key k :bubbles true}))
   (hm/settle! m)
   nil)
@@ -421,12 +422,12 @@
     (skip! "the arrow keys")
     (let [m (hm/mount! [select-dropdown {}])]
       (try
-        (.focus (q m (str "#" trigger-id)))
+        (.focus (query-node m (str "#" trigger-id)))
         (testing "premise: shut, with no pointer and nothing to point at"
           (is (= "false" (attr-of m (str "#" trigger-id) "aria-expanded")))
           (is (nil? (attr-of m (str "#" trigger-id) "aria-activedescendant")))
           (is (nil? (attr-of m (str "#" trigger-id) "aria-controls")))
-          (is (nil? (q m (str "#" listbox-id)))
+          (is (nil? (query-node m (str "#" listbox-id)))
               "and no listbox in the document, which is the module's
                closed-cost posture and the reason `aria-controls` is
                conditional"))
@@ -437,7 +438,7 @@
           (is (= "true" (attr-of m (str "#" trigger-id) "aria-expanded")))
           (is (= listbox-id (attr-of m (str "#" trigger-id) "aria-controls")))
           (is (= (option-id "en") (attr-of m (str "#" trigger-id) "aria-activedescendant")))
-          (is (some? (q m (str "#" listbox-id)))))
+          (is (some? (query-node m (str "#" listbox-id)))))
 
         (key! m "ArrowDown")
         (key! m "ArrowDown")
@@ -454,14 +455,14 @@
                   holds, and the trigger still shows its label — the
                   audit's *keep active focus distinct from committed
                   selection*, driven rather than described"
-          (is (= "true" (.getAttribute (q m (str "#" (option-id "en"))) "aria-selected")))
-          (is (= "false" (.getAttribute (q m (str "#" (option-id "ja"))) "aria-selected")))
-          (is (= "English" (.-textContent (q m (str "#" trigger-id))))))
+          (is (= "true" (.getAttribute (query-node m (str "#" (option-id "en"))) "aria-selected")))
+          (is (= "false" (.getAttribute (query-node m (str "#" (option-id "ja"))) "aria-selected")))
+          (is (= "English" (.-textContent (query-node m (str "#" trigger-id))))))
 
         (testing "and DOM focus never left the trigger, which is the
                   whole reason an active-descendant model is used
                   instead of moving focus into the list"
-          (is (identical? (q m (str "#" trigger-id)) (active-el))))
+          (is (identical? (query-node m (str "#" trigger-id)) (active-el))))
 
         (finally (hm/unmount! m))))))
 
@@ -470,26 +471,26 @@
     (skip! "the commit")
     (let [m (hm/mount! [select-dropdown {}])]
       (try
-        (.focus (q m (str "#" trigger-id)))
+        (.focus (query-node m (str "#" trigger-id)))
         (key! m "ArrowDown")
         (key! m "ArrowDown")
         (is (= (option-id "fr") (attr-of m (str "#" trigger-id) "aria-activedescendant"))
             "premise: the keyboard is on the second option and the
              application still holds the first")
-        (is (= "English" (.-textContent (q m (str "#" trigger-id)))))
+        (is (= "English" (.-textContent (query-node m (str "#" trigger-id)))))
 
         (key! m "Enter")
 
         (testing "THE ROUND TRIP: the active option became the committed
                   one, the list shut, and both attributes that only make
                   sense while it is open went with it"
-          (is (= "Français" (.-textContent (q m (str "#" trigger-id)))))
+          (is (= "Français" (.-textContent (query-node m (str "#" trigger-id)))))
           (is (= "false" (attr-of m (str "#" trigger-id) "aria-expanded")))
           (is (nil? (attr-of m (str "#" trigger-id) "aria-activedescendant")))
           (is (nil? (attr-of m (str "#" trigger-id) "aria-controls")))
-          (is (nil? (q m (str "#" listbox-id)))))
+          (is (nil? (query-node m (str "#" listbox-id)))))
 
-        (is (identical? (q m (str "#" trigger-id)) (active-el))
+        (is (identical? (query-node m (str "#" trigger-id)) (active-el))
             "and focus is still on the trigger — nothing had to be
              restored, because nothing ever moved")
 

@@ -180,12 +180,13 @@
 ;; first; a superseded timer drains nothing.
 
 (defn- arm-timer!
-  "Arm `q`'s one timer for `due`, superseding any timer still pending."
-  [^js q due now]
-  (let [id (inc (.-seq q))]
-    (set! (.-seq q) id)
-    (set! (.-target q) due)
-    (js/setTimeout (fn [] ((.-drain q) id)) (max 0 (- due now))))
+  "Arm `queue`'s one timer for `due-at-ms`, superseding any timer still pending."
+  [^js queue due-at-ms now-ms]
+  (let [arm-id (inc (.-seq queue))]
+    (set! (.-seq queue) arm-id)
+    (set! (.-target queue) due-at-ms)
+    (js/setTimeout (fn [] ((.-drain queue) arm-id))
+                   (max 0 (- due-at-ms now-ms))))
   nil)
 
 (defn- reap-queue
@@ -194,60 +195,62 @@
   none), the arm counter a drain checks itself against, and the drain —
   built once, so arming a timer allocates one closure."
   [horizon-ms reap!]
-  (let [^js q #js {"items" #js [] "due" #js [] "target" -1 "seq" 0 "horizon" horizon-ms}]
-    (unchecked-set q "drain"
-      (fn drain [id]
-        (when (== id (.-seq q))
-          (let [items  (.-items q)
-                due    (.-due q)
-                target (.-target q)
-                now    (js/Date.now)]
-            (set! (.-target q) -1)
+  (let [^js queue #js {"items" #js [] "due" #js [] "target" -1 "seq" 0 "horizon" horizon-ms}]
+    (unchecked-set queue "drain"
+      (fn drain [arm-id]
+        (when (== arm-id (.-seq queue))
+          (let [items            (.-items queue)
+                due-times        (.-due queue)
+                target-due-at-ms (.-target queue)
+                now-ms           (js/Date.now)]
+            (set! (.-target queue) -1)
             (loop []
               (when (pos? (alength items))
-                (let [head (aget due 0)
-                      left (- head now)]
-                  ;; A `left` above the horizon means the clock moved under
+                (let [item-due-at-ms (aget due-times 0)
+                      delay-ms       (- item-due-at-ms now-ms)]
+                  ;; A `delay-ms` above the horizon means the clock moved under
                   ;; the queue — the test kit's virtual clock handing its
                   ;; timers back to the real one, a stepped system clock —
                   ;; and an item that cannot be waited for is reaped, never
                   ;; parked.
-                  (when (or (> left horizon-ms)
-                            (and (<= left 0) (<= head target)))
-                    (.shift due)
+                  (when (or (> delay-ms horizon-ms)
+                            (and (<= delay-ms 0)
+                                 (<= item-due-at-ms target-due-at-ms)))
+                    (.shift due-times)
                     (reap! (.shift items))
                     (recur)))))
             (when (pos? (alength items))
-              (arm-timer! q (aget due 0) now))))))
-    q))
+              (arm-timer! queue (aget due-times 0) now-ms))))))
+    queue))
 
 (defn- arm-reaper!
-  "Queue `x` for `q`'s horizon, arming the one timer if none is armed."
-  [^js q x]
-  (let [now        (js/Date.now)
-        horizon-ms (.-horizon q)]
-    (.push (.-items q) x)
-    (if (neg? (.-target q))
-      (let [due (+ now horizon-ms)]
-        (.push (.-due q) due)
-        (arm-timer! q due now))
+  "Queue `item` for `queue`'s horizon, arming the one timer if none is armed."
+  [^js queue item]
+  (let [now-ms     (js/Date.now)
+        horizon-ms (.-horizon queue)]
+    (.push (.-items queue) item)
+    (if (neg? (.-target queue))
+      (let [due-at-ms (+ now-ms horizon-ms)]
+        (.push (.-due queue) due-at-ms)
+        (arm-timer! queue due-at-ms now-ms))
       ;; A rider on a timer already armed. Where the horizon is measured it
       ;; is stamped one tick late: the clock is whole milliseconds and the
       ;; timer is not, so a drain could otherwise find it due up to a
       ;; millisecond short of the horizon a timer of its own would have
       ;; given it. A zero horizon measures nothing, and its rider is due
       ;; with the drain.
-      (.push (.-due q) (+ now horizon-ms (if (pos? horizon-ms) 1 0)))))
+      (.push (.-due queue)
+             (+ now-ms horizon-ms (if (pos? horizon-ms) 1 0)))))
   nil)
 
 (defn- reset-reapers!
-  "Forget what `q` is waiting to reap. `reset-runtime!`'s half — a timer
+  "Forget what `queue` is waiting to reap. `reset-runtime!`'s half — a timer
   still armed is superseded and drains nothing."
-  [^js q]
-  (set! (.-length (.-items q)) 0)
-  (set! (.-length (.-due q)) 0)
-  (set! (.-target q) -1)
-  (set! (.-seq q) (inc (.-seq q)))
+  [^js queue]
+  (set! (.-length (.-items queue)) 0)
+  (set! (.-length (.-due queue)) 0)
+  (set! (.-target queue) -1)
+  (set! (.-seq queue) (inc (.-seq queue)))
   nil)
 
 (def ^:private cell-reapers
@@ -444,8 +447,8 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- notify! [registrations]
-  (doseq [^js r registrations]
-    (when-some [n (.-notify r)] (n))))
+  (doseq [^js registration registrations]
+    (when-some [notify (.-notify registration)] (notify))))
 
 (defn- dirty-readers
   "The boundaries a commit must re-run: the union of the dirty cells'
@@ -454,7 +457,7 @@
   dirty set made entirely of unread keys is empty rather than everything
   (`index-laws-cljs-test`)."
   [dirty]
-  (reduce (fn [acc ^js c] (into acc (.-readers c))) #{} dirty))
+  (reduce (fn [acc ^js cell] (into acc (.-readers cell))) #{} dirty))
 
 (defn flush!
   "Turn the dirty cell set into re-render work: bump each dirty key's
@@ -480,30 +483,30 @@
       ;; on screen). The floor can only raise a stamp, so the sum stays
       ;; monotone (docs/design/hicasso/product/invariants.md, rf2-hic-013;
       ;; `reincarnation-paint-dom-cljs-test`).
-      (doseq [^js c dirty]
-        (set! (.-epoch c) (max (inc (.-epoch c))
-                               (generation/commit-basis (.-frameKw c)))))
+      (doseq [^js cell dirty]
+        (set! (.-epoch cell) (max (inc (.-epoch cell))
+                                  (generation/commit-basis (.-frameKw cell)))))
       (let [boundaries (dirty-readers dirty)]
         (if (rendering?)
           (do (vswap! !deferred into boundaries)
               (js/setTimeout (fn []
-                               (let [d @!deferred]
+                               (let [deferred-readers @!deferred]
                                  (vreset! !deferred #{})
-                                 (notify! d)))
+                                 (notify! deferred-readers)))
                              0))
           (notify! boundaries)))))
   nil)
 
 (defn with-commit
-  "Run `f` inside one commit window: every subscription the writes inside
+  "Run `thunk` inside one commit window: every subscription the writes inside
   it move is collected, and the boundaries that read them are notified
-  once, after `f` returns. Re-entrant — a nested window joins the
+  once, after `thunk` returns. Re-entrant — a nested window joins the
   enclosing one rather than flushing early."
-  [f]
+  [thunk]
   (if @!batching
-    (f)
+    (thunk)
     (do (vreset! !batching true)
-        (try (f)
+        (try (thunk)
              (finally (vreset! !batching false)
                       (flush!))))))
 
@@ -545,30 +548,30 @@
       (live-frame/call-with-frame-resolution
         frame-kw
         (fn []
-          (if-some [r (:reaction (get @(:sub-cache frame-record) query-v))]
-            @r
-            (let [^js pr (or (.-probe rstate)
-                             (when-some [fs (frame/frame-state-value frame-kw)]
-                               (let [^js fresh #js {"fs" fs "vals" {}}]
+          (if-some [reaction (:reaction (get @(:sub-cache frame-record) query-v))]
+            @reaction
+            (let [^js probe (or (.-probe rstate)
+                                (when-some [frame-state (frame/frame-state-value frame-kw)]
+                                  (let [^js fresh #js {"fs" frame-state "vals" {}}]
                                  (set! (.-probe rstate) fresh)
                                  fresh)))]
-              (if (nil? pr)
+              (if (nil? probe)
                 ;; The frame died between the record resolve and the
                 ;; state read — recover exactly as rung 3 does.
                 (subs/subscribe-once query-v {:frame frame-kw})
                 ;; `find`, not `get`: a memoised nil (an unregistered
                 ;; query's recovery) is a HIT, and the one emission per
                 ;; distinct unknown key per run rides on that.
-                (if-some [kv (find (unchecked-get pr "vals") query-v)]
-                  (val kv)
-                  (let [v (subs/compute-sub-with-memo
-                            query-v
-                            (unchecked-get pr "fs")
-                            (atom {subs/observation-opts-key
-                                   {:frame frame-kw}}))]
-                    (unchecked-set pr "vals"
-                                   (assoc (unchecked-get pr "vals") query-v v))
-                    v))))))))))
+                (if-some [cached-value (find (unchecked-get probe "vals") query-v)]
+                  (val cached-value)
+                  (let [value (subs/compute-sub-with-memo
+                                query-v
+                                (unchecked-get probe "fs")
+                                (atom {subs/observation-opts-key
+                                       {:frame frame-kw}}))]
+                    (unchecked-set probe "vals"
+                                   (assoc (unchecked-get probe "vals") query-v value))
+                    value))))))))))
 
 (defn- read-key!
   "One read: append the sub-key to the scratch and return the value. Warm
@@ -591,8 +594,8 @@
   (let [frame-kw (.-frame rstate)
         sub-key  [frame-kw query-v]]
     (.push scratch sub-key)
-    (if-some [^js r (some-> ^js (get @!cells sub-key) (.-reaction))]
-      @r
+    (if-some [^js reaction (some-> ^js (get @!cells sub-key) (.-reaction))]
+      @reaction
       (cold-read! frame-kw query-v))))
 
 (defn sub
@@ -615,31 +618,37 @@
 
 (defn- bucket-key-of
   "The bucket a read sequence belongs to: an order-sensitive hash of the
-  whole sequence (`h*31 + hash(k)`, int32), for the scratch a body just
+  whole sequence (`hash-value*31 + hash(read-key)`, int32), for the scratch a body just
   filled and for a hook's one-key array alike. It selects a bucket and
   is never an equality test — `entry-matches?` still compares every key
   pairwise, so a collision costs a second entry and never a wrong one.
-  Costs `n` cached-hash reads: every sub-key was hashed this render when
+  Costs `read-count` cached-hash reads: every sub-key was hashed this render when
   `read-key!` looked it up. The whole sequence rather than the first
   sub-key so the scan's cost is a function of the read set and not of
   how an author ordered their `let` bindings
   (docs/design/hicasso/architecture.md, section The collector)."
-  [^js ks]
-  (let [n (alength ks)]
-    (loop [i 0 h 1]
-      (if (== i n)
-        h
-        (recur (inc i)
-               ;; h*31 + hash(k), truncated to int32 — order-sensitive,
+  [^js read-keys]
+  (let [read-count (alength read-keys)]
+    (loop [index 0 hash-value 1]
+      (if (== index read-count)
+        hash-value
+        (recur (inc index)
+               ;; hash-value*31 + hash(read-key), truncated to int32 — order-sensitive,
                ;; allocation-free, and the arithmetic is JS-exact.
-               (bit-or 0 (+ (bit-shift-left h 5) (- h) (hash (aget ks i)))))))))
+               (bit-or 0 (+ (bit-shift-left hash-value 5)
+                            (- hash-value)
+                            (hash (aget read-keys index)))))))))
 
 (defn- drop-entry! [^js entry]
   (let [bucket-key (.-bucketKey entry)]
     (swap! !entries
-           (fn [m]
-             (let [left (vec (remove #(identical? % entry) (get m bucket-key)))]
-               (if (seq left) (assoc m bucket-key left) (dissoc m bucket-key)))))
+           (fn [entries-by-bucket]
+             (let [remaining-entries
+                   (vec (remove #(identical? % entry)
+                                (get entries-by-bucket bucket-key)))]
+               (if (seq remaining-entries)
+                 (assoc entries-by-bucket bucket-key remaining-entries)
+                 (dissoc entries-by-bucket bucket-key)))))
     nil))
 
 (def entry-reap-horizon-ms
@@ -676,38 +685,42 @@
       (not (neg? (.-target entry-reapers)))))
 
 (defn- entry-matches?
-  "Ordered pairwise compare of an entry's key array against `ks`.
+  "Ordered pairwise compare of an entry's key array against `read-keys`.
   Allocates nothing. A false negative — same set, different order — costs
   a second entry and a symmetric difference that removes and re-adds the
   same edges; it is never a wrong answer, which is why the hash in
   `bucket-key-of` chooses the bucket and this decides the match."
-  [^js entry ^js ks]
-  (let [eks (.-keys entry)
-        n   (alength eks)]
-    (and (== n (alength ks))
-         (loop [i 0]
+  [^js entry ^js read-keys]
+  (let [entry-read-keys (.-keys entry)
+        read-count      (alength entry-read-keys)]
+    (and (== read-count (alength read-keys))
+         (loop [index 0]
            (cond
-             (== i n)                    true
-             (= (aget eks i) (aget ks i)) (recur (inc i))
-             :else                       false)))))
+             (== index read-count) true
+             (= (aget entry-read-keys index) (aget read-keys index))
+             (recur (inc index))
+             :else false)))))
 
 (declare make-subscribe make-snapshot)
 
 (defn- entry-for
-  "The read-set entry for the read sequence `ks` — the cached
+  "The read-set entry for the read sequence `read-keys` — the cached
   `subscribe` / `getSnapshot` pair React sees. A hit allocates nothing
   and keeps `subscribe`'s identity, so React does not re-subscribe and
   the commit does no work; a miss materialises the key array, the key
   set and the two closures once, for every boundary that will ever read
-  that set. `ks` is the scratch, or a hook's one-key array
+  that set. `read-keys` is the scratch, or a hook's one-key array
   (`hook-entry`), and is never retained: a miss `.slice`s it."
-  [^js ks]
-  (let [bucket-key (bucket-key-of ks)
+  [^js read-keys]
+  (let [bucket-key (bucket-key-of read-keys)
         bucket     (get @!entries bucket-key)]
-    (or (some (fn [^js e] (when (entry-matches? e ks) e)) bucket)
-        (let [ks    (.slice ks)
-              ^js entry #js {"keys"      ks
-                         "set"       (into #{} ks)
+    (or (some (fn [^js candidate-entry]
+                (when (entry-matches? candidate-entry read-keys)
+                  candidate-entry))
+              bucket)
+        (let [stored-read-keys (.slice read-keys)
+              ^js entry #js {"keys"      stored-read-keys
+                         "set"       (into #{} stored-read-keys)
                          "refs"      0
                          "bucketKey" bucket-key}]
           (unchecked-set entry "subscribe" (make-subscribe entry))
@@ -730,16 +743,17 @@
   [^js entry]
   (fn snapshot []
     (let [cells @!cells
-          ks    (.-keys entry)
-          n     (alength ks)]
-      (loop [i 0 acc 0]
-        (if (== i n)
-          acc
-          (let [k (aget ks i)]
-            (recur (inc i)
-                   (if-some [^js c (get cells k)]
-                     (+ acc (.-epoch c))
-                     (+ acc (generation/commit-basis (nth k 0)))))))))))
+          read-keys (.-keys entry)
+          read-count (alength read-keys)]
+      (loop [index 0 epoch-sum 0]
+        (if (== index read-count)
+          epoch-sum
+          (let [read-key (aget read-keys index)]
+            (recur (inc index)
+                   (if-some [^js cell (get cells read-key)]
+                     (+ epoch-sum (.-epoch cell))
+                     (+ epoch-sum
+                        (generation/commit-basis (nth read-key 0)))))))))))
 
 (defn- make-subscribe
   "React's `subscribe`, a pure function of the read set — the only
@@ -756,13 +770,13 @@
   [^js entry]
   (fn subscribe [on-store-change]
     (let [reads (.-set entry)
-          ^js reg #js {"reads" reads "notify" on-store-change}
-          cells (mapv (fn [sub-key] (acquire-cell! sub-key reg)) reads)]
-      (unchecked-set reg "cells" cells)
+          ^js registration #js {"reads" reads "notify" on-store-change}
+          cells (mapv (fn [sub-key] (acquire-cell! sub-key registration)) reads)]
+      (unchecked-set registration "cells" cells)
       (set! (.-refs entry) (inc (.-refs entry)))
       (fn unsubscribe []
-        (set! (.-notify reg) nil)
-        (doseq [cell cells] (release-cell! cell reg))
+        (set! (.-notify registration) nil)
+        (doseq [cell cells] (release-cell! cell registration))
         (set! (.-refs entry) (dec (.-refs entry)))
         (when (<= (.-refs entry) 0) (arm-entry-reaper! entry))
         nil))))
@@ -816,13 +830,13 @@
   that left it behind would hand the next hook read a snapshot of a
   world that has since moved."
   [sub-key]
-  (if-some [^js r (some-> ^js (get @!cells sub-key) (.-reaction))]
-    @r
-    (let [saved (.-probe rstate)]
+  (if-some [^js reaction (some-> ^js (get @!cells sub-key) (.-reaction))]
+    @reaction
+    (let [saved-probe (.-probe rstate)]
       (set! (.-probe rstate) nil)
       (try
         (cold-read! (nth sub-key 0) (nth sub-key 1))
-        (finally (set! (.-probe rstate) saved))))))
+        (finally (set! (.-probe rstate) saved-probe))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The body run, and the generation fence
@@ -864,8 +878,8 @@
 
 (defn- view-subscribe
   "Dev only: the `subscribe` the shell hands React for `entry` when the
-  body is the declared view named `n` — the entry's own closure, wrapped
-  so `n` is counted where React commits the reference and uncounted where
+  body is the declared view named `view-name` — the entry's own closure,
+  wrapped so `view-name` is counted where React commits the reference and uncounted where
   its cleanup releases it. The roster `re-frame.hicasso.tool` exports
   claims the MOUNTED views, and only the commit knows that: a render React
   discards and a view that has unmounted name nothing, exactly as they
@@ -873,10 +887,12 @@
   (entry, name) on the entry under `views-slot`, so its identity moves
   exactly when the entry's does and React re-subscribes on no render it
   did not already."
-  [^js entry n]
+  [^js entry view-name]
   (let [^js views (or (unchecked-get entry views-slot)
-                      (let [m (js/Map.)] (unchecked-set entry views-slot m) m))]
-    (if-some [^js slot (.get views n)]
+                      (let [view-map (js/Map.)]
+                        (unchecked-set entry views-slot view-map)
+                        view-map))]
+    (if-some [^js slot (.get views view-name)]
       (.-subscribe slot)
       (let [^js slot  #js {"refs" 0}
             shared    (.-subscribe entry)
@@ -887,7 +903,7 @@
                             (set! (.-refs slot) (dec (.-refs slot)))
                             (release))))]
         (unchecked-set slot "subscribe" subscribe)
-        (.set views n slot)
+        (.set views view-name slot)
         subscribe))))
 
 (defn entry-views
@@ -899,8 +915,9 @@
   [^js entry]
   (when-some [^js views (unchecked-get entry views-slot)]
     (let [names (volatile! #{})]
-      (.forEach views (fn [^js slot n]
-                        (when (pos? (.-refs slot)) (vswap! names conj n))))
+      (.forEach views (fn [^js slot view-name]
+                        (when (pos? (.-refs slot))
+                          (vswap! names conj view-name))))
       (not-empty @names))))
 
 (defn render-body
@@ -916,16 +933,16 @@
   (docs/design/hicasso/architecture.md, section The collector)."
   [frame-kw body-fn props]
   (loop [attempt 0]
-    (let [before  (generation/commit-basis frame-kw)
-          element (run-once frame-kw body-fn props)]
+    (let [basis-before (generation/commit-basis frame-kw)
+          element      (run-once frame-kw body-fn props)]
       (cond
-        (= before (generation/commit-basis frame-kw))
+        (= basis-before (generation/commit-basis frame-kw))
         (let [entry (entry-for scratch)]
           (set! (.-entry rstate) entry)
           (when ^boolean js/goog.DEBUG
             (set! (.-subscribe rstate)
-                  (if-some [n (unchecked-get body-fn "displayName")]
-                    (view-subscribe entry n)
+                  (if-some [view-name (unchecked-get body-fn "displayName")]
+                    (view-subscribe entry view-name)
                     (.-subscribe entry))))
           element)
 

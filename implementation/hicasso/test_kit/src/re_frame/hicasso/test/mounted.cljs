@@ -1437,12 +1437,12 @@
   same door."
   []
   (let [!log (atom [])
-        k    (keyword "re-frame.hicasso.test.mounted"
-                      (str "shadow-" (swap! !shadow-seq inc)))]
-    (rf/register-listener! :events k
+        listener-id (keyword "re-frame.hicasso.test.mounted"
+                             (str "shadow-" (swap! !shadow-seq inc)))]
+    (rf/register-listener! :events listener-id
                            (fn [record]
                              (swap! !log conj [(:frame record) (:event record)])))
-    {:key   k
+    {:key   listener-id
      :drain (fn [] (let [entries @!log] (reset! !log []) entries))}))
 
 (defn- close-log! [log] (rf/unregister-listener! :events (:key log)))
@@ -1502,7 +1502,10 @@
 (defn- attrs-of
   [el frame-kw]
   (persistent!
-    (reduce (fn [m a] (assoc! m (.-name a) (de-address-text frame-kw (.-value a))))
+    (reduce (fn [attributes attribute]
+              (assoc! attributes
+                      (.-name attribute)
+                      (de-address-text frame-kw (.-value attribute))))
             (transient {})
             (array-seq (.-attributes el)))))
 
@@ -1564,9 +1567,13 @@
   holds whatever the application put in it, a frame keyword included."
   [el frame-kw]
   (persistent!
-    (reduce (fn [m p]
-              (let [v (unchecked-get el p)]
-                (assoc! m p (if (string? v) (de-address-text frame-kw v) v))))
+    (reduce (fn [properties property-name]
+              (let [property-value (unchecked-get el property-name)]
+                (assoc! properties
+                        property-name
+                        (if (string? property-value)
+                          (de-address-text frame-kw property-value)
+                          property-value))))
             (transient {})
             (get live-properties (node-tag el)))))
 
@@ -1587,53 +1594,58 @@
   the last two a page that splits one string across two text nodes — which
   is React's ordinary conduct for `[:span a b]` — would differ from a page
   that does not, and `canonical-dom` would call the same pair equal."
-  [n]
+  [node]
   (into []
-        (remove (fn [[kind v]] (and (= :text kind) (= "" v))))
-        (reduce (fn [out c]
-                  (case (.-nodeType c)
-                    8 out
-                    3 (let [i (dec (count out))]
-                        (if (and (nat-int? i) (= :text (nth (nth out i) 0)))
-                          (update-in out [i 1] str (.-nodeValue c))
-                          (conj out [:text (.-nodeValue c)])))
-                    1 (conj out [:element c])
-                    (conj out [:other c])))
+        (remove (fn [[kind value]] (and (= :text kind) (= "" value))))
+        (reduce (fn [children child]
+                  (case (.-nodeType child)
+                    8 children
+                    3 (let [last-index (dec (count children))]
+                        (if (and (nat-int? last-index)
+                                 (= :text (nth (nth children last-index) 0)))
+                          (update-in children [last-index 1] str (.-nodeValue child))
+                          (conj children [:text (.-nodeValue child)])))
+                    1 (conj children [:element child])
+                    (conj children [:other child])))
                 []
-                (array-seq (.-childNodes n)))))
+                (array-seq (.-childNodes node)))))
 
 (defn- child-segment
-  [[kind v] i]
+  [[kind value] index]
   (case kind
-    :text    (str "#text[" i "]")
-    :element (str (node-tag v) "[" i "]")
-    (str "#" (.-nodeType v) "[" i "]")))
+    :text    (str "#text[" index "]")
+    :element (str (node-tag value) "[" index "]")
+    (str "#" (.-nodeType value) "[" index "]")))
 
 (defn- child-outline
-  [[kind v] frame-kw]
+  [[kind value] frame-kw]
   (case kind
-    :text    (pr-str (de-address-text frame-kw v))
-    :element (element-outline v frame-kw)
-    (str "#" (.-nodeType v))))
+    :text    (pr-str (de-address-text frame-kw value))
+    :element (element-outline value frame-kw)
+    (str "#" (.-nodeType value))))
 
-(defn- at [path] (if (seq path) (str/join " > " path) "(the mounted root)"))
+(defn- path-description
+  [path]
+  (if (seq path) (str/join " > " path) "(the mounted root)"))
 
 (declare element-difference)
 
 (defn- attribute-difference
-  [ref-el can-el ref-frame can-frame path]
-  (let [a (attrs-of ref-el ref-frame)
-        b (attrs-of can-el can-frame)]
-    (some (fn [k]
-            (when (not= (get a k absent) (get b k absent))
+  [reference-element candidate-element reference-frame candidate-frame path]
+  (let [reference-attributes (attrs-of reference-element reference-frame)
+        candidate-attributes (attrs-of candidate-element candidate-frame)]
+    (some (fn [attribute-name]
+            (when (not= (get reference-attributes attribute-name absent)
+                        (get candidate-attributes attribute-name absent))
               {:kind      :dom
                :reason    :attribute
-               :attribute k
-               :at        (at path)
+               :attribute attribute-name
+               :at        (path-description path)
                :path      path
-               :reference (get a k absent)
-               :candidate (get b k absent)}))
-          (sort (distinct (concat (keys a) (keys b)))))))
+               :reference (get reference-attributes attribute-name absent)
+               :candidate (get candidate-attributes attribute-name absent)}))
+          (sort (distinct (concat (keys reference-attributes)
+                                  (keys candidate-attributes)))))))
 
 (defn- property-difference
   "The first live-control property at which two elements of the same tag
@@ -1646,78 +1658,94 @@
   moved is named at the SELECT rather than at whichever `<option>`
   changed selectedness underneath it, which is the sentence a programmer
   can act on."
-  [ref-el can-el ref-frame can-frame path]
-  (let [a (props-of ref-el ref-frame)
-        b (props-of can-el can-frame)]
-    (some (fn [k]
-            (when (not= (get a k absent) (get b k absent))
+  [reference-element candidate-element reference-frame candidate-frame path]
+  (let [reference-properties (props-of reference-element reference-frame)
+        candidate-properties (props-of candidate-element candidate-frame)]
+    (some (fn [property-name]
+            (when (not= (get reference-properties property-name absent)
+                        (get candidate-properties property-name absent))
               {:kind      :dom
                :reason    :property
-               :property  k
-               :at        (at path)
+               :property  property-name
+               :at        (path-description path)
                :path      path
-               :reference (get a k absent)
-               :candidate (get b k absent)}))
-          (sort (distinct (concat (keys a) (keys b)))))))
+               :reference (get reference-properties property-name absent)
+               :candidate (get candidate-properties property-name absent)}))
+          (sort (distinct (concat (keys reference-properties)
+                                  (keys candidate-properties)))))))
 
 (defn- children-difference
-  [ref-n can-n ref-frame can-frame path]
-  (let [a (comparable-children ref-n)
-        b (comparable-children can-n)]
-    (loop [i 0]
-      (when (< i (max (count a) (count b)))
-        (let [x    (get a i)
-              y    (get b i)
-              seg  (child-segment (or x y) i)
-              path (conj path seg)
-              diff (cond
-                     (nil? x) {:kind :dom :reason :only-in-candidate
-                               :at (at path) :path path
+  [reference-node candidate-node reference-frame candidate-frame path]
+  (let [reference-children (comparable-children reference-node)
+        candidate-children (comparable-children candidate-node)]
+    (loop [index 0]
+      (when (< index (max (count reference-children) (count candidate-children)))
+        (let [reference-child (get reference-children index)
+              candidate-child (get candidate-children index)
+              segment         (child-segment (or reference-child candidate-child) index)
+              child-path      (conj path segment)
+              difference      (cond
+                     (nil? reference-child)
+                              {:kind :dom :reason :only-in-candidate
+                               :at (path-description child-path) :path child-path
                                :reference absent
-                               :candidate (child-outline y can-frame)}
+                               :candidate (child-outline candidate-child candidate-frame)}
 
-                     (nil? y) {:kind :dom :reason :only-in-reference
-                               :at (at path) :path path
-                               :reference (child-outline x ref-frame)
+                     (nil? candidate-child)
+                              {:kind :dom :reason :only-in-reference
+                               :at (path-description child-path) :path child-path
+                               :reference (child-outline reference-child reference-frame)
                                :candidate absent}
 
-                     (not= (nth x 0) (nth y 0))
+                     (not= (nth reference-child 0) (nth candidate-child 0))
                      {:kind :dom :reason :node-kind
-                      :at (at path) :path path
-                      :reference (child-outline x ref-frame)
-                      :candidate (child-outline y can-frame)}
+                      :at (path-description child-path) :path child-path
+                      :reference (child-outline reference-child reference-frame)
+                      :candidate (child-outline candidate-child candidate-frame)}
 
-                     (= :text (nth x 0))
-                     (let [rs (de-address-text ref-frame (nth x 1))
-                           cs (de-address-text can-frame (nth y 1))]
-                       (when (not= rs cs)
+                     (= :text (nth reference-child 0))
+                     (let [reference-text
+                           (de-address-text reference-frame (nth reference-child 1))
+                           candidate-text
+                           (de-address-text candidate-frame (nth candidate-child 1))]
+                       (when (not= reference-text candidate-text)
                          {:kind :dom :reason :text
-                          :at (at path) :path path
-                          :reference rs :candidate cs}))
+                          :at (path-description child-path) :path child-path
+                          :reference reference-text :candidate candidate-text}))
 
-                     (= :element (nth x 0))
-                     (element-difference (nth x 1) (nth y 1) ref-frame can-frame path)
+                     (= :element (nth reference-child 0))
+                     (element-difference (nth reference-child 1)
+                                         (nth candidate-child 1)
+                                         reference-frame
+                                         candidate-frame
+                                         child-path)
 
                      :else nil)]
-          (or diff (recur (inc i))))))))
+          (or difference (recur (inc index))))))))
 
 (defn- element-difference
-  [ref-el can-el ref-frame can-frame path]
-  (let [rt (node-tag ref-el)
-        ct (node-tag can-el)]
-    (if (not= rt ct)
-      {:kind :dom :reason :tag :at (at path) :path path
-       :reference rt :candidate ct}
-      (or (attribute-difference ref-el can-el ref-frame can-frame path)
-          (property-difference ref-el can-el ref-frame can-frame path)
-          (children-difference ref-el can-el ref-frame can-frame path)))))
+  [reference-element candidate-element reference-frame candidate-frame path]
+  (let [reference-tag (node-tag reference-element)
+        candidate-tag (node-tag candidate-element)]
+    (if (not= reference-tag candidate-tag)
+      {:kind :dom :reason :tag :at (path-description path) :path path
+       :reference reference-tag :candidate candidate-tag}
+      (or (attribute-difference reference-element candidate-element
+                                reference-frame candidate-frame path)
+          (property-difference reference-element candidate-element
+                               reference-frame candidate-frame path)
+          (children-difference reference-element candidate-element
+                               reference-frame candidate-frame path)))))
 
 (defn- dom-difference
   "The first node at which the two mounted pages disagree, as data — or
   nil when they agree."
-  [ref-m can-m]
-  (children-difference (:container ref-m) (:container can-m)
-                       (:frame ref-m) (:frame can-m) []))
+  [reference-mount candidate-mount]
+  (children-difference (:container reference-mount)
+                       (:container candidate-mount)
+                       (:frame reference-mount)
+                       (:frame candidate-mount)
+                       []))
 
 ;; ---------------------------------------------------------------------------
 ;; The intent difference
@@ -1729,20 +1757,20 @@
   is a CAUSE and the DOM beside it is that cause's effect: the two
   isolated frames then diverge independently, and reporting the effect
   first would send a reader to the wrong end of it."
-  [ref-intents can-intents]
-  (loop [i 0]
-    (when (< i (max (count ref-intents) (count can-intents)))
-      (let [x (get ref-intents i absent)
-            y (get can-intents i absent)]
-        (or (when (not= x y)
+  [reference-intents candidate-intents]
+  (loop [index 0]
+    (when (< index (max (count reference-intents) (count candidate-intents)))
+      (let [reference-intent (get reference-intents index absent)
+            candidate-intent (get candidate-intents index absent)]
+        (or (when (not= reference-intent candidate-intent)
               {:kind      :intent
-               :reason    (cond (= x absent) :only-in-candidate
-                                (= y absent) :only-in-reference
-                                :else        :differs)
-               :index     i
-               :reference x
-               :candidate y})
-            (recur (inc i)))))))
+               :reason    (cond (= reference-intent absent) :only-in-candidate
+                                (= candidate-intent absent) :only-in-reference
+                                :else :differs)
+               :index     index
+               :reference reference-intent
+               :candidate candidate-intent})
+            (recur (inc index)))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The script
@@ -1845,27 +1873,28 @@
   nil)
 
 (defn- take-down!
-  [ref-m can-m log]
-  (when ref-m (retire! (unmount! ref-m)))
-  (when can-m (retire! (unmount! can-m)))
+  [reference-mount candidate-mount log]
+  (when reference-mount (retire! (unmount! reference-mount)))
+  (when candidate-mount (retire! (unmount! candidate-mount)))
   (close-log! log)
   nil)
 
-(defn- checkpoint
+(defn- checkpoint-difference
   "One checkpoint's verdict: the intent difference if there is one, else
   the DOM difference, else nil."
-  [ref-m can-m entries]
-  (or (intent-difference (mapv #(de-address (:frame ref-m) %)
-                               (for-frame entries (:frame ref-m)))
-                         (mapv #(de-address (:frame can-m) %)
-                               (for-frame entries (:frame can-m))))
-      (dom-difference ref-m can-m)))
+  [reference-mount candidate-mount entries]
+  (or (intent-difference
+        (mapv #(de-address (:frame reference-mount) %)
+              (for-frame entries (:frame reference-mount)))
+        (mapv #(de-address (:frame candidate-mount) %)
+              (for-frame entries (:frame candidate-mount))))
+      (dom-difference reference-mount candidate-mount)))
 
-(defn- red
-  [n step difference]
+(defn- red-verdict
+  [checkpoint-index step difference]
   (cond-> {:status      :red
-           :checkpoints (inc n)
-           :checkpoint  n
+           :checkpoints (inc checkpoint-index)
+           :checkpoint  checkpoint-index
            :difference  difference}
     (some? step) (assoc :step step)))
 
@@ -2041,51 +2070,64 @@
         log       (open-log!)
         mount-opts (cond-> {} (seq initial-events)
                      (assoc :initial-events (vec initial-events)))
-        !ref      (volatile! nil)
-        !can      (volatile! nil)]
+        !reference-mount (volatile! nil)
+        !candidate-mount (volatile! nil)]
     (try
-      (vreset! !ref (mount! reference mount-opts))
-      (vreset! !can (mount! candidate mount-opts))
-      (let [ref-m @!ref
-            can-m @!can]
+      (vreset! !reference-mount (mount! reference mount-opts))
+      (vreset! !candidate-mount (mount! candidate mount-opts))
+      (let [reference-mount @!reference-mount
+            candidate-mount @!candidate-mount]
         (if scripted?
           (let [verdict
-                (if-some [d (checkpoint ref-m can-m ((:drain log)))]
-                  (red 0 nil d)
-                  (loop [i 0]
-                    (if (>= i (count script))
+                (if-some [difference
+                          (checkpoint-difference reference-mount
+                                                 candidate-mount
+                                                 ((:drain log)))]
+                  (red-verdict 0 nil difference)
+                  (loop [step-index 0]
+                    (if (>= step-index (count script))
                       {:status :green :checkpoints (inc (count script))}
-                      (let [step  (nth script i)
-                            ran-r (run-step! ref-m step)
-                            ran-c (run-step! can-m step)]
-                        (if-some [d (or (script-difference step ran-r ran-c)
-                                        (checkpoint ref-m can-m ((:drain log))))]
-                          (red (inc i) step d)
-                          (recur (inc i)))))))]
-            (take-down! ref-m can-m log)
+                      (let [step           (nth script step-index)
+                            ran-reference? (run-step! reference-mount step)
+                            ran-candidate? (run-step! candidate-mount step)]
+                        (if-some [difference
+                                  (or (script-difference step
+                                                         ran-reference?
+                                                         ran-candidate?)
+                                      (checkpoint-difference reference-mount
+                                                             candidate-mount
+                                                             ((:drain log))))]
+                          (red-verdict (inc step-index) step difference)
+                          (recur (inc step-index)))))))]
+            (take-down! reference-mount candidate-mount log)
             verdict)
           ;; Scriptless: both mounts stay live and the caller decides when a
           ;; reading is a checkpoint. Nothing is drained here, so the first
           ;; `checkpoint!` is checkpoint 0 — the mount — and it sees the
           ;; intents the seeding and the first render dispatched.
-          (let [!n   (atom 0)
-                !up? (atom true)]
+          (let [!checkpoint-index (atom 0)
+                !up?              (atom true)]
             {:status      :live
-             :reference   ref-m
-             :candidate   can-m
+             :reference   reference-mount
+             :candidate   candidate-mount
              :checkpoint! (fn []
-                            (settle! ref-m)
-                            (settle! can-m)
-                            (let [n (first (swap-vals! !n inc))
-                                  d (checkpoint ref-m can-m ((:drain log)))]
-                              (if d
-                                (red n nil d)
-                                {:status :green :checkpoints (inc n)})))
+                            (settle! reference-mount)
+                            (settle! candidate-mount)
+                            (let [checkpoint-index
+                                  (first (swap-vals! !checkpoint-index inc))
+                                  difference
+                                  (checkpoint-difference reference-mount
+                                                         candidate-mount
+                                                         ((:drain log)))]
+                              (if difference
+                                (red-verdict checkpoint-index nil difference)
+                                {:status :green
+                                 :checkpoints (inc checkpoint-index)})))
              :stop!       (fn []
                             (when @!up?
                               (reset! !up? false)
-                              (take-down! ref-m can-m log))
+                              (take-down! reference-mount candidate-mount log))
                             nil)})))
       (catch :default e
-        (take-down! @!ref @!can log)
+        (take-down! @!reference-mount @!candidate-mount log)
         (throw e)))))

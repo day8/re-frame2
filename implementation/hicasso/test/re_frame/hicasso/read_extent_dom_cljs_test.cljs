@@ -193,7 +193,7 @@
     (rf/dispatch-sync [:red/seed {:painted 1 :sibling 9 :escaped 41 :escaped-2 42}]))
   frame-id)
 
-(defn- k
+(defn- sub-key
   "A sub-key: the runtime keys cells by `[frame-kw query-v]`."
   [query-v]
   [frame-id query-v])
@@ -235,7 +235,7 @@
   [o]
   (dissoc (:refused o) :reason))
 
-(defn- readers-of [query-v] (count (runtime/cell-readers (k query-v))))
+(defn- readers-of [query-v] (count (runtime/cell-readers (sub-key query-v))))
 
 (def ^:private nothing-owned {:cells 0 :cell-refs 0 :boundaries 0 :edges 0})
 
@@ -518,7 +518,7 @@
                           of the mount"
                   (is (zero? (readers-of [:red/escaped])))
                   (is (zero? (readers-of [:red/escaped-2])))
-                  (is (nil? (runtime/cell-reaction (k [:red/escaped])))))
+                  (is (nil? (runtime/cell-reaction (sub-key [:red/escaped])))))
 
                 (testing "while each body's own read is acquired exactly
                           once, and the runtime holds the two boundaries and
@@ -539,7 +539,7 @@
                               {})
                       entry (collector/last-reads)]
                   (testing "the identical reads are legal in a window"
-                    (is (= #{(k [:red/escaped]) (k [:red/escaped-2])}
+                    (is (= #{(sub-key [:red/escaped]) (sub-key [:red/escaped-2])}
                            (runtime/reads-of entry)))))
 
                 (exercised! :effect/layout)
@@ -602,7 +602,7 @@
                 (testing "the refused key was not acquired by the retry that
                           followed it"
                   (is (zero? (readers-of [:red/escaped])))
-                  (is (nil? (runtime/cell-reaction (k [:red/escaped])))))
+                  (is (nil? (runtime/cell-reaction (sub-key [:red/escaped])))))
 
                 (testing "and the retry acquired exactly its own read set:
                           one reader per key, with no second registration
@@ -669,7 +669,7 @@
 
                 (testing "the refused key was not acquired at the reveal"
                   (is (zero? (readers-of [:red/escaped])))
-                  (is (nil? (runtime/cell-reaction (k [:red/escaped])))))
+                  (is (nil? (runtime/cell-reaction (sub-key [:red/escaped])))))
 
                 (testing "while each revealed boundary holds exactly its own
                           read, once. Measured: with one boundary here this

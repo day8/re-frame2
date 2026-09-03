@@ -170,7 +170,7 @@
    (react-dom-server/renderToString
      (mount/provider kw (codec/root-element kw hiccup)))))
 
-(defn- q [root sel] (.querySelector root sel))
+(defn- query-node [root selector] (.querySelector root selector))
 
 (defn- hydration-row
   "Bake the page on the server, adopt THOSE BYTES through the product
@@ -319,9 +319,9 @@
             (is (sup/every-server-node? container ".p-state")
                 "as is the reg-state panel's")
             (is (= "/profile/jane"
-                   (.getAttribute (q container "a") "href"))
+                   (.getAttribute (query-node container "a") "href"))
                 "the settled anchor keeps routing's href")
-            (is (= "false" (.-textContent (q container ".p-state")))
+            (is (= "false" (.-textContent (query-node container ".p-state")))
                 "and the concern its registered default")))))))
 
 (deftest an-adopted-read-is-acquired-exactly-once
@@ -389,7 +389,7 @@
                            (:recovery (sup/tags-of (first @seen))))
                         "with the recovery React had already performed")
                     (is (= "/profile/mary"
-                           (.getAttribute (q container "a") "href"))
+                           (.getAttribute (query-node container "a") "href"))
                         "and the repaired DOM carries the CLIENT's href,
                          which is what 'warned and replaced' means"))
                   (finally
@@ -429,9 +429,9 @@
                   (is (empty? @seen)
                       (str "neither adoption had anything to reconcile: "
                            (pr-str @seen)))
-                  (is (= "/profile/jane" (.getAttribute (q ca "a") "href"))
+                  (is (= "/profile/jane" (.getAttribute (query-node ca "a") "href"))
                       "root A's link settled on its own request")
-                  (is (= "/profile/mary" (.getAttribute (q cb "a") "href"))
+                  (is (= "/profile/mary" (.getAttribute (query-node cb "a") "href"))
                       "root B's on its own")
                   (is (sup/every-server-node? ca "a")
                       "root A adopted the server's anchor")

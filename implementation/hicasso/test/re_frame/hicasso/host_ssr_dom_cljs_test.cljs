@@ -342,7 +342,7 @@
   (react-dom-server/renderToString
     (mount/provider frame-id (codec/root-element frame-id hiccup))))
 
-(defn- q [root sel] (.querySelector root sel))
+(defn- query-node [root selector] (.querySelector root selector))
 
 (defn- watch-errors!
   "Everything React has to say about a hydration, from all three
@@ -616,16 +616,16 @@
                 line after `root!` returns, which is inside its flushSync"
         (let [a (mount/root! (mount/fresh-container!) frame-id [client-only-page {}])]
           (try
-            (is (some? (q (:container a) ".chart"))
+            (is (some? (query-node (:container a) ".chart"))
                 ":client-only mounted its component immediately")
-            (is (= "yes" (.getAttribute (q (:container a) ".chart") "data-live"))
+            (is (= "yes" (.getAttribute (query-node (:container a) ".chart") "data-live"))
                 "and it is the real one")
             (finally (mount/release! a))))
         (let [b (mount/root! (mount/fresh-container!) frame-id [fallback-page {}])]
           (try
-            (is (some? (q (:container b) ".chart"))
+            (is (some? (query-node (:container b) ".chart"))
                 "{:fallback …} mounted its component immediately too")
-            (is (nil? (q (:container b) ".chart-skeleton"))
+            (is (nil? (query-node (:container b) ".chart-skeleton"))
                 "and the placeholder never flashed — a fallback is for the
                  server's markup, not for a client that has none")
             (finally (mount/release! b))))))))
@@ -640,9 +640,9 @@
                 contract is unchanged by the policy sitting in front of it"
         (let [h (mount/root! (mount/fresh-container!) frame-id [slotted-page {}])]
           (try
-            (is (= "quarterly" (.-textContent (q (:container h) ".chart-label")))
+            (is (= "quarterly" (.-textContent (query-node (:container h) ".chart-label")))
                 "a declared prop reached the foreign component")
-            (is (some? (q (:container h) ".chart .kid"))
+            (is (some? (query-node (:container h) ".chart .kid"))
                 "and so did the children, in the component's own slot")
             (finally (mount/release! h))))))))
 
@@ -706,11 +706,11 @@
               (str "REACT FOUND NOTHING TO RECONCILE. The client's first "
                    "pass rendered what the server did — nothing — so there "
                    "was no mismatch to repair: " (pr-str seen)))
-          (is (some? (q container ".chart"))
+          (is (some? (query-node container ".chart"))
               "and after adoption the foreign component is mounted")
-          (is (= "yes" (.getAttribute (q container ".chart") "data-live"))
+          (is (= "yes" (.getAttribute (query-node container ".chart") "data-live"))
               "the real one, not a placeholder")
-          (is (some? (q container ".title"))
+          (is (some? (query-node container ".title"))
               "with the server's own markup still in place around it —
                adoption, not a re-render of the page")
           (is (pos? @!renders)
@@ -731,9 +731,9 @@
               (str "the fallback the server wrote is what the client's "
                    "first pass rendered, so again there was nothing to "
                    "reconcile: " (pr-str seen)))
-          (is (nil? (q container ".chart-skeleton"))
+          (is (nil? (query-node container ".chart-skeleton"))
               "and the placeholder is GONE after adoption")
-          (is (some? (q container ".chart"))
+          (is (some? (query-node container ".chart"))
               "replaced by the foreign component"))))))
 
 (deftest a-render-crossing-hydrates-once-and-never-remounts
@@ -760,11 +760,11 @@
                       props, the same children — so there is zero mismatch
                       by identity rather than by a snapshot pair agreeing: "
                      (pr-str seen)))
-            (is (some? (q container ".theme-reader"))
+            (is (some? (query-node container ".theme-reader"))
                 "the consumer is mounted after hydration")
-            (is (= "dark" (.-textContent (q container ".theme-reader")))
+            (is (= "dark" (.-textContent (query-node container ".theme-reader")))
                 "still reading the declared value on the client")
-            (is (some? (q container ".body"))
+            (is (some? (query-node container ".body"))
                 "and the subtree around it is the SERVER'S markup, adopted")
             (is (= 1 @!child-mounts)
                 (str "**ONE MOUNT.** This is the closing measurement

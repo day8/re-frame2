@@ -187,7 +187,7 @@
   (react-dom-server/renderToString
     (mount/provider frame-id (codec/root-element frame-id hiccup))))
 
-(defn- q [root sel] (.querySelector root sel))
+(defn- query-node [root selector] (.querySelector root selector))
 
 (defn- watch-errors!
   "Everything React has to say about a hydration, from all three
@@ -250,15 +250,15 @@
                 after `root!` returns, which is inside its flushSync"
         (let [h (mount/root! (mount/fresh-container!) frame-id [escape-page {}])]
           (try
-            (is (some? (q (:container h) ".widget"))
+            (is (some? (query-node (:container h) ".widget"))
                 "the component mounted immediately")
-            (is (= "yes" (.getAttribute (q (:container h) ".widget") "data-live"))
+            (is (= "yes" (.getAttribute (query-node (:container h) ".widget") "data-live"))
                 "the real one, not a placeholder")
-            (is (= "quarterly" (.-textContent (q (:container h) ".widget-label")))
+            (is (= "quarterly" (.-textContent (query-node (:container h) ".widget-label")))
                 "a prop reached the foreign component through the gate")
-            (is (= "compact" (.getAttribute (q (:container h) ".widget") "data-variant"))
+            (is (= "compact" (.getAttribute (query-node (:container h) ".widget") "data-variant"))
                 "and so did the second one")
-            (is (some? (q (:container h) ".widget .kid"))
+            (is (some? (query-node (:container h) ".widget .kid"))
                 "and the children, in the component's own slot — forwarded
                  by the gate as createElement's third argument")
             (finally (mount/release! h))))))))
@@ -352,11 +352,11 @@
                             pass rendered what the server did — nothing — because
                             both read the SAME snapshot, so there was no mismatch
                             to repair: " (pr-str @seen)))
-                  (is (some? (q container ".widget"))
+                  (is (some? (query-node container ".widget"))
                       "and after adoption the foreign component is mounted")
-                  (is (some? (q container ".widget .kid"))
+                  (is (some? (query-node container ".widget .kid"))
                       "with its children")
-                  (is (some? (q container ".title"))
+                  (is (some? (query-node container ".title"))
                       "and the server's own markup still in place around it —
                        adoption, not a re-render of the page")
                   (is (pos? @!renders)
@@ -391,10 +391,10 @@
           (let [h (mount/root! (mount/fresh-container!) frame-id [intent-child-page {}])]
             (try
               (mount/settle!)
-              (is (some? (q (:container h) ".widget .pick"))
+              (is (some? (query-node (:container h) ".widget .pick"))
                   "precondition: the child is mounted BENEATH the foreign
                    component, so its handler really did cross")
-              (.click (q (:container h) ".pick"))
+              (.click (query-node (:container h) ".pick"))
               (mount/settle!)
               (is (= ["child"] (:picked (db)))
                   "the click dispatched into the frame that wrote the crossing")

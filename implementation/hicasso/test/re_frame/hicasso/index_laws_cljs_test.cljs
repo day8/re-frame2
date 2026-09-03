@@ -110,7 +110,7 @@
     (rf/dispatch-sync [:idxlaw/seed {:a 0 :b 0 :c 0 :unread 0}]))
   frame-id)
 
-(defn- k
+(defn- sub-key
   "A sub-key. The runtime keys cells by `[frame-kw query-v]` — two frames
   are isolated contexts holding two different app-dbs, so the frame is
   part of the identity the laws are stated over."
@@ -145,7 +145,7 @@
 
 (defn- release! [b] ((:release b)))
 
-(defn- readers-of [query-v] (count (runtime/cell-readers (k query-v))))
+(defn- readers-of [query-v] (count (runtime/cell-readers (sub-key query-v))))
 
 ;; ---------------------------------------------------------------------------
 ;; Law 1 — a commit of that sub dirties that boundary ONLY
@@ -269,7 +269,8 @@
 
     (testing "the premise: the wide render read both keys, so `b` carries
               two memberships"
-      (is (= #{(k [:idxlaw/a]) (k [:idxlaw/b])} (runtime/reads-of (:entry wide))))
+      (is (= #{(sub-key [:idxlaw/a]) (sub-key [:idxlaw/b])}
+             (runtime/reads-of (:entry wide))))
       (is (= 2 (readers-of [:idxlaw/b]))))
 
     ;; The re-run, with one read fewer. At the seam a read-set change is
@@ -280,7 +281,7 @@
       (release! wide)
 
       (testing "the narrow read set is the branch the body actually took"
-        (is (= #{(k [:idxlaw/a])} (runtime/reads-of (:entry narrow)))))
+        (is (= #{(sub-key [:idxlaw/a])} (runtime/reads-of (:entry narrow)))))
 
       (testing "and `b` has lost the boundary that stopped reading it while
                 keeping the one that did not"
@@ -374,7 +375,7 @@
 
     (testing "no cell holds the key, so it never enters the dirty set and
               the flush finds nothing to do"
-      (is (nil? (get @collector/!cells (k [:idxlaw/unread]))))
+      (is (nil? (get @collector/!cells (sub-key [:idxlaw/unread]))))
       (is (= gen-before (generation/generation))))
 
     (testing "and no phantom boundary is conjured for it: the one committed
@@ -406,7 +407,7 @@
 
     (testing "the premise: the cell survives its last reader, holding no
               readers at all"
-      (is (some? (get @collector/!cells (k [:idxlaw/a]))))
+      (is (some? (get @collector/!cells (sub-key [:idxlaw/a]))))
       (is (= 0 (readers-of [:idxlaw/a]))))
 
     (let [gen-before (generation/generation)]

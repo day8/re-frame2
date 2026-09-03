@@ -259,35 +259,35 @@ class Witness {
 // why it was measured rather than argued: React's own end-of-event restore
 // corrects any value the converge got wrong, in the same discrete event.
 // The rows that isolate this runtime are the caret rows below.
-async function sameTurnConvergence(page, w) {
+async function sameTurnConvergence(page, witness) {
   const grouped = await page.evaluate(() =>
     // "1,234" with the caret at the end; the user types "5".
     window.__TB__.edit('grouped', '1,2345', 6, { data: '5' }));
-  w.eq(grouped.value, '12,345', 'grouped normalises within the edit turn');
+  witness.eq(grouped.value, '12,345', 'grouped normalises within the edit turn');
 
   const plain = await page.evaluate(() =>
     window.__TB__.edit('plain', 'abcd', 4, { data: 'd' }));
   // The converge's own trap: hand `converge-to!` the handler's stale
   // closure value instead of the element's record and this row shows
   // "abc" — the accepted keystroke wiped off the screen.
-  w.eq(plain.value, 'abcd', 'an accepted keystroke survives the converge');
+  witness.eq(plain.value, 'abcd', 'an accepted keystroke survives the converge');
 
   const digits = await page.evaluate(() =>
     window.__TB__.edit('digits', '123x', 4, { data: 'x' }));
-  w.eq(digits.value, '123', 'a refused edit echoes the committed value in-turn');
+  witness.eq(digits.value, '123', 'a refused edit echoes the committed value in-turn');
 
   // Owned `:value` wins by PRESENCE, not truthiness. This field's model is
   // "" forever; a runtime that read `value` for truth would call the
   // element uncontrolled and leave the typed character on screen.
   const empty = await page.evaluate(() =>
     window.__TB__.edit('empty', 'x', 1, { data: 'x' }));
-  w.eq(empty.value, '', 'an empty owned value is present, not falsy');
+  witness.eq(empty.value, '', 'an empty owned value is present, not falsy');
 
   const model = await page.evaluate(() => window.__TB__.model());
-  w.eq(model.fields.grouped, '12,345', 'the store holds the normalised value');
-  w.eq(model.fields.plain, 'abcd', 'the store took the accepted keystroke');
-  w.eq(model.fields.digits, '123', 'the store did not move on a refusal');
-  w.eq(model.fields.empty, '', 'the store did not move on the empty field');
+  witness.eq(model.fields.grouped, '12,345', 'the store holds the normalised value');
+  witness.eq(model.fields.plain, 'abcd', 'the store took the accepted keystroke');
+  witness.eq(model.fields.digits, '123', 'the store did not move on a refusal');
+  witness.eq(model.fields.empty, '', 'the store did not move on the empty field');
 }
 
 // `beforeinput` is CARRIED by every edit this spec dispatches, and until
@@ -299,7 +299,7 @@ async function sameTurnConvergence(page, w) {
 // with. That is what makes the composition SEQUENCE below faithful rather
 // than decorative — the sequence is the browser's, and the converge hangs
 // off the `input` in it.
-async function beforeinputDoesNotDriveTheConverge(page, w) {
+async function beforeinputDoesNotDriveTheConverge(page, witness) {
   const alone = await page.evaluate(() => {
     const node = window.__TB__.el('plain');
     node.focus();
@@ -322,19 +322,19 @@ async function beforeinputDoesNotDriveTheConverge(page, w) {
       afterEdits: window.__TB__.model().edits.plain,
     };
   });
-  w.eq(alone.midModel, alone.base, 'a beforeinput alone does not move the model');
-  w.eq(alone.midEdits, alone.editsBefore, 'and dispatches no intent at all');
-  w.eq(alone.held, alone.draft, 'nor does it converge the field out from under the draft');
-  w.eq(alone.afterModel, alone.draft, 'the `input` that follows is what moves the model');
-  w.eq(alone.afterEdits, alone.editsBefore + 1, 'exactly one intent, from the `input`');
+  witness.eq(alone.midModel, alone.base, 'a beforeinput alone does not move the model');
+  witness.eq(alone.midEdits, alone.editsBefore, 'and dispatches no intent at all');
+  witness.eq(alone.held, alone.draft, 'nor does it converge the field out from under the draft');
+  witness.eq(alone.afterModel, alone.draft, 'the `input` that follows is what moves the model');
+  witness.eq(alone.afterEdits, alone.editsBefore + 1, 'exactly one intent, from the `input`');
 
   // The other direction: no `beforeinput` at all. "12,345" with the caret
   // after "12,3"; the user types "9" -> field "12,3945" caret 5 -> model
   // "123,945", and the caret is still after the 9 at 5.
   const grouped = await page.evaluate(() =>
     window.__TB__.edit('grouped', '12,3945', 5, { data: '9', beforeinput: false }));
-  w.eq(grouped.value, '123,945', 'an input with no beforeinput converges all the same');
-  w.eq(grouped.start, 5, 'with the caret where the edit left it');
+  witness.eq(grouped.value, '123,945', 'an input with no beforeinput converges all the same');
+  witness.eq(grouped.start, 5, 'with the caret where the edit left it');
 }
 
 // I15 — "preserve caret across that echo". The caret is the property that
@@ -342,55 +342,55 @@ async function beforeinputDoesNotDriveTheConverge(page, w) {
 // discrete event and throws the caret to the end of the control. Every row
 // here therefore edits in the MIDDLE of the string; a row that typed at the
 // end would pass under either conduct.
-async function caretAcrossTheEcho(page, w) {
+async function caretAcrossTheEcho(page, witness) {
   // Length-CHANGING normalisation — the only case that distinguishes an
   // offset from the end of the string from an absolute position.
   // "1,2|34" + "9" -> field "1,2934" caret 4 -> model "12,934", caret 4.
   const grouped = await page.evaluate(() =>
     window.__TB__.edit('grouped', '1,2934', 4, { data: '9' }));
-  w.eq(grouped.value, '12,934', 'grouped regrouped around the inserted digit');
-  w.eq(grouped.start, 4, 'the caret sits after the digit just typed, not at the end');
+  witness.eq(grouped.value, '12,934', 'grouped regrouped around the inserted digit');
+  witness.eq(grouped.start, 4, 'the caret sits after the digit just typed, not at the end');
 
   // Length-PRESERVING normalisation, so a caret failure cannot hide behind
   // a change of length. "A|BC" + "x" -> "AxBC" caret 2 -> "AXBC", caret 2.
   const upper = await page.evaluate(() =>
     window.__TB__.edit('upper', 'AxBC', 2, { data: 'x' }));
-  w.eq(upper.value, 'AXBC', 'upper normalised the inserted character');
-  w.eq(upper.start, 2, 'the caret survived a same-length normalisation');
+  witness.eq(upper.value, 'AXBC', 'upper normalised the inserted character');
+  witness.eq(upper.start, 2, 'the caret survived a same-length normalisation');
 
   // On a REFUSAL. "1|23" + "x" -> field "1x23" caret 2 -> model "123";
   // the offset from the end is 2, so the caret lands at 1 — where the
   // refused character would have gone.
   const digits = await page.evaluate(() =>
     window.__TB__.edit('digits', '1x23', 2, { data: 'x' }));
-  w.eq(digits.value, '123', 'the refusal echoed');
-  w.eq(digits.start, 1, 'the caret survived the refusal');
+  witness.eq(digits.value, '123', 'the refusal echoed');
+  witness.eq(digits.start, 1, 'the caret survived the refusal');
 
   // The other convergeable tag. "one| two" + " " -> "one  two" caret 4 ->
   // collapsed to "one two", offset from the end 4, caret 3.
   const notes = await page.evaluate(() =>
     window.__TB__.edit('notes', 'one  two', 4, { data: ' ' }));
-  w.eq(notes.value, 'one two', 'the textarea normalised');
-  w.eq(notes.start, 3, 'the caret survived on a textarea');
+  witness.eq(notes.value, 'one two', 'the textarea normalised');
+  witness.eq(notes.start, 3, 'the caret survived on a textarea');
 
   // Every converge leaves a CARET rather than a range — `converge-to!`
   // restores one offset, which is the whole of rf2-n3dxw's honest limit.
-  w.eq(grouped.start === grouped.end, true, 'the converge leaves a collapsed caret');
+  witness.eq(grouped.start === grouped.end, true, 'the converge leaves a collapsed caret');
 }
 
 // The same claim again, this time with the browser's own trusted key
 // events, so no caret row rests on a dispatched event alone. Read at
 // quiescence — a keystroke cannot be read inside its own turn from here —
 // which is exactly why the rows above exist beside these.
-async function caretUnderRealTyping(page, w) {
+async function caretUnderRealTyping(page, witness) {
   const field = page.locator('[data-testid="upper"]');
   await field.click();
   // Put the caret between "A" and "X" of the "AXBC" the rows above left.
   await page.evaluate(() => window.__TB__.el('upper').setSelectionRange(1, 1));
   await page.keyboard.type('q');
   const after = await page.evaluate(() => window.__TB__.read('upper'));
-  w.eq(after.value, 'AQXBC', 'a real keystroke normalised');
-  w.eq(after.start, 2, 'a real keystroke left the caret after the character typed');
+  witness.eq(after.value, 'AQXBC', 'a real keystroke normalised');
+  witness.eq(after.start, 2, 'a real keystroke left the caret after the character typed');
 
   const groupedField = page.locator('[data-testid="grouped"]');
   await groupedField.click();
@@ -399,8 +399,8 @@ async function caretUnderRealTyping(page, w) {
   const grouped = await page.evaluate(() => window.__TB__.read('grouped'));
   // "12,9|34" + "7" -> digits "129734" -> "129,734"; the offset from the
   // end was 2, so the caret is at 5, immediately after the 7.
-  w.eq(grouped.value, '129,734', 'a real keystroke regrouped');
-  w.eq(grouped.start, 5, 'a real keystroke kept the caret off the end');
+  witness.eq(grouped.value, '129,734', 'a real keystroke regrouped');
+  witness.eq(grouped.start, 5, 'a real keystroke kept the caret off the end');
 }
 
 // I15 — "preserve selection". A keystroke collapses a selection by itself,
@@ -408,7 +408,7 @@ async function caretUnderRealTyping(page, w) {
 // correction no keystroke caused, which `converge!` is deliberately not on
 // (rf2-n3dxw). What survives there is React's own selection restore, and
 // what it does is measured per engine rather than assumed.
-async function selectionAcrossAnOutOfBandWrite(page, w) {
+async function selectionAcrossAnOutOfBandWrite(page, witness) {
   const observed = await page.evaluate(async () => {
     const node = window.__TB__.el('upper');
     node.focus();
@@ -427,20 +427,20 @@ async function selectionAcrossAnOutOfBandWrite(page, w) {
     await new Promise((r) => setTimeout(r, 0));
     return { before, immediate, after: window.__TB__.read('upper') };
   });
-  w.record('out-of-band-write-lands-in-the-same-task',
+  witness.record('out-of-band-write-lands-in-the-same-task',
     observed.immediate.value === 'ZZZZZZ');
-  w.eq(observed.before.end - observed.before.start, 2, 'a range was selected to begin with');
+  witness.eq(observed.before.end - observed.before.start, 2, 'a range was selected to begin with');
   // The PREMISE of the recorded direction below, which went unread until
   // rf2-hic-016's second pass. An engine that had never honoured
   // `'backward'` would have recorded the same post-write direction as the
   // others and agreed with them perfectly — three engines agreeing about a
   // selection that was never directional. Recording an outcome whose
   // premise is unread is the cross-engine comparator's one blind spot.
-  w.eq(observed.before.direction, 'backward',
+  witness.eq(observed.before.direction, 'backward',
     'the selection really was directional before the write');
-  w.eq(observed.after.value, 'ZZZZZZ', 'the out-of-band correction reached the field');
-  w.eq(observed.after.active, true, 'the field still holds focus across the correction');
-  w.record('selection-across-out-of-band-write', {
+  witness.eq(observed.after.value, 'ZZZZZZ', 'the out-of-band correction reached the field');
+  witness.eq(observed.after.active, true, 'the field still holds focus across the correction');
+  witness.record('selection-across-out-of-band-write', {
     start: observed.after.start,
     end: observed.after.end,
     direction: observed.after.direction,
@@ -452,7 +452,7 @@ async function selectionAcrossAnOutOfBandWrite(page, w) {
 // a composition is live nothing writes the field, and the model's refusal
 // lands whole and visible at `compositionend`. Driven on the REFUSING
 // field, which is the case the CDP harness measured plain React destroying.
-async function compositionSafety(page, w) {
+async function compositionSafety(page, witness) {
   const run = await page.evaluate(() => {
     const node = window.__TB__.el('digits');
     node.focus();
@@ -490,32 +490,32 @@ async function compositionSafety(page, w) {
     };
   });
 
-  w.eq(run.draft1.value, '123あ', 'the first composing update survives in the field');
-  w.eq(run.draft2.value, '123あい', 'the second composing update survives too');
+  witness.eq(run.draft1.value, '123あ', 'the first composing update survives in the field');
+  witness.eq(run.draft2.value, '123あい', 'the second composing update survives too');
   // The PREMISE of the row below, without which it is not a witness at all:
   // a model nothing spoke to has also "never moved". Both composing updates
   // reached the store, so the stillness the next row reads is a REFUSAL
   // rather than an absence.
-  w.eq(run.midEdits, run.editsBefore + 2, 'both composing updates reached the store');
-  w.eq(run.midModel, '123', 'the refusing model never moved during the exchange');
+  witness.eq(run.midEdits, run.editsBefore + 2, 'both composing updates reached the store');
+  witness.eq(run.midModel, '123', 'the refusing model never moved during the exchange');
   // The exchange was not destroyed: one start, one end. A value write
   // landing mid-composition is what mints a second `compositionstart` in
   // the CDP harness, and a synthetic exchange can at least witness that
   // this runtime wrote nothing.
-  w.eq(run.startCount, 1, 'exactly one compositionstart');
-  w.eq(run.endCount, 1, 'exactly one compositionend');
+  witness.eq(run.startCount, 1, 'exactly one compositionstart');
+  witness.eq(run.endCount, 1, 'exactly one compositionend');
   // And the refusal lands whole, at the close, visibly.
-  w.eq(run.ended.value, '123', 'the refusal lands at compositionend');
+  witness.eq(run.ended.value, '123', 'the refusal lands at compositionend');
 
   const model = await page.evaluate(() => window.__TB__.model());
-  w.eq(model.fields.digits, '123', 'the store still holds the committed value');
+  witness.eq(model.fields.digits, '123', 'the store still holds the committed value');
 }
 
 // The carve-out's safety rider: every path out of a composition releases
 // the shadow, so a field cannot be stranded showing a draft the model never
 // agreed to. `compositionend` is witnessed above; these are the other two
 // that do not go through it.
-async function compositionReleaseEdges(page, w) {
+async function compositionReleaseEdges(page, witness) {
   // Blur — the composition the browser abandoned with the focus.
   const blurred = await page.evaluate(async () => {
     const node = window.__TB__.el('digits');
@@ -532,8 +532,8 @@ async function compositionReleaseEdges(page, w) {
     await window.__TB__.settle();
     return { held, after: window.__TB__.read('digits').value };
   });
-  w.eq(blurred.held, '123あ', 'the draft was held before the blur');
-  w.eq(blurred.after, '123', 'blur releases the shadow and the model re-asserts');
+  witness.eq(blurred.held, '123あ', 'the draft was held before the blur');
+  witness.eq(blurred.after, '123', 'blur releases the shadow and the model re-asserts');
 
   // A NON-COMPOSING change — the path that recovers an exchange some other
   // write aborted silently, since the abort itself fires nothing.
@@ -549,8 +549,8 @@ async function compositionReleaseEdges(page, w) {
     const plain = window.__TB__.edit('digits', '1234', 4, { data: '4' });
     return { held, plain };
   });
-  w.eq(recovered.held, '123あ', 'the draft was held');
-  w.eq(recovered.plain.value, '1234', 'a non-composing change releases and converges');
+  witness.eq(recovered.held, '123あ', 'the draft was held');
+  witness.eq(recovered.plain.value, '1234', 'a non-composing change releases and converges');
 
   // Unmount — the shadow is one `useState` on a fiber and cannot outlive
   // it. There is no registry and no node property to strand.
@@ -579,14 +579,14 @@ async function compositionReleaseEdges(page, w) {
       back: window.__TB__.read('mountable').value,
     };
   });
-  w.eq(unmounted.draft, '9あ', 'the field held a draft the model had refused');
+  witness.eq(unmounted.draft, '9あ', 'the field held a draft the model had refused');
   // Same premise as `composition-safety`'s: "refused it" is a claim about
   // something the store was asked to do, and only the arrival counter can
   // tell that apart from an exchange that dispatched nothing.
-  w.eq(unmounted.midEdits, unmounted.editsBefore + 1, 'the composing update reached the store');
-  w.eq(unmounted.midModel, '9', 'and the model really had refused it');
-  w.eq(unmounted.gone, true, 'the field unmounted mid-composition');
-  w.eq(unmounted.back, '9', 'the remounted field shows the model, not a stranded draft');
+  witness.eq(unmounted.midEdits, unmounted.editsBefore + 1, 'the composing update reached the store');
+  witness.eq(unmounted.midModel, '9', 'and the model really had refused it');
+  witness.eq(unmounted.gone, true, 'the field unmounted mid-composition');
+  witness.eq(unmounted.back, '9', 'the remounted field shows the model, not a stranded draft');
 }
 
 // What the carve-out does NOT claim, measured rather than left to the
@@ -604,7 +604,7 @@ async function compositionReleaseEdges(page, w) {
 // snap-back looks the same whether the composing updates were dispatched
 // or not, and on an ACCEPTING one a progressive write is visually
 // idempotent. Only the count separates them.
-async function anAcceptingModelDuringAComposition(page, w) {
+async function anAcceptingModelDuringAComposition(page, witness) {
   const run = await page.evaluate(() => {
     const node = window.__TB__.el('plain');
     node.focus();
@@ -632,23 +632,23 @@ async function anAcceptingModelDuringAComposition(page, w) {
     };
   });
 
-  w.eq(run.d1, run.base + 'あ', 'the first composing update stands in the field');
-  w.eq(run.m1.v, run.base + 'あ', 'AND the accepting model took it — mid-composition');
-  w.eq(run.m1.e, run.edits0 + 1, 'exactly one intent arrived for it');
-  w.eq(run.d2, run.base + 'あい', 'the second composing update stands too');
-  w.eq(run.m2.v, run.base + 'あい', 'and the model took that one as well');
-  w.eq(run.m2.e, run.edits0 + 2, 'one intent per composing input, no more and no fewer');
+  witness.eq(run.d1, run.base + 'あ', 'the first composing update stands in the field');
+  witness.eq(run.m1.v, run.base + 'あ', 'AND the accepting model took it — mid-composition');
+  witness.eq(run.m1.e, run.edits0 + 1, 'exactly one intent arrived for it');
+  witness.eq(run.d2, run.base + 'あい', 'the second composing update stands too');
+  witness.eq(run.m2.v, run.base + 'あい', 'and the model took that one as well');
+  witness.eq(run.m2.e, run.edits0 + 2, 'one intent per composing input, no more and no fewer');
   // So the committed text does not "arrive once, at the close": it arrived
   // progressively, and `compositionend` adds nothing to it. What the close
   // does is converge the field to whatever the model then holds.
-  w.eq(run.m3.edits.plain, run.edits0 + 2, 'compositionend dispatches no intent of its own');
-  w.eq(run.ended, run.m3.fields.plain, 'and the field converges to the model at the close');
+  witness.eq(run.m3.edits.plain, run.edits0 + 2, 'compositionend dispatches no intent of its own');
+  witness.eq(run.ended, run.m3.fields.plain, 'and the field converges to the model at the close');
 }
 
 // I15 — "reset is an explicit revision that preserves element identity".
 // The divergence is created the way a password manager creates one: a value
 // write with no event, which no handler sees and no commit is scheduled for.
-async function revisionResetPreservesIdentity(page, w) {
+async function revisionResetPreservesIdentity(page, witness) {
   const observed = await page.evaluate(async () => {
     const node = window.__TB__.el('revision');
     node.__tbMark = 'M1';
@@ -671,13 +671,13 @@ async function revisionResetPreservesIdentity(page, w) {
       revision: window.__TB__.model().revision,
     };
   });
-  w.eq(observed.drifted, 'drifted', 'the eventless write reached the field');
-  w.eq(observed.survived, 'drifted', 'and survived a turn — nothing else reset it');
-  w.eq(observed.modelBefore.fields.revision, 'keep', 'the store never saw the draft');
-  w.eq(observed.after.value, 'keep', 'the revision bump re-baselined the field to the model');
-  w.eq(observed.revision, 1, 'exactly one revision advance');
-  w.eq(observed.mark, 'M1', 'the DOM node survived the reset — no remount');
-  w.eq(observed.identical, true, 'and it is the same node the document still holds');
+  witness.eq(observed.drifted, 'drifted', 'the eventless write reached the field');
+  witness.eq(observed.survived, 'drifted', 'and survived a turn — nothing else reset it');
+  witness.eq(observed.modelBefore.fields.revision, 'keep', 'the store never saw the draft');
+  witness.eq(observed.after.value, 'keep', 'the revision bump re-baselined the field to the model');
+  witness.eq(observed.revision, 1, 'exactly one revision advance');
+  witness.eq(observed.mark, 'M1', 'the DOM node survived the reset — no remount');
+  witness.eq(observed.identical, true, 'and it is the same node the document still holds');
 }
 
 // The reset's other half: a revision that arrives while a composition is
@@ -717,7 +717,7 @@ async function revisionResetPreservesIdentity(page, w) {
 // The bump is a PROGRAMMATIC click, which never moves focus; the operator's
 // equivalent is the armed button below, because a real pointer-down would
 // close the composition before the reset could arrive mid-exchange.
-async function aRevisionArrivingMidComposition(page, w) {
+async function aRevisionArrivingMidComposition(page, witness) {
   // (1) The REFUSING field — where the reset has something different to
   // write, so the deferral is observable at all.
   const strict = await page.evaluate(async () => {
@@ -755,26 +755,26 @@ async function aRevisionArrivingMidComposition(page, w) {
     };
   });
 
-  w.eq(strict.draft, '42あ', 'the field held the composing draft');
+  witness.eq(strict.draft, '42あ', 'the field held the composing draft');
   // The PREMISE that makes this field different from the accepting one:
   // the update reached the store and the store turned it down, so the
   // reset's target and the draft are two different strings.
-  w.eq(strict.midEdits, strict.editsBefore + 1, 'the composing update reached the store');
-  w.eq(strict.midModel, '42', 'and the refusing model kept none of it');
-  w.eq(strict.revision, strict.revisionBefore + 1, 'the revision really did advance mid-exchange');
+  witness.eq(strict.midEdits, strict.editsBefore + 1, 'the composing update reached the store');
+  witness.eq(strict.midModel, '42', 'and the refusing model kept none of it');
+  witness.eq(strict.revision, strict.revisionBefore + 1, 'the revision really did advance mid-exchange');
   // THE DEFERRAL, on the only field that can red on it. A reset that
   // landed immediately would have written `42` over a live composition —
   // the abort the carve-out exists to prevent, and the conduct the
   // accepting field below cannot distinguish.
-  w.eq(strict.during.value, '42あ',
+  witness.eq(strict.during.value, '42あ',
     'the reset deferred: the draft is untouched while the exchange is open');
   // …and the exchange it did not disturb is intact: a mid-composition
   // value write is what mints a second `compositionstart` in the CDP
   // harness.
-  w.eq(strict.startCount, 1, 'still exactly one compositionstart');
-  w.eq(strict.endCount, 1, 'and exactly one compositionend');
-  w.eq(strict.value, strict.model, 'and the field converges to the model at the close');
-  w.eq(strict.model, '42', 'which is the value the refusal left standing');
+  witness.eq(strict.startCount, 1, 'still exactly one compositionstart');
+  witness.eq(strict.endCount, 1, 'and exactly one compositionend');
+  witness.eq(strict.value, strict.model, 'and the field converges to the model at the close');
+  witness.eq(strict.model, '42', 'which is the value the refusal left standing');
 
   // (2) The ACCEPTING field — `controlled.cljs`'s honest limit. Nothing
   // here can red on the deferral (that is (1)'s job); what it pins is the
@@ -803,22 +803,22 @@ async function aRevisionArrivingMidComposition(page, w) {
     };
   });
 
-  w.eq(observed.draft, 'keepあ', 'the field held the composing draft');
-  w.eq(observed.revision, observed.revisionBefore + 1, 'a second revision advanced mid-exchange');
-  w.eq(observed.during.value, 'keepあ', 'the draft is untouched here too');
-  w.eq(observed.after.value, observed.model, 'and the field converges at the close');
+  witness.eq(observed.draft, 'keepあ', 'the field held the composing draft');
+  witness.eq(observed.revision, observed.revisionBefore + 1, 'a second revision advanced mid-exchange');
+  witness.eq(observed.during.value, 'keepあ', 'the draft is untouched here too');
+  witness.eq(observed.after.value, observed.model, 'and the field converges at the close');
   // The honest limit, as `controlled.cljs` states it: on an ACCEPTING field
   // the composing updates the model kept taking supersede the reset by
   // ordinary event order. "The deferral cannot strand the field" is what is
   // true; "the reset cannot be lost" is not.
-  w.eq(observed.model, 'keepあ',
+  witness.eq(observed.model, 'keepあ',
     'an accepting model kept the composing update, so the reset did not win');
-  w.eq(observed.mark, 'M1', 'and the DOM node survived the whole exchange');
+  witness.eq(observed.mark, 'M1', 'and the DOM node survived the whole exchange');
 }
 
 // The owned `::h/checked` pair, whose `false` is a presence rather than a
 // truth. Read inside the click's own turn.
-async function ownedCheckedPair(page, w) {
+async function ownedCheckedPair(page, witness) {
   const toggled = await page.evaluate(async () => {
     const node = window.__TB__.el('flag');
     const before = { dom: node.checked, model: window.__TB__.model().flag };
@@ -830,12 +830,12 @@ async function ownedCheckedPair(page, w) {
     const off = { dom: node.checked, model: window.__TB__.model().flag };
     return { before, on, off };
   });
-  w.eq(toggled.before.dom, false, 'the checkbox starts unchecked');
-  w.eq(toggled.before.model, false, 'and so does its model');
-  w.eq(toggled.on.dom, true, 'the DOM followed the click');
-  w.eq(toggled.on.model, true, 'and the store did too, in the same turn');
-  w.eq(toggled.off.dom, false, 'and back — an owned false is a presence');
-  w.eq(toggled.off.model, false, 'with the store agreeing');
+  witness.eq(toggled.before.dom, false, 'the checkbox starts unchecked');
+  witness.eq(toggled.before.model, false, 'and so does its model');
+  witness.eq(toggled.on.dom, true, 'the DOM followed the click');
+  witness.eq(toggled.on.model, true, 'and the store did too, in the same turn');
+  witness.eq(toggled.off.dom, false, 'and back — an owned false is a presence');
+  witness.eq(toggled.off.model, false, 'with the store agreeing');
 }
 
 // RECORDED, not gated (the conformance matrix is hic-040). A form reset
@@ -845,7 +845,7 @@ async function ownedCheckedPair(page, w) {
 // bookkeeping. Autofill has no cross-engine drive (Chromium's is a CDP
 // method and needs a profile), so the eventless write below is recorded as
 // its PROXY and named as one.
-async function formResetAndFillProxy(page, w) {
+async function formResetAndFillProxy(page, witness) {
   const reset = await page.evaluate(async () => {
     const a = window.__TB__.el('form-a');
     window.__TB__.edit('form-a', 'FORMx', 5, { data: 'x' });
@@ -861,8 +861,8 @@ async function formResetAndFillProxy(page, w) {
       model: window.__TB__.model().fields['form-a'],
     };
   });
-  w.eq(reset.typed, 'FORMX', 'the form field normalised like any other');
-  w.record('form-reset', {
+  witness.eq(reset.typed, 'FORMX', 'the form field normalised like any other');
+  witness.record('form-reset', {
     'default-value-mirrors-the-model': reset.defaultBefore === reset.typed,
     'value-after-reset': reset.afterValue,
     'model-after-reset': reset.model,
@@ -887,9 +887,9 @@ async function formResetAndFillProxy(page, w) {
       afterReset: window.__TB__.read('form-b').value,
     };
   });
-  w.eq(fill.withEvent, 'filled', 'a fill carrying an input event converges like a keystroke');
-  w.eq(fill.withEventModel, 'filled', 'and reaches the store');
-  w.record('fill-proxy', {
+  witness.eq(fill.withEvent, 'filled', 'a fill carrying an input event converges like a keystroke');
+  witness.eq(fill.withEventModel, 'filled', 'and reaches the store');
+  witness.record('fill-proxy', {
     'eventless-fill-leaves-a-draft': fill.silent === 'silent',
     'form-reset-clears-the-eventless-draft': fill.afterReset === fill.withEventModel,
     'value-after-reset': fill.afterReset,
@@ -924,7 +924,7 @@ async function formResetAndFillProxy(page, w) {
 // showing it checked, and what must put it back is React's controlled
 // restore across the WHOLE group — the other buttons sharing the name have
 // to be restored too, and only React knows they exist.
-async function radioGroupEchoesCommitted(page, w) {
+async function radioGroupEchoesCommitted(page, witness) {
   const run = await page.evaluate(async () => {
     const snap = () => ({
       a: window.__TB__.plain('radio-a').checked,
@@ -945,24 +945,24 @@ async function radioGroupEchoesCommitted(page, w) {
     return { before, accepted, refused };
   });
 
-  w.eq(run.before.b, true, 'the group starts on its committed choice');
-  w.eq(run.before.model, 'b', 'and the store agrees');
-  w.eq(run.accepted.a, true, 'the clicked radio is checked');
-  w.eq(run.accepted.b, false, 'and the previous one is not — the group is exclusive');
-  w.eq(run.accepted.model, 'a', 'the store took the accepted choice');
+  witness.eq(run.before.b, true, 'the group starts on its committed choice');
+  witness.eq(run.before.model, 'b', 'and the store agrees');
+  witness.eq(run.accepted.a, true, 'the clicked radio is checked');
+  witness.eq(run.accepted.b, false, 'and the previous one is not — the group is exclusive');
+  witness.eq(run.accepted.model, 'a', 'the store took the accepted choice');
   // The PREMISE of the refusal row: the click really did reach the store.
   // Without it, a radio wired to nothing would read exactly the same.
-  w.eq(run.refused.edits, run.before.edits + 2, 'both clicks reached the store');
-  w.eq(run.refused.model, 'a', 'the refusing group did not move');
-  w.eq(run.refused.c, false, 'and the refused radio echoes UNCHECKED — committed state');
-  w.eq(run.refused.a, true, 'while the committed choice is still the one shown');
+  witness.eq(run.refused.edits, run.before.edits + 2, 'both clicks reached the store');
+  witness.eq(run.refused.model, 'a', 'the refusing group did not move');
+  witness.eq(run.refused.c, false, 'and the refused radio echoes UNCHECKED — committed state');
+  witness.eq(run.refused.a, true, 'while the committed choice is still the one shown');
 }
 
 // SELECT, single. Nothing in `impl.controlled` applies: `convergeable-tag?`
 // answers false for a select and the namespace docstring gives the reason —
 // no text cursor, no `defaultValue` mirror. So the echo here is React's own
 // controlled restore, measured rather than assumed to be equivalent.
-async function selectSingleEchoesCommitted(page, w) {
+async function selectSingleEchoesCommitted(page, witness) {
   const run = await page.evaluate(async () => {
     const before = { dom: window.__TB__.selected('pick'), model: window.__TB__.model().fields.pick };
     // Accepted.
@@ -979,21 +979,21 @@ async function selectSingleEchoesCommitted(page, w) {
     return { before, took, inTurn, accepted, refusedInTurn, refused };
   });
 
-  w.eq(run.before.dom.join(','), 'one', 'the select starts on its committed option');
-  w.eq(run.before.model, 'one', 'and the store agrees');
-  w.eq(run.took.value, 'two', 'the choice reached the element');
-  w.eq(run.inTurn.join(','), 'two', 'and stands within the turn that made it');
-  w.eq(run.accepted.model, 'two', 'the store took it');
-  w.eq(run.refusedInTurn.join(','), 'two',
+  witness.eq(run.before.dom.join(','), 'one', 'the select starts on its committed option');
+  witness.eq(run.before.model, 'one', 'and the store agrees');
+  witness.eq(run.took.value, 'two', 'the choice reached the element');
+  witness.eq(run.inTurn.join(','), 'two', 'and stands within the turn that made it');
+  witness.eq(run.accepted.model, 'two', 'the store took it');
+  witness.eq(run.refusedInTurn.join(','), 'two',
     'the refused option echoes the committed one INSIDE the turn');
-  w.eq(run.refused.dom.join(','), 'two', 'and still does at rest');
-  w.eq(run.refused.model, 'two', 'with the store never having moved');
+  witness.eq(run.refused.dom.join(','), 'two', 'and still does at rest');
+  witness.eq(run.refused.model, 'two', 'with the store never having moved');
 }
 
 // SELECT, multiple — the SUPPORTED spelling. `h/event` reads
 // `selectedOptions`, which is the only expression of a multi-selection the
 // DOM has.
-async function selectMultipleSupported(page, w) {
+async function selectMultipleSupported(page, witness) {
   const run = await page.evaluate(async () => {
     const drove = window.__TB__.choose('picks', ['a', 'c']);
     const inTurn = window.__TB__.selected('picks');
@@ -1009,14 +1009,14 @@ async function selectMultipleSupported(page, w) {
   // The same premise the marker row states, and it has to be stated on
   // BOTH: the supported path's claim is that the echo KEEPS two options,
   // which is only a claim if two were chosen before the event went out.
-  w.eq(run.drove.chosen.join(','), 'a,c', 'two options were chosen');
-  w.eq(run.drove.dotValue, 'a',
+  witness.eq(run.drove.chosen.join(','), 'a,c', 'two options were chosen');
+  witness.eq(run.drove.dotValue, 'a',
     'while the platform\'s own `select.value` still answers one of them — the scalar this path never used');
-  w.eq(run.inTurn.join(','), 'a,c', 'both options survive the echo, inside the turn');
-  w.eq(run.took.model.join(','), 'a,c', 'and BOTH reach the store — the whole selection');
-  w.eq(run.took.dom.join(','), 'a,c', 'the echo keeps both');
-  w.eq(run.refused.model.join(','), 'a,c', 'the refused option is dropped by the policy');
-  w.eq(run.refused.dom.join(','), 'a,c',
+  witness.eq(run.inTurn.join(','), 'a,c', 'both options survive the echo, inside the turn');
+  witness.eq(run.took.model.join(','), 'a,c', 'and BOTH reach the store — the whole selection');
+  witness.eq(run.took.dom.join(','), 'a,c', 'the echo keeps both');
+  witness.eq(run.refused.model.join(','), 'a,c', 'the refused option is dropped by the policy');
+  witness.eq(run.refused.dom.join(','), 'a,c',
     'and the element echoes the committed selection, not the chosen one');
 }
 
@@ -1038,7 +1038,7 @@ async function selectMultipleSupported(page, w) {
 // on `dotValue` below is what stops the marker's answer from being
 // confused with it. Turning a row around is the gate working — it reds when
 // this conduct changes in EITHER direction.
-async function reservedMarkerReadsTheWholeMultipleSelection(page, w) {
+async function reservedMarkerReadsTheWholeMultipleSelection(page, witness) {
   const run = await page.evaluate(async () => {
     const before = window.__TB__.model().edits['picks-marker'] || 0;
     const drove = window.__TB__.choose('picks-marker', ['a', 'c']);
@@ -1060,21 +1060,21 @@ async function reservedMarkerReadsTheWholeMultipleSelection(page, w) {
     };
   });
 
-  w.eq(run.drove.chosen.join(','), 'a,c', 'the user really did choose two options');
-  w.eq(run.edits, run.before + 1, 'and exactly one intent arrived for it');
-  w.eq(run.drove.dotValue, 'a',
+  witness.eq(run.drove.chosen.join(','), 'a,c', 'the user really did choose two options');
+  witness.eq(run.edits, run.before + 1, 'and exactly one intent arrived for it');
+  witness.eq(run.drove.dotValue, 'a',
     'the platform\'s `select.value` STILL answers one option — the marker is not reading it');
   // `raw` and `model` are compared by SHAPE, not by a joined string: this
   // row is about a list arriving where a scalar used to, and `'a,c'` is
   // reachable from `['a,c']` and from `[['a','c']]` as well as from the
   // truth. The DOM reads below stay joined — `selectedOptions` is a flat
   // list of option values by construction.
-  w.eq(JSON.stringify(run.raw), '["a","c"]',
+  witness.eq(JSON.stringify(run.raw), '["a","c"]',
     'so the handler received the whole SELECTION, as a list');
-  w.eq(JSON.stringify(run.model), '["a","c"]', 'and that is what the store holds');
-  w.eq(run.inTurn.join(','), 'a,c',
+  witness.eq(JSON.stringify(run.model), '["a","c"]', 'and that is what the store holds');
+  witness.eq(run.inTurn.join(','), 'a,c',
     'the echo KEEPS both choices inside the turn — nothing is discarded');
-  w.eq(run.dom.join(','), 'a,c', 'and both are still there at rest');
+  witness.eq(run.dom.join(','), 'a,c', 'and both are still there at rest');
 }
 
 // FILE INPUT — a refusal, and the refusal is the PLATFORM's.
@@ -1094,7 +1094,7 @@ async function reservedMarkerReadsTheWholeMultipleSelection(page, w) {
 // refusal is a FINDING recorded against the matrix, not repaired here — the
 // repair mints an error id, and an error id owes a `spec/009` row, which is
 // hot zone this bead may not touch.
-async function fileInputIsUncontrollable(page, w) {
+async function fileInputIsUncontrollable(page, witness) {
   await page.setInputFiles('[data-testid="file"]', [
     { name: 'one.txt', mimeType: 'text/plain', buffer: Buffer.from('1') },
     { name: 'two.txt', mimeType: 'text/plain', buffer: Buffer.from('2') },
@@ -1121,15 +1121,15 @@ async function fileInputIsUncontrollable(page, w) {
     };
   });
 
-  w.eq(run.files.join(','), 'one.txt,two.txt', 'the SUPPORTED path carries both chosen files');
-  w.eq(run.edits, 1, 'through exactly one intent');
-  w.eq(run.threw, 'InvalidStateError',
+  witness.eq(run.files.join(','), 'one.txt,two.txt', 'the SUPPORTED path carries both chosen files');
+  witness.eq(run.edits, 1, 'through exactly one intent');
+  witness.eq(run.threw, 'InvalidStateError',
     'the assignment React makes for a controlled value THROWS on a file input');
-  w.eq(run.clearOk, true, 'while the empty string — the one legal write — is accepted');
-  w.eq(run.afterClear, '', 'and clears the control');
+  witness.eq(run.clearOk, true, 'while the empty string — the one legal write — is accepted');
+  witness.eq(run.afterClear, '', 'and clears the control');
   // RECORDED because the exact string is the engine's (`C:\\fakepath\\…`),
   // and because the point is what it CANNOT express rather than what it is.
-  w.record('file-input-marker-reading', {
+  witness.record('file-input-marker-reading', {
     'names-the-first-file-only': run.markerWouldRead.indexOf('two.txt') === -1,
     'is-not-the-file-list': run.markerWouldRead !== 'one.txt,two.txt',
   });
@@ -1144,7 +1144,7 @@ async function fileInputIsUncontrollable(page, w) {
 // restore — which is enough for the VALUE and says nothing about a caret,
 // because on these types there is no caret to lose. That is the support
 // policy, and the narrowing is part of it rather than a defect in it.
-async function typesWithoutACaretEchoCommitted(page, w) {
+async function typesWithoutACaretEchoCommitted(page, witness) {
   const run = await page.evaluate(async () => {
     const drive = (id, next) => {
       const node = window.__TB__.el(id);
@@ -1173,18 +1173,18 @@ async function typesWithoutACaretEchoCommitted(page, w) {
     };
   });
 
-  w.eq(run.count, '10', 'a number field echoes the CLAMPED value, in-turn');
-  w.eq(run.model.count, '10', 'and the store holds it');
-  w.eq(run.day, run.before.day, 'a refused date echoes the committed one, in-turn');
-  w.eq(run.dayOk, '2026-03-03', 'and an accepted one stands');
-  w.eq(run.model.day, '2026-03-03', 'with the store agreeing');
-  w.eq(run.level, '40', 'a range field echoes the SNAPPED value, in-turn');
-  w.eq(run.model.level, '40', 'and the store holds that too');
+  witness.eq(run.count, '10', 'a number field echoes the CLAMPED value, in-turn');
+  witness.eq(run.model.count, '10', 'and the store holds it');
+  witness.eq(run.day, run.before.day, 'a refused date echoes the committed one, in-turn');
+  witness.eq(run.dayOk, '2026-03-03', 'and an accepted one stands');
+  witness.eq(run.model.day, '2026-03-03', 'with the store agreeing');
+  witness.eq(run.level, '40', 'a range field echoes the SNAPPED value, in-turn');
+  witness.eq(run.model.level, '40', 'and the store holds that too');
   // The narrowing, measured. `selectionStart` is not applicable to these
   // types; whether an engine answers null or refuses is the ENGINE's and is
   // recorded rather than required — but it is recorded for all three, so a
   // divergence is still a red gate.
-  w.record('selection-api-on-types-without-a-caret', run.selection);
+  witness.record('selection-api-on-types-without-a-caret', run.selection);
 }
 
 // CONTENTEDITABLE — not a controlled field, and this is the whole policy.
@@ -1195,7 +1195,7 @@ async function typesWithoutACaretEchoCommitted(page, w) {
 // element whose children are the model's and whose edits come back through
 // `h/event`. The row exists so that "not supported as a controlled field" is
 // a measured property rather than an omission nobody checked.
-async function contenteditableIsNotAControlledField(page, w) {
+async function contenteditableIsNotAControlledField(page, witness) {
   const run = await page.evaluate(async () => {
     const node = window.__TB__.el('prose');
     const before = { text: node.textContent, model: window.__TB__.model().prose };
@@ -1229,15 +1229,15 @@ async function contenteditableIsNotAControlledField(page, w) {
     };
   });
 
-  w.eq(run.before.text, 'hand-written', 'the region renders the model');
-  w.eq(run.editable, 'plaintext-only', 'and is really contenteditable');
-  w.eq(run.record, undefined,
+  witness.eq(run.before.text, 'hand-written', 'the region renders the model');
+  witness.eq(run.editable, 'plaintext-only', 'and is really contenteditable');
+  witness.eq(run.record, undefined,
     'it carries NO defaultValue record — the converge has nothing to read');
-  w.eq(run.after.model, 'edited by hand', "the author's handler carried the edit to the store");
-  w.eq(run.after.text, 'edited by hand', 'and the region was not converged out from under it');
-  w.eq(run.corrected, 'CORRECTED', 'an out-of-band model change re-renders the content');
-  w.eq(run.model, 'CORRECTED', 'from the store');
-  w.eq(run.identical, true, 'on the same node — a re-render, not a remount');
+  witness.eq(run.after.model, 'edited by hand', "the author's handler carried the edit to the store");
+  witness.eq(run.after.text, 'edited by hand', 'and the region was not converged out from under it');
+  witness.eq(run.corrected, 'CORRECTED', 'an out-of-band model change re-renders the content');
+  witness.eq(run.model, 'CORRECTED', 'from the store');
+  witness.eq(run.identical, true, 'on the same node — a re-render, not a remount');
 }
 
 // BLUR AFTER UNMOUNT. The row is about an ABSENCE, and the absence is
@@ -1245,7 +1245,7 @@ async function contenteditableIsNotAControlledField(page, w) {
 // that hangs commit-on-blur off that handler therefore loses the edit, and
 // the framework's obligation is the narrower one — nothing stranded, no
 // error, and the field's model intact when it comes back.
-async function blurAfterUnmount(page, w) {
+async function blurAfterUnmount(page, witness) {
   const run = await page.evaluate(async () => {
     const node = window.__TB__.el('blur-probe');
     node.focus();
@@ -1282,22 +1282,22 @@ async function blurAfterUnmount(page, w) {
     };
   });
 
-  w.eq(run.focused.active, true, 'the field had focus before it went away');
-  w.eq(run.focused.log.join(','), 'focus', 'and the focus edge reached the store');
-  w.eq(run.draft, 'about-to-vanish', 'a draft the model never took was on screen');
-  w.eq(run.gone.present, true, 'the field unmounted');
-  w.eq(run.gone.stillThere, false, 'and left nothing behind in the tree');
-  w.eq(run.gone.detachedStillFocused, false,
+  witness.eq(run.focused.active, true, 'the field had focus before it went away');
+  witness.eq(run.focused.log.join(','), 'focus', 'and the focus edge reached the store');
+  witness.eq(run.draft, 'about-to-vanish', 'a draft the model never took was on screen');
+  witness.eq(run.gone.present, true, 'the field unmounted');
+  witness.eq(run.gone.stillThere, false, 'and left nothing behind in the tree');
+  witness.eq(run.gone.detachedStillFocused, false,
     'the detached node does not keep the document focus');
-  w.eq(run.sameNode, false, 'the remount is a NEW node — the old fiber is gone');
-  w.eq(run.back, run.committed,
+  witness.eq(run.sameNode, false, 'the remount is a NEW node — the old fiber is gone');
+  witness.eq(run.back, run.committed,
     'and the field comes back showing the model, not the stranded draft');
-  w.eq(run.backModel, run.committed, 'with the store never having moved');
+  witness.eq(run.backModel, run.committed, 'with the store never having moved');
   // The ABSENCE this row is named for. React synthesises no `blur` for a
   // node it removes, so a commit-on-blur handler never runs — recorded per
   // engine rather than required, because it is React's conduct rather than
   // this runtime's, and recorded in all three so a divergence still reds.
-  w.record('blur-edges-across-an-unmount', {
+  witness.record('blur-edges-across-an-unmount', {
     'edges-before-the-unmount': run.focused.log.join(','),
     'edges-after-the-unmount': run.gone.log.join(','),
     'a-blur-was-reported': run.gone.log.indexOf('blur') !== -1,
@@ -1318,7 +1318,7 @@ async function blurAfterUnmount(page, w) {
 // relation to the runner's navigation ceiling.
 const ASYNC_NORMALISE_CEILING_MS = 5000;
 
-async function asyncNormalization(page, w) {
+async function asyncNormalization(page, witness) {
   const armed = await page.evaluate(async () => {
     // A keystroke first, so the correction has something to normalise and
     // the row cannot pass on a field nobody touched.
@@ -1334,8 +1334,8 @@ async function asyncNormalization(page, w) {
       immediate: window.__TB__.plain('blur-probe').value,
     };
   });
-  w.eq(armed.typed, 'abc', 'the keystroke was accepted');
-  w.eq(armed.immediate, 'abc', 'and the armed correction has not landed yet');
+  witness.eq(armed.typed, 'abc', 'the keystroke was accepted');
+  witness.eq(armed.immediate, 'abc', 'and the armed correction has not landed yet');
 
   await page.waitForFunction(
     (n) => window.__TB__.model().normalisations > n,
@@ -1346,9 +1346,9 @@ async function asyncNormalization(page, w) {
     model: window.__TB__.model().fields.async,
     normalisations: window.__TB__.model().normalisations,
   }));
-  w.eq(landed.model, 'ABC', 'the async normalisation reached the store');
-  w.eq(landed.value, 'ABC', 'and the field converged to it with no keystroke to carry it');
-  w.eq(landed.normalisations, armed.normalisationsBefore + 1, 'exactly once');
+  witness.eq(landed.model, 'ABC', 'the async normalisation reached the store');
+  witness.eq(landed.value, 'ABC', 'and the field converged to it with no keystroke to carry it');
+  witness.eq(landed.normalisations, armed.normalisationsBefore + 1, 'exactly once');
 }
 
 // FORM RESET, AUTOFILL and FORMDATA — the three ordinary browser actions
@@ -1363,7 +1363,7 @@ async function asyncNormalization(page, w) {
 // method needing an address profile, and neither Firefox nor WebKit exposes
 // one at all. What is gated is the eventless write that a password manager
 // performs, which is the shape that can actually reach a field in all three.
-async function formResetAutofillAndFormData(page, w) {
+async function formResetAutofillAndFormData(page, witness) {
   const run = await page.evaluate(async () => {
     const model = window.__TB__.model();
     const extracted = window.__TB__.formData();
@@ -1378,16 +1378,16 @@ async function formResetAutofillAndFormData(page, w) {
     return { model, extracted, checkedOn, checkedOff };
   });
 
-  w.eq(run.extracted['form-a'], run.model.fields['form-a'],
+  witness.eq(run.extracted['form-a'], run.model.fields['form-a'],
     'FormData extracts the COMMITTED value of a controlled text field');
-  w.eq(run.extracted['form-b'], run.model.fields['form-b'], 'for every such field');
-  w.eq(run.extracted['form-pick'], run.model.fields['form-pick'],
+  witness.eq(run.extracted['form-b'], run.model.fields['form-b'], 'for every such field');
+  witness.eq(run.extracted['form-pick'], run.model.fields['form-pick'],
     'and the committed option of a controlled select');
-  w.eq(run.checkedOn.model, true, 'the checkbox took the click');
-  w.eq(run.checkedOn.data['form-flag'], 'yes',
+  witness.eq(run.checkedOn.model, true, 'the checkbox took the click');
+  witness.eq(run.checkedOn.data['form-flag'], 'yes',
     "a CHECKED box contributes its `value`, not its checked state");
-  w.eq(run.checkedOff.model, false, 'and back');
-  w.eq(run.checkedOff.data['form-flag'], undefined,
+  witness.eq(run.checkedOff.model, false, 'and back');
+  witness.eq(run.checkedOff.data['form-flag'], undefined,
     'an unchecked box contributes nothing at all');
 
   // AUTOFILL, as the proxy that can be driven everywhere — now REQUIRED
@@ -1407,10 +1407,10 @@ async function formResetAutofillAndFormData(page, w) {
       silentModel: window.__TB__.model().fields['form-a'],
     };
   });
-  w.eq(fill.withEvent, 'REFILLED', 'a fill carrying an input event converges like a keystroke');
-  w.eq(fill.withEventModel, 'REFILLED', 'and reaches the store');
-  w.eq(fill.silent, 'silently', 'an EVENTLESS fill leaves a draft the runtime never sees');
-  w.eq(fill.silentModel, 'REFILLED',
+  witness.eq(fill.withEvent, 'REFILLED', 'a fill carrying an input event converges like a keystroke');
+  witness.eq(fill.withEventModel, 'REFILLED', 'and reaches the store');
+  witness.eq(fill.silent, 'silently', 'an EVENTLESS fill leaves a draft the runtime never sees');
+  witness.eq(fill.silentModel, 'REFILLED',
     'and the store is untouched by it — nothing here polls the DOM');
 
   // FORM RESET, across the three control classes. The text row is the one
@@ -1431,11 +1431,11 @@ async function formResetAutofillAndFormData(page, w) {
       pickModel: m.fields['form-pick'],
     };
   });
-  w.eq(reset.text, reset.textModel,
+  witness.eq(reset.text, reset.textModel,
     'a form reset leaves a converged text field showing the model');
-  w.eq(reset.text, 'REFILLED',
+  witness.eq(reset.text, 'REFILLED',
     'which is the committed value, not the eventless draft — the reset cleared it');
-  w.record('form-reset-across-control-classes', {
+  witness.record('form-reset-across-control-classes', {
     'text-agrees-with-the-model': reset.text === reset.textModel,
     'checkbox-agrees-with-the-model': reset.flag === reset.flagModel,
     'select-agrees-with-the-model': reset.pick.join(',') === reset.pickModel,
@@ -1453,7 +1453,7 @@ async function formResetAutofillAndFormData(page, w) {
 // keyword, so `:view-box` lands as React's `viewBox` — and React knows to
 // emit the kebab form for a PRESENTATION attribute like `stroke-width`,
 // which is the half the slot rule cannot do on its own.
-async function svgAttributes(page, w) {
+async function svgAttributes(page, witness) {
   const run = await page.evaluate(() => ({
     ns: window.__TB__.el('svg').namespaceURI,
     svg: window.__TB__.attrs('svg'),
@@ -1465,15 +1465,15 @@ async function svgAttributes(page, w) {
     camelStroke: window.__TB__.el('svg-circle').getAttribute('strokeWidth'),
   }));
 
-  w.eq(run.ns, 'http://www.w3.org/2000/svg', 'the subtree is really in the SVG namespace');
-  w.eq(run.viewBoxExact, '0 0 20 20', ':view-box lands as the camelCase viewBox SVG requires');
-  w.eq(run.viewBoxLower, null, 'and NOT as a lower-cased attribute that would do nothing');
-  w.eq(run.circle['stroke-width'], '2',
+  witness.eq(run.ns, 'http://www.w3.org/2000/svg', 'the subtree is really in the SVG namespace');
+  witness.eq(run.viewBoxExact, '0 0 20 20', ':view-box lands as the camelCase viewBox SVG requires');
+  witness.eq(run.viewBoxLower, null, 'and NOT as a lower-cased attribute that would do nothing');
+  witness.eq(run.circle['stroke-width'], '2',
     'a kebab presentation attribute lands kebab, which is what SVG reads');
-  w.eq(run.circle['stroke-linecap'], 'round', 'for every such attribute');
-  w.eq(run.camelStroke, null, 'and never as the camelCase spelling the slot rule produced');
-  w.eq(run.text['font-size'], '4', 'including on a second element type');
-  w.eq(run.circle.r, '6', 'while ordinary numeric attributes coerce to strings');
+  witness.eq(run.circle['stroke-linecap'], 'round', 'for every such attribute');
+  witness.eq(run.camelStroke, null, 'and never as the camelCase spelling the slot rule produced');
+  witness.eq(run.text['font-size'], '4', 'including on a second element type');
+  witness.eq(run.circle.r, '6', 'while ordinary numeric attributes coerce to strings');
 }
 
 // CUSTOM ELEMENTS — and the third finding.
@@ -1490,7 +1490,7 @@ async function svgAttributes(page, w) {
 // Nothing refuses the keyword spelling and nothing warns about it. It is
 // asserted here in the direction the runtime behaves, so the row reds
 // whichever way this changes.
-async function customElementAttributes(page, w) {
+async function customElementAttributes(page, witness) {
   const run = await page.evaluate(() => ({
     tag: window.__TB__.el('custom').tagName,
     attrs: window.__TB__.attrs('custom'),
@@ -1498,17 +1498,17 @@ async function customElementAttributes(page, w) {
     text: window.__TB__.el('custom').textContent,
   }));
 
-  w.eq(run.tag, 'X-WIDGET', 'the custom element is in the tree under its own tag');
-  w.eq(run.text, 'widget', 'carrying its children');
-  w.eq(run.attrs['my-attr'], 'from-string',
+  witness.eq(run.tag, 'X-WIDGET', 'the custom element is in the tree under its own tag');
+  witness.eq(run.text, 'widget', 'carrying its children');
+  witness.eq(run.attrs['my-attr'], 'from-string',
     'a STRING prop key reaches a custom element as the dashed attribute written');
-  w.eq(run.attrs['data-kebab-attr'], 'from-data',
+  witness.eq(run.attrs['data-kebab-attr'], 'from-data',
     'and so does data-*, which the slot rule exempts from camelCasing');
-  w.eq(run.attrs['my-other-attr'], undefined,
+  witness.eq(run.attrs['my-other-attr'], undefined,
     'FINDING: a kebab KEYWORD does NOT — the slot rule camelCased it first');
-  w.eq(run.attrs.myotherattr, 'from-keyword',
+  witness.eq(run.attrs.myotherattr, 'from-keyword',
     'it lands under the camelCased name, lower-cased by HTML, with no refusal anywhere');
-  w.eq(run.names.indexOf('myOtherAttr'), -1,
+  witness.eq(run.names.indexOf('myOtherAttr'), -1,
     'and not under the camelCase spelling either, which HTML cannot hold');
 }
 
@@ -1591,9 +1591,9 @@ const TESTBED_ROOT = '[data-testid="hicasso-controlled-testbed"]';
  * Whichever it is, the next occurrence closes the question instead of filing
  * the bead again.
  */
-async function waitForRemount(page, ctx) {
+async function waitForRemount(page, runContext) {
   try {
-    await page.waitForSelector(TESTBED_ROOT, { timeout: ctx.navTimeoutMs });
+    await page.waitForSelector(TESTBED_ROOT, { timeout: runContext.navTimeoutMs });
   } catch {
     const at = await page.evaluate((sel) => {
       const root = document.querySelector(sel);
@@ -1612,7 +1612,7 @@ async function waitForRemount(page, ctx) {
       };
     }, TESTBED_ROOT).catch((err) => ({ evaluateFailed: String(err && err.message) }));
     throw new Error(
-      `the testbed root did not mount within ${ctx.navTimeoutMs}ms of the ` +
+      `the testbed root did not mount within ${runContext.navTimeoutMs}ms of the ` +
       're-navigation. This is the navigation\'s OWN ceiling and not the lane ' +
       'budget that wraps the section, so the re-navigation is what failed. ' +
       'The same mount measures p50 80ms locally, which is why this reads as ' +
@@ -1621,31 +1621,31 @@ async function waitForRemount(page, ctx) {
   }
 }
 
-async function armedEdgesAreWired(page, w, ctx) {
+async function armedEdgesAreWired(page, witness, runContext) {
   const before = await page.evaluate(() => ({
     label: window.__TB__.el('armed').textContent,
     revision: window.__TB__.model().revision,
     mounted: !!document.querySelector('[data-testid="mountable"]'),
   }));
-  w.eq(before.label, 'idle', 'nothing is armed to begin with');
+  witness.eq(before.label, 'idle', 'nothing is armed to begin with');
 
   await page.locator('[data-testid="arm-bump"]').click();
   const bump = await page.evaluate(() => ({
     label: window.__TB__.el('armed').textContent,
     revision: window.__TB__.model().revision,
   }));
-  w.eq(bump.label, 'armed: bump -> [:tb/bump-revision] fires in 5s',
+  witness.eq(bump.label, 'armed: bump -> [:tb/bump-revision] fires in 5s',
     'the page names the event the bump arm will fire');
-  w.eq(bump.revision, before.revision, 'and nothing has happened yet — that is the whole point');
+  witness.eq(bump.revision, before.revision, 'and nothing has happened yet — that is the whole point');
 
   await page.locator('[data-testid="arm-unmount"]').click();
   const unmount = await page.evaluate(() => ({
     label: window.__TB__.el('armed').textContent,
     mounted: !!document.querySelector('[data-testid="mountable"]'),
   }));
-  w.eq(unmount.label, 'armed: unmount -> [:tb/toggle-mounted] fires in 5s',
+  witness.eq(unmount.label, 'armed: unmount -> [:tb/toggle-mounted] fires in 5s',
     'and the event the unmount arm will fire, which nothing pinned before');
-  w.eq(unmount.mounted, before.mounted, 'the field is still mounted — this one is deferred too');
+  witness.eq(unmount.mounted, before.mounted, 'the field is still mounted — this one is deferred too');
 
   // AND THE FIRE. Everything above is equally true of an arm that never
   // armed: the label is rendered from the dispatch that set it, and
@@ -1687,19 +1687,19 @@ async function armedEdgesAreWired(page, w, ctx) {
   // the source. That is the shape this comment already refuses; it just wore
   // a name the sweep did not police, which is now fixed there too.
   const base = page.url().split('?')[0];
-  if (typeof ctx.navTimeoutMs !== 'number') {
+  if (typeof runContext.navTimeoutMs !== 'number') {
     throw new Error(
       'the runner must pass `navTimeoutMs` — a navigation with no ceiling ' +
       'inherits Playwright\'s 30s default, which is invisible in the source ' +
       'and unreachable from the runner\'s own knob');
   }
   await page.goto(`${base}?arm-ms=${ARM_MS}`,
-    { waitUntil: ctx.navWaitUntil, timeout: ctx.navTimeoutMs });
-  await waitForRemount(page, ctx);
+    { waitUntil: runContext.navWaitUntil, timeout: runContext.navTimeoutMs });
+  await waitForRemount(page, runContext);
 
   const seed = await page.evaluate(() => window.__TB__.model().revision);
   await page.locator('[data-testid="arm-bump"]').click();
-  w.eq(await page.evaluate(() => window.__TB__.el('armed').textContent),
+  witness.eq(await page.evaluate(() => window.__TB__.el('armed').textContent),
     `armed: bump -> [:tb/bump-revision] fires in ${ARM_MS}ms`,
     'the readout is rendered from the delay actually armed, not a constant');
 
@@ -1709,14 +1709,14 @@ async function armedEdgesAreWired(page, w, ctx) {
     revision: window.__TB__.model().revision,
     label: window.__TB__.el('armed').textContent,
   }));
-  w.eq(fired.revision, seed + 1, 'the armed bump FIRES its event');
-  w.eq(fired.label, 'idle', 'and the readout returns to idle when it does');
+  witness.eq(fired.revision, seed + 1, 'the armed bump FIRES its event');
+  witness.eq(fired.label, 'idle', 'and the readout returns to idle when it does');
 
   await page.locator('[data-testid="arm-unmount"]').click();
   await waitForArm(page,
     () => document.querySelector('[data-testid="mountable-gone"]') !== null,
     null, 'the armed unmount never fired');
-  w.eq(await page.evaluate(() =>
+  witness.eq(await page.evaluate(() =>
     document.querySelector('[data-testid="mountable"]') === null),
   true, 'and the armed unmount fires its own, different event');
 }
@@ -1765,15 +1765,15 @@ module.exports = {
   url: '/index.html',
   pageHelpers: PAGE_HELPERS,
 
-  run: async (page, ctx) => {
-    const w = new Witness(ctx.engine);
+  run: async (page, runContext) => {
+    const witness = new Witness(runContext.engine);
     for (const [name, section] of SECTIONS) {
-      const before = w.checks;
-      // `ctx` reaches every section so one that navigates is bounded by the
+      const before = witness.checks;
+      // `runContext` reaches every section so one that navigates is bounded by the
       // runner's own ceiling rather than a literal of its own.
-      await section(page, w, ctx);
-      w.sections[name] = w.checks - before;
+      await section(page, witness, runContext);
+      witness.sections[name] = witness.checks - before;
     }
-    return { checks: w.checks, recorded: w.recorded, sections: w.sections };
+    return { checks: witness.checks, recorded: witness.recorded, sections: witness.sections };
   },
 };

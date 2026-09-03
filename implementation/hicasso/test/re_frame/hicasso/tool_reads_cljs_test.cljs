@@ -101,16 +101,16 @@
 
 (defn- mount! [body-fn] (mount-in! frame-id body-fn))
 
-(defn- k
+(defn- sub-key
   "A RAW cell key — what the runtime's own tables are keyed by."
   [query-v]
   [frame-id query-v])
 
-(defn- bk
+(defn- boundary-read-key
   "One element of an EXPORTED boundary key: frame, registration id, and the
-  projected query. Distinct from [[k]] on purpose — the raw key is what the
+  projected query. Distinct from [[sub-key]] on purpose — the raw key is what the
   runtime holds, this is what the door is allowed to say."
-  ([query-v] (bk frame-id query-v))
+  ([query-v] (boundary-read-key frame-id query-v))
   ([fid query-v] [fid (first query-v) query-v]))
 
 (defn- envelopes
@@ -165,9 +165,10 @@
       (let [e    (tool/read-mounted-boundaries)
             rows (into {} (map (juxt (comp :key :boundary) identity)) (:boundaries e))]
         (is (= 2 (count rows)) "one row per DISTINCT edge set")
-        (is (= 2 (:instances (get rows [(bk [:tr/left])]))))
-        (is (= 1 (:instances (get rows [(bk [:tr/left]) (bk [:tr/right])]))))
-        (is (= frame-id (:frame (get rows [(bk [:tr/left])]))))))
+        (is (= 2 (:instances (get rows [(boundary-read-key [:tr/left])]))))
+        (is (= 1 (:instances (get rows [(boundary-read-key [:tr/left])
+                                        (boundary-read-key [:tr/right])]))))
+        (is (= frame-id (:frame (get rows [(boundary-read-key [:tr/left])]))))))
 
     (testing "a boundary that read NOTHING is still counted — the cell table cannot see it"
       (let [d (mount! (fn [_] nil))
@@ -202,7 +203,9 @@
       (is (= 1 (count (:boundaries e)))
           "one row per distinct edge set, whatever the read order")
       (let [row (first (:boundaries e))]
-        (is (= [(bk [:tr/left]) (bk [:tr/right])] (:key (:boundary row))))
+        (is (= [(boundary-read-key [:tr/left])
+                (boundary-read-key [:tr/right])]
+               (:key (:boundary row))))
         (is (= 2 (:instances row)) "both boundaries are counted in it")
         (is (= 2 (:read-orders row))
             "and the row says it folded two orders, which is the honest
@@ -369,13 +372,15 @@
     (testing ":fan-out is the cell's own reader-slot count"
       (is (= 3 (:fan-out (:tr/left by-sub))))
       (is (= 1 (:fan-out (:tr/right by-sub))))
-      (is (= (count (runtime/cell-readers (k [:tr/left])))
+      (is (= (count (runtime/cell-readers (sub-key [:tr/left])))
              (:fan-out (:tr/left by-sub)))
           "the projection must not derive a number the table already holds"))
     (testing ":readers are the SAME keys the mounted roster states — the rosters join"
       (let [mounted (boundary-keys (tool/read-mounted-boundaries))
             readers (into #{} (map :key) (:readers (:tr/left by-sub)))]
-        (is (= #{[(bk [:tr/left])] [(bk [:tr/left]) (bk [:tr/right])]} readers))
+        (is (= #{[(boundary-read-key [:tr/left])]
+                 [(boundary-read-key [:tr/left]) (boundary-read-key [:tr/right])]}
+               readers))
         (is (every? mounted readers)
             "every reader key must resolve in the mounted roster, with no correlation step")))
     (testing "a key nothing holds is ABSENT — not a subscription with zero readers"
@@ -458,7 +463,7 @@
   (testing "NON-VACUITY: the state these projections read from is carrying the seed"
     (seeded!)
     (let [release (mount! (fn [_] (h/sub [:tr/token]) nil))]
-      (is (= the-secret @(runtime/cell-reaction (k [:tr/token])))
+      (is (= the-secret @(runtime/cell-reaction (sub-key [:tr/token])))
           (str "the cell's live reaction must deref to the seeded secret — if it "
                "does not, every no-egress assertion below is passing against a "
                "runtime that never saw the value"))

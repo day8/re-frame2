@@ -150,11 +150,12 @@
 ;; Reading the page
 ;; ---------------------------------------------------------------------------
 
-(defn- q [m sel] (.querySelector (:container m) sel))
-(defn- q* [m sel] (array-seq (.querySelectorAll (:container m) sel)))
+(defn- query-node [mount selector] (.querySelector (:container mount) selector))
+(defn- query-nodes [mount selector]
+  (array-seq (.querySelectorAll (:container mount) selector)))
 
-(defn- viewport-in [m] (q m ".ledger-viewport"))
-(defn- note-node [m i] (q m (str "#" (events/note-id i))))
+(defn- viewport-in [m] (query-node m ".ledger-viewport"))
+(defn- note-node [m i] (query-node m (str "#" (events/note-id i))))
 (defn- active [] (.-activeElement js/document))
 (defn- record-of [^js node] (some-> node (.getAttribute "data-record")))
 
@@ -236,7 +237,7 @@
   asks whether a control can be NAMED, this asks whether it can be
   OPERATED, and a screen needs both answers to be empty."
   [m]
-  (->> (q* m "[role]")
+  (->> (query-nodes m "[role]")
        (filterv (fn [^js el]
                   (and (contains? activation-roles (.getAttribute el "role"))
                        (not (natively-operable? el)))))))
@@ -304,11 +305,11 @@
     (skip! "the instruments")
     (let [m (hm/mount! [a-page-of-near-misses {}])]
       (testing "focusability is the ENGINE's answer and it goes both ways"
-        (is (true? (focusable? (q m "#real"))))
-        (is (true? (focusable? (q m "#half")))
+        (is (true? (focusable? (query-node m "#real"))))
+        (is (true? (focusable? (query-node m "#half")))
             "a `tabindex` buys a place in the order for an element the
              tag table would refuse")
-        (is (false? (focusable? (q m "#neither")))))
+        (is (false? (focusable? (query-node m "#neither")))))
 
       (testing "so the ORDER contains the two the engine accepts, in
                 document order, and not the third"
@@ -318,7 +319,7 @@
                 the one that is perfectly reachable, which is the defect
                 a focus-order check alone calls fine"
         (is (= ["half" "neither"] (mapv label-of (unoperable-controls m))))
-        (is (= ["real"] (mapv label-of (q* m "button")))
+        (is (= ["real"] (mapv label-of (query-nodes m "button")))
             "and the real button is NOT among them, so the sweep is
              discriminating rather than reporting every element it
              ranges over"))
@@ -329,11 +330,11 @@
     (skip! "the candidate set")
     (let [m (mount-ledger!)]
       (testing "premise: the screen mounted the window it always mounts"
-        (is (= 24 (count (q* m "[role='row']")))))
+        (is (= 24 (count (query-nodes m "[role='row']")))))
 
       (testing "a row's two controls are both the engine's to focus"
         (is (true? (focusable? (note-node m 0))))
-        (is (true? (focusable? (q m ".ledger-flag")))))
+        (is (true? (focusable? (query-node m ".ledger-flag")))))
 
       (testing "and the virtualizer's own wrappers are not in the
                 sequential-navigation order — they carry
@@ -355,13 +356,13 @@
                 the page. The spacer, which does not scroll, is not
                 focusable at all"
         (is (true? (focusable? (viewport-in m))))
-        (is (false? (focusable? (q m ".ledger-spacer")))))
+        (is (false? (focusable? (query-node m ".ledger-spacer")))))
 
       (testing "nor is the grid, nor a cell: `role=\"grid\"` is a
                 container, and the ledger does not implement the
                 roving-tabindex conduct that would make one focusable"
-        (is (false? (focusable? (q m "[role='grid']"))))
-        (is (false? (focusable? (q m "[role='gridcell']")))))
+        (is (false? (focusable? (query-node m "[role='grid']"))))
+        (is (false? (focusable? (query-node m "[role='gridcell']")))))
 
       (hm/unmount! m))))
 
@@ -388,7 +389,7 @@
         (let [m      (hm/mount! [a-page-of-near-misses {}])
               finish (fn [] (hm/unmount! m) (done))]
           (try
-            (let [real (q m "#real")]
+            (let [real (query-node m "#real")]
               (.focus real)
               (is (identical? real (active)) "premise: focus starts on the button")
 
@@ -418,7 +419,7 @@
                               the engine accepts, which is the `<div>` a
                               `tabindex` bought a place for and not the one with
                               only a role"
-                      (is (identical? (q m "#half") (active))
+                      (is (identical? (query-node m "#half") (active))
                           (str "expected #half, got " (some-> (active) label-of)))
                       (is (not (identical? real (active)))))
                     (finally (finish))))))
@@ -492,7 +493,7 @@
       (testing "and nothing buys itself a place out of turn — a positive
                 tabindex hoists a control above everything that has
                 none, which is a reordering nothing on screen shows"
-        (is (= [] (->> (q* m "[tabindex]")
+        (is (= [] (->> (query-nodes m "[tabindex]")
                        (filterv #(pos? (.-tabIndex ^js %)))
                        (mapv label-of)))))
 
@@ -522,7 +523,7 @@
                 and `aria-rowcount` is the whole of what tells a screen
                 reader that it exists"
         (is (nil? (note-node big 9999)))
-        (is (= "10000" (.getAttribute (q big "[role='grid']") "aria-rowcount"))))
+        (is (= "10000" (.getAttribute (query-node big "[role='grid']") "aria-rowcount"))))
 
       (hm/unmount! big))))
 
@@ -651,6 +652,7 @@
                 its cells and a status region are all structure, and
                 none of them is a control"
         (is (= #{"grid" "row" "gridcell" "presentation" "status"}
-               (into #{} (map #(.getAttribute ^js % "role")) (q* m "[role]")))))
+               (into #{} (map #(.getAttribute ^js % "role"))
+                     (query-nodes m "[role]")))))
 
       (hm/unmount! m))))

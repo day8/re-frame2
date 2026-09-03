@@ -264,9 +264,14 @@
   (rf/with-frame frame-kw (rf/dispatch-sync [::seed prices]))
   (frame/frame-incarnation-token frame-kw))
 
-(defn- at [handle sel] (.querySelector ^js (:container handle) sel))
-(defn- text-at [handle sel] (some-> (at handle sel) .-textContent))
-(defn- click! [handle sel] (.click ^js (at handle sel)) (mount/settle!) nil)
+(defn- query-node [handle selector]
+  (.querySelector ^js (:container handle) selector))
+(defn- text-at [handle selector]
+  (some-> (query-node handle selector) .-textContent))
+(defn- click! [handle selector]
+  (.click ^js (query-node handle selector))
+  (mount/settle!)
+  nil)
 
 (defn- readers-of [sub-key] (runtime/cell-readers sub-key))
 

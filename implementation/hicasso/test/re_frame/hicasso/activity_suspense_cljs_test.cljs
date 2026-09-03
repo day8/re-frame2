@@ -194,7 +194,7 @@
     (rf/dispatch-sync [:acs/seed {:which :a :a 1 :b 100}]))
   frame-id)
 
-(defn- k
+(defn- sub-key
   "A sub-key: the runtime keys cells by `[frame-kw query-v]`, because two
   frames are isolated contexts holding two different app-dbs."
   [query-v]
@@ -210,7 +210,7 @@
 (defn- readers
   "The registrations currently reading `query-v`, as a snapshot vector."
   [query-v]
-  (runtime/cell-readers (k query-v)))
+  (runtime/cell-readers (sub-key query-v)))
 
 (defn- reader-count
   "How many registrations read `query-v`.
@@ -319,10 +319,10 @@
       (testing "VISIBLE-CONNECTED — the commit acquired exactly the read
                 set, and the registration holding it is the one this
                 commit minted"
-        (is (= #{(k [:acs/a])} (runtime/reads-of entry)))
+        (is (= #{(sub-key [:acs/a])} (runtime/reads-of entry)))
         (is (some? visible))
         (is (= {:cells 1 :cell-refs 1 :boundaries 1 :edges 1} (ownership)))
-        (is (= #{(k [:acs/a])} (runtime/boundary-reads visible))
+        (is (= #{(sub-key [:acs/a])} (runtime/boundary-reads visible))
             "and its forward edge is the entry's own key set"))
 
       (testing "it is LIVE, not merely present — a write to its key
@@ -482,7 +482,7 @@
                   zeros below are the zeros of a render that never
                   happened, which is the cheapest possible false green"
           (is (= 3 delta))
-          (is (every? #(= #{(k [:acs/which]) (k [:acs/a])} (runtime/reads-of %))
+          (is (every? #(= #{(sub-key [:acs/which]) (sub-key [:acs/a])} (runtime/reads-of %))
                       entries)
               "and each one resolved a real, non-empty read set"))
 
@@ -610,8 +610,8 @@
       (testing "the premise: the read set really did MOVE across the hidden
                 window. Without this the row is a hide/reveal of one
                 unchanged set, which section 3 already covers"
-        (is (= #{(k [:acs/which]) (k [:acs/a])} (runtime/reads-of entry-a)))
-        (is (= #{(k [:acs/which]) (k [:acs/b])} (runtime/reads-of entry-b)))
+        (is (= #{(sub-key [:acs/which]) (sub-key [:acs/a])} (runtime/reads-of entry-a)))
+        (is (= #{(sub-key [:acs/which]) (sub-key [:acs/b])} (runtime/reads-of entry-b)))
         (is (some? pre-hide)))
 
       (testing "THE ROW. `:acs/a` was read before the hide and is not read
@@ -629,7 +629,7 @@
         (is (true? (identical? reveal-reg (sole-reader [:acs/which])))
             "one registration per boundary, holding both its keys — not two
              registrations holding one each")
-        (is (= #{(k [:acs/which]) (k [:acs/b])}
+        (is (= #{(sub-key [:acs/which]) (sub-key [:acs/b])}
                (runtime/boundary-reads reveal-reg))))
 
       (testing "so the census is the reveal's read set and nothing else.
@@ -892,7 +892,7 @@
                 lists, its forward edge answers its read set, and the
                 entry it was minted from is CLAIMED"
         (is (some? connected))
-        (is (= #{(k [:acs/a])} (runtime/boundary-reads connected)))
+        (is (= #{(sub-key [:acs/a])} (runtime/boundary-reads connected)))
         (is (= 1 (entry-refs entry))))
 
       (hide! committed)
@@ -903,7 +903,7 @@
                 `subscribe` is what a reveal calls"
         (is (zero? (reader-count [:acs/a])))
         (is (= 0 (entry-refs entry)))
-        (is (= #{(k [:acs/a])} (runtime/boundary-reads connected))
+        (is (= #{(sub-key [:acs/a])} (runtime/boundary-reads connected))
             "the released registration still answers its read set — the
              forward edge is the entry's key set, shared by reference and
              never cleared, so a projection can still say WHAT a hidden

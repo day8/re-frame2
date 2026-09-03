@@ -146,7 +146,7 @@
   (with-redefs [codec/adopted? (fn [] adopted?)]
     (render-html hiccup)))
 
-(defn- q [root sel] (.querySelector root sel))
+(defn- query-node [root selector] (.querySelector root selector))
 
 ;; ---------------------------------------------------------------------------
 ;; 1 — the server announces nothing
@@ -273,8 +273,8 @@
                     (is (re-find #"chart-skeleton" html) html)
                     (is (not (re-find #"class=\"chart\"" html)) html))
                   (testing "React's own post-hydration pass swapped both"
-                    (is (some? (q container ".chart")))
-                    (is (nil? (q container ".chart-skeleton"))))
+                    (is (some? (query-node container ".chart")))
+                    (is (nil? (query-node container ".chart-skeleton"))))
                   (testing "and the real crossing announced once, with no stub
                             anywhere in the path"
                     (is (= 1 (count @seen)) (pr-str @seen)))

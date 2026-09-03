@@ -474,8 +474,10 @@
 (defn- picks [] (rf/with-frame frame-id @(rf/subscribe [::picks])))
 (defn- picked [] (rf/with-frame frame-id @(rf/subscribe [::picked])))
 
-(defn- at [handle sel] (.querySelector ^js (:container handle) sel))
-(defn- text-at [handle sel] (some-> (at handle sel) .-textContent))
+(defn- query-node [handle selector]
+  (.querySelector ^js (:container handle) selector))
+(defn- text-at [handle selector]
+  (some-> (query-node handle selector) .-textContent))
 
 (defn- all-text [handle sel]
   (mapv #(.-textContent ^js %)
@@ -843,7 +845,7 @@
                   ;; remount arm waits on `wait-live!`; a release that never
                   ;; happens times out here and names this label, which is the
                   ;; red the acceptance criterion asks for.
-                  (poll #(and (some? (at handle ".fell"))
+                  (poll #(and (some? (query-node handle ".fell"))
                               (zero? (count @!live)))
                         "the boundary caught, and the deleted subtree's cleanup ran")))
               (.then

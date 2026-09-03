@@ -248,7 +248,7 @@
    (react-dom-server/renderToString
      (mount/provider kw (codec/root-element kw hiccup)))))
 
-(defn- q [root sel] (.querySelector root sel))
+(defn- query-node [root selector] (.querySelector root selector))
 
 (defn- hydration-row
   "Bake the page on the server, adopt THOSE BYTES through the product
@@ -575,7 +575,7 @@
                comment separator exists for")
           (is (sup/every-server-node? container "my-widget")
               "and the custom element, whose head React does not know")
-          (is (= "quarterly" (.-textContent (q container ".title")))
+          (is (= "quarterly" (.-textContent (query-node container ".title")))
               "carrying the request's value"))))))
 
 (deftest a-deliberate-mismatch-is-attributed-to-the-root-that-owns-it
@@ -624,7 +624,7 @@
                     (is (= :warned-and-replaced
                            (:recovery (sup/tags-of (first @seen))))
                         "with the recovery React had already performed")
-                    (is (= "annual" (.-textContent (q container ".title")))
+                    (is (= "annual" (.-textContent (query-node container ".title")))
                         "and the repaired DOM carries the CLIENT's value,
                          which is what 'warned and replaced' means"))
                   (finally
@@ -667,9 +667,9 @@
                   (is (empty? @seen)
                       (str "neither adoption had anything to reconcile: "
                            (pr-str @seen)))
-                  (is (= "quarterly" (.-textContent (q ca ".title")))
+                  (is (= "quarterly" (.-textContent (query-node ca ".title")))
                       "root A settled on its own request")
-                  (is (= "annual" (.-textContent (q cb ".title")))
+                  (is (= "annual" (.-textContent (query-node cb ".title")))
                       "root B on its own")
                   (is (sup/every-server-node? ca ".title")
                       "root A adopted the server's nodes")

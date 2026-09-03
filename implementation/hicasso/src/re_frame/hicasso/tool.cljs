@@ -54,7 +54,7 @@
   are sub-keys and key vectors — values whose printed form is total,
   stable and independent of when they were interned."
   [key-fn xs]
-  (vec (sort-by (fn [x] (pr-str (key-fn x))) xs)))
+  (vec (sort-by (fn [item] (pr-str (key-fn item))) xs)))
 
 ;; ---------------------------------------------------------------------------
 ;; Privacy — the existing projectors, at this door
@@ -144,8 +144,8 @@
     {:sub-id   (sub-id-of query-v)
      :query    (projected-query frame-id query-v)
      :frame-id frame-id
-     :epoch    (if-some [^js c (get @collector/!cells sub-key)]
-                 (.-epoch c)
+     :epoch    (if-some [^js cell (get @collector/!cells sub-key)]
+                 (.-epoch cell)
                  evidence/unknown)}))
 
 ;; ---------------------------------------------------------------------------
@@ -161,7 +161,9 @@
   a name minted outside the macro."
   [names]
   (if (seq names)
-    (mapv (fn [n] {:view n :source (or (error/source-of n) evidence/unknown)})
+    (mapv (fn [view-name]
+            {:view view-name
+             :source (or (error/source-of view-name) evidence/unknown)})
           (sort names))
     evidence/unknown))
 
@@ -171,11 +173,13 @@
   attribution reader is named through the entry it came from rather than
   through a second registry."
   []
-  (let [m (js/Map.)]
+  (let [views-by-read-set-map (js/Map.)]
     (doseq [[_ bucket] @collector/!entries
             ^js entry  bucket]
-      (.set m (.-set entry) (view-rows (collector/entry-views entry))))
-    m))
+      (.set views-by-read-set-map
+            (.-set entry)
+            (view-rows (collector/entry-views entry))))
+    views-by-read-set-map))
 
 ;; ---------------------------------------------------------------------------
 ;; Read 1 — mounted boundaries
@@ -196,25 +200,36 @@
   entries, which the same subscribe/cleanup pair that moves `refs`
   keeps."
   []
-  (let [live (for [[_ bucket] @collector/!entries
-                   ^js entry  bucket
-                   :when      (pos? (.-refs entry))]
-               entry)]
-    (->> live
+  (let [live-entries (for [[_ bucket] @collector/!entries
+                           ^js entry  bucket
+                           :when      (pos? (.-refs entry))]
+                       entry)]
+    (->> live-entries
          (group-by (fn [^js entry] (boundary-key (.-set entry))))
-         (map (fn [[bkey entries]]
+         (map (fn [[projected-boundary-key entries]]
                 ;; The RAW sub-keys stay here and go no further: `read-row`
                 ;; needs them to reach the cell table, and every field it
                 ;; answers with is projected.
-                (let [raw-keys (ordered identity
-                                        (into #{} (mapcat (fn [^js e] (seq (.-set e)))) entries))]
-                  {:boundary    {:parent nil :key bkey}
+                (let [raw-read-keys
+                      (ordered identity
+                               (into #{}
+                                     (mapcat (fn [^js entry]
+                                               (seq (.-set entry))))
+                                     entries))]
+                  {:boundary    {:parent nil :key projected-boundary-key}
                    :views       (view-rows (into #{} (mapcat collector/entry-views) entries))
-                   :instances   (reduce + 0 (map (fn [^js e] (.-refs e)) entries))
+                   :instances   (reduce + 0 (map (fn [^js entry]
+                                                  (.-refs entry))
+                                                entries))
                    :read-orders (count entries)
-                   :frame       (let [fs (into #{} (map #(nth % 0)) bkey)]
-                                  (if (= 1 (count fs)) (first fs) evidence/unknown))
-                   :reads       (mapv read-row raw-keys)})))
+                   :frame       (let [frame-ids
+                                      (into #{}
+                                            (map #(nth % 0))
+                                            projected-boundary-key)]
+                                  (if (= 1 (count frame-ids))
+                                    (first frame-ids)
+                                    evidence/unknown))
+                   :reads       (mapv read-row raw-read-keys)})))
          (ordered (comp :key :boundary)))))
 
 (defn read-mounted-boundaries
@@ -263,7 +278,7 @@
   boundary — so `:fan-out` is the slot count and `:readers` the distinct
   edge sets holding them, each named through `views` (see
   `views-by-read-set`)."
-  [views sub-key ^js cell]
+  [views-by-read-set-map sub-key ^js cell]
   (let [readers (.-readers cell)
         query-v (nth sub-key 1)]
     {:sub-id   (sub-id-of query-v)
@@ -273,10 +288,12 @@
      :fan-out  (alength readers)
      :readers  (ordered :key
                         (into #{}
-                              (map (fn [^js reg]
+                              (map (fn [^js registration]
                                      {:parent nil
-                                      :key    (boundary-key (.-reads reg))
-                                      :views  (or (.get views (.-reads reg)) evidence/unknown)}))
+                                      :key    (boundary-key (.-reads registration))
+                                      :views  (or (.get views-by-read-set-map
+                                                        (.-reads registration))
+                                                  evidence/unknown)}))
                               readers))}))
 
 (defn read-read-attribution
@@ -299,13 +316,14 @@
   zero readers, it is one this runtime is not holding."
   []
   (when interop/debug-enabled?
-    (let [views (views-by-read-set)]
+    (let [views-by-read-set-map (views-by-read-set)]
       (evidence/envelope :read-attribution true nil
                          ;; Ordered by SUB-KEY before the row is built, never
                          ;; by a field on the row: the sub-key carries the raw
                          ;; query vector, and a sort key that rode on the row
                          ;; would be a second egress path for its arguments.
-                         {:edges (mapv (fn [[sub-key cell]] (edge-row views sub-key cell))
+                         {:edges (mapv (fn [[sub-key cell]]
+                                        (edge-row views-by-read-set-map sub-key cell))
                                        (ordered key @collector/!cells))}))))
 
 ;; ---------------------------------------------------------------------------
@@ -391,14 +409,15 @@
   other such row into one fictitious event."
   [windows frame-ids]
   (let [rows (into []
-                   (mapcat (fn [fid]
+                   (mapcat (fn [frame-id]
                              (map-indexed
-                               (fn [i bundle]
-                                 (let [row (intent-row fid bundle)]
+                               (fn [fragment-index bundle]
+                                 (let [row (intent-row frame-id bundle)]
                                    (cond-> row
                                      (nil? (:dispatch-id row))
-                                     (assoc :dispatch-id [::unjoinable fid i]))))
-                               (get windows fid))))
+                                     (assoc :dispatch-id
+                                            [::unjoinable frame-id fragment-index]))))
+                               (get windows frame-id))))
                    frame-ids)]
     (->> (merge-fragments rows)
          (sort-by (fn [{:keys [dispatch-id]}]
@@ -464,25 +483,30 @@
   to the boundary's own frames is what keeps activity in frame B from
   turning frame A's `:cap` into a false `:uncorrelated`, or B's runs into
   A's leads because two frames registered one sub id."
-  [windows candidates-by-frame-sub row]
-  (let [reads   (:reads row)
-        frames  (into #{} (map :frame-id) reads)
-        runs    (reduce + 0 (map #(count (get windows %)) frames))
-        epochs  (into [] (keep #(when (number? (:epoch %)) (:epoch %))) reads)
-        peak    (when (seq epochs) (reduce max epochs))
-        looked? (pos? runs)
-        leads   (ordered :dispatch-id
-                         (into #{}
-                               (mapcat (fn [{:keys [frame-id sub-id]}]
-                                         (get candidates-by-frame-sub [frame-id sub-id])))
-                               reads))]
-    {:boundary     (:boundary row)
-     :views        (:views row)
-     :frame        (:frame row)
-     :instances    (:instances row)
-     :window       {:frames (vec (sort-by pr-str frames)) :retained-runs runs}
+  [windows candidates-by-frame-sub boundary-row]
+  (let [boundary-reads   (:reads boundary-row)
+        frame-ids        (into #{} (map :frame-id) boundary-reads)
+        retained-runs    (reduce + 0 (map #(count (get windows %)) frame-ids))
+        epochs           (into []
+                               (keep #(when (number? (:epoch %)) (:epoch %)))
+                               boundary-reads)
+        peak-epoch       (when (seq epochs) (reduce max epochs))
+        searched-window? (pos? retained-runs)
+        candidate-leads  (ordered
+                           :dispatch-id
+                           (into #{}
+                                 (mapcat (fn [{:keys [frame-id sub-id]}]
+                                           (get candidates-by-frame-sub
+                                                [frame-id sub-id])))
+                                 boundary-reads))]
+    {:boundary     (:boundary boundary-row)
+     :views        (:views boundary-row)
+     :frame        (:frame boundary-row)
+     :instances    (:instances boundary-row)
+     :window       {:frames (vec (sort-by pr-str frame-ids))
+                    :retained-runs retained-runs}
      :snapshot     (if (seq epochs) (reduce + epochs) evidence/unknown)
-     :peak-epoch   (or peak evidence/unknown)
+     :peak-epoch   (or peak-epoch evidence/unknown)
      ;; The READ IDENTITY, not the bare sub-id: `[:row 1]` and `[:row 2]`
      ;; are one sub-id and two different reads, and a Why view that
      ;; collapsed them would answer "`:row` moved" to a developer looking
@@ -490,14 +514,14 @@
      ;; naming it here carries nothing new.
      :latest-reads (if (seq epochs)
                      (into []
-                           (comp (filter #(= peak (:epoch %)))
+                           (comp (filter #(= peak-epoch (:epoch %)))
                                  (map #(select-keys % [:sub-id :query :frame-id])))
-                           reads)
+                           boundary-reads)
                      evidence/unknown)
-     :loss         (if looked?
+     :loss         (if searched-window?
                      {:reason :uncorrelated :dropped evidence/unknown}
                      {:reason :cap :dropped evidence/unknown})
-     :candidates   (if looked? leads evidence/unknown)}))
+     :candidates   (if searched-window? candidate-leads evidence/unknown)}))
 
 (defn explain-render
   "Which reads changed, and which boundaries hold them — the honest half
@@ -533,22 +557,32 @@
           ;; the search per boundary is only honest if that window is in it.
           frame-ids (vec (sort-by pr-str
                                   (into (set (hicasso-frames))
-                                        (mapcat (fn [r] (map :frame-id (:reads r))))
+                                        (mapcat (fn [boundary-row]
+                                                  (map :frame-id (:reads boundary-row))))
                                         rows)))
-          windows   (into {} (map (fn [fid] [fid (trace-tooling/trace-buffer fid)])) frame-ids)
+          windows   (into {}
+                          (map (fn [frame-id]
+                                 [frame-id (trace-tooling/trace-buffer frame-id)]))
+                          frame-ids)
           runs      (reduce + 0 (map count (vals windows)))
           ;; Keyed by [frame-id sub-id]: a run that recomputed `:todo` in
           ;; frame B is not a lead for a boundary reading `:todo` in frame
           ;; A, however alike the two ids look.
-          leads     (for [fid    frame-ids
-                          bundle (get windows fid)
-                          sid    (keep #(get-in % [:tags :rf.sub/id]) (:subs bundle))]
-                      [[fid sid] {:dispatch-id (:dispatch-id bundle)
-                                  :event-id    (when (vector? (:event bundle))
-                                                 (nth (:event bundle) 0))
-                                  :frame-id    fid
-                                  :sub-id      sid}])
-          by-frame-sub (reduce (fn [m [k lead]] (update m k (fnil conj #{}) lead)) {} leads)]
+          leads     (for [frame-id frame-ids
+                          bundle   (get windows frame-id)
+                          sub-id   (keep #(get-in % [:tags :rf.sub/id])
+                                         (:subs bundle))]
+                      [[frame-id sub-id]
+                       {:dispatch-id (:dispatch-id bundle)
+                        :event-id    (when (vector? (:event bundle))
+                                       (nth (:event bundle) 0))
+                        :frame-id    frame-id
+                        :sub-id      sub-id}])
+          by-frame-sub
+          (reduce (fn [candidates [candidate-key lead]]
+                    (update candidates candidate-key (fnil conj #{}) lead))
+                  {}
+                  leads)]
       (evidence/envelope :explain-render false {:reason :uncorrelated :dropped evidence/unknown}
                          {:explanations (mapv #(explanation windows by-frame-sub %) rows)
                           :window       {:frames frame-ids :retained-runs runs}}))))

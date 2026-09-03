@@ -145,13 +145,13 @@
   (rf/with-frame frame-id (rf/dispatch-sync [:kcod/seed {:left 1 :right 7}]))
   frame-id)
 
-(defn- k [query-v] [frame-id query-v])
+(defn- sub-key [query-v] [frame-id query-v])
 
 (def ^:private nothing-owned {:cells 0 :cell-refs 0 :boundaries 0 :edges 0})
 
 (defn- ownership [] (dissoc (runtime/residue) :entries))
 
-(defn- readers-of [query-v] (count (runtime/cell-readers (k query-v))))
+(defn- readers-of [query-v] (count (runtime/cell-readers (sub-key query-v))))
 
 (defn- app
   "The hicasso subtree: the frame provider over a root element."

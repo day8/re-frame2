@@ -161,18 +161,19 @@
   ([total] (mount-ledger! total [views/ledger {}]))
   ([total form] (hm/mount! form {:initial-events (app/initial-events total)})))
 
-(defn- q [m sel] (.querySelector (:container m) sel))
-(defn- q* [m sel] (array-seq (.querySelectorAll (:container m) sel)))
+(defn- query-node [mount selector] (.querySelector (:container mount) selector))
+(defn- query-nodes [mount selector]
+  (array-seq (.querySelectorAll (:container mount) selector)))
 
-(defn- rows-in [m] (q* m "[role='row']"))
-(defn- grid-in [m] (q m "[role='grid']"))
-(defn- viewport-in [m] (q m ".ledger-viewport"))
+(defn- rows-in [m] (query-nodes m "[role='row']"))
+(defn- grid-in [m] (query-node m "[role='grid']"))
+(defn- viewport-in [m] (query-node m ".ledger-viewport"))
 
 (defn- note-node
   "The note field of the row showing model index `i`, or nil when that
   row is not in the document."
   [m i]
-  (q m (str "#" (events/note-id i))))
+  (query-node m (str "#" (events/note-id i))))
 
 (defn- record-of
   "The record id the node BELONGS TO, read off the DOM. The whole of the
@@ -293,11 +294,11 @@
     (skip! "the wrapper roles")
     (let [m (mount-ledger! 10000)]
       (is (= "presentation" (.getAttribute (viewport-in m) "role")))
-      (is (= "presentation" (.getAttribute (q m ".ledger-spacer") "role")))
+      (is (= "presentation" (.getAttribute (query-node m ".ledger-spacer") "role")))
       (testing "and the spacer is the MODEL's full height, which is what
                 makes the scrollbar honest"
         (is (= (str (* 10000 views/row-height) "px")
-               (.. ^js (q m ".ledger-spacer") -style -height))))
+               (.. ^js (query-node m ".ledger-spacer") -style -height))))
       (hm/unmount! m))))
 
 ;; ---------------------------------------------------------------------------

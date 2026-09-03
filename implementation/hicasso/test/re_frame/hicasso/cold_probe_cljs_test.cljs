@@ -121,7 +121,7 @@
   (vreset! !runs 0)
   frame-id)
 
-(defn- k [query-v] [frame-id query-v])
+(defn- sub-key [query-v] [frame-id query-v])
 
 (defn- run-body-in!
   "Run one boundary body on `fid` under the real fence and answer what it
@@ -192,9 +192,9 @@
             reverse edge and no watch; no sub-cache slot, so no reaction
             and no ref-count. An abandoned render pays for its reads and
             keeps none of them"
-    (is (nil? (get @collector/!cells (k [:coldprobe/plain]))))
+    (is (nil? (get @collector/!cells (sub-key [:coldprobe/plain]))))
     (is (nil? (sub-cache-entry [:coldprobe/plain])))
-    (is (= [] (runtime/cell-readers (k [:coldprobe/plain]))))
+    (is (= [] (runtime/cell-readers (sub-key [:coldprobe/plain]))))
     (is (= {:cells 0 :cell-refs 0 :boundaries 0 :edges 0}
            (dissoc (runtime/residue) :entries))))
 
@@ -208,9 +208,9 @@
     (testing "committing the very same read fills both tables — so the
               emptiness above is the probe's promise, not an instrument
               that cannot see"
-      (is (some? (get @collector/!cells (k [:coldprobe/plain]))))
+      (is (some? (get @collector/!cells (sub-key [:coldprobe/plain]))))
       (is (some? (sub-cache-entry [:coldprobe/plain])))
-      (is (= 1 (count (runtime/cell-readers (k [:coldprobe/plain]))))))
+      (is (= 1 (count (runtime/cell-readers (sub-key [:coldprobe/plain]))))))
     (release)))
 
 (deftest a-cold-read-answers-what-the-committed-path-answers
@@ -227,7 +227,7 @@
       (testing "the warm read really is warm — a committed cell now holds
                 the key, so this second read is a pure deref and not a
                 second cold one"
-        (is (some? (get @collector/!cells (k [:coldprobe/plain])))))
+        (is (some? (get @collector/!cells (sub-key [:coldprobe/plain])))))
       (is (= cold warm))
       (is (= 7 warm))
       (release))))
@@ -254,7 +254,7 @@
   (testing "the edges the three reads recorded are one key, because the
             scratch's sub-keys are values: a repeated read is a repeated
             entry in the sequence and one member of the set"
-    (is (= #{(k [:coldprobe/counted])}
+    (is (= #{(sub-key [:coldprobe/counted])}
            (runtime/reads-of (collector/last-reads)))))
 
   ;; THE OTHER HALF, and it is the half a global memo would break. The box
@@ -321,7 +321,7 @@
               cell holds the key, so this read is cold by the runtime's
               own definition and rung 1 is the rung it must take"
       (is (some? (sub-cache-entry [:coldprobe/counted])))
-      (is (nil? (get @collector/!cells (k [:coldprobe/counted])))))
+      (is (nil? (get @collector/!cells (sub-key [:coldprobe/counted])))))
 
     (testing "the read answers the reaction's own value"
       (is (= [7] (run-body! (fn [read] (read [:coldprobe/counted]))))))

@@ -127,7 +127,7 @@
 (defn- drop-rack! [c]
   (when-some [p (.-parentNode c)] (.removeChild p c)))
 
-(defn- q [root sel] (.querySelector root sel))
+(defn- query-node [root selector] (.querySelector root selector))
 
 (defn- click! [node]
   (.click node)
@@ -271,17 +271,17 @@
                     line after `root!` returns, which is inside its own
                     flushSync, and therefore also the claim that the fallback
                     never flashed"
-            (is (some? (q rack ".toast"))
+            (is (some? (query-node rack ".toast"))
                 "the portalled subtree is in the TARGET container")
-            (is (= "saved" (.-textContent (q rack ".toast")))
+            (is (= "saved" (.-textContent (query-node rack ".toast")))
                 "carrying the value its body read from the frame")
-            (is (nil? (q (:container h) ".toast"))
+            (is (nil? (query-node (:container h) ".toast"))
                 "and nowhere in the root's own container")
-            (is (nil? (q (:container h) ".rack-placeholder"))
+            (is (nil? (query-node (:container h) ".rack-placeholder"))
                 "with no placeholder pass — a fallback is for a server's
                  markup, not for a client that has none"))
           (testing "while the rest of the view is exactly where it was written"
-            (is (some? (q (:container h) ".title"))
+            (is (some? (query-node (:container h) ".title"))
                 "the sibling markup stayed in the root container"))
           (testing "REACT CONTEXT REACHES THROUGH THE PORTAL, which is the
                     half of *frame/context preserved* an intent cannot
@@ -291,10 +291,10 @@
                     its frame from the substrate's one React context. React
                     keeps a portal in the tree it was written in, so the
                     provider above the root is above this body too"
-            (is (some? (q rack ".deep"))
+            (is (some? (query-node rack ".deep"))
                 "the boundary inside the portal rendered rather than
                  refusing with :rf.error/no-frame-context")
-            (is (= "saved" (.-textContent (q rack ".deep")))
+            (is (= "saved" (.-textContent (query-node rack ".deep")))
                 "and its `h/sub` read resolved against the owner's frame"))
           (testing "and teardown takes the portalled DOM with it. The nodes
                     live in somebody else's container, so nothing but React's
@@ -302,7 +302,7 @@
                     would leave a page that grows one toast rack per mount"
             (mount/unmount! h)
             (mount/settle!)
-            (is (nil? (q rack ".toast"))
+            (is (nil? (query-node rack ".toast"))
                 "the target container is empty after unmount"))
           (finally
             (mount/release! h)
@@ -323,7 +323,7 @@
                     ordinary child does. A subtree lowered anywhere else
                     would raise `:rf.error/hicasso-intent-outside-boundary`
                     instead of dispatching"
-            (click! (q rack ".toast"))
+            (click! (query-node rack ".toast"))
             (is (some #{"toast"} (log))
                 (str "the intent reached the owner's frame: " (pr-str (log)))))
           (finally
@@ -338,8 +338,8 @@
       (let [rack (rack!)
             h    (mount/root! (mount/fresh-container!) frame-id [toast-page {:target rack}])]
         (try
-          (let [owner (q (:container h) ".owner")
-                toast (q rack ".toast")]
+          (let [owner (query-node (:container h) ".owner")
+                toast (query-node rack ".toast")]
             (testing "the control first, because without it the row below is
                       satisfied by an ordinary child: the clicked node is NOT
                       a DOM descendant of the ancestor that handles it"
@@ -372,7 +372,7 @@
                                 [counted-page {:target rack-a}])]
         (try
           (mount/settle!)
-          (let [first-node (q rack-a ".counted")]
+          (let [first-node (query-node rack-a ".counted")]
             (testing "one mount, in the first container"
               (is (some? first-node))
               (is (= 1 @!child-mounts) (str "read " @!child-mounts)))
@@ -385,11 +385,11 @@
               (mount/render! h [counted-page {:target rack-b}])
               (mount/settle!)
               (mount/settle!)
-              (is (nil? (q rack-a ".counted"))
+              (is (nil? (query-node rack-a ".counted"))
                   "the subtree left the first container")
-              (is (some? (q rack-b ".counted"))
+              (is (some? (query-node rack-b ".counted"))
                   "and is in the second")
-              (is (not (identical? first-node (q rack-b ".counted")))
+              (is (not (identical? first-node (query-node rack-b ".counted")))
                   "as a NEW DOM node — the old one was destroyed, not moved")
               (is (= 2 @!child-mounts)
                   (str "TWO MOUNTS: the subtree was rebuilt, and a caller who
@@ -458,9 +458,9 @@
                             the same unadopted answer — so there was no mismatch
                             to repair, and no hydration claim was made about
                             bytes nobody wrote: " (pr-str @seen)))
-                  (is (nil? (q container ".rack-placeholder"))
+                  (is (nil? (query-node container ".rack-placeholder"))
                       "the placeholder is GONE after adoption")
-                  (is (some? (q rack ".toast"))
+                  (is (some? (query-node rack ".toast"))
                       "and the portal is mounted, in the target container")
                   (finally
                     (restore)

@@ -123,7 +123,7 @@
   (rf/with-frame frame-id (rf/dispatch-sync [:acsd/seed {:a 1 :b 100}]))
   frame-id)
 
-(defn- k [query-v] [frame-id query-v])
+(defn- sub-key [query-v] [frame-id query-v])
 
 (defn- ownership
   "The census with the entry cache projected out. A read-set entry is a
@@ -139,11 +139,11 @@
   cycle and dies on the vector. The seam file's `reader-count` carries
   the full note."
   [query-v]
-  (count (runtime/cell-readers (k query-v))))
+  (count (runtime/cell-readers (sub-key query-v))))
 
 (defn- sole-reader
   [query-v]
-  (let [rs (runtime/cell-readers (k query-v))]
+  (let [rs (runtime/cell-readers (sub-key query-v))]
     (when (= 1 (count rs)) (first rs))))
 
 (defn- poll
