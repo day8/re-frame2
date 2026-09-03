@@ -820,8 +820,8 @@
   caller's alternate spelling). Throws `:rf.error/mutation-invalid-target`
   otherwise."
   [target resolved-scope registered-resource? where arm]
-  (let [[disposition a b] (classify-target-key target resolved-scope
-                                               registered-resource? where arm)]
+  (let [[disposition a] (classify-target-key target resolved-scope
+                                             registered-resource? where arm)]
     (case disposition
       :apply a
       ;; STRICT policy: a recoverable :skip ALSO throws (the corruption-class

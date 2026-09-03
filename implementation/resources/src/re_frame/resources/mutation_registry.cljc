@@ -23,7 +23,6 @@
             [re-frame.resources.mutation-runtime :as mstate]
             [re-frame.resources.params :as params]
             [re-frame.resources.scope-registry :as scope-registry]
-            [re-frame.resources.state :as state]
             [re-frame.source-coords :as source-coords]))
 
 #?(:clj (set! *warn-on-reflection* true))

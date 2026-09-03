@@ -48,8 +48,7 @@
   route/event that ensures under the new scope attaches the new owner, and
   route leave / `clear-scope` releases the old — the sub is a passive
   reader throughout (Spec 016 §Views stay passive)."
-  (:require [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
+  (:require [re-frame.interop :as interop]
             [re-frame.resources.registry :as registry]
             [re-frame.resources.state :as state]
             [re-frame.resources.work-ledger :as work-ledger]

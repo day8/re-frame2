@@ -63,7 +63,6 @@
   next successful transition, retaining a bounded per-key tail for Xray."
   (:require [clojure.set :as set]
             [re-frame.error :as error]
-            [re-frame.frame :as frame]
             [re-frame.reply :as reply]
             [re-frame.resources.classification :as classification]
             [re-frame.resources.registry :as registry]
@@ -2384,27 +2383,6 @@
 ;; differs only by the inline durable-layer fallback key (`:data` here for a
 ;; resource entry, `:result` for a mutation instance — rf2-366u0g).
 
-(def ^:private http-aborted-kind
-  "The managed-HTTP failure `:kind` for an intentional abort/cancellation
-  (Spec 014 §Aborts — the transport classifies a `:rf.http/managed-abort`,
-  an actor-destroy cancellation, or a timeout teardown to this kind). A
-  failure envelope carrying this kind is a CANCELLATION, not a user-visible
-  resource error (rf2-z70ujl). Note a `:request-id-superseded` abort never
-  even dispatches a reply — so a superseded supersession is handled by the
-  missing reply + stale-suppression, not here (Spec 014 §Abort precedence —
-  enforced by the transport, relied on here)."
-  :rf.http/aborted)
-
-(defn- abort-failure?
-  "True iff `error` is a managed-HTTP ABORT failure envelope
-  (`{:kind :rf.http/aborted …}`) — an intentional cancellation that must NOT
-  become a user-visible resource `:error` / `:refresh-error` or a failed
-  ledger row (rf2-z70ujl, Spec 016 §Cancellation is opportunistic). Every
-  other `:rf.http/*` category (transport / 5xx / 4xx / timeout-as-failure /
-  decode / accept) is a genuine failure and flows the ordinary failed path."
-  [error]
-  (= http-aborted-kind (:kind error)))
-
 (defn succeeded-handler
   "`:rf.resource.internal/succeeded` — a transport read succeeded. Re-lifts
   the transport's PUBLIC reply into the canonical reply map
@@ -2652,8 +2630,10 @@
         ;; the ONE canonical reply map (Managed-Effects §The uniform reply
         ;; envelope) — `:status :error` (or `:cancelled` for an abort), now
         ;; carrying `:completed-at` (rf2-rl27r2). The internal reply target
-        ;; receives it directly. `abort-failure?` is the family's classifier;
-        ;; the canonical reply's `:status` then drives the branch.
+        ;; receives it directly. The abort classification is `rreply/failure-
+        ;; reply`'s (`re-frame.resources.reply/abort-failure?` — the family's
+        ;; ONE classifier); the canonical reply's `:status` then drives the
+        ;; branch below.
         reply      (rreply/failure-reply payload error
                                          {:work-kind rreply/work-kind-resource
                                           :completed-at completed-at})
