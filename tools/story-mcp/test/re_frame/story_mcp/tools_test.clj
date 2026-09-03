@@ -304,8 +304,7 @@
   ;; not a universal default), so they MUST be open-world. EVERY other
   ;; tool is closed-world: reads, registry writes, static docs.
   (testing "matrix: only the lifecycle-run tools are open-world (rf2-e6knrq)"
-    (let [by-name      (into {} (map (juxt :name identity)) registry/tool-registry)
-          open-world   #{"run-variant" "preview-variant"}]
+    (let [open-world #{"run-variant" "preview-variant"}]
       (doseq [t registry/tool-registry
               :let [n (:name t)
                     ow (get-in t [:annotations :openWorldHint])]]
@@ -629,19 +628,6 @@
             s (:structuredContent r)]
         (is (success? r))
         (is (= [:reagent :uix] (:substrates s)) "the reached registry's ids, sorted")))))
-
-;; Pin the CLJS-var resolver contract. `clojure.core/resolve` honours
-;; the calling ns's aliases, and the substrate var is nil on the JVM purely
-;; because it is CLJS-only (a `#?(:cljs …)` def with no JVM Var). These
-;; tests pin both facts so the contract can't silently regress.
-(deftest resolve-cljs-var-finds-fully-qualified-jvm-var
-  (testing "a fully-qualified symbol for a real JVM-side (CLJC) var resolves"
-    (is (= #'re-frame.story/canonical-assertion-ids
-           (cljs-resolve/resolve-cljs-var 're-frame.story/canonical-assertion-ids))
-        "the resolver returns the underlying Var for a JVM-resident symbol"))
-  (testing "an unresolvable symbol yields nil rather than throwing"
-    (is (nil? (cljs-resolve/resolve-cljs-var 're-frame.story/no-such-var-xyz)))
-    (is (nil? (cljs-resolve/resolve-cljs-var 'no.such.ns/whatever)))))
 
 (deftest substrate-provider-availability-is-not-emptiness
   ;; rf2-3fc89f.21 — availability is represented SEPARATELY from the
@@ -1056,8 +1042,7 @@
 
 (deftest list-stories-limit-clamped-to-max
   (testing ":limit above the ceiling clamps DOWN to max-limit"
-    (let [r (invoke "list-stories" {:limit 99999})
-          s (:structuredContent r)]
+    (let [r (invoke "list-stories" {:limit 99999})]
       (is (success? r))
       ;; With 1 fixture story, no pagination kicks in — but if it did,
       ;; the :limit slot would be 200 (max-limit), not 99999. We verify

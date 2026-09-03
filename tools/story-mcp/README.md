@@ -254,7 +254,7 @@ tools/story-mcp/
         ├── registry.cljc                         ; tool-registry + descriptors + by-name
         ├── result.cljc                           ; result-envelope builders (pr-edn, text-result, error-result)
         ├── args.cljc                             ; arg readers + bounded-allowlist coercions (with-variant, read-run-opts, include-sensitive?)
-        ├── cljs_resolve.cljc                     ; cross-platform CLJS var resolution (registered-substrates)
+        ├── cljs_resolve.cljc                     ; browser-only provider seams (*substrate-provider*, *a11y-provider*) + availability predicates
         ├── lifecycle.cljc                        ; shared blocking run + error normalization
         ├── egress.cljc                           ; wire-egress scrubbers (elide-app-db, scrub-assertions+count, scrub-rendered)
         ├── schemas.cljc                          ; recurring JSON-schema fragments

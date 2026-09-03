@@ -1,6 +1,6 @@
 (ns re-frame.story-mcp.tools.cljs-resolve
   "The Story-MCP host-capability / provider BOUNDARY for browser-only
-  reads, plus the low-level CLJS-var resolver it is built on.
+  reads.
 
   ## The two browser-only surfaces
 
@@ -61,56 +61,15 @@
   provider through `result/capability-unavailable-result` rather than
   returning a false-empty success.
 
-  ## The low-level resolver
+  ## No var probing, on either platform (rf2-6r9j.119)
 
-  `resolve-cljs-var` probes for a CLJS-only `def` via `clojure.core/
-  resolve` on the JVM (nil on miss); it is the mechanism the two JVM-side
-  default probes attempt — both resolve nil on the stdio host, since the
-  substrate registry and the a11y atom are CLJS-only."
-  ;; `re-frame.story` is required (loaded) so the JVM `resolve-cljs-var`
-  ;; can reach its CLJC vars; it is no longer aliased, because both
-  ;; provider-seam defaults are now nil symmetrically (rf2-jyjadg) and no
-  ;; branch dereferences it — the resolver reaches it by fully-qualified
-  ;; symbol below.
-  (:require [re-frame.story]))
-
-(defn resolve-cljs-var
-  "Resolve a fully-qualified symbol (`fully.qualified.ns/sym`) to the
-  underlying var on the JVM, returning `nil` on miss. Wraps
-  `clojure.core/resolve` in a try/catch so a CLJS-only `def` (which has
-  no JVM Var) yields nil rather than blowing up.
-
-  Callers MUST pass the FULLY-QUALIFIED ns (`re-frame.story/…`), not an
-  alias-qualified symbol — even though `resolve` does honour the calling
-  ns's aliases, passing the real ns keeps the contract self-describing.
-  The two default providers below wire from this resolver against the
-  substrate registry + the a11y violations atom."
-  [sym]
-  (try (resolve sym) (catch Throwable _ nil)))
-
-;; ---------------------------------------------------------------------------
-;; Resolved CLJS-only vars — the JVM-side default probe sources.
-;;
-;; Each is probed ONCE at ns-load. On a JVM host the CLJS-only Var does not
-;; exist, so the probe is nil and the surface is UNAVAILABLE (NOT empty).
-;; The CLJS defaults do NOT read these surfaces directly either: both seams
-;; default nil on every platform (rf2-jyjadg — see the ns docstring), so a
-;; browser-local host binds BOTH providers rather than inheriting a
-;; half-working default.
-;; ---------------------------------------------------------------------------
-
-#?(:clj
-   (defonce ^:private registered-substrates-var
-     (resolve-cljs-var 're-frame.story/registered-substrates)))
-
-#?(:clj
-   ;; `re-frame.story.ui.a11y/violations-by-frame` is the CLJS-side panel
-   ;; atom — a JVM process cannot dereference a CLJS atom in a browser heap,
-   ;; so this resolves nil on the stdio host. Probed once, here, so the a11y
-   ;; provider seam has a single resolution site (co-located with the
-   ;; substrate one) rather than a var buried in `testing`.
-   (defonce ^:private violations-by-frame-var
-     (resolve-cljs-var 're-frame.story.ui.a11y/violations-by-frame)))
+  This ns holds NOTHING but the two seams and their accessors. Earlier
+  revisions carried a `clojure.core/resolve` probe that tried to
+  auto-discover the two providers from the JVM; it could never succeed —
+  both sources are CLJS-only `def`s with no JVM Var, and the shipped
+  Story-MCP entry point is a JVM stdio subprocess with no bridge to a
+  browser heap — so it only obscured the explicit-provider contract above
+  (and dragged the whole Story facade onto the load path to do it).")
 
 ;; ---------------------------------------------------------------------------
 ;; Substrate-registry provider seam
@@ -129,9 +88,7 @@
   held nil to stay SYMMETRIC with `*a11y-provider*`, whose UI-ns source is
   bundle-isolated out of this helper and so CANNOT auto-wire. A browser
   bridge binds BOTH seams together; see the ns docstring."
-  #?(:clj  (when registered-substrates-var
-             (fn [] (registered-substrates-var)))
-     :cljs nil))
+  nil)
 
 (defn substrate-provider-available?
   "True iff a substrate-registry provider is reachable. The availability
@@ -182,14 +139,8 @@
   this helper must NOT require (bundle isolation). It is held SYMMETRIC
   with `*substrate-provider*` (also nil on CLJS) so the browser bridge
   wires BOTH seams together — no silent half-working default (rf2-jyjadg;
-  see the ns docstring).
-
-  The `:clj` default derefs the resolved var-of-atom (`@var` → the atom,
-  `(deref …)` → the by-frame map), matching the shape a browser-local
-  consumer would supply."
-  #?(:clj  (when violations-by-frame-var
-             (fn [] (deref @violations-by-frame-var)))
-     :cljs nil))
+  see the ns docstring)."
+  nil)
 
 (defn a11y-provider-available?
   "True iff an a11y-panel-state provider is reachable. Availability is
