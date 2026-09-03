@@ -944,8 +944,9 @@
 ;;     re-read. A replacement landing mid-snapshot can therefore never attribute
 ;;     A's observation to a fresh generation H it never observed under.
 ;;   LINEARIZABLE — eligibility AND the mark write are ONE atomic operation
-;;     (`claim-delayed-silence!`, under `silence-lock`): it rechecks the current
-;;     generation, the CURRENT live observers (fresh, not a stale pre-loop set),
+;;     (`claim-and-publish-delayed-silence!`'s reservation half, under
+;;     `silence-lock`): it rechecks the current generation, the CURRENT live
+;;     observers (fresh, not a stale pre-loop set),
 ;;     and the existing mark, then reserves a fresh monotonic seq BEFORE external
 ;;     delivery. The seq is the single total order the observer relies on; two
 ;;     overlapping same-id publishers can never both claim. A reservation is
@@ -1095,8 +1096,8 @@
 ;; frame-id → count of deferred predecessors of THAT frame whose terminal
 ;; evidence is currently outstanding (snapshotted but not yet published). A
 ;; `(frame, cb)` mark can only ever be consulted by a deferred predecessor OF
-;; THAT SAME frame (`claim-delayed-silence!` reads marks keyed by its own
-;; frame-id), so the frame's marks are needed only while its count is positive.
+;; THAT SAME frame (`claim-and-publish-delayed-silence!` reads marks keyed by its
+;; own frame-id), so the frame's marks are needed only while its count is positive.
 ;; When the last outstanding predecessor of a frame resolves, the frame's marks
 ;; are reclaimed — this is what bounds `terminal-silence-marks` under a persistent
 ;; callback that observes and destroys unboundedly many unique frame ids
@@ -1231,9 +1232,10 @@
   `(frame-id, cb-id)` against the FRESHEST listener /
   observation / mark state and, when eligible, RESERVE a fresh monotonic seq
   (writing the mark inside the caller's critical section) and return it; else
-  return nil, writing nothing. Split out so both the reserve-only
-  `claim-delayed-silence!` and the reserve-and-publish
-  `claim-and-publish-delayed-silence!` decide eligibility identically.
+  return nil, writing nothing. Kept separate from
+  `claim-and-publish-delayed-silence!` — its sole caller — so the eligibility
+  DECISION reads in one place under the locks while the external emit that
+  answers it runs outside them.
 
   The three checks:
     1. `cb-id`'s current generation still equals `observed-gen` — a replacement /
@@ -1261,35 +1263,6 @@
     (let [seq (next-terminal-silence-seq)]
       (swap! terminal-silence-marks assoc-in [frame-id cb-id] seq)
       seq)))
-
-(defn claim-delayed-silence!
-  "Atomically CLAIM (reserve only) the one `:rf.epoch.cb/silenced-on-frame-destroy`
-  for `(frame-id, cb-id)` on behalf of a deferred predecessor A whose snapshot
-  observed the frame under `observed-gen` with terminal-silence `baseline`.
-
-  Under `silence-lock` — the single linearization point for this signal — it
-  rechecks eligibility (`eligible-and-reserve!`) against the FRESHEST listener
-  and observation state and, when eligible, RESERVES a fresh monotonic seq and
-  returns it. The caller then delivers the envelope externally and, only if that
-  delivery THROWS, calls `rollback-delayed-silence!` with this seq. When any
-  check fails it writes nothing and returns nil. Two overlapping publishers
-  cannot both reserve: the first writes the mark, the second sees it above
-  baseline and returns nil.
-
-  NOTE this primitive RESERVES ONLY — it EMITS NOTHING. It returns the reserved
-  seq; the CALLER performs the external emit later, which leaves a claim→emit
-  window: a replacement / drop / re-arm landing after this returns but before the
-  caller's emit makes a fresh generation current at the emission point. Because
-  this path does NOT hand the caller the reserved generation to qualify that emit
-  with, a caller wiring it to a bare `{:frame :cb-id}` emit produces an UNQUALIFIED
-  signal — so this primitive remains only for staged tests and any caller whose
-  emit provably cannot race a registry mutation. Callers whose emit CAN race a
-  registry mutation use `claim-and-publish-delayed-silence!`, which reserves here
-  (under both locks), then emits a GENERATION-QUALIFIED signal OUTSIDE the locks so
-  a superseded generation's late emit self-filters at the receiver (rf2-8b9twg)."
-  [frame-id cb-id observed-gen baseline]
-  (with-claim-locks
-    #(eligible-and-reserve! frame-id cb-id observed-gen baseline)))
 
 (defn claim-and-publish-delayed-silence!
   "Reserve the one delayed silence for `(frame-id, cb-id)` under BOTH ledger locks
@@ -1367,10 +1340,11 @@
   current generation AT reservation time, and that is the generation `publish!`
   qualifies the emit with.
 
-  Returns true when the silence was reserved+published, false when ineligible. If
-  `publish!` throws, the reservation is rolled back under `silence-lock` (only
-  while it still stands) — acquiring silence-lock ALONE keeps the global
-  registry→silence order (no inversion) — and the throw propagates.
+  Returns true when the silence was reserved+published and nil (the `when-let`
+  short-circuit, falsey either way) when ineligible. If `publish!` throws, the
+  reservation is rolled back under `silence-lock` (only while it still stands) —
+  acquiring silence-lock ALONE keeps the global registry→silence order (no
+  inversion) — and the throw propagates.
 
   Lock-order safety: the cross-lock nesting to `frame-owner-lock` remains a strict
   DAG (no path holds `frame-owner-lock` while acquiring either ledger lock — the
@@ -1400,19 +1374,6 @@
             (when (= reserved (get-in @terminal-silence-marks [frame-id cb-id]))
               (prune-terminal-silence-mark! frame-id cb-id))))
         (throw ex)))))
-
-(defn rollback-delayed-silence!
-  "Undo a `claim-delayed-silence!` reservation `reserved-seq` for `(frame, cb)`
-  when the external envelope delivery threw — but only if OUR reservation still
-  stands (no fresher delivery or claim superseded it). Restores the ledger to
-  as-if-unclaimed so the one signal can be legitimately re-attempted, keeping a
-  failed delivery from leaving a phantom mark that permanently suppresses it."
-  [frame-id cb-id reserved-seq]
-  (with-silence-lock
-    (fn []
-      (when (= reserved-seq (get-in @terminal-silence-marks [frame-id cb-id]))
-        (prune-terminal-silence-mark! frame-id cb-id))
-      nil)))
 
 (defn terminal-silence-marks-snapshot
   "Read-only view of the `frame-id → {cb-id → seq}` terminal-silence ledger —

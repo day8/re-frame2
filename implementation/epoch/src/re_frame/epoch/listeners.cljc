@@ -113,8 +113,7 @@
   ([record]
    (notify-listeners! record (constantly true)))
   ([record continue?]
-   (let [frame-id          (:frame record)
-         listener-snapshot (state/listeners-snapshot)]
+   (let [listener-snapshot (state/listeners-snapshot)]
      (when (continue?)
        (deliver-listener-snapshot! record listener-snapshot continue? true)))))
 

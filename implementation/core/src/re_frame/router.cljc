@@ -3412,13 +3412,15 @@
     ;; commit neither harvests B's capture buffer nor claims/commits into B's
     ;; history (rf2-vxgfnd.154). The halting event never ran, so the capture
     ;; buffer is empty and `settle!` would skip; `commit-halt-record!` commits
-    ;; regardless, pinning the halting event's trigger. :frame-state-before
-    ;; equals :frame-state-after — the halting event made no write. rf2-bh56rc:
+    ;; regardless, pinning the halting event's trigger. ONE frame-state value
+    ;; rides the hook (rf2-6r9j.75): the halting event made no write, so the
+    ;; record's :frame-state-before and :frame-state-after are the same value
+    ;; and the epoch surface writes it into both slots. rf2-bh56rc:
     ;; `:committed-at` is the halting event's causal `:rf/time-ms`, not an
     ;; ambient read.
     (when (trace/continuation-live?)
       (when-let [commit-halt! (late-bind/get-fn-cached :epoch/commit-halt-record!)]
-        (commit-halt! frame-id fs-now fs-now halting-time-ms :halted-depth
+        (commit-halt! frame-id fs-now halting-time-ms :halted-depth
                       halt-reason halting-event owner-token)))))))
 
 (defn- settle-event-epoch!
