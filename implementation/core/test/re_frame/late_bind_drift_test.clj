@@ -33,7 +33,7 @@
          '[clojure.set :as set]
          '[clojure.string :as str]
          '[clojure.test :refer [deftest is testing]]
-         '[re-frame.late-bind.directory :as directory])
+         '[re-frame.late-bind.directory :as rf.late-bind.directory])
 
 (def ^:private repo-implementation-root
   "Absolute path to the `implementation/` directory at the repo root.
@@ -250,7 +250,7 @@
 
 (deftest every-directory-entry-has-required-fields
   (testing "Each entry in re-frame.late-bind.directory/hooks declares :key, :producer-ns, :description"
-    (doseq [entry directory/hooks]
+    (doseq [entry rf.late-bind.directory/hooks]
       (is (keyword? (:key entry))
           (str "entry must have a keyword :key — saw " (pr-str entry)))
       (is (or (symbol? (:producer-ns entry))
@@ -264,7 +264,7 @@
 
 (deftest directory-keys-are-unique
   (testing "No duplicate :key entries in the directory"
-    (let [ks   (map :key directory/hooks)
+    (let [ks   (map :key rf.late-bind.directory/hooks)
           dups (->> (frequencies ks)
                     (filter (fn [[_ n]] (> n 1)))
                     (map first))]
@@ -274,7 +274,7 @@
 (deftest every-published-key-has-a-directory-entry
   (testing "Every (late-bind/set-fn! :key ...) site in implementation/**/src is documented"
     (let [published (published-keys)
-          documented (directory/hook-keys)
+          documented (rf.late-bind.directory/hook-keys)
           orphans (sort (set/difference published documented))]
       (is (empty? orphans)
           (str "These keys are published via (late-bind/set-fn! ...) but missing from "
@@ -283,7 +283,7 @@
 
 (deftest every-directory-entry-has-a-real-producer
   (testing "Every directory entry's :producer-ns appears as a `(ns ...)` declaration in tree"
-    (let [stale (->> directory/hooks
+    (let [stale (->> rf.late-bind.directory/hooks
                      (remove (fn [e] (producer-publishes-key? (:producer-ns e))))
                      (map :key)
                      sort)]
@@ -307,7 +307,7 @@
     ;; not meaningful for them and they are intentionally out of scope here.
     (let [direct-by-ns (direct-set-fn-keys-by-ns)
           direct-keys  (reduce into #{} (vals direct-by-ns))
-          mismatched   (->> directory/hooks
+          mismatched   (->> rf.late-bind.directory/hooks
                             ;; only entries whose key is published via a direct set-fn!
                             (filter (fn [{:keys [key]}] (contains? direct-keys key)))
                             (remove
@@ -335,7 +335,7 @@
 (deftest every-directory-entry-is-actually-published
   (testing "Every directory entry's :key has at least one (late-bind/set-fn! :key ...) call site"
     (let [published (published-keys)
-          missing-publish (->> directory/hooks
+          missing-publish (->> rf.late-bind.directory/hooks
                                (map :key)
                                (remove published)
                                sort)]
@@ -386,7 +386,7 @@
     ;; anyway (rf2-0st1f). Extracting the roster block and comparing the exact field
     ;; set gives it teeth — add/remove/rename a roster field and this fails unless
     ;; `epoch-destroy-bundle-roster` above is updated in lockstep.
-    (let [desc         (:description (directory/entry :epoch/snapshot-frame-destroyed))
+    (let [desc         (:description (rf.late-bind.directory/entry :epoch/snapshot-frame-destroyed))
           roster-block (some-> (re-find destroy-bundle-roster-re desc) second)]
       (is (some? desc)
           ":epoch/snapshot-frame-destroyed must have a directory entry")
@@ -431,7 +431,7 @@
     ;; consults to learn whether a hook is production-live, so a row that
     ;; re-acquires the retired rationale re-seeds the defect class.
     (doseq [k reprojection-hook-keys]
-      (let [desc (:description (directory/entry k))]
+      (let [desc (:description (rf.late-bind.directory/entry k))]
         (is (some? desc) (str k " must have a directory entry"))
         (let [lowered (str/lower-case (or desc ""))
               stale   (filter #(str/includes? lowered %) retired-gate-phrases)]
