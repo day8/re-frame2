@@ -90,6 +90,24 @@
    :ui      {:open? true :tab :home}})
 
 ;; ---------------------------------------------------------------------------
+;; WHITE-BOX REACH, JVM LANE ONLY (rf2-ws60, third pass).
+;;
+;; `local-render-opts` is PRIVATE — that privacy IS the fix (see §7c), so the
+;; arms that inspect the opts map have to reach the var by name rather than by
+;; reference. `resolve` is used instead of `#'`: Clojure's `var` special form
+;; refuses a non-public var from another namespace, and in ClojureScript a
+;; cross-namespace private reference compiles with a warning, which would put
+;; the very escape hatch this bead closes back into the CLJS build. So the
+;; reach exists on the JVM lane only; the source is one shared `.cljc`
+;; definition, and every arm that can be written against the PUBLIC surface is
+;; written there and runs in both lanes.
+;; ---------------------------------------------------------------------------
+
+#?(:clj
+   (def ^:private local-render-opts*
+     (deref (resolve 'day8.re-frame2-xray.panels.local-render/local-render-opts))))
+
+;; ---------------------------------------------------------------------------
 ;; 1 + 2. DEFAULT — redact sensitive, KEEP large.
 ;; ---------------------------------------------------------------------------
 
@@ -161,27 +179,28 @@
          walker's frameless redact-whole branch)"))
   (testing "a nil observed frame likewise fails closed"
     (is (= :rf/redacted (local-render/local-render-value app-db-value nil))))
-  (testing "the live frame is carried as the :frame opt; an unreachable one is
-            stamped with a NON-NIL dead-frame sentinel (NOT omitted / nil) so
-            the walker takes its unresolvable-frame fail-closed branch rather
-            than fall through to the ambient frame (rf2-cra0nq)"
-    (is (= secure-frame (:frame (local-render/local-render-opts secure-frame))))
-    (let [unreachable-opts (local-render/local-render-opts :app/does-not-exist)
-          nil-opts         (local-render/local-render-opts nil)]
-      (is (contains? unreachable-opts :frame)
-          "an unreachable frame MUST still stamp :frame (a sentinel), never omit it")
-      (is (some? (:frame unreachable-opts))
-          "the stamped :frame is NON-NIL — a nil/absent :frame borrows the ambient frame")
-      (is (not= :app/does-not-exist (:frame unreachable-opts))
-          "the stamped :frame is a sentinel, not the unreachable id itself")
-      (is (contains? nil-opts :frame)
-          "a nil frame-id MUST stamp the sentinel, not leave :frame nil/absent")
-      (is (some? (:frame nil-opts))
-          "the nil-frame :frame opt is the NON-NIL sentinel"))
-    (is (= :rf.egress/local-redacted
-           (:rf.egress/profile (local-render/local-render-opts secure-frame))))
-    (is (true? (:rf.size/include-large? (local-render/local-render-opts secure-frame)))
-        "the keep-large overlay is always present")))
+  #?(:clj
+     (testing "the live frame is carried as the :frame opt; an unreachable one is
+               stamped with a NON-NIL dead-frame sentinel (NOT omitted / nil) so
+               the walker takes its unresolvable-frame fail-closed branch rather
+               than fall through to the ambient frame (rf2-cra0nq)"
+       (is (= secure-frame (:frame (local-render-opts* secure-frame))))
+       (let [unreachable-opts (local-render-opts* :app/does-not-exist)
+             nil-opts         (local-render-opts* nil)]
+         (is (contains? unreachable-opts :frame)
+             "an unreachable frame MUST still stamp :frame (a sentinel), never omit it")
+         (is (some? (:frame unreachable-opts))
+             "the stamped :frame is NON-NIL — a nil/absent :frame borrows the ambient frame")
+         (is (not= :app/does-not-exist (:frame unreachable-opts))
+             "the stamped :frame is a sentinel, not the unreachable id itself")
+         (is (contains? nil-opts :frame)
+             "a nil frame-id MUST stamp the sentinel, not leave :frame nil/absent")
+         (is (some? (:frame nil-opts))
+             "the nil-frame :frame opt is the NON-NIL sentinel"))
+       (is (= :rf.egress/local-redacted
+              (:rf.egress/profile (local-render-opts* secure-frame))))
+       (is (true? (:rf.size/include-large? (local-render-opts* secure-frame)))
+           "the keep-large overlay is always present"))))
 
 ;; ---------------------------------------------------------------------------
 ;; 5b. THE AMBIENT-BORROW ARM — fail-closed EVEN WHEN an ambient frame is bound
@@ -300,97 +319,160 @@
                    "collision. got: " (pr-str rendered)))
           (is (not= "secret-session-jwt-abc123" (get-in rendered [:auth :token]))
               "the session token leaked through the colliding sentinel frame")))
-      (testing "the stamped :frame is NOT a value the app could have registered
-                — the structural half of the fix, so a future re-spelling as a
-                keyword is caught even if the projection happens to redact"
-        (let [stamped (:frame (local-render/local-render-opts nil))]
-          (is (some? stamped) "the sentinel is still stamped, never nil/absent")
-          (is (not (keyword? stamped))
-              (str "the dead-frame sentinel must not be a keyword — every "
-                   "keyword is an id an app can register. got: " (pr-str stamped)))
-          (is (not= colliding-sentinel-id stamped)
-              "the sentinel must not be the colliding public keyword")))
+      #?(:clj
+         (testing "the stamped :frame is NOT a value the app could have registered
+                   — the structural half of the fix, so a future re-spelling as a
+                   keyword is caught even if the projection happens to redact"
+           (let [stamped (:frame (local-render-opts* nil))]
+             (is (some? stamped) "the sentinel is still stamped, never nil/absent")
+             (is (not (keyword? stamped))
+                 (str "the dead-frame sentinel must not be a keyword — every "
+                      "keyword is an id an app can register. got: " (pr-str stamped)))
+             (is (not= colliding-sentinel-id stamped)
+                 "the sentinel must not be the colliding public keyword"))))
       (finally
         ;; Never leave the colliding id live for a sibling test.
         (rf/destroy-frame! colliding-sentinel-id)))))
 
 ;; ---------------------------------------------------------------------------
+;; 7c. THE PUBLIC-SURFACE INVARIANT (rf2-ws60, THIRD pass — the audit of #9056).
+;;
+;; This is the arm that actually pins the fix, and each earlier regression is
+;; here as a record of what it could not see:
+;;
+;;   §7   registers the RETIRED KEYWORD and asserts structurally that the
+;;        replacement is not a keyword — a test about the SHAPE of the sentinel.
+;;        It stayed GREEN while the second and third passes still leaked.
+;;   §7b  (below) takes the value a caller was HANDED and registers a frame
+;;        under it — a test about the DURABILITY of the sentinel. It stayed
+;;        GREEN while the third pass still leaked, because minting a fresh
+;;        identity per call defeats the *later*-projection route and not the
+;;        *same*-opts-map route: the caller registers a frame under
+;;        `(:frame opts)` and hands THAT SAME opts map back to
+;;        `rf/project-egress`. Reproduced at the merged commit, source
+;;        untouched:
+;;          {:registered? true,
+;;           :projected {:auth {:token "audit-secret-jwt-9f3a"}}}
+;;
+;; Neither shape nor freshness is the invariant. The invariant is **does any
+;; PUBLIC fn of this namespace RETURN a structure containing the sentinel** —
+;; the question both sibling carriers answer NO to (`egress-value` builds its
+;; opts INLINE as the walker's argument; `project-graph` binds `walk-opts` in a
+;; `let` and returns the transformed graph). So `local-render-opts` is PRIVATE,
+;; and what this arm pins is exactly that: no opts map crosses the namespace
+;; boundary, under that name or any other. It fails on all three pre-fix
+;; sources, where the builder was public.
+;;
+;; JVM lane only, because it reads the namespace's var table. The source is one
+;; shared `.cljc` definition, so a CLJS-lane copy would pin nothing further.
+;; ---------------------------------------------------------------------------
+
+#?(:clj
+   (deftest the-opts-map-carrying-the-sentinel-has-no-public-exit
+     (let [publics (ns-publics 'day8.re-frame2-xray.panels.local-render)]
+       (testing "rf2-ws60 — the opts BUILDER is private, so nothing outside the
+                 namespace can obtain a dead-frame sentinel to register a live
+                 frame under, nor an opts map to replay against project-egress"
+         (is (nil? (get publics 'local-render-opts))
+             (str "local-render-opts must NOT be public: it is the one structure "
+                  "that carries a dead-frame sentinel, and a caller holding it "
+                  "can register a frame under (:frame opts) and hand the SAME "
+                  "map back to rf/project-egress — the #9056 leak.")))
+
+       (testing "POSITIVE CONTROL — the projection seam itself IS public, so a
+                 green above is coverage rather than an empty namespace"
+         (doseq [sym '[local-render-value local-render-value-at
+                       local-render-profile local-redacted-profile
+                       local-raw-profile]]
+           (is (contains? publics sym)
+               (str "the public seam lost " sym " — the invariant above would "
+                    "then be passing vacuously"))))
+
+       (testing "and the invariant stated GENERALLY, so a re-exposed builder
+                 under a DIFFERENT name is caught too: no public fn of this
+                 namespace returns a project-egress opts map"
+         (doseq [[sym v] publics
+                 :when   (fn? (deref v))
+                 arity   [1 2 3]
+                 :let    [args (repeat arity nil)
+                          ret  (try (apply (deref v) args)
+                                    (catch Throwable _ ::not-applicable))]
+                 :when   (not= ::not-applicable ret)]
+           (is (not (and (map? ret) (contains? ret :frame)))
+               (str "public fn " sym " (arity " arity ") returned a map carrying "
+                    "a :frame opt: " (pr-str ret) ". An opts map must never "
+                    "cross the namespace boundary (rf2-ws60).")))))))
+
+;; ---------------------------------------------------------------------------
 ;; 7b. THE CALLER-VISIBLE ARM (rf2-ws60, SECOND pass — the audit of PR #9044).
 ;;
-;; §7 above registers the RETIRED KEYWORD and then asserts STRUCTURALLY that the
-;; replacement is not a keyword. That is a test about the SHAPE of the sentinel,
-;; and it is why the first repair passed its own regression while still leaking:
-;; making the identity `^:private` is NECESSARY AND NOT SUFFICIENT, because the
-;; PUBLIC `local-render-opts` RETURNS the stamped `:frame` to its caller. Nobody
-;; had to manufacture an equal object — they were handed the identical one, and
-;; a frame registered under it made the next unreachable projection resolve to
-;; that live frame and ship the secret RAW.
-;;
-;; So these arms exercise the value A REAL CALLER RECEIVES, never the definition:
-;; take `(:frame (local-render-opts nil))`, register a live frame under THAT
-;; EXACT VALUE, and assert an unreachable projection still redacts. Against the
-;; pre-fix code this failed with
+;; Retained as DEFENCE IN DEPTH beneath §7c, not as the invariant. It pins the
+;; property that keeps any future escape harmless: each call MINTS A FRESH
+;; identity, so a sentinel obtained once governs one projection and no other.
+;; Against the second-pass source (one `(Object.)` on a shared `^:private def`)
+;; this failed with
 ;;   {:same-sentinel? true, :registered? true,
 ;;    :rendered {:auth {:token "secret-session-jwt-abc123"}}}
 ;;
-;; The discriminator this pins is not "is the def private" but "does any PUBLIC
-;; fn RETURN a structure containing it" — answered here by minting a FRESH
-;; identity per call, so the escaped value governs nothing else.
+;; JVM lane only now — the sentinel is no longer obtainable from the public
+;; surface, which is the point of §7c, so there is nothing for a CLJS-lane copy
+;; of these arms to reach.
 ;; ---------------------------------------------------------------------------
 
-(deftest local-render-fails-closed-when-a-frame-is-registered-under-the-handed-out-sentinel
-  (testing "rf2-ws60 — an app registers a live frame under the sentinel the
-            PUBLIC local-render-opts handed it. A nil / unreachable observed
-            frame MUST still redact the whole value"
-    (let [handed-out (:frame (local-render/local-render-opts nil))]
-      (rf/make-frame {:id handed-out})
-      (try
-        (testing "a NIL observed frame fails closed despite the registration"
-          (let [rendered (local-render/local-render-value app-db-value nil)]
-            (is (= :rf/redacted rendered)
-                (str "nil observed frame must redact WHOLE even with a live "
-                     "frame registered under the sentinel local-render-opts "
-                     "returned. got: " (pr-str rendered)))
-            (is (not= "secret-session-jwt-abc123" (get-in rendered [:auth :token]))
-                "the session token leaked through the handed-out sentinel")))
+#?(:clj
+   (deftest local-render-fails-closed-when-a-frame-is-registered-under-a-leaked-sentinel
+     (testing "rf2-ws60 — a frame is registered under a sentinel obtained from
+               one opts build. A nil / unreachable observed frame MUST still
+               redact the whole value on every LATER projection"
+       (let [leaked (:frame (local-render-opts* nil))]
+         (rf/make-frame {:id leaked})
+         (try
+           (testing "a NIL observed frame fails closed despite the registration"
+             (let [rendered (local-render/local-render-value app-db-value nil)]
+               (is (= :rf/redacted rendered)
+                   (str "nil observed frame must redact WHOLE even with a live "
+                        "frame registered under a previously minted sentinel. "
+                        "got: " (pr-str rendered)))
+               (is (not= "secret-session-jwt-abc123" (get-in rendered [:auth :token]))
+                   "the session token leaked through the registered sentinel")))
 
-        (testing "an UNREACHABLE observed frame likewise fails closed"
-          (let [rendered (local-render/local-render-value app-db-value
-                                                          :app/does-not-exist)]
-            (is (= :rf/redacted rendered)
-                (str "unreachable observed frame must redact WHOLE. got: "
-                     (pr-str rendered)))))
+           (testing "an UNREACHABLE observed frame likewise fails closed"
+             (let [rendered (local-render/local-render-value app-db-value
+                                                             :app/does-not-exist)]
+               (is (= :rf/redacted rendered)
+                   (str "unreachable observed frame must redact WHOLE. got: "
+                        (pr-str rendered)))))
 
-        (testing "the PATH-AWARE sibling shares the seam, so it fails closed too"
-          (let [rendered (local-render/local-render-value-at
-                           (:auth app-db-value) nil [:auth])]
-            (is (= :rf/redacted rendered)
-                (str "local-render-value-at must redact WHOLE under the same "
-                     "registration. got: " (pr-str rendered)))))
+           (testing "the PATH-AWARE sibling shares the seam, so it fails closed too"
+             (let [rendered (local-render/local-render-value-at
+                              (:auth app-db-value) nil [:auth])]
+               (is (= :rf/redacted rendered)
+                   (str "local-render-value-at must redact WHOLE under the same "
+                        "registration. got: " (pr-str rendered)))))
 
-        (finally
-          (rf/destroy-frame! handed-out))))))
+           (finally
+             (rf/destroy-frame! leaked)))))))
 
-(deftest dead-frame-sentinel-is-single-use-per-projection
-  (testing "rf2-ws60 — the property that makes the handed-out value harmless:
-            each call MINTS A FRESH identity, so a sentinel a caller obtained
-            (and could register a frame under) governs no other projection. A
-            shared singleton is the defect, so assert the values are DISTINCT"
-    (let [a (:frame (local-render/local-render-opts nil))
-          b (:frame (local-render/local-render-opts nil))
-          c (:frame (local-render/local-render-opts :app/does-not-exist))]
-      (is (some? a) "the sentinel is still stamped, never nil/absent")
-      (is (not (identical? a b))
-          (str "two nil-frame opts must NOT share one dead-frame sentinel — a "
-               "reusable identity is registrable by whoever receives it. got: "
-               (pr-str a)))
-      (is (not= a b)
-          "the two sentinels must not be equal either (identity, not a datum)")
-      (is (not (identical? a c))
-          "the nil-frame and unreachable-frame sentinels must differ too")))
+#?(:clj
+   (deftest dead-frame-sentinel-is-single-use-per-projection
+     (testing "rf2-ws60 — each call MINTS A FRESH identity, so a sentinel that
+               somehow escaped governs no other projection. A shared singleton
+               is the second-pass defect, so assert the values are DISTINCT"
+       (let [a (:frame (local-render-opts* nil))
+             b (:frame (local-render-opts* nil))
+             c (:frame (local-render-opts* :app/does-not-exist))]
+         (is (some? a) "the sentinel is still stamped, never nil/absent")
+         (is (not (identical? a b))
+             (str "two nil-frame opts must NOT share one dead-frame sentinel — a "
+                  "reusable identity is registrable by whoever receives it. got: "
+                  (pr-str a)))
+         (is (not= a b)
+             "the two sentinels must not be equal either (identity, not a datum)")
+         (is (not (identical? a c))
+             "the nil-frame and unreachable-frame sentinels must differ too")))
 
-  (testing "a LIVE frame is still carried verbatim — minting applies only to the
-            unreachable branch, so the reachable hot path is unchanged"
-    (is (= secure-frame (:frame (local-render/local-render-opts secure-frame))))
-    (is (identical? secure-frame
-                    (:frame (local-render/local-render-opts secure-frame))))))
+     (testing "a LIVE frame is still carried verbatim — minting applies only to the
+               unreachable branch, so the reachable hot path is unchanged"
+       (is (= secure-frame (:frame (local-render-opts* secure-frame))))
+       (is (identical? secure-frame
+                       (:frame (local-render-opts* secure-frame)))))))

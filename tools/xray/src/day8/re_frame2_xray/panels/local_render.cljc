@@ -133,33 +133,46 @@
   value — so no registration a caller writes by hand can match it, and
   `frame/frame` misses on it exactly as on a destroyed id.
 
-  ## Why per-call, and not one shared private singleton (rf2-ws60, second pass)
+  ## No public exit — the invariant, and the two passes that missed it
 
-  Making the identity private is NECESSARY AND NOT SUFFICIENT. The second pass
-  bound one `(Object.)` to a `^:private def` and claimed 'no frame can be
-  registered under it' — but the PUBLIC `local-render-opts` RETURNS that value
-  in `:frame` for every nil / unreachable target, so a caller never had to
-  manufacture an equal object: it was HANDED the identical one. Registering a
-  frame under the value it received made every SUBSEQUENT unreachable
-  projection resolve to that live frame and ship the secret raw — the same
-  fail-OPEN outcome as the keyword, reached through the return value instead of
-  through the spelling. Reproduced on the JVM lane at the merged commit:
-  `{:same-sentinel? true, :registered? true, :rendered {:auth {:token \"…\"}}}`.
+  A private identity is NECESSARY AND NOT SUFFICIENT. The second pass bound one
+  `(Object.)` to a `^:private def` and claimed 'no frame can be registered under
+  it' — but `local-render-opts` was PUBLIC and RETURNED that value in `:frame`
+  for every nil / unreachable target, so a caller never had to manufacture an
+  equal object: it was HANDED the identical one. Registering a frame under the
+  value it received made every SUBSEQUENT unreachable projection resolve to that
+  live frame and ship the secret raw — the same fail-OPEN outcome as the
+  keyword, reached through the return value instead of through the spelling.
 
-  So the discriminating question is NOT 'is the definition private' but **does
-  any PUBLIC fn RETURN a structure containing it** — and here one does, by
-  design, because `local-render-opts` is the seam's opts builder. Minting a
-  FRESH identity per call answers it without withdrawing that seam: the value
-  governing any one projection is created inside that call and is not
-  observable by anyone before the walk consumes it, so there is no longer a
-  durable identity to poison. What a direct caller of `local-render-opts`
-  receives is a single-use id that governs nothing else — registering a frame
-  under it cannot affect any other projection.
+  The third pass minted a FRESH identity per call and kept the builder public.
+  That closed the *durable* poisoning route and left an immediate one open: the
+  caller registers a frame under `(:frame opts)` and then hands THAT SAME opts
+  map back to `rf/project-egress`. Reproduced on the JVM lane at the merged
+  commit, source untouched:
+  `{:registered? true, :projected {:auth {:token \"audit-secret-jwt-9f3a\"}}}`.
 
-  Contrast the two sibling carriers, which are clean for the OTHER reason
-  available: in `day8.re-frame2-xray.egress` and `re-frame.derivation.egress`
-  the sentinel is consumed by a walk whose caller only ever receives the
-  PROJECTED VALUE / TRANSFORMED GRAPH, so it has no public exit at all.
+  So the discriminating question is not 'is the definition private', nor 'is the
+  identity fresh', but **does any PUBLIC fn RETURN a structure containing it**.
+  Both sibling carriers answer NO and are clean for exactly that reason: in
+  `day8.re-frame2-xray.egress` `egress-value` builds its opts map INLINE as the
+  argument to the walker and returns the walker's result; in
+  `re-frame.derivation.egress` `walk-opts` is bound inside `project-graph`'s
+  `let` and `project-graph` returns the transformed graph. Neither ever hands an
+  opts map to anyone.
+
+  This namespace now answers NO the same way: `local-render-opts` is PRIVATE, so
+  the only structures crossing the namespace boundary are the projected values
+  `local-render-value` / `local-render-value-at` return. Nothing outside can
+  obtain a sentinel to register a frame under, or an opts map to replay.
+
+  ## Why per-call as well (defence in depth, and it is free)
+
+  Freshness is no longer the invariant, but it is kept, because it costs a bare
+  allocation on a branch that is already the cold one and it removes the
+  DURABLE identity a future re-exposure of the builder would otherwise hand out.
+  With both properties in place, a sentinel that somehow escaped would govern
+  its own single projection and nothing else. Do not cache, intern, or hoist it,
+  and do not make the builder public again.
 
   Mirrors the off-box derivation-graph fix (rf2-udkj69); applied to
   local-render by rf2-cra0nq. Third carrier of the sentinel class, alongside
@@ -181,9 +194,15 @@
   [raw?]
   (if (true? raw?) local-raw-profile local-redacted-profile))
 
-(defn local-render-opts
+(defn- local-render-opts
   "Build the `rf/project-egress` opts map for an on-box local render of a
   value sourced from `frame-id`.
+
+  **PRIVATE, and that is the load-bearing half of the rf2-ws60 fix — see
+  §No public exit in `fresh-dead-frame-sentinel`.** This is the one structure
+  that carries a dead-frame sentinel, so it must never leave the namespace:
+  `local-render-value` / `local-render-value-at` build it and hand it straight
+  to `rf/project-egress`, and a caller receives only the PROJECTED VALUE.
 
   - **profile** — `local-render-profile` resolves the named boundary from
     the per-(tool,frame) `raw?` grain (default `:rf.egress/local-redacted`).
@@ -198,16 +217,14 @@
     unresolvable-frame fail-closed branch (redact the whole value) rather
     than borrow another frame's policy.
 
-    **The sentinel this returns is SINGLE-USE, and that is load-bearing
-    rather than incidental (rf2-ws60).** This fn is PUBLIC and hands the
-    stamped `:frame` straight to its caller, so any sentinel it returned
-    twice would be an id the caller could register a live frame under —
-    making every later unreachable projection resolve to that frame and
-    egress raw, which is exactly how the first two passes at this bug
-    stayed fail-OPEN (a namespaced keyword, then a shared private
-    singleton). Because each call mints a new identity instead, the value
-    you receive governs this opts map only: registering a frame under it
-    cannot affect any other projection. Do not cache, intern, or hoist it.
+    **The opts map this returns must not escape the namespace, and the
+    sentinel it carries is SINGLE-USE (rf2-ws60).** The three passes at
+    this bug were a public keyword, a public shared private-def object,
+    and a public per-call object; each stayed fail-OPEN because the
+    caller could get its hands on the sentinel (or on this very map) and
+    register a live frame under it. Privacy is what closes that, and
+    freshness is what keeps any future escape harmless. Do not cache,
+    intern, or hoist the sentinel, and do not make this fn public.
   - **`:rf.size/include-large? true`** — the on-box 'keep large' override
     (EP-0015 §10: `local-redacted` *suppresses sensitive display*; the
     local operator IS entitled to large values — Xray's own size-bounding

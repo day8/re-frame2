@@ -70,47 +70,47 @@
 ;; flush-views! — test-flush primitive (Stage 4-B)
 ;; ---------------------------------------------------------------------------
 ;;
-;; Implementation note on `react/act`: under React 18.3+ `act` is a
-;; top-level export of `react`. Under React 18.2 `act` lived in
-;; `react-dom/test-utils`. The artefact targets React 19 (Stage 1
-;; commitment); we still feature-detect to stay graceful under the
-;; React 18.3 dev tree the implementation/ tests run under, since
-;; that ALSO has `react/act`.
+;; Implementation note on `react/act`: `act` is a top-level export of
+;; `react` from 18.3 onward, and the repository's React floor is 19
+;; (`implementation/package.json` + its lock pin react / react-dom
+;; 19.2.0; generated consumers are pinned to the same version by
+;; `tools/template/src/day8/re_frame2_template/hooks.clj`, held in
+;; lockstep by `version_lockstep_test.clj`). So `(.-act react)` is the
+;; ONE lookup on every supported tree, and the pre-18.3
+;; `react-dom/test-utils` location is below the floor.
+;;
+;; The probe stays a probe rather than a direct call because React's
+;; PRODUCTION bundle deliberately omits `act`; `flush-views!` degrades to
+;; a plain synchronous flush there (see below) rather than calling an
+;; absent export.
 ;;
 ;; Per IMPL-SPEC §4.2 `flush-views!` is dev-only: gated on `js/goog.DEBUG`
 ;; so :advanced + `goog.DEBUG=false` DCEs the body entirely.
 ;; ---------------------------------------------------------------------------
 
 (defn- resolve-act
-  "Look up React's `act`. Returns the fn or nil. Re-resolved on every
-  call (not cached) so a test fixture that swaps the React module
-  mid-run sees the swap on the next `flush-views!`.
+  "Look up React's `act`. Returns the fn, or nil when the export is absent
+  (a missing JS property reads as `nil?` in CLJS, so `flush-views!`'s
+  `nil?` branch covers it). Re-resolved on every call (not cached) so a
+  test fixture that swaps the React module mid-run sees the swap on the
+  next `flush-views!`.
 
-  React-floor asymmetry (rf2-uuzkp). This SUBSTRATE-level resolver is
-  React-19-floored BY INTENT: it probes only `(.-act react)` and has NO
-  `react-dom/test-utils` fallback, so under a React-18.2 dev tree (where
-  `act` lived in test-utils) the substrate-level `flush-views!` below
-  degrades to a plain synchronous flush. This is NOT in conflict with the
-  CANONICAL cross-substrate test-flush path: the adapter-ns `flush-views!`
-  Var (`re-frame.adapter.reagent-slim/flush-views!`, surfaced identically
-  across all four substrates per rf2-b6nm5 Decision 6) routes through the
-  spine's `resolve-act-fn` (`re-frame.substrate.spine`), which DOES carry
-  the test-utils fallback (rf2-jk7hr) and so works under React 18.x. The
-  fallback there is load-bearing for the stock-Reagent (non-slim) adapter;
-  this substrate-level resolver intentionally omits it. A future React-floor
-  change, or a caller reaching this substrate-level `flush-views!` directly
-  (e.g. for its Promise return / Suspense ordering), should expect the
-  React-19 floor here and use the adapter-ns Var when React-18 graceful
-  degradation is required."
+  React-19 floor (rf2-uuzkp, rf2-6r9j.35). `(.-act react)` is the ONE
+  lookup: the repository pins react / react-dom 19.2.0 and generated
+  consumers with it, so the pre-18.3 `react-dom/test-utils` location is
+  below the floor and probing it would buy nothing. A nil result therefore
+  means React's PRODUCTION bundle (which omits `act` by design), and
+  `flush-views!` degrades to a plain synchronous flush — the documented
+  safe behaviour, not a compatibility path.
+
+  The canonical cross-substrate test-flush entry point remains the
+  adapter-ns Var `re-frame.adapter.reagent-slim/flush-views!` (surfaced
+  identically across substrates per rf2-b6nm5 Decision 6), which routes
+  through the spine's `resolve-act-fn`. Reach this substrate-level
+  `flush-views!` directly only for its Promise return / Suspense
+  ordering."
   []
-  (or (.-act react)
-      ;; Fallback: pre-18.3 lived in react-dom/test-utils. We don't
-      ;; require that ns up top because Stage 4-B's React floor is
-      ;; 19+; the .-act check on the react module is the only path
-      ;; we exercise. See the React-floor asymmetry note above for why
-      ;; the canonical adapter-ns flush-views! (via the spine resolver)
-      ;; still degrades gracefully under React 18.x while this one does not.
-      nil))
+  (.-act react))
 
 (defn- microtask-tick
   "Return a Promise that resolves on the next microtask turn. Awaiting

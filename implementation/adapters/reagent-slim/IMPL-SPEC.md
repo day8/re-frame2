@@ -29,9 +29,13 @@ The new artefact lives at `implementation/adapters/reagent-slim/` mirroring the 
 
 ### §1.1 Directory shape
 
+As shipped (this block mirrors `src/` file-for-file; keep it in step with
+`git ls-files implementation/adapters/reagent-slim/src`):
+
 ```
 implementation/adapters/reagent-slim/
 ├── deps.edn
+├── README.md · DESIGN-RATIONALE.md · FORM-3.md · IMPL-SPEC.md · LICENSE
 ├── src/
 │   ├── re_frame/
 │   │   └── adapter/
@@ -42,26 +46,19 @@ implementation/adapters/reagent-slim/
 │       ├── ratom.cljs                 ; reactive primitives
 │       ├── ratom.clj                  ; the ratom-spelled reaction macro (CLJS-only consumer)
 │       ├── dom/
-│       │   ├── client.cljs            ; create-root / render / unmount / hydrate-root / flush-views!
+│       │   ├── client.cljs            ; create-root / render / unmount / hydrate-root /
+│       │   │                          ;   flush-views! (test) + flush-render! (production)
 │       │   └── server.cljs            ; pure-CLJS render-to-static-markup
-│       ├── impl/
-│       │   ├── batching.cljs          ; microtask scheduler + dirty-set
-│       │   ├── component.cljs         ; create-class + 7-key dispatch
-│       │   ├── template.cljs          ; hiccup → React element
-│       │   └── util.cljs              ; the few internal helpers we keep
 │       └── impl/
-│           └── component.clj          ; defview macro (S3-003 optional path)
-└── test/
-    └── reagent2/
-        ├── core_test.cljs
-        ├── ratom_test.cljs
-        ├── dom_client_test.cljs
-        ├── dom_server_test.cljs
-        ├── impl/
-        │   ├── batching_test.cljs
-        │   ├── component_test.cljs
-        │   └── template_test.cljs
-        └── parity_test.cljs           ; render-to-static-markup vs react-dom/server (R-004)
+│           ├── batching.cljs          ; microtask scheduler (the RenderQueue) — §2.9
+│           ├── component.cljs         ; create-class + 7-key dispatch, runtime Form detection
+│           ├── component.clj          ; compile-time form classification for `reg-view` — §5.2
+│           ├── diag.cljs              ; EP-0015-safe diagnostic value summaries — §2.10
+│           └── template.cljs          ; hiccup → React element
+├── test/                              ; namespaces end in `-cljs-test`, files in
+│   ├── re_frame/adapter/              ;   `_cljs_test.cljs`, so shadow-cljs's
+│   └── reagent2/{,dom/,impl/}         ;   :node-test build picks them up — §12.1
+└── testbed/                           ; the adapter-level browser smoke (index.html + smoke.cjs)
 ```
 
 ### §1.2 `deps.edn` shape
@@ -282,10 +279,15 @@ Public Vars:
 | `render` | `[root el]` | Render hiccup `el` into a created root. Walks `el` via `reagent2.impl.template/as-element`. |
 | `unmount` | `[root]` | Detach a root. Wraps `(.unmount root)`. |
 | `hydrate-root` | `[container el]`, `[container el options]` | SSR hydration entry. Wraps `react-dom-client/hydrateRoot`. |
-| `flush-views!` | `[]` | The new test-flush primitive (Stage 1 §1.12; Stage 2 top-3 #3). Microtask drain + `react/act` integration. See §4. |
+| `flush-views!` | `[]` | The test-flush primitive (Stage 1 §1.12; Stage 2 top-3 #3). Microtask drain + `react/act` integration, gated on `goog.DEBUG`. See §4. |
+| `flush-render!` | `[f]` | The PRODUCTION synchronous render-commit servicing the adapter's `:flush-render!` slot (rf2-40a84 / rf2-0bz5ah): runs `f`, then `batching/flush!` inside a `react-dom/flushSync` boundary. No `goog.DEBUG` gate. See §4.2. |
 
 Internal helpers:
-- `apply-hiccup` — internal: walks the hiccup tree once and produces a React-element tree. Used by both `render` and `hydrate-root`.
+- `resolve-act` — probes `(.-act react)`, the ONE act location above the React-19 floor (rf2-6r9j.35). Nil means React's production bundle, where `flush-views!` degrades to a plain synchronous flush.
+- `microtask-tick` — a resolved Promise; the microtask boundaries either side of the `act` drain (§4.2, rf2-w6ef).
+
+There is no `apply-hiccup` indirection: `render` and `hydrate-root` each call
+`reagent2.impl.template/as-element` directly.
 
 ### §2.5 `reagent2.dom.server` — pure-CLJS static-markup serializer
 
@@ -315,52 +317,84 @@ Internal Vars (no public surface — these are the renderer's load-bearing inter
 - `convert-prop-value` — narrowed per DECISION-2; see §7.
 - `cached-prop-name` — kebab→camel cache for prop names (kept; same as stock).
 
-Compile-time helpers: none in this ns. (The defview macro lives in `reagent2.impl.component.clj`.)
+Compile-time helpers: none in this ns. (The artefact's only CLJ-side namespaces are `reagent2.core`/`reagent2.ratom` — the `reaction` macro, §14.2 — and `reagent2.impl.component`, the form-classification helpers `reg-view`'s expansion calls, §5.2.)
 
 ### §2.8 `reagent2.impl.component` — class-component plumbing
 
 Files:
 - `src/reagent2/impl/component.cljs` — runtime.
-- `src/reagent2/impl/component.clj` — `defview` macro (S3-003 optional path).
+- `src/reagent2/impl/component.clj` — the compile-time form-classification helpers `re-frame.core/reg-view`'s expansion calls (§5.2). **No `defview` macro ships** (rf2-yfbx; §14.1).
 
-Internal Vars:
+Vars:
 - `*current-component*` — dynamic var; mirrors stock Reagent's `reagent.impl.component/*current-component*`. `reagent2.core/current-component` reads through this.
-- `create-class*` `[spec]` — internal create-class. Validates the spec map's keys against the cap (§6); throws on unsupported. Builds a React component class.
-- `wrap-render` — internal Form-1/Form-2 detection at runtime (so plain `defn` + `reg-view` keeps working — per S3-003).
-- `do-render` — internal lifecycle helper.
-- `wrap-funs` — translates the 7 supported lifecycle keys into React lifecycle methods.
-- `cancel-cleanup`, `queue-cleanup` — disposal lifecycle plumbing.
+- `create-class*` `[spec]` — create-class. Validates the spec map's keys against `cap-keys` (§6); throws on unsupported. Builds a React component class.
+- `fn-to-class` — promote a bare render fn to the class shape the mount path expects.
+- `wrap-render` `[c render-fn]` — runtime Form-1/Form-2 detection, plus the compile-time fold: when `render-fn` carries the `:reagent2/form` meta `reg-view`'s expansion stamped, the classification cond is skipped. The runtime cond stays load-bearing for plain `(reg-view* :id (fn ...))` callers.
+- `set-as-element-fn!` / `as-element-fn` — the late-bound hiccup→element hook (avoids a `template` ↔ `component` cycle).
 - `get-argv`, `get-props`, `get-children` — Form-3 accessors.
 - `state-atom` — Form-3 state cell.
 - `reagent-class?`, `react-class?` — type predicates (kept; re-com / 10x type-check).
 
-Compile-time macros (`component.clj`):
-- `(defview name [args] body)` — optional Form-detection-at-compile-time macro per S3-003. Stage 4 implements the runtime detection first; the macro is an additive optimisation. The current re-frame2 `reg-view` macro (`re-frame.core/reg-view`) is NOT replaced — `defview` is a Reagent-flavoured user surface for apps that don't use re-frame2's reg-view.
+Private lifecycle plumbing (contract-level; names are not API):
+- `validate-class-spec!` — the 7-key cap check that `create-class*` fails fast on.
+- `install-lifecycle-methods!` — translates the supported lifecycle keys onto the React class prototype.
+- `make-render-method` — builds the class's `render`, threading `*current-component*` via `call-with-current-component`.
+- `argv-should-update?` — the argv-equality `shouldComponentUpdate` gate; `previous-argv-from-props` / `copy-argv-from-props!` / `argv-args` / `form-tag` feed it and `wrap-render`.
+- `sync-error-state!` — error-boundary state propagation for `:component-did-catch` (§6.5).
+- `->react-element` — the class → element step.
+
+There is no `do-render`, `wrap-funs`, `cancel-cleanup` or `queue-cleanup`.
+Disposal is not a deferred cleanup queue: `install-lifecycle-methods!` ALWAYS
+installs `componentWillUnmount` (whether or not the spec supplies
+`:component-will-unmount`) and it disposes the per-instance render Reaction and
+clears the dirty flag inline — see §3.4.
 
 ### §2.9 `reagent2.impl.batching` — render scheduler
 
 File: `src/reagent2/impl/batching.cljs`.
 
-Internal Vars:
-- `dirty-set` — atom holding the set of components queued for re-render.
-- `scheduled?` — atom flag; true between microtask-schedule and microtask-fire.
-- `queue-render!` `[component]` — enqueue a component for re-render; schedules a microtask if not already scheduled.
-- `flush!` `[]` — synchronous drain of the dirty set + cooperation with React commit. The implementation hook for `reagent2.dom.client/flush-views!`.
-- `after-render` `[f]` — schedule `f` after the next render. Kept as the public ABI for `reagent2.core/after-render`.
-- `do-after-render` — internal lifecycle hook.
+The queue is ONE object, not a set of atoms: `RenderQueue`, a `deftype` with
+three mutable fields (`scheduled?`, `component-queue`, `after-render-queue`)
+whose queues are JS arrays allocated lazily, and a single `defonce` instance
+`render-queue`. Its methods are `schedule`, `queue-render`, `add-after-render`,
+`run-queues`, `flush-render`, `flush-after-render`, `flush-queues`.
+
+Vars:
+- `render-queue` — the `defonce` singleton (private).
+- `queue-render!` `[component]` — enqueue a component for re-render; schedules a microtask if one is not already scheduled.
+- `schedule` `[]` — arm the microtask without enqueueing.
+- `flush!` `[]` — synchronous drain: `ratom/flush!` first (Reaction recomputes may enqueue further component renders), then the component queue's `forceUpdate` pass, then the after-render queue. The implementation hook for `reagent2.dom.client/flush-views!` and `flush-render!`.
+- `do-after-render` `[f]` — schedule `f` after the next render. The public ABI behind `reagent2.core/after-render`.
+- `mark-rendered` `[component]` — clear a component's dirty flag.
+- `installed?` — the `defonce` guard for late-bind hook installation.
+
+Two properties of the shipped queue are contract, not incidental: a Reaction
+that fires DURING a flush is held for the NEXT turn rather than flattened into
+the current drain, and the after-render pass swallows a per-callback throw so
+one misbehaving callback cannot strand the rest of the queue (rf2-p27yih).
 
 See §4 for the scheduler's full design.
 
-### §2.10 `reagent2.impl.util` — small internals
+### §2.10 `reagent2.impl.diag` — EP-0015-safe diagnostics
 
-File: `src/reagent2/impl/util.cljs`.
+File: `src/reagent2/impl/diag.cljs`.
 
-Internal Vars:
-- `fun-name` — extract a usable name from a fn for error messages and React `displayName` defaulting.
-- `*non-reactive*` — dynamic flag suppressing reactive subscription within its body. Internal to `wrap-render` machinery; not exported.
-- `dont-camel-case-pattern` — regex distinguishing `data-*` / `aria-*` props from kebab-cased prop names.
+- `value-summary` `[v]` — returns a small map describing a value's SHAPE (type, and `:count` for a counted collection or string), never the value itself. Spec 015 §Data-Classification forbids raw application values in framework exception messages and ex-data, because consoles, error boundaries and host logs capture them before `project-egress` can classify anything (rf2-uwqale).
 
-The stock `reagent.impl.util` exports `partial`, `class-names`, `merge-props`, `is-client` — none are kept (DECISION-7 Class A).
+A dependency-free leaf: it requires nothing inside `reagent2`, so `template`,
+`server` and `component` can all pull it without a cycle. It is a
+content-for-content mirror of `re-frame.error/diag-value-summary`, replicated
+inline rather than required because the artefact is bundle-isolated and must not
+`:require` `re-frame.*`.
+
+**There is no `reagent2.impl.util` namespace**, and none of `fun-name`,
+`*non-reactive*` or `dont-camel-case-pattern` exists. The prop-name work those
+were sketched for lives in `reagent2.impl.template` (`verbatim-prop-prefixes`,
+`cached-prop-name`, `html-attr-names`). Stock's `reagent.impl.util` exports
+`partial`, `class-names`, `merge-props` and `is-client`; none is re-exported as
+a user surface (DECISION-7 Class A — see §13.3 for the migration recipes). A
+`class-names` helper does exist inside `reagent2.impl.template`, as that
+renderer's own `:class` merge, not as compat.
 
 ---
 
@@ -428,12 +462,19 @@ Stage 2's third top-3 commitment: a microtask-based render scheduler that compos
 
 ### §4.1 Microtask scheduling
 
-`reagent2.impl.batching/queue-render!` enqueues a component into the dirty-set atom. If `scheduled?` is false, it sets `scheduled?` true and schedules a microtask via `js/Promise.resolve().then` (or `js/queueMicrotask` where available). The microtask body:
+`reagent2.impl.batching/queue-render!` pushes a component onto the single
+`RenderQueue`'s component queue (§2.9) and arms it. Arming sets the queue's
+`scheduled?` field and schedules a microtask via `js/queueMicrotask` (falling
+back to `js/Promise.resolve().then`). The microtask body (`run-queues`):
 
-1. Sets `scheduled?` false.
-2. Drains the `dirty-set` into a local seq, clearing the atom.
-3. For each dirty component, calls its React `forceUpdate` (or equivalent — under React 19 the dirty notification rides through the component's `useSyncExternalStore` subscription, where present).
-4. Runs the `after-render` callback queue.
+1. Clears `scheduled?`.
+2. Drains the REACTIVE queue first (`ratom/flush!`) — Reaction recomputes can enqueue further component renders, which step 3 then picks up.
+3. Takes the component queue, replaces it with nil, and for each still-dirty component marks it rendered and calls its React `forceUpdate`.
+4. Takes the after-render queue, replaces it with nil, and runs each callback inside a per-callback `try` (rf2-p27yih), so one throw cannot strand the rest.
+
+Each queue is taken-and-nilled before it is walked, which is what makes a
+Reaction that fires DURING the drain land on the NEXT turn rather than being
+flattened into this one — the ordering §4.6 and the Suspense test depend on.
 
 The microtask boundary is universal across React 19's host platforms (browser, server-component runtimes, React Native via Hermes). No `requestAnimationFrame` fallback is required; React 19 itself does not target environments without microtask support.
 
@@ -441,18 +482,35 @@ The microtask boundary is universal across React 19's host platforms (browser, s
 
 The scheduler **does not interfere** with React 19's transition / suspense / concurrent rendering. The mechanism: the rewrite's components consume their reactive state via `useSyncExternalStore`-shaped subscriptions to RAtom / Reaction objects (mirroring the UIx adapter's `use-subscribe` pattern at `uix.cljs:225+`). When an RAtom changes, the subscriber fires; React's reconciler then schedules its own re-render through normal React channels. The microtask scheduler is the path for **legacy Reagent-shape components** (Form-1/2/3) that don't use `useSyncExternalStore`; those components call `forceUpdate` from inside the microtask.
 
-For test code, `flush-views!` calls `react/act` (from `react` 19+'s test entry) wrapping the synchronous drain. `act` is the React-19-blessed test primitive that drains React's pending work. The compose:
+For test code, `flush-views!` runs the synchronous drain inside React's `act` —
+the React-19-blessed test primitive that drains React's pending work. As
+shipped, the drain is bracketed by microtask ticks either side (the rf2-w6ef
+ordering, §14.5), and `act` is looked up rather than called directly:
 
 ```clojure
+(defn- resolve-act []
+  (.-act react))                        ; the ONE location above the React-19 floor
+
 (defn flush-views! []
   (when ^boolean js/goog.DEBUG
-    (react/act
-      (fn []
-        (batching/flush!)               ; synchronous drain of the dirty-set
-        (js/Promise.resolve)))))         ; await one microtask turn
+    (let [act (resolve-act)]
+      (if (nil? act)
+        (do (batching/flush!) nil)      ; React's production bundle omits `act`
+        (act (fn []
+               (-> (microtask-tick)     ; let a pending rea-schedule microtask run
+                   (.then (fn [_]
+                            (batching/flush!)
+                            (microtask-tick))))))))))
 ```
 
-(Pseudocode — Stage 4 finalises the precise CLJS invocation; the `act` import is `["react" :refer [act]]` under React 19.)
+The lookup is a lookup for two reasons, and neither is React-18 compatibility:
+React's PRODUCTION bundle deliberately omits `act`, so the nil branch is the
+documented safe degradation there; and re-resolving on every call (rather than
+caching) lets a test fixture swap the `react` module mid-run. The pre-18.3
+`react-dom/test-utils` location is below the artefact's React floor and is not
+probed (rf2-6r9j.35); `implementation/package.json` and its lock pin react /
+react-dom 19.2.0, and generated consumers are pinned to the same version by
+`tools/template`, held in lockstep by `version_lockstep_test.clj`.
 
 In production builds, `flush-views!` is gated on `js/goog.DEBUG` and DCEs entirely under `:advanced` + `goog.DEBUG=false` — the flush primitive is a test concern.
 
@@ -478,7 +536,7 @@ Three pathways enqueue a component:
 
 ### §4.5 Dedup strategy
 
-`dirty-set` is a CLJS `set?` — adding the same component twice is a no-op. Stable component identity is the React component instance object; the set is keyed on object identity (`equiv?` / hash on identity).
+Dedup is a FLAG ON THE INSTANCE, not set membership: `queue-render!` marks the component's `cljsIsDirty` field on first enqueue and skips the enqueue while it is set; `mark-rendered` clears it after `forceUpdate` runs, and `componentWillUnmount` clears it too (rf2-mdgt8t) so an unmounted-while-dirty instance is never force-updated. The field name is stock Reagent's, so introspection hooks observing it keep working. The queue itself is therefore a plain JS array of instances, and identity is the React component instance object.
 
 A component that is queued, rendered, then re-queued during the same render cycle (e.g. an `:after-render` callback that mutates an upstream RAtom) gets re-queued for the next microtask turn — the scheduler does not flatten "queued during drain" into the current drain. This matches React 19's transition semantics: in-flight work commits, downstream cascades schedule a new turn.
 
@@ -498,58 +556,73 @@ A test that does `(rf/dispatch-sync ...)` followed by `(flush-views!)` followed 
 
 ---
 
-## §5 Component-shape detection (Form-1/2/3, compile-time)
+## §5 Component-shape detection (Form-1/2/3)
 
-Stage 1 §1.10 + Stage 2 §3.3 + S3-003: ship runtime detection (so plain `defn` + `reg-view` keeps working) and an optional `defview` macro for compile-time dispatch. The runtime detection lives in `reagent2.impl.component/wrap-render`; the macro lives in `reagent2.impl.component.clj`.
+Runtime detection is the load-bearing correctness mechanism, in
+`reagent2.impl.component/wrap-render`. Compile-time classification is an
+additive fold **inside `re-frame.core/reg-view`'s expansion** — it is not a
+separate user surface. **No `defview` macro ships** (rf2-yfbx; §14.1 records
+the decision): `reg-view` is the single canonical view-registration macro.
 
 ### §5.1 Runtime detection (`wrap-render`)
 
-Per Stage 2 §3.3 — Reagent's runtime detection costs ~3-5 ns per render; the savings of moving to compile-time are negligible. The runtime path stays:
-
-```
-(defn- wrap-render [c]
-  (let [out ((.-cljsRender c))]
-    (cond
-      (vector? out)  out                   ; Form-1
-      (fn? out)      (do (set! (.-cljsLegacyRender c) out)
-                         (out (get-argv c)))   ; Form-2 cache + recall
-      (seq? out)     (vec out)              ; legacy seq-as-fragment
-      :else          out)))                 ; primitive
-```
-
-This is essentially the stock-Reagent shape (`reagent.impl.component:54-73`). Under the rewrite the detection sits inside the create-class-derived React component class; `reg-view*`'s wrapper continues to attach `:contextType frame-context` (per views.cljs:312-367).
-
-### §5.2 Compile-time `defview` macro (optional)
-
-Per S3-003: an optional `defview` macro that compile-time-classifies the user form. **Stage 4 ships this AFTER the runtime path** — Stage 4-A is the runtime; Stage 4-B layers on the macro.
-
-Shape (sketch — Stage 4 finalises):
+Per Stage 2 §3.3 — Reagent's runtime detection costs ~3-5 ns per render; moving
+it to compile time saves little, so the runtime path stays canonical. As
+shipped, `wrap-render` takes the component AND the user render fn, caches a
+Form-2 inner closure on `cljsRenderFn`, and consults the compile-time form tag
+before falling through to the classification cond:
 
 ```clojure
-(defmacro defview
-  [sym arglist & body]
-  (let [form (last body)]
+(defn wrap-render [^js c render-fn]
+  (let [args   (argv-args c)                    ; argv minus its head
+        cached (.-cljsRenderFn c)]
     (cond
-      ;; Form-3: (create-class spec)
-      (and (seq? form) (= 'create-class (first form)))
-      `(def ~sym (reagent2.core/create-class ~(second form)))
+      (some? cached)                            ; Form-2 hot path: recall inner
+      (apply cached args)
 
-      ;; Form-2: (fn [args] hiccup)
-      (and (seq? form) (= 'fn (first form)))
-      `(def ~sym (form-2-wrapper (fn ~arglist ~@body)))
+      (= :reagent2/form-2 (form-tag render-fn))  ; compile-time-tagged Form-2
+      (let [inner (apply render-fn args)]
+        (set! (.-cljsRenderFn c) inner)
+        (apply inner args))
 
-      ;; Form-1: anything else, treat as render fn
-      :else
-      `(def ~sym (form-1-wrapper (fn ~arglist ~@body))))))
+      ;; …compile-time-tagged Form-1 (which still keeps the runtime `fn?`
+      ;; fallback, because a Form-1 tag is assigned to any body whose LAST
+      ;; form is not a literal `(fn …)` — the idiomatic `(let [s (atom 0)]
+      ;; (fn [] …))` shape included), then the untagged classification cond.
+      )))
 ```
 
-The macro is **purely additive**: existing `(defn my-view [args] [:div ...])` users do nothing. The macro's value is for users who want compile-time dispatch; the runtime detection covers correctness for everyone else.
+The full cond is in the source; what is contract here is that the runtime cond
+stays load-bearing for plain `(reg-view* :id (fn ...))` callers and for any path
+the fold does not reach, so correctness never depends on the macro. The
+detection sits inside the create-class-derived React component class;
+`reg-view*`'s wrapper continues to attach `:contextType frame-context`.
 
-**Note on re-frame2's `reg-view`**: `reg-view` (`re-frame.core/reg-view`) is the canonical re-frame2 view-registration macro and is NOT replaced by `defview`. `reg-view` registers an id in the `:view` registrar and attaches `:contextType frame-context`; `defview` is a Reagent-flavoured user surface for code that doesn't go through re-frame2's registrar. They coexist.
+Form-3 needs no detection here — see §5.3.
+
+### §5.2 Compile-time fold inside `reg-view` (`component.clj`)
+
+`reagent2.impl.component` (the CLJ side) ships two pure compile-time helpers,
+consumed by `re-frame.core/reg-view`'s expansion:
+
+- `classify-form-body` — returns a form tag (`:reagent2/form-1` / `:reagent2/form-2`) for a body.
+- `tag-form-meta` — wraps a tag in the `{:reagent2/form ...}` metadata map `reg-view` stamps onto the emitted wrapper fn.
+
+They run at macroexpansion time and are plain `defn`s, not macros, so any macro
+that wants to amortise the runtime detection can call them. The fold is
+**purely additive**: an existing `(defn my-view [args] [:div ...])` registered
+through `reg-view` does nothing differently, and `wrap-render`'s runtime cond
+covers every untagged path.
+
+This is the shipped answer to S3-003's "optional compile-time dispatch". S3-003
+sketched it as a standalone `defview` macro; that was rejected under rf2-yfbx
+because it would have stood beside `reg-view` as a second, near-identically
+named view surface. The classification moved inside `reg-view` instead, and the
+user-facing API is unchanged. §14.1 records the question and its disposition.
 
 ### §5.3 Form-3 detection
 
-Form-3 is **explicit**: `(reagent2.core/create-class spec-map)`. The macro doesn't need to detect it because it's a function call at the user's site, not a shape inferred from the body. The runtime path validates the spec at `create-class` call time — see §6.
+Form-3 is **explicit**: `(reagent2.core/create-class spec-map)`. Nothing needs to detect it — it is a function call at the user's site, not a shape inferred from a body — so the compile-time fold classifies only Form-1 vs Form-2. The runtime path validates the spec at `create-class` call time — see §6.
 
 ### §5.4 Source-coord meta stamping through each Form path
 
@@ -1048,12 +1121,14 @@ Per the bead description and Stage 2 §5 risk register R-001..R-007.
 | Namespace | Test file | Coverage |
 |---|---|---|
 | `reagent2.core` | `core_cljs_test.cljs` | All 14 public surfaces (re-export integrity); the `reaction` macro from the consumer side — body deferred until the first deref, reagent2-atom dependency capture and recompute, and the expansion shape `(make-reaction (fn [] body...))`. |
-| `reagent2.ratom` | `ratom_test.cljs` | RAtom + Reaction lifecycle; protocol satisfaction; equality memoisation; `IDisposable` reify; cross-substrate cache-wiring contract. |
-| `reagent2.dom.client` | `dom_client_test.cljs` | create-root / render / unmount / hydrate-root happy-paths; flush-views! determinism contract per §4.6; React-19 `act` cooperation. |
-| `reagent2.dom.server` | `dom_server_test.cljs` + `parity_test.cljs` | render-to-static-markup output for representative corpus; parity against `react-dom/server` per §8.7. |
-| `reagent2.impl.template` | `impl/template_test.cljs` | hiccup → React-element shapes; narrowed convert-prop-value (R-001); kebab-camel cache; tag parsing; sequence-children handling; `:>` / `:<>` / `:r>` / `:f>` interop. |
-| `reagent2.impl.component` | `impl/component_test.cljs` | create-class 7-key cap (R-002); throw-on-unsupported-key per banned key; lifecycle method mapping per §6.4; `:component-did-catch` error-boundary integration per §6.5; `:get-snapshot-before-update` pairing per §6.6. |
-| `reagent2.impl.batching` | `impl/batching_test.cljs` | microtask scheduling; dirty-set dedup; flush! synchronous drain; after-render queue; React 19 transition cooperation (R-005). |
+| `reagent2.ratom` | `ratom_cljs_test.cljs` | RAtom + Reaction lifecycle; protocol satisfaction; equality memoisation; `IDisposable` reify; cross-substrate cache-wiring contract. |
+| `reagent2.dom.client` | `dom/client_cljs_test.cljs` | create-root / render / unmount / hydrate-root happy-paths; flush-views! determinism contract per §4.6; React-19 `act` cooperation (a spy on `react.act` proves the drain routes through it — rf2-6r9j.35). |
+| `reagent2.dom.server` | `dom/server_cljs_test.cljs` + `dom/parity_cljs_test.cljs` + `dom/server_subscribe_ssr_cljs_test.cljs` | render-to-static-markup output for representative corpus; parity against `react-dom/server` per §8.7; the SSR non-reactive deref branch. |
+| `reagent2.impl.template` | `impl/template_cljs_test.cljs` (+ the reserved-head and keyword-prop-warn-once siblings) | hiccup → React-element shapes; narrowed convert-prop-value (R-001); kebab-camel cache; tag parsing; sequence-children handling; `:>` / `:<>` / `:r>` / `:f>` interop. |
+| `reagent2.impl.component` | `impl/component_cljs_test.cljs` (runtime) + `impl/component_test.clj` (the compile-time classifiers, §5.2) | create-class 7-key cap (R-002); throw-on-unsupported-key per banned key; lifecycle method mapping per §6.4; `:component-did-catch` error-boundary integration per §6.5; `:get-snapshot-before-update` pairing per §6.6; and, on the CLJ side, `classify-form-body` / `tag-form-meta` — including that there is no separate `defview` macro. |
+| `reagent2.impl.batching` | `impl/batching_cljs_test.cljs` | microtask scheduling; dirty-flag dedup; flush! synchronous drain; after-render queue; React 19 transition cooperation (R-005). |
+| `reagent2.impl.diag` | `impl/diag_cljs_test.cljs` | the EP-0015-safe value summary (§2.10) — shape only, never the value. |
+| `re-frame.adapter.reagent-slim` | `re_frame/adapter/*_cljs_test.cljs` | the adapter-Var surface: slot parity, client roots, dispose drains, flush-render!/flush-views!, source-coord stamping, StrictMode. |
 
 ### §12.2 Integration tests
 
@@ -1085,11 +1160,11 @@ Per §1.5 — Stage 4 confirms `verify-version-lockstep.sh` recognises the new a
 
 | Risk | Test |
 |---|---|
-| **R-001** Narrowed `convert-prop-value` may break apps relying on silent stringification | `template_test.cljs` exercises every `html-attr-name?` branch; tests assert the dev-mode `console.warn` fires once per `[k name-of-v]` pair. |
-| **R-002** 7-key Form-3 cap may break niche consumers | `component_test.cljs` constructs `create-class` with each of {`:component-will-mount`, `:UNSAFE_componentWillMount`, `:component-will-receive-props`, `:UNSAFE_componentWillReceiveProps`, `:component-will-update`, `:UNSAFE_componentWillUpdate`, `:should-component-update`, `:get-derived-state-from-props`, `:get-initial-state`} and asserts each throws `:rf.error/create-class-key-unsupported` with the unsupported key in `:keys`. |
-| **R-003** Compile-time Form-detection macro changes user-facing API | The runtime path is the canonical (mandatory) implementation; the `defview` macro is optional. Tests assert plain `defn` + `reg-view` works with all three Form shapes. |
-| **R-004** Pure-CLJS `render-to-static-markup` differs from `react-dom/server` | `parity_test.cljs` per §8.7 — corpus-based diff. Known-difference allow-list documented in the parity test itself. |
-| **R-005** Microtask scheduler interacts unexpectedly with React 19 transitions | `dom_client_test.cljs` exercises `useTransition` boundaries; `flush-views!` drains React's pending work without race. |
+| **R-001** Narrowed `convert-prop-value` may break apps relying on silent stringification | `impl/template_cljs_test.cljs` exercises every `html-attr-name?` branch; tests assert the dev-mode `console.warn` fires once per `[k name-of-v]` pair. |
+| **R-002** 7-key Form-3 cap may break niche consumers | `impl/component_cljs_test.cljs` constructs `create-class` with each of {`:component-will-mount`, `:UNSAFE_componentWillMount`, `:component-will-receive-props`, `:UNSAFE_componentWillReceiveProps`, `:component-will-update`, `:UNSAFE_componentWillUpdate`, `:should-component-update`, `:get-derived-state-from-props`, `:get-initial-state`} and asserts each throws `:rf.error/create-class-key-unsupported` with the unsupported key in `:keys`. |
+| **R-003** Compile-time Form-detection changes user-facing API | Retired as a risk: no separate `defview` surface ships (rf2-yfbx; §5.2 + §14.1), so the classification is invisible to users. The runtime path in `wrap-render` remains the canonical (mandatory) implementation, and tests assert plain `defn` + `reg-view` works with all three Form shapes whether or not the fold applies. |
+| **R-004** Pure-CLJS `render-to-static-markup` differs from `react-dom/server` | `dom/parity_cljs_test.cljs` per §8.7 — corpus-based diff. Known-difference allow-list documented in the parity test itself. |
+| **R-005** Microtask scheduler interacts unexpectedly with React 19 transitions | `dom/client_cljs_test.cljs` exercises `useTransition` boundaries; `flush-views!` drains React's pending work without race. |
 | **R-006** 10x v1 monkey-patches break | NOT tested in this artefact — documented as a known breakage in the migration corpus (`migration/from-re-frame-v1/README.md`). 10x v1 doesn't load against the rewrite; Xray is the contract. Apps running 10x v1 stay on the bridge `day8/re-frame2-reagent`. |
 | **R-007** Bundle estimates may be off by 30-50% | Per S3-008, the comparison build is delivered (rf2-5lbx) — see §12.2 + §12.3. The S3-008 *contract* (no stock-Reagent impl-leak, no `react-dom/server` leak) is enforced quantitatively by the symbol grep. The *size* half of R-007 remains a Stage-5 follow-up: in the in-tree shadow-cljs build both adapter trees live on the same classpath, and `re-frame.interop` still statically `:require`s stock `reagent.core` / `reagent.ratom`, so a per-build classpath-pruning hook is needed before the realised-gzip-reduction measurement is meaningful. The current in-tree numbers (stock counter ~93 KB gz, slim counter ~93 KB gz) reflect that shared-classpath shape and are NOT the binding "slim" claim. |
 
@@ -1182,9 +1257,9 @@ The following surfaced during drafting as Stage-4-or-later calls. Stage 4 (rf2-6
 
 ### §14.1 The `defview` macro vs `reg-view` — namespace collision
 
-Stage 4 ships `reagent2.impl.component/defview` as an optional Form-detection macro (per S3-003). re-frame2 already ships `re-frame.core/reg-view` as the canonical view-registration macro. They serve different purposes (`reg-view` registers in the view registrar; `defview` just emits a Form-typed component) but the names are close and may confuse.
+**The question, as it stood before Stage 4** (recorded verbatim as history — the answer is below, and the shipped tree follows the answer): S3-003 proposed `reagent2.impl.component/defview` as an optional Form-detection macro. re-frame2 already shipped `re-frame.core/reg-view` as the canonical view-registration macro. They would have served different purposes (`reg-view` registers in the view registrar; `defview` would just emit a Form-typed component) but the names are close and would confuse.
 
-**Open question for Mike**: does `defview` ship as a Reagent-flavoured user surface, or is it simply absorbed into `reg-view` as an internal optimisation (Form detection moves into the macro that already exists)? If the latter, S3-003's "optional macro" framing changes — the runtime detection path stays load-bearing for `reg-view*` and direct `defn`-and-register paths, and `reg-view` quietly classifies at compile time.
+**Open question for Mike (as put)**: does `defview` ship as a Reagent-flavoured user surface, or is it simply absorbed into `reg-view` as an internal optimisation (Form detection moves into the macro that already exists)? If the latter, S3-003's "optional macro" framing changes — the runtime detection path stays load-bearing for `reg-view*` and direct `defn`-and-register paths, and `reg-view` quietly classifies at compile time.
 
 **Disposition (as shipped)**: resolved per the rf2-yfbx decision — `defview` is **not** shipped. The runtime Form-detection path is the canonical implementation; no separate `defview` macro exists (see `reagent2/impl/component.cljs:31` and `component.clj:10`: "No separate `defview` macro is shipped"). This matches the original recommendation (ship runtime detection, skip `defview`).
 
@@ -1214,7 +1289,7 @@ A child component throws a Promise (Suspense's standard pattern); the parent's `
 
 **Open question**: the spec says "drains React's pending work as a single composed operation" (§4.2). React 19's `act` does drain Suspense — but the precise sequencing (microtask-microtask vs microtask-then-act vs act-then-microtask) is non-trivial. Stage 4 picks an order and tests it; Stage 3 doesn't pre-commit.
 
-**Disposition (as shipped)**: settled and tracked as bead **rf2-w6ef**. Stage 4 picked the **microtask → act → microtask** ordering for `flush-views!`: a leading microtask flushes pending re-frame2 state changes before handing off to React's `act`; `act` drains React's commit phase and any Suspense boundaries (awaiting the thrown Promise, re-rendering on resolution); a trailing microtask settles re-frame2 effects that ran inside the React commit. The choice + rationale are documented at `reagent2/dom/client.cljs:24-59` and exercised by the Suspense test in `dom_client_cljs_test.cljs`.
+**Disposition (as shipped)**: settled and tracked as bead **rf2-w6ef**. Stage 4 picked the **microtask → act → microtask** ordering for `flush-views!`: a leading microtask flushes pending re-frame2 state changes before handing off to React's `act`; `act` drains React's commit phase and any Suspense boundaries (awaiting the thrown Promise, re-rendering on resolution); a trailing microtask settles re-frame2 effects that ran inside the React commit. The choice + rationale are documented at `reagent2/dom/client.cljs:24-59` and exercised by the Suspense test in `test/reagent2/dom/client_cljs_test.cljs`.
 
 ### §14.6 Source-coord stamping + `:>` interop
 
