@@ -20,11 +20,10 @@
   committed spec-side data file a build inlines is resolvable — so a
   consumer names its file relative to that root.
 
-  The JVM lanes need no such edge (`clojure -M:test` and the manifest
-  generator have no persistent analyzer cache, so every run re-reads the
-  file) and do not carry that root on their classpath, so outside a
-  ClojureScript compile the same file is located by walking up from the
-  compile CWD instead.
+  Every consumer is a ClojureScript macro, so that recorded edge is the
+  only lane this reader has: [[slurp-resource]] requires a ClojureScript
+  macro-expansion `&env` and rejects anything else rather than reaching
+  the tree by a second, unrecorded route.
 
   ## Why the reader is resolved, and why resolving it is subtle
 
@@ -48,14 +47,7 @@
   namespace has finished loading. A per-consumer `delay` does NOT fix
   this: it makes one consumer single-flight with ITSELF and leaves two
   consumers free to race each other. That is why this reader is shared
-  rather than copied, and why every consumer calls it."
-  (:require [clojure.java.io :as io]))
-
-(def ^:private classpath-root
-  "The repository directory that is the classpath root for these reads —
-  the shadow-cljs `:source-path` the ClojureScript lane resolves resource
-  paths against, and what the other lanes walk up the tree looking for."
-  "spec")
+  rather than copied, and why every consumer calls it.")
 
 (defn resolve-after-require
   "Resolve the Var named by the qualified symbol `sym`, entering
@@ -83,38 +75,25 @@
   "shadow-cljs's recording classpath reader, resolved once and cached.
 
   Cached because the resolution is the expensive, order-sensitive part;
-  forced lazily because the JVM lanes never take this branch and
-  shadow-cljs is not on their classpath."
+  forced lazily so the namespace stays loadable without shadow-cljs —
+  its own JVM test suite loads it on a classpath that has none."
   (delay (resolve-after-require 'shadow.resource/slurp-resource)))
-
-(defn- spec-file
-  "Locate the committed file at `path` by walking up from the compile CWD
-  looking for the [[classpath-root]] directory — the locator for lanes
-  where that root is not on the classpath. Throws an actionable error
-  rather than yielding an absent value."
-  [path]
-  (loop [dir (io/file (System/getProperty "user.dir"))]
-    (when (nil? dir)
-      (throw (ex-info (str "Build-time resource reader: " classpath-root "/" path
-                           " not found walking up from "
-                           (System/getProperty "user.dir") ".")
-                      {:path path :root classpath-root})))
-    (let [candidate (io/file dir classpath-root path)]
-      (if (.exists candidate)
-        candidate
-        (recur (.getParentFile dir))))))
 
 (defn slurp-resource
   "Return the text of the committed `spec/` data file at `path` (relative
   to that root, e.g. `conformance/fixtures/after-hierarchy.edn`),
-  read in the macro-expansion environment `env`.
+  read in the ClojureScript macro-expansion environment `env`.
 
-  Under a ClojureScript compile — `&env` carries the compiling `:ns` —
-  the read goes through shadow-cljs, which registers `path` as a build
-  dependency of that namespace: the edge that makes a data-only edit
-  invalidate the cached consumer. Anywhere else there is no cache to
-  invalidate and the file is read from the tree directly."
+  `env` MUST be a ClojureScript macro `&env` — it carries the compiling
+  `:ns`. The read then goes through shadow-cljs, which registers `path`
+  as a build dependency of that namespace: the edge that makes a
+  data-only edit invalidate the cached consumer, and the whole reason
+  this reader exists. Any other `env` is a caller error and says so."
   [env path]
-  (if (:ns env)
-    (@recording-slurp env path)
-    (slurp (spec-file path))))
+  (when-not (:ns env)
+    (throw (ex-info (str "Build-time resource reader: " path " must be read from a "
+                         "ClojureScript macro-expansion environment (an `&env` "
+                         "carrying :ns). Reading it any other way would inline the "
+                         "bytes with no build dependency recorded against them.")
+                    {:path path})))
+  (@recording-slurp env path))
