@@ -399,13 +399,13 @@
         ;; would leave the new owner attached to dead / dying work that will
         ;; never produce a usable reply (the only reply it can produce is a
         ;; suppressed/aborted one). Such a stale `:current-work` pointer can
-        ;; survive a route supersession (release-owner marks the record
-        ;; `:abort-requested` but leaves the entry's `:current-work` set) or a
-        ;; direct/internal aborted settlement (the `:rf.resource.internal/
-        ;; aborted` handler settles the row terminal but makes no entry write),
-        ;; so the pointer alone is NOT proof of joinable work — the LINKED
-        ;; RECORD'S status is. A non-joinable prior pointer falls through to a
-        ;; fresh load (a new generation), which is the correct re-ensure.
+        ;; survive a route supersession: release-owner marks the record
+        ;; `:abort-requested` but leaves the entry's `:current-work` set, so
+        ;; the pointer alone is NOT proof of joinable work — the LINKED
+        ;; RECORD'S status is. (An accepted abort SETTLE is not such a path:
+        ;; `entry-abort-settled` clears `:current-work` on the way through.)
+        ;; A non-joinable prior pointer falls through to a fresh load (a new
+        ;; generation), which is the correct re-ensure.
         ;; `work-ledger/live-work?` is the ONE definition of that liveness
         ;; question, shared with `load-more`'s page dedupe and the route
         ;; planner's retained-identity adoption test (rf2-kqxe6.6).
