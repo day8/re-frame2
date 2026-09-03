@@ -31,6 +31,22 @@ build (`shadow-cljs.edn`) and Node runs `out/server-test.js`. Every
 `*_test.cljs` namespace under `test/re_frame2_pair_mcp/` is picked up
 by the `:ns-regexp "-test$"` rule.
 
+**Only the Node run is a verdict (rf2-7r9w).** The `:server-test` build
+sets `:autorun true`, so `shadow-cljs compile server-test` runs the suite
+and prints its failures -- and then exits 0 anyway, because the COMPILE
+succeeded, which is the whole of what a compile exit code claims.
+Measured: the compile printed `Ran 1120 tests containing 4068
+assertions. 2 failures, 0 errors.` and exited 0, while
+`node out/server-test.js` over that same build printed the identical
+tally and exited 1. (Those two failures were local to the measuring
+machine -- a live nREPL server that this suite's deliberately no-port
+harness discovered -- not a red in this repo. The cause is beside the
+point: the two runs disagree on nothing but the exit code.) So read the exit
+code of `npm test` (which chains both and ends on Node) or of
+`node out/server-test.js` -- never of the compile alone. `clojure -M:test`
+in this directory now refuses and says so; before rf2-7r9w it ran the bare
+compile and handed back that fail-open 0.
+
 What this layer covers:
 
 - Per-tool body — `<tool>_test.cljs` (one per registered tool):
