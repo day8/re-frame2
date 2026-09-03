@@ -145,7 +145,7 @@
 
 ;; ---- The machine's own :data shape ----
 ;; A todo, as it rides in the machine's `:items` list. Both producers build
-;; exactly this: the demo server's `gen-todos` and `:new-todo/submit`.
+;; exactly this: the demo server's `generate-todos` and `:new-todo/submit`.
 (def Todo
   [:map
    [:id    :any]        ;; a random-uuid; it doubles as the row's React :key
@@ -201,9 +201,9 @@
 ;; control panel conjure Empty / One / Some / Too Many on demand, no
 ;; backend required. See [managed HTTP](../../../docs/async/http.md).
 
-(defn- gen-todos [n]
-  (vec (for [i (range n)]
-         {:id (random-uuid) :title (str "Todo #" (inc i)) :done? false})))
+(defn- generate-todos [todo-count]
+  (vec (for [index (range todo-count)]
+         {:id (random-uuid) :title (str "Todo #" (inc index)) :done? false})))
 
 (rf/reg-fx :nine-states.http/managed-demo
   {:doc       "Demo override for `:rf.http/managed`. A tiny fake server,
@@ -224,9 +224,9 @@
                                  :tags {:message "Network unreachable."})))
 
         :else
-        (let [n    (or (-> args-map :request :query :n) 0)
+        (let [todo-count (or (-> args-map :request :query :n) 0)
               stub (registrar/handler :fx :rf.http/managed-canned-success)]
-          (stub frame-ctx (assoc args-map :value (gen-todos n))))))))
+          (stub frame-ctx (assoc args-map :value (generate-todos todo-count))))))))
 
 ;; ============================================================================
 ;; THE MACHINE — :ui/nine-states  (one machine, three regions)

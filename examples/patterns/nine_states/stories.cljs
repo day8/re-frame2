@@ -105,13 +105,13 @@
 ;; under the canned stub.
 ;; ---------------------------------------------------------------------------
 
-(defn- gen-todos
+(defn- generate-todos
   "Conjure up N demo todos. Same shape as the live example's private
    generator, copied here on purpose so the story file doesn't have to
    reach into `nine-states.core`'s guts for it."
-  [n]
-  (vec (for [i (range n)]
-         {:id (random-uuid) :title (str "Todo #" (inc i)) :done? false})))
+  [todo-count]
+  (vec (for [index (range todo-count)]
+         {:id (random-uuid) :title (str "Todo #" (inc index)) :done? false})))
 
 (rf/reg-event :nine-states.story/load
   {:doc "The Story-shell twin of `:nine-states.demo/load`. It runs the
@@ -125,7 +125,7 @@
     {:fx [[:dispatch [:ui/nine-states [:fetch-started]]]
           [:rf.http/managed
            {:request    {:method :get :url "/api/todos" :query {:n (or n 0)}}
-            :value      (gen-todos (or n 0))
+            :value      (generate-todos (or n 0))
             :decode     :json
             :on-success [:nine-states.demo/loaded]
             :on-failure [:nine-states.demo/load-failed]}]]}))
