@@ -88,7 +88,10 @@
 (rf/reg-event :dashboard/toggle-tag
   (fn [{:keys [db]} [_ tag]]
     {:db (update db :dashboard/active-tags
-            (fn [s] (if (contains? s tag) (disj s tag) (conj s tag))))}))
+            (fn [active-tag-set]
+              (if (contains? active-tag-set tag)
+                (disj active-tag-set tag)
+                (conj active-tag-set tag))))}))
 
 (rf/reg-event :dashboard/set-range
   (fn [{:keys [db]} [_ range-id]]
@@ -144,16 +147,19 @@
    the helper can emit one compact `d` string without building an intermediate
    collection of point attributes."
   [series]
-  (let [n     (count series)
-        lo    (apply min series)
-        hi    (apply max series)
-        span  (max 0.0001 (- hi lo))
-        ->x   (fn [i] (* 100.0 (/ i (dec (max 2 n)))))
-        ->y   (fn [v] (- 30 (* 30 (/ (- v lo) span))))
-        head  (str "M" (->x 0) "," (->y (first series)))
-        tail  (apply str
-                (for [i (range 1 n)]
-                  (str " L" (->x i) "," (->y (nth series i)))))]
+  (let [point-count  (count series)
+        minimum     (apply min series)
+        maximum     (apply max series)
+        value-range (max 0.0001 (- maximum minimum))
+        x-for-index (fn [point-index]
+                      (* 100.0 (/ point-index (dec (max 2 point-count)))))
+        y-for-value (fn [point-value]
+                      (- 30 (* 30 (/ (- point-value minimum) value-range))))
+        head        (str "M" (x-for-index 0) "," (y-for-value (first series)))
+        tail        (apply str
+                      (for [point-index (range 1 point-count)]
+                        (str " L" (x-for-index point-index) ","
+                             (y-for-value (nth series point-index)))))]
     (str head tail)))
 
 ;; ============================================================================
@@ -232,11 +238,11 @@
         {:keys [dispatch]} (uix-adapter/use-frame)]
     ($ :div.dash-chips {:role "group" :aria-label "Filter metrics by category"}
        (for [{:keys [id label]} all-tags]
-         (let [on? (contains? active-tags id)]
+         (let [selected? (contains? active-tags id)]
            ($ :button {:key id
                        :type "button"
-                       :class (str "dash-chip " (when on? "is-on"))
-                       :aria-pressed (if on? "true" "false")
+                       :class (str "dash-chip " (when selected? "is-on"))
+                       :aria-pressed (if selected? "true" "false")
                        :data-testid (str "dashboard-chip-" (name id))
                        :on-click #(dispatch [:dashboard/toggle-tag id])}
               ($ :span.dash-chip-dot {:class (str "tag-" (name id))})
@@ -247,8 +253,8 @@
    nil if the key isn't one we steer with. The WAI-ARIA radio-group pattern
    moves selection on all four arrows: Right/Down go forward, Left/Up go
    back. Both axes, because the group wraps either way."
-  [k]
-  (case k
+  [pressed-key]
+  (case pressed-key
     ("ArrowRight" "ArrowDown") 1
     ("ArrowLeft"  "ArrowUp")  -1
     nil))
@@ -271,43 +277,43 @@
   ;;
   ;; As with the chips, `is-on` is paint only; `aria-checked` is the state
   ;; assistive tech reads.
-  (let [active-range-id (uix-adapter/use-subscribe [:dashboard/range])
-        {:keys [dispatch]}  (uix-adapter/use-frame)
-        n               (count ranges)
-        active-idx      (or (some (fn [[i {:keys [id]}]]
-                                    (when (= active-range-id id) i))
-                                  (map-indexed vector ranges))
-                            0)
-        select!         (fn [idx]
-                          (let [idx (mod idx n)
-                                {:keys [id]} (nth ranges idx)]
-                            (dispatch [:dashboard/set-range id])
-                            ;; Selection follows focus, so move the DOM focus
-                            ;; onto the chip we just picked — that keeps the
-                            ;; visible focus ring sitting on the live radio.
-                            (when (exists? js/document)
-                              (some-> (js/document.querySelector
-                                        (str "[data-testid=\"dashboard-range-"
-                                             (name id) "\"]"))
-                                      (.focus)))))]
+  (let [active-range-id    (uix-adapter/use-subscribe [:dashboard/range])
+        {:keys [dispatch]} (uix-adapter/use-frame)
+        range-count        (count ranges)
+        active-range-index (or (some (fn [[range-index {:keys [id]}]]
+                                       (when (= active-range-id id) range-index))
+                                     (map-indexed vector ranges))
+                               0)
+        select!            (fn [requested-index]
+                             (let [normalized-index (mod requested-index range-count)
+                                   {:keys [id]} (nth ranges normalized-index)]
+                               (dispatch [:dashboard/set-range id])
+                               ;; Selection follows focus, so move the DOM focus
+                               ;; onto the chip we just picked — that keeps the
+                               ;; visible focus ring sitting on the live radio.
+                               (when (exists? js/document)
+                                 (some-> (js/document.querySelector
+                                           (str "[data-testid=\"dashboard-range-"
+                                                (name id) "\"]"))
+                                         (.focus)))))]
     ($ :div.dash-chips {:role "radiogroup" :aria-label "Time range"}
        (map-indexed
-         (fn [idx {:keys [id label]}]
-           (let [on? (= active-range-id id)]
+         (fn [range-index {:keys [id label]}]
+           (let [selected? (= active-range-id id)]
              ($ :button {:key id
                          :type "button"
                          :role "radio"
                          ;; Roving tabindex in one line: only the checked
                          ;; radio is tabbable; arrows do the rest.
-                         :tabIndex (if (= idx active-idx) 0 -1)
-                         :class (str "dash-chip " (when on? "is-on"))
-                         :aria-checked (if on? "true" "false")
+                         :tabIndex (if (= range-index active-range-index) 0 -1)
+                         :class (str "dash-chip " (when selected? "is-on"))
+                         :aria-checked (if selected? "true" "false")
                          :data-testid (str "dashboard-range-" (name id))
                          :on-click #(dispatch [:dashboard/set-range id])
-                         :on-key-down (fn [e]
-                                        (when-let [step (radio-key->step (.-key e))]
-                                          (.preventDefault e)
-                                          (select! (+ active-idx step))))}
+                         :on-key-down (fn [key-event]
+                                        (when-let [step (radio-key->step (.-key key-event))]
+                                          (.preventDefault key-event)
+                                          (select! (+ active-range-index step))))}
                 label)))
          ranges))))
 
