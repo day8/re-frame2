@@ -27,20 +27,20 @@
   Uses Malli (the framework default validator)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.machines :as machines]
-            [re-frame.machines.test-support :as mtest]
+            [re-frame.machines :as rf.machines]
+            [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.schemas]
             [re-frame.schemas.malli]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- collect-traces!
   "Run `f` while capturing every trace event; return the
   `:rf.error/schema-validation-failure` events as a vector."
   [f]
-  (mtest/with-trace-capture traces
+  (rf.machines.test-support/with-trace-capture traces
     (f)
     (filterv #(= :rf.error/schema-validation-failure (:operation %))
              @traces)))
@@ -49,7 +49,7 @@
   "Run `f` while capturing every trace event; return ALL events with the
   given `op` as a vector."
   [op f]
-  (mtest/with-trace-capture traces
+  (rf.machines.test-support/with-trace-capture traces
     (f)
     (filterv #(= op (:operation %)) @traces)))
 

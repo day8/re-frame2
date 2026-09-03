@@ -52,12 +52,12 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]))
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace :as rf.trace]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; The shared machine spec. `:go`'s action raises `[:inner]`; `:inner`'s guard
 ;; requires the generator-backed `:replay/gen`, NOT in `:go`'s ensure-set, so it
@@ -86,18 +86,18 @@
           run-start (atom nil)]
       (rf/reg-cofx :replay/gen {:recordable? true} (fn [] 100))
       (rf/reg-machine :replay/mint (mint-machine seen))
-      (trace/register-listener!
+      (rf.trace/register-listener!
         ::cap (fn [ev] (when (= :rf.event/run-start (:operation ev))
                          (reset! run-start ev))))
       ;; LIVE dispatch — only :rf/time-ms in the external token. :replay/gen is
       ;; minted mid-drain by the raised :inner's guard ensure.
       (rf/dispatch-sync [:replay/mint [:go]] {:rf.cofx {:rf/time-ms 111}})
-      (trace/unregister-listener! ::cap)
+      (rf.trace/unregister-listener! ::cap)
 
       ;; (1) The mint DID happen and the guard decided on the fresh value.
       (is (= 100 @seen)
           "the raised guard read the MINTED generator-backed fact (mid-drain)")
-      (is (= :done (mtest/machine-state :replay/mint))
+      (is (= :done (rf.machines.test-support/machine-state :replay/mint))
           "the machine advanced on the minted value")
 
       ;; (2) The run-start TRACE is the PRE-handler token — only :rf/time-ms.
@@ -131,7 +131,7 @@
       (is (= 100 @seen)
           "STRICT delivered the recorded :replay/gen verbatim — same value the
            live run's guard read")
-      (is (= :done (mtest/machine-state :replay/strict))
+      (is (= :done (rf.machines.test-support/machine-state :replay/strict))
           "STRICT replay reproduced the live decision deterministically"))))
 
 (deftest strict-replay-without-the-minted-fact-diverges-control
@@ -147,6 +147,6 @@
       (rf/dispatch-sync [:replay/strict-nofact [:go]]
                         {:rf.cofx {:rf/time-ms 111}
                          :rf.cofx/mint-policy :strict})
-      (is (not= :done (mtest/machine-state :replay/strict-nofact))
+      (is (not= :done (rf.machines.test-support/machine-state :replay/strict-nofact))
           "strict refused to mint the absent :replay/gen → the machine did NOT
            reach :done (the pre-fix replay divergence)"))))

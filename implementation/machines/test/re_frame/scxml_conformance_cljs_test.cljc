@@ -121,9 +121,9 @@
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing]]
       :cljs [cljs.test :refer-macros [deftest is testing]])
-   [re-frame.machines :as machines]
-   [re-frame.machines.transition :as transition]
-   [re-frame.machines.lifecycle-fx.finalize :as finalize])
+   [re-frame.machines :as rf.machines]
+   [re-frame.machines.transition :as rf.machines.transition]
+   [re-frame.machines.lifecycle-fx.finalize :as rf.machines.lifecycle-fx.finalize])
   #?(:clj (:import [clojure.lang ExceptionInfo])))
 
 ;; ---------------------------------------------------------------------------
@@ -142,7 +142,7 @@
   emitted fx vector, and (for convenience) the snapshot's `:state` /
   `:data` / `:tags`."
   [machine snapshot event]
-  (let [r (machines/machine-transition machine snapshot event)]
+  (let [r (rf.machines/machine-transition machine snapshot event)]
     {:snapshot (:snapshot r)
      :fx       (vec (:fx r))
      :state    (:state (:snapshot r))
@@ -438,7 +438,7 @@
           ;; First :fin: both regions reach :done in one broadcast.
           both (step m {:state {:left :run :right :run} :data {}} [:fin])]
       (is (= {:left :done :right :done} (:state both)))
-      (is (true? (finalize/all-regions-final? m (:state both)))
+      (is (true? (rf.machines.lifecycle-fx.finalize/all-regions-final? m (:state both)))
           "every region's leaf is :final? ⇒ the parallel machine is done"))))
 
 (deftest scxml-parallel-NOT-done-when-one-region-pending
@@ -452,7 +452,7 @@
           ;; Only :left reaches :done; :right is still :run.
           left-only (step m {:state {:left :run :right :run} :data {}} [:fin-left])]
       (is (= {:left :done :right :run} (:state left-only)))
-      (is (false? (finalize/all-regions-final? m (:state left-only)))
+      (is (false? (rf.machines.lifecycle-fx.finalize/all-regions-final? m (:state left-only)))
           "one region still pending ⇒ the parallel machine is NOT done"))))
 
 (deftest scxml-parallel-region-ancestor-restart-is-region-local
@@ -986,7 +986,7 @@
     (let [m {:initial :a :data {}
              :actions {:boom (fn [_] (throw (ex-info "unknown event" {})))}
              :states  {:a {:on {:* {:target :a :action :boom}}}}}
-          r (machines/machine-transition m {:state :a :data {}} [:surprise])]
+          r (rf.machines/machine-transition m {:state :a :data {}} [:surprise])]
       (is (= :error (:status r))
           "a throwing `:*` action produces a failure Result (no silent no-op)"))))
 
@@ -1007,7 +1007,7 @@
             Spec 005 §Transition resolution — benign no-op."
     (let [m {:initial :a :data {:k 1}
              :states  {:a {:on {:real :b}} :b {}}}
-          r (machines/machine-transition m {:state :a :data {:k 1}} [:never-declared])]
+          r (rf.machines/machine-transition m {:state :a :data {:k 1}} [:never-declared])]
       (is (= :ok (:status r)) "an unhandled event is NOT a failure")
       (is (= :a (:state (step m {:state :a :data {:k 1}} [:never-declared])))
           "configuration is unchanged")
@@ -1547,9 +1547,9 @@
                        :done {:final? true}}}
           r (step m {:state :run :data {}} [:finish])]
       (is (= :done (:state r)) "transition into the final leaf")
-      (is (true? (transition/final-on-leaf? m (:state r)))
+      (is (true? (rf.machines.transition/final-on-leaf? m (:state r)))
           "the active leaf is recognised as final (raises done.state)")
-      (is (false? (transition/final-on-leaf? m :run))
+      (is (false? (rf.machines.transition/final-on-leaf? m :run))
           "a non-final leaf is not final"))))
 
 (deftest scxml-final-leaf-compound
@@ -1562,10 +1562,10 @@
                                            :done {:final? true}}}}}
           r (step m {:state [:wrapper :run] :data {}} [:finish])]
       (is (= [:wrapper :done] (:state r)) "transition into the nested final leaf")
-      (is (true? (transition/final-on-leaf? m (:state r)))
+      (is (true? (rf.machines.transition/final-on-leaf? m (:state r)))
           "the nested [:wrapper :done] leaf is final")
-      (is (false? (transition/final-state-node?
-                    (transition/node-at m [:wrapper])))
+      (is (false? (rf.machines.transition/final-state-node?
+                    (rf.machines.transition/node-at m [:wrapper])))
           "the compound :wrapper ancestor is NOT itself final (leaf-only property)"))))
 
 ;; ===========================================================================
@@ -1602,7 +1602,7 @@
   no frame."
   [machine]
   (try
-    (machines/validate-machine! machine)
+    (rf.machines/validate-machine! machine)
     ::no-throw
     (catch #?(:clj ExceptionInfo :cljs :default) e
       (:rf.error/id (ex-data e)))))

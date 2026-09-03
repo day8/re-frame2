@@ -24,21 +24,21 @@
   reader."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.interop :as interop]
-            [re-frame.machines :as machines]
-            [re-frame.machines.lifecycle-fx.registration :as registration]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.interop :as rf.interop]
+            [re-frame.machines :as rf.machines]
+            [re-frame.machines.lifecycle-fx.registration :as rf.machines.lifecycle-fx.registration]
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (def ^:private WARN :rf.warning/machine-source-unstamped)
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter})
-  mtest/trace-capture-fixture
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})
+  rf.machines.test-support/trace-capture-fixture
   ;; Start each case from a clean once-per-id slate.
-  (fn [t] (registration/clear-source-unstamped-warned!) (t)))
+  (fn [t] (rf.machines.lifecycle-fx.registration/clear-source-unstamped-warned!) (t)))
 
-(defn- warns [] (mtest/events-of WARN))
+(defn- warns [] (rf.machines.test-support/events-of WARN))
 
 ;; A plain `(def …)` value — the SOURCE-BLIND foil. The macro sees only the
 ;; `blind-spec` symbol at the reg-machine call site, so nothing is stamped.
@@ -121,15 +121,15 @@
             source-blind and warns — the check keys on the OBSERVABLE property,
             not the registration surface. The message tells a runtime-built
             author they may ignore it"
-    (machines/reg-machine* :src-warn/plain blind-spec)
+    (rf.machines/reg-machine* :src-warn/plain blind-spec)
     (is (= 1 (count (warns)))
         "a runtime-built spec is source-blind — the advisory fires")))
 
 ;; ---- production DCE gate ---------------------------------------------------
 
 (deftest noop-in-production
-  (testing "under interop/debug-enabled? false (the production gate) the
+  (testing "under rf.interop/debug-enabled? false (the production gate) the
             advisory is not emitted — the consult + emit branch DCEs"
-    (with-redefs [interop/debug-enabled? false]
+    (with-redefs [rf.interop/debug-enabled? false]
       (rf/reg-machine :src-warn/prod blind-spec))
     (is (empty? (warns)) "no advisory in production")))

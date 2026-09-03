@@ -36,23 +36,23 @@
   exercises the full co-located state-node / transition-map surface."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.machines :as machines]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.machines :as rf.machines]
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; Helper: read a co-located element entry's source-coords off a
 ;; registered machine. `slot` is :guards / :actions / :on-spawn-actions.
 (defn- element-coords [machine-id slot id]
-  (get-in (machines/machine-meta machine-id) [slot id :source-coords]))
+  (get-in (rf.machines/machine-meta machine-id) [slot id :source-coords]))
 
 ;; Helper: read a co-located reference-site `:source-coords` off the MAP
 ;; node (state-node / transition map) at `spec-path` inside the registered
 ;; spec's `:states` tree.
 (defn- node-coords [machine-id spec-path]
-  (get-in (machines/machine-meta machine-id) (conj (vec spec-path) :source-coords)))
+  (get-in (rf.machines/machine-meta machine-id) (conj (vec spec-path) :source-coords)))
 
 ;; ---- top-level call-site coords (smoke; covered also in core/source-coords-test) ----
 
@@ -79,7 +79,7 @@
        :guards  {:always-true (fn [_] true)
                  :n-positive? (fn [{data :data}] (pos? (or (:n data) 0)))}
        :states  {:idle {}}})
-    (let [m (machines/machine-meta :rf2-8bp3/guard-defs)]
+    (let [m (rf.machines/machine-meta :rf2-8bp3/guard-defs)]
       (is (some? (get-in m [:guards :always-true :fn]))
           "the :always-true guard entry carries its :fn")
       (is (some? (element-coords :rf2-8bp3/guard-defs :guards :always-true))
@@ -135,7 +135,7 @@
 ;; enclosing `:states`-tree map node. `enclosing-path` is the spec-path to the
 ;; enclosing state-node / transition map; `slot` is :entry/:exit/:guard/:action.
 (defn- inline-source [machine-id enclosing-path slot]
-  (get-in (machines/machine-meta machine-id)
+  (get-in (rf.machines/machine-meta machine-id)
           (conj (vec enclosing-path) :source-code slot)))
 
 (deftest reg-machine-stamps-inline-transition-action-source-code
@@ -150,7 +150,7 @@
                     :cancel {:target :idle :action (fn [_] {:data {:cancelled? true}})}}}
         :done {}}})
     ;; The named guard's :source-code (the parity baseline — already worked).
-    (is (string? (get-in (machines/machine-meta :rf2-se70xj/inline-action)
+    (is (string? (get-in (rf.machines/machine-meta :rf2-se70xj/inline-action)
                          [:guards :ok? :source-code]))
         "named guard carries :source-code (parity baseline)")
     ;; The inline transition :action carries :source-code on the
@@ -164,7 +164,7 @@
           "the captured :source-code is the action body, not the enclosing map"))
     ;; The inline-fn slot value itself stays a BARE fn (the runtime engine
     ;; resolves it via fn? and stamps it as the trace :action-id) — NOT wrapped.
-    (is (fn? (get-in (machines/machine-meta :rf2-se70xj/inline-action)
+    (is (fn? (get-in (rf.machines/machine-meta :rf2-se70xj/inline-action)
                      [:states :idle :on :cancel :action]))
         "inline :action slot value stays a bare fn (not wrapped into a map)")))
 
@@ -185,8 +185,8 @@
       (is (string? exit-src) "inline :exit carries :source-code")
       (is (re-find #":exited\?" exit-src)))
     ;; Slot values stay bare fns.
-    (is (fn? (get-in (machines/machine-meta :rf2-se70xj/inline-ee) [:states :a :entry])))
-    (is (fn? (get-in (machines/machine-meta :rf2-se70xj/inline-ee) [:states :a :exit])))))
+    (is (fn? (get-in (rf.machines/machine-meta :rf2-se70xj/inline-ee) [:states :a :entry])))
+    (is (fn? (get-in (rf.machines/machine-meta :rf2-se70xj/inline-ee) [:states :a :exit])))))
 
 (deftest reg-machine-stamps-inline-guard-source-code
   (testing "an inline transition `:guard` fn carries its `:source-code` on the
@@ -227,9 +227,9 @@
       (is (string? guard-src) "single-map :always :guard carries :source-code")
       (is (re-find #":pending\?" guard-src)))
     ;; The inline-fn slot values stay BARE fns (the runtime resolves via fn?).
-    (is (fn? (get-in (machines/machine-meta :rf2-k7yqod/always-single)
+    (is (fn? (get-in (rf.machines/machine-meta :rf2-k7yqod/always-single)
                      [:states :a :always :action])))
-    (is (fn? (get-in (machines/machine-meta :rf2-k7yqod/always-single)
+    (is (fn? (get-in (rf.machines/machine-meta :rf2-k7yqod/always-single)
                      [:states :a :always :guard])))
     ;; The single-map form does NOT mistakenly key at index 0.
     (is (nil? (inline-source :rf2-k7yqod/always-single [:states :a :always 0] :action))
@@ -276,8 +276,8 @@
     (is (nil? (inline-source :rf2-se70xj/kw-refs [:states :idle :on :submit] :action)))
     (is (nil? (inline-source :rf2-se70xj/kw-refs [:states :idle :on :submit] :guard)))
     ;; The named entries DO carry their own :source-code (the existing path).
-    (is (string? (get-in (machines/machine-meta :rf2-se70xj/kw-refs) [:actions :do :source-code])))
-    (is (string? (get-in (machines/machine-meta :rf2-se70xj/kw-refs) [:guards :ok? :source-code])))))
+    (is (string? (get-in (rf.machines/machine-meta :rf2-se70xj/kw-refs) [:actions :do :source-code])))
+    (is (string? (get-in (rf.machines/machine-meta :rf2-se70xj/kw-refs) [:guards :ok? :source-code])))))
 
 ;; ---- reference-site stamping inside the :states tree ----------------------
 
@@ -320,7 +320,7 @@
                           :guard (fn [_] true)
                           :action (fn [_] {})}}}
         :done {}}})
-    (let [m (machines/machine-meta :rf2-8bp3/inline-refs)]
+    (let [m (rf.machines/machine-meta :rf2-8bp3/inline-refs)]
       ;; No coord co-located on map nodes (JVM map literals carry no meta).
       (is (nil? (node-coords :rf2-8bp3/inline-refs [:states :idle])))
       (is (nil? (node-coords :rf2-8bp3/inline-refs [:states :idle :on :submit])))
@@ -414,7 +414,7 @@
                 {:inner   {:entry (fn [_] {})
                            :on    {:go {:target :sibling}}}
                  :sibling {}}}}})
-    (let [m (machines/machine-meta :rf2-8bp3/hier)]
+    (let [m (rf.machines/machine-meta :rf2-8bp3/hier)]
       ;; No coord on JVM (map literals carry no reader meta); structure intact.
       (is (nil? (node-coords :rf2-8bp3/hier [:states :outer :states :inner])))
       (is (fn? (get-in m [:states :outer :states :inner :entry]))
@@ -433,7 +433,7 @@
       (rf/reg-machine :rf2-8bp3/programmatic my-spec))
     ;; The spec itself round-trips; no co-located entries / state-coords.
     (is (= {:initial :a :states {:a {}}}
-           (machines/machine-meta :rf2-8bp3/programmatic))
+           (rf.machines/machine-meta :rf2-8bp3/programmatic))
         "round-tripped spec carries no co-located source / state-coords")
     ;; Top-level handler-meta still carries the macro's call-site coords.
     (let [meta (rf/handler-meta :event :rf2-8bp3/programmatic)]
@@ -446,13 +446,13 @@
   (testing "reg-machine* (the plain-fn surface) registers a machine without
   any macro walking — equivalent to the legacy reg-machine defn. Used by
   code-gen pipelines that already carry a stamped spec."
-    (machines/reg-machine* :rf2-8bp3/plain
+    (rf.machines/reg-machine* :rf2-8bp3/plain
                      {:initial :a :states {:a {}}})
     (is (= :rf2-8bp3/plain
-           (some #{:rf2-8bp3/plain} (machines/machines)))
+           (some #{:rf2-8bp3/plain} (rf.machines/machines)))
         "plain-fn registration shows up in (rf.machines/machines) like macro registrations")
     (is (= {:initial :a :states {:a {}}}
-           (machines/machine-meta :rf2-8bp3/plain))
+           (rf.machines/machine-meta :rf2-8bp3/plain))
         "spec round-trips verbatim")))
 
 ;; ---- defmachine: value-registered per-element source capture --
@@ -495,7 +495,7 @@
   handler-metas are nil — the rf2-gwj8l bug shape (the foil for defmachine
   below)"
     (rf/reg-machine :rf2-gwj8l/plain-door plain-door-machine)
-    (let [meta (machines/machine-meta :rf2-gwj8l/plain-door)]
+    (let [meta (rf.machines/machine-meta :rf2-gwj8l/plain-door)]
       ;; Bare-fn entries — no co-located source-coords / source-code.
       (is (fn? (get-in meta [:guards :may-close?]))
           "plain (def) machine carries bare fns, not co-located entry maps")
@@ -514,7 +514,7 @@
   coords — exactly what the Epoch machine-cascade reads (cascade-row-coord /
   cascade-row-source-form). rf2-gwj8l + rf2-npvsx."
     (rf/reg-machine :rf2-gwj8l/value-door value-door-machine)
-    (let [meta (machines/machine-meta :rf2-gwj8l/value-door)]
+    (let [meta (rf.machines/machine-meta :rf2-gwj8l/value-door)]
       ;; Co-located entries carry :fn + :source-coords + :source-code.
       (is (fn? (get-in meta [:guards :may-close? :fn]))
           "value-registered defmachine entry carries its :fn")

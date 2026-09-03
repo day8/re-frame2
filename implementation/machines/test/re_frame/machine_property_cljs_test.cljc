@@ -17,7 +17,7 @@
   ## Properties asserted (over deterministic draws)
 
   For every drawn `[machine event-sequence]` threaded through the pure
-  `machines/machine-transition` engine from its `build-initial-snapshot`
+  `rf.machines/machine-transition` engine from its `build-initial-snapshot`
   initial snapshot:
 
     1. STATE-IS-LEAF — the snapshot's `:state` is ALWAYS a leaf
@@ -92,16 +92,16 @@
   engine's invariants are exercised on both hosts from this one file.
 
   Pure-engine only — no frame, no app-db, no `reg-machine`: every property
-  drives `machines/machine-transition` (a pure fn of its arguments) from a
-  `parallel/build-initial-snapshot` initial snapshot, so the layer is
+  drives `rf.machines/machine-transition` (a pure fn of its arguments) from a
+  `rf.machines.parallel/build-initial-snapshot` initial snapshot, so the layer is
   JVM-runnable from arguments alone and has no fixture."
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing]]
       :cljs [cljs.test :refer-macros [deftest is testing]])
    [clojure.set :as set]
-   [re-frame.machines :as machines]
-   [re-frame.machines.parallel :as parallel]
-   [re-frame.machines.transition :as transition]))
+   [re-frame.machines :as rf.machines]
+   [re-frame.machines.parallel :as rf.machines.parallel]
+   [re-frame.machines.transition :as rf.machines.transition]))
 
 ;; ---- a deterministic, host-portable PRNG ----------------------------------
 ;;
@@ -277,7 +277,7 @@
               (recur (inc i) s1
                      (assoc acc (nth region-names i)
                             (select-keys fm [:initial :states]))))))]
-    [(parallel/install-region-cache
+    [(rf.machines.parallel/install-region-cache
        {:type    :parallel
         :data    {:n 0}
         :guards  shared-guards
@@ -366,7 +366,7 @@
             [acc s]
             (let [[rb s1] (gen-independent-region s)]
               (recur (inc i) s1 (assoc acc (nth region-names i) rb)))))]
-    [(parallel/install-region-cache
+    [(rf.machines.parallel/install-region-cache
        {:type    :parallel
         :data    {:n 0}
         :guards  shared-guards
@@ -402,7 +402,7 @@
   registration + spawn paths use). `bootstrap-pending? false` ⇒ a clean
   post-cascade snapshot to drive the pure engine from."
   [machine]
-  (parallel/build-initial-snapshot machine {:bootstrap-pending? false}))
+  (rf.machines.parallel/build-initial-snapshot machine {:bootstrap-pending? false}))
 
 (defn- run-sequence
   "Thread `events` through the pure engine from `machine`'s initial
@@ -413,7 +413,7 @@
   (loop [snap (initial-snapshot machine), evs events, acc []]
     (if (empty? evs)
       acc
-      (let [r     (machines/machine-transition machine snap (first evs))
+      (let [r     (rf.machines/machine-transition machine snap (first evs))
             snap' (if (= :ok (:status r)) (:snapshot r) snap)]
         (recur snap' (rest evs)
                (conj acc {:snap snap' :fx (when (= :ok (:status r)) (:fx r))
@@ -438,15 +438,15 @@
     ;; parallel: every region value resolves to a leaf of its region body
     (every?
       (fn [[rn rstate]]
-        (let [rbody (parallel/region-machine machine rn)]
-          (leaf-node? (transition/node-at rbody (transition/state-path rstate)))))
+        (let [rbody (rf.machines.parallel/region-machine machine rn)]
+          (leaf-node? (rf.machines.transition/node-at rbody (rf.machines.transition/state-path rstate)))))
       state)
-    (leaf-node? (transition/node-at machine (transition/state-path state)))))
+    (leaf-node? (rf.machines.transition/node-at machine (rf.machines.transition/state-path state)))))
 
 ;; ---- INVARIANT 2 oracle: an INDEPENDENT tag computation -------------------
 ;;
 ;; The oracle must NOT recompute the expected tag union via
-;; `transition/compute-tags` — that is the SAME fn the engine's commit-tags
+;; `rf.machines.transition/compute-tags` — that is the SAME fn the engine's commit-tags
 ;; calls (`transition.cljc` `commit-tags` → `compute-tags`), so reusing it
 ;; only cross-checks the elision rule + state/tag consistency, never the
 ;; union math itself. Instead, walk the active-state ancestor
@@ -471,7 +471,7 @@
 (defn- path->vec
   "Normalise a single-machine `:state` (keyword or vector path) to a vector
   path — reimplemented here so the oracle does not lean on
-  `transition/state-path`."
+  `rf.machines.transition/state-path`."
   [state]
   (cond
     (vector? state)  state
@@ -498,7 +498,7 @@
   "INVARIANT 2 oracle. Independently recompute the active-configuration tag
   union for `machine` + `state` (the projection the engine must stamp), via
   a HAND-WRITTEN ancestor-chain walk over the machine spec — NOT via
-  `transition/compute-tags` (which the engine itself uses, so reusing it
+  `rf.machines.transition/compute-tags` (which the engine itself uses, so reusing it
   would be circular). For parallel, union the independent walk
   across every region; for flat/compound, walk the single path."
   [machine state]
@@ -506,7 +506,7 @@
     ;; parallel: independently walk each region's own :states by its leaf path
     (transduce
       (map (fn [[rn rstate]]
-             (let [rbody (parallel/region-machine machine rn)]
+             (let [rbody (rf.machines.parallel/region-machine machine rn)]
                (ancestor-chain-tags (:states rbody) (path->vec rstate)))))
       set/union #{} state)
     (ancestor-chain-tags (:states machine) (path->vec state))))
@@ -594,9 +594,9 @@
           ;; cycle surfaces as a FAILED macrostep at the depth bound (XState
           ;; v5 throws on such a runaway) — `:status :error` with the
           ;; depth-exceeded `:kind`, NOT an :ok rollback no-op.
-          r-always (machines/machine-transition
+          r-always (rf.machines/machine-transition
                      always-cycle (initial-snapshot always-cycle) [:noop])
-          r-raise  (machines/machine-transition
+          r-raise  (rf.machines/machine-transition
                      raise-cycle (initial-snapshot raise-cycle) [:e0])]
       (is (= :rf.error/machine-always-depth-exceeded (get-in r-always [:error :kind]))
           "always-cycle aborts at the depth bound as a depth-abort :fail (settled, not hung)")
@@ -640,8 +640,8 @@
                            (if (empty? todo)
                              nil
                              (let [ev (first todo)
-                                   r1 (machines/machine-transition m snap ev)
-                                   r2 (machines/machine-transition m snap ev)]
+                                   r1 (rf.machines/machine-transition m snap ev)
+                                   r2 (rf.machines/machine-transition m snap ev)]
                                (cond
                                  (not= r1 r2)
                                  {:why :nondeterministic :state (:state snap) :event ev}
@@ -730,7 +730,7 @@
                                :working {:spawn {:machine-id :child/worker :start [:begin]}
                                          :on    {:e1 :idle}}}}
             s0 (initial-snapshot spawner)
-            r  (machines/machine-transition spawner s0 [:e0])]
+            r  (rf.machines/machine-transition spawner s0 [:e0])]
         (is (= 1 (reduce + 0 (vals (:rf/spawn-counter (:snapshot r)))))
             "entering a :spawn state bumps the in-snapshot counter to 1")))))
 
@@ -771,10 +771,10 @@
                                  :done    {:on {:e3 :idle}}}}
                     s0       (initial-snapshot m)
                     ;; enter the spawn state
-                    r-enter  (machines/machine-transition m s0 [:e0])
+                    r-enter  (rf.machines/machine-transition m s0 [:e0])
                     spawned  (spawn-invoke-ids (:fx r-enter))
                     ;; exit the spawn state (→ :done)
-                    r-exit   (machines/machine-transition m (:snapshot r-enter) [:e1])
+                    r-exit   (rf.machines/machine-transition m (:snapshot r-enter) [:e1])
                     destroyed (destroy-invoke-ids (:fx r-exit))]
                 (cond
                   (not= #{[:working]} spawned)
@@ -794,9 +794,9 @@
                        :working {:spawn {:machine-id :child/worker :start [:begin]}
                                  :on    {:e1 :idle}}}}
           s0 (initial-snapshot m)
-          r1 (machines/machine-transition m s0 [:e0])           ;; spawn #1
-          r2 (machines/machine-transition m (:snapshot r1) [:e1]) ;; exit (destroy)
-          r3 (machines/machine-transition m (:snapshot r2) [:e0])] ;; spawn #2
+          r1 (rf.machines/machine-transition m s0 [:e0])           ;; spawn #1
+          r2 (rf.machines/machine-transition m (:snapshot r1) [:e1]) ;; exit (destroy)
+          r3 (rf.machines/machine-transition m (:snapshot r2) [:e0])] ;; spawn #2
       (is (= 1 (get-in (:snapshot r1) [:rf/spawn-counter :child/worker])))
       (is (= 2 (get-in (:snapshot r3) [:rf/spawn-counter :child/worker]))
           "re-entering the spawn state allocates the NEXT id — counter monotone, never rewound"))))
@@ -851,7 +851,7 @@
             (let [rs    (:regions machine)
                   order (vec (reverse (keys rs)))
                   rev   (into {} (map (fn [k] [k (get rs k)])) order)]
-              (parallel/install-region-cache
+              (rf.machines.parallel/install-region-cache
                 (-> machine
                     (assoc :regions rev)
                     (assoc :region-order order)))))
@@ -912,7 +912,7 @@
                                         :c-one {}
                                         :c-two {}}}}}
           run  (fn [order]
-                 (let [m (parallel/install-region-cache (assoc base :region-order order))]
+                 (let [m (rf.machines.parallel/install-region-cache (assoc base :region-order order))]
                    (:snap (last (run-sequence m [[:ev]])))))
           ab   (run [:a :b :c])
           ba   (run [:b :a :c])]
@@ -1047,7 +1047,7 @@
                   watched   (nth names (mod (inc i) n))
                   [body s1] (cross-region-body s self watched)]
               (recur (inc i) s1 (assoc acc self body)))))]
-    [(parallel/install-region-cache
+    [(rf.machines.parallel/install-region-cache
        {:type    :parallel
         :data    {}
         :guards  (merge shared-guards cross-region-guards)
@@ -1078,7 +1078,7 @@
   mechanism and is validated as an exact permutation of the keyset."
   [machine order]
   (let [rs (:regions machine)]
-    (parallel/install-region-cache
+    (rf.machines.parallel/install-region-cache
       (-> machine
           (assoc :regions (into {} (map (fn [k] [k (get rs k)])) order))
           (assoc :region-order (vec order))))))
@@ -1149,7 +1149,7 @@
                   :s2 {}}}})
 
 (defn- watcher-machine [order]
-  (parallel/install-region-cache
+  (rf.machines.parallel/install-region-cache
     {:type    :parallel
      :data    {}
      :guards  (merge shared-guards cross-region-guards)
@@ -1161,7 +1161,7 @@
             event that enables it — the first post-event round observes the
             complete applied event set (NOT 'settles on the next event')"
     (let [m (watcher-machine [:rA :rB])
-          r (machines/machine-transition m (initial-snapshot m) [:e0])]
+          r (rf.machines/machine-transition m (initial-snapshot m) [:e0])]
       (is (= :ok (:status r)))
       (is (= {:rA :s1 :rB :s2} (:state (:snapshot r)))
           ":rB's :always read :rA's same-macrostep flag write and moved in THIS
@@ -1173,7 +1173,7 @@
             any :always round selects"
     (let [final (fn [order]
                   (let [m (watcher-machine order)]
-                    (:state (:snapshot (machines/machine-transition
+                    (:state (:snapshot (rf.machines/machine-transition
                                 m (initial-snapshot m) [:e0])))))]
       (is (= {:rA :s1 :rB :s2} (final [:rA :rB])))
       (is (= {:rA :s1 :rB :s2} (final [:rB :rA]))

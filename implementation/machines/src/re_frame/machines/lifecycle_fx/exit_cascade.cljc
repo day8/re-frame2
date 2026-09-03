@@ -40,13 +40,13 @@
   Idempotent / safe to call when the actor has no live snapshot or no
   registered machine spec — both reduce to a benign no-op (the destroy
   proceeds as before)."
-  (:require [re-frame.fx :as fx]
-            [re-frame.frame :as frame]
-            [re-frame.machines.lifecycle-fx.resolver :as resolver]
-            [re-frame.machines.lifecycle-fx.traces :as traces]
-            [re-frame.machines.parallel :as parallel]
-            [re-frame.machines.paths :as paths]
-            [re-frame.machines.result :as result]))
+  (:require [re-frame.fx :as rf.fx]
+            [re-frame.frame :as rf.frame]
+            [re-frame.machines.lifecycle-fx.resolver :as rf.machines.lifecycle-fx.resolver]
+            [re-frame.machines.lifecycle-fx.traces :as rf.machines.lifecycle-fx.traces]
+            [re-frame.machines.parallel :as rf.machines.parallel]
+            [re-frame.machines.paths :as rf.machines.paths]
+            [re-frame.machines.result :as rf.machines.result]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -59,7 +59,7 @@
   nil when neither resolves — the actor was already torn down, or the
   destroy targets a non-machine event id."
   [actor-id snapshot]
-  (resolver/spec-from-id-or-snapshot actor-id snapshot))
+  (rf.machines.lifecycle-fx.resolver/spec-from-id-or-snapshot actor-id snapshot))
 
 (defn run-child-exit!
   "Run the destroy-time `:exit` cascade for the actor identified by
@@ -80,19 +80,19 @@
   final snapshot before clearing."
   [frame-id actor-id]
   (when actor-id
-    (let [runtime-db (frame/frame-runtime-db-value frame-id)
-          snapshot   (when runtime-db (get-in runtime-db (paths/snapshot-path actor-id)))
+    (let [runtime-db (rf.frame/frame-runtime-db-value frame-id)
+          snapshot   (when runtime-db (get-in runtime-db (rf.machines.paths/snapshot-path actor-id)))
           machine    (resolve-machine-spec actor-id snapshot)]
       (when (and snapshot machine)
-        (let [r (parallel/run-active-exit-cascade machine snapshot)]
-          (if (result/fail? r)
+        (let [r (rf.machines.parallel/run-active-exit-cascade machine snapshot)]
+          (if (rf.machines.result/fail? r)
             ;; Match `apply-transition-once`'s exit-cascade failure
             ;; trace shape — same category, with a destroy-time
             ;; discriminator so consumers can disambiguate. Shared with
             ;; `finalize-machine`'s final-state auto-destroy via
-            ;; `traces/emit-destroy-exit-failure!`.
-            (traces/emit-destroy-exit-failure! actor-id frame-id (result/info r))
-            (result/with-ok [new-snap exit-fx] r
+            ;; `rf.machines.lifecycle-fx.traces/emit-destroy-exit-failure!`.
+            (rf.machines.lifecycle-fx.traces/emit-destroy-exit-failure! actor-id frame-id (rf.machines.result/info r))
+            (rf.machines.result/with-ok [new-snap exit-fx] r
               ;; (4) Write the post-exit snapshot back to runtime-db. The
               ;; write is transient — the unified teardown projection runs
               ;; immediately after this and dissocs `[:rf.runtime/machines :snapshots
@@ -102,13 +102,13 @@
               ;; swap-runtime-db! per destroy. Machine snapshots are
               ;; durable runtime-db state.
               (when (not= snapshot new-snap)
-                (frame/swap-runtime-db! frame-id
-                                        (fn [rt] (assoc-in rt (paths/snapshot-path actor-id) new-snap))))
+                (rf.frame/swap-runtime-db! frame-id
+                                        (fn [rt] (assoc-in rt (rf.machines.paths/snapshot-path actor-id) new-snap))))
               ;; (5) Fire the `:exit`-emitted fx via the standard fx
               ;; interpreter. Use the frame's `:platform` (defaults to
               ;; :client) so platform-gated fx behave consistently with
               ;; transition-time fx fires.
               (when (seq exit-fx)
-                (let [platform (or (:platform (frame/frame-meta frame-id)) :client)]
-                  (fx/do-fx frame-id (vec exit-fx) platform))))))))
+                (let [platform (or (:platform (rf.frame/frame-meta frame-id)) :client)]
+                  (rf.fx/do-fx frame-id (vec exit-fx) platform))))))))
     nil))

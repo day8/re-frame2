@@ -22,53 +22,53 @@
   end-to-end."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.machines.timeout :as timeout]
-            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.machines.timeout :as rf.machines.timeout]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.subs]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-(def ^:private snapshot mtest/snapshot)
+(def ^:private snapshot rf.machines.test-support/snapshot)
 
 ;; ---- duration grammar -----------------------------------------------------
 
 (deftest duration-integer-ms
   (testing "a positive integer is literal ms"
-    (is (= 5000 (timeout/resolve-duration-ms 5000)))
-    (is (= 1    (timeout/resolve-duration-ms 1))))
+    (is (= 5000 (rf.machines.timeout/resolve-duration-ms 5000)))
+    (is (= 1    (rf.machines.timeout/resolve-duration-ms 1))))
   (testing "a non-positive / non-integer number resolves to nil"
-    (is (nil? (timeout/resolve-duration-ms 0)))
-    (is (nil? (timeout/resolve-duration-ms -5)))
-    (is (nil? (timeout/resolve-duration-ms 1.5)))))
+    (is (nil? (rf.machines.timeout/resolve-duration-ms 0)))
+    (is (nil? (rf.machines.timeout/resolve-duration-ms -5)))
+    (is (nil? (rf.machines.timeout/resolve-duration-ms 1.5)))))
 
 (deftest duration-iso-8601
   (testing "ISO-8601 durations resolve to ms"
-    (is (= 5000    (timeout/resolve-duration-ms "PT5S")))
-    (is (= 120000  (timeout/resolve-duration-ms "PT2M")))
-    (is (= 5400000 (timeout/resolve-duration-ms "PT1H30M")))
-    (is (= 500     (timeout/resolve-duration-ms "PT0.5S")))
-    (is (= 86400000 (timeout/resolve-duration-ms "P1D")))
-    (is (= 1800000  (timeout/resolve-duration-ms "PT30M"))))
+    (is (= 5000    (rf.machines.timeout/resolve-duration-ms "PT5S")))
+    (is (= 120000  (rf.machines.timeout/resolve-duration-ms "PT2M")))
+    (is (= 5400000 (rf.machines.timeout/resolve-duration-ms "PT1H30M")))
+    (is (= 500     (rf.machines.timeout/resolve-duration-ms "PT0.5S")))
+    (is (= 86400000 (rf.machines.timeout/resolve-duration-ms "P1D")))
+    (is (= 1800000  (rf.machines.timeout/resolve-duration-ms "PT30M"))))
   (testing "lower-case `pt5s` is accepted (case-insensitive)"
-    (is (= 5000 (timeout/resolve-duration-ms "pt5s"))))
+    (is (= 5000 (rf.machines.timeout/resolve-duration-ms "pt5s"))))
   (testing "the bare `P` (no component) is not a duration"
-    (is (nil? (timeout/resolve-duration-ms "P")))
-    (is (nil? (timeout/resolve-duration-ms "PT")))))
+    (is (nil? (rf.machines.timeout/resolve-duration-ms "P")))
+    (is (nil? (rf.machines.timeout/resolve-duration-ms "PT")))))
 
 (deftest duration-rejects-xstate-shorthand
   (testing "the XState `5s` / `10ms` shorthand is REJECTED (operator-ruled divergence)"
-    (is (nil? (timeout/resolve-duration-ms "5s")))
-    (is (nil? (timeout/resolve-duration-ms "10ms")))
-    (is (nil? (timeout/resolve-duration-ms "2m")))
-    (is (nil? (timeout/resolve-duration-ms "1h"))))
+    (is (nil? (rf.machines.timeout/resolve-duration-ms "5s")))
+    (is (nil? (rf.machines.timeout/resolve-duration-ms "10ms")))
+    (is (nil? (rf.machines.timeout/resolve-duration-ms "2m")))
+    (is (nil? (rf.machines.timeout/resolve-duration-ms "1h"))))
   (testing "other malformed / non-duration forms resolve to nil"
-    (is (nil? (timeout/resolve-duration-ms "soon")))
-    (is (nil? (timeout/resolve-duration-ms "")))
-    (is (nil? (timeout/resolve-duration-ms nil)))
-    (is (nil? (timeout/resolve-duration-ms [1000])))
-    (is (nil? (timeout/resolve-duration-ms (fn [_] 5000))))))
+    (is (nil? (rf.machines.timeout/resolve-duration-ms "soon")))
+    (is (nil? (rf.machines.timeout/resolve-duration-ms "")))
+    (is (nil? (rf.machines.timeout/resolve-duration-ms nil)))
+    (is (nil? (rf.machines.timeout/resolve-duration-ms [1000])))
+    (is (nil? (rf.machines.timeout/resolve-duration-ms (fn [_] 5000))))))
 
 ;; ---- registration-time fail-loud validation -------------------------------
 
@@ -157,7 +157,7 @@
 (deftest desugar-state-timeout
   (testing "state :timeout / :on-timeout lowers to an :after entry keyed by ms"
     (is (= {:initial :w :states {:w {:after {5000 {:target :d}}} :d {}}}
-           (timeout/desugar-timeouts
+           (rf.machines.timeout/desugar-timeouts
              {:initial :w :states {:w {:timeout "PT5S" :on-timeout {:target :d}} :d {}}})))))
 
 (deftest desugar-spawn-timeout
@@ -165,14 +165,14 @@
     (is (= {:initial :l
             :states {:l {:spawn {:machine-id :c} :after {10000 {:target :to}}}
                      :to {}}}
-           (timeout/desugar-timeouts
+           (rf.machines.timeout/desugar-timeouts
              {:initial :l
               :states {:l {:spawn {:machine-id :c :timeout 10000 :on-timeout {:target :to}}}
                        :to {}}})))))
 
 (deftest desugar-coexists-with-after
   (testing ":timeout and an explicit :after coexist on the same node (A4)"
-    (let [out (timeout/desugar-timeouts
+    (let [out (rf.machines.timeout/desugar-timeouts
                 {:initial :w
                  :states {:w {:after {1000 :warn} :timeout "PT5S" :on-timeout :done}
                           :warn {} :done {}}})]
@@ -182,7 +182,7 @@
 (deftest desugar-idempotent
   (testing "desugaring an already-desugared spec is a no-op"
     (let [m {:initial :w :states {:w {:after {5000 {:target :d}}} :d {}}}]
-      (is (= m (timeout/desugar-timeouts (timeout/desugar-timeouts m)))))))
+      (is (= m (rf.machines.timeout/desugar-timeouts (rf.machines.timeout/desugar-timeouts m)))))))
 
 ;; ---- dispatch boundary — the timeout actually fires the transition --------
 

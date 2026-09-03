@@ -22,12 +22,12 @@
       this addition."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.machines :as machines]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.machines :as rf.machines]
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- registration-throws?
   "Try registering `machine` under `machine-id`. Returns the ExceptionInfo
@@ -90,17 +90,17 @@
                        :signed-out {}}}]
       (rf/reg-machine :rf.root-on-tv/valid m)
       (rf/dispatch-sync [:rf.root-on-tv/valid [:next]])
-      (is (= :b (:state (mtest/snapshot :rf.root-on-tv/valid)))
+      (is (= :b (:state (rf.machines.test-support/snapshot :rf.root-on-tv/valid)))
           "(precondition) local :on transition still works")
       (rf/dispatch-sync [:rf.root-on-tv/valid [:logout]])
-      (is (= :signed-out (:state (mtest/snapshot :rf.root-on-tv/valid)))
+      (is (= :signed-out (:state (rf.machines.test-support/snapshot :rf.root-on-tv/valid)))
           "the root :on ancestor fallback fired from ANY state, landing on the top-level target"))))
 
 ;; ---- (5) a parallel root's :on is unaffected (validate-parallel!'s job) ---
 
 (deftest parallel-root-on-unaffected-by-this-check
   (testing "a :type :parallel root's region-qualified :on still validates via validate-parallel!, not this new check"
-    (is (nil? (machines/validate-machine!
+    (is (nil? (rf.machines/validate-machine!
                 {:type    :parallel
                  :on      {:go-all {:target [[:a :two] [:b :two]]}}
                  :regions {:a {:initial :one :states {:one {} :two {}}}

@@ -33,24 +33,24 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.machines.test-support :as mtest]
+   [re-frame.machines.test-support :as rf.machines.test-support]
    ;; listener surface lives in `re-frame.trace.tooling`
    ;; (production-DCE split).
-   [re-frame.trace.tooling :as trace-tooling]
-   [re-frame.registrar :as registrar]
-   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
-       :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
+   [re-frame.trace.tooling :as rf.trace.tooling]
+   [re-frame.registrar :as rf.registrar]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture
-    #?(:clj  {:adapter plain-atom/adapter}
-       :cljs {:adapter reagent-adapter/adapter})))
+  (rf.machines.test-support/make-reset-runtime-fixture
+    #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
+       :cljs {:adapter rf.adapter.reagent/adapter})))
 
 ;; snapshot lookup via the shared machines test-support
 ;; — no hardcoded `[:rf.runtime/machines :snapshots …]` path.
-(def ^:private snapshot mtest/snapshot)
+(def ^:private snapshot rf.machines.test-support/snapshot)
 
-;; Intentional RAW register-only listener (not mtest/with-trace-capture):
+;; Intentional RAW register-only listener (not rf.machines.test-support/with-trace-capture):
 ;; returns the live capture atom for the caller to read across multiple
 ;; macrosteps; the per-test fixture reset clears the listener table — a fresh
 ;; capture scope per call would lose the cross-step accumulation the silent-
@@ -58,7 +58,7 @@
 (defn- record-traces!
   [k]
   (let [a (atom [])]
-    (trace-tooling/register-listener! k (fn [ev] (swap! a conj ev)))
+    (rf.trace.tooling/register-listener! k (fn [ev] (swap! a conj ev)))
     a))
 
 (defn- destroyed-traces
@@ -83,7 +83,7 @@
       ;; Sanity: the auto-destroy fully tore the actor down.
       (is (nil? (snapshot :rf2-lbjnz/finisher))
           "auto-destroy cleared the snapshot")
-      (is (nil? (registrar/lookup :event :rf2-lbjnz/finisher))
+      (is (nil? (rf.registrar/lookup :event :rf2-lbjnz/finisher))
           "auto-destroy unregistered the handler")
       (let [dests-after-auto (destroyed-traces traces)
             finish-count     (count (filter #(= :rf.machine/finished
@@ -120,7 +120,7 @@
       ;; World is unchanged.
       (is (nil? (snapshot :rf2-lbjnz/finisher))
           "snapshot stays gone after the silent no-op")
-      (is (nil? (registrar/lookup :event :rf2-lbjnz/finisher))
+      (is (nil? (rf.registrar/lookup :event :rf2-lbjnz/finisher))
           "handler stays unregistered after the silent no-op"))))
 
 ;; ---- Test 2: double-explicit destroy in the same cascade -----------------
@@ -140,7 +140,7 @@
       (rf/dispatch-sync [:rf2-lbjnz/target [:noop]])
       (is (some? (snapshot :rf2-lbjnz/target))
           "target actor's snapshot is live before the cascade")
-      (is (some? (registrar/lookup :event :rf2-lbjnz/target))
+      (is (some? (rf.registrar/lookup :event :rf2-lbjnz/target))
           "target actor's handler is registered before the cascade")
       ;; Emit two destroy fxs against the same id in one cascade. The
       ;; first one tears the actor down; the second must be a silent
@@ -165,7 +165,7 @@
       ;; World is destroyed exactly once.
       (is (nil? (snapshot :rf2-lbjnz/target))
           "snapshot is cleared exactly once")
-      (is (nil? (registrar/lookup :event :rf2-lbjnz/target))
+      (is (nil? (rf.registrar/lookup :event :rf2-lbjnz/target))
           "handler is unregistered exactly once"))))
 
 ;; ---- Test 3: spawn-all join-cancelled survivor destroyed exactly once ------

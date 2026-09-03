@@ -30,16 +30,16 @@
   (:require [clojure.edn :as edn]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.machines :as machines]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.machines :as rf.machines]
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; snapshot lookup via the shared machines test-support
 ;; — no hardcoded `[:rf.runtime/machines :snapshots …]` path.
-(def ^:private snapshot mtest/snapshot)
+(def ^:private snapshot rf.machines.test-support/snapshot)
 
 ;; ---- 1. flat two-region parallel machine — initial state map ------------
 
@@ -199,7 +199,7 @@
                                :states  {:x {:tags #{:right/x} :on {:flip :y}}
                                          :y {:tags #{:right/y}}}}}}
           initial {:state {:left :a :right :x} :data {} :tags #{:left/a :right/x}}
-          {snap1 :snapshot fx1 :fx} (machines/machine-transition m initial [:flip])]
+          {snap1 :snapshot fx1 :fx} (rf.machines/machine-transition m initial [:flip])]
       (is (= {:left :b :right :y} (:state snap1))
           "pure transition broadcasts to both regions")
       (is (= #{:left/b :right/y} (:tags snap1))
@@ -235,14 +235,14 @@
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #":rf.error/machine-parallel-bad-shape"
-          (machines/make-machine-handler {:type :parallel}))
+          (rf.machines/make-machine-handler {:type :parallel}))
         ":type :parallel requires :regions"))
 
   (testing ":type :parallel with :initial / :states is rejected at registration"
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #":rf.error/machine-parallel-bad-shape"
-          (machines/make-machine-handler {:type :parallel
+          (rf.machines/make-machine-handler {:type :parallel
                                             :initial :foo
                                             :regions {:r {:initial :s :states {:s {}}}}}))
         ":type :parallel is mutually exclusive with :initial / :states at the root"))
@@ -251,7 +251,7 @@
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #":rf.error/machine-parallel-bad-shape"
-          (machines/make-machine-handler {:type :parallel
+          (rf.machines/make-machine-handler {:type :parallel
                                             :regions {:r {:states {:s {}}}}}))
         "each region body must declare :initial"))
 
@@ -259,7 +259,7 @@
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #":rf.error/machine-parallel-nested-not-supported"
-          (machines/make-machine-handler
+          (rf.machines/make-machine-handler
             {:type    :parallel
              :regions {:outer {:type    :parallel
                                :regions {:inner {:initial :s :states {:s {}}}}}}}))
@@ -269,7 +269,7 @@
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #":rf.error/machine-parallel-nested-not-supported"
-          (machines/make-machine-handler
+          (rf.machines/make-machine-handler
             {:type    :parallel
              :regions {:r {:initial :compound
                            :states  {:compound {:type    :parallel
@@ -314,7 +314,7 @@
              :regions {:a {:initial :one :states {:one {}}}
                        :b {:initial :two :states {:two {}}}}}]
       (rf/reg-machine :par/cache m)
-      (let [cached  (machines/machine-meta :par/cache)
+      (let [cached  (rf.machines/machine-meta :par/cache)
             first-a (re-frame.machines.parallel/region-machine cached :a)
             again-a (re-frame.machines.parallel/region-machine cached :a)
             first-b (re-frame.machines.parallel/region-machine cached :b)]

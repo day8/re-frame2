@@ -27,7 +27,7 @@
 
     3. SUBSCRIPTION-VECTOR TIMER — `cancel-after-timer-entry!` emits the
        callback-bearing `:rf.machine.timer/cancelled` trace and THEN releases
-       the timer entry, whose `subs/unsubscribe frame-id delay-key` decrements
+       the timer entry, whose `rf.subs/unsubscribe frame-id delay-key` decrements
        the subscription cache ref-count keyed by `(frame-id, query-v)`. A
        listener that re-armed the SAME query in same-id B would have A's release
        dispose B's fresh reaction. FIX: skip ONLY that shared decrement once A
@@ -43,26 +43,26 @@
   authority."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.machines :as machines]
-            [re-frame.machines.classification :as classification]
-            [re-frame.machines.lifecycle-fx.destroy :as destroy]
-            [re-frame.machines.spawn-order :as spawn-order]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.machines.timer :as timer]
-            [re-frame.subs :as subs]
-            [re-frame.substrate.adapter :as adapter]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]
-            [re-frame.trace.tooling :as trace-tooling]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.machines :as rf.machines]
+            [re-frame.machines.classification :as rf.machines.classification]
+            [re-frame.machines.lifecycle-fx.destroy :as rf.machines.lifecycle-fx.destroy]
+            [re-frame.machines.spawn-order :as rf.machines.spawn-order]
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.machines.timer :as rf.machines.timer]
+            [re-frame.subs :as rf.subs]
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace :as rf.trace]
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 ;; Touch the artefact so the machines registration hooks are wired even when
 ;; this ns runs in isolation.
-(def ^:private _artefact machines/machine-transition)
+(def ^:private _artefact rf.machines/machine-transition)
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- shared seed ----------------------------------------------------------
 
@@ -96,7 +96,7 @@
   resolves off the snapshot."
   [frame-id on-exit]
   (rf/reg-machine actor-type (classified-spec on-exit))
-  (frame/swap-runtime-db!
+  (rf.frame/swap-runtime-db!
     frame-id
     (fn [rt] (-> rt
                  (assoc-in (snapshot-path actor-id)
@@ -104,14 +104,14 @@
                             :data            {:rf/self-id actor-id :token "secret"}
                             :rf/machine-type actor-type})
                  (assoc-in (system-id-path the-sid) actor-id))))
-  (spawn-order/record! frame-id actor-id)
-  (classification/lower-at-spawn! frame-id actor-id (classified-spec on-exit)))
+  (rf.machines.spawn-order/record! frame-id actor-id)
+  (rf.machines.classification/lower-at-spawn! frame-id actor-id (classified-spec on-exit)))
 
 ;; ---- ordinary-destroy tail loss fixtures ----------------------------------
 
 (defn- run-destroy-tail
   "Seed a live actor in frame A, install a destroyer keyed on `trigger`, then
-  drive `destroy/destroy-machine-fx` (the imperative keyword form) DIRECTLY under
+  drive `rf.machines.lifecycle-fx.destroy/destroy-machine-fx` (the imperative keyword form) DIRECTLY under
   A's bound event owner. The destroyer — fired EXACTLY once on the trigger's
   callback / hook stack — destroys frame A and republishes same-id B (re-seeding
   B identically: snapshot, system-id, spawn-order, classification). Returns the
@@ -119,17 +119,17 @@
 
   `trigger` ∈ {:exit :http-abort :timer-cancelled :destroyed :system-id-released}."
   [frame-a trigger]
-  (spawn-order/reset-all!)
+  (rf.machines.spawn-order/reset-all!)
   (rf/make-frame {:id frame-a})
   (let [fired?     (atom false)
         b-birth    (atom nil)
-        orig-abort (late-bind/get-fn :http/abort-on-actor-destroy)
+        orig-abort (rf.late-bind/get-fn :http/abort-on-actor-destroy)
         destroy+B! (fn []
                      (when (compare-and-set! fired? false true)
-                       (frame/destroy-frame! frame-a)     ;; destroy A
+                       (rf.frame/destroy-frame! frame-a)     ;; destroy A
                        (rf/make-frame {:id frame-a})        ;; same-id B
                        ;; Re-seed B identically (no :exit hook on B).
-                       (frame/swap-runtime-db!
+                       (rf.frame/swap-runtime-db!
                          frame-a
                          (fn [rt] (-> rt
                                       (assoc-in (snapshot-path actor-id)
@@ -137,19 +137,19 @@
                                                  :data            {:rf/self-id actor-id :token "secret"}
                                                  :rf/machine-type actor-type})
                                       (assoc-in (system-id-path the-sid) actor-id))))
-                       (spawn-order/record! frame-a actor-id)
-                       (classification/lower-at-spawn! frame-a actor-id (classified-spec nil))
+                       (rf.machines.spawn-order/record! frame-a actor-id)
+                       (rf.machines.classification/lower-at-spawn! frame-a actor-id (classified-spec nil))
                        (reset! b-birth (runtime-db frame-a))))]
     (seed-live-actor! frame-a (when (= trigger :exit) destroy+B!))
     (when (= trigger :timer-cancelled)
       ;; Seed one armed `:after` timer entry so `cancel-actor-timers!` emits a
       ;; `:rf.machine.timer/cancelled` trace we can hook.
-      (swap! timer/after-timers assoc-in
+      (swap! rf.machines.timer/after-timers assoc-in
              [frame-a {:parent actor-id :spawn [] :delay 3600000}]
              {:handle nil :reaction nil :sub-watcher-key nil
               :resolved-ms 3600000 :epoch 0 :state :running
               :region nil :delay-source :literal :token ::a-timer}))
-    (trace-tooling/register-listener!
+    (rf.trace.tooling/register-listener!
       ::destroy-tail-fence
       (fn [ev]
         (case (:operation ev)
@@ -159,22 +159,22 @@
           nil)))
     (try
       (when (= trigger :http-abort)
-        (late-bind/set-fn! :http/abort-on-actor-destroy
+        (rf.late-bind/set-fn! :http/abort-on-actor-destroy
                            (fn [_actor-id] (destroy+B!) nil)))
-      (let [token-a (frame/frame-incarnation-token frame-a)]
-        (frame/call-with-event-owner-token frame-a token-a
-          (fn [] (destroy/destroy-machine-fx {:frame frame-a} actor-id))))
+      (let [token-a (rf.frame/frame-incarnation-token frame-a)]
+        (rf.frame/call-with-event-owner-token frame-a token-a
+          (fn [] (rf.machines.lifecycle-fx.destroy/destroy-machine-fx {:frame frame-a} actor-id))))
       {:fired?      @fired?
        :b-birth     @b-birth
        :b-runtime   (runtime-db frame-a)
        :b-snapshot  (snapshot frame-a actor-id)
        :b-system-id (get-in (runtime-db frame-a) (system-id-path the-sid))
        :b-elision   (elision-slot frame-a)
-       :spawn-order (vec (spawn-order/frame-order frame-a))}
+       :spawn-order (vec (rf.machines.spawn-order/frame-order frame-a))}
       (finally
-        (trace-tooling/unregister-listener! ::destroy-tail-fence)
-        (late-bind/set-fn! :http/abort-on-actor-destroy orig-abort)
-        (swap! timer/after-timers dissoc frame-a)))))
+        (rf.trace.tooling/unregister-listener! ::destroy-tail-fence)
+        (rf.late-bind/set-fn! :http/abort-on-actor-destroy orig-abort)
+        (swap! rf.machines.timer/after-timers dissoc frame-a)))))
 
 (defn- assert-b-inert [{:keys [b-birth b-runtime b-snapshot b-system-id b-elision spawn-order]}]
   (is (some? b-snapshot)
@@ -243,31 +243,31 @@
             destroyer tears the actor down FULLY — snapshot dissoc'd, system-id
             released, spawn-order forgotten, classification dropped, destroyed
             trace fired exactly once. The fence is scoped to owner-loss only."
-    (spawn-order/reset-all!)
+    (rf.machines.spawn-order/reset-all!)
     (let [frame-a   :rf2-i4aj9c/live-destroy-frame
           destroyed (atom [])]
       (rf/make-frame {:id frame-a})
       (seed-live-actor! frame-a nil)
-      (trace-tooling/register-listener!
+      (rf.trace.tooling/register-listener!
         ::live-destroy
         (fn [ev] (when (= :rf.machine/destroyed (:operation ev))
                    (swap! destroyed conj ev))))
       (try
-        (let [token-a (frame/frame-incarnation-token frame-a)]
-          (frame/call-with-event-owner-token frame-a token-a
-            (fn [] (destroy/destroy-machine-fx {:frame frame-a} actor-id))))
+        (let [token-a (rf.frame/frame-incarnation-token frame-a)]
+          (rf.frame/call-with-event-owner-token frame-a token-a
+            (fn [] (rf.machines.lifecycle-fx.destroy/destroy-machine-fx {:frame frame-a} actor-id))))
         (is (nil? (snapshot frame-a actor-id))
             "the live destroy dissoc'd the actor's snapshot")
         (is (nil? (get-in (runtime-db frame-a) (system-id-path the-sid)))
             "the live destroy released the :system-id binding")
-        (is (empty? (spawn-order/frame-order frame-a))
+        (is (empty? (rf.machines.spawn-order/frame-order frame-a))
             "the live destroy forgot the actor from spawn-order")
         (is (empty? (or (elision-slot frame-a) {}))
             "the live destroy dropped the actor's classification claim")
         (is (= 1 (count @destroyed))
             "exactly one :rf.machine/destroyed trace fired")
         (finally
-          (trace-tooling/unregister-listener! ::live-destroy))))))
+          (rf.trace.tooling/unregister-listener! ::live-destroy))))))
 
 ;; ---- eventless frame-destroy control (retains authority) ------------------
 
@@ -276,30 +276,30 @@
             frame-destroy cascade) uses the inert eventless fence — it tears the
             actor down fully regardless of any ambient ownership. A wrongly-eager
             fence would strand the actor on frame teardown."
-    (spawn-order/reset-all!)
+    (rf.machines.spawn-order/reset-all!)
     (let [frame-a :rf2-i4aj9c/eventless-frame]
       (rf/make-frame {:id frame-a})
       (seed-live-actor! frame-a nil)
       ;; No `call-with-event-owner-token` — genuinely eventless.
-      (destroy/destroy-single-actor! frame-a actor-id)
+      (rf.machines.lifecycle-fx.destroy/destroy-single-actor! frame-a actor-id)
       (is (nil? (snapshot frame-a actor-id))
           "the eventless teardown dissoc'd the snapshot")
       (is (nil? (get-in (runtime-db frame-a) (system-id-path the-sid)))
           "the eventless teardown released the :system-id binding")
-      (is (empty? (spawn-order/frame-order frame-a))
+      (is (empty? (rf.machines.spawn-order/frame-order frame-a))
           "the eventless teardown forgot the actor from spawn-order"))))
 
 ;; ===========================================================================
-;; SUBSCRIPTION-VECTOR TIMER seam — release fence (subs/unsubscribe)
+;; SUBSCRIPTION-VECTOR TIMER seam — release fence (rf.subs/unsubscribe)
 ;; ===========================================================================
 
 (defn- seed-sub-vec-timer!
   "Seed one armed subscription-vector `:after` timer entry for `parent-id` under
   `frame-id`, carrying a `:reaction` + `:sub-watcher-key` and a vector
-  `delay-key` (so `release-entry-resources!` reaches the `subs/unsubscribe`
+  `delay-key` (so `release-entry-resources!` reaches the `rf.subs/unsubscribe`
   branch)."
   [frame-id parent-id delay-key reaction]
-  (swap! timer/after-timers assoc-in
+  (swap! rf.machines.timer/after-timers assoc-in
          [frame-id {:parent parent-id :spawn [] :delay delay-key}]
          {:handle          nil
           :reaction        reaction
@@ -315,7 +315,7 @@
   (testing "a subscription-vector `:after` timer is cancelled on actor destroy; a
             :rf.machine.timer/cancelled listener re-arms the SAME query in same-id
             B (bumping the shared (frame,query-v) ref-count), then A's release runs.
-            The shared `subs/unsubscribe` decrement is SKIPPED once A is lost, so
+            The shared `rf.subs/unsubscribe` decrement is SKIPPED once A is lost, so
             B's fresh reaction ref is not disposed. Mutation tooth: the unfenced
             release decrements B's ref."
     (let [frame-a     :rf2-i4aj9c/subvec-frame
@@ -325,26 +325,26 @@
           fired?      (atom false)]
       (rf/make-frame {:id frame-a})
       (seed-sub-vec-timer! frame-a actor-id delay-key reaction)
-      (with-redefs [subs/unsubscribe (fn ([_] (swap! unsub-count inc) nil)
+      (with-redefs [rf.subs/unsubscribe (fn ([_] (swap! unsub-count inc) nil)
                                         ([_ _] (swap! unsub-count inc) nil))]
-        (trace-tooling/register-listener!
+        (rf.trace.tooling/register-listener!
           ::subvec-fence
           (fn [ev]
             (when (and (= :rf.machine.timer/cancelled (:operation ev))
                        (compare-and-set! fired? false true))
-              (frame/destroy-frame! frame-a)   ;; destroy A
+              (rf.frame/destroy-frame! frame-a)   ;; destroy A
               (rf/make-frame {:id frame-a}))))   ;; same-id B re-arms the same query
         (try
-          (let [token-a   (frame/frame-incarnation-token frame-a)
-                owner-gone? (fn [] (not (frame/event-continuation-live? frame-a token-a)))]
-            (frame/call-with-event-owner-token frame-a token-a
-              (fn [] (timer/cancel-actor-timers! frame-a actor-id owner-gone?))))
+          (let [token-a   (rf.frame/frame-incarnation-token frame-a)
+                owner-gone? (fn [] (not (rf.frame/event-continuation-live? frame-a token-a)))]
+            (rf.frame/call-with-event-owner-token frame-a token-a
+              (fn [] (rf.machines.timer/cancel-actor-timers! frame-a actor-id owner-gone?))))
           (is (true? @fired?) "the timer-cancelled listener ran (fence exercised)")
           (is (zero? @unsub-count)
               "A's release did NOT decrement the shared (frame,query-v) ref-count after the loss")
           (finally
-            (trace-tooling/unregister-listener! ::subvec-fence)
-            (swap! timer/after-timers dissoc frame-a)))))))
+            (rf.trace.tooling/unregister-listener! ::subvec-fence)
+            (swap! rf.machines.timer/after-timers dissoc frame-a)))))))
 
 (deftest sub-vec-timer-release-live-owner-unsubscribes-once
   (testing "control: when the cancelled listener does NOT destroy A, the
@@ -356,17 +356,17 @@
           unsub-count (atom 0)]
       (rf/make-frame {:id frame-a})
       (seed-sub-vec-timer! frame-a actor-id delay-key reaction)
-      (with-redefs [subs/unsubscribe (fn ([_] (swap! unsub-count inc) nil)
+      (with-redefs [rf.subs/unsubscribe (fn ([_] (swap! unsub-count inc) nil)
                                         ([_ _] (swap! unsub-count inc) nil))]
         (try
-          (let [token-a     (frame/frame-incarnation-token frame-a)
-                owner-gone? (fn [] (not (frame/event-continuation-live? frame-a token-a)))]
-            (frame/call-with-event-owner-token frame-a token-a
-              (fn [] (timer/cancel-actor-timers! frame-a actor-id owner-gone?))))
+          (let [token-a     (rf.frame/frame-incarnation-token frame-a)
+                owner-gone? (fn [] (not (rf.frame/event-continuation-live? frame-a token-a)))]
+            (rf.frame/call-with-event-owner-token frame-a token-a
+              (fn [] (rf.machines.timer/cancel-actor-timers! frame-a actor-id owner-gone?))))
           (is (= 1 @unsub-count)
               "the live-owner release decremented the subscription ref-count exactly once")
           (finally
-            (swap! timer/after-timers dissoc frame-a)))))))
+            (swap! rf.machines.timer/after-timers dissoc frame-a)))))))
 
 ;; ===========================================================================
 ;; SPAWN-ALL seam — children iteration + final join-slot cleanup fence
@@ -382,7 +382,7 @@
 
 (defn- seed-spawn-all! [frame-id]
   (rf/reg-machine actor-type (classified-spec nil))
-  (frame/swap-runtime-db!
+  (rf.frame/swap-runtime-db!
     frame-id
     (fn [rt] (-> rt
                  (assoc-in (snapshot-path sa-child-a) (child-snap sa-child-a))
@@ -394,8 +394,8 @@
                             :resolved?  false
                             :spec       {}
                             :rf/attempt 1}))))
-  (spawn-order/record! frame-id sa-child-a)
-  (spawn-order/record! frame-id sa-child-b))
+  (rf.machines.spawn-order/record! frame-id sa-child-a)
+  (rf.machines.spawn-order/record! frame-id sa-child-b))
 
 (deftest spawn-all-iteration-loss-fences-remaining-children-and-clear
   (testing "a `:spawn-all` teardown iterates its children, firing a
@@ -406,25 +406,25 @@
             children survive byte-identical. Mutation tooth: the unfenced
             iteration tears down B's children and the unfenced clear vacates B's
             join slot."
-    (spawn-order/reset-all!)
+    (rf.machines.spawn-order/reset-all!)
     (let [frame-a :rf2-i4aj9c/spawn-all-frame
           fired?  (atom false)
           b-birth (atom nil)]
       (rf/make-frame {:id frame-a})
       (seed-spawn-all! frame-a)
-      (trace-tooling/register-listener!
+      (rf.trace.tooling/register-listener!
         ::spawn-all-fence
         (fn [ev]
           (when (and (= :rf.machine/destroyed (:operation ev))
                      (compare-and-set! fired? false true))
-            (frame/destroy-frame! frame-a)       ;; destroy A
+            (rf.frame/destroy-frame! frame-a)       ;; destroy A
             (rf/make-frame {:id frame-a})          ;; same-id B
             (seed-spawn-all! frame-a)              ;; re-seed the whole join
             (reset! b-birth (runtime-db frame-a)))))
       (try
-        (let [token-a (frame/frame-incarnation-token frame-a)]
-          (frame/call-with-event-owner-token frame-a token-a
-            (fn [] (destroy/destroy-machine-fx
+        (let [token-a (rf.frame/frame-incarnation-token frame-a)]
+          (rf.frame/call-with-event-owner-token frame-a token-a
+            (fn [] (rf.machines.lifecycle-fx.destroy/destroy-machine-fx
                      {:frame frame-a}
                      {:rf/spawn-all true :rf/parent-id sa-parent :rf/invoke-id sa-invoke}))))
         (is (true? @fired?) "the per-child :rf.machine/destroyed listener ran (fence exercised)")
@@ -434,19 +434,19 @@
         (is (= @b-birth (runtime-db frame-a))
             "B's runtime-db is byte-identical to its birth (no A-derived iteration / clear landed)")
         (finally
-          (trace-tooling/unregister-listener! ::spawn-all-fence))))))
+          (rf.trace.tooling/unregister-listener! ::spawn-all-fence))))))
 
 (deftest spawn-all-live-owner-tears-down-all-children
   (testing "control: a `:spawn-all` teardown whose per-child destroyed traces fire
             no destroyer tears down EVERY child and clears the join slot. The
             fence must not suppress the live path."
-    (spawn-order/reset-all!)
+    (rf.machines.spawn-order/reset-all!)
     (let [frame-a :rf2-i4aj9c/spawn-all-live-frame]
       (rf/make-frame {:id frame-a})
       (seed-spawn-all! frame-a)
-      (let [token-a (frame/frame-incarnation-token frame-a)]
-        (frame/call-with-event-owner-token frame-a token-a
-          (fn [] (destroy/destroy-machine-fx
+      (let [token-a (rf.frame/frame-incarnation-token frame-a)]
+        (rf.frame/call-with-event-owner-token frame-a token-a
+          (fn [] (rf.machines.lifecycle-fx.destroy/destroy-machine-fx
                    {:frame frame-a}
                    {:rf/spawn-all true :rf/parent-id sa-parent :rf/invoke-id sa-invoke}))))
       (is (nil? (snapshot frame-a sa-child-a)) "child A torn down")
@@ -464,11 +464,11 @@
   The physical write always lands FIRST so A's write that linearized before the
   loss stands in A's captured container. Mirrors the #5889 spawn-write seam."
   [armed? on-write]
-  (let [base-replace (:replace-container! plain-atom/adapter)]
-    (adapter/dispose-adapter!)
-    (reset! frame/frames {})
-    (adapter/install-adapter!
-      (assoc plain-atom/adapter
+  (let [base-replace (:replace-container! rf.substrate.plain-atom/adapter)]
+    (rf.substrate.adapter/dispose-adapter!)
+    (reset! rf.frame/frames {})
+    (rf.substrate.adapter/install-adapter!
+      (assoc rf.substrate.plain-atom/adapter
              :kind :custom
              :replace-container!
              (fn [container value]
@@ -477,9 +477,9 @@
                  (on-write)))))))
 
 (defn- restore-plain-adapter! []
-  (reset! frame/frames {})
-  (adapter/dispose-adapter!)
-  (adapter/install-adapter! plain-atom/adapter))
+  (reset! rf.frame/frames {})
+  (rf.substrate.adapter/dispose-adapter!)
+  (rf.substrate.adapter/install-adapter! rf.substrate.plain-atom/adapter))
 
 (deftest classification-drop-write-watch-loss-fences-removal
   (testing "a container watch that destroys A + publishes same-id B DURING the
@@ -498,26 +498,26 @@
         armed?
         (fn []
           (when (compare-and-set! fired? false true)
-            (frame/destroy-frame! frame-a)         ;; destroy A during the drop write
+            (rf.frame/destroy-frame! frame-a)         ;; destroy A during the drop write
             (rf/make-frame {:id frame-a})            ;; same-id B
             ;; B re-lowers the SAME owner's classification claim.
-            (classification/lower-at-spawn! frame-a actor-id (classified-spec nil))
+            (rf.machines.classification/lower-at-spawn! frame-a actor-id (classified-spec nil))
             (reset! b-claim (elision-slot frame-a))
-            (reset! b-commit (frame/frame-commit-epoch frame-a)))))
+            (reset! b-commit (rf.frame/frame-commit-epoch frame-a)))))
       (try
         (rf/reg-machine actor-type (classified-spec nil))
         (rf/make-frame {:id frame-a})
-        (let [token-a (frame/frame-incarnation-token frame-a)]
+        (let [token-a (rf.frame/frame-incarnation-token frame-a)]
           (reset! armed? true)
-          (frame/call-with-event-owner-token frame-a token-a
-            (fn [] (classification/drop-at-destroy!
+          (rf.frame/call-with-event-owner-token frame-a token-a
+            (fn [] (rf.machines.classification/drop-at-destroy!
                      frame-a actor-id (classified-spec nil) token-a))))
         (is (true? @fired?) "the drop-write container watch ran (fence exercised)")
         (is (and (some? @b-claim) (seq @b-claim))
             "B re-lowered its classification claim")
         (is (= @b-claim (elision-slot frame-a))
             "B's classification claim SURVIVES — A's mid-write drop did not re-root onto B")
-        (is (= @b-commit (frame/frame-commit-epoch frame-a))
+        (is (= @b-commit (rf.frame/frame-commit-epoch frame-a))
             "A's mid-write loss never bumped B's commit epoch")
         (finally
           (restore-plain-adapter!))))))

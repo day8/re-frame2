@@ -25,17 +25,17 @@
   machines_cljs_test.cljs."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.frame :as rf.frame]
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.subs]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; runtime-db / snapshot lookup via the shared machines test-support.
-(def ^:private frame-db mtest/runtime-db)
-(def ^:private snapshot mtest/snapshot)
+(def ^:private frame-db rf.machines.test-support/runtime-db)
+(def ^:private snapshot rf.machines.test-support/snapshot)
 
 ;; ---- registration-time handling of the legacy :timeout-ms slot -------------
 ;;
@@ -548,7 +548,7 @@
                      (throw (ex-info "fn-form delay blew up" {:where :test})))]
       ;; Shared `with-trace-capture` — guaranteed unregister in a `finally`,
       ;; no hand-rolled register/try/finally.
-      (mtest/with-trace-capture captured
+      (rf.machines.test-support/with-trace-capture captured
         (rf/reg-machine :a/throws
                         {:initial :idle
                          :data    {}
@@ -574,7 +574,7 @@
 ;; ---- sub-cache ref-count balance on bad-delay early-return ----------------
 
 (defn- default-sub-cache []
-  @(:sub-cache (frame/frame :rf/default)))
+  @(:sub-cache (rf.frame/frame :rf/default)))
 
 (deftest after-sub-vec-bad-delay-does-not-leak-subscription
   ;; `schedule-after-timer!` resolves a subscription-vector `:after` delay
@@ -683,7 +683,7 @@
                               (deref [_]
                                 (throw (ex-info throw-msg {:where :test}))))]
       ;; Shared `with-trace-capture`.
-      (mtest/with-trace-capture captured
+      (rf.machines.test-support/with-trace-capture captured
         (rf/reg-sub :s/well-formed (fn [_db _] 1000))
         (rf/reg-machine
           :s/throws-machine
@@ -742,7 +742,7 @@
                                            {:where :test :key key}))
                            (real-add target key f)))]
       ;; Shared `with-trace-capture`.
-      (mtest/with-trace-capture captured
+      (rf.machines.test-support/with-trace-capture captured
         ;; A well-behaved sub returning a positive delay — subscribe
         ;; succeeds, deref returns 1000 (so the bad-delay branch
         ;; doesn't short-circuit before reaching add-watch).

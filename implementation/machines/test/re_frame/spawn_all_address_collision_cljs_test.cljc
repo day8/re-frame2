@@ -40,7 +40,7 @@
    ;; Loading the machines facade registers `rf/reg-machine` + the reserved
    ;; machine fxs when this ns runs alone.
    [re-frame.machines]
-   [re-frame.machines.test-support :as mtest]
+   [re-frame.machines.test-support :as rf.machines.test-support]
    ;; The schemas artefact ships the registered-validator hot path the
    ;; `:where :machine-data` boundary routes through; the `.malli` adapter
    ;; publishes Malli's validate/explain into the late-bind table. Needed by
@@ -48,14 +48,14 @@
    ;; child's `[:schemas :data]` validator at all.
    [re-frame.schemas]
    [re-frame.schemas.malli]
-   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
-       :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture
-    #?(:clj  {:adapter plain-atom/adapter}
-       :cljs {:adapter reagent-adapter/adapter}))
-  mtest/trace-capture-fixture)
+  (rf.machines.test-support/make-reset-runtime-fixture
+    #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
+       :cljs {:adapter rf.adapter.reagent/adapter}))
+  rf.machines.test-support/trace-capture-fixture)
 
 ;; ---------------------------------------------------------------------------
 ;; Fixtures under test.
@@ -81,13 +81,13 @@
     :ready   {}}})
 
 (defn- join-slot [parent-id]
-  (get-in (mtest/runtime-db) [:rf.runtime/machines :spawned parent-id [:forking]]))
+  (get-in (rf.machines.test-support/runtime-db) [:rf.runtime/machines :spawned parent-id [:forking]]))
 
 (defn- snap-of [actor-id]
-  (get-in (mtest/runtime-db) [:rf.runtime/machines :snapshots actor-id]))
+  (get-in (rf.machines.test-support/runtime-db) [:rf.runtime/machines :snapshots actor-id]))
 
 (defn- collision-rejects []
-  (mtest/events-of :rf.error/machine-spawn-all-duplicate-id))
+  (rf.machines.test-support/events-of :rf.error/machine-spawn-all-duplicate-id))
 
 ;; ---------------------------------------------------------------------------
 ;; Ordering probes (rf2-ri19s).
@@ -108,7 +108,7 @@
   ONLY entry."
   []
   (into [] (comp (map :operation) (filter reject-operations))
-        (or (mtest/captured-events) [])))
+        (or (rf.machines.test-support/captured-events) [])))
 
 (def ^:private validator-calls
   "Counts every invocation of the counting child validator below, so the ORDER

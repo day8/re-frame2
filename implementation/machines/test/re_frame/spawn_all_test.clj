@@ -20,17 +20,17 @@
   All tests run on the JVM through the plain-atom substrate."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace.tooling :as trace-tooling]))
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; runtime-db / snapshot lookup via the shared machines test-support
 ;; — no hardcoded `[:rf.runtime/machines …]` path.
-(def ^:private frame-db mtest/runtime-db)
-(def ^:private snapshot mtest/snapshot)
+(def ^:private frame-db rf.machines.test-support/runtime-db)
+(def ^:private snapshot rf.machines.test-support/snapshot)
 
 ;; ---- common child machine -------------------------------------------------
 ;;
@@ -190,11 +190,11 @@
   traces into an atom; returns [atom unregister-fn]."
   [k]
   (let [a (atom [])]
-    (trace-tooling/register-listener!
+    (rf.trace.tooling/register-listener!
       k (fn [ev]
           (when (= :rf.warning/spawn-all-join-unsatisfiable (:operation ev))
             (swap! a conj ev))))
-    [a #(trace-tooling/unregister-listener! k)]))
+    [a #(rf.trace.tooling/unregister-listener! k)]))
 
 (deftest all-join-unsatisfiable-after-failure-warns
   (testing "C5: an :all join with no :on-any-failed warns once when a failure

@@ -33,14 +33,14 @@
         unaffected."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.machines :as machines]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.machines :as rf.machines]
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-(def ^:private snapshot mtest/snapshot)
+(def ^:private snapshot rf.machines.test-support/snapshot)
 
 ;; A clearly-non-ambient sentinel: a fixed wall-clock epoch ms that the
 ;; host clock will never spontaneously return. If a callback read the
@@ -205,7 +205,7 @@
                        :done {}}}]
       ;; Drive the PURE engine directly — no dispatch, no handler, so the
       ;; machine def carries no :rf/cofx stamp.
-      (machines/machine-transition m {:state :idle :data {}} [:go])
+      (rf.machines/machine-transition m {:state :idle :data {}} [:go])
       (is (some? @captured) "the guard ran")
       (is (not (contains? @captured :rf.cofx))
           "no :rf.cofx key when the engine is driven without a token")

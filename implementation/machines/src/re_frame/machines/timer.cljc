@@ -6,7 +6,7 @@
   (`re-frame.machines.transition`) emits one `:rf.machine/after-schedule`
   fx per `:after` entry. The fx handler here resolves the delay (pos-int?
   literal / subscription vector / fn-form), schedules a real timer via
-  `interop/schedule-after!` (the Spec 005 §Clock abstraction primitive —
+  `rf.interop/schedule-after!` (the Spec 005 §Clock abstraction primitive —
   `set-timeout!`'s spec-named machines surface), and (for sub-vec delays)
   installs a watcher
   that triggers cancel-and-reschedule on sub-value change. On expiry the
@@ -35,15 +35,15 @@
   No-op under `:platform :server` (per Spec 005 §SSR mode); the pure side
   already emitted `:rf.machine.timer/skipped-on-server` in place of
   /scheduled."
-  (:require [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.machines.paths :as paths]
-            [re-frame.machines.reply :as m-reply]
-            [re-frame.machines.transition :as transition]
-            [re-frame.managed-timer :as managed-timer]
-            [re-frame.subs :as subs]
-            [re-frame.trace :as trace]))
+  (:require [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.machines.paths :as rf.machines.paths]
+            [re-frame.machines.reply :as rf.machines.reply]
+            [re-frame.machines.transition :as rf.machines.transition]
+            [re-frame.managed-timer :as rf.managed-timer]
+            [re-frame.subs :as rf.subs]
+            [re-frame.trace :as rf.trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -84,7 +84,7 @@
   ;; Cancellation (state exit + sub re-resolution) clears the entry and
   ;; releases the handle / detaches the watcher. Frame-teardown clears the
   ;; entire inner map via the `:machines/on-frame-destroyed!` late-bind
-  ;; hook invoked from `frame/destroy-frame!`.
+  ;; hook invoked from `rf.frame/destroy-frame!`.
   (atom {}))
 
 (defn- after-timer-key
@@ -131,7 +131,7 @@
     ;; `{:snapshot ...}` and returns a positive-int ms delay.
     (let [v (try (delay-key {:snapshot snapshot})
                  (catch #?(:clj Throwable :cljs :default) e
-                   (trace/emit-error! :rf.error/machine-after-fn-threw
+                   (rf.trace/emit-error! :rf.error/machine-after-fn-threw
                                       {:exception e
                                        :frame     frame-id
                                        :recovery  :no-clock-configured})
@@ -141,13 +141,13 @@
     (vector? delay-key)
     ;; subscribe to keep the reaction live; caller will add-watch for
     ;; change-detection then unsubscribe on cancellation.
-    (let [reaction (subs/subscribe delay-key {:frame frame-id})
+    (let [reaction (rf.subs/subscribe delay-key {:frame frame-id})
           v        (when reaction
                      (try @reaction
                           (catch #?(:clj Throwable :cljs :default) e
                             ;; Canonical subscription identity: `:rf.sub/id`
                             ;; (+ `:rf.sub/query-v` for the full vector).
-                            (trace/emit-error! :rf.error/machine-after-sub-threw
+                            (rf.trace/emit-error! :rf.error/machine-after-sub-threw
                                                {:exception      e
                                                 :rf.sub/id      (first delay-key)
                                                 :rf.sub/query-v (vec delay-key)
@@ -170,7 +170,7 @@
 
   rf2-i4aj9c — the host-clock cancel and `remove-watch` release THIS entry's
   own captured handle / reaction (A's own host work), so they always run. The
-  `subs/unsubscribe frame-id delay-key` is the ONE shared release: the
+  `rf.subs/unsubscribe frame-id delay-key` is the ONE shared release: the
   subscription cache is ref-counted by `(frame-id, query-v)`, so once the
   cancellation trace has destroyed A and re-armed the SAME query in same-id
   B (bumping the shared count), A's decrement would dispose B's fresh
@@ -184,12 +184,12 @@
    ;; Shared best-effort host-clock cancel — swallows throws and no-ops a nil
    ;; handle, tolerating the partial-state entries (literal- / fn-form delays
    ;; whose watcher / reaction slots are nil).
-   (managed-timer/cancel! (:handle entry))
+   (rf.managed-timer/cancel! (:handle entry))
    (when (and (:reaction entry) (:sub-watcher-key entry))
      (try (remove-watch (:reaction entry) (:sub-watcher-key entry))
           (catch #?(:clj Throwable :cljs :default) _ nil))
      (when (and (vector? delay-key) frame-id (not (owner-gone?)))
-       (try (subs/unsubscribe frame-id delay-key)
+       (try (rf.subs/unsubscribe frame-id delay-key)
             (catch #?(:clj Throwable :cljs :default) _ nil))))))
 
 (defonce ^:private after-attempt-counter
@@ -281,7 +281,7 @@
         ;; discriminator. The reply facts ride ADDITIVELY — the public trace
         ;; shape (`:actor-id` / `:state` / `:delay` / `:epoch` / `:reason` /
         ;; sub identity) is preserved.
-        cancel-reply (m-reply/cancelled-timer-reply
+        cancel-reply (rf.machines.reply/cancelled-timer-reply
                        {:actor-id  (:parent k)
                         :state     (:state entry)
                         :delay     (:resolved-ms entry)
@@ -289,8 +289,8 @@
                         :epoch     (:epoch entry)
                         :frame     frame-id
                         :reason    reason})
-        summary      (m-reply/trace-reply cancel-reply {:frame frame-id})]
-    (trace/emit! :rf.machine :rf.machine.timer/cancelled
+        summary      (rf.machines.reply/trace-reply cancel-reply {:frame frame-id})]
+    (rf.trace/emit! :rf.machine :rf.machine.timer/cancelled
                  (cond-> {;; the timer's owning actor INSTANCE;
                           ;; `:machine-id` is reserved for the registered TYPE.
                           :actor-id   (:parent k)
@@ -343,9 +343,9 @@
   destroyed there, so the frame incarnation is stable and the token check would be
   too weak)."
   [frame-id]
-  (let [captured-incarnation (frame/frame-incarnation-token frame-id)]
+  (let [captured-incarnation (rf.frame/frame-incarnation-token frame-id)]
     (if (some? captured-incarnation)
-      (fn [] (not (frame/frame-incarnation-live? frame-id captured-incarnation)))
+      (fn [] (not (rf.frame/frame-incarnation-live? frame-id captured-incarnation)))
       (constantly false))))
 
 (def ^:dynamic ^:private *announcing-attempt-tokens*
@@ -449,7 +449,7 @@
 
   rf2-i4aj9c / rf2-rbxdxa — `emit-cancelled!` is CALLBACK-BEARING; `owner-gone?`
   (defaulting to a same-id-successor predicate captured BEFORE the trace) is
-  threaded into `release-entry-resources!` so the shared `subs/unsubscribe`
+  threaded into `release-entry-resources!` so the shared `rf.subs/unsubscribe`
   decrement is skipped once A is lost, while an ordinary cancellation with no
   successor still releases fully."
   ([frame-id k reason] (cancel-after-timer-entry! frame-id k reason (successor-published?-fn frame-id)))
@@ -501,8 +501,8 @@
       ;; once a cancellation listener has replaced A with B, nothing A-derived is
       ;; read from or installed into the successor.
       (when-let [rt (and (not (owner-gone?))
-                         (frame/frame-runtime-db-value frame-id))]
-        (let [snap (get-in rt (paths/snapshot-path parent-id))
+                         (rf.frame/frame-runtime-db-value frame-id))]
+        (let [snap (get-in rt (rf.machines.paths/snapshot-path parent-id))
               ;; Per Spec 005 §Per-region :after scoping: for parallel-region
               ;; machines the snapshot's :state is a map
               ;; of region-name → that region's state, and the invoke-id
@@ -519,9 +519,9 @@
                 (let [rn (first invoke-id)
                       iid-tail (vec (rest invoke-id))]
                   [iid-tail
-                   (when-let [rs (get (:state snap) rn)] (transition/state-path rs))
+                   (when-let [rs (get (:state snap) rn)] (rf.machines.transition/state-path rs))
                    [:data :rf/after-epoch-by-region rn iid-tail]])
-                [invoke-id (when snap (transition/state-path (:state snap)))
+                [invoke-id (when snap (rf.machines.transition/state-path (:state snap)))
                  [:data :rf/after-epoch (vec invoke-id)]])
               still-here? (and active
                                 (= (vec in-region-invoke-id)
@@ -610,7 +610,7 @@
   involved: the deferred row carries the claimant's own reason."
   [frame-id parent-id invoke-id state delay-key epoch server? snapshot
    {:keys [emit-scheduled-trace? owner-gone?]}]
-  (let [delay-source (transition/classify-delay-source delay-key)
+  (let [delay-source (rf.machines.transition/classify-delay-source delay-key)
         k            (after-timer-key parent-id invoke-id delay-key)
         ;; rf2-ijlhj — the owning incarnation, captured BEFORE the callback-bearing
         ;; `:on-supersede` cancel and rechecked before the durable arm below.
@@ -652,7 +652,7 @@
           ;; Bad delay resolution — emit advisory and skip.
           ;;
           ;; `resolve-delay-ms` for a subscription-vector delay calls
-          ;; `subs/subscribe` (bumping the sub-cache ref-count) BEFORE we
+          ;; `rf.subs/subscribe` (bumping the sub-cache ref-count) BEFORE we
           ;; know whether the resolved value is usable. The bad-delay branch
           ;; short-circuits and stores nothing in `after-timers`, so no
           ;; future `cancel-after-timer-entry!` will ever run
@@ -661,9 +661,9 @@
           ;; ref-count. Per Spec 006 §Reference counting and disposal.
           (do
             (when (and reaction (vector? delay-key))
-              (try (subs/unsubscribe frame-id delay-key)
+              (try (rf.subs/unsubscribe frame-id delay-key)
                    (catch #?(:clj Throwable :cljs :default) _ nil)))
-            (trace/emit! :warning :rf.warning/no-clock-configured
+            (rf.trace/emit! :warning :rf.warning/no-clock-configured
                          ;; the timer's owning actor is a LIVE INSTANCE;
                          ;; address it by `:actor-id`, not `:machine-id`
                          ;; (reserved for the registered TYPE).
@@ -729,7 +729,7 @@
               ;; already out and emits its `/cancelled` at once, in place.
               (binding [*announcing-attempt-tokens*
                         (conj *announcing-attempt-tokens* token)]
-                (trace/emit! :rf.machine :rf.machine.timer/scheduled
+                (rf.trace/emit! :rf.machine :rf.machine.timer/scheduled
                              (cond-> {;; the timer's owning actor INSTANCE;
                                       ;; `:machine-id` is reserved for the
                                       ;; registered TYPE.
@@ -745,7 +745,7 @@
                                (assoc :rf.sub/id      (first delay-key)
                                       :rf.sub/query-v (vec delay-key))))))
             ;; rf2-jqvgp — that `/scheduled` emit is the LAST callback-bearing
-            ;; step before the durable arm. `trace/emit!` invokes listeners
+            ;; step before the durable arm. `rf.trace/emit!` invokes listeners
             ;; SYNCHRONOUSLY, so a `:rf.machine.timer/scheduled` listener can
             ;; `destroy-frame!` the owning incarnation A and publish a same-id
             ;; successor B right here — after the post-supersede recheck above.
@@ -761,7 +761,7 @@
             ;; ref-count, bumped by `resolve-delay-ms` against A's OWN sub-cache
             ;; — which `destroy-frame!` disposed wholesale
             ;; (`:subs.cache/dispose-all-for-frame-destroy!`) on this very
-            ;; stack. `subs/unsubscribe` addresses the frame by bare id, so a
+            ;; stack. `rf.subs/unsubscribe` addresses the frame by bare id, so a
             ;; decrement here would land on B and could dispose a reaction B
             ;; holds for the same query. Nothing of A's survives to release, and
             ;; the release that would reach it is the one that must not run —
@@ -806,7 +806,7 @@
                     ;; known-positive here (the non-positive case was handled by
                     ;; the prior `cond` branch), so the guard is a no-op
                     ;; pass-through.
-                    (managed-timer/arm!
+                    (rf.managed-timer/arm!
                       (fn []
                         ;; ATOMICALLY claim THIS fire's slot — dispatch AUTHORITY
                         ;; + reap in a single swap (mirrors core `:dispatch-later`,
@@ -817,7 +817,7 @@
                         ;; dispatch and touch nothing (the claimer already released
                         ;; our resources). On the live path the claim wins:
                         (when-let [claimed (claim-entry! frame-id k token)]
-                          (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
+                          (when-let [dispatch! (rf.late-bind/get-fn :router/dispatch!)]
                             ;; Stamp `:source :after-timer` so the Epoch panel's
                             ;; DISPATCH step labels it "from :after timer" and
                             ;; Xray's L2 timeline can prefix the row + per-source
@@ -899,7 +899,7 @@
                         ;; step. A throw here lands on the same
                         ;; `:recovery :static-delay` signal as a failed
                         ;; `add-watch` — both mean the dynamic delay is not wired.
-                        (interop/activate-derived-value! reaction)
+                        (rf.interop/activate-derived-value! reaction)
                         (add-watch reaction watch-key
                                    (fn [_ _ old-v new-v]
                                      (on-sub-changed! frame-id parent-id invoke-id
@@ -907,7 +907,7 @@
                         (catch #?(:clj Throwable :cljs :default) e
                           ;; Owning actor INSTANCE under `:actor-id`; canonical
                           ;; subscription identity (`:rf.sub/id` + `:rf.sub/query-v`).
-                          (trace/emit-error! :rf.error/machine-after-watch-failed
+                          (rf.trace/emit-error! :rf.error/machine-after-watch-failed
                                              {:exception      e
                                               :actor-id       parent-id
                                               :rf.sub/id      (first delay-key)
@@ -920,7 +920,7 @@
                   ;; (idempotent even if it already fired). The claimer already
                   ;; released the reaction and emitted the single owed `:cancelled`
                   ;; trace (or, for a self-fire, dispatched + released silently).
-                  (do (managed-timer/cancel! handle)
+                  (do (rf.managed-timer/cancel! handle)
                       nil))))))))))))
 
 (defn after-schedule-fx
@@ -928,7 +928,7 @@
   `:after` transitions, on entry to an :after-bearing state node the
   runtime emits one of these per :after entry. The handler
   resolves the delay (literal pos-int? / subscription vector / fn),
-  schedules a real wall-clock timer via `interop/schedule-after!` (Spec
+  schedules a real wall-clock timer via `rf.interop/schedule-after!` (Spec
   005 §Clock abstraction), and (for
   subscription delays) installs an add-watch that triggers
   cancel-and-reschedule on sub-value change.
@@ -947,7 +947,7 @@
   (let [;; The cascade envelope frame is the fx-context `:frame`; a nil
         ;; stamp is an invariant failure (`:rf.error/no-frame-context`),
         ;; never a synthesised `:rf/default`.
-        frame-id   (frame/require-frame-stamp!
+        frame-id   (rf.frame/require-frame-stamp!
                      frame-id :rf.machine/after-schedule
                      {:where 'rf.machine/after-schedule
                       :event-id (:rf/parent-id args)})
@@ -958,8 +958,8 @@
         epoch      (:epoch args)
         server?    (boolean (:server? args))
         ;; Machine snapshots are durable runtime-db state.
-        snapshot   (get-in (frame/frame-runtime-db-value frame-id)
-                           (paths/snapshot-path parent-id))]
+        snapshot   (get-in (rf.frame/frame-runtime-db-value frame-id)
+                           (rf.machines.paths/snapshot-path parent-id))]
     ;; Initial state-entry scheduling — the :scheduled trace was already
     ;; emitted synchronously by apply-transition-once (the pure side). For
     ;; sub-vec delays, the fx layer's resolution may yield a different
@@ -1101,7 +1101,7 @@
   (let [;; The cascade envelope frame is the fx-context `:frame`; a nil
         ;; stamp is an invariant failure (`:rf.error/no-frame-context`),
         ;; never a synthesised `:rf/default`.
-        frame-id  (frame/require-frame-stamp!
+        frame-id  (rf.frame/require-frame-stamp!
                     frame-id :rf.machine/after-cancel
                     {:where 'rf.machine/after-cancel
                      :event-id (:rf/parent-id args)})
@@ -1150,11 +1150,11 @@
   SNAPSHOTS A's `[k entry]` pairs up front and cancels each by its snapshotted
   attempt token (`cancel-snapshotted-entry!`), so a re-read can never claim B's
   fresh-token entry; the destroy tail that follows this call (classification /
-  spawn-order / system-id release) resolves bare frame/actor ids to the CURRENT
+  spawn-order / system-id release) resolves bare rf.frame/actor ids to the CURRENT
   incarnation B. The optional `owner-gone?` predicate (the finalize cascade's
   exact-incarnation gate) is rechecked BEFORE each cancellation, so once the first
   cancellation loses A the loop short-circuits and never touches B's timer, and it
-  is threaded into the release so A's `subs/unsubscribe` cannot decrement a
+  is threaded into the release so A's `rf.subs/unsubscribe` cannot decrement a
   reaction B re-armed for the same query. `owner-gone?` is MONOTONIC (once A→B it
   stays gone). The 2-arity (the imperative `destroy` tail, which carries no event
   owner) passes `(constantly false)` — its historical behaviour, now still safe
@@ -1180,7 +1180,7 @@
   cancellation event; emitting traces here would pollute the trace
   stream observed by the next test.
 
-  1-arity: just the given frame's timers (`frame/destroy-frame!` hook).
+  1-arity: just the given frame's timers (`rf.frame/destroy-frame!` hook).
   Each cancelled timer emits one `:rf.machine.timer/cancelled` trace with
   `:reason :on-frame-destroy` so the Handler section's AFTER TIMERS
   sub-section can pair scheduled → cancelled on frame teardown.

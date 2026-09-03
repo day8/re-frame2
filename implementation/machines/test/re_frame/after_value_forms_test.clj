@@ -24,14 +24,14 @@
   unguarded candidate acts as the fallback. Cases (e), (f), (g) — the
   candidate-vector forms — pin this resolution against regression.
 
-  These tests drive the PURE `machines/machine-transition` surface with the
+  These tests drive the PURE `rf.machines/machine-transition` surface with the
   synthetic `[:rf.machine.timer/after-elapsed delay-key epoch decl-path]`
   event so the value-form resolution is observable without any wall-clock
   scheduling or runtime fixture. The snapshot's `:data` carries the
   per-decl-path `:rf/after-epoch` map so the timer is `live` (carried-epoch
   == current per-path epoch)."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.machines :as machines]))
+            [re-frame.machines :as rf.machines]))
 
 ;; ---- helpers --------------------------------------------------------------
 
@@ -46,7 +46,7 @@
   return `[next-state next-snapshot fx-vec]`. `next-state` is read off the
   returned snapshot's `:state` for the common state-change assertion."
   [spec snapshot event]
-  (let [{snap :snapshot fx :fx} (machines/machine-transition spec snapshot event)]
+  (let [{snap :snapshot fx :fx} (rf.machines/machine-transition spec snapshot event)]
     [(:state snap) snap fx]))
 
 (defn- snap-at
@@ -367,9 +367,9 @@
                                 :calm      {}}}]
       (testing "guard passes → first candidate target + action on both paths"
         (let [{on-snap :snapshot}
-              (machines/machine-transition on-spec {:state :idle :data {:hot? true}} [:poke])
+              (rf.machines/machine-transition on-spec {:state :idle :data {:hot? true}} [:poke])
               {after-snap :snapshot}
-              (machines/machine-transition
+              (rf.machines/machine-transition
                 after-spec
                 {:state :idle
                  :data  {:hot? true :rf/after-epoch {[:idle] 1}}}
@@ -382,9 +382,9 @@
               ":on and :after land on the SAME target for the same candidate-vector")))
       (testing "guard fails → unguarded fallback on both paths"
         (let [{on-snap :snapshot}
-              (machines/machine-transition on-spec {:state :idle :data {:hot? false}} [:poke])
+              (rf.machines/machine-transition on-spec {:state :idle :data {:hot? false}} [:poke])
               {after-snap :snapshot}
-              (machines/machine-transition
+              (rf.machines/machine-transition
                 after-spec
                 {:state :idle
                  :data  {:hot? false :rf/after-epoch {[:idle] 1}}}

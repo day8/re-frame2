@@ -23,13 +23,13 @@
   in the pure `machines-reply` test."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.machines.reply :as m-reply]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.reply :as reply]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.machines.reply :as rf.machines.reply]
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.reply :as rf.reply]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- mk-child
   [parent-id done-event-kw error-event-kw]
@@ -55,7 +55,7 @@
 
 (deftest join-child-reply-is-canonical
   (testing "rf2-d63qtp — a done join-child reply is canonical :status :ok"
-    (let [r (m-reply/join-child-reply
+    (let [r (rf.machines.reply/join-child-reply
               {:parent-id :sup/all :invoke-id [:hydrating]
                :child-id :a :spawned-id :child/a#1
                :work-generation 1 :frame :rf/default}
@@ -67,9 +67,9 @@
       (is (= [:rf.work/machine :child/a#1 [:hydrating] 1] (:rf.reply/work-id r)))
       (is (= :a (-> r :correlation :child-id)))
       (is (= :child/a#1 (-> r :correlation :spawned-id)))
-      (is (reply/valid-reply? r) (str (reply/validate-reply r)))))
+      (is (rf.reply/valid-reply? r) (str (rf.reply/validate-reply r)))))
   (testing "a failed join-child reply is canonical :status :error with family :kind"
-    (let [r (m-reply/join-child-reply
+    (let [r (rf.machines.reply/join-child-reply
               {:parent-id :sup/all :invoke-id [:hydrating]
                :child-id :b :spawned-id :child/b#1
                :work-generation 1 :frame :rf/default}
@@ -77,11 +77,11 @@
       (is (= :error (:status r)))
       (is (= :failed (:rf.reply/work-status r)))
       (is (some? (:kind (:error r))) ":error carries a family :kind")
-      (is (reply/valid-reply? r) (str (reply/validate-reply r))))))
+      (is (rf.reply/valid-reply? r) (str (rf.reply/validate-reply r))))))
 
 (deftest stale-join-child-reply-is-canonical
   (testing "rf2-d63qtp — a post-resolution late join-child completion is :status :stale"
-    (let [r (m-reply/stale-join-child-reply
+    (let [r (rf.machines.reply/stale-join-child-reply
               {:parent-id :sup/all :invoke-id [:hydrating]
                :child-id :c :spawned-id :child/c#1
                :work-generation 1 :frame :rf/default}
@@ -92,7 +92,7 @@
       (is (= :suppressed (:rf.reply/work-status r)))
       (is (not (contains? r :value)) ":stale carries no :value (no app mutation)")
       (is (= [:rf.work/machine :child/c#1 [:hydrating] 1] (:rf.reply/work-id r)))
-      (is (reply/valid-reply? r) (str (reply/validate-reply r))))))
+      (is (rf.reply/valid-reply? r) (str (rf.reply/validate-reply r))))))
 
 ;; ---- integration: resolution trace carries reply facts ----------------
 
@@ -119,7 +119,7 @@
       (rf/reg-machine :relp1/a child)
       (rf/reg-machine :relp1/b child)
       (rf/reg-machine :sup/relp1 parent)
-      (mtest/with-trace-capture captured
+      (rf.machines.test-support/with-trace-capture captured
         (rf/dispatch-sync [:sup/relp1 [:start]])
         (rf/dispatch-sync [:relp1/a#1 [:go]])
         (rf/dispatch-sync [:relp1/b#1 [:go]])
@@ -158,7 +158,7 @@
       (rf/reg-machine :relp2/a child)
       (rf/reg-machine :relp2/b child)
       (rf/reg-machine :sup/relp2 parent)
-      (mtest/with-trace-capture captured
+      (rf.machines.test-support/with-trace-capture captured
         (rf/dispatch-sync [:sup/relp2 [:start]])
         (rf/dispatch-sync [:relp2/a#1 [:fail]])
         (let [failed (->> @captured
@@ -196,9 +196,9 @@
       (rf/reg-machine :relp3/a child)
       (rf/reg-machine :relp3/b child)
       (rf/reg-machine :sup/relp3 parent)
-      (mtest/with-trace-capture captured
+      (rf.machines.test-support/with-trace-capture captured
         (rf/dispatch-sync [:sup/relp3 [:start]])
-        (let [ids (get-in (mtest/runtime-db)
+        (let [ids (get-in (rf.machines.test-support/runtime-db)
                           [:rf.runtime/machines :spawned :sup/relp3 [:hydrating] :children])]
           ;; First child resolves the :any join.
           (rf/dispatch-sync [(:a ids) [:go]])
@@ -207,7 +207,7 @@
           ;; post-resolution late-completion — the fix gates that path on exact
           ;; authority, so the carrier is stamped for the current attempt
           ;; (rf2-ixjd48).
-          (let [j (get-in (mtest/runtime-db)
+          (let [j (get-in (rf.machines.test-support/runtime-db)
                           [:rf.runtime/machines :spawned :sup/relp3 [:hydrating]])]
             (rf/dispatch-sync
               [:sup/relp3 [:asset/loaded :a]]
@@ -288,9 +288,9 @@
       (rf/reg-machine :tjok/a child)
       (rf/reg-machine :tjok/b child)
       (rf/reg-machine :sup/tj-ok parent)
-      (mtest/with-trace-capture captured
+      (rf.machines.test-support/with-trace-capture captured
         (rf/dispatch-sync [:sup/tj-ok [:start]])
-        (let [ids  (get-in (mtest/runtime-db)
+        (let [ids  (get-in (rf.machines.test-support/runtime-db)
                            [:rf.runtime/machines :spawned :sup/tj-ok [:racing] :children])
               a-id (:a ids)
               b-id (:b ids)]
@@ -341,9 +341,9 @@
       (rf/reg-machine :tjf/a child)
       (rf/reg-machine :tjf/b child)
       (rf/reg-machine :sup/tj-fail parent)
-      (mtest/with-trace-capture captured
+      (rf.machines.test-support/with-trace-capture captured
         (rf/dispatch-sync [:sup/tj-fail [:start]])
-        (let [ids  (get-in (mtest/runtime-db)
+        (let [ids  (get-in (rf.machines.test-support/runtime-db)
                            [:rf.runtime/machines :spawned :sup/tj-fail [:racing] :children])
               a-id (:a ids)
               b-id (:b ids)]
@@ -386,9 +386,9 @@
       (rf/reg-machine :tja/a child)
       (rf/reg-machine :tja/b child)
       (rf/reg-machine :sup/tj-all parent)
-      (mtest/with-trace-capture captured
+      (rf.machines.test-support/with-trace-capture captured
         (rf/dispatch-sync [:sup/tj-all [:start]])
-        (let [ids  (get-in (mtest/runtime-db)
+        (let [ids  (get-in (rf.machines.test-support/runtime-db)
                            [:rf.runtime/machines :spawned :sup/tj-all [:hydrating] :children])
               a-id (:a ids)
               b-id (:b ids)]
@@ -465,9 +465,9 @@
       (rf/reg-machine :evok/a child)
       (rf/reg-machine :evok/b child)
       (rf/reg-machine :sup/ev-ok parent)
-      (mtest/with-trace-capture captured
+      (rf.machines.test-support/with-trace-capture captured
         (rf/dispatch-sync [:sup/ev-ok [:start]])
-        (let [a-id (get-in (mtest/runtime-db)
+        (let [a-id (get-in (rf.machines.test-support/runtime-db)
                            [:rf.runtime/machines :spawned :sup/ev-ok [:racing] :children :a])]
           ;; :a completes → :any resolves; :a (live, non-final) is reaped.
           (rf/dispatch-sync [a-id [:go]])
@@ -505,9 +505,9 @@
       (rf/reg-machine :evf/a child)
       (rf/reg-machine :evf/b child)
       (rf/reg-machine :sup/ev-fail parent)
-      (mtest/with-trace-capture captured
+      (rf.machines.test-support/with-trace-capture captured
         (rf/dispatch-sync [:sup/ev-fail [:start]])
-        (let [a-id (get-in (mtest/runtime-db)
+        (let [a-id (get-in (rf.machines.test-support/runtime-db)
                            [:rf.runtime/machines :spawned :sup/ev-fail [:racing] :children :a])]
           ;; :a fails → :on-any-failed resolves; :a (live, non-final) is reaped.
           (rf/dispatch-sync [a-id [:fail]])
@@ -544,9 +544,9 @@
                                 :on-all-complete [:done/all]}}}}]
       (rf/reg-machine :evfin/a final-child)
       (rf/reg-machine :sup/ev-fin parent)
-      (mtest/with-trace-capture captured
+      (rf.machines.test-support/with-trace-capture captured
         (rf/dispatch-sync [:sup/ev-fin [:start]])
-        (let [a-id (get-in (mtest/runtime-db)
+        (let [a-id (get-in (rf.machines.test-support/runtime-db)
                            [:rf.runtime/machines :spawned :sup/ev-fin [:hydrating] :children :a])]
           (is (keyword? a-id) "the final child spawned")
           ;; :go → child dispatches completion AND enters :final? (auto-destroy),
@@ -567,5 +567,5 @@
                 "the auto-finalized child is never classified :cancelled")
             (is (some #(= :rf.machine.spawn-all/all-completed (:operation %)) @captured)
                 "the parent :all join still resolved (:all-completed fired)")
-            (is (nil? (mtest/snapshot a-id))
+            (is (nil? (rf.machines.test-support/snapshot a-id))
                 "no leaked snapshot for the auto-destroyed final child")))))))

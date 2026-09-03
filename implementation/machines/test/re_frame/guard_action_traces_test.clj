@@ -33,18 +33,18 @@
       `:outcome :rf.error/action-threw` AND carries the exception"
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- record-traces!
   "Register a trace listener for the duration of `body-fn`, returning
   the captured trace vec. Routed through the shared
-  `mtest/with-trace-capture` — guaranteed unregister in a `finally`."
+  `rf.machines.test-support/with-trace-capture` — guaranteed unregister in a `finally`."
   [body-fn]
-  (mtest/with-trace-capture seen
+  (rf.machines.test-support/with-trace-capture seen
     (body-fn)
     @seen))
 

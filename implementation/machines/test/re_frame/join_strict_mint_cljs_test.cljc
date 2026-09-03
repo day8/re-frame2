@@ -30,34 +30,34 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.late-bind :as late-bind]
+   [re-frame.late-bind :as rf.late-bind]
    [re-frame.machines]
-   [re-frame.machines.test-support :as mtest]
-   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
-       :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
+   [re-frame.machines.test-support :as rf.machines.test-support]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture
-    #?(:clj  {:adapter plain-atom/adapter}
-       :cljs {:adapter reagent-adapter/adapter}))
-  mtest/trace-capture-fixture)
+  (rf.machines.test-support/make-reset-runtime-fixture
+    #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
+       :cljs {:adapter rf.adapter.reagent/adapter}))
+  rf.machines.test-support/trace-capture-fixture)
 
 ;; ---------------------------------------------------------------------------
 ;; helpers
 ;; ---------------------------------------------------------------------------
 
 (defn- join-state [parent-id]
-  (get-in (mtest/runtime-db) [:rf.runtime/machines :spawned parent-id [:racing]]))
+  (get-in (rf.machines.test-support/runtime-db) [:rf.runtime/machines :spawned parent-id [:racing]]))
 
 (defn- stale-reasons []
   (mapv (comp :rf.reply/stale-reason :tags)
-        (mtest/events-of :rf.machine.spawn-all/stale-completion)))
+        (rf.machines.test-support/events-of :rf.machine.spawn-all/stale-completion)))
 
 (defn- missing-required-errors []
-  (mtest/events-of :rf.error/missing-required-cofx))
+  (rf.machines.test-support/events-of :rf.error/missing-required-cofx))
 
 (defn- child-completed-terminals []
-  (mtest/events-of :rf.machine.spawn-all/child-completed))
+  (rf.machines.test-support/events-of :rf.machine.spawn-all/child-completed))
 
 ;; The generator-call ledger. Registered fresh per test (`reg-roll!`) closing
 ;; over a caller-owned atom, so "the generator is never called" is a HARD
@@ -135,15 +135,15 @@
   observed. Cross-platform (late-bind is bound on JVM + CLJS). Restores in a
   `finally`."
   [sink body-fn]
-  (let [real (late-bind/get-fn :router/dispatch!)]
+  (let [real (rf.late-bind/get-fn :router/dispatch!)]
     (try
-      (late-bind/set-fn! :router/dispatch!
+      (rf.late-bind/set-fn! :router/dispatch!
                          (fn [event opts]
                            (swap! sink conj [event opts])
                            (real event opts)))
       (body-fn)
       (finally
-        (late-bind/set-fn! :router/dispatch! real)))))
+        (rf.late-bind/set-fn! :router/dispatch! real)))))
 
 (defn- completion-of
   "The FIRST observed completion carrier `[parent-id [:child/done child-id v]]` in
@@ -180,7 +180,7 @@
       (reg-parent! :sm1/rp :sm1/ta :sm1/pb)
       (rf/dispatch-sync [:sm1/rp [:start]])
       (let [a (get-in (join-state :sm1/rp) [:children :a])]
-        (mtest/reset-captured!)
+        (rf.machines.test-support/reset-captured!)
         ;; STRICT, and the recorded token carries NO :strictmint/roll.
         (rf/dispatch-sync [a [:go]]
                           {:rf.cofx {:rf/time-ms 1} :rf.cofx/mint-policy :strict})
@@ -190,7 +190,7 @@
             "the parent did NOT fold — the completion never reached it")
         (is (= 1 (count (missing-required-errors)))
             "the canonical missing-fact outcome fired: :rf.error/missing-required-cofx")
-        (is (= :running (mtest/machine-state a))
+        (is (= :running (rf.machines.test-support/machine-state a))
             "the target child stayed :running — its completion action was skipped")
         (is (empty? (child-completed-terminals))
             "no child-completed terminal — no work attempt closed")))))
@@ -213,7 +213,7 @@
       (rf/dispatch-sync [:sm2/rp [:start]])
       (let [a    (get-in (join-state :sm2/rp) [:children :a])
             sink (atom [])]
-        (mtest/reset-captured!)
+        (rf.machines.test-support/reset-captured!)
         (with-dispatch-observer sink
           (fn [] (rf/dispatch-sync [a [:go]])))   ;; default :live
         (is (= 1 @calls) "the generator ran exactly once under :live")
@@ -251,7 +251,7 @@
       (rf/reg-machine :sm3/pb (mk-plain-child :sm3/rp))
       (reg-parent! :sm3/rp :sm3/ta :sm3/pb)
       (rf/dispatch-sync [:sm3/rp [:start]])
-      (let [pre-fold (mtest/runtime-db)                      ;; attempt-1 join, :done #{}
+      (let [pre-fold (rf.machines.test-support/runtime-db)                      ;; attempt-1 join, :done #{}
             a        (get-in (join-state :sm3/rp) [:children :a])
             sink     (atom [])]
         ;; RECORD a genuine completion under :live; capture the minted roll off
@@ -269,7 +269,7 @@
           (rf/dispatch-sync [:sm3/restore-runtime pre-fold])
           (is (= #{} (:done (join-state :sm3/rp))) "restored to the pre-fold epoch")
           (reset! calls 0)
-          (mtest/reset-captured!)
+          (rf.machines.test-support/reset-captured!)
 
           ;; STRICT REPLAY with the recorded fact present.
           (rf/dispatch-sync [a [:go]]
@@ -286,7 +286,7 @@
           ;; RESTORE + strict replay WITHOUT the recorded fact → canonical fail.
           (rf/dispatch-sync [:sm3/restore-runtime pre-fold])
           (reset! calls 0)
-          (mtest/reset-captured!)
+          (rf.machines.test-support/reset-captured!)
           (rf/dispatch-sync [a [:go]]
                             {:rf.cofx {:rf/time-ms 1} :rf.cofx/mint-policy :strict})
           (is (zero? @calls) "the stripped strict replay did NOT mint")
@@ -353,7 +353,7 @@
       (let [a (get-in (join-state :sm4l/rp) [:children :a])]
         (rf/dispatch-sync [a [:go]])                        ;; :live
         (is (= 1 @live-calls) "the :live resolution minted its downstream fact")
-        (is (= :ready (mtest/machine-state :sm4l/rp))
+        (is (= :ready (rf.machines.test-support/machine-state :sm4l/rp))
             "the :live join resolved and advanced through the resolution action")))
     (let [strict-calls (atom 0)]
       (reg-roll! strict-calls 6)
@@ -361,13 +361,13 @@
       (reg-resolution-parent! :sm4s/rp :sm4s/ca)
       (rf/dispatch-sync [:sm4s/rp [:start]])
       (let [a (get-in (join-state :sm4s/rp) [:children :a])]
-        (mtest/reset-captured!)
+        (rf.machines.test-support/reset-captured!)
         (rf/dispatch-sync [a [:go]]
                           {:rf.cofx {:rf/time-ms 1} :rf.cofx/mint-policy :strict})
         (is (zero? @strict-calls)
             "the inherited :strict propagated through the transport — the
              downstream resolution generator was NOT run")
-        (is (not= :ready (mtest/machine-state :sm4s/rp))
+        (is (not= :ready (rf.machines.test-support/machine-state :sm4s/rp))
             "the resolution action failed missing-required, so the parent did not advance")
         (is (= 1 (count (missing-required-errors)))
             "the canonical missing-fact outcome fired at the inherited resolution")))))

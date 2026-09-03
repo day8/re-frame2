@@ -33,12 +33,12 @@
       those slots (no nil-stamping)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]))
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace :as rf.trace]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; Canonical key-set that the destroyed-trace emission sites are
 ;; responsible for assembling. The trace framework auto-stamps
@@ -75,7 +75,7 @@
 (defn- destroyed-traces [captured]
   (filter #(= :rf.machine/destroyed (:operation %)) @captured))
 
-;; Intentional RAW manual-stop listener (not mtest/with-trace-capture): this
+;; Intentional RAW manual-stop listener (not rf.machines.test-support/with-trace-capture): this
 ;; is the destroyed-trace SHAPE probe — it returns a [capture-atom
 ;; unregister-fn] pair so a test can inspect the raw envelope key-set and
 ;; control exactly when it stops capturing (the scope-macro form cannot
@@ -84,8 +84,8 @@
   []
   (let [a  (atom [])
         id ::shape-listener]
-    (trace/register-listener! id (fn [ev] (swap! a conj ev)))
-    [a #(trace/unregister-listener! id)]))
+    (rf.trace/register-listener! id (fn [ev] (swap! a conj ev)))
+    [a #(rf.trace/unregister-listener! id)]))
 
 (defn- assert-shape!
   [traces label]

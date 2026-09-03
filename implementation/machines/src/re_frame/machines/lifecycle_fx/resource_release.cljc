@@ -58,9 +58,9 @@
   Together these cover EVERY destroy cause — explicit `:rf.machine/destroy`,
   declarative-`:spawn` exit cascade, `:spawn-all` per-child teardown, the
   frame-destroy cascade, AND the `:final?`-state auto-destroy."
-  (:require [re-frame.fx :as fx]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]))
+  (:require [re-frame.fx :as rf.fx]
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -69,7 +69,7 @@
   is registered (i.e. resources is loaded into this runtime). The guard that
   keeps a no-resources app's actor-destroy a clean no-op."
   []
-  (some? (registrar/lookup :event :rf.resource/release-owner)))
+  (some? (rf.registrar/lookup :event :rf.resource/release-owner)))
 
 (defn release-fx-entry
   "The `[:dispatch [:rf.resource/release-owner {:owner [:machine actor-id]}]]`
@@ -90,6 +90,6 @@
   behave consistently with the destroy-time `:exit`-cascade fx fire."
   [frame-id actor-id]
   (when-let [entry (release-fx-entry actor-id)]
-    (let [platform (or (:platform (frame/frame-meta frame-id)) :client)]
-      (fx/do-fx frame-id [entry] platform)))
+    (let [platform (or (:platform (rf.frame/frame-meta frame-id)) :client)]
+      (rf.fx/do-fx frame-id [entry] platform)))
   nil)

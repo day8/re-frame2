@@ -29,12 +29,12 @@
       rejected via the SAME error category too."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.machines :as machines]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.machines :as rf.machines]
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- registration-throws?
   "Try registering `machine` under `machine-id`. Returns the ExceptionInfo
@@ -98,14 +98,14 @@
                        :b {}}}]
       (rf/reg-machine :rf.root-after-np/plain m)
       (rf/dispatch-sync [:rf.root-after-np/plain [:go]])
-      (is (= :b (:state (mtest/snapshot :rf.root-after-np/plain)))
+      (is (= :b (:state (rf.machines.test-support/snapshot :rf.root-after-np/plain)))
           "unaffected machine transitions normally"))))
 
 ;; ---- (5) sanity: a :type :parallel root's :after is UNAFFECTED ------------
 
 (deftest parallel-root-after-still-registers
   (testing "a :type :parallel root's :after is NOT rejected — it is the supported feature"
-    (is (nil? (machines/validate-machine!
+    (is (nil? (rf.machines/validate-machine!
                 {:type    :parallel
                  :after   {1000 {:target [:a :two]}}
                  :regions {:a {:initial :one :states {:one {} :two {}}}
@@ -165,7 +165,7 @@
 
 (deftest region-state-after-still-registers
   (testing "an :after on a region STATE (not the region root) is unaffected"
-    (is (nil? (machines/validate-machine!
+    (is (nil? (rf.machines/validate-machine!
                 {:type    :parallel
                  :regions {:left {:initial :a
                                  :states  {:a {:after {5000 {:target :b}}}

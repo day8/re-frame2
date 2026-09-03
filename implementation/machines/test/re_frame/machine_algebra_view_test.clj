@@ -30,16 +30,16 @@
   public facade export."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.machines :as machines]
-            [re-frame.machines.paths :as paths]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.machines.tooling :as mtooling]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as core-test-support]))
+            [re-frame.machines :as rf.machines]
+            [re-frame.machines.paths :as rf.machines.paths]
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.machines.tooling :as rf.machines.tooling]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; The fixed classifications EVERY machine-process node carries (Derivations
 ;; §Machines expose algebra views — the machine column: the canonical
@@ -79,26 +79,26 @@
   ;; registered by a sibling test ns (the reset fixture snapshot/restores rather
   ;; than `clear-all!`s), so assert the empty-registry contract against a
   ;; freshly-cleared registrar bracketed by snapshot/restore.
-  (let [snap (core-test-support/snapshot-registrar)]
+  (let [snap (rf.test-support/snapshot-registrar)]
     (try
-      (registrar/clear-all!)
+      (rf.registrar/clear-all!)
       (testing "(machine-algebra-view) returns {} (not nil) when no machines are registered"
-        (is (= {} (mtooling/machine-algebra-view)))
-        (is (map? (mtooling/machine-algebra-view))))
+        (is (= {} (rf.machines.tooling/machine-algebra-view)))
+        (is (map? (rf.machines.tooling/machine-algebra-view))))
       (testing "(machine-algebra-view machine-id) returns nil for an unregistered id"
-        (is (nil? (mtooling/machine-algebra-view :nope/missing))))
+        (is (nil? (rf.machines.tooling/machine-algebra-view :nope/missing))))
       (finally
-        (core-test-support/restore-registrar! snap)))))
+        (rf.test-support/restore-registrar! snap)))))
 
 (deftest jvm-alias-mirrors-the-tooling-fn
   (testing "the JVM `re-frame.machines/machine-*` aliases are the tooling fns"
     (rf/reg-machine :upload/main upload-machine)
-    (is (= (mtooling/machine-algebra-view)
-           (machines/machine-algebra-view))
+    (is (= (rf.machines.tooling/machine-algebra-view)
+           (rf.machines/machine-algebra-view))
         "machine-algebra-view alias projects identically to the tooling sibling")
-    (is (= mtooling/machine-selector? machines/machine-selector?)
+    (is (= rf.machines.tooling/machine-selector? rf.machines/machine-selector?)
         "machine-selector? alias is the tooling fn")
-    (is (= mtooling/machine-instance-algebra-view machines/machine-instance-algebra-view)
+    (is (= rf.machines.tooling/machine-instance-algebra-view rf.machines/machine-instance-algebra-view)
         "machine-instance-algebra-view alias is the tooling fn")))
 
 ;; ---- a registered machine exposes its process node -----------------------
@@ -106,13 +106,13 @@
 (deftest machine-exposes-its-full-process-node
   (testing "a reg-machine exposes the full machine-process / runtime-db / machine-instance node"
     (rf/reg-machine :upload/main upload-machine)
-    (let [node (get (mtooling/machine-algebra-view) :upload/main)]
+    (let [node (get (rf.machines.tooling/machine-algebra-view) :upload/main)]
       (is (some? node) "the machine is present in the static view")
       (is (has-fixed-classifications? node)
           "machine carries the fixed machine-process / runtime-db / machine-instance / materialized classifications")
       (is (= :upload/main (:id node)))
       (is (= {:kind :reg-machine :id :upload/main} (:source-form node)))
-      (is (= [:runtime (paths/snapshot-path :upload/main)] (:output node))
+      (is (= [:runtime (rf.machines.paths/snapshot-path :upload/main)] (:output node))
           "the output materializes the snapshot into runtime-db at the machine's snapshot path")
       (is (= [:machine :upload/main] (:owner node)))
       (is (false? (:spawns? node)) "this machine declares no :spawn"))))
@@ -120,7 +120,7 @@
 (deftest declared-event-inputs-are-walked-from-the-whole-state-tree
   (testing ":on event triggers across all states lower to sorted, de-duped [:event …] inputs"
     (rf/reg-machine :upload/main upload-machine)
-    (let [node (get (mtooling/machine-algebra-view) :upload/main)]
+    (let [node (get (rf.machines.tooling/machine-algebra-view) :upload/main)]
       (is (= [[:event :upload/failed]
               [:event :upload/progress]
               [:event :upload/start]
@@ -137,7 +137,7 @@
                           :*             :a            ;; wildcard — not a concrete input
                           :rf.machine/x  :b}}          ;; reserved ns — framework plumbing
                  :b {}}})
-    (let [node (get (mtooling/machine-algebra-view) :guarded/main)]
+    (let [node (get (rf.machines.tooling/machine-algebra-view) :guarded/main)]
       (is (= [[:event :go]] (:inputs node))
           "only the concrete app event :go survives the reserved-ns / wildcard filter"))))
 
@@ -146,7 +146,7 @@
 (deftest evaluation-is-on-transition-by-default
   (testing "a timer-less, spawn-less machine evaluates only :on-transition"
     (rf/reg-machine :plain/main {:initial :a :data {} :states {:a {:on {:go :b}} :b {}}})
-    (let [node (get (mtooling/machine-algebra-view) :plain/main)]
+    (let [node (get (rf.machines.tooling/machine-algebra-view) :plain/main)]
       (is (= #{:on-transition} (:evaluation node))))))
 
 (deftest after-timer-adds-scheduled-policy
@@ -156,7 +156,7 @@
        :data    {}
        :states  {:waiting {:after {1000 :timed-out}}
                  :timed-out {}}})
-    (let [node (get (mtooling/machine-algebra-view) :timed/main)]
+    (let [node (get (rf.machines.tooling/machine-algebra-view) :timed/main)]
       (is (= #{:on-transition :scheduled} (:evaluation node))
           ":after timer means a scheduler delivers a synthetic timer event"))))
 
@@ -168,7 +168,7 @@
        :data    {}
        :states  {:idle    {:on {:go :working}}
                  :working {:spawn {:machine-id :worker/child}}}})
-    (let [node (get (mtooling/machine-algebra-view) :parent/main)]
+    (let [node (get (rf.machines.tooling/machine-algebra-view) :parent/main)]
       (is (= #{:on-transition :on-reply} (:evaluation node))
           "a spawning parent reacts to its children's reply events")
       (is (true? (:spawns? node))))))
@@ -186,7 +186,7 @@
                   :states  {:dashboard {:on {:open-settings :settings}}
                             :settings  {:on {:close :dashboard}}}}
                  :loggedout {}}})
-    (let [node (get (mtooling/machine-algebra-view) :auth/flow)]
+    (let [node (get (rf.machines.tooling/machine-algebra-view) :auth/flow)]
       (is (= [[:event :close] [:event :logout] [:event :open-settings]]
              (:inputs node))
           "leaf + parent :on keys collected across the hierarchy, sorted"))))
@@ -200,7 +200,7 @@
                  {:type    :parallel
                   :regions {:left  {:initial :l0 :states {:l0 {:on {:left/go :l1}} :l1 {}}}
                             :right {:initial :r0 :states {:r0 {:on {:right/go :r1}} :r1 {}}}}}}})
-    (let [node (get (mtooling/machine-algebra-view) :par/main)]
+    (let [node (get (rf.machines.tooling/machine-algebra-view) :par/main)]
       (is (= [[:event :left/go] [:event :right/go]] (:inputs node))
           "both regions' :on keys surface as inputs"))))
 
@@ -209,7 +209,7 @@
 (deftest source-coords-surface-in-the-node
   (testing ":ns / :line / :file captured by reg-machine surface under :source"
     (rf/reg-machine :upload/main upload-machine)
-    (let [node   (get (mtooling/machine-algebra-view) :upload/main)
+    (let [node   (get (rf.machines.tooling/machine-algebra-view) :upload/main)
           source (:source node)]
       (is (some? source) ":source map is present when the registration carried coords")
       (is (some? (:ns source)) ":ns captured at the call site"))))
@@ -222,7 +222,7 @@
        :data    {:n 0}
        :schemas {:data [:map [:n :int]]}
        :states  {:a {:on {:go :b}} :b {}}})
-    (let [node (get (mtooling/machine-algebra-view) :doced/main)]
+    (let [node (get (rf.machines.tooling/machine-algebra-view) :doced/main)]
       (is (= [:map [:n :int]] (:schema node))
           "the machine's [:schemas :data] schema surfaces as the node :schema fact")
       (is (= "a documented machine" (:doc node))))))
@@ -230,7 +230,7 @@
 (deftest no-schema-or-doc-when-absent
   (testing ":schema / :doc are absent when the registration didn't supply them"
     (rf/reg-machine :upload/main upload-machine)
-    (let [node (get (mtooling/machine-algebra-view) :upload/main)]
+    (let [node (get (rf.machines.tooling/machine-algebra-view) :upload/main)]
       (is (not (contains? node :schema)))
       (is (not (contains? node :doc))))))
 
@@ -245,14 +245,14 @@
   (let [seed-id (keyword "test" (str "seed-" (name machine-id)))]
     (rf/reg-event seed-id
       (fn [{rt :rf.db/runtime} _]
-        {:rf.db/runtime (assoc-in (or rt {}) (paths/snapshot-path machine-id) snap)}))
+        {:rf.db/runtime (assoc-in (or rt {}) (rf.machines.paths/snapshot-path machine-id) snap)}))
     (rf/dispatch-sync [seed-id])))
 
 (deftest live-singleton-instance-projects
   (testing "a live singleton snapshot projects to an instance node with :state, not :spawned?"
     (rf/reg-machine :upload/main upload-machine)
     (seed-snapshot! :upload/main {:state :uploading :data {:progress 42}})
-    (let [view (mtooling/machine-instance-algebra-view :rf/default)
+    (let [view (rf.machines.tooling/machine-instance-algebra-view :rf/default)
           node (get view :upload/main)]
       (is (some? node) "the live singleton appears in the instance view")
       (is (has-fixed-classifications? node))
@@ -268,7 +268,7 @@
     ;; A spawned actor has NO per-instance registration — its snapshot carries
     ;; the reserved :rf/machine-type discriminator naming its registered type.
     (seed-snapshot! :worker#1 {:state :running :data {} :rf/machine-type :worker/child})
-    (let [view (mtooling/machine-instance-algebra-view :rf/default)
+    (let [view (rf.machines.tooling/machine-instance-algebra-view :rf/default)
           node (get view :worker#1)]
       (is (some? node) "the spawned actor appears in the instance view")
       (is (has-fixed-classifications? node))
@@ -276,7 +276,7 @@
       (is (= :running (:state node)))
       (is (= {:kind :reg-machine :id :worker/child} (:source-form node))
           "the actor's source-form names its resolved TYPE, not the actor-id")
-      (is (= [:runtime (paths/snapshot-path :worker#1)] (:output node))
+      (is (= [:runtime (rf.machines.paths/snapshot-path :worker#1)] (:output node))
           "the output is this INSTANCE's own snapshot slot")
       (is (= [[:event :tick]] (:inputs node))
           "inputs are derived from the resolved type spec"))))
@@ -284,7 +284,7 @@
 (deftest live-instance-view-empty-without-snapshots
   (testing "instance view is {} for a frame with registered-but-uninstantiated machines"
     (rf/reg-machine :upload/main upload-machine)
-    (is (= {} (mtooling/machine-instance-algebra-view :rf/default))
+    (is (= {} (rf.machines.tooling/machine-instance-algebra-view :rf/default))
         "no snapshot materialized yet → no live instance node")))
 
 ;; ---- machine-selector? recognizer ----------------------------------------
@@ -295,17 +295,17 @@
     (rf/reg-sub :upload/progress
       :<- [:rf/machine :upload/main]
       (fn [snapshot _] (get-in snapshot [:data :progress] 0)))
-    (is (true? (mtooling/machine-selector? :upload/progress))
+    (is (true? (rf.machines.tooling/machine-selector? :upload/progress))
         "a sub reading [:rf/machine …] is a machine selector"))
   (testing "a sub reading [:rf.machine/has-tag? …] is also a selector"
     (rf/reg-sub :upload/has-tag
       :<- [:rf.machine/has-tag? :upload/main :busy]
       (fn [has? _] has?))
-    (is (true? (mtooling/machine-selector? :upload/has-tag))))
+    (is (true? (rf.machines.tooling/machine-selector? :upload/has-tag))))
   (testing "an ordinary sub is NOT a machine selector; nor is an unregistered id"
     (rf/reg-sub :plain/sub (fn [db _] (:x db)))
-    (is (false? (mtooling/machine-selector? :plain/sub)))
-    (is (false? (mtooling/machine-selector? :nope/missing)))))
+    (is (false? (rf.machines.tooling/machine-selector? :plain/sub)))
+    (is (false? (rf.machines.tooling/machine-selector? :nope/missing)))))
 
 ;; ---- machine-selector-targets extractor ----------------------------------
 
@@ -315,13 +315,13 @@
     (rf/reg-sub :upload/progress
       :<- [:rf/machine :upload/main]
       (fn [snapshot _] (get-in snapshot [:data :progress] 0)))
-    (is (= #{:upload/main} (mtooling/machine-selector-targets :upload/progress))
+    (is (= #{:upload/main} (rf.machines.tooling/machine-selector-targets :upload/progress))
         "the second element of the [:rf/machine …] input is the target id"))
   (testing "extracts the target from a [:rf.machine/has-tag? machine-id tag] selector"
     (rf/reg-sub :upload/has-tag
       :<- [:rf.machine/has-tag? :upload/main :busy]
       (fn [has? _] has?))
-    (is (= #{:upload/main} (mtooling/machine-selector-targets :upload/has-tag))
+    (is (= #{:upload/main} (rf.machines.tooling/machine-selector-targets :upload/has-tag))
         "the has-tag? form's machine id (second element) is the target"))
   (testing "a selector reading two machines yields both targets"
     (rf/reg-sub :combined
@@ -329,12 +329,12 @@
       :<- [:rf/machine :download/main]
       (fn [[u d] _] [u d]))
     (is (= #{:upload/main :download/main}
-           (mtooling/machine-selector-targets :combined))
+           (rf.machines.tooling/machine-selector-targets :combined))
         "every [:rf/machine …] input contributes its target id"))
   (testing "a non-selector sub and an unregistered id yield #{}"
     (rf/reg-sub :plain/sub (fn [db _] (:x db)))
-    (is (= #{} (mtooling/machine-selector-targets :plain/sub)))
-    (is (= #{} (mtooling/machine-selector-targets :nope/missing))))
+    (is (= #{} (rf.machines.tooling/machine-selector-targets :plain/sub)))
+    (is (= #{} (rf.machines.tooling/machine-selector-targets :nope/missing))))
   (testing "the JVM facade alias is the tooling fn"
-    (is (= mtooling/machine-selector-targets machines/machine-selector-targets)
+    (is (= rf.machines.tooling/machine-selector-targets rf.machines/machine-selector-targets)
         "machine-selector-targets alias is the tooling fn")))

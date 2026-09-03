@@ -24,10 +24,10 @@
   `:data` (schema-covered) — not as bare snapshot-root keys. A `:db` key
   in the patch is the same hard-disallow the action-effect path enforces
   (Spec 005:463), surfaced as `:rf.error/machine-action-wrote-db`."
-  (:require [re-frame.frame :as frame]
-            [re-frame.machines.data-validation :as data-validation]
-            [re-frame.machines.paths :as paths]
-            [re-frame.trace :as trace]))
+  (:require [re-frame.frame :as rf.frame]
+            [re-frame.machines.data-validation :as rf.machines.data-validation]
+            [re-frame.machines.paths :as rf.machines.paths]
+            [re-frame.trace :as rf.trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -71,7 +71,7 @@
   (let [;; The cascade envelope frame is the fx-context `:frame`; a nil
         ;; stamp is an invariant failure (`:rf.error/no-frame-context`),
         ;; never a synthesised `:rf/default`.
-        frame-id   (frame/require-frame-stamp!
+        frame-id   (rf.frame/require-frame-stamp!
                      frame-id :rf.machine/update-snapshot
                      {:where 'rf.machine/update-snapshot
                       :event-id (:rf/machine-id args)})
@@ -88,9 +88,9 @@
         ;; same-id successor B; `owner-token` binds the store-write to A's OWN
         ;; container. An eventless caller (no owner bound) yields
         ;; `(constantly false)` / nil — the historical full-authority bare write.
-        continue?   (data-validation/owner-continuation frame-id)
+        continue?   (rf.machines.data-validation/owner-continuation frame-id)
         owner-gone? (fn [] (not (continue?)))
-        owner-token (frame/current-event-owner-token)]
+        owner-token (rf.frame/current-event-owner-token)]
     (when (and machine-id (map? patch))
       ;; Hard-disallow `:db` — symmetric with the action-effect path
       ;; (Spec 005:463). Canonical id / tags per Spec 009 §Error event
@@ -106,7 +106,7 @@
       ;; carried) is summarized at the trace egress chokepoint by
       ;; `re-frame.classification/project-machine-wrote-db-tags` so it never egresses raw.
       (when (contains? patch :db)
-        (trace/emit-error! :rf.error/machine-action-wrote-db
+        (rf.trace/emit-error! :rf.error/machine-action-wrote-db
                            {:actor-id        machine-id
                             :action-id       :rf.machine/update-snapshot
                             :offending-value (:db patch)
@@ -143,11 +143,11 @@
             ;; no `[:schemas :data]` schema — writes exactly as before. Absent actor
             ;; (destroyed / unknown) is a no-op: nothing to merge into, and
             ;; nothing to validate.
-            (let [snapshots (get-in (frame/frame-runtime-db-value frame-id)
-                                    (paths/snapshot-path))]
+            (let [snapshots (get-in (rf.frame/frame-runtime-db-value frame-id)
+                                    (rf.machines.paths/snapshot-path))]
               (when (contains? snapshots machine-id)
                 (let [merged (merge (get snapshots machine-id) clean-patch)]
-                  (when (data-validation/validate-update-snapshot-data!
+                  (when (rf.machines.data-validation/validate-update-snapshot-data!
                           machine-id merged)
                     ;; rf2-vxgfnd.22 — route the store-write through the EXACT
                     ;; durable write so it NO-OPS on owner loss: no merge onto
@@ -162,10 +162,10 @@
                             ;; Re-check presence inside the swap — never conjure
                             ;; a snapshot for an actor torn down between the read
                             ;; and the write.
-                            (if (contains? (get-in runtime-db (paths/snapshot-path)) machine-id)
-                              (update-in runtime-db (paths/snapshot-path machine-id) merge clean-patch)
+                            (if (contains? (get-in runtime-db (rf.machines.paths/snapshot-path)) machine-id)
+                              (update-in runtime-db (rf.machines.paths/snapshot-path machine-id) merge clean-patch)
                               runtime-db))]
                       (if owner-token
-                        (frame/swap-runtime-db-exact! frame-id owner-token swap-fn)
-                        (frame/swap-runtime-db! frame-id swap-fn)))))))))))
+                        (rf.frame/swap-runtime-db-exact! frame-id owner-token swap-fn)
+                        (rf.frame/swap-runtime-db! frame-id swap-fn)))))))))))
     nil))

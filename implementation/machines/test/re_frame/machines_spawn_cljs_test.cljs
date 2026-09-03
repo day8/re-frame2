@@ -27,31 +27,31 @@
   `[:rf.runtime/machines :spawned <parent> <invoke-id>]`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.error-emit :as error-emit]
-            [re-frame.frame :as frame]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.machines.lifecycle-fx.spawn :as spawn]
-            [re-frame.machines.paths :as paths]
-            [re-frame.machines.spawn-order :as spawn-order]
+            [re-frame.error-emit :as rf.error-emit]
+            [re-frame.frame :as rf.frame]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.machines.lifecycle-fx.spawn :as rf.machines.lifecycle-fx.spawn]
+            [re-frame.machines.paths :as rf.machines.paths]
+            [re-frame.machines.spawn-order :as rf.machines.spawn-order]
             ;; listener / buffer surface lives in re-frame.trace.tooling.
-            [re-frame.trace.tooling :as trace-tooling]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.machines.test-support :as mtest]))
+            [re-frame.trace.tooling :as rf.trace.tooling]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.machines.test-support :as rf.machines.test-support]))
 
 ;; The always-on error-listener registry (a `defonce` atom) is cleared per test
 ;; so an `:errors` listener from one test cannot leak into the next (the
 ;; unregistered-rejection cardinality + incarnation-fence tests register them).
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter
-     :init-fn (fn [] (error-emit/clear-error-listeners!))}))
+  (rf.machines.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter
+     :init-fn (fn [] (rf.error-emit/clear-error-listeners!))}))
 
 ;; snapshot lookup via the shared machines test-support — no hardcoded
 ;; `[:rf.runtime/machines :snapshots …]` path. The per-section
 ;; trace captures below keep their raw trace.tooling register/unregister: they
 ;; reset and re-scope the capture mid-test (interleaved with assertions), which
 ;; the scope-macro / :each-fixture forms cannot express.
-(def ^:private snapshot mtest/snapshot)
+(def ^:private snapshot rf.machines.test-support/snapshot)
 
 (deftest machine-spawn-cljs
   (testing ":spawn spawns child on entry and destroys it on exit"
@@ -95,7 +95,7 @@
       ;; Entering :authenticating: :rf.machine/spawn fx fires
       ;; (→ :rf.machine.spawn/spawned trace), :on-spawn callback records the
       ;; deterministic actor id into :data.:pending.
-      (trace-tooling/register-listener! ::inv (fn [ev] (swap! traces conj ev)))
+      (rf.trace.tooling/register-listener! ::inv (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:auth3/flow [:submit]])
       (let [s (snapshot :auth3/flow)]
         (is (= :authenticating (:state s)))
@@ -115,7 +115,7 @@
       ;; fires targeting the recorded actor id.
       (reset! traces [])
       (rf/dispatch-sync [:auth3/flow [:auth/failed]])
-      (trace-tooling/unregister-listener! ::inv)
+      (rf.trace.tooling/unregister-listener! ::inv)
       (is (= :idle (:state (snapshot :auth3/flow))))
       (is (some (fn [ev]
                   (and (= :rf.machine/destroyed (:operation ev))
@@ -143,9 +143,9 @@
           traces (atom [])]
       (rf/reg-machine :qpuk4/worker child)
       (rf/reg-machine :qpuk4/sup    parent)
-      (trace-tooling/register-listener! ::two-axis (fn [ev] (swap! traces conj ev)))
+      (rf.trace.tooling/register-listener! ::two-axis (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:qpuk4/sup [:go]])
-      (trace-tooling/unregister-listener! ::two-axis)
+      (rf.trace.tooling/unregister-listener! ::two-axis)
       ;; fx-substrate axis
       (is (some (fn [ev]
                   (and (= :rf.machine.spawn/spawned (:operation ev))
@@ -237,7 +237,7 @@
           traces (atom [])]
       (rf/reg-machine :child/auth-after child)
       (rf/reg-machine :sup/auth-after  parent)
-      (trace-tooling/register-listener! ::ato (fn [ev] (swap! traces conj ev)))
+      (rf.trace.tooling/register-listener! ::ato (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:sup/auth-after [:go]])
       (is (= :authenticating (:state (snapshot :sup/auth-after)))
           "parent transitioned :idle → :authenticating")
@@ -260,7 +260,7 @@
         (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                           [:rf.runtime/machines :snapshots child-id]))
             "child machine snapshot torn down by the standard exit cascade"))
-      (trace-tooling/unregister-listener! ::ato))))
+      (rf.trace.tooling/unregister-listener! ::ato))))
 
 ;; ---- the legacy :timeout-ms slot stays removed ------------------------
 ;;
@@ -365,10 +365,10 @@
                       (spawn-all-parent [{:id :a  :machine-id :card/missing-a}
                                          {:id :ok :machine-id :card/ok}
                                          {:id :b  :machine-id :card/missing-b}]))
-      (trace-tooling/register-listener! ::card (fn [ev] (swap! traces conj ev)))
+      (rf.trace.tooling/register-listener! ::card (fn [ev] (swap! traces conj ev)))
       (let [records (with-error-records
                       #(rf/dispatch-sync [:sup/card [:start]]))]
-        (trace-tooling/unregister-listener! ::card)
+        (rf.trace.tooling/unregister-listener! ::card)
         ;; TWO offending children ⇒ TWO always-on records — the OLD gate order
         ;; produced FOUR (each offending child re-emitting from its per-child fx).
         (is (= 2 (count records))
@@ -389,7 +389,7 @@
         (is (nil? (get-in (runtime-db-value)
                           [:rf.runtime/machines :snapshots :card/ok#1]))
             "the registered sibling installs no snapshot under the rejected invoke")
-        (is (not (some #{:card/ok#1} (spawn-order/frame-order :rf/default)))
+        (is (not (some #{:card/ok#1} (rf.machines.spawn-order/frame-order :rf/default)))
             "the registered sibling records no spawn-order entry")
         (is (not (some (fn [ev] (= :rf.machine.spawn/spawned (:operation ev)))
                        @traces))
@@ -408,10 +408,10 @@
           traces (atom [])]
       ;; :ghost/worker is NEVER reg-machine'd.
       (rf/reg-machine :sup/ghost parent)
-      (trace-tooling/register-listener! ::ghost (fn [ev] (swap! traces conj ev)))
+      (rf.trace.tooling/register-listener! ::ghost (fn [ev] (swap! traces conj ev)))
       (let [records (with-error-records
                       #(rf/dispatch-sync [:sup/ghost [:start]]))]
-        (trace-tooling/unregister-listener! ::ghost)
+        (rf.trace.tooling/unregister-listener! ::ghost)
         (is (= 1 (count records))
             "exactly ONE always-on record for the standalone unregistered spawn")
         (is (= :ghost/worker (:machine-id (first records)))
@@ -428,7 +428,7 @@
         (is (nil? (get-in (runtime-db-value)
                           [:rf.runtime/machines :system-ids :ghost-actor]))
             "no :system-id binding for the rejected spawn")
-        (is (not (some #{:ghost/worker#1} (spawn-order/frame-order :rf/default)))
+        (is (not (some #{:ghost/worker#1} (rf.machines.spawn-order/frame-order :rf/default)))
             "no spawn-order entry for the rejected actor")))))
 
 ;; ===========================================================================
@@ -479,39 +479,39 @@
           invoke-id [:forking]
           fired?    (atom false)
           b-birth   (atom nil)
-          orig      (late-bind/get-fn :schemas/validate-with-registered-fn)]
+          orig      (rf.late-bind/get-fn :schemas/validate-with-registered-fn)]
       (rf/make-frame {:id frame-a})
-      (let [token-a (frame/frame-incarnation-token frame-a)
+      (let [token-a (rf.frame/frame-incarnation-token frame-a)
             started (atom [])]
-        (trace-tooling/register-listener!
+        (rf.trace.tooling/register-listener!
           ::accept (fn [ev] (when (= :rf.machine.spawn-all/started (:operation ev))
                               (swap! started conj ev))))
         (try
-          (late-bind/set-fn! :schemas/validate-with-registered-fn
+          (rf.late-bind/set-fn! :schemas/validate-with-registered-fn
             (fn [schema _data]
               (when (= schema fence-child-schema)
                 (when (compare-and-set! fired? false true)
-                  (frame/destroy-frame! frame-a)   ;; destroy A
+                  (rf.frame/destroy-frame! frame-a)   ;; destroy A
                   (rf/make-frame {:id frame-a})      ;; publish same-id B
-                  (reset! b-birth (mtest/runtime-db frame-a))))
+                  (reset! b-birth (rf.machines.test-support/runtime-db frame-a))))
               true))                                  ;; conform verdict
-          (frame/call-with-event-owner-token frame-a token-a
-            (fn [] (spawn/spawn-all-init-fx
+          (rf.frame/call-with-event-owner-token frame-a token-a
+            (fn [] (rf.machines.lifecycle-fx.spawn/spawn-all-init-fx
                      {:frame frame-a}
                      (fence-init-args parent-id invoke-id
                                       [{:child-id :bad :machine-id :fence/strict
                                         :spawned-id :fence/strict#1 :data {:n 1}}]))))
           (is (true? @fired?) "the conforming validator ran (fence exercised)")
-          (is (nil? (get-in (mtest/runtime-db frame-a)
-                            (paths/spawned-path parent-id invoke-id)))
+          (is (nil? (get-in (rf.machines.test-support/runtime-db frame-a)
+                            (rf.machines.paths/spawned-path parent-id invoke-id)))
               "no A-derived live join landed on same-id successor B")
-          (is (= @b-birth (mtest/runtime-db frame-a))
+          (is (= @b-birth (rf.machines.test-support/runtime-db frame-a))
               "B's runtime-db is byte-identical to its birth value")
           (is (empty? @started)
               "no :rf.machine.spawn-all/started trace fired against B")
           (finally
-            (trace-tooling/unregister-listener! ::accept)
-            (late-bind/set-fn! :schemas/validate-with-registered-fn orig)))))))
+            (rf.trace.tooling/unregister-listener! ::accept)
+            (rf.late-bind/set-fn! :schemas/validate-with-registered-fn orig)))))))
 
 (deftest spawn-all-init-reject-listener-loss-fences-sentinel-cljs
   (testing "an unregistered child fans a reject record; an :errors LISTENER on
@@ -527,18 +527,18 @@
           records   (atom [])
           b-birth   (atom nil)]
       (rf/make-frame {:id frame-a})
-      (let [token-a (frame/frame-incarnation-token frame-a)]
+      (let [token-a (rf.frame/frame-incarnation-token frame-a)]
         (rf/register-listener! :errors ::rej
           (fn [r]
             (when (= :rf.error/machine-spawn-unregistered-type (:error r))
               (swap! records conj r)
               (when (compare-and-set! fired? false true)
-                (frame/destroy-frame! frame-a)   ;; destroy A on the record's stack
+                (rf.frame/destroy-frame! frame-a)   ;; destroy A on the record's stack
                 (rf/make-frame {:id frame-a})      ;; publish same-id B
-                (reset! b-birth (mtest/runtime-db frame-a))))))
+                (reset! b-birth (rf.machines.test-support/runtime-db frame-a))))))
         (try
-          (frame/call-with-event-owner-token frame-a token-a
-            (fn [] (spawn/spawn-all-init-fx
+          (rf.frame/call-with-event-owner-token frame-a token-a
+            (fn [] (rf.machines.lifecycle-fx.spawn/spawn-all-init-fx
                      {:frame frame-a}
                      (fence-init-args parent-id invoke-id
                                       [{:child-id :ok      :machine-id :fence/ok
@@ -548,10 +548,10 @@
           (is (true? @fired?) "the reject-record listener ran (fence exercised)")
           (is (= 1 (count @records))
               "the reject record fired once (it precedes the loss)")
-          (is (nil? (get-in (mtest/runtime-db frame-a)
-                            (paths/spawned-path parent-id invoke-id)))
+          (is (nil? (get-in (rf.machines.test-support/runtime-db frame-a)
+                            (rf.machines.paths/spawned-path parent-id invoke-id)))
               "no reject sentinel landed on same-id successor B")
-          (is (= @b-birth (mtest/runtime-db frame-a))
+          (is (= @b-birth (rf.machines.test-support/runtime-db frame-a))
               "B's runtime-db is byte-identical to its birth value")
           (finally
             (rf/unregister-listener! :errors ::rej)))))))

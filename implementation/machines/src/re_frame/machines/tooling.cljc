@@ -40,12 +40,12 @@
   Per [Derivations.md](../../../../../../spec/Derivations.md) §Machines expose
   algebra views and the projected Malli shapes in
   [Spec-Schemas §`:rf/derivation-node`](../../../../../../spec/Spec-Schemas.md)."
-  (:require [re-frame.derivation.node :as node]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.machines.lifecycle-fx.resolver :as resolver]
-            [re-frame.machines.paths :as paths]
-            [re-frame.registrar :as registrar]))
+  (:require [re-frame.derivation.node :as rf.derivation.node]
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.machines.lifecycle-fx.resolver :as rf.machines.lifecycle-fx.resolver]
+            [re-frame.machines.paths :as rf.machines.paths]
+            [re-frame.registrar :as rf.registrar]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -106,19 +106,19 @@
 (defn- machine-spec
   "The registered machine SPEC for `machine-id` (the value at `:rf/machine`),
   or nil when no machine is registered under that id. Delegates to the leaf
-  `resolver/spec-from-registry` — the same registrar read
+  `rf.machines.lifecycle-fx.resolver/spec-from-registry` — the same registrar read
   `re-frame.machines/machine-meta` performs (this sibling requires `resolver`
   directly, NOT the `re-frame.machines` facade, which requires THIS sibling for
   its JVM alias — the dependency must point one way)."
   [machine-id]
-  (resolver/spec-from-registry machine-id))
+  (rf.machines.lifecycle-fx.resolver/spec-from-registry machine-id))
 
 (defn- registered-machine-ids
   "Every registered machine-id — every `:event` registration whose metadata
   carries `:rf/machine? true`. The same filter `re-frame.machines/machines`
   performs, inlined to avoid the facade require (see `machine-spec`)."
   []
-  (->> (registrar/registrations :event)
+  (->> (rf.registrar/registrations :event)
        (keep (fn [[id m]] (when (:rf/machine? m) id)))))
 
 (defn- declared-event?
@@ -207,7 +207,7 @@
   user-supplied spec keys. Functions stay opaque — a machine's transition
   logic is its `:states` / `:actions` / `:guards`, never serialized here."
   [node machine meta]
-  (cond-> (node/attach-source node meta)
+  (cond-> (rf.derivation.node/attach-source node meta)
     (contains? machine :doc)              (assoc :doc (:doc machine))
     (get-in machine [:schemas :data])     (assoc :schema (get-in machine [:schemas :data]))))
 
@@ -227,7 +227,7 @@
   declared `[:event …]` triggers), `:output` (the runtime-db snapshot path),
   `:source-form`, `:spawns?` flag, and source coords / schema / doc."
   [id source-id machine meta]
-  (-> (node/node-base id [:runtime (paths/snapshot-path id)]
+  (-> (rf.derivation.node/node-base id [:runtime (rf.machines.paths/snapshot-path id)]
                       {:kind          :process
                        :storage       :runtime-db
                        :evaluation    (evaluation-policy machine)
@@ -308,14 +308,14 @@
        (if-let [machine (machine-spec machine-id)]
          (assoc acc machine-id
                 (node-for machine-id machine-id machine
-                          (registrar/lookup :event machine-id)))
+                          (rf.registrar/lookup :event machine-id)))
          acc))
      {}
      (registered-machine-ids)))
   ([machine-id]
    (when-let [machine (machine-spec machine-id)]
      (node-for machine-id machine-id machine
-               (registrar/lookup :event machine-id)))))
+               (rf.registrar/lookup :event machine-id)))))
 
 (defn machine-instance-algebra-view
   "Return the LIVE derivation/process algebra view of a frame's machine
@@ -364,15 +364,15 @@
   one-arity form takes an explicit `frame-id` (the form the graph composer's
   `:live-fn` calls).
 
-  CLJS-and-JVM runnable, but dev-gated on `interop/debug-enabled?` (the
+  CLJS-and-JVM runnable, but dev-gated on `rf.interop/debug-enabled?` (the
   `goog.DEBUG` mirror) so production builds DCE the runtime-db walk. Returns
   `nil` for a missing/destroyed frame and in production builds, `{}` for a
   frame with no live machine snapshots."
-  ([] (machine-instance-algebra-view (frame/current-frame)))
+  ([] (machine-instance-algebra-view (rf.frame/current-frame)))
   ([frame-id]
-   (when interop/debug-enabled?
-     (when-let [runtime-db (frame/frame-runtime-db-value frame-id)]
-       (let [snapshots (get-in runtime-db (paths/snapshot-path))]
+   (when rf.interop/debug-enabled?
+     (when-let [runtime-db (rf.frame/frame-runtime-db-value frame-id)]
+       (let [snapshots (get-in runtime-db (rf.machines.paths/snapshot-path))]
          (reduce-kv
            (fn [acc actor-id snapshot]
              (let [machine-type (:rf/machine-type snapshot)
@@ -383,7 +383,7 @@
                    ;; map → verbatim) via the leaf resolver.
                    spawned?     (some? machine-type)
                    spec         (if spawned?
-                                  (resolver/spec-from-snapshot snapshot)
+                                  (rf.machines.lifecycle-fx.resolver/spec-from-snapshot snapshot)
                                   (machine-spec actor-id))
                    ;; The source-id whose coords / source-form we inherit: the
                    ;; registered type keyword (a keyword `:rf/machine-type`,
@@ -397,7 +397,7 @@
                (if spec
                  (assoc acc actor-id
                         (-> (node-for actor-id source-id spec
-                                      (registrar/lookup :event source-id))
+                                      (rf.registrar/lookup :event source-id))
                             (assoc :spawned? spawned?)
                             (cond-> (contains? snapshot :state)
                               (assoc :state (:state snapshot)))))
@@ -425,7 +425,7 @@
   Returns `false` for a non-machine sub, an unregistered id, and a parametric
   input-fn sub. JVM-runnable — pure data over the registrar."
   [sub-id]
-  (let [meta (registrar/lookup :sub sub-id)]
+  (let [meta (rf.registrar/lookup :sub sub-id)]
     (boolean
       (and meta
            (= :static (:input-kind meta))
@@ -463,7 +463,7 @@
   input-fn sub, or a selector whose machine-id is non-literal. JVM-runnable
   — pure data over the registrar."
   [sub-id]
-  (let [meta (registrar/lookup :sub sub-id)]
+  (let [meta (rf.registrar/lookup :sub sub-id)]
     (if-not (and meta (= :static (:input-kind meta)))
       #{}
       (into #{}

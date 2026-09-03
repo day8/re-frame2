@@ -83,7 +83,7 @@
   the shared `re-frame.reply/suppress` and spell `:cancelled` identically —
   uniform where it matters; the obsolescence DETERMINATION is correctly
   surface-specific."
-  (:require [re-frame.reply :as reply]))
+  (:require [re-frame.reply :as rf.reply]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -652,7 +652,7 @@
   `:rf.reply/stale-reason`) ride verbatim. `opts` is forwarded to the walker (e.g.
   `:frame`)."
   ([reply] (trace-reply reply nil))
-  ([reply opts] (reply/trace-summary reply opts)))
+  ([reply opts] (rf.reply/trace-summary reply opts)))
 
 (defn stale-spawn-trace
   "Build a DATA-ONLY trace summary of a `stale-spawn-reply` for the

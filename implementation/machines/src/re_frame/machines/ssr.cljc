@@ -51,7 +51,7 @@
   does not SSR carries none of this path; an SSR app without machines sees the
   hook unbound and ships the (already machine-less) runtime-db unchanged.
   Pure / host-agnostic CLJC — SSR runs on the JVM."
-  (:require [re-frame.classification :as classification]))
+  (:require [re-frame.classification :as rf.classification]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -86,7 +86,7 @@
   [actor-id snapshot frame-id]
   (if-not (and (map? snapshot) (contains? snapshot :data) frame-id)
     snapshot
-    (let [{:keys [sensitive large]} (classification/frame-snapshot-classification frame-id actor-id)
+    (let [{:keys [sensitive large]} (rf.classification/frame-snapshot-classification frame-id actor-id)
           ;; frame-snapshot-classification returns snapshot-rooted paths ([:data …]);
           ;; the SSR projector walks the bare :data MAP, so strip the leading
           ;; :data segment to index into it directly.
@@ -96,7 +96,7 @@
           s-paths (strip sensitive)
           l-paths (strip large)]
       (if (or (seq s-paths) (seq l-paths))
-        (update snapshot :data classification/redact-with-paths s-paths l-paths)
+        (update snapshot :data rf.classification/redact-with-paths s-paths l-paths)
         snapshot))))
 
 (defn project-ssr-runtime-db

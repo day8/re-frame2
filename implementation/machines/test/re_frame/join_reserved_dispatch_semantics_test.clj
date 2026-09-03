@@ -29,15 +29,15 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.edn :as edn]
             [re-frame.core :as rf]
-            [re-frame.fx :as fx]
+            [re-frame.fx :as rf.fx]
             [re-frame.machines]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter})
-  mtest/trace-capture-fixture)
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})
+  rf.machines.test-support/trace-capture-fixture)
 
 ;; ---------------------------------------------------------------------------
 ;; helpers
@@ -46,12 +46,12 @@
 (defn- join-state
   ([parent-id] (join-state :rf/default parent-id))
   ([frame-id parent-id]
-   (get-in (mtest/runtime-db frame-id)
+   (get-in (rf.machines.test-support/runtime-db frame-id)
            [:rf.runtime/machines :spawned parent-id [:racing]])))
 
 (defn- stale-reasons []
   (mapv (comp :rf.reply/stale-reason :tags)
-        (mtest/events-of :rf.machine.spawn-all/stale-completion)))
+        (rf.machines.test-support/events-of :rf.machine.spawn-all/stale-completion)))
 
 (defn- mk-child
   "A dispatching child: on `:go` transitions to a plain terminal and dispatches
@@ -105,15 +105,15 @@
   Unlike a full stub, this observes the EXACT opts `child-dispatch!` produced
   for the completion re-dispatch without perturbing the fold."
   [sink body-fn]
-  (let [real (late-bind/get-fn :router/dispatch!)]
+  (let [real (rf.late-bind/get-fn :router/dispatch!)]
     (try
-      (late-bind/set-fn! :router/dispatch!
+      (rf.late-bind/set-fn! :router/dispatch!
                          (fn [event opts]
                            (swap! sink conj [event opts])
                            (real event opts)))
       (body-fn)
       (finally
-        (late-bind/set-fn! :router/dispatch! real)))))
+        (rf.late-bind/set-fn! :router/dispatch! real)))))
 
 (defn- completion-opts
   "The opts of the FIRST observed re-dispatch whose event is the completion
@@ -203,7 +203,7 @@
             destroy-frame! cancels it. Pre-fix the raw interop/set-timeout!
             retained NOTHING, so the table stays empty and destroy cannot cancel
             it (mutation tooth for the raw timeout)."
-    (fx/reset-dispatch-later-timers!)
+    (rf.fx/reset-dispatch-later-timers!)
     (rf/make-frame {:id df-frame :doc "rf2-lud4af frame-owned-timer frame"})
     (rf/reg-machine :lud4af/dfa (mk-child-delayed :lud4af/dfp 600000))
     (rf/reg-machine :lud4af/dfb (mk-child-delayed :lud4af/dfp 600000))
@@ -222,7 +222,7 @@
       (is (zero? (count (timers-for-frame df-frame)))
           "destroy-frame! cancelled + dropped the frame's pending completion
            timer (pre-fix the raw timeout could not be cancelled)"))
-    (fx/reset-dispatch-later-timers!)))
+    (rf.fx/reset-dispatch-later-timers!)))
 
 (def ^:private short-frame :lud4af/short)
 
@@ -231,7 +231,7 @@
             before it fires NEVER re-dispatches into the dead frame: no
             :rf.error/frame-destroyed, no fold, and the sibling child receives
             no stale completion. Pre-fix the raw timer fired dead-on-arrival."
-    (fx/reset-dispatch-later-timers!)
+    (rf.fx/reset-dispatch-later-timers!)
     (let [errors (atom [])]
       (rf/register-listener! :errors ::rec (fn [r] (swap! errors conj r)))
       (rf/make-frame {:id short-frame :doc "rf2-lud4af short-delay frame"})
@@ -250,7 +250,7 @@
              enqueued a dead-on-arrival dispatch into the destroyed frame")
         (is (empty? (stale-reasons))
             "no stale completion surfaced against the sibling from a leaked timer")))
-    (fx/reset-dispatch-later-timers!)))
+    (rf.fx/reset-dispatch-later-timers!)))
 
 ;; ---------------------------------------------------------------------------
 ;; (4) — real-completion strict replay: record an ACTUAL child completion, restore
@@ -273,7 +273,7 @@
     (rf/reg-machine :lud4af/rcb (mk-child :lud4af/rcp))
     (reg-parent! :lud4af/rcp :lud4af/rca :lud4af/rcb)
     (rf/dispatch-sync [:lud4af/rcp [:start]])
-    (let [pre-fold-runtime (mtest/runtime-db)          ;; attempt-1 join, :done #{}
+    (let [pre-fold-runtime (rf.machines.test-support/runtime-db)          ;; attempt-1 join, :done #{}
           a                (get-in (join-state :lud4af/rcp) [:children :a])
           sink             (atom [])]
       ;; RECORD an actual completion by driving child :a through its boundary.
@@ -291,7 +291,7 @@
         ;; attempt-1 tokens + spawned instances, :done #{}.
         (rf/dispatch-sync [::restore-runtime pre-fold-runtime])
         (is (= #{} (:done (join-state :lud4af/rcp))) "restored to the pre-fold epoch")
-        (mtest/reset-captured!)
+        (rf.machines.test-support/reset-captured!)
         ;; STRICT REPLAY the recorded pair, both halves EDN-roundtripped.
         (rf/dispatch-sync (edn-roundtrip rec-event) {:rf.cofx (edn-roundtrip rec-cofx)})
         (is (= #{:a} (:done (join-state :lud4af/rcp)))
@@ -299,7 +299,7 @@
         (is (empty? (stale-reasons)) "faithful replay — no stale suppression")
         ;; Restore + replay WITHOUT the recorded coordinate → fail-closed stale drop.
         (rf/dispatch-sync [::restore-runtime pre-fold-runtime])
-        (mtest/reset-captured!)
+        (rf.machines.test-support/reset-captured!)
         (rf/dispatch-sync (edn-roundtrip rec-event) {:rf.cofx (edn-roundtrip {})})
         (is (= #{} (:done (join-state :lud4af/rcp)))
             "replay with the coordinate fact stripped folded nothing")

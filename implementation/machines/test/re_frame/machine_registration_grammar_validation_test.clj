@@ -13,12 +13,12 @@
   Each rule is pinned in both directions: the malformed declaration is
   rejected, and a well-formed one validates silently."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.machines :as machines]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.machines :as rf.machines]
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- history placement --------------------------------------------------
 
@@ -30,7 +30,7 @@
                  {:type :history :initial :a :states {:a {}}}
                  ;; flat top-level `:type :history` (no enclosing compound)
                  {:initial :a :states {:a {} :h {:type :history}}}]]
-      (let [e (try (machines/validate-machine! bad) nil
+      (let [e (try (rf.machines/validate-machine! bad) nil
                    (catch clojure.lang.ExceptionInfo ex ex))]
         (is (= :rf.error/machine-history-misplaced
                (:rf.error/id (ex-data e)))
@@ -38,12 +38,12 @@
         (is (= :history (:feature (ex-data e))) ":feature names the history grammar"))))
   (testing "a WELL-PLACED `:type :history` node (inside a compound's :states)
    validates silently"
-    (is (nil? (machines/validate-machine!
+    (is (nil? (rf.machines/validate-machine!
                 {:initial :c
                  :states  {:c {:initial :a
                                :states  {:a {} :h {:type :history :deep? true}}}}}))))
   (testing "a well-formed history-free hierarchical machine validates silently"
-    (is (nil? (machines/validate-machine!
+    (is (nil? (rf.machines/validate-machine!
                 {:initial :p
                  :states  {:p {:initial :a :states {:a {} :b {}}}}})))))
 
@@ -51,13 +51,13 @@
 
 (deftest after-guard-action-refs-validated-at-registration
   (testing "a dangling :after :guard ref fails registration (not at runtime)"
-    (let [e (try (machines/validate-machine!
+    (let [e (try (rf.machines/validate-machine!
                    {:initial :a
                     :states  {:a {:after {1000 {:target :b :guard :missing?}}}
                               :b {}}})
                  nil (catch clojure.lang.ExceptionInfo ex ex))]
       (is (= :rf.error/machine-unresolved-guard (:rf.error/id (ex-data e)))))
-    (let [e (try (machines/validate-machine!
+    (let [e (try (rf.machines/validate-machine!
                    {:initial :a
                     :states  {:a {:after {1000 {:target :b :action :nope}}}
                               :b {}}})

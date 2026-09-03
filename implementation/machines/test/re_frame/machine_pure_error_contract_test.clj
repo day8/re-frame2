@@ -14,7 +14,7 @@
       marker `[:rf.machine/start]`, the spawn kick-off
       `[:rf.machine.spawn/spawned]`, the stories-runtime lifecycle pings)
       is NOT classified as an unknown-user-event no-op —
-      `transition/unhandled-event-no-op?` gates the emit. Severity is
+      `rf.machines.transition/unhandled-event-no-op?` gates the emit. Severity is
       benign (nothing throws); the SEMANTIC carve-out means the machine's
       BIRTH renders its `:initial-entry` cascade rather than a no-op.
       Domain (non-`:rf/*`) events emit the benign no-op.
@@ -47,11 +47,11 @@
   dispatch loop, no app-db, no wall-clock — so they are deterministic by
   construction (the determinism canon)."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.error :as error]
-            [re-frame.machines :as machines]
-            [re-frame.machines.parallel :as parallel]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.machines.transition :as transition]))
+            [re-frame.error :as rf.error]
+            [re-frame.machines :as rf.machines]
+            [re-frame.machines.parallel :as rf.machines.parallel]
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.machines.transition :as rf.machines.transition]))
 
 ;; ---------------------------------------------------------------------------
 ;; The BENIGN unhandled-event no-op (xstate-v5 parity) WITH the
@@ -70,10 +70,10 @@
   "Drive a pure `machine-transition` while a tooling listener records every
   emitted trace event (full envelope). Returns the vector of events
   (deterministic — no wall-clock / random). Routed through the shared
-  `mtest/with-trace-capture` — guaranteed unregister in a `finally`."
+  `rf.machines.test-support/with-trace-capture` — guaranteed unregister in a `finally`."
   [definition snapshot event]
-  (mtest/with-trace-capture seen
-    (machines/machine-transition definition snapshot event)
+  (rf.machines.test-support/with-trace-capture seen
+    (rf.machines/machine-transition definition snapshot event)
     @seen))
 
 (defn- capture-ops!
@@ -111,7 +111,7 @@
           (is (= :a (:state tags)))))))
 
   (testing "the snapshot is unchanged on an unhandled event (no state churn)"
-    (let [{s :snapshot} (machines/machine-transition
+    (let [{s :snapshot} (rf.machines/machine-transition
                               no-handler-spec {:state :a :data {}} [:nope])]
       (is (= :a (:state s)) "state unchanged"))))
 
@@ -133,22 +133,22 @@
 
   (testing "the reserved-namespace ping still returns an unchanged snapshot
    (no transition, no churn — benign, just unlabelled)"
-    (let [{s :snapshot} (machines/machine-transition
+    (let [{s :snapshot} (rf.machines/machine-transition
                              no-handler-spec {:state :a :data {}}
                              [:rf.story.lifecycle/events-complete])]
       (is (= :a (:state s)) "state unchanged for the benign reserved ping")))
 
   (testing "the negative guard — `unhandled-event-no-op?` is TRUE for a
    domain event (still a no-op) and FALSE for any reserved-:rf/* event"
-    (is (transition/unhandled-event-no-op? [:nope])
+    (is (rf.machines.transition/unhandled-event-no-op? [:nope])
         "a domain event is classified as an unknown-user-event no-op")
-    (is (not (transition/unhandled-event-no-op? [:rf.machine/start]))
+    (is (not (rf.machines.transition/unhandled-event-no-op? [:rf.machine/start]))
         "the synthetic creation marker is framework init, not a no-op")
-    (is (not (transition/unhandled-event-no-op? [:rf.machine.spawn/spawned]))
+    (is (not (rf.machines.transition/unhandled-event-no-op? [:rf.machine.spawn/spawned]))
         "the spawn kick-off is framework init, not a no-op")
-    (is (not (transition/unhandled-event-no-op? [:rf.story.lifecycle/events-complete]))
+    (is (not (rf.machines.transition/unhandled-event-no-op? [:rf.story.lifecycle/events-complete]))
         "a stories lifecycle ping rides the reserved root")
-    (is (not (transition/unhandled-event-no-op? [:rf/anything]))
+    (is (not (rf.machines.transition/unhandled-event-no-op? [:rf/anything]))
         "the bare reserved root is exempt")))
 
 ;; ---------------------------------------------------------------------------
@@ -176,8 +176,8 @@
    and installs the initial state — NOT an unhandled-no-op for
    [:rf.machine/start]"
     ;; Shared `with-trace-capture` — guaranteed unregister in a `finally`.
-    (mtest/with-trace-capture seen
-      (let [r    (parallel/apply-initial-entry-cascade
+    (rf.machines.test-support/with-trace-capture seen
+      (let [r    (rf.machines.parallel/apply-initial-entry-cascade
                    boot-entry-spec {:state :a :data {}})
             evs  @seen
             ops  (mapv :operation evs)
@@ -201,14 +201,14 @@
 
 (deftest state-path-rejects-malformed-state
   (testing "state-path coerces the two legal forms"
-    (is (= [:a] (transition/state-path :a))
+    (is (= [:a] (rf.machines.transition/state-path :a))
         "a keyword normalises to a 1-element path")
-    (is (= [:a :b] (transition/state-path [:a :b]))
+    (is (= [:a :b] (rf.machines.transition/state-path [:a :b]))
         "a vector path passes through"))
 
   (testing "a :state that is neither keyword nor vector throws
    :rf.error/machine-bad-state-form"
-    (let [e (try (transition/state-path "not-a-state") nil
+    (let [e (try (rf.machines.transition/state-path "not-a-state") nil
                  (catch clojure.lang.ExceptionInfo ex ex))]
       (is (some? e) "a string :state throws")
       (is (= "not-a-state" (:state (ex-data e)))
@@ -219,7 +219,7 @@
 (deftest bad-state-form-propagates-through-machine-transition
   (testing "a malformed snapshot :state surfaces the bad-state-form error
    out of the pure macrostep (the engine does not swallow it)"
-    (let [e (try (machines/machine-transition no-handler-spec
+    (let [e (try (rf.machines/machine-transition no-handler-spec
                                               {:state 42 :data {}} [:known])
                  nil
                  (catch clojure.lang.ExceptionInfo ex ex))]
@@ -243,7 +243,7 @@
                 :data    {}
                 :states  {:a {:on {:go {:target :b :guard "not-a-guard"}}}
                           :b {}}}
-          e    (try (machines/machine-transition spec {:state :a :data {}} [:go])
+          e    (try (rf.machines/machine-transition spec {:state :a :data {}} [:go])
                     nil
                     (catch clojure.lang.ExceptionInfo ex ex))]
       (is (some? e) "a string :guard form throws")
@@ -260,7 +260,7 @@
                 :data    {}
                 :states  {:a {:on {:go {:target :b :action 99}}}
                           :b {}}}
-          e    (try (machines/machine-transition spec {:state :a :data {}} [:go])
+          e    (try (rf.machines/machine-transition spec {:state :a :data {}} [:go])
                     nil
                     (catch clojure.lang.ExceptionInfo ex ex))]
       (is (some? e) "a numeric :action form throws")
@@ -285,7 +285,7 @@
                 :guards  {}                         ;; :nope is not registered
                 :states  {:a {:on {:go {:target :b :guard :nope}}}
                           :b {}}}
-          e    (try (machines/machine-transition spec {:state :a :data {}} [:go])
+          e    (try (rf.machines/machine-transition spec {:state :a :data {}} [:go])
                     nil
                     (catch clojure.lang.ExceptionInfo ex ex))]
       (is (some? e) "a dangling guard keyword throws at transition time")
@@ -305,7 +305,7 @@
                 :actions {}                          ;; :nope is not registered
                 :states  {:a {:on {:go {:target :b :action :nope}}}
                           :b {}}}
-          e    (try (machines/machine-transition spec {:state :a :data {}} [:go])
+          e    (try (rf.machines/machine-transition spec {:state :a :data {}} [:go])
                     nil
                     (catch clojure.lang.ExceptionInfo ex ex))]
       (is (some? e) "a dangling action keyword throws at transition time")
@@ -331,7 +331,7 @@
                 :data    {}
                 :states  {:a {:on {:go "not-a-transition-value"}}
                           :b {}}}
-          e    (try (machines/machine-transition spec {:state :a :data {}} [:go])
+          e    (try (rf.machines/machine-transition spec {:state :a :data {}} [:go])
                     nil
                     (catch clojure.lang.ExceptionInfo ex ex))]
       (is (some? e) "a malformed :on value throws")
@@ -351,7 +351,7 @@
                 :data    {}
                 :states  {:a {:on {:go {:target :b}}}
                           :b {:always 42}}}
-          e    (try (machines/machine-transition spec {:state :a :data {}} [:go])
+          e    (try (rf.machines/machine-transition spec {:state :a :data {}} [:go])
                     nil
                     (catch clojure.lang.ExceptionInfo ex ex))]
       (is (some? e) "a malformed :always value throws")
@@ -376,14 +376,14 @@
              ["malformed :always value"
               {:id :probe/s4 :initial :a :data {}
                :states {:a {:on {:go {:target :b}}} :b {:always 99}}}]]]
-      (let [e   (try (machines/machine-transition spec {:state :a :data {}} [:go])
+      (let [e   (try (rf.machines/machine-transition spec {:state :a :data {}} [:go])
                      nil
                      (catch clojure.lang.ExceptionInfo ex ex))
             msg (ex-message e)]
         (is (some? e) (str label " throws"))
-        (is (not (error/keyword-only-message? msg))
+        (is (not (rf.error/keyword-only-message? msg))
             (str label " message is a human sentence, never a bare keyword"))
-        (is (error/message-has-id-token? msg)
+        (is (rf.error/message-has-id-token? msg)
             (str label " message carries the [:rf.error/<id>] token"))
         (is (string? (:reason (ex-data e))) (str label " carries a :reason sentence"))
         (is (= 'rf/reg-machine (:where (ex-data e))) (str label " carries :where"))
@@ -405,9 +405,9 @@
                           :is-open? (fn [{d :data}] (:open? d))}  ;; registered id → fn
                 :states  {:a {:on {:go {:target :b :guard :gate}}}
                           :b {}}}
-          {s-pass :snapshot} (machines/machine-transition
+          {s-pass :snapshot} (rf.machines/machine-transition
                                   spec {:state :a :data {:open? true}} [:go])
-          {s-fail :snapshot} (machines/machine-transition
+          {s-fail :snapshot} (rf.machines/machine-transition
                                   spec {:state :a :data {:open? false}} [:go])]
       (is (= :b (:state s-pass))
           "indirected guard resolved + passed ⇒ transition fires")

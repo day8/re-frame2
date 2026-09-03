@@ -30,16 +30,16 @@
   spec/conformance/fixtures/parallel-root-on-*.edn."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.machines :as machines]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.machines :as rf.machines]
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; snapshot lookup via the shared machines test-support
 ;; — no hardcoded `[:rf.runtime/machines :snapshots …]` path.
-(def ^:private snapshot mtest/snapshot)
+(def ^:private snapshot rf.machines.test-support/snapshot)
 
 ;; A two-region machine. Each region: :one -> :two on :go. No region handles
 ;; :all (only the root will). Used by several cases.
@@ -67,7 +67,7 @@
              :regions {:a {:initial :two :states {:one {} :two {}}}
                        :b {:initial :two :states {:one {} :two {}}}}}
           initial {:state {:a :two :b :two} :data {}}
-          {snap :snapshot} (machines/machine-transition m initial [:reset-all])]
+          {snap :snapshot} (rf.machines/machine-transition m initial [:reset-all])]
       (is (= {:a :one :b :one} (:state snap))
           "root :on fired and moved BOTH regions — NOT silently dropped"))))
 
@@ -81,7 +81,7 @@
              :regions {:a {:initial :one :states {:one {} :two {}}}
                        :b {:initial :one :states {:one {} :two {}}}}}
           initial {:state {:a :one :b :one} :data {}}
-          {snap :snapshot} (machines/machine-transition m initial [:go-all])]
+          {snap :snapshot} (rf.machines/machine-transition m initial [:go-all])]
       (is (= {:a :two :b :two} (:state snap))
           "root :on fired; both targeted regions moved (v5: GO -> {a:two,b:two})"))))
 
@@ -95,7 +95,7 @@
              :regions {:a {:initial :one :states {:one {} :two {}}}
                        :b {:initial :one :states {:one {} :two {}}}}}
           initial {:state {:a :one :b :one} :data {}}
-          {snap :snapshot} (machines/machine-transition m initial [:one])]
+          {snap :snapshot} (rf.machines/machine-transition m initial [:one])]
       (is (= {:a :two :b :one} (:state snap))
           "root :on moved :a; :b untargeted -> unchanged (v5: ONE -> {a:two,b:one})"))))
 
@@ -111,7 +111,7 @@
              :regions {:a {:initial :one :states {:one {:on {:go :two}} :two {}}}
                        :b {:initial :one :states {:one {} :two {}}}}}
           initial {:state {:a :one :b :one} :data {}}
-          {snap :snapshot} (machines/machine-transition m initial [:go])]
+          {snap :snapshot} (rf.machines/machine-transition m initial [:go])]
       (is (= {:a :two :b :one} (:state snap))
           (str "region :a handled :go (deeper wins); the root :on was NOT merged "
                "in -> :b stays :one (v5: GO -> {a:two,b:one})")))))
@@ -134,7 +134,7 @@
                        :b {:initial :resting
                            :states  {:initial {} :resting {}}}}}
           initial {:state {:a :initial :b :resting} :data {}}
-          {snap :snapshot} (machines/machine-transition m initial [:reset])]
+          {snap :snapshot} (rf.machines/machine-transition m initial [:reset])]
       (is (= {:a :special :b :resting} (:state snap))
           (str "the WHOLE root RESET is suppressed because :a competed; :b stays "
                ":resting (NOT :initial). Broadcast decomposition would wrongly give "
@@ -151,7 +151,7 @@
                        :b {:initial :one :states {:one {} :y {}}}
                        :c {:initial :one :states {:one {}}}}}     ; untargeted
           initial {:state {:a :one :b :one :c :one} :data {}}
-          {snap :snapshot} (machines/machine-transition m initial [:advance])]
+          {snap :snapshot} (rf.machines/machine-transition m initial [:advance])]
       (is (= {:a :x :b :y :c :one} (:state snap))
           ":a and :b moved to their named targets; :c (untargeted) unchanged"))))
 
@@ -166,7 +166,7 @@
              :regions {:a {:initial :one :states {:one {} :two {}}}
                        :b {:initial :one :states {:one {} :two {}}}}}
           initial {:state {:a :one :b :one} :data {:count 0}}
-          {snap :snapshot} (machines/machine-transition m initial [:tick])]
+          {snap :snapshot} (rf.machines/machine-transition m initial [:tick])]
       (is (= {:a :two :b :two} (:state snap)) "both regions moved")
       (is (= 1 (get-in snap [:data :count]))
           "root :action ran ONCE (not once per targeted region)"))))
@@ -182,7 +182,7 @@
              :regions {:a {:initial :one :states {:one {}}}
                        :b {:initial :one :states {:one {}}}}}
           initial {:state {:a :one :b :one} :data {:log []}}
-          {snap :snapshot} (machines/machine-transition m initial [:ping])]
+          {snap :snapshot} (rf.machines/machine-transition m initial [:ping])]
       (is (= {:a :one :b :one} (:state snap)) "no region moved (targetless)")
       (is (= [:noted] (get-in snap [:data :log])) "the root action ran once"))))
 
@@ -197,12 +197,12 @@
              :regions {:a {:initial :one :states {:one {} :two {}}}
                        :b {:initial :one :states {:one {} :two {}}}}}]
       (testing "guard false -> root declines -> no move"
-        (let [{snap :snapshot} (machines/machine-transition
+        (let [{snap :snapshot} (rf.machines/machine-transition
                                      m {:state {:a :one :b :one} :data {:armed? false}}
                                      [:fire])]
           (is (= {:a :one :b :one} (:state snap)) "guard false -> root :on not selected")))
       (testing "guard true -> root fires"
-        (let [{snap :snapshot} (machines/machine-transition
+        (let [{snap :snapshot} (rf.machines/machine-transition
                                      m {:state {:a :one :b :one} :data {:armed? true}}
                                      [:fire])]
           (is (= {:a :two :b :two} (:state snap)) "guard true -> root :on moves both"))))))
@@ -220,7 +220,7 @@
                                      :done {:tags #{:a/done}}}}
                        :b {:initial :one :states {:one {}}}}}
           initial {:state {:a :one :b :one} :data {}}
-          {snap :snapshot} (machines/machine-transition m initial [:advance])]
+          {snap :snapshot} (rf.machines/machine-transition m initial [:advance])]
       (is (= :done (get-in snap [:state :a]))
           ":a was moved to :mid by the root, then :always settled past to :done")
       (is (= :one (get-in snap [:state :b])) ":b unchanged")
@@ -252,7 +252,7 @@
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #":rf.error/machine-unresolved-guard"
-          (machines/make-machine-handler
+          (rf.machines/make-machine-handler
             {:type    :parallel
              :on      {:fire {:target [:a :two] :guard :nope}}  ; :nope not in :guards
              :regions {:a {:initial :one :states {:one {} :two {}}}}}))
@@ -262,7 +262,7 @@
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #":rf.error/machine-unresolved-action"
-          (machines/make-machine-handler
+          (rf.machines/make-machine-handler
             {:type    :parallel
              :on      {:fire {:target [:a :two] :action :nope}}
              :regions {:a {:initial :one :states {:one {} :two {}}}}}))
@@ -272,7 +272,7 @@
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #":rf.error/machine-parallel-root-on-bad-target"
-          (machines/make-machine-handler
+          (rf.machines/make-machine-handler
             {:type    :parallel
              :on      {:go :somewhere}     ; bare keyword — no flat sibling state
              :regions {:a {:initial :one :states {:one {}}}}}))
@@ -282,7 +282,7 @@
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #":rf.error/machine-parallel-root-on-bad-target"
-          (machines/make-machine-handler
+          (rf.machines/make-machine-handler
             {:type    :parallel
              :on      {:go {:target [:nonregion :x]}}
              :regions {:a {:initial :one :states {:one {} :x {}}}}}))
@@ -292,14 +292,14 @@
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #":rf.error/machine-parallel-root-on-bad-target"
-          (machines/make-machine-handler
+          (rf.machines/make-machine-handler
             {:type    :parallel
              :on      {:go {:target [[:a :two] [:nope :two]]}}
              :regions {:a {:initial :one :states {:one {} :two {}}}
                        :b {:initial :one :states {:one {} :two {}}}}}))))
 
   (testing "a well-formed root parallel :on validates silently"
-    (is (nil? (machines/validate-machine!
+    (is (nil? (rf.machines/validate-machine!
                 {:type    :parallel
                  :guards  {:ok? (fn [_] true)}
                  :actions {:act (fn [_] nil)}
@@ -321,14 +321,14 @@
 
 (deftest root-after-registers-and-validates
   (testing "a :type :parallel root declaring :after now REGISTERS (was rejected loudly)"
-    (is (nil? (machines/validate-machine!
+    (is (nil? (rf.machines/validate-machine!
                 {:type    :parallel
                  :after   {1000 {:target [:a :two]}}
                  :regions {:a {:initial :one :states {:one {} :two {}}}
                            :b {:initial :one :states {:one {} :two {}}}}}))
         "region-qualified single-target root :after validates silently"))
   (testing "multi-region + action/fx-only root :after value-forms validate"
-    (is (nil? (machines/validate-machine!
+    (is (nil? (rf.machines/validate-machine!
                 {:type    :parallel
                  :guards  {:ok? (fn [_] true)}
                  :actions {:act (fn [_] nil)}
@@ -346,7 +346,7 @@
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #":rf.error/machine-parallel-root-on-bad-target"
-          (machines/make-machine-handler
+          (rf.machines/make-machine-handler
             {:type    :parallel
              :after   {1000 {:target :two}}    ; bare keyword — no flat sibling
              :regions {:a {:initial :one :states {:one {} :two {}}}}}))
@@ -355,7 +355,7 @@
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #":rf.error/machine-parallel-root-on-bad-target"
-          (machines/make-machine-handler
+          (rf.machines/make-machine-handler
             {:type    :parallel
              :after   {1000 {:target [:nonregion :x]}}
              :regions {:a {:initial :one :states {:one {:on {}} :x {}}}}})))))
@@ -377,7 +377,7 @@
           initial {:state {:a :one :b :one}
                    :data  {:rf/after-epoch {[] 1}}}
           {snap :snapshot}
-          (machines/machine-transition
+          (rf.machines/machine-transition
             m initial [:rf.machine.timer/after-elapsed 1000 1 []])]
       (is (= {:a :two :b :two} (:state snap))
           "live root :after (matching epoch) moved BOTH targeted regions")))
@@ -390,7 +390,7 @@
           initial {:state {:a :one :b :one}
                    :data  {:rf/after-epoch {[] 1}}}
           {snap :snapshot}
-          (machines/machine-transition
+          (rf.machines/machine-transition
             m initial [:rf.machine.timer/after-elapsed 500 1 []])]
       (is (= {:a :two :b :one} (:state snap))
           ":a moved; :b untargeted -> unchanged"))))
@@ -406,7 +406,7 @@
           initial {:state {:a :one :b :one}
                    :data  {:fired 0 :rf/after-epoch {[] 1}}}
           {snap :snapshot}
-          (machines/machine-transition
+          (rf.machines/machine-transition
             m initial [:rf.machine.timer/after-elapsed 1000 1 []])]
       (is (= {:a :one :b :one} (:state snap)) "no region moved (action-only)")
       (is (= 1 (get-in snap [:data :fired])) "the root :after :action ran once"))))
@@ -422,7 +422,7 @@
           initial {:state {:a :one :b :one}
                    :data  {:rf/after-epoch {[] 1}}}
           {snap :snapshot}
-          (machines/machine-transition
+          (rf.machines/machine-transition
             m initial [:rf.machine.timer/after-elapsed 1000 1 []])]
       (is (= {:a :one :b :one} (:state snap))
           "guard false -> the root :after timer fires-and-discards; no region moved"))))
@@ -446,7 +446,7 @@
           initial {:state {:a :one :b :one}
                    :data  {:rf/after-epoch {[] 2}}}
           {snap :snapshot}
-          (machines/machine-transition
+          (rf.machines/machine-transition
             m initial [:rf.machine.timer/after-elapsed 1000 1 []])]
       (is (= {:a :one :b :one} (:state snap))
           "stale-epoch root :after dropped; no region moved (cancel-on-exit via epoch)"))))

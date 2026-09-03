@@ -4,7 +4,7 @@
 
   `spawn-all-init-fx` captures an exact-incarnation `continue?` before the
   admission preflight, but on current main it wrote the reject sentinel and the
-  live join through a bare-id `frame/swap-runtime-db!` WITHOUT rechecking
+  live join through a bare-id `rf.frame/swap-runtime-db!` WITHOUT rechecking
   ownership after:
 
     - the preflight's `[:schemas :data]` validators (application code that can
@@ -34,26 +34,26 @@
   scoped to owner-loss only — the two live-owner controls)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.error-emit :as error-emit]
-            [re-frame.frame :as frame]
-            [re-frame.late-bind :as late-bind]
+            [re-frame.error-emit :as rf.error-emit]
+            [re-frame.frame :as rf.frame]
+            [re-frame.late-bind :as rf.late-bind]
             ;; Loading the machines facade registers `rf/reg-machine` + the
             ;; reserved machine fxs when this ns runs alone.
             [re-frame.machines]
-            [re-frame.machines.lifecycle-fx.spawn :as spawn]
-            [re-frame.machines.paths :as paths]
-            [re-frame.machines.spawn-order :as spawn-order]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.machines.lifecycle-fx.spawn :as rf.machines.lifecycle-fx.spawn]
+            [re-frame.machines.paths :as rf.machines.paths]
+            [re-frame.machines.spawn-order :as rf.machines.spawn-order]
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 ;; Fresh registrar + plain-atom adapter per test; the always-on error-listener
 ;; registry (a `defonce` atom) cleared so an `:errors` listener from one test
 ;; cannot leak into the next.
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
-     :init-fn (fn [] (error-emit/clear-error-listeners!))})
-  mtest/trace-capture-fixture)
+  (rf.machines.test-support/make-reset-runtime-fixture
+    {:adapter rf.substrate.plain-atom/adapter
+     :init-fn (fn [] (rf.error-emit/clear-error-listeners!))})
+  rf.machines.test-support/trace-capture-fixture)
 
 ;; The opaque schema marker the strict child declares; the destroyer validator
 ;; keys on it. The schemas artefact is NOT loaded — the test provides the
@@ -101,7 +101,7 @@
      :child-args   (mapv child-arg children)}))
 
 (defn- join-slot [frame-a parent-id invoke-id]
-  (get-in (mtest/runtime-db frame-a) (paths/spawned-path parent-id invoke-id)))
+  (get-in (rf.machines.test-support/runtime-db frame-a) (rf.machines.paths/spawned-path parent-id invoke-id)))
 
 ;; ---- direct-invocation runner ---------------------------------------------
 
@@ -117,18 +117,18 @@
        A on the first `:rf.error/machine-spawn-unregistered-type` record.
   Returns observables read off B."
   [frame-a parent-id invoke-id children {:keys [trigger destroy?]}]
-  (spawn-order/reset-all!)
+  (rf.machines.spawn-order/reset-all!)
   (rf/make-frame {:id frame-a})
-  (let [token-a       (frame/frame-incarnation-token frame-a)
+  (let [token-a       (rf.frame/frame-incarnation-token frame-a)
         fired?        (atom false)
         records       (atom [])
         b-birth       (atom nil)
-        orig-validate (late-bind/get-fn :schemas/validate-with-registered-fn)
+        orig-validate (rf.late-bind/get-fn :schemas/validate-with-registered-fn)
         destroy+B!    (fn []
                         (when (and destroy? (compare-and-set! fired? false true))
-                          (frame/destroy-frame! frame-a)  ;; destroy A
+                          (rf.frame/destroy-frame! frame-a)  ;; destroy A
                           (rf/make-frame {:id frame-a})    ;; publish same-id B
-                          (reset! b-birth (mtest/runtime-db frame-a))))]
+                          (reset! b-birth (rf.machines.test-support/runtime-db frame-a))))]
     (rf/register-listener! :errors ::recorder
                            (fn [r]
                              (when (= :rf.error/machine-spawn-unregistered-type (:error r))
@@ -137,7 +137,7 @@
                                  (destroy+B!)))))
     (try
       (when (= :validator (:kind trigger))
-        (late-bind/set-fn! :schemas/validate-with-registered-fn
+        (rf.late-bind/set-fn! :schemas/validate-with-registered-fn
           (fn [schema _data]
             (when (= schema child-schema)
               (destroy+B!)
@@ -145,19 +145,19 @@
                 :throw (throw (ex-info "validator boom" {}))
                 :false false
                 true)))))
-      (frame/call-with-event-owner-token frame-a token-a
-        (fn [] (spawn/spawn-all-init-fx
+      (rf.frame/call-with-event-owner-token frame-a token-a
+        (fn [] (rf.machines.lifecycle-fx.spawn/spawn-all-init-fx
                  {:frame frame-a}
                  (init-args parent-id invoke-id children))))
       {:fired?     @fired?
        :records    @records
        :b-birth    @b-birth
-       :b-runtime  (mtest/runtime-db frame-a)
+       :b-runtime  (rf.machines.test-support/runtime-db frame-a)
        :join-slot  (join-slot frame-a parent-id invoke-id)
-       :started    (mtest/events-of :rf.machine.spawn-all/started)}
+       :started    (rf.machines.test-support/events-of :rf.machine.spawn-all/started)}
       (finally
         (rf/unregister-listener! :errors ::recorder)
-        (late-bind/set-fn! :schemas/validate-with-registered-fn orig-validate)))))
+        (rf.late-bind/set-fn! :schemas/validate-with-registered-fn orig-validate)))))
 
 (defn- assert-b-inert
   "The successor B carries NONE of A's derived spawn-all state: no join slot,

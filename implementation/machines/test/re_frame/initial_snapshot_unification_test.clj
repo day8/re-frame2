@@ -17,27 +17,27 @@
   (unit-level) and the end-to-end spawn path (integration-level)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.machines :as machines]
-            [re-frame.machines.parallel :as parallel]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.machines :as rf.machines]
+            [re-frame.machines.parallel :as rf.machines.parallel]
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 ;; This ns keeps a bespoke reset-runtime fixture (clear-all! + frame reset +
 ;; machines :reload + reset-timers!) — it exercises registration-time
 ;; snapshot unification, so it deliberately reloads the machines ns rather
 ;; than reusing the shared make-reset-runtime-fixture.
 (defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (rf/init! plain-atom/adapter)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf/init! rf.substrate.plain-atom/adapter)
   ;; `init!` does not synthesise `:rf/default`, and machine fxs require a
   ;; carried frame stamp. Register `:rf/default` explicitly and pin it as
   ;; the established scope for the body.
-  (frame/ensure-default-frame!)
+  (rf.frame/ensure-default-frame!)
   (require 're-frame.machines :reload)
-  (machines/reset-timers!)
+  (rf.machines/reset-timers!)
   (rf/with-frame :rf/default
     (test-fn)))
 
@@ -45,9 +45,9 @@
 
 ;; snapshot lookup via the shared machines test-support — no hardcoded
 ;; `[:rf.runtime/machines :snapshots …]` path.
-(def ^:private snapshot mtest/snapshot)
+(def ^:private snapshot rf.machines.test-support/snapshot)
 
-;; ---- (1) `parallel/build-initial-snapshot` unit contract -------------------
+;; ---- (1) `rf.machines.parallel/build-initial-snapshot` unit contract -------------------
 ;;
 ;; Pin the helper's shape directly. Both `:rf/spawn-counter` and `:meta`
 ;; (when declared) are always present on the synthesised snapshot;
@@ -59,7 +59,7 @@
                 :data    {:counter 0}
                 :meta    {:schema-version 7}
                 :states  {:idle {}}}
-          snap (parallel/build-initial-snapshot spec {:bootstrap-pending? false})]
+          snap (rf.machines.parallel/build-initial-snapshot spec {:bootstrap-pending? false})]
       (is (contains? snap :rf/spawn-counter)
           ":rf/spawn-counter MUST always be present on live snapshots (rf2-gr8q)")
       (is (= {} (:rf/spawn-counter snap))
@@ -73,7 +73,7 @@
                 :data    {:counter 0}
                 :meta    {:schema-version 7}
                 :states  {:idle {}}}
-          snap (parallel/build-initial-snapshot spec {:bootstrap-pending? true})]
+          snap (rf.machines.parallel/build-initial-snapshot spec {:bootstrap-pending? true})]
       (is (contains? snap :rf/spawn-counter)
           "the spawn-path snapshot ALSO carries :rf/spawn-counter — pre-rf2-fgqs4 this slot was missing")
       (is (= {} (:rf/spawn-counter snap)))
@@ -83,7 +83,7 @@
           "the spawn path stamps the bootstrap marker so the actor's first dispatch fires the :entry cascade (rf2-0z73)")))
   (testing ":meta absent from spec → :meta absent from snapshot"
     (let [spec {:initial :idle :data {} :states {:idle {}}}
-          snap (parallel/build-initial-snapshot spec {:bootstrap-pending? true})]
+          snap (rf.machines.parallel/build-initial-snapshot spec {:bootstrap-pending? true})]
       (is (not (contains? snap :meta))
           "no :meta in spec — the helper does not invent one"))))
 

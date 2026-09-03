@@ -35,17 +35,17 @@
   `override-applies?` had) makes the churn test flip to `:attempt-unverified`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.fx :as fx]
-            [re-frame.interop :as interop]
+            [re-frame.fx :as rf.fx]
+            [re-frame.interop :as rf.interop]
             [re-frame.machines]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter})
-  mtest/trace-capture-fixture)
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})
+  rf.machines.test-support/trace-capture-fixture)
 
 ;; ---------------------------------------------------------------------------
 ;; helpers (mirroring the sibling join transport tests)
@@ -54,12 +54,12 @@
 (defn- join-state
   ([parent-id] (join-state :rf/default parent-id))
   ([frame-id parent-id]
-   (get-in (mtest/runtime-db frame-id)
+   (get-in (rf.machines.test-support/runtime-db frame-id)
            [:rf.runtime/machines :spawned parent-id [:racing]])))
 
 (defn- stale-reasons []
   (mapv (comp :rf.reply/stale-reason :tags)
-        (mtest/events-of :rf.machine.spawn-all/stale-completion)))
+        (rf.machines.test-support/events-of :rf.machine.spawn-all/stale-completion)))
 
 (defn- mk-child
   "A dispatching child: on `:go` transitions to a plain terminal and dispatches
@@ -108,12 +108,12 @@
   captures each `[event opts]` into `sink` WITHOUT draining. Restores the real
   hook in a finally."
   [sink body-fn]
-  (let [real (late-bind/get-fn :router/dispatch!)]
+  (let [real (rf.late-bind/get-fn :router/dispatch!)]
     (try
-      (late-bind/set-fn! :router/dispatch! (fn [event opts] (swap! sink conj [event opts])))
+      (rf.late-bind/set-fn! :router/dispatch! (fn [event opts] (swap! sink conj [event opts])))
       (body-fn)
       (finally
-        (late-bind/set-fn! :router/dispatch! real)))))
+        (rf.late-bind/set-fn! :router/dispatch! real)))))
 
 (defn- completion-dispatched?
   "True iff the completion carrier `[parent-id [:child/done child-id]]` was
@@ -186,7 +186,7 @@
             (and none leaks onto a recreated same-id B). Pre-fix the unconditional
             `child-dispatch!` armed `[frame-id tid]` AFTER destroy — a
             fires-dead-on-arrival timer."
-    (fx/reset-dispatch-later-timers!)
+    (rf.fx/reset-dispatch-later-timers!)
     (rf/make-frame {:id :fence/pos :doc "rf2-5g6qq positive-delay destroy frame"})
     (rf/reg-machine :fence.pos/ca (mk-child-delayed :fence.pos/rp 600000))
     (rf/reg-machine :fence.pos/cb (mk-child-delayed :fence.pos/rp 600000))
@@ -207,7 +207,7 @@
       (rf/make-frame {:id :fence/pos :doc "rf2-5g6qq successor B"})
       (is (zero? (count (timers-for-frame :fence/pos)))
           "same-id successor B carries no timer leaked from A's transport"))
-    (fx/reset-dispatch-later-timers!)))
+    (rf.fx/reset-dispatch-later-timers!)))
 
 (deftest zero-delay-completion-fallthrough-listener-destroy-arms-no-timer
   (testing "rf2-5g6qq — the zero-ms boundary: a `:dispatch-later {:ms 0}`
@@ -215,10 +215,10 @@
             too rides the timer reservation the exact-owner recheck now guards. The
             host clock is captured (never fired), so the observable is whether the
             transport armed a timer AT ALL: with the fallthrough listener
-            destroying A during the emit, `interop/set-timeout!` is NEVER reached.
+            destroying A during the emit, `rf.interop/set-timeout!` is NEVER reached.
             Pre-fix the unconditional transport armed it — a dead-on-arrival ms-0
             re-dispatch into the gone frame."
-    (fx/reset-dispatch-later-timers!)
+    (rf.fx/reset-dispatch-later-timers!)
     (rf/make-frame {:id :fence/zero :doc "rf2-5g6qq zero-delay destroy frame"})
     (rf/reg-machine :fence.zero/ca (mk-child-delayed :fence.zero/rp 0))
     (rf/reg-machine :fence.zero/cb (mk-child-delayed :fence.zero/rp 0))
@@ -227,8 +227,8 @@
     (let [a     (get-in (join-state :fence/zero :fence.zero/rp) [:children :a])
           errs  (atom [])
           armed (atom [])]
-      (with-redefs [interop/set-timeout!   (fn [f _ms] (swap! armed conj f) ::handle)
-                    interop/clear-timeout! (fn [_] nil)]
+      (with-redefs [rf.interop/set-timeout!   (fn [f _ms] (swap! armed conj f) ::handle)
+                    rf.interop/clear-timeout! (fn [_] nil)]
         (with-destroying-error-listener errs :fence/zero
           (fn []
             (rf/dispatch-sync [a [:go]]
@@ -238,7 +238,7 @@
           "the fallthrough diagnostic fired (the destroy trigger)")
       (is (empty? @armed)
           "no :ms 0 host timer was armed after the listener destroyed A"))
-    (fx/reset-dispatch-later-timers!)))
+    (rf.fx/reset-dispatch-later-timers!)))
 
 ;; ---------------------------------------------------------------------------
 ;; (B) CHURN — a register/unregister between the single classification and its
@@ -264,13 +264,13 @@
     (let [a     (get-in (join-state :churn/rp) [:children :a])
           errs  (atom [])
           calls (atom 0)
-          real  registrar/lookup]
+          real  rf.registrar/lookup]
       (rf/register-listener! :errors ::churn (fn [r] (swap! errs conj (:error r))))
       (try
         ;; The target is REGISTERED at the single classification (lookup #1) and
         ;; UNREGISTERED for every later read (lookup #2, the execution meta) —
         ;; the exact preflight→execution churn window.
-        (with-redefs [registrar/lookup
+        (with-redefs [rf.registrar/lookup
                       (fn [kind id]
                         (if (and (= kind :fx) (= id :churn/target))
                           (when (= 1 (swap! calls inc)) (real kind id))

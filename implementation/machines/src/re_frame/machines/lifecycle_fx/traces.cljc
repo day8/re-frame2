@@ -11,10 +11,10 @@
   because `teardown.cljc` is the unified pure runtime-db projection; it
   deliberately emits NO traces so the projection stays a value→value
   function. These helpers ARE side effects, so they live separately."
-  (:require [re-frame.interop :as interop]
-            [re-frame.machines.error-emit :as machine-error-emit]
-            [re-frame.machines.reply :as m-reply]
-            [re-frame.trace :as trace]))
+  (:require [re-frame.interop :as rf.interop]
+            [re-frame.machines.error-emit :as rf.machines.error-emit]
+            [re-frame.machines.reply :as rf.machines.reply]
+            [re-frame.trace :as rf.trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -81,10 +81,10 @@
                     (contains? args :work-generation)
                     (assoc :work-generation work-generation))
         summary    (when cancelled?
-                     (m-reply/trace-reply
-                       (m-reply/cancelled-actor-reply reply-ctx)
+                     (rf.machines.reply/trace-reply
+                       (rf.machines.reply/cancelled-actor-reply reply-ctx)
                        {:frame frame}))]
-    (trace/emit! :rf.machine :rf.machine/destroyed
+    (rf.trace/emit! :rf.machine :rf.machine/destroyed
                  (cond-> {:frame    frame
                           :actor-id actor-id
                           :reason   reason}
@@ -145,7 +145,7 @@
   teardown, no dishonest terminal) holds in every build; the loud dev trace
   names the offending arg. Per Spec 009 §Error event catalogue."
   [frame-id cause args]
-  (trace/emit-error! :rf.error/machine-destroy-bad-arg
+  (rf.trace/emit-error! :rf.error/machine-destroy-bad-arg
                      {:cause    cause
                       :arg      args
                       :frame    frame-id
@@ -158,7 +158,7 @@
   was released as part of teardown. No-op when `sid` is nil."
   [frame-id sid actor-id]
   (when sid
-    (trace/emit! :rf.machine :rf.machine/system-id-released
+    (rf.trace/emit! :rf.machine :rf.machine/system-id-released
                  {:frame      frame-id
                   :system-id  sid
                   ;; the released actor's live INSTANCE address;
@@ -186,7 +186,7 @@
         state-path (:state-path result-info)
         exception  (:exception result-info)]
     ;; Axis 1 — STRUCTURAL-ONLY always-on record (no prose; see error-emit).
-    (machine-error-emit/emit-machine-action-exception!
+    (rf.machines.error-emit/emit-machine-action-exception!
       {:actor-id   actor-id
        :failing-id failing-id
        :state      state-path
@@ -194,15 +194,15 @@
        :phase      :rf.machine/destroy-exit
        :recovery   :skipped
        :exception  exception})
-    ;; Axis 2 — dev-only trace. Wrapped in an EXPLICIT `interop/debug-enabled?`
+    ;; Axis 2 — dev-only trace. Wrapped in an EXPLICIT `rf.interop/debug-enabled?`
     ;; call-site gate so Closure constant-folds the whole form — including the
     ;; dev-only diagnostic PROSE `:reason` — away under :advanced +
     ;; goog.DEBUG=false (009 elision probe: `emit-destroy-exit-failure!` prose
-    ;; sentinel). The internal gate inside `trace/emit-error!` is not enough on
+    ;; sentinel). The internal gate inside `rf.trace/emit-error!` is not enough on
     ;; its own here because this function also contains the live always-on call;
     ;; the explicit gate lets Closure eliminate the dev-only map and prose.
-    (when interop/debug-enabled?
-      (trace/emit-error! :rf.error/machine-action-exception
+    (when rf.interop/debug-enabled?
+      (rf.trace/emit-error! :rf.error/machine-action-exception
                          {:actor-id   actor-id
                           :machine-id actor-id
                           :failing-id failing-id

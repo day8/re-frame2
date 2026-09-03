@@ -17,7 +17,7 @@
   Both route through `dispatch-spawn-error!`, which dispatches the reserved
   event `[<parent-id> [:rf.machine.spawn/error <invoke-id> <error>]]` into the
   parent. The parent's macrostep resolves it natively via
-  `transition/pick-spawn-error-transition` (the `:on-error` transition is
+  `rf.machines.transition/pick-spawn-error-transition` (the `:on-error` transition is
   resolved at the `:spawn`-bearing state's level — a keyword target is a
   sibling), so the parent transition fires with full engine semantics (entry /
   exit cascade, `:always` / `:raise` drain, traces, and the parent's own
@@ -34,12 +34,12 @@
   This namespace is a LEAF over the spawn-resolution helpers it needs
   (`resolver` + `paths` + `transition` + `late-bind`), so both `finalize` and
   `registration` may require it without a load cycle. The `:spawn`-at-invoke-id
-  lookup lives in `resolver/spawn-spec-at`;
+  lookup lives in `rf.machines.lifecycle-fx.resolver/spawn-spec-at`;
   `transition` is retained only for the reserved `spawn-error-event-id`."
-  (:require [re-frame.late-bind :as late-bind]
-            [re-frame.machines.lifecycle-fx.resolver :as resolver]
-            [re-frame.machines.paths :as paths]
-            [re-frame.machines.transition :as transition]))
+  (:require [re-frame.late-bind :as rf.late-bind]
+            [re-frame.machines.lifecycle-fx.resolver :as rf.machines.lifecycle-fx.resolver]
+            [re-frame.machines.paths :as rf.machines.paths]
+            [re-frame.machines.transition :as rf.machines.transition]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -51,9 +51,9 @@
   `finalize-machine` does for `:on-done`."
   [db parent-id]
   (when parent-id
-    (resolver/spec-from-id-or-snapshot
+    (rf.machines.lifecycle-fx.resolver/spec-from-id-or-snapshot
       parent-id
-      (get-in db (paths/snapshot-path parent-id)))))
+      (get-in db (rf.machines.paths/snapshot-path parent-id)))))
 
 (defn parent-declares-on-error?
   "True iff the child identified by `parent-id` / `invoke-id` was spawned by a
@@ -65,7 +65,7 @@
   (boolean
     (when (and parent-id invoke-id)
       (some-> (resolve-parent-spec db parent-id)
-              (resolver/spawn-spec-at invoke-id)
+              (rf.machines.lifecycle-fx.resolver/spawn-spec-at invoke-id)
               :on-error
               some?))))
 
@@ -80,7 +80,7 @@
   conformance callers). `:source :machine-spawn` labels the dispatch so the
   Epoch panel attributes it to the spawn lifecycle."
   [frame-id parent-id invoke-id error]
-  (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
-    (dispatch! [parent-id [transition/spawn-error-event-id invoke-id error]]
+  (when-let [dispatch! (rf.late-bind/get-fn :router/dispatch!)]
+    (dispatch! [parent-id [rf.machines.transition/spawn-error-event-id invoke-id error]]
                {:frame frame-id :source :machine-spawn}))
   nil)

@@ -24,13 +24,13 @@
        emits-per-active-machine`.
 
   After every machine has settled, sub-cache disposes / substrate
-  releases / `:frame/destroyed` trace fires from `frame/destroy-frame!`
+  releases / `:frame/destroyed` trace fires from `rf.frame/destroy-frame!`
   itself.
 
   Surfaces:
    - `teardown-on-frame-destroy!` — late-bound at
      `:machines/teardown-on-frame-destroy!`; called from
-     `frame/destroy-frame!`.
+     `rf.frame/destroy-frame!`.
 
   Source-of-truth on order: the DURABLE `[:rf.runtime/machines
   :spawn-order]` vector, appended by `install-spawn!` in the same
@@ -73,17 +73,17 @@
   root (stamped by `install-spawn!`; a SINGLETON snapshot never carries it
   — actor_liveness_test:213). The walk SPLITS on that durable
   discriminator: spawned actors run the full
-  `destroy/destroy-single-actor!` teardown (registrar cleanup, system-id
+  `rf.machines.lifecycle-fx.destroy/destroy-single-actor!` teardown (registrar cleanup, system-id
   release, timer cancel, snapshot dissoc); true singletons keep the
   exit-cascade-only straggler path."
-  (:require [re-frame.frame :as frame]
-            [re-frame.machines.lifecycle-fx.destroy :as destroy]
-            [re-frame.machines.lifecycle-fx.exit-cascade :as exit-cascade]
-            [re-frame.machines.lifecycle-fx.finalize :as finalize]
-            [re-frame.machines.paths :as paths]
-            [re-frame.machines.spawn-order :as spawn-order]
-            [re-frame.substrate.adapter :as adapter]
-            [re-frame.trace :as trace]))
+  (:require [re-frame.frame :as rf.frame]
+            [re-frame.machines.lifecycle-fx.destroy :as rf.machines.lifecycle-fx.destroy]
+            [re-frame.machines.lifecycle-fx.exit-cascade :as rf.machines.lifecycle-fx.exit-cascade]
+            [re-frame.machines.lifecycle-fx.finalize :as rf.machines.lifecycle-fx.finalize]
+            [re-frame.machines.paths :as rf.machines.paths]
+            [re-frame.machines.spawn-order :as rf.machines.spawn-order]
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
+            [re-frame.trace :as rf.trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -94,8 +94,8 @@
   container and this read is not re-evaluated.
   EP-0001: machine snapshots are durable runtime-db state."
   [frame-id]
-  (when-let [container (frame/runtime-db-container frame-id)]
-    (adapter/read-container container)))
+  (when-let [container (rf.frame/runtime-db-container frame-id)]
+    (rf.substrate.adapter/read-container container)))
 
 (defn- spawned-snapshot?
   "True iff `snapshot` is a spawned actor's snapshot, not
@@ -143,7 +143,7 @@
   cascade emits this event. Preserves the trace contract observable in
   `frame_lifecycle_test/destroy-frame-cascade-emits-per-active-machine`."
   [frame-id actor-id snapshot]
-  (trace/emit! :rf.machine.lifecycle/destroyed :rf.machine.lifecycle/destroyed
+  (rf.trace/emit! :rf.machine.lifecycle/destroyed :rf.machine.lifecycle/destroyed
                {:frame      frame-id
                 ;; The reaped actor's live INSTANCE address;
                 ;; `:machine-id` is reserved for the registered TYPE.
@@ -161,7 +161,7 @@
   (the frame's runtime-db is about to be released).
 
   The HTTP-abort fires the shared `:http/abort-on-actor-destroy`
-  late-bind hook via `finalize/abort-actor-in-flight-http!` — the same
+  late-bind hook via `rf.machines.lifecycle-fx.finalize/abort-actor-in-flight-http!` — the same
   best-effort, idempotent helper the spawn-destroy + final-state
   teardowns use, so the abort contract has one home.
 
@@ -169,8 +169,8 @@
   a per-instance marks table. There are therefore no schema marks for any
   teardown path — singleton or spawned — to clear or preserve."
   [frame-id actor-id]
-  (exit-cascade/run-child-exit! frame-id actor-id)
-  (finalize/abort-actor-in-flight-http! actor-id)
+  (rf.machines.lifecycle-fx.exit-cascade/run-child-exit! frame-id actor-id)
+  (rf.machines.lifecycle-fx.finalize/abort-actor-in-flight-http! actor-id)
   nil)
 
 (defn teardown-on-frame-destroy!
@@ -216,14 +216,14 @@
   [frame-id]
   (when frame-id
     (let [runtime-db   (frame-runtime-db frame-id)
-          snapshots    (or (get-in runtime-db (paths/snapshot-path)) {})
+          snapshots    (or (get-in runtime-db (rf.machines.paths/snapshot-path)) {})
           ;; The DURABLE total creation order, oldest → newest. Written by
           ;; `install-spawn!` inside the swap that landed each snapshot and
           ;; pruned by the teardown projection inside the swap that removed
           ;; it, so it names exactly the live spawned actors — and it says so
           ;; identically before and after a restore / hydration /
           ;; `replace-runtime-db!`, which is the whole point (rf2-1vlyg).
-          durable      (spawn-order/durable-order runtime-db)
+          durable      (rf.machines.spawn-order/durable-order runtime-db)
           durable-set  (set durable)
           ;; Reverse the durable vector → newest spawn first. THE
           ;; reverse-creation walk, per Spec 005 §Cross-Spec Interactions §1.
@@ -262,7 +262,7 @@
         ;; `destroy-single-actor!` is fail-soft against a vanished
         ;; container and missing artefacts; wrap defensively so one
         ;; bad actor can't strand the rest of the cascade.
-        (try (destroy/destroy-single-actor! frame-id actor-id)
+        (try (rf.machines.lifecycle-fx.destroy/destroy-single-actor! frame-id actor-id)
              (catch #?(:clj Throwable :cljs :default) _ nil)))
       ;; (b) Unsequenced spawned actors: the SAME full teardown, in a
       ;; deterministic order that claims no creation sequence — nothing ever
@@ -270,7 +270,7 @@
       (doseq [actor-id unsequenced-spawned]
         (let [snapshot (get snapshots actor-id)]
           (emit-lifecycle-destroyed! frame-id actor-id snapshot))
-        (try (destroy/destroy-single-actor! frame-id actor-id)
+        (try (rf.machines.lifecycle-fx.destroy/destroy-single-actor! frame-id actor-id)
              (catch #?(:clj Throwable :cljs :default) _ nil)))
       ;; (c) Singletons: trace + exit cascade + HTTP abort only. The
       ;; handler stays registered (lives in the global registrar, outlives
@@ -283,5 +283,5 @@
       ;; Drop the frame's spawn-order slot — every recorded actor is
       ;; gone, and a fresh construction under the same id starts with a
       ;; clean order channel.
-      (spawn-order/clear-frame! frame-id))
+      (rf.machines.spawn-order/clear-frame! frame-id))
     nil))

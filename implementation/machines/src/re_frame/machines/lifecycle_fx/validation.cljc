@@ -34,12 +34,12 @@
   node under `:states`, recursing through `:states` maps; used by the
   top-level dispatch."
   (:require [clojure.string :as str]
-            [re-frame.error :as error]
-            [re-frame.machines.choice :as choice]
-            [re-frame.machines.grammar :as grammar]
-            [re-frame.machines.internal-events :as internal-events]
-            [re-frame.machines.parallel :as parallel]
-            [re-frame.machines.timeout :as timeout]))
+            [re-frame.error :as rf.error]
+            [re-frame.machines.choice :as rf.machines.choice]
+            [re-frame.machines.grammar :as rf.machines.grammar]
+            [re-frame.machines.internal-events :as rf.machines.internal-events]
+            [re-frame.machines.parallel :as rf.machines.parallel]
+            [re-frame.machines.timeout :as rf.machines.timeout]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -67,7 +67,7 @@
   `:guard`)."
   ([error-kw reason] (validation-error error-kw reason nil))
   ([error-kw reason extras]
-   (error/thrown-ex-info error-kw 'rf/reg-machine reason
+   (rf.error/thrown-ex-info error-kw 'rf/reg-machine reason
                          {:recovery :fix-registration :extra extras})))
 
 ;; ---------------------------------------------------------------------------
@@ -108,7 +108,7 @@
        (some? (namespace k))))
 
 (def ^:private literally-printable-types
-  "The `error/diag-value-summary` `:type` tags whose values `pr-str` renders
+  "The `rf.error/diag-value-summary` `:type` tags whose values `pr-str` renders
   TOTALLY — no `toString` on an opaque host object, and no element-wise descent
   into a collection that might be holding one."
   #{:keyword :symbol :string :number :boolean :nil})
@@ -124,12 +124,12 @@
   shape only.
 
   Anything else — an opaque host object, or a collection that may contain one —
-  renders as its `error/diag-value-summary` shape tag (`<scalar>`, `<vector>`,
+  renders as its `rf.error/diag-value-summary` shape tag (`<scalar>`, `<vector>`,
   …). `pr-str` on such a value reaches `toString`, and a `toString` that throws
   would replace the structured rejection with a host exception: the same defect
   one level down from the one `namespaced-key?` fixes."
   [k]
-  (let [{tag :type} (error/diag-value-summary k)]
+  (let [{tag :type} (rf.error/diag-value-summary k)]
     (if (literally-printable-types tag)
       (pr-str k)
       (str "<" (name tag) ">"))))
@@ -174,7 +174,7 @@
   "Per Spec 005 §`:timeout` / `:on-timeout` — the legacy `:timeout-ms` slot
   on `:spawn` / `:spawn-all` is REMOVED: registration throws
   `:rf.error/spawn-timeout-ms-removed`. Use the spawn-level `:timeout` /
-  `:on-timeout` grammar validated by `timeout/validate-timeouts!`."
+  `:on-timeout` grammar validated by `rf.machines.timeout/validate-timeouts!`."
   [state-key state-node]
   (doseq [[slot-key spec]
           [[:spawn     (:spawn state-node)]
@@ -386,7 +386,7 @@
     rather than the semantically-weaker region-`:after`-that-`:raise`s
     workaround (whose timer is bound to an arbitrary region's lifecycle)."
   [machine]
-  (when (parallel/parallel? machine)
+  (when (rf.machines.parallel/parallel? machine)
     (when-not (and (map? (:regions machine)) (seq (:regions machine)))
       (throw (validation-error
                :rf.error/machine-parallel-bad-shape
@@ -394,7 +394,7 @@
     ;; The parallel root's `:on-done` must not carry an in-machine `:target`
     ;; in ANY form (root-only parallel has no flat sibling to land on).
     ;; Normalise every value-form `:on-done` admits via
-    ;; `grammar/candidate-maps`, the same grammar
+    ;; `rf.machines.grammar/candidate-maps`, the same grammar
     ;; the runtime parallel-root `apply-on-done-action` resolves through), then
     ;; reject if any candidate declares `:target`.
     ;;
@@ -410,7 +410,7 @@
     ;; accepted. A malformed shape (grammar nil) degrades to no candidates.
     (when (contains? machine :on-done)
       (let [on-done (:on-done machine)
-            cands   (or (grammar/candidate-maps on-done) [])]
+            cands   (or (rf.machines.grammar/candidate-maps on-done) [])]
         (when (some #(contains? % :target) cands)
           (throw (validation-error
                    :rf.error/machine-parallel-on-done-target
@@ -439,7 +439,7 @@
     ;; fallback), so a non-region-qualified root `:after` target is rejected
     ;; with the SAME `:rf.error/machine-parallel-root-on-bad-target` keyword.
     ;; `candidates-of` is the SHARED `:on` / `:after` value-form normaliser —
-    ;; the shared `grammar/candidate-maps`; malformed values produce `[]`.
+    ;; the shared `rf.machines.grammar/candidate-maps`; malformed values produce `[]`.
     (let [region-names (set (keys (:regions machine)))
           declared?    (fn [t] (contains? region-names t))
           bad-target!  (fn [slot target]
@@ -471,7 +471,7 @@
                              (bad-target! slot target))
                            ;; bare keyword / any other shape — no flat sibling
                            :else (bad-target! slot target)))
-          candidates-of (fn [v] (or (grammar/candidate-maps v) []))]
+          candidates-of (fn [v] (or (rf.machines.grammar/candidate-maps v) []))]
       (doseq [[_event v] (:on machine)
               cand        (candidates-of v)]
         (check-one! ":on" (:target cand)))
@@ -521,18 +521,18 @@
 ;; the feature is scoped to a `:type :parallel` machine root. Its runtime
 ;; support is likewise parallel-only — `transition/schedule-root-after-fx`
 ;; (the birth-time scheduler) is called ONLY from
-;; `parallel/run-initial-cascade`'s parallel branch; a flat/compound
-;; machine's birth (`parallel/bootstrap-step`) never calls it, and there is
+;; `rf.machines.parallel/run-initial-cascade`'s parallel branch; a flat/compound
+;; machine's birth (`rf.machines.parallel/bootstrap-step`) never calls it, and there is
 ;; no root resolver that would fire a flat root `:after` at the decl-path
-;; `[]` empty-path node (`grammar/node-at` resolves an empty path to nil).
-;; `timeout/validate-timeouts!` + `validate-after-delays!` both happily
+;; `[]` empty-path node (`rf.machines.grammar/node-at` resolves an empty path to nil).
+;; `rf.machines.timeout/validate-timeouts!` + `validate-after-delays!` both happily
 ;; accept a WELL-FORMED root `:timeout` / `:after` on a flat/compound
 ;; machine (they validate the pairing / duration / delay-key SHAPE, not
 ;; whether the runtime can ever schedule or resolve it), so — absent this
 ;; check — such a machine registers cleanly and its "whole-machine
 ;; deadline" silently never fires. Reject it loudly here instead, on the
 ;; DESUGARED machine (`validate-machine!` calls this after
-;; `timeout/desugar-timeouts`), so a root `:timeout` — which lowers onto
+;; `rf.machines.timeout/desugar-timeouts`), so a root `:timeout` — which lowers onto
 ;; `:after` — is caught via its lowered form in the SAME check as a
 ;; directly-authored root `:after`.
 ;;
@@ -565,7 +565,7 @@
   supported, scheduled, resolved feature per Spec 005. Absent / empty `:after`
   is fine everywhere."
   [machine]
-  (if (parallel/parallel? machine)
+  (if (rf.machines.parallel/parallel? machine)
     ;; The machine's own parallel-root `:after` is supported; only a
     ;; REGION-ROOT `:after` is the unscheduled shape.
     (doseq [[rn region-body] (:regions machine)]
@@ -617,7 +617,7 @@
                         (walk (conj path k) (:states n)))))
               nodes))]
     (cond
-      (parallel/parallel? machine)
+      (rf.machines.parallel/parallel? machine)
       (mapcat (fn [[_region region-body]] (walk [] (:states region-body)))
               (:regions machine))
 
@@ -660,22 +660,22 @@
 
 (def ^:private history-node?
   "True iff `node` is a history pseudo-state (`:type :history`). The
-  shared `grammar/history-node?` — registration and the runtime read the
+  shared `rf.machines.grammar/history-node?` — registration and the runtime read the
   one predicate."
-  grammar/history-node?)
+  rf.machines.grammar/history-node?)
 
 (defn- node-at-states
   "Walk a `:states` map down absolute `path`, returning the leaf
   state-node (or nil if `path` doesn't resolve). Scope-local resolver —
   `states` is the flat machine's `:states` or a single region body's
   `:states`, so `path` is scope-relative (region names are never part of
-  a within-region path). Delegates to the shared `grammar/node-at` (the
+  a within-region path). Delegates to the shared `rf.machines.grammar/node-at` (the
   same root→leaf descent the runtime `transition/node-at` uses) so
   registration resolves targets against EXACTLY the tree the runtime
   drives. `path` is coerced to a vector for the shared fn's count/seq
   semantics."
   [states path]
-  (grammar/node-at states (vec path)))
+  (rf.machines.grammar/node-at states (vec path)))
 
 (defn- resolves-to-state?
   "True iff `target` resolves to a real state under `owning-path` within
@@ -819,7 +819,7 @@
              (str "a machine root cannot be a :type :history pseudo-state — "
                   "history is a child node under a compound's :states.")
              {:state :rf/root :feature :history})))
-  (if (parallel/parallel? machine)
+  (if (rf.machines.parallel/parallel? machine)
     ;; A region body declared as `:type :history`, or with history nodes
     ;; under its `:states`, is validated per-region (region names are the
     ;; scope root — a history node directly under the region's `:states`
@@ -1022,7 +1022,7 @@
 
 (defn- always-entries
   "Normalise a state-node's `:always` slot to a vector of entry maps through
-  the shared `grammar/candidate-maps`. Absent
+  the shared `rf.machines.grammar/candidate-maps`. Absent
   `:always` — the key missing, OR present with an explicit nil value — yields
   the empty vector (no ancestor-blocking use case for `:always`, unlike `:on`
   / `:after`'s nil-is-forbidden-transition form), so the nil is gated BEFORE
@@ -1034,7 +1034,7 @@
   (let [a (:always state-node)]
     (if (nil? a)
       []
-      (or (grammar/candidate-maps a) []))))
+      (or (rf.machines.grammar/candidate-maps a) []))))
 
 (defn- always-self-loop?
   "True iff an `:always` entry's `:target` resolves to its own declaring
@@ -1104,7 +1104,7 @@
                           (walk p (:states n))))))
               nodes))]
     (cond
-      (parallel/parallel? machine)
+      (rf.machines.parallel/parallel? machine)
       (mapcat (fn [[_region region-body]] (walk [] (:states region-body)))
               (:regions machine))
 
@@ -1131,7 +1131,7 @@
                           (walk scope p (:states n))))))
               nodes))]
     (cond
-      (parallel/parallel? machine)
+      (rf.machines.parallel/parallel? machine)
       (mapcat (fn [[_region region-body]]
                 (walk (:states region-body) [] (:states region-body)))
               (:regions machine))
@@ -1161,14 +1161,14 @@
 (def ^:private candidate-targets
   "Normalise a transition slot's value (an `:on` entry, an `:after` entry,
   an `:on-done`, a `:spawn :on-error`) to the seq of `:target`s it declares,
-  each tagged with `:present?`. The shared `grammar/candidate-targets`,
-  built on the SAME `grammar/transition-value-form` recogniser the runtime
+  each tagged with `:present?`. The shared `rf.machines.grammar/candidate-targets`,
+  built on the SAME `rf.machines.grammar/transition-value-form` recogniser the runtime
   normaliser (`transition/normalise-candidates`) uses — so registration and
   the runtime share one grammar layer by construction. The `:present?` marker
   distinguishes \"`:target` key absent\" (internal
   transition — always fine) from \"`:target` present but malformed\" (e.g.
   `{:target nil}`)."
-  grammar/candidate-targets)
+  rf.machines.grammar/candidate-targets)
 
 (defn- validate-target!
   "Validate one `:target` against the declaring state's `scope` (its region /
@@ -1296,7 +1296,7 @@
                      {:state     state-key
                       :slot      :after
                       :delay-key delay-key}))))
-        roots (if (parallel/parallel? machine)
+        roots (if (rf.machines.parallel/parallel? machine)
                 (cons machine (vals (:regions machine)))
                 [machine])]
     (doseq [[state-key state-node] (walk-state-nodes machine)
@@ -1351,7 +1351,7 @@
         (check! :on-done (:on-done node)))
       (when-let [oe (get-in node [:spawn :on-error])]
         (check! :spawn/on-error oe))))
-  (when-not (parallel/parallel? machine)
+  (when-not (rf.machines.parallel/parallel? machine)
     (let [scope  (:states machine)
           check! (fn [v]
                    (doseq [{:keys [present? target]} (candidate-targets v)]
@@ -1431,13 +1431,13 @@
   row.
 
   `:type :history` and `:type :choice` pseudo-states carry their OWN closed
-  key-sets (`validate-history!` / `choice/validate-node-choice!`), so the node-key
+  key-sets (`validate-history!` / `rf.machines.choice/validate-node-choice!`), so the node-key
   walk SKIPS them — their validators already reject foreign keys with the
   node-kind-specific error id."
   #{;; root-shape / pseudo-state
     :type :deep? :default-target :regions
     ;; parallel-root region declaration order — the explicit registration
-    ;; contract (`parallel/normalise-region-order`); author-supplied OR derived
+    ;; contract (`rf.machines.parallel/normalise-region-order`); author-supplied OR derived
     ;; and stamped once at registration. Root-only, but harmless on the set,
     ;; exactly like `:regions`.
     :region-order
@@ -1518,7 +1518,7 @@
   [state-key state-node at-root?]
   (when (and (map? state-node)
              (not (history-node? state-node))
-             (not (choice/choice-node? state-node)))
+             (not (rf.machines.choice/choice-node? state-node)))
     (let [known     (cond-> known-state-node-keys
                        at-root? (into known-machine-root-extra-keys))
           offending (unknown-bare-keys state-node known)]
@@ -1698,7 +1698,7 @@
   ;; target flows through the same target-resolution check `:after` uses, a
   ;; `:final?` state carrying a `:timeout` is rejected as it would be for an
   ;; `:after`, and the desugared form is exactly what the runtime drives.
-  (timeout/validate-timeouts! machine)
+  (rf.machines.timeout/validate-timeouts! machine)
   ;; Validate the `:type :choice` / `:choice` grammar on the
   ;; RAW spec (before BOTH desugars) so diagnostics name the `:type :choice`
   ;; / `:choice` keys the author wrote AND a choice state that also declares
@@ -1706,22 +1706,22 @@
   ;; The path-aware walker yields the declaring node's absolute path so a
   ;; self-targeting candidate is resolved.
   (doseq [[path n] (walk-state-nodes-with-path machine)]
-    (choice/validate-node-choice! path (peek path) n))
+    (rf.machines.choice/validate-node-choice! path (peek path) n))
   ;; A parallel region ROOT (a region body) may itself be a `:type :choice`
   ;; node only in a degenerate sense; the walker above does not yield region
   ;; roots, so validate them here for completeness (rejected via the same
   ;; reserved-key / shape rules — a region root carries `:states`, a
   ;; reserved key, so a `:type :choice` region root fails loud).
-  (when (parallel/parallel? machine)
+  (when (rf.machines.parallel/parallel? machine)
     (doseq [[rn body] (:regions machine)]
-      (choice/validate-node-choice! [rn] rn body)))
+      (rf.machines.choice/validate-node-choice! [rn] rn body)))
   ;; Validate the `:internal-events` declaration on the raw
   ;; spec: it must be a set of keywords, and reserved `:rf/*` lifecycle names
   ;; are forbidden. A declared internal event is expected to have an ordinary
   ;; `:on` handler; the visibility boundary rejects only external dispatch.
   ;; Neither named-intent desugar touches `:internal-events`,
   ;; so the raw spec is the right basis.
-  (internal-events/validate-internal-events! machine)
+  (rf.machines.internal-events/validate-internal-events! machine)
   ;; No-silent-swallow on state-node / spawn-spec keys + the `:tags` shape, on
   ;; the RAW spec (before BOTH desugars) so diagnostics name the exact keys the
   ;; author wrote — a `:choice` / `:timeout` / `:on-timeout` key is still present
@@ -1746,7 +1746,7 @@
   ;; region body too (a typo'd bare key on a region root must not slip through).
   ;; A region body is NOT the machine root — the root-only registration-metadata
   ;; keys (`:doc` / `:sensitive` / …) live on the machine root, not per region.
-  (when (parallel/parallel? machine)
+  (when (rf.machines.parallel/parallel? machine)
     (doseq [[rn body] (:regions machine)]
       (validate-node-keys! rn body false)
       (validate-spawn-spec-keys! rn body)
@@ -1755,7 +1755,7 @@
   ;; (`:timeout` → `:after`, `:choice` → `:always`) so every subsequent
   ;; structural validator (transition targets, self-loop, after delays) and
   ;; the runtime see the lowered form.
-  (let [machine (choice/desugar-choices (timeout/desugar-timeouts machine))]
+  (let [machine (rf.machines.choice/desugar-choices (rf.machines.timeout/desugar-timeouts machine))]
   (validate-history! machine)
   (validate-parallel! machine)
   ;; A non-parallel root's `:after` (hand-authored or lowered
@@ -1868,7 +1868,7 @@
     ;; region-qualified — is validated by `validate-parallel!`; this block
     ;; validates only the guard/action refs, like every other transition
     ;; slot.)
-    (let [roots (if (parallel/parallel? machine)
+    (let [roots (if (rf.machines.parallel/parallel? machine)
                   (cons machine (vals (:regions machine)))
                   [machine])]
       (doseq [root roots
@@ -1881,5 +1881,5 @@
     ;; regions reach final) carries `:guard` / `:action` refs that must
     ;; resolve at registration. (`walk-state-nodes` yields per-region nodes,
     ;; not the parallel root itself, so this is validated explicitly.)
-    (when (parallel/parallel? machine)
+    (when (rf.machines.parallel/parallel? machine)
       (check-transition! (:on-done machine) :rf/root)))))

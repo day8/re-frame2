@@ -35,28 +35,28 @@
    ;; load the machines artefact so its fx handlers + late-bind hooks are
    ;; installed when this ns runs in isolation.
    [re-frame.machines]
-   [re-frame.machines.test-support :as mtest]
-   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
-       :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
+   [re-frame.machines.test-support :as rf.machines.test-support]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture
-    #?(:clj  {:adapter plain-atom/adapter}
-       :cljs {:adapter reagent-adapter/adapter}))
-  mtest/trace-capture-fixture)
+  (rf.machines.test-support/make-reset-runtime-fixture
+    #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
+       :cljs {:adapter rf.adapter.reagent/adapter}))
+  rf.machines.test-support/trace-capture-fixture)
 
 (defn- destroyed-reasons-for [actor-id]
   (into []
         (comp (filter #(= actor-id (:actor-id (:tags %))))
               (map (comp :reason :tags)))
-        (mtest/events-of :rf.machine/destroyed)))
+        (rf.machines.test-support/events-of :rf.machine/destroyed)))
 
 (defn- tracked-slot [parent-id]
-  (get-in (mtest/runtime-db)
+  (get-in (rf.machines.test-support/runtime-db)
           [:rf.runtime/machines :spawned parent-id [:working]]))
 
 (defn- parent-mirror [parent-id]
-  (get-in (mtest/snapshot parent-id) [:data :rf/spawned [:working]]))
+  (get-in (rf.machines.test-support/snapshot parent-id) [:data :rf/spawned [:working]]))
 
 (defn- destroy-imperatively!
   "Fire one imperative keyword destroy through an ordinary app event."
@@ -103,7 +103,7 @@
       ;; Imperative destroy: full teardown ONCE; the tracked slot survives
       ;; (its teardown-args carry no parent/invoke) — the bug's precondition.
       (destroy-imperatively! child-id)
-      (is (nil? (mtest/snapshot child-id)) "actor dead after imperative destroy")
+      (is (nil? (rf.machines.test-support/snapshot child-id)) "actor dead after imperative destroy")
       (is (= child-id (tracked-slot :tsp/p1))
           "precondition: the tracked slot still names the now-dead actor")
       (is (= [:explicit] (destroyed-reasons-for child-id))
@@ -128,15 +128,15 @@
                                           exit-count)]
       (destroy-imperatively! child-id)
       (rf/dispatch-sync [:tsp/p2 [:stop]])
-      (mtest/reset-captured!)
+      (rf.machines.test-support/reset-captured!)
       ;; Hand-fire the tracked form again — the slot is already gone.
       (rf/reg-event ::refire-tracked
         (fn [_ _] {:fx [[:rf.machine/destroy {:rf/parent-id :tsp/p2
                                               :rf/invoke-id [:working]}]]}))
       (rf/dispatch-sync [::refire-tracked])
-      (is (empty? (mtest/events-of :rf.machine/destroyed))
+      (is (empty? (rf.machines.test-support/events-of :rf.machine/destroyed))
           "repeat exit emits no destroyed trace")
-      (is (empty? (mtest/events-of :rf.error/machine-destroy-bad-arg))
+      (is (empty? (rf.machines.test-support/events-of :rf.error/machine-destroy-bad-arg))
           "repeat exit raises no error — silent idempotence")
       (is (= 1 @exit-count) "no further :exit runs"))))
 
@@ -157,7 +157,7 @@
       (is (= :tsp/fixed-3 (tracked-slot :tsp/p3)))
       ;; Kill the tracked incarnation.
       (destroy-imperatively! :tsp/fixed-3)
-      (is (nil? (mtest/snapshot :tsp/fixed-3)))
+      (is (nil? (rf.machines.test-support/snapshot :tsp/fixed-3)))
       ;; Hand-emit a same-id REPLACEMENT through the imperative spawn path —
       ;; no :rf/parent-id / :rf/invoke-id args, so its :data carries no
       ;; ownership stamps for the old slot.
@@ -165,17 +165,17 @@
         (fn [_ _] {:fx [[:rf.machine/spawn {:machine-id     :tsp/p3-child
                                             :fixed-actor-id :tsp/fixed-3}]]}))
       (rf/dispatch-sync [::respawn-fixed])
-      (is (some? (mtest/snapshot :tsp/fixed-3)) "replacement incarnation live")
+      (is (some? (rf.machines.test-support/snapshot :tsp/fixed-3)) "replacement incarnation live")
       (is (= :tsp/fixed-3 (tracked-slot :tsp/p3))
           "precondition: the STALE slot still names the (reused) id")
-      (mtest/reset-captured!)
+      (rf.machines.test-support/reset-captured!)
       ;; Old parent exits: the stale slot may prune itself, never the
       ;; replacement.
       (rf/dispatch-sync [:tsp/p3 [:stop]])
       (is (nil? (tracked-slot :tsp/p3)) "the stale slot is pruned")
-      (is (some? (mtest/snapshot :tsp/fixed-3))
+      (is (some? (rf.machines.test-support/snapshot :tsp/fixed-3))
           "the same-id replacement incarnation SURVIVES the old parent's exit")
-      (is (empty? (mtest/events-of :rf.machine/destroyed))
+      (is (empty? (rf.machines.test-support/events-of :rf.machine/destroyed))
           "no destroyed trace fired against the replacement"))))
 
 ;; ---------------------------------------------------------------------------
@@ -191,7 +191,7 @@
                                           {:machine-id :tsp/p4-child}
                                           exit-count)]
       (rf/dispatch-sync [:tsp/p4 [:stop]])
-      (is (nil? (mtest/snapshot child-id)) "live child torn down on exit")
+      (is (nil? (rf.machines.test-support/snapshot child-id)) "live child torn down on exit")
       (is (= [:explicit] (destroyed-reasons-for child-id))
           "exactly one :explicit destroyed trace")
       (is (= 1 @exit-count) "exactly one :exit cascade run")

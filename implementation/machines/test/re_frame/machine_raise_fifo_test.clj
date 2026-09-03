@@ -19,7 +19,7 @@
   Pairs with the flat-machine drain in
   `re-frame.machines.transition/drain-raises`."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.machines :as machines]))
+            [re-frame.machines :as rf.machines]))
 
 (defn- log-action
   "Build an action that appends `label` to `:data :log` and optionally
@@ -48,7 +48,7 @@
                                      :b  {:action :b}
                                      :c  {:action :c}
                                      :d  {:action :d}}}}}
-          {snap :snapshot} (machines/machine-transition
+          {snap :snapshot} (rf.machines/machine-transition
                                  spec {:state :hub :data {}} [:go])]
       (is (= [:go :b :c :d] (:log (:data snap)))
           "FIFO (XState/SCXML): the nested raise D lands behind sibling C —
@@ -66,7 +66,7 @@
                 :states  {:hub {:on {:go {:action :go}
                                      :b  {:action :b}
                                      :c  {:action :c}}}}}
-          {snap :snapshot} (machines/machine-transition
+          {snap :snapshot} (rf.machines/machine-transition
                                  spec {:state :hub :data {}} [:go])]
       (is (= [:go :b :c] (:log (:data snap)))
           "sibling raises drain in the order they entered the queue"))))
@@ -90,7 +90,7 @@
                                      :c  {:action :c}
                                      :d  {:action :d}
                                      :e  {:action :e}}}}}
-          {snap :snapshot} (machines/machine-transition
+          {snap :snapshot} (rf.machines/machine-transition
                                  spec {:state :hub :data {}} [:go])]
       (is (= [:go :b :c :d :e] (:log (:data snap)))
           "both first-level siblings (B, C) drain before either's nested
@@ -113,7 +113,7 @@
                           :s1 {:on {:e2 {:target :s2 :action :a2}}}
                           :s2 {:on {:e3 {:target :s3 :action :a3}}}
                           :s3 {}}}
-          {snap :snapshot} (machines/machine-transition
+          {snap :snapshot} (rf.machines/machine-transition
                                  spec {:state :s0 :data {}} [:e1])]
       (is (= :s3 (:state snap))
           "linear chain still settles to the terminal state")
@@ -154,7 +154,7 @@
         ;; snapshot / fx, so nothing intermediate escapes the abort. (The
         ;; lifecycle handler short-circuits to `{}`, leaving the pre-event
         ;; snapshot committed in runtime-db.)
-        (let [r (machines/machine-transition spec {:state :idle :data {}} [:start])]
+        (let [r (rf.machines/machine-transition spec {:state :idle :data {}} [:start])]
           (is (= :error (:status r))
               "depth-exceeded returns a :fail (failed macrostep), not an :ok no-op")
           (is (= :rf.error/machine-raise-depth-exceeded (get-in r [:error :kind]))
@@ -196,7 +196,7 @@
                                        :fx   [[:raise [:to-a]] [:side-effect-b 1]]})
                              :on {:to-a :a}}}}
           original {:state :idle :data {:n 0}}
-          r        (machines/machine-transition spec original [:start])]
+          r        (rf.machines/machine-transition spec original [:start])]
       ;; The abort is a FAILED macrostep. Atomic rollback is enforced by the
       ;; `:fail` threading NO snapshot / fx: every intermediate :a/:b state,
       ;; bumped :n, and accumulated :side-effect fx is discarded with the

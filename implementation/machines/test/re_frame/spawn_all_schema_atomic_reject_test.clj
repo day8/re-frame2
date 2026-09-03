@@ -44,21 +44,21 @@
             ;; Loading the machines facade registers `rf/reg-machine` + the
             ;; reserved machine fxs when this ns runs alone.
             [re-frame.machines]
-            [re-frame.machines.spawn-order :as spawn-order]
-            [re-frame.machines.test-support :as mtest]
+            [re-frame.machines.spawn-order :as rf.machines.spawn-order]
+            [re-frame.machines.test-support :as rf.machines.test-support]
             ;; The schemas artefact ships the registered-validator hot path the
             ;; `:where :machine-data` boundary routes through; the `.malli`
             ;; adapter publishes Malli's validate/explain into the late-bind
             ;; table.
             [re-frame.schemas]
             [re-frame.schemas.malli]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter})
-  mtest/trace-capture-fixture)
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})
+  rf.machines.test-support/trace-capture-fixture)
 
-(def ^:private frame-db mtest/runtime-db)
+(def ^:private frame-db rf.machines.test-support/runtime-db)
 
 (def ^:private ChildSchema
   "`:n` must be a positive int — the spawn-time `[:schemas :data]` gate."
@@ -99,7 +99,7 @@
   "Every `:rf.error/schema-validation-failure` trace with `:phase :spawn`."
   []
   (filterv #(= :spawn (get-in % [:tags :phase]))
-           (mtest/events-of :rf.error/schema-validation-failure)))
+           (rf.machines.test-support/events-of :rf.error/schema-validation-failure)))
 
 (defn- join-slot [parent-id]
   (get-in (frame-db) [:rf.runtime/machines :spawned parent-id [:forking]]))
@@ -137,18 +137,18 @@
     (is (nil? (get-in (frame-db) [:rf.runtime/machines :system-ids :ok-actor]))
         "no :system-id binding for the suppressed sibling")
     (is (empty? (filterv #{:sa/strict#1 :sa/plain#1}
-                         (spawn-order/frame-order :rf/default)))
+                         (rf.machines.spawn-order/frame-order :rf/default)))
         "no spawn-order entry for either child")
-    (is (empty? (mtest/events-of :rf.machine/spawn-all-started))
+    (is (empty? (rf.machines.test-support/events-of :rf.machine/spawn-all-started))
         "no spawn-all started trace for a rejected invoke")
-    (is (empty? (mtest/events-of :rf.machine.spawn/spawned))
+    (is (empty? (rf.machines.test-support/events-of :rf.machine.spawn/spawned))
         "no :rf.machine.spawn/spawned trace for ANY child")
-    (is (empty? (mtest/events-of :rf.machine.lifecycle/spawned))
+    (is (empty? (rf.machines.test-support/events-of :rf.machine.lifecycle/spawned))
         "no :rf.machine.lifecycle/spawned trace either — nothing landed")
     ;; Exactly one schema error, naming the offending child.
     (is (= 1 (count (schema-failures)))
         "exactly ONE :phase :spawn schema failure — for the one invalid child")
-    (is (= :forking (mtest/machine-state :sup/mixed))
+    (is (= :forking (rf.machines.test-support/machine-state :sup/mixed))
         "the parent stays in :forking — a refused join, not a deadlock")))
 
 (deftest invalid-child-position-does-not-change-the-reject
@@ -234,7 +234,7 @@
         "(precondition) the childless reject sentinel is seeded")
     ;; Hand-drive the completion the (suppressed) valid sibling would have sent.
     (rf/dispatch-sync [:sup/stray [:sa/done :ok]])
-    (is (= :forking (mtest/machine-state :sup/stray))
+    (is (= :forking (rf.machines.test-support/machine-state :sup/stray))
         "a completion against a childless sentinel resolves nothing and hangs nothing")))
 
 ;; ===========================================================================
@@ -253,7 +253,7 @@
     (is (= {:rf/spawn-all-rejected? true} (join-slot :sup/exit))
         "(precondition) the childless reject sentinel is seeded")
     (rf/dispatch-sync [:sup/exit [:back]])
-    (is (= :idle (mtest/machine-state :sup/exit))
+    (is (= :idle (rf.machines.test-support/machine-state :sup/exit))
         "(precondition) the parent left the :spawn-all state")
     (is (nil? (join-slot :sup/exit))
         "parent exit CLEARS the reject sentinel")

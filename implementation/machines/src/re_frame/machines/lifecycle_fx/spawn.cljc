@@ -21,18 +21,18 @@
   emits `[:rf.machine/spawn-all-init args]` alongside per-child
   `:rf.machine/spawn` fxs on entry to a `:spawn-all`-bearing state to
   seed the join state at `[:rf.runtime/machines :spawned <parent> <invoke-id>]`."
-  (:require [re-frame.error :as error]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.machines.classification :as classification]
-            [re-frame.machines.data-validation :as data-validation]
-            [re-frame.machines.lifecycle-fx.resolver :as resolver]
-            [re-frame.machines.parallel :as parallel]
-            [re-frame.machines.paths :as paths]
-            [re-frame.machines.reply :as m-reply]
-            [re-frame.machines.spawn-order :as spawn-order]
-            [re-frame.trace :as trace]))
+  (:require [re-frame.error :as rf.error]
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.machines.classification :as rf.machines.classification]
+            [re-frame.machines.data-validation :as rf.machines.data-validation]
+            [re-frame.machines.lifecycle-fx.resolver :as rf.machines.lifecycle-fx.resolver]
+            [re-frame.machines.parallel :as rf.machines.parallel]
+            [re-frame.machines.paths :as rf.machines.paths]
+            [re-frame.machines.reply :as rf.machines.reply]
+            [re-frame.machines.spawn-order :as rf.machines.spawn-order]
+            [re-frame.trace :as rf.trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -90,7 +90,7 @@
         defn       (:definition args)]
     (cond
       defn        defn
-      machine-id  (resolver/spec-from-registry machine-id))))
+      machine-id  (rf.machines.lifecycle-fx.resolver/spec-from-registry machine-id))))
 
 (defn- unregistered-spawn-type?
   "A `:spawn` / `:spawn-all` per-child whose `:machine-id` names an
@@ -119,7 +119,7 @@
   `goog.DEBUG=false` build must still see it — so it rides the always-on
   `:error-emit/dispatch-error-record` late-bind hook (the non-event sibling of
   `dispatch-on-error!`, shared with the frame-teardown report). A dev error
-  trace (`trace/emit-error!`, DCE'd in production) ALSO fires for the
+  trace (`rf.trace/emit-error!`, DCE'd in production) ALSO fires for the
   in-process tooling surface — the same always-on-plus-dev-trace shape
   `:rf.error/write-after-destroy` / `:rf.error/on-destroy-handler-exception`
   carry.
@@ -130,7 +130,7 @@
   and this record is production-surviving and NOT privacy-gated. `:reason`
   names the id and the fix without echoing any value-bearing slot."
   [frame-id machine-id]
-  (let [reason (error/human-message
+  (let [reason (rf.error/human-message
                  :rf.error/machine-spawn-unregistered-type
                  (str "Cannot spawn machine " machine-id
                       ": no machine TYPE is registered under that :machine-id "
@@ -140,15 +140,15 @@
     ;; Always-on (surface #4): the non-event union record. Structural-only —
     ;; no spawn args. Late-bound: machines ships above core's require graph;
     ;; the hook is bound once `re-frame.error-emit` loads.
-    (when-let [dispatch-record! (late-bind/get-fn :error-emit/dispatch-error-record)]
+    (when-let [dispatch-record! (rf.late-bind/get-fn :error-emit/dispatch-error-record)]
       (dispatch-record! {:error      :rf.error/machine-spawn-unregistered-type
                          :frame      frame-id
                          :machine-id machine-id
                          :recovery   :no-recovery
                          :reason     reason
-                         :time       (interop/now-ms)}))
+                         :time       (rf.interop/now-ms)}))
     ;; Dev trace (DCE'd in production) for the in-process tooling surface.
-    (trace/emit-error! :rf.error/machine-spawn-unregistered-type
+    (rf.trace/emit-error! :rf.error/machine-spawn-unregistered-type
                        {:machine-id machine-id
                         :failing-id machine-id
                         :frame      frame-id
@@ -195,7 +195,7 @@
   was resolved and no `[:schemas :data]` validator ran, so there is no
   unregistered-type or schema-validation reject to order against."
   [frame-id parent-id invoke-id collisions]
-  (let [reason (error/human-message
+  (let [reason (rf.error/human-message
                  :rf.error/machine-spawn-all-duplicate-id
                  (str "Cannot start :spawn-all invoke " invoke-id " on " parent-id
                       ": distinct logical children resolve to the SAME actor "
@@ -205,7 +205,7 @@
                       "Give each colliding child a distinct :fixed-actor-id, or "
                       "drop the fixed id so the runtime allocates a unique "
                       "generated address."))]
-    (trace/emit-error! :rf.error/machine-spawn-all-duplicate-id
+    (rf.trace/emit-error! :rf.error/machine-spawn-all-duplicate-id
                        {:parent-id  parent-id
                         :invoke-id  invoke-id
                         :collisions collisions
@@ -245,8 +245,8 @@
   the preflight already fanned (rf2-smya7a)."
   [frame-id args]
   (when-let [invoke-id (:rf/spawn-all-id args)]
-    (let [slot (get-in (frame/frame-runtime-db-value frame-id)
-                       (paths/spawned-path (:rf/parent-id args) invoke-id))]
+    (let [slot (get-in (rf.frame/frame-runtime-db-value frame-id)
+                       (rf.machines.paths/spawned-path (:rf/parent-id args) invoke-id))]
       (boolean (and (map? slot) (:rf/spawn-all-rejected? slot))))))
 
 (defn- machine-type-ref
@@ -312,7 +312,7 @@
      ;; public/pure spawn effect shape remains unchanged.
      :work-generation (if (contains? args :fixed-actor-id)
                         (:rf/attempt join-state)
-                        (m-reply/actor-generation spawned-id))}))
+                        (rf.machines.reply/actor-generation spawned-id))}))
 
 (defn- join-child-record
   "Build the PRIVATE join-membership record the runtime stamps into a
@@ -341,7 +341,7 @@
   [runtime-db args spawned-id]
   (when-let [invoke-id (:rf/spawn-all-id args)]
     (join-child-record-from-state
-      (get-in runtime-db (paths/spawned-path (:rf/parent-id args) invoke-id))
+      (get-in runtime-db (rf.machines.paths/spawned-path (:rf/parent-id args) invoke-id))
       args spawned-id)))
 
 (defn- stamp-spawn-spec
@@ -383,7 +383,7 @@
   (stamp-spawn-spec (resolve-spawn-machine args) args spawned-id join-child))
 
 ;; The spawned actor's initial snapshot is built by
-;; `parallel/build-initial-snapshot` — the single source of truth shared
+;; `rf.machines.parallel/build-initial-snapshot` — the single source of truth shared
 ;; with the singleton-registration path
 ;; (`lifecycle-fx.registration/make-machine-handler`); the shared builder
 ;; seeds `:rf/spawn-counter` and `:meta` consistently across both paths.
@@ -414,7 +414,7 @@
   spawn; `true` only on a genuine schema violation."
   [spec spawned-id initial-snap continue?]
   (and (some? spec)
-       (false? (data-validation/validate-spawn-data!
+       (false? (rf.machines.data-validation/validate-spawn-data!
                  spawned-id spec initial-snap continue?))))
 
 (defn- install-spawn!
@@ -431,7 +431,7 @@
   runs NO post-install tail (classification / spawn-order /
   `:rf.machine.lifecycle/spawned` / `:start`) unless install COMMITTED and
   the exact owner is STILL current — a bare-id `swap-runtime-db!` /
-  `spawn-order/record!` otherwise resolves to the CURRENT incarnation B.
+  `rf.machines.spawn-order/record!` otherwise resolves to the CURRENT incarnation B.
 
   There is NO per-instance handler registration — the
   actor's liveness IS the presence of this snapshot in the (revertible)
@@ -475,9 +475,9 @@
   decide against the registrar as it stands at COMMIT."
   [frame-id rt-after-alloc spec spawned-id initial-snap
    {:keys [system-id parent-id invoke-id track? type-ref-fn continue? owner-token]}]
-  (let [existing (when system-id (get-in rt-after-alloc (paths/system-id-path system-id)))]
+  (let [existing (when system-id (get-in rt-after-alloc (rf.machines.paths/system-id-path system-id)))]
     (when (and system-id existing (not= existing spawned-id))
-      (trace/emit-error! :rf.error/system-id-collision
+      (rf.trace/emit-error! :rf.error/system-id-collision
                          {:frame             frame-id
                           :system-id         system-id
                           :existing-machine  existing
@@ -557,7 +557,7 @@
                            (and spec type-ref) (assoc :rf/machine-type type-ref))
             install-fn (fn [_rt]
                          (cond-> rt-after-alloc
-                           spec      (assoc-in (paths/snapshot-path spawned-id) initial-snap)
+                           spec      (assoc-in (rf.machines.paths/snapshot-path spawned-id) initial-snap)
                            ;; rf2-1vlyg — append the actor to the DURABLE
                            ;; spawn-order vector in the SAME swap that lands its
                            ;; snapshot, so the frame's total creation order is
@@ -566,20 +566,20 @@
                            ;; of different machine types and is absent entirely
                            ;; on a `:fixed-actor-id`, so frame destroy has no
                            ;; other durable fact to read; the transient
-                           ;; `spawn-order/record!` below is a cache that any
+                           ;; `rf.machines.spawn-order/record!` below is a cache that any
                            ;; restore / hydration / `replace-runtime-db!` wipes.
                            ;; Gated on the same `spec` as the snapshot assoc: the
                            ;; order tracks exactly the actors that have snapshots.
-                           spec      (spawn-order/record-in-runtime-db spawned-id)
-                           system-id (assoc-in (paths/system-id-path system-id) spawned-id)
-                           track?    (assoc-in (paths/spawned-path parent-id invoke-id) spawned-id)))
+                           spec      (rf.machines.spawn-order/record-in-runtime-db spawned-id)
+                           system-id (assoc-in (rf.machines.paths/system-id-path system-id) spawned-id)
+                           track?    (assoc-in (rf.machines.paths/spawned-path parent-id invoke-id) spawned-id)))
             written    (if owner-token
-                         (frame/swap-runtime-db-exact! frame-id owner-token install-fn)
-                         (frame/swap-runtime-db! frame-id install-fn))]
+                         (rf.frame/swap-runtime-db-exact! frame-id owner-token install-fn)
+                         (rf.frame/swap-runtime-db! frame-id install-fn))]
         (if (some? written)
           (do
             (when system-id
-              (trace/emit! :rf.machine :rf.machine/system-id-bound
+              (rf.trace/emit! :rf.machine :rf.machine/system-id-bound
                            {:frame      frame-id
                             :system-id  system-id
                             ;; The live actor INSTANCE address (the spawned id),
@@ -641,7 +641,7 @@
   entry is always present by the time this child's spawn fx runs."
   [runtime-db args spawned-id]
   (when-let [invoke-id (:rf/spawn-all-id args)]
-    (get-in runtime-db (conj (paths/spawned-path (:rf/parent-id args) invoke-id)
+    (get-in runtime-db (conj (rf.machines.paths/spawned-path (:rf/parent-id args) invoke-id)
                              prepared-children-key spawned-id))))
 
 (defn- drop-prepared-entry
@@ -652,7 +652,7 @@
   drop rides the SAME runtime-db swap that lands the snapshot; a no-op if the
   join slot is not a live join (belt-and-braces)."
   [runtime-db args spawned-id]
-  (update-in runtime-db (paths/spawned-path (:rf/parent-id args) (:rf/spawn-all-id args))
+  (update-in runtime-db (rf.machines.paths/spawned-path (:rf/parent-id args) (:rf/spawn-all-id args))
              (fn [join-state]
                (if (map? join-state)
                  (let [remaining (dissoc (get join-state prepared-children-key) spawned-id)]
@@ -683,7 +683,7 @@
   entry): both keep the child-local `unregistered-spawn-type?` fail-closed gate."
   [frame-id args]
   (some? (spawn-all-prepared-child
-           (frame/frame-runtime-db-value frame-id)
+           (rf.frame/frame-runtime-db-value frame-id)
            args
            (pre-allocated-actor-id args))))
 
@@ -749,7 +749,7 @@
       ;; The registrar still holds the prepared definition — keep the revertible
       ;; keyword so the child tracks its TYPE like every other spawned actor.
       (and (some? machine-id)
-           (= type-spec (resolver/spec-from-registry machine-id)))
+           (= type-spec (rf.machines.lifecycle-fx.resolver/spec-from-registry machine-id)))
       machine-id
 
       ;; Diverged (unregistered, or replaced by another spec) — or an inline
@@ -809,7 +809,7 @@
         ;; frame as `:frame` (the HELD stamp). A nil stamp is an invariant
         ;; failure — surface `:rf.error/no-frame-context`, never repair to
         ;; a synthesised `:rf/default`.
-        frame-id   (frame/require-frame-stamp!
+        frame-id   (rf.frame/require-frame-stamp!
                      frame-id :rf.machine/spawn
                      {:where 'rf.machine/spawn :event-id (:system-id args)})]
     ;; Step 0 — the two fail-closed gates, INVOKE-level before CHILD-local.
@@ -882,7 +882,7 @@
         ;; `swap-runtime-db!` would otherwise resolve to B). Built ONCE here and
         ;; threaded into `spawn-rejected?` so the callback and the cascade fence
         ;; against the SAME token.
-        continue?  (data-validation/owner-continuation frame-id)
+        continue?  (rf.machines.data-validation/owner-continuation frame-id)
         ;; rf2-4ipqe4 — the RAW exact owner token (`continue?` closes over it),
         ;; threaded into `install-spawn!` so the snapshot / system-id / spawn-slot
         ;; install rides `swap-runtime-db-exact!`: a synchronous container watch
@@ -893,7 +893,7 @@
         ;; non-router pure-fn / conformance caller (no event owner) — the install
         ;; falls back to the historical bare-id write and that path stays
         ;; unaffected, symmetric with `continue?`'s `(constantly true)`.
-        owner-token (frame/current-event-owner-token)
+        owner-token (rf.frame/current-event-owner-token)
         ;; Prefer the pre-allocated id (declarative :spawn
         ;; routes through the transition reducer which bumps the parent
         ;; snapshot's `:rf/spawn-counter`). Hand-emitted spawn fxs carry
@@ -915,10 +915,10 @@
         ;; the same id the snapshot install / registry bind will use. The
         ;; runtime-db swap re-applies the increment to the (potentially-
         ;; newer) runtime-db at write time — for the JVM atom container the
-        ;; read is consistent because `frame/swap-runtime-db!` is the only
+        ;; read is consistent because `rf.frame/swap-runtime-db!` is the only
         ;; writer during fx drain (Spec 002 §Single drainer per frame).
         ;; Machine snapshots are durable runtime-db state.
-        old-rt     (frame/frame-runtime-db-value frame-id)
+        old-rt     (rf.frame/frame-runtime-db-value frame-id)
         machine-id-for-alloc (or (:id-prefix args) (:machine-id args))
         [rt-after-alloc-raw spawned-id]
         (cond
@@ -992,7 +992,7 @@
         initial-snap (if prepared
                        (:snap prepared)
                        (when spec''
-                         (parallel/build-initial-snapshot
+                         (rf.machines.parallel/build-initial-snapshot
                            spec'' {:bootstrap-pending? true})))
         ;; Decide schema rejection BEFORE the trace and the
         ;; install. Gating both on `(not rejected?)` makes a rejected spawn
@@ -1029,7 +1029,7 @@
     ;; A destroyed-frame or owner-lost spawn is a clean no-op — no trace, no
     ;; install, no dispatch — symmetric with the schema-reject path's atomicity.
     (when (and (not rejected?) old-rt (continue?))
-      (trace/emit! :rf.machine :rf.machine.spawn/spawned
+      (rf.trace/emit! :rf.machine :rf.machine.spawn/spawned
                    {:frame      frame-id
                     ;; `:machine-id` is the spec-time registered TYPE (xor
                     ;; an inline `:definition`); `:spawned-id` is the live
@@ -1084,7 +1084,7 @@
         ;; per-instance classification, the spawn-order record, and the
         ;; `:rf.machine.lifecycle/spawned` trace — ONLY when install COMMITTED
         ;; AND the exact owner is STILL current after those callbacks. Otherwise
-        ;; the bare-id `spawn-order/record!` / classification writes + the
+        ;; the bare-id `rf.machines.spawn-order/record!` / classification writes + the
         ;; lifecycle-spawned trace would commit into B's name. The initial
         ;; `(continue?)` gate at the cascade top fenced only the earlier
         ;; `:rf.machine.spawn/spawned` trace-listener callback; this fences the
@@ -1107,12 +1107,12 @@
         ;; declarations onto B's snapshot path or bump B's commit epoch (the
         ;; install itself is already exact; this closes the sibling classification
         ;; write the earlier fences ran ahead of).
-        (classification/lower-at-spawn! frame-id spawned-id spec'' owner-token)
+        (rf.machines.classification/lower-at-spawn! frame-id spawned-id spec'' owner-token)
         ;; rf2-rbxdxa — `lower-at-spawn!` writes through the EXACT elision swap, a
         ;; container-write boundary: a synchronous watch can destroy A / publish
         ;; same-id B DURING the classification lowering. Recheck `(continue?)`
         ;; AFTER it before the spawn-order record / lifecycle trace / `:start`
-        ;; dispatch tail — otherwise the bare-id `spawn-order/record!` records A's
+        ;; dispatch tail — otherwise the bare-id `rf.machines.spawn-order/record!` records A's
         ;; ghost child into B's spawn-order channel and the lifecycle-spawned
         ;; trace / bootstrap dispatch land against B. The install itself is already
         ;; exact (`install-spawn!`); this fences the classification-lowering seam
@@ -1121,7 +1121,7 @@
         ;; Record the spawned actor in the frame's spawn-order channel so
         ;; frame-destroy can walk in reverse-creation order per Spec 005
         ;; §Cross-Spec Interactions §1.
-        (spawn-order/record! frame-id spawned-id)
+        (rf.machines.spawn-order/record! frame-id spawned-id)
         ;; The REGISTRAR-substrate "instance appeared" observation, the
         ;; symmetric partner of
         ;; `:rf.machine.lifecycle/created` (handler registered) and
@@ -1135,7 +1135,7 @@
         ;; The `:state` tag carries the actor's initial state so the Xray
         ;; managed-fx invoke adapter can render it without re-reading
         ;; runtime-db (`managed_fx_helpers/machine-invoke-adapter`).
-        (trace/emit! :rf.machine.lifecycle/spawned :rf.machine.lifecycle/spawned
+        (rf.trace/emit! :rf.machine.lifecycle/spawned :rf.machine.lifecycle/spawned
                      {:frame      frame-id
                       ;; `:machine-id` = spec-time registered TYPE;
                       ;; `:spawned-id` = live instance address;
@@ -1155,7 +1155,7 @@
         ;; supply :start receive a synthetic [:rf.machine.spawn/spawned] so
         ;; generic child machines can declare their first transition out of an
         ;; :initial state at spec-write time.
-        (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
+        (when-let [dispatch! (rf.late-bind/get-fn :router/dispatch!)]
         ;; Stamp `:source :machine-spawn` on the actor-bootstrap dispatch so
         ;; the Epoch panel's DISPATCH step labels it "from machine spawn"
         ;; rather than `:unknown` or `:fx-dispatch` (which would be the value
@@ -1249,7 +1249,7 @@
                                     (nil? (:definition args))
                                     (nil? spec)))
         snap       (when spec
-                     (parallel/build-initial-snapshot spec {:bootstrap-pending? true}))
+                     (rf.machines.parallel/build-initial-snapshot spec {:bootstrap-pending? true}))
         schema-reject? (boolean (and spec (some? spawned-id)
                                      (spawn-rejected? spec spawned-id snap continue?)))]
     {:args           args
@@ -1306,7 +1306,7 @@
   its admission preflight has run application `[:schemas :data]` validators and
   (on the reject path) fanned callback-bearing reject records — either of which
   can synchronously destroy owner frame A and publish a same-id successor B on
-  its own stack. A bare-id `frame/swap-runtime-db!` resolves to the CURRENT
+  its own stack. A bare-id `rf.frame/swap-runtime-db!` resolves to the CURRENT
   incarnation, so it would land A's join-state / reject sentinel on B (and bump
   B's commit epoch), leaving B holding an IMPOSSIBLE join it never spawned.
 
@@ -1319,10 +1319,10 @@
   no incarnation to lose, symmetric with `continue?`'s `(constantly true)`.
   Returns the new runtime-db slice, or nil on owner loss."
   [frame-id owner-token parent-id invoke-id value]
-  (let [swap-fn #(assoc-in % (paths/spawned-path parent-id invoke-id) value)]
+  (let [swap-fn #(assoc-in % (rf.machines.paths/spawned-path parent-id invoke-id) value)]
     (if owner-token
-      (frame/swap-runtime-db-exact! frame-id owner-token swap-fn)
-      (frame/swap-runtime-db! frame-id swap-fn))))
+      (rf.frame/swap-runtime-db-exact! frame-id owner-token swap-fn)
+      (rf.frame/swap-runtime-db! frame-id swap-fn))))
 
 (defn- seed-reject-sentinel!
   "Seed the childless `spawn-all-reject-sentinel` at the invoke's join slot,
@@ -1445,7 +1445,7 @@
   (let [;; EP-0002 carried invariant — the fx context carries the cascade
         ;; envelope frame; a nil stamp is an invariant failure
         ;; (`:rf.error/no-frame-context`), never a synthesised `:rf/default`.
-        frame-id   (frame/require-frame-stamp!
+        frame-id   (rf.frame/require-frame-stamp!
                      frame-id :rf.machine/spawn-all-init
                      {:where 'rf.machine/spawn-all-init
                       :event-id (:rf/parent-id args)})
@@ -1463,7 +1463,7 @@
         ;;
         ;; rf2-ek435 — re-stamp each child-arg's `:rf/spawn-all-id` (and
         ;; `:rf/parent-id`) to THIS fx's own `invoke-id` / `parent-id`. For a
-        ;; PARALLEL-region invoke, `parallel/prefix-region-invoke-id` region-
+        ;; PARALLEL-region invoke, `rf.machines.parallel/prefix-region-invoke-id` region-
         ;; prefixes the init-fx's top-level `:rf/invoke-id` AND every per-child
         ;; `:rf.machine/spawn` fx's top-level `:rf/spawn-all-id`, but NOT the
         ;; `:child-args` nested here — so their `:rf/spawn-all-id` is the
@@ -1488,7 +1488,7 @@
         join-state (assoc (:join-state args)
                           :cancelled #{}
                           :rf/attempt (next-join-attempt-token))
-        continue?  (data-validation/owner-continuation frame-id)
+        continue?  (rf.machines.data-validation/owner-continuation frame-id)
         ;; rf2-8nxsh — the RAW exact owner token (`continue?` closes over the
         ;; same authority). The admission preflight below runs application
         ;; `[:schemas :data]` validators (`prepare-spawn-all-child`), and the
@@ -1500,7 +1500,7 @@
         ;; byte-identical even under a mid-write container watch; nil for a
         ;; non-router caller falls back to the bare write, symmetric with
         ;; `continue?`'s `(constantly true)`.
-        owner-token (frame/current-event-owner-token)
+        owner-token (rf.frame/current-event-owner-token)
         ;; ---- The invoke-level admission preflight ------------------------
         ;; ONE authoritative preparation per child, then ONE decision — both
         ;; taken BEFORE a live join or ANY child side effect is published
@@ -1635,7 +1635,7 @@
                                                   (map (juxt :spawned-id
                                                              #(select-keys % [:spec :snap :type-spec]))))
                                             prepared))))
-                  (trace/emit! :rf.machine :rf.machine.spawn-all/started
+                  (rf.trace/emit! :rf.machine :rf.machine.spawn-all/started
                                {;; The parent's live actor INSTANCE address;
                                 ;; `:invoke-id` is the declarative invocation path.
                                 :actor-id   parent-id

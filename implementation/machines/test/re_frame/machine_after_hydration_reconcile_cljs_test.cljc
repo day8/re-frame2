@@ -42,20 +42,20 @@
   runner (`npm run test:cljs`)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
             ;; Loading `re-frame.machines` installs the artefact's late-bind
             ;; hooks + reserved fxs; under a single-ns run nothing else does.
             [re-frame.machines]
-            [re-frame.machines.hydrate :as m-hydrate]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.machines.timer :as timer]
-            [re-frame.subs :as subs]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.machines.hydrate :as rf.machines.hydrate]
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.machines.timer :as rf.machines.timer]
+            [re-frame.subs :as rf.subs]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter})
-  mtest/trace-capture-fixture)
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})
+  rf.machines.test-support/trace-capture-fixture)
 
 ;; ---------------------------------------------------------------------------
 ;; Fixtures
@@ -76,7 +76,7 @@
 (defn- inner
   "`frame-id`'s inner `:after` timer table, or `{}` when it holds none."
   [frame-id]
-  (get @timer/after-timers frame-id {}))
+  (get @rf.machines.timer/after-timers frame-id {}))
 
 (defn- server-runtime-db
   "Run `machine` on a real SERVER frame through `events`, assert it armed no
@@ -88,7 +88,7 @@
       (rf/dispatch-sync [machine-id e] {:frame sfid}))
     (is (empty? (inner sfid))
         "precondition: the SERVER armed no `:after` host timer")
-    (frame/frame-runtime-db-value sfid)))
+    (rf.frame/frame-runtime-db-value sfid)))
 
 (defn- install!
   "Replace `frame-id`'s runtime-db with `runtime-db` and run the machines
@@ -97,8 +97,8 @@
   the wholesale runtime-db replacement, and that survival is the subject of
   this namespace."
   [frame-id runtime-db]
-  (frame/replace-runtime-db! frame-id runtime-db)
-  (m-hydrate/rearm-after-timers! frame-id))
+  (rf.frame/replace-runtime-db! frame-id runtime-db)
+  (rf.machines.hydrate/rearm-after-timers! frame-id))
 
 (defn- snap-of
   [runtime-db actor-id]
@@ -109,7 +109,7 @@
   event carries its payload under `:tags`, not at the top level."
   [actor-id]
   (into [] (comp (map :tags) (filter #(= actor-id (:actor-id %))))
-        (mtest/events-of :rf.machine.timer/cancelled)))
+        (rf.machines.test-support/events-of :rf.machine.timer/cancelled)))
 
 ;; ---------------------------------------------------------------------------
 ;; Machines under test
@@ -164,19 +164,19 @@
       (is (= :settled (:state (snap-of rt-settled :hydrec/changed)))
           "precondition: the replacement snapshot declares NO `:after`")
 
-      (with-redefs [interop/schedule-after!
+      (with-redefs [rf.interop/schedule-after!
                     (fn [_thunk _ms]
                       (let [h (keyword "handle" (str (count @armed)))]
                         (swap! armed conj h)
                         h))
-                    interop/cancel-scheduled!
+                    rf.interop/cancel-scheduled!
                     (fn [h] (swap! released conj h) nil)]
         (let [cfid (fresh-frame! :client)]
           (install! cfid rt-waiting)
           (is (= 1 (count (inner cfid)))
               "precondition: the pre-replacement timer is armed")
 
-          (mtest/reset-captured!)
+          (rf.machines.test-support/reset-captured!)
           (reset! released [])
           (install! cfid rt-settled)
 
@@ -202,10 +202,10 @@
               (is (= epoch (:epoch row))
                   "stamped with the epoch the cancelled timer was armed at")
               (is (= cfid (:frame row)))))
-          (is (empty? (mtest/events-of :rf.machine.timer/scheduled))
+          (is (empty? (rf.machines.test-support/events-of :rf.machine.timer/scheduled))
               "and nothing was armed for the replacement — `:settled` declares
                no `:after`")
-          (is (= 1 (:entries (mtest/machine-data cfid :hydrec/changed)))
+          (is (= 1 (:entries (rf.machines.test-support/machine-data cfid :hydrec/changed)))
               (str "no entry replay in either phase: the count is the "
                    "server's, unchanged by the reconcile")))))))
 
@@ -219,13 +219,13 @@
           released   (atom [])]
       (is (nil? (snap-of rt-gone :hydrec/dropped))
           "precondition: the replacement holds no snapshot for the actor")
-      (with-redefs [interop/schedule-after!   (fn [_thunk _ms] ::handle)
-                    interop/cancel-scheduled! (fn [h] (swap! released conj h) nil)]
+      (with-redefs [rf.interop/schedule-after!   (fn [_thunk _ms] ::handle)
+                    rf.interop/cancel-scheduled! (fn [h] (swap! released conj h) nil)]
         (let [cfid (fresh-frame! :client)]
           (install! cfid rt-waiting)
           (is (= 1 (count (inner cfid))) "precondition: armed")
 
-          (mtest/reset-captured!)
+          (rf.machines.test-support/reset-captured!)
           (install! cfid rt-gone)
 
           (is (empty? (inner cfid))
@@ -253,11 +253,11 @@
           unsubs   (atom [])]
       (rf/reg-sub :hydrec/dyn-delay (fn [_db _] @reaction))
       (rf/reg-machine :hydrec/dyn dynamic-delay-machine)
-      (with-redefs [subs/subscribe            (fn ([_q] reaction) ([_q _o] reaction))
-                    subs/unsubscribe          (fn ([_q] nil)
+      (with-redefs [rf.subs/subscribe            (fn ([_q] reaction) ([_q _o] reaction))
+                    rf.subs/unsubscribe          (fn ([_q] nil)
                                                 ([_frame q] (swap! unsubs conj q) nil))
-                    interop/schedule-after!   (fn [_thunk _ms] ::handle)
-                    interop/cancel-scheduled! (fn [_h] nil)]
+                    rf.interop/schedule-after!   (fn [_thunk _ms] ::handle)
+                    rf.interop/cancel-scheduled! (fn [_h] nil)]
         (let [rt-waiting (server-runtime-db :hydrec/dyn dynamic-delay-machine [[:go]])
               rt-settled (server-runtime-db :hydrec/dyn dynamic-delay-machine
                                             [[:go] [:settle]])
@@ -273,7 +273,7 @@
                 "precondition: the re-resolution watcher is attached"))
 
           (reset! unsubs [])
-          (mtest/reset-captured!)
+          (rf.machines.test-support/reset-captured!)
           (install! cfid rt-settled)
 
           (is (empty? (inner cfid))
@@ -289,17 +289,17 @@
           ;; The watcher is DETACHED, which is the half a table check alone
           ;; cannot see: a surviving watcher re-enters the timer machinery on
           ;; the next value change.
-          (mtest/reset-captured!)
+          (rf.machines.test-support/reset-captured!)
           (reset! reaction 9000)
           (is (empty? (inner cfid))
               "a change in the delay's value arms nothing")
-          (is (empty? (mtest/events-of :rf.machine.timer/cancelled))
+          (is (empty? (rf.machines.test-support/events-of :rf.machine.timer/cancelled))
               (str "and reaches NOTHING at all. Under a union the stale "
                    "entry's watcher is still attached here, and this change "
                    "drives it into `on-sub-changed!` — an `:on-resolution` "
                    "cancellation of a timer that should have been released "
                    "one hydration ago."))
-          (is (empty? (mtest/events-of :rf.machine.timer/scheduled))
+          (is (empty? (rf.machines.test-support/events-of :rf.machine.timer/scheduled))
               "and re-resolves nothing"))))))
 
 ;; ---------------------------------------------------------------------------
@@ -312,12 +312,12 @@
             cancel-everything-then-re-arm"
     (rf/reg-machine :hydrec/same toggling-machine)
     (let [rt (server-runtime-db :hydrec/same toggling-machine [[:go]])]
-      (with-redefs [interop/schedule-after!   (fn [_thunk _ms] ::handle)
-                    interop/cancel-scheduled! (fn [_h] nil)]
+      (with-redefs [rf.interop/schedule-after!   (fn [_thunk _ms] ::handle)
+                    rf.interop/cancel-scheduled! (fn [_h] nil)]
         (let [cfid (fresh-frame! :client)]
           (install! cfid rt)
           (is (= 1 (count (inner cfid))))
-          (mtest/reset-captured!)
+          (rf.machines.test-support/reset-captured!)
           (install! cfid rt)
           (is (= 1 (count (inner cfid)))
               "still exactly one handle for the one live declaration")
@@ -333,8 +333,8 @@
     (rf/reg-machine :hydrec/sib toggling-machine)
     (let [rt-waiting (server-runtime-db :hydrec/sib toggling-machine [[:go]])
           rt-settled (server-runtime-db :hydrec/sib toggling-machine [[:go] [:settle]])]
-      (with-redefs [interop/schedule-after!   (fn [_thunk _ms] ::handle)
-                    interop/cancel-scheduled! (fn [_h] nil)]
+      (with-redefs [rf.interop/schedule-after!   (fn [_thunk _ms] ::handle)
+                    rf.interop/cancel-scheduled! (fn [_h] nil)]
         (let [keeper (fresh-frame! :client)
               mover  (fresh-frame! :client)]
           (install! keeper rt-waiting)
@@ -357,7 +357,7 @@
           ;; contract under test upstream), so the only way to put one in
           ;; front of the cancel phase is to place it there.
           k          {:parent :hydrec/srv :spawn [:waiting] :delay 5000}]
-      (swap! timer/after-timers assoc-in [sfid k]
+      (swap! rf.machines.timer/after-timers assoc-in [sfid k]
              {:handle ::handle :resolved-ms 5000 :epoch 1 :state :waiting
               :delay-source :literal :token -1})
       (try
@@ -367,4 +367,4 @@
         (is (empty? (cancelled-rows :hydrec/srv))
             "and no cancellation trace was emitted")
         (finally
-          (swap! timer/after-timers dissoc sfid))))))
+          (swap! rf.machines.timer/after-timers dissoc sfid))))))

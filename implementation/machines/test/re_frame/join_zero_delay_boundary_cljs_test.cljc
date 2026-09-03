@@ -16,7 +16,7 @@
   direct `:dispatch` (no numeric `:ms`) remains immediate.
 
   These fixtures control the host clock deterministically through the
-  `interop/set-timeout!` seam (capturing the deferred callback without firing or
+  `rf.interop/set-timeout!` seam (capturing the deferred callback without firing or
   scheduling), so they pin the boundary identically on CLJ and CLJS.
 
   MUTATION TOOTH: restoring the `(pos? ms)` guard folds a zero-delay completion
@@ -25,20 +25,20 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.interop :as interop]
+   [re-frame.interop :as rf.interop]
    [re-frame.machines]
-   [re-frame.machines.test-support :as mtest]
-   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
-       :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
+   [re-frame.machines.test-support :as rf.machines.test-support]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture
-    #?(:clj  {:adapter plain-atom/adapter}
-       :cljs {:adapter reagent-adapter/adapter}))
-  mtest/trace-capture-fixture)
+  (rf.machines.test-support/make-reset-runtime-fixture
+    #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
+       :cljs {:adapter rf.adapter.reagent/adapter}))
+  rf.machines.test-support/trace-capture-fixture)
 
 (defn- join-state [parent-id]
-  (get-in (mtest/runtime-db) [:rf.runtime/machines :spawned parent-id [:racing]]))
+  (get-in (rf.machines.test-support/runtime-db) [:rf.runtime/machines :spawned parent-id [:racing]]))
 
 (defn- mk-child
   "A child completing through a DIRECT `:dispatch` (no numeric `:ms`)."
@@ -96,8 +96,8 @@
     (let [a           (get-in (join-state :hsb.z/rp) [:children :a])
           captured-cb (atom nil)
           captured-ms (atom ::none)]
-      (with-redefs [interop/set-timeout!   (fn [f ms] (reset! captured-cb f) (reset! captured-ms ms) ::handle)
-                    interop/clear-timeout! (fn [_] nil)]
+      (with-redefs [rf.interop/set-timeout!   (fn [f ms] (reset! captured-cb f) (reset! captured-ms ms) ::handle)
+                    rf.interop/clear-timeout! (fn [_] nil)]
         (rf/dispatch-sync [a [:go]]))
       (is (= 0 @captured-ms)
           "the numeric :ms 0 was forwarded to the host-clock timer (host-clock-delayed)")
@@ -123,8 +123,8 @@
     (rf/dispatch-sync [:hsb.d/rp [:start]])
     (let [a           (get-in (join-state :hsb.d/rp) [:children :a])
           armed?      (atom false)]
-      (with-redefs [interop/set-timeout!   (fn [_f _ms] (reset! armed? true) ::handle)
-                    interop/clear-timeout! (fn [_] nil)]
+      (with-redefs [rf.interop/set-timeout!   (fn [_f _ms] (reset! armed? true) ::handle)
+                    rf.interop/clear-timeout! (fn [_] nil)]
         (rf/dispatch-sync [a [:go]]))
       (is (false? @armed?)
           "a direct :dispatch completion armed NO host-clock timer")
@@ -147,8 +147,8 @@
     (let [a           (get-in (join-state :hsb.p/rp) [:children :a])
           captured-cb (atom nil)
           captured-ms (atom ::none)]
-      (with-redefs [interop/set-timeout!   (fn [f ms] (reset! captured-cb f) (reset! captured-ms ms) ::handle)
-                    interop/clear-timeout! (fn [_] nil)]
+      (with-redefs [rf.interop/set-timeout!   (fn [f ms] (reset! captured-cb f) (reset! captured-ms ms) ::handle)
+                    rf.interop/clear-timeout! (fn [_] nil)]
         (rf/dispatch-sync [a [:go]]))
       (is (= 500 @captured-ms) "the positive :ms was forwarded to the host-clock timer")
       (is (some? @captured-cb) "the positive-delay completion armed a delayed dispatch")

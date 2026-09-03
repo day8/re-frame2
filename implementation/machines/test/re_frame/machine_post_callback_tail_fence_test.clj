@@ -33,23 +33,23 @@
   hook, so the same-id successor B is published on the callback's own stack."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.machines :as machines]
-            [re-frame.machines.lifecycle-fx.finalize :as finalize]
-            [re-frame.machines.lifecycle-fx.spawn :as spawn]
-            [re-frame.machines.spawn-order :as spawn-order]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace.tooling :as trace-tooling]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.machines :as rf.machines]
+            [re-frame.machines.lifecycle-fx.finalize :as rf.machines.lifecycle-fx.finalize]
+            [re-frame.machines.lifecycle-fx.spawn :as rf.machines.lifecycle-fx.spawn]
+            [re-frame.machines.spawn-order :as rf.machines.spawn-order]
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 ;; Touch the artefact so the machines registration hooks are wired even when
 ;; this ns runs in isolation.
-(def ^:private _artefact machines/machine-transition)
+(def ^:private _artefact rf.machines/machine-transition)
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- spawn-tail fence (install-spawn! callbacks) --------------------------
 ;;
@@ -69,28 +69,28 @@
   event owner. `trigger` is `:system-id-collision`, `:system-id-bound`, or
   `:lifecycle-spawned`. Returns the observable post-spawn state on B."
   [frame-a trigger {:keys [system-id pre-existing-sid]}]
-  (spawn-order/reset-all!)
+  (rf.machines.spawn-order/reset-all!)
   (rf/reg-machine spawn-child-type
     {:initial :running
      :states  {:running {:on {:go :done}}
                :done    {:final? true}}})
   (rf/make-frame {:id frame-a})
   (when pre-existing-sid
-    (frame/swap-runtime-db!
+    (rf.frame/swap-runtime-db!
       frame-a
       (fn [rt] (assoc-in rt [:rf.runtime/machines :system-ids system-id] pre-existing-sid))))
-  (let [token-a          (frame/frame-incarnation-token frame-a)
+  (let [token-a          (rf.frame/frame-incarnation-token frame-a)
         fired?           (atom false)
         dispatches       (atom [])
         lifecycle-traces (atom [])
         b-birth          (atom nil)
-        orig-dispatch!   (late-bind/get-fn :router/dispatch!)
+        orig-dispatch!   (rf.late-bind/get-fn :router/dispatch!)
         destroy+B!       (fn []
                            (when (compare-and-set! fired? false true)
-                             (frame/destroy-frame! frame-a)   ;; destroy A
+                             (rf.frame/destroy-frame! frame-a)   ;; destroy A
                              (rf/make-frame {:id frame-a})     ;; same-id B
-                             (reset! b-birth (mtest/runtime-db frame-a))))]
-    (trace-tooling/register-listener!
+                             (reset! b-birth (rf.machines.test-support/runtime-db frame-a))))]
+    (rf.trace.tooling/register-listener!
       ::spawn-tail-fence
       (fn [ev]
         (case (:operation ev)
@@ -101,23 +101,23 @@
           nil)))
     (try
       ;; Capture (never route) any dispatch the cascade attempts.
-      (late-bind/set-fn! :router/dispatch!
+      (rf.late-bind/set-fn! :router/dispatch!
                          (fn [ev opts] (swap! dispatches conj [ev opts]) nil))
-      (frame/call-with-event-owner-token frame-a token-a
-        (fn [] (spawn/spawn-fx {:frame frame-a}
+      (rf.frame/call-with-event-owner-token frame-a token-a
+        (fn [] (rf.machines.lifecycle-fx.spawn/spawn-fx {:frame frame-a}
                                (cond-> {:machine-id spawn-child-type :start [:go]}
                                  system-id (assoc :system-id system-id)))))
       {:fired?           @fired?
        :b-birth          @b-birth
-       :b-runtime        (mtest/runtime-db frame-a)
-       :b-snapshot       (mtest/snapshot frame-a spawn-child-instance-id)
-       :spawn-order      (spawn-order/frame-order frame-a)
+       :b-runtime        (rf.machines.test-support/runtime-db frame-a)
+       :b-snapshot       (rf.machines.test-support/snapshot frame-a spawn-child-instance-id)
+       :spawn-order      (rf.machines.spawn-order/frame-order frame-a)
        :dispatches       @dispatches
        :lifecycle-traces @lifecycle-traces}
       (finally
-        (trace-tooling/unregister-listener! ::spawn-tail-fence)
+        (rf.trace.tooling/unregister-listener! ::spawn-tail-fence)
         (when orig-dispatch!
-          (late-bind/set-fn! :router/dispatch! orig-dispatch!))))))
+          (rf.late-bind/set-fn! :router/dispatch! orig-dispatch!))))))
 
 (defn- assert-spawn-tail-inert [{:keys [b-birth b-runtime b-snapshot spawn-order
                                         dispatches lifecycle-traces]}]
@@ -178,37 +178,37 @@
             once — snapshot installed, system-id bound, spawn-order recorded,
             lifecycle-spawned emitted, :start dispatched. The fence is scoped to
             owner-loss only."
-    (spawn-order/reset-all!)
+    (rf.machines.spawn-order/reset-all!)
     (rf/reg-machine spawn-child-type
       {:initial :running
        :states  {:running {:on {:go :done}}
                  :done    {:final? true}}})
     (let [frame-a        :rf2-hloj0g/live-spawn-frame
           dispatches     (atom [])
-          orig-dispatch! (late-bind/get-fn :router/dispatch!)]
+          orig-dispatch! (rf.late-bind/get-fn :router/dispatch!)]
       (rf/make-frame {:id frame-a})
-      (let [token-a (frame/frame-incarnation-token frame-a)]
+      (let [token-a (rf.frame/frame-incarnation-token frame-a)]
         (try
-          (late-bind/set-fn! :router/dispatch!
+          (rf.late-bind/set-fn! :router/dispatch!
                              (fn [ev opts] (swap! dispatches conj [ev opts]) nil))
-          (frame/call-with-event-owner-token frame-a token-a
-            (fn [] (spawn/spawn-fx {:frame frame-a}
+          (rf.frame/call-with-event-owner-token frame-a token-a
+            (fn [] (rf.machines.lifecycle-fx.spawn/spawn-fx {:frame frame-a}
                                    {:machine-id spawn-child-type
                                     :system-id  :rf2-hloj0g/live-sid
                                     :start      [:go]})))
-          (is (some? (mtest/snapshot frame-a spawn-child-instance-id))
+          (is (some? (rf.machines.test-support/snapshot frame-a spawn-child-instance-id))
               "the live spawn installed the child snapshot")
           (is (= spawn-child-instance-id
-                 (get-in (mtest/runtime-db frame-a)
+                 (get-in (rf.machines.test-support/runtime-db frame-a)
                          [:rf.runtime/machines :system-ids :rf2-hloj0g/live-sid]))
               "the live spawn bound the :system-id")
-          (is (= [spawn-child-instance-id] (vec (spawn-order/frame-order frame-a)))
+          (is (= [spawn-child-instance-id] (vec (rf.machines.spawn-order/frame-order frame-a)))
               "the live spawn recorded exactly one spawn-order entry")
           (is (= 1 (count @dispatches))
               "the live spawn dispatched :start exactly once")
           (finally
             (when orig-dispatch!
-              (late-bind/set-fn! :router/dispatch! orig-dispatch!))))))))
+              (rf.late-bind/set-fn! :router/dispatch! orig-dispatch!))))))))
 
 ;; ---- finalization-tail fence (teardown callbacks) -------------------------
 ;;
@@ -236,7 +236,7 @@
   binding into `frame-id`'s runtime-db, so the finalize teardown resolves a
   non-nil released-sid (exercising the `:rf.machine/system-id-released` trace)."
   [frame-id machine-id sid]
-  (frame/swap-runtime-db!
+  (rf.frame/swap-runtime-db!
     frame-id
     (fn [rt] (-> rt
                  (assoc-in [:rf.runtime/machines :snapshots machine-id] (finishing-snapshot))
@@ -249,21 +249,21 @@
   `:destroyed-trace`, `:system-id-released`, or `:http-abort`. Returns the
   observable post-finalize state."
   [frame-a machine-id sid trigger]
-  (spawn-order/reset-all!)
+  (rf.machines.spawn-order/reset-all!)
   (rf/reg-machine machine-id (finishing-machine frame-a))
   (rf/make-frame {:id frame-a})
   (seed-finishing+sid! frame-a machine-id sid)
-  (let [token-a    (frame/frame-incarnation-token frame-a)
+  (let [token-a    (rf.frame/frame-incarnation-token frame-a)
         fired?     (atom false)
         destroyed  (atom [])
         released   (atom [])
-        orig-abort (late-bind/get-fn :http/abort-on-actor-destroy)
+        orig-abort (rf.late-bind/get-fn :http/abort-on-actor-destroy)
         destroy+B! (fn []
                      (when (compare-and-set! fired? false true)
-                       (frame/destroy-frame! frame-a)   ;; destroy A
+                       (rf.frame/destroy-frame! frame-a)   ;; destroy A
                        (rf/make-frame {:id frame-a})     ;; same-id B
                        (seed-finishing+sid! frame-a machine-id sid)))]
-    (trace-tooling/register-listener!
+    (rf.trace.tooling/register-listener!
       ::teardown-fence
       (fn [ev]
         (case (:operation ev)
@@ -274,24 +274,24 @@
           nil)))
     (try
       (when (= trigger :http-abort)
-        (late-bind/set-fn! :http/abort-on-actor-destroy
+        (rf.late-bind/set-fn! :http/abort-on-actor-destroy
                            (fn [_actor-id] (destroy+B!) nil)))
-      (let [ret (frame/call-with-event-owner-token frame-a token-a
+      (let [ret (rf.frame/call-with-event-owner-token frame-a token-a
                   (fn []
-                    (finalize/finalize-machine
+                    (rf.machines.lifecycle-fx.finalize/finalize-machine
                       (finishing-machine frame-a)
-                      machine-id frame-a (mtest/runtime-db frame-a)
+                      machine-id frame-a (rf.machines.test-support/runtime-db frame-a)
                       (finishing-snapshot) [:some-completing-event] [])))]
         {:fired?     @fired?
          :ret        ret
-         :b-runtime  (mtest/runtime-db frame-a)
-         :b-snapshot (mtest/snapshot frame-a machine-id)
-         :reg-entry  (registrar/lookup :event machine-id)
+         :b-runtime  (rf.machines.test-support/runtime-db frame-a)
+         :b-snapshot (rf.machines.test-support/snapshot frame-a machine-id)
+         :reg-entry  (rf.registrar/lookup :event machine-id)
          :destroyed  @destroyed
          :released   @released})
       (finally
-        (trace-tooling/unregister-listener! ::teardown-fence)
-        (late-bind/set-fn! :http/abort-on-actor-destroy orig-abort)))))
+        (rf.trace.tooling/unregister-listener! ::teardown-fence)
+        (rf.late-bind/set-fn! :http/abort-on-actor-destroy orig-abort)))))
 
 (defn- assert-teardown-inert
   "Assert the finalize tail was fenced: B kept its snapshot + registrar entry,
@@ -360,7 +360,7 @@
             fully — the destroyed + system-id-released traces fire and finalize
             returns a runtime-db effect that dissoc'd the snapshot. The fence is
             scoped to owner-loss only."
-    (spawn-order/reset-all!)
+    (rf.machines.spawn-order/reset-all!)
     (let [frame-a    :rf2-hloj0g/live-finalize-frame
           machine-id :rf2-hloj0g/live-finalize-machine
           sid        :rf2-hloj0g/live-finalize-sid
@@ -369,19 +369,19 @@
       (rf/reg-machine machine-id (finishing-machine frame-a))
       (rf/make-frame {:id frame-a})
       (seed-finishing+sid! frame-a machine-id sid)
-      (let [token-a (frame/frame-incarnation-token frame-a)]
-        (trace-tooling/register-listener!
+      (let [token-a (rf.frame/frame-incarnation-token frame-a)]
+        (rf.trace.tooling/register-listener!
           ::live-finalize
           (fn [ev] (case (:operation ev)
                      :rf.machine/destroyed          (swap! destroyed conj ev)
                      :rf.machine/system-id-released (swap! released conj ev)
                      nil)))
         (try
-          (let [ret (frame/call-with-event-owner-token frame-a token-a
+          (let [ret (rf.frame/call-with-event-owner-token frame-a token-a
                       (fn []
-                        (finalize/finalize-machine
+                        (rf.machines.lifecycle-fx.finalize/finalize-machine
                           (finishing-machine frame-a)
-                          machine-id frame-a (mtest/runtime-db frame-a)
+                          machine-id frame-a (rf.machines.test-support/runtime-db frame-a)
                           (finishing-snapshot) [:some-completing-event] [])))]
             (is (nil? (get-in (:rf.db/runtime ret)
                               [:rf.runtime/machines :snapshots machine-id]))
@@ -392,4 +392,4 @@
             (is (= 1 (count @destroyed)) "exactly one :rf.machine/destroyed trace fired")
             (is (= 1 (count @released)) "exactly one :rf.machine/system-id-released trace fired"))
           (finally
-            (trace-tooling/unregister-listener! ::live-finalize)))))))
+            (rf.trace.tooling/unregister-listener! ::live-finalize)))))))

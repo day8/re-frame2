@@ -81,21 +81,21 @@
   published on the cancellation callback's own stack."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
             ;; Loading `re-frame.machines` installs the artefact's late-bind
             ;; hooks + reserved fxs; under a single-ns run nothing else does.
             [re-frame.machines]
-            [re-frame.machines.hydrate :as m-hydrate]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.machines.timer :as timer]
-            [re-frame.subs :as subs]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace.tooling :as trace-tooling]))
+            [re-frame.machines.hydrate :as rf.machines.hydrate]
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.machines.timer :as rf.machines.timer]
+            [re-frame.subs :as rf.subs]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter})
-  mtest/trace-capture-fixture)
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})
+  rf.machines.test-support/trace-capture-fixture)
 
 ;; ---------------------------------------------------------------------------
 ;; Fixtures
@@ -116,7 +116,7 @@
 (defn- inner
   "`frame-id`'s inner `:after` timer table, or `{}` when it holds none."
   [frame-id]
-  (get @timer/after-timers frame-id {}))
+  (get @rf.machines.timer/after-timers frame-id {}))
 
 (defn- server-runtime-db
   "Run every `[machine-id events]` pair on ONE real SERVER frame, assert it
@@ -130,15 +130,15 @@
       (rf/dispatch-sync [machine-id e] {:frame sfid}))
     (is (empty? (inner sfid))
         "precondition: the SERVER armed no `:after` host timer")
-    (frame/frame-runtime-db-value sfid)))
+    (rf.frame/frame-runtime-db-value sfid)))
 
 (defn- install!
   "Replace `frame-id`'s runtime-db with `runtime-db` and run the machines
   hydration seam — what `:rf/hydrate` does once its runtime-db effect has
   committed."
   [frame-id runtime-db]
-  (frame/replace-runtime-db! frame-id runtime-db)
-  (m-hydrate/rearm-after-timers! frame-id))
+  (rf.frame/replace-runtime-db! frame-id runtime-db)
+  (rf.machines.hydrate/rearm-after-timers! frame-id))
 
 (defn- republish-frame-once!
   "Register a `:rf.machine.timer/cancelled` listener under `listener-id` that,
@@ -150,14 +150,14 @@
   token so the test can prove B is a genuinely distinct incarnation rather than
   the same frame under a new name."
   [listener-id frame-id fired? token-b]
-  (trace-tooling/register-listener!
+  (rf.trace.tooling/register-listener!
     listener-id
     (fn [ev]
       (when (and (= :rf.machine.timer/cancelled (:operation ev))
                  (compare-and-set! fired? false true))
-        (frame/destroy-frame! frame-id)
+        (rf.frame/destroy-frame! frame-id)
         (rf/make-frame {:id frame-id :platform :client})
-        (reset! token-b (frame/frame-incarnation-token frame-id))))))
+        (reset! token-b (rf.frame/frame-incarnation-token frame-id))))))
 
 (defn- assert-successor-took-no-a-work!
   "The four readings of successor B. A dropped table entry is the obvious one;
@@ -167,7 +167,7 @@
       (str "successor B holds NO timer. Under a per-step capture the arm phase "
            "reads B as its current owner and installs A-derived host work into "
            "a frame that never enumerated it."))
-  (is (empty? (mtest/events-of :rf.machine.timer/scheduled))
+  (is (empty? (rf.machines.test-support/events-of :rf.machine.timer/scheduled))
       (str "and no `:rf.machine.timer/scheduled` row was emitted for B — a "
            "hydrated-timer trace naming a frame that hydrated nothing"))
   (is (zero? @subscribes)
@@ -175,11 +175,11 @@
            "name — the ref-count an A-derived arm bumps is B's to release"))
   ;; The watcher is the half a table read cannot reach: an attached one
   ;; re-enters the timer machinery on the next value change.
-  (mtest/reset-captured!)
+  (rf.machines.test-support/reset-captured!)
   (reset! reaction 9000)
-  (is (empty? (mtest/events-of :rf.machine.timer/scheduled))
+  (is (empty? (rf.machines.test-support/events-of :rf.machine.timer/scheduled))
       "a change in the delay's value re-resolves nothing in B")
-  (is (empty? (mtest/events-of :rf.machine.timer/cancelled))
+  (is (empty? (rf.machines.test-support/events-of :rf.machine.timer/cancelled))
       (str "and reaches NOTHING at all — an A-derived arm would have left its "
            "re-resolution watcher attached to the reaction here")))
 
@@ -233,11 +233,11 @@
           subscribes (atom 0)
           fired?     (atom false)
           token-b    (atom nil)]
-      (with-redefs [subs/subscribe            (fn ([_q] (swap! subscribes inc) reaction)
+      (with-redefs [rf.subs/subscribe            (fn ([_q] (swap! subscribes inc) reaction)
                                                 ([_q _o] (swap! subscribes inc) reaction))
-                    subs/unsubscribe          (fn ([_q] nil) ([_f _q] nil))
-                    interop/schedule-after!   (fn [_thunk _ms] ::handle)
-                    interop/cancel-scheduled! (fn [_h] nil)]
+                    rf.subs/unsubscribe          (fn ([_q] nil) ([_f _q] nil))
+                    rf.interop/schedule-after!   (fn [_thunk _ms] ::handle)
+                    rf.interop/cancel-scheduled! (fn [_h] nil)]
         (let [rt-both (server-runtime-db [[:hydfence/kept [[:go]]]
                                           [:hydfence/gone [[:go]]]])
               rt-kept (update-in rt-both [:rf.runtime/machines :snapshots]
@@ -253,13 +253,13 @@
           (is (= 2 (count (inner cfid)))
               "precondition: both actors' timers are armed under incarnation A")
 
-          (let [token-a (frame/frame-incarnation-token cfid)]
+          (let [token-a (rf.frame/frame-incarnation-token cfid)]
             (reset! subscribes 0)
-            (mtest/reset-captured!)
+            (rf.machines.test-support/reset-captured!)
             (republish-frame-once! ::cancel-phase cfid fired? token-b)
             (try
               (install! cfid rt-kept)
-              (finally (trace-tooling/unregister-listener! ::cancel-phase)))
+              (finally (rf.trace.tooling/unregister-listener! ::cancel-phase)))
 
             (is (true? @fired?)
                 "the phase-1 cancellation's listener ran (the seam is exercised)")
@@ -282,11 +282,11 @@
           subscribes (atom 0)
           fired?     (atom false)
           token-b    (atom nil)]
-      (with-redefs [subs/subscribe            (fn ([_q] (swap! subscribes inc) reaction)
+      (with-redefs [rf.subs/subscribe            (fn ([_q] (swap! subscribes inc) reaction)
                                                 ([_q _o] (swap! subscribes inc) reaction))
-                    subs/unsubscribe          (fn ([_q] nil) ([_f _q] nil))
-                    interop/schedule-after!   (fn [_thunk _ms] ::handle)
-                    interop/cancel-scheduled! (fn [_h] nil)]
+                    rf.subs/unsubscribe          (fn ([_q] nil) ([_f _q] nil))
+                    rf.interop/schedule-after!   (fn [_thunk _ms] ::handle)
+                    rf.interop/cancel-scheduled! (fn [_h] nil)]
         (let [rt   (server-runtime-db [[:hydfence/multi [[:go]]]])
               cfid (fresh-frame! :client)]
           (install! cfid rt)
@@ -294,13 +294,13 @@
               "precondition: BOTH live declarations are armed, so both arms of
                the re-hydration supersede a LIVE entry and are callback-bearing")
 
-          (let [token-a (frame/frame-incarnation-token cfid)]
+          (let [token-a (rf.frame/frame-incarnation-token cfid)]
             (reset! subscribes 0)
-            (mtest/reset-captured!)
+            (rf.machines.test-support/reset-captured!)
             (republish-frame-once! ::arm-phase cfid fired? token-b)
             (try
               (install! cfid rt)
-              (finally (trace-tooling/unregister-listener! ::arm-phase)))
+              (finally (rf.trace.tooling/unregister-listener! ::arm-phase)))
 
             (is (true? @fired?)
                 "arm 1's `:on-supersede` fired and swapped A→B (seam exercised)")
@@ -323,14 +323,14 @@
   hold and the delay resolution both precede the trace and belong to A; what is
   under test is what the arm does with them once A is gone."
   [listener-id frame-id fired? token-b zero!]
-  (trace-tooling/register-listener!
+  (rf.trace.tooling/register-listener!
     listener-id
     (fn [ev]
       (when (and (= :rf.machine.timer/scheduled (:operation ev))
                  (compare-and-set! fired? false true))
-        (frame/destroy-frame! frame-id)
+        (rf.frame/destroy-frame! frame-id)
         (rf/make-frame {:id frame-id :platform :client})
-        (reset! token-b (frame/frame-incarnation-token frame-id))
+        (reset! token-b (rf.frame/frame-incarnation-token frame-id))
         (zero!)))))
 
 (defn- assert-no-orphan-scheduled-row!
@@ -347,13 +347,13 @@
   that never opened. Nothing downstream can retract it: the epoch and
   active-path gates suppress a stale FIRE, and there is no fire."
   []
-  (let [scheduled (mtest/events-of :rf.machine.timer/scheduled)
-        cancelled (mtest/events-of :rf.machine.timer/cancelled)
+  (let [scheduled (rf.machines.test-support/events-of :rf.machine.timer/scheduled)
+        cancelled (rf.machines.test-support/events-of :rf.machine.timer/cancelled)
         pair-keys [:actor-id :state :delay :epoch :frame]
         timer-ops (filterv (comp #{:rf.machine.timer/scheduled
                                    :rf.machine.timer/cancelled}
                                  :operation)
-                           (mtest/captured-events))]
+                           (rf.machines.test-support/captured-events))]
     (is (= 1 (count scheduled))
         (str "precondition: the aborted arm DID announce itself — exactly one "
              "`:rf.machine.timer/scheduled` row reached the stream before the "
@@ -392,27 +392,27 @@
           arms         (atom 0)
           fired?       (atom false)
           token-b      (atom nil)]
-      (with-redefs [subs/subscribe            (fn ([_q] (swap! subscribes inc) reaction)
+      (with-redefs [rf.subs/subscribe            (fn ([_q] (swap! subscribes inc) reaction)
                                                 ([_q _o] (swap! subscribes inc) reaction))
-                    subs/unsubscribe          (fn ([_q] (swap! unsubscribes inc) nil)
+                    rf.subs/unsubscribe          (fn ([_q] (swap! unsubscribes inc) nil)
                                                 ([_f _q] (swap! unsubscribes inc) nil))
-                    interop/schedule-after!   (fn [_thunk _ms] (swap! arms inc) ::handle)
-                    interop/cancel-scheduled! (fn [_h] nil)]
+                    rf.interop/schedule-after!   (fn [_thunk _ms] (swap! arms inc) ::handle)
+                    rf.interop/cancel-scheduled! (fn [_h] nil)]
         (let [rt      (server-runtime-db [[:hydfence/sched [[:go]]]])
               cfid    (fresh-frame! :client)
-              token-a (frame/frame-incarnation-token cfid)]
+              token-a (rf.frame/frame-incarnation-token cfid)]
           (is (empty? (inner cfid))
               (str "precondition: a FRESH client frame holds no `:after` timer, "
                    "so phase 1 cancels nothing and the single arm supersedes an "
                    "empty slot — the `/scheduled` row is therefore the FIRST "
                    "callback-bearing trace of the whole reconcile"))
-          (mtest/reset-captured!)
+          (rf.machines.test-support/reset-captured!)
           (republish-on-scheduled-once!
             ::sched-phase cfid fired? token-b
             #(do (reset! subscribes 0) (reset! unsubscribes 0) (reset! arms 0)))
           (try
             (install! cfid rt)
-            (finally (trace-tooling/unregister-listener! ::sched-phase)))
+            (finally (rf.trace.tooling/unregister-listener! ::sched-phase)))
 
           (is (true? @fired?)
               "the `/scheduled` listener ran (the seam is exercised)")
@@ -434,17 +434,17 @@
               (str "and the abort issued NO `(frame, query-v)` decrement: A's "
                    "hold was taken against A's own sub-cache, which "
                    "`destroy-frame!` disposed wholesale on this very stack, "
-                   "while `subs/unsubscribe` addresses the frame by bare id — "
+                   "while `rf.subs/unsubscribe` addresses the frame by bare id — "
                    "which now denotes B. There is nothing of A's left to "
                    "release, and releasing would drop a count B holds "
                    "(rf2-i4aj9c)"))
           (assert-no-orphan-scheduled-row!)
 
-          (mtest/reset-captured!)
+          (rf.machines.test-support/reset-captured!)
           (reset! reaction 9000)
-          (is (empty? (mtest/events-of :rf.machine.timer/scheduled))
+          (is (empty? (rf.machines.test-support/events-of :rf.machine.timer/scheduled))
               "a change in the delay's value re-resolves nothing in B")
-          (is (empty? (mtest/events-of :rf.machine.timer/cancelled))
+          (is (empty? (rf.machines.test-support/events-of :rf.machine.timer/cancelled))
               (str "and reaches NOTHING at all — an arm that ran past the "
                    "`/scheduled` callback attaches its re-resolution watcher to "
                    "the reaction here, and the watcher re-enters the timer "
@@ -459,19 +459,19 @@
     (let [arms    (atom 0)
           fired?  (atom false)
           token-b (atom nil)]
-      (with-redefs [interop/schedule-after!   (fn [_thunk _ms] (swap! arms inc) ::handle)
-                    interop/cancel-scheduled! (fn [_h] nil)]
+      (with-redefs [rf.interop/schedule-after!   (fn [_thunk _ms] (swap! arms inc) ::handle)
+                    rf.interop/cancel-scheduled! (fn [_h] nil)]
         (let [rt      (server-runtime-db [[:hydfence/sched-lit [[:go]]]])
               cfid    (fresh-frame! :client)
-              token-a (frame/frame-incarnation-token cfid)]
+              token-a (rf.frame/frame-incarnation-token cfid)]
           (is (empty? (inner cfid))
               "precondition: the client frame holds no prior timer")
-          (mtest/reset-captured!)
+          (rf.machines.test-support/reset-captured!)
           (republish-on-scheduled-once!
             ::sched-phase-lit cfid fired? token-b #(reset! arms 0))
           (try
             (install! cfid rt)
-            (finally (trace-tooling/unregister-listener! ::sched-phase-lit)))
+            (finally (rf.trace.tooling/unregister-listener! ::sched-phase-lit)))
 
           (is (true? @fired?) "the `/scheduled` listener ran")
           (is (not (identical? token-a @token-b))
@@ -497,30 +497,30 @@
     (rf/reg-machine :hydfence/live two-delay-machine)
     (let [reaction   (atom 2500)
           subscribes (atom 0)]
-      (with-redefs [subs/subscribe            (fn ([_q] (swap! subscribes inc) reaction)
+      (with-redefs [rf.subs/subscribe            (fn ([_q] (swap! subscribes inc) reaction)
                                                 ([_q _o] (swap! subscribes inc) reaction))
-                    subs/unsubscribe          (fn ([_q] nil) ([_f _q] nil))
-                    interop/schedule-after!   (fn [_thunk _ms] ::handle)
-                    interop/cancel-scheduled! (fn [_h] nil)]
+                    rf.subs/unsubscribe          (fn ([_q] nil) ([_f _q] nil))
+                    rf.interop/schedule-after!   (fn [_thunk _ms] ::handle)
+                    rf.interop/cancel-scheduled! (fn [_h] nil)]
         (let [rt   (server-runtime-db [[:hydfence/live [[:go]]]])
               cfid (fresh-frame! :client)]
-          (mtest/reset-captured!)
+          (rf.machines.test-support/reset-captured!)
           (install! cfid rt)
           (is (= 2 (count (inner cfid)))
               "both declarations armed on the first hydration")
-          (is (= 2 (count (mtest/events-of :rf.machine.timer/scheduled)))
+          (is (= 2 (count (rf.machines.test-support/events-of :rf.machine.timer/scheduled)))
               "one `/scheduled` row apiece")
 
-          (mtest/reset-captured!)
+          (rf.machines.test-support/reset-captured!)
           (install! cfid rt)
           (is (= 2 (count (inner cfid)))
               "and still exactly two handles after an identical re-hydration —
                each live declaration superseded in place, neither truncated")
-          (is (= 2 (count (mtest/events-of :rf.machine.timer/scheduled)))
+          (is (= 2 (count (rf.machines.test-support/events-of :rf.machine.timer/scheduled)))
               "both arms ran")
           (is (= [:on-supersede :on-supersede]
                  (mapv #(:reason (:tags %))
-                       (mtest/events-of :rf.machine.timer/cancelled)))
+                       (rf.machines.test-support/events-of :rf.machine.timer/cancelled)))
               (str "and each was the ordinary same-key supersede — an arm loop "
                    "that stopped early would leave the second declaration's "
                    "prior handle uncancelled and unre-armed")))))))

@@ -9,18 +9,18 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             ;; listener / buffer surface lives in re-frame.trace.tooling.
-            [re-frame.trace.tooling :as trace-tooling]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.machines.test-support :as mtest]))
+            [re-frame.trace.tooling :as rf.trace.tooling]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.machines.test-support :as rf.machines.test-support]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter}))
 
 ;; snapshot lookup via the shared machines test-support
 ;; — no hardcoded `[:rf.runtime/machines :snapshots …]` path. Inline trace
 ;; captures below keep their raw trace.tooling register/unregister.
-(def ^:private snapshot mtest/snapshot)
+(def ^:private snapshot rf.machines.test-support/snapshot)
 
 (deftest machine-always-cljs
   (testing ":always fires once after the resolving event under a true guard"
@@ -92,9 +92,9 @@
           traces (atom [])]
       (rf/reg-machine :osc/flow machine)
       (rf/dispatch-sync [:osc/flow [:rf.machine/start]])  ;; commit :start first
-      (trace-tooling/register-listener! ::osc (fn [ev] (swap! traces conj ev)))
+      (rf.trace.tooling/register-listener! ::osc (fn [ev] (swap! traces conj ev)))
       (rf/dispatch-sync [:osc/flow [:go]])
-      (trace-tooling/unregister-listener! ::osc)
+      (rf.trace.tooling/unregister-listener! ::osc)
       ;; Atomic rollback: the committed snapshot stays at :start (the failing
       ;; [:go] macrostep commits nothing).
       (is (= :start (:state (snapshot :osc/flow)))

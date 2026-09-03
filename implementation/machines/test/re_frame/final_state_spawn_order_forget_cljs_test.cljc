@@ -41,20 +41,20 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.events :as events]
+   [re-frame.events :as rf.events]
    [re-frame.machines]
-   [re-frame.machines.spawn-order :as spawn-order]
-   [re-frame.machines.test-support :as mtest]
-   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
-       :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
+   [re-frame.machines.spawn-order :as rf.machines.spawn-order]
+   [re-frame.machines.test-support :as rf.machines.test-support]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture
-    #?(:clj  {:adapter plain-atom/adapter}
-       :cljs {:adapter reagent-adapter/adapter}))
-  mtest/trace-capture-fixture)
+  (rf.machines.test-support/make-reset-runtime-fixture
+    #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
+       :cljs {:adapter rf.adapter.reagent/adapter}))
+  rf.machines.test-support/trace-capture-fixture)
 
-(def ^:private snapshot mtest/snapshot)
+(def ^:private snapshot rf.machines.test-support/snapshot)
 
 ;; A stub `:rf.resource/release-owner` handler recording every released
 ;; owner — the machine side dispatches this by NAME (machines never
@@ -64,7 +64,7 @@
 
 (defn- install-release-stub! []
   (reset! released [])
-  (events/reg-event :rf.resource/release-owner
+  (rf.events/reg-event :rf.resource/release-owner
     (fn [_ [_ {:keys [owner]}]]
       (swap! released conj owner)
       {})))
@@ -85,7 +85,7 @@
 
 (defn- spawn-child! [parent-id frame-id]
   (rf/dispatch-sync [parent-id [:rf.machine.spawn/spawned]] {:frame frame-id})
-  (get-in (mtest/runtime-db frame-id)
+  (get-in (rf.machines.test-support/runtime-db frame-id)
           [:rf.runtime/machines :spawned parent-id [:working]]))
 
 ;; ===========================================================================
@@ -98,13 +98,13 @@
     (reg-parent-and-child! :fsf1/parent :fsf1/child)
     (let [spawned-id (spawn-child! :fsf1/parent :rf/default)]
       (is (some? spawned-id) "child was spawned")
-      (is (some #(= spawned-id %) (spawn-order/frame-order :rf/default))
+      (is (some #(= spawned-id %) (rf.machines.spawn-order/frame-order :rf/default))
           "the live spawned child is recorded in spawn-order")
       ;; Drive the child into its :final? leaf → auto-destroy.
       (rf/dispatch-sync [spawned-id [:fin]])
       (is (nil? (snapshot spawned-id))
           "the finished child's snapshot was synchronously dissoc'd")
-      (is (not-any? #(= spawned-id %) (spawn-order/frame-order :rf/default))
+      (is (not-any? #(= spawned-id %) (rf.machines.spawn-order/frame-order :rf/default))
           "the finished child was forgotten from spawn-order (the fix) —
            without it the liveness bit strands and destroy re-runs"))))
 
@@ -128,9 +128,9 @@
       (is (= [[:machine spawned-id]] @released)
           "the finish released the actor's [:machine actor-id] owner exactly once")
       ;; Scope the phantom check to the stale-destroy window only.
-      (mtest/reset-captured!)
+      (rf.machines.test-support/reset-captured!)
       (rf/dispatch-sync [::stale-destroy spawned-id])
-      (is (empty? (mtest/events-of :rf.machine/destroyed))
+      (is (empty? (rf.machines.test-support/events-of :rf.machine/destroyed))
           "the stale destroy fired NO phantom :rf.machine/destroyed trace
            (silent-idempotent) — without the forget! it RE-RUNS teardown")
       (is (= [[:machine spawned-id]] @released)
@@ -142,7 +142,7 @@
 ;; ===========================================================================
 
 (defn- parent-frame-destroyed-actor-ids []
-  (->> (mtest/events-of :rf.machine.lifecycle/destroyed)
+  (->> (rf.machines.test-support/events-of :rf.machine.lifecycle/destroyed)
        (filter #(= :parent-frame-destroyed (-> % :tags :reason)))
        (map #(-> % :tags :actor-id))
        set))
@@ -159,10 +159,10 @@
       (rf/dispatch-sync [spawned-id [:fin]] {:frame :fsf3/scratch})
       (is (nil? (snapshot :fsf3/scratch spawned-id))
           "the child auto-destroyed in the scratch frame")
-      (is (not-any? #(= spawned-id %) (spawn-order/frame-order :fsf3/scratch))
+      (is (not-any? #(= spawned-id %) (rf.machines.spawn-order/frame-order :fsf3/scratch))
           "the finished child was forgotten from the scratch frame's spawn-order")
       ;; Scope the trace check to the frame-destroy window.
-      (mtest/reset-captured!)
+      (rf.machines.test-support/reset-captured!)
       (rf/destroy-frame! :fsf3/scratch)
       (is (not (contains? (parent-frame-destroyed-actor-ids) spawned-id))
           "frame-destroy emitted NO :parent-frame-destroyed phantom for the

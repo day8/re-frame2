@@ -21,7 +21,7 @@
 
   ## The interleaving is driven, not raced
 
-  `trace/emit!` is wrapped for the duration of one hydration. On the attempt's
+  `rf.trace/emit!` is wrapped for the duration of one hydration. On the attempt's
   own `/scheduled` row — the point at which the sentinel is reserved and the
   row is not yet delivered — the cleanup runs to completion on a second
   thread and is joined before the real emit proceeds. That reaches the exact
@@ -46,21 +46,21 @@
   `machine_hydration_reconcile_incarnation_fence_cljs_test`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
             ;; Loading `re-frame.machines` installs the artefact's late-bind
             ;; hooks + reserved fxs; under a single-ns run nothing else does.
             [re-frame.machines]
-            [re-frame.machines.hydrate :as m-hydrate]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.machines.timer :as timer]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]
-            [re-frame.trace.tooling :as trace-tooling]))
+            [re-frame.machines.hydrate :as rf.machines.hydrate]
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.machines.timer :as rf.machines.timer]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace :as rf.trace]
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter})
-  mtest/trace-capture-fixture)
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})
+  rf.machines.test-support/trace-capture-fixture)
 
 ;; ---------------------------------------------------------------------------
 ;; Fixtures
@@ -79,7 +79,7 @@
 (defn- inner
   "`frame-id`'s inner `:after` timer table, or `{}` when it holds none."
   [frame-id]
-  (get @timer/after-timers frame-id {}))
+  (get @rf.machines.timer/after-timers frame-id {}))
 
 (defn- server-runtime-db
   "Run `machine-id` into its `:after`-bearing state on a real SERVER frame,
@@ -90,15 +90,15 @@
     (rf/dispatch-sync [machine-id [:go]] {:frame sfid})
     (is (empty? (inner sfid))
         "precondition: the SERVER armed no `:after` host timer")
-    (frame/frame-runtime-db-value sfid)))
+    (rf.frame/frame-runtime-db-value sfid)))
 
 (defn- install!
   "Replace `frame-id`'s runtime-db with `runtime-db` and run the machines
   hydration seam — what `:rf/hydrate` does once its runtime-db effect has
   committed."
   [frame-id runtime-db]
-  (frame/replace-runtime-db! frame-id runtime-db)
-  (m-hydrate/rearm-after-timers! frame-id))
+  (rf.frame/replace-runtime-db! frame-id runtime-db)
+  (rf.machines.hydrate/rearm-after-timers! frame-id))
 
 (def ^:private literal-machine
   "One literal-delay `:after`, so the hydration arm is exactly one attempt and
@@ -119,7 +119,7 @@
   []
   (filterv (comp #{:rf.machine.timer/scheduled :rf.machine.timer/cancelled}
                  :operation)
-           (mtest/captured-events)))
+           (rf.machines.test-support/captured-events)))
 
 (defn- on-another-thread!
   "Run `f` to completion on a fresh raw `Thread` and join it, rethrowing
@@ -140,13 +140,13 @@
   reached, whether the sentinel was already in the table there, and how many
   host clocks were armed."
   [frame-id runtime-db cleanup!]
-  (let [orig-emit! trace/emit!
+  (let [orig-emit! rf.trace/emit!
         bit?       (atom false)
         reserved?  (atom nil)
         arms       (atom 0)]
-    (with-redefs [interop/schedule-after!   (fn [_thunk _ms] (swap! arms inc) ::handle)
-                  interop/cancel-scheduled! (fn [_h] nil)
-                  trace/emit!
+    (with-redefs [rf.interop/schedule-after!   (fn [_thunk _ms] (swap! arms inc) ::handle)
+                  rf.interop/cancel-scheduled! (fn [_h] nil)
+                  rf.trace/emit!
                   (fn [op operation tags]
                     (when (and (= :rf.machine.timer/scheduled operation)
                                (compare-and-set! bit? false true))
@@ -166,13 +166,13 @@
 (deftest a-claim-before-the-row-is-out-closes-the-row-rather-than-preceding-it
   (doseq [[label reason cleanup!]
           [["frame destroy" :on-frame-destroy
-            (fn [frame _k] (timer/cancel-all-timers! frame))]
+            (fn [frame _k] (rf.machines.timer/cancel-all-timers! frame))]
            ["epoch restore" :on-restore
-            (fn [frame _k] (timer/cancel-frame-timers-on-restore! frame))]
+            (fn [frame _k] (rf.machines.timer/cancel-frame-timers-on-restore! frame))]
            ["actor destroy" :on-destroy
-            (fn [frame k] (timer/cancel-actor-timers! frame (:parent k)))]
+            (fn [frame k] (rf.machines.timer/cancel-actor-timers! frame (:parent k)))]
            ["state exit" :on-exit
-            (fn [frame k] (timer/after-cancel-fx {:frame frame}
+            (fn [frame k] (rf.machines.timer/after-cancel-fx {:frame frame}
                                                  {:rf/parent-id (:parent k)
                                                   :rf/invoke-id (:spawn k)}))]]]
     (testing (str "cleanup owner: " label)
@@ -183,11 +183,11 @@
         (is (empty? (inner cfid))
             "precondition: the client frame holds no prior timer, so the
              hydration is exactly one arm")
-        (mtest/reset-captured!)
+        (rf.machines.test-support/reset-captured!)
         (let [{:keys [bit? reserved? arms]}
               (hydrate-with-cleanup-in-the-window! cfid rt cleanup!)
-              scheduled (mtest/events-of :rf.machine.timer/scheduled)
-              cancelled (mtest/events-of :rf.machine.timer/cancelled)]
+              scheduled (rf.machines.test-support/events-of :rf.machine.timer/scheduled)
+              cancelled (rf.machines.test-support/events-of :rf.machine.timer/cancelled)]
           (is (true? bit?)
               "the arm's own `/scheduled` row was intercepted (seam exercised)")
           (is (true? reserved?)
@@ -232,24 +232,24 @@
     (rf/reg-machine :announce/succ literal-machine)
     (let [rt      (server-runtime-db :announce/succ)
           cfid    (fresh-frame! :client)
-          token-a (frame/frame-incarnation-token cfid)
+          token-a (rf.frame/frame-incarnation-token cfid)
           fired?  (atom false)
           token-b (atom nil)]
-      (with-redefs [interop/schedule-after!   (fn [_thunk _ms] ::handle)
-                    interop/cancel-scheduled! (fn [_h] nil)]
-        (mtest/reset-captured!)
-        (trace-tooling/register-listener!
+      (with-redefs [rf.interop/schedule-after!   (fn [_thunk _ms] ::handle)
+                    rf.interop/cancel-scheduled! (fn [_h] nil)]
+        (rf.machines.test-support/reset-captured!)
+        (rf.trace.tooling/register-listener!
           ::succ
           (fn [ev]
             (when (and (= :rf.machine.timer/scheduled (:operation ev))
                        (compare-and-set! fired? false true))
-              (frame/destroy-frame! cfid)
+              (rf.frame/destroy-frame! cfid)
               (rf/make-frame {:id cfid :platform :client})
-              (reset! token-b (frame/frame-incarnation-token cfid))
+              (reset! token-b (rf.frame/frame-incarnation-token cfid))
               (install! cfid rt))))
         (try
           (install! cfid rt)
-          (finally (trace-tooling/unregister-listener! ::succ))))
+          (finally (rf.trace.tooling/unregister-listener! ::succ))))
       (is (true? @fired?) "the `/scheduled` listener ran (seam exercised)")
       (is (not (identical? token-a @token-b))
           "and B is a DISTINCT incarnation from A")
@@ -262,7 +262,7 @@
                "out, so its `/cancelled` follows immediately rather than "
                "waiting for the announcer to return"))
       (is (= :on-frame-destroy
-             (:reason (:tags (first (mtest/events-of :rf.machine.timer/cancelled)))))
+             (:reason (:tags (first (rf.machines.test-support/events-of :rf.machine.timer/cancelled)))))
           "A's closure carries the sweep's reason")
       (is (= 1 (count (inner cfid)))
           "B's own timer is armed and survives A's token-exact abort"))))

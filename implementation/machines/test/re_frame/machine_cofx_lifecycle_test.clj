@@ -24,14 +24,14 @@
   action, and a bootstrap initial-entry action."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.machines :as machines]
-            [re-frame.machines.cofx-attach :as cofx-attach]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.substrate.plain-atom :as plain-atom])
+            [re-frame.machines :as rf.machines]
+            [re-frame.machines.cofx-attach :as rf.machines.cofx-attach]
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom])
   (:import [clojure.lang ExceptionInfo]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (def ^:private SCRIPTED-TIME-MS 1234500000)
 
@@ -44,13 +44,13 @@
             :rf.cofx/requires of the TARGET state's named :entry action — the
             exit→action→entry cascade will run it"
     (rf/reg-cofx :test/entry-roll {:recordable? true} (fn [] 6))
-    (let [m  (cofx-attach/index-ensure-sets
+    (let [m  (rf.machines.cofx-attach/index-ensure-sets
                {:initial :idle
                 :actions {:stamp-entry {:rf.cofx/requires [:test/entry-roll]
                                         :fn (fn [_] nil)}}
                 :states  {:idle {:on {:go :active}}
                           :active {:entry :stamp-entry}}})
-          es (cofx-attach/ensure-set-for m {:state :idle :data {}} [:go])]
+          es (rf.machines.cofx-attach/ensure-set-for m {:state :idle :data {}} [:go])]
       (is (contains? (set (map :id es)) :test/entry-roll)
           "target-state :entry action's required fact is in the ensure-set"))))
 
@@ -59,13 +59,13 @@
             :rf.cofx/requires of the ACTIVE state's named :exit action — it
             runs as the first leg of the exit→action→entry cascade"
     (rf/reg-cofx :test/exit-roll {:recordable? true} (fn [] 6))
-    (let [m  (cofx-attach/index-ensure-sets
+    (let [m  (rf.machines.cofx-attach/index-ensure-sets
                {:initial :active
                 :actions {:stamp-exit {:rf.cofx/requires [:test/exit-roll]
                                        :fn (fn [_] nil)}}
                 :states  {:active {:exit :stamp-exit :on {:go :idle}}
                           :idle   {}}})
-          es (cofx-attach/ensure-set-for m {:state :active :data {}} [:go])]
+          es (rf.machines.cofx-attach/ensure-set-for m {:state :active :data {}} [:go])]
       (is (contains? (set (map :id es)) :test/exit-roll)
           "active-state :exit action's required fact is in the ensure-set"))))
 
@@ -74,14 +74,14 @@
             ensure-set includes the :entry actions of every node entered on the
             initial-descent path"
     (rf/reg-cofx :test/descent-roll {:recordable? true} (fn [] 6))
-    (let [m  (cofx-attach/index-ensure-sets
+    (let [m  (rf.machines.cofx-attach/index-ensure-sets
                {:initial :idle
                 :actions {:descent-stamp {:rf.cofx/requires [:test/descent-roll]
                                           :fn (fn [_] nil)}}
                 :states  {:idle {:on {:go :parent}}
                           :parent {:initial :child
                                    :states {:child {:entry :descent-stamp}}}}})
-          es (cofx-attach/ensure-set-for m {:state :idle :data {}} [:go])]
+          es (rf.machines.cofx-attach/ensure-set-for m {:state :idle :data {}} [:go])]
       (is (contains? (set (map :id es)) :test/descent-roll)
           "the initial-descent :child :entry action's fact is in the ensure-set"))))
 
@@ -105,7 +105,7 @@
       (rf/reg-machine :lifecycle/entry-gen m)
       (rf/dispatch-sync [:lifecycle/entry-gen [:go]]
                         {:rf.cofx {:rf/time-ms SCRIPTED-TIME-MS}})
-      (is (= 6 (:roll (mtest/machine-data :lifecycle/entry-gen)))
+      (is (= 6 (:roll (rf.machines.test-support/machine-data :lifecycle/entry-gen)))
           "the :entry action wrote the GENERATED fact — ensured before the cascade"))))
 
 (deftest exit-action-reads-generated-fact
@@ -123,7 +123,7 @@
       (rf/reg-machine :lifecycle/exit-gen m)
       (rf/dispatch-sync [:lifecycle/exit-gen [:go]]
                         {:rf.cofx {:rf/time-ms SCRIPTED-TIME-MS}})
-      (is (= 7 (:exit-roll (mtest/machine-data :lifecycle/exit-gen)))
+      (is (= 7 (:exit-roll (rf.machines.test-support/machine-data :lifecycle/exit-gen)))
           "the :exit action wrote the GENERATED fact — ensured before the cascade"))))
 
 (deftest exit-action-missing-provided-fact-throws
@@ -131,7 +131,7 @@
             action, absent from the in-flight record, raises missing-required
             from the dispatch-time ensure step — the :exit diet IS in the
             ensure-set (drives the real ensure path)"
-    (let [m (cofx-attach/index-ensure-sets
+    (let [m (rf.machines.cofx-attach/index-ensure-sets
               {:initial :active
                :data    {}
                :actions {:needs-time {:rf.cofx/requires [:rf/time-ms]
@@ -140,7 +140,7 @@
                :states  {:active {:exit :needs-time :on {:go :idle}}
                          :idle   {}}})
           e (is (thrown? ExceptionInfo
-                         (cofx-attach/ensure-cofx
+                         (rf.machines.cofx-attach/ensure-cofx
                            m {:state :active :data {}} [:go]
                            {} nil :lifecycle/exit-missing)))]
       (is (= :rf.error/missing-required-cofx (:rf.error/id (ex-data e)))
@@ -168,7 +168,7 @@
       ;; The eager start kick runs the initial-entry cascade in maybe-boot.
       (rf/dispatch-sync [:lifecycle/birth-gen [:rf.machine/start]]
                         {:rf.cofx {:rf/time-ms SCRIPTED-TIME-MS}})
-      (is (= 9 (:birth (mtest/machine-data :lifecycle/birth-gen)))
+      (is (= 9 (:birth (rf.machines.test-support/machine-data :lifecycle/birth-gen)))
           "the initial-entry action wrote the GENERATED fact — ensured before
            maybe-boot ran the bootstrap cascade"))))
 
@@ -188,5 +188,5 @@
       (rf/reg-machine :lifecycle/descent-gen m)
       (rf/dispatch-sync [:lifecycle/descent-gen [:rf.machine/start]]
                         {:rf.cofx {:rf/time-ms SCRIPTED-TIME-MS}})
-      (is (= 11 (:d (mtest/machine-data :lifecycle/descent-gen)))
+      (is (= 11 (:d (rf.machines.test-support/machine-data :lifecycle/descent-gen)))
           "the initial-descent :entry action read the GENERATED fact at birth"))))

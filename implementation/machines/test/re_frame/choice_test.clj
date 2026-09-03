@@ -22,15 +22,15 @@
   desugar."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.machines.choice :as choice]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.machines.choice :as rf.machines.choice]
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             [re-frame.subs]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-(def ^:private snapshot mtest/snapshot)
+(def ^:private snapshot rf.machines.test-support/snapshot)
 
 ;; ---- desugaring (distinct intent, one mechanism) --------------------------
 
@@ -42,7 +42,7 @@
                      :checking {:always [{:guard :valid? :target :ok}
                                          {:target :bad}]}
                      :ok {} :bad {}}}
-           (choice/desugar-choices
+           (rf.machines.choice/desugar-choices
              {:initial :start
               :states {:start {:on {:go :checking}}
                        :checking {:type :choice
@@ -53,18 +53,18 @@
 (deftest desugar-choice-free-unchanged
   (testing "a machine with no :type :choice is returned UNCHANGED (fast-path)"
     (let [m {:initial :a :states {:a {:on {:go :b}} :b {}}}]
-      (is (identical? m (choice/desugar-choices m))))))
+      (is (identical? m (rf.machines.choice/desugar-choices m))))))
 
 (deftest desugar-choice-idempotent
   (testing "desugaring an already-desugared spec is a no-op"
     (let [m {:initial :c
              :states {:c {:always [{:guard :g :target :x} {:target :y}]}
                       :x {} :y {}}}]
-      (is (= m (choice/desugar-choices (choice/desugar-choices m)))))))
+      (is (= m (rf.machines.choice/desugar-choices (rf.machines.choice/desugar-choices m)))))))
 
 (deftest desugar-nested-choice
   (testing "a :type :choice nested inside a compound desugars in place"
-    (let [out (choice/desugar-choices
+    (let [out (rf.machines.choice/desugar-choices
                 {:initial :outer
                  :states {:outer {:initial :pick
                                   :states {:pick {:type :choice

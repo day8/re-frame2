@@ -38,20 +38,20 @@
   :machine-data` boundary routes through."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.machines :as machines]
-            [re-frame.machines.test-support :as mtest]
+            [re-frame.machines :as rf.machines]
+            [re-frame.machines.test-support :as rf.machines.test-support]
             [re-frame.schemas]
             [re-frame.schemas.malli]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- collect-output-traces!
   "Run `f` while collecting every `:rf.error/schema-validation-failure` trace
   whose `:where` is `:machine-output`. Returns the captured trace events."
   [f]
-  (mtest/with-trace-capture traces
+  (rf.machines.test-support/with-trace-capture traces
     (f)
     (filterv #(and (= :rf.error/schema-validation-failure (:operation %))
                    (= :machine-output (-> % :tags :where)))
@@ -68,7 +68,7 @@
                                   :done    {:final?     true
                                             :output-key :result}}}]
       (rf/reg-machine :rf.machine-output/accepted spec)
-      (let [meta (machines/machine-meta :rf.machine-output/accepted)]
+      (let [meta (rf.machines/machine-meta :rf.machine-output/accepted)]
         (is (some? meta) "machine-meta returns the registered spec")
         (is (= OutputSchema (get-in meta [:schemas :output]))
             "the [:schemas :output] schema round-trips through machine-meta")))))
@@ -93,7 +93,7 @@
                        (rf/dispatch-sync [:rf.machine-output/ok [:fin]])))]
         (is (empty? traces)
             "no :where :machine-output trace for a conforming output")
-        (is (nil? (mtest/snapshot :rf.machine-output/ok))
+        (is (nil? (rf.machines.test-support/snapshot :rf.machine-output/ok))
             "the machine finished + auto-destroyed normally")))))
 
 ;; ---- (3) violating completion output → one trace, completion still flows ---
@@ -129,7 +129,7 @@
             "completion is best-effort — :rollback? false (machine already finished)")
         ;; The completion STILL flows: the machine auto-destroyed despite the
         ;; output schema violation (best-effort fail-loud, not suppression).
-        (is (nil? (mtest/snapshot :rf.machine-output/bad))
+        (is (nil? (rf.machines.test-support/snapshot :rf.machine-output/bad))
             "the machine STILL finished + auto-destroyed (completion flows)")))))
 
 ;; ---- (4) spawned child: violating output → trace + parent :on-done STILL runs
@@ -170,7 +170,7 @@
             "the trace carries the child's violating output payload")
         (is (= "bad" @seen-result)
             "the parent's :on-done STILL received the result — validation observes, not suppresses")
-        (is (= "bad" (get-in (mtest/snapshot :rf.machine-output/spawn-parent) [:data :reported]))
+        (is (= "bad" (get-in (rf.machines.test-support/snapshot :rf.machine-output/spawn-parent) [:data :reported]))
             "the parent's :data mutation from :on-done still landed")))))
 
 ;; ---- (5) no schema → no validation (control) ------------------------------

@@ -46,11 +46,11 @@
             ;; load the machines artefact so its fx handlers + late-bind hooks
             ;; are installed when this ns runs in isolation (`-n`).
             [re-frame.machines]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- destroyed-for
   "Captured `:rf.machine/destroyed` traces whose `:actor-id` is `actor-id`."
@@ -91,12 +91,12 @@
       (fn [_ [_ victim]]
         {:fx [[:rf.machine/destroy {:rf/actor-id victim
                                     :rf/reason   :rf.machine/join-reaped}]]}))
-    (mtest/with-trace-capture captured
+    (rf.machines.test-support/with-trace-capture captured
       (rf/dispatch-sync [:jra/parent [:start]])
-      (let [victim (get-in (mtest/runtime-db)
+      (let [victim (get-in (rf.machines.test-support/runtime-db)
                            [:rf.runtime/machines :spawned :jra/parent [:working]])]
         (is (keyword? victim) "the single :spawn child resolved to a live actor id")
-        (is (some? (mtest/snapshot victim)) "the child actor is live before the forged reap")
+        (is (some? (rf.machines.test-support/snapshot victim)) "the child actor is live before the forged reap")
         (rf/dispatch-sync [::forge-old-reap victim])
         ;; Load-bearing forgery assertion: the forged reap did NOT tear the
         ;; live actor down. Pre-fix this fires a :rf.machine/join-reaped
@@ -104,7 +104,7 @@
         (is (empty? (destroyed-for captured victim))
             (str "the forged reap must NOT emit any :rf.machine/destroyed for the "
                  "live actor; saw " (mapv (comp :reason :tags) (destroyed-for captured victim))))
-        (is (some? (mtest/snapshot victim))
+        (is (some? (rf.machines.test-support/snapshot victim))
             "the live actor's snapshot survives the refused forgery")
         (is (seq (bad-arg-errors captured :unknown-shape))
             "the forged {:rf/actor-id …} shape failed loud with :cause :unknown-shape")))))
@@ -119,7 +119,7 @@
                                     :rf/parent-id :no/such-parent
                                     :rf/invoke-id [:nowhere]
                                     :rf/child-id  :ghost}]]}))
-    (mtest/with-trace-capture captured
+    (rf.machines.test-support/with-trace-capture captured
       (rf/dispatch-sync [::forge-bogus-reap])
       (is (seq (bad-arg-errors captured :unverified-reap))
           "a reap against a non-existent join fails loud with :cause :unverified-reap")
@@ -157,9 +157,9 @@
                                       :rf/parent-id p
                                       :rf/invoke-id invoke
                                       :rf/child-id  child-id}]]}))
-      (mtest/with-trace-capture captured
+      (rf.machines.test-support/with-trace-capture captured
         (rf/dispatch-sync [:jra2/parent [:start]])
-        (let [children (get-in (mtest/runtime-db)
+        (let [children (get-in (rf.machines.test-support/runtime-db)
                                [:rf.runtime/machines :spawned :jra2/parent [:racing] :children])
               a-id     (:a children)]
           (is (keyword? a-id) "child :a spawned live and un-completed")
@@ -169,5 +169,5 @@
               "reaping an in-progress join child fails loud with :cause :unverified-reap")
           (is (empty? (destroyed-for captured a-id))
               "the in-progress child is NOT torn down by the refused reap")
-          (is (some? (mtest/snapshot a-id))
+          (is (some? (rf.machines.test-support/snapshot a-id))
               "the in-progress child stays live"))))))

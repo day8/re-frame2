@@ -39,8 +39,8 @@
             [clojure.java.io :as io]
             [clojure.edn :as edn]
             [clojure.string :as str]
-            [re-frame.conformance :as conformance]
-            [re-frame.machines :as machines]))
+            [re-frame.conformance :as rf.conformance]
+            [re-frame.machines :as rf.machines]))
 
 ;; ---- fixture discovery ----------------------------------------------------
 
@@ -279,7 +279,7 @@
      :on-spawn-actions
      (into {}
            (for [[id steps] (:machine-action handlers)]
-             [id (conformance/realise-on-spawn-handler steps)]))}))
+             [id (rf.conformance/realise-on-spawn-handler steps)]))}))
 
 ;; ---- single :machine-transition call --------------------------------------
 
@@ -297,7 +297,7 @@
                        (update :actions          #(merge actions %))
                        (update :guards           #(merge guards %))
                        (update :on-spawn-actions #(merge on-spawn-actions %)))
-        r          (try (machines/machine-transition definition
+        r          (try (rf.machines/machine-transition definition
                                                      (:snapshot call)
                                                      (:event call))
                         (catch Throwable e
@@ -352,7 +352,7 @@
   [call]
   (let [definition (:definition call)
         want-error (:expect-error call)
-        thrown     (try (machines/validate-machine! definition) nil
+        thrown     (try (rf.machines/validate-machine! definition) nil
                         (catch clojure.lang.ExceptionInfo e e)
                         (catch Throwable e e))]
     (if want-error

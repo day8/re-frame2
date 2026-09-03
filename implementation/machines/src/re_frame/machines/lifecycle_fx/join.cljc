@@ -62,15 +62,15 @@
   the handler-factory in `re-frame.machines.lifecycle-fx.registration`
   routes every inbound event through it before the machine's normal `:on`
   lookup."
-  (:require [re-frame.frame :as frame]
-            [re-frame.fx :as fx]
-            [re-frame.machines.data-validation :as data-validation]
-            [re-frame.machines.parallel :as parallel]
-            [re-frame.machines.path-walk :as path-walk]
-            [re-frame.machines.paths :as paths]
-            [re-frame.machines.reply :as m-reply]
-            [re-frame.machines.transition :as transition]
-            [re-frame.trace :as trace]))
+  (:require [re-frame.frame :as rf.frame]
+            [re-frame.fx :as rf.fx]
+            [re-frame.machines.data-validation :as rf.machines.data-validation]
+            [re-frame.machines.parallel :as rf.machines.parallel]
+            [re-frame.machines.path-walk :as rf.machines.path-walk]
+            [re-frame.machines.paths :as rf.machines.paths]
+            [re-frame.machines.reply :as rf.machines.reply]
+            [re-frame.machines.transition :as rf.machines.transition]
+            [re-frame.trace :as rf.trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -227,7 +227,7 @@
   after A was gone, and a delayed completion reserved a `dispatch-later-timers`
   slot AFTER destroy had already released that table (a post-cleanup timer that
   fires dead-on-arrival). So we recheck exact-owner continuation
-  (`data-validation/owner-continuation`, bound to A's raw owner token) AFTER the
+  (`rf.machines.data-validation/owner-continuation`, bound to A's raw owner token) AFTER the
   emit and BEFORE the router dispatch / numeric-ms timer reservation: if A is
   gone, neither lands on A nor on an unrelated same-id B. The `:applied-*`
   branch's `handle-one-fx` is itself exact-owner-fenced by core, so it needs no
@@ -255,14 +255,14 @@
   rf2-21hsb1) arms a frame-owned delayed dispatch; a nil `:ms` (a direct
   `:dispatch` completion) dispatches immediately in the current drain."
   [{:keys [frame envelope] origin-event :event} {:keys [event ms] attempt :rf/join-attempt}]
-  (let [frame-id     (frame/require-frame-stamp!
+  (let [frame-id     (rf.frame/require-frame-stamp!
                        frame :rf.machine/join-dispatch
                        {:where 'rf.machine/join-dispatch :event-id (first event)})
         ;; The CANONICAL authored effect this completion was lowered from: a
         ;; `:dispatch-later` completion carries a numeric `:ms` (zero or
         ;; positive); a direct `:dispatch` completion carries none.
         canonical-id (if (number? ms) :dispatch-later :dispatch)
-        frame-record (frame/frame frame-id)
+        frame-record (rf.frame/frame frame-id)
         ;; The SAME effective override map `do-fx` resolved against — per-frame
         ;; ⋈ per-call, per-call winning (mirrors `router/apply-overrides`). The
         ;; per-call tier rides the emitting child's dispatch envelope.
@@ -275,13 +275,13 @@
         ;; flip an applies-preflight into a coordinate-less transport. This is
         ;; the SAME policy `resolve-fx-with-overrides` consumes — join
         ;; duplicates no registrar / protected-target lookup.
-        disposition  (fx/classify-fx-override overrides canonical-id)
+        disposition  (rf.fx/classify-fx-override overrides canonical-id)
         ;; Exact-owner continuation predicate, captured ONCE against A's raw
         ;; owner token (rf2-5g6qq / rf2-8nxsh): true while the incarnation that
         ;; owns the in-flight event may still run framework continuation, false
         ;; once a synchronous callback (a fallthrough `:errors` listener) has
         ;; destroyed A / published same-id B.
-        continue?    (data-validation/owner-continuation frame-id)]
+        continue?    (rf.machines.data-validation/owner-continuation frame-id)]
     (case (:disposition disposition)
       ;; OVERRIDE GENUINELY APPLIES (rf2-ulsbgr / rf2-2lzk8a): route the
       ;; PRE-RESOLVED effect through the shared core seam. `handle-one-fx` (not
@@ -292,10 +292,10 @@
       ;; A fn-value override is churn-immune (no registrar dependency); pass it
       ;; as the sole override so execution resolves to the SAME fn.
       :applied-fn
-      (fx/handle-one-fx
+      (rf.fx/handle-one-fx
         frame-id
         (if (number? ms) [canonical-id {:ms ms :event event}] [canonical-id event])
-        (fx/platform-for-frame-record frame-record)
+        (rf.fx/platform-for-frame-record frame-record)
         {canonical-id (:override disposition)}
         origin-event
         envelope)
@@ -307,12 +307,12 @@
       ;; classification, this is an honest `:rf.error/no-such-fx` — never a
       ;; coordinate-less completion.
       :applied-redirect
-      (fx/handle-one-fx
+      (rf.fx/handle-one-fx
         frame-id
         (if (number? ms)
           [(:target disposition) {:ms ms :event event}]
           [(:target disposition) event])
-        (fx/platform-for-frame-record frame-record)
+        (rf.fx/platform-for-frame-record frame-record)
         {}
         origin-event
         envelope)
@@ -338,10 +338,10 @@
       ;; folding synchronously. A direct `:dispatch` completion (nil `:ms`)
       ;; enqueues immediately in the current drain.
       (do
-        (fx/emit-override-fallthrough!
+        (rf.fx/emit-override-fallthrough!
           disposition canonical-id overrides frame-id origin-event origin-event-id)
         (when (continue?)
-          (fx/child-dispatch!
+          (rf.fx/child-dispatch!
             frame-id envelope event
             (cond-> {:source  :machine-action
                      :rf.cofx {:rf.machine/join-attempt attempt}}
@@ -446,7 +446,7 @@
                               (get-in join-state [:spec :children]))]
     (if (contains? child-spec :fixed-actor-id)
       attempt
-      (m-reply/actor-generation spawned-id))))
+      (rf.machines.reply/actor-generation spawned-id))))
 
 (defn- suppress-stale-completion!
   "Fail-closed suppression of a completion carrier that may NOT fold
@@ -477,7 +477,7 @@
   attempt's work identity."
   [frame-id parent-id invoke-id child-id spawned-id work-generation kind
    completed-at runtime-db stale-reason]
-  (let [stale-reply (m-reply/stale-join-child-reply
+  (let [stale-reply (rf.machines.reply/stale-join-child-reply
                       {:parent-id    parent-id
                        :invoke-id    invoke-id
                        :child-id     child-id
@@ -486,8 +486,8 @@
                        :frame        frame-id
                        :completed-at completed-at}
                       kind stale-reason)
-        summary     (m-reply/trace-reply stale-reply {:frame frame-id})]
-    (trace/emit! :rf.machine :rf.machine.spawn-all/stale-completion
+        summary     (rf.machines.reply/trace-reply stale-reply {:frame frame-id})]
+    (rf.trace/emit! :rf.machine :rf.machine.spawn-all/stale-completion
                  (cond-> {:actor-id  parent-id
                           :invoke-id invoke-id
                           :child-id  child-id
@@ -511,9 +511,9 @@
   region of a parallel machine, the region body) and a path inside
   that tree, walk leaf→root for a `:spawn-all`-bearing state whose
   `:on-child-done` or `:on-child-error` matches inner-event-id (the
-  deepest-wins rule named in `path-walk/walk-path-leaf-to-root`)."
+  deepest-wins rule named in `rf.machines.path-walk/walk-path-leaf-to-root`)."
   [tree path inner-event-id]
-  (path-walk/walk-path-leaf-to-root
+  (rf.machines.path-walk/walk-path-leaf-to-root
     tree path
     (fn [prefix n]
       (when-let [ia (:spawn-all n)]
@@ -545,11 +545,11 @@
   join."
   [machine snapshot inner-event-id]
   (cond
-    (parallel/parallel? machine)
+    (rf.machines.parallel/parallel? machine)
     (into []
           (keep (fn [[region-name region-state]]
-                  (let [region-body (parallel/region-machine machine region-name)
-                        region-path (transition/state-path region-state)
+                  (let [region-body (rf.machines.parallel/region-machine machine region-name)
+                        region-path (rf.machines.transition/state-path region-state)
                         match       (find-active-spawn-all-in-tree
                                       region-body region-path inner-event-id)]
                     (when match
@@ -558,7 +558,7 @@
 
     :else
     (if-let [m (find-active-spawn-all-in-tree
-                 machine (transition/state-path (:state snapshot)) inner-event-id)]
+                 machine (rf.machines.transition/state-path (:state snapshot)) inner-event-id)]
       [m]
       [])))
 
@@ -682,7 +682,7 @@
   [frame-id parent-id invoke-id join-state'' child-id work-generation kind
    child-extra completed-at]
   (let [spawned-id (get-in join-state'' [:children child-id])
-        reply      (m-reply/join-child-reply
+        reply      (rf.machines.reply/join-child-reply
                      {:parent-id    parent-id
                       :invoke-id    invoke-id
                       :child-id     child-id
@@ -691,7 +691,7 @@
                       :frame        frame-id
                       :completed-at completed-at}
                      kind child-extra)
-        summary    (m-reply/trace-reply reply {:frame frame-id})]
+        summary    (rf.machines.reply/trace-reply reply {:frame frame-id})]
     (cond-> {:rf.reply/work-kind            (:rf.reply/work-kind summary)
              :rf.reply/status      (:status summary)
              :rf.reply/work-id     (:rf.reply/work-id summary)
@@ -720,7 +720,7 @@
   [frame-id parent-id invoke-id join-state'' child-id work-generation kind
    child-extra completed-at]
   (let [spawned-id (get-in join-state'' [:children child-id])]
-    (trace/emit! :rf.machine :rf.machine.spawn-all/child-completed
+    (rf.trace/emit! :rf.machine :rf.machine.spawn-all/child-completed
                  (merge {:actor-id   parent-id
                          :invoke-id  invoke-id
                          :child-id   child-id
@@ -755,7 +755,7 @@
   [frame-id parent-id invoke-id spec join-state'' child-id work-generation
    child-extra completed-at {:keys [fail-fired? success-fired?]}]
   (when fail-fired?
-    (trace/emit! :rf.machine :rf.machine.spawn-all/any-failed
+    (rf.trace/emit! :rf.machine :rf.machine.spawn-all/any-failed
                  (merge {:actor-id parent-id
                          :invoke-id invoke-id
                          :failed-id  child-id
@@ -773,13 +773,13 @@
                         child-id work-generation :done child-extra
                         completed-at)]
       (if (= :all (:join spec :all))
-        (trace/emit! :rf.machine :rf.machine.spawn-all/all-completed
+        (rf.trace/emit! :rf.machine :rf.machine.spawn-all/all-completed
                      (merge {:actor-id parent-id
                              :invoke-id invoke-id
                              :done       (:done join-state'')
                              :frame      frame-id}
                             reply-facts))
-        (trace/emit! :rf.machine :rf.machine.spawn-all/some-completed
+        (rf.trace/emit! :rf.machine :rf.machine.spawn-all/some-completed
                      (merge {:actor-id parent-id
                              :invoke-id invoke-id
                              :done       (:done join-state'')
@@ -828,8 +828,8 @@
               ;; through the `:rf.machine/destroyed` cancelled reply; this
               ;; trace carries the join-resolution attribution.
               (let [survivor-summary
-                    (m-reply/trace-reply
-                      (m-reply/cancelled-actor-reply
+                    (rf.machines.reply/trace-reply
+                      (rf.machines.reply/cancelled-actor-reply
                         {:actor-id          spawned-id
                          :parent-id         parent-id
                          :work-bearing-path invoke-id
@@ -839,7 +839,7 @@
                          :frame             frame-id
                          :reason            :on-join-resolution})
                       {:frame frame-id})]
-                (trace/emit! :rf.machine :rf.machine.spawn/cancelled-on-join-resolution
+                (rf.trace/emit! :rf.machine :rf.machine.spawn/cancelled-on-join-resolution
                              {:actor-id parent-id
                               :invoke-id invoke-id
                               :child-id   cid
@@ -949,7 +949,7 @@
                (= parent-id (:parent-id attempt))
                (= invoke-id (:invoke-id attempt))
                (some? (:attempt attempt))
-               (let [js (get-in runtime-db (paths/spawned-path parent-id invoke-id))]
+               (let [js (get-in runtime-db (rf.machines.paths/spawned-path parent-id invoke-id))]
                  (and (map? js)
                       (= (:rf/attempt js) (:attempt attempt))
                       (= (get-in js [:children child-id]) (:spawned-id attempt))))))
@@ -960,7 +960,7 @@
         ;; owns the child (genuinely forged child-id), fall back to the first
         ;; match so the bad-child-id error trace still fires against a real join.
         owns?    (fn [{invoke-id :invoke-id}]
-                   (let [js (get-in runtime-db (paths/spawned-path parent-id invoke-id))]
+                   (let [js (get-in runtime-db (rf.machines.paths/spawned-path parent-id invoke-id))]
                      (and (map? js) (contains? (:children js) child-id))))
         match    (or (some #(when (exact-attempt-match? %) %) matches)
                      (some #(when (owns? %) %) matches)
@@ -993,7 +993,7 @@
             child-extra (vec (drop 2 inner-event))
             ;; Read the live join state from runtime-db (the seed was written
             ;; by :rf.machine/spawn-all-init on entry).
-            join-state (get-in runtime-db (paths/spawned-path parent-id invoke-id))]
+            join-state (get-in runtime-db (rf.machines.paths/spawned-path parent-id invoke-id))]
         (cond
           ;; No LIVE child-bearing join state at the slot — fall through to
           ;; no-op. Both no-`:children` cases land here: a pure-call snapshot
@@ -1029,7 +1029,7 @@
           ;; join state). Per Spec 005 §Spawn-and-join and the machines
           ;; security-audit finding F1.
           (not (contains? (:children join-state) child-id))
-          (do (trace/emit-error! :rf.error/machine-spawn-all-bad-child-id
+          (do (rf.trace/emit-error! :rf.error/machine-spawn-all-bad-child-id
                                  {:actor-id parent-id
                                   :invoke-id invoke-id
                                   :child-id   child-id
@@ -1102,7 +1102,7 @@
                 work-generation (join-work-generation
                                   join-state child-id spawned-id
                                   (:rf/attempt join-state))
-                stale-reply (m-reply/stale-join-child-reply
+                stale-reply (rf.machines.reply/stale-join-child-reply
                               {:parent-id    parent-id
                                :invoke-id    invoke-id
                                :child-id     child-id
@@ -1111,8 +1111,8 @@
                                :frame        frame-id
                                :completed-at completed-at}
                               kind)
-                summary    (m-reply/trace-reply stale-reply {:frame frame-id})]
-            (trace/emit! :rf.machine :rf.machine.spawn-all/late-completion
+                summary    (rf.machines.reply/trace-reply stale-reply {:frame frame-id})]
+            (rf.trace/emit! :rf.machine :rf.machine.spawn-all/late-completion
                          (cond-> {:actor-id parent-id
                                   :invoke-id invoke-id
                                   :child-id   child-id
@@ -1190,7 +1190,7 @@
     (when (and (not (:resolved? resolution))
                (join-unsatisfiable? spec join-state')
                (not (join-unsatisfiable? spec join-state)))
-      (trace/emit! :warning :rf.warning/spawn-all-join-unsatisfiable
+      (rf.trace/emit! :warning :rf.warning/spawn-all-join-unsatisfiable
                    {:actor-id  parent-id
                     :invoke-id invoke-id
                     :join      (:join spec :all)
@@ -1216,5 +1216,5 @@
                                  completed-at))
     (let [fx (build-resolution-fx frame-id parent-id invoke-id spec join-state''
                                   child-id child-extra resolution)]
-      {:rf.db/runtime (assoc-in runtime-db (paths/spawned-path parent-id invoke-id) join-state'')
+      {:rf.db/runtime (assoc-in runtime-db (rf.machines.paths/spawned-path parent-id invoke-id) join-state'')
        :fx fx})))

@@ -31,15 +31,15 @@
    ;; load the machines artefact so its fx handlers + late-bind hooks are
    ;; installed when this ns runs in isolation.
    [re-frame.machines]
-   [re-frame.machines.test-support :as mtest]
-   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
-       :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
+   [re-frame.machines.test-support :as rf.machines.test-support]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture
-    #?(:clj  {:adapter plain-atom/adapter}
-       :cljs {:adapter reagent-adapter/adapter}))
-  mtest/trace-capture-fixture)
+  (rf.machines.test-support/make-reset-runtime-fixture
+    #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
+       :cljs {:adapter rf.adapter.reagent/adapter}))
+  rf.machines.test-support/trace-capture-fixture)
 
 (def ^:private terminal-work-statuses
   "The closed TERMINAL work-status set — a child attempt closes on exactly
@@ -56,16 +56,16 @@
         (comp (map :tags)
               (filter #(= spawned-id (second (:rf.reply/work-id %))))
               (keep :rf.reply/work-status))
-        (or (mtest/captured-events) [])))
+        (or (rf.machines.test-support/captured-events) [])))
 
 (defn- terminals-for [spawned-id]
   (filterv terminal-work-statuses (work-statuses-for spawned-id)))
 
 (defn- child-completed-traces []
-  (mtest/events-of :rf.machine.spawn-all/child-completed))
+  (rf.machines.test-support/events-of :rf.machine.spawn-all/child-completed))
 
 (defn- join-state [parent-id]
-  (get-in (mtest/runtime-db)
+  (get-in (rf.machines.test-support/runtime-db)
           [:rf.runtime/machines :spawned parent-id [:racing]]))
 
 (defn- mk-child [parent-id]
@@ -186,7 +186,7 @@
           "decisive :any child closes exactly one :completed")
       (is (empty? (child-completed-traces))
           "no fold-time trace for a decisive fold"))
-    (mtest/reset-captured!)
+    (rf.machines.test-support/reset-captured!)
     ;; :on-any-failed failure — the first failure is decisive.
     (let [j (reg-join-parent! :jct/p4 :jct/p4a :jct/p4b
                               {:join :all :on-all-complete [:all/done]
@@ -239,7 +239,7 @@
       (is (= [:completed] (terminals-for a))
           "the post-resolution straggler stayed :stale — still one terminal")
       (is (some #(= :stale (:rf.reply/status (:tags %)))
-                (mtest/events-of :rf.machine.spawn-all/late-completion))
+                (rf.machines.test-support/events-of :rf.machine.spawn-all/late-completion))
           "the straggler was classified through the stale late-completion path"))))
 
 ;; ---------------------------------------------------------------------------

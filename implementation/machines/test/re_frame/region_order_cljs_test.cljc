@@ -23,8 +23,8 @@
   lane's CLJS filter, and the CLJ/CLJS parity this file exists to pin had
   never once been checked on CLJS (rf2-lgozq)."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.machines.parallel :as parallel]
-            [re-frame.machines.result :as result]))
+            [re-frame.machines.parallel :as rf.machines.parallel]
+            [re-frame.machines.result :as rf.machines.result]))
 
 ;; ---- helpers --------------------------------------------------------------
 
@@ -35,7 +35,7 @@
 (defn- boot
   "Fresh initial snapshot for a parallel machine spec."
   [m]
-  (parallel/build-initial-snapshot m {:bootstrap-pending? false}))
+  (rf.machines.parallel/build-initial-snapshot m {:bootstrap-pending? false}))
 
 (defn- go-machine
   "A parallel machine whose regions are exactly `order` (a vector of region
@@ -96,7 +96,7 @@
   (testing ">8 regions (computed :regions): shared :data accumulates in
             DECLARATION order r0..r9, NOT :regions hash order"
     (let [m (go-machine r10 true)
-          r (parallel/machine-transition m (boot m) [:go])]
+          r (rf.machines.parallel/machine-transition m (boot m) [:go])]
       (is (= :ok (:status r)))
       (is (instance? #?(:clj clojure.lang.PersistentHashMap
                         :cljs cljs.core/PersistentHashMap)
@@ -108,7 +108,7 @@
 (deftest action-data-order-preserved-literal
   (testing ">8 regions (LITERAL :regions map): shared :data accumulates in
             DECLARATION order r0..r9"
-    (let [r (parallel/machine-transition literal-ten (boot literal-ten) [:go])]
+    (let [r (rf.machines.parallel/machine-transition literal-ten (boot literal-ten) [:go])]
       (is (= :ok (:status r)))
       (is (= r10 (get-in (:snapshot r) [:data :order]))))))
 
@@ -117,9 +117,9 @@
 (deftest cascade-region-order-preserved
   (testing ">8 regions: cascade steps are concatenated in declaration order"
     (let [m (go-machine r10 true)
-          r (parallel/machine-transition m (boot m) [:go])]
+          r (rf.machines.parallel/machine-transition m (boot m) [:go])]
       (is (= :ok (:status r)))
-      (is (= r10 (vec (distinct (keep :region (result/cascade r)))))
+      (is (= r10 (vec (distinct (keep :region (rf.machines.result/cascade r)))))
           "distinct region sequence across cascade steps is authored r0..r9"))))
 
 ;; ---- 3. fx order ----------------------------------------------------------
@@ -127,7 +127,7 @@
 (deftest fx-order-preserved
   (testing ">8 regions: per-region fx accumulate in declaration order"
     (let [m (go-machine r10 true)
-          r (parallel/machine-transition m (boot m) [:go])]
+          r (rf.machines.parallel/machine-transition m (boot m) [:go])]
       (is (= :ok (:status r)))
       (is (= (mapv (fn [rn] [:noted rn]) r10) (noted-fx r))
           "emitted [:noted rN] fx are ordered r0..r9"))))
@@ -143,7 +143,7 @@
                                        :states  {:idle {:spawn {:machine-id rn}}}}]))
                         order)
           m       {:type :parallel :data {} :region-order order :regions regions}
-          r       (parallel/apply-initial-entry-cascade m (boot m))
+          r       (rf.machines.parallel/apply-initial-entry-cascade m (boot m))
           spawned (->> (:fx r)
                        (filterv #(= :rf.machine/spawn (first %)))
                        (mapv #(:machine-id (second %))))]
@@ -166,7 +166,7 @@
                         order)
           m       {:type :parallel :data {:birth []} :region-order order
                    :actions actions :regions regions}
-          r       (parallel/apply-initial-entry-cascade m (boot m))]
+          r       (rf.machines.parallel/apply-initial-entry-cascade m (boot m))]
       (is (= :ok (:status r)))
       (is (= order (get-in (:snapshot r) [:data :birth]))
           "birth entry-action order is authored r0..r9"))))
@@ -187,7 +187,7 @@
                         order)
           m       {:type :parallel :data {:exit []} :region-order order
                    :actions actions :regions regions}
-          r       (parallel/run-active-exit-cascade m (boot m))]
+          r       (rf.machines.parallel/run-active-exit-cascade m (boot m))]
       (is (= :ok (:status r)))
       (is (= order (get-in (:snapshot r) [:data :exit]))
           "destroy exit-action order is authored r0..r9"))))
@@ -213,7 +213,7 @@
           m       {:type :parallel :data {:entered []} :region-order order
                    :actions actions :regions regions
                    :on {:go {:target targets}}}
-          r       (parallel/machine-transition m (boot m) [:go])]
+          r       (rf.machines.parallel/machine-transition m (boot m) [:go])]
       (is (= :ok (:status r)))
       (is (= (into {} (map (fn [rn] [rn :two])) order)
              (:state (:snapshot r)))
@@ -229,15 +229,15 @@
     (let [fwd (go-machine r10 true)
           rev-order (vec (reverse r10))
           rev (go-machine rev-order true)
-          rf  (parallel/machine-transition fwd (boot fwd) [:go])
-          rr  (parallel/machine-transition rev (boot rev) [:go])]
+          rf  (rf.machines.parallel/machine-transition fwd (boot fwd) [:go])
+          rr  (rf.machines.parallel/machine-transition rev (boot rev) [:go])]
       (is (= r10 (get-in (:snapshot rf) [:data :order])))
       (is (= rev-order (get-in (:snapshot rr) [:data :order]))
           "apply order follows the declared :region-order")
       (is (= (:state (:snapshot rf)) (:state (:snapshot rr)))
           "the selected / committed state is IDENTICAL regardless of order")
-      (is (= (set r10) (set (keep :region (result/cascade rf)))
-             (set (keep :region (result/cascade rr))))
+      (is (= (set r10) (set (keep :region (rf.machines.result/cascade rf)))
+             (set (keep :region (rf.machines.result/cascade rr))))
           "the SET of regions that fired is identical — selection is
            declaration-order-independent"))))
 
@@ -250,7 +250,7 @@
           #?(:clj Exception :cljs js/Error)
           #":rf.error/machine-parallel-region-order-required"
           (let [m (go-machine r10 false)]
-            (parallel/machine-transition m {:state {} :data {}} [:go]))))))
+            (rf.machines.parallel/machine-transition m {:state {} :data {}} [:go]))))))
 
 ;; ---- 10. registration outcome: mismatched :region-order rejected ----------
 
@@ -262,21 +262,21 @@
         (is (thrown-with-msg?
               #?(:clj Exception :cljs js/Error)
               #":rf.error/machine-parallel-region-order-mismatch"
-              (parallel/machine-transition
+              (rf.machines.parallel/machine-transition
                 (assoc base :region-order (vec (butlast r10)))
                 {:state {} :data {}} [:go]))))
       (testing "an extra (non-declared) region"
         (is (thrown-with-msg?
               #?(:clj Exception :cljs js/Error)
               #":rf.error/machine-parallel-region-order-mismatch"
-              (parallel/machine-transition
+              (rf.machines.parallel/machine-transition
                 (assoc base :region-order (conj r10 :r99))
                 {:state {} :data {}} [:go]))))
       (testing "a duplicate region"
         (is (thrown-with-msg?
               #?(:clj Exception :cljs js/Error)
               #":rf.error/machine-parallel-region-order-mismatch"
-              (parallel/machine-transition
+              (rf.machines.parallel/machine-transition
                 (assoc base :region-order (assoc r10 9 :r0))  ; :r9 → dup :r0
                 {:state {} :data {}} [:go])))))))
 
@@ -299,9 +299,9 @@
                         :cljs cljs.core/PersistentArrayMap)
                      (:regions m))
           "a 3-entry :regions literal is an order-preserving array-map")
-      (is (= [:a :b :c] (parallel/region-order m))
+      (is (= [:a :b :c] (rf.machines.parallel/region-order m))
           "region-order is derived from the array-map's insertion order")
-      (let [r (parallel/machine-transition m (boot m) [:go])]
+      (let [r (rf.machines.parallel/machine-transition m (boot m) [:go])]
         (is (= [:a :b :c] (get-in (:snapshot r) [:data :order])))))))
 
 ;; ---- 12. normalisation is idempotent --------------------------------------
@@ -309,7 +309,7 @@
 (deftest normalise-region-order-idempotent
   (testing "re-normalising a canonical machine is a no-op"
     (let [m  (go-machine r10 true)
-          m1 (parallel/normalise-region-order m)
-          m2 (parallel/normalise-region-order m1)]
+          m1 (rf.machines.parallel/normalise-region-order m)
+          m2 (rf.machines.parallel/normalise-region-order m1)]
       (is (= r10 (:region-order m1)))
       (is (identical? m1 m2) "second normalise returns the same value"))))

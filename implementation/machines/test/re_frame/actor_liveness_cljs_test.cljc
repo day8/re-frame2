@@ -26,27 +26,27 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.frame :as frame]
-   [re-frame.machines.test-support :as mtest]
-   [re-frame.registrar :as registrar]
-   [re-frame.substrate.adapter :as adapter]
-   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
-       :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
+   [re-frame.frame :as rf.frame]
+   [re-frame.machines.test-support :as rf.machines.test-support]
+   [re-frame.registrar :as rf.registrar]
+   [re-frame.substrate.adapter :as rf.substrate.adapter]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture
-    #?(:clj  {:adapter plain-atom/adapter}
-       :cljs {:adapter reagent-adapter/adapter})))
+  (rf.machines.test-support/make-reset-runtime-fixture
+    #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
+       :cljs {:adapter rf.adapter.reagent/adapter})))
 
 ;; snapshot lookup via the shared machines test-support — no hardcoded
 ;; `[:rf.runtime/machines :snapshots …]` path.
-(def ^:private snapshot mtest/snapshot)
+(def ^:private snapshot rf.machines.test-support/snapshot)
 
 (defn- registrar-event-snapshot
   "A value-snapshot of every registered :event id — the bit we assert is
   UNCHANGED across a spawn/destroy (no registrar drift)."
   []
-  (set (keys (registrar/registrations :event))))
+  (set (keys (rf.registrar/registrations :event))))
 
 (defn- revert-app-db!
   "Reset `frame-id`'s RUNTIME-DB to `runtime-db` — the partition a
@@ -56,11 +56,11 @@
 
   A spawned actor's LIVENESS is its snapshot's presence in the **runtime-db**
   partition (machine snapshots are durable runtime-db state), so reverting
-  liveness means reverting runtime-db — written via `frame/swap-runtime-db!`.
+  liveness means reverting runtime-db — written via `rf.frame/swap-runtime-db!`.
   This helper installs just the runtime-db partition (the full frame-state
   restore PROJECTIONS live elsewhere)."
   [frame-id runtime-db]
-  (frame/swap-runtime-db! frame-id (constantly runtime-db)))
+  (rf.frame/swap-runtime-db! frame-id (constantly runtime-db)))
 
 ;; A parent that spawns one child of a registered TYPE on `:go` and
 ;; destroys it on `:drop`. The child increments a counter on `:bump` so
@@ -95,7 +95,7 @@
       (rf/dispatch-sync [:al/parent [:go]])
       (is (some? (snapshot :al/child#1))
           "spawned actor's snapshot is installed (it is alive)")
-      (is (nil? (registrar/lookup :event :al/child#1))
+      (is (nil? (rf.registrar/lookup :event :al/child#1))
           "spawn registered NO per-instance handler")
       (is (= reg-before (registrar-event-snapshot))
           "spawn mutated the :event registrar by exactly nothing")
@@ -118,7 +118,7 @@
     (rf/reg-machine :al2/child  (counter-child))
     (rf/reg-machine :al2/parent (spawning-parent :al2/child))
     (rf/dispatch-sync [:al2/parent [:go]])
-    (is (nil? (registrar/lookup :event :al2/child#1))
+    (is (nil? (rf.registrar/lookup :event :al2/child#1))
         "no per-instance handler is registered for the spawned actor")
     (is (= 0 (:n (:data (snapshot :al2/child#1)))))
     ;; Dispatch straight at the spawned actor-id — this only resolves via
@@ -180,7 +180,7 @@
         (revert-app-db! :rf/default db-before-spawn)
         (is (nil? (snapshot :al4/child#1))
             "rewind-past-spawn: the actor's snapshot is gone")
-        (is (nil? (registrar/lookup :event :al4/child#1))
+        (is (nil? (rf.registrar/lookup :event :al4/child#1))
             "rewind-past-spawn: NO orphaned handler survives the revert
              (the {:handler-survived-restore? true} leak is closed)")
 
@@ -202,7 +202,7 @@
             registers a handler and dispatches normally; the lazy
             resolver does not change the singleton path"
     (rf/reg-machine :al5/single (counter-child))
-    (is (some? (registrar/lookup :event :al5/single))
+    (is (some? (rf.registrar/lookup :event :al5/single))
         "a reg-machine singleton IS registered in the :event registrar")
     (rf/dispatch-sync [:al5/single [:bump]])
     (is (= 1 (:n (:data (snapshot :al5/single))))

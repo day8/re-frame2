@@ -20,16 +20,16 @@
   (:require [clojure.edn :as edn]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.machines :as machines]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.machines :as rf.machines]
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; snapshot lookup via the shared machines test-support
 ;; — no hardcoded `[:rf.runtime/machines :snapshots …]` path.
-(def ^:private snapshot mtest/snapshot)
+(def ^:private snapshot rf.machines.test-support/snapshot)
 
 ;; ---- 1. flat machine, tags on each state ---------------------------------
 
@@ -145,11 +145,11 @@
              :states  {:a {:tags #{:start} :on {:next :b}}
                        :b {:tags #{:middle :transient} :on {:next :c}}
                        :c {:tags #{:end}}}}
-          {snap1 :snapshot} (machines/machine-transition m {:state :a :data {}} [:next])]
+          {snap1 :snapshot} (rf.machines/machine-transition m {:state :a :data {}} [:next])]
       (is (= :b (:state snap1)))
       (is (= #{:middle :transient} (:tags snap1))
           ":tags stamped on the pure-transition output")
-      (let [{snap2 :snapshot} (machines/machine-transition m snap1 [:next])]
+      (let [{snap2 :snapshot} (rf.machines/machine-transition m snap1 [:next])]
         (is (= :c (:state snap2)))
         (is (= #{:end} (:tags snap2))))))
 
@@ -158,7 +158,7 @@
              :data    {}
              :states  {:a {:on {:next :b}}
                        :b {}}}
-          {snap :snapshot}  (machines/machine-transition m {:state :a :data {}} [:next])]
+          {snap :snapshot}  (rf.machines/machine-transition m {:state :a :data {}} [:next])]
       (is (= :b (:state snap)))
       (is (not (contains? snap :tags))
           "empty tag union elided on pure-transition output"))))

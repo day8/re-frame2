@@ -37,22 +37,22 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.machines :as machines]
-            [re-frame.machines.paths :as paths]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.machines.timer :as timer]
-            [re-frame.subs :as subs]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace.tooling :as trace-tooling]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.machines :as rf.machines]
+            [re-frame.machines.paths :as rf.machines.paths]
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.machines.timer :as rf.machines.timer]
+            [re-frame.subs :as rf.subs]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 ;; Touch the artefact so the machines registration hooks (incl. the
 ;; `:machines/on-frame-destroyed!` timer cleanup) are wired even in isolation.
-(def ^:private _artefact machines/machine-transition)
+(def ^:private _artefact rf.machines/machine-transition)
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- fresh-handle
   "A process-unique opaque host handle, distinguishable by `identical?`."
@@ -79,9 +79,9 @@
 (defn- k-for [delay] {:parent parent-id :spawn [] :delay delay})
 
 (defn- install-entry! [frame-id k entry]
-  (swap! timer/after-timers assoc-in [frame-id k] entry))
+  (swap! rf.machines.timer/after-timers assoc-in [frame-id k] entry))
 
-(defn- inner [frame-id] (get @timer/after-timers frame-id {}))
+(defn- inner [frame-id] (get @rf.machines.timer/after-timers frame-id {}))
 
 ;; ===========================================================================
 ;; TEST 1 — CAPTURE→READ: the batch cancels by the SNAPSHOTTED attempt token, so
@@ -104,7 +104,7 @@
         fired?    (atom false)]
     (install-entry! frame-id k1 (literal-entry ::a1-token hA1))
     (install-entry! frame-id k2 (literal-entry ::a2-token hA2))
-    (trace-tooling/register-listener!
+    (rf.trace.tooling/register-listener!
       ::cr
       (fn [ev]
         (when (and (= :rf.machine.timer/cancelled (:operation ev))
@@ -115,14 +115,14 @@
           ;; snapshot and k2's claim.
           (install-entry! frame-id k2 b-entry))))
     (try
-      (with-redefs [interop/cancel-scheduled! (fn [h] (swap! cancelled conj h) nil)]
-        (timer/after-cancel-fx {:frame frame-id}
+      (with-redefs [rf.interop/cancel-scheduled! (fn [h] (swap! cancelled conj h) nil)]
+        (rf.machines.timer/after-cancel-fx {:frame frame-id}
                                {:rf/parent-id parent-id :rf/invoke-id []}))
-      (finally (trace-tooling/unregister-listener! ::cr)))
+      (finally (rf.trace.tooling/unregister-listener! ::cr)))
     (is (true? @fired?) "the first cancellation's trace listener ran (seam exercised)")
-    (is (= b-entry (get-in @timer/after-timers [frame-id k2]))
+    (is (= b-entry (get-in @rf.machines.timer/after-timers [frame-id k2]))
         "successor B at k2 SURVIVES — the batch claimed only its snapshotted a2-token, never B's fresh token")
-    (is (identical? hB2 (:handle (get-in @timer/after-timers [frame-id k2])))
+    (is (identical? hB2 (:handle (get-in @rf.machines.timer/after-timers [frame-id k2])))
         "B's host handle at k2 is intact")
     (is (not (some #(identical? hB2 %) @cancelled))
         "B's handle was NOT cancelled by the A-scoped batch")
@@ -138,7 +138,7 @@
 (deftest two-key-batch-destroy-during-cancel-spares-successor
   (rf/make-frame {:id :rf2-ijlhj/tk-frame})
   (let [frame-id  :rf2-ijlhj/tk-frame
-        token-a   (frame/frame-incarnation-token frame-id)
+        token-a   (rf.frame/frame-incarnation-token frame-id)
         k1        (k-for 1000)
         k2        (k-for 2000)
         hA1       (fresh-handle)
@@ -151,7 +151,7 @@
         b-token   (atom nil)]
     (install-entry! frame-id k1 (literal-entry ::a1-token hA1))
     (install-entry! frame-id k2 (literal-entry ::a2-token hA2))
-    (trace-tooling/register-listener!
+    (rf.trace.tooling/register-listener!
       ::tk
       (fn [ev]
         (when (= :rf.machine.timer/cancelled (:operation ev))
@@ -159,19 +159,19 @@
           (when (compare-and-set! fired? false true)
             ;; Destroy A (its on-frame-destroyed hook releases A's remaining k2),
             ;; then publish same-id B and re-arm B/k2 on this trace's own stack.
-            (frame/destroy-frame! frame-id)
+            (rf.frame/destroy-frame! frame-id)
             (rf/make-frame {:id frame-id})
-            (reset! b-token (frame/frame-incarnation-token frame-id))
+            (reset! b-token (rf.frame/frame-incarnation-token frame-id))
             (install-entry! frame-id k2 b-entry)))))
     (try
-      (with-redefs [interop/cancel-scheduled! (fn [h] (swap! cancelled conj h) nil)]
-        (timer/after-cancel-fx {:frame frame-id}
+      (with-redefs [rf.interop/cancel-scheduled! (fn [h] (swap! cancelled conj h) nil)]
+        (rf.machines.timer/after-cancel-fx {:frame frame-id}
                                {:rf/parent-id parent-id :rf/invoke-id []}))
-      (finally (trace-tooling/unregister-listener! ::tk)))
+      (finally (rf.trace.tooling/unregister-listener! ::tk)))
     (is (true? @fired?) "a cancellation fired and destroyed A / published B (seam exercised)")
     (is (some? @b-token) "same-id successor B is live after the swap")
     (is (not (identical? token-a @b-token)) "B is a DISTINCT incarnation from A")
-    (is (= b-entry (get-in @timer/after-timers [frame-id k2]))
+    (is (= b-entry (get-in @rf.machines.timer/after-timers [frame-id k2]))
         "B's re-armed k2 SURVIVES — the A-bound batch short-circuited and never reached it")
     (is (not (some #(identical? hB2 %) @cancelled))
         "B's host handle was NOT cancelled by A's batch")
@@ -207,7 +207,7 @@
         reasons    (atom [])
         unsub      (atom 0)
         fired?     (atom false)]
-    (trace-tooling/register-listener!
+    (rf.trace.tooling/register-listener!
       ::res
       (fn [ev]
         (when (= :rf.machine.timer/cancelled (:operation ev))
@@ -217,33 +217,33 @@
             ;; destroy A, publish same-id B, re-arm B/k, and seed B's snapshot so
             ;; the (unfenced) reschedule's `still-here?` would be TRUE — the
             ;; mutation tooth that supersedes B if the fence is absent.
-            (frame/destroy-frame! frame-id)
+            (rf.frame/destroy-frame! frame-id)
             (rf/make-frame {:id frame-id})
-            (frame/swap-runtime-db!
+            (rf.frame/swap-runtime-db!
               frame-id
-              (fn [rt] (assoc-in rt (paths/snapshot-path parent-id)
+              (fn [rt] (assoc-in rt (rf.machines.paths/snapshot-path parent-id)
                                  {:state :waiting :data {}})))
             (install-entry! frame-id k b-entry)))))
     (try
-      (with-redefs [subs/subscribe   (fn ([_] reaction) ([_ _] reaction))
-                    subs/unsubscribe (fn ([_] (swap! unsub inc) nil)
+      (with-redefs [rf.subs/subscribe   (fn ([_] reaction) ([_ _] reaction))
+                    rf.subs/unsubscribe (fn ([_] (swap! unsub inc) nil)
                                        ([_ _] (swap! unsub inc) nil))
-                    interop/cancel-scheduled! (fn [h] (swap! cancelled conj h) nil)
-                    interop/schedule-after!   (fn [_thunk _ms] (fresh-handle))]
+                    rf.interop/cancel-scheduled! (fn [h] (swap! cancelled conj h) nil)
+                    rf.interop/schedule-after!   (fn [_thunk _ms] (fresh-handle))]
         ;; Arm a real sub-vec `:after` timer — installs A's entry + attaches the
         ;; `on-sub-changed!` watcher to `reaction`.
-        (timer/after-schedule-fx
+        (rf.machines.timer/after-schedule-fx
           {:frame frame-id}
           {:rf/parent-id parent-id :rf/invoke-id [] :state :waiting
            :delay-key delay-key :epoch 0 :server? false})
         (is (= 1 (count (inner frame-id))) "precondition: A's sub-vec timer is armed")
         ;; A sub-value change fires on-sub-changed! via the real add-watch.
         (reset! reaction 6000))
-      (finally (trace-tooling/unregister-listener! ::res)))
+      (finally (rf.trace.tooling/unregister-listener! ::res)))
     (is (true? @fired?) "the :on-resolution cancel fired and swapped A→B (seam exercised)")
-    (is (= b-entry (get-in @timer/after-timers [frame-id k]))
+    (is (= b-entry (get-in @rf.machines.timer/after-timers [frame-id k]))
         "B's re-armed entry SURVIVES — no A-derived reschedule / supersede touched it")
-    (is (identical? hB (:handle (get-in @timer/after-timers [frame-id k])))
+    (is (identical? hB (:handle (get-in @rf.machines.timer/after-timers [frame-id k])))
         "B's host handle is intact (not cancelled by a supersede)")
     (is (not (some #(identical? hB %) @cancelled))
         "B's handle was NOT cancelled — the reschedule continuation was fenced off")
@@ -268,15 +268,15 @@
         reasons   (atom [])]
     (install-entry! frame-id k1 (literal-entry ::a1-token hA1))
     (install-entry! frame-id k2 (literal-entry ::a2-token hA2))
-    (trace-tooling/register-listener!
+    (rf.trace.tooling/register-listener!
       ::live
       (fn [ev] (when (= :rf.machine.timer/cancelled (:operation ev))
                  (swap! reasons conj (:reason (:tags ev))))))
     (try
-      (with-redefs [interop/cancel-scheduled! (fn [h] (swap! cancelled conj h) nil)]
-        (timer/after-cancel-fx {:frame frame-id}
+      (with-redefs [rf.interop/cancel-scheduled! (fn [h] (swap! cancelled conj h) nil)]
+        (rf.machines.timer/after-cancel-fx {:frame frame-id}
                                {:rf/parent-id parent-id :rf/invoke-id []}))
-      (finally (trace-tooling/unregister-listener! ::live)))
+      (finally (rf.trace.tooling/unregister-listener! ::live)))
     (is (empty? (inner frame-id))
         "both entries cancelled + cleared for the live owner (no fence wrongly skipped)")
     (is (some #(identical? hA1 %) @cancelled) "k1 handle cancelled")

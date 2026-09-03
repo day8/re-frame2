@@ -12,7 +12,7 @@
       `[:rf.runtime/machines :spawned ...]` slot key stays unique per region.
 
   And the contract:
-   5. A `result/fail` from any region short-circuits the reduce — later
+   5. A `rf.machines.result/fail` from any region short-circuits the reduce — later
       regions don't run and the failure propagates verbatim.
 
   The helper is a `defn-` so the test reaches in via the var to invoke
@@ -20,13 +20,13 @@
   bootstrap-step / machine-transition step-fns the two production
   callers supply."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.machines.parallel :as parallel]
-            [re-frame.machines.result :as result]))
+            [re-frame.machines.parallel :as rf.machines.parallel]
+            [re-frame.machines.result :as rf.machines.result]))
 
 (def ^:private reduce-regions
   ;; Reach in to the private helper. This test isolates the broadcast
   ;; invariant from the two production step-fns.
-  #'parallel/reduce-regions)
+  #'rf.machines.parallel/reduce-regions)
 
 (defn- two-region-spec
   "Synthetic parallel-region spec — :a authored before :b."
@@ -52,7 +52,7 @@
           calls   (atom [])
           step    (fn [region-spec region-snap]
                     (swap! calls conj (:rf/region region-spec))
-                    (result/ok region-snap []))
+                    (rf.machines.result/ok region-snap []))
           snap    (snapshot {:a :a/idle :b :b/idle})
           r       (reduce-regions machine snap step)]
       (is (= :ok (:status r)))
@@ -67,9 +67,9 @@
           seen-data-by-b (atom nil)
           step    (fn [region-spec region-snap]
                     (case (:rf/region region-spec)
-                      :a (result/ok (assoc-in region-snap [:data :written-by] :a) [])
+                      :a (rf.machines.result/ok (assoc-in region-snap [:data :written-by] :a) [])
                       :b (do (reset! seen-data-by-b (:data region-snap))
-                             (result/ok region-snap []))))
+                             (rf.machines.result/ok region-snap []))))
           snap    (snapshot {:a :a/idle :b :b/idle} {:seed 1})
           r       (reduce-regions machine snap step)]
       (is (= :ok (:status r)))
@@ -86,9 +86,9 @@
           seen-counter-by-b (atom nil)
           step    (fn [region-spec region-snap]
                     (case (:rf/region region-spec)
-                      :a (result/ok (assoc region-snap :rf/spawn-counter {:ix 5}) [])
+                      :a (rf.machines.result/ok (assoc region-snap :rf/spawn-counter {:ix 5}) [])
                       :b (do (reset! seen-counter-by-b (:rf/spawn-counter region-snap))
-                             (result/ok (assoc region-snap :rf/spawn-counter {:ix 5 :iy 7}) []))))
+                             (rf.machines.result/ok (assoc region-snap :rf/spawn-counter {:ix 5 :iy 7}) []))))
           snap    (snapshot {:a :a/idle :b :b/idle} {} {})
           r       (reduce-regions machine snap step)]
       (is (= :ok (:status r)))
@@ -99,7 +99,7 @@
 
   (testing "absent :rf/spawn-counter stays absent (no defensive seeding)"
     (let [machine (two-region-spec)
-          step    (fn [_ region-snap] (result/ok region-snap []))
+          step    (fn [_ region-snap] (rf.machines.result/ok region-snap []))
           snap    (snapshot {:a :a/idle :b :b/idle})            ;; no :rf/spawn-counter
           r       (reduce-regions machine snap step)]
       (is (= :ok (:status r)))
@@ -113,7 +113,7 @@
     (let [machine (two-region-spec)
           step    (fn [region-spec region-snap]
                     (let [rn (:rf/region region-spec)]
-                      (result/ok region-snap
+                      (rf.machines.result/ok region-snap
                                  [[:rf.machine/spawn {:rf/invoke-id [rn :child]}]])))
           snap    (snapshot {:a :a/idle :b :b/idle})
           r       (reduce-regions machine snap step)]
@@ -133,12 +133,12 @@
   (testing "if region :a's step fails, region :b's step does NOT run"
     (let [machine (two-region-spec)
           b-ran?  (atom false)
-          fail-r  (result/fail {:reason :test-failure})
+          fail-r  (rf.machines.result/fail {:reason :test-failure})
           step    (fn [region-spec _region-snap]
                     (case (:rf/region region-spec)
                       :a fail-r
                       :b (do (reset! b-ran? true)
-                             (result/ok {:state :b/idle :data {}} []))))
+                             (rf.machines.result/ok {:state :b/idle :data {}} []))))
           snap    (snapshot {:a :a/idle :b :b/idle})
           r       (reduce-regions machine snap step)]
       (is (= :error (:status r)))

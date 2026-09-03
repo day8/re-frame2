@@ -34,17 +34,17 @@
     (f) action ctx gets the same `:tags` + `:all-state` threading."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.machines :as machines]
-            [re-frame.machines.parallel :as parallel]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.machines :as rf.machines]
+            [re-frame.machines.parallel :as rf.machines.parallel]
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; snapshot lookup via the shared machines test-support — no hardcoded
 ;; `[:rf.runtime/machines :snapshots …]` path.
-(def ^:private snapshot mtest/snapshot)
+(def ^:private snapshot rf.machines.test-support/snapshot)
 
 ;; ---- (a) region guard reads a sibling region's tag ------------------------
 
@@ -183,7 +183,7 @@
                                :open   {}}}}}
           initial {:state {:form :invalid :gate :closed}
                    :data  {} :tags #{:form/invalid}}
-          {snap :snapshot} (parallel/machine-transition m initial [:go])]
+          {snap :snapshot} (rf.machines.parallel/machine-transition m initial [:go])]
       (is (= {:form :valid :gate :closed} (:state snap))
           "pure transition: :gate's guard read the FROZEN :form/invalid → blocked")
       (is (= #{:form/valid} (:tags snap))

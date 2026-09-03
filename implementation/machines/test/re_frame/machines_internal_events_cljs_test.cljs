@@ -15,23 +15,23 @@
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.machines]
-            [re-frame.machines.internal-events :as internal-events]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.machines.test-support :as mtest]))
+            [re-frame.machines.internal-events :as rf.machines.internal-events]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.machines.test-support :as rf.machines.test-support]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter}))
 
-(def ^:private snapshot mtest/snapshot)
+(def ^:private snapshot rf.machines.test-support/snapshot)
 
 (deftest boundary-predicate-cljs
   (testing "internal-event-external? recognises declared internal events cross-host"
     (let [m {:internal-events #{:tick :retry/internal}}]
-      (is (true?  (internal-events/internal-event-external? m [:tick])))
-      (is (true?  (internal-events/internal-event-external? m [:retry/internal])))
-      (is (false? (internal-events/internal-event-external? m [:public-event])))
-      (is (false? (internal-events/internal-event-external? {:initial :a} [:tick]))))))
+      (is (true?  (rf.machines.internal-events/internal-event-external? m [:tick])))
+      (is (true?  (rf.machines.internal-events/internal-event-external? m [:retry/internal])))
+      (is (false? (rf.machines.internal-events/internal-event-external? m [:public-event])))
+      (is (false? (rf.machines.internal-events/internal-event-external? {:initial :a} [:tick]))))))
 
 (defn- reg-error-id [machine]
   (try (rf/reg-machine (keyword "iet" (str (gensym))) machine) nil

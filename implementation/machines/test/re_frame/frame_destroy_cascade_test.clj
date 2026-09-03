@@ -16,23 +16,23 @@
 
   These JVM-side tests run on the plain-atom substrate against the
   late-bound `:machines/teardown-on-frame-destroy!` hook that the
-  machines artefact publishes for `frame/destroy-frame!`."
+  machines artefact publishes for `rf.frame/destroy-frame!`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.late-bind :as late-bind]
+            [re-frame.frame :as rf.frame]
+            [re-frame.late-bind :as rf.late-bind]
             ;; Loading `re-frame.machines` registers the late-bind hooks
             ;; (`:machines/reg-machine`, `:machines/teardown-on-frame-destroy!`,
             ;; …) that the tests below exercise — keep the require even
             ;; when the test ns doesn't reach `machines/...` directly.
             [re-frame.machines]
-            [re-frame.machines.spawn-order :as spawn-order]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.machines.spawn-order :as rf.machines.spawn-order]
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- spawn-order channel — record / forget / clear ----------------------
 
@@ -62,12 +62,12 @@
       (rf/dispatch-sync [:spo/parent [:spawn-it]])
       ;; Two spawns recorded — ids match the per-machine counter.
       (is (= [:spo/child#1 :spo/child#2]
-             (spawn-order/frame-order :rf/default))
+             (rf.machines.spawn-order/frame-order :rf/default))
           "spawn-order vector grew by exactly the two spawned actor-ids")
       ;; Explicit destroy of the first actor: it leaves the second behind.
       (rf/dispatch-sync [:spo/parent [:drop-first]])
       (is (= [:spo/child#2]
-             (spawn-order/frame-order :rf/default))
+             (rf.machines.spawn-order/frame-order :rf/default))
           "explicit destroy forgets the first actor; the second remains tracked"))))
 
 ;; ---- frame destroy walks recorded actors in reverse-creation order -------
@@ -105,7 +105,7 @@
       (rf/dispatch-sync [:fc/boot [:spawn-three]] {:frame :fc/auth})
       ;; All 3 actors are live.
       (is (= [:fc/child#1 :fc/child#2 :fc/child#3]
-             (spawn-order/frame-order :fc/auth))
+             (rf.machines.spawn-order/frame-order :fc/auth))
           "spawn-order vector ordered oldest → newest")
       ;; Destroy the frame.
       (rf/destroy-frame! :fc/auth)
@@ -113,21 +113,21 @@
       (is (= [:fc/child#3 :fc/child#2 :fc/child#1] @exit-log)
           ":exit ran newest-first per Spec 005 §Cross-Spec Interactions §1")
       ;; Every spawned actor handler is unregistered.
-      (is (nil? (registrar/lookup :event :fc/child#1))
+      (is (nil? (rf.registrar/lookup :event :fc/child#1))
           "spawned actor handler #1 was unregistered")
-      (is (nil? (registrar/lookup :event :fc/child#2))
+      (is (nil? (rf.registrar/lookup :event :fc/child#2))
           "spawned actor handler #2 was unregistered")
-      (is (nil? (registrar/lookup :event :fc/child#3))
+      (is (nil? (rf.registrar/lookup :event :fc/child#3))
           "spawned actor handler #3 was unregistered")
       ;; The spawn-order entry for the frame is gone.
-      (is (= [] (spawn-order/frame-order :fc/auth))
+      (is (= [] (rf.machines.spawn-order/frame-order :fc/auth))
           "spawn-order slot for the destroyed frame is cleared")
       ;; The registered (non-spawned) `:fc/child` and `:fc/boot`
       ;; machines stay registered — they're global singletons that
       ;; happen to share the address space with the spawned actors.
-      (is (some? (registrar/lookup :event :fc/child))
+      (is (some? (rf.registrar/lookup :event :fc/child))
           "the singleton `:fc/child` machine handler stays globally registered")
-      (is (some? (registrar/lookup :event :fc/boot))
+      (is (some? (rf.registrar/lookup :event :fc/boot))
           "the singleton `:fc/boot` machine handler stays globally registered"))))
 
 ;; ---- [:rf.runtime/machines :system-ids] reverse index is released -------
@@ -154,9 +154,9 @@
       (rf/destroy-frame! :si/auth)
       ;; Frame is gone — and the actor's handler was unregistered as
       ;; part of the cascade.
-      (is (nil? (frame/frame :si/auth))
+      (is (nil? (rf.frame/frame :si/auth))
           "frame was destroyed")
-      (is (nil? (registrar/lookup :event :si/child#1))
+      (is (nil? (rf.registrar/lookup :event :si/child#1))
           "the system-id-bound spawned actor was unregistered (its [:rf.runtime/machines :system-ids] entry was implicitly released as part of the unified teardown projection)"))))
 
 ;; ---- :rf.machine.lifecycle/destroyed trace contract ----------------------
@@ -179,7 +179,7 @@
       (rf/reg-machine :lt/boot boot)
       (rf/dispatch-sync [:lt/boot [:start]] {:frame :lt/auth})
       ;; Shared `with-trace-capture` — guaranteed unregister in a `finally`.
-      (mtest/with-trace-capture traces
+      (rf.machines.test-support/with-trace-capture traces
         (rf/destroy-frame! :lt/auth)
         (let [destroyed (filter #(= :rf.machine.lifecycle/destroyed (:operation %))
                                 @traces)]
@@ -204,7 +204,7 @@
           ;; Install the hook explicitly. `re-frame.http.managed`
           ;; isn't loaded in this leaf-artefact's classpath, so we
           ;; register the hook directly to stand in for it.
-          _ (late-bind/set-fn!
+          _ (rf.late-bind/set-fn!
               :http/abort-on-actor-destroy
               (fn [actor-id] (swap! aborted conj actor-id)))
           child  {:initial :running :data {} :states {:running {}}}
@@ -261,8 +261,8 @@
       (rf/dispatch-sync [:iso/boot-a [:go]] {:frame :iso/frame-a})
       (rf/dispatch-sync [:iso/boot-b [:go]] {:frame :iso/frame-b})
       ;; Each frame has its own spawn-order vector.
-      (is (= [:iso/child-a#1] (spawn-order/frame-order :iso/frame-a)))
-      (is (= [:iso/child-b#1] (spawn-order/frame-order :iso/frame-b)))
+      (is (= [:iso/child-a#1] (rf.machines.spawn-order/frame-order :iso/frame-a)))
+      (is (= [:iso/child-b#1] (rf.machines.spawn-order/frame-order :iso/frame-b)))
       ;; A spawned actor carries NO per-instance registrar entry; its
       ;; liveness IS its snapshot's presence in the frame's (revertible)
       ;; app-db. Cross-frame isolation is therefore asserted on the
@@ -274,23 +274,23 @@
                          [:rf.runtime/machines :snapshots :iso/child-b#1]))
           "frame B's spawned actor is live (snapshot present) before destroy")
       ;; Spawned actors never register a per-instance handler.
-      (is (nil? (registrar/lookup :event :iso/child-a#1))
+      (is (nil? (rf.registrar/lookup :event :iso/child-a#1))
           "frame A's spawned actor has no per-instance registrar entry")
-      (is (nil? (registrar/lookup :event :iso/child-b#1))
+      (is (nil? (rf.registrar/lookup :event :iso/child-b#1))
           "frame B's spawned actor has no per-instance registrar entry")
       ;; Destroy A; B's actor stays alive (its snapshot survives).
       (rf/destroy-frame! :iso/frame-a)
       (is (= [:iso/child-a#1] @exit-log)
           "only frame A's spawned actor ran its :exit")
-      (is (some? (registrar/lookup :event :iso/child-b)
+      (is (some? (rf.registrar/lookup :event :iso/child-b)
                  )
           "frame B's TYPE machine stays globally registered after A's destroy")
       (is (some? (get-in (:rf.db/runtime (rf/frame-state-value :iso/frame-b))
                          [:rf.runtime/machines :snapshots :iso/child-b#1]))
           "frame B's spawned actor stays alive (snapshot present) after A's destroy")
-      (is (= [] (spawn-order/frame-order :iso/frame-a))
+      (is (= [] (rf.machines.spawn-order/frame-order :iso/frame-a))
           "frame A's spawn-order slot is cleared")
-      (is (= [:iso/child-b#1] (spawn-order/frame-order :iso/frame-b))
+      (is (= [:iso/child-b#1] (rf.machines.spawn-order/frame-order :iso/frame-b))
           "frame B's spawn-order slot is untouched"))))
 
 ;; ---- restore / hydration: spawned snapshots absent from spawn-order ------
@@ -310,7 +310,7 @@
 ;;
 ;; The tests in THIS section model an SSR / preload hydration into a FRESH
 ;; PROCESS: durable snapshots arrive on the wire and the transient atom was
-;; never populated at all. `spawn-order/reset-all!` reproduces exactly that —
+;; never populated at all. `rf.machines.spawn-order/reset-all!` reproduces exactly that —
 ;; an empty cache beside a full runtime-db.
 ;;
 ;; It is NOT a model of an IN-PROCESS `restore-epoch!` / `replace-frame-state!`,
@@ -362,8 +362,8 @@
           "three spawned snapshots are live (each carrying :rf/machine-type) before restore")
       ;; Simulate restore / hydration: the durable snapshots survive, but
       ;; the transient spawn-order atom is wiped (it is NOT serialized).
-      (spawn-order/reset-all!)
-      (is (= [] (spawn-order/frame-order :rs/auth))
+      (rf.machines.spawn-order/reset-all!)
+      (is (= [] (rf.machines.spawn-order/frame-order :rs/auth))
           "spawn-order atom is empty post-restore (the bug's precondition)")
       ;; Destroy the frame.
       (rf/destroy-frame! :rs/auth)
@@ -408,7 +408,7 @@
           "system-id bound before restore")
       ;; Restore: wipe the transient spawn-order; the durable snapshot +
       ;; system-id reverse index survive.
-      (spawn-order/reset-all!)
+      (rf.machines.spawn-order/reset-all!)
       (rf/destroy-frame! :rsi/auth)
       (is (nil? (get-in (:rf.db/runtime (rf/frame-state-value :rsi/auth))
                         [:rf.runtime/machines :system-ids :session/primary]))
@@ -438,13 +438,13 @@
                   (get-in (:rf.db/runtime (rf/frame-state-value :rsg/auth))
                           [:rf.runtime/machines :snapshots :rsg/single])))
           "singleton snapshot carries NO :rf/machine-type (the discriminator)")
-      (spawn-order/reset-all!)
+      (rf.machines.spawn-order/reset-all!)
       (rf/destroy-frame! :rsg/auth)
       ;; The singleton's :exit ran (straggler path runs the exit cascade)...
       (is (= [:rsg/single] @exit-log)
           "singleton :exit cascade ran via the straggler path")
       ;; ...but its TYPE handler stays globally registered (outlives the frame).
-      (is (some? (registrar/lookup :event :rsg/single))
+      (is (some? (rf.registrar/lookup :event :rsg/single))
           "singleton handler stays registered — NOT unregistered by the straggler path"))))
 
 ;; ---- durable spawn-order: the frame-global creation sequence (rf2-1vlyg) ----
@@ -512,8 +512,8 @@
       ;; --- the loss boundary --------------------------------------------
       ;; Model epoch restore / SSR hydration: the durable runtime-db
       ;; survives, the transient process-side atom does not.
-      (spawn-order/reset-all!)
-      (is (= [] (spawn-order/frame-order :probe/auth))
+      (rf.machines.spawn-order/reset-all!)
+      (is (= [] (rf.machines.spawn-order/frame-order :probe/auth))
           "transient spawn-order atom is empty post-restore (the bug's precondition)")
       (is (= [:probe/a#1 :probe/a#2 :probe/b#1]
              (runtime-spawn-order :probe/auth))
@@ -596,7 +596,7 @@
 ;; EVERY install path, including those that fire no hook at all, which is why it
 ;; is enforced where the cache is READ rather than at each install site.
 ;;
-;; These tests drive the loss boundary through `frame/replace-frame-state!` —
+;; These tests drive the loss boundary through `rf.frame/replace-frame-state!` —
 ;; core's ONE frame-state write surface, and the very fn
 ;; `epoch/perform-restore!` calls to install a restored epoch. No test below
 ;; resets a machines internal by hand.
@@ -658,16 +658,16 @@
         (rf/dispatch-sync [:stage/boot [:spawn-b]] {:frame :stage/auth})
         (is (= [:stage/a#1 :stage/b#1] (runtime-spawn-order :stage/auth))
             "b#1 is recorded NEWER than a#1 in the durable order (non-vacuity control)")
-        (is (= [:stage/a#1 :stage/b#1] (spawn-order/frame-order :stage/auth))
+        (is (= [:stage/a#1 :stage/b#1] (rf.machines.spawn-order/frame-order :stage/auth))
             "the transient cache carries both (non-vacuity control)")
         ;; --- the loss boundary: a whole frame-state install through core's
         ;; ONE write surface, the same fn epoch/perform-restore! calls.
-        (frame/replace-frame-state! :stage/auth captured)
+        (rf.frame/replace-frame-state! :stage/auth captured)
         (is (= [:stage/a#1] (runtime-spawn-order :stage/auth))
             "the durable order rewound past b#1")
         (is (nil? (get (runtime-snapshots :stage/auth) :stage/b#1))
             "b#1's snapshot is gone from durable state — the install DISCARDED that actor")
-        (is (= [:stage/a#1 :stage/b#1] (spawn-order/frame-order :stage/auth))
+        (is (= [:stage/a#1 :stage/b#1] (rf.machines.spawn-order/frame-order :stage/auth))
             (str "the transient cache still names the discarded b#1 — no production "
                  "install path clears it. This is the CONDITION under test, not a "
                  "defect the fix papers over by clearing it."))
@@ -694,10 +694,10 @@
         (rf/dispatch-sync [:stage/boot [:spawn-b]] {:frame :stagex/auth})
         (is (some? (get (runtime-snapshots :stagex/auth) :stage/b#1))
             "b#1 is live before the install (non-vacuity control)")
-        (frame/replace-frame-state! :stagex/auth captured)
+        (rf.frame/replace-frame-state! :stagex/auth captured)
         (is (nil? (get (runtime-snapshots :stagex/auth) :stage/b#1))
             "b#1 was discarded by the install")
-        (is (some? (some #{:stage/b#1} (spawn-order/frame-order :stagex/auth)))
+        (is (some? (some #{:stage/b#1} (rf.machines.spawn-order/frame-order :stagex/auth)))
             "the stale cache entry for b#1 survives the install (the condition under test)")
         (reset! exit-log [])
         (let [traces (collect-traces!
@@ -727,19 +727,19 @@
         (is (= [:probe/a#1 :probe/a#2 :probe/b#1] (runtime-spawn-order :probere/auth))
             "the durable order is recorded at capture time (non-vacuity control)")
         ;; Empty the transient cache the ORDINARY way — three explicit
-        ;; destroys, each running `spawn-order/forget!`. No internals reset.
+        ;; destroys, each running `rf.machines.spawn-order/forget!`. No internals reset.
         (rf/dispatch-sync [:probere/boot [:drop-all]] {:frame :probere/auth})
-        (is (= [] (spawn-order/frame-order :probere/auth))
+        (is (= [] (rf.machines.spawn-order/frame-order :probere/auth))
             "the transient cache is empty after the destroys (non-vacuity control)")
         (is (nil? (runtime-spawn-order :probere/auth))
             "and the durable slot is pruned once it empties")
         (reset! exit-log [])
         ;; Reinstall the captured frame-state — the whole-value install
         ;; `restore-epoch!` performs. Only the DURABLE order comes back.
-        (frame/replace-frame-state! :probere/auth captured)
+        (rf.frame/replace-frame-state! :probere/auth captured)
         (is (= [:probe/a#1 :probe/a#2 :probe/b#1] (runtime-spawn-order :probere/auth))
             "the durable order rode the install back in")
-        (is (= [] (spawn-order/frame-order :probere/auth))
+        (is (= [] (rf.machines.spawn-order/frame-order :probere/auth))
             (str "the transient cache is STILL empty — no install path repopulates it, "
                  "so the walk below has nothing but the durable vector to read"))
         (rf/destroy-frame! :probere/auth)

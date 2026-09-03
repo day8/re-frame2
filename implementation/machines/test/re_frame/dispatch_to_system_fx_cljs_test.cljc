@@ -33,19 +33,19 @@
    ;; requiring `re-frame.machines` wires the machines artefact into the
    ;; late-bind registry so `rf/reg-machine` resolves AND registers the
    ;; `:rf.machine/dispatch-to-system` fx under test.
-   [re-frame.machines :as machines]
-   [re-frame.machines.test-support :as mtest]
-   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
-       :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
+   [re-frame.machines :as rf.machines]
+   [re-frame.machines.test-support :as rf.machines.test-support]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture
-    #?(:clj  {:adapter plain-atom/adapter}
-       :cljs {:adapter reagent-adapter/adapter})))
+  (rf.machines.test-support/make-reset-runtime-fixture
+    #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
+       :cljs {:adapter rf.adapter.reagent/adapter})))
 
 ;; snapshot lookup via the shared machines test-support
 ;; — no hardcoded `[:rf.runtime/machines :snapshots …]` path.
-(def ^:private snapshot mtest/snapshot)
+(def ^:private snapshot rf.machines.test-support/snapshot)
 
 (deftest dispatch-to-system-fx-reaches-spawned-actor
   (testing "a machine action's [:rf.machine/dispatch-to-system [<sys> [:msg]]]
@@ -70,7 +70,7 @@
                                       {:fx [[:rf.machine/dispatch-to-system
                                              [:notifier [:notify "hello"]]]]})}}}}})
     (rf/dispatch-sync [:sup/flow [:go]])
-    (let [spawned (machines/machine-by-system-id :notifier)]
+    (let [spawned (rf.machines/machine-by-system-id :notifier)]
       (is (= :notifier/proc#1 spawned)
           ":system-id resolves to the spawned actor")
       (is (= [] (get-in (snapshot spawned) [:data :msgs]))
@@ -91,5 +91,5 @@
         {:fx [[:rf.machine/dispatch-to-system [:nobody [:whatever]]]]}))
     (is (nil? (rf/dispatch-sync [::poke]))
         "emitting the fx against an unbound system-id is a harmless no-op")
-    (is (nil? (machines/machine-by-system-id :nobody))
+    (is (nil? (rf.machines/machine-by-system-id :nobody))
         "the unbound name still resolves to nil")))

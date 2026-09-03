@@ -32,21 +32,21 @@
    ;; (production-DCE split). On JVM the convenience aliases in
    ;; re-frame.core preserve the `rf/<name>` shape, but on CLJS the
    ;; tooling sibling must be referenced directly.
-   [re-frame.trace.tooling :as trace-tooling]
-   [re-frame.machines :as machines]
-   [re-frame.machines.test-support :as mtest]
-   [re-frame.registrar :as registrar]
-   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
-       :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
+   [re-frame.trace.tooling :as rf.trace.tooling]
+   [re-frame.machines :as rf.machines]
+   [re-frame.machines.test-support :as rf.machines.test-support]
+   [re-frame.registrar :as rf.registrar]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture
-    #?(:clj  {:adapter plain-atom/adapter}
-       :cljs {:adapter reagent-adapter/adapter})))
+  (rf.machines.test-support/make-reset-runtime-fixture
+    #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
+       :cljs {:adapter rf.adapter.reagent/adapter})))
 
 ;; snapshot lookup via the shared machines test-support — no hardcoded
 ;; `[:rf.runtime/machines :snapshots …]` path.
-(def ^:private snapshot mtest/snapshot)
+(def ^:private snapshot rf.machines.test-support/snapshot)
 
 (defn- traces-for
   [traces operation]
@@ -55,7 +55,7 @@
 (defn- record-traces!
   [k]
   (let [a (atom [])]
-    (trace-tooling/register-listener! k (fn [ev] (swap! a conj ev)))
+    (rf.trace.tooling/register-listener! k (fn [ev] (swap! a conj ev)))
     a))
 
 ;; ---- (a) entering :final? triggers :on-done with the right output ---------
@@ -110,7 +110,7 @@
     (rf/dispatch-sync [:rf2-gn80/standalone [:end]])
     (is (nil? (snapshot :rf2-gn80/standalone))
         "snapshot was synchronously cleared (D4 + D7 singleton)")
-    (is (nil? (registrar/lookup :event :rf2-gn80/standalone))
+    (is (nil? (rf.registrar/lookup :event :rf2-gn80/standalone))
         "event handler was synchronously unregistered (D4)")))
 
 ;; ---- (c) :rf.machine/done trace emitted with the right payload -----------
@@ -185,7 +185,7 @@
       (rf/dispatch-sync [:rf2-gn80/sing [:end]])
       (is (nil? (snapshot :rf2-gn80/sing))
           "singleton snapshot was cleared on :final? entry")
-      (is (nil? (registrar/lookup :event :rf2-gn80/sing))
+      (is (nil? (rf.registrar/lookup :event :rf2-gn80/sing))
           "singleton handler was unregistered")
       (let [dones (traces-for traces :rf.machine/done)]
         (is (= 1 (count dones))
@@ -216,17 +216,17 @@
                                   ;; binding MUST still resolve — only
                                   ;; cleared after the hook returns.
                                   (reset! on-done-saw-sid
-                                          (machines/machine-by-system-id :auth-actor))
+                                          (rf.machines/machine-by-system-id :auth-actor))
                                   (assoc d :result r))}}}})
       (rf/dispatch-sync [:rf2-gn80/sid-parent [:rf.machine.spawn/spawned]])
       (let [spawned-id (get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
                                [:rf.runtime/machines :spawned :rf2-gn80/sid-parent [:working]])]
-        (is (= spawned-id (machines/machine-by-system-id :auth-actor))
+        (is (= spawned-id (rf.machines/machine-by-system-id :auth-actor))
             ":system-id is bound while the child is running")
         (rf/dispatch-sync [spawned-id [:fin]])
         (is (= spawned-id @on-done-saw-sid)
             ":on-done saw the :system-id binding still live (D8)")
-        (is (nil? (machines/machine-by-system-id :auth-actor))
+        (is (nil? (rf.machines/machine-by-system-id :auth-actor))
             ":system-id binding was cleared AFTER :on-done ran (D8)")))))
 
 ;; ---- (g) dispatch to done-then-destroyed actor reuses destroyed-frame path
@@ -313,7 +313,7 @@
     ;; final and the auto-destroy fires synchronously.
     (is (nil? (snapshot :rf2-gn80/par))
         "snapshot cleared once every region reached :final?")
-    (is (nil? (registrar/lookup :event :rf2-gn80/par))
+    (is (nil? (rf.registrar/lookup :event :rf2-gn80/par))
         "parallel machine handler unregistered once every region reached :final?")))
 
 (deftest parallel-one-region-final-stays-alive
@@ -329,7 +329,7 @@
     (rf/dispatch-sync [:rf2-gn80/par-partial [:end-left]])
     (is (= {:left :z :right :a} (:state (snapshot :rf2-gn80/par-partial)))
         "only the :left region reached :final?")
-    (is (some? (registrar/lookup :event :rf2-gn80/par-partial))
+    (is (some? (rf.registrar/lookup :event :rf2-gn80/par-partial))
         "machine handler is still live — :right hasn't reached :final? yet")))
 
 ;; ---- (C2) :output-key on a NON-FIRST region's terminal leaf ----

@@ -22,15 +22,15 @@
   untouched; and no stale/bad-child evidence fires for the legitimate carrier."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.machines :as machines]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.machines :as rf.machines]
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
-(def ^:private _artefact machines/machine-transition)
+(def ^:private _artefact rf.machines/machine-transition)
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter})
-  mtest/trace-capture-fixture)
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})
+  rf.machines.test-support/trace-capture-fixture)
 
 (defn- mk-worker
   "A worker child that dispatches `done-kw` / `err-kw` back to `parent-id`
@@ -87,7 +87,7 @@
   (rf/dispatch-sync [parent-kw [:start]]))
 
 (defn- spawned-joins []
-  (get-in (mtest/runtime-db) [:rf.runtime/machines :spawned parent-kw]))
+  (get-in (rf.machines.test-support/runtime-db) [:rf.runtime/machines :spawned parent-kw]))
 
 (defn- join-for
   "The join-state whose `:spec` resolves to `on-complete` (region-distinct)."
@@ -115,7 +115,7 @@
           "the two regions spawned DISTINCT worker instances")
       (is (not= (:rf/attempt r1-join) (:rf/attempt r2-join))
           "each region minted its own per-attempt token")
-      (mtest/reset-captured!)
+      (rf.machines.test-support/reset-captured!)
       ;; Complete :r2's worker first — through its own boundary, so its carrier
       ;; carries an exact-current coordinate for :r2's attempt. Non-decisive (the two-child
       ;; :all join still awaits :helper), so both joins persist to assert on.
@@ -128,11 +128,11 @@
         (is (= #{} (:done r1'))
             ":r1's join is UNTOUCHED — the completion did not mis-route to it")
         (is (false? (:resolved? r1')) ":r1 stays open, folded nothing")
-        (is (some? (mtest/snapshot (get-in r1-join [:children :worker])))
+        (is (some? (rf.machines.test-support/snapshot (get-in r1-join [:children :worker])))
             ":r1's worker actor is still live (never reaped by a mis-routed fold)")
-        (is (empty? (mtest/events-of :rf.machine.spawn-all/stale-completion))
+        (is (empty? (rf.machines.test-support/events-of :rf.machine.spawn-all/stale-completion))
             "no stale-completion evidence fired for the legitimate carrier")
-        (is (empty? (mtest/events-of :rf.error/machine-spawn-all-bad-child-id))
+        (is (empty? (rf.machines.test-support/events-of :rf.error/machine-spawn-all-bad-child-id))
             "no bad-child-id evidence fired for the legitimate carrier")))))
 
 (deftest later-region-failure-folds-only-itself-by-exact-attempt
@@ -142,11 +142,11 @@
     (reg-and-start!)
     (let [r1-join (join-for [:r1/done])
           r2-join (join-for [:r2/done])]
-      (mtest/reset-captured!)
+      (rf.machines.test-support/reset-captured!)
       (rf/dispatch-sync [(get-in r2-join [:children :worker]) [:fail]])
       (let [r1' (join-for [:r1/done])
             r2' (join-for [:r2/done])]
         (is (= #{:worker} (:failed r2')) ":r2 folded :worker into :failed")
         (is (= #{} (:failed r1')) ":r1 folded no failure (not mis-routed)")
-        (is (empty? (mtest/events-of :rf.machine.spawn-all/stale-completion))
+        (is (empty? (rf.machines.test-support/events-of :rf.machine.spawn-all/stale-completion))
             "no stale-completion evidence for the legitimate failure carrier")))))

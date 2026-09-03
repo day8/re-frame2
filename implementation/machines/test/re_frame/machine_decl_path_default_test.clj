@@ -24,7 +24,7 @@
   directly with a transition map carrying NO `:decl-path`, so it exercises the
   default. JVM-runnable from arguments alone."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.machines.transition :as transition]))
+            [re-frame.machines.transition :as rf.machines.transition]))
 
 ;; A deep compound machine. `:p` is a top-level compound (initial :q); `:q` and
 ;; `:r` are its children; `:r` is itself compound (initial :s). Each state
@@ -66,7 +66,7 @@
     ;; stay on the active path while the machine dives to :s.
     (let [snapshot {:state [:p :q] :data {:log []}}
           ;; NB: no :decl-path key — exercises the default.
-          r        (transition/apply-transition-once
+          r        (rf.machines.transition/apply-transition-once
                      deep-machine snapshot [:go] {:target [:p :r :s]})]
       (is (= :ok (:status r)) "the transition applies cleanly")
       (let [snap (:snapshot r)]
@@ -80,7 +80,7 @@
   (testing "control — the SAME transition WITH an explicit root `:decl-path []`
    produces the identical cascade (the default and the explicit root agree)"
     (let [snapshot {:state [:p :q] :data {:log []}}
-          r        (transition/apply-transition-once
+          r        (rf.machines.transition/apply-transition-once
                      deep-machine snapshot [:go] {:target [:p :r :s] :decl-path []})]
       (is (= :ok (:status r)))
       (is (= [:exit-q :enter-r :enter-s] (get-in (:snapshot r) [:data :log]))

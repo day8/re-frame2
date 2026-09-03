@@ -57,7 +57,7 @@
   `:after`, `:timeout` does NOT admit sub-vector / fn dynamic delays — a
   timeout is a fixed wall-clock deadline.)"
   (:require [clojure.string :as str]
-            [re-frame.error :as error]))
+            [re-frame.error :as rf.error]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -327,7 +327,7 @@
   discriminator; `reason` is the human diagnostic; `extra` merges
   per-site slots."
   [error-id reason extra]
-  (error/thrown-ex-info error-id 'rf/reg-machine reason
+  (rf.error/thrown-ex-info error-id 'rf/reg-machine reason
                         {:recovery :fix-registration :extra extra}))
 
 (defn- validate-one-timeout!

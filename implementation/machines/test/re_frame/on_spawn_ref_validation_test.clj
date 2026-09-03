@@ -23,11 +23,11 @@
       like the runtime `chase-ref`'s cycle guard."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- registration-throws?
   "Try registering `machine` under `machine-id`. Returns the ExceptionInfo
@@ -69,7 +69,7 @@
       (rf/reg-machine :rf.on-spawn-tv/child2 child-def)
       (rf/reg-machine :rf.on-spawn-tv/via-on-spawn-actions parent)
       (rf/dispatch-sync [:rf.on-spawn-tv/via-on-spawn-actions [:start]])
-      (is (= :working (:state (mtest/snapshot :rf.on-spawn-tv/via-on-spawn-actions)))
+      (is (= :working (:state (rf.machines.test-support/snapshot :rf.on-spawn-tv/via-on-spawn-actions)))
           "registration + dispatch both succeed — the spawn-bearing state was entered"))))
 
 ;; ---- (3) resolves via the :actions FALLBACK --------------------------------

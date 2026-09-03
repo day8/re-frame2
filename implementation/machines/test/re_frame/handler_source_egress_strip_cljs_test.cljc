@@ -31,14 +31,14 @@
    ;; resolves through the Spec-005 implementation rather than throwing
    ;; `:rf.error/machines-artefact-missing` (the hooks install on ns load).
    [re-frame.machines]
-   [re-frame.machines.test-support :as mtest]
-   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
-       :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
+   [re-frame.machines.test-support :as rf.machines.test-support]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture
-    #?(:clj  {:adapter plain-atom/adapter}
-       :cljs {:adapter reagent-adapter/adapter})))
+  (rf.machines.test-support/make-reset-runtime-fixture
+    #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
+       :cljs {:adapter rf.adapter.reagent/adapter})))
 
 ;; The three source-as-data keys the boundary must never carry. `:source-code`
 ;; / `:source-coords` are the machine spec's INTERNAL co-location slots;
@@ -114,7 +114,7 @@
           "the snapshot carries the seeded app-db value")
       (is (contains? state :rf.db/runtime)
           "the snapshot carries the runtime-db partition")
-      (is (some? (mtest/snapshot :tlf4if/probed))
+      (is (some? (rf.machines.test-support/snapshot :tlf4if/probed))
           "the started machine's snapshot is live in runtime-db")
       ;; The invariant: no source-as-data key anywhere in the egress snapshot —
       ;; neither the event's `:rf.handler/source` nor the machine spec's

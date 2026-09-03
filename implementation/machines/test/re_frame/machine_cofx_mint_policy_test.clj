@@ -22,14 +22,14 @@
   not a routed-around green."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.machines :as machines]
-            [re-frame.machines.cofx-attach :as cofx-attach]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.substrate.plain-atom :as plain-atom])
+            [re-frame.machines :as rf.machines]
+            [re-frame.machines.cofx-attach :as rf.machines.cofx-attach]
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom])
   (:import [clojure.lang ExceptionInfo]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (def ^:private SCRIPTED-TIME-MS 1234500000)
 
@@ -46,7 +46,7 @@
             such throws into its error pipeline, so this white-box path is the
             deterministic throw surface."
     (rf/reg-cofx :mint/roll {:recordable? true} (fn [] 6))
-    (let [m (cofx-attach/index-ensure-sets
+    (let [m (rf.machines.cofx-attach/index-ensure-sets
               {:initial :idle
                :data    {}
                :guards  {:rolled-six?
@@ -57,7 +57,7 @@
           ;; the token has no :mint/roll; under :strict the ensure must throw
           ;; missing-required (not mint).
           e (is (thrown? ExceptionInfo
-                         (cofx-attach/ensure-cofx
+                         (rf.machines.cofx-attach/ensure-cofx
                            m {:state :idle :data {}} [:go]
                            {} nil :mint/strict-guard :strict)))]
       (is (= :rf.error/missing-required-cofx (:rf.error/id (ex-data e)))
@@ -82,7 +82,7 @@
       (rf/dispatch-sync [:mint/strict-noadvance [:go]]
                         {:rf.cofx           {:rf/time-ms SCRIPTED-TIME-MS}
                          :rf.cofx/mint-policy :strict})
-      (is (not= :done (mtest/machine-state :mint/strict-noadvance))
+      (is (not= :done (rf.machines.test-support/machine-state :mint/strict-noadvance))
           "strict refused to mint → the guard fact was missing-required → the
            macrostep failed atomically → the machine did NOT advance to :done"))))
 
@@ -108,7 +108,7 @@
                         {:rf.cofx           {:rf/time-ms SCRIPTED-TIME-MS}
                          :rf.cofx/mint-policy :explicit-live})
       (is (= 6 @seen) "explicit-live generated the fact the guard read")
-      (is (= :done (mtest/machine-state :mint/live-guard))
+      (is (= :done (rf.machines.test-support/machine-state :mint/live-guard))
           "the guard fired on the generated value"))))
 
 (deftest default-live-still-mints
@@ -130,16 +130,16 @@
       (rf/dispatch-sync [:mint/default-guard [:go]]
                         {:rf.cofx {:rf/time-ms SCRIPTED-TIME-MS}})
       (is (= 6 @seen) "default :live minted the fact")
-      (is (= :done (mtest/machine-state :mint/default-guard))))))
+      (is (= :done (rf.machines.test-support/machine-state :mint/default-guard))))))
 
 (deftest strict-bootstrap-ensure-refuses-to-mint-birth-fact-throws
-  (testing "white-box: the BIRTH ensure step (`cofx-attach/bootstrap-ensure-
+  (testing "white-box: the BIRTH ensure step (`rf.machines.cofx-attach/bootstrap-ensure-
             cofx`) under `:strict` refuses to mint a generator-backed initial-
             entry action fact and raises missing-required — the frame-config /
             replay path the :test preset selects. Drives the real bootstrap
             ensure path"
     (rf/reg-cofx :mint/birth-roll {:recordable? true} (fn [] 9))
-    (let [m (cofx-attach/index-ensure-sets
+    (let [m (rf.machines.cofx-attach/index-ensure-sets
               {:initial :booting
                :data    {}
                :actions {:stamp-birth
@@ -148,7 +148,7 @@
                                 {:data (assoc data :birth (:mint/birth-roll cofx))})}}
                :states  {:booting {:entry :stamp-birth}}})
           e (is (thrown? ExceptionInfo
-                         (cofx-attach/bootstrap-ensure-cofx
+                         (rf.machines.cofx-attach/bootstrap-ensure-cofx
                            m {} nil :mint/strict-birth :strict)))]
       (is (= :rf.error/missing-required-cofx (:rf.error/id (ex-data e)))
           "strict refused to mint the birth :entry action's generator-backed fact"))))
@@ -168,7 +168,7 @@
       (rf/reg-machine :mint/live-birth m)
       (rf/dispatch-sync [:mint/live-birth [:rf.machine/start]]
                         {:rf.cofx {:rf/time-ms SCRIPTED-TIME-MS}})
-      (is (= 9 (:birth (mtest/machine-data :mint/live-birth)))
+      (is (= 9 (:birth (rf.machines.test-support/machine-data :mint/live-birth)))
           "default :live minted the birth :entry fact"))))
 
 ;; ===========================================================================
@@ -202,7 +202,7 @@
       (is (= 6 @seen)
           "the RAISED event's guard read the GENERATED fact (not nil) —
            ensured before the raised transition's selection")
-      (is (= :done (mtest/machine-state :raise/user-guard))
+      (is (= :done (rf.machines.test-support/machine-state :raise/user-guard))
           "the raised event's guard fired on the ensured value"))))
 
 (deftest raised-user-event-strict-missing-fact-throws
@@ -213,7 +213,7 @@
             nil (the rf2-xsdn5h hole). Drives `machine-transition` directly with
             a `:rf/cofx`-carrying machine so the throw surfaces verbatim
             (dispatch-sync captures it into the error pipeline)"
-    (let [m (-> (cofx-attach/index-ensure-sets
+    (let [m (-> (rf.machines.cofx-attach/index-ensure-sets
                   {:initial :a
                    :data    {}
                    :guards  {:needs-time?
@@ -227,7 +227,7 @@
                 ;; + the :strict policy, exactly as the live handler stamps them.
                 (assoc :rf/cofx {} :rf/cofx-mint-policy :strict))
           e (is (thrown? ExceptionInfo
-                         (machines/machine-transition m {:state :a :data {}} [:go])))]
+                         (rf.machines/machine-transition m {:state :a :data {}} [:go])))]
       (is (= :rf.error/missing-required-cofx (:rf.error/id (ex-data e)))
           "the RAISED event's provided-fact requirement surfaced missing-required
            from the in-engine ensure — not a silent nil"))))
@@ -260,7 +260,7 @@
       (is (= 6 @seen)
           "the synthetic :on-done raised-done guard read the GENERATED fact —
            ensured for the raised done signal")
-      (is (= :done (mtest/machine-state :raise/compound-done))
+      (is (= :done (rf.machines.test-support/machine-state :raise/compound-done))
           "the :on-done fired on the ensured value"))))
 
 (deftest parallel-region-raise-guard-fact-ensured
@@ -293,7 +293,7 @@
           "the re-broadcast raised event's region guard read the GENERATED fact
            — ensured at the parent before the re-broadcast")
       (is (= {:left :two :right :two}
-             (:state (mtest/snapshot :raise/parallel-region)))
+             (:state (rf.machines.test-support/snapshot :raise/parallel-region)))
           "both regions advanced: :left on :go, :right on the ensured :inner"))))
 
 ;; ===========================================================================
@@ -310,7 +310,7 @@
                                      :data {:legit 1}})}
              :states  {:a {:on {:go {:target :b :action :bad}}} :b {}}}]
       (rf/reg-machine :wrote-db/sensitive m)
-      (mtest/with-trace-capture seen
+      (rf.machines.test-support/with-trace-capture seen
         (rf/dispatch-sync [:wrote-db/sensitive [:go]])
         (let [errs (filterv #(= :rf.error/machine-action-wrote-db (:operation %)) @seen)]
           (is (= 1 (count errs)) "exactly one wrote-db error")
@@ -337,7 +337,7 @@
              :states  {:a {:on {:go {:target :a :action :patch}}}}}]
       (rf/reg-machine :wrote-db/upd m)
       (rf/dispatch-sync [:wrote-db/upd [:noop]])
-      (mtest/with-trace-capture seen
+      (rf.machines.test-support/with-trace-capture seen
         (rf/dispatch-sync [:wrote-db/upd [:go]])
         (let [errs (filterv #(= :rf.error/machine-action-wrote-db (:operation %)) @seen)]
           (is (= 1 (count errs)) "exactly one wrote-db error from the escape hatch")

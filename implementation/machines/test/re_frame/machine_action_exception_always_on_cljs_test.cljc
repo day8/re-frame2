@@ -13,22 +13,22 @@
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.error-emit :as error-emit]
+            [re-frame.error-emit :as rf.error-emit]
             ;; Loading the machines facade installs the late-bind hooks
             ;; `reg-machine` resolves through.
             [re-frame.machines]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace.tooling :as trace-tooling]))
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 ;; Fresh registrar + plain-atom adapter per test; the always-on error-listener
 ;; registry (a `defonce` atom) cleared so a listener from one test cannot leak
 ;; into the next (mirrors machine_spawn_unregistered_type_test /
 ;; write_after_destroy_always_on_cljs_test).
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
-     :init-fn (fn [] (error-emit/clear-error-listeners!))}))
+  (rf.machines.test-support/make-reset-runtime-fixture
+    {:adapter rf.substrate.plain-atom/adapter
+     :init-fn (fn [] (rf.error-emit/clear-error-listeners!))}))
 
 (defn- throwable? [x]
   #?(:clj  (instance? Throwable x)
@@ -60,11 +60,11 @@
   rather than routing around it."
   [op thunk]
   (let [seen (atom [])]
-    (trace-tooling/register-listener! ::trace (fn [ev] (swap! seen conj ev)))
+    (rf.trace.tooling/register-listener! ::trace (fn [ev] (swap! seen conj ev)))
     (try
       (thunk)
       (filterv #(= op (:operation %)) @seen)
-      (finally (trace-tooling/clear-listeners!)))))
+      (finally (rf.trace.tooling/clear-listeners!)))))
 
 ;; ===========================================================================
 ;; (1)+(2) A throwing ACTION reaches the always-on axis WITH attribution.

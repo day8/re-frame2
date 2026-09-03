@@ -24,16 +24,16 @@
   the same fn-form per Spec 005 §Spec-spec keys (line 1818)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; runtime-db / snapshot lookup via the shared machines test-support
 ;; — no hardcoded `[:rf.runtime/machines …]` path.
-(def ^:private snapshot mtest/snapshot)
-(def ^:private frame-db mtest/runtime-db)
+(def ^:private snapshot rf.machines.test-support/snapshot)
+(def ^:private frame-db rf.machines.test-support/runtime-db)
 
 ;; ---- (1) literal-map :data — passes through verbatim ----------------------
 
@@ -141,7 +141,7 @@
       (rf/reg-machine :sup/throwing parent)
       ;; Shared `with-trace-capture` — guaranteed unregister in a `finally`,
       ;; no hand-rolled register/try/finally.
-      (mtest/with-trace-capture traces
+      (rf.machines.test-support/with-trace-capture traces
         (rf/dispatch-sync [:sup/throwing [:start]])
         ;; The cascade halted: no actor was spawned. Per Spec 005 §Errors,
         ;; the snapshot does NOT commit — the parent's lazy initial snapshot

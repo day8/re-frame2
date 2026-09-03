@@ -26,15 +26,15 @@
             ;; (`:machines/reg-machine`, …) the tests below exercise — keep the
             ;; require even though the ns is reached only via `rf/...` facades.
             [re-frame.machines]
-            [re-frame.machines.spawn-order :as spawn-order]
-            [re-frame.machines.test-support :as mtest]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.machines.spawn-order :as rf.machines.spawn-order]
+            [re-frame.machines.test-support :as rf.machines.test-support]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (use-fixtures :each
-  (mtest/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.machines.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
-(def ^:private frame-db mtest/runtime-db)
-(def ^:private snapshot mtest/snapshot)
+(def ^:private frame-db rf.machines.test-support/runtime-db)
+(def ^:private snapshot rf.machines.test-support/snapshot)
 
 (defn- mk-child
   "A child that on :go / :fail transitions to a PLAIN (non-:final?) terminal
@@ -101,7 +101,7 @@
           "the sentinel carries no :children, so the join interceptor treats it as no live join")
       (is (= #{:qb/parent-a} (set (keys snaps)))
           "NO orphan: the ONLY snapshot is the parent's — the registered sibling never installed")
-      (is (= [] (spawn-order/frame-order :rf/default))
+      (is (= [] (rf.machines.spawn-order/frame-order :rf/default))
           "NO orphan: nothing recorded in spawn-order (the registered sibling was suppressed)")
       (is (= :hydrating (:state (snapshot :qb/parent-a)))
           "the parent rests on the (malformed) :spawn-all state — the config error to fix"))))
