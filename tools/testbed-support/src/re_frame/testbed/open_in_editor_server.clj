@@ -176,11 +176,17 @@
        ;; coordinate than the one being launched. `get-args.js` switches on
        ;; the command BASENAME only, so the substituted values never change
        ;; the fall-through verdict — they only have to be present.
+       ;; The decline is reported by its EXIT CODE alone. `launch!` reads
+       ;; `position-unsupported-exit` and answers with the namespace's own
+       ;; `position-unsupported-error` constant, so a token written here
+       ;; would be drained and discarded — a second diagnostic channel
+       ;; that nothing consumes. Generic launch failures below DO write
+       ;; stderr, because their message is not derivable from the exit
+       ;; code.
        "if(line||col){"
        "var ed=guess(e)[0];"
        "var a=ed?getArgs(ed,'F',line||1,col||1):null;"
        "if(a&&a.length===1&&a[0]==='F'){"
-       "process.stderr.write('" position-unsupported-error "\\n');"
        "process.exit(" position-unsupported-exit ");}}"
        "l(f,e,function(file,msg){"
        "process.stderr.write('launch-editor: '+(msg||'no editor found')+'\\n');"
