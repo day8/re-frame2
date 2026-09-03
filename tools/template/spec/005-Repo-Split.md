@@ -526,11 +526,15 @@ references that survived the docs sweep and either:
 - Point at the external repo (`https://github.com/day8/re-frame2-template`).
 - Delete if the reference is now meaningless.
 
-`tools/deps.edn`'s `:local/root "template"` entry retires (the
-testbed / cross-tool tests no longer link the template; the
-template's tests run in its own CI on the external repo). The
-`tools/shadow-cljs.edn` "JVM-only" exclusion comment retires —
-the template is no longer part of the tools/ classpath at all.
+Both build-file edits this step used to list are ALREADY TAKEN, ahead
+of the split and for unrelated reasons. `tools/deps.edn`'s `:local/root
+"template"` entry is gone: it hung off the aggregate `:test` alias,
+which PR #9093 (rf2-6r9j.139) retired as a second hand-written JVM-lane
+inventory beside `scripts/test-jvm-tools.sh`. The `tools/shadow-cljs.edn`
+"JVM-only" exclusion comment is gone with the whole file, deleted by the
+same PR (rf2-6r9j.140) as an ungated mirror of two of Pair MCP's builds.
+The template is already off the tools/ classpath, so this step is now the
+docs sweep above plus the README entry below.
 
 The repo-root README's Project Layout entry retires (replace the
 `template/` row with a one-line "see github.com/day8/re-frame2-template"
