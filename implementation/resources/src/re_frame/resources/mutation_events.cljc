@@ -59,7 +59,6 @@
   follow `:on-conflict` (`:invalidate` by default, or explicit `:force`) and may
   refetch authoritative data."
   (:require [clojure.set :as set]
-            [re-frame.frame :as frame]
             [re-frame.interop :as interop]
             [re-frame.reply :as reply]
             [re-frame.resources.classification :as rclass]
@@ -752,7 +751,7 @@
     (let [descriptors (mstate/normalize-invalidation-descriptors
                         (invalidates-fn params result) where)]
       (reduce
-        (fn [plan {:keys [tags cross-scope? refetch-populated?] :as descriptor}]
+        (fn [plan {:keys [tags refetch-populated?] :as descriptor}]
           (if-not (seq tags)
             plan
             (let [[outcome scope-or-id] (resolve-descriptor-scope
@@ -1708,7 +1707,6 @@
             ;; `:rf.resource/remove`). Applied BEFORE the invalidation match so
             ;; a removed key is never ALSO reported stale (it is gone).
             [rdb3 removed-ks removed-work remove-nil-ids remove-skipped] (apply-removes rdb2 (:removes spec) params result scope app-db where)
-            patch-affected      (set/union patched-ks populated-ks)
             timer-policies      (merge patch-policies populate-policies)
             target-nil-ids      (-> (vec patch-nil-ids) (into populate-nil-ids) (into remove-nil-ids))
             ;; rf2-1vpbld — the RECOVERABLE post-write targets the relaxed
