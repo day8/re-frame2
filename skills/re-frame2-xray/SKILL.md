@@ -1,31 +1,21 @@
 ---
 name: re-frame2-xray
 description: >
- Question-first tour of **Xray** — the re-frame2 devtools panel. Use when the
- user wants to know how to *launch* Xray (in-app inline panel, the
- overlay fallback for hosts with no layout column / full-screen-canvas /
- no `[data-rf-xray-host]` — `open-overlay!`, pop-out window, programmatic
- mount, or the wired hotkeys), which of its two
- modes (Dynamic event-spine / Static registry browse) and which tab
- surfaces the data they're looking for, or what each tab is *for*.
- **Do not use** when the user asks the AGENT to inspect or change their
- running app — read-only included (read a sub, get a path, snapshot
- state, walk traces, dispatch): that's `re-frame2-pair`, the
- agent-facing runtime companion. Nor for authoring the host app
- (`re-frame2`), bootstrapping a new project (`re-frame2-setup`), or
- implementing Xray itself (no implementor skill exists — the spec is
- the answer).
- Trigger phrases: "open Xray",
- "which Xray panel shows…", "Xray Static mode", "browse registered
- machines/routes/schemas", "Ctrl+Shift+C", "Xray overlay",
- "Xray open-overlay!", "open Xray with no layout host /
- full-screen canvas", "Xray machine inspector",
- "Xray epoch cascade", "where do Xray issues show up", "Xray Graph
- tab", "where does this value come
- from in Xray", "Xray Resources tab", "Xray Frames tab", "Xray
- module-view", "which image loaded this frame",
- "Xray Hicasso tab", "which Hicasso boundaries are mounted", "what reads
- this subscription", "why did this boundary re-render", and similar.
+  Question-first tour of **Xray**, the re-frame2 devtools panel: how to
+  *launch* it (inline in-app panel; the `open-overlay!` fallback for hosts
+  with no `[data-rf-xray-host]` layout column; pop-out window; programmatic
+  mount; the wired hotkeys), which of its two modes (Dynamic event-spine /
+  Static registry browse) applies, and what each tab is for. **Do not use**
+  when the user asks the AGENT to inspect or change their running app,
+  read-only included (read a sub, snapshot state, walk traces, dispatch) —
+  that is `re-frame2-pair`, the agent-facing runtime companion. Nor for
+  authoring the host app (`re-frame2`), bootstrapping a project
+  (`re-frame2-setup`), or implementing Xray itself (no implementor skill
+  exists — the spec is the answer). Trigger phrases: "open Xray", "which Xray
+  panel shows…", "Xray Static mode", "browse registered
+  machines/routes/schemas", "Xray overlay", "Xray machine inspector", "Xray
+  Graph / Resources / Frames / Hicasso tab", "why did this boundary
+  re-render".
 allowed-tools:
  - Read
  - Grep

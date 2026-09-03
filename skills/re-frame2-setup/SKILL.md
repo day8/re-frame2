@@ -2,21 +2,19 @@
 name: re-frame2-setup
 description: >
   Greenfield-only bootstrap for re-frame2 ClojureScript projects. Scope:
-  brand-new apps from nothing, or empty CLJS projects (shadow-cljs /
-  Clojure already present but zero re-frame2 wiring). Writes the
-  canonical twelve-file counter SPA the generator template emits — core
-  + the Reagent adapter, `shadow-cljs.edn`, the entry namespace with
-  `rf/init!`, events / subs / views — then installs, compiles, serves it
-  and reports the URL. Trigger on phrasing like "start a re-frame2
-  project", "scaffold re-frame2", "hello-world re-frame2 app", "new
-  re-frame2 app", or a build failure on a freshly-scaffolded project that
-  traces to missing `re-frame.core` / `re-frame.adapter.reagent` wiring.
-  Exits once the counter mounts. **Do not use** for writing app code
-  on an already-bootstrapped project (use `re-frame2`), v1→v2 migration
-  (use `re-frame-migration`), live-app inspection (use `re-frame2-pair`),
-  or porting re-frame2 itself (use `re-frame2-implementor`). For the
-  full disqualifier list and routing to sibling skills, see
-  `skills/README.md` §Skill routing — single source.
+  brand-new apps from nothing, or empty CLJS projects (shadow-cljs / Clojure
+  already present but zero re-frame2 wiring). Writes the canonical twelve-file
+  counter SPA the generator template emits — core + the Reagent adapter,
+  `shadow-cljs.edn`, the entry namespace with `rf/init!`, events / subs /
+  views — then installs, compiles, serves it and reports the URL, exiting once
+  the counter mounts. **Do not use** for writing app code on an
+  already-bootstrapped project (use `re-frame2`), v1→v2 migration
+  (`re-frame-migration`), live-app inspection (`re-frame2-pair`), or porting
+  re-frame2 itself (`re-frame2-implementor`); the full disqualifier list is
+  `skills/README.md` §Skill routing. Trigger on "start a re-frame2 project",
+  "scaffold re-frame2", "hello-world re-frame2 app", or a build failure on a
+  freshly-scaffolded project that traces to missing `re-frame.core` /
+  `re-frame.adapter.reagent` wiring.
 allowed-tools:
   - Bash(clojure -Stree)
   - Bash(clojure -Stree:*)

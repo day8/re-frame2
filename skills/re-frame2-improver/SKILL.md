@@ -1,24 +1,20 @@
 ---
 name: re-frame2-improver
 description: >
-  Focused critique-mode for **existing** re-frame2 ClojureScript code.
-  Reviews a body of source files (or a user-supplied snippet) against
-  a small catalogue of re-frame2 anti-patterns, surfaces concrete
-  findings cross-linked to canonical idioms, and may suggest inline
-  fixes. **Activates only on explicit pull** — phrasings like "review
-  my re-frame2 code for anti-patterns", "audit this against re-frame2
-  best practices", "any improvements?", "is there a better re-frame2
-  pattern here", "spot any anti-patterns in cart/handlers.cljs". A
-  body of re-frame2 source must be in scope: read or edited in this
-  conversation, supplied as a snippet, or named as a resolvable
-  `.cljs` / `.cljc` file or directory (which the skill reads before
-  critiquing) — vocabulary alone is not enough. **Do not use** for
-  greenfield bootstrap, authoring new code, live-runtime work, retro
-  on a pair session, migrating a re-frame v1.x codebase to re-frame2,
-  porting Reagent views to Hicasso (a migration ask even on an
-  already-re-frame2 app), touring the Xray devtools panel, porting
-  re-frame2 itself to a new host, spec/architecture discussion, or
-  inline mid-edit interruption.
+  Focused critique-mode for **existing** re-frame2 ClojureScript code: reviews
+  source files (or a supplied snippet) against a small catalogue of re-frame2
+  anti-patterns, surfaces concrete findings cross-linked to canonical idioms,
+  and may suggest inline fixes. **Do not use** for greenfield bootstrap,
+  authoring new code, live-runtime work, retro on a pair session, migrating a
+  re-frame v1.x codebase, porting Reagent views to Hicasso (a migration ask
+  even on an already-re-frame2 app), touring the Xray devtools panel, porting
+  re-frame2 itself, spec/architecture discussion, or inline mid-edit
+  interruption. **Activates only on explicit pull** — "review my re-frame2
+  code for anti-patterns", "audit this against re-frame2 best practices",
+  "spot any anti-patterns in cart/handlers.cljs" — and a body of re-frame2
+  source must be in scope: read or edited in this conversation, supplied as a
+  snippet, or named as a resolvable `.cljs` / `.cljc` file or directory.
+  Vocabulary alone is not enough.
 allowed-tools:
   - Read
   - Edit

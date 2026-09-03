@@ -5,17 +5,16 @@ description: >
   Swaps the artefact coord (re-frame/re-frame → day8/re-frame2 + a substrate
   adapter), applies the mechanical (Type A) rewrites from MIGRATION.md
   automatically, and flags the judgment-call (Type B) call sites for human
-  review before touching them. Trigger on phrasing like "migrate to
-  re-frame2", "upgrade re-frame", "v1 to v2", "what breaks under re-frame2",
-  or any prompt referencing a v1 surface (re-frame.db, dispatch-with,
-  reg-global-interceptor, reg-sub-raw, ^:flush-dom, re-frame.alpha,
-  re-frame-test, old top-level :dispatch / :dispatch-n effect-map keys),
-  or a v1 add-on library (http-fx / :http-xhrio, async-flow-fx /
-  :async-flow).
-  **Do not use** for: greenfield bootstrap, writing v2 application code,
-  live v2-app inspection, static critique, devtools tours, or porting
-  re-frame2 itself — see the full routing table in `skills/README.md`
-  §Skill routing for the right sibling skill.
+  review before touching them. **Do not use** for: greenfield bootstrap,
+  writing v2 application code, live v2-app inspection, static critique,
+  devtools tours, or porting re-frame2 itself — see the full routing table in
+  `skills/README.md` §Skill routing for the right sibling skill. Trigger on
+  phrasing like "migrate to re-frame2", "upgrade re-frame", "v1 to v2", "what
+  breaks under re-frame2", or any prompt referencing a v1 surface
+  (re-frame.db, dispatch-with, reg-global-interceptor, reg-sub-raw,
+  ^:flush-dom, re-frame.alpha, re-frame-test, old top-level :dispatch /
+  :dispatch-n effect-map keys), or a v1 add-on library (http-fx / :http-xhrio,
+  async-flow-fx / :async-flow).
 allowed-tools:
   - Bash(rg *)
   # The project's OWN noninteractive install / compile / test gates, for every

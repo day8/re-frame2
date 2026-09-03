@@ -1,24 +1,20 @@
 ---
 name: re-frame2-pair-retro
 description: >
- Retrospect on a `re-frame2-pair` session and turn it into prioritised
- improvement ideas for the pair skill, scripts, MCP surface, or upstream
- `re-frame2` Tool-Pair contract; optionally drafts a GitHub issue the
- user can file. Activates on two triggers: (a) **explicit pull** — user
- asks for a retrospective on a recent pair session ("retro on this pair
- session", "what went wrong with my pair session", "review my
- re-frame2-pair session", "draft an issue about that"); or (b)
- **post-error within a re-frame2-pair session** — after a stack trace, a
- pair tool returning `{:ok? false :reason <kw>}`, or an `:rf.error/*` or
- `:rf.epoch/restore-*` trace firing during live pair work, to
- post-mortem the firefight. Requires evidence: a concrete
- `re-frame2-pair` session in this conversation (turns where the user
- attached, dispatched, walked traces/epochs, hot-swapped, or
- time-travelled), **or** a user-supplied recap of one. **Not** for
- ordinary `re-frame2-pair` operation, nor for code/spec/framework work
- the body's routing matrix sends elsewhere. Vocabulary matches alone
- ("retro", "what went wrong", "any improvements?") do not justify
- activation — a real pair session must have occurred or be recapped.
+  Retrospect on a `re-frame2-pair` session and turn it into prioritised
+  improvement ideas for the pair skill, scripts, MCP surface, or upstream
+  `re-frame2` Tool-Pair contract; optionally drafts a GitHub issue the user
+  can file. **Not** for ordinary `re-frame2-pair` operation, nor for the
+  code/spec/framework work the body's routing matrix sends elsewhere. Requires
+  evidence: a concrete `re-frame2-pair` session in this conversation (turns
+  where the user attached, dispatched, walked traces/epochs, hot-swapped, or
+  time-travelled), **or** a user-supplied recap of one — vocabulary alone
+  ("retro", "what went wrong", "any improvements?") does not justify
+  activation. Two triggers: (a) **explicit pull** — "retro on this pair
+  session", "review my re-frame2-pair session", "draft an issue about that";
+  or (b) **post-error inside a pair session** — after a stack trace, a pair
+  tool returning `{:ok? false :reason <kw>}`, or an `:rf.error/*` or
+  `:rf.epoch/restore-*` trace during live pair work.
 allowed-tools:
  - Read
  - Grep
