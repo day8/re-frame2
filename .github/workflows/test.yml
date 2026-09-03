@@ -5441,7 +5441,7 @@ jobs:
       #     -32601 method-not-found for an unknown tool name.
       #
       # The agent-loop write-surface workflow (register → get → preview →
-      # run → read → snapshot → record → unregister) lives in the
+      # run → read → snapshot → unregister) lives in the
       # SDK-driven `mcp-conformance-story` job below: rf2-2mx0q absorbed
       # the former `live-server.js` smokes into `end-to-end-story.cjs`,
       # dropping a redundant JVM boot from this job.
