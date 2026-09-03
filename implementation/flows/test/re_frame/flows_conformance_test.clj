@@ -111,7 +111,6 @@
             [re-frame.frame :as frame]
             [re-frame.registrar :as registrar]
             [re-frame.subs :as subs]
-            [re-frame.substrate.adapter :as substrate-adapter]
             [re-frame.substrate.plain-atom :as plain-atom]
             [re-frame.test-support :as test-support]
             [re-frame.trace :as trace]))
