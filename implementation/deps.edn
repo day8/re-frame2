@@ -127,9 +127,7 @@
    :extra-deps  {;; rf2-try1x — silent-on-success reporter. Also the sole
                  ;; source of the cognitect test-runner coordinate on this
                  ;; alias's classpath (transitive; rf2-0sjm76).
-                 day8/re-frame2-test-quiet {:local/root "test-quiet"}
-                 ;; The build-time reader for committed spec/ data.
-                 day8/re-frame2-spec-resource {:local/root "spec-resource"}}
+                 day8/re-frame2-test-quiet {:local/root "test-quiet"}}
    :main-opts   ["-m" "re-frame.test-quiet.runner"]}
 
   ;; Splint (rf2-4v147) — Mike-confirmed dual-linter posture
