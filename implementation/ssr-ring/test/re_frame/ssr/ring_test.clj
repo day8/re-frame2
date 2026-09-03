@@ -89,7 +89,7 @@
 (deftest cookie-attribute-crlf-injection-rejected
   (testing "rf2-rpedl §P1.2 — CR / LF / NUL in :domain throws
             :rf.error/cookie-invalid-attribute"
-    (doseq [hostile [(str "evil.com\r\nSet-Cookie: admin=1; Path=/")
+    (doseq [hostile ["evil.com\r\nSet-Cookie: admin=1; Path=/"
                      "evil.com\rinjected"
                      "evil.com\ninjected"
                      (str "evil.com" (char 0) "nul")]]
@@ -2616,10 +2616,10 @@
               ;; (`:public/article-title`) or the `#:public{...}`
               ;; namespace-map shorthand (`:article-title`) — match
               ;; either rendering for robustness.
-              literal     (or (second
-                                (re-find
-                                  #":(?:public/)?article-title (\"[^\"]*\")"
-                                  payload-edn)))
+              literal     (second
+                            (re-find
+                              #":(?:public/)?article-title (\"[^\"]*\")"
+                              payload-edn))
               recovered   (when literal (clojure.edn/read-string literal))]
           (is (some? literal)
               "the article-title's EDN string literal is locatable in the payload")

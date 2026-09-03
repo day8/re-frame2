@@ -84,7 +84,7 @@
             [re-frame.ssr.ring :as ssr-ring]
             [re-frame.ssr.ring.streaming :as streaming]
             [re-frame.ssr.ring.test-support :as ts])
-  (:import [java.io InputStream IOException OutputStream
+  (:import [java.io InputStream IOException
                     PipedInputStream PipedOutputStream]
            [java.net.http HttpResponse$BodyHandlers]))
 
