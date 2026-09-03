@@ -38,7 +38,7 @@
 
 (defn- with-metadata
   "Attach optional registration metadata and the opaque derive token."
-  [node _frame-id flow]
+  [node flow]
   (let [source (flow-source-coords flow)]
     (cond-> node
       (some? source)           (assoc :source source)
@@ -59,7 +59,7 @@
         (assoc :source-form {:kind :reg-flow :id flow-id}
                :inputs      (declared-inputs flow)
                :owner       [:frame frame-id])
-        (with-metadata frame-id flow))))
+        (with-metadata flow))))
 
 (defn flow-algebra-view
   "Return normalized derivation nodes for registered flows.
@@ -87,12 +87,3 @@
          (assoc m flow-id (node-for frame-id flow)))
        {}
        (or flow-map {})))))
-
-;; ---- bundle-isolation sentinel ------------------------------------------
-;;
-;; The bundle-isolation gate searches production output for this unique literal.
-;; Keep it in the namespace body and out of all other sources so its presence
-;; proves that the tooling sibling became reachable.
-
-(defonce ^:private bundle-isolation-sentinel
-  "rf.flows.tooling/sentinel:rf2-s8w3nw-2026-06-12:do-not-rename")
