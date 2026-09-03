@@ -230,8 +230,9 @@ implementation/
                              that sit above several artefacts: the shared :status /
                              :rf.reply/work-status / :work/id / canonical-stale vocabulary across
                              every managed-async family (HTTP, resources, mutations,
-                             machines, routing) plus the family-level functor/naturality
-                             law at the target-relocating families.
+                             machines, routing) plus the shared egress-projection
+                             boundaries (`trace-summary`, `project-egress`). Reply-target
+                             functor laws are owned by core and its timer probe.
     test/re_frame/                 JVM + CLJS cross-family reply conformance suites.
 
   derivation-conformance/    Cross-family derivation/process-algebra conformance tier

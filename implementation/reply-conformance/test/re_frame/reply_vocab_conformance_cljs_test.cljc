@@ -102,10 +102,12 @@
 ;;   :work-head     — the expected `[:rf.work/* …]` head keyword
 ;;   :success       — () → success reply map, or nil if N/A
 ;;   :error         — () → error reply map, or nil if N/A
-;;   :error-work-status — the expected error :rf.reply/work-status (:failed default;
-;;                    HTTP timeout family also proves :timed-out separately)
 ;;   :cancel        — () → cancelled reply map, or nil if N/A
 ;;   :stale         — () → stale reply map, or nil if N/A
+;;
+;; Situations that pair a completion-time present/absent case add the
+;; matching `:<situation>-with-time` / `:<situation>-no-time` builders (and,
+;; where a suppression call returns more than the reply, `:stale-out`).
 ;;
 ;; A nil builder means that implementation does not produce a reply for the
 ;; situation. For example, route errors and cancellation remain HTTP transport
