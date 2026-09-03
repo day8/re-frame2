@@ -143,16 +143,18 @@
     form))
 
 (defn- load-fixture
-  "Read one EDN fixture. The corpus does not use auto-resolved keywords
-  in schema fixtures (the `::name` rewrite the machines / ssr runners
-  carry is for `:rf.machine.timer/*` synthetic events). We apply the
-  same rewrite here for symmetry — a no-op on the schemas subset, but
-  the runner stays robust if a future fixture grows a `::` form."
+  "Read one EDN fixture as EXACTLY ONE top-level EDN form, or throw.
+
+  The fixture text is parsed VERBATIM. Schema fixtures carry no
+  auto-resolved `::name` keywords, and the machines / ssr runners'
+  `::name` -> `:rf.machine.timer/name` rewrite has no business here: it
+  resolves nothing in the fixture's own namespace; it merely restamps the
+  token with an unrelated machines-timer identity, which could make a
+  future schema fixture pass or fail under a false id. If schema fixtures
+  ever need an alias facility, the conformance format should define one
+  explicitly (rf2-6r9j.49)."
   [file]
-  (let [raw   (slurp file)
-        fixed (str/replace raw #"::([a-zA-Z][a-zA-Z0-9_-]*)"
-                           ":rf.machine.timer/$1")]
-    (read-one-form fixed (.getName file))))
+  (read-one-form (slurp file) (.getName file)))
 
 (defn- schema-fixture-file?
   "True for the schemas-relevant fixture filenames:
@@ -500,18 +502,37 @@
        :error      (.getMessage e)
        :exception  e})))
 
+;; ---- loader regression ---------------------------------------------------
+
+(deftest loader-does-not-restamp-auto-resolved-keywords
+  ;; rf2-6r9j.49. The machines / ssr runners rewrite `::name` to
+  ;; `:rf.machine.timer/name` for their synthetic timer events. This runner
+  ;; carried a copy "for symmetry"; on a schemas fixture it would not have
+  ;; RESOLVED the token; it would have restamped it with an unrelated
+  ;; namespace, so a future fixture could pass or fail under a false id.
+  ;; The loader now parses verbatim, so the token is REJECTED instead,
+  ;; which is acceptable until the conformance format defines such syntax.
+  (let [f (java.io.File/createTempFile "rf2-schemas-conformance-probe" ".edn")]
+    (try
+      (spit f "{:fixture/id :probe/x :k ::probe}")
+      (let [outcome (try {:form (load-fixture f)}
+                         (catch Exception e {:threw (.getMessage e)}))]
+        (is (not= :rf.machine.timer/probe (-> outcome :form :k))
+            "a bare `::probe` must never arrive as a machines-timer keyword")
+        (is (contains? outcome :threw)
+            "an auto-resolved keyword is not EDN, so the loader rejects it"))
+      (finally (.delete f)))))
+
 ;; ---- the test entrypoint -------------------------------------------------
 
 (deftest run-schemas-conformance-corpus
   (let [results (atom [])]
     (doseq [[fname fixture] (all-schemas-fixtures)]
+      ;; There is no load-error arm. `load-fixture` THROWS on an
+      ;; unreadable / empty / multi-form fixture (rf2-98ni, rf2-5mr6), so a
+      ;; parse failure escapes `all-schemas-fixtures` before this loop and
+      ;; fails the gate, rather than disappearing as a skip (rf2-6r9j.48).
       (cond
-        (:fixture/load-error fixture)
-        (swap! results conj {:fixture-id fname
-                             :skipped?   true
-                             :reason     "load error"
-                             :error      (:fixture/load-error fixture)})
-
         (not (spec-version-claimed? fixture))
         (swap! results conj {:fixture-id   (:fixture/id fixture)
                              :fname        fname
@@ -562,7 +583,7 @@
           (println "Skipped:")
           (doseq [s skipped]
             (println "  " (:fixture-id s) "—" (:reason s)
-                     (or (:capabilities s) (:spec-version s) (:error s)))))
+                     (or (:capabilities s) (:spec-version s)))))
         (println)
         (println "Failures:")
         (doseq [f failed]

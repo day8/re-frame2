@@ -389,6 +389,17 @@
   sensitivity decision, and the trace emit. Returns true on pass / no
   schema / no validator; false on a logged failure.
 
+  When the validator fails, the schema's per-slot `:sensitive?` walker
+  is ALWAYS consulted before emitting. An event vector isn't itself
+  `:map`-shaped but its `:cat`/`:catn` payload commonly is (a login schema
+  marks `:password` sensitive), and fx / sub-return validate a map value
+  directly. The decision is the whole-schema `schema-has-sensitive?` (NOT
+  the leaf-precise `schema-sensitive-at?`): every value-bearing slot on
+  these surfaces carries the WHOLE checked value, so a conforming sensitive
+  sibling rides inside it and the redaction scope must match the
+  carried-value scope (see the `:else` branch's PER-SLOT DECISION SCOPING
+  note).
+
   Parameters:
     - `reg-meta`     the registration metadata (handler / sub /
                      fx) — its `:schema` entry, when PRESENT, is the
@@ -401,19 +412,6 @@
                      means no declaration.
     - `value`        the value being checked (event vector, sub
                      return value, fx args).
-    - `walk-schema?` boolean — when true and the validator fails,
-                     consult the schema's per-slot `:sensitive?` walker
-                     before emitting. An event vector
-                     isn't itself `:map`-shaped but its `:cat`/`:catn` payload
-                     commonly is (a login schema marks `:password` sensitive),
-                     and fx / sub-return validate a map value directly.
-                     The decision here is the whole-schema
-                     `schema-has-sensitive?` (NOT the leaf-precise
-                     `schema-sensitive-at?`): every value-bearing slot on these
-                     surfaces carries the WHOLE checked value, so a conforming
-                     sensitive sibling rides inside it and the redaction scope
-                     must match the carried-value scope (see the `:else`
-                     branch's PER-SLOT DECISION SCOPING note).
     - `build-base-tags`  `(fn [schema explanation] -> map)` — produces
                      the per-fn tag map (`:where`, `:reason`, etc.)
                      EXCLUDING any sensitivity stamping. Also the source
@@ -452,7 +450,7 @@
   redactor scrubs it symmetrically with `:explain` on sensitive
   failures rather than the humanizer being handed an already-redacted
   `:explain` and silently dropping the slot."
-  [reg-meta value walk-schema? build-base-tags continue?]
+  [reg-meta value build-base-tags continue?]
   (if-not (continue?)
     :rf/stale-incarnation
     (if-let [validate-fn @validator/validator-fn]
@@ -528,8 +526,7 @@
                 ;; because there is no narrowed slot:
                 ;; the whole payload carries the sibling. (It DOES still apply
                 ;; to the app-db `:value` slot, which is genuinely leaf-narrowed
-                ;; — see `validate-app-schema!`.) `walk-schema?` stays the knob
-                ;; for whether to consult the walker at all.
+                ;; — see `validate-app-schema!`.)
                 ;; A compiled or opaque schema (a non-vector,
                 ;; non-keyword `m/schema` object) cannot be walked, so the
                 ;; per-slot `:sensitive?` flag Malli honoured for the failure
@@ -543,18 +540,16 @@
                 ;; `:cat`/`:map` element that is itself a compiled `m/schema`
                 ;; value) is just as unintrospectable, so the whole-payload
                 ;; check uses the recursive `schema-has-opaque-child?`.
-                        sensitive?  (and walk-schema?
-                                          (or (walker/schema-has-sensitive? schema)
-                                              (walker/schema-has-opaque-child? schema)))
+                        sensitive?  (or (walker/schema-has-sensitive? schema)
+                                        (walker/schema-has-opaque-child? schema))
                 ;; When the schema declares any `:large?`
                 ;; slot AND the failure is not sensitive (sensitive wins),
                 ;; elide the value-bearing slots to the `:rf.size/large-elided`
                 ;; marker. An opaque schema is already handled fail-closed
                 ;; SENSITIVE above (which subsumes large), so `:large?` is only
                 ;; consulted for a walkable schema here.
-                        large?      (and walk-schema?
-                                          (not sensitive?)
-                                          (walker/schema-has-large? schema))
+                        large?      (and (not sensitive?)
+                                         (walker/schema-has-large? schema))
                 ;; Humanize from the raw explanation here,
                 ;; before redaction, and fold the slot into base-tags so
                 ;; `redact-tags` scrubs it symmetrically with `:explain`
@@ -924,7 +919,6 @@
      (run-validation
        handler-meta
        event
-       true   ;; consult the event schema's per-slot `:sensitive?` walker
        (fn [schema explanation]
          (cond-> {:where      :event
                   :event-id   event-id
@@ -960,7 +954,6 @@
      (run-validation
        sub-meta
        value
-       true   ;; consult schema's per-slot `:sensitive?` walker on fail
        (fn [schema explanation]
          (cond-> {:where          :sub-return
                   :rf.sub/id      sub-id
@@ -1006,7 +999,6 @@
      (run-validation
        fx-meta
        args
-       true   ;; consult schema's per-slot `:sensitive?` walker on fail
        (fn [schema explanation]
          (cond-> {:where      :fx-args
                   :rf.fx/id   fx-id
