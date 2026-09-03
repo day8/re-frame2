@@ -773,10 +773,13 @@
 ;; resolved, so the per-tool-call re-read checks the right file and doesn't
 ;; false-positive "file vanished".
 ;;
-;; The two candidate orders are SEPARATE deftests on purpose: ClojureScript
-;; runs only the FIRST `async` form in a `deftest`, so a sibling `async`
-;; alongside it never executes and can never fail. Keep one `async` per
-;; `deftest` here — adding a second would silently drop its assertions.
+;; The two candidate orders are SEPARATE deftests on purpose: a `deftest`
+;; carries ONE async lifecycle, so a sibling `async` form alongside the
+;; first runs OUTSIDE the lifecycle the runner awaits. Such a sibling DOES
+;; execute and its failures DO surface — but it has no completion the runner
+;; blocks on and no attribution back to the case it covers, so the suite can
+;; settle before it finishes and its red can land under the wrong name. Keep
+;; one `async` per `deftest` here.
 (deftest discover-port-shadow-probe-surfaces-dot-shadow-candidate-file
   (testing ".shadow-cljs/nrepl.port wins → that exact file is surfaced"
     (async done
