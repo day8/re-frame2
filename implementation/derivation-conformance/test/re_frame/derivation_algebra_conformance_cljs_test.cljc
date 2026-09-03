@@ -445,19 +445,19 @@
 ;; sub-cache, resource-cache, and route facts that cannot exist in a static
 ;; graph.
 
-(def ^:private k3-nav-token 7)
-(def ^:private k3-scoped-key
+(def ^:private live-composition-nav-token 7)
+(def ^:private live-composition-scoped-key
   ;; [cache-scope resource-id canonical-params] — a concrete live fact id.
   [[:rf.scope/global] :article/by-slug {:slug "a1"}])
 
 ;; A resource work-id embeds both the scoped key and attempt generation. Using
 ;; the canonical tuple lets the fixture exercise every identity-bearing slot.
-(def ^:private k3-generation 3)
-(def ^:private k3-work-id
+(def ^:private live-composition-generation 3)
+(def ^:private live-composition-work-id
   ;; `[:rf.work/resource <scoped-key> <generation>]`.
-  [:rf.work/resource k3-scoped-key k3-generation])
+  [:rf.work/resource live-composition-scoped-key live-composition-generation])
 
-(defn- k3-live-contributors
+(defn- live-composition-contributors
   "Contributors whose subs / resources / routes live-fns return the realized
   shapes a `[:article/page \"a1\"]` materialization + a route-owned fetch
   produce, so the composer's live node-wrapping + edge derivation runs over
@@ -489,22 +489,22 @@
    {:live-shape :map
     :static-fn  (constantly {})
     :live-fn    (constantly
-                  {k3-scoped-key
-                   {:id          k3-scoped-key
+                  {live-composition-scoped-key
+                   {:id          live-composition-scoped-key
                     :kind        :process :refinement :resource-process
                     :inputs      [[:scope [:rf.scope/global]] [:param {:slug "a1"}]]
-                    :output      [:runtime [:rf.runtime/resources :entries k3-scoped-key]]
+                    :output      [:runtime [:rf.runtime/resources :entries live-composition-scoped-key]]
                     :storage     :runtime-db
                     :authority   {:kind :remote :system :server}
                     :evaluation  #{:on-route}
                     :lifecycle   {:kind :scoped-resource-key
-                                  :owners #{[:route :route/article k3-nav-token]}}
+                                  :owners #{[:route :route/article live-composition-nav-token]}}
                     :status      :loading
                     ;; Match the canonical resource attempt identity and a
                     ;; non-terminal status emitted by the work ledger.
-                    :work-ledger {:work/id k3-work-id
-                                  :record  {:work/id k3-work-id :status :running
-                                            :resource/key k3-scoped-key}}}})}
+                    :work-ledger {:work/id live-composition-work-id
+                                  :record  {:work/id live-composition-work-id :status :running
+                                            :resource/key live-composition-scoped-key}}}})}
    ;; The live route slice with its realized owner.
    :routes
    {:live-shape :node
@@ -512,13 +512,13 @@
     :live-fn    (constantly
                   {:id :rf/route :kind :process :refinement :route-fact
                    :route-id :route/article :params {:slug "a1"}
-                   :nav-token k3-nav-token
-                   :owner [:route :route/article k3-nav-token]
+                   :nav-token live-composition-nav-token
+                   :owner [:route :route/article live-composition-nav-token]
                    :output [:runtime [:rf.runtime/routing :current]]
                    :storage :runtime-db :evaluation :on-route :lifecycle :frame})}})
 
 (deftest cplus-live-graph-realizes-non-route-nodes-and-edges
-  (let [g     (graph/live-derivation-graph :rf/default (k3-live-contributors))
+  (let [g     (graph/live-derivation-graph :rf/default (live-composition-contributors))
         nodes (:nodes g)
         edges (:edges g)]
     (testing "realized sub nodes are wrapped by their concrete query vector
@@ -537,22 +537,22 @@
           "the realized :input edge from the concrete upstream sub"))
     (testing "the composed resource node is keyed by its concrete scoped key,
               carrying its live lifecycle owners + work-ledger"
-      (let [res (get nodes [:resource k3-scoped-key])]
+      (let [res (get nodes [:resource live-composition-scoped-key])]
         (is (some? res) "the live resource node is present, scoped-key keyed")
         (is (= :process (:kind res)))
-        (is (= #{[:route :route/article k3-nav-token]}
+        (is (= #{[:route :route/article live-composition-nav-token]}
                (get-in res [:lifecycle :owners]))
             "the live owner set is composed through verbatim")
         ;; Separate witnesses make malformed work-id components diagnosable.
-        (is (= k3-work-id (get-in res [:work-ledger :work/id]))
+        (is (= live-composition-work-id (get-in res [:work-ledger :work/id]))
             "the composer preserves the canonical resource work-id")
         (is (= :rf.work/resource (first (get-in res [:work-ledger :work/id])))
             "the work-id tuple head is the :rf.work/resource family head (one-attempt-one-:work/id)")
-        (is (= k3-scoped-key (second (get-in res [:work-ledger :work/id])))
+        (is (= live-composition-scoped-key (second (get-in res [:work-ledger :work/id])))
             "the work-id tuple carries the concrete scoped-key")
-        (is (= k3-generation (nth (get-in res [:work-ledger :work/id]) 2))
+        (is (= live-composition-generation (nth (get-in res [:work-ledger :work/id]) 2))
             "the work-id tuple embeds the attempt generation")
-        (is (= k3-work-id (get-in res [:work-ledger :record :work/id]))
+        (is (= live-composition-work-id (get-in res [:work-ledger :record :work/id]))
             "the work-ledger record carries the same canonical work-id tuple")
         (is (= :running (get-in res [:work-ledger :record :status]))
             "the record preserves the non-terminal issuance status")
@@ -563,9 +563,9 @@
             "the work-ledger record uses :work/id")))
     (testing "the realized route-owned resource edge resolves to a concrete key"
       (is (some #(= % {:from  :rf/route
-                       :to    [:resource k3-scoped-key]
+                       :to    [:resource live-composition-scoped-key]
                        :role  :param
-                       :owner [:route :route/article k3-nav-token]})
+                       :owner [:route :route/article live-composition-nav-token]})
                 edges)
           "the live route → concrete resource :param edge"))))
 
@@ -593,45 +593,45 @@
 ;; resource nodes keyed by a NESTED EDN map spelled two ways).
 ;; ===========================================================================
 
-(defn- perm-permutations
+(defn- permutations-of
   "All orderings of `coll` (small n; hand-rolled so this tier needs no
   combinatorics dependency)."
   [coll]
   (if (<= (count coll) 1)
     (list (vec coll))
     (for [i    (range (count coll))
-          tail (perm-permutations (concat (take i coll) (drop (inc i) coll)))]
+          tail (permutations-of (concat (take i coll) (drop (inc i) coll)))]
       (into [(nth coll i)] tail))))
 
-(defn- perm-sub-node [id inputs]
+(defn- permutation-sub-node [id inputs]
   {:id id :kind :derivation :inputs inputs
    :output [:fact id] :storage :ephemeral :evaluation :on-demand})
 
-(defn- perm-res-key
+(defn- permutation-resource-key
   "A route's resource-key — a NESTED EDN map spelled `:slug`-first or
   `:locale`-first. Both spellings are the SAME identity; canonical ordering
   must not depend on which the projection happened to build."
   [slug slug-first?]
   (if slug-first? {:slug slug :locale :en} {:locale :en :slug slug}))
 
-(defn- perm-route [route-id slug slug-first?]
+(defn- permutation-route [route-id slug slug-first?]
   {:id :rf/route :kind :process :refinement :route-fact
    :route-id route-id :storage :runtime-db :evaluation :on-route :lifecycle :frame
-   :resource-edges [{:to [:resource (perm-res-key slug slug-first?)]
+   :resource-edges [{:to [:resource (permutation-resource-key slug slug-first?)]
                      :role :param :target :parametric}]})
 
-(defn- perm-contributors
+(defn- permutation-contributors
   "Synthetic STATIC contributors carrying the SAME nodes/edges but assembled
   in `sub-order` / `route-order` insertion order, with each route's nested
   resource-key map spelled per `slug-first?`."
   [sub-order route-order slug-first?]
-  (let [subs   {:a (perm-sub-node :a [])
+  (let [subs   {:a (permutation-sub-node :a [])
                 ;; `:b` declares its `[:sub [:a]]` input TWICE — `distinct`
                 ;; must suppress the duplicate before canonicalization.
-                :b (perm-sub-node :b [[:sub [:a]] [:sub [:a]]])
-                :c (perm-sub-node :c [[:sub [:a]]])}
-        routes {:r1 (perm-route :r1 "s1" slug-first?)
-                :r2 (perm-route :r2 "s2" slug-first?)}]
+                :b (permutation-sub-node :b [[:sub [:a]] [:sub [:a]]])
+                :c (permutation-sub-node :c [[:sub [:a]]])}
+        routes {:r1 (permutation-route :r1 "s1" slug-first?)
+                :r2 (permutation-route :r2 "s2" slug-first?)}]
     {:subs   {:live-shape :map
               :static-fn  (constantly
                             (reduce (fn [m k] (assoc m k (get subs k)))
@@ -641,7 +641,7 @@
                             (reduce (fn [m k] (assoc m k (get routes k)))
                                     (array-map) route-order))}}))
 
-(def ^:private perm-expected-edges
+(def ^:private permutation-expected-edges
   "The canonical `:edges` vector — the byte-stable total order every
   permutation and both nested-map spellings must produce, on CLJ and CLJS
   alike. Pinned so a cross-platform divergence (or a regression to
@@ -655,16 +655,16 @@
    {:from [:sub :a] :to [:sub :c] :role :input}])
 
 (deftest cplusplus-edge-order-is-canonical-across-registration-permutations
-  (let [baseline (graph/derivation-graph (perm-contributors [:a :b :c] [:r1 :r2] true))]
+  (let [baseline (graph/derivation-graph (permutation-contributors [:a :b :c] [:r1 :r2] true))]
     (testing "the de-duplicated edge SET is the four expected edges (the
               duplicated `[:sub [:a]]` input on `:b` collapsed to ONE edge —
               distinct runs BEFORE canonicalization)"
-      (is (= (set perm-expected-edges) (set (:edges baseline)))
+      (is (= (set permutation-expected-edges) (set (:edges baseline)))
           "same edge set as expected")
       (is (= 4 (count (:edges baseline)))
           "four distinct edges — the duplicate input was suppressed"))
     (testing "the `:edges` vector is the pinned canonical total order"
-      (is (= perm-expected-edges (:edges baseline))
+      (is (= permutation-expected-edges (:edges baseline))
           "edges emit in canonical-bytes order, not iteration order"))
     (testing "edge CONTENTS / identity are preserved — the sort reorders the
               collection, it does not rewrite edges (the `:param` edge keeps
@@ -681,12 +681,12 @@
     (testing "EVERY insertion-order permutation and BOTH nested-map spellings
               produce the identical `:edges` VALUE and the identical whole
               graph (registration/projection history is invisible)"
-      (doseq [sub-order   (perm-permutations [:a :b :c])
-              route-order (perm-permutations [:r1 :r2])
+      (doseq [sub-order   (permutations-of [:a :b :c])
+              route-order (permutations-of [:r1 :r2])
               slug-first? [true false]]
         (let [g (graph/derivation-graph
-                  (perm-contributors sub-order route-order slug-first?))]
-          (is (= perm-expected-edges (:edges g))
+                  (permutation-contributors sub-order route-order slug-first?))]
+          (is (= permutation-expected-edges (:edges g))
               (str "edges must equal the canonical order for sub-order "
                    sub-order " route-order " route-order
                    " slug-first? " slug-first?))
@@ -697,10 +697,10 @@
               permutation serializes `:edges` byte-identically — the property
               tools depend on when they diff / hash / snapshot the graph"
       (doseq [slug-first? [true false]]
-        (let [serials (for [sub-order   (perm-permutations [:a :b :c])
-                            route-order (perm-permutations [:r1 :r2])]
+        (let [serials (for [sub-order   (permutations-of [:a :b :c])
+                            route-order (permutations-of [:r1 :r2])]
                         (pr-str (:edges (graph/derivation-graph
-                                          (perm-contributors sub-order route-order slug-first?)))))]
+                                          (permutation-contributors sub-order route-order slug-first?)))))]
           (is (= 1 (count (distinct serials)))
               (str "all permutations must serialize `:edges` identically (slug-first? "
                    slug-first? ")")))))))
