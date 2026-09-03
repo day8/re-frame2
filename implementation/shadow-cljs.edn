@@ -324,13 +324,24 @@
                 ;; tools/machines-viz/page (rf2-k7l2o). The artefact's one
                 ;; APPLICATION — `viewer.cljs`, the `^:export run` entry
                 ;; public/viewer.html loads — lives on its own root, OFF the
-                ;; jar's `:paths`/`:src-dirs`, because it is the only namespace
-                ;; in the tree that picks a substrate (`rf/init!` with the
-                ;; Reagent adapter). Shipping it as library surface would have
-                ;; forced a published `re-frame.adapter.reagent` dependency on
-                ;; every consumer, colliding with day8/reagent-slim (which
-                ;; publishes ITS adapter at that same canonical ns) on a slim
-                ;; app's classpath. Listed here for the two builds that DO need
+                ;; jar's `:paths`/`:src-dirs`. The split is application-versus-
+                ;; library-surface: the page is an entry point a browser loads
+                ;; — an `^:export` symbol, a DOM lookup and a
+                ;; `reagent.dom.client` root it owns — and a consumer requiring
+                ;; this jar wants the chart, not a page's mount code.
+                ;;
+                ;; When rf2-k7l2o made the split the argument was sharper: the
+                ;; page then required `re-frame.adapter.reagent`, so shipping it
+                ;; as library surface would have forced a published
+                ;; `day8/re-frame2-reagent` dependency on every consumer,
+                ;; colliding with day8/reagent-slim (which publishes ITS adapter
+                ;; at that same canonical ns) on a slim app's classpath.
+                ;; rf2-6r9j.115 deleted the page's `rf/init!` and that require
+                ;; outright — the page picks no substrate now — so the
+                ;; dependency-forcing half is discharged history rather than a
+                ;; live justification.
+                ;;
+                ;; Listed here for the two builds that DO need
                 ;; it: `:machines-viz-viewer` below, and `:node-test`, whose
                 ;; `cljs-test$` selector reaches the page's own unit suite
                 ;; (`viewer-cljs-test`, in the `test` root above).
@@ -1179,11 +1190,21 @@
   ;; Example apps (rf2-lyj0).
   ;;
   ;; Each example compiles into out/examples/<name>/ and is paired with a
-  ;; hand-written examples/<substrate>/<name>/index.html host page that loads
-  ;; main.js from the same directory. The serve-and-run-examples script
-  ;; builds the site layout, serves it, and runs the Playwright specs that
-  ;; sit alongside each example (examples/<substrate>/<name>/<name>.spec.cjs,
-  ;; plus the per-task 7GUIs sub-folders under examples/reagent/seven_guis/).
+  ;; hand-written examples/<concept>/<name>/index.html host page that loads
+  ;; main.js from the same directory. The tree is CONCEPT-grouped, so
+  ;; <concept> is one of core/, patterns/, real-apps/, substrates/ or
+  ;; capabilities/<capability>/ — the `:source-paths` inventory near the top
+  ;; of this file enumerates them.
+  ;;
+  ;; The serve-and-run-examples script builds the site layout and serves it.
+  ;; It runs NO example-adjacent Playwright specs, because none exist:
+  ;; examples are TEST-FREE (locked 2026-05-19, rf2-8cevm) and
+  ;; `git ls-files 'examples/**/*.spec.cjs'` returns nothing. Browser smoke
+  ;; coverage is one adapter-level smoke per shipped adapter, at
+  ;; implementation/adapters/<name>/testbed/spec.cjs; real regression
+  ;; coverage lives in the substrate contract tests (`npm run test:cljs`),
+  ;; the Xray feature-matrix gate, bundle-isolation, the perf-bundle gate
+  ;; and mcp-conformance.
   ;;
   ;; :asset-path is "." so the bundle's runtime resolves siblings (cljs_base,
   ;; cljs-runtime, etc.) relative to the page rather than the document root —
@@ -1250,7 +1271,7 @@
 
   ;; Performance-API instrumented variant of the counter example
   ;; (rf2-du3i). The SAME canonical source as `:examples/counter`
-  ;; (`counter.core/run`, examples/reagent/counter/core.cljs), same
+  ;; (`counter.core/run`, examples/core/counter/core.cljs), same
   ;; `:advanced` compilation, but with the `re-frame.performance/enabled?`
   ;; goog-define flipped to `true`. Its sole consumer is the
   ;; bundle-presence assertion in scripts/check-perf-bundle.cjs (`npm run
@@ -1679,8 +1700,8 @@
   ;; metadata read passively via `[:rf.resource/*]` subs; writes are
   ;; `reg-mutation` with `:invalidates` driving the read→write→invalidate→
   ;; refetch loop. `realworld-resources.*` namespaces resolve via the
-  ;; `../examples/reagent` source-path (already on :source-paths near the top
-  ;; of this file), so no per-build deps.
+  ;; `../examples/real-apps` source-path (already on :source-paths near the
+  ;; top of this file), so no per-build deps.
   :examples/realworld-resources
   {:target     :browser
    :output-dir "out/examples/realworld-resources"
@@ -1757,9 +1778,10 @@
   ;; on :ok or ROLLS BACK (runtime-recorded snapshot inverse) on :error. A
   ;; 'fail the next write' demo seam arms the canned `:rf.http/managed` stub
   ;; to answer the next write with a 503 so the rollback is the headline
-  ;; demonstration. `../examples/reagent` is already on :source-paths above,
-  ;; so the mutation runtime + `:rf.mutation/*` / `:rf.resource/*` subs
-  ;; resolve without per-build deps. Served at http://localhost:8044 via the
+  ;; demonstration. `../examples/capabilities/resources` is already on
+  ;; :source-paths above, so the mutation runtime + `:rf.mutation/*` /
+  ;; `:rf.resource/*` subs resolve without per-build deps. Served at
+  ;; http://localhost:8044 via the
   ;; top-level `:dev-http` map. Complements `:examples/realworld-resources`
   ;; (`:optimistic-tags` favorite) + `:examples/infinite-feed` (read-side
   ;; load-more).
@@ -1773,7 +1795,7 @@
   ;; (rf2-jxmb4p). The page's server-state is a RESOURCE preloaded under an
   ;; [:ssr …] owner and serialized into the hydration payload's runtime-db
   ;; projection; the static index.html bakes the projection (a stand-in for
-  ;; a real server). Sibling of `examples/reagent/ssr/` (which writes
+  ;; a real server). Sibling of `examples/capabilities/ssr/ssr/` (which writes
   ;; server-state into app-db rather than a resource).
   :examples/resources-ssr
   {:target     :browser
@@ -1836,7 +1858,7 @@
                                  day8.re-frame2-xray.preload]}}
 
   ;; Nine States Story + Xray showcase (rf2-rgyia). The
-  ;; examples/reagent/nine_states example wired up as a Story showcase:
+  ;; examples/patterns/nine_states example wired up as a Story showcase:
   ;; `nine-states.stories` registers one variant per canonical UI state
   ;; (Nothing / Loading / Empty / One / Some / Too Many / Incorrect /
   ;; Correct / Done) plus the RemoteData fetch-lifecycle variants
@@ -1847,7 +1869,7 @@
   ;; `:rf.http/managed` → reply cascade light up Xray's Epoch / Trace /
   ;; Side Effects panels.
   ;;
-  ;; The `nine-states.*` namespaces resolve via the `../examples/reagent`
+  ;; The `nine-states.*` namespaces resolve via the `../examples/patterns`
   ;; source-path (already on :source-paths near the top of this file). The
   ;; Story 'open in editor' chips need no build-time configuration: this
   ;; build's `:dev-http` entry runs the JVM
@@ -1864,7 +1886,7 @@
    :devtools         {:preloads [re-frame2-pair.runtime
                                  day8.re-frame2-xray.preload]}}
 
-  ;; Login Story + Xray showcase (rf2-p8v0q). The examples/reagent/login
+  ;; Login Story + Xray showcase (rf2-p8v0q). The examples/core/login
   ;; example wired up as a Story showcase: `login.stories` registers one
   ;; variant per reachable state of the `:auth.login/flow` machine (empty
   ;; / submitting / invalid-credentials / auth-error / locked-out /
@@ -1876,7 +1898,7 @@
   ;; — light up Xray's Epoch / Trace / Side Effects panels (and the
   ;; schema-rejection / 401 paths light the Issues ribbon).
   ;;
-  ;; The `login.*` namespaces resolve via the `../examples/reagent`
+  ;; The `login.*` namespaces resolve via the `../examples/core`
   ;; source-path (already on :source-paths near the top of this file). The
   ;; Story 'open in editor' chips need no build-time configuration: this
   ;; build's `:dev-http` entry runs the JVM
