@@ -72,57 +72,63 @@
 ;; (non-)delivery decision. Test-only: the managed-effect runtime owns real stale
 ;; lowering (and never app-delivers a stale reply); this invents no production API.
 (defn- observe-stale-reply!
-  [{:keys [reply]} target dispatch-opts]
-  (rf/dispatch-sync (reply/complete target reply) dispatch-opts))
+  [{stale-reply :reply} reply-target dispatch-options]
+  (rf/dispatch-sync (reply/complete reply-target stale-reply) dispatch-options))
 
 (deftest reply-completion-is-an-ordinary-reg-event-dispatch
   (testing "a completed reply target is an ordinary event with the reply last"
     (is (reply/valid-reply? canonical-reply)
         (str "the fixture reply must be a canonical uniform envelope: "
              (reply/validate-reply canonical-reply)))
-    (let [seen-event (atom ::unset)
-          seen-cofx  (atom ::unset)
-          target     [:article/loaded {:id 42}]]
+    (let [seen-event      (atom ::unset)
+          seen-coeffects  (atom ::unset)
+          reply-target    [:article/loaded {:id 42}]]
       (rf/reg-sub :evt-reply/last-title (fn [db _] (:title db)))
       (rf/reg-event :article/loaded
         (fn [coeffects event]
           (reset! seen-event event)
-          (reset! seen-cofx coeffects)
-          (let [reply (peek event)]
-            {:db (assoc (:db coeffects) :title (get-in reply [:value :article :title]))})))
+          (reset! seen-coeffects coeffects)
+          (let [delivered-reply (peek event)]
+            {:db (assoc (:db coeffects)
+                        :title
+                        (get-in delivered-reply [:value :article :title]))})))
 
-      (let [completed (reply/complete target canonical-reply)]
-        (is (= [:article/loaded {:id 42} canonical-reply] completed)
+      (let [completed-event (reply/complete reply-target canonical-reply)]
+        (is (= [:article/loaded {:id 42} canonical-reply] completed-event)
             "complete appends the reply map as the FINAL event argument")
-        (rf/dispatch-sync completed))
+        (rf/dispatch-sync completed-event))
 
       (testing "the reg-event handler saw the FULL event vector with the reply in final position"
         (is (= [:article/loaded {:id 42} canonical-reply] @seen-event)
             "the handler's event arg is the completed vector, reply map last")
-        (let [delivered (peek @seen-event)]
+        (let [delivered-reply (peek @seen-event)]
           (testing "the canonical reply facts are preserved on the delivered event arg"
-            (is (= :ok (:status delivered))             ":status preserved")
-            (is (= {:article {:id 42 :title "Welcome"}} (:value delivered)) ":value preserved")
-            (is (nil? (:error delivered))               "no :error on an :ok reply")
+            (is (= :ok (:status delivered-reply)) ":status preserved")
+            (is (= {:article {:id 42 :title "Welcome"}} (:value delivered-reply))
+                ":value preserved")
+            (is (nil? (:error delivered-reply)) "no :error on an :ok reply")
             (is (= [:rf.work/resource [:rf.scope/global :article/by-id {:id 42}] 1]
-                   (:work/id delivered))                ":work/id tuple preserved")
-            (is (= :rf.work/resource (first (:work/id delivered)))
+                   (:work/id delivered-reply))
+                ":work/id tuple preserved")
+            (is (= :rf.work/resource (first (:work/id delivered-reply)))
                 ":work/id head is the family head")
-            (is (= :resource (:work/kind delivered))    ":work/kind preserved")
-            (is (= :completed (:rf.reply/work-status delivered)) ":rf.reply/work-status preserved")
-            (is (= :rf/default (:rf.frame/id delivered)) ":rf.frame/id preserved")
-            (is (= completed-at-ms (:completed-at delivered)) ":completed-at (EP-0017) preserved")
-            (is (contains? reply/statuses (:status delivered))
+            (is (= :resource (:work/kind delivered-reply)) ":work/kind preserved")
+            (is (= :completed (:rf.reply/work-status delivered-reply))
+                ":rf.reply/work-status preserved")
+            (is (= :rf/default (:rf.frame/id delivered-reply)) ":rf.frame/id preserved")
+            (is (= completed-at-ms (:completed-at delivered-reply))
+                ":completed-at (EP-0017) preserved")
+            (is (contains? reply/statuses (:status delivered-reply))
                 ":status is in the ONE closed status vocabulary")
-            (is (contains? reply/work-statuses (:rf.reply/work-status delivered))
+            (is (contains? reply/work-statuses (:rf.reply/work-status delivered-reply))
                 ":rf.reply/work-status is in the ONE closed work-status vocabulary"))))
 
       (testing "the reply event got ORDINARY event-model semantics — a coeffects
                 map IN (the reg-event-fx shape), not a bare db, and the {:db …}
                 effect committed"
-        (is (map? @seen-cofx)         "the handler received the coeffects MAP")
-        (is (contains? @seen-cofx :db) "`:db` delivered IN the coeffects map")
-        (is (= :rf/default (:rf.frame/id @seen-cofx))
+        (is (map? @seen-coeffects) "the handler received the coeffects MAP")
+        (is (contains? @seen-coeffects :db) "`:db` delivered IN the coeffects map")
+        (is (= :rf/default (:rf.frame/id @seen-coeffects))
             "the ambient frame id is delivered as :rf.frame/id")
         (is (= "Welcome" @(rf/subscribe [:evt-reply/last-title]))
             "the {:db …} effect derived from the reply value committed")))))
@@ -140,49 +146,62 @@
       (fn [{:keys [db]} _] {:db (assoc db :delivered-by :global)}))
     (is (some? (registrar/lookup :event :article/loaded))
         "the same-id global sentinel is genuinely armed on the default registrar")
-    (let [seen-event (atom ::unset)
-          call-count (atom 0)
+    (let [seen-event         (atom ::unset)
+          handler-call-count (atom 0)
           ;; The explicit frame's OWN image handler for the same id.
-          pool [(event-desc "evt.reply.stale" :article/loaded
-                  (fn [{:keys [db]} event]
-                    (swap! call-count inc)
-                    (reset! seen-event event)
-                    {:db (assoc db :delivered-by :image)}))]
-          img  (image/image {:id :evt.reply/stale-img :select-ns {:include ["evt.reply.stale"]}})
-          _    (lf/make-frame {:id :evt.reply/frame :images [img]} pool)
+          image-registrations
+          [(event-desc "evt.reply.stale" :article/loaded
+             (fn [{:keys [db]} event]
+               (swap! handler-call-count inc)
+               (reset! seen-event event)
+               {:db (assoc db :delivered-by :image)}))]
+          event-image
+          (image/image {:id :evt.reply/stale-img
+                        :select-ns {:include ["evt.reply.stale"]}})
+          _ (lf/make-frame {:id :evt.reply/frame :images [event-image]}
+                           image-registrations)
           ;; A PLAIN app-shaped target — nothing capability-bearing rides it.
-          target  [:article/loaded {:id 42}]
-          carried {:work/id [:rf.work/resource [:rf.scope/global :r {}] 4] :generation 4}
-          current {:work/id [:rf.work/resource [:rf.scope/global :r {}] 5] :generation 5}
-          outcome (reply/suppress target carried current
-                    {:rf.reply/work-id (:work/id carried)
+          reply-target [:article/loaded {:id 42}]
+          carried-correlation
+          {:work/id [:rf.work/resource [:rf.scope/global :r {}] 4]
+           :generation 4}
+          current-correlation
+          {:work/id [:rf.work/resource [:rf.scope/global :r {}] 5]
+           :generation 5}
+          suppression-outcome
+          (reply/suppress reply-target carried-correlation current-correlation
+            {:rf.reply/work-id (:work/id carried-correlation)
                      :work/kind        :resource
                      :rf.frame/id      :evt.reply/frame})]
       (testing "TOOTH — app non-delivery: the suppress outcome is universally
                 non-delivering, so the ONLY way the stale reply reaches a handler
                 is a deliberate observer self-dispatch"
-        (is (false? (:deliver? outcome))
+        (is (false? (:deliver? suppression-outcome))
             "the suppress boundary never authorises app delivery of a stale reply")
-        (is (reply/valid-reply? (:reply outcome))
+        (is (reply/valid-reply? (:reply suppression-outcome))
             (str "the suppressed reply must be a canonical stale envelope: "
-                 (reply/validate-reply (:reply outcome))))
-        (is (zero? @call-count) "nothing has been dispatched yet"))
+                 (reply/validate-reply (:reply suppression-outcome))))
+        (is (zero? @handler-call-count) "nothing has been dispatched yet"))
       (testing "TOOTH — authorised observation: the observer self-dispatches the
                 stale reply on its OWN authority (explicit complete + dispatch)"
-        (observe-stale-reply! outcome target {:frame :evt.reply/frame}))
+        (observe-stale-reply! suppression-outcome reply-target
+                              {:frame :evt.reply/frame}))
       (testing "the stale envelope reached EXACTLY the intended handler, once,
                 with ORDINARY event-model shape — reply appended last"
-        (is (= 1 @call-count) "the target handler ran exactly once")
-        (is (= [:article/loaded {:id 42} (:reply outcome)] @seen-event)
+        (is (= 1 @handler-call-count) "the target handler ran exactly once")
+        (is (= [:article/loaded {:id 42} (:reply suppression-outcome)] @seen-event)
             "the handler saw the full completed event, the canonical stale reply last")
-        (let [delivered (peek @seen-event)]
-          (is (= :stale (:status delivered))    "the delivered envelope is :status :stale")
-          (is (= :suppressed (:rf.reply/work-status delivered)) ":rf.reply/work-status :suppressed")
-          (is (true? (:stale? delivered))       "the :stale? marker rides")
-          (is (some? (:rf.reply/stale-reason delivered)) "a :rf.reply/stale-reason rides")
-          (is (not (contains? delivered :value))
+        (let [delivered-reply (peek @seen-event)]
+          (is (= :stale (:status delivered-reply))
+              "the delivered envelope is :status :stale")
+          (is (= :suppressed (:rf.reply/work-status delivered-reply))
+              ":rf.reply/work-status :suppressed")
+          (is (true? (:stale? delivered-reply)) "the :stale? marker rides")
+          (is (some? (:rf.reply/stale-reason delivered-reply))
+              "a :rf.reply/stale-reason rides")
+          (is (not (contains? delivered-reply :value))
               "a stale reply carries NO :value — it mutates no app state")
-          (is (contains? reply/statuses (:status delivered))
+          (is (contains? reply/statuses (:status delivered-reply))
               ":stale is in the ONE closed status vocabulary")))
       (testing "the observer's dispatch was routed to the EXPLICIT frame via ITS
                 OWN image — not the ambient default frame, nor the default registrar"

@@ -54,14 +54,24 @@
     ;; A wrong fallback to the default registrar writes this sentinel value.
     (rf/reg-event :boot/init
       (fn [{:keys [db]} _] {:db (assoc db :booted-by :global)}))
-    (let [todo-pool    [(event-desc "examples.todo" :boot/init
-                                    (fn [{:keys [db]} _] {:db (assoc db :booted-by :todo)}))]
-          counter-pool [(event-desc "examples.counter" :boot/init
-                                    (fn [{:keys [db]} _] {:db (assoc db :booted-by :counter)}))]
-          todo-img     (image/image {:id :examples/todo    :select-ns {:include ["examples.todo"]}})
-          counter-img  (image/image {:id :examples/counter :select-ns {:include ["examples.counter"]}})
-          todo-frame    (lf/make-frame {:id :todo/main    :images [todo-img]}    todo-pool)
-          counter-frame (lf/make-frame {:id :counter/main :images [counter-img]} counter-pool)]
+    (let [todo-registrations
+          [(event-desc "examples.todo" :boot/init
+             (fn [{:keys [db]} _] {:db (assoc db :booted-by :todo)}))]
+          counter-registrations
+          [(event-desc "examples.counter" :boot/init
+             (fn [{:keys [db]} _] {:db (assoc db :booted-by :counter)}))]
+          todo-image
+          (image/image {:id :examples/todo
+                        :select-ns {:include ["examples.todo"]}})
+          counter-image
+          (image/image {:id :examples/counter
+                        :select-ns {:include ["examples.counter"]}})
+          todo-frame
+          (lf/make-frame {:id :todo/main :images [todo-image]}
+                         todo-registrations)
+          counter-frame
+          (lf/make-frame {:id :counter/main :images [counter-image]}
+                         counter-registrations)]
       (rf/dispatch-sync [:boot/init] {:frame :todo/main})
       (rf/dispatch-sync [:boot/init] {:frame :counter/main})
       (testing "each frame ran ITS OWN image's handler"
@@ -104,36 +114,51 @@
     ;; path, not a diagnostic-suppressed one.
     (rf/reg-event :boot/rt-init
       {:rf/framework-authority? true}
-      (fn [{rt :rf.db/runtime} _]
-        {:rf.db/runtime (assoc rt
-                               :rf.runtime/conf-observed (:rf.runtime/conf-seed rt)
+      (fn [{runtime-db :rf.db/runtime} _]
+        {:rf.db/runtime (assoc runtime-db
+                               :rf.runtime/conf-observed (:rf.runtime/conf-seed runtime-db)
                                :rf.runtime/conf-writer   :global)}))
     (let [;; Each image handler is framework-authority (via the descriptor
           ;; helper): it reads its OWN `:rf.db/runtime` coeffect and returns an
           ;; updated `:rf.db/runtime` effect, recording the seed it OBSERVED and
           ;; its own writer marker.
-          todo-pool    [(runtime-authority-event-desc "conf.rt.todo" :boot/rt-init
-                          (fn [{rt :rf.db/runtime} _]
-                            {:rf.db/runtime (assoc rt
-                                                   :rf.runtime/conf-observed (:rf.runtime/conf-seed rt)
-                                                   :rf.runtime/conf-writer   :todo)}))]
-          counter-pool [(runtime-authority-event-desc "conf.rt.counter" :boot/rt-init
-                          (fn [{rt :rf.db/runtime} _]
-                            {:rf.db/runtime (assoc rt
-                                                   :rf.runtime/conf-observed (:rf.runtime/conf-seed rt)
-                                                   :rf.runtime/conf-writer   :counter)}))]
+          todo-registrations
+          [(runtime-authority-event-desc "conf.rt.todo" :boot/rt-init
+             (fn [{runtime-db :rf.db/runtime} _]
+               {:rf.db/runtime
+                (assoc runtime-db
+                       :rf.runtime/conf-observed (:rf.runtime/conf-seed runtime-db)
+                       :rf.runtime/conf-writer   :todo)}))]
+          counter-registrations
+          [(runtime-authority-event-desc "conf.rt.counter" :boot/rt-init
+             (fn [{runtime-db :rf.db/runtime} _]
+               {:rf.db/runtime
+                (assoc runtime-db
+                       :rf.runtime/conf-observed (:rf.runtime/conf-seed runtime-db)
+                       :rf.runtime/conf-writer   :counter)}))]
           ;; The SIBLING carries its OWN same-id handler yet is NEVER dispatched
           ;; — it is the untouched-sibling sentinel (its runtime-db must stay
           ;; exactly its seed).
-          sibling-pool [(runtime-authority-event-desc "conf.rt.sibling" :boot/rt-init
-                          (fn [{rt :rf.db/runtime} _]
-                            {:rf.db/runtime (assoc rt :rf.runtime/conf-writer :sibling)}))]
-          todo-img     (image/image {:id :conf.rt/todo    :select-ns {:include ["conf.rt.todo"]}})
-          counter-img  (image/image {:id :conf.rt/counter :select-ns {:include ["conf.rt.counter"]}})
-          sibling-img  (image/image {:id :conf.rt/sibling :select-ns {:include ["conf.rt.sibling"]}})
-          _ (lf/make-frame {:id :conf.rt/todo    :images [todo-img]}    todo-pool)
-          _ (lf/make-frame {:id :conf.rt/counter :images [counter-img]} counter-pool)
-          _ (lf/make-frame {:id :conf.rt/sibling :images [sibling-img]} sibling-pool)]
+          sibling-registrations
+          [(runtime-authority-event-desc "conf.rt.sibling" :boot/rt-init
+             (fn [{runtime-db :rf.db/runtime} _]
+               {:rf.db/runtime
+                (assoc runtime-db :rf.runtime/conf-writer :sibling)}))]
+          todo-image
+          (image/image {:id :conf.rt/todo
+                        :select-ns {:include ["conf.rt.todo"]}})
+          counter-image
+          (image/image {:id :conf.rt/counter
+                        :select-ns {:include ["conf.rt.counter"]}})
+          sibling-image
+          (image/image {:id :conf.rt/sibling
+                        :select-ns {:include ["conf.rt.sibling"]}})
+          _ (lf/make-frame {:id :conf.rt/todo :images [todo-image]}
+                           todo-registrations)
+          _ (lf/make-frame {:id :conf.rt/counter :images [counter-image]}
+                           counter-registrations)
+          _ (lf/make-frame {:id :conf.rt/sibling :images [sibling-image]}
+                           sibling-registrations)]
       ;; Seed each frame's runtime-db partition with a UNIQUE marker (the
       ;; framework-authority runtime-db write surface — Spec 002 §Write
       ;; authority). The seed is what each handler reads back as its
@@ -229,32 +254,37 @@
     ;; A wrong fallback at either cascade step writes a global marker.
     (rf/reg-event :counter/inc  (fn [{:keys [db]} _] {:db (assoc db :inc :global)}))
     (rf/reg-event :counter/step (fn [{:keys [db]} _] {:db (assoc db :step :global)}))
-    (let [target-pool
+    (let [target-registrations
           [(event-desc "examples.counter" :counter/inc
                        (fn [{:keys [db]} _]
                          {:db (assoc db :inc :image)
                           :fx [[:dispatch [:counter/step]]]}))
            (event-desc "examples.counter" :counter/step
                        (fn [{:keys [db]} _] {:db (assoc db :step :image)}))]
-          sibling-pool
+          sibling-registrations
           [(event-desc "examples.todo" :counter/inc
                        (fn [{:keys [db]} _] {:db (assoc db :inc :sibling)}))
            (event-desc "examples.todo" :counter/step
                        (fn [{:keys [db]} _] {:db (assoc db :step :sibling)}))]
-          target-img  (image/image {:id :examples/counter :select-ns {:include ["examples.counter"]}})
-          sibling-img (image/image {:id :examples/todo    :select-ns {:include ["examples.todo"]}})
-          _ (lf/make-frame {:id :counter/main :images [target-img]}  target-pool)
-          _ (lf/make-frame {:id :sibling/main :images [sibling-img]} sibling-pool)]
+          target-image (image/image {:id :examples/counter
+                                     :select-ns {:include ["examples.counter"]}})
+          sibling-image (image/image {:id :examples/todo
+                                      :select-ns {:include ["examples.todo"]}})
+          _ (lf/make-frame {:id :counter/main :images [target-image]}
+                           target-registrations)
+          _ (lf/make-frame {:id :sibling/main :images [sibling-image]}
+                           sibling-registrations)]
       (rf/dispatch-sync [:counter/inc] {:frame :counter/main})
-      (let [db (rf/app-db-value :counter/main)]
+      (let [target-db (rf/app-db-value :counter/main)]
         (testing "the parent AND the fx child both resolved the TARGET frame's image"
-          (is (= :image (:inc db))  "the parent resolved the image's inc handler")
-          (is (= :image (:step db))
+          (is (= :image (:inc target-db))
+              "the parent resolved the image's inc handler")
+          (is (= :image (:step target-db))
               "the CHILD fx dispatch re-derived the generation and resolved the
                image's step handler too (coherent across the cascade)"))
         (testing "neither the parent nor the child fell back to the global registrar"
-          (is (not= :global (:inc db)))
-          (is (not= :global (:step db)))))
+          (is (not= :global (:inc target-db)))
+          (is (not= :global (:step target-db)))))
       (testing "the SIBLING frame on a different image is UNTOUCHED — the cascade
                 committed only the target frame's app-db (effect/state isolation)"
         (is (= {} (rf/app-db-value :sibling/main))
