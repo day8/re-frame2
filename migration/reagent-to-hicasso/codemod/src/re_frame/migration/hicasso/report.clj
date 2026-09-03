@@ -145,10 +145,14 @@
   "Assemble the report artefact from the per-file results.
 
   `:census` is a SECOND SECTION, not more `:entries`. The fixer's entries
-  count `[:>]`-family crossing sites; the census counts Reagent API call
-  sites. Merging them would produce one number that answers neither
+  count `[:>]`-family crossing sites; the census counts view-substrate API
+  call sites. Merging them would produce one number that answers neither
   question, and the golden corpus — which asserts `:entries` — would stop
-  being a statement about the fixer."
+  being a statement about the fixer.
+
+  `:recognition` is the one thing lifted OUT of the census and repeated at
+  the top level, because it is the only key that can contradict the zeros
+  beside it."
   [{:keys [entries suggestions census files-scanned sites-total sites-left-alone
            files-changed dry-run?]}]
   (let [entries (sort-entries entries)
@@ -158,6 +162,14 @@
                       (into (sorted-map)))]
     {:tool    "reagent-to-hicasso/codemod (fixer)"
      :design  "docs/design/hicasso/studio/reagent-codemod-against-the-landed-escape.md"
+
+     ;; THE RECOGNITION VERDICT, HOISTED. It is the census's measurement and
+     ;; it is repeated here on purpose: a migrator who reads the top of this
+     ;; file and stops must not be able to take a zero for a clean bill of
+     ;; health. A tool that recognised nothing and a tool that found nothing
+     ;; print the same counts, and only this key separates them.
+     :recognition (select-keys (:summary census) [:recognition :caveat])
+
      :summary {:files-scanned     files-scanned
                :files-changed     files-changed
                :dry-run?          (boolean dry-run?)

@@ -338,7 +338,60 @@
 ;; ---------------------------------------------------------------------------
 
 (def ^:private reagent-namespaces
-  '#{reagent.core reagent.dom reagent.dom.client reagent.ratom})
+  "Reagent's API, and the namespaces that ARE it.
+
+  **The rule is IDENTITY, not spelling: a namespace binds when this project
+  can vouch for what it is.** Two families qualify and nothing else does.
+
+  * Stock Reagent's four public namespaces.
+  * The `reagent2.*` four that `implementation/adapters/reagent-slim/`
+    ships. That is the SAME API authored a second time IN THIS REPOSITORY:
+    `reagent2.core` defines `atom`, `create-class`, `as-element`,
+    `current-component` and the rest of the census roster under those very
+    names, and `docs/core/how-to/use-uix-or-slim.md` teaches consumers to
+    call them so. One roster classifies both because there is one API.
+
+  Omitting the slim four was the reported defect one adopter later: an
+  application on the reagent-slim substrate writes `(r/atom 0)` through
+  `reagent2.core` and scored ZERO, with nothing on screen to say the tool
+  had not recognised it.
+
+  A namespace that merely SPELLS one of these is still not one and still
+  binds nothing — re-frame-10x's vendored
+  `day8.re-frame-10x.inlined-deps.reagent.v1v2v0.reagent.core` is the
+  standing example, and [[names-reagent?]] reports it rather than guessing.
+  Vouching is not spelling in either direction."
+  '#{reagent.core  reagent.dom    reagent.dom.client  reagent.ratom
+     reagent2.core reagent2.ratom reagent2.dom.client reagent2.dom.server})
+
+(defn reagent-namespace?
+  "Is this namespace symbol Reagent's API? Exact roster membership."
+  [sym]
+  (contains? reagent-namespaces sym))
+
+(def substrate-ns-prefix
+  "re-frame2's own substrate adapters live under one prefix, fixed by Spec
+  006's adapter inventory: `re-frame.adapter.reagent`,
+  `re-frame.adapter.uix`, `re-frame.adapter.test-react`, and the slim
+  adapter which PUBLISHES as `re-frame.adapter.reagent` so the jar is a
+  drop-in swap.
+
+  **A prefix RULE rather than an enumeration, and that is the point.** The
+  adapter set is open — Spec 006 fixes the naming, not the membership — so
+  a list of the ones shipping today would go stale into the same silent
+  zero the next adapter along, which is exactly how the reported defect
+  arrived."
+  "re-frame.adapter.")
+
+(defn substrate-namespace?
+  "Is this namespace symbol one of re-frame2's substrate adapters?
+
+  **ANCHORED AT THE START of the symbol**, which is the whole of what keeps
+  the prefix rule honest: `my.vendored.re-frame.adapter.reagent` CONTAINS
+  the prefix and is not an adapter, and a containment test would bind it
+  and classify somebody else's API under re-frame2's roster."
+  [sym]
+  (str/starts-with? (str sym) substrate-ns-prefix))
 
 (defn ns-form?
   "Is this node the file's `ns` form? Public because the census asks it of
@@ -429,7 +482,7 @@
   does not resolve a platform, and it has no business deciding which
   branch a consumer's build will take. Reading all of them is also the
   conservative direction for this tool specifically: the answer feeds
-  [[reagent-call?]], and a symbol bound to Reagent under ANY feature is a
+  [[bound-call?]], and a symbol bound to Reagent under ANY feature is a
   symbol whose call sites a migrator must see."
   [node]
   (let [values (->> (element-at node 1) elements (drop 1) (take-nth 2))]
@@ -459,7 +512,14 @@
        through-conditionals))
 
 (defn ns-context
-  "Read a file's `ns` form and answer which symbols name Reagent's API.
+  "Read a file's `ns` form and answer which symbols name a rostered API.
+
+  **Parameterised by the roster, one arity per question.** The 1-arity
+  answers for Reagent and is what the FIXER asks; the census asks it a
+  second time with [[substrate-namespace?]] to learn which symbols name
+  re-frame2's own substrate adapters. One reader, two rosters — a second
+  copy of the spec-by-spec reading below is a second place for the
+  reader-conditional bug to come back.
 
   Returns `{:aliases #{r reagent} :referred #{partial …}}`. Alias
   resolution is what makes W4 and W5 legal at all: the only non-fn `IFn`
@@ -507,36 +567,42 @@
     is dropped from `:referred` rather than left sitting in it. A
     `:rename` with no `:refer` binds nothing, which is the effect Clojure
     gives it."
-  [root-node]
-  (reduce
-   (fn [acc spec]
-     (let [spec (if (symbol? spec) [spec] spec)]
-       (if (and (sequential? spec) (contains? reagent-namespaces (first spec)))
-         ;; Pairwise rather than `(apply hash-map …)`: this reads source
-         ;; nobody in this repository wrote, and a lone trailing option
-         ;; must leave the tool answering less, never throwing.
-         (let [opts       (into {} (comp (partition-all 2) (filter #(= 2 (count %))) (map vec))
-                                (rest spec))
-               refer-all? (= :all (:refer opts))
-               referred   (when (sequential? (:refer opts))
-                            (filter symbol? (:refer opts)))
-               renamed    (when (and (or refer-all? referred) (map? (:rename opts)))
-                            (into {} (for [[from to] (:rename opts)
-                                           :when (and (symbol? from) (symbol? to))]
-                                       [to from])))]
-           (cond-> (update acc :aliases conj (first spec))
-             (symbol? (:as opts)) (update :aliases conj (:as opts))
-             referred             (update :referred into
-                                          (remove (set (vals renamed)) referred))
-             refer-all?           (assoc :refer-all? true)
-             (seq renamed)        (update :renamed merge renamed)))
-         acc)))
-   {:aliases #{} :referred #{} :refer-all? false :renamed {}}
-   (map sexpr-safe (some-> (ns-form-node root-node) require-specs))))
+  ([root-node] (ns-context root-node reagent-namespace?))
+  ([root-node ns-pred]
+   (reduce
+    (fn [acc spec]
+      (let [spec (if (symbol? spec) [spec] spec)]
+        (if (and (sequential? spec) (ns-pred (first spec)))
+          ;; Pairwise rather than `(apply hash-map …)`: this reads source
+          ;; nobody in this repository wrote, and a lone trailing option
+          ;; must leave the tool answering less, never throwing.
+          (let [opts       (into {} (comp (partition-all 2) (filter #(= 2 (count %))) (map vec))
+                                 (rest spec))
+                refer-all? (= :all (:refer opts))
+                referred   (when (sequential? (:refer opts))
+                             (filter symbol? (:refer opts)))
+                renamed    (when (and (or refer-all? referred) (map? (:rename opts)))
+                             (into {} (for [[from to] (:rename opts)
+                                            :when (and (symbol? from) (symbol? to))]
+                                        [to from])))]
+            (cond-> (update acc :aliases conj (first spec))
+              (symbol? (:as opts)) (update :aliases conj (:as opts))
+              referred             (update :referred into
+                                           (remove (set (vals renamed)) referred))
+              refer-all?           (assoc :refer-all? true)
+              (seq renamed)        (update :renamed merge renamed)))
+          acc)))
+    {:aliases #{} :referred #{} :refer-all? false :renamed {}}
+    (map sexpr-safe (some-> (ns-form-node root-node) require-specs)))))
 
-(defn reagent-call?
-  "Is `node` a literal call to Reagent's `sym`, through a symbol this
-  file's `ns` form actually binds?
+(defn bound-call?
+  "Is `node` a literal call to `sym`, through a symbol this file's `ns`
+  form actually binds to the roster `ctx` was read with?
+
+  Named for what it decides rather than for one caller's roster: the same
+  test answers for Reagent when handed a Reagent [[ns-context]] and for
+  re-frame2's substrate adapters when handed a substrate one. The roster
+  lives in the context, so there is nothing here to duplicate per roster.
 
   Three ways a bare head can be Reagent's, and only three: the `ns` form
   `:refer`red the name, it `:refer :all`ed the namespace, or it renamed
@@ -575,7 +641,7 @@
   [node sym ctx]
   (boolean
    (and (not (inert? node))
-        (or (reagent-call? node sym ctx)
+        (or (bound-call? node sym ctx)
             (and (n/inner? node)
                  (some #(subtree-has-reagent-call? % sym ctx)
                        (n/children node)))))))
@@ -602,7 +668,7 @@
       :> :raw
       :r> :r>
       :f> :f>
-      (when (reagent-call? (element-at node 0) 'adapt-react-class ctx) :adapt))))
+      (when (bound-call? (element-at node 0) 'adapt-react-class ctx) :adapt))))
 
 (defn- head-text
   "The component name for the report — the one thing in the system that
@@ -1016,7 +1082,7 @@
                             "`{:callbacks {… :render}}`, or a plain function."))))
 
          ;; ---- W4 (§4.4), amended by (A) ---------------------------------------
-         (reagent-call? v 'partial ctx)
+         (bound-call? v 'partial ctx)
          (if-let [{:keys [node captured]} (w4-plan v)]
            (-> (edit acc node)
                (add (entry :partial-wrapper :rewrote
@@ -1073,7 +1139,7 @@
                                   ;; W4 read this one and rewrote it; a tool that
                                   ;; reports its own rewrite as undecidable is
                                   ;; crying wolf.
-                                  (reagent-call? v 'partial ctx))))
+                                  (bound-call? v 'partial ctx))))
                     (mapv (fn [[k _ _]] (str/trim (n/string k)))))]
     (when (seq unread)
       (entry :computed-value :refused {:props unread}

@@ -50,7 +50,7 @@
   (and (rw/list-node? nd)
        (= 'def (rw/sexpr-safe (rw/element-at nd 0)))
        (symbol? (rw/sexpr-safe (rw/element-at nd 1)))
-       (some-> (rw/element-at nd 2) (rw/reagent-call? 'adapt-react-class ctx))))
+       (some-> (rw/element-at nd 2) (rw/bound-call? 'adapt-react-class ctx))))
 
 (defn- hiccup-head-symbol
   "The head of `[Foo …]` when it is a bare symbol — a call site of a
@@ -333,26 +333,56 @@
 ;; CLI
 ;; ---------------------------------------------------------------------------
 
+(def ^:private report-file-name "reagent-to-hicasso-report.edn")
+
+(defn- default-report-path
+  "Where the report goes when `--report` is not given: BESIDE the tree the
+  tool was pointed at, as an absolute path.
+
+  It used to be the bare name, which resolves against the process's
+  WORKING DIRECTORY — and the migration chapter's own first command is
+  `cd …/codemod` followed by `clojure -M:run path/to/your/src/`, so the
+  bare form wrote the report into this CHECKOUT, which a consumer has
+  every reason to be treating as a read-only build input. It turned up in
+  their `git status` and nothing had told them it would; a tool that
+  writes into somebody else's repository without saying so is a surprise
+  whatever it writes (rf2-mckf).
+
+  The parent of the first scanned path is where a migrator wants it: point
+  the tool at `<repo>/src/` and the report lands at `<repo>/`, beside the
+  tree it describes and inside the working copy they are about to change
+  anyway. A path with no parent falls back to the working directory.
+  Absolute either way, so the line the run prints cannot be ambiguous
+  about which directory it meant."
+  [paths]
+  (let [f      (io/file (str (first paths)))
+        parent (or (.getParentFile (.getAbsoluteFile f)) (io/file "."))]
+    (str (io/file parent report-file-name))))
+
 (def ^:private usage
   (str "usage: clojure -M:run [--rewrite] [--write] [--report PATH] PATH ...\n"
        "\n"
        "  (no flag)        scan: report only, touch nothing\n"
        "  --rewrite        dry run: show what would change\n"
        "  --rewrite --write  apply the fixer in place\n"
-       "  --report PATH    where the EDN report goes"
-       " (default: reagent-to-hicasso-report.edn)\n"))
+       "  --report PATH    where the EDN report goes\n"
+       "\n"
+       "EVERY run writes one EDN report, including a scan that changes no source.\n"
+       "Without --report it is written to " report-file-name " BESIDE the first\n"
+       "path scanned (`<repo>/src/` puts it at `<repo>/`), and the run prints the\n"
+       "absolute path it used.\n"))
 
 (defn -main
   [& args]
   (let [flags    (set (filter #(str/starts-with? % "--") args))
-        report-p (or (second (drop-while #(not= "--report" %) args))
-                     "reagent-to-hicasso-report.edn")
+        explicit (second (drop-while #(not= "--report" %) args))
         paths    (->> args
                       (remove #(str/starts-with? % "--"))
-                      (remove #(= % report-p)))]
+                      (remove #(= % explicit)))]
     (if (empty? paths)
       (do (print usage) (flush) (System/exit 2))
-      (let [rep (run paths {:rewrite? (contains? flags "--rewrite")
+      (let [report-p (or explicit (default-report-path paths))
+            rep (run paths {:rewrite? (contains? flags "--rewrite")
                             :write?   (contains? flags "--write")})]
         (report/print-lines (:entries rep))
         (census/print-lines (:entries (:census rep)))
@@ -360,7 +390,11 @@
         (println)
         (println (pr-str (:summary rep)))
         (println (census/describe (:census rep)))
-        (println (str "report: " report-p))
+        ;; ABSOLUTE, and it says it WROTE. The old line printed the bare
+        ;; relative name, which named the file without naming the directory
+        ;; — so the one thing a reader needed from it was the one thing it
+        ;; did not carry.
+        (println (str "wrote report: " (.getAbsolutePath (io/file report-p))))
         ;; Exit 0 for any run that COMPLETED. A migration tool that fails a
         ;; build because a consumer's code needs a human decision is a tool
         ;; that gets run once.

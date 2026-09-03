@@ -10,6 +10,13 @@
   this repository's own example corpus while this namespace was being
   written.
 
+  There is a **third** mode, and it is the one a blinded pilot found by
+  migrating a real application (rf2-xoal): answering nothing over a corpus
+  the census never RECOGNISED. That failure wears the first one's face
+  exactly — every count zero, nothing red — and no roster is wide enough
+  to rule it out, so it is gated from the other side, on the tool's
+  inability to report the zero without saying which of the two it is.
+
   * `ns` DOCSTRING prose mentioning `reagent.ratom/run!` made five clean
     example files read as five migration blockers. `names-reagent?` now
     reads the `ns` form's CLAUSES.
@@ -27,7 +34,8 @@
   example. A tool that started GUESSING that copy was `reagent.core`
   would be a worse tool than the blind one, so both directions are
   asserted."
-  (:require [clojure.string :as str]
+  (:require [clojure.set]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [re-frame.migration.hicasso.census :as census]
             [re-frame.migration.hicasso.codemod :as cm]))
@@ -247,10 +255,16 @@
                  "\n"
                  "(defn page []\n"
                  "  [:div (for [x @(rf/subscribe [:xs])] ^{:key x} [:span x])])\n")
-        {:keys [entries reagent? unresolved?]} (census/scan src "app/views.cljs")]
+        {:keys [entries reagent? unresolved? recognised?]} (census/scan src "app/views.cljs")]
     (is (= [] entries))
     (is (false? reagent?))
-    (is (false? unresolved?))))
+    (is (false? unresolved?))
+    (testing "and NOT recognised, which is a different fact from clean and is why
+              this deftest's name is only half the story. This is the shape of
+              every view file in the application that scored zero: legal,
+              unmentioned, and full of migration work the census has no
+              population for. `summarise` is where the two are told apart."
+      (is (false? recognised?)))))
 
 (deftest prose-about-reagent-is-not-a-finding
   (testing "the `ns` docstring is not a require. Five files in examples/ discuss
@@ -433,3 +447,191 @@
     (is (= 3 (:entries s)))
     (testing "ordering is file, then line, then column"
       (is (= (:entries built) (vec (sort-by (juxt :file :line :col) (:entries built))))))))
+
+;; ---------------------------------------------------------------------------
+;; The SECOND roster: re-frame2's own substrate adapters (rf2-xoal)
+;; ---------------------------------------------------------------------------
+
+(def ^:private rf2-native-boot
+  "A re-frame2 application's boot file, on the Reagent adapter.
+
+  This is the shape that scored ZERO. It renders through Reagent and never
+  names it: the substrate arrives as `re-frame.adapter.reagent`, and there
+  is no `reagent.core` name in the whole application."
+  (str "(ns app.core\n"
+       "  (:require [re-frame.core :as rf]\n"
+       "            [re-frame.adapter.reagent :as reagent-adapter]))\n"
+       "\n"
+       "(defonce app-root (reagent-adapter/client-root))\n"
+       "\n"
+       "(defn run []\n"
+       "  (rf/init! reagent-adapter/adapter)\n"
+       "  (reagent-adapter/render! app-root [root-view] el))\n"))
+
+(def ^:private rf2-native-view
+  "A re-frame2 view file. Every migration shape in it — the registration,
+  the read, the dispatch closure — is re-frame2's own, so the census has
+  no population here and must not pretend otherwise."
+  (str "(ns app.articles\n"
+       "  (:require [re-frame.core :as rf]))\n"
+       "\n"
+       "(rf/reg-view ::card [id]\n"
+       "  [:div {:on-click #(rf/dispatch [:open id])} @(rf/subscribe [:title id])])\n"))
+
+(deftest the-substrate-adapter-is-a-population
+  (testing "THE REPORTED DEFECT. `re-frame.adapter.reagent` is not `reagent.core`,
+            so a census that classified by the Reagent roster alone had nothing
+            to count in the file that actually mounts the application."
+    (let [{:keys [entries reagent? substrate? recognised?]}
+          (census/scan rf2-native-boot "app/core.cljs")]
+      (is (false? reagent?) "there is genuinely no Reagent name in this file")
+      (is (true? substrate?))
+      (is (true? recognised?))
+      (is (= [:root-mount :root-mount] (mapv :class entries)))
+      (is (= [5 9] (mapv :line entries)) "client-root, then render!")
+      (is (= [{:api "client-root"} {:api "render!"}] (mapv :detail entries)))
+      (testing "and each carries the recovery sentence for boot ceremony"
+        (is (str/includes? (:note (first entries)) "Hicasso mounts its own root")))))
+
+  (testing "`reagent-adapter/adapter` on the line between them is NOT counted:
+            it is a value in argument position, and this walk reads call heads.
+            The file is recognised through its `ns` form regardless, so nothing
+            rides on catching it — stated here so the silence is a decision."
+    (is (= 2 (count (:entries (census/scan rf2-native-boot "app/core.cljs")))))))
+
+(deftest every-substrate-class-has-a-recovery-sentence
+  (doseq [[api {:keys [verdict]}] census/substrate-surface]
+    (testing (str api)
+      (is (contains? (set census/verdicts) verdict))
+      (is (string? (:note (first (:entries (census/scan
+                                            (str "(ns a (:require [re-frame.adapter.uix :as ad]))\n"
+                                                 "(ad/" api " x)\n")
+                                            "a.cljs")))))
+          "a class the roster can produce but the notes cannot describe"))))
+
+(deftest the-two-rosters-do-not-overlap
+  (testing "`scan` tries Reagent first, so a shared name would classify a
+            substrate call under a Reagent class and a Reagent recovery
+            sentence — a wrong answer wearing the right shape."
+    (is (empty? (clojure.set/intersection (set (keys census/surface))
+                                          (set (keys census/substrate-surface)))))))
+
+(deftest the-prefix-rule-is-anchored-at-the-start
+  (testing "the substrate roster binds by PREFIX so the adapter set can grow,
+            and that is only safe anchored: a namespace that CONTAINS
+            `re-frame.adapter.` is not one, and a containment test would bind
+            somebody else's API under re-frame2's roster. This is the vendored
+            copy's lesson arriving in the second family."
+    (let [src (str "(ns app.p\n"
+                   "  (:require [my.vendored.re-frame.adapter.reagent :as ad]))\n"
+                   "\n"
+                   "(defn f [] (ad/render! nil nil nil))\n")
+          {:keys [entries substrate? recognised?]} (census/scan src "app/p.cljs")]
+      (is (= [] entries))
+      (is (false? substrate?))
+      (is (false? recognised?)))))
+
+;; ---------------------------------------------------------------------------
+;; The slim adapter's `reagent2.*` IS Reagent (rf2-xoal)
+;; ---------------------------------------------------------------------------
+
+(deftest the-slim-reagent-is-reagent
+  (testing "`implementation/adapters/reagent-slim/` ships Reagent's API a second
+            time under `reagent2.*`, and `docs/core/how-to/use-uix-or-slim.md`
+            teaches consumers to call it by the same names. An application on
+            the slim substrate scored ZERO for want of four roster entries —
+            the same defect the adapter surface had, one adopter later."
+    (let [src (str "(ns app.chart\n"
+                   "  (:require [reagent2.core :as r]))\n"
+                   "\n"
+                   "(def cache (r/atom {}))\n"
+                   "(defn chart [] (r/create-class {:reagent-render (fn [] [:div])}))\n"
+                   "(defn el [h] (r/as-element h))\n")
+          {:keys [entries reagent? unresolved?]} (census/scan src "app/chart.cljs")]
+      (is (true? reagent?))
+      (is (false? unresolved?) "bound, not merely named")
+      (is (= [:local-reactive-cell :lifecycle-class :as-element] (mapv :class entries)))))
+
+  (testing "and the slim ratom namespace binds too"
+    (let [src (str "(ns app.d\n"
+                   "  (:require [reagent2.ratom :as ratom]))\n"
+                   "\n"
+                   "(defn d [] (ratom/make-reaction #(inc 1)))\n")]
+      (is (= [:derived-cell] (classes src "app/d.cljs")))))
+
+  (testing "`reagent2` is not reached by SPELLING either: the roster is exact,
+            so a vendored copy of the slim one binds nothing"
+    (let [src (str "(ns app.p\n"
+                   "  (:require [vendor.inlined.reagent2.core :as r]))\n"
+                   "\n"
+                   "(defn f [] (r/atom 0))\n")]
+      (is (= [:unresolved-reagent-require :unresolved-alias] (classes src "app/p.cljs"))))))
+
+;; ---------------------------------------------------------------------------
+;; A zero the tool CANNOT report confidently (rf2-xoal)
+;; ---------------------------------------------------------------------------
+
+(deftest recognising-nothing-is-not-finding-nothing
+  (testing "the corpus that started this: every file a re-frame2 view file, so
+            the census has no population anywhere in it. Its zero used to be
+            indistinguishable from a clean bill of health, which is the
+            fail-open shape."
+    (let [s (:summary (census/build [(census/scan rf2-native-view "app/articles.cljs")
+                                     (census/scan rf2-native-view "app/profile.cljs")]))]
+      (is (= 0 (:entries s)))
+      (is (= :none (:recognition s)))
+      (is (= 2 (:files-scanned s)))
+      (is (= 0 (:files-recognised s)))
+      (is (= 2 (:files-unrecognised s)))
+      (is (str/includes? (:caveat s) "NOT A CLEAN BILL OF HEALTH"))
+      (testing "and the CLI tail says it too, because whoever reads only the last
+                line of the run is exactly who this misleads"
+        (is (str/includes? (census/describe {:summary s}) "NOTHING RECOGNISED")))))
+
+  (testing "THE CONTROL, and it has to fire or the assertion above means nothing:
+            the same machinery over a corpus the census DOES have a population
+            in reports `:full`, and its caveat says the zero would be a
+            measurement rather than a shrug."
+    (let [s (:summary (census/build [(census/scan form-2 "app/counter.cljs")]))]
+      (is (= :full (:recognition s)))
+      (is (= 1 (:entries s)))
+      (is (= 0 (:files-unrecognised s)))
+      (is (str/includes? (:caveat s) "a population throughout"))
+      (is (not (str/includes? (census/describe {:summary s}) "NOTHING RECOGNISED")))))
+
+  (testing "the mixed corpus — one adapter file, one view file — is `:partial`,
+            and its caveat is the one a re-frame2 migrator needs: the view files
+            are absent from this census AND full of migration work."
+    (let [s (:summary (census/build [(census/scan rf2-native-boot "app/core.cljs")
+                                     (census/scan rf2-native-view "app/articles.cljs")]))]
+      (is (= :partial (:recognition s)))
+      (is (= 2 (:entries s)) "the two mount calls, which used to be zero")
+      (is (= 1 (:files-with-substrate s)))
+      (is (= 0 (:files-with-reagent s))
+          "`:files-with-reagent` keeps its meaning: no Reagent name is in this app")
+      (is (str/includes? (:caveat s) "full of migration work"))))
+
+  (testing "an empty path set is its own verdict rather than a zero"
+    (let [s (:summary (census/build []))]
+      (is (= :no-files (:recognition s)))
+      (is (str/includes? (:caveat s) "NO SOURCE FILE WAS SCANNED")))))
+
+(deftest the-file-counts-partition-the-corpus
+  (testing "the reported defect came with a bookkeeping tell beside it: 18 files
+            scanned, and `files-with-reagent` + `files-unresolved` +
+            `files-clean` summing to 0. The buckets close now, and the one that
+            was missing is the one the zero was hiding."
+    (let [built (census/build [(census/scan form-2 "app/counter.cljs")
+                               (census/scan vendored-require "app/panel.cljs")
+                               (census/scan rf2-native-boot "app/core.cljs")
+                               (census/scan rf2-native-view "app/articles.cljs")])
+          s     (:summary built)
+          with-entries (count (into #{} (map :file) (:entries built)))]
+      (is (= (:files-scanned s) (+ (:files-recognised s) (:files-unrecognised s))))
+      (is (= (:files-recognised s) (+ (:files-clean s) with-entries)))
+      (is (= 4 (:files-scanned s)))
+      (is (= 3 (:files-recognised s)))
+      (is (= 1 (:files-unrecognised s)))
+      (is (= 2 (:files-with-reagent s)))
+      (is (= 1 (:files-with-substrate s)))
+      (is (= 0 (:files-clean s))))))
