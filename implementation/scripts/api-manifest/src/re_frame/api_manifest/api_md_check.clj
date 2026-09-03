@@ -82,8 +82,11 @@
   "Extract the first closed-vocabulary tier token appearing in a Tier
    cell, or nil when the cell carries none (e.g. a bare `—`)."
   [cell]
-  (let [c (str/lower-case cell)]
-    (some (fn [t] (when (str/includes? c t) (keyword t))) tier-tokens)))
+  (let [cell-text (str/lower-case cell)]
+    (some (fn [tier-token]
+            (when (str/includes? cell-text tier-token)
+              (keyword tier-token)))
+          tier-tokens)))
 
 (def ^:private var-kind-markers
   "The closed set of var-kind markers API.md's `M/Fn` cell uses, mapped to
@@ -142,10 +145,11 @@
    strictly against the manifest's `[namespace var]` index — see the ns
    docstring's QUALIFIER RESOLUTION note (rf2-41j0a)."
   [ident]
-  (let [s (str/trim ident)]
-    (if-let [i (str/last-index-of s "/")]
-      [(subs s 0 i) (subs s (inc i))]
-      [nil s])))
+  (let [trimmed-ident (str/trim ident)]
+    (if-let [last-slash-index (str/last-index-of trimmed-ident "/")]
+      [(subs trimmed-ident 0 last-slash-index)
+       (subs trimmed-ident (inc last-slash-index))]
+      [nil trimmed-ident])))
 
 (defn- table-row-cells
   "Split a markdown `| a | b | c |` row into trimmed cell strings, or nil
@@ -168,7 +172,10 @@
 (defn- tier-col-index
   "Index of the `Tier` column in a header-row's cells, or nil."
   [cells]
-  (first (keep-indexed (fn [i c] (when (= "Tier" (str/trim c)) i)) cells)))
+  (first (keep-indexed
+           (fn [cell-index cell-text]
+             (when (= "Tier" (str/trim cell-text)) cell-index))
+           cells)))
 
 (defn- namespace-shaped?
   "True when a heading CODE SPAN NAMES a re-frame2 namespace, as opposed to an
@@ -221,9 +228,9 @@
    it), so an intervening namespace-less subsection can no longer drop the owning
    namespace a bare row is attributed to (rf2-etj5i)."
   [line]
-  (let [t (str/triml line)]
-    (when (str/starts-with? t "#")
-      (count (take-while #(= \# %) t)))))
+  (let [trimmed-line (str/triml line)]
+    (when (str/starts-with? trimmed-line "#")
+      (count (take-while #(= \# %) trimmed-line)))))
 
 (defn parse-var-rows
   "Pure var-row parser over `[[line-no line-text] ...]` indexed API.md lines
@@ -252,15 +259,15 @@
    root-verb kind guard must not silently pass — it turns a dropped root-verb
    row into a caught `:kind-row-missing`, not a green (rf2-asxo3)."
   [indexed-lines]
-  (loop [lines            indexed-lines
-         tier-idx         nil
-         section-ns       nil
-         section-ns-level nil
-         acc              (transient [])]
-    (if-let [[[n line] & more] (seq lines)]
-      (let [cells (table-row-cells line)]
+  (loop [remaining-lines   indexed-lines
+         tier-column-index nil
+         section-namespace nil
+         section-level     nil
+         parsed-rows       (transient [])]
+    (if-let [[[line-number line-text] & remaining] (seq remaining-lines)]
+      (let [row-cells (table-row-cells line-text)]
         (cond
-          (nil? cells)
+          (nil? row-cells)
           ;; A non-table line ends the current table's column context. A SECTION
           ;; HEADING additionally re-establishes the owning namespace a bare row
           ;; is attributed to (rf2-etj5i): a heading that NAMES a namespace sets
@@ -269,39 +276,40 @@
           ;; (strictly deeper than the establishing heading) and CLEARS it when it
           ;; is a sibling/ancestor (same-or-shallower level). A non-heading line
           ;; (prose, blank, blockquote) keeps the current section context.
-          (if-let [level (heading-level line)]
-            (if-let [ns' (section-heading-namespace line)]
-              (recur more nil ns' level acc)
-              (if (and section-ns (> level section-ns-level))
-                (recur more nil section-ns section-ns-level acc)
-                (recur more nil nil nil acc)))
-            (recur more nil section-ns section-ns-level acc))
+          (if-let [heading-level-number (heading-level line-text)]
+            (if-let [heading-namespace (section-heading-namespace line-text)]
+              (recur remaining nil heading-namespace heading-level-number parsed-rows)
+              (if (and section-namespace (> heading-level-number section-level))
+                (recur remaining nil section-namespace section-level parsed-rows)
+                (recur remaining nil nil nil parsed-rows)))
+            (recur remaining nil section-namespace section-level parsed-rows))
 
-          (header-row? cells)
-          (recur more (tier-col-index cells) section-ns section-ns-level acc)
+          (header-row? row-cells)
+          (recur remaining (tier-col-index row-cells) section-namespace section-level parsed-rows)
 
-          (separator-row? cells)
-          (recur more tier-idx section-ns section-ns-level acc)
+          (separator-row? row-cells)
+          (recur remaining tier-column-index section-namespace section-level parsed-rows)
 
           :else
-          (let [first-cell (first cells)
-                kind-cell  (second cells)
-                m          (re-matches #"`([^`]+)`" (str/trim first-cell))]
-            (if (and tier-idx m (var-kind-marker? kind-cell)
-                     (< tier-idx (count cells)))
-              (if-let [tier (first-tier-token (nth cells tier-idx))]
-                (let [[qualifier bare] (parse-first-cell-ident (second m))]
-                  (recur more tier-idx section-ns section-ns-level
-                         (conj! acc {:var        bare
-                                     :qualifier  qualifier
-                                     :tier       tier
-                                     :doc-kind   (documented-kind kind-cell)
-                                     :section-ns section-ns
-                                     :line       n
-                                     :raw        (second m)})))
-                (recur more tier-idx section-ns section-ns-level acc))
-              (recur more tier-idx section-ns section-ns-level acc)))))
-      (persistent! acc))))
+          (let [first-cell        (first row-cells)
+                kind-cell         (second row-cells)
+                identifier-match  (re-matches #"`([^`]+)`" (str/trim first-cell))]
+            (if (and tier-column-index identifier-match (var-kind-marker? kind-cell)
+                     (< tier-column-index (count row-cells)))
+              (if-let [documented-tier
+                       (first-tier-token (nth row-cells tier-column-index))]
+                (let [[qualifier bare] (parse-first-cell-ident (second identifier-match))]
+                  (recur remaining tier-column-index section-namespace section-level
+                         (conj! parsed-rows {:var        bare
+                                              :qualifier  qualifier
+                                              :tier       documented-tier
+                                              :doc-kind   (documented-kind kind-cell)
+                                              :section-ns section-namespace
+                                              :line       line-number
+                                              :raw        (second identifier-match)})))
+                (recur remaining tier-column-index section-namespace section-level parsed-rows))
+              (recur remaining tier-column-index section-namespace section-level parsed-rows)))))
+      (persistent! parsed-rows))))
 
 (defn parse-api-md-var-rows
   "Parse spec/API.md and return `[{:var <bare-name> :qualifier <ns-or-alias
@@ -332,7 +340,9 @@
    disappearance into a caught problem rather than a silent green."
   []
   (with-open [r (io/reader @api-md-file)]
-    (parse-var-rows (map-indexed (fn [i line] [(inc i) line]) (line-seq r)))))
+    (parse-var-rows
+      (map-indexed (fn [line-index line-text] [(inc line-index) line-text])
+                   (line-seq r)))))
 
 (defn reconcile
   "Pure reconciler (rf2-41j0a — extracted so the qualifier-resolution
@@ -370,23 +380,23 @@
             (if qualifier
               ;; QUALIFIED: resolve the qualifier to an exact namespace,
               ;; then require an exact [namespace var] manifest pair.
-              (let [ns'   (get aliases qualifier qualifier)
-                    tiers (get by-ns+var [ns' var])]
+              (let [resolved-namespace (get aliases qualifier qualifier)
+                    manifest-tiers     (get by-ns+var [resolved-namespace var])]
                 (cond
-                  (nil? tiers)
+                  (nil? manifest-tiers)
                   {:kind :missing :var var :raw raw :line line :api-tier tier}
-                  (not (contains? tiers tier))
+                  (not (contains? manifest-tiers tier))
                   {:kind :tier-mismatch :var var :raw raw :line line
-                   :api-tier tier :manifest-tiers tiers}))
+                   :api-tier tier :manifest-tiers manifest-tiers}))
               ;; BARE: original by-name latitude + bare-name allowlist.
-              (let [tiers (get by-name var)]
+              (let [manifest-tiers (get by-name var)]
                 (cond
                   (contains? known-unmanifested var) nil
-                  (nil? tiers)
+                  (nil? manifest-tiers)
                   {:kind :missing :var var :raw raw :line line :api-tier tier}
-                  (not (contains? tiers tier))
+                  (not (contains? manifest-tiers tier))
                   {:kind :tier-mismatch :var var :raw raw :line line
-                   :api-tier tier :manifest-tiers tiers}))))
+                   :api-tier tier :manifest-tiers manifest-tiers}))))
           api-rows)))
 
 (defn floor-violation
@@ -406,7 +416,9 @@
    same line index."
   []
   (with-open [r (io/reader @api-md-file)]
-    (vec (map-indexed (fn [i line] [(inc i) line]) (line-seq r)))))
+    (vec (map-indexed (fn [line-index line-text]
+                        [(inc line-index) line-text])
+                      (line-seq r)))))
 
 (defn check!
   "Validate spec/API.md var-rows against the manifest. Returns true when
