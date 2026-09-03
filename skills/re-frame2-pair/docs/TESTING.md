@@ -2,7 +2,7 @@
 
 Three surfaces need coverage at different fidelities.
 
-> **Scope (current surface).** The **MCP server** (`tools/re-frame2-pair-mcp/`) is the only skill-facing transport — and the one implementation of every operation. It carries its own test suite under that directory (`shadow-cljs compile server-test`), including the live end-to-end fixture gate (`test/live-e2e-fixture.cjs`). The surfaces below cover the skill's **runtime preload** + **structural docs** that live in this tree. (The retired bash/babashka transport — `scripts/ops.clj`, its shell wrappers, and the `tests/shim/` + `tests/e2e/` suites that drove it — has been removed; the connect/dispatch/trace/hot-reload coverage now drives the MCP server over stdio from `tools/re-frame2-pair-mcp/test/live-e2e-fixture.cjs`.)
+> **Scope (current surface).** The **MCP server** (`tools/re-frame2-pair-mcp/`) is the only skill-facing transport — and the one implementation of every operation. It carries its own test suite under that directory — run it with `npm test` — including the live end-to-end fixture gate (`test/live-e2e-fixture.cjs`). The surfaces below cover the skill's **runtime preload** + **structural docs** that live in this tree. (The retired bash/babashka transport — `scripts/ops.clj`, its shell wrappers, and the `tests/shim/` + `tests/e2e/` suites that drove it — has been removed; the connect/dispatch/trace/hot-reload coverage now drives the MCP server over stdio from `tools/re-frame2-pair-mcp/test/live-e2e-fixture.cjs`.)
 
 The fixture app at `tests/fixture/` backs the structural pure-core surface
 and the pair-mcp live-e2e gate — a minimal Reagent + shadow-cljs build that
@@ -185,7 +185,7 @@ re-deriving the prompts.
 
 | Surface | Runs on |
 |---|---|
-| MCP server suite (`tools/re-frame2-pair-mcp/`) | The skill-facing transport's own tests — `shadow-cljs compile server-test` + the descriptor-manifest drift gate. Run under the tool's directory, not this skill's `tests/`. |
+| MCP server suite (`tools/re-frame2-pair-mcp/`) | The skill-facing transport's own tests — `npm test` + the descriptor-manifest drift gate (`npm run check:descriptors`). Run under the tool's directory, not this skill's `tests/`. `npm test` chains `shadow-cljs compile server-test` to `node out/server-test.js`; the compile is only the build/autorun phase, and **the Node run supplies the verdict** — the compile exits 0 even when the autorun printed failures. See the tool's `test/README.md`. |
 | Runtime structural tests | PR CI when `skills/re-frame2-pair/**` changes; nightly/manual expensive workflow may also run them before release. |
 | End-to-end live fixture (`tools/re-frame2-pair-mcp/test/live-e2e-fixture.cjs`) | Runnable on demand (soft-skips without a live fixture). The mcp-conformance hermetic live suite runs the equivalent stdio coverage in CI by booting the fixture itself. |
 | Prompt regression | PR CI when `skills/re-frame2-pair/**` changes. |
