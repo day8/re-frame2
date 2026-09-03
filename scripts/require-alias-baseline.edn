@@ -1,0 +1,48 @@
+;; Require-alias dialect baseline (rf2-ydpr) — regenerate with
+;;     python scripts/check_require_alias_dialect.py --write-baseline
+;;
+;; `:surfaces` maps each surface to the number of NON-CANONICAL,
+;; non-exempt re-frame require edges it is allowed to carry. A surface
+;; at 0 can never regress; a surface above 0 ratchets DOWN as its
+;; migration bead lands, and the gate reports any surface now BELOW its
+;; floor so the number can be lowered. Every surface that contributes a
+;; .clj/.cljs/.cljc file must appear here even at 0 — an unnamed surface
+;; is an error, which is the anti-unowned rule that per-artefact
+;; ratchets did not have.
+;;
+;; `:min-edges` is a floor on the TOTAL re-frame require edges the scan
+;; observes. It is not a style rule: it is what stops the checker
+;; reporting a confident zero over a corpus it has stopped being able
+;; to read.
+{:min-edges 9692
+
+ :surfaces
+ {
+  ".clj-kondo"                            0
+  "bench"                                 701
+  "docs"                                  16
+  "examples"                              65
+  "implementation/adapters"               339
+  "implementation/core"                   0
+  "implementation/derivation-conformance" 19
+  "implementation/epoch"                  196
+  "implementation/event-conformance"      21
+  "implementation/flows"                  156
+  "implementation/hicasso"                1017
+  "implementation/http"                   272
+  "implementation/machines"               0
+  "implementation/reply-conformance"      13
+  "implementation/resources"              0
+  "implementation/routing"                0
+  "implementation/schemas"                112
+  "implementation/scripts"                46
+  "implementation/security"               45
+  "implementation/spec-resource"          1
+  "implementation/ssr"                    402
+  "implementation/ssr-ring"               129
+  "implementation/test-quiet"             5
+  "migration"                             27
+  "skills"                                15
+  "testbeds"                              25
+  "tools"                                 2294
+ }}

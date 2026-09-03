@@ -1014,6 +1014,24 @@ run "ambient-durable-read gate self-test" "python scripts/check_ambient_durable_
 run "ambient-durable-read gate (EP-0010)" "python scripts/check_ambient_durable_reads.py --verbose" \
   python "$spine_root/scripts/check_ambient_durable_reads.py" --verbose
 
+# Require-alias dialect ratchet (rf2-ydpr).  Conventions §Require-alias dialect
+# gives every framework namespace ONE alias — `re-frame.core` keeps the bare
+# root `rf`, every other `re-frame.<tail>` takes the full dotted `rf.<tail>`,
+# and the bare leaf form is reserved for APPLICATION namespaces.  ONE repo-wide
+# instrument rather than one per artefact: machines went unowned between the
+# core and routing sweeps precisely because each fenced its own tree, so the
+# checker reads every git-tracked Clojure file and refuses to run over a
+# surface `scripts/require-alias-baseline.edn` does not name.  Runs
+# unconditionally — a bare alias arrives in a `.cljc` the diff classifier has
+# no tier for as readily as in one it does.  Self-test first (each positive
+# fixture NAMED, each negative one silent, and the runtime-`(require ...)`
+# surface proven load-bearing in both directions), then the ratchet itself.
+run "require-alias dialect self-test" "python scripts/check_require_alias_dialect.py --self-test" \
+  python "$spine_root/scripts/check_require_alias_dialect.py" --self-test
+
+run "require-alias dialect ratchet" "python scripts/check_require_alias_dialect.py --verbose" \
+  python "$spine_root/scripts/check_require_alias_dialect.py" --verbose
+
 # Test-lane bijection (rf2-4hc9p, follows the rf2-qqzmf per-lane floor).  The
 # floor makes a lane that ran ZERO tests red; it cannot see a lane that ran
 # SOME of what it should — nine `.cljc` suites once sat on the `:node-test`

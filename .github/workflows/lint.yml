@@ -255,6 +255,23 @@ jobs:
               spec/Privacy.md|docs/api/*|docs/story/api/*)
                 lint_surface=true ;;
             esac
+            # (rf2-ydpr) The require-alias dialect ratchet gets its OWN `case`
+            # for the same first-match-wins reason the ESLint block below has
+            # one: its surface is EVERY git-tracked Clojure file wherever it
+            # lives, and `implementation/foo.cljc` is claimed by the
+            # `implementation/*` arm above before any later arm could see it.
+            # That arm already arms the gate, so what this block adds is the
+            # Clojure files OUTSIDE the arms above — `bench/`, `migration/`,
+            # `docs/` — which carry scanned edges and would otherwise reach no
+            # job at all. Plus the ratchet's own three moving parts: a PR that
+            # lowers a surface floor, edits the scanner or plants a fixture and
+            # touches nothing else must still run the job that validates it.
+            case "$file" in
+              *.clj|*.cljs|*.cljc)
+                lint_surface=true ;;
+              scripts/check_require_alias_dialect.py|scripts/require-alias-baseline.edn)
+                lint_surface=true ;;
+            esac
             # (rf2-2rtt6.78) The ESLint surface gets its OWN `case` rather than
             # another arm above, and the reason is load-bearing: `case` is
             # first-match-wins, so `implementation/scripts/foo.cjs` is claimed
@@ -682,6 +699,64 @@ jobs:
         run: clojure -M:test
 
   # ---------------------------------------------------------------------------
+  # Require-alias dialect ratchet (rf2-ydpr).
+  #
+  # `spec/Conventions.md` §Require-alias dialect fixes one canonical alias per
+  # framework namespace — `re-frame.core` keeps the bare root `rf`, every other
+  # `re-frame.<tail>` takes the full dotted `rf.<tail>`, and the bare leaf form
+  # is reserved for APPLICATION namespaces. Three artefact sweeps migrated the
+  # tree to it (core and routing in #9103, machines in #9114, resources in
+  # #9129) and each of their beads asked for this ratchet.
+  #
+  # ONE REPO-WIDE INSTRUMENT, NOT ONE PER ARTEFACT, and that is the whole
+  # design rather than a convenience: rf2-6r9j.161 fenced core and rf2-6r9j.167
+  # fenced routing, and machines went unowned BETWEEN them because nothing
+  # looked at the whole tree. So the checker reads every git-tracked
+  # `.clj`/`.cljs`/`.cljc` in the repository and REFUSES to run over a surface
+  # its baseline does not name — the anti-unowned rule, enforced rather than
+  # remembered.
+  #
+  # It lives here rather than in a new workflow file because this workflow
+  # already owns `lint_surface` gating, and the `detect` job above carries the
+  # extra `case` block that arms it for the Clojure files outside the existing
+  # arms (`bench/`, `migration/`, `docs/`) plus the checker and its baseline.
+  #
+  # SELF-TEST FIRST, and it is not ceremony: a checker whose subject is ABSENCE
+  # reads green when it stops firing, which is the defect class this repo keeps
+  # finding in its own instruments and the reason clj-kondo above carries a
+  # fixture-witness step of its own. The self-test drives the checker over real
+  # fixture files — each `positive/` one must be NAMED, each `negative/` one
+  # must be silent — and it pins the two halves of the scan surface a plausible
+  # implementation would have omitted: that the runtime-`(require ...)` fixture
+  # goes GREEN when that context is withheld (the shape clj-kondo cannot see,
+  # and the core sweep's one-edge residue across 312 files), and that the
+  # host-conditional exemption is derived from the two-namespace binding rather
+  # than from the file.
+  #
+  # Pure Python, no JDK and no Node: seconds over ~2.8k files.
+  # ---------------------------------------------------------------------------
+  require-alias-dialect:
+    name: Require-alias dialect ratchet
+    needs: detect
+    if: needs.detect.outputs.lint_surface == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: '3.12'
+
+      - name: Require-alias dialect gate — fixture witness
+        run: python scripts/check_require_alias_dialect.py --self-test
+
+      - name: Require-alias dialect ratchet (Conventions §Require-alias dialect)
+        run: python scripts/check_require_alias_dialect.py --verbose
+
+  # ---------------------------------------------------------------------------
   # Full-corpus provenance-pin audit (rf2-qpk2l, closing rf2-g7m6y's ruling).
   #
   # docs.yml runs the same checker SCOPED TO CHANGED PAGES, and that scoping is
@@ -784,6 +859,7 @@ jobs:
       - splint
       - eslint
       - api-manifest
+      - require-alias-dialect
     steps:
       - name: Fail if any required lint job failed or was cancelled
         if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
