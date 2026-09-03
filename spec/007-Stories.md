@@ -422,14 +422,14 @@ Variants are runnable outside the story UI. The library exposes a function form 
 ;; → {:frame   :story.auth.login-form/validation-error
 ;;    :app-db  {...}                        ;; final state after :setup + :script
 ;;    :assertions [{:passed? true ...} ...]
-;;    :rendered-hiccup [...]                ;; if :render? true was supplied
+;;    :snapshot   {...}                     ;; identity: variant x args x modes
 ;;    :elapsed-ms 12.4}
 ```
 
 Use cases:
 
 - **Component tests** (`deftest` in CLJS test suites) — call `run-variant`, assert on `:assertions` or `:app-db`.
-- **Screenshot tests** — render `:rendered-hiccup` to JSDOM/Playwright, capture image, diff.
+- **Screenshot tests** — call `render-variant`, which is the rendering authority, and feed its `:rendered` result to JSDOM/Playwright to capture and diff. `run-variant` is a headless runner: it produces no rendered output and its result carries no rendering slot.
 - **Tooling input** — pass the variant id to an attached agent or inspector; consumers read `:app-db` and `:assertions` to reason about behaviour.
 - **Manual REPL exploration** — call `run-variant` interactively to see what state events produce.
 

@@ -44,7 +44,7 @@ All under `re-frame.story`. Reach for these from a custom shell, a test fixture,
   (run-variant variant-id) → result-map
   (run-variant variant-id opts) → result-map
   ```
-- **Description**: Materialise the variant — allocate the frame, run the four-phase lifecycle, return the result map. One-shot; no live updates. The result carries `:frame` / `:app-db` / `:assertions` / `:rendered-hiccup` / `:elapsed-ms` / `:snapshot` / `:decorators`.
+- **Description**: Materialise the variant — allocate the frame, run the four-phase lifecycle, return the result map. One-shot; no live updates. The result carries `:frame` / `:app-db` / `:assertions` / `:elapsed-ms` / `:snapshot` / `:decorators`. Rendering is `render-variant`'s — `run-variant` produces no rendered output.
 
 ### `reset-variant`
 
@@ -101,7 +101,6 @@ The `opts` map for `run-variant` accepts:
 {:active-modes    [:Mode.app/dark-large]   ;; coll of mode ids, deep-merged into args
  :cell-overrides  {:label "Override"}      ;; controls-panel-shaped runtime overrides
  :substrate       :reagent                 ;; / :uix
- :render?         true                     ;; when truthy, :rendered-hiccup is populated
  :assertions      <hook>}                  ;; assertions hook (re-frame.story.assertions)
 ```
 
@@ -111,7 +110,6 @@ The result map shape:
 {:frame           :story.counter/at-five
  :app-db          {...}
  :assertions      [{:assertion :rf.assert/path-equals :passed? true ...} ...]
- :rendered-hiccup [...]    ;; or nil when :render? was falsy
  :elapsed-ms      12
  :snapshot        {:variant-id :story.counter/at-five :content-hash "..."}
  :decorators      {:hiccup [...] :frame-setup [...] :fx-override [...]}}

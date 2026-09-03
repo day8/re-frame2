@@ -218,7 +218,7 @@ The discipline applies across three axes:
 - **Cap + dedup + per-call override for rich payloads.** Ops with
   rich per-item shape (`preview-variant`, `run-variant`)
   re-key the same value into multiple derived
-  slots (`:app-db` + `:rendered-hiccup` + `:snapshot`). Those carry
+  slots (`:app-db` + `:snapshot` + `:effective-args` / the evidence trees). Those carry
   `:dedup-eligible? true`: their `:structuredContent` is run through
   `re-frame.mcp-base.dedup` (collapsing repeated subtrees into a flat cache map
   under the cross-MCP `{:rf.mcp/dedup-table …}` marker) BEFORE the
@@ -258,7 +258,7 @@ single op blow the session.
 Two tools — `preview-variant` and `run-variant` —
 pass their `:structuredContent` payload through `re-frame.mcp-base.dedup` before
 the wire-boundary token-cap check. Repeated subtrees in the payload —
-the same `:app-db` slice reappearing in `:rendered-hiccup` and
+the same `:app-db` slice reappearing in `:effective-args` and
 `:snapshot`
 — collapse into a flat cache map keyed by `de-dupe.cache/cache-N`
 namespaced symbols.

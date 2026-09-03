@@ -60,10 +60,10 @@ agent → register-variant
                    [:dispatch-sync [:rf.assert/path-equals [:todos :items] [{:id 1} {:id 2}]]]]}}
 
 agent → preview-variant {:variant-id :story.todos/delete-confirmed}
-  ← {:status :pass :share-url "..." :rendered-hiccup [...] :app-db {...} ...}
+  ← {:status :pass :share-url "..." :effective-args {...} :app-db {...} ...}
 ```
 
-`preview-variant` confirms the body parses, the parent `:extends` resolves, the script mounts, and the rendered canvas looks right. If the preview shows the wrong render or `explain-variant` reveals a bad merge/runner, the agent refines the body and re-registers — still entirely on the authoring side.
+`preview-variant` confirms the body parses, the parent `:extends` resolves, the script mounts, and the resolved args and post-run state look right (it shares `run-variant`'s headless lifecycle, so it returns no rendered output — the share URL is how a human sees the canvas). If the preview shows the wrong state or `explain-variant` reveals a bad merge/runner, the agent refines the body and re-registers — still entirely on the authoring side.
 
 When the developer wants to **execute the assertions and self-heal against the running library** — the loop where `run-variant` returns `:status :fail`, `read-failures` returns the complete `:rf.assert/*` mismatch set, and the agent iterates to `:status :pass` — hand off to a `re-frame2-pair` session:
 
