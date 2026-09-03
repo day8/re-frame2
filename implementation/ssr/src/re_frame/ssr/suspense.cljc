@@ -189,17 +189,20 @@
 
 ;; ---- the component ---------------------------------------------------------
 
-(defn- subtree
-  "The body as ONE hiccup form. Mirrors the walker's continuation-subtree
-  construction (`re-frame.ssr.streaming/walk-suspense-boundary`): a lone
-  child renders as itself, several are wrapped in a `:<>` fragment. The
-  fragment emits no DOM, so the client's rendered structure matches the
-  server's resolved-subtree html exactly."
-  [body]
-  (case (count body)
-    0 nil
-    1 (first body)
-    (into [:<>] body)))
+#?(:cljs
+   ;; Client-only: the `:clj` arm of `boundary` expands to the wire marker
+   ;; and never assembles the body itself.
+   (defn- subtree
+     "The body as ONE hiccup form. Mirrors the walker's continuation-subtree
+     construction (`re-frame.ssr.streaming/walk-suspense-boundary`): a lone
+     child renders as itself, several are wrapped in a `:<>` fragment. The
+     fragment emits no DOM, so the client's rendered structure matches the
+     server's resolved-subtree html exactly."
+     [body]
+     (case (count body)
+       0 nil
+       1 (first body)
+       (into [:<>] body))))
 
 (defn boundary
   "Declare a streaming suspense boundary around `body`.

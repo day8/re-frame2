@@ -60,7 +60,9 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.error-emit :as error-emit]
-            [re-frame.interop :as interop]
+            ;; JVM-only: the sole executable read is the `#?(:clj …)`
+            ;; `with-redefs [interop/debug-enabled? false]` arm below.
+            #?(:clj [re-frame.interop :as interop])
             [re-frame.ssr :as ssr]
             [re-frame.ssr.boot :as boot]
             [re-frame.ssr.install :as install]
