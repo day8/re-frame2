@@ -366,7 +366,7 @@
   [inner outer form]
   (side-walk (partial side-prewalk inner outer) outer (inner form)))
 
-(defn ^:private cachable?
+(defn ^:private cacheable?
   "True for the forms worth pooling. Scalars are cheaper inline than as a
   reference, and a 2-element vector is excluded because that is how a map
   entry rebuilds — pooling those would rewrite map structure."
@@ -404,7 +404,7 @@
   (let [store (new-bucket-store)]
     (side-prewalk (fn [element]
                     (when (and (not (identical? element form))
-                               (cachable? element))
+                               (cacheable? element))
                       (count-cacheable-element! store element))
                     element)
                   (fn [_org-element element] element)
@@ -479,15 +479,15 @@
         values-store     (new-bucket-store)
         process-element  (fn [element]
                            ;; The root itself is slot 0, never a substitution;
-                           ;; map entries and scalars are not cachable; and a
+                           ;; map entries and scalars are not cacheable; and a
                            ;; subtree seen once is cheaper inline.
                            (if (or (identical? element form)
-                                   (not (cachable? element))
+                                   (not (cacheable? element))
                                    (not (repeated-cacheable? candidate-counts element)))
                              element
                              (check-in-cache element values-store counter)))
         outer-fn         (fn [org-element element]
-                           (if (and (cachable? org-element)
+                           (if (and (cacheable? org-element)
                                     (not (identical? org-element form)))
                              (if-let [id (:cache-id (meta org-element))]
                                (do (vswap! compressed-cache assoc id element)
