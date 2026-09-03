@@ -388,12 +388,7 @@
                   (trace/emit-error! :rf.error/http-interceptor-failed
                                      (privacy/prepare-emit-failure
                                        (ex-data data)
-                                       (sensitive-of acc)
-                                       ;; rf2-ppkh3v — the frame whose
-                                       ;; interceptor chain is running, so the
-                                       ;; URL redaction consults its frame-local
-                                       ;; HTTP carriers (EP-0015 §3).
-                                       {:frame frame-id})))
+                                       (sensitive-of acc))))
                 (throw data))))
           acc)))
     init

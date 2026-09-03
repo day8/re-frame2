@@ -137,7 +137,7 @@
      `ex-info` like this one to the existing `:rf.http/transport`
      catch-all — no new failure category, no new `:rf.error/*` id. Per
      Spec 014 §JVM transport — absolute URLs required."
-     [{:keys [method url headers body timeout-ms sensitive? frame]}]
+     [{:keys [method url headers body timeout-ms sensitive?]}]
      (let [uri (URI/create url)
            _   (when-not (.isAbsolute uri)
                  (throw (ex-info
@@ -196,8 +196,7 @@
                                  {:url     url
                                   :header  k
                                   :cause   (.getMessage t)}
-                                 (true? sensitive?)
-                                 {:frame frame}))))))
+                                 (true? sensitive?)))))))
        (.build b))))
 
 #?(:clj
@@ -368,7 +367,7 @@
 ;; ---- per-row CLJS-only-key tracing on JVM ---------------------------------
 
 #?(:clj
-   (defn- emit-cljs-only-skipped! [k url sensitive? frame]
+   (defn- emit-cljs-only-skipped! [k url sensitive?]
      (when interop/debug-enabled?
        ;; Route through the privacy composer so a denylisted
        ;; query param in the URL is scrubbed and `:sensitive?` is stamped
@@ -378,13 +377,11 @@
        (trace/emit! :warning :rf.http/cljs-only-key-ignored-on-jvm
                     (privacy/prepare-emit-tags
                       {:key k :url url}
-                      (true? sensitive?)
-                      {:frame frame})))))
+                      (true? sensitive?))))))
 
 #?(:clj
    (defn check-cljs-only-keys!
-     ([args sensitive?] (check-cljs-only-keys! args sensitive? nil))
-     ([{:keys [request abort-signal decode]} sensitive? frame]
+     [{:keys [request abort-signal decode]} sensitive?]
      (let [url (:url request)]
        ;; `:credentials` is a JVM-degraded key. Unlike
        ;; `:redirect` (now honoured on JVM via the redirect-policy client),
@@ -397,9 +394,9 @@
        ;; carries the corresponding row so the table and runtime agree.
        (doseq [k [:mode :cache :referrer :integrity :credentials]]
          (when (contains? request k)
-           (emit-cljs-only-skipped! k url sensitive? frame)))
+           (emit-cljs-only-skipped! k url sensitive?)))
        (when abort-signal
-         (emit-cljs-only-skipped! :abort-signal url sensitive? frame))
+         (emit-cljs-only-skipped! :abort-signal url sensitive?))
        ;; Binary decode has a host-specific result shape on the JVM.
        ;; A `:blob` / `:array-buffer` / `:form-data` decode is now HONOURED
        ;; on the JVM (jvm-fetch reads `ofByteArray` and rides the raw bytes
@@ -418,8 +415,7 @@
          (trace/emit! :warning :rf.http/binary-decode-degraded-on-jvm
                       (privacy/prepare-emit-tags
                         {:decode decode :url url}
-                        (true? sensitive?)
-                        {:frame frame})))))))
+                        (true? sensitive?)))))))
 
 ;; A JVM-only no-op stub on CLJS so callers can reach
 ;; `check-cljs-only-keys!` unconditionally without needing their own
@@ -427,5 +423,4 @@
 ;; CLJS-only keys are always honoured on CLJS.
 #?(:cljs
    (defn check-cljs-only-keys!
-     ([_args _sensitive?] nil)
-     ([_args _sensitive? _frame] nil)))
+     [_args _sensitive?] nil))

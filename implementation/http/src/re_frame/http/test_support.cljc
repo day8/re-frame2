@@ -90,7 +90,7 @@
                        (:frame frame-ctx) :rf.http/managed-canned
                        {:where 'rf.http/run-request-chain})
         origin-event (encoding/resolve-origin-event frame-ctx args-map)
-        sensitive?   (privacy/request-sensitive? args-map origin-event)
+        sensitive?   (privacy/request-sensitive? args-map)
         ctx0         {:request    (:request args-map)
                       :args       args-map
                       :frame      frame-id

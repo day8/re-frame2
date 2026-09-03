@@ -547,8 +547,7 @@
 
 ;; rf2-y1pgdl — the end-to-end emit→projector path for an OPAQUE keyword
 ;; registry-ref / compiled-schema `:decode` is locked at the unit altitude in
-;; `http_privacy_body_test` (`off-box-disposition-omits-opaque-registry-ref`,
-;; `off-box-classify-body-omits-opaque-registry-ref`): the emit site stamps
+;; `http_privacy_body_test` (`off-box-disposition-omits-opaque-registry-ref`): the emit site stamps
 ;; exactly `off-box-body-disposition` and the projector keys on that stamp, so
 ;; the disposition fn IS the path. An integration test here would need a
 ;; SUCCESSFULLY-DECODING opaque ref (a registered Malli registry-ref schema

@@ -15,7 +15,7 @@
        (rf2-jhyccs);
     4. a root-level (`[]`) `:sensitive?` mark redacts the WHOLE body;
     5. an unschematized body fails CLOSED off-box (omitted via
-       `off-box-classify-body`), while a schema-classified body rides
+       the `off-box-body-disposition` stamp), while a schema-classified body rides
        classified (rf2-t55hxg.6);
     6. a schema that DECLARES a mark with the shared walker hook UNBOUND
        throws `:rf.error/schemas-artefact-missing` rather than reporting no
@@ -99,13 +99,7 @@
             WHOLE body sensitive (the opaque-token-response case)"
     (let [schema  [:string {:sensitive? true}]
           decoded "opaque-token-value"]
-      (is (body/whole-body-sensitive-mark? schema))
       (is (= :rf/redacted (body/classify-decoded decoded schema))))))
-
-(deftest whole-body-mark-absent-for-non-root-marks
-  (testing "a per-slot (non-root) mark is NOT a whole-body mark"
-    (is (not (body/whole-body-sensitive-mark? [:map [:token {:sensitive? true} :string]])))
-    (is (not (body/whole-body-sensitive-mark? :json)))))
 
 ;; ---- 4. off-box disposition (fail-closed) ---------------------------------
 
@@ -176,52 +170,6 @@
           out     (body/classify-decoded decoded schema)]
       (is (= :rf/redacted (:secret out))
           "sensitive wins — the slot is redacted, not a large marker"))))
-
-;; ---- 6. off-box-classify-body (rf2-t55hxg.6) ------------------------------
-
-(deftest off-box-classify-body-omits-unschematized
-  (testing "an UNSCHEMATIZED body is OMITTED (replaced with the marker)
-            off-box regardless of content — fail-closed"
-    (is (= :rf/redacted (body/off-box-classify-body {:token "secret"} :json)))
-    (is (= :rf/redacted (body/off-box-classify-body {:token "secret"} :auto)))
-    (is (= :rf/redacted (body/off-box-classify-body "anything" nil)))
-    (is (= :rf/redacted (body/off-box-classify-body {:a 1} (fn [_ _] {}))))
-    (is (= body/off-box-body-marker
-           (body/off-box-classify-body {:a 1} :text)))))
-
-(deftest off-box-classify-body-omits-opaque-registry-ref
-  (testing "an OPAQUE keyword registry-ref :decode OMITS the body off-box —
-            the walker cannot inspect a registry ref's per-slot marks, so the
-            body must NOT ride unchanged (the rf2-y1pgdl fail-open leak: a
-            sensitive/large opaque-ref body slipping through classified-but-
-            unredacted)"
-    (is (= :rf/redacted (body/off-box-classify-body {:token "bearer-secret"}
-                                                    :my-app/token-schema)))
-    (is (= body/off-box-body-marker
-           (body/off-box-classify-body {:token "secret" :blob "huge"}
-                                       :user/profile)))))
-
-(deftest off-box-classify-body-omits-opaque-compiled-schema
-  (testing "an OPAQUE non-vector schema value OMITS the body off-box —
-            fail-closed (rf2-y1pgdl)"
-    (is (= :rf/redacted (body/off-box-classify-body {:secret "x"}
-                                                    {:opaque :compiled})))))
-
-(deftest off-box-classify-body-classifies-schema-bodies
-  (testing "a SCHEMA body rides CLASSIFIED off-box — per-slot sensitive
-            redacts, large elides, non-marked structure rides verbatim"
-    (let [schema  [:map
-                   [:token {:sensitive? true} :string]
-                   [:blob {:large? true} :string]
-                   [:user-id :int]]
-          decoded {:token "bearer-secret"
-                   :blob (apply str (repeat 100 "x"))
-                   :user-id 42}
-          out     (body/off-box-classify-body decoded schema)]
-      (is (= :rf/redacted (:token out)) "sensitive slot redacted off-box")
-      (is (contains? (:blob out) :rf.size/large-elided)
-          "large slot elided off-box")
-      (is (= 42 (:user-id out)) "non-marked structure rides classified"))))
 
 ;; ---- 7. an UNBOUND shared walker fails LOUD (rf2-ohfym) --------------------
 ;;

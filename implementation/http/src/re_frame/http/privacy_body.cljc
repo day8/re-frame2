@@ -64,10 +64,9 @@
 
   `classify-decoded` is the IN-PROCESS dev-trace projection — it applies the
   per-slot marks but does NOT omit an unschematized body (the local operator
-  inspects their own process). `off-box-classify-body` is the OFF-BOX egress
-  projection — an unschematized body is whole-sensitive and OMITTED, a schema
-  body rides classified. The HTTP trace-emit site stamps `off-box-body-
-  disposition` forward onto the `:rf.http/*` trace event (under
+  inspects their own process). Off-box, the emit site applies that SAME
+  on-box classification and then stamps `off-box-body-disposition`
+  forward onto the `:rf.http/*` trace event (under
   `:rf.http/off-box-body`); the off-box trace-events projector
   (`re-frame.epoch.tool-pair`) enforces it (omits an `:omit` event's body
   slot), since the request's `:decode` is request-private and never on the
@@ -216,31 +215,16 @@
      :large     (extract-paths :schemas/extract-large-paths-from-schema     decode)}
     {:sensitive {} :large {}}))
 
-(defn whole-body-sensitive-mark?
-  "True iff the `:decode` schema marks the WHOLE body (`[]`, the root prop)
-  `:sensitive?` — an opaque-token response whose entire body is the secret.
-  The fine-grained complement of the per-slot marks."
-  [decode]
-  (contains? (:sensitive (decode-schema-marks decode)) []))
-
 ;; ---------------------------------------------------------------------------
 ;; Off-box body disposition (EP-0015 issue 5, fail-closed rule).
 ;;
 ;; For an OFF-BOX egress (a production capture / off-box trace), a body rides
 ;; ONLY when its shape is schema-classified; an unschematized body is
-;; whole-sensitive and omitted. This is the disposition the off-box capture
-;; surface consults; the in-process dev trace uses `classify-decoded` (below)
-;; which applies the schema's per-slot marks without omitting an
-;; unschematized body the local operator is entitled to see.
+;; whole-sensitive and omitted. The emit site stamps this disposition forward
+;; and `re-frame.epoch.tool-pair` enforces it; the in-process dev trace uses
+;; `classify-decoded` (below), which applies the schema's per-slot marks
+;; without omitting an unschematized body the local operator may see.
 ;; ---------------------------------------------------------------------------
-
-(def ^:const off-box-body-marker
-  "The off-box sentinel an UNSCHEMATIZED body is replaced with when it would
-  otherwise ride off-box. The `:rf/redacted` sentinel — the same scalar the
-  rest of the egress projection (event args, runtime-db partition, sensitive
-  app-db slots) fails closed to. The omission is the disposition: the slot is
-  present but carries no body content."
-  :rf/redacted)
 
 (defn off-box-body-disposition
   "Classify how a decoded response body MAY ride an OFF-BOX egress, reading
@@ -248,7 +232,8 @@
 
     :classify  — the body has an INTROSPECTABLE Malli `:decode` schema (the
                  raw EDN VECTOR form); ride it with the schema's per-slot
-                 marks applied (`off-box-classify-body`);
+                 marks, which the emit site already applied on-box via
+                 `classify-decoded`;
     :omit      — the body is UNSCHEMATIZED (`:auto` / `:json` / `:text` /
                  binary / custom fn) OR carries an OPAQUE schema the walker
                  cannot inspect (a keyword registry ref / a compiled
@@ -273,9 +258,10 @@
 ;; ---------------------------------------------------------------------------
 ;; Apply the schema's per-slot marks to a decoded body value.
 ;;
-;; `classify-decoded` is the IN-PROCESS dev-trace projection (the local
-;; operator sees their own process); `off-box-classify-body` is the OFF-BOX
-;; egress projection (fail-closed for an unschematized body). Both delegate
+;; `classify-decoded` is applied by the emit site for BOTH the in-process dev
+;; trace and the on-box half of an off-box egress; the off-box fail-closed
+;; OMISSION rides the `off-box-body-disposition` stamp and is enforced by
+;; `re-frame.epoch.tool-pair`. It delegates
 ;; to the shared `re-frame.classification/redact-with-paths` walker (sensitive →
 ;; `:rf/redacted`, large → `:rf.size/large-elided`, sensitive wins over large)
 ;; — never a body-private walker.
@@ -305,30 +291,3 @@
     (if (or (seq sensitive) (seq large))
       (classification/redact-with-paths decoded (keys sensitive) (keys large))
       decoded)))
-
-(defn off-box-classify-body
-  "Project a decoded response body `decoded` for an OFF-BOX egress, reading
-  the request's `:decode` disposition (EP-0015 issue 5, fail-closed):
-
-    - UNSCHEMATIZED `:decode` (`:auto` / `:json` / `:text` / binary / custom
-      fn) OR an OPAQUE schema the walker cannot inspect (a keyword registry
-      ref `:my-app/token-schema` / a compiled `m/schema` object): the body is
-      whole-sensitive and OMITTED entirely — replaced with the
-      `off-box-body-marker` (`:rf/redacted`). The local operator's raw view
-      does NOT cross the trust boundary; an opaque ref whose marks the walker
-      cannot see fails CLOSED rather than riding unchanged (rf2-y1pgdl — the
-      EP-0015 issue 5 fail-open leak).
-
-    - INTROSPECTABLE Malli-SCHEMA `:decode` (the raw EDN VECTOR form): the
-      body rides CLASSIFIED — the per-slot `:sensitive?` / `:large?` marks
-      applied via `classify-decoded` (the same shared walker the dev trace
-      uses), letting the non-sensitive structure through while sensitive
-      slots redact and large slots elide.
-
-  This is the projection the off-box trace-events egress
-  (`re-frame.epoch.tool-pair`) applies to an `:rf.http/*` trace event's body
-  slot, gated on the disposition the emit site stamped forward. Pure."
-  [decoded decode]
-  (if (introspectable-schema-decode? decode)
-    (classify-decoded decoded decode)
-    off-box-body-marker))
