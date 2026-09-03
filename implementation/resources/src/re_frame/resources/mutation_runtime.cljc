@@ -445,8 +445,10 @@
 ;; ---- the settle protocol (phase 4) — commit / rollback / reconcile ---------
 ;;
 ;; The SETTLE slice (EP-0019 Decision 3) consumes the recorded inverse +
-;; slice-1's `state/revision-conflict?` to decide, per touched entry, the
-;; deterministic terminal disposition of an optimistic apply:
+;; `optimistic-conflict?` (below — the entry's current `:revision` against the
+;; recorded POST-apply `:applied-revision`, so the apply's own bump is not a
+;; conflict) to decide, per touched entry, the deterministic terminal
+;; disposition of an optimistic apply:
 ;;
 ;;   - on mutation SUCCESS  -> COMMIT (the optimistic value is overwritten by
 ;;     the authoritative `:populates` / `:patches`; the recorded inverse is

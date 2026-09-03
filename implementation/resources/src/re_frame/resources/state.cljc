@@ -171,13 +171,6 @@
 ;; in. They allocate plain EDN — no host handles, which live OUTSIDE
 ;; durable frame-state in side tables keyed by `[frame-id work-id]`.
 
-(def lifecycle-states
-  "The five resource lifecycle FSM states (cache-entry status). The
-  transition function over these states lives in the runtime; the closed
-  set is pinned here so siblings agree on it. Per
-  Spec 016 §Lifecycle is an FSM."
-  #{:idle :loading :fetching :loaded :error})
-
 (def terminal-work-statuses
   "The terminal work-ledger statuses an attempt may reach. Terminal rows
   are pruned on the linked entry's next successful transition (a small
@@ -211,8 +204,9 @@
    ;; false-conflict on every in-flight refetch, before any authoritative write
    ;; lands. `:revision` moves only when an authoritative write actually
    ;; SETTLES the entry. It is the substrate the EP-0019 optimistic-rollback
-   ;; settle protocol compares against (`revision-conflict?`) to decide whether
-   ;; a recorded inverse is still a truthful "before" or has been overtaken.
+   ;; settle protocol compares against (`mutation-runtime/optimistic-conflict?`,
+   ;; against the post-apply `:applied-revision`) to decide whether a recorded
+   ;; inverse is still a truthful "before" or has been overtaken.
    ;; Base value 0. Per Spec 016 §Status semantics / EP-0019 §Decision 2.
    :revision       0
    :request-id     nil
@@ -812,27 +806,10 @@
   "Pure: read an entry's per-entry `:revision` write identity, defaulting to 0
   for an absent / nil entry or a pre-EP-0019 entry that predates the fact. The
   value the optimistic-rollback settle protocol records at apply time and
-  compares at settle time (`revision-conflict?`). Per EP-0019 §Decision 2."
+  compares at settle time (`mutation-runtime/optimistic-conflict?`, against the
+  post-apply `:applied-revision`). Per EP-0019 §Decision 2."
   [entry]
   (if entry (:revision entry 0) 0))
-
-(defn revision-conflict?
-  "Pure: the EP-0019 settle-time conflict check (Decision 3). True iff the
-  entry's CURRENT revision has MOVED away from the `recorded-revision` an
-  optimistic apply observed — i.e. an authoritative durable write landed on the
-  entry between the apply and the reply settling, so the recorded inverse is a
-  stale \"before\" a blind rollback must NOT restore. A canonical-identity
-  comparison (`not=` over the monotone counter), never a value diff.
-
-  Conflict-positive (`true`) is the BIAS-SAFE answer: on a true conflict the
-  settle reconciles by invalidation (the read path recovers authoritative
-  truth); a false positive costs only a refetch, while a false negative would
-  let a stale inverse clobber newer truth. The recorded revision is read
-  through `entry-revision` semantics (an absent recorded value, e.g. an apply
-  against a then-missing entry whose revision was 0, compares against the
-  current entry's revision the same way). Per EP-0019 §Decision 3."
-  [entry recorded-revision]
-  (not= (entry-revision entry) (or recorded-revision 0)))
 
 (defn entry-invalidate
   "Pure: mark `entry` durably STALE (set the `:invalidated-at` fact to
