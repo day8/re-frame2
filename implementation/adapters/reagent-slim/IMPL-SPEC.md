@@ -975,7 +975,7 @@ Reg-view-wrapped components still carry `:contextType frame-context` (read into 
 
 ## §10 React-19-removed surfaces — ABSENT (not throw-on-call)
 
-Per Stage 1 §2.3a + DECISION-7 + DECISION-8 (no back-compat shims). Five stock-Reagent symbols depended on React APIs that React 19 removed: `reagent.dom/render`, `reagent.dom/unmount-component-at-node`, `reagent.dom/force-update-all`, `reagent.core/render`, `reagent.core/dom-node`. The slim rewrite does **not** ship them — not as working APIs, and (per rf2-jif0qp) not as throw-on-call stubs either. They are simply absent: there is no `reagent2.dom` namespace and `reagent2.core` defines neither `render` nor `dom-node`.
+Per Stage 1 §2.3a + DECISION-7 + DECISION-8 (no back-compat shims). Five stock-Reagent symbols depended on React APIs that React 19 removed: `reagent.dom/render`, `reagent.dom/unmount-component-at-node`, `reagent.dom/force-update-all`, `reagent.core/render`, `reagent.dom/dom-node`. The slim rewrite does **not** ship them — not as working APIs, and (per rf2-jif0qp) not as throw-on-call stubs either. They are simply absent: there is no `reagent2.dom` namespace and `reagent2.core` defines neither `render` nor `dom-node`.
 
 The earlier Stage-4-F design shipped these as throw-on-call shims carrying a `:rf.error/react-19-removed-surface` `ex-info`. rf2-jif0qp pruned them: a throw-only stub for a removed surface is itself a back-compat shim, which the pre-alpha masterpiece stance disallows (DECISION-8). The louder, earlier signal is an **unresolved-var compile error** at the call site — the build fails before the app ever runs, rather than the call surviving to a runtime throw.
 
@@ -988,7 +988,7 @@ A call site that still references one of the removed symbols fails to compile. T
 | `reagent.dom/render`, `reagent.core/render` | `reagent2.dom.client/{create-root, render}` — the React 18+ root API. |
 | `reagent.dom/unmount-component-at-node` | `reagent2.dom.client/unmount`. |
 | `reagent.dom/force-update-all` | No replacement (it iterated React 17 internals). File an issue if you hit a real use case. |
-| `reagent.core/dom-node` | A `:ref` callback (or `React.useRef`) — `findDOMNode` is gone in React 19. |
+| `reagent.dom/dom-node` | A `:ref` callback (or `React.useRef`) — `findDOMNode` is gone in React 19. |
 
 See `migration/from-re-frame-v1/README.md` (anchors `#legacy-mount-path`, `#dom-node-removal`) for the worked recipes.
 

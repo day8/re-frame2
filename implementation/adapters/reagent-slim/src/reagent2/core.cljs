@@ -35,7 +35,7 @@
   React-19-removed surfaces are **absent**, not throw-on-call stubs
   (rf2-jif0qp; the pre-alpha no-back-compat-shim stance — DECISION-8).
   `render` (stock `reagent.core/render`, which forwarded to the removed
-  `ReactDOM.render`) and `dom-node` (stock `reagent.core/dom-node`,
+  `ReactDOM.render`) and `dom-node` (stock `reagent.dom/dom-node`,
   which proxied the removed `findDOMNode`) are simply not defined here:
   use `reagent2.dom.client/{create-root, render}` to mount and a `:ref`
   callback (or `React.useRef`) to reach a DOM node. A call site that
@@ -44,7 +44,11 @@
 
   Apps that genuinely need a dropped surface stay on the bridge
   adapter day8/re-frame2-reagent; the rewrite's commitment is
-  to ship only the surfaces the audited codebases actually exercise."
+  to ship only the surfaces the audited codebases actually exercise.
+  `dom-node` is the one exception with no bridge escape hatch:
+  stock Reagent 2.0.1 — the bridge's own pinned floor — already
+  deleted `reagent.dom/dom-node`, so that call site has to move to
+  a `:ref` on either coordinate."
   (:refer-clojure :exclude [atom])
   (:require-macros [reagent2.core])
   (:require [reagent2.ratom :as ratom]

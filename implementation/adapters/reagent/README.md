@@ -16,7 +16,9 @@ Rationale, mirroring the `reagent-slim` `DECISION-5` framing ([`../reagent-slim/
 - React 19 is the React floor. The slim rewrite (`day8/reagent-slim`) sets a React 19 floor as a hard DECISION; the bridge follows the same floor so that adopters can move between bridge and slim without changing their `package.json`. Reagent 2.0.1's own `devDependencies` pin `react`/`react-dom` to `19.2.0`, so this is the version Reagent itself is tested against.
 - No back-compat shims. Per pre-alpha posture: there is no v1-Reagent compat, no React-18 fallback, no `reagent.dom`-legacy-mount support. Apps that need any of those stay on re-frame v1.
 
-The migration story for React-19-removed Reagent surfaces (`reagent.dom/render`, `reagent.core/dom-node` and so on) lives in [`migration/from-re-frame-v1/README.md#m-42-react-19-removed-reagent-surfaces-ship-as-throw-on-call-shims-under-day8reagent-slim`](../../../migration/from-re-frame-v1/README.md) — that section is the canonical reference for both bridge and slim consumers because the removal is React's, not the rewrite's.
+The migration story for React-19-removed Reagent surfaces (`reagent.dom/render`, `reagent.dom/dom-node` and so on) lives in [`migration/from-re-frame-v1/README.md#m-42-react-19-removed-reagent-surfaces-are-absent-under-day8reagent-slim-compile-time-unresolved-var`](../../../migration/from-re-frame-v1/README.md) — that section is the canonical reference for both bridge and slim consumers because the removal is React's, not the rewrite's.
+
+`dom-node` is the one that catches bridge adopters out: the pinned stock floor (Reagent `2.0.1`) has **already** deleted `reagent.dom/dom-node`, so a v1 call site — historically written `(rdom/dom-node this)` against `[reagent.dom :as rdom]`, never `reagent.core/dom-node`, which never existed — fails to compile on the bridge, not only on slim. Sweep it before the first build, on either target.
 
 ## Imperative escape hatch — when you need a DOM lifecycle
 

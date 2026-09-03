@@ -77,7 +77,7 @@ reagent-slim targets React 19 as its floor. The legacy `reagent.dom` namespace d
 
 React 19 removed `ReactDOM.render`, `ReactDOM.hydrate`, `ReactDOM.unmountComponentAtNode`, and `findDOMNode`. It removed string refs and legacy context. These are not deprecations — the functions are gone. Any Reagent surface that depended on them cannot be back-compat shimmed at any cost. A shim would not function.
 
-The rewrite does not pretend otherwise. `reagent.dom/render` and `reagent.dom/unmount-component-at-node` are not shipped. `reagent.core/render` (which forwarded to `reagent.dom/render`) is not shipped. `reagent.core/dom-node` (which proxied `findDOMNode`) is not shipped.
+The rewrite does not pretend otherwise. `reagent.dom/render` and `reagent.dom/unmount-component-at-node` are not shipped. `reagent.core/render` (which forwarded to `reagent.dom/render`) is not shipped. `reagent.dom/dom-node` (which proxied `findDOMNode`) is not shipped.
 
 These surfaces are **absent**, not throw-on-call stubs (rf2-jif0qp). An earlier design shipped a thin `reagent2.dom` namespace whose only purpose was throwing on first call with a migration message; it was pruned because a throw-only stub for a removed surface is itself a back-compat shim, which the pre-alpha masterpiece stance disallows (DECISION-8). A call site that still references one of these symbols fails to compile with an unresolved-var error — the louder, earlier signal than a runtime throw.
 
