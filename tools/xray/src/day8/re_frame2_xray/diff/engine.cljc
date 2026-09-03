@@ -314,7 +314,7 @@
           :else
           [edit])))))
 
-(defn- raw-edits
+(defn- expanded-editscript
   "Return Editscript A* edits for `(before, after)` as a vector of
   3-tuples `[path op value?]`, with whole-value collection replacements
   pre-expanded into per-member `:+` / `:-` edits: empty↔populated maps
@@ -334,12 +334,13 @@
     (into [] (mapcat (fn [edit] (expand-collection-replacement edit before after))) raw)))
 
 ;; =========================================================================
-;; per-path op classification (leaves)
+;; value-pair op classification
 ;; =========================================================================
 
-(defn- leaf-op
-  "Classify a (before, after) leaf pair, accounting for the R8 redaction
-  branch. Returns a map `{:op kw :before x :after y ...}`."
+(defn- classify-value-pair
+  "Classify a (before, after) value pair, accounting for R7 container
+  changes and the R8 redaction branch. Returns a map
+  `{:op kw :before x :after y ...}`."
   [before after]
   (cond
     (and (= before missing-sentinel) (= after missing-sentinel))
@@ -790,7 +791,7 @@
   per-leaf descent — but the latent fragility is real: any future
   evolution that surfaces mixed-type siblings under a shared prefix
   would crash the sort at consumer time, well downstream of the
-  Editscript `try/catch` at `raw-edits`.
+  Editscript `try/catch` at `expanded-editscript`.
 
   Strategy (bead-suggested option 2, Mike-confirmed): depth (path
   length) first, then per-segment lexicographic comparison of each
@@ -883,7 +884,7 @@
      :flat-rows            []
      :wholly-changed-roots #{}
      :shift-suffix         {}}
-    (let [raw     (raw-edits before after)
+    (let [script-edits (expanded-editscript before after)
           ;; A `:-` edit at a vector parent removes a before-element by
           ;; before-index. That index identity does NOT correspond to a
           ;; stable after-side path — the surviving elements shift up.
@@ -948,7 +949,7 @@
                   :else
                   (update acc :other-edits conj edit))))
             {:vec-groups {} :other-edits []}
-            raw)
+            script-edits)
           ;; rf2-3eplfk — ONE `replay-vector-edits` walk per vector parent
           ;; produces BOTH the removals (`:removed`) and the shift slots
           ;; (`:slots`). Both downstream channels derive from this single
@@ -1008,7 +1009,7 @@
                 ;; target the identical index), but fall back to the raw
                 ;; lookup rather than crash.
                 (value-at before path))))
-          ;; Step 1 — expand each non-vector-deletion raw edit into
+          ;; Step 1 — expand each non-vector-deletion script edit into
           ;; per-leaf ops at every path the operator can navigate to in
           ;; the AFTER tree.
           per-leaf
@@ -1028,7 +1029,7 @@
                      :after  (value-at after path)}]
                 []))
             other-edits)
-          ;; Step 2 — re-classify modifieds via the leaf-op rules so R7
+          ;; Step 2 — re-classify modifieds via the value-pair rules so R7
           ;; type-change + R8 redaction branches surface in the op map.
           ;; Consumes the entry's OWN `:before`/`:after` (already resolved
           ;; correctly in Step 1, including the rf2-96csq4 replay-aware
@@ -1048,7 +1049,7 @@
                 (assoc acc path {:op :removed :before (or value (value-at before path))})
 
                 (= op :modified)
-                (let [classified (leaf-op (:before entry) (:after entry))]
+                (let [classified (classify-value-pair (:before entry) (:after entry))]
                   (assoc acc path classified))
 
                 :else
@@ -1172,7 +1173,7 @@
 ;; =========================================================================
 ;; rf2-5j7ch / rf2-9d4j8 — empty↔populated map replacements are now
 ;; expanded inside `project` (via `expand-empty-map-replacement` at the
-;; raw-edits stage). The previous post-processor `expand-empty-root-
+;; expanded-editscript stage). The previous post-processor `expand-empty-root-
 ;; replacement` operated on `:flat-rows` only and left `:path-ops` /
 ;; `:container-ops` carrying a single `[]`-anchored `:modified` op,
 ;; which made `op-at` return `:same` for every per-key path in the
