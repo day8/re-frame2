@@ -1,8 +1,8 @@
 (ns re-frame.example-realworld-resources-boot-seed-cljs-test
   "rf2-ghxt — THE BOOT WINDOW, RealWorld-on-resources: an app whose slices are
    seeded by SEPARATE events must still boot under its own app-db schema
-   registry, and a slice that is absent BY DESIGN must not veto every commit
-   the app will ever make.
+   registry, and a slice that is absent BY DESIGN must not veto every commit the
+   application will ever make.
 
    THE DEFECT. A development build of `:examples/realworld-resources` booted to
    nothing: `app-db` still `{}`, zero article cards, `#app` a bare shell. No page
@@ -18,31 +18,32 @@
    unwritten path reads `nil` — which is not a `[:map …]`. Registered bare, the
    four paths therefore veto each other:
 
-     [:auth]                seeded by `:auth/initialise` (its own `:initial-events`
-                            step — it consumes a recordable token coeffect)
+     [:auth]                 seeded by `:auth/initialise` — its own
+                             `:initial-events` step, since it consumes a
+                             recordable token coeffect
      [:auth :login-form]     seeded by `:auth.login-form/initialise`
      [:auth :register-form]  seeded by `:auth.register-form/initialise`
      [:settings-form]        NOT SEEDED AT BOOT AT ALL
 
    The first three are a boot WINDOW: each is its own dispatch (the two form
    initialisers are fanned out from `:app/initialise` in core.cljs), so each seed
-   is its own commit and each is rejected by the siblings still absent.
+   is its own commit, and each was rejected by the siblings still absent.
 
    The fourth is worse, and is why this example failed harder than its
    managed-HTTP twin (rf2-2xzc). `[:settings-form]` is seeded by `:settings/load`
    on settings-ROUTE ENTRY, behind an auth guard — so for an anonymous visitor,
    and for a signed-in one who never opens Settings, it reads `nil` for the whole
-   life of the app. Registered bare it rejects EVERY `:db` commit in the
+   life of the app. Registered bare it rejected EVERY `:db` commit in the
    application, permanently, not only during boot. And because a rejected
    candidate does not walk `:fx` either, nothing downstream of a `:db`-bearing
-   handler fires.
+   handler fired.
 
    THE FIX. Every entry wears a `:maybe`, and `schema.cljs` names the registry as
    the VALUE `app-db-schemas` so a harness can install it on its own frame. For
    the first three the `:maybe` buys exactly the window before that slice's seed
    lands; for `[:settings-form]` it is permanent, because absence there is the
-   design rather than a window (seeding it at boot would only manufacture an
-   empty draft from a user who is not signed in yet, to be overwritten on entry).
+   design rather than a window — seeding it at boot would only manufacture an
+   empty draft from a user who is not signed in yet, to be overwritten on entry.
 
    WHY DEV ONLY. `validate-app-schema!` puts its whole body inside
    `(if interop/debug-enabled? … true)`, so a production build returns `true`
@@ -67,16 +68,35 @@
    the bare one refuses — so a validator that had gone quiet fails the second
    test rather than silently passing the first.
 
-   Feature nses only, never `realworld-resources.core` — requiring core would
-   pull `routing.cljs` and register the app's routes (including the reserved
-   per-app `:rf.route/not-found`) into the shared node-test registrar.
-   `:app/initialise` and `:auth/classify-token` live in core, so the boot
-   fan-out they perform is spelled out in `boot!` below."
+   WHY THE SEEDS BELOW ARE LOCAL EVENTS RATHER THAN THE APP'S OWN. This ns
+   requires the example's `schema` ns and NOTHING else from the app, because
+   `reg-app-schemas` writes no registrar or source-store row — so this ns cannot
+   collide with anything. Requiring the app's EVENT nses would, and does:
+   cljs.test loads every test ns into one bundle, the two RealWorld apps
+   deliberately share id vocabulary (`:settings/load`, `:auth/initialise`,
+   `:auth.login-form/initialise`, … are registered by BOTH with different
+   implementations), and this ns sorts early. Measured on this tree: requiring
+   `realworld-resources.auth` / `.settings` here put a second provenance row for
+   those ids into the shared source store from this ns's load onward, and every
+   alphabetically-later suite's baseline then failed default-image assembly with
+   `:rf.error/image-duplicate-id` — dozens of unrelated tests, in nine
+   namespaces. Sequestering the sibling tree from here does not fix it either:
+   `sequester-app-namespaces!` captures a prefix's rows ONCE and memoizes them,
+   so a call this early captures an incomplete set and that becomes the memo the
+   later suites get (measured: `:home/show-global-feed` left unsequestered,
+   failing the sibling resources suite's own frame creation).
+
+   So the seeds below are local events that reproduce the app's own writes —
+   same paths, same slice shapes, one dispatch each. What is under test is the
+   REGISTRY, which is the artefact that was wrong and which is imported from the
+   example verbatim; the seeds are the boot fan-out's shape, and the shape is
+   what the registry has to tolerate. The app's own handlers, driven against a
+   hand-registered `[:auth]`, are covered by the example's integration suite in
+   the adapter tree."
   (:require [cljs.test :refer-macros [deftest testing is use-fixtures]]
-            [clojure.string :as str]
+            [malli.core :as m]
             [re-frame.core :as rf]
             [re-frame.frame :as rf.frame]
-            [re-frame.registrar :as rf.registrar]
             [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.test-support :as rf.test-support]
             [re-frame.schemas]
@@ -86,99 +106,79 @@
             ;; would boot just as happily as the shipped one. This is also the
             ;; canonical app-boot opt-in for Malli app-schema validation.
             [re-frame.schemas.malli]
-            [re-frame.machines]
-            ;; resources app FEATURE nses (no core -> no routes). `settings`
-            ;; chains in `auth`, which chains in `http` / `scope` / `schema`.
-            [realworld-resources.schema :as app-schema]
-            [realworld-resources.auth]
-            [realworld-resources.settings])
+            ;; The example's app-db schema registry, imported verbatim. This ns
+            ;; registers no events / subs / fx / resources — see the ns doc.
+            [realworld-resources.schema :as app-schema])
   (:require-macros [re-frame.core :refer [with-new-frame]]))
 
-;; rf2-h1vqa4 BUNDLE CO-LOAD HYGIENE. The two RealWorld apps deliberately share
-;; id vocabulary — both register `:auth/initialise`, `:auth.login-form/initialise`,
-;; `:auth.register-form/initialise` and `:settings/load` with DIFFERENT
-;; implementations — and they are built and run as separate bundles, never
-;; co-loaded. cljs.test loads every test ns into ONE bundle, so both apps' rows
-;; sit in the shared source store, and two provenance rows for one id fail
-;; default-image assembly loud (`:rf.error/image-duplicate-id`) for every suite
-;; whose baseline is captured after the second app loads. So the sibling app's
-;; tree is sequestered below, per test, and the realworld-http suites reinstate
-;; their own tree in their fixture init.
-;;
-;; THE SEQUESTER CALL BELONGS IN `:init-fn`, NOT AT NS LOAD, and the difference
-;; is not cosmetic. `sequester-app-namespaces!` captures the prefix's rows ONCE
-;; and MEMOIZES them, scrubbing only that captured set on every later call. A
-;; call at THIS ns's load runs while the bundle is still loading — this ns sorts
-;; ahead of the two RealWorld integration suites, so `realworld-http.tags` (and
-;; the rest of the app beyond the few feature nses loaded ahead of us) is not
-;; there yet — and the incomplete capture is then the memo EVERY suite gets
-;; afterwards. Measured: an ns-load call here left `:home/show-global-feed`
-;; unsequestered and failed the sibling resources suite's own frame creation
-;; with `:rf.error/image-duplicate-id`. By `:init-fn` time every test ns has
-;; loaded, so the capture is complete whether it is ours or a sibling's.
 (use-fixtures :each
   (rf.test-support/make-reset-runtime-fixture
-    {:adapter rf.adapter.reagent/adapter
-     :init-fn (fn [] (rf.test-support/sequester-app-namespaces! "realworld-http."))}))
+    {:adapter rf.adapter.reagent/adapter}))
 
 ;; ---------------------------------------------------------------------------
-;; The example's own boot fan-out, spelled out.
+;; The example's boot fan-out, reproduced as three separate commits.
 ;;
-;; The real app runs `:auth/classify-token`, `:auth/initialise` and
-;; `:app/initialise` as `:initial-events` (core.cljs); `:app/initialise` then
-;; fans out to the two form initialisers as SEPARATE dispatches. The two events
-;; that live in core are not driveable from here (requiring core would register
-;; the app's routes into the shared bundle), so what is driven below is the
-;; three `:db`-bearing seeds, each its own dispatch — which is the whole point
-;; of the regression: separate events mean separate commits.
+;; Paths and slice shapes are the app's (auth.cljs `:auth/initialise`,
+;; `:auth.login-form/initialise`, `:auth.register-form/initialise`). The ids are
+;; local so this ns stays collision-free in the shared bundle. What matters is
+;; that each seed is its OWN event — separate events mean separate commits, and
+;; that is the whole of the regression.
 ;; ---------------------------------------------------------------------------
+
+(rf/reg-event :rf2-ghxt.boot/seed-auth
+  (fn [{:keys [db]} _]
+    {:db (assoc db :auth {:user nil :token nil})}))
+
+(rf/reg-event :rf2-ghxt.boot/seed-login-form
+  (fn [{:keys [db]} _]
+    {:db (assoc-in db [:auth :login-form]
+                   {:draft {:email "" :password ""} :touched #{}})}))
+
+(rf/reg-event :rf2-ghxt.boot/seed-register-form
+  (fn [{:keys [db]} _]
+    {:db (assoc-in db [:auth :register-form]
+                   {:draft {:username "" :email "" :password ""} :touched #{}})}))
+
+;; An ordinary post-boot edit — the shape of every `:*-form/edit-field` handler.
+(rf/reg-event :rf2-ghxt.boot/edit-login-email
+  (fn [{:keys [db]} [_ value]]
+    {:db (-> db
+             (assoc-in [:auth :login-form :draft :email] value)
+             (update-in [:auth :login-form :touched] (fnil conj #{}) :email))}))
+
+;; `:settings/load`'s write: seeded from the authenticated user, on route entry,
+;; behind the auth guard (settings.cljs). `:touched` is seeded alongside `:draft`
+;; because FormSlice requires both.
+(rf/reg-event :rf2-ghxt.boot/load-settings-form
+  (fn [{:keys [db]} [_ user]]
+    {:db (assoc-in db [:settings-form]
+                   {:draft   {:image    (or (:image user) "")
+                              :username (or (:username user) "")
+                              :bio      (or (:bio user) "")
+                              :email    (or (:email user) "")
+                              :password ""}
+                    :touched #{}})}))
 
 (defn- boot!
-  "Drive the example's boot seeds into frame `f`, one dispatch per event exactly
-  as the app does. The ORDER is the app's and it matters: `:auth/initialise`
-  creates `[:auth]` in the AuthSlice shape before the two form initialisers
-  write inside it."
+  "Drive the three boot seeds into frame `f`, one dispatch each, in the app's
+  order — `[:auth]` is created in the AuthSlice shape before the two form
+  initialisers write inside it."
   [f]
-  (rf/dispatch-sync [:auth/initialise]
-                    {:frame f :rf.cofx {:realworld-resources.session/token nil}})
-  (rf/dispatch-sync [:auth.login-form/initialise] {:frame f})
-  (rf/dispatch-sync [:auth.register-form/initialise] {:frame f}))
+  (rf/dispatch-sync [:rf2-ghxt.boot/seed-auth] {:frame f})
+  (rf/dispatch-sync [:rf2-ghxt.boot/seed-login-form] {:frame f})
+  (rf/dispatch-sync [:rf2-ghxt.boot/seed-register-form] {:frame f}))
 
 (def ^:private pre-fix-bare-registry
   "The four registrations EXACTLY as `schema.cljs` carried them before rf2-ghxt —
-  bare, no `:maybe`. Kept here as the negative control: the shipped registry has
-  to permit a boot this one refuses."
+  bare, no `:maybe`. Kept as the negative control: the shipped registry has to
+  permit a boot this one refuses."
   {[:auth]                app-schema/AuthSlice
    [:auth :login-form]    app-schema/FormSlice
    [:auth :register-form] app-schema/FormSlice
    [:settings-form]       app-schema/FormSlice})
 
 ;; ---------------------------------------------------------------------------
-;; Provenance guard.
-;;
-;; Every id this suite drives is registered by BOTH RealWorld apps. If the
-;; sequester above ever stopped biting, these dispatches would silently exercise
-;; the managed-HTTP app's handlers instead — which seed the same shaped slices,
-;; so the assertions below would still pass while testing the wrong application.
-;; That is a fail-OPEN, so it gets an assertion of its own rather than a comment.
-;; ---------------------------------------------------------------------------
-
-(deftest the-resources-app-owns-the-ids-this-suite-drives
-  (testing "the live handlers for the ids both RealWorld apps register resolve to
-            the RESOURCES app — otherwise every green below is about the wrong app"
-    (doseq [id [:auth/initialise
-                :auth.login-form/initialise
-                :auth.register-form/initialise
-                :auth/store-session
-                :settings/load]]
-      (let [provenance (some-> (rf.registrar/handler-meta :event id) :ns str)]
-        (is (and (string? provenance)
-                 (str/starts-with? provenance "realworld-resources."))
-            (str "the live " id " handler comes from the resources app, not the "
-                 "managed-HTTP twin (got " (pr-str provenance) ")"))))))
-
-;; ---------------------------------------------------------------------------
-;; The regression itself.
+;; The regression.
 ;; ---------------------------------------------------------------------------
 
 (deftest boot-under-the-shipped-registry
@@ -204,9 +204,9 @@
             "the login-form slice really is the seeded draft shape")))))
 
 (deftest boot-under-the-pre-fix-bare-registry
-  (testing "the bare registry this file used to carry REJECTS the very first seed
-            — the regression, and the proof that the validator is live here (a
-            soft-passing validator would let this boot too)"
+  (testing "the bare registry this example used to carry REJECTS the very first
+            seed — the regression, and the proof that the validator is live here
+            (a soft-passing validator would let this boot too)"
     (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
       (rf/reg-app-schemas pre-fix-bare-registry {:frame f})
       (boot! f)
@@ -225,35 +225,34 @@
       (is (nil? (get (rf/app-db-value f) :settings-form))
           "nothing seeded [:settings-form] at boot, and nothing should have —
            :settings/load seeds it from the authenticated user on route entry")
-      ;; An ordinary post-boot edit. Pre-fix this was rejected forever, because
-      ;; [:settings-form] read nil at every commit for the whole life of the app.
-      (rf/dispatch-sync [:auth.login-form/edit-field :email "alice@example.com"]
+      ;; Pre-fix this commit was rejected forever, because [:settings-form] read
+      ;; nil at every commit for the whole life of the application.
+      (rf/dispatch-sync [:rf2-ghxt.boot/edit-login-email "alice@example.com"]
                         {:frame f})
-      (is (= "alice@example.com" (get-in (rf/app-db-value f) [:auth :login-form :draft :email]))
+      (is (= "alice@example.com"
+             (get-in (rf/app-db-value f) [:auth :login-form :draft :email]))
           "an ordinary post-boot :db commit lands"))))
 
-(deftest settings-load-seeds-a-slice-that-validates
-  (testing ":settings/load seeds [:settings-form] from the authenticated user on
-            route entry, and the seeded slice satisfies the FormSlice the shipped
-            registry wraps — the `:maybe` widens the schema, it does not retire it"
+(deftest the-settings-slice-still-validates-once-route-entry-seeds-it
+  (testing "the settings draft, seeded from the authenticated user on route
+            entry, commits under the shipped registry — the `:maybe` widens the
+            schema, it does not retire it"
     (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
       (rf/reg-app-schemas app-schema/app-db-schemas {:frame f})
       (boot! f)
-      ;; The settings route is auth-guarded, so there is always a user by the
-      ;; time :settings/load runs. Establish one the way the app does.
-      (rf/dispatch-sync [:auth/store-session {:email "alice@example.com"
-                                              :username "alice"
-                                              :token "jwt-abc"
-                                              :bio nil :image nil}]
+      (rf/dispatch-sync [:rf2-ghxt.boot/load-settings-form
+                         {:username "alice" :email "alice@example.com"
+                          :bio nil :image nil}]
                         {:frame f})
-      (rf/dispatch-sync [:settings/load] {:frame f})
       (let [slice (get (rf/app-db-value f) :settings-form)]
         (is (some? slice)
             "the settings draft is seeded on route entry")
         (is (= "alice" (get-in slice [:draft :username]))
             "the draft is seeded FROM the authenticated user")
-        (is (contains? slice :touched)
-            "`:touched` is seeded alongside `:draft` — FormSlice requires both")))))
+        (is (true? (m/validate app-schema/FormSlice slice))
+            "and it satisfies the UNWRAPPED FormSlice — the `:maybe` only added
+             tolerance of absence; a present-but-malformed slice is still
+             rejected")))))
 
 ;; ---------------------------------------------------------------------------
 ;; The shape of the fix, pinned structurally.
@@ -262,10 +261,12 @@
 (deftest every-shipped-registration-tolerates-absence
   (testing "each entry in the example's registry is nilable — unwrap any one of
             them and the boot window (or, for [:settings-form], the whole life of
-            the app) reopens"
+            the application) reopens"
     (doseq [[path schema] app-schema/app-db-schemas]
       (is (and (vector? schema) (= :maybe (first schema)))
-          (str "the registration at " path " tolerates absence")))
+          (str "the registration at " path " tolerates absence"))
+      (is (true? (m/validate schema nil))
+          (str "the registration at " path " really does admit nil")))
     (is (= #{[:auth] [:auth :login-form] [:auth :register-form] [:settings-form]}
            (set (keys app-schema/app-db-schemas)))
         "the registry still covers exactly the four app-db paths this app owns")))
