@@ -29,4 +29,6 @@ function includesToken(text, token) {
   return new RegExp('(?<![\\w-])' + escapeRegExp(token) + '(?![\\w-])').test(text);
 }
 
-module.exports = { escapeRegExp, includesToken };
+// `escapeRegExp` is an implementation detail of `includesToken`; only the
+// anchored matcher is a consumer-facing seam.
+module.exports = { includesToken };

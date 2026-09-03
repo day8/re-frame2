@@ -35,8 +35,7 @@
   so `:rf.resource/load-more` is NOT reported as a near-miss of
   `:rf.resource/load-more-skipped` (one is a genuine keyword-token prefix of
   the other)."
-  (:require [clojure.string :as str]
-            [clojure.test    :refer [deftest is testing]]
+  (:require [clojure.test :refer [deftest is testing]]
             [re-frame.mcp-conformance.fixtures :as fx]
             [re-frame.mcp-conformance.wire-vocab.source-pins :as pins]))
 

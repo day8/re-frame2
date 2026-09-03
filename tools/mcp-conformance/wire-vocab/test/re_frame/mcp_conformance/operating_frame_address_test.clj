@@ -59,8 +59,7 @@
             [clojure.test   :refer [deftest is testing]]
             [malli.core     :as m]
             [malli.error    :as me]
-            [re-frame.mcp-conformance.fixtures :as fx]
-            [re-frame.mcp-conformance.wire-vocab.source-pins :as pins]))
+            [re-frame.mcp-conformance.fixtures :as fx]))
 
 ;; ---------------------------------------------------------------------------
 ;; Canonical schemas. The operating-frame envelope has a SUCCESS shape and a

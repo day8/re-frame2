@@ -11,7 +11,9 @@ const { decodeDedupEnvelope } = require('../lib/dedup-envelope.cjs');
 const CLIENT_VERSION = '0.1.0';
 
 // `onClient` runs before connect awaits, making a hung initialize handshake
-// reachable by the caller's watchdog.
+// reachable by the caller's watchdog. Only the client is returned: the SDK
+// `Protocol` takes ownership of the transport at `connect()`, so `client.close()`
+// is the single teardown handle and a second one would invite a double close.
 async function connectServer({ transportSpec, clientName, stderrPrefix = '[server]', onClient }) {
   const transport = new StdioClientTransport({ ...transportSpec, stderr: 'pipe' });
   const client = new Client({ name: clientName, version: CLIENT_VERSION }, { capabilities: {} });
@@ -26,7 +28,7 @@ async function connectServer({ transportSpec, clientName, stderrPrefix = '[serve
     await closeQuietly(client);
     throw connectErr;
   }
-  return { client, transport };
+  return { client };
 }
 
 // Teardown must not mask the conformance outcome already recorded.
@@ -79,15 +81,16 @@ async function runWithWatchdog({ watchdogMs, transportSpec, clientName }, body) 
   let exitCode;
   let bodyError;
   try {
-    let transport;
     // Capture before connect; retain the resolved binding for finally.
-    ({ client, transport } = await connectServer({
+    ({ client } = await connectServer({
       transportSpec,
       clientName,
       onClient: (c) => { activeClient = c; },
     }));
     activeClient = client;
-    await body(client, transport);
+    // `body` receives the connected client and nothing else — the client owns
+    // its transport, so there is no second handle for a caller to tear down.
+    await body(client);
     exitCode = 0;
   } catch (err) {
     exitCode = 1;

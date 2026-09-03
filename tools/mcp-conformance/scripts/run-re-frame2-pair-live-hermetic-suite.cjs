@@ -1418,13 +1418,19 @@ if (require.main === module) {
 // still reports the file present, proving the runner now fails LOUD
 // instead of logging-and-continuing into a poll loop that would have
 // trusted the surviving stale file.
-// `finalizeConformance` + `describeDirty` are exported for the teardown-
-// grading regression harness (`hermetic-grading.test.cjs`, rf2-j538f7.19): it
-// drives the REAL grading decision against clean vs dirty cleanup reports,
-// proving a dirty teardown emits NO pass sentinel and returns orchestration
-// exit 2 while a clean teardown emits the sentinel exactly once and returns 0.
-// `closeOutcomeWithin` + `isBrowserProvablyDisconnected` back the browser
-// grading `runner-cleanup.test.cjs` exercises through `makeCleanup`.
+//
+// `finalizeConformance` is exported for the teardown-grading regression
+// harness (`hermetic-grading.test.cjs`, rf2-j538f7.19): it drives the REAL
+// grading decision against clean vs dirty cleanup reports, proving a dirty
+// teardown emits NO pass sentinel and returns orchestration exit 2 while a
+// clean teardown emits the sentinel exactly once and returns 0.
+//
+// `closeOutcomeWithin`, `isBrowserProvablyDisconnected` and `describeDirty`
+// are deliberately NOT exported: each stays module-local and is reached from
+// a test only through the composed behaviour above — the browser-close
+// grading through `makeCleanup`, the dirty-report prose through
+// `finalizeConformance`. Exporting them would advertise a test seam that
+// invites coupling to the helper instead of the decision it serves.
 module.exports = {
   runTrusted,
   SETUP_COMMAND_TIMEOUT_MS,
@@ -1432,10 +1438,7 @@ module.exports = {
   isContainmentEscape,
   makeCleanup,
   settledWithin,
-  closeOutcomeWithin,
-  isBrowserProvablyDisconnected,
   finalizeConformance,
-  describeDirty,
   waitForChildExit,
   spawnAndGradeInnerTest,
   wipeStalePortFileCandidate,
