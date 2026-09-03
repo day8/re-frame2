@@ -14,8 +14,8 @@
   `:rf/redacted`. A malformed escape decodes to nil and falls back to
   the raw-name match path — redaction is total and never throws."
   (:require
-   #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
-      :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
+   #?(:clj  [clojure.test :refer [deftest is testing]]
+      :cljs [cljs.test :refer-macros [deftest is testing]])
    [re-frame.http.url :as url]))
 
 ;; App-specific carrier policy is passed explicitly to this leaf API, so no

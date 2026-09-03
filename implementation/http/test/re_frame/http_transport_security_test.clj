@@ -1,9 +1,8 @@
 (ns re-frame.http-transport-security-test
   "Security-relevant JVM transport guards: invalid-header warnings,
   privacy composition, timeout application, and host degradation."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.test :refer [deftest is testing]]
             [re-frame.http.handlers]
-            [re-frame.http.privacy :as privacy]
             [re-frame.http.transport]
             [re-frame.http.transport-jvm]
             [re-frame.late-bind :as late-bind]
@@ -200,7 +199,7 @@
   param (`?api_key=…`), the JVM header-validation warning trace MUST
   scrub the value and stamp `:sensitive?` on the event. The previous
   shape leaked the secret because the trace bypassed
-  `privacy/prepare-emit-tags`."
+  `re-frame.http.privacy/prepare-emit-tags`."
     (with-trace-capture
       (fn [captured]
         (let [_req (jvm-build-request

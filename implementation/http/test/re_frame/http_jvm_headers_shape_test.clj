@@ -31,7 +31,7 @@
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.http.transport-jvm :as http-transport-jvm])
   (:import [java.net.http HttpHeaders]
-           [java.util List Map]
+           [java.util Map]
            [java.util.function BiPredicate]))
 
 ;; ---- helper: build a real HttpHeaders the JDK way -------------------------

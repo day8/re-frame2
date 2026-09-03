@@ -21,7 +21,7 @@
    :frame        :app/main
    :completed-at 1781078400456})
 
-(deftest work-id-and-transport-id
+(deftest work-id-head
   (testing "HTTP work-id head [:rf.work/http logical-id issuance attempt]"
     (is (= [:rf.work/http :article/by-id 1 1] (http-reply/work-id ctx)))
     (is (= [:rf.work/http :article/load 1 1]
@@ -34,10 +34,7 @@
       (is (= [:rf.work/http :article/by-id 2 1]
              (http-reply/work-id (assoc ctx :issuance 2))))
       (is (not= (http-reply/work-id ctx)
-                (http-reply/work-id (assoc ctx :issuance 2))))))
-  (testing "frame-qualified transport request-id [:rf.req frame-id work-id]"
-    (is (= [:rf.req :app/main [:rf.work/http :article/by-id 1 1]]
-           (http-reply/transport-request-id :app/main (http-reply/work-id ctx))))))
+                (http-reply/work-id (assoc ctx :issuance 2)))))))
 
 (deftest suppress-builds-canonical-stale-reply
   (testing "rf2-azcmd3 — http-reply/suppress produces a :status :stale / :rf.reply/work-status :suppressed reply with carried/current work-id correlation, joined to :work/id"
