@@ -10,7 +10,7 @@
   instant it is visible. That opened the reverse window: between the
   reservation and the emit the sentinel is claimable but the row is not yet
   out. On the JVM a concurrent cleanup — state exit, actor destroy, epoch
-  restore, frame destroy — can claim it there, and `claim-emit-release!`
+  restore, frame destroy — can claim it there, and `claim-cancel-and-release!`
   emitted `/cancelled` on the claimant's own stack, immediately. The arming
   thread then emitted `/scheduled`; its owner check still passed (none of
   those cleanups changes the frame incarnation), the host arm was attempted,

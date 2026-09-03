@@ -343,12 +343,12 @@
   destroyed there, so the frame incarnation is stable and the token check would be
   too weak)."
   [frame-id]
-  (let [captured (frame/frame-incarnation-token frame-id)]
-    (if (some? captured)
-      (fn [] (not (frame/frame-incarnation-live? frame-id captured)))
+  (let [captured-incarnation (frame/frame-incarnation-token frame-id)]
+    (if (some? captured-incarnation)
+      (fn [] (not (frame/frame-incarnation-live? frame-id captured-incarnation)))
       (constantly false))))
 
-(def ^:dynamic ^:private *announcing*
+(def ^:dynamic ^:private *announcing-attempt-tokens*
   "The attempt tokens whose `:rf.machine.timer/scheduled` row is being
   delivered on THIS thread. `schedule-after-timer!` binds it around its own
   emit (a set, so a listener that arms a further timer nests cleanly) and
@@ -367,17 +367,18 @@
   (`:announce` — present only on an arm that emits its own `/scheduled`: the
   hydration re-arm and the dynamic-delay reschedule), this is not the
   announcing thread, and this claimant's CAS `nil -> reason` on the cell lands
-  first. That CAS both records the claim and carries `reason` to `announced!`,
+  first. That CAS both records the claim and carries `reason` to
+  `finish-announcement!`,
   which emits the `/cancelled` immediately AFTER its `/scheduled`. Losing the
   CAS means the cell already reads `::announced`: the row is out, and the
   claimant emits itself. An ordinary state-entry arm has no cell — the pure
   side announced it before the fx ran — and always emits here (rf2-jqvgp)."
   [claimed reason]
   (when-let [cell (:announce claimed)]
-    (and (not (contains? *announcing* (:token claimed)))
+    (and (not (contains? *announcing-attempt-tokens* (:token claimed)))
          (compare-and-set! cell nil reason))))
 
-(defn- announced!
+(defn- finish-announcement!
   "Consummate an attempt's announcement once its `/scheduled` row is out: CAS
   the reservation's cell `nil -> ::announced`. Returns nil when no claimant
   reached the sentinel first — every later claim emits its own `/cancelled` —
@@ -389,7 +390,7 @@
     (when-not (compare-and-set! cell nil ::announced)
       @cell)))
 
-(defn- claim-emit-release!
+(defn- claim-cancel-and-release!
   "The ONE durable cancel step: claim the `[frame-id k]` slot by EXACTLY `token`,
   and only if that claim wins, emit the single owed `:rf.machine.timer/cancelled`
   trace and release the claimed entry's resources. Shared by the current-occupant
@@ -454,7 +455,7 @@
   ([frame-id k reason] (cancel-after-timer-entry! frame-id k reason (successor-published?-fn frame-id)))
   ([frame-id k reason owner-gone?]
    (when-let [entry (get-in @after-timers [frame-id k])]
-     (claim-emit-release! frame-id k reason (:token entry) owner-gone?))))
+     (claim-cancel-and-release! frame-id k reason (:token entry) owner-gone?))))
 
 (defn- cancel-snapshotted-entry!
   "Cancel a batch-SNAPSHOTTED `[k entry]` pair, binding the claim to the EXACT
@@ -472,7 +473,7 @@
   fresh-token entry fails the atomic CAS and survives untouched. `owner-gone?` is
   the batch's ONE captured incarnation predicate, threaded into the release."
   [frame-id k entry reason owner-gone?]
-  (claim-emit-release! frame-id k reason (:token entry) owner-gone?))
+  (claim-cancel-and-release! frame-id k reason (:token entry) owner-gone?))
 
 (defn- on-sub-changed!
   "Watch callback invoked when a subscription-vector delay's value
@@ -594,11 +595,12 @@
   closes. A claimant therefore CASes its reason into the reservation's
   `:announce` cell instead of emitting (`defer-to-announcer?`), and this fn,
   once its emit has returned, CASes the same cell to consummate the
-  announcement (`announced!`); whichever CAS lands second reads the other's
+  announcement (`finish-announcement!`); whichever CAS lands second reads the other's
   verdict. A claimant that lost emits itself, because the row is out; an
   announcer that lost emits the deferred `/cancelled` right after its
   `/scheduled` and arms nothing. A claim made ON the announcing thread — a
-  synchronous listener on the row — bypasses the cell (`*announcing*`), since
+  synchronous listener on the row — bypasses the cell
+  (`*announcing-attempt-tokens*`), since
   for it the row is already out, so its closure lands before anything the
   listener announces next (a same-id successor re-arming the same key would
   otherwise announce between A's row and A's closure, and the two are
@@ -702,7 +704,7 @@
                              ;; the hand-off between a claimant that reaches
                              ;; the sentinel before that row is out and the
                              ;; announcer that then owes its closure
-                             ;; (`defer-to-announcer?` / `announced!`).
+                             ;; (`defer-to-announcer?` / `finish-announcement!`).
                              :announce        (when emit-scheduled-trace? (atom nil))}]
             ;; rf2-jqvgp — the reservation is taken BEFORE the `/scheduled`
             ;; fan-out below, not after it. The row's listener runs
@@ -725,7 +727,8 @@
               ;; duration of the fan-out, so a listener on the row that claims
               ;; this attempt (the destroy sweep, typically) knows the row is
               ;; already out and emits its `/cancelled` at once, in place.
-              (binding [*announcing* (conj *announcing* token)]
+              (binding [*announcing-attempt-tokens*
+                        (conj *announcing-attempt-tokens* token)]
                 (trace/emit! :rf.machine :rf.machine.timer/scheduled
                              (cond-> {;; the timer's owning actor INSTANCE;
                                       ;; `:machine-id` is reserved for the
@@ -766,7 +769,7 @@
             ;; `cancel-snapshotted-entry!` with this same `owner-gone?`: the
             ;; shared decrement is skipped, while the sentinel's own `:handle`
             ;; (nil) and never-attached watcher are released harmlessly.
-            (let [deferred (announced! reservation)]
+            (let [deferred (finish-announcement! reservation)]
              (cond
               deferred
               ;; A cleanup on ANOTHER thread claimed the sentinel between the
@@ -1114,11 +1117,12 @@
         ;;   (2) short-circuit the loop the instant ownership is lost, so the
         ;;       remaining keys (which B may have re-armed) are never even visited.
         owner-gone? (successor-published?-fn frame-id)
-        snap        (into []
+        timer-entry-snapshot
+                    (into []
                           (filter (fn [[k _]] (and (= parent-id (:parent k))
                                                    (= invoke-id (:spawn k)))))
                           (get @after-timers frame-id))]
-    (loop [pairs snap]
+    (loop [pairs timer-entry-snapshot]
       (when (and (seq pairs) (not (owner-gone?)))
         (let [[k entry] (first pairs)]
           (cancel-snapshotted-entry! frame-id k entry :on-exit owner-gone?))

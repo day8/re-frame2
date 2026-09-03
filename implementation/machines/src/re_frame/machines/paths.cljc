@@ -62,22 +62,23 @@
   it.
 
     (snapshot-path)                  => [:rf.runtime/machines :snapshots]
-    (snapshot-path machine-id)       => [:rf.runtime/machines :snapshots machine-id]
-    (snapshot-path machine-id k)     => [:rf.runtime/machines :snapshots machine-id k]
-    (snapshot-path machine-id k k2)  => [:rf.runtime/machines :snapshots machine-id k k2]"
-  ([]                [:rf.runtime/machines :snapshots])
-  ([machine-id]      [:rf.runtime/machines :snapshots machine-id])
-  ([machine-id k]    [:rf.runtime/machines :snapshots machine-id k])
-  ([machine-id k k2] [:rf.runtime/machines :snapshots machine-id k k2]))
+    (snapshot-path actor-id)                 => [:rf.runtime/machines :snapshots actor-id]
+    (snapshot-path actor-id snapshot-key)    => [:rf.runtime/machines :snapshots actor-id snapshot-key]
+    (snapshot-path actor-id snapshot-key nested-key)
+      => [:rf.runtime/machines :snapshots actor-id snapshot-key nested-key]"
+  ([]                                      [:rf.runtime/machines :snapshots])
+  ([actor-id]                              [:rf.runtime/machines :snapshots actor-id])
+  ([actor-id snapshot-key]                 [:rf.runtime/machines :snapshots actor-id snapshot-key])
+  ([actor-id snapshot-key nested-key]      [:rf.runtime/machines :snapshots actor-id snapshot-key nested-key]))
 
 (defn system-id-path
   "Path (in the runtime-db value) to the `:system-ids` reverse-index slot,
   optionally drilling into a specific system-id's binding.
 
-    (system-id-path)     => [:rf.runtime/machines :system-ids]
-    (system-id-path sid) => [:rf.runtime/machines :system-ids sid]"
-  ([]    [:rf.runtime/machines :system-ids])
-  ([sid] [:rf.runtime/machines :system-ids sid]))
+    (system-id-path)           => [:rf.runtime/machines :system-ids]
+    (system-id-path system-id) => [:rf.runtime/machines :system-ids system-id]"
+  ([]          [:rf.runtime/machines :system-ids])
+  ([system-id] [:rf.runtime/machines :system-ids system-id]))
 
 (defn spawn-order-path
   "Path (in the runtime-db value) to the `:spawn-order` slot — the durable

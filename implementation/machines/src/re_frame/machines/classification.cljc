@@ -118,11 +118,11 @@
   [actor-id]
   {:source :machine :actor-id actor-id})
 
-(defn- apply-decls
-  "Pure registry transform: ADD (`set?` true) or DROP (`set?` false) the
-  absolute snapshot-rooted declarations for `actor-id`'s `decls`
+(defn- apply-declarations
+  "Pure registry transform: ADD (`add?` true) or DROP (`add?` false) the
+  absolute snapshot-rooted declarations for `actor-id`'s `declarations`
   (`{:sensitive [paths] :large [paths]}`) on a base elision-registry value
-  `reg`, delegating to the core multi-owner ops. SET UNIONS this actor's owner
+  `registry`, delegating to the core multi-owner ops. SET UNIONS this actor's owner
   (`{:source :machine :actor-id …}`) into each axis slot
   (`:sensitive-declarations` / `:declarations` — the SAME slots the four
   commit-plane effects and `reg-flow` outputs populate) ALONGSIDE any foreign
@@ -134,18 +134,18 @@
   un-redacts a path another owner still classifies (a privacy fail-open,
   rf2-wdm1vg). An emptied axis slot is pruned by the core ops. Returns the new
   registry value."
-  [reg actor-id decls set?]
+  [registry actor-id declarations add?]
   (let [owner (machine-owner actor-id)]
     (reduce
-      (fn [reg [axis slot]]
-        (let [paths (get decls axis)]
+      (fn [registry [axis slot]]
+        (let [paths (get declarations axis)]
           (if-not (seq paths)
-            reg
-            (let [abs (map #(absolute-snapshot-path actor-id %) paths)]
-              (if set?
-                (elision/add-claims reg slot owner abs)
-                (elision/remove-claims reg slot owner abs))))))
-      (or reg {})
+            registry
+            (let [absolute-paths (map #(absolute-snapshot-path actor-id %) paths)]
+              (if add?
+                (elision/add-claims registry slot owner absolute-paths)
+                (elision/remove-claims registry slot owner absolute-paths))))))
+      (or registry {})
       {:sensitive :sensitive-declarations
        :large     :declarations})))
 
@@ -176,11 +176,12 @@
   ([frame-id actor-id spec] (lower-at-spawn! frame-id actor-id spec nil))
   ([frame-id actor-id spec owner-token]
    (when actor-id
-     (when-let [decls (machine-declarations spec)]
-       (let [xf (fn [reg] (apply-decls reg actor-id decls true))]
+     (when-let [declarations (machine-declarations spec)]
+       (let [transform (fn [registry]
+                         (apply-declarations registry actor-id declarations true))]
          (if owner-token
-           (elision/swap-elision-slot! frame-id owner-token xf)
-           (elision/swap-elision-slot! frame-id xf)))))
+           (elision/swap-elision-slot! frame-id owner-token transform)
+           (elision/swap-elision-slot! frame-id transform)))))
    nil))
 
 (defn drop-at-destroy!
@@ -201,9 +202,10 @@
   ([frame-id actor-id spec] (drop-at-destroy! frame-id actor-id spec nil))
   ([frame-id actor-id spec owner-token]
    (when actor-id
-     (when-let [decls (machine-declarations spec)]
-       (let [xf (fn [reg] (apply-decls reg actor-id decls false))]
+     (when-let [declarations (machine-declarations spec)]
+       (let [transform (fn [registry]
+                         (apply-declarations registry actor-id declarations false))]
          (if owner-token
-           (elision/swap-elision-slot! frame-id owner-token xf)
-           (elision/swap-elision-slot! frame-id xf)))))
+           (elision/swap-elision-slot! frame-id owner-token transform)
+           (elision/swap-elision-slot! frame-id transform)))))
    nil))

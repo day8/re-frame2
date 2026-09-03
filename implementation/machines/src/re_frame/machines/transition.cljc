@@ -1501,7 +1501,7 @@
      Names a SELF-transition, which is NON-REENTERING BY DEFAULT under the
      XState-v5 model re-frame2 tracks (XState's word for that geometry is
      \"internal\" — a PARITY label, NOT re-frame2's runtime `internal?`
-     flag, which `compute-cascade-paths` reserves for the TARGETLESS no-op):
+     flag, which `compute-transition-geometry` reserves for the TARGETLESS no-op):
      a target landing on the active path (here the declaring state itself)
      fires NEITHER `:exit` NOR `:entry` on the target node —
      only the transition's `:action` runs, and (on a compound) the active
@@ -1512,7 +1512,7 @@
      children) — ONLY when the transition opts in with `:reenter? true`.
      That non-reentering/external distinction and the external-restart geometry —
      pulling the LCA up to the declaring state's parent so the state appears
-     in both the exit and entry cascades — are `compute-cascade-paths`' job;
+     in both the exit and entry cascades — are `compute-transition-geometry`'s job;
      here `:same-state` simply names the declaring state as the target. Per
      Spec 005 §Self-transitions + Spec-Schemas TransitionTarget.
    - keyword target → sibling at decl-path's level (replace last element).
@@ -1545,7 +1545,7 @@
 ;; a TARGETABLE PSEUDO-STATE: never occupied, it resolves a transition to
 ;; the compound's recorded (or default) configuration. The engine:
 ;;
-;;   - RESTORES on re-entry — `compute-cascade-paths` swaps the pseudo-state
+;;   - RESTORES on re-entry — `compute-transition-geometry` swaps the pseudo-state
 ;;     target for the resolved leaf BEFORE the LCA geometry, so the standard
 ;;     exit/action/entry cascade applies unchanged (the external-self-
 ;;     transition LCA rule is the precedent: resolve the real path first,
@@ -1943,7 +1943,7 @@
 ;;                                             ;;   event's :source; ABSENT on every
 ;;                                             ;;   non-history step
 ;;
-;; The step vector is built in `compute-cascade-paths` (which owns the
+;; The step vector is built in `compute-transition-geometry` (which owns the
 ;; ordered prefix paths + action refs) and the per-step `:data-delta` is
 ;; filled in by `collect-actions` as it threads `:data` forward — the SAME
 ;; pass that runs the actions, so nothing is recomputed. `:microstep` steps
@@ -2006,7 +2006,7 @@
                         emit-phase  (or phase kind)
                         ;; Per spec/009 §History trace events (line 291): a
                         ;; history-driven `:entry` step additively carries
-                        ;; `:source` (set in `compute-cascade-paths`); a
+                        ;; `:source` (set in `compute-transition-geometry`); a
                         ;; non-history step has none, so only stamp it when
                         ;; the input step supplied it.
                         base-step   (cond-> {:kind   kind
@@ -2843,7 +2843,7 @@
   "Synthesise the destroy-time exit cascade for `machine` against its
   active `snapshot`. Walks the active state's full path leaf→root and
   collects every node's `:exit` action-ref (shallowest-first reversed,
-  matching how `compute-cascade-paths` orders the exit cascade with
+  matching how `compute-transition-geometry` orders the exit cascade with
   `lca-len = 0`). Runs them via `collect-actions`.
 
   Returns a `re-frame.machines.result/Result` — a `result/ok` carrying
@@ -2864,7 +2864,7 @@
   (let [path        (state-path (:state snapshot))
         active-pairs (nodes-along-path machine path)
         ;; Leaf→root: exit cascade reverses `nodes-along-path` (which
-        ;; returns shallowest-first), matching `compute-cascade-paths`'s
+        ;; returns shallowest-first), matching `compute-transition-geometry`'s
         ;; `(map ... (reverse exited-pairs))` ordering.
         ;; Every action-ran emit carries `:phase`; destroy-
         ;; time exit cascades stamp `:destroy-exit` so the Xray Handler
@@ -2897,9 +2897,10 @@
 ;; through four named phases. Each phase is a pure helper; `apply-transition-
 ;; once` composes them.
 ;;
-;;   compute-cascade-paths  — derive src/target paths, LCA, exit/entry/action
-;;                            refs, the `[prefix node]` pair vectors, and
-;;                            the epoch-bumps? predicate. Pure geometry.
+;;   compute-transition-geometry — derive src/target paths, LCA,
+;;                                 exit/entry/action refs, the `[prefix node]`
+;;                                 pair vectors, and the epoch-bumps?
+;;                                 predicate. Pure geometry.
 ;;
 ;;   run-cascade            — feed the ordered ref-vec through
 ;;                            `collect-actions`: exit shallowest-first →
@@ -2915,7 +2916,7 @@
 ;;                            Threads snapshot + acc-fx; short-circuits to
 ;;                            `result/fail` on `:data`-fn throws.
 
-(defn- compute-cascade-paths
+(defn- compute-transition-geometry
   "Phase 1 — derive the transition's geometry. Returns a map with:
     :src-path       — source state path (vector).
     :target-leaf    — initial-cascaded target path (nil for internal).
@@ -3318,8 +3319,8 @@
   snapshot + accumulated fx (and the structured `::cascade` step vector
   via `result/with-cascade`), or a `result/fail` carrying the
   throwing action's diagnostic map."
-  [machine snapshot event cascade]
-  (collect-actions machine snapshot event (:cascade-steps cascade)))
+  [machine snapshot event geometry]
+  (collect-actions machine snapshot event (:cascade-steps geometry)))
 
 (defn- bump-after-epochs
   "Bump the per-path `:after` epoch for each decl-path in `bump-paths`
@@ -3373,7 +3374,7 @@
   bearing node. Per Spec 005 §Delayed `:after` transitions §Hierarchy
   interaction. Internal transitions preserve the input snapshot's
   `:state` unchanged."
-  [machine snapshot snap-after cascade]
+  [machine snapshot snap-after geometry]
   ;; The `cond` has three arms — `internal?` (raw-target
   ;; is nil; preserve current state), vector target (use the cascade-
   ;; descended leaf as a vector), keyword target (collapse a single-
@@ -3381,7 +3382,7 @@
   ;; `internal?` already covers the nil-raw-target case,
   ;; and `:target` validation upstream rejects anything other than
   ;; keyword/vector/nil.
-  (let [{:keys [internal? raw-target target-leaf after-bump-paths]} cascade
+  (let [{:keys [internal? raw-target target-leaf after-bump-paths]} geometry
         new-state (cond
                     internal?             (:state snapshot)
                     (vector? raw-target)  (vec target-leaf)
@@ -3401,8 +3402,8 @@
   handler short-circuits to a `result/fail` Result. Returns either
   `result/ok` carrying `[snap-after-spawns spawn-fx]` or the propagated
   failure."
-  [machine event snap-final cascade]
-  (let [{:keys [internal? entered-pairs]} cascade
+  [machine event snap-final geometry]
+  (let [{:keys [internal? entered-pairs]} geometry
         parent-id (or (:rf/parent-id machine) :rf/transition-pure)]
     (if internal?
       (result/ok snap-final [])
@@ -3449,7 +3450,7 @@
   JVM pure-fn tests) stays free of transient runtime metadata.
 
   The body composes four named phases:
-  `compute-cascade-paths` → `run-cascade` → `commit-snapshot` →
+  `compute-transition-geometry` → `run-cascade` → `commit-snapshot` →
   `run-spawn-phase`. Each phase is a pure helper above.
 
   `transition` is the transition map with a synthetic :decl-path key
@@ -3466,12 +3467,12 @@
   ([machine snapshot event transition]
    (apply-transition-once machine snapshot event transition :transition))
   ([machine snapshot event transition transition-phase]
-  (let [cascade  (compute-cascade-paths machine snapshot transition transition-phase)
-        cascade-r (run-cascade machine snapshot event cascade)]
+  (let [geometry  (compute-transition-geometry machine snapshot transition transition-phase)
+        cascade-r (run-cascade machine snapshot event geometry)]
     (if (result/fail? cascade-r)
-      (result/fail-with cascade-r {:decl-path  (:decl-path cascade)
+      (result/fail-with cascade-r {:decl-path  (:decl-path geometry)
                                    :transition transition
-                                   :state-path (:src-path cascade)})
+                                   :state-path (:src-path geometry)})
       (result/with-ok [snap-after fx] cascade-r
         (let [;; The structured cascade steps `collect-actions`
               ;; recorded ride `cascade-r` via `::cascade`; re-stamp them onto
@@ -3479,7 +3480,7 @@
               ;; that would otherwise drop them) so `machine-transition-single`
               ;; can accumulate the macrostep's full step sequence.
               cascade-steps   (result/cascade cascade-r)
-              snap-committed  (commit-snapshot machine snapshot snap-after cascade)
+              snap-committed  (commit-snapshot machine snapshot snap-after geometry)
               ;; Per Spec 005 §Recording — on compound-state exit:
               ;; as part of the exit-cascade commit, write
               ;; each history-bearing exited compound's last-active config
@@ -3487,34 +3488,34 @@
               ;; declaration path. The active config recorded is the
               ;; PRE-transition source leaf (`:src-path`).
               [snap-final history-recorded]
-                              (if (:internal? cascade)
+                              (if (:internal? geometry)
                                 [snap-committed []]
                                 (record-exit-history machine snap-committed
-                                                     (:src-path cascade)
-                                                     (:lca-len cascade)))
+                                                     (:src-path geometry)
+                                                     (:lca-len geometry)))
               ;; Per Spec 005 §Restoring + Spec 009 (mle6e.2): emit the
               ;; history traces. `restored` when this transition resolved a
               ;; history pseudo-state; `recorded` once per history-bearing
               ;; compound exited.
               _ (when-let [{:keys [compound-path resolved-leaf source kind
                                    restored-config fallback]}
-                           (:history-restore cascade)]
+                           (:history-restore geometry)]
                   (emit-history-restored! machine compound-path resolved-leaf
                                           source kind restored-config fallback))
               _ (doseq [rec history-recorded]
                   (emit-history-recorded! machine rec))
               parent-id       (or (:rf/parent-id machine) :rf/transition-pure)
-              after-fx        (build-after-fx machine (:entered-pairs cascade)
-                                              (:internal? cascade) snap-final)
-              after-cancel-fx (build-after-cancel-fx parent-id (:exited-pairs cascade)
-                                                     (:internal? cascade))
-              destroy-fx      (build-destroy-fx parent-id (:exited-pairs cascade)
-                                                (:internal? cascade))
-              spawn-r         (run-spawn-phase machine event snap-final cascade)]
+              after-fx        (build-after-fx machine (:entered-pairs geometry)
+                                              (:internal? geometry) snap-final)
+              after-cancel-fx (build-after-cancel-fx parent-id (:exited-pairs geometry)
+                                                     (:internal? geometry))
+              destroy-fx      (build-destroy-fx parent-id (:exited-pairs geometry)
+                                                (:internal? geometry))
+              spawn-r         (run-spawn-phase machine event snap-final geometry)]
           (if (result/fail? spawn-r)
-            (result/fail-with spawn-r {:decl-path  (:decl-path cascade)
+            (result/fail-with spawn-r {:decl-path  (:decl-path geometry)
                                        :transition transition
-                                       :state-path (:src-path cascade)})
+                                       :state-path (:src-path geometry)})
             (result/with-ok [snap-after-spawns spawn-fx] spawn-r
               (let [;; Per Spec 005 §Final states §The done-state signal:
                     ;; if the committed configuration
@@ -3534,7 +3535,7 @@
                     ;; compound-done — it is whole-machine finality handled at
                     ;; the lifecycle boundary (auto-destroy / spawning parent's
                     ;; `:on-done`), the D7 reconciliation.
-                    done-fx (when-not (:internal? cascade)
+                    done-fx (when-not (:internal? geometry)
                               (done-raise-fx machine (state-path (:state snap-after-spawns))))
                     all-fx (vec (concat fx
                                         (or after-cancel-fx [])

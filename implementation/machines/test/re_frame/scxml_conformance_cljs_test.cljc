@@ -1042,7 +1042,7 @@
 ;;
 ;; The engine: `re-frame.machines.transition/target-path` resolves the
 ;; `:same-state` sentinel (and a `:target` naming the declaring state's own
-;; keyword) to the declaring state's own path; `compute-cascade-paths` keeps
+;; keyword) to the declaring state's own path; `compute-transition-geometry` keeps
 ;; the LCCA at the TARGET's depth (case 2 — only descendants below the target
 ;; cross the cascade boundary) and pulls it UP to the target's parent (case 3)
 ;; ONLY when the transition carries `:reenter? true`. The effective

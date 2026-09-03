@@ -1,8 +1,8 @@
 (ns re-frame.machine-decl-path-default-test
-  "`compute-cascade-paths`' default `:decl-path` is ROOT (`[]`), not a
+  "`compute-transition-geometry`'s default `:decl-path` is ROOT (`[]`), not a
   depth-1 guess.
 
-  `compute-cascade-paths` (reached via the public `apply-transition-once`)
+  `compute-transition-geometry` (reached via the public `apply-transition-once`)
   reads `(:decl-path transition <default>)` — the absolute path of the state
   node whose `:on` / `:always` / `:after` table the transition was declared
   in. It anchors the LCA / exit / entry geometry: the `target-descendant-of-

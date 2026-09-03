@@ -3,7 +3,7 @@
   (rf2-cczlc).
 
   PR #6010 made the executable `internal?` flag EXACTLY the targetless /
-  no-cascade case (`compute-cascade-paths` in
+  no-cascade case (`compute-transition-geometry` in
   `re-frame.machines.transition`), and the four active-path geometries are
   pinned behaviourally by `machine_active_path_geometry_test.clj` plus the
   `machine_property_cljs_test.cljc` invariants. What those tiers cannot see is
@@ -78,7 +78,7 @@
 
 (def ^:private transition-src
   ;; The transition runtime, whole file: the `internal?` classification prose
-  ;; lives in `target-path` + `compute-cascade-paths`.
+  ;; lives in `target-path` + `compute-transition-geometry`.
   (delay (slurp-rel "implementation/machines/src/re_frame/machines/transition.cljc")))
 
 ;; ---------------------------------------------------------------------------
@@ -157,7 +157,7 @@
     concepts-self #"(?is)compound\s+re-resolves\s+descendants"]
 
    ;; transition.cljc runtime prose
-   ["impl: `compute-cascade-paths` keeps `explicit target is NEVER internal`"
+   ["impl: `compute-transition-geometry` keeps `explicit target is NEVER internal`"
     transition-src #"(?i)explicit\s+target\s+is\s+never\s+internal"]
    ["impl: `target-path` labels XState `internal` a parity label, not the flag"
     transition-src #"(?is)parity label, not re-frame2's runtime"]])
@@ -187,7 +187,7 @@
           (str label
                " reacquired a conflated / over-general transition-geometry "
                "claim. The runtime `internal?` flag is TARGETLESS-only "
-               "(Spec 005 §Self-transitions + `compute-cascade-paths`); an "
+               "(Spec 005 §Self-transitions + `compute-transition-geometry`); an "
                "explicit self / ancestor target is non-reentering but "
                "re-resolves descendants, and a leaf self-target is action-only "
                "by the empty-descendant coincidence, not by being `internal?`."))))
@@ -218,7 +218,7 @@
     (doseq [sentence
             [;; targetless legitimately IS the internal? no-op
              "Targetless — the runtime `internal?` no-op. This is the only geometry the runtime flags `internal?`."
-             ;; the load-bearing negation compute-cascade-paths keeps
+             ;; the load-bearing negation compute-transition-geometry keeps
              ";; the ONLY internal (true configuration no-op) case. An EXPLICIT target is NEVER internal:"
              ;; a self/ancestor target is XState-`internal` but NOT the runtime flag
              "So a self / ancestor target is \"internal\" in XState's vocabulary yet is not `internal?` in re-frame2's runtime."
