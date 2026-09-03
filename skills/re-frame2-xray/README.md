@@ -25,7 +25,7 @@ Xray is the human-facing panel; when the user asks an agent to inspect or change
 - `references/panels.md` — the compact canonical tab inventory (10 Dynamic + 5 Static), the scope matrix, and the panel → content-home mapping for surfaces that are not their own tab
 - `references/panels-epoch.md` · `panels-state.md` · `panels-domains.md` · `panels-resources.md` · `panels-structure.md` — one leaf per panel family (the Epoch cascade + Trace + issues; app-db + Views; Machine + Routes; Resources; Graph + Frames + Hicasso) — a deep question loads only its family
 - `references/chrome.md` — the first-screen chrome inventory in depth (LIVE/RETRO, time-travel rewind, filter pills, command-palette sources, the Settings-popup tabs, the Snapshot app-db redaction contract)
-- `references/shared-components.md` — the components every L4 panel reuses (`edn-inspector/render-node`, `film_strip/header`, `focus_resolver`) + the tab-icon / L2-badge / cross-panel-arrow glyph reference
+- `references/shared-components.md` — the components every L4 panel reuses (`edn-inspector/render-node`, `focus_resolver`) + the tab-icon / L2-badge / cross-panel-arrow glyph reference
 - `evals/evals.json` — eval fixtures (trigger accuracy + answer-quality/route-quality assertions for the high-drift launch / chrome / tab-routing prompts)
 - `evals/README.md` — the eval harness: coverage table, schema, and how to run the answer-quality checks
 - `.claude-plugin/plugin.json` — Claude Code Plugin packaging metadata

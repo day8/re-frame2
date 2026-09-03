@@ -26,9 +26,12 @@
        too; reinforced here to keep the contract co-located.
 
     2. **Helpers route through the var-map** — `panel-accent`,
-       `accent-stripe-style`, `tier-colour`, `severity-colour`,
-       `op-type-colour`, `event-status-colour` — every public colour
-       helper returns a CSS-variable string.
+       `accent-stripe-style`, `severity-colour`, `op-type-colour`,
+       `event-status-colour` — every public colour helper returns a
+       CSS-variable string. (`theme/perf-tier`'s `tier-colour` was
+       pinned here too until rf2-6r9j.18 removed that module — it had
+       no rendering consumer left, so the guarantee went with the
+       helper rather than being dropped from a live surface.)
 
     3. **Rendered hiccup carries var() references** — render small
        view fragments and walk every `:style` map: no value is a
@@ -51,7 +54,6 @@
             [day8.re-frame2-xray.panels.trace-helpers :as trace-h]
             [day8.re-frame2-xray.focus :as focus]
             [day8.re-frame2-xray.views.edn-inspector :as ei]
-            [day8.re-frame2-xray.theme.perf-tier :as perf-tier]
             [day8.re-frame2-xray.theme.tokens :as tokens]))
 
 ;; ---- (1) tokens IS the var-map ------------------------------------------
@@ -123,15 +125,6 @@
             (str tab " stripe references the canonical var() prefix"))
         (is (not (re-find #"#[0-9A-Fa-f]" border))
             (str tab " stripe has no hex literal in the border declaration"))))))
-
-(deftest tier-colour-returns-css-variable-string
-  (testing "rf2-on4cm — `perf-tier/tier-colour` is read through tokens
-            so the four tier accents land on var(--rf-xray-<key>)."
-    (doseq [tier perf-tier/tier-order]
-      (let [v (perf-tier/tier-colour tier)]
-        (is (string? v))
-        (is (re-find #"^var\(--rf-xray-" v)
-            (str "tier-colour " tier " resolves to a CSS variable"))))))
 
 (deftest severity-colour-returns-css-variable-string
   (testing "rf2-on4cm — `issues-ribbon-helpers/severity-colour` is

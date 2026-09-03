@@ -33,7 +33,7 @@ command palette, `Cmd/Ctrl+K` → "Open Trace panel"; from code, with
 | Tab | Tooltip | Scope | One-line purpose | Depth |
 |---|---|---|---|---|
 | **Epoch** *(default landing)* | `e` | focused epoch | The focused dispatch's full cascade as a numbered vertical timeline, per-step ✓/✗/⊘, exceptions inline under their step. | [panels-epoch.md](panels-epoch.md) |
-| **app-db** | `a` | focused epoch | State sectioned by reserved area, collapsible lazy-trees, inline `← was X` diffs, downstream-subs hover. | [panels-state.md](panels-state.md) |
+| **app-db** | `a` | focused epoch | State sectioned by reserved area, collapsible lazy-trees, inline `← was X` diffs. | [panels-state.md](panels-state.md) |
 | **Views** | `v` | focused epoch | The reactive cascade (subs + views) as a DAG with render-cause chips (`← :sub-id` vs `← props`). | [panels-state.md](panels-state.md) |
 | **Trace** | `t` | focused epoch | Raw trace events for the focused epoch — flat oldest-first rows, click to expand. | [panels-epoch.md](panels-epoch.md) |
 | **Machine** | `m` | focused epoch | What this event did to machines — topology + transition + guards/actions; blank on a no-machine epoch. | [panels-domains.md](panels-domains.md) |

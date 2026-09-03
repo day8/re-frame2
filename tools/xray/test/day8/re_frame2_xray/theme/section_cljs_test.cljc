@@ -3,7 +3,7 @@
 
   ## Why the `.cljc` + `_cljs_test` naming
 
-  Same dual-target pattern as `perf_tier_cljs_test.cljc`:
+  Same dual-target pattern as `tokens_cljs_test.cljc`:
 
     - Cognitect's test-runner (CLJ) picks it up via the default
       `.*-test$` regex on the ns name.

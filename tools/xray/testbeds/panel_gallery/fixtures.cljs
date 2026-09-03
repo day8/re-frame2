@@ -253,7 +253,7 @@
 
 (defn long-handler-buffer
   "A buffer of cascades whose `:run-end` rows carry a wide spread of
-  `:duration-ms` values so the panel's perf-tier dot ladder is visible
+  `:duration-ms` values so the panel's duration chrome is visible
   across the cascade list."
   []
   (->> [{:dispatch-id 100 :event-vec [:counter/increment] :id-base 50  :duration 1}
@@ -264,7 +264,7 @@
        (mapcat (fn [{:keys [dispatch-id event-vec id-base duration]}]
                  (-> (cascade-evs dispatch-id event-vec id-base)
                      ;; Patch the run-end emit's :duration-ms so the
-                     ;; perf-tier dot reflects the variant's intent.
+                     ;; rendered duration reflects the variant's intent.
                      (update 2 update :tags assoc :duration-ms duration))))
        vec))
 

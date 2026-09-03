@@ -3,7 +3,7 @@
 
   ## Why .cljc + _cljs_test naming
 
-  Same dual-target pattern as `perf_tier_cljs_test.cljc` — Cognitect
+  Same dual-target pattern as `section_cljs_test.cljc` — Cognitect
   (`.*-test$` ns regex) + Shadow `:node-test` (`cljs-test$`).
 
   ## What's under test

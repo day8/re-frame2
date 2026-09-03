@@ -844,7 +844,7 @@ sections that read top-to-bottom as the developer scans.
    (when mismatches > 0) a hydration-bisector affordance. (Pre rf2-gbz39 this jumped to the Issues tab; that tab was removed under Option (c), so the bisector surfaces inline / via the Routing + Epoch lenses.)
 8. **EFFECTS HANDLERS RAN** — silent-by-default when no fx ran. One
    row per `:rf.fx/handled` (or override / skipped / exception) trace:
-   fx-id chip + perf-tier dot + status caption. For `:dispatch` the
+   fx-id chip + duration + status caption. For `:dispatch` the
    queued child event renders inline as `→ queued [:foo …]`. For
    managed-fx surfaces (`:rf.http/*`, `:rf.ws/*`, `:rf.machine/*`,
    `:rf.server/*`, `:rf.flow/*`) the wire-boundary `record-panel`

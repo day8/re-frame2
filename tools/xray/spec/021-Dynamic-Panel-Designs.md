@@ -909,7 +909,16 @@ SUBSCRIPTIONS** sections read the view-unmount / sub-dispose ops from the same e
 | View row | Open-in-editor at view file:line |
 | `caused-by ← sub ← path` chip | Each chip is clickable; "path" jumps to App-db panel at that path (cross-panel propagation per §10.5) |
 
-### §3.7 Film-strip
+### §3.7 Film-strip — RETIRED 2026-09-03 (rf2-6r9j.16)
+
+> **Status — retired.** No L4 panel mounts a film-strip header. Spine
+> navigation is owned by the L2 events list and the chrome ribbon's
+> `[◀ ▶ ⏭]` cluster (§5.5, [`018-Event-Spine.md`](018-Event-Spine.md)
+> §2); a per-panel duplicate was removed from Trace by rf2-o6yqq and
+> never landed anywhere else. The shared component built for this
+> design (`panels/shared/film_strip/header.cljc`) was deleted unmounted
+> by rf2-6r9j.16. The design below is kept as historical record and is
+> not normative.
 
 Same `[◀ Prev] [Next ▶]` shape as Event. MVP chronological; stretch
 filter "next epoch with view re-render" (skip the silent epochs).
@@ -1021,7 +1030,18 @@ its `:before-top` is the whole prior user-domain map, so a NEW
 user-domain key already classifies `:added` per-key inside the diff
 engine.
 
-### §4.4 Cascade overlay — downstream subs
+### §4.4 Cascade overlay — downstream subs — RETIRED 2026-05-22 (rf2-kbxgj · rf2-ilubp)
+
+> **Status — retired.** Commit `95d92180bb` stripped the per-block
+> affordances from the App-db current-state inspector, deleting the
+> hover downstream-subs popover, its `app_db_diff_downstream.cljs`
+> component and its install path. The panel's drill-down is the
+> first-class EDN inspector; there is no per-path subscription
+> attribution surface. The registry-side resolver written to power this
+> overlay (`panels/shared/sub_input_paths.cljc`, rf2-gblq6) outlived the
+> UI by itself and was deleted unconsumed by rf2-6r9j.17. The design
+> below is kept as historical record and is not normative — restoring
+> it means landing a real UI consumer first, not reviving the resolver.
 
 Hover (or click) any changed path → popover lists subs and views
 downstream of that path:
@@ -1093,17 +1113,24 @@ overlay.
 | From | Reads |
 |---|---|
 | Trace bus | `:rf/epoch-record` `:db-before` + `:db-after` (existing); the focused epoch's `:db-after` is the panel's `:value` and `:db-before` is the diff pre-image (per-epoch delta · rf2-02j4r). Structural-sharing diff per §004 |
-| Registries | Sub `:input-paths` for the "downstream subs" overlay |
-| Reactive panel state | Re-rendered views set for the overlay popover |
+
+(The `Registries` → sub `:input-paths` and `Reactive panel state` →
+re-rendered-views rows both served the §4.4 downstream-subs overlay and
+went with it — the panel reads neither.)
 
 ### §4.7 Cross-panel navigation
 
 | Click | Navigates to |
 |---|---|
 | Changed-path row | Cross-panel propagation per §10.5: switches to **Reactive** and highlights subs + views downstream of that path. Same gesture as clicking any path segment in the renderer. |
-| Hover overlay `⤴` | Switch to **Reactive**, scrolled to the listed views (same destination as the path-row click; the `⤴` is the explicit affordance label on the hover popover) |
 
-### §4.8 Film-strip
+(The `Hover overlay ⤴` row went with the §4.4 overlay.)
+
+### §4.8 Film-strip — RETIRED 2026-09-03 (rf2-6r9j.16)
+
+> **Status — retired.** See §3.7. The App-db panel mounts no film-strip
+> header; the L2 events list owns spine navigation. The design below is
+> kept as historical record and is not normative.
 
 `[◀ Prev] [Next ▶]` chronological. Stretch: "next epoch that changed
 THIS path" — operator selects a path (sticky selection) then ▶ advances
@@ -1152,8 +1179,8 @@ epoch-per-event (§1.1), one epoch = one event, so the focused epoch's
 - **ALL filtering UI** — the `[op-type ▾] [tag ▾]` chip-filter rows, the
   per-row chip affordances, the clear-filters control. The focused epoch
   IS the scope; the per-row payload-expand affordance is the drill-down.
-  (This makes the Trace panel the one L4 panel with NO film-strip header —
-  the others retain it; see §2.5.)
+  (rf2-o6yqq made Trace the FIRST L4 panel with no film-strip header;
+  rf2-6r9j.16 made it the rule — no L4 panel mounts one. See §5.5.)
 
 **Readable rows (Figma design — rf2-ad7zx).** Reconciled to
 `tools/xray/design-reference/xray_devtools_reference.cljs` (the `trace-panel` component), the
@@ -1220,11 +1247,17 @@ history buffer.").
 
 (There is no op-type chip-filter row — filtering was removed, rf2-gkczt.)
 
-### §5.5 No film-strip (rf2-o6yqq)
+### §5.5 No film-strip (rf2-o6yqq · generalised rf2-6r9j.16)
 
-The Trace panel has **no film-strip header** — alone among the L4 panels.
+The Trace panel has **no film-strip header**. Nor does any other L4
+panel: rf2-o6yqq removed Trace's, §3.7 / §4.8 record the View and App-db
+designs as retired, and rf2-6r9j.16 deleted the shared component itself,
+which had been built (rf2-h7nqh) but never mounted anywhere.
+
 Epoch navigation is owned by the L2 events list / events-ribbon nav
-(`◀ ▶ ⏭`); the panel re-scopes whenever spine focus moves.
+(`◀ ▶ ⏭`); every L4 panel re-scopes whenever spine focus moves. This is
+the single navigation owner — a panel that wants its own epoch stepper
+is proposing a second one, and needs that argued rather than assumed.
 
 ---
 
@@ -5152,8 +5185,10 @@ edn-inspector in every panel renders the same placeholder:
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-The film-strip ◀ / ▶ keeps working — the operator can scrub past evicted
-epochs without losing the rest of the spine.
+The ribbon's ◀ / ▶ / ⏭ nav keeps working — the operator can scrub past
+evicted epochs without losing the rest of the spine. (Written when the
+per-panel film-strip was still the intended stepper; the L2 events list
+owns that nav now — §5.5.)
 
 ---
 
@@ -5333,10 +5368,12 @@ real beads after approving this doc.
   panel content with sub cascade + view re-render (§3). Depends on
   substrate `:rf.sub/skip` (landed, rf2-ty5r5o) + `:rf.view/rendered`.
 
-- **rf2-?????** — *Xray: App-db panel — downstream-subs overlay.* Add
-  the hover popover at §4.4 that lists subs/views downstream of each
-  changed path; click `⤴` → Reactive panel. Depends on Reactive panel
-  cross-panel API.
+- **rf2-?????** — *Xray: App-db panel — downstream-subs overlay.*
+  **(Retired — the popover shipped and was then removed by rf2-kbxgj ·
+  rf2-ilubp; see §4.4. Its registry-side resolver was deleted unconsumed
+  by rf2-6r9j.17.)** Add the hover popover at §4.4 that lists subs/views
+  downstream of each changed path; click `⤴` → Reactive panel. Depends
+  on Reactive panel cross-panel API.
 
 - **rf2-?????** — *Xray: Trace panel — focused-epoch scoping + film-
   strip.* Re-scope Trace panel to focused `:dispatch-id` (drop any
@@ -5356,9 +5393,11 @@ real beads after approving this doc.
   evicted-epoch placeholder.* Re-scope per §8; ensure issues panel
   film-strip respects the "next epoch with ⚠" stretch filter.
 
-- **rf2-?????** — *Xray: shared film-strip header component.* Single
-  reusable `[◀ Prev] [Next ▶]` header consumed by every L4 panel. MVP
-  chronological; per-panel filter slot for stretch.
+- **rf2-?????** — *Xray: shared film-strip header component.*
+  **(Retired — landed as rf2-h7nqh, never mounted by any L4 panel, and
+  deleted by rf2-6r9j.16. The L2 events list owns spine navigation;
+  see §5.5.)** Single reusable `[◀ Prev] [Next ▶]` header consumed by
+  every L4 panel. MVP chronological; per-panel filter slot for stretch.
 
 - **rf2-?????** — *Xray: L2 epoch timeline — dispatch-origin prefix +
   activity badges.* Render the §1 badge set on each L2 row (⚠ ◆ 🌐 ⚡ 💧
