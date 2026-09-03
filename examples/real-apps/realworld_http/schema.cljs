@@ -190,29 +190,53 @@
 ;; absent — they're runtime-db, not app-db, and get validated through each
 ;; machine's own `[:schemas :data]` (the *Data schemas above) instead.
 ;;
+;; WHY EVERY SLICE WEARS A `:maybe` — THE BOOT WINDOW. Validation is not scoped
+;; to the paths the committing event touched: at every `:db` commit the runtime
+;; walks EVERY registered path with `get-in` over the whole candidate app-db and
+;; rejects the entire transaction if any one of them fails (Spec 010 §Per-step
+;; recovery row 4 — the candidate is discarded, and `:fx` does not walk either).
+;; A path nothing has written yet reads `nil`, and `nil` is not a `[:map …]`.
+;; app-db starts empty and each slice is seeded by its OWN feature's
+;; `:*/initialise`, fanned out from `:app/initialise` (core.cljs) — separate
+;; events, so separate commits. Register these bare and the very first seed is
+;; rejected by the eighteen siblings that have not been seeded yet; the same
+;; thing happens to every later seed, so app-db never leaves `{}` and the app
+;; renders empty everywhere. Silently, and only in a development build, since a
+;; production build elides the validator and installs every candidate. The
+;; `:maybe` buys exactly the window before a slice's seed lands — once it has,
+;; the schema is doing its full job. `examples/patterns/boot/schema.cljs` wears
+;; its `:maybe`s for the same reason.
+;;
 ;; One wrinkle: `reg-app-schemas` is frame-local, so it needs a frame in
 ;; context — call it bare at ns-load and you'd get :rf.error/no-frame-context.
 ;; `with-frame` names the target, `:rf/default`, so these register against that
 ;; frame at load time, ready for the frame-provider in core.cljs to pick up
 ;; when it creates `:rf/default`.
-(with-frame :rf/default
- (rf/reg-app-schemas
-  {[:auth]                          AuthSlice
-   [:articles]                      RequestSlice
-   [:articles :data]                [:vector ws/Article]
-   [:article]                       RequestSlice
+
+(def app-db-schemas
+  "This app's app-db schema registry as a `{path -> schema}` VALUE, so the same
+   set can be registered against a frame other than `:rf/default` — registration
+   is frame-local, and a harness driving its own frame gets no schemas at all
+   unless it asks for these by name."
+  {[:auth]                          [:maybe AuthSlice]
+   [:articles]                      [:maybe RequestSlice]
+   [:articles :data]                [:maybe [:vector ws/Article]]
+   [:article]                       [:maybe RequestSlice]
    [:article :data]                 [:maybe ws/Article]
-   [:profile]                       RequestSlice
+   [:profile]                       [:maybe RequestSlice]
    [:profile :data]                 [:maybe ws/Profile]
-   [:profile.articles]              RequestSlice
-   [:profile.articles :data]        [:vector ws/Article]
-   [:profile.favorites]             RequestSlice
-   [:profile.favorites :data]       [:vector ws/Article]
-   [:comments]                      RequestSlice
-   [:comments :data]                [:vector ws/Comment]
-   [:feed]                          RequestSlice
-   [:feed :data]                    [:vector ws/Article]
-   [:comment-form]                  FormSlice
-   [:auth :login-form]              FormSlice
-   [:auth :register-form]           FormSlice
-   [:editor]                        EditorSlice}))
+   [:profile.articles]              [:maybe RequestSlice]
+   [:profile.articles :data]        [:maybe [:vector ws/Article]]
+   [:profile.favorites]             [:maybe RequestSlice]
+   [:profile.favorites :data]       [:maybe [:vector ws/Article]]
+   [:comments]                      [:maybe RequestSlice]
+   [:comments :data]                [:maybe [:vector ws/Comment]]
+   [:feed]                          [:maybe RequestSlice]
+   [:feed :data]                    [:maybe [:vector ws/Article]]
+   [:comment-form]                  [:maybe FormSlice]
+   [:auth :login-form]              [:maybe FormSlice]
+   [:auth :register-form]           [:maybe FormSlice]
+   [:editor]                        [:maybe EditorSlice]})
+
+(with-frame :rf/default
+  (rf/reg-app-schemas app-db-schemas))
