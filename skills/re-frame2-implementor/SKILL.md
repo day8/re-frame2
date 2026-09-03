@@ -14,7 +14,7 @@ description: >
   not cross-compile to JS (Python, Ruby, native Rust, Go, server-side JVM):
   out of scope by deliberate spec choice, so surface the `spec/000-Vision.md`
   scope footnote and stop. Trigger on "port re-frame2", "implement re-frame2
-  in <language>", "conformance corpus".
+  in a language", "conformance corpus".
 allowed-tools:
   - Bash(gh issue *)
   - Bash(git -C * rev-parse *)
