@@ -8,7 +8,7 @@ See [`../README.md`](../README.md) for the wider adapter tier and the substrate 
 
 ## Floor: Reagent 2.x + React 19
 
-The bridge supports exactly one combination: Reagent 2.x (currently pinned to `2.0.1` in [`implementation/core/deps.edn`](../../core/deps.edn)) running against React 19. There is no Reagent 1.x compat path and no React 17/18 fallback.
+The bridge supports exactly one combination: Reagent 2.x (currently pinned to `2.0.1` in [this adapter's own `deps.edn`](deps.edn)) running against React 19. This artefact is the sole owner of the stock `reagent/reagent` coordinate — [`implementation/core/deps.edn`](../../core/deps.edn) deliberately carries no stock-Reagent dep, so a UIx or `reagent-slim` consumer gets a Reagent-free core classpath. There is no Reagent 1.x compat path and no React 17/18 fallback.
 
 Rationale, mirroring the `reagent-slim` `DECISION-5` framing ([`../reagent-slim/IMPL-SPEC.md`](../reagent-slim/IMPL-SPEC.md) §Hard constraints, Stage 1 §2.3a):
 
