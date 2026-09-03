@@ -17,11 +17,13 @@
 
  :aliases
  {:test {:extra-paths ["test"]
-         ;; The shared reset fixture reloads these optional artefacts when they
-         ;; are present. They remain test-only dependencies here.
+         ;; The shared reset fixture (`make-reset-runtime-fixture`) fires
+         ;; late-bound reset hooks and no-ops any row whose hook is
+         ;; unregistered — it never requires an optional artefact itself, so
+         ;; classpath presence alone registers nothing. An artefact belongs
+         ;; here only when a test namespace requires it: `re-frame.schemas`
+         ;; is required by four of them, and test-quiet is the runner.
          :extra-deps  {day8/re-frame2-schemas    {:local/root "../schemas"}
-                       day8/re-frame2-routing    {:local/root "../routing"}
-                       day8/re-frame2-ssr        {:local/root "../ssr"}
                        day8/re-frame2-test-quiet {:local/root "../test-quiet"}}
          ;; Keep the contention suite out of the default gate; `:slow-test`
          ;; selects it for nightly and rigorous-local runs.
@@ -31,8 +33,6 @@
   :slow-test
   {:extra-paths ["test"]
    :extra-deps  {day8/re-frame2-schemas    {:local/root "../schemas"}
-                 day8/re-frame2-routing    {:local/root "../routing"}
-                 day8/re-frame2-ssr        {:local/root "../ssr"}
                  day8/re-frame2-test-quiet {:local/root "../test-quiet"}}
    :main-opts   ["-m" "re-frame.test-quiet.runner" "-i" ":slow" "-i" ":stress"]}
 
