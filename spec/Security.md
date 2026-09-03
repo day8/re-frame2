@@ -5,7 +5,7 @@
 
 ## How to read this doc
 
-This doc is a **pattern-level coordination layer**. Each category below names a class of concern, names the *behavioural* defense the framework owns, and cross-references the owning Spec section + the bead where the decision was recorded. The behavioural detail lives in the owner; this doc names *what is defended, where the defense lives, and why the call was made* — in language-agnostic terms.
+This doc is a **pattern-level coordination layer**. Each category below names a class of concern, names the *behavioural* defense the framework owns, and cross-references the owning Spec section. The behavioural detail lives in the owner; this doc names *what is defended, where the defense lives, and why the call was made* — in language-agnostic terms.
 
 **Language-agnostic versus CLJS-reference.** A pattern-level statement reads: *"sensitive values must default-redact at trace, MCP, and log boundaries."* The CLJS reference's binding of that obligation reads: *"`re-frame.core/elide-wire-value` walks the tree and substitutes `:rf/redacted` for declared-sensitive leaves."* This doc carries the first form; [`implementation/SECURITY.md`](../implementation/SECURITY.md) carries the second. A TypeScript port re-binds the second to `elideWireValue` and uses this doc as the contract for *whether* the binding is correct.
 
@@ -16,7 +16,7 @@ Six sections:
 3. **[Catalogue references](#catalogue-references)** — pointers (not duplication) into [Conventions.md](Conventions.md) and Spec 009 for the `:rf.error/*` / `:rf.warning/*` rows, reserved config slots, and `:sensitive?` / `:large?` meta keys.
 4. **[Trust-boundary matrix](#trust-boundary-matrix)** — surface-keyed index: each row pins the owner doc, default, opt-in escape, implementation hook, conformance coverage, and downstream tool consumers for one trust boundary. The matrix is a projection of §Categories above; it does not invent normative claims.
 5. **[Pragmatic stance](#pragmatic-stance)** — the working principle that governs every call below.
-6. **[Decisions log](#decisions-log)** — bead IDs + one-line behavioural rationales for every concrete call. The full *implementation-side* audit trail (45 beads with named functions, numeric defaults, stub semantics) lives in [`implementation/SECURITY.md` §Decisions log](../implementation/SECURITY.md#decisions-log--the-45-bead-audit-trail).
+6. **[Decisions log](#decisions-log)** — one-line behavioural rationales for every concrete call. The full *implementation-side* audit trail (45 beads with named functions, numeric defaults, stub semantics) lives in [`implementation/SECURITY.md` §Decisions log](../implementation/SECURITY.md#decisions-log--the-45-bead-audit-trail).
 
 The mirror to this doc is [Ownership.md](Ownership.md) — Security here names *what is defended*; Ownership names *where the defense's contract lives*. Where the two overlap (the `:sensitive?` slot, the wire-elision walker, the keyword-interning cap), Ownership wins on the "who owns the surface" question; Security names the threat the surface defends against.
 
@@ -45,7 +45,7 @@ The split mirrors [000 §Goals](000-Vision.md#goals) — the framework optimises
 
 ## Categories
 
-Each category names the concern, the behavioural defenses re-frame2 ships, and cross-references the owning spec section + the bead where the decision was recorded. The CLJS-reference binding of each behaviour — named function, numeric default, exact error keyword — lives in [`implementation/SECURITY.md`](../implementation/SECURITY.md).
+Each category names the concern, the behavioural defenses re-frame2 ships, and cross-references the owning spec section. The CLJS-reference binding of each behaviour — named function, numeric default, exact error keyword — lives in [`implementation/SECURITY.md`](../implementation/SECURITY.md).
 
 ### Input validation / boundary parsing
 
@@ -299,101 +299,101 @@ The stance composes with [Principles §Regularity over cleverness](Principles.md
 
 ## Decisions log
 
-Every concrete security call recorded as a bead, with one-line *behavioural* rationale. Ordered roughly by category. The bead's `bd show <id>` carries the full context; this log is the audit trail of "this is the call we made, here is the why." The CLJS reference's binding of each call (named functions, numeric defaults, exact event keywords) lives in [`implementation/SECURITY.md` §Decisions log](../implementation/SECURITY.md#decisions-log--the-45-bead-audit-trail).
+Every concrete security call, with a one-line *behavioural* rationale. Ordered roughly by category. This log is the audit trail of "this is the call we made, here is the why." The CLJS reference's binding of each call (named functions, numeric defaults, exact event keywords) lives in [`implementation/SECURITY.md` §Decisions log](../implementation/SECURITY.md#decisions-log--the-45-bead-audit-trail).
 
 ### Input validation / DoS
 
-| Bead | Call | Rationale |
-|---|---|---|
-| | Bounded keyword-interning on structured-data decode | Compromised upstream returning N-unique-key payload-per-response would permanently burn N slots in the host's interned-symbol table; long-running processes (SSR JVMs, webhooks) are the worst case. Cap is the second line of defence — first line is "decode to plain strings" for endpoints that don't need keywordization. |
-| | Keyword-interning closed by selective keywording on URL query parse (no cap) | Caller-controlled URLs (deep links, partner referrals, malformed share links) flow into `match-url`'s query parser. The keyword-interning DoS is closed at the source: `match-url` keywordizes only keys named by the route's declared `:query` / `:query-defaults` vocabulary and passes every undeclared URL key through as a string, so a long-running SSR JVM hit by N-unique-key URL streams interns zero keywords. An `[:enum ...]` allowlist gate bounds `:keyword`-typed values. Unlike the HTTP JSON-decode surface (which genuinely keywordizes object keys against a schema and so carries a cap), the routing surface needs no key cap. |
-| | Decoder bounds-check on hand-rolled paths | Truncated / invalid hex escapes surface `:rf.error/malformed-json` with structured `:reason` instead of an opaque host error. Matters for any port that ships a hand-rolled reader. |
-| | CLJS reference: hand-rolled JSON fallback deleted; depend on a hardened third-party JSON dep | Removing the fallback eliminates a parser the framework owns and would have to keep hardened. The bounds-check / cap contracts moved to the hardened-dep paths. |
-| | Per-attempt wall-clock timeout default; `nil` / `0` opt out | Slow-loris defense against partner / webhook / agent-controlled fetches. Two opt-out values are explicit caller intent (not idiomatic); the call-site author signals "I genuinely need unbounded." |
-| | CORS classification (Option a — heuristic emission) | Spec-vs-impl drift fix: the `:rf.http/cors` category was specced but never emitted. Heuristic emission landed on the browser host (TypeError + cross-origin URL); 3 classifier tests + retry-set membership test added. |
-| | Schema validation is a development-build assertion; production trusts the programmer | Every `validate-*!` body sits inside the production-elision gate, so a release build registers each schema and then never consults it — a violating candidate installs, silently, with nothing emitted. Making it always-on would put a validator deref plus a full schema walk on every commit in every app forever, and would owe a production error channel, an egress policy for the failing payload, and a malformed-validator policy before it could be honest. Two of those three now have a worked answer — the `:rf.schema/at-boundary` arm was promoted onto the always-on axis, and it paid the bill by building its record from identifiers the framework already holds rather than scrubbing the failing payload — but that arm is one interceptor an app names per handler, not a walk on every commit, so the cost is what still decides this row. That is a feature with a consumer, not insurance to be shipped ahead of one. Untrusted structured ingress goes behind `:rf.schema/at-boundary`, which survives the gate and reports there; an invariant that must hold in production goes in the handler. |
+| Call | Rationale |
+|---|---|
+| Bounded keyword-interning on structured-data decode | Compromised upstream returning N-unique-key payload-per-response would permanently burn N slots in the host's interned-symbol table; long-running processes (SSR JVMs, webhooks) are the worst case. Cap is the second line of defence — first line is "decode to plain strings" for endpoints that don't need keywordization. |
+| Keyword-interning closed by selective keywording on URL query parse (no cap) | Caller-controlled URLs (deep links, partner referrals, malformed share links) flow into `match-url`'s query parser. The keyword-interning DoS is closed at the source: `match-url` keywordizes only keys named by the route's declared `:query` / `:query-defaults` vocabulary and passes every undeclared URL key through as a string, so a long-running SSR JVM hit by N-unique-key URL streams interns zero keywords. An `[:enum ...]` allowlist gate bounds `:keyword`-typed values. Unlike the HTTP JSON-decode surface (which genuinely keywordizes object keys against a schema and so carries a cap), the routing surface needs no key cap. |
+| Decoder bounds-check on hand-rolled paths | Truncated / invalid hex escapes surface `:rf.error/malformed-json` with structured `:reason` instead of an opaque host error. Matters for any port that ships a hand-rolled reader. |
+| CLJS reference: hand-rolled JSON fallback deleted; depend on a hardened third-party JSON dep | Removing the fallback eliminates a parser the framework owns and would have to keep hardened. The bounds-check / cap contracts moved to the hardened-dep paths. |
+| Per-attempt wall-clock timeout default; `nil` / `0` opt out | Slow-loris defense against partner / webhook / agent-controlled fetches. Two opt-out values are explicit caller intent (not idiomatic); the call-site author signals "I genuinely need unbounded." |
+| CORS classification (Option a — heuristic emission) | Spec-vs-impl drift fix: the `:rf.http/cors` category was specced but never emitted. Heuristic emission landed on the browser host (TypeError + cross-origin URL); 3 classifier tests + retry-set membership test added. |
+| Schema validation is a development-build assertion; production trusts the programmer | Every `validate-*!` body sits inside the production-elision gate, so a release build registers each schema and then never consults it — a violating candidate installs, silently, with nothing emitted. Making it always-on would put a validator deref plus a full schema walk on every commit in every app forever, and would owe a production error channel, an egress policy for the failing payload, and a malformed-validator policy before it could be honest. Two of those three now have a worked answer — the `:rf.schema/at-boundary` arm was promoted onto the always-on axis, and it paid the bill by building its record from identifiers the framework already holds rather than scrubbing the failing payload — but that arm is one interceptor an app names per handler, not a walk on every commit, so the cost is what still decides this row. That is a feature with a consumer, not insurance to be shipped ahead of one. Untrusted structured ingress goes behind `:rf.schema/at-boundary`, which survives the gate and reports there; an invariant that must hold in production goes in the handler. |
 
 ### XSS at output boundaries
 
-| Bead | Call | Rationale |
-|---|---|---|
-| | JSON-LD `<script>` body: escape `<` as `&lt;` | Standard XSS posture for inline `application/ld+json`. Attacker-supplied substring cannot close the script context. |
-| | Attribute *key* escape (not just value) | Attribute keys are attacker-reachable through registered views receiving keyed data; escape prevents breakout from the attribute namespace. |
-| | Strip `on*` and fn-valued props at static-markup emission; drop reserved prototype-pollution keys before they reach createElement | Matches react-dom/server behaviour. Closes both the event-handler-injection vector and the `__proto__` / `constructor` / `prototype` prototype-pollution path on the client. |
+| Call | Rationale |
+|---|---|
+| JSON-LD `<script>` body: escape `<` as `&lt;` | Standard XSS posture for inline `application/ld+json`. Attacker-supplied substring cannot close the script context. |
+| Attribute *key* escape (not just value) | Attribute keys are attacker-reachable through registered views receiving keyed data; escape prevents breakout from the attribute namespace. |
+| Strip `on*` and fn-valued props at static-markup emission; drop reserved prototype-pollution keys before they reach createElement | Matches react-dom/server behaviour. Closes both the event-handler-injection vector and the `__proto__` / `constructor` / `prototype` prototype-pollution path on the client. |
 
 ### CRLF injection
 
-| Bead | Call | Rationale |
-|---|---|---|
-| | Headers / redirects fail-fast on CRLF | No strip-and-warn — silent normalisation masks bugs and lets through downstream-encoded attacks. `:rf.error/header-invalid-value` / `:rf.error/redirect-invalid-location` surface immediately. |
-| | `Set-Cookie` per-attribute CRLF check | Attacker-supplied attribute values (user-id flowing into `:name`, partner-supplied `:domain`) get the same fail-fast treatment as the top-level header value. |
-| | `:rf.server/safe-redirect` open-redirect mitigation | Caller-untrusted redirect strings (`?next=…` URL parameter) get URL parse + scheme reject + `:relative-only?` / `:allow [...]` allowlist gating. Five `:rf.error/safe-redirect-*` categories surface the rejection path. `:rf.server/redirect` keeps the caller-trusted contract for internal use. |
-| | Trusted shell hook contract — four host-adapter shell opts NAMED as trusted strings + structural-shape validation + structured-alternative recommendation | The host adapter's default-shell convenience opts (`:head`, `:body-end`, `:script-src`, `:app-element-id`) were always trusted strings in practice — injected RAW into the rendered HTML envelope — but the trust semantic was not normatively named, so apps wiring any of them from untrusted input (CMS field, tenant-admin form) had no spec-level signal of the XSS vector. The call (a) NAMES the four as trusted-string surfaces at [011 §Trusted shell hook contract](011-SSR.md#trusted-shell-hook-contract), (b) adds construction-time structural-shape validation (`:rf.error/ssr-trusted-shell-opt-invalid` rejects maps / vectors / symbols / numbers), and (c) documents the structured alternatives (`reg-head`, `reg-view*` + `:rf.server/*` fx, `:rf.server/set-header`) for untrusted-customization use cases. Closes the documented-vs-undocumented gap from (parent finding, closed). |
+| Call | Rationale |
+|---|---|
+| Headers / redirects fail-fast on CRLF | No strip-and-warn — silent normalisation masks bugs and lets through downstream-encoded attacks. `:rf.error/header-invalid-value` / `:rf.error/redirect-invalid-location` surface immediately. |
+| `Set-Cookie` per-attribute CRLF check | Attacker-supplied attribute values (user-id flowing into `:name`, partner-supplied `:domain`) get the same fail-fast treatment as the top-level header value. |
+| `:rf.server/safe-redirect` open-redirect mitigation | Caller-untrusted redirect strings (`?next=…` URL parameter) get URL parse + scheme reject + `:relative-only?` / `:allow [...]` allowlist gating. Five `:rf.error/safe-redirect-*` categories surface the rejection path. `:rf.server/redirect` keeps the caller-trusted contract for internal use. |
+| Trusted shell hook contract — four host-adapter shell opts NAMED as trusted strings + structural-shape validation + structured-alternative recommendation | The host adapter's default-shell convenience opts (`:head`, `:body-end`, `:script-src`, `:app-element-id`) were always trusted strings in practice — injected RAW into the rendered HTML envelope — but the trust semantic was not normatively named, so apps wiring any of them from untrusted input (CMS field, tenant-admin form) had no spec-level signal of the XSS vector. The call (a) NAMES the four as trusted-string surfaces at [011 §Trusted shell hook contract](011-SSR.md#trusted-shell-hook-contract), (b) adds construction-time structural-shape validation (`:rf.error/ssr-trusted-shell-opt-invalid` rejects maps / vectors / symbols / numbers), and (c) documents the structured alternatives (`reg-head`, `reg-view*` + `:rf.server/*` fx, `:rf.server/set-header`) for untrusted-customization use cases. Closes the documented-vs-undocumented gap from (parent finding, closed). |
 
 ### Privacy / secret handling
 
-| Bead | Call | Rationale |
-|---|---|---|
-| | `:sensitive?` enforcement on always-on error path (not warning-only) | Always-on error-emit substrate survives production builds; a sensitive failing value would land at hosted error monitors as a verbatim secret without substrate-level enforcement. |
-| | Schema-validation-failure redacts `:value` / `:received` / `:explain` / `:fx-args` / `:query-v` when slot is `:sensitive?` | Schema-validation surfaces typically carry the failing value verbatim — `:query-v` on the sub-return surface re-leaks the caller-supplied lookup key (typically the same secret material the schema is gating). Without redaction the trace event re-leaks the secret to every registered listener. |
-| | Recorder redacts payload but records the slot | Drop-the-payload semantics, not refuse-to-record — devs lose useful correlation otherwise. Matches the always-on error-emit substrate's posture. |
-| | Direct-read tools MUST run the wire-elision walker; named mutations need no extra gate | Direct reads (`get-app-db`, `get-path`) bypass the trace surface where the redaction interceptor and `:sensitive?` stamping operate. The MCP egress is the right boundary for live-value redaction. Named mutations get no extra gate — invoking the tool is the consent. |
-| | The MCP wire-pipeline spec aligned to [Tool-Pair](Tool-Pair.md)'s MUST on direct-read privacy | Spec-vs-spec drift resolution: the trace-surface redaction interceptor (the public `redact-interceptor` is since removed per EP-0015 §7; the internal plumbing remains) shapes trace `:db-before` / `:db-after`; it does NOT protect a live-value direct read. Tool-Pair MUST wins. The aligned document was `tools/causa-mcp/spec/004-Wire-Pipeline.md` — there has never been a `spec/004-Wire-Pipeline.md`, and the earlier wording here named one. causa-mcp and its `machines-viz-mcp` twin were both dropped on 2026-05-18 in favour of `re-frame2-pair-mcp`, which took the wire pipeline with them, so the call now reads against the surviving statement of the rule: [Tool-Pair §Direct-read privacy posture for `sub-cache` and `get-path`](Tool-Pair.md#direct-read-privacy-posture-for-sub-cache-and-get-path), and the row above. |
-| | `:sensitive?` hoisted from `:tags` to trace-event top-level | Consumers route on top-level `:sensitive?` rather than `(get-in trace-event [:tags :sensitive?])` — flatter access path, cheaper conformance gate. |
-| | Same `:sensitive?` boolean exposed for non-trace consumers | One reader, two surfaces — the trace surface and the always-on substrates honour the same predicate. |
-| | Epoch ring carries raw records; listener fan-out delivers raw; off-box egress MUST project via the projected-record helper; finite `:trace-events-keep` retention cap | Restore-epoch and on-box devtools depend on the raw record (silent projection would break Xray's diff visualiser and `restore-epoch!` itself). Off-box egress is the right boundary for the projection — the MCP wire and log shippers route records over a process boundary that MUST default-redact. The retention cap bounds dev-session heap growth without compromising structured-projection coverage. The record-level `:rf.epoch/sensitive?` rollup mirrors the trace-event `:sensitive?` stamp so listener consumers branch on one slot. |
+| Call | Rationale |
+|---|---|
+| `:sensitive?` enforcement on always-on error path (not warning-only) | Always-on error-emit substrate survives production builds; a sensitive failing value would land at hosted error monitors as a verbatim secret without substrate-level enforcement. |
+| Schema-validation-failure redacts `:value` / `:received` / `:explain` / `:fx-args` / `:query-v` when slot is `:sensitive?` | Schema-validation surfaces typically carry the failing value verbatim — `:query-v` on the sub-return surface re-leaks the caller-supplied lookup key (typically the same secret material the schema is gating). Without redaction the trace event re-leaks the secret to every registered listener. |
+| Recorder redacts payload but records the slot | Drop-the-payload semantics, not refuse-to-record — devs lose useful correlation otherwise. Matches the always-on error-emit substrate's posture. |
+| Direct-read tools MUST run the wire-elision walker; named mutations need no extra gate | Direct reads (`get-app-db`, `get-path`) bypass the trace surface where the redaction interceptor and `:sensitive?` stamping operate. The MCP egress is the right boundary for live-value redaction. Named mutations get no extra gate — invoking the tool is the consent. |
+| The MCP wire-pipeline spec aligned to [Tool-Pair](Tool-Pair.md)'s MUST on direct-read privacy | Spec-vs-spec drift resolution: the trace-surface redaction interceptor (the public `redact-interceptor` is since removed per EP-0015 §7; the internal plumbing remains) shapes trace `:db-before` / `:db-after`; it does NOT protect a live-value direct read. Tool-Pair MUST wins. The aligned document was `tools/causa-mcp/spec/004-Wire-Pipeline.md` — there has never been a `spec/004-Wire-Pipeline.md`, and the earlier wording here named one. causa-mcp and its `machines-viz-mcp` twin were both dropped on 2026-05-18 in favour of `re-frame2-pair-mcp`, which took the wire pipeline with them, so the call now reads against the surviving statement of the rule: [Tool-Pair §Direct-read privacy posture for `sub-cache` and `get-path`](Tool-Pair.md#direct-read-privacy-posture-for-sub-cache-and-get-path), and the row above. |
+| `:sensitive?` hoisted from `:tags` to trace-event top-level | Consumers route on top-level `:sensitive?` rather than `(get-in trace-event [:tags :sensitive?])` — flatter access path, cheaper conformance gate. |
+| Same `:sensitive?` boolean exposed for non-trace consumers | One reader, two surfaces — the trace surface and the always-on substrates honour the same predicate. |
+| Epoch ring carries raw records; listener fan-out delivers raw; off-box egress MUST project via the projected-record helper; finite `:trace-events-keep` retention cap | Restore-epoch and on-box devtools depend on the raw record (silent projection would break Xray's diff visualiser and `restore-epoch!` itself). Off-box egress is the right boundary for the projection — the MCP wire and log shippers route records over a process boundary that MUST default-redact. The retention cap bounds dev-session heap growth without compromising structured-projection coverage. The record-level `:rf.epoch/sensitive?` rollup mirrors the trace-event `:sensitive?` stamp so listener consumers branch on one slot. |
 
 ### MCP tool authority
 
-| Bead | Call | Rationale |
-|---|---|---|
-| (part 1) | Named-mutation tools ungated; arbitrary-eval is a separate authority class | Programmer-friction matters; named mutations are the debugging primitive. Arbitrary-eval is qualitatively different. |
-| | re-frame2-pair-mcp arbitrary-eval ships ENABLED; `--no-eval` launch-flag opt-OUT | A default-OFF eval gate adds no protection separable from the localhost bind + `--allow-writes` (eval expresses every write those gates cover), so default-ON is the friction-free pair-debug primitive; the localhost bind is the load-bearing remote-attack protection. `--no-eval` is the one-time, transparent, documented opt-out for the rare paranoid case (CI / shared dev environments). |
-| | MCP servers default localhost-bind | Remote access is explicit opt-in; rules out the casual cross-network reach. |
-| | Per-session MCP cache keyed on app-db root identity | Cache invalidation is keyed on the actual app-db identity — cache poisoning by mismatched session is structurally impossible. |
+| Call | Rationale |
+|---|---|
+| Named-mutation tools ungated; arbitrary-eval is a separate authority class | Programmer-friction matters; named mutations are the debugging primitive. Arbitrary-eval is qualitatively different. |
+| re-frame2-pair-mcp arbitrary-eval ships ENABLED; `--no-eval` launch-flag opt-OUT | A default-OFF eval gate adds no protection separable from the localhost bind + `--allow-writes` (eval expresses every write those gates cover), so default-ON is the friction-free pair-debug primitive; the localhost bind is the load-bearing remote-attack protection. `--no-eval` is the one-time, transparent, documented opt-out for the rare paranoid case (CI / shared dev environments). |
+| MCP servers default localhost-bind | Remote access is explicit opt-in; rules out the casual cross-network reach. |
+| Per-session MCP cache keyed on app-db root identity | Cache invalidation is keyed on the actual app-db identity — cache poisoning by mismatched session is structurally impossible. |
 
 ### Editor URI allowlist + file-path boundaries
 
-| Bead | Call | Rationale |
-|---|---|---|
-| | Reject `javascript:` / `data:` / `vbscript:` schemes; everything else passes | Minimum gate against known XSS vectors; no dev burden for the long-tail of legitimate IDE schemes. |
-| | Env-var path-policy constrains writes to `implementation/` + `examples/` | Safety net against env-var-unset accidents (`rm -rf $UNSET_VAR/...`). Documented as a CI-internal knob, not a stable public interface. |
+| Call | Rationale |
+|---|---|
+| Reject `javascript:` / `data:` / `vbscript:` schemes; everything else passes | Minimum gate against known XSS vectors; no dev burden for the long-tail of legitimate IDE schemes. |
+| Env-var path-policy constrains writes to `implementation/` + `examples/` | Safety net against env-var-unset accidents (`rm -rf $UNSET_VAR/...`). Documented as a CI-internal knob, not a stable public interface. |
 
 ### Production gates
 
-| Bead | Call | Rationale |
-|---|---|---|
-| | Runtime dev-flag (host-specific env/property) for the long-running-host production gate | SSR / long-running posture: explicit dev-flag opt-out, read once at startup. Eliminates the dev-side trace surface in production. |
-| | Always-on error-emit substrate (not gated by the dev-flag) | The handler-exception path is the primary production-monitoring case; gating it on the dev-flag would eliminate the production observability surface. Dev-side enrichments (`:dispatch-id`, source-coord) elide with the rest of the trace surface. |
-| | Always-on event-emit substrate | Sibling to the error-emit substrate; per-event records for hosted observability. |
-| | Always-on error-emit listener surface | Corpus-wide fan-out per `:rf.error/*` event to observability shippers; per-listener exceptions isolated. (The per-frame `:on-error` recovery policy was removed — recovery is framework-owned.) |
-| | SSR response accumulator moved to side-channel store (not in `app-db`) | Hydration payload defaults to shipping the whole app-db. Response state (auth cookies, internal `X-*` headers) in app-db default-leaks; side-channel store makes the privacy boundary self-enforcing. |
+| Call | Rationale |
+|---|---|
+| Runtime dev-flag (host-specific env/property) for the long-running-host production gate | SSR / long-running posture: explicit dev-flag opt-out, read once at startup. Eliminates the dev-side trace surface in production. |
+| Always-on error-emit substrate (not gated by the dev-flag) | The handler-exception path is the primary production-monitoring case; gating it on the dev-flag would eliminate the production observability surface. Dev-side enrichments (`:dispatch-id`, source-coord) elide with the rest of the trace surface. |
+| Always-on event-emit substrate | Sibling to the error-emit substrate; per-event records for hosted observability. |
+| Always-on error-emit listener surface | Corpus-wide fan-out per `:rf.error/*` event to observability shippers; per-listener exceptions isolated. (The per-frame `:on-error` recovery policy was removed — recovery is framework-owned.) |
+| SSR response accumulator moved to side-channel store (not in `app-db`) | Hydration payload defaults to shipping the whole app-db. Response state (auth cookies, internal `X-*` headers) in app-db default-leaks; side-channel store makes the privacy boundary self-enforcing. |
 
 ### Pragmatic stance (the nine policy beads)
 
-| Bead | Call | Rationale |
-|---|---|---|
-| | Migration skill warn-before-mass-rewrite gate | Accident protection — mass rewrite is high-risk; the gate is one warning, not a per-file confirmation. |
-| | Retrospective skill: GH-issue routing + shell-safety here-doc pattern | Pattern, not a hard gate. Documents the safe shell idiom so future skill authors copy from a vetted example. |
-| | Implementor cross-repo announce gate + GH-issue routing | Per-repo announce on cross-cutting changes; mirrors the migration-skill posture for implementor-side changes. |
-| | Published-skill baseline allowed-tools policy + nREPL localhost note | Default-safe published skills; nREPL is documented localhost-only. |
-| | Recorder redact-but-record on `:sensitive?` | Pragmatic privacy: scrub the payload, keep the correlation slot. |
-| | Keep third-party egress in story tooling (QR endpoint, axe-core CDN); document the egress | Bundling axe-core balloons the story bundle for the a11y minority; QR is explicitly user-triggered. Dev-tool conveniences with documented egress, not a security gate worth its friction. |
-| | Nested package-manager install during test runs is fine; skip the bootstrap-script restructure | Nested-package-manager install is how nested projects work; not a security concern in a dev tool. |
-| | Reject only the three known-bad URI schemes in editor templates | Minimum gate, maximum dev compatibility. |
-| | Env-var path-policy check constrains to `implementation/` + `examples/` | Accident-mode defense, not adversary defense. |
+| Call | Rationale |
+|---|---|
+| Migration skill warn-before-mass-rewrite gate | Accident protection — mass rewrite is high-risk; the gate is one warning, not a per-file confirmation. |
+| Retrospective skill: GH-issue routing + shell-safety here-doc pattern | Pattern, not a hard gate. Documents the safe shell idiom so future skill authors copy from a vetted example. |
+| Implementor cross-repo announce gate + GH-issue routing | Per-repo announce on cross-cutting changes; mirrors the migration-skill posture for implementor-side changes. |
+| Published-skill baseline allowed-tools policy + nREPL localhost note | Default-safe published skills; nREPL is documented localhost-only. |
+| Recorder redact-but-record on `:sensitive?` | Pragmatic privacy: scrub the payload, keep the correlation slot. |
+| Keep third-party egress in story tooling (QR endpoint, axe-core CDN); document the egress | Bundling axe-core balloons the story bundle for the a11y minority; QR is explicitly user-triggered. Dev-tool conveniences with documented egress, not a security gate worth its friction. |
+| Nested package-manager install during test runs is fine; skip the bootstrap-script restructure | Nested-package-manager install is how nested projects work; not a security concern in a dev tool. |
+| Reject only the three known-bad URI schemes in editor templates | Minimum gate, maximum dev compatibility. |
+| Env-var path-policy check constrains to `implementation/` + `examples/` | Accident-mode defense, not adversary defense. |
 
 ### Tooling and infrastructure
 
-| Bead | Call | Rationale |
-|---|---|---|
-| | Wire-vocab schema + grep conformance gate | Cross-MCP namespace pin: every server emits byte-identical `:rf.mcp/*` / `:rf.size/*` markers. Drift detector. |
-| | `:rf.mcp/summary` lazy-summary slot | Wire-vocabulary pin so the agent sees the summary boundary the same way across servers. |
-| | `:rf.mcp/dedup-table` + `:rf.mcp/ref` structural dedup | Reserved cross-server so the agent pattern-matches the dedup shape uniformly. |
-| | Schema walker populates the sensitive-declarations registry at boot | Boot-time additive population so the schema-validation emit-site can consult the registry without re-walking. |
-| | Original top-level catalogue + threat model + decisions log | Same shape pattern as Conventions.md + Principles.md: top-level coordination doc that points at the detail without duplicating it. |
-| | Decision: split into pattern-level (this doc) + CLJS-impl ([`implementation/SECURITY.md`](../implementation/SECURITY.md)) | Each doc serves one audience cleanly — a TS implementer reads `spec/Security.md`; a CLJS contributor reads `implementation/SECURITY.md`. Per the external-canonical-home rule. |
-| | The split executed | Keystone bead — unblocks the Security cross-ref cluster + clears spec/Ownership.md for spec-coherence cluster. |
+| Call | Rationale |
+|---|---|
+| Wire-vocab schema + grep conformance gate | Cross-MCP namespace pin: every server emits byte-identical `:rf.mcp/*` / `:rf.size/*` markers. Drift detector. |
+| `:rf.mcp/summary` lazy-summary slot | Wire-vocabulary pin so the agent sees the summary boundary the same way across servers. |
+| `:rf.mcp/dedup-table` + `:rf.mcp/ref` structural dedup | Reserved cross-server so the agent pattern-matches the dedup shape uniformly. |
+| Schema walker populates the sensitive-declarations registry at boot | Boot-time additive population so the schema-validation emit-site can consult the registry without re-walking. |
+| Original top-level catalogue + threat model + decisions log | Same shape pattern as Conventions.md + Principles.md: top-level coordination doc that points at the detail without duplicating it. |
+| Decision: split into pattern-level (this doc) + CLJS-impl ([`implementation/SECURITY.md`](../implementation/SECURITY.md)) | Each doc serves one audience cleanly — a TS implementer reads `spec/Security.md`; a CLJS contributor reads `implementation/SECURITY.md`. Per the external-canonical-home rule. |
+| The split executed | Keystone bead — unblocks the Security cross-ref cluster + clears spec/Ownership.md for spec-coherence cluster. |
 
 ## Cross-references
 
