@@ -96,11 +96,11 @@
   carrier — substituted by `redact-key-declarations`, so a `:params` / `:scope`
   declaration reaches every carrier of the value it names rather than only the
   ones somebody has looked at."
-  (:require [re-frame.classification :as core-classification]
-            [re-frame.resources.classification :as classification]
-            [re-frame.resources.registry :as registry]
-            [re-frame.resources.reply :as resources-reply]
-            [re-frame.resources.ssr :as ssr]))
+  (:require [re-frame.classification :as rf.classification]
+            [re-frame.resources.classification :as rf.resources.classification]
+            [re-frame.resources.registry :as rf.resources.registry]
+            [re-frame.resources.reply :as rf.resources.reply]
+            [re-frame.resources.ssr :as rf.resources.ssr]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -119,17 +119,17 @@
   neither axis names dropped — so `nil` means the spec declares nothing the KEY
   carries and the key must ride VERBATIM.
 
-  Built from the already-public `classification/spec-declaration-marks`, whose
+  Built from the already-public `rf.resources.classification/spec-declaration-marks`, whose
   `:params` bucket IS the scoped-key bucket: a `:params`-rooted declaration
   arrives with its head stripped and names the params component, a
   `:scope`-rooted one arrives WITH its `[:scope …]` head and names the scope
   component. That is the same reading
-  `classification/instance-declaration-paths` lowers into the per-frame elision
+  `rf.resources.classification/instance-declaration-paths` lowers into the per-frame elision
   registry (`[… :resource/key 2 …]` for params, `[… :resource/key 0 …]` for
   scope), which is what makes this agree with the durable side by construction
   rather than by coincidence. Pure / value-independent."
   [spec]
-  (let [declaration-marks (:params (classification/spec-declaration-marks spec))
+  (let [declaration-marks (:params (rf.resources.classification/spec-declaration-marks spec))
         paths-by-component
         (fn [classification-axis]
           (reduce (fn [component-paths declaration-path]
@@ -156,12 +156,12 @@
   the owner's per-slot `:params` / `:scope` projection-relative declarations,
   substituted inside the key `[scope resource-id params]` at the trace / tool
   egress boundary. Takes the key ALREADY projected by
-  `ssr/disposition+project-key`, that call's `disposition`, and the owner
+  `rf.resources.ssr/disposition+project-key`, that call's `disposition`, and the owner
   `spec` it resolved; returns the key.
 
   ## Why the coarse projection is not the whole answer
 
-  `ssr/project-scoped-key` projects the key by the COARSE
+  `rf.resources.ssr/project-scoped-key` projects the key by the COARSE
   `whole-entry-disposition` — the owner's root `:sensitive?` / `:large?` prop.
   A spec that declares `{:sensitive [[:params :account-id]]}` and no coarse prop
   classifies `:serialize`, so that read says nothing and the declared params
@@ -170,12 +170,12 @@
   work-id, and inside every fx carrier the key reaches — while the SAME bytes
   in the durable entry redact, because `reconcile-registry` lowered the
   declaration to `[… :resource/key 2 …]` and the SSR wire key walks it
-  (`classification/project-entry-params`). One value, two carriers, one rule
+  (`rf.resources.classification/project-entry-params`). One value, two carriers, one rule
   applied: the rf2-irwsq shape the sibling `redact-reply-declarations`
   (rf2-ko5lm) closed for the reply's copy of those same params, one slot over
   on the same carrier.
 
-  ## Why HERE and not in `ssr/project-scoped-key`
+  ## Why HERE and not in `rf.resources.ssr/project-scoped-key`
 
   `project-scoped-key`'s `:serialize` deferral is DELIBERATE and stays intact:
   the SSR durable path has a REGISTRY-driven counterpart with the entry's
@@ -183,7 +183,7 @@
   `project-egress` seeded at the lowered registry offset. The trace / tool
   boundary has neither, so it derives the same declaration from the SPEC — the
   frameless derivation the family already uses beside this fn for the reply
-  (`classification/redact-continuation-reply` over `carrier-decl-paths`). The
+  (`rf.resources.classification/redact-continuation-reply` over `carrier-decl-paths`). The
   two answers are byte-identical by construction, because both re-root the same
   `spec-declaration-marks` bucket onto the same two key components and both walk
   INDEX-FREE. SSR is not a caller that never asked for this — it is not a caller
@@ -216,7 +216,7 @@
     scoped-key
     (if-let [declarations (key-slot-declarations spec)]
       (reduce-kv (fn [projected-key component-index {:keys [sensitive large]}]
-                   (update projected-key component-index core-classification/redact-with-paths
+                   (update projected-key component-index rf.classification/redact-with-paths
                             sensitive large {:index-free? true}))
                  scoped-key
                  declarations)
@@ -250,11 +250,11 @@
     (and (redacted-token? (nth scoped-key 0)) (redacted-token? (nth scoped-key 2)))
     [scoped-key true nil nil]
 
-    (nil? (registry/resource-meta (second scoped-key)))
-    [(ssr/project-scoped-key scoped-key :redact nil) true :redact nil]
+    (nil? (rf.resources.registry/resource-meta (second scoped-key)))
+    [(rf.resources.ssr/project-scoped-key scoped-key :redact nil) true :redact nil]
 
     :else
-    (let [[projected-key disposition spec] (ssr/disposition+project-key scoped-key frame-id)]
+    (let [[projected-key disposition spec] (rf.resources.ssr/disposition+project-key scoped-key frame-id)]
       [projected-key (not= :serialize disposition) disposition spec])))
 
 (defn- project-trace-scoped-key
@@ -627,7 +627,7 @@
   [v]
   (and (scoped-key-frame? v)
        (or (map? (nth v 2))
-           (some? (registry/resource-meta (nth v 1))))))
+           (some? (rf.resources.registry/resource-meta (nth v 1))))))
 
 (defn- project-unknown-slot-value
   "SHAPE-DRIVEN fail-closed projection of ONE tag value under a slot the
@@ -678,7 +678,7 @@
   (cond
     (redacted-token? value)   [value true]
     (scoped-key-shape? value) (project-trace-scoped-key value frame-id)
-    (map? value)              [(ssr/redact-value value) true]
+    (map? value)              [(rf.resources.ssr/redact-value value) true]
 
     (coll? value)
     (let [sensitive-found? (volatile! false)
@@ -780,9 +780,9 @@
   merely happens to carry a `:resource/key` beside a `:value` / `:params` is
   NOT a reply, and the family does not speak for those two words anywhere
   else. A mutation reply stamps `:mutation` and is deliberately not matched —
-  its payload is redacted at source (`classification/redact-continuation-reply`)."
+  its payload is redacted at source (`rf.resources.classification/redact-continuation-reply`)."
   [m]
-  (= resources-reply/work-kind-resource (:rf.reply/work-kind m)))
+  (= rf.resources.reply/work-kind-resource (:rf.reply/work-kind m)))
 
 (def ^:private family-reply-kinds
   "The resource FAMILY's two canonical reply `:rf.reply/work-kind`s — a read
@@ -795,8 +795,8 @@
   HTTP stamps `:http` on its own canonical reply (`re-frame.http.reply`), and an
   HTTP reply riding these same carriers is the HTTP family's data to classify.
   The resources projector speaks only for what the resources runtime planted."
-  #{resources-reply/work-kind-resource
-    resources-reply/work-kind-mutation})
+  #{rf.resources.reply/work-kind-resource
+    rf.resources.reply/work-kind-mutation})
 
 (defn- family-reply?
   "Whether MAP `m` is a canonical reply of the resource FAMILY — a read
@@ -805,7 +805,7 @@
 
   The widening exists because the two halves diverge on the OWNER'S data and
   agree on the TRANSPORT ENVELOPE. `:value` / `:params` are the owner's, and the
-  mutation redacts its own at the source (`classification/redact-continuation-
+  mutation redacts its own at the source (`rf.resources.classification/redact-continuation-
   reply`), so `resource-reply?` deliberately excludes `:mutation` there.
   `:error` is the transport's `:rf.http/*` failure envelope — no projection of
   owner data, so no source-side redaction reaches it on EITHER half — and both
@@ -816,7 +816,7 @@
 
 (defn- redact-reply-declarations
   "The READ-CONTINUATION analogue of the mutation's source-side
-  `classification/redact-continuation-reply` (rf2-ko5lm) — literally that
+  `rf.resources.classification/redact-continuation-reply` (rf2-ko5lm) — literally that
   function, reached at the egress projector instead of at the source.
 
   `row-owner-redacts?` above reads the COARSE root-prop claim
@@ -883,14 +883,14 @@
   owner's key rode there verbatim. That copy is closed by
   `redact-key-declarations` above, which is this fn's shape re-rooted onto the
   key's two components instead of the reply's sibling slots —
-  `ssr/project-scoped-key`'s documented `:serialize` deferral left intact,
+  `rf.resources.ssr/project-scoped-key`'s documented `:serialize` deferral left intact,
   because the per-slot arm belongs at the boundary that has no registry to read
   rather than inside the projection the SSR durable path shares."
   [reply]
   (let [rid  (second (:resource/key reply))
-        spec (when (keyword? rid) (registry/resource-meta rid))]
+        spec (when (keyword? rid) (rf.resources.registry/resource-meta rid))]
     (if spec
-      (classification/redact-continuation-reply reply spec)
+      (rf.resources.classification/redact-continuation-reply reply spec)
       reply)))
 
 (defn- carrier-family-value?
@@ -933,7 +933,7 @@
   exists to keep reachable was not reached (merged-PR audit #7013)."
   [v named?]
   (and (scoped-key-frame? v)
-       (or named? (some? (registry/resource-meta (nth v 1))))))
+       (or named? (some? (rf.resources.registry/resource-meta (nth v 1))))))
 
 (def ^:private fx-carrier-slot
   "Trace tag slots owned by the FX family that the resource family's scoped keys
@@ -1096,7 +1096,7 @@
   false and this arm does not fire on it — deliberately. The mutation half is
   closed one layer EARLIER, at the
   source: both settle sites wrap the reply in
-  `classification/redact-continuation-reply`, which redacts the mutation's own
+  `rf.resources.classification/redact-continuation-reply`, which redacts the mutation's own
   projection-relative `:sensitive` / `:large` declarations before the reply ever
   reaches a carrier (rf2-825mzj). A coarse `:sensitive?` ROOT prop is not part
   of `reg-mutation`'s declaration surface and is inert at every mutation egress
@@ -1116,7 +1116,7 @@
   verbatim — while the same bytes in the durable entry redact, because the
   declaration was lowered into the frame's elision registry and the epoch walk
   reads it. `redact-reply-declarations` closes that half by applying the
-  mutation's own `classification/redact-continuation-reply` over the read
+  mutation's own `rf.resources.classification/redact-continuation-reply` over the read
   owner's spec, and the two arms compose by grain rather than overlap: coarse
   claim ⇒ the whole `:value` / `:params` tokenize; declaration only ⇒ the
   declared paths substitute in place and their undeclared siblings ride;
@@ -1283,7 +1283,7 @@
                          true
                          (if (redacted-token? map-value)
                            map-value
-                           (ssr/redact-value map-value)))
+                           (rf.resources.ssr/redact-value map-value)))
 
                        ;; the owner's own reply data — tokenized
                        ;; content-FREE (rf2-hzcv8) iff THIS reply's owner redacts, so a
@@ -1296,7 +1296,7 @@
                          true
                          (if (redacted-token? map-value)
                            map-value
-                           (ssr/redact-value map-value)))
+                           (rf.resources.ssr/redact-value map-value)))
 
                        ;; every other entry takes the walk, NAMED iff the family
                        ;; reserved the key it sits under.
@@ -1413,7 +1413,7 @@
                       (assoc projected-tags tag-name tag-value))
                   (if cursor-redacts?
                     (do (record-sensitive! true)
-                        (assoc projected-tags tag-name (ssr/redact-value tag-value)))
+                        (assoc projected-tags tag-name (rf.resources.ssr/redact-value tag-value)))
                     (assoc projected-tags tag-name tag-value)))
 
                 ;; HTTP failure envelope (`:error` / `:page-error`): the raw
@@ -1430,7 +1430,7 @@
                   (do (record-sensitive! true)
                       (assoc projected-tags tag-name tag-value))
                   (do (record-sensitive! true)
-                      (assoc projected-tags tag-name (ssr/redact-value tag-value))))
+                      (assoc projected-tags tag-name (rf.resources.ssr/redact-value tag-value))))
 
                 ;; An already-projected token rides as-is and still marks the row
                 ;; sensitive — guarded BEFORE `sibling-owned-slot` so a
@@ -1498,7 +1498,7 @@
   `:restored-keys` / `:conflicted-keys` / `:refetched-keys`), and the
   optimistic-rollback `:dispositions` (per-key maps) is projected through the
   resource OWNER classification (`whole-entry-disposition` +
-  `ssr/project-scoped-key`).
+  `rf.resources.ssr/project-scoped-key`).
 
   A `:sensitive?` / `:large?` owner's scope + params
   tokenize to classification-chosen `{:rf/redacted <digest>}` (distinct

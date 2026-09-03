@@ -38,27 +38,27 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.fx :as fx]
+   [re-frame.fx :as rf.fx]
    ;; load-bearing side-effecting requires: register the :rf.resource/* +
    ;; :rf.mutation/* events + subs + the generation cofx/fx.
    [re-frame.resources]
-   [re-frame.resources.mutation-registry :as mreg]
-   [re-frame.resources.state :as state]
-   [re-frame.registrar :as registrar]
+   [re-frame.resources.mutation-registry :as rf.resources.mutation-registry]
+   [re-frame.resources.state :as rf.resources.state]
+   [re-frame.registrar :as rf.registrar]
    [re-frame.resources.test-support]
    [re-frame.http.managed]
    [re-frame.schemas]
-   [re-frame.test-support :as core-test-support]
-   [re-frame.trace.tooling :as trace-tooling]
-   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
-       :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
+   [re-frame.test-support :as rf.test-support]
+   [re-frame.trace.tooling :as rf.trace.tooling]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
 ;; ---- capturing transport ---------------------------------------------------
 
 (def ^:private last-managed-args (atom nil))
 
 (defn- init! []
-  (registrar/clear-kind! :resource-scope)
+  (rf.registrar/clear-kind! :resource-scope)
   (rf/reg-resource-scope :t/session
     {:inputs {:username [:db [:auth :user :username]]}}
     (fn [{:keys [username]} _ctx]
@@ -68,33 +68,33 @@
 
 (defn- capturing-transport-fixture [f]
   (reset! last-managed-args nil)
-  (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
-  (fx/reg-fx :rf.resource/schedule-timers (fn [_ _] nil))
+  (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
+  (rf.fx/reg-fx :rf.resource/schedule-timers (fn [_ _] nil))
   (f))
 
 (use-fixtures :each
-  (core-test-support/make-reset-runtime-fixture
-    #?(:clj  {:adapter plain-atom/adapter :init-fn init!}
-       :cljs {:adapter reagent-adapter/adapter :init-fn init!}))
+  (rf.test-support/make-reset-runtime-fixture
+    #?(:clj  {:adapter rf.substrate.plain-atom/adapter :init-fn init!}
+       :cljs {:adapter rf.adapter.reagent/adapter :init-fn init!}))
   capturing-transport-fixture)
 
 ;; ---- helpers ---------------------------------------------------------------
 
 (defn- runtime-db [] (:rf.db/runtime (rf/frame-state-value :rf/default)))
-(defn- entry [scoped-key] (get-in (runtime-db) (state/entry-path scoped-key)))
+(defn- entry [scoped-key] (get-in (runtime-db) (rf.resources.state/entry-path scoped-key)))
 ;; rf2-8iciw8 — `:rf.runtime/mutations` is keyed on the instance id's CEDN-1
-;; byte `key-id` (`state/key-id`), not the raw id; resolve through it.
-(defn- instance [instance-id] (get-in (runtime-db) [:rf.runtime/mutations (state/key-id instance-id)]))
+;; byte `key-id` (`rf.resources.state/key-id`), not the raw id; resolve through it.
+(defn- instance [instance-id] (get-in (runtime-db) [:rf.runtime/mutations (rf.resources.state/key-id instance-id)]))
 (defn- patch-summary [instance-id] (:patch-summary (instance instance-id)))
 
 (defn- reply-success! [args result]
   (rf/dispatch-sync (conj (:on-success args) {:status :ok :value result})))
 
 (def ^:private article-key
-  (state/scoped-resource-key :rf.scope/global :r/article {:slug "w"}))
+  (rf.resources.state/scoped-resource-key :rf.scope/global :r/article {:slug "w"}))
 
 (defn- session-feed-key [u]
-  (state/scoped-resource-key [:rf.scope/session {:username u}] :r/feed {}))
+  (rf.resources.state/scoped-resource-key [:rf.scope/session {:username u}] :r/feed {}))
 
 (defn- reg-article-resource! []
   (rf/reg-resource :r/article
@@ -114,9 +114,9 @@
   [body-fn]
   (let [seen (atom [])
         k    ::applied-recorder]
-    (trace-tooling/register-listener!
+    (rf.trace.tooling/register-listener!
       k (fn [ev] (when (= :rf.mutation/optimistic-applied (:operation ev)) (swap! seen conj ev))))
-    (try (body-fn) (finally (trace-tooling/unregister-listener! k)))
+    (try (body-fn) (finally (rf.trace.tooling/unregister-listener! k)))
     (:tags (last @seen))))
 
 ;; ===========================================================================
@@ -245,7 +245,7 @@
                           :tags  #{[:article slug]}
                           :patch (fn [d] (assoc d :touched true))}])}
     (fn [{:keys [slug]} _] {:request {:method :post :url "/fav"}}))
-  (let [list-key (state/scoped-resource-key :rf.scope/global :r/article-list {})]
+  (let [list-key (rf.resources.state/scoped-resource-key :rf.scope/global :r/article-list {})]
     (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/favorite-everywhere
                                              :params {:slug "w"} :instance :fe1}])
     (testing "BOTH tag-matched entries were optimistically patched"
@@ -279,7 +279,7 @@
   (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/touch-feed :params {} :instance :tf1}])
   (testing "no session entry was written (fail-closed drop, never an implicit global)"
     (is (nil? (entry (session-feed-key "jake"))))
-    (is (nil? (entry (state/scoped-resource-key :rf.scope/global :r/feed {})))))
+    (is (nil? (entry (rf.resources.state/scoped-resource-key :rf.scope/global :r/feed {})))))
   (testing "the dropped target is recorded as :target-unresolved; no inverse"
     (let [ps (patch-summary :tf1)]
       (is (= [:t/session] (:target-unresolved ps)))
@@ -329,7 +329,7 @@
       (is (some? ex) "registration threw")
       (is (= :rf.error/mutation-optimistic-before-request
              (:rf.error/id (ex-data ex))))
-      (is (nil? (mreg/mutation-meta :m/bad)) "the bad mutation was NOT registered")))
+      (is (nil? (rf.resources.mutation-registry/mutation-meta :m/bad)) "the bad mutation was NOT registered")))
   (testing ":optimistic-tags + :before-request also throws"
     (let [ex (try
                (rf/reg-mutation :m/bad2

@@ -21,18 +21,18 @@
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    ;; load-bearing side-effecting requires: register the resources runtime + the
    ;; late-bound :routing/* integration hooks.
-   [re-frame.resources :as resources]
-   [re-frame.resources.route :as route]))
+   [re-frame.resources :as rf.resources]
+   [re-frame.resources.route :as rf.resources.route]))
 
 (def ^:private res-id :prefetch/warm-res)
 
 (defn- with-resource [f]
-  (resources/reg-resource
+  (rf.resources/reg-resource
     res-id
     {:scope :rf.scope/global :params-schema [:map]}
     (fn [_params _ctx] {:request {:method :get :url "/api/warm"}}))
   (try (f)
-       (finally (resources/clear-resource res-id))))
+       (finally (rf.resources/clear-resource res-id))))
 
 (use-fixtures :each with-resource)
 
@@ -42,7 +42,7 @@
 
 (deftest warm-plan-ensures-are-ownerless-cause-only-and-blocking-inert
   (let [{:keys [fx warmed plan-error]}
-        (route/on-route-prefetch-fx
+        (rf.resources.route/on-route-prefetch-fx
           {:route-id     :route/article
            :params       {}
            :query        {}
@@ -72,7 +72,7 @@
 
 (deftest warm-plan-branch-error-is-a-prefetch-planning-failure
   (let [{:keys [fx warmed plan-error]}
-        (route/route-resource-warm-plan
+        (rf.resources.route/route-resource-warm-plan
           {:id :route/child}
           {:app-db       {}
            :branch       [{:route-id :route/child :route-meta nil}]
@@ -90,7 +90,7 @@
 
 (deftest warm-plan-is-a-noop-when-no-branch-contributor-declares-resources
   (testing "a resource-free branch warms nothing (nil hook result — no work)"
-    (is (nil? (route/on-route-prefetch-fx
+    (is (nil? (rf.resources.route/on-route-prefetch-fx
                 {:route-id     :route/plain
                  :params       {}
                  :query        {}

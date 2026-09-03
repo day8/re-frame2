@@ -57,13 +57,13 @@
   This is an internal seam used by SSR, tooling, trace egress, and event-time
   registry reconciliation. The public surface is the projection-relative
   declaration on `reg-resource` / `reg-mutation`."
-  (:require [re-frame.late-bind :as late-bind]
-            [re-frame.classification :as classification]
-            [re-frame.elision :as elision]
-            [re-frame.path :as path]
-            [re-frame.projection :as projection]
-            [re-frame.resources.mutation-runtime :as mutation-runtime]
-            [re-frame.resources.state :as state]))
+  (:require [re-frame.late-bind :as rf.late-bind]
+            [re-frame.classification :as rf.classification]
+            [re-frame.elision :as rf.elision]
+            [re-frame.path :as rf.path]
+            [re-frame.projection :as rf.projection]
+            [re-frame.resources.mutation-runtime :as rf.resources.mutation-runtime]
+            [re-frame.resources.state :as rf.resources.state]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -164,7 +164,7 @@
               (str "each path in the `" k "` classification declaration must be a "
                    "path vector; got " (pr-str p))
               :else
-              (try (path/normalize-concrete p) nil
+              (try (rf.path/normalize-concrete p) nil
                    (catch #?(:clj Throwable :cljs :default) e
                      (str "an invalid path in the `" k "` classification "
                           "declaration: " (or (ex-message e) (str e)))))))
@@ -196,7 +196,7 @@
   [spec k]
   (reduce
     (fn [acc p]
-      (let [p (vec (path/normalize-concrete p))]
+      (let [p (vec (rf.path/normalize-concrete p))]
         (case (first p)
           :data   (update acc :data conj (subvec p 1))
           :params (update acc :params conj (subvec p 1))
@@ -301,7 +301,7 @@
   (let [sens  (carrier-decl-paths spec :sensitive :value)
         large (carrier-decl-paths spec :large :value)]
     (if (or (seq sens) (seq large))
-      (classification/redact-with-paths reply sens large {:index-free? true})
+      (rf.classification/redact-with-paths reply sens large {:index-free? true})
       reply)))
 
 (defn project-execute-event-args
@@ -335,9 +335,9 @@
           sens  (when spec (carrier-decl-paths spec :sensitive nil))
           large (when spec (carrier-decl-paths spec :large nil))
           args  (if (or (seq sens) (seq large))
-                  (classification/redact-with-paths args sens large)
+                  (rf.classification/redact-with-paths args sens large)
                   args)
-          redact-event (late-bind/get-fn :classification/redact-event-by-registration)
+          redact-event (rf.late-bind/get-fn :classification/redact-event-by-registration)
           reply-to     (:reply-to args)]
       (if (and redact-event (vector? reply-to))
         (let [rt' (redact-event reply-to)]
@@ -408,8 +408,8 @@
                 (some (fn [p]
                         (and (>= (count p) n) (= prefix (subvec (vec p) 0 n))))
                       (keys decls)))]
-    (boolean (or (under (elision/sensitive-declarations frame-id))
-                 (under (elision/declarations frame-id))))))
+    (boolean (or (under (rf.elision/sensitive-declarations frame-id))
+                 (under (rf.elision/declarations frame-id))))))
 
 (defn project-entry-data
   "Project a resource entry's serialized DATA value for egress across
@@ -441,9 +441,9 @@
   entry's CEDN-1 byte key-id. Pure w.r.t. the value (reads the live frame's
   registry)."
   [data key-id frame-id boundary-profile]
-  (let [data-prefix (conj (state/entry-path-by-id key-id) :data)]
+  (let [data-prefix (conj (rf.resources.state/entry-path-by-id key-id) :data)]
     (if (and frame-id (registry-classifies-under? frame-id data-prefix))
-      (projection/project-egress
+      (rf.projection/project-egress
         data
         {:frame             frame-id
          :path              data-prefix
@@ -476,9 +476,9 @@
   would break the cache-key-identity round-trip). Frame-SCOPED: a nil /
   unresolvable `frame-id` rides the component VERBATIM. Pure w.r.t. the value."
   [component index key-id frame-id boundary-profile]
-  (let [prefix (conj (state/entry-path-by-id key-id) :resource/key index)]
+  (let [prefix (conj (rf.resources.state/entry-path-by-id key-id) :resource/key index)]
     (if (and frame-id (registry-classifies-under? frame-id prefix))
-      (projection/project-egress
+      (rf.projection/project-egress
         component
         {:frame             frame-id
          :path              prefix
@@ -596,7 +596,7 @@
   walker hooks are unbound. Pure (modulo the memoised walker)."
   [schema]
   (let [extract (fn [hook]
-                  (if-let [f (and schema (late-bind/get-fn-cached hook))]
+                  (if-let [f (and schema (rf.late-bind/get-fn-cached hook))]
                     (or (f schema []) {})
                     {}))]
     {:sensitive (extract :schemas/extract-sensitive-paths-from-schema)
@@ -626,13 +626,13 @@
   hook)."
   [params error spec]
   (let [schema     (:params-schema spec)
-        redact-fn  (late-bind/get-fn-cached :schemas/redact-validation-tags)
+        redact-fn  (rf.late-bind/get-fn-cached :schemas/redact-validation-tags)
         {:keys [sensitive large]} (validation-failure-params-marks schema)
         ;; The failing params slot is the validator's own failure product — redact
         ;; the schema's `:sensitive?` / `:large?` slots per-slot (the surviving
         ;; schema-prop route), keeping the non-sensitive failing field diagnostic.
         params'    (if (or (seq sensitive) (seq large))
-                     (classification/redact-with-paths params (keys sensitive) (keys large))
+                     (rf.classification/redact-with-paths params (keys sensitive) (keys large))
                      params)
         ;; The explainer output carries the failing params verbatim; treat it as
         ;; the `:explain` value-bearing slot the shared seam scrubs whole-payload.
@@ -691,7 +691,7 @@
   "The ABSOLUTE runtime-db prefix for an entry's `:data` value, keyed on the
   byte `key-id` — `[:rf.runtime/resources :entries <key-id> :data]`."
   [key-id]
-  (conj (state/entry-path-by-id key-id) :data))
+  (conj (rf.resources.state/entry-path-by-id key-id) :data))
 
 (defn- entry-key-prefix
   "The ABSOLUTE runtime-db prefix for an entry's scoped-key `:resource/key`
@@ -699,7 +699,7 @@
   scoped key is `[scope resource-id params]`, so a `:params`-rooted declared
   path re-roots under index 2, a `:scope`-rooted one under index 0."
   [key-id]
-  (conj (state/entry-path-by-id key-id) :resource/key))
+  (conj (rf.resources.state/entry-path-by-id key-id) :resource/key))
 
 (defn- instance-declaration-paths
   "The ABSOLUTE `{:sensitive [paths] :large [paths]}` runtime-db paths a single
@@ -731,7 +731,7 @@
   "The multi-owner elision-registry owner identity a resource / mutation
   instance lowering claims under. All current entries share this owner; the
   reconcile rebuilds the full resource-owned claim set from the live entries
-  each commit (self-dropping), so `elision/replace-owner-claims` drops evicted
+  each commit (self-dropping), so `rf.elision/replace-owner-claims` drops evicted
   entries' claims and installs current ones in one step."
   {:source resource-source})
 
@@ -771,7 +771,7 @@
   no key."
   [runtime-db spec-of]
   (let [base    (or runtime-db {})
-        entries (get-in base (state/entries-path))
+        entries (get-in base (rf.resources.state/entries-path))
         reg     (get base elision-registry-key)
         ;; gather every current entry's absolute declaration paths
         {:keys [sensitive large]}
@@ -788,8 +788,8 @@
           {:sensitive [] :large []}
           (or entries {}))
         new-reg (-> (or reg {})
-                    (elision/replace-owner-claims :sensitive-declarations resource-owner sensitive)
-                    (elision/replace-owner-claims :declarations resource-owner large))]
+                    (rf.elision/replace-owner-claims :sensitive-declarations resource-owner sensitive)
+                    (rf.elision/replace-owner-claims :declarations resource-owner large))]
     (cond
       (seq new-reg)
       (assoc base elision-registry-key new-reg)
@@ -835,7 +835,7 @@
   [key-id spec]
   (let [s            (split-projection-paths spec :sensitive)
         l            (split-projection-paths spec :large)
-        inst-prefix  (conj (mutation-runtime/instances-path) key-id)
+        inst-prefix  (conj (rf.resources.mutation-runtime/instances-path) key-id)
         result-pre   (conj inst-prefix :result)
         params-pre   (conj inst-prefix :params)
         scope-pre    (conj inst-prefix :scope)
@@ -893,7 +893,7 @@
   drop verbatim; the never-classified case emits no key."
   [runtime-db spec-of]
   (let [base      (or runtime-db {})
-        instances (get-in base (mutation-runtime/instances-path))
+        instances (get-in base (rf.resources.mutation-runtime/instances-path))
         reg       (get base elision-registry-key)
         {:keys [sensitive large]}
         (reduce-kv
@@ -909,8 +909,8 @@
           {:sensitive [] :large []}
           (or instances {}))
         new-reg   (-> (or reg {})
-                      (elision/replace-owner-claims :sensitive-declarations mutation-owner sensitive)
-                      (elision/replace-owner-claims :declarations mutation-owner large))]
+                      (rf.elision/replace-owner-claims :sensitive-declarations mutation-owner sensitive)
+                      (rf.elision/replace-owner-claims :declarations mutation-owner large))]
     (cond
       (seq new-reg)
       (assoc base elision-registry-key new-reg)

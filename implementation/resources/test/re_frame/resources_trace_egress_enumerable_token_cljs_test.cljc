@@ -57,13 +57,13 @@
    ;; load-bearing side-effecting require: the façade registers the
    ;; :rf.resource/* events + subs and publishes the trace-egress hooks.
    [re-frame.resources]
-   [re-frame.resources.state :as state]
-   [re-frame.resources.trace-egress :as trace-egress]
+   [re-frame.resources.state :as rf.resources.state]
+   [re-frame.resources.trace-egress :as rf.resources.trace-egress]
    [re-frame.http.managed]
    [re-frame.schemas]
-   [re-frame.test-support :as core-test-support]
-   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
-       :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
+   [re-frame.test-support :as rf.test-support]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
 ;; Two secrets of the SAME shape. That is the whole design of this fixture: a
 ;; content-free token must map them to ONE value (nothing survives to tell them
@@ -92,8 +92,8 @@
     (fn [_p _ctx] {:request {:method :get :url "/plain"}})))
 
 (use-fixtures :each
-  (core-test-support/make-reset-runtime-fixture
-    {:adapter #?(:clj plain-atom/adapter :cljs reagent-adapter/adapter)
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter #?(:clj rf.substrate.plain-atom/adapter :cljs rf.adapter.reagent/adapter)
      :init-fn init!}))
 
 ;; ---- helpers --------------------------------------------------------------
@@ -101,10 +101,10 @@
 (defn- project-row
   "Project `tags` for OFF-BOX egress exactly as the epoch tool-pair does."
   [tags]
-  (trace-egress/project-resource-trace-egress tags (:rf.frame/id tags)))
+  (rf.resources.trace-egress/project-resource-trace-egress tags (:rf.frame/id tags)))
 
 (defn- key-for [resource-id tenant]
-  (state/scoped-resource-key :rf.scope/global resource-id {:tenant tenant}))
+  (rf.resources.state/scoped-resource-key :rf.scope/global resource-id {:tenant tenant}))
 
 (defn- leaks? [secret v]
   (str/includes? (pr-str v) secret))
@@ -230,9 +230,9 @@
 
   (testing "and that digest is a function of the CANONICAL value, so a map
             spelling difference cannot change it (the rf2-hzcv8 witness)"
-    (let [k1 (state/scoped-resource-key :rf.scope/global :bulky/feed
+    (let [k1 (rf.resources.state/scoped-resource-key :rf.scope/global :bulky/feed
                                         (array-map :tenant tenant-a :page 2))
-          k2 (state/scoped-resource-key :rf.scope/global :bulky/feed
+          k2 (rf.resources.state/scoped-resource-key :rf.scope/global :bulky/feed
                                         (array-map :page 2 :tenant tenant-a))]
       (is (= (params-token k1) (params-token k2))
           "equal canonical values with different construction order produce ONE

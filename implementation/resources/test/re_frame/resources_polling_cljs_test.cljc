@@ -38,23 +38,23 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.fx :as fx]
-   [re-frame.identity :as identity]
+   [re-frame.fx :as rf.fx]
+   [re-frame.identity :as rf.identity]
    ;; load-bearing side-effecting require: the façade registers the
    ;; :rf.resource/* events (incl. the internal poll-fired event + the timer /
    ;; cancel-poll-timers fx + the internal replies these tests dispatch).
    [re-frame.resources]
-   [re-frame.resources.state :as state]
+   [re-frame.resources.state :as rf.resources.state]
    [re-frame.resources.test-support]
-   [re-frame.resources.timers :as timers]
-   [re-frame.resources.work-ledger :as work-ledger]
+   [re-frame.resources.timers :as rf.resources.timers]
+   [re-frame.resources.work-ledger :as rf.resources.work-ledger]
    ;; production HTTP fx surface (so the transport feature probe resolves);
    ;; the actual fetch + abort are overridden by capturing no-ops below.
    [re-frame.http.managed]
    [re-frame.schemas]
-   [re-frame.test-support :as core-test-support]
-   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
-       :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
+   [re-frame.test-support :as rf.test-support]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
 ;; ---- capturing transport + abort + timer-schedule (deterministic) ---------
 ;;
@@ -79,16 +79,16 @@
   (reset! aborts [])
   (reset! scheduled-timers [])
   (reset! cancelled-poll [])
-  (fx/reg-fx :rf.http/managed (fn [_ctx _args] nil))
-  (fx/reg-fx :rf.http/managed-abort (fn [_ctx work-id] (swap! aborts conj work-id) nil))
-  (fx/reg-fx :rf.resource/schedule-timers (fn [_ctx args] (swap! scheduled-timers conj args) nil))
-  (fx/reg-fx :rf.resource/cancel-poll-timers (fn [_ctx args] (swap! cancelled-poll conj args) nil))
+  (rf.fx/reg-fx :rf.http/managed (fn [_ctx _args] nil))
+  (rf.fx/reg-fx :rf.http/managed-abort (fn [_ctx work-id] (swap! aborts conj work-id) nil))
+  (rf.fx/reg-fx :rf.resource/schedule-timers (fn [_ctx args] (swap! scheduled-timers conj args) nil))
+  (rf.fx/reg-fx :rf.resource/cancel-poll-timers (fn [_ctx args] (swap! cancelled-poll conj args) nil))
   (f))
 
 (use-fixtures :each
-  (core-test-support/make-reset-runtime-fixture
-    #?(:clj  {:adapter plain-atom/adapter}
-       :cljs {:adapter reagent-adapter/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
+       :cljs {:adapter rf.adapter.reagent/adapter}))
   capturing-fixture)
 
 ;; ---- helpers --------------------------------------------------------------
@@ -100,7 +100,7 @@
 (defn- entry
   ([scoped-key] (entry :rf/default scoped-key))
   ([frame-id scoped-key]
-   (get-in (runtime-db frame-id) (state/entry-path scoped-key))))
+   (get-in (runtime-db frame-id) (rf.resources.state/entry-path scoped-key))))
 
 (defn- article-spec
   ([] (article-spec {}))
@@ -161,7 +161,7 @@
 (deftest poll-enabled-active-owner-arms-poll-timer-on-settle
   (rf/reg-resource :pl/poll (article-spec {:poll-interval-ms 5000}) article-spec-request)
   (let [scope {:user "u"}
-        k (state/scoped-resource-key scope :pl/poll {:slug "w"})]
+        k (rf.resources.state/scoped-resource-key scope :pl/poll {:slug "w"})]
     (ensure! :pl/poll scope "w" [:route :r 1])
     (succeed! k {:title "W"})
     (testing "Spec 016 §Polling — a poll-enabled, actively-owned entry arms a
@@ -173,7 +173,7 @@
 (deftest no-poll-policy-arms-no-poll-timer
   (rf/reg-resource :pl/nopoll (article-spec {:stale-after-ms 1000}) article-spec-request)
   (let [scope {:user "u"}
-        k (state/scoped-resource-key scope :pl/nopoll {:slug "w"})]
+        k (rf.resources.state/scoped-resource-key scope :pl/nopoll {:slug "w"})]
     (ensure! :pl/nopoll scope "w" [:route :r 1])
     (succeed! k {:title "W"})
     (testing "Spec 016 §Polling — a resource with no :poll-interval-ms arms no
@@ -189,7 +189,7 @@
   ;; the reply landed), no poll timer arms.
   (rf/reg-resource :pl/of (article-spec {:poll-interval-ms 5000 :gc-after-ms 9000}) article-spec-request)
   (let [scope {:user "u"}
-        k (state/scoped-resource-key scope :pl/of {:slug "w"})]
+        k (rf.resources.state/scoped-resource-key scope :pl/of {:slug "w"})]
     (ensure! :pl/of scope "w" [:app :x 1])
     ;; release the owner BEFORE the reply lands → settles owner-free
     (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :x 1]}])
@@ -211,7 +211,7 @@
   ;; mirroring the success-path arming.
   (rf/reg-resource :fs/poll (article-spec {:poll-interval-ms 5000}) article-spec-request)
   (let [scope {:user "u"}
-        k (state/scoped-resource-key scope :fs/poll {:slug "w"})]
+        k (rf.resources.state/scoped-resource-key scope :fs/poll {:slug "w"})]
     (ensure! :fs/poll scope "w" [:app :x 1])
     ;; release the owner BEFORE the reply lands → settles owner-free (no poll)
     (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :x 1]}])
@@ -239,7 +239,7 @@
   ;; fresh-skip re-arms nothing (the success-path settle armed it).
   (rf/reg-resource :fa/poll (article-spec {:poll-interval-ms 5000}) article-spec-request)
   (let [scope {:user "u"}
-        k (state/scoped-resource-key scope :fa/poll {:slug "w"})]
+        k (rf.resources.state/scoped-resource-key scope :fa/poll {:slug "w"})]
     (ensure! :fa/poll scope "w" [:route :r 1])
     (succeed! k {:title "W"})   ;; active-owner settle → poll already armed
     (reset! scheduled-timers [])
@@ -264,7 +264,7 @@
   ;; :stale?.
   (rf/reg-resource :pt/poll (article-spec {:poll-interval-ms 5000}) article-spec-request)
   (let [scope {:user "u"}
-        k (state/scoped-resource-key scope :pt/poll {:slug "w"})]
+        k (rf.resources.state/scoped-resource-key scope :pt/poll {:slug "w"})]
     (ensure! :pt/poll scope "w" [:route :r 1])
     (succeed! k {:title "W"})
     (let [gen-before (:generation (entry k))]
@@ -285,14 +285,14 @@
 (deftest poll-tick-records-poll-cause-never-owner
   (rf/reg-resource :pc/poll (article-spec {:poll-interval-ms 5000}) article-spec-request)
   (let [scope {:user "u"}
-        k (state/scoped-resource-key scope :pc/poll {:slug "w"})]
+        k (rf.resources.state/scoped-resource-key scope :pc/poll {:slug "w"})]
     (ensure! :pc/poll scope "w" [:route :r 1])
     (succeed! k {:title "W"})
     (poll-fired! k)
     (testing "Spec 016 §Active owners and causes — a poll refetch records the
               :poll CAUSE on the work record but attaches NO new owner"
       (let [e   (entry k)
-            rec (work-ledger/get-record (runtime-db) (:current-work e))]
+            rec (rf.resources.work-ledger/get-record (runtime-db) (:current-work e))]
         (is (= #{[:route :r 1]} (:active-owners e)) "owner set unchanged — poll added no owner")
         (is (some #{:poll} (:causes rec)) "the :poll cause is recorded on the refetch")))))
 
@@ -303,7 +303,7 @@
 (deftest last-owner-release-cancels-poll-timer
   (rf/reg-resource :or/poll (article-spec {:poll-interval-ms 5000 :gc-after-ms 9000}) article-spec-request)
   (let [scope {:user "u"}
-        k (state/scoped-resource-key scope :or/poll {:slug "w"})]
+        k (rf.resources.state/scoped-resource-key scope :or/poll {:slug "w"})]
     (ensure! :or/poll scope "w" [:app :x 1])
     (succeed! k {:title "W"})
     (reset! cancelled-poll [])
@@ -321,7 +321,7 @@
   ;; close), the tick refetches nothing and does not re-arm.
   (rf/reg-resource :os/poll (article-spec {:poll-interval-ms 5000}) article-spec-request)
   (let [scope {:user "u"}
-        k (state/scoped-resource-key scope :os/poll {:slug "w"})]
+        k (rf.resources.state/scoped-resource-key scope :os/poll {:slug "w"})]
     (ensure! :os/poll scope "w" [:app :x 1])
     (succeed! k {:title "W"})
     (rf/dispatch-sync [:rf.resource/release-owner {:owner [:app :x 1]}])
@@ -341,7 +341,7 @@
 (deftest hidden-tab-pauses-tick-but-rearms
   (rf/reg-resource :hd/poll (article-spec {:poll-interval-ms 5000}) article-spec-request)
   (let [scope {:user "u"}
-        k (state/scoped-resource-key scope :hd/poll {:slug "w"})]
+        k (rf.resources.state/scoped-resource-key scope :hd/poll {:slug "w"})]
     (ensure! :hd/poll scope "w" [:route :r 1])
     (succeed! k {:title "W"})
     (reset! scheduled-timers [])
@@ -357,7 +357,7 @@
 (deftest visible-tick-after-hidden-resumes-refetch
   (rf/reg-resource :hr/poll (article-spec {:poll-interval-ms 5000}) article-spec-request)
   (let [scope {:user "u"}
-        k (state/scoped-resource-key scope :hr/poll {:slug "w"})]
+        k (rf.resources.state/scoped-resource-key scope :hr/poll {:slug "w"})]
     (ensure! :hr/poll scope "w" [:route :r 1])
     (succeed! k {:title "W"})
     (poll-fired! k true)  ;; hidden — paused
@@ -375,7 +375,7 @@
   ;; (no second generation, no overlap) but RE-ARMS.
   (rf/reg-resource :if/poll (article-spec {:poll-interval-ms 5000}) article-spec-request)
   (let [scope {:user "u"}
-        k (state/scoped-resource-key scope :if/poll {:slug "w"})]
+        k (rf.resources.state/scoped-resource-key scope :if/poll {:slug "w"})]
     (ensure! :if/poll scope "w" [:route :r 1])
     (succeed! k {:title "W"})
     (reset! aborts [])
@@ -406,7 +406,7 @@
   ;; work first sets :current-work, the other becomes a no-op.
   (rf/reg-resource :fp/poll (article-spec {:poll-interval-ms 5000 :stale-after-ms 0}) article-spec-request)
   (let [scope {:user "u"}
-        k (state/scoped-resource-key scope :fp/poll {:slug "w"})]
+        k (rf.resources.state/scoped-resource-key scope :fp/poll {:slug "w"})]
     (ensure! :fp/poll scope "w" [:route :r 1])
     (succeed! k {:title "W"})
     (let [gen-before (:generation (entry k))]
@@ -427,7 +427,7 @@
 (deftest late-poll-reply-is-suppressed
   (rf/reg-resource :lp/poll (article-spec {:poll-interval-ms 5000}) article-spec-request)
   (let [scope {:user "u"}
-        k (state/scoped-resource-key scope :lp/poll {:slug "w"})]
+        k (rf.resources.state/scoped-resource-key scope :lp/poll {:slug "w"})]
     (ensure! :lp/poll scope "w" [:route :r 1])
     (succeed! k {:title "W"})
     (let [gen-before (:generation (entry k))]
@@ -438,7 +438,7 @@
                 is suppressed (never overwrites the post-poll entry)"
         (rf/dispatch-sync [:rf.resource.internal/succeeded
                            {:resource/key k
-                            :work/id (work-ledger/resource-work-id k gen-before)
+                            :work/id (rf.resources.work-ledger/resource-work-id k gen-before)
                             :generation gen-before :data {:title "Zombie"}}])
         (is (not= {:title "Zombie"} (:data (entry k)))
             "the pre-poll-generation reply was suppressed")))))
@@ -449,18 +449,18 @@
 
 (deftest reload-reschedules-poll-cancel-then-arm
   ;; A poll tick that settles reschedules the poll (cancel-then-arm). The
-  ;; schedule-timers fx is cancel-then-arm by construction (timers/schedule!),
+  ;; schedule-timers fx is cancel-then-arm by construction (rf.resources.timers/schedule!),
   ;; so a re-load emits a fresh schedule rather than stacking timers.
   (rf/reg-resource :rs/poll (article-spec {:poll-interval-ms 5000}) article-spec-request)
   (let [scope {:user "u"}
-        k (state/scoped-resource-key scope :rs/poll {:slug "w"})]
+        k (rf.resources.state/scoped-resource-key scope :rs/poll {:slug "w"})]
     (ensure! :rs/poll scope "w" [:route :r 1])
     (succeed! k {:title "W"})
     (poll-fired! k)               ;; tick → refetch in flight
     (reset! scheduled-timers [])
     (succeed! k {:title "W2"})    ;; the poll refetch settles → reschedules
     (testing "Spec 016 §Polling — a settle reschedules the poll (cancel-then-arm
-              via timers/schedule!), it does not stack a second poll timer"
+              via rf.resources.timers/schedule!), it does not stack a second poll timer"
       (is (= {:title "W2"} (:data (entry k))) "new data landed")
       (let [args (last-schedule-for k)]
         (is (= 5000 (get-in args [:timers :poll])) "poll re-armed on the new settle")))))
@@ -472,7 +472,7 @@
 (deftest background-poll-failure-keeps-prior-data-and-keeps-polling
   (rf/reg-resource :bf/poll (article-spec {:poll-interval-ms 5000}) article-spec-request)
   (let [scope {:user "u"}
-        k (state/scoped-resource-key scope :bf/poll {:slug "w"})]
+        k (rf.resources.state/scoped-resource-key scope :bf/poll {:slug "w"})]
     (ensure! :bf/poll scope "w" [:route :r 1])
     (succeed! k {:title "W"})
     (poll-fired! k)            ;; tick → refetch in flight
@@ -499,10 +499,10 @@
     (let [fired (atom 0)]
       ;; arm a real poll timer via the substrate (long delay — we cancel before
       ;; it fires; we only assert the side-table slot is dropped)
-      (timers/schedule! :pk/frame [:s :pk/r {}] timers/poll-kind 60000)
-      (is (contains? @timers/timer-table [:pk/frame (identity/canonical-bytes [:s :pk/r {}]) timers/poll-kind])
+      (rf.resources.timers/schedule! :pk/frame [:s :pk/r {}] rf.resources.timers/poll-kind 60000)
+      (is (contains? @rf.resources.timers/timer-table [:pk/frame (rf.identity/canonical-bytes [:s :pk/r {}]) rf.resources.timers/poll-kind])
           "poll timer armed in the side table")
-      (timers/cancel-for-key! :pk/frame [:s :pk/r {}])
-      (is (not (contains? @timers/timer-table [:pk/frame (identity/canonical-bytes [:s :pk/r {}]) timers/poll-kind]))
+      (rf.resources.timers/cancel-for-key! :pk/frame [:s :pk/r {}])
+      (is (not (contains? @rf.resources.timers/timer-table [:pk/frame (rf.identity/canonical-bytes [:s :pk/r {}]) rf.resources.timers/poll-kind]))
           "cancel-for-key! dropped the :poll slot")
       @fired)))

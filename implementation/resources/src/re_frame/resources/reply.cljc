@@ -97,7 +97,7 @@
   still route through the shared `re-frame.reply/suppress` and spell
   `:cancelled` identically — uniform where it matters; the obsolescence
   DETERMINATION is correctly surface-specific."
-  (:require [re-frame.reply :as reply]))
+  (:require [re-frame.reply :as rf.reply]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -282,7 +282,7 @@
   `extra` threads `:rf.reply/work-id` / `:rf.reply/work-kind` / `:rf.frame/id` /
   `:completed-at` / `:rf.reply/stale-reason` onto the stale reply."
   [{:keys [carried current extra]}]
-  (reply/suppress nil carried current extra))
+  (rf.reply/suppress nil carried current extra))
 
 ;; ---------------------------------------------------------------------------
 ;; Trace summary (Managed-Effects §Tracing). A data-only summary of the
@@ -301,4 +301,4 @@
   `:rf.reply/work-kind`, `:rf.reply/work-status`, `:rf.frame/id`, `:completed-at`) ride
   verbatim. `opts` is forwarded to the elider (e.g. `:frame`)."
   ([reply] (trace-reply reply nil))
-  ([reply opts] (reply/trace-summary reply opts)))
+  ([reply opts] (rf.reply/trace-summary reply opts)))

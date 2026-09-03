@@ -3,7 +3,7 @@
 
   ## The leak this suite pins
 
-  A `state/key-id` is `re-frame.identity/canonical-bytes` of the scoped key —
+  A `rf.resources.state/key-id` is `re-frame.identity/canonical-bytes` of the scoped key —
   CEDN-1, a **reversible plaintext encoding, not a digest**. `encode-string`
   emits `(str \"s:\" (pr-str s))`, so the key-id for
   `[:rf.scope/global :secret/article {:auth-token \"topsecret-PII\"}]` is
@@ -68,20 +68,20 @@
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [clojure.string :as str]
    [re-frame.core :as rf]
-   [re-frame.fx :as fx]
-   [re-frame.identity :as identity]
+   [re-frame.fx :as rf.fx]
+   [re-frame.identity :as rf.identity]
    ;; load-bearing side-effecting require: registers the :rf.resource/* events
    ;; + subs this suite dispatches.
    [re-frame.resources]
-   [re-frame.resources.ssr :as r-ssr]
-   [re-frame.resources.state :as state]
+   [re-frame.resources.ssr :as rf.resources.ssr]
+   [re-frame.resources.state :as rf.resources.state]
    [re-frame.resources.test-support]
-   [re-frame.resources.trace-egress :as trace-egress]
+   [re-frame.resources.trace-egress :as rf.resources.trace-egress]
    [re-frame.http.managed]
    [re-frame.schemas]
-   [re-frame.interop :as interop]
-   [re-frame.test-support :as core-test-support]
-   [re-frame.trace.tooling :as trace-tooling]
+   [re-frame.interop :as rf.interop]
+   [re-frame.test-support :as rf.test-support]
+   [re-frame.trace.tooling :as rf.trace.tooling]
    #?(:clj  [re-frame.substrate.plain-atom :as substrate]
       :cljs [re-frame.adapter.reagent :as substrate])))
 
@@ -96,7 +96,7 @@
   []
   (rf/make-frame {:id :rf/default :url-bound? true
                   :doc "key-id trace-egress suite default app frame."})
-  (fx/reg-fx :rf.http/managed (fn [_ctx _args] nil))
+  (rf.fx/reg-fx :rf.http/managed (fn [_ctx _args] nil))
   (rf/reg-resource :secret/article
     {:scope         :rf.scope/global
      :sensitive?    true
@@ -116,17 +116,17 @@
     (fn [_p _ctx] {:request {:method :get :url "/seq"}})))
 
 (use-fixtures :each
-  (core-test-support/make-reset-runtime-fixture
+  (rf.test-support/make-reset-runtime-fixture
     {:adapter substrate/adapter
      :init-fn init!}))
 
 ;; ---- helpers --------------------------------------------------------------
 
 (def ^:private secret-key
-  (state/scoped-resource-key :rf.scope/global :secret/article {:auth-token secret}))
+  (rf.resources.state/scoped-resource-key :rf.scope/global :secret/article {:auth-token secret}))
 
 (def ^:private plain-key
-  (state/scoped-resource-key :rf.scope/global :plain/article {:slug "public-post"}))
+  (rf.resources.state/scoped-resource-key :rf.scope/global :plain/article {:slug "public-post"}))
 
 (defn- runtime-db [] (:rf.db/runtime (rf/frame-state-value :rf/default)))
 
@@ -152,10 +152,10 @@
   [op body-fn]
   (let [seen (atom [])
         k    ::keyid-egress-recorder]
-    (trace-tooling/register-listener!
+    (rf.trace.tooling/register-listener!
       k (fn [ev] (when (= op (:operation ev)) (swap! seen conj ev))))
     (try (body-fn)
-         (finally (trace-tooling/unregister-listener! k)))
+         (finally (rf.trace.tooling/unregister-listener! k)))
     @seen))
 
 (defn- project
@@ -163,7 +163,7 @@
   through the late-bound `:resources/project-resource-trace-egress` hook's
   body, against the row's own `:rf.frame/id`."
   [tags]
-  (trace-egress/project-resource-trace-egress tags (:rf.frame/id tags)))
+  (rf.resources.trace-egress/project-resource-trace-egress tags (:rf.frame/id tags)))
 
 (defn- release-owner-row
   "Drive the PUBLIC path: `ensure` the sensitive resource AND the plain
@@ -199,15 +199,15 @@
 ;; ===========================================================================
 
 (deftest key-id-is-reversible-plaintext-not-a-digest
-  (testing "rf2-5o52l — `state/key-id` is `identity/canonical-bytes`, CEDN-1: a
+  (testing "rf2-5o52l — `rf.resources.state/key-id` is `rf.identity/canonical-bytes`, CEDN-1: a
             REVERSIBLE PLAINTEXT encoding. The key-id for a scoped key whose
             params carry a secret CONTAINS that secret verbatim, wrapped in the
             `s:\"…\"` string token `encode-string` emits. This is why a key-id
             may never be copied into a trace tag: nothing downstream can undo
             it, and the off-box projector correctly sees only a string"
-    (let [k-id (state/key-id secret-key)]
+    (let [k-id (rf.resources.state/key-id secret-key)]
       (is (string? k-id) "a key-id is a plain string — a scalar to any shape walk")
-      (is (= k-id (identity/canonical-bytes secret-key))
+      (is (= k-id (rf.identity/canonical-bytes secret-key))
           "key-id IS canonical-bytes — no hashing step exists")
       (is (str/includes? k-id secret)
           "the raw secret survives verbatim inside the key-id")
@@ -345,9 +345,9 @@
   `reconcile-entry-owners` drops an `[:ssr …]` owner always and, on restore with
   no live nav-token, every `[:route …]` owner."
   [owner]
-  (let [now (interop/epoch-now-ms)]
+  (let [now (rf.interop/epoch-now-ms)]
     (-> (runtime-db)
-        (assoc-in (state/entry-path secret-key)
+        (assoc-in (rf.resources.state/entry-path secret-key)
                   {:resource/key   secret-key
                    :status         :loaded
                    :data           {:body "server-rendered"}
@@ -369,7 +369,7 @@
     (let [ssr-owner [:ssr "req-1" "nav-1"]
           rows      (capture-op!
                       :rf.resource/hydrate-clock-skew
-                      (fn [] (r-ssr/hydrate-runtime-db (skewed-runtime-db ssr-owner)
+                      (fn [] (rf.resources.ssr/hydrate-runtime-db (skewed-runtime-db ssr-owner)
                                                        :rf/default)))
           tags      (:tags (first rows))]
       (is (= 1 (count rows)) "one skew row for the one skewed entry")
@@ -386,7 +386,7 @@
       (let [ssr-owner [:ssr "req-1" "nav-1"]
             rows      (capture-op!
                         :rf.resource/hydrated
-                        (fn [] (r-ssr/hydrate-runtime-db (skewed-runtime-db ssr-owner)
+                        (fn [] (rf.resources.ssr/hydrate-runtime-db (skewed-runtime-db ssr-owner)
                                                          :rf/default)))
             tags      (:tags (first rows))]
         (is (= [[secret-key ssr-owner]] (:orphaned-owners tags))
@@ -407,7 +407,7 @@
       (testing "the :warning clock-skew row"
         (let [tags (:tags (first (capture-op!
                                    :rf.resource/restore-clock-skew
-                                   #(r-ssr/reconcile-on-restore rdb :rf/default))))]
+                                   #(rf.resources.ssr/reconcile-on-restore rdb :rf/default))))]
           (is (= secret-key (:resource/key tags)) "scoped key, not key-id")
           (is (redacted-token? (nth (:resource/key (project tags)) 2))
               "params tokenized off-box")
@@ -416,7 +416,7 @@
                 route orphan"
         (let [tags (:tags (first (capture-op!
                                    :rf.resource/owner-released
-                                   #(r-ssr/reconcile-on-restore rdb :rf/default))))]
+                                   #(rf.resources.ssr/reconcile-on-restore rdb :rf/default))))]
           (is (= secret-key (:resource/key tags)) "scoped key, not key-id")
           (is (= route-owner (:owner tags)) "names the orphaned route owner")
           (is (redacted-token? (nth (:resource/key (project tags)) 2))
@@ -426,7 +426,7 @@
       (testing "the :rf.resource/restored summary's :orphaned-owners"
         (let [tags (:tags (first (capture-op!
                                    :rf.resource/restored
-                                   #(r-ssr/reconcile-on-restore rdb :rf/default))))]
+                                   #(rf.resources.ssr/reconcile-on-restore rdb :rf/default))))]
           (is (= [[secret-key route-owner]] (:orphaned-owners tags))
               "the orphaned route owner is paired with its entry's scoped key")
           (is (not (leaks-secret? (project tags))) "no plaintext off-box")
@@ -459,14 +459,14 @@
   "A scoped key for `:secret/seq` whose secret-bearing params carry `xs` — the
   collection whose KIND decides identity."
   [xs]
-  (state/scoped-resource-key :rf.scope/global seq-resource-id {:xs xs}))
+  (rf.resources.state/scoped-resource-key :rf.scope/global seq-resource-id {:xs xs}))
 
 (defn- kind-colliding-runtime-db
   "A runtime-db holding TWO skewed `:sensitive?` entries whose scoped keys are
   Clojure-`=` and whose key-ids are not: one with VECTOR params, one with LIST
   params. Both owned by an `[:ssr …]` owner, so both also orphan."
   []
-  (let [now (interop/epoch-now-ms)
+  (let [now (rf.interop/epoch-now-ms)
         ent (fn [sk] {:resource/key   sk
                       :status         :loaded
                       :data           {:body "server-rendered"}
@@ -477,8 +477,8 @@
                       :stale-at       (+ now 200000)
                       :stale-after-ms 100000})]
     (-> (runtime-db)
-        (assoc-in (state/entry-path (seq-key [secret])) (ent (seq-key [secret])))
-        (assoc-in (state/entry-path (seq-key (list secret)))
+        (assoc-in (rf.resources.state/entry-path (seq-key [secret])) (ent (seq-key [secret])))
+        (assoc-in (rf.resources.state/entry-path (seq-key (list secret)))
                   (ent (seq-key (list secret)))))))
 
 (deftest reconcile-skew-accumulators-keep-kind-distinct-entries-distinct
@@ -492,15 +492,15 @@
                 idea of equality"
         (is (= vk lk)
             "the two scoped keys are `=` — a map keyed on them holds ONE entry")
-        (is (not= (state/key-id vk) (state/key-id lk))
+        (is (not= (rf.resources.state/key-id vk) (rf.resources.state/key-id lk))
             "while their CEDN key-ids differ — they are two distinct resources")
-        (is (= 2 (count (:entries (get rdb state/resources-key))))
+        (is (= 2 (count (:entries (get rdb rf.resources.state/resources-key))))
             "and the runtime-db really holds both"))
 
       (doseq [[label reconcile! skew-op summary-op]
-              [["hydrate" #(r-ssr/hydrate-runtime-db % :rf/default)
+              [["hydrate" #(rf.resources.ssr/hydrate-runtime-db % :rf/default)
                 :rf.resource/hydrate-clock-skew :rf.resource/hydrated]
-               ["restore" #(r-ssr/reconcile-on-restore % :rf/default)
+               ["restore" #(rf.resources.ssr/reconcile-on-restore % :rf/default)
                 :rf.resource/restore-clock-skew :rf.resource/restored]]]
         (testing label
           (is (= 2 (count (capture-op! skew-op #(reconcile! rdb))))

@@ -30,28 +30,28 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.fx :as fx]
+   [re-frame.fx :as rf.fx]
    ;; load-bearing side-effecting requires: register the :rf.resource/* +
    ;; :rf.mutation/* events + subs + the generation cofx/fx.
    [re-frame.resources]
-   [re-frame.resources.mutation-runtime :as mstate]
-   [re-frame.resources.ssr :as ssr]
-   [re-frame.resources.state :as state]
-   [re-frame.registrar :as registrar]
+   [re-frame.resources.mutation-runtime :as rf.resources.mutation-runtime]
+   [re-frame.resources.ssr :as rf.resources.ssr]
+   [re-frame.resources.state :as rf.resources.state]
+   [re-frame.registrar :as rf.registrar]
    [re-frame.resources.test-support]
    [re-frame.http.managed]
    [re-frame.schemas]
-   [re-frame.test-support :as core-test-support]
-   [re-frame.trace.tooling :as trace-tooling]
-   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
-       :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
+   [re-frame.test-support :as rf.test-support]
+   [re-frame.trace.tooling :as rf.trace.tooling]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
 ;; ---- capturing transport ---------------------------------------------------
 
 (def ^:private last-managed-args (atom nil))
 
 (defn- init! []
-  (registrar/clear-kind! :resource-scope)
+  (rf.registrar/clear-kind! :resource-scope)
   (rf/reg-resource-scope :t/session
     {:inputs {:username [:db [:auth :user :username]]}}
     (fn [{:keys [username]} _ctx]
@@ -61,23 +61,23 @@
 
 (defn- capturing-transport-fixture [f]
   (reset! last-managed-args nil)
-  (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
-  (fx/reg-fx :rf.resource/schedule-timers (fn [_ _] nil))
+  (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
+  (rf.fx/reg-fx :rf.resource/schedule-timers (fn [_ _] nil))
   (f))
 
 (use-fixtures :each
-  (core-test-support/make-reset-runtime-fixture
-    #?(:clj  {:adapter plain-atom/adapter :init-fn init!}
-       :cljs {:adapter reagent-adapter/adapter :init-fn init!}))
+  (rf.test-support/make-reset-runtime-fixture
+    #?(:clj  {:adapter rf.substrate.plain-atom/adapter :init-fn init!}
+       :cljs {:adapter rf.adapter.reagent/adapter :init-fn init!}))
   capturing-transport-fixture)
 
 ;; ---- helpers ---------------------------------------------------------------
 
 (defn- runtime-db [] (:rf.db/runtime (rf/frame-state-value :rf/default)))
-(defn- entry [scoped-key] (get-in (runtime-db) (state/entry-path scoped-key)))
+(defn- entry [scoped-key] (get-in (runtime-db) (rf.resources.state/entry-path scoped-key)))
 ;; rf2-8iciw8 — `:rf.runtime/mutations` is keyed on the instance id's CEDN-1
-;; byte `key-id` (`state/key-id`), not the raw id; resolve through it.
-(defn- instance [instance-id] (get-in (runtime-db) [:rf.runtime/mutations (state/key-id instance-id)]))
+;; byte `key-id` (`rf.resources.state/key-id`), not the raw id; resolve through it.
+(defn- instance [instance-id] (get-in (runtime-db) [:rf.runtime/mutations (rf.resources.state/key-id instance-id)]))
 (defn- patch-summary [instance-id] (:patch-summary (instance instance-id)))
 
 (defn- reply-success! [args result]
@@ -87,7 +87,7 @@
   (rf/dispatch-sync (conj (:on-failure args) {:status :error :error failure})))
 
 (def ^:private article-key
-  (state/scoped-resource-key :rf.scope/global :r/article {:slug "w"}))
+  (rf.resources.state/scoped-resource-key :rf.scope/global :r/article {:slug "w"}))
 
 (defn- reg-article-resource! []
   (rf/reg-resource :r/article
@@ -119,9 +119,9 @@
   [op body-fn]
   (let [seen (atom [])
         k    ::recorder]
-    (trace-tooling/register-listener!
+    (rf.trace.tooling/register-listener!
       k (fn [ev] (when (= op (:operation ev)) (swap! seen conj ev))))
-    (try (body-fn) (finally (trace-tooling/unregister-listener! k)))
+    (try (body-fn) (finally (rf.trace.tooling/unregister-listener! k)))
     (:tags (last @seen))))
 
 (defn- traces-of
@@ -131,10 +131,10 @@
   (let [op-set (set ops)
         seen   (atom {})
         k      ::multi]
-    (trace-tooling/register-listener!
+    (rf.trace.tooling/register-listener!
       k (fn [ev] (when (op-set (:operation ev))
                    (swap! seen assoc (:operation ev) (:tags ev)))))
-    (try (body-fn) (finally (trace-tooling/unregister-listener! k)))
+    (try (body-fn) (finally (rf.trace.tooling/unregister-listener! k)))
     @seen))
 
 (defn- competing-authoritative-write!
@@ -256,7 +256,7 @@
   ;; exact key, never rediscovered through the entry's optional tags). Capture
   ;; the recovery request the refetch lowers into managed HTTP.
   (let [muta @last-managed-args]
-    (fx/reg-fx :rf.resource/schedule-timers (fn [_ _] nil))
+    (rf.fx/reg-fx :rf.resource/schedule-timers (fn [_ _] nil))
     (reset! last-managed-args nil)
     (let [rb (trace-of :rf.mutation/optimistic-rolled-back
                #(reply-failure! muta {:kind :rf.http/http-5xx :status 500}))]
@@ -323,7 +323,7 @@
   "A restored cache entry carrying the OPTIMISTIC value (the heart already
   flipped, no in-flight write to confirm it), at `:revision` `rev`."
   [rev fav count]
-  (merge (state/empty-entry :r/article article-key)
+  (merge (rf.resources.state/empty-entry :r/article article-key)
          {:status :loaded :data {:article {:favorited fav :favoritesCount count}}
           :loaded-at 1000 :stale-at 9.0e15 :revision rev
           :tags #{[:article "w"] [:article-list]}}))
@@ -332,7 +332,7 @@
   "A restored :pending mutation instance whose `:patch-summary` `:rollback`
   records the snapshot-inverse the dangle must replay."
   [rollback]
-  (-> (mstate/empty-instance :m/favorite :f1
+  (-> (rf.resources.mutation-runtime/empty-instance :m/favorite :f1
         {:scope :rf.scope/global :params {:slug "w"} :generation 3
          :work-id [:rf.work/resource [:rf.mutation :f1 3] 3] :started-at 1000})
       (assoc :patch-summary {:snapshot-id [:rf.mutation/snapshot :f1 3]
@@ -343,46 +343,46 @@
   ;; the mutation must be registered so the dangle can read its :on-conflict.
   (rf/reg-mutation :m/favorite favorite-plan favorite-plan-request)        ;; defaults :invalidate
   (testing "NO CONFLICT — the recorded :before is restored INSIDE the reconcile pass"
-    (let [before (merge (state/empty-entry :r/article article-key)
+    (let [before (merge (rf.resources.state/empty-entry :r/article article-key)
                         {:status :loaded :data {:article {:favorited false :favoritesCount 9}}
                          :loaded-at 1000 :stale-at 9.0e15 :revision 5
                          :tags #{[:article "w"] [:article-list]}})
           ;; the apply left the entry at `before.revision + 1` (= 6); the cache
           ;; shows the optimistic value at that applied revision (no competing
           ;; write since the apply) → no conflict.
-          rdb {state/resources-key {:entries {(state/key-id article-key)
+          rdb {rf.resources.state/resources-key {:entries {(rf.resources.state/key-id article-key)
                                               (optimistic-entry 6 true 10)}
                                     :tag-index {} :owner-index {}}
-               mstate/mutations-key
-               {(mstate/instance-key-id :f1)
+               rf.resources.mutation-runtime/mutations-key
+               {(rf.resources.mutation-runtime/instance-key-id :f1)
                 (pending-optimistic-instance
-                  [(mstate/record-optimistic-entry article-key before :patch)])}}
-          out (ssr/reconcile-on-restore rdb :app/main {:restore-time-ms 7777})
-          e   (get-in out [state/resources-key :entries (state/key-id article-key)])]
+                  [(rf.resources.mutation-runtime/record-optimistic-entry article-key before :patch)])}}
+          out (rf.resources.ssr/reconcile-on-restore rdb :app/main {:restore-time-ms 7777})
+          e   (get-in out [rf.resources.state/resources-key :entries (rf.resources.state/key-id article-key)])]
       (testing "the optimistic value was ROLLED BACK to the recorded :before"
         (is (= 9 (get-in e [:data :article :favoritesCount])) "count reverted")
         (is (= false (get-in e [:data :article :favorited])) "heart un-flipped"))
       (testing "the instance is terminally dangled (the same pass)"
-        (is (= :error (get-in out [mstate/mutations-key (mstate/instance-key-id :f1) :status])))
-        (is (= :dangling-on-restore (:reason (get-in out [mstate/mutations-key (mstate/instance-key-id :f1) :error]))))
-        (is (nil? (get-in out [mstate/mutations-key (mstate/instance-key-id :f1) :current-work]))))))
+        (is (= :error (get-in out [rf.resources.mutation-runtime/mutations-key (rf.resources.mutation-runtime/instance-key-id :f1) :status])))
+        (is (= :dangling-on-restore (:reason (get-in out [rf.resources.mutation-runtime/mutations-key (rf.resources.mutation-runtime/instance-key-id :f1) :error]))))
+        (is (nil? (get-in out [rf.resources.mutation-runtime/mutations-key (rf.resources.mutation-runtime/instance-key-id :f1) :current-work]))))))
   (testing "CONFLICT — a moved revision marks the entry durably STALE in the pass
             (NOT a racing dispatch), the read path refetches on next ensure"
-    (let [before (merge (state/empty-entry :r/article article-key)
+    (let [before (merge (rf.resources.state/empty-entry :r/article article-key)
                         {:status :loaded :data {:article {:favorited false :favoritesCount 9}}
                          :loaded-at 1000 :stale-at 9.0e15 :revision 5
                          :tags #{[:article "w"] [:article-list]}})
           ;; the cache entry's revision (8) MOVED past the recorded one (5) — a
           ;; competing authoritative write landed before the snapshot was taken.
-          rdb {state/resources-key {:entries {(state/key-id article-key)
+          rdb {rf.resources.state/resources-key {:entries {(rf.resources.state/key-id article-key)
                                               (optimistic-entry 8 false 100)}
                                     :tag-index {} :owner-index {}}
-               mstate/mutations-key
-               {(mstate/instance-key-id :f1)
+               rf.resources.mutation-runtime/mutations-key
+               {(rf.resources.mutation-runtime/instance-key-id :f1)
                 (pending-optimistic-instance
-                  [(mstate/record-optimistic-entry article-key before :patch)])}}
-          out (ssr/reconcile-on-restore rdb :app/main {:restore-time-ms 7777})
-          e   (get-in out [state/resources-key :entries (state/key-id article-key)])]
+                  [(rf.resources.mutation-runtime/record-optimistic-entry article-key before :patch)])}}
+          out (rf.resources.ssr/reconcile-on-restore rdb :app/main {:restore-time-ms 7777})
+          e   (get-in out [rf.resources.state/resources-key :entries (rf.resources.state/key-id article-key)])]
       (testing "the conflicted entry is NOT restored — the newer truth (100) is kept"
         (is (= 100 (get-in e [:data :article :favoritesCount]))
             "the stale inverse (9) did NOT clobber the moved entry (100)"))
@@ -390,7 +390,7 @@
         (is (= 7777 (:invalidated-at e))
             ":invalidated-at stamped from the restore causal time, in the reconcile pass"))
       (testing "the instance is still terminally dangled"
-        (is (= :error (get-in out [mstate/mutations-key (mstate/instance-key-id :f1) :status])))))))
+        (is (= :error (get-in out [rf.resources.mutation-runtime/mutations-key (rf.resources.mutation-runtime/instance-key-id :f1) :status])))))))
 
 ;; ===========================================================================
 ;; 6. OWNER-CHANGE ROLLBACK (rf2-cxwuhl) — an owner attach / release that lands
@@ -408,9 +408,9 @@
 (defn- stub-lifecycle-fx! []
   ;; no-op the host-timer / refetch fx the rollback + release + GC paths emit,
   ;; so the pure durable-state assertions run without wall-clock side effects.
-  (fx/reg-fx :rf.resource/schedule-timers   (fn [_ _] nil))
-  (fx/reg-fx :rf.resource/cancel-timers     (fn [_ _] nil))
-  (fx/reg-fx :rf.resource/cancel-poll-timers (fn [_ _] nil))
+  (rf.fx/reg-fx :rf.resource/schedule-timers   (fn [_ _] nil))
+  (rf.fx/reg-fx :rf.resource/cancel-timers     (fn [_ _] nil))
+  (rf.fx/reg-fx :rf.resource/cancel-poll-timers (fn [_ _] nil))
   (rf/reg-fx :rf.resource/refetch           (fn [_ _] nil)))
 
 (deftest release-mid-flight-does-not-resurrect-the-owner-on-rollback
@@ -444,7 +444,7 @@
           "the pre-release snapshot's owner set did NOT clobber the current one")
       (is (empty? owners) "the entry is still owner-free after the rollback")))
   (testing "the derived owner-index carries no phantom membership for the departed owner"
-    (is (nil? (get-in (runtime-db) (conj (state/owner-index-path) route-owner)))
+    (is (nil? (get-in (runtime-db) (conj (rf.resources.state/owner-index-path) route-owner)))
         "reindex did not re-add a phantom owner from a resurrected :active-owners"))
   (testing "the now-owner-free, idle entry is GC-eligible and gc-fired COLLECTS it"
     (let [e (entry article-key)]
@@ -483,10 +483,10 @@
           "the mid-flight attach survived (was dropped by the blind restore before the fix)")
       (is (contains? owners [:v :first]) "the original owner is intact too")))
   (testing "the owner-index still routes both owners to the entry"
-    (is (contains? (get-in (runtime-db) (conj (state/owner-index-path) [:v :second]))
-                   (state/key-id article-key)))
-    (is (contains? (get-in (runtime-db) (conj (state/owner-index-path) [:v :first]))
-                   (state/key-id article-key)))))
+    (is (contains? (get-in (runtime-db) (conj (rf.resources.state/owner-index-path) [:v :second]))
+                   (rf.resources.state/key-id article-key)))
+    (is (contains? (get-in (runtime-db) (conj (rf.resources.state/owner-index-path) [:v :first]))
+                   (rf.resources.state/key-id article-key)))))
 
 ;; ===========================================================================
 ;; 7. EXACT-KEY CONFLICT RECOVERY (rf2-wcdj4) — rollback recovery is keyed by
@@ -500,7 +500,7 @@
 ;; ===========================================================================
 
 (def ^:private profile-key
-  (state/scoped-resource-key :rf.scope/global :r/profile {}))
+  (rf.resources.state/scoped-resource-key :rf.scope/global :r/profile {}))
 
 (def ^:private profile-q
   {:resource :r/profile :scope :rf.scope/global :params {}})
@@ -531,7 +531,7 @@
   "Drive the rf2-wcdj4 reproduction through PUBLIC surfaces only: load server
   value A under owner [:v :a], execute the exact-target optimistic save (A→B),
   move the entry's :revision mid-flight via a SECOND owner attach (a fresh-skip
-  cache-hit ensure — state/attach-owner advances :revision, rf2-cxwuhl), then
+  cache-hit ensure — rf.resources.state/attach-owner advances :revision, rf2-cxwuhl), then
   deliver the accepted mutation failure. Returns the rolled-back trace tags;
   `@last-managed-args` afterwards holds the recovery request (or nil)."
   []
@@ -610,7 +610,7 @@
     (reg-save-profile-mutation!)
     (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save-profile :params {} :instance :s1
                                              :reply-to [:t/save-settled]}])
-    ;; the sole owner leaves mid-flight — state/detach-owner advances :revision
+    ;; the sole owner leaves mid-flight — rf.resources.state/detach-owner advances :revision
     ;; (rf2-cxwuhl), so the settle sees a conflict on an OWNER-FREE entry.
     (rf/dispatch-sync [:rf.resource/release-owner {:owner [:v :a]}])
     (is (empty? (:active-owners (entry profile-key)))

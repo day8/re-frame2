@@ -26,9 +26,9 @@
   `entry-stale?` returns true the instant the load completes."
   (:require
    [cljs.test :refer-macros [deftest is testing async]]
-   [re-frame.adapter.reagent :as reagent-adapter]
+   [re-frame.adapter.reagent :as rf.adapter.reagent]
    [re-frame.core :as rf]
-   [re-frame.frame :as frame]
+   [re-frame.frame :as rf.frame]
    ;; production HTTP transport: registers the REAL `:rf.http/managed` fx
    ;; (we deliberately do NOT override it — the genuine `reply-ctx` clock
    ;; read is the unit under test).
@@ -36,9 +36,9 @@
    ;; load-bearing side-effecting require: registers the :rf.resource/*
    ;; events + subs the ensure below drives.
    [re-frame.resources]
-   [re-frame.resources.state :as state]
+   [re-frame.resources.state :as rf.resources.state]
    [re-frame.schemas]
-   [re-frame.test-support :as test-support]))
+   [re-frame.test-support :as rf.test-support]))
 
 (def ^:private stale-after-ms 60000)
 
@@ -73,18 +73,18 @@
             on CLJS), so :stale-at was ~perf-clock + window — far below
             `js/Date.now()` — and the entry read STALE the instant it loaded."
     (async done
-      (rf/init! reagent-adapter/adapter)
+      (rf/init! rf.adapter.reagent/adapter)
       ;; EP-0002 (rf2-nn0jqa): `init!` does not synthesise a `:rf/default`
       ;; frame, and the managed-HTTP fxs require a carried frame stamp. Register
       ;; `:rf/default` explicitly; the dispatch below carries `{:frame
       ;; :rf/default}` so the sync dispatch AND the async reply continuation
       ;; both target it.
-      (frame/ensure-default-frame!)
-      (let [scoped-key (state/scoped-resource-key
+      (rf.frame/ensure-default-frame!)
+      (let [scoped-key (rf.resources.state/scoped-resource-key
                          :rf.scope/global :clk/article {:slug "w"})
             orig       (.-fetch js/globalThis)
             entry      #(get-in (:rf.db/runtime (rf/frame-state-value :rf/default))
-                                (state/entry-path scoped-key))]
+                                (rf.resources.state/entry-path scoped-key))]
         (rf/reg-resource :clk/article (article-spec) article-spec-request)
         (set! (.-fetch js/globalThis)
               (fn [_url _init] (js/Promise.resolve (json-200 "{\"title\":\"Welcome\"}"))))
@@ -94,7 +94,7 @@
                           {:frame :rf/default})
         (is (= :loading (:status (entry)))
             "the ensure lowered to the real transport and is in flight")
-        (-> (test-support/poll-until
+        (-> (rf.test-support/poll-until
               #(= :loaded (:status (entry)))
               {:timeout-ms 2000 :label "rf2-2elcw3 live load settles :loaded"})
             (.then
@@ -109,7 +109,7 @@
                   ;; against `js/Date.now` (the freshness readers' clock).
                   ;; A just-loaded entry MUST NOT be stale. A perf-clock
                   ;; :stale-at (≪ js/Date.now()) would wrongly read as stale.
-                  (is (false? (state/entry-stale? e now-epoch))
+                  (is (false? (rf.resources.state/entry-stale? e now-epoch))
                       "a just-loaded resource is NOT stale against js/Date.now")
                   ;; :loaded-at must be a wall-clock epoch value (within a
                   ;; few seconds of `js/Date.now()`), not a small perf-clock

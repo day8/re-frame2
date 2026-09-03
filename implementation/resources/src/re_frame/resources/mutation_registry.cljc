@@ -17,13 +17,13 @@
   family. Both delegate params validation and canonicalization to
   `re-frame.resources.params`; mutation scope normalization uses the shared
   concrete-scope boundary in `re-frame.resources.state`."
-  (:require [re-frame.error :as error]
-            [re-frame.registrar :as registrar]
-            [re-frame.resources.classification :as classification]
-            [re-frame.resources.mutation-runtime :as mstate]
-            [re-frame.resources.params :as params]
-            [re-frame.resources.scope-registry :as scope-registry]
-            [re-frame.source-coords :as source-coords]))
+  (:require [re-frame.error :as rf.error]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.resources.classification :as rf.resources.classification]
+            [re-frame.resources.mutation-runtime :as rf.resources.mutation-runtime]
+            [re-frame.resources.params :as rf.resources.params]
+            [re-frame.resources.scope-registry :as rf.resources.scope-registry]
+            [re-frame.source-coords :as rf.source-coords]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -49,7 +49,7 @@
   "Build the canonical thrown-error shape (Spec 009 §The thrown-error
   shape) for a `reg-mutation` validation failure."
   [error-id where reason extra]
-  (error/thrown-ex-info
+  (rf.error/thrown-ex-info
     error-id
     where
     reason
@@ -151,13 +151,13 @@
   ;; would then NOT clobber a concurrent write as the author expected). Reject
   ;; it loudly at the authoring boundary. Per Spec 016 §Optimistic settle.
   (let [oc (:on-conflict spec)]
-    (when (and (some? oc) (not (contains? mstate/on-conflict-policies oc)))
+    (when (and (some? oc) (not (contains? rf.resources.mutation-runtime/on-conflict-policies oc)))
       (throw (registration-error
                :rf.error/mutation-bad-spec
                'rf/reg-mutation
                (str "mutation " mutation-id " declares an :on-conflict of "
                     (pr-str oc) " outside the closed enum "
-                    (pr-str (sort mstate/on-conflict-policies)) ". A typo "
+                    (pr-str (sort rf.resources.mutation-runtime/on-conflict-policies)) ". A typo "
                     "(e.g. :invlaidate, or a mistyped :force) would register "
                     "cleanly and then silently fall back to the default "
                     ":invalidate rollback rule at settle time, masking the "
@@ -165,13 +165,13 @@
                     "EP-0019 Decision 3.")
                {:mutation-id mutation-id
                 :on-conflict oc
-                :valid       mstate/on-conflict-policies}))))
+                :valid       rf.resources.mutation-runtime/on-conflict-policies}))))
   ;; EP-0025 §subsystems (rf2-h3d8tf): reject a malformed projection-relative
   ;; `:sensitive` / `:large` data-classification declaration fail-loud at the
   ;; registration boundary — the same shape contract + posture as the resource
   ;; + machine declarations (a mutation's work-row `:params` carry the same
   ;; privacy class as a resource's, Spec 016 clause 4).
-  (when-let [{:keys [axis reason]} (classification/classification-declaration-defect spec)]
+  (when-let [{:keys [axis reason]} (rf.resources.classification/classification-declaration-defect spec)]
     (throw (registration-error
              :rf.error/mutation-bad-spec
              'rf/reg-mutation
@@ -286,10 +286,10 @@
              {:mutation-id mutation-id :value (:request metadata)})))
   (let [mutation-spec (assoc metadata :request request-fn)]
     (validate-mutation-spec! mutation-id mutation-spec)
-    (registrar/register!
+    (rf.registrar/register!
       mutation-kind
       mutation-id
-      (source-coords/merge-coords
+      (rf.source-coords/merge-coords
         (merge {:doc (:doc mutation-spec)}
                {:rf/mutation mutation-spec
                 :handler-fn  (:request mutation-spec)})))
@@ -309,7 +309,7 @@
 
   No-op (returns `mutation-id`) when the id is not registered."
   [mutation-id]
-  (registrar/unregister! mutation-kind mutation-id)
+  (rf.registrar/unregister! mutation-kind mutation-id)
   mutation-id)
 
 ;; ---- registry-side introspection -----------------------------------------
@@ -322,14 +322,14 @@
   mutation is registered under that id. The introspection counterpart of
   `resource-meta`. Per EP-0003 §Mutations / Xray."
   [mutation-id]
-  (:rf/mutation (registrar/lookup mutation-kind mutation-id)))
+  (:rf/mutation (rf.registrar/lookup mutation-kind mutation-id)))
 
 (defn mutation-ids
   "Return a vector of every registered mutation id. The registry-side half
   of the mutation introspection (the runtime-side per-frame instance table
   lives in the subs / accessors). Per EP-0003 §Mutations / Xray."
   []
-  (vec (registrar/ids mutation-kind)))
+  (vec (rf.registrar/ids mutation-kind)))
 
 (defn require-mutation-spec!
   "Look the mutation spec up by `mutation-id`, throwing
@@ -380,7 +380,7 @@
   invalid-param REDACTION (the shared classification seam), and canonicalization
   are owned once there, so the two registrars can never drift again."
   [mutation-id spec params where]
-  (params/validate+canonicalize
+  (rf.resources.params/validate+canonicalize
     mutation-id spec params where
     (fn [redacted-params redacted-error]
       (registration-error
@@ -411,7 +411,7 @@
   §Resolver references): a CONCRETE scope value OR a `{:from-db
   <resolver-id>}` named-resolver reference, resolved against `db` (the
   execute handler's app-db coeffect) at event-execution time through the
-  single symmetric resolution arm (`scope-registry/resolve-scope-input`) —
+  single symmetric resolution arm (`rf.resources.scope-registry/resolve-scope-input`) —
   `:rf.mutation/execute` is its third consumer, alongside the direct
   invalidate-tags / clear-scope events (rf2-oo8cv7). A reference is NEVER
   canonicalized literally (a literal `{:from-db …}` map keys nothing, so
@@ -443,11 +443,11 @@
   nil-resolving supplied one)."
   [mutation-id spec payload-scope db]
   (let [scope    (or payload-scope (:scope spec) :rf.scope/global)
-        from-db? (scope-registry/from-db-reference? scope)
-        resolved (scope-registry/resolve-scope-input
+        from-db? (rf.resources.scope-registry/from-db-reference? scope)
+        resolved (rf.resources.scope-registry/resolve-scope-input
                    scope db 'rf.mutation/execute mutation-id)]
     (when (and from-db? (nil? resolved))
-      (error/throw-error!
+      (rf.error/throw-error!
         :rf.error/resource-scope-unresolved-reference
         'rf.mutation/execute
         (str "a :rf.mutation/execute {:from-db …} :scope referenced named "

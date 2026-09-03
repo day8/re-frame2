@@ -32,15 +32,15 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.fx :as fx]
-   [re-frame.frame :as frame]
+   [re-frame.fx :as rf.fx]
+   [re-frame.frame :as rf.frame]
    ;; load-bearing side-effecting requires: register the :rf.resource/*
    ;; events + subs + the generation cofx/fx these tests dispatch.
    [re-frame.resources]
-   [re-frame.resources.registry :as registry]
-   [re-frame.resources.state :as state]
-   [re-frame.resources.transport.http :as http]
-   [re-frame.resources.work-ledger :as work-ledger]
+   [re-frame.resources.registry :as rf.resources.registry]
+   [re-frame.resources.state :as rf.resources.state]
+   [re-frame.resources.transport.http :as rf.resources.transport.http]
+   [re-frame.resources.work-ledger :as rf.resources.work-ledger]
    [re-frame.resources.test-support]
    ;; production HTTP fx surface (so the transport feature probe resolves);
    ;; the actual fetch is overridden by the capturing reply stub below.
@@ -48,11 +48,11 @@
    ;; managed-HTTP in-flight registry (NOT a captured no-op abort), so the
    ;; abort-by-request-id seam (`:http/abort-in-flight!`) runs end-to-end.
    [re-frame.http.managed]
-   [re-frame.http.registry :as http-registry]
+   [re-frame.http.registry :as rf.http.registry]
    [re-frame.schemas]
-   [re-frame.test-support :as core-test-support]
-   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
-       :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
+   [re-frame.test-support :as rf.test-support]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
 ;; ---- capturing transport that REPLAYS the real reply-append shape ----------
 ;;
@@ -79,15 +79,15 @@
   (reset! last-managed-args nil)
   ;; rf2-rak684 — the in-flight registry is module-level host state; clear any
   ;; entry a prior test seeded so the teardown-abort regressions start clean.
-  (http-registry/clear-all-in-flight!)
-  (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
+  (rf.http.registry/clear-all-in-flight!)
+  (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
   (f)
-  (http-registry/clear-all-in-flight!))
+  (rf.http.registry/clear-all-in-flight!))
 
 (use-fixtures :each
-  (core-test-support/make-reset-runtime-fixture
-    #?(:clj  {:adapter plain-atom/adapter}
-       :cljs {:adapter reagent-adapter/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
+       :cljs {:adapter rf.adapter.reagent/adapter}))
   capturing-transport-fixture)
 
 ;; ---- helpers --------------------------------------------------------------
@@ -99,7 +99,7 @@
 (defn- entry
   ([scoped-key] (entry :rf/default scoped-key))
   ([frame-id scoped-key]
-   (get-in (runtime-db frame-id) (state/entry-path scoped-key))))
+   (get-in (runtime-db frame-id) (rf.resources.state/entry-path scoped-key))))
 
 (defn- reply-success!
   "Dispatch the captured `:on-success` reply with the transport's success
@@ -136,7 +136,7 @@
     (doseq [reserved [:request-id :on-success :on-failure]]
       (is (thrown-with-msg?
             #?(:clj Throwable :cljs js/Error) #"resource-reserved-request-key"
-            (http/build-managed-args
+            (rf.resources.transport.http/build-managed-args
               {:http-args    {:request {:url "/x"} reserved :sneaky}
                :request-id   [:rf.work/resource [:rf.scope/global :r {}] 1]
                :work-id      [:rf.work/resource [:rf.scope/global :r {}] 1]
@@ -182,7 +182,7 @@
                       :accept  identity
                       :retry   {:on #{:rf.http/http-5xx}
                                 :max-attempts 3}}))
-  (let [scoped-key (state/scoped-resource-key :rf.scope/global :lo/article {:slug "w"})]
+  (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :lo/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :lo/article :scope :rf.scope/global
                         :params {:slug "w"} :owner [:app :lo 1]}])
@@ -215,7 +215,7 @@
 
 (deftest success-reply-reads-decoded-value-from-transport-result
   (rf/reg-resource :sv/article (article-spec) article-spec-request)
-  (let [scoped-key (state/scoped-resource-key :rf.scope/global :sv/article {:slug "w"})]
+  (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :sv/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :sv/article :scope :rf.scope/global
                         :params {:slug "w"} :owner [:app :sv 1]}])
@@ -231,7 +231,7 @@
 
 (deftest failure-reply-reads-envelope-from-transport-result
   (rf/reg-resource :fe/article (article-spec) article-spec-request)
-  (let [scoped-key (state/scoped-resource-key :rf.scope/global :fe/article {:slug "w"})]
+  (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :fe/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :fe/article :scope :rf.scope/global
                         :params {:slug "w"} :owner [:app :fe 1]}])
@@ -245,7 +245,7 @@
 
 (deftest background-refresh-failure-keeps-data-via-transport-shape
   (rf/reg-resource :bg/article (article-spec) article-spec-request)
-  (let [scoped-key (state/scoped-resource-key :rf.scope/global :bg/article {:slug "w"})]
+  (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :bg/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :bg/article :scope :rf.scope/global
                         :params {:slug "w"} :owner [:app :bg 1]}])
@@ -271,7 +271,7 @@
 
 (deftest stale-transport-reply-suppressed
   (rf/reg-resource :sp/article (article-spec) article-spec-request)
-  (let [scoped-key (state/scoped-resource-key :rf.scope/global :sp/article {:slug "w"})]
+  (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :sp/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :sp/article :scope :rf.scope/global
                         :params {:slug "w"} :owner [:app :sp 1]}])
@@ -311,7 +311,7 @@
 
 (deftest first-load-abort-settles-non-error-not-failure
   (rf/reg-resource :ab1/article (article-spec) article-spec-request)
-  (let [k (state/scoped-resource-key :rf.scope/global :ab1/article {:slug "w"})]
+  (let [k (rf.resources.state/scoped-resource-key :rf.scope/global :ab1/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :ab1/article :scope :rf.scope/global
                         :params {:slug "w"} :owner [:app :ab1 1]}])
@@ -329,13 +329,13 @@
           (is (nil? (:data e)) "no data (the load was cancelled)")
           (is (nil? (:current-work e)) "current-work cleared")))
       (testing "the work row settles terminal :cancelled (not :failed)"
-        (let [rec (work-ledger/get-record (runtime-db) wid)]
+        (let [rec (rf.resources.work-ledger/get-record (runtime-db) wid)]
           (is (= :cancelled (:status rec)) "work row :cancelled")
           (is (= :aborted (:reason (:outcome rec)))))))))
 
 (deftest refresh-abort-preserves-prior-loaded-data
   (rf/reg-resource :ab2/article (article-spec) article-spec-request)
-  (let [k (state/scoped-resource-key :rf.scope/global :ab2/article {:slug "w"})]
+  (let [k (rf.resources.state/scoped-resource-key :rf.scope/global :ab2/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :ab2/article :scope :rf.scope/global
                         :params {:slug "w"} :owner [:app :ab2 1]}])
@@ -348,7 +348,7 @@
           ;; the revision the in-flight refetch sits at (load START does not bump
           ;; :revision; entry-start-load). An optimistic snapshot taken here would
           ;; record this revision (rf2-mx0w2o).
-          rev-before (state/entry-revision (entry k))]
+          rev-before (rf.resources.state/entry-revision (entry k))]
       (testing "rf2-z70ujl — a background-REFRESH abort returns to :loaded,
                 PRESERVES prior :data, and records NO :refresh-error (a
                 cancelled refresh leaves the last-known-good value intact)"
@@ -364,14 +364,14 @@
                 a later optimistic rollback whose snapshot sat at the in-flight
                 revision DETECTS the conflict instead of resurrecting the stale
                 in-flight :current-work pointer"
-        (is (= (inc rev-before) (state/entry-revision (entry k)))
+        (is (= (inc rev-before) (rf.resources.state/entry-revision (entry k)))
             "the abort settle moved the per-entry write identity"))
       (testing "the work row settles terminal :cancelled"
-        (is (= :cancelled (:status (work-ledger/get-record (runtime-db) wid))))))))
+        (is (= :cancelled (:status (rf.resources.work-ledger/get-record (runtime-db) wid))))))))
 
 (deftest stale-abort-reply-cannot-mutate-newer-entry
   (rf/reg-resource :ab3/article (article-spec) article-spec-request)
-  (let [k (state/scoped-resource-key :rf.scope/global :ab3/article {:slug "w"})]
+  (let [k (rf.resources.state/scoped-resource-key :rf.scope/global :ab3/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :ab3/article :scope :rf.scope/global
                         :params {:slug "w"} :owner [:app :ab3 1]}])
@@ -396,7 +396,7 @@
                   :cancelled (a stale abort cannot be an accepted cancellation
                   — there is no live target to cancel; the :aborted outcome is
                   kept as a diagnostic)"
-          (let [rec (work-ledger/get-record (runtime-db) gen1-wid)]
+          (let [rec (rf.resources.work-ledger/get-record (runtime-db) gen1-wid)]
             (is (= :suppressed (:status rec)))
             (is (= :aborted (:outcome (:outcome rec)))
                 "the abort nature is retained as a diagnostic outcome")))))))
@@ -406,7 +406,7 @@
   ;; released emits a best-effort abort; when that abort reply lands it must
   ;; NOT surface as a resource error (rf2-z70ujl acceptance).
   (rf/reg-resource :ab4/article (article-spec) article-spec-request)
-  (let [k (state/scoped-resource-key :rf.scope/global :ab4/article {:slug "w"})]
+  (let [k (rf.resources.state/scoped-resource-key :rf.scope/global :ab4/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :ab4/article :scope :rf.scope/global
                         :params {:slug "w"} :owner [:app :ab4 1]}])
@@ -449,13 +449,13 @@
               compare it)"
       (let [vp (nth (:on-success @last-managed-args) 1)]
         (is (= fa (:rf.frame/id vp)) "payload carries the issuing frame stamp")))
-    (frame/destroy-frame! fa)))
+    (rf.frame/destroy-frame! fa)))
 
 (deftest cross-frame-reply-rejected-without-mutating-receiving-frame
   (rf/reg-resource :xf/article (article-spec) article-spec-request)
   (let [fa :xf/frame-a
         fb :xf/frame-b
-        k  (state/scoped-resource-key :rf.scope/global :xf/article {:slug "w"})]
+        k  (rf.resources.state/scoped-resource-key :rf.scope/global :xf/article {:slug "w"})]
     (rf/make-frame {:id fa :doc "xframe A"})
     (rf/make-frame {:id fb :doc "xframe B"})
     ;; both frames issue the SAME resource at the SAME generation (gen 1) —
@@ -483,8 +483,8 @@
         (is (= {:title "A-data"} (:data (entry fa k))) "frame A settled by its own reply")
         (is (= :loaded (:status (entry fa k))))
         (is (= :loading (:status (entry fb k))) "frame B still independently in flight")))
-    (frame/destroy-frame! fa)
-    (frame/destroy-frame! fb)))
+    (rf.frame/destroy-frame! fa)
+    (rf.frame/destroy-frame! fb)))
 
 ;; ===========================================================================
 ;; 5. ensure dedupe / join while in flight (attach owner, no new generation)
@@ -492,7 +492,7 @@
 
 (deftest ensure-while-in-flight-joins-and-dedupes
   (rf/reg-resource :dj/article (article-spec) article-spec-request)
-  (let [scoped-key (state/scoped-resource-key :rf.scope/global :dj/article {:slug "w"})]
+  (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :dj/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :dj/article :scope :rf.scope/global
                         :params {:slug "w"} :owner [:route :r 1]}])
@@ -521,19 +521,19 @@
 ;;
 ;;    The in-cascade lifecycle events (:rf.resource/remove, clear-scope,
 ;;    refetch supersession, owner-release) abort the underlying managed-HTTP
-;;    request by emitting :rf.http/managed-abort via `work-ledger/abort-fx`
+;;    request by emitting :rf.http/managed-abort via `rf.resources.work-ledger/abort-fx`
 ;;    (covered by the suites above + the work-ledger suite). The OUT-of-cascade
 ;;    lifecycle paths run no cascade:
 ;;
-;;      - `clear-resource`  (registry/dispose-resource-runtime! →
-;;                           work-ledger/opportunistic-abort!)
+;;      - `clear-resource`  (rf.resources.registry/dispose-resource-runtime! →
+;;                           rf.resources.work-ledger/opportunistic-abort!)
 ;;      - frame destroy     (resources/release-resources-host-caches! →
-;;                           work-ledger/release-frame! → abort-slot!)
+;;                           rf.resources.work-ledger/release-frame! → abort-slot!)
 ;;
 ;;    Before rf2-rak684 these only fired the side-table `:abort-fn` (nil for
 ;;    managed HTTP, whose AbortController is host-owned), so they dropped the
 ;;    Resources-side work handle while leaving the underlying managed request
-;;    ALIVE. The fix routes them through `work-ledger/abort-handle!`, which —
+;;    ALIVE. The fix routes them through `rf.resources.work-ledger/abort-handle!`, which —
 ;;    for a managed-HTTP slot — fires the abort-by-request-id seam
 ;;    (`re-frame.http.registry/abort-in-flight!`) through the published
 ;;    `:http/abort-in-flight!` late-bind hook, by the SAME frame-qualified
@@ -552,11 +552,11 @@
   abort reason into `recorder` so the test can assert WHICH reason fired and
   that exactly one abort happened. Returns the recorder atom."
   [request-id recorder]
-  (http-registry/record-in-flight!
+  (rf.http.registry/record-in-flight!
     request-id nil
     {:abort-fn (fn [reason]
                  (swap! recorder conj [request-id reason])
-                 (http-registry/clear-in-flight! request-id))})
+                 (rf.http.registry/clear-in-flight! request-id))})
   recorder)
 
 (deftest clear-resource-aborts-managed-http-in-flight
@@ -566,28 +566,28 @@
   ;; slot. The abort fires by the frame-qualified request-id and the HTTP
   ;; in-flight registry entry is gone afterwards.
   (rf/reg-resource :crab/article (article-spec) article-spec-request)
-  (let [k (state/scoped-resource-key :rf.scope/global :crab/article {:slug "w"})]
+  (let [k (rf.resources.state/scoped-resource-key :rf.scope/global :crab/article {:slug "w"})]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :crab/article :scope :rf.scope/global
                                             :params {:slug "w"} :owner [:app :crab 1]}])
     (let [wid        (:current-work (entry k))
-          request-id (work-ledger/managed-request-id :rf/default wid)
+          request-id (rf.resources.work-ledger/managed-request-id :rf/default wid)
           aborted    (seed-in-flight! request-id (atom []))]
       (testing "the managed-HTTP request is in flight + the work-handle slot
                 records the frame-qualified request-id (no live :abort-fn —
                 the transport owns the AbortController)"
-        (is (some? (http-registry/lookup-in-flight request-id)) "request in flight")
-        (let [handle (work-ledger/get-handle :rf/default wid)]
+        (is (some? (rf.http.registry/lookup-in-flight request-id)) "request in flight")
+        (let [handle (rf.resources.work-ledger/get-handle :rf/default wid)]
           (is (= :rf.http/managed (:transport handle)))
           (is (= request-id (:request-id handle)))
           (is (nil? (:abort-fn handle)) "managed-HTTP slot carries NO direct abort-fn")))
-      (registry/clear-resource :crab/article)
+      (rf.resources.registry/clear-resource :crab/article)
       (testing "rf2-rak684 — clear-resource aborts the underlying managed-HTTP
                 request by [:rf.req frame-id work-id] (not just the side-table slot)"
         (is (= [[request-id :resource-superseded]] @aborted)
             "exactly one abort fired, by the frame-qualified request-id")
-        (is (nil? (http-registry/lookup-in-flight request-id))
+        (is (nil? (rf.http.registry/lookup-in-flight request-id))
             "no live HTTP in-flight entry remains")
-        (is (nil? (work-ledger/get-handle :rf/default wid))
+        (is (nil? (rf.resources.work-ledger/get-handle :rf/default wid))
             "the work-handle side-table slot is dropped")))))
 
 (deftest frame-destroy-aborts-managed-http-in-flight
@@ -597,34 +597,34 @@
   ;; outlive the frame and could satisfy a future same-id frame's reply gate.
   (rf/reg-resource :fdab/article (article-spec) article-spec-request)
   (let [fa :fdab/frame-a
-        k  (state/scoped-resource-key :rf.scope/global :fdab/article {:slug "w"})]
+        k  (rf.resources.state/scoped-resource-key :rf.scope/global :fdab/article {:slug "w"})]
     (rf/make-frame {:id fa :doc "teardown-abort frame"})
     (rf/dispatch-sync [:rf.resource/ensure {:resource :fdab/article :scope :rf.scope/global
                                             :params {:slug "w"} :owner [:app :fdab 1]}]
                       {:frame fa})
     (let [wid        (:current-work (entry fa k))
-          request-id (work-ledger/managed-request-id fa wid)
+          request-id (rf.resources.work-ledger/managed-request-id fa wid)
           aborted    (seed-in-flight! request-id (atom []))]
       (testing "before destroy: request in flight, handle + generation high-water present"
-        (is (some? (http-registry/lookup-in-flight request-id)) "request in flight")
-        (is (some? (work-ledger/get-handle fa wid)) "work-handle slot present")
-        (is (pos? (state/generation-snapshot fa)) "generation high-water present"))
-      (frame/destroy-frame! fa)
+        (is (some? (rf.http.registry/lookup-in-flight request-id)) "request in flight")
+        (is (some? (rf.resources.work-ledger/get-handle fa wid)) "work-handle slot present")
+        (is (pos? (rf.resources.state/generation-snapshot fa)) "generation high-water present"))
+      (rf.frame/destroy-frame! fa)
       (testing "rf2-rak684 — frame destroy aborts the underlying managed-HTTP
                 request by [:rf.req frame-id work-id] and leaves no live in-flight entry"
         (is (= [[request-id :resource-superseded]] @aborted)
             "exactly one abort fired, by the frame-qualified request-id")
-        (is (nil? (http-registry/lookup-in-flight request-id))
+        (is (nil? (rf.http.registry/lookup-in-flight request-id))
             "no live HTTP in-flight entry survives frame destroy")
-        (is (nil? (work-ledger/get-handle fa wid)) "host handle dropped")
-        (is (zero? (state/generation-snapshot fa)) "generation high-water dropped")))))
+        (is (nil? (rf.resources.work-ledger/get-handle fa wid)) "host handle dropped")
+        (is (zero? (rf.resources.state/generation-snapshot fa)) "generation high-water dropped")))))
 
 (deftest same-frame-id-reuse-old-reply-cannot-mutate-new-frame
   ;; rf2-rak684 — the structural-safety case the teardown abort protects, and
   ;; WHY the abort (not stale suppression) is load-bearing here.
   ;;
   ;; Same-id frame re-registration is supported, and frame destroy DROPS the
-  ;; destroyed frame's generation high-water (state/release-frame!), so a
+  ;; destroyed frame's generation high-water (rf.resources.state/release-frame!), so a
   ;; re-registered frame mints generation 1 AGAIN for the same scoped key. The
   ;; work-id `[:rf.work/resource <scoped-key> <generation>]` embeds ONLY the
   ;; scoped key + generation (it is frame-LOCAL), so the OLD incarnation's
@@ -642,7 +642,7 @@
   ;; assert that reply does NOT mutate the re-registered frame's fresh entry.
   (rf/reg-resource :rab/article (article-spec) article-spec-request)
   (let [fr :rab/reused
-        k  (state/scoped-resource-key :rf.scope/global :rab/article {:slug "w"})]
+        k  (rf.resources.state/scoped-resource-key :rf.scope/global :rab/article {:slug "w"})]
     ;; ---- first incarnation: start a load; capture the reply addressing ----
     (rf/make-frame {:id fr :doc "reuse frame — first incarnation"})
     (rf/dispatch-sync [:rf.resource/ensure {:resource :rab/article :scope :rf.scope/global
@@ -650,25 +650,25 @@
                       {:frame fr})
     (let [old-payload    (nth (:on-success @last-managed-args) 1)
           old-wid        (:current-work (entry fr k))
-          old-request-id (work-ledger/managed-request-id fr old-wid)
+          old-request-id (rf.resources.work-ledger/managed-request-id fr old-wid)
           ;; seed the REAL in-flight registry with an abort-fn that, like the
           ;; live transport's cancel path, clears the registry when fired (the
           ;; production abort-fn closure reaches finalise-failure! →
           ;; clear-in-flight!). `delivered` records that the abort fired.
           delivered      (atom [])
-          _              (http-registry/record-in-flight!
+          _              (rf.http.registry/record-in-flight!
                            old-request-id nil
                            {:abort-fn (fn [reason]
                                         (swap! delivered conj [old-request-id reason])
-                                        (http-registry/clear-in-flight! old-request-id))})]
+                                        (rf.http.registry/clear-in-flight! old-request-id))})]
       (is (= 1 (:generation (entry fr k))) "first incarnation on generation 1")
-      (is (some? (http-registry/lookup-in-flight old-request-id)) "old request in flight")
+      (is (some? (rf.http.registry/lookup-in-flight old-request-id)) "old request in flight")
       ;; ---- destroy + re-register the SAME frame id ----
-      (frame/destroy-frame! fr)
+      (rf.frame/destroy-frame! fr)
       (testing "rf2-rak684 — destroy aborts the surviving managed request"
         (is (= [[old-request-id :resource-superseded]] @delivered)
             "the old request was aborted on destroy")
-        (is (nil? (http-registry/lookup-in-flight old-request-id))
+        (is (nil? (rf.http.registry/lookup-in-flight old-request-id))
             "no surviving in-flight request to deliver a late success"))
       (reset! last-managed-args nil)
       (rf/make-frame {:id fr :doc "reuse frame — second incarnation"})
@@ -695,10 +695,10 @@
                   from the registry, so NO surviving request can deliver a late
                   success into the re-registered frame (the only structural
                   protection, since the gate can't tell the replies apart)"
-          (is (nil? (http-registry/lookup-in-flight old-request-id))
+          (is (nil? (rf.http.registry/lookup-in-flight old-request-id))
               "the colliding old request cannot deliver any reply"))
         (testing "the NEW incarnation's OWN reply settles it normally"
           (reply-into-frame! fr new-payload {:title "FRESH"})
           (is (= {:title "FRESH"} (:data (entry fr k))) "new reply settles the new entry")
           (is (= :loaded (:status (entry fr k)))))))
-    (frame/destroy-frame! fr)))
+    (rf.frame/destroy-frame! fr)))

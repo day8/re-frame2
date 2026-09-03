@@ -22,16 +22,16 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.fx :as fx]
+   [re-frame.fx :as rf.fx]
    [re-frame.resources]
-   [re-frame.resources.state :as state]
+   [re-frame.resources.state :as rf.resources.state]
    [re-frame.resources.subs]
    [re-frame.resources.test-support]
    [re-frame.http.managed]
    [re-frame.schemas]
-   [re-frame.test-support :as core-test-support]
-   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
-       :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
+   [re-frame.test-support :as rf.test-support]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
 ;; ---- capturing transport (replays the real reply-append shape) ------------
 
@@ -39,19 +39,19 @@
 
 (defn- capturing-transport-fixture [f]
   (reset! last-managed-args nil)
-  (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
+  (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
   (f))
 
 (use-fixtures :each
-  (core-test-support/make-reset-runtime-fixture
-    #?(:clj  {:adapter plain-atom/adapter}
-       :cljs {:adapter reagent-adapter/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
+       :cljs {:adapter rf.adapter.reagent/adapter}))
   capturing-transport-fixture)
 
 ;; ---- helpers --------------------------------------------------------------
 
 (defn- runtime-db [] (:rf.db/runtime (rf/frame-state-value :rf/default)))
-(defn- entry [scoped-key] (get-in (runtime-db) (state/entry-path scoped-key)))
+(defn- entry [scoped-key] (get-in (runtime-db) (rf.resources.state/entry-path scoped-key)))
 
 (defn- reply-success!
   ([data] (reply-success! @last-managed-args data))
@@ -97,7 +97,7 @@
                          page-param (assoc :cursor page-param))}}))
 
 (defn- feed-key [resource]
-  (state/scoped-resource-key :rf.scope/global resource {:filter :recent}))
+  (rf.resources.state/scoped-resource-key :rf.scope/global resource {:filter :recent}))
 
 (defn- q [resource]
   {:resource resource :scope :rf.scope/global :params {:filter :recent}})
@@ -153,7 +153,7 @@
 ;;   test would WRONGLY read an empty/never-loaded feed as `:has-data? true`
 ;;   (and `:rf/resource` would return the self-contradictory
 ;;   `{:status :loading … :has-data? true}`). Both scalar subs must route
-;;   through the shared `state/has-data?` derivation (the same one
+;;   through the shared `rf.resources.state/has-data?` derivation (the same one
 ;;   `:rf.resource/infinite-state` uses), so the two PUBLIC sub families agree.
 ;; ===========================================================================
 
@@ -167,7 +167,7 @@
       (is (= :loading (:status e)) "first load, no usable data ⇒ :loading"))
     (testing "the scalar :rf.resource/has-data? reads FALSE (empty page vector)"
       (is (false? @(rf/subscribe [:rf.resource/has-data? (q :is1b/feed)]))
-          "an empty page vector is NO usable data — must match state/has-data?"))
+          "an empty page vector is NO usable data — must match rf.resources.state/has-data?"))
     (testing "the scalar :rf/resource's :has-data? agrees (and isn't self-contradictory)"
       (let [vm @(rf/subscribe [:rf/resource (q :is1b/feed)])]
         (is (= :loading (:status vm)) "still first-loading")
@@ -347,7 +347,7 @@
   (testing "a non-vector page with NO :page->items raises at the merge site
             (R3, loud over guessing — the runtime-detected error wave-2
             deferred to the merge layer). Asserted at the MERGE layer
-            (`state/merge-pages->items` / the framework-owned `merged-items`
+            (`rf.resources.state/merge-pages->items` / the framework-owned `merged-items`
             projection) — a sub-body throw is otherwise routed to the runtime
             error path, the same level the sub-unresolved-scope test asserts at."
     ;; valid registration (no :page->items declared); the page is enveloped, so
@@ -359,13 +359,13 @@
     (reply-success! (page [:a :b] "c1"))         ;; an enveloped (map) page
     (let [e (entry (feed-key :iserr/feed))]
       (testing "the entry accumulated the enveloped page fine (merge is read-side)"
-        (is (= 1 (state/page-count e))))
+        (is (= 1 (rf.resources.state/page-count e))))
       (testing "the pure merge raises :rf.error/infinite-missing-page-accessor"
         (is (thrown-with-msg?
               #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
               #"infinite-missing-page-accessor"
-              (state/merge-pages->items
-                (:data e) (state/resolve-page->items nil)
+              (rf.resources.state/merge-pages->items
+                (:data e) (rf.resources.state/resolve-page->items nil)
                 :iserr/feed 'rf.resource/items))))
       (testing "the framework-owned merged-items projection raises too"
         (is (thrown-with-msg?
@@ -374,8 +374,8 @@
               (#'re-frame.resources.subs/merged-items e 'rf.resource/items))))
       (testing "the error carries the canonical :rf.error/id discriminator"
         (is (= :rf.error/infinite-missing-page-accessor
-               (try (state/merge-pages->items
-                      (:data e) (state/resolve-page->items nil)
+               (try (rf.resources.state/merge-pages->items
+                      (:data e) (rf.resources.state/resolve-page->items nil)
                       :iserr/feed 'rf.resource/items)
                     nil
                     (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) ex
@@ -390,8 +390,8 @@
             (a re-run with an identical page vector returns the cached merge)"
     (load-page-0! :is8/feed (page [:a :b] "c1"))
     (let [e      (entry (feed-key :is8/feed))
-          first  (state/merge-pages->items
-                   (:data e) (state/resolve-page->items :items)
+          first  (rf.resources.state/merge-pages->items
+                   (:data e) (rf.resources.state/resolve-page->items :items)
                    :is8/feed 'rf.resource/items)
           ;; via the memoised entry path
           m1     (#'re-frame.resources.subs/merged-items e 'rf.resource/items)

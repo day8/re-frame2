@@ -35,25 +35,25 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.frame :as frame]
+   [re-frame.frame :as rf.frame]
    ;; load-bearing side-effecting requires: the façade publishes the SSR
    ;; projection + reconcile hooks + registers the resource registrar kind; the
    ;; subs ns publishes the framework-owned merged-items projection + the
    ;; :rf.resource/* read family the acceptance reads through.
    [re-frame.resources]
-   [re-frame.resources.ssr :as ssr]
-   [re-frame.resources.state :as state]
-   [re-frame.resources.subs :as rsubs]
-   [re-frame.resources.work-ledger :as work-ledger]
+   [re-frame.resources.ssr :as rf.resources.ssr]
+   [re-frame.resources.state :as rf.resources.state]
+   [re-frame.resources.subs :as rf.resources.subs]
+   [re-frame.resources.work-ledger :as rf.resources.work-ledger]
    [re-frame.schemas]
-   [re-frame.test-support :as core-test-support]
-   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
-       :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
+   [re-frame.test-support :as rf.test-support]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
 (use-fixtures :each
-  (core-test-support/make-reset-runtime-fixture
-    #?(:clj  {:adapter plain-atom/adapter}
-       :cljs {:adapter reagent-adapter/adapter})))
+  (rf.test-support/make-reset-runtime-fixture
+    #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
+       :cljs {:adapter rf.adapter.reagent/adapter})))
 
 ;; ---- the feed spec + cursor fns -------------------------------------------
 
@@ -93,7 +93,7 @@
 
 (def ^:private fkey
   ;; canonical global-scope key for :feed/timeline {:filter :recent}
-  (state/scoped-resource-key :rf.scope/global :feed/timeline {:filter :recent}))
+  (rf.resources.state/scoped-resource-key :rf.scope/global :feed/timeline {:filter :recent}))
 
 ;; The three accumulated pages (N=3, non-terminal — a 4th page exists, "c3"),
 ;; built by replaying the pure append transition the wave-3 reply path drives.
@@ -107,16 +107,16 @@
   prev-mirror are exactly what the runtime would have produced), stamped under
   `fkey`. :loaded, fresh (far-future stale-at)."
   []
-  (-> (state/empty-infinite-entry :feed/timeline fkey)
-      (state/entry-append-page {:page p0 :page-param nil
+  (-> (rf.resources.state/empty-infinite-entry :feed/timeline fkey)
+      (rf.resources.state/entry-append-page {:page p0 :page-param nil
                                 :next-page-param-fn next-cursor
                                 :prev-page-param-fn prev-cursor
                                 :loaded-at 1000 :stale-at 9.0e15})
-      (state/entry-append-page {:page p1 :page-param "c1"
+      (rf.resources.state/entry-append-page {:page p1 :page-param "c1"
                                 :next-page-param-fn next-cursor
                                 :prev-page-param-fn prev-cursor
                                 :loaded-at 1100 :stale-at 9.0e15})
-      (state/entry-append-page {:page p2 :page-param "c2"
+      (rf.resources.state/entry-append-page {:page p2 :page-param "c2"
                                 :next-page-param-fn next-cursor
                                 :prev-page-param-fn prev-cursor
                                 :loaded-at 1200 :stale-at 9.0e15})))
@@ -125,10 +125,10 @@
 ;; a load-more APPENDS at a positive page index (3, past the accumulated tail),
 ;; which is the durable evidence `:rf.resource/fetching-next?` reads.
 (def ^:private load-more-gen 7)
-(def ^:private load-more-wid (work-ledger/resource-work-id fkey load-more-gen))
+(def ^:private load-more-wid (rf.resources.work-ledger/resource-work-id fkey load-more-gen))
 
 (defn- load-more-row [frame-id status]
-  (-> (work-ledger/work-record
+  (-> (rf.resources.work-ledger/work-record
         {:work-id load-more-wid :frame-id frame-id :resource/key fkey
          :generation load-more-gen :transport :rf.http/managed
          :started-at 1300 :page-index 3})
@@ -145,9 +145,9 @@
   (let [e (assoc (loaded-feed-entry)
                  :status :fetching
                  :current-work load-more-wid)]
-    {state/resources-key   {:entries   {(state/key-id fkey) (assoc e :resource/key fkey)}
+    {rf.resources.state/resources-key   {:entries   {(rf.resources.state/key-id fkey) (assoc e :resource/key fkey)}
                             :tag-index {} :owner-index {}}
-     state/work-ledger-key {(work-ledger/work-id-id load-more-wid)
+     rf.resources.state/work-ledger-key {(rf.resources.work-ledger/work-id-id load-more-wid)
                             (load-more-row frame-id :running)}}))
 
 ;; ---- shared expectations ---------------------------------------------------
@@ -163,7 +163,7 @@
   framework-owned `merged-items` projection (resolves the registered spec's
   `:page->items`, raises loudly on a missing accessor). The headline R3 read."
   [entry]
-  (#'rsubs/merged-items entry 'rf.resource/items))
+  (#'rf.resources.subs/merged-items entry 'rf.resource/items))
 
 ;; ===========================================================================
 ;; (a) SERVER PROJECTION — the page vector + infinite facts + merged :items
@@ -175,13 +175,13 @@
   (testing "PRE: the assembled live entry is a 3-page :loaded feed in ONE
             :rf.runtime/resources entry slot, with a load-more in flight"
     (let [rdb (feed-with-load-more-in-flight :app/main)
-          e   (get-in rdb [state/resources-key :entries (state/key-id fkey)])]
-      (is (state/infinite-entry? e) "it is an infinite entry (the :infinite? marker)")
+          e   (get-in rdb [rf.resources.state/resources-key :entries (rf.resources.state/key-id fkey)])]
+      (is (rf.resources.state/infinite-entry? e) "it is an infinite entry (the :infinite? marker)")
       (is (= expected-pages (:data e)) "the ordered page vector")
       (is (= expected-params (:page-params e)) "one page-param per page (page-0 = nil)")
       (is (= expected-cursor (:next-page-param e)) "the cursor is the 4th page's param")
       (is (= expected-prev (:prev-page-param e)) "no prev mirror (page-0 declared none)")
-      (is (= 3 (state/page-count e)))
+      (is (= 3 (rf.resources.state/page-count e)))
       (is (= :fetching (:status e)) "the load-more left the feed :fetching")
       (is (= load-more-wid (:current-work e)) "the entry points at the in-flight load-more work")
       (is (= expected-items (merged-items* e)) "the headline merged :items, live"))))
@@ -193,12 +193,12 @@
             infinite feed is just a :serialize entry whose :data is a vector
             (R1; rides the existing project-resources-runtime-db, no new code)"
     (let [rdb  (feed-with-load-more-in-flight :app/main)
-          proj (ssr/project-resources-runtime-db rdb)]
-      (is (= #{state/resources-key} (set (keys proj)))
+          proj (rf.resources.ssr/project-resources-runtime-db rdb)]
+      (is (= #{rf.resources.state/resources-key} (set (keys proj)))
           "ONLY the resources subsystem is projected (the feed adds no subsystem)")
-      (is (= #{:entries} (set (keys (get proj state/resources-key))))
+      (is (= #{:entries} (set (keys (get proj rf.resources.state/resources-key))))
           "only :entries rides — indexes recompute, work-ledger never rides")
-      (let [es (get-in proj [state/resources-key :entries])
+      (let [es (get-in proj [rf.resources.state/resources-key :entries])
             we (val (first es))]
         (is (= 1 (count es)) "the whole feed is ONE entry slot (R1 — no per-page slot)")
         (is (true? (:infinite? we)) ":infinite? marker rides")
@@ -216,11 +216,11 @@
             do NOT ride the wire (they reference a host attempt that does not
             survive the round-trip) — same rule as a scalar entry"
     (let [rdb  (feed-with-load-more-in-flight :app/main)
-          proj (ssr/project-resources-runtime-db rdb)
-          we   (val (first (get-in proj [state/resources-key :entries])))]
+          proj (rf.resources.ssr/project-resources-runtime-db rdb)
+          we   (val (first (get-in proj [rf.resources.state/resources-key :entries])))]
       (is (not (contains? we :current-work))
           "the load-more :current-work pointer is stripped on the wire")
-      (is (not (contains? proj state/work-ledger-key))
+      (is (not (contains? proj rf.resources.state/work-ledger-key))
           "the :rf.runtime/work-ledger subtree (the in-flight page-3 row) never rides"))))
 
 (deftest projected-entry-merges-items-identically-server-side
@@ -230,9 +230,9 @@
             vector + the registered :page->items accessor are all that the merge
             needs, and both survive the projection)"
     (let [rdb       (feed-with-load-more-in-flight :app/main)
-          live      (get-in rdb [state/resources-key :entries (state/key-id fkey)])
-          proj      (ssr/project-resources-runtime-db rdb)
-          projected (val (first (get-in proj [state/resources-key :entries])))]
+          live      (get-in rdb [rf.resources.state/resources-key :entries (rf.resources.state/key-id fkey)])
+          proj      (rf.resources.ssr/project-resources-runtime-db rdb)
+          projected (val (first (get-in proj [rf.resources.state/resources-key :entries])))]
       (is (= expected-items (merged-items* live)) "live merge")
       (is (= expected-items (merged-items* projected))
           "the projected entry merges to the SAME flat ordered :items list — no page loss")
@@ -252,17 +252,17 @@
             terminal? + page-params + prev-mirror INTACT (order preserved, no
             page loss) — the durable feed rides the EXISTING restore reconcile"
     (let [snapshot (feed-with-load-more-in-flight :app/main)
-          out      (ssr/reconcile-on-restore snapshot :app/main)
-          e        (get-in out [state/resources-key :entries (state/key-id fkey)])]
-      (is (state/infinite-entry? e) "the restored entry is still the infinite feed")
+          out      (rf.resources.ssr/reconcile-on-restore snapshot :app/main)
+          e        (get-in out [rf.resources.state/resources-key :entries (rf.resources.state/key-id fkey)])]
+      (is (rf.resources.state/infinite-entry? e) "the restored entry is still the infinite feed")
       (is (= expected-pages (:data e))
           "the ordered page vector rehydrates intact — order preserved, no page loss")
       (is (= expected-params (:page-params e)) ":page-params rehydrate intact")
       (is (= expected-cursor (:next-page-param e)) "the cursor (:next-page-param) rehydrates intact")
-      (is (false? (state/terminal? (:next-page-param e)))
+      (is (false? (rf.resources.state/terminal? (:next-page-param e)))
           "terminal? is FALSE — a 4th page exists (cursor \"c3\"), as before restore")
       (is (= expected-prev (:prev-page-param e)) "the prev mirror rehydrates intact")
-      (is (= 3 (state/page-count e)) "all 3 pages survived (no page loss)")
+      (is (= 3 (rf.resources.state/page-count e)) "all 3 pages survived (no page loss)")
       (is (= expected-items (merged-items* e))
           "the merged :items rehydrates to the SAME flat ordered list"))))
 
@@ -274,9 +274,9 @@
             dangles the non-terminal page-3 work-ledger row (it must not dangle
             as a live attempt against the restored feed)"
     (let [snapshot (feed-with-load-more-in-flight :app/main)
-          out      (ssr/reconcile-on-restore snapshot :app/main)
-          e        (get-in out [state/resources-key :entries (state/key-id fkey)])
-          row      (get-in out [state/work-ledger-key (work-ledger/work-id-id load-more-wid)])]
+          out      (rf.resources.ssr/reconcile-on-restore snapshot :app/main)
+          e        (get-in out [rf.resources.state/resources-key :entries (rf.resources.state/key-id fkey)])
+          row      (get-in out [rf.resources.state/work-ledger-key (rf.resources.work-ledger/work-id-id load-more-wid)])]
       (is (= :loaded (:status e))
           ":fetching-with-data settles to :loaded (keep last-known-good) — never stranded :fetching")
       (is (nil? (:current-work e)) "the vanished load-more pointer is cleared")
@@ -286,9 +286,9 @@
       (is (= expected-cursor (:next-page-param e)) "the cursor is untouched by the settle")
       (testing "the non-terminal page-3 work-ledger row is dangled (suppressed)"
         (is (= :suppressed (:status row)) "the in-flight load-more row settled terminal :suppressed")
-        (is (work-ledger/terminal? (:status row)) "it is now terminal")
+        (is (rf.resources.work-ledger/terminal? (:status row)) "it is now terminal")
         (is (= :dangling (get-in row [:outcome :reason])) "marked dangling")
-        (is (not (contains? work-ledger/non-terminal-statuses (:status row)))
+        (is (not (contains? rf.resources.work-ledger/non-terminal-statuses (:status row)))
             "NO non-terminal load-more row survives the restore")))))
 
 (deftest restore-fetching-next?-resolves-false-no-phantom-load-more
@@ -302,9 +302,9 @@
           snapshot (feed-with-load-more-in-flight fid)
           ;; reconcile + install the snapshot as the live frame's runtime-db,
           ;; exactly as epoch perform-restore! does.
-          reconciled (ssr/reconcile-on-restore snapshot fid)]
+          reconciled (rf.resources.ssr/reconcile-on-restore snapshot fid)]
       (rf/make-frame {:id fid :doc "restore infinite fetching-next? frame"})
-      (frame/replace-runtime-db! fid reconciled)
+      (rf.frame/replace-runtime-db! fid reconciled)
       (let [q {:resource :feed/timeline :scope :rf.scope/global :params {:filter :recent}}]
         (testing "the durable feed reads through the live subs intact post-restore"
           (is (= expected-items @(rf/subscribe [:rf.resource/items q] {:frame fid}))
@@ -324,30 +324,30 @@
             (is (= :loaded (:status vm)) "the feed settled :loaded")
             (is (= expected-items (:items vm)) "the accumulated pages stay visible (no skeleton)")
             (is (true? (:has-data? vm))))))
-      (frame/destroy-frame! fid))))
+      (rf.frame/destroy-frame! fid))))
 
 (deftest restore-with-terminal-feed-rehydrates-terminal-intact
   (reg-feed!)
   (testing "a TERMINAL feed (last page's next-cursor nil) rehydrates with
             terminal? TRUE — the single-terminal rule rides restore (no spurious
             has-next-page? on a feed that already reached the end)"
-    (let [terminal-entry (-> (state/empty-infinite-entry :feed/timeline fkey)
-                             (state/entry-append-page {:page p0 :page-param nil
+    (let [terminal-entry (-> (rf.resources.state/empty-infinite-entry :feed/timeline fkey)
+                             (rf.resources.state/entry-append-page {:page p0 :page-param nil
                                                        :next-page-param-fn next-cursor
                                                        :prev-page-param-fn prev-cursor
                                                        :loaded-at 1000 :stale-at 9.0e15})
                              ;; a terminal final page (next-cursor nil)
-                             (state/entry-append-page {:page (page [:z] nil) :page-param "c1"
+                             (rf.resources.state/entry-append-page {:page (page [:z] nil) :page-param "c1"
                                                        :next-page-param-fn next-cursor
                                                        :prev-page-param-fn prev-cursor
                                                        :loaded-at 1100 :stale-at 9.0e15}))
-          snapshot {state/resources-key {:entries   {(state/key-id fkey) (assoc terminal-entry :resource/key fkey)}
+          snapshot {rf.resources.state/resources-key {:entries   {(rf.resources.state/key-id fkey) (assoc terminal-entry :resource/key fkey)}
                                          :tag-index {} :owner-index {}}}
-          out (ssr/reconcile-on-restore snapshot :app/main)
-          e   (get-in out [state/resources-key :entries (state/key-id fkey)])]
-      (is (= 2 (state/page-count e)) "both pages (including the terminal one) survived")
+          out (rf.resources.ssr/reconcile-on-restore snapshot :app/main)
+          e   (get-in out [rf.resources.state/resources-key :entries (rf.resources.state/key-id fkey)])]
+      (is (= 2 (rf.resources.state/page-count e)) "both pages (including the terminal one) survived")
       (is (nil? (:next-page-param e)) "the terminal cursor (nil) rehydrates")
-      (is (true? (state/terminal? (:next-page-param e))) "terminal? rehydrates TRUE")
+      (is (true? (rf.resources.state/terminal? (:next-page-param e))) "terminal? rehydrates TRUE")
       (is (= [:a :b :z] (merged-items* e)) "the merged :items spans both pages, in order"))))
 
 (deftest restore-with-page-error-rehydrates-third-error-channel
@@ -356,11 +356,11 @@
             error channel) rehydrates that channel intact through restore, kept
             distinct from :error / :refresh-error"
     (let [failed (-> (loaded-feed-entry)
-                     (state/entry-page-failed {:error {:kind :rf.http/server :status 503}}))
-          snapshot {state/resources-key {:entries   {(state/key-id fkey) (assoc failed :resource/key fkey)}
+                     (rf.resources.state/entry-page-failed {:error {:kind :rf.http/server :status 503}}))
+          snapshot {rf.resources.state/resources-key {:entries   {(rf.resources.state/key-id fkey) (assoc failed :resource/key fkey)}
                                          :tag-index {} :owner-index {}}}
-          out (ssr/reconcile-on-restore snapshot :app/main)
-          e   (get-in out [state/resources-key :entries (state/key-id fkey)])]
+          out (rf.resources.ssr/reconcile-on-restore snapshot :app/main)
+          e   (get-in out [rf.resources.state/resources-key :entries (rf.resources.state/key-id fkey)])]
       (is (= {:kind :rf.http/server :status 503} (:page-error e))
           "the :page-error (third channel) rehydrates intact")
       (is (nil? (:error e)) "NOT the first-load :error channel")
@@ -381,9 +381,9 @@
             settles to :loaded (last-known-good) and is NOT refetched (the SSR
             no-double-fetch win), since the accumulated data is fresh"
     (let [rdb       (feed-with-load-more-in-flight :app/main)
-          projected (ssr/project-resources-runtime-db rdb)
-          out       (ssr/hydrate-runtime-db projected :app/main)
-          e         (get-in out [state/resources-key :entries (state/key-id fkey)])]
+          projected (rf.resources.ssr/project-resources-runtime-db rdb)
+          out       (rf.resources.ssr/hydrate-runtime-db projected :app/main)
+          e         (get-in out [rf.resources.state/resources-key :entries (rf.resources.state/key-id fkey)])]
       (is (= expected-pages (:data e)) "the page vector survived project→hydrate intact")
       (is (= expected-cursor (:next-page-param e)) "the cursor survived the round-trip")
       (is (= expected-items (merged-items* e)) "the merged :items survived the round-trip")
@@ -391,7 +391,7 @@
           "the dangling :fetching load-more settled to :loaded on hydrate (last-known-good)")
       (is (nil? (:current-work e)) "the stripped :current-work stays cleared")
       (testing "the fresh-with-data feed is NOT in the client refetch plan (no double-fetch)"
-        (let [plan (->> (ssr/hydrate-refetch-plan out 5000)
+        (let [plan (->> (rf.resources.ssr/hydrate-refetch-plan out 5000)
                         (into {} (map (juxt :resource/key identity))))]
           (is (not (contains? plan fkey))
               "a fresh accumulated feed is not refetched on the client — the SSR win"))))))

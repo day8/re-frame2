@@ -30,25 +30,25 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.fx :as fx]
+   [re-frame.fx :as rf.fx]
    ;; load-bearing side-effecting requires: register the resources + routing
    ;; events / subs and resources' late-bound :routing/* integration hooks.
    [re-frame.resources]
-   [re-frame.resources.events :as events]
-   [re-frame.resources.mutation-events :as mutation-events]
-   [re-frame.resources.mutation-runtime :as mstate]
-   [re-frame.resources.registry :as registry]
-   [re-frame.resources.route :as route]
-   [re-frame.resources.state :as state]
-   [re-frame.resources.subs :as r-subs]
-   [re-frame.resources.scope-registry :as scope-registry]
+   [re-frame.resources.events :as rf.resources.events]
+   [re-frame.resources.mutation-events :as rf.resources.mutation-events]
+   [re-frame.resources.mutation-runtime :as rf.resources.mutation-runtime]
+   [re-frame.resources.registry :as rf.resources.registry]
+   [re-frame.resources.route :as rf.resources.route]
+   [re-frame.resources.state :as rf.resources.state]
+   [re-frame.resources.subs :as rf.resources.subs]
+   [re-frame.resources.scope-registry :as rf.resources.scope-registry]
    [re-frame.resources.test-support]
-   [re-frame.routing :as routing]
+   [re-frame.routing :as rf.routing]
    [re-frame.schemas]
    [re-frame.http.managed]
-   [re-frame.registrar :as registrar]
-   [re-frame.trace.tooling :as trace-tooling]
-   [re-frame.test-support :as core-test-support]
+   [re-frame.registrar :as rf.registrar]
+   [re-frame.trace.tooling :as rf.trace.tooling]
+   [re-frame.test-support :as rf.test-support]
    #?(:clj  [re-frame.substrate.plain-atom :as substrate]
       :cljs [re-frame.adapter.reagent :as substrate])))
 
@@ -63,11 +63,11 @@
   []
   (rf/make-frame {:id :rf/default :url-bound? true
                   :doc "from-db scope suite default app frame."})
-  (routing/reset-counters!)
-  (route/install-routing-integration!)
-  (registrar/clear-kind! :resource-scope)
-  (fx/reg-fx :rf.http/managed (fn [_ctx _args] nil))
-  (fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
+  (rf.routing/reset-counters!)
+  (rf.resources.route/install-routing-integration!)
+  (rf.registrar/clear-kind! :resource-scope)
+  (rf.fx/reg-fx :rf.http/managed (fn [_ctx _args] nil))
+  (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
   ;; the named db-derived viewer-session resolver (EP-0016 D3 canonical form)
   (rf/reg-resource-scope :t/session
     {:inputs {:username [:db [:auth :user :username]]}}
@@ -85,7 +85,7 @@
   (rf/reg-event :t/logout (fn [{:keys [db]} _] {:db (update db :auth dissoc :user)})))
 
 (use-fixtures :each
-  (core-test-support/make-reset-runtime-fixture
+  (rf.test-support/make-reset-runtime-fixture
     {:adapter substrate/adapter
      :init-fn init!}))
 
@@ -97,14 +97,14 @@
 ;; scoped-key vectors. Semantics unchanged.
 (defn- entries []
   (into {} (map (fn [[_k-id e]] [(:resource/key e) e]))
-        (get-in (runtime-db) (state/entries-path))))
-(defn- entry [scoped-key] (get-in (runtime-db) (state/entry-path scoped-key)))
+        (get-in (runtime-db) (rf.resources.state/entries-path))))
+(defn- entry [scoped-key] (get-in (runtime-db) (rf.resources.state/entry-path scoped-key)))
 (defn- slice [] (get-in (runtime-db) [:rf.runtime/routing :current]))
 
 (defn- session-key
   "The scoped feed key for username `u`, page `page`."
   [u page]
-  (state/scoped-resource-key [:rf.scope/session {:username u}] :t/feed {:page page}))
+  (rf.resources.state/scoped-resource-key [:rf.scope/session {:username u}] :t/feed {:page page}))
 
 (defn- settle-loaded!
   "Drive the just-ensured entry at `scoped-key` to :loaded by dispatching
@@ -143,7 +143,7 @@
     (rf/dispatch-sync [:rf.resource/ensure {:resource :t/notes :params {}
                                             :scope {:from-db :t/session}
                                             :owner [:app :n 1]}])
-    (is (some? (entry (state/scoped-resource-key
+    (is (some? (entry (rf.resources.state/scoped-resource-key
                         [:rf.scope/session {:username "abel"}] :t/notes {}))))))
 
 (deftest event-ensure-from-db-nil-fails-closed
@@ -155,7 +155,7 @@
     (let [spec (rf/resource-meta :t/feed)]
       (is (thrown-with-msg?
             #?(:clj Throwable :cljs js/Error) #"resource-scope-unresolved-reference"
-            (registry/resolve-scope-for-event
+            (rf.resources.registry/resolve-scope-for-event
               :t/feed spec {:db {}} 'test)))))
   (testing "dispatched through the event the failure is caught by the runtime
             error path — NO entry is created under any scope (fail-closed)"
@@ -231,7 +231,7 @@
     ;; no logged-in user — the {:from-db} spec policy resolves nil against `{}`
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-sub-unresolved-scope"
-          (r-subs/resolve-scoped-key {:resource :t/feed :params {:page 1}} {})))))
+          (rf.resources.subs/resolve-scoped-key {:resource :t/feed :params {:page 1}} {})))))
 
 ;; ===========================================================================
 ;; 4. rf2-616xa6 — mid-session input change RE-KEYS the live sub
@@ -279,12 +279,12 @@
   [body-fn]
   (let [seen (atom [])
         k    ::clear-scope-recorder]
-    (trace-tooling/register-listener!
+    (rf.trace.tooling/register-listener!
       k (fn [ev]
           (when (= :rf.warning/resource-clear-scope-unresolved (:operation ev))
             (swap! seen conj ev))))
     (try (body-fn)
-         (finally (trace-tooling/unregister-listener! k)))
+         (finally (rf.trace.tooling/unregister-listener! k)))
     @seen))
 
 (deftest clear-scope-from-db-resolves-and-clears-the-resolved-scope
@@ -342,9 +342,9 @@
   [body-fn]
   (let [seen (atom [])
         k    ::scope-resolved-recorder]
-    (trace-tooling/register-listener!
+    (rf.trace.tooling/register-listener!
       k (fn [ev] (when (= :rf.resource/scope-resolved (:operation ev)) (swap! seen conj ev))))
-    (try (body-fn) (finally (trace-tooling/unregister-listener! k)))
+    (try (body-fn) (finally (rf.trace.tooling/unregister-listener! k)))
     @seen))
 
 (deftest scope-resolved-trace-emitted-on-event-ensure-with-full-shape
@@ -427,7 +427,7 @@
     (let [rows (record-scope-resolved!
                  (fn []
                    (is (= (session-key "jake" 1)
-                          (r-subs/resolve-scoped-key {:resource :t/feed :params {:page 1}}
+                          (rf.resources.subs/resolve-scoped-key {:resource :t/feed :params {:page 1}}
                                                      {:auth {:user {:username "jake"}}})))))]
       (is (zero? (count (filter #(= :t/session (:resource-id (:tags %))) rows)))
           (str "expected no scope-resolved rows from sub resolution; got "
@@ -465,7 +465,7 @@
                 :whole-db?    false
                 :scope        [:rf.scope/session {:username "jake"}]
                 :resolved-nil? false}
-          proj (scope-registry/project-scope-resolved-egress tags)]
+          proj (rf.resources.scope-registry/project-scope-resolved-egress tags)]
       (is (= :rf/redacted (:input-values proj)) "raw db reads redacted")
       (is (= :rf/redacted (:scope proj)) "derived identity tuple redacted")
       (is (true? (:sensitive? proj)) "row stamped sensitive for the egress gate")
@@ -500,7 +500,7 @@
                 :input-values {:locale "en"}
                 :scope        [:rf.scope/locale {:locale "en"}]
                 :resolved-nil? false}
-          proj (scope-registry/project-scope-resolved-egress tags)]
+          proj (rf.resources.scope-registry/project-scope-resolved-egress tags)]
       (is (= :rf/redacted (:input-values proj)) "resolved input-values redacted")
       (is (= :rf/redacted (:scope proj)) "derived scope redacted")
       (is (:sensitive? proj) "the row is stamped sensitive")
@@ -572,7 +572,7 @@
   (settle-loaded! (session-key "jake" 1) {:for "jake"})
   ;; keep the owner ACTIVE (no release) so the match arms a refetch
   (testing "the active-owner refetch carries the resolved concrete scope"
-    (let [{:keys [fx]} (events/invalidate-tags-handler
+    (let [{:keys [fx]} (rf.resources.events/invalidate-tags-handler
                          {:rf.db/runtime (runtime-db) :rf.frame/id :rf/default
                           :db {:auth {:user {:username "jake"}}} :rf/time-ms 1}
                          [:rf.resource/invalidate-tags
@@ -597,7 +597,7 @@
             handler throw as :rf.error/handler-exception)"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-scope-unresolved-reference"
-          (events/invalidate-tags-handler
+          (rf.resources.events/invalidate-tags-handler
             {:rf.db/runtime {} :rf.frame/id :rf/default :db {} :rf/time-ms 1}
             [:rf.resource/invalidate-tags
              {:scope {:from-db :t/session} :tags #{[:feed]}}]))))
@@ -606,7 +606,7 @@
     (let [rows (record-scope-resolved!
                  (fn []
                    (try
-                     (events/invalidate-tags-handler
+                     (rf.resources.events/invalidate-tags-handler
                        {:rf.db/runtime {} :rf.frame/id :rf/default :db {} :rf/time-ms 1}
                        [:rf.resource/invalidate-tags
                         {:scope {:from-db :t/session} :tags #{[:feed]}}])
@@ -634,7 +634,7 @@
             :rf.error/resource-scope-not-registered before any mutation"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-scope-not-registered"
-          (events/invalidate-tags-handler
+          (rf.resources.events/invalidate-tags-handler
             {:rf.db/runtime {} :rf.frame/id :rf/default
              :db {:auth {:user {:username "jake"}}} :rf/time-ms 1}
             [:rf.resource/invalidate-tags
@@ -656,7 +656,7 @@
 (defn- minstance
   "The durable mutation instance row for `instance-id` (byte-key addressed)."
   [instance-id]
-  (get-in (runtime-db) (mstate/instance-path instance-id)))
+  (get-in (runtime-db) (rf.resources.mutation-runtime/instance-path instance-id)))
 
 (defn- reg-save-mutation!
   "Register the `:t/save` test mutation with `extra` merged into its metadata
@@ -706,7 +706,7 @@
      :params-schema [:map]
      :tags          (fn [_p _v] #{[:gfact]})}
     (fn [_p _ctx] {:request {:method :get :url "/gnotes"}}))
-  (let [gkey (state/scoped-resource-key :rf.scope/global :t/gnotes {})]
+  (let [gkey (rf.resources.state/scoped-resource-key :rf.scope/global :t/gnotes {})]
     (rf/dispatch-sync [:rf.resource/ensure {:resource :t/gnotes :params {}
                                             :owner [:app :g 1]}])
     (settle-loaded! gkey {:g 1})
@@ -736,7 +736,7 @@
             error path)"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-scope-unresolved-reference"
-          (mutation-events/execute-handler
+          (rf.resources.mutation-events/execute-handler
             {:rf.db/runtime {} :rf.frame/id :rf/default :db {} :rf/time-ms 1
              :rf.resource/generation-allocation {:generation 1 :counter 1}}
             [:rf.mutation/execute {:mutation :t/save :params {}
@@ -747,7 +747,7 @@
     (let [rows (record-scope-resolved!
                  (fn []
                    (try
-                     (mutation-events/execute-handler
+                     (rf.resources.mutation-events/execute-handler
                        {:rf.db/runtime {} :rf.frame/id :rf/default :db {}
                         :rf/time-ms 1
                         :rf.resource/generation-allocation {:generation 1 :counter 1}}
@@ -775,7 +775,7 @@
             :rf.error/resource-scope-not-registered before any mutation start"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-scope-not-registered"
-          (mutation-events/execute-handler
+          (rf.resources.mutation-events/execute-handler
             {:rf.db/runtime {} :rf.frame/id :rf/default
              :db {:auth {:user {:username "jake"}}} :rf/time-ms 1
              :rf.resource/generation-allocation {:generation 1 :counter 1}}

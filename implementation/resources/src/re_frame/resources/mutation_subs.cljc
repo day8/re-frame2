@@ -29,8 +29,8 @@
   installs `(:value reply)` under the entry's `:data`). They are kept
   distinct deliberately — the instance sub answers \"what is the durable
   state of this write?\", not \"what did the continuation carry?\"."
-  (:require [re-frame.resources.mutation-runtime :as mstate]
-            [re-frame.subs :as subs]))
+  (:require [re-frame.resources.mutation-runtime :as rf.resources.mutation-runtime]
+            [re-frame.subs :as rf.subs]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -38,7 +38,7 @@
   "Look up the durable mutation instance for a sub payload by its
   `:instance` id, or nil when no instance exists."
   [runtime-db [_id {:keys [instance]}]]
-  (get-in runtime-db (mstate/instance-path instance)))
+  (get-in runtime-db (rf.resources.mutation-runtime/instance-path instance)))
 
 (defn optimistic?-for
   "PURE DERIVED: is this mutation instance showing a LIVE optimistic value — an
@@ -81,7 +81,7 @@
        :pending?      (= :pending (:status i))
        :success?      (= :success (:status i))
        :error?        (= :error (:status i))
-       :settled?      (mstate/terminal? (:status i))
+       :settled?      (rf.resources.mutation-runtime/terminal? (:status i))
        :optimistic?   (optimistic?-for i)})))
 
 (defn status-sub-fn
@@ -115,19 +115,19 @@
   `re-frame.resources` façade so a `(require … :reload)` on a fresh
   registrar re-wires them. Per Spec 016 §Mutations."
   []
-  (subs/reg-runtime-sub :rf/mutation
+  (rf.subs/reg-runtime-sub :rf/mutation
     {:doc "Passive read of a mutation instance's full view-model `{:status :result :error :affected-keys :pending? :success? :error? :settled? :optimistic?}`, keyed by :instance id. The `:optimistic?` flag is true while a live optimistic apply is showing and not yet settled. Per Spec 016 §Mutations."}
     state-sub-fn)
-  (subs/reg-runtime-sub :rf.mutation/status
+  (rf.subs/reg-runtime-sub :rf.mutation/status
     {:doc "Passive read of a mutation instance's :status keyword (:idle / :pending / :success / :error). Per Spec 016 §Mutations."}
     status-sub-fn)
-  (subs/reg-runtime-sub :rf.mutation/pending?
+  (rf.subs/reg-runtime-sub :rf.mutation/pending?
     {:doc "Passive read: true iff a mutation instance's write is in flight. Per Spec 016 §Mutations."}
     pending?-sub-fn)
-  (subs/reg-runtime-sub :rf.mutation/result
+  (rf.subs/reg-runtime-sub :rf.mutation/result
     {:doc "Passive read of a mutation instance's decoded success result (or nil). Per Spec 016 §Mutations."}
     result-sub-fn)
-  (subs/reg-runtime-sub :rf.mutation/error
+  (rf.subs/reg-runtime-sub :rf.mutation/error
     {:doc "Passive read of a mutation instance's failure envelope (or nil). Per Spec 016 §Mutations."}
     error-sub-fn)
   nil)

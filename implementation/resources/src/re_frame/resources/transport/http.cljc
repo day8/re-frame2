@@ -31,8 +31,8 @@
   The lowering ships here: `lower` mints the request-id and stamps the
   work-ledger correlation (`:work/id` / `:resource/key` / `:scope` /
   `:rf.frame/id` / `:generation`) into the reply addressing."
-  (:require [re-frame.error :as error]
-            [re-frame.late-bind :as late-bind]))
+  (:require [re-frame.error :as rf.error]
+            [re-frame.late-bind :as rf.late-bind]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -72,7 +72,7 @@
   [http-args resource-key where]
   (let [offending-keys (filter #(contains? http-args %) reserved-reply-keys)]
     (when (seq offending-keys)
-      (error/throw-error!
+      (rf.error/throw-error!
         :rf.error/resource-reserved-request-key where
         (str "a resource :request supplied the "
              "runtime-owned reply-addressing key(s) "
@@ -162,8 +162,8 @@
   ;; the always-published feature probe (consult ≠ static require). This
   ;; fails closed with a clear artefact-missing error when an HTTP-backed
   ;; read is issued without the HTTP artefact on the classpath.
-  (when-not (late-bind/get-fn :http/abort-on-actor-destroy)
-    (error/throw-error!
+  (when-not (rf.late-bind/get-fn :http/abort-on-actor-destroy)
+    (rf.error/throw-error!
       :rf.error/http-artefact-missing 're-frame.resources.transport.http/lower
       (str "an HTTP-backed resource read requires "
            "day8/re-frame2-http on the classpath; "

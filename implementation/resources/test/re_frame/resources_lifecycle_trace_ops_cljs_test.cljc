@@ -29,21 +29,21 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.fx :as fx]
+   [re-frame.fx :as rf.fx]
    ;; load-bearing side-effecting require: the façade registers the
    ;; :rf.resource/* events + subs + the generation cofx/fx these tests
    ;; dispatch.
    [re-frame.resources]
-   [re-frame.resources.ssr :as ssr]
-   [re-frame.resources.state :as state]
-   [re-frame.resources.work-ledger :as work-ledger]
+   [re-frame.resources.ssr :as rf.resources.ssr]
+   [re-frame.resources.state :as rf.resources.state]
+   [re-frame.resources.work-ledger :as rf.resources.work-ledger]
    [re-frame.resources.test-support]
    [re-frame.http.managed]
    [re-frame.schemas]
-   [re-frame.test-support :as core-test-support]
-   [re-frame.trace.tooling :as trace-tooling]
-   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
-       :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
+   [re-frame.test-support :as rf.test-support]
+   [re-frame.trace.tooling :as rf.trace.tooling]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
 ;; ---- capturing transport + trace recorder ---------------------------------
 
@@ -54,13 +54,13 @@
   :loading entry write + lower-fx are deterministic and no real fetch fires."
   [f]
   (reset! last-managed-args nil)
-  (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
+  (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
   (f))
 
 (use-fixtures :each
-  (core-test-support/make-reset-runtime-fixture
-    #?(:clj  {:adapter plain-atom/adapter}
-       :cljs {:adapter reagent-adapter/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
+       :cljs {:adapter rf.adapter.reagent/adapter}))
   capturing-transport-fixture)
 
 (defn- record-resource-traces!
@@ -70,13 +70,13 @@
   [body-fn]
   (let [seen (atom [])
         k    ::resource-trace-recorder]
-    (trace-tooling/register-listener!
+    (rf.trace.tooling/register-listener!
       k (fn [ev]
           (when (and (keyword? (:operation ev))
                      (= "rf.resource" (namespace (:operation ev))))
             (swap! seen conj ev))))
     (try (body-fn)
-         (finally (trace-tooling/unregister-listener! k)))
+         (finally (rf.trace.tooling/unregister-listener! k)))
     @seen))
 
 (defn- ops
@@ -102,7 +102,7 @@
     {:request {:method :get :url (str "/api/articles/" slug)}}))
 
 (defn- entry [scoped-key]
-  (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) (state/entry-path scoped-key)))
+  (get-in (:rf.db/runtime (rf/frame-state-value :rf/default)) (rf.resources.state/entry-path scoped-key)))
 
 ;; ===========================================================================
 ;; 1. :rf.resource/registered — first-time-only, frame-agnostic
@@ -143,7 +143,7 @@
   (rf/reg-resource :oa/article (article-spec) article-spec-request)
   (testing "an ensure that fresh-loads AND attaches a NEW owner emits
             :rf.resource/owner-attached (:joined-in-flight? false)"
-    (let [scoped-key (state/scoped-resource-key :rf.scope/global :oa/article {:slug "w"})
+    (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :oa/article {:slug "w"})
           traces (record-resource-traces!
                    #(rf/dispatch-sync
                       [:rf.resource/ensure {:resource :oa/article :scope :rf.scope/global
@@ -213,11 +213,11 @@
         k-meta  [:rf.scope/global :h/meta  {:slug "m"}]]
     ;; rf2-9e0tyq — `:entries` is keyed on the byte `key-id`; each entry carries
     ;; its own `:resource/key` (the refetch plan reads it for :resource-id).
-    {state/resources-key
+    {rf.resources.state/resources-key
      {:entries
-      {(state/key-id k-fresh) {:resource/key k-fresh :status :loaded :data {:x 1} :loaded-at (- clock 10) :stale-at (+ clock 10000)}
-       (state/key-id k-stale) {:resource/key k-stale :status :loaded :data {:y 2} :loaded-at (- clock 20000) :stale-at (- clock 1)}
-       (state/key-id k-meta)  {:resource/key k-meta  :status :loaded :data nil    :loaded-at (- clock 10) :stale-at (+ clock 10000)}}}}))
+      {(rf.resources.state/key-id k-fresh) {:resource/key k-fresh :status :loaded :data {:x 1} :loaded-at (- clock 10) :stale-at (+ clock 10000)}
+       (rf.resources.state/key-id k-stale) {:resource/key k-stale :status :loaded :data {:y 2} :loaded-at (- clock 20000) :stale-at (- clock 1)}
+       (rf.resources.state/key-id k-meta)  {:resource/key k-meta  :status :loaded :data nil    :loaded-at (- clock 10) :stale-at (+ clock 10000)}}}}))
 
 (deftest hydrate-refetch-emits-per-plan-entry
   (testing "hydrate-refetch-plan emits one :rf.resource/hydrate-refetch per
@@ -226,7 +226,7 @@
     (let [clock  5000
           rdb    (hydrated-runtime-db clock)
           traces (record-resource-traces!
-                   #(ssr/hydrate-refetch-plan rdb clock :rf/default))
+                   #(rf.resources.ssr/hydrate-refetch-plan rdb clock :rf/default))
           evs    (by-op traces :rf.resource/hydrate-refetch)
           reasons (into {} (map (juxt #(get-in % [:tags :resource-id])
                                       #(get-in % [:tags :reason]))) evs)]
@@ -246,7 +246,7 @@
   (testing "a stale/superseded reply emits :rf.resource/stale-suppressed and
             NEVER :rf.resource/work-suppressed (folded into stale-suppressed —
             there is exactly one suppression op)"
-    (let [scoped-key (state/scoped-resource-key :rf.scope/global :sp/article {:slug "w"})]
+    (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :sp/article {:slug "w"})]
       (rf/dispatch-sync
         [:rf.resource/ensure {:resource :sp/article :scope :rf.scope/global
                               :params {:slug "w"} :owner [:app :sp 1]}])
@@ -285,7 +285,7 @@
             the shared substrate, with the carried-vs-current generation pair
             on the production :rf.resource/stale-suppressed trace; the app
             target does NOT run (no entry write) and the ledger is :suppressed"
-    (let [scoped-key (state/scoped-resource-key :rf.scope/global :rev/article {:slug "w"})]
+    (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :rev/article {:slug "w"})]
       (rf/dispatch-sync
         [:rf.resource/ensure {:resource :rev/article :scope :rf.scope/global
                               :params {:slug "w"} :owner [:app :rev 1]}])
@@ -332,7 +332,7 @@
           (is (= 2 (:generation e)) "the stale reply did not touch the newer entry")
           (is (not= {:stale "data"} (:data e)) "stale data was NOT written"))
         ;; (3) the ledger row settles terminal :suppressed.
-        (is (= :suppressed (:status (work-ledger/get-record
+        (is (= :suppressed (:status (rf.resources.work-ledger/get-record
                                       (:rf.db/runtime (rf/frame-state-value :rf/default)) wid1)))
             "the work row settled terminal :suppressed")))))
 
@@ -344,7 +344,7 @@
             cached value: it emits :rf.resource/cache-hit and starts NO new
             load (Spec 016 §Lifecycle is an FSM / §Restore — fresh-skip,
             rf2-hsa0sv)"
-    (let [scoped-key (state/scoped-resource-key :rf.scope/global :ch/article {:slug "w"})]
+    (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :ch/article {:slug "w"})]
       ;; load it once, then settle to :loaded (fresh: stale-after 60s)
       (rf/dispatch-sync
         [:rf.resource/ensure {:resource :ch/article :scope :rf.scope/global
@@ -389,7 +389,7 @@
   (testing "a STALE :loaded entry STILL refetches on the next ensure —
             fresh-skip must NOT swallow a stale refresh (negative case,
             rf2-hsa0sv)"
-    (let [scoped-key (state/scoped-resource-key :rf.scope/global :ch/stale {:slug "w"})]
+    (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :ch/stale {:slug "w"})]
       (rf/dispatch-sync
         [:rf.resource/ensure {:resource :ch/stale :scope :rf.scope/global
                               :params {:slug "w"} :owner [:app :st 1]}])

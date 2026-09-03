@@ -3,7 +3,7 @@
   (EP-0021 R8, Spec 016 §Causal event — load-more — the page-0 cursor, the
   TanStack `initialPageParam` analogue).
 
-  The pure boundary (`state/page-param-for-spec`) is already pinned in
+  The pure boundary (`rf.resources.state/page-param-for-spec`) is already pinned in
   `resources_infinite_state_cljs_test` (`page-0-param-default`). This slice
   closes the RUNTIME gap: that a non-nil `:initial-page-param` actually RIDES
   into the page-0 request and is recorded as page-0's `:page-params` entry. A
@@ -12,7 +12,7 @@
   uses the framework `nil` default.
 
   In `ensure-load` (events.cljc) the page-0 param is
-  `(state/page-param-for-spec spec)` and the reserved request ctx is
+  `(rf.resources.state/page-param-for-spec spec)` and the reserved request ctx is
   `(page-request-ctx page-param 0)`, which the resource's `:request` fn reads
   via `{:rf.resource/keys [page-param page-index]}`. The capturing transport
   below REPLAYS the live managed-HTTP reply shape (Spec 014 §Reply addressing)
@@ -21,17 +21,17 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.fx :as fx]
+   [re-frame.fx :as rf.fx]
    [re-frame.resources]
-   [re-frame.resources.state :as state]
+   [re-frame.resources.state :as rf.resources.state]
    [re-frame.resources.test-support]
    ;; production HTTP fx surface (so the transport feature probe resolves);
    ;; the fetch itself is overridden by the capturing reply stub below.
    [re-frame.http.managed]
    [re-frame.schemas]
-   [re-frame.test-support :as core-test-support]
-   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
-       :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
+   [re-frame.test-support :as rf.test-support]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
 ;; ---- capturing transport that REPLAYS the real reply-append shape ----------
 
@@ -40,13 +40,13 @@
 (defn- capturing-transport-fixture
   [f]
   (reset! last-managed-args nil)
-  (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
+  (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
   (f))
 
 (use-fixtures :each
-  (core-test-support/make-reset-runtime-fixture
-    #?(:clj  {:adapter plain-atom/adapter}
-       :cljs {:adapter reagent-adapter/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
+       :cljs {:adapter rf.adapter.reagent/adapter}))
   capturing-transport-fixture)
 
 ;; ---- helpers --------------------------------------------------------------
@@ -54,7 +54,7 @@
 (defn- runtime-db [] (:rf.db/runtime (rf/frame-state-value :rf/default)))
 
 (defn- entry [scoped-key]
-  (get-in (runtime-db) (state/entry-path scoped-key)))
+  (get-in (runtime-db) (rf.resources.state/entry-path scoped-key)))
 
 (defn- reply-success!
   "Dispatch the captured `:on-success` reply with the transport's success
@@ -87,7 +87,7 @@
                          page-param (assoc :cursor page-param))}}))
 
 (defn- feed-key [resource]
-  (state/scoped-resource-key :rf.scope/global resource {:filter :recent}))
+  (rf.resources.state/scoped-resource-key :rf.scope/global resource {:filter :recent}))
 
 (defn- ensure! [resource]
   (rf/dispatch-sync [:rf.resource/ensure

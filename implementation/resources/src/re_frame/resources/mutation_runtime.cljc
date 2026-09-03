@@ -33,8 +33,8 @@
   shape, and the PURE patch / populate transition over resource entries
   (the mutation success handler applies them); the swaps over these
   paths live in `re-frame.resources.mutation-events`."
-  (:require [re-frame.error :as error]
-            [re-frame.resources.state :as state]))
+  (:require [re-frame.error :as rf.error]
+            [re-frame.resources.state :as rf.resources.state]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -55,7 +55,7 @@
 (defn instance-key-id
   "The CEDN-1 BYTE-IDENTITY map-key for a mutation INSTANCE id — its
   `canonical-bytes` string (rf2-8iciw8). The SAME canonical identity the
-  resource cache key uses (`state/key-id`), applied to the instance id.
+  resource cache key uses (`rf.resources.state/key-id`), applied to the instance id.
 
   WHY (the EP-0012 `=`-collapse fix, mirrored for mutations): a caller MAY
   supply a sequential / collection instance id (a row-keyed form addresses its
@@ -71,13 +71,13 @@
   instances — without re-erasing the kind (the kind-preserving instance id is
   stored alongside on the instance as `:instance/id`). The bytes string is
   plain serializable EDN, so it rides the epoch / restore / trace wire with no
-  custom handler — exactly the resource cache (`state/key-id`) discipline.
+  custom handler — exactly the resource cache (`rf.resources.state/key-id`) discipline.
 
   Total on a `validate-instance-id!`-conforming id (`serializable-edn?` →
   `canonical-bytes` is total on canonical EDN). Per EP-0003 §Mutations /
   Conventions §Canonical EDN identity."
   [instance-id]
-  (state/key-id instance-id))
+  (rf.resources.state/key-id instance-id))
 
 (defn instances-path
   "Runtime-db-relative path to the mutation-instances map
@@ -267,7 +267,7 @@
   `patch-fn` is `(fn [old-data mutation-result] -> new-data)` — the mutation
   author transforms the cached read from the write's result."
   [entry patch-fn mutation-result {:keys [clock-ms stale-at]}]
-  (if (state/has-data? entry)
+  (if (rf.resources.state/has-data? entry)
     (let [old      (:data entry)
           patched  (patch-fn old mutation-result)
           ;; structural sharing — keep the old value when nothing changed
@@ -285,7 +285,7 @@
           ;; bumps the per-entry :revision write identity UNCONDITIONALLY —
           ;; even on the `=`-shared structural-sharing branch. The no-usable-
           ;; data no-op branch below makes no write and does not bump.
-          state/bump-revision))
+          rf.resources.state/bump-revision))
     entry))
 
 (defn populate-entry
@@ -305,7 +305,7 @@
   entry, and every entry must carry its own scoped-key vector now that
   `:entries` is keyed on the byte `key-id`); an existing entry keeps its own."
   [entry resource-id populate-value {:keys [clock-ms stale-at tags scoped-key]}]
-  (let [base   (or entry (state/empty-entry resource-id scoped-key))
+  (let [base   (or entry (rf.resources.state/empty-entry resource-id scoped-key))
         old    (:data base)
         shared (if (and (some? old) (= old populate-value)) old populate-value)]
     (-> base
@@ -324,7 +324,7 @@
         ;; seeds / re-stamps :loaded-at / :stale-at / :tags), so it bumps the
         ;; per-entry :revision write identity UNCONDITIONALLY — including the
         ;; `=`-shared branch and a freshly-seeded entry (base revision 0 -> 1).
-        state/bump-revision)))
+        rf.resources.state/bump-revision)))
 
 ;; ---- optimistic apply (phase 1.5) — snapshot inverse (EP-0019 D1/D2) -------
 ;;
@@ -378,7 +378,7 @@
   seeded entry's tags (so a later invalidation can reach it). Per EP-0019
   Decision 1 / §Optimistic mutations."
   [entry patch-fn resource-id {:keys [clock-ms stale-at tags scoped-key]}]
-  (let [base   (or entry (state/empty-entry resource-id scoped-key))
+  (let [base   (or entry (rf.resources.state/empty-entry resource-id scoped-key))
         old    (:data base)
         new    (patch-fn old)
         shared (if (and (some? old) (= old new)) old new)]
@@ -401,7 +401,7 @@
         ;; write — it bumps the per-entry `:revision` write identity, so the
         ;; recorded inverse's `:revision` (observed BEFORE this bump) lets the
         ;; settle-time conflict check detect a competing write.
-        state/bump-revision)))
+        rf.resources.state/bump-revision)))
 
 (def applied-removed-revision
   "The `:applied-revision` sentinel for an optimistic REMOVE (the apply dissoc'd
@@ -431,7 +431,7 @@
   explicitly (the apply already computed it). Per EP-0019 Decision 2 / §Optimistic
   settle."
   ([scoped-key before-entry forward]
-   (let [observed (state/entry-revision
+   (let [observed (rf.resources.state/entry-revision
                     (when (not= before-entry absent-snapshot) before-entry))
          applied  (if (= forward :remove) applied-removed-revision (inc observed))]
      (record-optimistic-entry scoped-key before-entry forward observed applied)))
@@ -507,7 +507,7 @@
   [current-entry applied-revision]
   (if (= applied-revision applied-removed-revision)
     (some? current-entry)
-    (not= (state/entry-revision current-entry) applied-revision)))
+    (not= (rf.resources.state/entry-revision current-entry) applied-revision)))
 
 (defn rollback-entry-disposition
   "PURE: decide ONE recorded inverse entry's rollback disposition at settle time
@@ -551,8 +551,8 @@
   tags). Per EP-0019 Decision 3 (restore the exact entry that existed)."
   [runtime-db {scoped-key :resource/key :keys [before]}]
   (if (= before absent-snapshot)
-    (update-in runtime-db (state/entries-path) dissoc (state/key-id scoped-key))
-    (assoc-in runtime-db (state/entry-path scoped-key) before)))
+    (update-in runtime-db (rf.resources.state/entries-path) dissoc (rf.resources.state/key-id scoped-key))
+    (assoc-in runtime-db (rf.resources.state/entry-path scoped-key) before)))
 
 (defn dangle-rollback-optimistic
   "PURE: roll back a restored PENDING optimistic mutation INSTANCE's recorded
@@ -566,7 +566,7 @@
   single pure pass over `runtime-db`, NOT as a second post-restore dispatched
   event — a dispatched `:invalidate` could RACE a fresh load the restored
   timeline issues. So a CONFLICT (the entry's `:revision` moved) marks the entry
-  durably STALE in place (`state/entry-invalidate` — `:invalidated-at` set, the
+  durably STALE in place (`rf.resources.state/entry-invalidate` — `:invalidated-at` set, the
   read path refetches on the next live-owner ensure) rather than dispatching an
   invalidation; an UNMOVED revision restores the recorded `:before` verbatim
   (`restore-before`). `:on-conflict :force` restores the (stale) inverse even on
@@ -588,14 +588,14 @@
                    (fn [rdb {scoped-key :resource/key :as recorded}]
                      (let [{:keys [disposition]}
                            (rollback-entry-disposition
-                             (get-in rdb (state/entry-path scoped-key)) recorded on-conflict)]
+                             (get-in rdb (rf.resources.state/entry-path scoped-key)) recorded on-conflict)]
                        (case disposition
                          :restore    (restore-before rdb recorded)
                          ;; CONFLICT + :invalidate — mark the moved entry stale
                          ;; durably IN THE PASS (no dispatch; the read path
                          ;; recovers on the next ensure — the Q3 no-race rule).
-                         :invalidate (update-in rdb (state/entry-path scoped-key)
-                                                state/entry-invalidate settled-at))))
+                         :invalidate (update-in rdb (rf.resources.state/entry-path scoped-key)
+                                                rf.resources.state/entry-invalidate settled-at))))
                    runtime-db inverse)]
         [rdb' (mapv :resource/key inverse)]))))
 
@@ -605,8 +605,8 @@
 ;; Mutation runtime state is durable and trace-visible, so the identities it
 ;; writes — the mutation INSTANCE id and the patch / populate TARGET scoped
 ;; keys — must follow the SAME serializable-EDN discipline the resource cache
-;; key and the resource params already enforce (`state/serializable-edn?` /
-;; `state/reject-non-edn!`). These predicates / validators are PURE so they
+;; key and the resource params already enforce (`rf.resources.state/serializable-edn?` /
+;; `rf.resources.state/reject-non-edn!`). These predicates / validators are PURE so they
 ;; sit in the runtime layer (this namespace, the home of the instance shape +
 ;; the controlled patch / populate transition); the impure handler boundary
 ;; (`mutation-events`) CALLS them before any runtime-db / work-ledger write or
@@ -657,7 +657,7 @@
   for an invalid mutation patch / populate TARGET scoped key. `arm`
   (`:patches` | `:populates`) names the offending mutation-spec arm."
   [where arm reason target extra]
-  (error/thrown-ex-info
+  (rf.error/thrown-ex-info
     :rf.error/mutation-invalid-target
     where
     reason
@@ -755,14 +755,14 @@
                       "silently write the cache under a wrong scope. Per "
                       "Conventions §Reserved namespaces.")
                  target {:scope scope})))
-      (when-not (state/serializable-edn? scope)
+      (when-not (rf.resources.state/serializable-edn? scope)
         (throw (target-key-error
                  where arm
                  (str "a mutation " (name arm) " target's scope is not "
                       "serializable EDN — host / opaque values are rejected at "
                       "the cache-key boundary. Per Spec 016 §Resource identity.")
                  target {:scope (pr-str scope)})))
-      (when-not (state/serializable-edn? params)
+      (when-not (rf.resources.state/serializable-edn? params)
         (throw (target-key-error
                  where arm
                  (str "a mutation " (name arm) " target's params are not "
@@ -779,7 +779,7 @@
         [:skip :unregistered-resource (target-summary target)]
 
         :else
-        [:apply (state/scoped-resource-key scope resource params)]))))
+        [:apply (rf.resources.state/scoped-resource-key scope resource params)]))))
 
 (defn validate-target-key!
   "Fail-closed validation of a SINGLE mutation patch / populate TARGET, BEFORE
@@ -809,7 +809,7 @@
     enum — `:rf.scope/glabal`), which would silently write under a wrong
     scope;
   - a non-EDN / host scope or params (the cache key MUST be serializable EDN —
-    the same boundary `state/reject-non-edn!` enforces for resource params).
+    the same boundary `rf.resources.state/reject-non-edn!` enforces for resource params).
 
   `registered-resource?` is `(fn [resource-id] -> truthy)` — the injected
   registry-lookup predicate (so this PURE validator carries no registry
@@ -951,7 +951,7 @@
   "Build the canonical thrown-error shape (Spec 009 §The thrown-error shape)
   for a non-serializable mutation INSTANCE id."
   [instance-id where]
-  (error/thrown-ex-info
+  (rf.error/thrown-ex-info
     :rf.error/mutation-non-serializable-instance-id
     where
     (str "a mutation instance id must be serializable EDN "
@@ -980,7 +980,7 @@
   conforms; throws `:rf.error/mutation-non-serializable-instance-id`
   otherwise. Per EP-0003 §Mutations."
   [instance-id where]
-  (when (and (some? instance-id) (not (state/serializable-edn? instance-id)))
+  (when (and (some? instance-id) (not (rf.resources.state/serializable-edn? instance-id)))
     (throw (instance-id-error instance-id where)))
   instance-id)
 
@@ -1018,7 +1018,7 @@
   CLOSED at settle time (before any invalidation dispatch), never a silent
   no-op — an author who returns garbage from `:invalidates` learns loudly."
   [where reason raw extra]
-  (error/thrown-ex-info
+  (rf.error/thrown-ex-info
     :rf.error/mutation-invalid-invalidation
     where
     reason
@@ -1033,7 +1033,7 @@
   :refetch-populated? bool}`, validating fail-closed. `:scope` defaults to
   `:rf.scope/same` (Spec 016 §Scoped invalidation descriptors). `:tags` must
   be a non-nil collection of tags; the boolean flags default false. `:tags`
-  is lowered through the shared `state/normalize-tag-set` (the SAME
+  is lowered through the shared `rf.resources.state/normalize-tag-set` (the SAME
   normalizer the bare tag-set shorthand and the direct
   `:rf.resource/invalidate-tags` `:tags` use), so a LONE vector tag written
   directly (`{:tags [:article slug]}`) is the ONE tag `#{[:article slug]}`,
@@ -1062,7 +1062,7 @@
                     "descriptors.")
                raw {:descriptor (pr-str descriptor) :tags (pr-str tags)})))
     {:scope              (if (contains? descriptor :scope) scope same-scope-marker)
-     :tags               (state/normalize-tag-set tags)
+     :tags               (rf.resources.state/normalize-tag-set tags)
      :cross-scope?       (boolean cross-scope?)
      :refetch-populated? (boolean refetch-populated?)}))
 
@@ -1083,7 +1083,7 @@
   nothing). The disambiguation: a MAP is a single descriptor; a sequential /
   set collection whose first element is a MAP is a descriptor vector; any
   other non-empty collection is the bare tag-set (its elements are tags). The
-  bare tag-set is lowered through `state/normalize-tag-set`, so a LONE vector
+  bare tag-set is lowered through `rf.resources.state/normalize-tag-set`, so a LONE vector
   tag written directly (`[:article slug]` — a vector whose head is a scalar
   marker, not a collection) is the ONE tag `#{[:article slug]}`, NOT a scalar
   set of its elements `#{:article slug}` (which would silently match nothing —
@@ -1107,7 +1107,7 @@
     (mapv #(normalize-one-descriptor % raw where) raw)
 
     ;; the bare tag-set shorthand: a collection of TAGS at :rf.scope/same.
-    ;; rf2-ru73k6 F1 — `state/normalize-tag-set` treats a LONE vector tag
+    ;; rf2-ru73k6 F1 — `rf.resources.state/normalize-tag-set` treats a LONE vector tag
     ;; (`[:article slug]`) as the ONE tag `#{[:article slug]}` rather than
     ;; silently splitting it into `#{:article slug}` (a scalar set that matches
     ;; nothing); a tag-set (`#{[:article slug]}` / `[[:article slug]]`) lowers
@@ -1115,7 +1115,7 @@
     ;; `:tags` uses, so a lone vector tag has one meaning across the cache.
     (coll? raw)
     [{:scope              same-scope-marker
-      :tags               (state/normalize-tag-set raw)
+      :tags               (rf.resources.state/normalize-tag-set raw)
       :cross-scope?       false
       :refetch-populated? false}]
 

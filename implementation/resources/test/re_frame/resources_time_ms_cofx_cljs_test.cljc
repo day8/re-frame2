@@ -30,19 +30,19 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.fx :as fx]
+   [re-frame.fx :as rf.fx]
    ;; load-bearing side-effecting require: the façade registers the
    ;; :rf.resource/* + :rf.mutation/* events with the meta under test.
    [re-frame.resources]
-   [re-frame.resources.state :as state]
-   [re-frame.resources.work-ledger :as work-ledger]
+   [re-frame.resources.state :as rf.resources.state]
+   [re-frame.resources.work-ledger :as rf.resources.work-ledger]
    ;; production HTTP fx surface (the transport feature probe); the actual
    ;; fetch is overridden by the capturing no-op below.
    [re-frame.http.managed]
    [re-frame.schemas]
-   [re-frame.test-support :as core-test-support]
-   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
-       :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
+   [re-frame.test-support :as rf.test-support]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
 (def ^:private last-managed-args (atom nil))
 
@@ -51,18 +51,18 @@
   refetch / execute land deterministically without a live fetch."
   [f]
   (reset! last-managed-args nil)
-  (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
+  (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
   (f))
 
 (use-fixtures :each
-  (core-test-support/make-reset-runtime-fixture
-    #?(:clj  {:adapter plain-atom/adapter}
-       :cljs {:adapter reagent-adapter/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
+       :cljs {:adapter rf.adapter.reagent/adapter}))
   capturing-transport-fixture)
 
 (defn- runtime-db [] (:rf.db/runtime (rf/frame-state-value :rf/default)))
-(defn- entry [scoped-key] (get-in (runtime-db) (state/entry-path scoped-key)))
-(defn- record [wid] (work-ledger/get-record (runtime-db) wid))
+(defn- entry [scoped-key] (get-in (runtime-db) (rf.resources.state/entry-path scoped-key)))
+(defn- record [wid] (rf.resources.work-ledger/get-record (runtime-db) wid))
 
 (defn- article-spec []
   {:scope          :rf.scope/global
@@ -129,7 +129,7 @@
             :loaded-at — scripting the reply token's :rf.cofx :rf/time-ms
             lands it flat and the durable write picks it up"
     (rf/reg-resource :tm/article (article-spec) article-spec-request)
-    (let [scoped-key   (state/scoped-resource-key :rf.scope/global :tm/article {:slug "w"})
+    (let [scoped-key   (rf.resources.state/scoped-resource-key :rf.scope/global :tm/article {:slug "w"})
           completed-at 1781078400456]
       (rf/dispatch-sync [:rf.resource/ensure {:resource :tm/article :scope :rf.scope/global
                                               :params {:slug "w"} :owner [:app :tm 1]}])
@@ -147,7 +147,7 @@
   (testing "rf2-601ife: the ensure handler reads the DELIVERED FLAT
             `:rf/time-ms` for the durable work-ledger :started-at"
     (rf/reg-resource :tm/started (article-spec) article-spec-request)
-    (let [scoped-key (state/scoped-resource-key :rf.scope/global :tm/started {:slug "w"})
+    (let [scoped-key (rf.resources.state/scoped-resource-key :rf.scope/global :tm/started {:slug "w"})
           started-at 1781000000000]
       (rf/dispatch-sync [:rf.resource/ensure {:resource :tm/started :scope :rf.scope/global
                                               :params {:slug "w"} :owner [:app :tm 2]}]
@@ -164,7 +164,7 @@
             behaviour, not the fact under test), so the durable :invalidated-at
             persists and pins the causal time."
     (rf/reg-resource :tm/inv (article-spec) article-spec-request)
-    (let [scoped-key     (state/scoped-resource-key :rf.scope/global :tm/inv {:slug "w"})
+    (let [scoped-key     (rf.resources.state/scoped-resource-key :rf.scope/global :tm/inv {:slug "w"})
           loaded-at      1781000000000
           invalidated-at 1781000099999]
       (rf/dispatch-sync [:rf.resource/ensure {:resource :tm/inv :scope :rf.scope/global
@@ -192,7 +192,7 @@
             :failed carrying the reply token's causal :completed-at (delivered
             flat) alongside the error envelope — symmetric with success"
     (rf/reg-resource :fail/article (article-spec) article-spec-request)
-    (let [scoped-key   (state/scoped-resource-key :rf.scope/global :fail/article {:slug "w"})
+    (let [scoped-key   (rf.resources.state/scoped-resource-key :rf.scope/global :fail/article {:slug "w"})
           completed-at 1781111111111]
       (rf/dispatch-sync [:rf.resource/ensure {:resource :fail/article :scope :rf.scope/global
                                               :params {:slug "w"} :owner [:app :fail 1]}])
@@ -212,7 +212,7 @@
             reply) settles the work row terminal :cancelled carrying the
             reply token's causal :completed-at"
     (rf/reg-resource :ab2/article (article-spec) article-spec-request)
-    (let [scoped-key   (state/scoped-resource-key :rf.scope/global :ab2/article {:slug "w"})
+    (let [scoped-key   (rf.resources.state/scoped-resource-key :rf.scope/global :ab2/article {:slug "w"})
           completed-at 1781222222222]
       (rf/dispatch-sync [:rf.resource/ensure {:resource :ab2/article :scope :rf.scope/global
                                               :params {:slug "w"} :owner [:app :ab2 1]}])
@@ -230,7 +230,7 @@
   (testing "rf2-rl27r2: a SUPPRESSED (superseded) failure reply records the
             causal :completed-at in its terminal :suppressed outcome too"
     (rf/reg-resource :sf/article (article-spec) article-spec-request)
-    (let [scoped-key   (state/scoped-resource-key :rf.scope/global :sf/article {:slug "w"})
+    (let [scoped-key   (rf.resources.state/scoped-resource-key :rf.scope/global :sf/article {:slug "w"})
           completed-at 1781444444444]
       (rf/dispatch-sync [:rf.resource/ensure {:resource :sf/article :scope :rf.scope/global
                                               :params {:slug "w"} :owner [:app :sf 1]}])

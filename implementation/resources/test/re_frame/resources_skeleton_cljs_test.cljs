@@ -24,16 +24,16 @@
   GC, invalidation, hydration) is exercised by the sibling runtime tests
   (`resources_runtime_cljs_test`, `resources_work_ledger_cljs_test`, …)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.features :as features]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.registrar :as registrar]
-            [re-frame.resources :as resources]
+            [re-frame.features :as rf.features]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.resources :as rf.resources]
             ;; The route + ssr siblings carry the late-bound integration
             ;; publication; the façade transitively loads them, but require
             ;; them explicitly so a hostile load-order can't hide a miss.
-            [re-frame.resources.route :as route]
-            [re-frame.resources.registry :as registry]
-            [re-frame.routing.registry :as routing-registry]))
+            [re-frame.resources.route :as rf.resources.route]
+            [re-frame.resources.registry :as rf.resources.registry]
+            [re-frame.routing.registry :as rf.routing.registry]))
 
 (defn- valid-spec
   "A minimal, valid resource METADATA map — the REQUIRED metadata keys (Spec
@@ -50,27 +50,27 @@
     {:request {:method :get :url "/api/x"}}))
 
 (use-fixtures :each
-  {:before (fn [] (registrar/clear-kind! :resource))
-   :after  (fn [] (registrar/clear-kind! :resource))})
+  {:before (fn [] (rf.registrar/clear-kind! :resource))
+   :after  (fn [] (rf.registrar/clear-kind! :resource))})
 
 (deftest artefact-loads
   (testing "the resources façade ns loaded (the require is the smoke)"
-    (is (fn? resources/reg-resource))
-    (is (fn? resources/clear-resource))
-    (is (fn? resources/resource-meta))
-    (is (fn? resources/resources))))
+    (is (fn? rf.resources/reg-resource))
+    (is (fn? rf.resources/clear-resource))
+    (is (fn? rf.resources/resource-meta))
+    (is (fn? rf.resources/resources))))
 
 (deftest reg-resource-registers-under-resource-kind
   (testing "reg-resource writes a :resource-kind registrar entry"
-    (resources/reg-resource :test/article (valid-spec) valid-request)
-    (is (contains? (registrar/registrations :resource) :test/article))
-    (is (= :test/article (first (resources/resource-ids))))
+    (rf.resources/reg-resource :test/article (valid-spec) valid-request)
+    (is (contains? (rf.registrar/registrations :resource) :test/article))
+    (is (= :test/article (first (rf.resources/resource-ids))))
     (testing "resource-meta reads the spec back"
-      (is (= "test resource" (:doc (resources/resource-meta :test/article))))
-      (is (= :rf.scope/global (:scope (resources/resource-meta :test/article)))))
+      (is (= "test resource" (:doc (rf.resources/resource-meta :test/article))))
+      (is (= :rf.scope/global (:scope (rf.resources/resource-meta :test/article)))))
     (testing "clear-resource removes the entry"
-      (resources/clear-resource :test/article)
-      (is (not (contains? (registrar/registrations :resource) :test/article))))))
+      (rf.resources/clear-resource :test/article)
+      (is (not (contains? (rf.registrar/registrations :resource) :test/article))))))
 
 (deftest gc-after-ms-normalizes-at-registration
   ;; rf2-bbpu11 (Option A) — `:gc-after-ms` is normalized AT REGISTRATION so
@@ -79,28 +79,28 @@
   ;; opt-out, the caller's own positive number, or a loud registration error.
   ;; Never today's silent "any non-number becomes nil".
   (testing "absent :gc-after-ms normalizes to the finite framework default (300000ms)"
-    (resources/reg-resource :test/gc-absent (valid-spec) valid-request)
-    (is (= 300000 (:gc-after-ms (resources/resource-meta :test/gc-absent))))
-    (is (= 300000 registry/default-gc-after-ms)))
+    (rf.resources/reg-resource :test/gc-absent (valid-spec) valid-request)
+    (is (= 300000 (:gc-after-ms (rf.resources/resource-meta :test/gc-absent))))
+    (is (= 300000 rf.resources.registry/default-gc-after-ms)))
   (testing ":gc-after-ms :never is stored verbatim — the explicit, auditable
             opt-out for intentional unowned-entry pinning, distinct from an
             accidental nil"
-    (resources/reg-resource :test/gc-never
+    (rf.resources/reg-resource :test/gc-never
                              (assoc (valid-spec) :gc-after-ms :never)
                              valid-request)
-    (is (= :never (:gc-after-ms (resources/resource-meta :test/gc-never)))))
+    (is (= :never (:gc-after-ms (rf.resources/resource-meta :test/gc-never)))))
   (testing "a positive :gc-after-ms is stored unchanged"
-    (resources/reg-resource :test/gc-positive
+    (rf.resources/reg-resource :test/gc-positive
                              (assoc (valid-spec) :gc-after-ms 45000)
                              valid-request)
-    (is (= 45000 (:gc-after-ms (resources/resource-meta :test/gc-positive)))))
+    (is (= 45000 (:gc-after-ms (rf.resources/resource-meta :test/gc-positive)))))
   (testing "a bad :gc-after-ms (zero, negative, a string, an explicit nil, or
             any keyword other than :never) throws :rf.error/resource-bad-spec
             rather than silently disarming GC"
     (doseq [bad [0 -1 "5min" :neverr nil]]
       (is (thrown-with-msg?
             js/Error #"resource-bad-spec"
-            (resources/reg-resource :test/gc-bad
+            (rf.resources/reg-resource :test/gc-bad
                                     (assoc (valid-spec) :gc-after-ms bad)
                                     valid-request))
           (str "bad :gc-after-ms value " (pr-str bad) " must throw")))))
@@ -109,20 +109,20 @@
   (testing "reg-resource with no :scope throws :rf.error/resource-missing-scope-policy"
     (is (thrown-with-msg?
           js/Error #"resource-missing-scope-policy"
-          (resources/reg-resource :test/no-scope
+          (rf.resources/reg-resource :test/no-scope
                                   (dissoc (valid-spec) :scope)
                                   valid-request))))
   (testing "reg-resource with no :params-schema throws"
     (is (thrown-with-msg?
           js/Error #"resource-bad-spec"
-          (resources/reg-resource :test/no-params
+          (rf.resources/reg-resource :test/no-params
                                   (dissoc (valid-spec) :params-schema)
                                   valid-request))))
   (testing "reg-resource with :request inside the metadata map throws (it is the
             THIRD slot, rf2-wvh95f F1)"
     (is (thrown-with-msg?
           js/Error #"resource-bad-spec"
-          (resources/reg-resource :test/no-request
+          (rf.resources/reg-resource :test/no-request
                                   (assoc (valid-spec) :request valid-request)
                                   valid-request)))))
 
@@ -133,7 +133,7 @@
   ;; IllegalArgumentException ("Key must be integer") from the `:request`
   ;; `assoc`. Mirrors reg-route's `reg-route-rejects-non-map-metadata`.
   (testing "a vector metadata is rejected with the canonical error id"
-    (let [ex (try (resources/reg-resource :test/bad-vec [] valid-request)
+    (let [ex (try (rf.resources/reg-resource :test/bad-vec [] valid-request)
                   nil
                   (catch :default e e))]
       (is (some? ex) "a non-map metadata must throw, not silently mis-register")
@@ -144,11 +144,11 @@
   (testing "a string metadata is rejected with the canonical error id"
     (is (thrown-with-msg?
           js/Error #"resource-bad-spec"
-          (resources/reg-resource :test/bad-str "nope" valid-request))))
+          (rf.resources/reg-resource :test/bad-str "nope" valid-request))))
   (testing "a nil metadata is rejected with the canonical error id"
     (is (thrown-with-msg?
           js/Error #"resource-bad-spec"
-          (resources/reg-resource :test/bad-nil nil valid-request)))))
+          (rf.resources/reg-resource :test/bad-nil nil valid-request)))))
 
 (deftest reserved-scope-namespace-typo-rejected-fail-closed
   ;; rf2-y7lcqy — a bare keyword in the framework-reserved :rf.scope/*
@@ -159,67 +159,67 @@
   (testing "a :rf.scope/* typo throws :rf.error/resource-missing-scope-policy"
     (is (thrown-with-msg?
           js/Error #"resource-missing-scope-policy"
-          (resources/reg-resource :test/typo
+          (rf.resources/reg-resource :test/typo
                                   (assoc (valid-spec) :scope :rf.scope/glabal) valid-request)))
     (is (thrown-with-msg?
           js/Error #"resource-missing-scope-policy"
-          (resources/reg-resource :test/typo2
+          (rf.resources/reg-resource :test/typo2
                                   (assoc (valid-spec) :scope :rf.scope/sesssion) valid-request))))
   ;; The closed enum members stay valid.
   (testing ":rf.scope/global and :rf.scope/from-caller remain valid"
     (is (= :test/global
-           (resources/reg-resource :test/global
+           (rf.resources/reg-resource :test/global
                                    (assoc (valid-spec) :scope :rf.scope/global) valid-request)))
     (is (= :test/from-caller
-           (resources/reg-resource :test/from-caller
+           (rf.resources/reg-resource :test/from-caller
                                    (assoc (valid-spec) :scope :rf.scope/from-caller) valid-request))))
   ;; An app-namespaced keyword is a legitimate literal scope — NOT in the
   ;; reserved :rf.scope/* namespace, so it is accepted unchanged.
   (testing "an app-namespaced keyword scope is accepted as a literal scope"
     (is (= :test/app-ns
-           (resources/reg-resource :test/app-ns
+           (rf.resources/reg-resource :test/app-ns
                                    (assoc (valid-spec) :scope :my.app/whatever) valid-request))))
   ;; Data-value scopes (the legitimate data-value-resolver feature) stay
   ;; valid: a [:rf.scope/session {…}] tuple is a value, not a bare keyword,
   ;; and a map / string scope is likewise a literal data value.
   (testing "data-value scopes (tuple / map / string) remain valid"
     (is (= :test/tuple
-           (resources/reg-resource :test/tuple
+           (rf.resources/reg-resource :test/tuple
                                    (assoc (valid-spec)
                                           :scope [:rf.scope/session {:user-id "u-1"}])
                                    valid-request)))
     (is (= :test/map
-           (resources/reg-resource :test/map
+           (rf.resources/reg-resource :test/map
                                    (assoc (valid-spec) :scope {:tenant-id "acme"}) valid-request)))
     (is (= :test/string
-           (resources/reg-resource :test/string
+           (rf.resources/reg-resource :test/string
                                    (assoc (valid-spec) :scope "tenant-acme") valid-request))))
   ;; A fn resolver is valid.
   (testing "a fn resolver scope is accepted"
     (is (= :test/fn
-           (resources/reg-resource :test/fn
+           (rf.resources/reg-resource :test/fn
                                    (assoc (valid-spec) :scope (fn [] :rf.scope/global)) valid-request)))))
 
 (deftest resource-kind-in-closed-set
   (testing ":resource is a valid registrar kind"
-    (is (registrar/valid-kind? :resource))
-    (is (contains? registrar/kinds :resource)))
+    (is (rf.registrar/valid-kind? :resource))
+    (is (contains? rf.registrar/kinds :resource)))
   (testing ":query is NOT a registrar kind (deliberate — Spec 016)"
-    (is (not (registrar/valid-kind? :query)))
-    (is (not (contains? registrar/kinds :query)))))
+    (is (not (rf.registrar/valid-kind? :query)))
+    (is (not (contains? rf.registrar/kinds :query)))))
 
 (deftest feature-probe-published
   (testing "the :resources feature is loaded? (the probe key is published)"
-    (is (some? (late-bind/get-fn :resources/reg-resource)))
-    (is (true? (features/feature-loaded? :resources)))
-    (is (= "day8/re-frame2-resources" (:maven (:resources (features/features)))))))
+    (is (some? (rf.late-bind/get-fn :resources/reg-resource)))
+    (is (true? (rf.features/feature-loaded? :resources)))
+    (is (= "day8/re-frame2-resources" (:maven (:resources (rf.features/features)))))))
 
 (deftest public-api-hooks-published
   (testing "every public-API late-bind hook resolves"
     (doseq [k [:resources/reg-resource :resources/clear-resource
                :resources/resource-meta :resources/resource-state
                :resources/resources]]
-      (is (some? (late-bind/get-fn k)) (str k " should be published")))))
+      (is (some? (rf.late-bind/get-fn k)) (str k " should be published")))))
 
 (deftest resource-subs-registered
   (testing "the passive :rf.resource/* sub family is registered"
@@ -228,7 +228,7 @@
                     :rf.resource/stale? :rf.resource/error
                     :rf.resource/refresh-error :rf.resource/has-data?
                     :rf.resource/previous-data]]
-      (is (some? (registrar/lookup :sub sub-id))
+      (is (some? (rf.registrar/lookup :sub sub-id))
           (str sub-id " sub should be registered")))))
 
 (def ^:private resource-event-family
@@ -260,7 +260,7 @@
   (testing "the CURRENT :rf.resource/* event family is registered AND every
             member carries framework-write authority (rf2-l1a0s7)"
     (doseq [event-id resource-event-family]
-      (let [handler (registrar/lookup :event event-id)]
+      (let [handler (rf.registrar/lookup :event event-id)]
         (is (some? handler)
             (str event-id " event should be registered"))
         (is (true? (:rf/framework-authority? handler))
@@ -268,16 +268,16 @@
 
 (deftest late-bound-routing-accepts-resources-key
   (testing "the :routing/extra-route-keys hook publishes #{:resources}"
-    (is (= #{:resources} ((late-bind/get-fn :routing/extra-route-keys)))))
+    (is (= #{:resources} ((rf.late-bind/get-fn :routing/extra-route-keys)))))
   (testing "routing's accepted-key extension lets a route carry :resources"
     ;; routing.registry/reg-route validates bare metadata keys; with the
     ;; resources extension loaded, :resources is accepted (it would
     ;; otherwise throw :rf.error/route-bad-metadata).
-    (registrar/clear-kind! :route)
+    (rf.registrar/clear-kind! :route)
     (is (= :test/route
-           (routing-registry/reg-route
+           (rf.routing.registry/reg-route
              :test/route
              {:params    [:map [:slug :string]]
               :resources [{:resource :test/article
                            :params   (fn [route] {:slug (get-in route [:params :slug])})}]} "/x/:slug")))
-    (registrar/clear-kind! :route)))
+    (rf.registrar/clear-kind! :route)))

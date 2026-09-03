@@ -28,28 +28,28 @@
   The STATIC view reads the `:resource` registry through the existing
   `resource-meta` / `resource-ids` introspection seams; the LIVE view reads
   the per-frame `:rf.runtime/resources` entries + `:rf.runtime/work-ledger`
-  records through the existing `frame/frame-runtime-db-value` read seam (the
+  records through the existing `rf.frame/frame-runtime-db-value` read seam (the
   same seam `re-frame.resources/resources` + the SSR drain read).
 
   Per [Derivations.md](../../../../../../spec/Derivations.md) §Resources
   expose process nodes and the projected Malli
   shapes in [Spec-Schemas §`:rf/derivation-node`](../../../../../../spec/Spec-Schemas.md)."
-  (:require [re-frame.derivation.node :as node]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.resources.registry :as registry]
-            [re-frame.resources.scope-registry :as scope-registry]
-            [re-frame.resources.ssr :as ssr]
-            [re-frame.resources.state :as state]
+  (:require [re-frame.derivation.node :as rf.derivation.node]
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.resources.registry :as rf.resources.registry]
+            [re-frame.resources.scope-registry :as rf.resources.scope-registry]
+            [re-frame.resources.ssr :as rf.resources.ssr]
+            [re-frame.resources.state :as rf.resources.state]
             ;; rf2-dl7bz — the per-slot arm of the key projection lives in the
             ;; production-reachable trace-egress ns (beside the reply's), and
             ;; this TOOL boundary opts into the same helper so the two off-box
             ;; boundaries cannot answer differently. The edge points from the
             ;; bundle-isolated sibling INTO a production-reachable ns, which is
             ;; the safe direction: nothing here is pulled toward a bundle.
-            [re-frame.resources.trace-egress :as trace-egress]
-            [re-frame.resources.transport :as transport]
-            [re-frame.resources.work-ledger :as work-ledger]))
+            [re-frame.resources.trace-egress :as rf.resources.trace-egress]
+            [re-frame.resources.transport :as rf.resources.transport]
+            [re-frame.resources.work-ledger :as rf.resources.work-ledger]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -168,7 +168,7 @@
   transport (a recomputable PROJECTION of the Spec 016 registration fact —
   never a second authoritative home). `transport-id` is the spec's
   `:transport`, defaulting to the only built-in transport
-  (`transport/default-transport`, `:rf.http/managed`)."
+  (`rf.resources.transport/default-transport`, `:rf.http/managed`)."
   [transport-id]
   {:kind      :remote
    :system    :server
@@ -195,7 +195,7 @@
   (let [scope (:scope spec)]
     [[:param :rf.params]
      [:scope (cond
-               (scope-registry/from-db-reference? scope) scope        ;; {:from-db <id>} — static reference
+               (rf.resources.scope-registry/from-db-reference? scope) scope        ;; {:from-db <id>} — static reference
                (fn? scope)                                :rf.scope/resolver
                :else                                      scope)]]))
 
@@ -205,16 +205,16 @@
   reference rather than an inline function, the static graph reports the
   RESOLVER ID and its DECLARED INPUTS even while the params stay generic —
   because the resolver's inputs are declared, not executed. Read READ-ONLY
-  through `scope-registry/scope-resolver-meta` (the resolver inputs as
+  through `rf.resources.scope-registry/scope-resolver-meta` (the resolver inputs as
   `[:db <rf-path>]` descriptors). Returns the `:scope-resolver` map, or nil
   when the scope is not a `{:from-db …}` reference (or the resolver is not
   registered — a registration-time forward reference; the static graph then
   carries the reference id alone, no inputs)."
   [spec]
   (let [scope (:scope spec)]
-    (when (scope-registry/from-db-reference? scope)
+    (when (rf.resources.scope-registry/from-db-reference? scope)
       (let [scope-id (:from-db scope)
-            rmeta    (scope-registry/scope-resolver-meta scope-id)]
+            rmeta    (rf.resources.scope-registry/scope-resolver-meta scope-id)]
         (cond-> {:id scope-id}
           (some? rmeta)
           ;; the resolver's declared inputs are static facts — each stored
@@ -235,7 +235,7 @@
   fn is the resource's whole-value process driver, surfaced under `:derive`
   as an opaque token (never serialized)."
   [node spec slot]
-  (cond-> (node/attach-source node slot)
+  (cond-> (rf.derivation.node/attach-source node slot)
     (contains? spec :data-schema) (assoc :schema (:data-schema spec))
     (some? (:doc spec))           (assoc :doc (:doc spec))
     (contains? spec :request)     (assoc :derive (:request spec))))
@@ -257,9 +257,9 @@
   `:scope-resolver` named-resolver enrichment, and source coords / schema /
   doc / opaque `:derive` request token."
   [resource-id spec slot]
-  (let [transport-id (or (:transport spec) transport/default-transport)
+  (let [transport-id (or (:transport spec) rf.resources.transport/default-transport)
         resolver     (scope-resolver-enrichment spec)]
-    (-> (node/node-base resource-id [:runtime [state/resources-key :entries]]
+    (-> (rf.derivation.node/node-base resource-id [:runtime [rf.resources.state/resources-key :entries]]
                         {:kind          resource-superkind
                          :storage       resource-storage
                          :evaluation    resource-evaluation
@@ -341,14 +341,14 @@
   ([]
    (reduce
      (fn [acc resource-id]
-       (let [slot (registrar/lookup registry/resource-kind resource-id)
+       (let [slot (rf.registrar/lookup rf.resources.registry/resource-kind resource-id)
              spec (:rf/resource slot)]
          (cond-> acc
            (some? spec) (assoc resource-id (static-node-for resource-id spec slot)))))
      {}
-     (registry/resource-ids)))
+     (rf.resources.registry/resource-ids)))
   ([resource-id]
-   (let [slot (registrar/lookup registry/resource-kind resource-id)
+   (let [slot (rf.registrar/lookup rf.resources.registry/resource-kind resource-id)
          spec (:rf/resource slot)]
      (when (some? spec)
        (static-node-for resource-id spec slot)))))
@@ -376,18 +376,18 @@
 ;;
 ;; The projection reuses the SAME resource OWNER classification the SSR /
 ;; durable-egress path uses — never a tooling-private elider — through the
-;; shared `ssr/disposition+project-key` pipeline (rf2-366u0g):
+;; shared `rf.resources.ssr/disposition+project-key` pipeline (rf2-366u0g):
 ;;   - `classification/whole-entry-disposition` (inside the shared helper)
 ;;     resolves the coarse `:sensitive?` / `:large?` root-prop claim. EP-0025
 ;;     (rf2-71dr8t) removed the named-scope-resolver derived-sensitivity
 ;;     inheritance arm (no sensitivity propagation);
-;;   - `ssr/project-scoped-key` (inside the shared helper) then projects the
+;;   - `rf.resources.ssr/project-scoped-key` (inside the shared helper) then projects the
 ;;     scoped key per that disposition — `:redact` / `:omit` replace scope +
 ;;     params with opaque content-addressed `{:rf/redacted <digest>}` tokens
 ;;     (distinct values stay distinct, so graph connectivity by projected key
 ;;     is preserved), while `:serialize` rides verbatim (non-sensitive identity
 ;;     is preserved);
-;;   - `trace-egress/redact-key-declarations` (rf2-dl7bz) then applies the
+;;   - `rf.resources.trace-egress/redact-key-declarations` (rf2-dl7bz) then applies the
 ;;     resource's per-slot `:params` / `:scope` PROJECTION-RELATIVE declarations
 ;;     to a `:serialize` key — the arm the coarse disposition above is blind to,
 ;;     since a spec declaring only paths makes no root-prop claim and classifies
@@ -408,9 +408,9 @@
   tokens; `:serialize` substitutes the owner's per-slot `:params` / `:scope`
   PROJECTION-RELATIVE declarations (a no-op when the spec declares none) — the
   resource-id always survives. Pure. Delegates to the shared
-  `ssr/disposition+project-key` pipeline (rf2-366u0g — the SAME owner
+  `rf.resources.ssr/disposition+project-key` pipeline (rf2-366u0g — the SAME owner
   classification + key projection the SSR durable-egress + off-box trace-egress
-  paths use), then to `trace-egress/redact-key-declarations` for the per-slot
+  paths use), then to `rf.resources.trace-egress/redact-key-declarations` for the per-slot
   arm that pipeline defers (rf2-dl7bz), which is the SAME helper the off-box
   trace projector applies — one declaration, one answer at both boundaries.
 
@@ -420,8 +420,8 @@
   not durable egress policy). The projection-relative declaration on the spec is
   the single durable classification surface."
   [scoped-key frame-id]
-  (let [[projected-key disposition spec] (ssr/disposition+project-key scoped-key frame-id)]
-    [(trace-egress/redact-key-declarations projected-key disposition spec) disposition]))
+  (let [[projected-key disposition spec] (rf.resources.ssr/disposition+project-key scoped-key frame-id)]
+    [(rf.resources.trace-egress/redact-key-declarations projected-key disposition spec) disposition]))
 
 (defn- project-work-id
   "Project the scoped key embedded in a resource work-id
@@ -438,7 +438,7 @@
   for tool egress (rf2-0t0l3w) so neither leaks the raw scope/params. Returns
   the node `acc` with both slots assoc'd."
   [acc runtime-db work-id frame-id]
-  (let [record  (work-ledger/get-record runtime-db work-id)
+  (let [record  (rf.resources.work-ledger/get-record runtime-db work-id)
         wid'    (project-work-id work-id frame-id)
         summary (select-keys record
                              [:work/id :work/kind :status
@@ -480,7 +480,7 @@
              :refinement    resource-refined-kind
              :source-form   {:kind :reg-resource :id resource-id}
              :inputs        [[:scope proj-scope] [:param proj-params]]
-             :output        [:runtime (state/entry-path proj-key)]
+             :output        [:runtime (rf.resources.state/entry-path proj-key)]
              :storage       resource-storage
              :authority     (:authority static-node)
              :evaluation    resource-evaluation
@@ -517,7 +517,7 @@
   `[cache-scope resource-id canonical-params]` — its canonical fact identity
   when concrete (Derivations §Fact identity). Pure data over the frame's
   `:rf.runtime/resources` `:entries` + `:rf.runtime/work-ledger` records,
-  read READ-ONLY through `frame/frame-runtime-db-value` (the same read seam
+  read READ-ONLY through `rf.frame/frame-runtime-db-value` (the same read seam
   `re-frame.resources/resources` + the SSR drain use) — never touching the
   runtime write-path.
 
@@ -553,8 +553,8 @@
   the cache entries + work records are serializable EDN runtime-db facts (no
   host handles ride them; those live in the side table)."
   [frame-id]
-  (let [runtime-db (frame/frame-runtime-db-value frame-id)
-        entries    (get-in runtime-db (state/entries-path))]
+  (let [runtime-db (rf.frame/frame-runtime-db-value frame-id)
+        entries    (get-in runtime-db (rf.resources.state/entries-path))]
     (reduce-kv
       ;; rf2-9e0tyq / rf2-ka2nkx — `:entries` is keyed on the opaque byte
       ;; `key-id`; the live node's `:id` / inputs use the entry's own
@@ -577,7 +577,7 @@
           ;; so its byte key-id is unchanged; a `:redact` / `:omit` resource's
           ;; opaque content-addressed tokens stay distinct per distinct value,
           ;; so two CEDN-distinct entries never collapse onto one map key.
-          (assoc acc (state/key-id (:id node)) node)))
+          (assoc acc (rf.resources.state/key-id (:id node)) node)))
       {}
       (or entries {}))))
 

@@ -53,7 +53,7 @@
   Idempotent: re-installing for a frame replaces (does not stack) its
   listeners — hot-reload safe (the same teardown-then-reinstall shape
   `re-frame.routing.history/reconcile-url-listener!` uses)."
-  (:require [re-frame.late-bind :as late-bind]))
+  (:require [re-frame.late-bind :as rf.late-bind]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -106,7 +106,7 @@
   caller is the CLJS focus/online listener, so the JVM never reaches it (it
   installs no listeners)."
   [frame-id event-id]
-  (when-let [dispatch! (late-bind/get-fn :router/dispatch!)]
+  (when-let [dispatch! (rf.late-bind/get-fn :router/dispatch!)]
     (dispatch! [event-id] {:frame frame-id :source :revalidate})))
 
 #?(:cljs

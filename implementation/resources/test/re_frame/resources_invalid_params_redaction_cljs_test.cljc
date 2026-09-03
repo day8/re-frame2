@@ -25,22 +25,22 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [clojure.string :as str]
-   [re-frame.privacy :as privacy]
-   [re-frame.resources.registry :as registry]
-   [re-frame.resources.mutation-registry :as mreg]
+   [re-frame.privacy :as rf.privacy]
+   [re-frame.resources.registry :as rf.resources.registry]
+   [re-frame.resources.mutation-registry :as rf.resources.mutation-registry]
    ;; load-bearing side-effecting requires: the façade registers the
    ;; :resource / :mutation registrar kinds; schemas binds the Malli
    ;; validator + explainer + the shared walker / redaction hooks.
    [re-frame.resources]
    [re-frame.schemas]
-   [re-frame.test-support :as core-test-support]
-   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
-       :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
+   [re-frame.test-support :as rf.test-support]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
 (use-fixtures :each
-  (core-test-support/make-reset-runtime-fixture
-    #?(:clj  {:adapter plain-atom/adapter}
-       :cljs {:adapter reagent-adapter/adapter})))
+  (rf.test-support/make-reset-runtime-fixture
+    #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
+       :cljs {:adapter rf.adapter.reagent/adapter})))
 
 ;; A params schema with a CONFORMING sensitive sibling (`:token`) and a FAILING
 ;; non-sensitive field (`:age` declared `:int`, supplied a string). The failure
@@ -78,7 +78,7 @@
             `:error`"
     (let [spec {:params-schema sensitive-params-schema}
           data (ex->data
-                 #(registry/validate+canonicalize-params
+                 #(rf.resources.registry/validate+canonicalize-params
                     :report/by-account spec bad-params 'rf/ensure))]
       (is (some? data) "the failure throws ex-info")
       (is (= :rf.error/resource-invalid-params (:rf.error/id data))
@@ -86,7 +86,7 @@
       ;; the structural slots stay so the failure stays locatable
       (is (= :report/by-account (:resource-id data)) "resource-id preserved")
       ;; the sensitive param slot is redacted in :params
-      (is (= privacy/redacted-sentinel (get-in data [:params :token]))
+      (is (= rf.privacy/redacted-sentinel (get-in data [:params :token]))
           "the `:sensitive?` :token param slot is redacted in :params")
       (is (= "not-an-int" (get-in data [:params :age]))
           "the non-sensitive failing field rides verbatim (it must, to be diagnostic)")
@@ -100,7 +100,7 @@
     (let [big  (apply str (repeat 500 "x"))
           spec {:params-schema large-params-schema}
           data (ex->data
-                 #(registry/validate+canonicalize-params
+                 #(rf.resources.registry/validate+canonicalize-params
                     :feed/by-cursor spec {:blob big :age "bad"} 'rf/ensure))]
       (is (= :rf.error/resource-invalid-params (:rf.error/id data)))
       (is (contains? (get-in data [:params :blob]) :rf.size/large-elided)
@@ -115,7 +115,7 @@
             so the failure stays diagnostic)"
     (let [spec {:params-schema [:map [:age :int]]}
           data (ex->data
-                 #(registry/validate+canonicalize-params
+                 #(rf.resources.registry/validate+canonicalize-params
                     :plain/r spec {:age "nope"} 'rf/ensure))]
       (is (= :rf.error/resource-invalid-params (:rf.error/id data)))
       (is (= {:age "nope"} (:params data))
@@ -132,13 +132,13 @@
             leak a conforming `:sensitive?` sibling param in the thrown ex-data"
     (let [spec {:params-schema sensitive-params-schema}
           data (ex->data
-                 #(mreg/validate+canonicalize-params
+                 #(rf.resources.mutation-registry/validate+canonicalize-params
                     :acct/update spec bad-params 'rf.mutation/execute))]
       (is (some? data) "the failure throws ex-info")
       (is (= :rf.error/mutation-invalid-params (:rf.error/id data))
           "the canonical mutation invalid-params error id is preserved")
       (is (= :acct/update (:mutation-id data)) "mutation-id preserved")
-      (is (= privacy/redacted-sentinel (get-in data [:params :token]))
+      (is (= rf.privacy/redacted-sentinel (get-in data [:params :token]))
           "the `:sensitive?` :token param slot is redacted in :params")
       (is (= "not-an-int" (get-in data [:params :age]))
           "the non-sensitive failing field rides verbatim")
@@ -150,7 +150,7 @@
             (canonicalization preserved for ordinary invalid params)"
     (let [spec {:params-schema [:map [:age :int]]}
           data (ex->data
-                 #(mreg/validate+canonicalize-params
+                 #(rf.resources.mutation-registry/validate+canonicalize-params
                     :plain/m spec {:age "nope"} 'rf.mutation/execute))]
       (is (= :rf.error/mutation-invalid-params (:rf.error/id data)))
       (is (= {:age "nope"} (:params data))

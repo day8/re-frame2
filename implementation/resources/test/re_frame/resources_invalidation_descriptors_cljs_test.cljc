@@ -36,28 +36,28 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.fx :as fx]
+   [re-frame.fx :as rf.fx]
    ;; load-bearing side-effecting requires: register the :rf.resource/* +
    ;; :rf.mutation/* events + subs + the generation cofx/fx.
    [re-frame.resources]
-   [re-frame.resources.state :as state]
-   [re-frame.resources.mutation-runtime :as mstate]
-   [re-frame.registrar :as registrar]
+   [re-frame.resources.state :as rf.resources.state]
+   [re-frame.resources.mutation-runtime :as rf.resources.mutation-runtime]
+   [re-frame.registrar :as rf.registrar]
    [re-frame.resources.test-support]
    [re-frame.http.managed]
    [re-frame.schemas]
-   [re-frame.test-support :as core-test-support]
-   [re-frame.error-emit :as error-emit]
-   [re-frame.trace.tooling :as trace-tooling]
-   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
-       :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
+   [re-frame.test-support :as rf.test-support]
+   [re-frame.error-emit :as rf.error-emit]
+   [re-frame.trace.tooling :as rf.trace.tooling]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
 ;; ---- capturing transport ---------------------------------------------------
 
 (def ^:private last-managed-args (atom nil))
 
 (defn- init! []
-  (registrar/clear-kind! :resource-scope)
+  (rf.registrar/clear-kind! :resource-scope)
   ;; the named db-derived viewer-session resolver (EP-0016 D3 canonical form)
   (rf/reg-resource-scope :t/session
     {:inputs {:username [:db [:auth :user :username]]}}
@@ -69,28 +69,28 @@
 
 (defn- capturing-transport-fixture [f]
   (reset! last-managed-args nil)
-  (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
-  (fx/reg-fx :rf.resource/schedule-timers (fn [_ _] nil))
+  (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
+  (rf.fx/reg-fx :rf.resource/schedule-timers (fn [_ _] nil))
   (f))
 
 (use-fixtures :each
-  (core-test-support/make-reset-runtime-fixture
-    #?(:clj  {:adapter plain-atom/adapter :init-fn init!}
-       :cljs {:adapter reagent-adapter/adapter :init-fn init!}))
+  (rf.test-support/make-reset-runtime-fixture
+    #?(:clj  {:adapter rf.substrate.plain-atom/adapter :init-fn init!}
+       :cljs {:adapter rf.adapter.reagent/adapter :init-fn init!}))
   capturing-transport-fixture)
 
 ;; ---- helpers ---------------------------------------------------------------
 
 (defn- runtime-db [] (:rf.db/runtime (rf/frame-state-value :rf/default)))
-(defn- entry [scoped-key] (get-in (runtime-db) (state/entry-path scoped-key)))
-(defn- entries [] (get-in (runtime-db) (state/entries-path)))
+(defn- entry [scoped-key] (get-in (runtime-db) (rf.resources.state/entry-path scoped-key)))
+(defn- entries [] (get-in (runtime-db) (rf.resources.state/entries-path)))
 
 (defn- reply-success!
   ([args result] (rf/dispatch-sync (conj (:on-success args) {:status :ok :value result})))
   ([args result opts] (rf/dispatch-sync (conj (:on-success args) {:status :ok :value result}) opts)))
 
-(def ^:private global-key (state/scoped-resource-key :rf.scope/global :r/article {:slug "w"}))
-(defn- session-feed-key [u] (state/scoped-resource-key [:rf.scope/session {:username u}] :r/feed {}))
+(def ^:private global-key (rf.resources.state/scoped-resource-key :rf.scope/global :r/article {:slug "w"}))
+(defn- session-feed-key [u] (rf.resources.state/scoped-resource-key [:rf.scope/session {:username u}] :r/feed {}))
 
 (defn- reg-article-resource! []
   (rf/reg-resource :r/article
@@ -132,9 +132,9 @@
   [body-fn]
   (let [seen (atom [])
         k    ::inv-recorder]
-    (trace-tooling/register-listener!
+    (rf.trace.tooling/register-listener!
       k (fn [ev] (when (= :rf.resource/invalidated (:operation ev)) (swap! seen conj ev))))
-    (try (body-fn) (finally (trace-tooling/unregister-listener! k)))
+    (try (body-fn) (finally (rf.trace.tooling/unregister-listener! k)))
     @seen))
 
 ;; ===========================================================================
@@ -357,12 +357,12 @@
     (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
   (let [seen (atom [])
         k    ::succeeded-recorder]
-    (trace-tooling/register-listener!
+    (rf.trace.tooling/register-listener!
       k (fn [ev] (when (= :rf.mutation/succeeded (:operation ev)) (swap! seen conj ev))))
     (try
       (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/save :params {:slug "w"} :instance :n1}])
       (reply-success! @last-managed-args {:title "new"})
-      (finally (trace-tooling/unregister-listener! k)))
+      (finally (rf.trace.tooling/unregister-listener! k)))
     (testing "the nil-resolving {:from-db} descriptor is recorded as fail-closed
               :unresolved evidence on the settlement trace's :invalidation facet"
       (is (= 1 (count @seen)))
@@ -389,12 +389,12 @@
     (fn [{:keys [slug]} _] {:request {:method :post :url (str "/a/" slug "/fav")}}))
   (let [seen (atom [])
         k    ::succeeded-recorder]
-    (trace-tooling/register-listener!
+    (rf.trace.tooling/register-listener!
       k (fn [ev] (when (= :rf.mutation/succeeded (:operation ev)) (swap! seen conj ev))))
     (try
       (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/favorite :params {:slug "w"} :instance :t1}])
       (reply-success! @last-managed-args {:favorited true})
-      (finally (trace-tooling/unregister-listener! k)))
+      (finally (rf.trace.tooling/unregister-listener! k)))
     (testing "the :invalidation facet records both resolved descriptor scopes"
       (let [inv (:invalidation (:tags (first @seen)))]
         (is (= 2 (:descriptor-count inv)))
@@ -421,8 +421,8 @@
   [body-fn]
   (let [seen (atom [])
         k    ::err-recorder]
-    (error-emit/register-error-listener! k (fn [rec] (swap! seen conj rec)))
-    (try (body-fn) (finally (error-emit/unregister-error-listener! k)))
+    (rf.error-emit/register-error-listener! k (fn [rec] (swap! seen conj rec)))
+    (try (body-fn) (finally (rf.error-emit/unregister-error-listener! k)))
     @seen))
 
 (defn- error-id-of
@@ -437,7 +437,7 @@
 (deftest descriptor-typo-concrete-scope-fails-closed-at-settle
   ;; A mutation :invalidates DESCRIPTOR carrying a typo'd CONCRETE reserved
   ;; scope (:rf.scope/glabal) is resolved at settle time through
-  ;; resolve-descriptor-scope -> state/canonicalize-scope — the SAME
+  ;; resolve-descriptor-scope -> rf.resources.state/canonicalize-scope — the SAME
   ;; typo-rejecting path. It fails closed LOUD (no silent wrong-scope blast).
   (reg-article-resource!)
   (rf/reg-mutation :m/save
@@ -492,8 +492,8 @@
   ;; most one; only the scope-agnostic fan-out reaches BOTH.
   (let [sa {:user "amy"}
         sb {:user "bo"}
-        ka (state/scoped-resource-key sa :rx/article {:slug "w"})
-        kb (state/scoped-resource-key sb :rx/article {:slug "w"})]
+        ka (rf.resources.state/scoped-resource-key sa :rx/article {:slug "w"})
+        kb (rf.resources.state/scoped-resource-key sb :rx/article {:slug "w"})]
     (ownerless-stale-load! {:resource :rx/article :scope sa :params {:slug "w"} :owner [:v :a]})
     (ownerless-stale-load! {:resource :rx/article :scope sb :params {:slug "w"} :owner [:v :b]})
     (rf/reg-mutation :m/purge
@@ -507,12 +507,12 @@
       (fn [{:keys [slug]} _] {:request {:method :put :url (str "/a/" slug)}}))
     (let [seen (atom [])
           k    ::succeeded-recorder]
-      (trace-tooling/register-listener!
+      (rf.trace.tooling/register-listener!
         k (fn [ev] (when (= :rf.mutation/succeeded (:operation ev)) (swap! seen conj ev))))
       (try
         (rf/dispatch-sync [:rf.mutation/execute {:mutation :m/purge :params {:slug "w"} :instance :x1}])
         (reply-success! @last-managed-args {:purged true})
-        (finally (trace-tooling/unregister-listener! k)))
+        (finally (rf.trace.tooling/unregister-listener! k)))
       (testing "the scope-agnostic fan-out reached the same tag in BOTH scopes
                 (a scoped descriptor would have reached at most one)"
         (is (some? (:invalidated-at (entry ka))) "amy's session entry marked stale")
@@ -559,18 +559,18 @@
 
 (deftest normalize-lowers-the-public-forms
   (testing "a bare tag-set lowers to ONE :rf.scope/same descriptor"
-    (let [[d & more] (mstate/normalize-invalidation-descriptors
+    (let [[d & more] (rf.resources.mutation-runtime/normalize-invalidation-descriptors
                        #{[:article "w"] [:article-list]} 'test)]
       (is (nil? more))
       (is (= :rf.scope/same (:scope d)))
       (is (= #{[:article "w"] [:article-list]} (:tags d)))))
   (testing "a single descriptor map lowers to a one-element vector"
-    (let [ds (mstate/normalize-invalidation-descriptors
+    (let [ds (rf.resources.mutation-runtime/normalize-invalidation-descriptors
                {:scope :rf.scope/global :tags #{[:x]}} 'test)]
       (is (= 1 (count ds)))
       (is (= :rf.scope/global (:scope (first ds))))))
   (testing "a vector of descriptors lowers each, defaulting omitted :scope to :rf.scope/same"
-    (let [ds (mstate/normalize-invalidation-descriptors
+    (let [ds (rf.resources.mutation-runtime/normalize-invalidation-descriptors
                [{:scope :rf.scope/global :tags #{[:a]}}
                 {:tags #{[:b]} :cross-scope? true}] 'test)]
       (is (= 2 (count ds)))
@@ -578,18 +578,18 @@
       (is (= :rf.scope/same (:scope (second ds))))
       (is (true? (:cross-scope? (second ds))))))
   (testing "a nil / empty result lowers to an empty vector (invalidates nothing)"
-    (is (= [] (mstate/normalize-invalidation-descriptors nil 'test)))
-    (is (= [] (mstate/normalize-invalidation-descriptors #{} 'test)))))
+    (is (= [] (rf.resources.mutation-runtime/normalize-invalidation-descriptors nil 'test)))
+    (is (= [] (rf.resources.mutation-runtime/normalize-invalidation-descriptors #{} 'test)))))
 
 (deftest normalize-fails-closed-on-malformed
   (testing "a non-collection scalar result is a loud fail-closed error"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"mutation-invalid-invalidation"
-          (mstate/normalize-invalidation-descriptors :nonsense 'test))))
+          (rf.resources.mutation-runtime/normalize-invalidation-descriptors :nonsense 'test))))
   (testing "a descriptor missing :tags is a loud fail-closed error"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"mutation-invalid-invalidation"
-          (mstate/normalize-invalidation-descriptors {:scope :rf.scope/global} 'test)))))
+          (rf.resources.mutation-runtime/normalize-invalidation-descriptors {:scope :rf.scope/global} 'test)))))
 
 ;; ===========================================================================
 ;; rf2-ru73k6 F1 — a LONE vector tag is ONE tag, not a scalar tag-set
@@ -598,22 +598,22 @@
 (deftest lone-vector-tag-normalizes-to-one-tag
   ;; A naive `(set raw)` on a lone vector tag `[:article "w"]` would split it
   ;; into the scalar set `#{:article "w"}` — a tag-set that names nothing and
-  ;; silently matches nothing. The shared `state/normalize-tag-set` (and the
+  ;; silently matches nothing. The shared `rf.resources.state/normalize-tag-set` (and the
   ;; mutation `:invalidates` bare shorthand that uses it) MUST treat a lone
   ;; vector tag as the ONE tag `#{[:article "w"]}`.
   (testing "the shared normalizer wraps a lone vector tag as one tag"
-    (is (= #{[:article "w"]} (state/normalize-tag-set [:article "w"])))
-    (is (= #{[:article-list]} (state/normalize-tag-set [:article-list]))
+    (is (= #{[:article "w"]} (rf.resources.state/normalize-tag-set [:article "w"])))
+    (is (= #{[:article-list]} (rf.resources.state/normalize-tag-set [:article-list]))
         "a single-element marker tag is still one tag, not #{:article-list}"))
   (testing "an existing tag-SET form lowers UNCHANGED (no regression)"
-    (is (= #{[:article "w"]} (state/normalize-tag-set #{[:article "w"]})))
-    (is (= #{[:article "w"]} (state/normalize-tag-set [[:article "w"]]))
+    (is (= #{[:article "w"]} (rf.resources.state/normalize-tag-set #{[:article "w"]})))
+    (is (= #{[:article "w"]} (rf.resources.state/normalize-tag-set [[:article "w"]]))
         "a vector wrapping one tag is the set of that tag")
     (is (= #{[:article "w"] [:article-list]}
-           (state/normalize-tag-set #{[:article "w"] [:article-list]}))))
+           (rf.resources.state/normalize-tag-set #{[:article "w"] [:article-list]}))))
   (testing "the mutation :invalidates bare shorthand lowers a lone vector tag
             to one :rf.scope/same descriptor carrying the one tag"
-    (let [[d & more] (mstate/normalize-invalidation-descriptors [:article "w"] 'test)]
+    (let [[d & more] (rf.resources.mutation-runtime/normalize-invalidation-descriptors [:article "w"] 'test)]
       (is (nil? more))
       (is (= :rf.scope/same (:scope d)))
       (is (= #{[:article "w"]} (:tags d))
@@ -648,7 +648,7 @@
 (deftest lone-vector-tag-direct-invalidate-tags-event-matches
   ;; The SAME tag semantics on the DIRECT :rf.resource/invalidate-tags event:
   ;; a lone vector `:tags [:article "w"]` invalidates the [:article "w"] entry
-  ;; (events.cljc routes through the same shared state/normalize-tag-set).
+  ;; (events.cljc routes through the same shared rf.resources.state/normalize-tag-set).
   (reg-article-resource!)
   (rf/dispatch-sync [:rf.resource/ensure {:resource :r/article :scope :rf.scope/global
                                           :params {:slug "w"} :owner [:v :a]}])
@@ -674,16 +674,16 @@
   ;; (the per-target DESCRIPTOR MAP arm) still lowered `:tags` through a naive
   ;; `(set tags)` — a lone vector tag `{:tags [:article "w"]}` split into the
   ;; scalar set `#{:article "w"}`, silently matching nothing. It must route
-  ;; through the SAME `state/normalize-tag-set` normalizer.
+  ;; through the SAME `rf.resources.state/normalize-tag-set` normalizer.
   (testing "a single descriptor map with a lone vector :tags normalizes to one tag"
-    (let [[d & more] (mstate/normalize-invalidation-descriptors
+    (let [[d & more] (rf.resources.mutation-runtime/normalize-invalidation-descriptors
                        {:tags [:article "w"]} 'test)]
       (is (nil? more))
       (is (= :rf.scope/same (:scope d)))
       (is (= #{[:article "w"]} (:tags d))
           "the lone tag is the single tag, NOT #{:article \"w\"}")))
   (testing "a vector of descriptor maps also normalizes each lone vector :tags"
-    (let [[d1 d2] (mstate/normalize-invalidation-descriptors
+    (let [[d1 d2] (rf.resources.mutation-runtime/normalize-invalidation-descriptors
                     [{:scope :rf.scope/global :tags [:article "w"]}
                      {:tags [:article-list]}] 'test)]
       (is (= #{[:article "w"]} (:tags d1)))
@@ -763,7 +763,7 @@
     (testing "exactly one invalidation pass row"
       (is (= 1 (count invs))))
     (testing ":matched names the global list key (NOT the exempt detail key)"
-      (let [list-key (state/scoped-resource-key :rf.scope/global :r/article-list {})]
+      (let [list-key (rf.resources.state/scoped-resource-key :rf.scope/global :r/article-list {})]
         (is (= [list-key] (:matched row)) "the populate-exempt detail is excluded from :matched")))
     (testing ":refetched / :left-stale reflect the active-owner decision"
       (is (= 1 (:refetched row)) "the active-owner list refetched")

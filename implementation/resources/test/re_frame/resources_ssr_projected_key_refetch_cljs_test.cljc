@@ -13,7 +13,7 @@
   `project-resources-runtime-db` installs the wire entry under the projected
   one. The live client never derives that identity: `route/route-resource-plan`
   and `events/ensure-handler` build the ordinary scoped key from live scope +
-  params and read `(state/entry-path scoped-key)`, i.e. the RAW key-id. So the
+  params and read `(rf.resources.state/entry-path scoped-key)`, i.e. the RAW key-id. So the
   hydrated entry is unreachable and the client loads.
 
   Three answers were given to one question and they did not agree. The server
@@ -98,19 +98,19 @@
    [clojure.set :as set]
    [clojure.string :as str]
    [re-frame.core :as rf]
-   [re-frame.fx :as fx]
-   [re-frame.frame :as frame]
+   [re-frame.fx :as rf.fx]
+   [re-frame.frame :as rf.frame]
    ;; load-bearing side-effecting require: the façade registers the
    ;; :rf.resource/* events + subs and the :resource registrar kind.
    [re-frame.resources]
-   [re-frame.resources.classification :as classification]
-   [re-frame.resources.registry :as registry]
-   [re-frame.resources.ssr :as ssr]
-   [re-frame.resources.state :as state]
+   [re-frame.resources.classification :as rf.resources.classification]
+   [re-frame.resources.registry :as rf.resources.registry]
+   [re-frame.resources.ssr :as rf.resources.ssr]
+   [re-frame.resources.state :as rf.resources.state]
    ;; production HTTP fx surface (so the transport feature probe resolves).
    [re-frame.http.managed]
    [re-frame.schemas]
-   [re-frame.test-support :as core-test-support]
+   [re-frame.test-support :as rf.test-support]
    #?@(:clj  [[re-frame.substrate.plain-atom :as substrate]]
        :cljs [[re-frame.adapter.reagent :as substrate]])))
 
@@ -147,7 +147,7 @@
   (reset! requests 0)
   (rf/make-frame {:id :rf/default :url-bound? true
                   :doc "SSR projected-key refetch suite frame."})
-  (fx/reg-fx :rf.http/managed (fn [_ctx _args] (swap! requests inc)))
+  (rf.fx/reg-fx :rf.http/managed (fn [_ctx _args] (swap! requests inc)))
   (rf/reg-event ::seed (fn [{:keys [db]} _] {:db (assoc db :tenant tenant-secret)}))
   (rf/dispatch-sync [::seed])
   (rf/reg-resource-scope :t/tenant
@@ -184,7 +184,7 @@
     (fn [_p _ctx] {:request {:method :get :url "/bulky"}})))
 
 (use-fixtures :each
-  (core-test-support/make-reset-runtime-fixture
+  (rf.test-support/make-reset-runtime-fixture
     {:adapter substrate/adapter
      :init-fn init!}))
 
@@ -195,16 +195,16 @@
   ([tenant] [:rf.scope/session {:tenant-id tenant :region "au"}]))
 
 (def ^:private params-key
-  (delay (state/scoped-resource-key
+  (delay (rf.resources.state/scoped-resource-key
            :rf.scope/global :params/report
            {:account-id account-secret :page 3})))
 
 (defn- scoped-key-for
   ([] (scoped-key-for tenant-secret))
-  ([tenant] (state/scoped-resource-key (tenant-scope tenant) :scoped/report {:page 3})))
+  ([tenant] (rf.resources.state/scoped-resource-key (tenant-scope tenant) :scoped/report {:page 3})))
 
 (defn- global-key [resource-id]
-  (state/scoped-resource-key :rf.scope/global resource-id {:page 3}))
+  (rf.resources.state/scoped-resource-key :rf.scope/global resource-id {:page 3}))
 
 (defn- install-entry!
   "Write a `:loaded` entry for `scoped-key` AND reconcile the per-frame elision
@@ -215,17 +215,17 @@
   millis `hydrate-resources!` uses)."
   ([scoped-key] (install-entry! scoped-key false))
   ([scoped-key stale?]
-   (frame/swap-runtime-db!
+   (rf.frame/swap-runtime-db!
      :rf/default
      (fn [rdb]
        (-> (or rdb {})
-           (assoc-in (state/entry-path scoped-key)
-                     (cond-> (assoc (state/empty-entry (second scoped-key) scoped-key)
+           (assoc-in (rf.resources.state/entry-path scoped-key)
+                     (cond-> (assoc (rf.resources.state/empty-entry (second scoped-key) scoped-key)
                                     :status    :loaded
                                     :data      {:total 1}
                                     :loaded-at 1000)
                        stale? (assoc :stale-at 2000)))
-           (classification/reconcile-registry registry/resource-meta))))
+           (rf.resources.classification/reconcile-registry rf.resources.registry/resource-meta))))
    scoped-key))
 
 (defn- install-all! []
@@ -236,13 +236,13 @@
   (install-entry! (global-key :sealed/report))
   (install-entry! (global-key :bulky/report)))
 
-(defn- runtime-db [] (frame/frame-runtime-db-value :rf/default))
+(defn- runtime-db [] (rf.frame/frame-runtime-db-value :rf/default))
 
 (defn- wire-slice []
-  (ssr/project-resources-runtime-db (runtime-db) :rf/default))
+  (rf.resources.ssr/project-resources-runtime-db (runtime-db) :rf/default))
 
 (defn- wire-entries []
-  (get-in (wire-slice) [state/resources-key :entries]))
+  (get-in (wire-slice) [rf.resources.state/resources-key :entries]))
 
 (defn- wire-rows
   "Every wire entry whose key names `resource-id` (a SEQ, because §4 asks how
@@ -260,9 +260,9 @@
   []
   (into {}
         (map (fn [m] [(second (:resource/key m)) m]))
-        (ssr/projection-metadata
+        (rf.resources.ssr/projection-metadata
           :rf/default 5000
-          (get-in (runtime-db) (state/entries-path)))))
+          (get-in (runtime-db) (rf.resources.state/entries-path)))))
 
 (defn- boot-client!
   "Simulate the client boot: replace the durable resource subtree with EXACTLY
@@ -271,16 +271,16 @@
   registry) is what the client's own `reg-resource` calls give it."
   []
   (let [slice (wire-slice)]
-    (frame/swap-runtime-db!
+    (rf.frame/swap-runtime-db!
       :rf/default
-      (fn [rdb] (assoc (or rdb {}) state/resources-key (get slice state/resources-key))))
-    (ssr/hydrate-resources! :rf/default)))
+      (fn [rdb] (assoc (or rdb {}) rf.resources.state/resources-key (get slice rf.resources.state/resources-key))))
+    (rf.resources.ssr/hydrate-resources! :rf/default)))
 
 (defn- live-entry
   "The read `route-resource-plan` and `ensure-handler` both perform: derive the
-  ordinary scoped key from live scope + params, then `(state/entry-path k)`."
+  ordinary scoped key from live scope + params, then `(rf.resources.state/entry-path k)`."
   [scoped-key]
-  (get-in (runtime-db) (state/entry-path scoped-key)))
+  (get-in (runtime-db) (rf.resources.state/entry-path scoped-key)))
 
 (defn- plan-by-resource [plan]
   (into {} (map (fn [p] [(:resource-id p) p])) plan))
@@ -289,7 +289,7 @@
   (str/includes? (pr-str v) secret))
 
 (defn- durable-entries []
-  (get-in (runtime-db) (state/entries-path)))
+  (get-in (runtime-db) (rf.resources.state/entries-path)))
 
 (defn- rows-for
   "Every DURABLE row naming `resource-id`, as `[key-id entry]` pairs."
@@ -301,7 +301,7 @@
   entry under. Derived through the production projector rather than restated, so
   this suite pins the coarse arm's PRESENCE without pinning its digest."
   [resource-id]
-  (state/key-id (ssr/project-scoped-key (global-key resource-id) :redact nil)))
+  (rf.resources.state/key-id (rf.resources.ssr/project-scoped-key (global-key resource-id) :redact nil)))
 
 ;; ---- a payload from BEFORE the withholding (the version-skew forgery) ------
 ;;
@@ -347,8 +347,8 @@
   FRESHNESS and the plan omits it whether or not the addressability filter
   exists."
   [wire-key data]
-  [(state/key-id wire-key)
-   (cond-> (assoc (state/empty-entry (second wire-key) wire-key)
+  [(rf.resources.state/key-id wire-key)
+   (cond-> (assoc (rf.resources.state/empty-entry (second wire-key) wire-key)
                   :status :loaded :loaded-at 1000)
      (some? data) (assoc :data data))])
 
@@ -356,7 +356,7 @@
   "Today's wire slice PLUS the four rows an earlier render would have included,
   in the shape `data` selects (see `legacy-row`)."
   [data]
-  (update-in (wire-slice) [state/resources-key :entries]
+  (update-in (wire-slice) [rf.resources.state/resources-key :entries]
              (fn [entries]
                (into entries [(legacy-row legacy-params-wire-key data)
                               (legacy-row legacy-scope-wire-key data)
@@ -379,7 +379,7 @@
     (install-all!)
     (let [wired (wire-entries)
           m     (:params/report (metadata-by-resource))]
-      (is (not (contains? wired (state/key-id @params-key)))
+      (is (not (contains? wired (rf.resources.state/key-id @params-key)))
           "premise: the raw key-id is NOT a wire map key — the entry re-keyed")
       (is (empty? (wire-rows :params/report))
           (str "…and NO row rides under the projected key either — an emptied "
@@ -402,7 +402,7 @@
     (install-all!)
     (let [wired (wire-entries)
           m     (:scoped/report (metadata-by-resource))]
-      (is (not (contains? wired (state/key-id (scoped-key-for))))
+      (is (not (contains? wired (rf.resources.state/key-id (scoped-key-for))))
           "premise: the raw key-id is NOT a wire map key")
       (is (empty? (wire-rows :scoped/report))
           (str "…and no row rides under the projected key either: "
@@ -415,8 +415,8 @@
             as an exact set. Six durable entries, two wire rows: withholding one
             row too many fails here just as loudly as withholding none"
     (install-all!)
-    (is (= #{(state/key-id (global-key :plain/report))
-             (state/key-id (global-key :stale/report))}
+    (is (= #{(rf.resources.state/key-id (global-key :plain/report))
+             (rf.resources.state/key-id (global-key :stale/report))}
            (set (keys (wire-entries))))
         (str "the wire carries exactly the rows a live client can address — "
              (pr-str (mapv (comp :resource/key second) (wire-entries)))))
@@ -436,7 +436,7 @@
     (let [wired (wire-entries)
           e     (wire-entry-for :plain/report)
           m     (:plain/report (metadata-by-resource))]
-      (is (contains? wired (state/key-id (global-key :plain/report)))
+      (is (contains? wired (rf.resources.state/key-id (global-key :plain/report)))
           "its key-id is unchanged — nothing re-keyed it")
       (is (= {:total 1} (:data e)) "so its data rides, as it always has")
       (is (= :serialized (:disposition m)))
@@ -467,7 +467,7 @@
       (is (= (global-key :sealed/report) (:resource/key (:sealed/report m)))
           "the metadata names the RAW key — it is a diagnostic over the
            server's own entries, not a wire identity")
-      (is (= (ssr/project-scoped-key (global-key :sealed/report) :redact nil)
+      (is (= (rf.resources.ssr/project-scoped-key (global-key :sealed/report) :redact nil)
              (:projected-key (:sealed/report m)))
           "…while :projected-key preserves the observation point the wire row
            used to carry, so the SSR and trace-egress derivations of one answer
@@ -479,15 +479,15 @@
             of dispositions. Stated over the whole cache, it is what stops a
             future re-keying projection shipping a ghost by default"
     (install-all!)
-    (doseq [m (ssr/projection-metadata
+    (doseq [m (rf.resources.ssr/projection-metadata
                 :rf/default 5000
-                (get-in (runtime-db) (state/entries-path)))]
+                (get-in (runtime-db) (rf.resources.state/entries-path)))]
       (is (= (:withheld? m)
-             (not= (state/key-id (:resource/key m))
-                   (state/key-id (:projected-key m))))
+             (not= (rf.resources.state/key-id (:resource/key m))
+                   (rf.resources.state/key-id (:projected-key m))))
           (str "withheld? iff the projection re-keyed it — " (pr-str m)))
       (is (= (not (:withheld? m))
-             (contains? (wire-entries) (state/key-id (:projected-key m))))
+             (contains? (wire-entries) (rf.resources.state/key-id (:projected-key m))))
           (str "…and the wire agrees, row for row — " (pr-str m))))))
 
 (deftest the-declared-slot-still-does-not-ride
@@ -572,16 +572,16 @@
     ;; #7354 actually shipped and the plan actually named. A data-carrying row
     ;; would be excluded on freshness instead, and this test would pass with the
     ;; addressability filter deleted.
-    (let [forged (get (slice-with-legacy-rows nil) state/resources-key)
+    (let [forged (get (slice-with-legacy-rows nil) rf.resources.state/resources-key)
           row-of (fn [rid] (some (fn [[_ e]] (when (= rid (second (:resource/key e))) e))
                                  (:entries forged)))
-          plan   (ssr/hydrate-refetch-plan {state/resources-key forged} 5000)
+          plan   (rf.resources.ssr/hydrate-refetch-plan {rf.resources.state/resources-key forged} 5000)
           by-id  (plan-by-resource plan)]
       (doseq [rid [:params/report :sealed/report :bulky/report]]
         (let [row (row-of rid)]
           (is (some? row)
               (str "premise: the forged slice carries an unaddressable row for " rid))
-          (is (true? (ssr/entry-needs-refetch? row 5000))
+          (is (true? (rf.resources.ssr/entry-needs-refetch? row 5000))
               (str "premise: and one the planner WOULD name — every other reason "
                    "to omit it is absent, so only addressability can be doing "
                    "the work for " rid))
@@ -622,7 +622,7 @@
     (is (= 1 @requests) "exactly one request — not zero, and not two")
     (is (some? (live-entry @params-key))
         "the entry now exists under the identity the client derives")
-    (is (= [(state/key-id @params-key)] (mapv first (rows-for :params/report)))
+    (is (= [(rf.resources.state/key-id @params-key)] (mapv first (rows-for :params/report)))
         (str "…and it is the ONLY row for this resource: no unreachable "
              "duplicate persists beside it — "
              (pr-str (mapv (comp :resource/key second) (rows-for :params/report)))))))
@@ -641,7 +641,7 @@
     (is (some? (live-entry (scoped-key-for)))
         "the resolved session scope lands on the raw key, as the client
          derives it")
-    (is (= [(state/key-id (scoped-key-for))] (mapv first (rows-for :scoped/report)))
+    (is (= [(rf.resources.state/key-id (scoped-key-for))] (mapv first (rows-for :scoped/report)))
         (str "…and it is the only row for this resource — "
              (pr-str (mapv (comp :resource/key second) (rows-for :scoped/report)))))))
 
@@ -663,12 +663,12 @@
                        {:resource :sealed/report :params {:page 3}}])
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :bulky/report :params {:page 3}}])
-    (is (= #{(state/key-id @params-key)
-             (state/key-id (scoped-key-for))
-             (state/key-id (global-key :plain/report))
-             (state/key-id (global-key :stale/report))
-             (state/key-id (global-key :sealed/report))
-             (state/key-id (global-key :bulky/report))}
+    (is (= #{(rf.resources.state/key-id @params-key)
+             (rf.resources.state/key-id (scoped-key-for))
+             (rf.resources.state/key-id (global-key :plain/report))
+             (rf.resources.state/key-id (global-key :stale/report))
+             (rf.resources.state/key-id (global-key :sealed/report))
+             (rf.resources.state/key-id (global-key :bulky/report))}
            (set (keys (durable-entries))))
         (str "the client's cache holds exactly the addressable rows — every "
              "coarse entry sits under the key the client DERIVES, and neither "
@@ -743,17 +743,17 @@
             derivation reproduces, exactly as `recompute-indexes` refuses to
             trust the wire's indexes"
     (install-all!)
-    (let [forged (get (slice-with-legacy-rows {:total 1}) state/resources-key)]
+    (let [forged (get (slice-with-legacy-rows {:total 1}) rf.resources.state/resources-key)]
       (is (= 6 (count (:entries forged)))
           "premise: the forged payload carries the four withheld rows too")
       (is (some (fn [[_ e]] (some? (:data e)))
                 (filterv (fn [[_ e]] (= :params/report (second (:resource/key e))))
                          (:entries forged)))
           "premise: and the pre-fix row carries its DATA")
-      (frame/swap-runtime-db!
+      (rf.frame/swap-runtime-db!
         :rf/default
-        (fn [rdb] (assoc (or rdb {}) state/resources-key forged)))
-      (ssr/hydrate-resources! :rf/default)
+        (fn [rdb] (assoc (or rdb {}) rf.resources.state/resources-key forged)))
+      (rf.resources.ssr/hydrate-resources! :rf/default)
       (is (empty? (rows-for :params/report))
           (str "the unaddressable row is gone after hydrate — "
                (pr-str (mapv (comp :resource/key second) (rows-for :params/report)))))
@@ -777,17 +777,17 @@
             behaves identically to one hydrating a withheld payload — one
             intentional load, and nothing left over"
     (install-all!)
-    (let [forged (get (slice-with-legacy-rows {:total 1}) state/resources-key)]
-      (frame/swap-runtime-db!
+    (let [forged (get (slice-with-legacy-rows {:total 1}) rf.resources.state/resources-key)]
+      (rf.frame/swap-runtime-db!
         :rf/default
-        (fn [rdb] (assoc (or rdb {}) state/resources-key forged)))
-      (ssr/hydrate-resources! :rf/default)
+        (fn [rdb] (assoc (or rdb {}) rf.resources.state/resources-key forged)))
+      (rf.resources.ssr/hydrate-resources! :rf/default)
       (reset! requests 0)
       (rf/dispatch-sync [:rf.resource/ensure
                          {:resource :params/report
                           :params   {:account-id account-secret :page 3}}])
       (is (= 1 @requests) "exactly one request")
-      (is (= [(state/key-id @params-key)] (mapv first (rows-for :params/report)))
+      (is (= [(rf.resources.state/key-id @params-key)] (mapv first (rows-for :params/report)))
           "and one row"))))
 
 ;; ===========================================================================
@@ -812,7 +812,7 @@
     (is (= 1 @requests) "exactly one request — not zero, and not two")
     (is (some? (live-entry (global-key :sealed/report)))
         "the entry now exists under the identity the client derives")
-    (is (= [(state/key-id (global-key :sealed/report))]
+    (is (= [(rf.resources.state/key-id (global-key :sealed/report))]
            (mapv first (rows-for :sealed/report)))
         (str "…and it is the ONLY row for this resource: no unreachable "
              "duplicate persists beside it — "
@@ -829,7 +829,7 @@
     (rf/dispatch-sync [:rf.resource/ensure
                        {:resource :bulky/report :params {:page 3}}])
     (is (= 1 @requests))
-    (is (= [(state/key-id (global-key :bulky/report))]
+    (is (= [(rf.resources.state/key-id (global-key :bulky/report))]
            (mapv first (rows-for :bulky/report)))
         (str "the only row for this resource — "
              (pr-str (mapv (comp :resource/key second) (rows-for :bulky/report)))))))

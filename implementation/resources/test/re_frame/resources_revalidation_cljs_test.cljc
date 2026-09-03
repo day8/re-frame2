@@ -9,7 +9,7 @@
     1. ACTIVE-STALE SCAN — `:rf.resource/window-focused` /
        `:rf.resource/network-reconnected` scan the frame's cache entries and
        refetch ONLY those that are BOTH active (a live `:active-owner`)
-       AND stale-by-policy (`state/entry-stale?` against the durable
+       AND stale-by-policy (`rf.resources.state/entry-stale?` against the durable
        timestamps); fresh entries and owner-free entries are LEFT ALONE;
     2. CAUSE, NEVER OWNER — a focus/reconnect-triggered refetch carries cause
        `:focus` / `:reconnect` and attaches NO owner (it never creates
@@ -28,25 +28,25 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.fx :as fx]
-   [re-frame.frame :as frame]
-   [re-frame.late-bind :as late-bind]
+   [re-frame.fx :as rf.fx]
+   [re-frame.frame :as rf.frame]
+   [re-frame.late-bind :as rf.late-bind]
    ;; load-bearing side-effecting require: the façade registers the
    ;; :rf.resource/* events (incl. the focus/reconnect events this test
    ;; dispatches) + the timer / work-ledger side-table fx + the internal
    ;; replies these tests dispatch through.
    [re-frame.resources]
-   [re-frame.resources.revalidate-listeners :as revalidate-listeners]
-   [re-frame.resources.state :as state]
+   [re-frame.resources.revalidate-listeners :as rf.resources.revalidate-listeners]
+   [re-frame.resources.state :as rf.resources.state]
    [re-frame.resources.test-support]
-   [re-frame.resources.work-ledger :as work-ledger]
+   [re-frame.resources.work-ledger :as rf.resources.work-ledger]
    ;; production HTTP fx surface (so the transport feature probe resolves);
    ;; the actual fetch + abort are overridden by capturing no-ops below.
    [re-frame.http.managed]
    [re-frame.schemas]
-   [re-frame.test-support :as core-test-support]
-   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
-       :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
+   [re-frame.test-support :as rf.test-support]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
 ;; ---- capturing transport + abort + timer-schedule (deterministic) ---------
 
@@ -68,15 +68,15 @@
   [f]
   (reset! aborts [])
   (reset! scheduled-timers [])
-  (fx/reg-fx :rf.http/managed (fn [_ctx _args] nil))
-  (fx/reg-fx :rf.http/managed-abort (fn [_ctx work-id] (swap! aborts conj work-id) nil))
-  (fx/reg-fx :rf.resource/schedule-timers (fn [_ctx args] (swap! scheduled-timers conj args) nil))
+  (rf.fx/reg-fx :rf.http/managed (fn [_ctx _args] nil))
+  (rf.fx/reg-fx :rf.http/managed-abort (fn [_ctx work-id] (swap! aborts conj work-id) nil))
+  (rf.fx/reg-fx :rf.resource/schedule-timers (fn [_ctx args] (swap! scheduled-timers conj args) nil))
   (f))
 
 (use-fixtures :each
-  (core-test-support/make-reset-runtime-fixture
-    #?(:clj  {:adapter plain-atom/adapter}
-       :cljs {:adapter reagent-adapter/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
+       :cljs {:adapter rf.adapter.reagent/adapter}))
   capturing-fixture)
 
 ;; ---- helpers --------------------------------------------------------------
@@ -88,7 +88,7 @@
 (defn- entry
   ([scoped-key] (entry :rf/default scoped-key))
   ([frame-id scoped-key]
-   (get-in (runtime-db frame-id) (state/entry-path scoped-key))))
+   (get-in (runtime-db frame-id) (rf.resources.state/entry-path scoped-key))))
 
 (defn- article-spec
   ([] (article-spec {}))
@@ -129,9 +129,9 @@
   (rf/reg-resource :rv/sw   (article-spec {:stale-after-ms 0}) article-spec-request) ;; goes stale at once
   (rf/reg-resource :rv/fresh (article-spec) article-spec-request)                    ;; never stale
   (let [scope    {:user "u"}
-        k-as     (state/scoped-resource-key scope :rv/sw    {:slug "active-stale"})
-        k-af     (state/scoped-resource-key scope :rv/fresh {:slug "active-fresh"})
-        k-is     (state/scoped-resource-key scope :rv/sw    {:slug "inactive-stale"})]
+        k-as     (rf.resources.state/scoped-resource-key scope :rv/sw    {:slug "active-stale"})
+        k-af     (rf.resources.state/scoped-resource-key scope :rv/fresh {:slug "active-fresh"})
+        k-is     (rf.resources.state/scoped-resource-key scope :rv/sw    {:slug "inactive-stale"})]
     ;; active + stale
     (ensure! :rv/sw scope "active-stale" [:route :r 1])
     (succeed! k-as {:title "AS"})
@@ -156,7 +156,7 @@
 (deftest network-reconnected-refetches-active-stale
   (rf/reg-resource :rc/sw (article-spec {:stale-after-ms 0}) article-spec-request)
   (let [scope {:user "u"}
-        k (state/scoped-resource-key scope :rc/sw {:slug "w"})]
+        k (rf.resources.state/scoped-resource-key scope :rc/sw {:slug "w"})]
     (ensure! :rc/sw scope "w" [:route :r 1])
     (succeed! k {:title "W"})
     (testing "Spec 016 §Deferred slices — network reconnect refetches the
@@ -172,7 +172,7 @@
 (deftest focus-refetch-is-cause-not-owner
   (rf/reg-resource :ca/sw (article-spec {:stale-after-ms 0}) article-spec-request)
   (let [scope {:user "u"}
-        k (state/scoped-resource-key scope :ca/sw {:slug "w"})]
+        k (rf.resources.state/scoped-resource-key scope :ca/sw {:slug "w"})]
     (ensure! :ca/sw scope "w" [:route :r 1])
     (succeed! k {:title "W"})
     (rf/dispatch-sync [:rf.resource/window-focused])
@@ -180,7 +180,7 @@
               records the :focus CAUSE on the live work record but attaches NO
               new owner (it never creates liveness)"
       (let [e   (entry k)
-            rec (work-ledger/get-record (runtime-db) (:current-work e))]
+            rec (rf.resources.work-ledger/get-record (runtime-db) (:current-work e))]
         (is (= #{[:route :r 1]} (:active-owners e))
             "owner set unchanged — focus added no owner")
         (is (some #{:focus} (:causes rec))
@@ -193,7 +193,7 @@
 (deftest focus-refetch-bumps-generation-and-suppresses-stale-reply
   (rf/reg-resource :gn/sw (article-spec {:stale-after-ms 0}) article-spec-request)
   (let [scope {:user "u"}
-        k (state/scoped-resource-key scope :gn/sw {:slug "w"})]
+        k (rf.resources.state/scoped-resource-key scope :gn/sw {:slug "w"})]
     (ensure! :gn/sw scope "w" [:route :r 1])
     (succeed! k {:title "W"})
     (let [gen-before (:generation (entry k))
@@ -209,7 +209,7 @@
                   suppressed (never overwrites the post-focus entry)"
           (rf/dispatch-sync [:rf.resource.internal/succeeded
                              {:resource/key k
-                              :work/id (work-ledger/resource-work-id k gen-before)
+                              :work/id (rf.resources.work-ledger/resource-work-id k gen-before)
                               :generation gen-before :data {:title "Zombie"}}])
           (is (not= {:title "Zombie"} (:data (entry k)))
               "the pre-focus-generation reply was suppressed"))))))
@@ -219,7 +219,7 @@
             harmless no-op (no refetch, no error)"
     (rf/dispatch-sync [:rf.resource/window-focused])
     (rf/dispatch-sync [:rf.resource/network-reconnected])
-    (is (nil? (get-in (runtime-db) (state/entries-path)))
+    (is (nil? (get-in (runtime-db) (rf.resources.state/entries-path)))
         "no entries materialised by an empty-frame scan")))
 
 ;; ===========================================================================
@@ -237,7 +237,7 @@
   ;; force a SECOND new generation, superseding + aborting the first (churn).
   (rf/reg-resource :co/sw (article-spec {:stale-after-ms 0}) article-spec-request)
   (let [scope {:user "u"}
-        k (state/scoped-resource-key scope :co/sw {:slug "w"})]
+        k (rf.resources.state/scoped-resource-key scope :co/sw {:slug "w"})]
     (ensure! :co/sw scope "w" [:route :r 1])
     (succeed! k {:title "W"})
     (let [gen-before (:generation (entry k))]
@@ -264,7 +264,7 @@
   ;; work item and no abort churn.
   (rf/reg-resource :cv/sw (article-spec {:stale-after-ms 0}) article-spec-request)
   (let [scope {:user "u"}
-        k (state/scoped-resource-key scope :cv/sw {:slug "w"})]
+        k (rf.resources.state/scoped-resource-key scope :cv/sw {:slug "w"})]
     (ensure! :cv/sw scope "w" [:route :r 1])
     (succeed! k {:title "W"})
     (let [gen-before (:generation (entry k))]
@@ -274,7 +274,7 @@
       (rf/dispatch-sync [:rf.resource/window-focused]) ;; window focus
       (rf/dispatch-sync [:rf.resource/window-focused]) ;; document visibilitychange→visible
       (let [e   (entry k)
-            rec (work-ledger/get-record (runtime-db) (:current-work e))]
+            rec (rf.resources.work-ledger/get-record (runtime-db) (:current-work e))]
         (is (= (inc gen-before) (:generation e))
             "focus+visibility together bumped exactly ONE generation")
         (is (= :fetching (:status e)) "one in-flight refetch")
@@ -287,7 +287,7 @@
   ;; focus signal MUST start a fresh refetch.
   (rf/reg-resource :cf/sw (article-spec {:stale-after-ms 0}) article-spec-request)
   (let [scope {:user "u"}
-        k (state/scoped-resource-key scope :cf/sw {:slug "w"})]
+        k (rf.resources.state/scoped-resource-key scope :cf/sw {:slug "w"})]
     (ensure! :cf/sw scope "w" [:route :r 1])
     (succeed! k {:title "W"})
     (rf/dispatch-sync [:rf.resource/window-focused]) ;; refetch in flight
@@ -312,17 +312,17 @@
             entries (fresh active, stale inactive, and fresh inactive excluded)"
     (let [now    1000
           scope  {:user "u"}
-          mk     (fn [slug] (state/scoped-resource-key scope :sc/x {:slug slug}))
+          mk     (fn [slug] (rf.resources.state/scoped-resource-key scope :sc/x {:slug slug}))
           ;; active + stale (stale-at in the past)
-          e-as   (assoc (state/empty-entry :sc/x)
+          e-as   (assoc (rf.resources.state/empty-entry :sc/x)
                         :status :loaded :data {:v 1}
                         :active-owners #{[:route :r 1]} :stale-at 500)
           ;; active + fresh (stale-at in the future)
-          e-af   (assoc (state/empty-entry :sc/x)
+          e-af   (assoc (rf.resources.state/empty-entry :sc/x)
                         :status :loaded :data {:v 1}
                         :active-owners #{[:route :r 1]} :stale-at 5000)
           ;; inactive + stale (no owner)
-          e-is   (assoc (state/empty-entry :sc/x)
+          e-is   (assoc (rf.resources.state/empty-entry :sc/x)
                         :status :loaded :data {:v 1}
                         :active-owners #{} :stale-at 500)
           rdb    {:rf.runtime/resources
@@ -331,11 +331,11 @@
           ;; by reading the public events ns var via the dispatched event would
           ;; need a frame — instead assert through the handler-level behaviour
           ;; in the integration tests above. Here we assert the selection
-          ;; predicate directly via state/entry-stale? + active-owner gate.
+          ;; predicate directly via rf.resources.state/entry-stale? + active-owner gate.
           eligible (into #{}
                          (keep (fn [[kk e]]
                                  (when (and (seq (:active-owners e))
-                                            (state/entry-stale? e now))
+                                            (rf.resources.state/entry-stale? e now))
                                    kk)))
                          (:entries (:rf.runtime/resources rdb)))]
       (is (= #{(mk "as")} eligible)
@@ -351,22 +351,22 @@
     ;; install the per-frame listener side-table slot directly (the host
     ;; addEventListener arm is CLJS/DOM-only; the side-table bookkeeping is the
     ;; platform-neutral part frame-destroy must clear)
-    (swap! revalidate-listeners/listener-table assoc fa {:focus :h :visibility :h :online :h})
-    (is (contains? @revalidate-listeners/listener-table fa)
+    (swap! rf.resources.revalidate-listeners/listener-table assoc fa {:focus :h :visibility :h :online :h})
+    (is (contains? @rf.resources.revalidate-listeners/listener-table fa)
         "listener slot recorded for frame A")
     (testing "Spec 016 [Runtime-Subsystems] clause 5 — frame destroy drops the
               frame's focus/reconnect listeners via the single
               :resources/on-frame-destroyed! teardown hook (composed, not a
               second path)"
-      (frame/destroy-frame! fa)
-      (is (not (contains? @revalidate-listeners/listener-table fa))
+      (rf.frame/destroy-frame! fa)
+      (is (not (contains? @rf.resources.revalidate-listeners/listener-table fa))
           "frame A's listener slot dropped on destroy"))))
 
 (deftest remove-revalidation-listeners-is-idempotent
   (testing "Spec 016 — remove for a frame with no installed listeners is a
             harmless no-op (idempotent + JVM-safe)"
-    (revalidate-listeners/remove-revalidation-listeners! :rv/no-such-frame)
-    (is (not (contains? @revalidate-listeners/listener-table :rv/no-such-frame)))))
+    (rf.resources.revalidate-listeners/remove-revalidation-listeners! :rv/no-such-frame)
+    (is (not (contains? @rf.resources.revalidate-listeners/listener-table :rv/no-such-frame)))))
 
 ;; ===========================================================================
 ;; 6. Host event-target wiring (rf2-pxe0c7) — CLJS/DOM-stub only
@@ -430,10 +430,10 @@
              ;; capture dispatches via the late-bind router hook the listener
              ;; rides (so we observe the EXACT event the host wiring produces)
              (let [dispatched (atom [])
-                   prior      (late-bind/get-fn :router/dispatch!)]
-               (late-bind/set-fn! :router/dispatch! (fn [ev opts] (swap! dispatched conj [ev opts])))
+                   prior      (rf.late-bind/get-fn :router/dispatch!)]
+               (rf.late-bind/set-fn! :router/dispatch! (fn [ev opts] (swap! dispatched conj [ev opts])))
                (try
-                 (revalidate-listeners/install-revalidation-listeners! :rv/dom)
+                 (rf.resources.revalidate-listeners/install-revalidation-listeners! :rv/dom)
                  (testing "rf2-pxe0c7 — visibilitychange is attached to DOCUMENT, not window"
                    (is (seq (get-in @state [:document :listeners "visibilitychange"]))
                        "document carries the visibilitychange listener")
@@ -457,7 +457,7 @@
                    (.dispatchEvent (:document-obj @state) #js {:type "visibilitychange"})
                    (is (empty? @dispatched) "hidden visibilitychange dispatched nothing"))
                  (testing "rf2-pxe0c7 — remove detaches the visibilitychange listener from document"
-                   (revalidate-listeners/remove-revalidation-listeners! :rv/dom)
+                   (rf.resources.revalidate-listeners/remove-revalidation-listeners! :rv/dom)
                    (is (empty? (get-in @state [:document :listeners "visibilitychange"]))
                        "document visibilitychange listener detached on remove")
                    (is (empty? (get-in @state [:window :listeners "focus"]))
@@ -469,8 +469,8 @@
                    (is (empty? @dispatched) "detached listener fires nothing"))
                  (finally
                    (if prior
-                     (late-bind/set-fn! :router/dispatch! prior)
-                     (late-bind/set-fn! :router/dispatch! nil)))))
+                     (rf.late-bind/set-fn! :router/dispatch! prior)
+                     (rf.late-bind/set-fn! :router/dispatch! nil)))))
              (finally
                (uninstall-dom-stub!))))))))
 
@@ -482,15 +482,15 @@
            (try
              (let [fa :rv/dom-destroy]
                (rf/make-frame {:id fa :doc "DOM-stub frame-destroy detach frame"})
-               (revalidate-listeners/install-revalidation-listeners! fa)
+               (rf.resources.revalidate-listeners/install-revalidation-listeners! fa)
                (is (seq (get-in @state [:document :listeners "visibilitychange"]))
                    "document visibilitychange attached for the frame")
                (testing "rf2-pxe0c7 — frame destroy detaches the document
                          visibilitychange listener via the single teardown hook"
-                 (frame/destroy-frame! fa)
+                 (rf.frame/destroy-frame! fa)
                  (is (empty? (get-in @state [:document :listeners "visibilitychange"]))
                      "document visibilitychange detached on frame destroy")
-                 (is (not (contains? @revalidate-listeners/listener-table fa))
+                 (is (not (contains? @rf.resources.revalidate-listeners/listener-table fa))
                      "side-table slot dropped on frame destroy")))
              (finally
                (uninstall-dom-stub!))))))))

@@ -16,8 +16,8 @@
   merged-list SUBS (wave 4) are out of scope here."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
-            [re-frame.registrar :as registrar]
-            [re-frame.resources.registry :as registry]))
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.resources.registry :as rf.resources.registry]))
 
 (defn- base-infinite-spec
   "A minimal VALID `:infinite` resource METADATA map — the ordinary REQUIRED
@@ -39,20 +39,20 @@
                :params (cond-> {} page-param (assoc :cursor page-param))}}))
 
 (use-fixtures :each
-  {:before (fn [] (registrar/clear-kind! :resource))
-   :after  (fn [] (registrar/clear-kind! :resource))})
+  {:before (fn [] (rf.registrar/clear-kind! :resource))
+   :after  (fn [] (rf.registrar/clear-kind! :resource))})
 
 (deftest valid-infinite-spec-registers
   (testing "a well-formed :infinite spec registers + reads back"
-    (is (= :feed/timeline (registry/reg-resource :feed/timeline (base-infinite-spec) base-infinite-request)))
-    (let [meta (registry/resource-meta :feed/timeline)]
+    (is (= :feed/timeline (rf.resources.registry/reg-resource :feed/timeline (base-infinite-spec) base-infinite-request)))
+    (let [meta (rf.resources.registry/resource-meta :feed/timeline)]
       (is (true? (:infinite meta)))
       (is (fn? (:next-page-param meta))))))
 
 (deftest valid-infinite-spec-with-all-optionals-registers
   (testing "the full optional infinite slice (R3/R6/R7) registers"
     (is (= :feed/full
-           (registry/reg-resource
+           (rf.resources.registry/reg-resource
              :feed/full
              (assoc (base-infinite-spec)
                     :prev-page-param   (fn [first-page _all] (get-in first-page [:page-info :prev-cursor]))
@@ -64,18 +64,18 @@
   (testing ":infinite true with NO :next-page-param => infinite-missing-next-page-param (R8 gate)"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"infinite-missing-next-page-param"
-          (registry/reg-resource :feed/no-next
+          (rf.resources.registry/reg-resource :feed/no-next
                                  (dissoc (base-infinite-spec) :next-page-param) base-infinite-request))))
   (testing ":next-page-param present but NOT a fn => same gate"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"infinite-missing-next-page-param"
-          (registry/reg-resource :feed/bad-next
+          (rf.resources.registry/reg-resource :feed/bad-next
                                  (assoc (base-infinite-spec) :next-page-param :not-a-fn) base-infinite-request)))))
 
 (deftest non-infinite-resource-untouched
   (testing "an ordinary (non-:infinite) resource needs no :next-page-param"
     (is (= :res/plain
-           (registry/reg-resource
+           (rf.resources.registry/reg-resource
              :res/plain
              {:scope :rf.scope/global
               :params-schema [:map [:slug :string]]}
@@ -84,7 +84,7 @@
     ;; The :infinite slice is GATED on :infinite true; a stray :next-page-param
     ;; on a non-infinite resource is not validated as the infinite slice.
     (is (= :res/plain2
-           (registry/reg-resource
+           (rf.resources.registry/reg-resource
              :res/plain2
              {:scope :rf.scope/global
               :params-schema [:map]
@@ -95,71 +95,71 @@
   (testing ":infinite false is a meaningless typo => resource-bad-spec"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-bad-spec"
-          (registry/reg-resource :feed/false-flag
+          (rf.resources.registry/reg-resource :feed/false-flag
                                  (assoc (base-infinite-spec) :infinite false) base-infinite-request))))
   (testing ":infinite \"true\" (string) is not the literal selector => resource-bad-spec"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-bad-spec"
-          (registry/reg-resource :feed/string-flag
+          (rf.resources.registry/reg-resource :feed/string-flag
                                  (assoc (base-infinite-spec) :infinite "true") base-infinite-request)))))
 
 (deftest prev-page-param-shape-validated
   (testing "a non-fn :prev-page-param => resource-bad-spec"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-bad-spec"
-          (registry/reg-resource :feed/bad-prev
+          (rf.resources.registry/reg-resource :feed/bad-prev
                                  (assoc (base-infinite-spec) :prev-page-param :not-a-fn) base-infinite-request))))
   (testing "a fn :prev-page-param is accepted"
     (is (= :feed/good-prev
-           (registry/reg-resource :feed/good-prev
+           (rf.resources.registry/reg-resource :feed/good-prev
                                   (assoc (base-infinite-spec)
                                          :prev-page-param (fn [_first _all] nil)) base-infinite-request)))))
 
 (deftest page-accessor-shape-validated
   (testing "a keyword :page->items is accepted"
     (is (= :feed/kw-acc
-           (registry/reg-resource :feed/kw-acc
+           (rf.resources.registry/reg-resource :feed/kw-acc
                                   (assoc (base-infinite-spec) :page->items :items) base-infinite-request))))
   (testing "a fn :page->items is accepted"
     (is (= :feed/fn-acc
-           (registry/reg-resource :feed/fn-acc
+           (rf.resources.registry/reg-resource :feed/fn-acc
                                   (assoc (base-infinite-spec) :page->items (fn [p] (:items p))) base-infinite-request))))
   (testing "a :page->items that is neither keyword nor fn => resource-bad-spec"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-bad-spec"
-          (registry/reg-resource :feed/bad-acc
+          (rf.resources.registry/reg-resource :feed/bad-acc
                                  (assoc (base-infinite-spec) :page->items 99) base-infinite-request)))))
 
 (deftest refetch-policy-shape-validated
   (testing "a well-formed :refetch policy registers"
     (is (= :feed/rf-ok
-           (registry/reg-resource :feed/rf-ok
+           (rf.resources.registry/reg-resource :feed/rf-ok
                                   (assoc (base-infinite-spec)
                                          :refetch {:refetch-all-pages? true :refetch-window 5}) base-infinite-request)))
     (is (= :feed/rf-empty
-           (registry/reg-resource :feed/rf-empty
+           (rf.resources.registry/reg-resource :feed/rf-empty
                                   (assoc (base-infinite-spec) :refetch {}) base-infinite-request))))
   (testing "a non-map :refetch => resource-bad-spec"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-bad-spec"
-          (registry/reg-resource :feed/rf-nonmap
+          (rf.resources.registry/reg-resource :feed/rf-nonmap
                                  (assoc (base-infinite-spec) :refetch true) base-infinite-request))))
   (testing "a non-boolean :refetch-all-pages? => resource-bad-spec"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-bad-spec"
-          (registry/reg-resource :feed/rf-badbool
+          (rf.resources.registry/reg-resource :feed/rf-badbool
                                  (assoc (base-infinite-spec) :refetch {:refetch-all-pages? :yes}) base-infinite-request))))
   (testing "a non-integer :refetch-window => resource-bad-spec"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-bad-spec"
-          (registry/reg-resource :feed/rf-badwin
+          (rf.resources.registry/reg-resource :feed/rf-badwin
                                  (assoc (base-infinite-spec) :refetch {:refetch-window 1.5}) base-infinite-request)))))
 
 (deftest infinite-resource-predicate
   (testing "infinite-resource? recognises the :infinite true marker"
-    (is (true? (registry/infinite-resource? (base-infinite-spec))))
-    (is (false? (registry/infinite-resource? {:infinite false})))
-    (is (false? (registry/infinite-resource? {})))))
+    (is (true? (rf.resources.registry/infinite-resource? (base-infinite-spec))))
+    (is (false? (rf.resources.registry/infinite-resource? {:infinite false})))
+    (is (false? (rf.resources.registry/infinite-resource? {})))))
 
 ;; ===========================================================================
 ;; rf2-x76af2.12 — `:page-data-schema` is a RETIRED key: HARD-REJECTED, never
@@ -181,16 +181,16 @@
             (resource-bad-spec) — the retired key is never silently stored"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-bad-spec"
-          (registry/reg-resource :feed/retired
+          (rf.resources.registry/reg-resource :feed/retired
                                  (assoc (base-infinite-spec)
                                         :page-data-schema :app/timeline-page)
                                  base-infinite-request))))
   (testing "the reject fails BEFORE storage — no registrar entry is written"
-    (is (nil? (registry/resource-meta :feed/retired))
+    (is (nil? (rf.resources.registry/resource-meta :feed/retired))
         "a rejected registration leaves nothing behind (pre-storage gate)"))
   (testing "the error carries the retired key + names BOTH replacements"
     (let [ex   (capture-ex
-                 #(registry/reg-resource :feed/retired2
+                 #(rf.resources.registry/reg-resource :feed/retired2
                                          (assoc (base-infinite-spec)
                                                 :page-data-schema :app/timeline-page)
                                          base-infinite-request))
@@ -209,9 +209,9 @@
             too — it is rejected WHEREVER it appears"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-bad-spec"
-          (registry/reg-resource :res/retired-plain
+          (rf.resources.registry/reg-resource :res/retired-plain
                                  {:scope :rf.scope/global
                                   :params-schema [:map [:slug :string]]
                                   :page-data-schema :app/whatever}
                                  (fn [_ _] {:request {:method :get :url "/x"}}))))
-    (is (nil? (registry/resource-meta :res/retired-plain)))))
+    (is (nil? (rf.resources.registry/resource-meta :res/retired-plain)))))

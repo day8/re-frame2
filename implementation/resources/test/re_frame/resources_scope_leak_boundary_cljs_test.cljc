@@ -48,19 +48,19 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.fx :as fx]
+   [re-frame.fx :as rf.fx]
    ;; load-bearing side-effecting requires: register the :rf.resource/* events
    ;; + subs and the named-resolver scope plumbing.
    [re-frame.resources]
    [re-frame.resources.registry]
-   [re-frame.resources.state :as state]
-   [re-frame.resources.subs :as r-subs]
+   [re-frame.resources.state :as rf.resources.state]
+   [re-frame.resources.subs :as rf.resources.subs]
    [re-frame.resources.test-support]
    [re-frame.schemas]
    [re-frame.http.managed]
-   [re-frame.registrar :as registrar]
-   [re-frame.trace.tooling :as trace-tooling]
-   [re-frame.test-support :as core-test-support]
+   [re-frame.registrar :as rf.registrar]
+   [re-frame.trace.tooling :as rf.trace.tooling]
+   [re-frame.test-support :as rf.test-support]
    #?(:clj  [re-frame.substrate.plain-atom :as substrate]
       :cljs [re-frame.adapter.reagent :as substrate])))
 
@@ -75,8 +75,8 @@
   []
   (rf/make-frame {:id :rf/default :url-bound? true
                   :doc "scope-leak-boundary suite default app frame."})
-  (registrar/clear-kind! :resource-scope)
-  (fx/reg-fx :rf.http/managed (fn [_ctx _args] nil))
+  (rf.registrar/clear-kind! :resource-scope)
+  (rf.fx/reg-fx :rf.http/managed (fn [_ctx _args] nil))
   (rf/reg-resource-scope :t/tenant
     {:inputs {:tenant [:db [:viewer :tenant-id]]}}
     (fn [{:keys [tenant]} _ctx]
@@ -91,7 +91,7 @@
   (rf/reg-event :t/logout (fn [{:keys [db]} _] {:db (update db :viewer dissoc :tenant-id)})))
 
 (use-fixtures :each
-  (core-test-support/make-reset-runtime-fixture
+  (rf.test-support/make-reset-runtime-fixture
     {:adapter substrate/adapter
      :init-fn init!}))
 
@@ -103,13 +103,13 @@
 ;; assertions speak scoped-key vectors. Semantics unchanged.
 (defn- entries []
   (into {} (map (fn [[_k-id e]] [(:resource/key e) e]))
-        (get-in (runtime-db) (state/entries-path))))
-(defn- entry [scoped-key] (get-in (runtime-db) (state/entry-path scoped-key)))
+        (get-in (runtime-db) (rf.resources.state/entries-path))))
+(defn- entry [scoped-key] (get-in (runtime-db) (rf.resources.state/entry-path scoped-key)))
 
 (defn- tenant-key
   "The scoped feed key for tenant `t`, page `page`."
   [t page]
-  (state/scoped-resource-key [:rf.scope/tenant {:tenant-id t}] :t/feed {:page page}))
+  (rf.resources.state/scoped-resource-key [:rf.scope/tenant {:tenant-id t}] :t/feed {:page page}))
 
 (defn- ensure-feed!
   "Ensure + load the tenant-scoped feed for tenant `t`, page `page`, under
@@ -231,7 +231,7 @@
                      {:resource :t/notes :params {}
                       :scope [:rf.scope/tenant {:tenant-id "acme"}]
                       :owner [:app :n 1]}])
-  (let [ka (state/scoped-resource-key [:rf.scope/tenant {:tenant-id "acme"}] :t/notes {})
+  (let [ka (rf.resources.state/scoped-resource-key [:rf.scope/tenant {:tenant-id "acme"}] :t/notes {})
         e  (entry ka)]
     (rf/dispatch-sync [:rf.resource.internal/succeeded
                        {:resource/key ka :work/id (:current-work e)
@@ -244,15 +244,15 @@
           k    ::mismatch-recorder
           wrong-q {:resource :t/notes :params {}
                    :scope [:rf.scope/tenant {:tenant-id "globex"}]}]
-      (r-subs/reset-scope-mismatch-warnings!)
-      (trace-tooling/register-listener!
+      (rf.resources.subs/reset-scope-mismatch-warnings!)
+      (rf.trace.tooling/register-listener!
         k (fn [ev] (when (= :rf.warning/resource-sub-scope-mismatch (:operation ev))
                      (swap! seen conj ev))))
       (try
         (let [st (rf/subscribe [:rf/resource wrong-q])]
           (is (= :idle (:status @st)) "wrong-scope read is idle (fail-closed)")
           (is (nil? (:data @st)) "never acme's notes"))
-        (finally (trace-tooling/unregister-listener! k)))
+        (finally (rf.trace.tooling/unregister-listener! k)))
       ;; the dev build fires the mismatch warning; production elides it. We
       ;; assert it fired when present, and that the read was fail-closed
       ;; regardless (the security property does not depend on the warning).
@@ -274,7 +274,7 @@
             silent shared read"
     (is (thrown-with-msg?
           #?(:clj Throwable :cljs js/Error) #"resource-sub-unresolved-scope"
-          (r-subs/resolve-scoped-key {:resource :t/feed :params {:page 1}} {})))))
+          (rf.resources.subs/resolve-scoped-key {:resource :t/feed :params {:page 1}} {})))))
 
 ;; ===========================================================================
 ;; 3. MIXED-scope invalidation — a scoped invalidation reaches EXACTLY the

@@ -19,7 +19,7 @@
   guards the declared transport at the call site and lowers into
   `transport.http/lower`. A dispatch table is warranted only when a second
   transport exists."
-  (:require [re-frame.error :as error]))
+  (:require [re-frame.error :as rf.error]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -51,7 +51,7 @@
   suppression is the correctness boundary)."
   [transport where]
   (when-not (= transport managed-http-transport)
-    (error/throw-error!
+    (rf.error/throw-error!
       :rf.error/resource-unknown-transport (or where 're-frame.resources.transport/assert-managed-transport!)
       (str "unknown resource transport " transport
            " — the only built-in transport is "

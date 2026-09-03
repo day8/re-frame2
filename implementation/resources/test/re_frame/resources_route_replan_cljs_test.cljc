@@ -38,20 +38,20 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.fx :as fx]
+   [re-frame.fx :as rf.fx]
    ;; load-bearing side-effecting requires: register the resources + routing
    ;; events / subs and resources' late-bound :routing/* integration hooks.
    [re-frame.resources]
-   [re-frame.resources.route :as route]
-   [re-frame.resources.state :as state]
-   [re-frame.resources.work-ledger :as work-ledger]
+   [re-frame.resources.route :as rf.resources.route]
+   [re-frame.resources.state :as rf.resources.state]
+   [re-frame.resources.work-ledger :as rf.resources.work-ledger]
    [re-frame.resources.test-support]
-   [re-frame.routing :as routing]
+   [re-frame.routing :as rf.routing]
    [re-frame.schemas]
    [re-frame.http.managed]
-   [re-frame.registrar :as registrar]
-   [re-frame.trace.tooling :as trace-tooling]
-   [re-frame.test-support :as core-test-support]
+   [re-frame.registrar :as rf.registrar]
+   [re-frame.trace.tooling :as rf.trace.tooling]
+   [re-frame.test-support :as rf.test-support]
    #?(:clj  [re-frame.substrate.plain-atom :as substrate]
       :cljs [re-frame.adapter.reagent :as substrate])))
 
@@ -76,13 +76,13 @@
   []
   (rf/make-frame {:id :rf/default :url-bound? true
                   :doc "replan suite default app frame."})
-  (routing/reset-counters!)
-  (route/install-routing-integration!)
-  (registrar/clear-kind! :resource-scope)
+  (rf.routing/reset-counters!)
+  (rf.resources.route/install-routing-integration!)
+  (rf.registrar/clear-kind! :resource-scope)
   (reset! requests [])
   (reset! extra-admitted? false)
-  (fx/reg-fx :rf.http/managed (fn [_ctx args] (swap! requests conj args) nil))
-  (fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
+  (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (swap! requests conj args) nil))
+  (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
   (rf/reg-resource-scope :t/viewer
     {:inputs {:username [:db [:auth :user :username]]}}
     (fn [{:keys [username]} _ctx]
@@ -120,15 +120,15 @@
   (rf/reg-event :t/logout (fn [{:keys [db]} _]     {:db (update db :auth dissoc :user)})))
 
 (use-fixtures :each
-  (core-test-support/make-reset-runtime-fixture
+  (rf.test-support/make-reset-runtime-fixture
     {:adapter substrate/adapter
      :init-fn init!}))
 
 ;; ---- helpers --------------------------------------------------------------
 
 (defn- runtime-db [] (:rf.db/runtime (rf/frame-state-value :rf/default)))
-(defn- entry [k] (get-in (runtime-db) (state/entry-path k)))
-(defn- entries [] (get-in (runtime-db) (state/entries-path)))
+(defn- entry [k] (get-in (runtime-db) (rf.resources.state/entry-path k)))
+(defn- entries [] (get-in (runtime-db) (rf.resources.state/entries-path)))
 (defn- slice [] (get-in (runtime-db) [:rf.runtime/routing :current]))
 (defn- token [] (:nav-token (slice)))
 (defn- route-owner [] [:route (:route-id (slice)) (token)])
@@ -136,22 +136,22 @@
 (defn- blocking-slot [] (get-in (runtime-db) [:rf.runtime/routing :resource-blocking (token)]))
 (defn- has-plan-slot? [] (contains? (get-in (runtime-db) [:rf.runtime/routing :resource-plan]) (token)))
 (defn- has-blocking-slot? [] (contains? (get-in (runtime-db) [:rf.runtime/routing :resource-blocking]) (token)))
-(defn- owner-index [owner] (get-in (runtime-db) (conj (state/owner-index-path) owner)))
+(defn- owner-index [owner] (get-in (runtime-db) (conj (rf.resources.state/owner-index-path) owner)))
 
 (defn- by-id
   "The byte-keyed `{<key-id> <scoped-key>}` carrier the slots hold."
   [& ks]
-  (into {} (map (juxt state/key-id identity)) ks))
+  (into {} (map (juxt rf.resources.state/key-id identity)) ks))
 
 (defn- viewer [u] [:rf.scope/viewer {:username u}])
-(defn- shell-key [u] (state/scoped-resource-key (viewer u) :t/shell {}))
-(defn- docs-key [u page] (state/scoped-resource-key (viewer u) :t/docs {:page page}))
-(def ^:private global-key (state/scoped-resource-key :rf.scope/global :t/global {}))
-(def ^:private extra-key  (state/scoped-resource-key :rf.scope/global :t/extra {}))
+(defn- shell-key [u] (rf.resources.state/scoped-resource-key (viewer u) :t/shell {}))
+(defn- docs-key [u page] (rf.resources.state/scoped-resource-key (viewer u) :t/docs {:page page}))
+(def ^:private global-key (rf.resources.state/scoped-resource-key :rf.scope/global :t/global {}))
+(def ^:private extra-key  (rf.resources.state/scoped-resource-key :rf.scope/global :t/extra {}))
 
 (defn- owned? [k] (contains? (:active-owners (entry k)) (route-owner)))
-(defn- work-record [k] (work-ledger/get-record (runtime-db) (:current-work (entry k))))
-(defn- live? [k] (work-ledger/live-work? (runtime-db) (:current-work (entry k))))
+(defn- work-record [k] (rf.resources.work-ledger/get-record (runtime-db) (:current-work (entry k))))
+(defn- live? [k] (rf.resources.work-ledger/live-work? (runtime-db) (:current-work (entry k))))
 (defn- request-count [] (count @requests))
 
 (defn- settle-loaded!
@@ -174,10 +174,10 @@
   [ops body-fn]
   (let [seen (atom [])
         k    ::replan-recorder]
-    (trace-tooling/register-listener!
+    (rf.trace.tooling/register-listener!
       k (fn [ev] (when (contains? ops (:operation ev)) (swap! seen conj ev))))
     (try (body-fn)
-         (finally (trace-tooling/unregister-listener! k)))
+         (finally (rf.trace.tooling/unregister-listener! k)))
     @seen))
 
 (defn- op [traces operation]
@@ -366,7 +366,7 @@
       (replan! [:flag-on])
       (is (owned? extra-key))
       (is (= [[:flag-on]] (:causes (work-record extra-key))))
-      (is (= (assoc base (state/key-id extra-key) extra-key) (plan-slot)))
+      (is (= (assoc base (rf.resources.state/key-id extra-key) extra-key) (plan-slot)))
       (is (= tok (token))))
     (testing "LEAVING: a same-owner SUBSET release names ONLY the dropped identity"
       (reset! extra-admitted? false)
@@ -451,16 +451,16 @@
     (rf/dispatch-sync [:rf.resource/ensure {:resource :t/global :params {} :owner B :cause [:b1]}])
     (is (= #{A B} (:active-owners (entry k1))))
     (is (= #{A} (:active-owners (entry k2))))
-    (is (= #{(state/key-id k1) (state/key-id k2)} (owner-index A)))
+    (is (= #{(rf.resources.state/key-id k1) (rf.resources.state/key-id k2)} (owner-index A)))
     (testing "only the NAMED identity, only THIS owner, and no abort while another owner remains"
       (let [traces (record-traces! #{:rf.resource/owner-released}
                      #(rf/dispatch-sync [:rf.resource/release-owner-identities
                                          {:owner A :identities (by-id k1)}]))]
         (is (= #{B} (:active-owners (entry k1))) "A released from k1; B survives")
         (is (= #{A} (:active-owners (entry k2))) "A still owns k2 — it was not named")
-        (is (work-ledger/live-work? (runtime-db) (:current-work (entry k1)))
+        (is (rf.resources.work-ledger/live-work? (runtime-db) (:current-work (entry k1)))
             "k1's in-flight work is NOT aborted — B still needs it")
-        (is (= #{(state/key-id k2)} (owner-index A)) "the owner-index drops only k1")
+        (is (= #{(rf.resources.state/key-id k2)} (owner-index A)) "the owner-index drops only k1")
         (let [tags (:tags (op traces :rf.resource/owner-released))]
           (is (= A (:owner tags)))
           (is (= [k1] (:released tags)))
@@ -468,13 +468,13 @@
     (testing "an identity the owner does not hold is a no-op"
       (rf/dispatch-sync [:rf.resource/release-owner-identities {:owner A :identities (by-id k1)}])
       (is (= #{B} (:active-owners (entry k1))))
-      (is (= #{(state/key-id k2)} (owner-index A))))
+      (is (= #{(rf.resources.state/key-id k2)} (owner-index A))))
     (testing "releasing the LAST owner from an in-flight identity aborts it and drops the index row"
       (let [traces (record-traces! #{:rf.resource/owner-released}
                      #(rf/dispatch-sync [:rf.resource/release-owner-identities
                                          {:owner A :identities (by-id k2)}]))]
         (is (empty? (:active-owners (entry k2))))
-        (is (not (work-ledger/live-work? (runtime-db) (:current-work (entry k2))))
+        (is (not (rf.resources.work-ledger/live-work? (runtime-db) (:current-work (entry k2))))
             "orphaned → abort-requested")
         (is (nil? (owner-index A)) "A's index row is gone once it holds nothing")
         (is (= [(:current-work (entry k2))] (:aborted (:tags (op traces :rf.resource/owner-released)))))))
@@ -482,4 +482,4 @@
       (rf/dispatch-sync [:rf.resource/release-owner {:owner B}])
       (is (empty? (:active-owners (entry k1))))
       (is (nil? (owner-index B)))
-      (is (not (work-ledger/live-work? (runtime-db) (:current-work (entry k1))))))))
+      (is (not (rf.resources.work-ledger/live-work? (runtime-db) (:current-work (entry k1))))))))

@@ -51,17 +51,17 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.fx :as fx]
+   [re-frame.fx :as rf.fx]
    ;; load-bearing side-effecting requires: register the resources + routing
    ;; events / subs and resources' late-bound :routing/* integration hooks.
    [re-frame.resources]
-   [re-frame.resources.route :as route]
+   [re-frame.resources.route :as rf.resources.route]
    [re-frame.resources.test-support]
-   [re-frame.routing :as routing]
+   [re-frame.routing :as rf.routing]
    [re-frame.schemas]
    [re-frame.http.managed]
-   [re-frame.registrar :as registrar]
-   [re-frame.test-support :as core-test-support]
+   [re-frame.registrar :as rf.registrar]
+   [re-frame.test-support :as rf.test-support]
    ;; The node-runtime window/history/location stub — CLJS only; the two
    ;; construction-time tests set `location.pathname` through it so the URL
    ;; under test is OWNED by this suite rather than by whichever co-loaded
@@ -90,19 +90,19 @@
   fixture's own `:rf/default` is NOT `:url-bound?`, so nothing syncs a URL
   until a test asks for it."
   []
-  (routing/reset-counters!)
-  (route/install-routing-integration!)
-  (registrar/clear-kind! :resource-scope)
+  (rf.routing/reset-counters!)
+  (rf.resources.route/install-routing-integration!)
+  (rf.registrar/clear-kind! :resource-scope)
   (reset! requests [])
-  (fx/reg-fx :rf.http/managed (fn [_ctx args] (swap! requests conj args) nil))
-  (fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
+  (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (swap! requests conj args) nil))
+  (rf.fx/reg-fx :rf.nav/push-url {:platforms #{:server :client}} (fn [_ _] nil))
   (rf/reg-route :ma8r/board
     {:resources [{:resource :ma8r/board-data :blocking? true}]}
     board-path))
 
 (use-fixtures :each
   #?@(:cljs [with-window-stub-fixture])
-  (core-test-support/make-reset-runtime-fixture
+  (rf.test-support/make-reset-runtime-fixture
     {:adapter substrate/adapter
      :init-fn init!}))
 
@@ -150,7 +150,7 @@
   (let [tok (token)]
     (testing "registering the resource afterwards does not, by itself, re-plan"
       (reg-board-resource!)
-      (is (some? (registrar/lookup :resource :ma8r/board-data))
+      (is (some? (rf.registrar/lookup :resource :ma8r/board-data))
           "control: the resource IS registered and visible now")
       (rf/dispatch-sync [:rf.route/navigate {:to :ma8r/board}])
       (is (= tok (token))

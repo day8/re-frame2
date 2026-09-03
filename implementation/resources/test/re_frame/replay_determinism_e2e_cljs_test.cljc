@@ -62,7 +62,7 @@
 
   The SAME log is replayed TWICE. Run A uses ambient clock/RNG sentinel A;
   run B uses a WILDLY different ambient clock/RNG sentinel B (we redef BOTH
-  `interop/now-ms` and `interop/epoch-now-ms`, and the host `rand` /
+  `rf.interop/now-ms` and `rf.interop/epoch-now-ms`, and the host `rand` /
   `random-uuid` generators). Each run starts from a FRESH runtime + reset
   host-transient caches (generation allocator, resource/timer caches) so the
   only difference between the two runs is the ambient clock/RNG — exactly the
@@ -84,20 +84,20 @@
    #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
       :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
    [re-frame.core :as rf]
-   [re-frame.fx :as fx]
-   [re-frame.interop :as interop]
+   [re-frame.fx :as rf.fx]
+   [re-frame.interop :as rf.interop]
    ;; load-bearing side-effecting requires: register the :rf.resource/*
    ;; events + subs + the generation cofx/fx the ensure/invalidate drive.
    [re-frame.resources]
-   [re-frame.resources.state :as state]
+   [re-frame.resources.state :as rf.resources.state]
    [re-frame.resources.test-support]
    ;; production HTTP fx surface (so the transport feature probe resolves);
    ;; the actual fetch is overridden by the capturing reply stub below.
    [re-frame.http.managed]
    [re-frame.schemas]
-   [re-frame.test-support :as core-test-support]
-   #?@(:clj  [[re-frame.substrate.plain-atom :as plain-atom]]
-       :cljs [[re-frame.adapter.reagent :as reagent-adapter]])))
+   [re-frame.test-support :as rf.test-support]
+   #?@(:clj  [[re-frame.substrate.plain-atom :as rf.substrate.plain-atom]]
+       :cljs [[re-frame.adapter.reagent :as rf.adapter.reagent]])))
 
 ;; ---- capturing transport (replays the real reply-append shape) ------------
 ;;
@@ -112,13 +112,13 @@
 
 (defn- capturing-transport-fixture [f]
   (reset! last-managed-args nil)
-  (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
+  (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
   (f))
 
 (use-fixtures :each
-  (core-test-support/make-reset-runtime-fixture
-    #?(:clj  {:adapter plain-atom/adapter}
-       :cljs {:adapter reagent-adapter/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
+       :cljs {:adapter rf.adapter.reagent/adapter}))
   capturing-transport-fixture)
 
 (def ^:private frame-id :rf/default)
@@ -264,8 +264,8 @@
     ;; fold (the tokens supply every durable fact). A regression that re-read
     ;; ANY ambient surface in a durable write stamps a sentinel and diverges
     ;; from run B.
-    (let [run-a (with-redefs [interop/now-ms       (constantly 111)
-                              interop/epoch-now-ms (constantly 111)
+    (let [run-a (with-redefs [rf.interop/now-ms       (constantly 111)
+                              rf.interop/epoch-now-ms (constantly 111)
                               rand        (fn ([] 0.111) ([n] (* n 0.111)))
                               random-uuid (constantly
                                             #uuid "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")]
@@ -274,16 +274,16 @@
       ;; runtime, frames, schemas, AND host-transient caches (generation
       ;; allocator, resource/timer caches) are clean — the ONLY difference
       ;; between the two runs is the ambient clock/RNG.
-      ((core-test-support/make-reset-runtime-fixture
-         #?(:clj  {:adapter plain-atom/adapter}
-            :cljs {:adapter reagent-adapter/adapter}))
+      ((rf.test-support/make-reset-runtime-fixture
+         #?(:clj  {:adapter rf.substrate.plain-atom/adapter}
+            :cljs {:adapter rf.adapter.reagent/adapter}))
        (fn []
          (reset! last-managed-args nil)
-         (fx/reg-fx :rf.http/managed
+         (rf.fx/reg-fx :rf.http/managed
                     (fn [_ctx args] (reset! last-managed-args args) nil))
          ;; RUN B — a WILDLY different ambient clock + RNG sentinel.
-         (let [run-b (with-redefs [interop/now-ms       (constantly 9999999999999)
-                                   interop/epoch-now-ms (constantly 9999999999999)
+         (let [run-b (with-redefs [rf.interop/now-ms       (constantly 9999999999999)
+                                   rf.interop/epoch-now-ms (constantly 9999999999999)
                                    rand        (fn ([] 0.999) ([n] (* n 0.999)))
                                    random-uuid (constantly
                                                  #uuid "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")]
@@ -303,9 +303,9 @@
            (let [app   (:rf.db/app run-b)
                  todo  (get-in app [:todos todo-id])
                  rt    (:rf.db/runtime run-b)
-                 scoped-key (state/scoped-resource-key
+                 scoped-key (rf.resources.state/scoped-resource-key
                               :rf.scope/global :repl/article {:slug "w"})
-                 entry (get-in rt (state/entry-path scoped-key))]
+                 entry (get-in rt (rf.resources.state/entry-path scoped-key))]
              ;; (1) app-db entity — token uuid/random/time-ms, NOT ambient.
              (is (= todo-id (:todo/id todo))
                  "the durable entity id is the token uuid, not the ambient
@@ -333,6 +333,6 @@
              ;; the freshness DECISION itself is replay-stable: against ANY
              ;; clock the entry is stale (it was explicitly invalidated), a
              ;; durable fact, not an ambient-clock-dependent computation.
-             (is (true? (state/entry-stale? entry (:reply-time log)))
+             (is (true? (rf.resources.state/entry-stale? entry (:reply-time log)))
                  "the entry is stale (explicitly invalidated) — a durable,
                   token-sourced decision, identical across both runs"))))))))

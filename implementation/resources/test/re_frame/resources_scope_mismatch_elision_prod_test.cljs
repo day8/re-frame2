@@ -24,21 +24,21 @@
   runtime test). This mirrors `re-frame.http-trace-emit-elision-prod-test`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.fx :as fx]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]
+            [re-frame.fx :as rf.fx]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]
             ;; load-bearing side-effecting require: the façade registers the
             ;; :rf.resource/* events + subs + the generation cofx/fx. Forces
             ;; the gated `maybe-warn-scope-mismatch!` body into the bundle so
             ;; DCE proves the branch dead from a reachable module.
             [re-frame.resources]
-            [re-frame.resources.state :as state]
-            [re-frame.resources.subs :as subs]
+            [re-frame.resources.state :as rf.resources.state]
+            [re-frame.resources.subs :as rf.resources.subs]
             [re-frame.resources.test-support]
             [re-frame.http.managed]
-            [re-frame.schemas :as schemas]
+            [re-frame.schemas :as rf.schemas]
             ;; rf2-qwm0a — listener surface lives in `re-frame.trace.tooling`.
-            [re-frame.trace.tooling :as trace-tooling]))
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 (def ^:private last-managed-args (atom nil))
 
@@ -52,15 +52,15 @@
   restore the schema-fn bundle so the suite leaves no cross-test residue."
   [f]
   (reset! last-managed-args nil)
-  (fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
-  (let [snapshot (schemas/snapshot-schema-fns)]
-    (schemas/set-schema-validator! nil)
+  (rf.fx/reg-fx :rf.http/managed (fn [_ctx args] (reset! last-managed-args args) nil))
+  (let [snapshot (rf.schemas/snapshot-schema-fns)]
+    (rf.schemas/set-schema-validator! nil)
     (try (f)
-         (finally (schemas/restore-schema-fns! snapshot)))))
+         (finally (rf.schemas/restore-schema-fns! snapshot)))))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter})
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter})
   capturing-transport-fixture)
 
 ;; ---- helpers --------------------------------------------------------------
@@ -68,7 +68,7 @@
 (defn- runtime-db [] (:rf.db/runtime (rf/frame-state-value :rf/default)))
 
 (defn- entry [scoped-key]
-  (get-in (runtime-db) (state/entry-path scoped-key)))
+  (get-in (runtime-db) (rf.resources.state/entry-path scoped-key)))
 
 (defn- article-spec [overrides]
   (merge {:scope         :rf.scope/from-caller
@@ -87,12 +87,12 @@
   [body-fn]
   (let [seen   (atom [])
         cb-key (keyword (str "scope-mismatch-elision-prod-" (gensym)))]
-    (trace-tooling/register-listener! cb-key (fn [ev] (swap! seen conj ev)))
+    (rf.trace.tooling/register-listener! cb-key (fn [ev] (swap! seen conj ev)))
     (try
       (body-fn)
       @seen
       (finally
-        (trace-tooling/unregister-listener! cb-key)))))
+        (rf.trace.tooling/unregister-listener! cb-key)))))
 
 ;; ---- the prod-elision contract --------------------------------------------
 
@@ -105,7 +105,7 @@
             still returns its documented :idle projection (fail-closed kept)."
     (rf/reg-resource :sme/article (article-spec {:scope :rf.scope/from-caller}) article-spec-request)
     ;; ensure + settle scope A active (the real owner) …
-    (let [ka (state/scoped-resource-key {:user "a"} :sme/article {:slug "w"})]
+    (let [ka (rf.resources.state/scoped-resource-key {:user "a"} :sme/article {:slug "w"})]
       (rf/dispatch-sync [:rf.resource/ensure {:resource :sme/article :scope {:user "a"}
                                               :params {:slug "w"} :owner [:route :r 1]}])
       (let [wid (:current-work (entry ka))]
@@ -115,7 +115,7 @@
     ;; … then subscribe under scope B (the mismatch the dev warning targets)
     (let [seen (listener-fixture
                  (fn []
-                   (subs/state-sub-fn (runtime-db)
+                   (rf.resources.subs/state-sub-fn (runtime-db)
                                       [:rf/resource
                                        {:resource :sme/article :scope {:user "b"}
                                         :params {:slug "w"}}])))]
@@ -125,7 +125,7 @@
            — the maybe-warn-scope-mismatch! body elided")
       (is (empty? seen)
           "no trace events at all from the sub read under prod")
-      (is (= :idle (:status (subs/state-sub-fn (runtime-db)
+      (is (= :idle (:status (rf.resources.subs/state-sub-fn (runtime-db)
                                                [:rf/resource
                                                 {:resource :sme/article :scope {:user "b"}
                                                  :params {:slug "w"}}])))
