@@ -443,7 +443,7 @@
 
   Handler registration metadata is not consulted; request sensitivity is a
   per-call decision."
-  [args-map _origin-event]
+  [args-map]
   (or (true? (:sensitive? args-map))
       (true? (get-in args-map [:request :sensitive?]))))
 
@@ -473,7 +473,7 @@
   [args]
   (if-not (map? args)
     args
-    (let [sensitive?   (request-sensitive? args nil)
+    (let [sensitive?   (request-sensitive? args)
           carriers     (managed-carriers)
           redact-event (or (late-bind/get-fn :classification/redact-event-by-registration)
                            identity)
@@ -512,21 +512,19 @@
   the `:rf.http/managed` `reg-fx` registration (`:carriers` block); they
   are resolved ONCE here (`managed-carriers`) and threaded to the header /
   URL redactors so app-specific carriers redact alongside the built-in
-  defaults. Carriers are process-global, so the optional third arg (kept
-  for call-site compatibility — callers still pass `{:frame …}`) no longer
-  drives carrier resolution. No app `:carriers` block → built-in defaults
-  only."
-  ([tags sensitive?] (prepare-emit-tags tags sensitive? nil))
-  ([tags sensitive? _opts]
-   (let [s?                          (true? sensitive?)
-         carriers                    (managed-carriers)
-         [tags' tag-url-hit?]        (redact-request-tags-with-flag tags s? carriers)
-         [tags'' fail-url-hit?]      (if (contains? tags :failure)
-                                       (let [[f' h?] (redact-failure-with-flag (:failure tags) s? carriers)]
-                                         [(assoc tags' :failure f') h?])
-                                       [tags' false])
-         stamp?                      (or s? tag-url-hit? fail-url-hit?)]
-     (stamp-sensitive tags'' stamp?))))
+  defaults. Carriers are process-global — carrier resolution reads the
+  registration, never frame attribution. No app `:carriers` block →
+  built-in defaults only."
+  [tags sensitive?]
+  (let [s?                          (true? sensitive?)
+        carriers                    (managed-carriers)
+        [tags' tag-url-hit?]        (redact-request-tags-with-flag tags s? carriers)
+        [tags'' fail-url-hit?]      (if (contains? tags :failure)
+                                      (let [[f' h?] (redact-failure-with-flag (:failure tags) s? carriers)]
+                                        [(assoc tags' :failure f') h?])
+                                      [tags' false])
+        stamp?                      (or s? tag-url-hit? fail-url-hit?)]
+    (stamp-sensitive tags'' stamp?)))
 
 (defn prepare-emit-failure
   "Compose `redact-failure` + `stamp-sensitive` for an error-side trace
@@ -544,14 +542,13 @@
   App-declared carrier extension sets ride
   the `:rf.http/managed` `reg-fx` registration (`:carriers` block), resolved
   once (`managed-carriers`) and threaded to the header / URL redactors.
-  Carriers are process-global, so the optional third arg (kept for call-site
-  compatibility — callers still pass `{:frame …}`) no longer drives carrier
-  resolution. No app `:carriers` block → built-in defaults only."
-  ([failure sensitive?] (prepare-emit-failure failure sensitive? nil))
-  ([failure sensitive? _opts]
-   (let [s?                  (true? sensitive?)
-         carriers            (managed-carriers)
-         [failure' url-hit?] (redact-failure-with-flag failure s? carriers)
-         stamp?              (or s? url-hit?)]
-     (when failure'
-       (stamp-sensitive failure' stamp?)))))
+  Carriers are process-global — carrier resolution reads the registration,
+  never frame attribution. No app `:carriers` block → built-in defaults
+  only."
+  [failure sensitive?]
+  (let [s?                  (true? sensitive?)
+        carriers            (managed-carriers)
+        [failure' url-hit?] (redact-failure-with-flag failure s? carriers)
+        stamp?              (or s? url-hit?)]
+    (when failure'
+      (stamp-sensitive failure' stamp?))))

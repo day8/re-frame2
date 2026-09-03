@@ -224,7 +224,7 @@
         ;; :sensitive? was removed per rf2-hjs2d). The flag rides every
         ;; :rf.http/* trace event emitted within the cascade so
         ;; consumers honour the privacy contract per Spec 009 §Privacy.
-        sensitive?   (privacy/request-sensitive? args-map origin-event)
+        sensitive?   (privacy/request-sensitive? args-map)
         ;; rf2-wu1n5 — keyword-interning DoS guard. The reserved
         ;; `:rf.http/max-decoded-keys` arg overrides the JSON reader's
         ;; default cap on unique decoded object keys. Absent → reader
@@ -330,7 +330,7 @@
         ;; CLJS-only-key warning and `normalise-args` run. The chain
         ;; itself recomputes per-interceptor for its own failure-path
         ;; trace (see `run-chain*` / `run-interceptor-chain!`).
-        sensitive?   (privacy/request-sensitive? args-map origin-event)
+        sensitive?   (privacy/request-sensitive? args-map)
         ctx0         {:request    (:request args-map)
                       :args       args-map
                       :frame      frame-id
@@ -360,14 +360,14 @@
         ;; Recomputing here closes both: the warning fires on the request
         ;; the transport will actually issue, redacted by the effective
         ;; sensitivity.
-        sensitive?'  (privacy/request-sensitive? args-map' origin-event)
+        sensitive?'  (privacy/request-sensitive? args-map')
         ;; rf2-hp772l — `check-cljs-only-keys!` is JVM per-row degradation
         ;; tracing (a no-op on CLJS), owned by the JVM platform adapter.
         ;; The frame is threaded for the warning-path trace stamp; HTTP carrier
         ;; redaction is now process-global (resolved from the :rf.http/managed
         ;; `:carriers` registration, EP-0025), so it no longer depends on the
         ;; emitting frame.
-        _            (transport-jvm/check-cljs-only-keys! args-map' sensitive?' frame-id)
+        _            (transport-jvm/check-cljs-only-keys! args-map' sensitive?')
         ;; rf2-uheqq — carry the post-:before middleware-ctx forward so
         ;; the response-side `:after` chain sees the EXACT same ctx its
         ;; sibling `:before`s ended with. Per Spec 014 §Middleware: a

@@ -99,7 +99,7 @@
      the JVM."
      [{:keys [method url headers body credentials mode redirect cache referrer
               integrity timeout-ms internal-controller decode
-              sensitive? frame]}]
+              sensitive?]}]
      (let [init     #js {}
            _        (do (aset init "method" (str/upper-case (name method)))
                         (when (seq headers)
@@ -141,8 +141,7 @@
                                                     :header k
                                                     :cause  (or (some-> ^js e .-message)
                                                                 (str e))}
-                                                   (true? sensitive?)
-                                                   {:frame frame}))))))
+                                                   (true? sensitive?)))))))
                             (aset init "headers" h)))
                         (when (some? body) (aset init "body" body))
                         (when credentials  (aset init "credentials" (name credentials)))

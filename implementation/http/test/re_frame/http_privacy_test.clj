@@ -166,44 +166,17 @@
 
 (deftest request-sensitive-per-call-true
   (testing "per-call :sensitive? on the args map opts in"
-    (is (true? (privacy/request-sensitive?
-                 {:sensitive? true :request {:url "/x"}}
-                 [:some/event])))))
+    (is (true? (privacy/request-sensitive? {:sensitive? true :request {:url "/x"}})))))
 
 (deftest request-sensitive-per-request-true
   (testing "per-request :sensitive? on the :request map opts in"
-    (is (true? (privacy/request-sensitive?
-                 {:request {:url "/x" :sensitive? true}}
-                 [:some/event])))))
+    (is (true? (privacy/request-sensitive? {:request {:url "/x" :sensitive? true}})))))
 
 (deftest request-sensitive-default-false
-  (testing "no per-call flag = not sensitive (handler-meta :sensitive? has been removed)"
-    (registrar/register! :event :ordinary/op
-                         {:handler-fn (fn [_ctx _ev] nil)
-                          :doc        "Ordinary op"})
-    (is (false? (privacy/request-sensitive?
-                  {:request {:url "/x"}}
-                  [:ordinary/op {}])))))
-
-(deftest request-sensitive-ignores-handler-metadata
-  (testing "handler-meta :sensitive? true no longer triggers sensitivity (annotation removed)"
-    (registrar/register! :event :secret/login
-                         {:handler-fn (fn [_ctx _ev] nil)
-                          :doc        "Secret op"
-                          :sensitive? true})
-    (is (false? (privacy/request-sensitive?
-                  {:request {:url "/x"}}
-                  [:secret/login {:user "ada"}])))))
-
-(deftest request-sensitive-tolerates-missing-handler
-  (testing "unknown handler id does not blow up"
-    (is (false? (privacy/request-sensitive?
-                  {:request {:url "/x"}}
-                  [:never/registered])))))
-
-(deftest request-sensitive-tolerates-nil-origin-event
-  (is (false? (privacy/request-sensitive? {:request {:url "/x"}} nil)))
-  (is (false? (privacy/request-sensitive? {:request {:url "/x"}} []))))
+  (testing "no per-call flag = not sensitive; sensitivity is a per-call
+            decision and the fn has no other input to read"
+    (is (false? (privacy/request-sensitive? {:request {:url "/x"}})))
+    (is (false? (privacy/request-sensitive? {})))))
 
 ;; ---- 4. redact-request-tags ----------------------------------------------
 

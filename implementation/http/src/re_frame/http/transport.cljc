@@ -171,8 +171,7 @@
                                 "and is surfaced here rather than swallowed. Fix "
                                 "the `:after` interceptor or reply target so it "
                                 "does not throw (Spec 014 §Middleware §Failure mode).")}
-          (true? (:sensitive? ctx))
-          {:frame (:frame ctx)}))))
+          (true? (:sensitive? ctx))))))
   nil)
 
 (defn- dispatch-reply!
@@ -330,7 +329,7 @@
   Aborts (`:rf.http/aborted`, any reason) are EXCLUDED: a cancelled
   request that no longer wants its reply is correct-by-design silence,
   not a swallowed error."
-  [failure url sensitive? frame]
+  [failure url sensitive?]
   (when (and interop/debug-enabled?
              (not= :rf.http/aborted (:kind failure))
              (compare-and-set! failure-swallowed-warned? false true))
@@ -347,8 +346,7 @@
                                   "intentional (fire-and-forget telemetry), "
                                   "ignore this; otherwise supply an "
                                   "`:on-failure` or `:reply-to` target.")}
-                   (true? sensitive?)
-                   {:frame frame}))))
+                   (true? sensitive?)))))
 
 (defn- on-failure-silenced?
   "True when the ctx's failure reply has NO delivery target — `build-reply-
@@ -502,7 +500,7 @@
   `warn-failure-swallowed!` before the (no-op) dispatch."
   [ctx failure]
   (when (on-failure-silenced? ctx)
-    (warn-failure-swallowed! failure (:url ctx) (:sensitive? ctx) (:frame ctx)))
+    (warn-failure-swallowed! failure (:url ctx) (:sensitive? ctx)))
   (let [reply (http-reply/failure-reply (reply-ctx ctx) failure)]
     (emit-reply-trace! ctx reply)
     (dispatch-reply! (assoc ctx
@@ -623,8 +621,7 @@
                          (assoc failure
                                 :url      (:url ctx)
                                 :recovery :no-recovery)
-                         sensitive?
-                         {:frame (:frame ctx)})]
+                         sensitive?)]
         (trace/emit-error! :rf.http/aborted redacted)))
     ;; An abort is terminal for this request-id (this is the
     ;; direct abort-fn choke: user / actor-destroy / supersede / epoch-restore
@@ -738,8 +735,7 @@
                               :request-id (:request-id ctx)
                               :url        (:url ctx)
                               :recovery   :no-recovery)
-                       sensitive?
-                       {:frame (:frame ctx)})
+                       sensitive?)
           ;; rf2-t55hxg.6 — OFF-BOX FAIL-CLOSED (EP-0015 disposition 5). An
           ;; `:rf.http/accept-failure` carries the pre-`:accept` decoded body
           ;; at `:decoded` — same off-box rule as the success `:value`: an
@@ -961,8 +957,7 @@
                           :failure         failure
                           :next-backoff-ms next-backoff-ms
                           :recovery        recovery}
-                         (true? (:sensitive? ctx))
-                         {:frame (:frame ctx)})
+                         (true? (:sensitive? ctx)))
                  (or (contains? failure :body)
                      (contains? failure :body-text))
                  (assoc :rf.http/off-box-body :omit))))
