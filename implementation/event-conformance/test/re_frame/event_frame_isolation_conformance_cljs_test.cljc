@@ -6,10 +6,16 @@
   `rf/dispatch-sync`, same-id global sentinels, and committed app-db values to
   prove that handler resolution and effects stay inside the target frame.
 
-  The cases also lock two less obvious boundaries: child `:fx` dispatches retain
-  the frame's image generation, while a frame without an image uses the default
-  registrar with no generation binding. `:ambient-frame nil` keeps every target
-  explicit so ambient resolution cannot conceal a routing error."
+  The cases lock the boundaries this suite OWNS: exact per-frame app-db under
+  two images resolving one id through DIFFERENT generations, same-id runtime-db
+  partition isolation with an untouched sibling, and a child `:fx` dispatch
+  retaining the frame's image generation. Absence-is-default — an image-less
+  frame resolving through the default registrar with no generation binding, and
+  two frames sharing ONE image keeping independent state — belongs to
+  `re-frame.live-run-frame-resolution-cljs-test`, which asserts strictly more
+  (subscription values and sub-cache identity as well as app-db), so it is not
+  restated here (rf2-6r9j.96). `:ambient-frame nil` keeps every target explicit
+  so ambient resolution cannot conceal a routing error."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core           :as rf]
@@ -72,6 +78,9 @@
           counter-frame
           (lf/make-frame {:id :counter/main :images [counter-image]}
                          counter-registrations)]
+      (is (some? (registrar/lookup :event :boot/init))
+          "the same-id global sentinel is genuinely armed on the default registrar
+           (so the `not= :global` rows below are not vacuous)")
       (rf/dispatch-sync [:boot/init] {:frame :todo/main})
       (rf/dispatch-sync [:boot/init] {:frame :counter/main})
       (testing "each frame ran ITS OWN image's handler"
@@ -211,44 +220,6 @@
         (is (nil? registrar/*generation*)
             "after the dispatches, no generation is bound (the resolution seam unwound)")))))
 
-;; Prove the fallback sentinel is reachable rather than relying on a vacuous
-;; `not= :global` assertion.
-(deftest the-global-sentinel-is-genuinely-registered
-  (testing "the default handler used as the fallback sentinel is live"
-    (rf/reg-event :boot/init (fn [{:keys [db]} _] {:db (assoc db :booted-by :global)}))
-    (is (some? (registrar/lookup :event :boot/init))
-        "the global handler is on the default registrar (the armed sentinel)")
-    (rf/make-frame {:id :plain/main :doc "no image-loaded object"})
-    (rf/dispatch-sync [:boot/init] {:frame :plain/main})
-    (is (= :global (:booted-by (rf/app-db-value :plain/main)))
-        "an image-less frame DOES run the global handler — the sentinel fires when reached")))
-
-(deftest two-frames-sharing-one-image-keep-independent-app-db
-  (testing "frames sharing an image still have independent runnable state"
-    ;; Distinguish image resolution from an accidental default lookup.
-    (rf/reg-event :counter/inc (fn [{:keys [db]} _] {:db (assoc db :n :global)}))
-    (let [pool [(event-desc "ex.counter" :counter/inc
-                            (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))]
-          img  (image/image {:id :ex/counter :select-ns {:include ["ex.counter"]}})
-          fa   (lf/make-frame {:images [img] :initial-events [[:rf/set-db {:n 0}]]}   pool)
-          fb   (lf/make-frame {:images [img] :initial-events [[:rf/set-db {:n 100}]]} pool)]
-      (is (= (lf/frame-generation fa) (lf/frame-generation fb))
-          "both frames run the SAME resolved image generation (one shared image)")
-      (is (not= (:rf.frame/runnable-id fa) (:rf.frame/runnable-id fb))
-          "yet they are DISTINCT runnable frames (distinct backing records)")
-      (rf/dispatch-sync [:counter/inc] {:frame fa})
-      (rf/dispatch-sync [:counter/inc] {:frame fa})
-      (rf/dispatch-sync [:counter/inc] {:frame fb})
-      (testing "each frame's app-db reflects ONLY its own dispatch stream"
-        (is (= 2 (:n (rf/app-db-value fa)))
-            "frame A: seeded 0, inc'd twice on A's OWN app-db")
-        (is (= 101 (:n (rf/app-db-value fb)))
-            "frame B: seeded 100, inc'd once — fully isolated from A"))
-      (testing "the IMAGE inc ran on both (generation routed to the shared image),
-                NOT the global"
-        (is (not= :global (:n (rf/app-db-value fa))))
-        (is (not= :global (:n (rf/app-db-value fb))))))))
-
 (deftest child-dispatch-stays-in-the-frames-image-and-commits-only-that-frame
   (testing "a child dispatch keeps the parent frame's image and state boundary"
     ;; A wrong fallback at either cascade step writes a global marker.
@@ -291,16 +262,3 @@
             "the sibling frame received no write at all — its app-db is the fresh empty map")
         (is (not= :sibling (:inc (rf/app-db-value :counter/main)))
             "no sibling-image handler ran on the target frame")))))
-
-(deftest absence-is-default-no-image-frame-uses-the-global-registrar
-  (testing "an image-less frame uses the default registrar without a generation"
-    (rf/make-frame {:id :plain/main :doc "no image-loaded object for this frame"})
-    (rf/reg-event :plain/set (fn [{:keys [db]} _] {:db (assoc db :written-by :global)}))
-    (rf/reg-sub  :plain/value (fn [db _] (:written-by db)))
-    (rf/dispatch-sync [:plain/set] {:frame :plain/main})
-    (is (= :global (:written-by (rf/app-db-value :plain/main)))
-        "with no image generation, the dispatch resolved the GLOBAL handler")
-    (is (= :global @(rf/subscribe [:plain/value] {:frame :plain/main}))
-        "with no image generation, the subscribe resolved the GLOBAL sub")
-    (is (nil? registrar/*generation*)
-        "no generation was ever bound for an image-less frame")))
