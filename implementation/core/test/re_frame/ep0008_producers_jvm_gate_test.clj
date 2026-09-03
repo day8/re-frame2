@@ -50,7 +50,7 @@
 
   ## Why JVM-only (`.clj`, not `.cljc`)
 
-  The surface this suite exercises is the JVM `interop/debug-enabled?` Var as
+  The surface this suite exercises is the JVM `rf.interop/debug-enabled?` Var as
   a REBINDABLE reference (`with-redefs` here; CLJS uses Closure DCE, exercised
   by the `prod_elision_runner` probe, which is a genuine production build).
   Naming this `.clj` keeps it on the JVM `clojure -M:test` runner only.
@@ -65,24 +65,24 @@
   sensitive event payload + exception ex-data."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.elision :as elision]
-            [re-frame.error-emit :as error-emit]
-            [re-frame.event-emit :as event-emit]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.observability :as observability]
-            [re-frame.substrate.adapter :as adapter]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as ts]))
+            [re-frame.elision :as rf.elision]
+            [re-frame.error-emit :as rf.error-emit]
+            [re-frame.event-emit :as rf.event-emit]
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.observability :as rf.observability]
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (ts/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.substrate.plain-atom/adapter
      :init-fn (fn []
-                (event-emit/clear-event-listeners!)
-                (error-emit/clear-error-listeners!)
-                (observability/clear-observability-sinks!))}))
+                (rf.event-emit/clear-event-listeners!)
+                (rf.error-emit/clear-error-listeners!)
+                (rf.observability/clear-observability-sinks!))}))
 
 (defn- records-of [seen error-kw]
   (filter #(= error-kw (:error %)) @seen))
@@ -96,19 +96,19 @@
             posture), a frame destroy whose cleanup hooks throw STILL fans the
             always-on `:rf.error/frame-teardown-failed` report out through
             `register-error-listener!` (the axis is not debug-gated)."
-    (with-redefs [interop/debug-enabled? false]
+    (with-redefs [rf.interop/debug-enabled? false]
       (let [seen (atom [])]
         (rf/register-listener! :errors :test/recorder
                                      (fn [r] (swap! seen conj r)))
         (rf/make-frame {:id :gate/teardown})
         ;; Install a throwing cleanup hook for the duration of the destroy.
-        (let [orig (late-bind/get-fn :ssr/on-frame-destroyed)]
+        (let [orig (rf.late-bind/get-fn :ssr/on-frame-destroyed)]
           (try
-            (late-bind/set-fn! :ssr/on-frame-destroyed
+            (rf.late-bind/set-fn! :ssr/on-frame-destroyed
                                         (fn [& _] (throw (ex-info "hook threw" {}))))
             (rf/destroy-frame! :gate/teardown)
             (finally
-              (late-bind/set-fn! :ssr/on-frame-destroyed orig))))
+              (rf.late-bind/set-fn! :ssr/on-frame-destroyed orig))))
         (let [reports (records-of seen :rf.error/frame-teardown-failed)]
           (is (= 1 (count reports))
               "the teardown report survived the debug-off JVM gate")
@@ -119,11 +119,11 @@
   (testing "rf2-ntv9i9.3 — with the JVM debug gate OFF, a nil-container
             `replace-container!` (the scheduled-drain-vs-destroy race) STILL
             fans the always-on `:rf.error/write-after-destroy` record out."
-    (with-redefs [interop/debug-enabled? false]
+    (with-redefs [rf.interop/debug-enabled? false]
       (let [seen (atom [])]
         (rf/register-listener! :errors :test/recorder
                                      (fn [r] (swap! seen conj r)))
-        (adapter/replace-container! nil {:dropped :write})
+        (rf.substrate.adapter/replace-container! nil {:dropped :write})
         (let [reports (records-of seen :rf.error/write-after-destroy)]
           (is (= 1 (count reports))
               "the suppressed-write record survived the debug-off JVM gate")
@@ -141,7 +141,7 @@
             `:rf.error/on-destroy-handler-exception` discriminator out (the
             production source of the teardown discriminator that the dev trace
             elides here)."
-    (with-redefs [interop/debug-enabled? false]
+    (with-redefs [rf.interop/debug-enabled? false]
       (let [seen (atom [])]
         (rf/register-listener! :errors :test/recorder
                                      (fn [r] (swap! seen conj r)))
@@ -164,20 +164,20 @@
             `:rf.warning/teardown-hook-exception` trace is ELIDED, while the
             always-on `:rf.error/frame-teardown-failed` report SURVIVES — the
             two channels diverge exactly at the gate."
-    (with-redefs [interop/debug-enabled? false]
+    (with-redefs [rf.interop/debug-enabled? false]
       (let [traces  (atom [])
             reports (atom [])]
         (rf/register-listener! :trace ::trace-rec (fn [ev] (swap! traces conj ev)))
         (rf/register-listener! :errors :test/err-rec
                                      (fn [r] (swap! reports conj r)))
         (rf/make-frame {:id :gate/divergence})
-        (let [orig (late-bind/get-fn :ssr/on-frame-destroyed)]
+        (let [orig (rf.late-bind/get-fn :ssr/on-frame-destroyed)]
           (try
-            (late-bind/set-fn! :ssr/on-frame-destroyed
+            (rf.late-bind/set-fn! :ssr/on-frame-destroyed
                                         (fn [& _] (throw (ex-info "hook threw" {}))))
             (rf/destroy-frame! :gate/divergence)
             (finally
-              (late-bind/set-fn! :ssr/on-frame-destroyed orig)
+              (rf.late-bind/set-fn! :ssr/on-frame-destroyed orig)
               (rf/unregister-listener! :trace ::trace-rec))))
         ;; Diagnostic channel: ELIDED under the debug-off gate.
         (is (empty? (filter #(= :rf.warning/teardown-hook-exception (:operation %))
@@ -200,7 +200,7 @@
             whose `:hook-failures` entry carries sensitive exception ex-data
             reaches the corpus-wide listener RAW (the off-box-shipper API) AND
             the frame-owned `:errors` sink PROJECTED (sensitive path redacted)."
-    (with-redefs [interop/debug-enabled? false]
+    (with-redefs [rf.interop/debug-enabled? false]
       (let [listener-seen (atom [])
             sink-seen     (atom [])]
         (rf/register-observability-sink! :test.sinks/sentry
@@ -215,10 +215,10 @@
         ;; EP-0025: classify the sensitive app-db path via the commit-plane
         ;; effect path (`:source :effect`) — the durable frame annotation is
         ;; removed. Same registry write a reg-event returning `:sensitive` makes.
-        (frame/swap-runtime-db! :gate/raw
-          (fn [rt] (elision/apply-classification-effects rt
+        (rf.frame/swap-runtime-db! :gate/raw
+          (fn [rt] (rf.elision/apply-classification-effects rt
                      {:sensitive [[:hook-failures :exception-data :token]]})))
-        (error-emit/dispatch-frame-teardown-report!
+        (rf.error-emit/dispatch-frame-teardown-report!
           :gate/raw
           [{:hook           :flows/teardown-on-frame-destroy!
             :exception      (ex-info "boom" {})
@@ -244,7 +244,7 @@
             `:errors` sink with the sensitive slot REDACTED (the event-centric
             companion to the non-event raw-payload pin — both route through
             project-egress)."
-    (with-redefs [interop/debug-enabled? false]
+    (with-redefs [rf.interop/debug-enabled? false]
       (let [sink-seen (atom [])]
         (rf/register-observability-sink! :test.sinks/sentry
                                     (fn [r] (swap! sink-seen conj r)))
@@ -253,8 +253,8 @@
                                    :rf.egress/profile :rf.egress/off-box-observability}]}})
         ;; EP-0025: classify the sensitive app-db path via the commit-plane
         ;; effect path (`:source :effect`) — the durable frame annotation is removed.
-        (frame/swap-runtime-db! :gate/evt
-          (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:auth :token]]})))
+        (rf.frame/swap-runtime-db! :gate/evt
+          (fn [rt] (rf.elision/apply-classification-effects rt {:sensitive [[:auth :token]]})))
         (rf/reg-event :gate/login {:frame :gate/evt}
                          (fn [{:keys [db]} _] {:db (throw (ex-info "kaboom" {}))}))
         (rf/dispatch-sync [:gate/login {:auth {:token secret}}] {:frame :gate/evt})

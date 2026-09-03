@@ -65,8 +65,8 @@
   so the JVM test sweep exercises the algebra without the CLJS runtime."
   (:refer-clojure :exclude [get])
   (:require [clojure.core :as core]
-            [re-frame.error :as error]
-            [re-frame.identity :as identity])
+            [re-frame.error :as rf.error]
+            [re-frame.identity :as rf.identity])
   #?(:clj (:import [java.util UUID Date]
                    [java.time Instant])))
 
@@ -76,13 +76,13 @@
 
 (defn- bad-path!
   "Throw the canonical `:rf.error/bad-path` error via the central
-  `error/throw-error!` builder (Spec 009 §The thrown-error shape) so the
+  `rf.error/throw-error!` builder (Spec 009 §The thrown-error shape) so the
   message LEADS with the human `reason` sentence and TRAILS with the
   `[:rf.error/bad-path]` greppability token. `where` names the source
   helper; `reason` is the human-facing sentence; `extras` names the
   offending slot (`:bad-path`, `:bad-segment`)."
   [where reason extras]
-  (error/throw-error!
+  (rf.error/throw-error!
     :rf.error/bad-path
     where
     (str "rf.path: " reason)
@@ -157,7 +157,7 @@
       (string? seg)
       (symbol? seg)
       (boolean? seg)
-      (identity/safe-segment-integer? seg)
+      (rf.identity/safe-segment-integer? seg)
       #?(:clj  (or (instance? UUID seg)
                    (instance? Instant seg)
                    (instance? Date seg))
@@ -418,7 +418,7 @@
                 (let [param (nth seg 1)]
                   (if (contains? bindings param)
                     (core/get bindings param)
-                    (error/throw-error!
+                    (rf.error/throw-error!
                       :rf.error/missing-path-param
                       'rf.path/instantiate
                       (str "the :rf/path template references parameter " (pr-str param)

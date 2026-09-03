@@ -18,7 +18,7 @@
 
   ## 2. The always-on RECORD is an egress surface
 
-  `router/emit-effect-map-shape!` fans through `error-emit/emit-error-both!`,
+  `router/emit-effect-map-shape!` fans through `rf.error-emit/emit-error-both!`,
   and axis 1 of that helper (`dispatch-on-error!`) is NOT gated on
   `interop/debug-enabled?`, so the record really does reach an off-box shipper
   (Sentry / Datadog) from an `:advanced` + `goog.DEBUG=false` build. Its key
@@ -57,15 +57,15 @@
             [clojure.set :as set]
             [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.error-emit :as error-emit]
-            [re-frame.frame :as frame]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as ts]))
+            [re-frame.error-emit :as rf.error-emit]
+            [re-frame.frame :as rf.frame]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (ts/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
-     :init-fn (fn [] (error-emit/clear-error-listeners!))}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.substrate.plain-atom/adapter
+     :init-fn (fn [] (rf.error-emit/clear-error-listeners!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The CLOSED key set of the always-on record.
@@ -122,7 +122,7 @@
   (rf/reg-event ev-id
     (fn [{:keys [db]} _] (merge {:db (assoc db :n 2)} extra)))
   (let [records (record-always-on-errors #(rf/dispatch-sync [ev-id]))]
-    (is (= 1 (:n (frame/frame-app-db-value :rf/default)))
+    (is (= 1 (:n (rf.frame/frame-app-db-value :rf/default)))
         "precondition: the event aborted pre-commit (no :db write landed)")
     (shape-records records)))
 
@@ -151,7 +151,7 @@
     (rf/reg-event :good/after (fn [{:keys [db]} _] {:db (assoc db :after true)}))
     (rf/dispatch-sync [:bad/refused])
     (rf/dispatch-sync [:good/after])
-    (is (true? (:after (frame/frame-app-db-value :rf/default)))
+    (is (true? (:after (rf.frame/frame-app-db-value :rf/default)))
         "the downstream event still ran")))
 
 (deftest the-refused-event-settles-error-on-the-events-stream
@@ -220,7 +220,7 @@
       ;; THE CONTROL. Case (c) is post-commit on the best-effort do-fx plane,
       ;; so it must still RECOVER where the envelope cases refuse. If the
       ;; refusal ever swallowed this distinction, both assertions below flip.
-      (is (= 2 (:n (frame/frame-app-db-value :rf/default)))
+      (is (= 2 (:n (rf.frame/frame-app-db-value :rf/default)))
           "the :db DID commit — a bad :fx ENTRY is not an envelope violation")
       (is (= [:first :second] @ran)
           "and BOTH sibling entries still ran — per-entry skip, not an abort"))))

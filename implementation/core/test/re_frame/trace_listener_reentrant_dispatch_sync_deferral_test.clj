@@ -43,13 +43,13 @@
             ;; drain-lock is held, so the deferral seam is exercised for the
             ;; trailer emits too and not only the in-run emits.
             [re-frame.epoch]
-            [re-frame.frame :as frame]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace :as trace]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.trace :as rf.trace]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; Loop the deterministic proof so a green run is determinism, not a lucky
 ;; interleaving. Env-overridable for a heavier local soak.
@@ -64,10 +64,10 @@
   question literally: is arbitrary listener code running while the framework owns
   this frame's drain lock?"
   [frame-id]
-  (boolean (some-> (frame/frame frame-id) :drain-lock deref)))
+  (boolean (some-> (rf.frame/frame frame-id) :drain-lock deref)))
 
 ;; ---- Posture: dev-only, declared by `^:requires-debug` (rf2-d2841) ---------
-;; Trace machinery end to end: under `-Dre-frame.debug=false` `trace/emit` is a
+;; Trace machinery end to end: under `-Dre-frame.debug=false` `rf.trace/emit` is a
 ;; no-op, so there is no semantic residue to run under that posture, and a
 ;; `(when interop/debug-enabled? ...)` split -- the shape the rest of rf2-d2841
 ;; used -- would leave EMPTY deftests reporting green (class 2).  Every deftest
@@ -90,9 +90,9 @@
             fired?    (atom false)]
         ;; The probe: pure observer. Records the ownership state for each
         ;; drain-owned run emit of the nested :rf/default drain.
-        (trace/register-listener! ::probe
+        (rf.trace/register-listener! ::probe
           (fn [ev]
-            (when (and (= :rf/default (trace/frame-of ev))
+            (when (and (= :rf/default (rf.trace/frame-of ev))
                        (contains? #{:rf.event/run-start :rf.event/run-end}
                                   (:operation ev)))
               (swap! observed conj
@@ -100,13 +100,13 @@
         ;; The trigger: reacts to the clean, frameless trigger emit (so the
         ;; outer fan-out is in flight and *fanout-ctx* is bound) by
         ;; dispatch-syncing into :rf/default, which this thread drains inline.
-        (trace/register-listener! ::trigger
+        (rf.trace/register-listener! ::trigger
           (fn [ev]
             (when (and (= :6t6qk/trigger (:operation ev))
                        (compare-and-set! fired? false true))
               (rf/dispatch-sync [:6t6qk/settle] {:frame :rf/default}))))
         (try
-          (trace/emit! :info :6t6qk/trigger {})
+          (rf.trace/emit! :info :6t6qk/trigger {})
           ;; The nested dispatch-sync must have actually settled — proves the
           ;; reentrant path was exercised (assertion count moves either way).
           (is (true? (:6t6qk/settled? (rf/app-db-value :rf/default)))
@@ -121,5 +121,5 @@
                    "dispatch-sync path bypassed post-drain deferral. Observed "
                    "[op lock-held?]: " (pr-str @observed)))
           (finally
-            (trace/unregister-listener! ::probe)
-            (trace/unregister-listener! ::trigger)))))))
+            (rf.trace/unregister-listener! ::probe)
+            (rf.trace/unregister-listener! ::trigger)))))))

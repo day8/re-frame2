@@ -64,10 +64,10 @@
 
   JVM-portable (`.cljc`) so the projection + redaction contracts are pinned
   by the JVM test corpus without a CLJS runtime."
-  (:require [re-frame.elision :as elision]
-            [re-frame.frame :as frame]
-            [re-frame.identity :as identity]
-            [re-frame.privacy :as privacy]))
+  (:require [re-frame.elision :as rf.elision]
+            [re-frame.frame :as rf.frame]
+            [re-frame.identity :as rf.identity]
+            [re-frame.privacy :as rf.privacy]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -104,7 +104,7 @@
 ;; OPAQUE HANDLES: the same scoped key always maps to the same projected key
 ;; (graph CONNECTIVITY survives — a redacted param is still an edge), but the
 ;; raw scope/params never cross the wire. We mint the handle from the core
-;; CEDN-1 identity primitive (`identity/canonical-bytes`) so it is
+;; CEDN-1 identity primitive (`rf.identity/canonical-bytes`) so it is
 ;; deterministic for a given value; a value outside the CEDN-1 domain (or any
 ;; error) FAILS CLOSED to the `:rf/redacted` sentinel rather than risk
 ;; shipping a host-stringified secret. The middle `resource-id` (a
@@ -139,7 +139,7 @@
   mint a NEW, different handle — silently changing the live node's identity
   across the boundary and breaking stable graph connectivity."
   [v]
-  (or (= v privacy/redacted-sentinel)
+  (or (= v rf.privacy/redacted-sentinel)
       (and (vector? v)
            (= 2 (count v))
            (= :rf.resource/opaque (nth v 0)))))
@@ -163,12 +163,12 @@
       ;; given value, cross-spelling-invariant); `hash` makes it one-way so the
       ;; raw scope/params cannot be read back off the wire. Render unsigned hex
       ;; so the handle is a compact, non-reversible, value-stable token.
-      (let [token  (identity/canonical-bytes v)
+      (let [token  (rf.identity/canonical-bytes v)
             digest #?(:clj  (Integer/toHexString (hash token))
                       :cljs (.toString (bit-and (hash token) 0xffffffff) 16))]
         [:rf.resource/opaque digest])
       (catch #?(:clj Throwable :cljs :default) _
-        privacy/redacted-sentinel))))
+        rf.privacy/redacted-sentinel))))
 
 (defn- project-scoped-key
   "Project a live resource scoped key `[scope resource-id params]` into its
@@ -250,11 +250,11 @@
   nil / unreachable egress frame WITHOUT borrowing the ambient scope.
 
   `elide-wire-value` resolves its governing frame as `(or (:frame opts)
-  (frame/resolve-current-frame))` — so a nil `:frame` opt (or no `:frame` at
+  (rf.frame/resolve-current-frame))` — so a nil `:frame` opt (or no `:frame` at
   all) falls through to the AMBIENT dynamically-bound frame, applying that
   frame's (possibly empty) policy and shipping value-bearing fields RAW. An
   unreachable but NON-nil `:frame` opt instead takes the unresolvable-frame
-  fail-closed branch (`frame/frame` returns nil ⇒ whole value redacted to
+  fail-closed branch (`rf.frame/frame` returns nil ⇒ whole value redacted to
   `:rf/redacted`). We therefore stamp this sentinel as the `:frame` opt when
   no live governing frame is known, so the walker fails closed on its own
   dead-frame branch rather than resolving an ambient frame.
@@ -270,7 +270,7 @@
   the rf2-7htk7 third pass fixed for Xray's `::no-frame`). A fresh host
   object is an IDENTITY rather than a datum — nothing outside this var can
   produce an equal value — so no registration can match it, and
-  `frame/frame` misses on it exactly as on a destroyed id. Pinned by the
+  `rf.frame/frame` misses on it exactly as on a destroyed id. Pinned by the
   derivation-conformance collision arm
   `g-graph-egress-nil-frame-fails-closed-under-sentinel-id-collision`."
   #?(:clj (Object.) :cljs (js/Object.)))
@@ -379,7 +379,7 @@
   SAME work-id). The `elide-wire-value` value-path walk is structurally
   BLIND to these identity-embedded secrets. So this projection ALSO replaces
   each scoped key's secret-bearing scope + params with STABLE OPAQUE HANDLES
-  (`identity/canonical-bytes`-derived, fail-closed to `:rf/redacted` outside
+  (`rf.identity/canonical-bytes`-derived, fail-closed to `:rf/redacted` outside
   the CEDN-1 domain), preserving the registration `resource-id` so a tool
   still sees WHICH resource the node is. The SAME projection is applied to
   the `:nodes` keys AND every edge endpoint that names a resource node, so
@@ -395,15 +395,15 @@
   frame's policy, never a borrowed one).
 
   FAIL-CLOSED on a nil / UNREACHABLE frame: `elide-wire-value` resolves its
-  governing frame as `(or (:frame opts) (frame/resolve-current-frame))`, so
+  governing frame as `(or (:frame opts) (rf.frame/resolve-current-frame))`, so
   a nil `:frame` opt (or no `:frame` at all) falls through to the AMBIENT
   dynamically-bound frame and would ship value-bearing fields RAW under that
   borrowed frame's (possibly empty) policy. Egress must NOT borrow an ambient
   frame. So this projection first checks the named frame is LIVE
-  (`frame/frame-ids`); when it is not (nil id, a destroyed / never-registered
+  (`rf.frame/frame-ids`); when it is not (nil id, a destroyed / never-registered
   frame), it stamps a DEAD-FRAME SENTINEL as the `:frame` opt — a non-nil id
   that can never resolve to a live frame — so `elide-wire-value` takes its
-  unresolvable-frame fail-closed branch (`frame/frame` returns nil for it)
+  unresolvable-frame fail-closed branch (`rf.frame/frame` returns nil for it)
   and redacts the whole value to `:rf/redacted` rather than borrow the
   ambient frame's marks. This is the silent-leak this contract abolishes — a
   graph egressing under no reachable policy redacts, never ships raw, even
@@ -428,17 +428,17 @@
    ;; `elide-wire-value` takes its unresolvable-frame FAIL-CLOSED branch
    ;; (whole value ⇒ `:rf/redacted`). We must NOT leave the `:frame` opt
    ;; absent / nil here: that frameless path lets the walker fall through to
-   ;; the AMBIENT dynamically-bound frame (`frame/resolve-current-frame`) and
+   ;; the AMBIENT dynamically-bound frame (`rf.frame/resolve-current-frame`) and
    ;; ship value-bearing fields RAW under that frame's policy — the exact
    ;; ambient-borrow leak this contract abolishes (rf2-udkj69).
-   (let [reachable? (and (some? frame-id) (contains? (frame/frame-ids) frame-id))
+   (let [reachable? (and (some? frame-id) (contains? (rf.frame/frame-ids) frame-id))
          walk-opts  (assoc opts :frame (if reachable? frame-id dead-frame-sentinel))
          redact-node
          (fn [node]
            (-> (reduce
                 (fn [n k]
                   (if (contains? n k)
-                    (assoc n k (elision/elide-wire-value (get n k) walk-opts))
+                    (assoc n k (rf.elision/elide-wire-value (get n k) walk-opts))
                     n))
                 node
                 value-bearing-node-keys)

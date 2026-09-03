@@ -10,7 +10,7 @@
   Pins the EP-0024 collapse coverage:
 
     * `:images` (a vector) resolves to a generation read by id off the record
-      (`lf/frame-generation` accepts EITHER a frame value or a frame id);
+      (`rf.live-frame/frame-generation` accepts EITHER a frame value or a frame id);
     * the ABSENT-`:images` path (`make-frame {}`) runs the DEFAULT IMAGE — the
       implicit selector over the WHOLE source store (rf2-32siq3.33): the
       generation includes the store's `reg-*` descriptors (+ standards), NOT the
@@ -20,10 +20,10 @@
       2-arity and the bare live-store 1-arity. (EP-0026 §Default Image, ruled
       2026-06-22: an EMPTY `:images []` is now an ERROR, not the default path —
       OMIT `:images` for the default; see §1b below);
-    * an `:id` registers an image-loaded record in the ONE registry — `lf/
+    * an `:id` registers an image-loaded record in the ONE registry — `rf.live-frame/
       live-frame` RECONSTRUCTS a fresh value from the record (routing to the same
       id, NOT `identical?` to the originally-returned value) and the id appears in
-      `lf/live-frame-ids`;
+      `rf.live-frame/live-frame-ids`;
     * a duplicate live `:id` is IDEMPOTENT REPLACEMENT — re-`make-frame`-ing the
       same id does NOT throw, refreshes config + generation, and PRESERVES durable
       state (app-db / sub-cache / queue) — hot-reload / Story re-evaluation
@@ -57,14 +57,14 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core        :as rf]
-            [re-frame.events      :as events]
-            [re-frame.frame       :as frame-ns]
-            [re-frame.image       :as image]
-            [re-frame.image-assembly :as asm]
-            [re-frame.live-frame  :as lf]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.source-store   :as ss]))
+            [re-frame.events      :as rf.events]
+            [re-frame.frame       :as rf.frame]
+            [re-frame.image       :as rf.image]
+            [re-frame.image-assembly :as rf.image-assembly]
+            [re-frame.live-frame  :as rf.live-frame]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.source-store   :as rf.source-store]))
 
 ;; ---------------------------------------------------------------------------
 ;; Fixture — the live-frame registry, the framework-standard registry, and the
@@ -83,10 +83,10 @@
 ;; ---------------------------------------------------------------------------
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter})
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})
   (fn [t]
-    (let [store-before @ss/kind->id->ns->descriptor]
-      (asm/clear-standards!)
+    (let [store-before @rf.source-store/kind->id->ns->descriptor]
+      (rf.image-assembly/clear-standards!)
       ;; EP-0027 (rf2-7ae2to): re-seed the framework-standard `:rf/set-db` event
       ;; AFTER clearing standards — these cases seed image-loaded frames via
       ;; `:initial-events [[:rf/set-db …]]`, which resolves `:rf/set-db` through
@@ -94,14 +94,14 @@
       ;; atom). The blanket `clear-standards!` keeps OTHER standards out so the
       ;; pure image-resolution contract stays isolated; the framework seed is the
       ;; one standard these tests legitimately depend on.
-      (events/register-set-db-standard!)
-      (asm/clear-generation-cache!)
+      (rf.events/register-set-db-standard!)
+      (rf.image-assembly/clear-generation-cache!)
       (try
         (t)
         (finally
-          (asm/clear-standards!)
-          (asm/clear-generation-cache!)
-          (reset! ss/kind->id->ns->descriptor store-before))))))
+          (rf.image-assembly/clear-standards!)
+          (rf.image-assembly/clear-generation-cache!)
+          (reset! rf.source-store/kind->id->ns->descriptor store-before))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Helpers
@@ -141,7 +141,7 @@
   `reg-*` walks) so the DEFAULT image — the implicit whole-store selector — can
   project it. The fixture snapshot/restores the store around the case."
   [provenance-ns kind id impl]
-  (ss/record-descriptor! kind id {:ns provenance-ns :kind kind :id id
+  (rf.source-store/record-descriptor! kind id {:ns provenance-ns :kind kind :id id
                                   :handler-fn impl}))
 
 ;; ===========================================================================
@@ -151,32 +151,32 @@
 (deftest images-vector-resolves-to-a-generation-on-the-object
   (testing "make-frame resolves a one-element :images vector into one sealed
             image generation and returns the live frame OBJECT carrying it"
-    (let [img   (image/image {:id :examples/counter
+    (let [img   (rf.image/image {:id :examples/counter
                               :select-ns {:include ["examples.counter"]}})
-          frame (lf/make-frame {:images [img]} counter-pool)]
+          frame (rf.live-frame/make-frame {:images [img]} counter-pool)]
       (testing "the return value is a live frame OBJECT, not a frame-id keyword"
-        (is (lf/frame-object? frame))
+        (is (rf.live-frame/frame-object? frame))
         (is (map? frame))
         (is (not (keyword? frame))))
       (testing "the object holds a reference to its resolved generation"
-        (let [gen (lf/frame-generation frame)]
+        (let [gen (rf.live-frame/frame-generation frame)]
           (is (some? gen))
           (is (contains? gen :rf.gen/resolver))
           ;; The selected registrations resolve through the carried generation.
-          (is (some? (asm/resolve-descriptor gen :event :counter/inc)))
-          (is (some? (asm/resolve-descriptor gen :sub   :counter/value))))))))
+          (is (some? (rf.image-assembly/resolve-descriptor gen :event :counter/inc)))
+          (is (some? (rf.image-assembly/resolve-descriptor gen :sub   :counter/value))))))))
 
 (deftest multiple-images-resolve-to-one-generation
   (testing "a multi-image :images vector composes into ONE generation (EP-0023
             §Image Composition — the frame still runs one resolved generation)"
     (let [pool  [(reg-desc "lib.widgets"   :event :widgets/init ::winit)
                  (reg-desc "examples.counter" :event :counter/inc ::inc)]
-          a     (image/image {:id :lib/widgets   :select-ns {:include ["lib.widgets"]}})
-          b     (image/image {:id :examples/counter :select-ns {:include ["examples.counter"]}})
-          frame (lf/make-frame {:images [a b]} pool)
-          gen   (lf/frame-generation frame)]
-      (is (some? (asm/resolve-descriptor gen :event :widgets/init)))
-      (is (some? (asm/resolve-descriptor gen :event :counter/inc))))))
+          a     (rf.image/image {:id :lib/widgets   :select-ns {:include ["lib.widgets"]}})
+          b     (rf.image/image {:id :examples/counter :select-ns {:include ["examples.counter"]}})
+          frame (rf.live-frame/make-frame {:images [a b]} pool)
+          gen   (rf.live-frame/frame-generation frame)]
+      (is (some? (rf.image-assembly/resolve-descriptor gen :event :widgets/init)))
+      (is (some? (rf.image-assembly/resolve-descriptor gen :event :counter/inc))))))
 
 ;; ===========================================================================
 ;; 1b. EP-0026 §Default Image (rf2-fsd822, ruled 2026-06-22) — the THREE-WAY
@@ -219,22 +219,22 @@
             EP-0024, where :images [] projected the default."
     (testing ":images [] fails loud with :rf.error/make-frame-bad-images"
       (is (= :rf.error/make-frame-bad-images
-             (err-id #(lf/make-frame {:images []} counter-pool))))
+             (err-id #(rf.live-frame/make-frame {:images []} counter-pool))))
       (testing "and via the bare 1-arity too"
         (is (= :rf.error/make-frame-bad-images
-               (err-id #(lf/make-frame {:images []}))))))
+               (err-id #(rf.live-frame/make-frame {:images []}))))))
     (testing "no frame is registered as a side effect of the rejected :images []"
-      (let [before (lf/live-frame-ids)]
-        (err-id #(lf/make-frame {:id :rejected/empty :images []} counter-pool))
-        (is (= before (lf/live-frame-ids))
+      (let [before (rf.live-frame/live-frame-ids)]
+        (err-id #(rf.live-frame/make-frame {:id :rejected/empty :images []} counter-pool))
+        (is (= before (rf.live-frame/live-frame-ids))
             "a rejected :images [] leaves the live-frame registry untouched")))
     (testing "a NON-EMPTY :images vector is accepted and resolves a generation"
-      (let [frame (lf/make-frame {:images [(image/image {:id :only
+      (let [frame (rf.live-frame/make-frame {:images [(rf.image/image {:id :only
                                                          :registrations
                                                          {:reg-event [[:x (fn [_ _] {})]]}})]}
                                  counter-pool)]
-        (is (lf/frame-object? frame))
-        (is (some? (asm/resolve-descriptor (lf/frame-generation frame) :event :x)))))))
+        (is (rf.live-frame/frame-object? frame))
+        (is (some? (rf.image-assembly/resolve-descriptor (rf.live-frame/frame-generation frame) :event :x)))))))
 
 (deftest absent-images-resolves-the-default-image-generation
   (testing "EP-0026 §Default Image: an ABSENT :images (make-frame {}) resolves the
@@ -242,21 +242,21 @@
             explicit pool) — the implicit selector over the WHOLE pool + framework
             standards. The frame is image-loaded: its record carries a generation
             and that generation resolves every pool descriptor."
-    (let [frame (lf/make-frame {} counter-pool)
-          gen   (lf/frame-generation frame)]
-      (is (lf/frame-object? frame))
+    (let [frame (rf.live-frame/make-frame {} counter-pool)
+          gen   (rf.live-frame/frame-generation frame)]
+      (is (rf.live-frame/frame-object? frame))
       (is (some? gen)
           "absent :images ⇒ the DEFAULT image generation on the record (EP-0026)")
-      (is (some? (asm/resolve-descriptor gen :event :counter/inc))
+      (is (some? (rf.image-assembly/resolve-descriptor gen :event :counter/inc))
           "the default projection resolves the pool's :counter/inc event")
-      (is (some? (asm/resolve-descriptor gen :sub :counter/value))
+      (is (some? (rf.image-assembly/resolve-descriptor gen :sub :counter/value))
           "the default projection resolves the pool's :counter/value sub")))
   (testing "an EMPTY pool default projection is a VALID empty generation — a frame
             with no app registrations resolving only the framework standards (no
             zero-match fail, unlike an :select-ns :include glob)"
-    (let [frame (lf/make-frame {} [])]
-      (is (lf/frame-object? frame))
-      (is (some? (lf/frame-generation frame))
+    (let [frame (rf.live-frame/make-frame {} [])]
+      (is (rf.live-frame/frame-object? frame))
+      (is (some? (rf.live-frame/frame-generation frame))
           "an empty default projection still carries a (standards-only) generation")))
   (testing "a cross-namespace same-[kind id] collision in the default projection
             FAILS LOUD at the make-frame boundary — the default image does NOT
@@ -265,12 +265,12 @@
           [(reg-desc "examples.todo.boot"    :event :boot/init ::todo)
            (reg-desc "examples.counter.boot" :event :boot/init ::counter)]]
       (is (= :rf.error/image-duplicate-id
-             (err-id #(lf/make-frame {} colliding-pool)))
+             (err-id #(rf.live-frame/make-frame {} colliding-pool)))
           "two namespaces registering one [kind id] reject the default projection")
       (testing "and no frame is registered as a side effect of the rejected default"
-        (let [before (lf/live-frame-ids)]
-          (err-id #(lf/make-frame {:id :dup/default} colliding-pool))
-          (is (= before (lf/live-frame-ids))
+        (let [before (rf.live-frame/live-frame-ids)]
+          (err-id #(rf.live-frame/make-frame {:id :dup/default} colliding-pool))
+          (is (= before (rf.live-frame/live-frame-ids))
               "a rejected default projection leaves the live-frame registry untouched"))))))
 
 (deftest omit-images-yields-default-explicit-images-untouched
@@ -284,21 +284,21 @@
                 (reg-desc "lib.widgets"       :event :widgets/init ::winit)]]
       (testing "OMIT `:images` (make-frame {}) ⇒ the DEFAULT projection over the
                 WHOLE pool — BOTH namespaces' descriptors resolve"
-        (let [gen (lf/frame-generation (lf/make-frame {} pool))]
+        (let [gen (rf.live-frame/frame-generation (rf.live-frame/make-frame {} pool))]
           (is (some? gen) "the omit path carries a generation (EP-0026)")
-          (is (some? (asm/resolve-descriptor gen :event :counter/inc))
+          (is (some? (rf.image-assembly/resolve-descriptor gen :event :counter/inc))
               "default projection resolves examples.counter's :counter/inc")
-          (is (some? (asm/resolve-descriptor gen :event :widgets/init))
+          (is (some? (rf.image-assembly/resolve-descriptor gen :event :widgets/init))
               "default projection ALSO resolves lib.widgets' :widgets/init")))
       (testing "a PRESENT explicit `:images` selecting ONLY examples.counter is
                 UNTOUCHED by the default — it resolves its :counter/inc but NOT the
                 unselected :widgets/init (the whole-store default did not leak in)"
-        (let [img (image/image {:id        :examples/counter
+        (let [img (rf.image/image {:id        :examples/counter
                                 :select-ns {:include ["examples.counter"]}})
-              gen (lf/frame-generation (lf/make-frame {:images [img]} pool))]
-          (is (some? (asm/resolve-descriptor gen :event :counter/inc))
+              gen (rf.live-frame/frame-generation (rf.live-frame/make-frame {:images [img]} pool))]
+          (is (some? (rf.image-assembly/resolve-descriptor gen :event :counter/inc))
               "the explicit image resolves its selected :counter/inc")
-          (is (nil? (asm/resolve-descriptor gen :event :widgets/init))
+          (is (nil? (rf.image-assembly/resolve-descriptor gen :event :widgets/init))
               "the explicit image does NOT resolve the unselected :widgets/init —
                the omit→default whole-store projection did not bleed into the
                explicit-image path"))))))
@@ -309,23 +309,23 @@
 
 (deftest id-registers-an-image-loaded-record-in-the-one-registry
   (testing "supplying :id registers an image-loaded record in the ONE `frames`
-            registry under that id (EP-0024 §One registry). `lf/live-frame`
+            registry under that id (EP-0024 §One registry). `rf.live-frame/live-frame`
             RECONSTRUCTS a fresh value from the record (routing to the same id,
             NOT identical? to the originally-returned value)"
-    (let [img   (image/image {:select-ns {:include ["examples.counter"]}})
-          frame (lf/make-frame {:id :counter/main :images [img]} counter-pool)]
-      (is (= :counter/main (frame-ns/frame-value->id (lf/live-frame :counter/main)))
+    (let [img   (rf.image/image {:select-ns {:include ["examples.counter"]}})
+          frame (rf.live-frame/make-frame {:id :counter/main :images [img]} counter-pool)]
+      (is (= :counter/main (rf.frame/frame-value->id (rf.live-frame/live-frame :counter/main)))
           "live-frame lookup reconstructs a value routing to the same id")
       (is (= :counter/main (:rf.frame/id frame)))
-      (is (contains? (lf/live-frame-ids) :counter/main)))))
+      (is (contains? (rf.live-frame/live-frame-ids) :counter/main)))))
 
 (deftest initial-events-seed-and-adapter-ride-the-value
   (testing "the :adapter creation input rides the frame value (host slice —
             image is behaviour, frame is state) and :initial-events seeds app-db
             (EP-0027 retired :initial-db; the value no longer carries an
             :rf.frame/initial-db slot — seeding is the :rf/set-db setup event)"
-    (let [img   (image/image {:select-ns {:include ["examples.counter"]}})
-          frame (lf/make-frame {:id :counter/seeded
+    (let [img   (rf.image/image {:select-ns {:include ["examples.counter"]}})
+          frame (rf.live-frame/make-frame {:id :counter/seeded
                                 :images [img]
                                 :initial-events [[:rf/set-db {:count 7}]]
                                 :adapter ::reagent}
@@ -348,23 +348,23 @@
             :rf.error/live-frame-id-conflict is GONE). Seed durable state via
             :initial-events, re-make under the SAME id with NO :initial-events, and
             assert the app-db survived (a fresh record would have reset it to {})"
-    (let [img    (image/image {:select-ns {:include ["examples.counter"]}})
-          first  (lf/make-frame {:id :counter/main :images [img]
+    (let [img    (rf.image/image {:select-ns {:include ["examples.counter"]}})
+          first  (rf.live-frame/make-frame {:id :counter/main :images [img]
                                  :initial-events [[:rf/set-db {:count 7}]]}
                                 counter-pool)]
-      (is (lf/frame-object? first))
+      (is (rf.live-frame/frame-object? first))
       (is (= {:count 7} (rf/app-db-value :counter/main))
           "the first frame seeded durable app-db")
       ;; Re-making the SAME id does NOT throw — it returns a frame value routing
       ;; to the same id (idempotent replacement, NOT a conflict).
-      (let [again (lf/make-frame {:id :counter/main :images [img]} counter-pool)]
-        (is (lf/frame-object? again)
+      (let [again (rf.live-frame/make-frame {:id :counter/main :images [img]} counter-pool)]
+        (is (rf.live-frame/frame-object? again)
             "re-making the same id returns a frame value (no throw)")
-        (is (= :counter/main (frame-ns/frame-value->id again))
+        (is (= :counter/main (rf.frame/frame-value->id again))
             "the re-made frame value routes to the same id")
-        (is (some? (lf/frame-generation :counter/main))
+        (is (some? (rf.live-frame/frame-generation :counter/main))
             "the record is still image-loaded after the replacement")
-        (is (contains? (lf/live-frame-ids) :counter/main))
+        (is (contains? (rf.live-frame/live-frame-ids) :counter/main))
         (is (= {:count 7} (rf/app-db-value :counter/main))
             "durable app-db is PRESERVED across the idempotent replacement
              (NOT reset to {} — the record's runtime state survives)")))))
@@ -373,15 +373,15 @@
   (testing "two DIFFERENT frame ids may each carry an image reusing the same
             REGISTRATION ids — registration ids are reusable across images;
             only FRAME ids are unique (the heart of the same-id story)"
-    (let [img   (image/image {:select-ns {:include ["examples.counter"]}})
-          left  (lf/make-frame {:id :counter/left  :images [img]} counter-pool)
-          right (lf/make-frame {:id :counter/right :images [img]} counter-pool)]
+    (let [img   (rf.image/image {:select-ns {:include ["examples.counter"]}})
+          left  (rf.live-frame/make-frame {:id :counter/left  :images [img]} counter-pool)
+          right (rf.live-frame/make-frame {:id :counter/right :images [img]} counter-pool)]
       ;; Both live frames resolve the SAME registration id :counter/inc; no
       ;; conflict because the FRAME ids differ. `frame-generation` reads each
       ;; record's generation by id (EP-0024 — accepts a frame value or an id).
-      (is (some? (asm/resolve-descriptor (lf/frame-generation left)  :event :counter/inc)))
-      (is (some? (asm/resolve-descriptor (lf/frame-generation right) :event :counter/inc)))
-      (is (= #{:counter/left :counter/right} (lf/live-frame-ids))))))
+      (is (some? (rf.image-assembly/resolve-descriptor (rf.live-frame/frame-generation left)  :event :counter/inc)))
+      (is (some? (rf.image-assembly/resolve-descriptor (rf.live-frame/frame-generation right) :event :counter/inc)))
+      (is (= #{:counter/left :counter/right} (rf.live-frame/live-frame-ids))))))
 
 ;; ===========================================================================
 ;; 4. A direct (no-id) frame object BYPASSES the registry
@@ -403,15 +403,15 @@
             :rf.frame/<gensym> runnable-id, so it contributes NO public frame id
             (EP-0024 §Frame value — direct frame values bypass the PUBLIC
             frame-id space; the gensym record itself is image-loaded)"
-    (let [img   (image/image {:select-ns {:include ["examples.counter"]}})
-          frame (lf/make-frame {:images [img]} counter-pool)]
-      (is (lf/frame-object? frame))
+    (let [img   (rf.image/image {:select-ns {:include ["examples.counter"]}})
+          frame (rf.live-frame/make-frame {:images [img]} counter-pool)]
+      (is (rf.live-frame/frame-object? frame))
       (is (nil? (:rf.frame/id frame)) "a no-id frame value carries no public :rf.frame/id")
-      (is (= "rf.frame" (namespace (frame-ns/frame-value->id frame)))
+      (is (= "rf.frame" (namespace (rf.frame/frame-value->id frame)))
           "the record is keyed by a private :rf.frame/<gensym> runnable-id")
-      (is (not-any? public-frame-id? (lf/live-frame-ids))
+      (is (not-any? public-frame-id? (rf.live-frame/live-frame-ids))
           "a no-id frame contributes NO public frame id")
-      (is (not (contains? (lf/live-frame-ids) (frame-ns/frame-value->id frame)))
+      (is (not (contains? (rf.live-frame/live-frame-ids) (rf.frame/frame-value->id frame)))
           "the private gensym id is excluded from live-frame-ids (no-id frames
            bypass enumeration/auto-reprojection — EP-0024)"))))
 
@@ -419,14 +419,14 @@
   (testing "two local direct frame values can coexist with no PUBLIC ids — each
             gets its own private :rf.frame/<gensym> runnable-id (EP-0024 — two
             local direct frame values can coexist, distinct records)"
-    (let [img (image/image {:select-ns {:include ["examples.counter"]}})
-          a   (lf/make-frame {:images [img]} counter-pool)
-          b   (lf/make-frame {:images [img]} counter-pool)]
-      (is (lf/frame-object? a))
-      (is (lf/frame-object? b))
-      (is (not= (frame-ns/frame-value->id a) (frame-ns/frame-value->id b))
+    (let [img (rf.image/image {:select-ns {:include ["examples.counter"]}})
+          a   (rf.live-frame/make-frame {:images [img]} counter-pool)
+          b   (rf.live-frame/make-frame {:images [img]} counter-pool)]
+      (is (rf.live-frame/frame-object? a))
+      (is (rf.live-frame/frame-object? b))
+      (is (not= (rf.frame/frame-value->id a) (rf.frame/frame-value->id b))
           "each make-frame yields a distinct record (distinct runnable-ids)")
-      (is (not-any? public-frame-id? (lf/live-frame-ids))
+      (is (not-any? public-frame-id? (rf.live-frame/live-frame-ids))
           "neither no-id frame contributes a public frame id"))))
 
 ;; ===========================================================================
@@ -437,16 +437,16 @@
   (testing ":images must be a VECTOR (the one spelling, always a vector — EP-0023
             §Image Composition); a bare image map, a seq, or any non-vector throws
             :rf.error/make-frame-bad-images"
-    (let [img (image/image {:select-ns {:include ["examples.counter"]}})]
+    (let [img (rf.image/image {:select-ns {:include ["examples.counter"]}})]
       (testing "a bare (unwrapped) image map is rejected"
         (is (= :rf.error/make-frame-bad-images
-               (err-id #(lf/make-frame {:images img} counter-pool)))))
+               (err-id #(rf.live-frame/make-frame {:images img} counter-pool)))))
       (testing "a seq (list) is rejected — even when it contains image values"
         (is (= :rf.error/make-frame-bad-images
-               (err-id #(lf/make-frame {:images (list img)} counter-pool)))))
+               (err-id #(rf.live-frame/make-frame {:images (list img)} counter-pool)))))
       (testing "a set is rejected"
         (is (= :rf.error/make-frame-bad-images
-               (err-id #(lf/make-frame {:images #{img}} counter-pool))))))))
+               (err-id #(rf.live-frame/make-frame {:images #{img}} counter-pool))))))))
 
 ;; ===========================================================================
 ;; 5b. A non-map `opts` ARGUMENT is REJECTED (rf2-r6r2yi)
@@ -461,36 +461,36 @@
     (testing "nil opts is REJECTED — the all-defaults frame is (make-frame {}),
               not (make-frame nil)"
       (is (= :rf.error/make-frame-bad-opts
-             (err-id #(lf/make-frame nil counter-pool))))
+             (err-id #(rf.live-frame/make-frame nil counter-pool))))
       (testing "and via the 1-arity (nil descriptors path) too"
         (is (= :rf.error/make-frame-bad-opts
-               (err-id #(lf/make-frame nil))))))
+               (err-id #(rf.live-frame/make-frame nil))))))
     (testing "a keyword opts is rejected"
       (is (= :rf.error/make-frame-bad-opts
-             (err-id #(lf/make-frame :not-a-map counter-pool)))))
+             (err-id #(rf.live-frame/make-frame :not-a-map counter-pool)))))
     (testing "a vector opts is rejected"
       (is (= :rf.error/make-frame-bad-opts
-             (err-id #(lf/make-frame [:images []] counter-pool)))))
+             (err-id #(rf.live-frame/make-frame [:images []] counter-pool)))))
     (testing "a string opts is rejected"
       (is (= :rf.error/make-frame-bad-opts
-             (err-id #(lf/make-frame "oops" counter-pool)))))
+             (err-id #(rf.live-frame/make-frame "oops" counter-pool)))))
     (testing "no frame was registered as a side effect of a rejected non-map opts"
-      (let [before (lf/live-frame-ids)]
-        (err-id #(lf/make-frame nil counter-pool))
-        (err-id #(lf/make-frame :not-a-map counter-pool))
-        (is (= before (lf/live-frame-ids))
+      (let [before (rf.live-frame/live-frame-ids)]
+        (err-id #(rf.live-frame/make-frame nil counter-pool))
+        (err-id #(rf.live-frame/make-frame :not-a-map counter-pool))
+        (is (= before (rf.live-frame/live-frame-ids))
             "a rejected non-map opts leaves the live-frame registry untouched")))
     (testing "the ex-data carries an EP-0015-safe :received shape summary, never
               the raw value. rf2-210uq — the keyword `:head` was returned with
               NO length bound at all, on the guess that a keyword is always
               structural; `(keyword user-string)` is not, so it is gone"
       (is (= {:type :keyword}
-             (:received (err-data #(lf/make-frame :not-a-map counter-pool)))))
+             (:received (err-data #(rf.live-frame/make-frame :not-a-map counter-pool)))))
       (is (= {:type :string}
-             (dissoc (:received (err-data #(lf/make-frame "oops" counter-pool)))
+             (dissoc (:received (err-data #(rf.live-frame/make-frame "oops" counter-pool)))
                      :count))))
     (testing "the EMPTY map is ACCEPTED — the explicit all-defaults frame"
-      (is (lf/frame-object? (lf/make-frame {} counter-pool))))))
+      (is (rf.live-frame/frame-object? (rf.live-frame/make-frame {} counter-pool))))))
 
 ;; ===========================================================================
 ;; 6. Host-handle exclusion — the EP-0023 §Host Boundary two-boundaries
@@ -519,10 +519,10 @@
             :initial-events-seeded app-db) — the EP-0023 §Host Boundary
             two-boundaries invariant: host handles never enter the frame-state
             value (MAJOR-2)"
-    (let [img        (image/image {:select-ns {:include ["examples.counter"]}})
+    (let [img        (rf.image/image {:select-ns {:include ["examples.counter"]}})
           adapter    {:rf.adapter/kind :reagent :rf.adapter/render-root ::host-handle}
           state-seed {:count 7 :user/name "ada"}
-          frame      (lf/make-frame {:id         :counter/host-excl
+          frame      (rf.live-frame/make-frame {:id         :counter/host-excl
                                      :images     [img]
                                      :initial-events [[:rf/set-db state-seed]]
                                      :adapter    adapter}

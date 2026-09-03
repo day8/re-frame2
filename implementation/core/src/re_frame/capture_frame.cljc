@@ -20,12 +20,12 @@
   `:core/dispatch-sync-impl` / `:core/subscribe-impl`, the cycle-breaking
   flavour) and this ns reads them at capture time, falling back to the
   owning fns when the facade has not loaded."
-  (:require [re-frame.frame :as frame]
-            [re-frame.router :as router]
-            [re-frame.subs :as subs]
-            [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.trace :as trace
+  (:require [re-frame.frame :as rf.frame]
+            [re-frame.router :as rf.router]
+            [re-frame.subs :as rf.subs]
+            [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.trace :as rf.trace
              #?@(:cljs [:include-macros true])]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -74,11 +74,11 @@
   silently lost its pin (rf2-vclh63). A keyword id — or a derived-read value that
   carries no construction token — falls to the id-keyed lookup: a live id pins,
   an absent/not-yet-mounted id (or a derived-read value, whose map is not a
-  registry key) pins nothing. Namespace-qualified `frame/…` is never shadowed by
+  registry key) pins nothing. Namespace-qualified `rf.frame/…` is never shadowed by
   a local `frame`."
   [frame-target]
-  (or (frame/frame-value-incarnation-token frame-target)
-      (frame/frame-incarnation-token frame-target)))
+  (or (rf.frame/frame-value-incarnation-token frame-target)
+      (rf.frame/frame-incarnation-token frame-target)))
 
 (defn- capture-target-superseded?
   "True when a pinned `captured-incarnation` no longer identifies the capture
@@ -92,8 +92,8 @@
   superseded."
   [frame-target captured-incarnation]
   (and (some? captured-incarnation)
-       (not (frame/frame-incarnation-live?
-              (frame/frame-target->id frame-target) captured-incarnation))))
+       (not (rf.frame/frame-incarnation-live?
+              (rf.frame/frame-target->id frame-target) captured-incarnation))))
 
 (defn- capture-dispatch!
   "Route a captured `:dispatch`/`:dispatch-sync` op through the incarnation fence:
@@ -109,8 +109,8 @@
   fallback that could steal a same-keyword subscription's coord."
   [dispatch-fn op frame-target captured-incarnation event opts]
   (if (capture-target-superseded? frame-target captured-incarnation)
-    (router/emit-captured-frame-superseded!
-      event (frame/frame-target->id frame-target) op opts)
+    (rf.router/emit-captured-frame-superseded!
+      event (rf.frame/frame-target->id frame-target) op opts)
     ;; rf2-dlld6: the `capture-target-superseded?` pre-check above and the
     ;; ordinary address-directed dispatch below are SEPARATE operations. On the
     ;; concurrent JVM host frame A can be destroyed AND a same-id successor B
@@ -141,8 +141,8 @@
   exactly — never a same-keyword event's coord."
   [subscribe-thunk frame-target captured-incarnation query-v subscribe-call-site]
   (if (capture-target-superseded? frame-target captured-incarnation)
-    (router/emit-captured-frame-superseded!
-      query-v (frame/frame-target->id frame-target) :subscribe
+    (rf.router/emit-captured-frame-superseded!
+      query-v (rf.frame/frame-target->id frame-target) :subscribe
       {:rf.trace/call-site subscribe-call-site})
     (subscribe-thunk)))
 
@@ -153,7 +153,7 @@
   time, so a `with-redefs` on `re-frame.core/dispatch-impl` reaches an op
   captured before it."
   [hook-key default]
-  (or (late-bind/get-fn-cached hook-key) default))
+  (or (rf.late-bind/get-fn-cached hook-key) default))
 
 (defn make-capture-frame
   "Build a frame api locked to `frame` — the constructor behind
@@ -186,19 +186,19 @@
                           classifies as `:source :ui` + carries the view's
                           call-site for Xray's dispatch 'go to code'.
     :subscribe-call-site  a source-coord stamped (under
-                          `interop/debug-enabled?`) onto any error emitted
+                          `rf.interop/debug-enabled?`) onto any error emitted
                           inside the synchronous subscribe miss path
                           (`:rf.error/no-such-sub`, `:rf.error/frame-
                           destroyed`). Mirrors the `subscribe` macro's
-                          `trace/with-call-site` wrapper; subscriptions
+                          `rf.trace/with-call-site` wrapper; subscriptions
                           carry no `:source` axis. DCEs in production."
   [frame {:keys [dispatch-opts subscribe-call-site]}]
   ;; rf2-9pyles: pin the EXACT incarnation live at capture so a later op cannot
   ;; leak into a same-id successor. nil (id not live at capture) ⇒ address-directed.
   (let [captured-incarnation (capture-target-incarnation frame)
-        dispatch-impl        (seam :core/dispatch-impl      router/dispatch!)
-        dispatch-sync-impl   (seam :core/dispatch-sync-impl router/dispatch-sync!)
-        subscribe-impl       (seam :core/subscribe-impl     subs/subscribe)]
+        dispatch-impl        (seam :core/dispatch-impl      rf.router/dispatch!)
+        dispatch-sync-impl   (seam :core/dispatch-sync-impl rf.router/dispatch-sync!)
+        subscribe-impl       (seam :core/subscribe-impl     rf.subs/subscribe)]
     {:frame frame
      :dispatch
      (fn dispatch-fn
@@ -230,8 +230,8 @@
                         (assoc :rf.frame/expected-incarnation captured-incarnation))]
          (capture-subscribe!
            (fn []
-             (if (and subscribe-call-site interop/debug-enabled?)
-               (trace/with-call-site subscribe-call-site
+             (if (and subscribe-call-site rf.interop/debug-enabled?)
+               (rf.trace/with-call-site subscribe-call-site
                  (subscribe-impl query-v sub-opts))
                (subscribe-impl query-v sub-opts)))
            frame captured-incarnation query-v subscribe-call-site)))}))

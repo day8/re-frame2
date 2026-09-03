@@ -15,7 +15,7 @@
 
   JVM-only (`.clj`): it requires the epoch + machines artefacts and declares
   the frame's durable `:large` path via the EP-0025 commit-plane
-  classification effect (`elision/apply-classification-effects`, the same
+  classification effect (`rf.elision/apply-classification-effects`, the same
   registry write a `reg-event` returning `:large` performs) — the same setup
   the epoch artefact's own privacy suite uses. Lives in core's test tree
   because the surface under test is the CORE facade wrapper, not the artefact
@@ -25,7 +25,7 @@
 
   Two halves that look like one. The epoch RING is fed from the dev trace
   stream and `epoch.capture/observe-trace-event!` opens with
-  `(when interop/debug-enabled? ...)`, so under
+  `(when rf.interop/debug-enabled? ...)`, so under
   `scripts/test-core-prod-gate.sh` `rf/epoch-history` is empty by construction.
   The PROJECTION under test is a different animal: `projected-record` is a pure
   function of a record map plus the frame's DURABLE elision registry, and both
@@ -42,17 +42,17 @@
 
   So the profile rows now drive a SYNTHETIC record — the same shape the ring
   holds — and run in both postures. The live-ring rows are kept verbatim inside
-  `(when interop/debug-enabled? ...)` arms as what they always were: the CAPTURE
+  `(when rf.interop/debug-enabled? ...)` arms as what they always were: the CAPTURE
   half."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.elision :as elision]
-            [re-frame.error :as error]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.projection :as projection]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
+            [re-frame.elision :as rf.elision]
+            [re-frame.error :as rf.error]
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.projection :as rf.projection]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
             ;; Side-effect requires: loading the epoch artefact publishes the
             ;; `:epoch/*` late-bind hooks the core wrappers delegate to (without
             ;; them `rf/epoch-history` degrades to []); machines mirrors the
@@ -61,14 +61,14 @@
             [re-frame.machines]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- last-record [frame-id]
   (last (rf/epoch-history frame-id)))
 
 (defn- install-large-path! [frame-id]
-  (frame/swap-runtime-db! frame-id
-    (fn [rt] (elision/apply-classification-effects rt {:large [[:blob :payload]]})))
+  (rf.frame/swap-runtime-db! frame-id
+    (fn [rt] (rf.elision/apply-classification-effects rt {:large [[:blob :payload]]})))
   nil)
 
 (defn- big-string [n] (apply str (repeat n "X")))
@@ -89,7 +89,7 @@
   projected record, or nil if the slot is not a marker."
   [record]
   (let [slot (get-in record [:db-after :blob :payload])]
-    (when (elision/marker? slot)
+    (when (rf.elision/marker? slot)
       (:rf.size/large-elided slot))))
 
 ;; ---------------------------------------------------------------------------
@@ -139,7 +139,7 @@
     ;;      record of exactly that shape into the ring. The ring is fed from the
     ;;      dev trace stream (`epoch.capture/observe-trace-event!` is gated), so
     ;;      it is empty under -Dre-frame.debug=false.
-    (when interop/debug-enabled?
+    (when rf.interop/debug-enabled?
     (let [raw       (last-record :ep/main)
           ;; The bare 1-arity (default observability boundary), through the
           ;; CORE wrapper.
@@ -199,16 +199,16 @@
       ;; guard, so the message carries the [:rf.error/unknown-egress-profile]
       ;; greppability token and the canonical :where / :recovery slots — only
       ;; :where differs (it names the epoch boundary helper).
-      (is (error/message-has-id-token? msg)
+      (is (rf.error/message-has-id-token? msg)
           "the message carries the trailing greppability token (rule 4)")
-      (is (not (error/keyword-only-message? msg))
+      (is (not (rf.error/keyword-only-message? msg))
           "the message is a human sentence, not a bare keyword (rule 1)")
       (is (= 'epoch/projected-record (:where data))
           ":where names the epoch boundary helper")
       (is (= :use-a-known-profile (:recovery data)))
       ;; The epoch site's thrown shape is IDENTICAL (but for :where) to the
       ;; shared builder's — proving the dedup: one reason, two call sites.
-      (let [canonical (projection/unknown-egress-profile-ex
+      (let [canonical (rf.projection/unknown-egress-profile-ex
                         'epoch/projected-record :rf.egress/not-real)]
         (is (= (ex-message canonical) msg)
             "the epoch throw's message == the shared builder's")
@@ -220,7 +220,7 @@
   ;; it has nothing to thread a profile to under -Dre-frame.debug=false. There
   ;; is no synthetic stand-in: the ring is the subject. The per-record profile
   ;; threading it delegates to is covered always-on above. Kept verbatim.
-  (when interop/debug-enabled?
+  (when rf.interop/debug-enabled?
   (testing "rf2-ylvp4m — `rf/projected-history` threads the named
             :rf.egress/profile boundary to every record (the whole-ring
             convenience over `projected-record`)."

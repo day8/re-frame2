@@ -16,17 +16,17 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core                 :as rf]
-            [re-frame.frame                :as frame]
-            [re-frame.fx                   :as fx]
-            [re-frame.image                :as image]
-            [re-frame.late-bind            :as late-bind]
-            [re-frame.live-frame           :as lf]
-            [re-frame.registrar            :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support         :as test-support]))
+            [re-frame.frame                :as rf.frame]
+            [re-frame.fx                   :as rf.fx]
+            [re-frame.image                :as rf.image]
+            [re-frame.late-bind            :as rf.late-bind]
+            [re-frame.live-frame           :as rf.live-frame]
+            [re-frame.registrar            :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support         :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter       plain-atom/adapter
+  (rf.test-support/make-reset-runtime-fixture {:adapter       rf.substrate.plain-atom/adapter
                                             :ambient-frame nil}))
 
 ;; ===========================================================================
@@ -42,7 +42,7 @@
             the fx body's counter stays at zero and exactly one row records"
     (rf/make-frame {:id :inline/main :doc "inline-image fx frame"})
     (let [fired (atom [])
-          img   (image/image
+          img   (rf.image/image
                   {:id :inline/fx
                    :registrations
                    {:reg-event [[:do/it {}
@@ -51,13 +51,13 @@
                                     :fx [[:img/side-effect {:n 7}]]})]]
                     :reg-fx    [[:img/side-effect {}
                                  (fn [_ctx args] (swap! fired conj args))]]}})]
-      (lf/make-frame {:id :inline/main :images [img]} [])
+      (rf.live-frame/make-frame {:id :inline/main :images [img]} [])
       (is (not (contains? (set (keys (rf/registrations :fx))) :img/side-effect))
           "premise: the inline fx is image-only — absent from the process-global
            :fx registrar (so an enumeration-based dry-run would MISS it)")
       ;; DRY RUN — bind the sink.
       (let [sink (atom [])]
-        (binding [fx/*effect-sink* sink]
+        (binding [rf.fx/*effect-sink* sink]
           (rf/dispatch-sync [:do/it] {:frame :inline/main}))
         (is (= [] @fired)
             "the image-only inline fx body did NOT run under the sink — escape
@@ -95,12 +95,12 @@
         ;; — the override must REPLACE the framework's source-store slot,
         ;; not collide as a cross-ns duplicate at default-image assembly
         ;; (rf2-h1vqa4).
-        (fx/reg-fx id (record! id)))
+        (rf.fx/reg-fx id (record! id)))
       (rf/reg-event :rt/go
         (fn [{:keys [db]} _] {:db (assoc db :ran true) :fx emitted}))
       ;; DRY RUN.
       (let [sink (atom [])]
-        (binding [fx/*effect-sink* sink]
+        (binding [rf.fx/*effect-sink* sink]
           (rf/dispatch-sync [:rt/go] {:frame :rt/frame}))
         (is (= {} @hits)
             "no reject-tier / control fx body ran under the sink — no lifecycle
@@ -116,7 +116,7 @@
       ;; where the recorder stubs are observable, and the control only
       ;; proves the stub fx bodies EXECUTE without the sink.
       (reset! hits {})
-      (frame/upsert-frame! :rt/frame-bare {})
+      (rf.frame/upsert-frame! :rt/frame-bare {})
       (rf/dispatch-sync [:rt/go] {:frame :rt/frame-bare})
       (is (= {:custom/control         {:c 1}
               :rf.machine/spawn        {:actor :a}
@@ -131,11 +131,11 @@
             real body (the :flows/* late-bind hook) never fires"
     (rf/make-frame {:id :rf/frame})
     (let [hits      (atom [])
-          old-reg   (late-bind/get-fn :flows/reg-flow)
-          old-clear (late-bind/get-fn :flows/clear-flow)]
+          old-reg   (rf.late-bind/get-fn :flows/reg-flow)
+          old-clear (rf.late-bind/get-fn :flows/clear-flow)]
       (try
-        (late-bind/set-fn! :flows/reg-flow   (fn [& _] (swap! hits conj :reg-flow)))
-        (late-bind/set-fn! :flows/clear-flow (fn [& _] (swap! hits conj :clear-flow)))
+        (rf.late-bind/set-fn! :flows/reg-flow   (fn [& _] (swap! hits conj :reg-flow)))
+        (rf.late-bind/set-fn! :flows/clear-flow (fn [& _] (swap! hits conj :clear-flow)))
         (rf/reg-event :rf/go
           (fn [{:keys [db]} _]
             {:db (assoc db :ran true)
@@ -143,7 +143,7 @@
                   [:rf.fx/clear-flow :my/flow]]}))
         ;; DRY RUN.
         (let [sink (atom [])]
-          (binding [fx/*effect-sink* sink]
+          (binding [rf.fx/*effect-sink* sink]
             (rf/dispatch-sync [:rf/go] {:frame :rf/frame}))
           (is (= [] @hits)
               "neither reserved flow body ran under the sink — no flow registered
@@ -156,8 +156,8 @@
         (is (= [:reg-flow :clear-flow] @hits)
             "positive control: without the sink the reserved flow bodies run")
         (finally
-          (late-bind/set-fn! :flows/reg-flow   old-reg)
-          (late-bind/set-fn! :flows/clear-flow old-clear))))))
+          (rf.late-bind/set-fn! :flows/reg-flow   old-reg)
+          (rf.late-bind/set-fn! :flows/clear-flow old-clear))))))
 
 ;; ===========================================================================
 ;; AC3 — two frames whose generations resolve the SAME fx id to DIFFERENT
@@ -173,23 +173,23 @@
     (rf/make-frame {:id :f/b})
     (let [fired-a (atom false)
           fired-b (atom false)
-          img-a   (image/image
+          img-a   (rf.image/image
                     {:id :img/a
                      :registrations
                      {:reg-event [[:go {} (fn [_ _] {:fx [[:same/fx :A]]})]]
                       :reg-fx    [[:same/fx {} (fn [_ _] (reset! fired-a true))]]}})
-          img-b   (image/image
+          img-b   (rf.image/image
                     {:id :img/b
                      :registrations
                      {:reg-event [[:go {} (fn [_ _] {:fx [[:same/fx :B]]})]]
                       :reg-fx    [[:same/fx {} (fn [_ _] (reset! fired-b true))]]}})]
-      (lf/make-frame {:id :f/a :images [img-a]} [])
-      (lf/make-frame {:id :f/b :images [img-b]} [])
+      (rf.live-frame/make-frame {:id :f/a :images [img-a]} [])
+      (rf.live-frame/make-frame {:id :f/b :images [img-b]} [])
       (is (not (contains? (set (keys (rf/registrations :fx))) :same/fx))
           "premise: :same/fx is image-only on BOTH frames — absent from the
            process-global union")
       (let [sink (atom [])]
-        (binding [fx/*effect-sink* sink]
+        (binding [rf.fx/*effect-sink* sink]
           (rf/dispatch-sync [:go] {:frame :f/a}))
         (is (false? @fired-a) "frame A's :same/fx body did not run")
         (is (false? @fired-b) "frame B's :same/fx body did not run")
@@ -219,7 +219,7 @@
                 [:dispatch  [:child]]
                 [:ext/http {:url "/b"}]]}))
       (let [sink (atom [])]
-        (binding [fx/*effect-sink* sink]
+        (binding [rf.fx/*effect-sink* sink]
           (rf/dispatch-sync [:ord/go] {:frame :ord/frame}))
         (is (= :untouched @escaped)
             "the escaped external-effect sentinel is untouched even though the
@@ -248,16 +248,16 @@
             enumeration-inferred"
     (rf/make-frame {:id :ni/main})
     (let [ran (atom false)
-          img (image/image
+          img (rf.image/image
                 {:id :ni/img
                  :registrations
                  {:reg-event [[:go {} (fn [_ _] {:fx [[:only/on-image {:k :v}]]})]]
                   :reg-fx    [[:only/on-image {} (fn [_ _] (reset! ran true))]]}})]
-      (lf/make-frame {:id :ni/main :images [img]} [])
+      (rf.live-frame/make-frame {:id :ni/main :images [img]} [])
       (let [global-fx-ids (set (keys (rf/registrations :fx)))
             sink          (atom [])]
         (is (not (contains? global-fx-ids :only/on-image)))
-        (binding [fx/*effect-sink* sink]
+        (binding [rf.fx/*effect-sink* sink]
           (rf/dispatch-sync [:go] {:frame :ni/main}))
         (is (false? @ran) "the image-only fx was intercepted despite absence
                            from the global registrar")

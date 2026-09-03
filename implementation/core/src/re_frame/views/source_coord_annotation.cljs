@@ -60,8 +60,8 @@
       the production-bundle elision sentinel set (see
       `scripts/check-elision.cjs`)."
   (:require [goog.object :as gobj]
-            [re-frame.adapter.context :as adapter-context]
-            [re-frame.views.warn-once :as warn-once]))
+            [re-frame.adapter.context :as rf.adapter.context]
+            [re-frame.views.warn-once :as rf.views.warn-once]))
 
 ;; `format-source-coord` / `format-view-id` are the pure string projections
 ;; of the annotation attribute VALUES. They live in the shared leaf
@@ -70,8 +70,8 @@
 ;; identical `data-rf2-source-coord` / `data-rf-view` values across
 ;; substrates. Re-exported here for the `re-frame.views` facade and its
 ;; parity tests.
-(def format-source-coord adapter-context/format-source-coord)
-(def format-view-id       adapter-context/format-view-id)
+(def format-source-coord rf.adapter.context/format-source-coord)
+(def format-view-id       rf.adapter.context/format-view-id)
 
 (defn- reagent-class?
   "Dependency-free structural predicate for a Reagent-family Form-3 class
@@ -151,7 +151,7 @@
       ;; node this outer registered view can annotate. Preserve the class
       ;; identity so Reagent mounts it, while retaining Spec 006's standard
       ;; one-shot warning for every non-DOM root.
-      (warn-once/warn-non-dom-root! id out)
+      (rf.views.warn-once/warn-non-dom-root! id out)
       out)
 
     ;; Form-2: render-fn returned a fn. Wrap so the inner fn's output
@@ -190,5 +190,5 @@
     :else
     (do
       (when (some? out)
-        (warn-once/warn-non-dom-root! id (if (vector? out) (first out) out)))
+        (rf.views.warn-once/warn-non-dom-root! id (if (vector? out) (first out) out)))
       out)))

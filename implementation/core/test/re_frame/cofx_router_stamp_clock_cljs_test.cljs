@@ -4,17 +4,17 @@
 
   WHY A NEW CLJS SUITE. The existing core `:rf.cofx` envelope tests
   (`re-frame.cofx-envelope-test`) are JVM-ONLY and assert only that an
-  omitted `:time-ms` is stamped to a NUMBER. On the JVM `interop/now-ms`
-  (elapsed) and `interop/epoch-now-ms` (wall-clock) are BOTH
+  omitted `:time-ms` is stamped to a NUMBER. On the JVM `rf.interop/now-ms`
+  (elapsed) and `rf.interop/epoch-now-ms` (wall-clock) are BOTH
   `System.currentTimeMillis`-ish, so a regression swapping the router's
   stamp source from `epoch-now-ms` -> `now-ms` (rf2-n1rh0f names
   `epoch-now-ms` as THE durable wall-clock source) stays GREEN on every
   JVM suite. On CLJS the two clocks are DISTINCT CLASSES:
 
-    - `interop/now-ms`       = `performance.now()` — origin-relative,
+    - `rf.interop/now-ms`       = `performance.now()` — origin-relative,
                                for ELAPSED measurement (~1e4 in a fresh
                                process), NOT comparable with `js/Date`.
-    - `interop/epoch-now-ms` = `js/Date.now()`     — wall-clock epoch ms
+    - `rf.interop/epoch-now-ms` = `js/Date.now()`     — wall-clock epoch ms
                                (~1.78e12 as of 2026), the durable causal
                                time `:rf.cofx` `:rf/time-ms` MUST be.
 
@@ -42,13 +42,13 @@
   at the router boundary and is adapter-independent."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.interop :as interop]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace :as trace]))
+            [re-frame.interop :as rf.interop]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.trace :as rf.trace]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; Sanity floor: a wall-clock epoch ms is far above any plausible
 ;; `performance.now()` origin-relative value (a fresh Node process is well
@@ -91,7 +91,7 @@
           ;; the CLJS runtime — far below the floor.
           (is (> time-ms wall-clock-floor)
               ":time-ms is a WALL-CLOCK epoch ms (> 1e12) — sourced from
-               interop/epoch-now-ms (js/Date.now), NOT interop/now-ms
+               rf.interop/epoch-now-ms (js/Date.now), NOT rf.interop/now-ms
                (performance.now, origin-relative ~1e4)")
           ;; The TIGHT band: within the bracketing js/Date.now() reads (plus a
           ;; ~10s slack for slow CI). Confirms both the magnitude AND that the
@@ -145,9 +145,9 @@
             the two clock surfaces ARE distinguishable here — so the band tests
             above genuinely catch a swap (they would be vacuous if both clocks
             read the same class, as on the JVM)."
-    (is (> (interop/epoch-now-ms) wall-clock-floor)
+    (is (> (rf.interop/epoch-now-ms) wall-clock-floor)
         "epoch-now-ms is a wall-clock epoch ms on CLJS (js/Date.now)")
-    (is (< (interop/now-ms) wall-clock-floor)
+    (is (< (rf.interop/now-ms) wall-clock-floor)
         "now-ms is an origin-relative perf time on CLJS (performance.now),
          below the wall-clock floor — distinct CLASS from epoch-now-ms, so a
          swap is observable on this runtime (JVM-benign)")))

@@ -13,7 +13,7 @@
   the late-bind registry.
 
   Coverage:
-    - `:throw`     — `late-bind/require-fn!` raises the structured
+    - `:throw`     — `rf.late-bind/require-fn!` raises the structured
                      :rf.error/<artefact>-artefact-missing ex-info with
                      the documented slots (:where, :reason, :recovery).
     - `:nil`       — returns nil when the hook is unregistered;
@@ -26,7 +26,7 @@
                      ride the throw's ex-data."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core-artefact :refer [defwrapper]]
-            [re-frame.late-bind :as late-bind]))
+            [re-frame.late-bind :as rf.late-bind]))
 
 ;; ---- fixture --------------------------------------------------------------
 
@@ -34,16 +34,16 @@
 ;; registration from one test doesn't leak into the next.
 
 (defn- reset-late-bind [test-fn]
-  ;; The `late-bind/hooks` registry is a defonce atom; snapshot and
+  ;; The `rf.late-bind/hooks` registry is a defonce atom; snapshot and
   ;; restore around the test so each test installs its own hooks
   ;; without leaking into siblings or wiping framework registrations.
-  (let [snap @late-bind/hooks
+  (let [snap @rf.late-bind/hooks
         test-keys [:test/throw-hook :test/nil-hook :test/false-hook
                    :test/empty-vec-hook :test/empty-map-hook
                    :test/literal-hook :test/ex-data-hook]]
-    (doseq [k test-keys] (swap! late-bind/hooks dissoc k))
+    (doseq [k test-keys] (swap! rf.late-bind/hooks dissoc k))
     (try (test-fn)
-         (finally (reset! late-bind/hooks snap)))))
+         (finally (reset! rf.late-bind/hooks snap)))))
 
 (use-fixtures :each reset-late-bind)
 
@@ -87,7 +87,7 @@
 
 (deftest throw-policy-delegates-when-hook-registered
   (testing ":throw delegates to the hook fn when registered"
-    (late-bind/set-fn! :test/throw-hook (fn ([] :zero) ([x] [:one x])))
+    (rf.late-bind/set-fn! :test/throw-hook (fn ([] :zero) ([x] [:one x])))
     (is (= :zero (throw-wrapper)))
     (is (= [:one 42] (throw-wrapper 42)))))
 
@@ -104,7 +104,7 @@
 
 (deftest nil-policy-delegates-when-present
   (testing ":on-absent :nil delegates when the hook is registered"
-    (late-bind/set-fn! :test/nil-hook (fn [] :present))
+    (rf.late-bind/set-fn! :test/nil-hook (fn [] :present))
     (is (= :present (nil-wrapper)))))
 
 ;; ---- :false policy --------------------------------------------------------
@@ -118,7 +118,7 @@
   (is (false? (false-wrapper))))
 
 (deftest false-policy-delegates-when-present
-  (late-bind/set-fn! :test/false-hook (fn [] :really))
+  (rf.late-bind/set-fn! :test/false-hook (fn [] :really))
   (is (= :really (false-wrapper))))
 
 ;; ---- :empty-vec policy ---------------------------------------------------
@@ -132,7 +132,7 @@
   (is (= [] (empty-vec-wrapper))))
 
 (deftest empty-vec-policy-delegates-when-present
-  (late-bind/set-fn! :test/empty-vec-hook (fn [] [:a :b]))
+  (rf.late-bind/set-fn! :test/empty-vec-hook (fn [] [:a :b]))
   (is (= [:a :b] (empty-vec-wrapper))))
 
 ;; ---- :empty-map policy ---------------------------------------------------
@@ -146,7 +146,7 @@
   (is (= {} (empty-map-wrapper))))
 
 (deftest empty-map-policy-delegates-when-present
-  (late-bind/set-fn! :test/empty-map-hook (fn [] {:k :v}))
+  (rf.late-bind/set-fn! :test/empty-map-hook (fn [] {:k :v}))
   (is (= {:k :v} (empty-map-wrapper))))
 
 ;; ---- literal-value policy ------------------------------------------------

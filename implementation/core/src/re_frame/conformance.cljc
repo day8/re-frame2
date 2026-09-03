@@ -57,11 +57,11 @@
     collection  :conj :assoc :dissoc :count
     identity    :identity
     fixture     :item-amount"
-  (:require [re-frame.error :as error]
-            [re-frame.late-bind :as late-bind]
+  (:require [re-frame.error :as rf.error]
+            [re-frame.late-bind :as rf.late-bind]
             ;; rf2-j81hs — `[:view-ref id]` in a fixture view body resolves
             ;; to the registered handler-fn, so the DSL reads the registry.
-            [re-frame.registrar :as registrar]))
+            [re-frame.registrar :as rf.registrar]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -94,7 +94,7 @@
                  ;; Fixtures use [:fn :count] to assert sub-exception
                  ;; recovery; raising a recognisable message lets the
                  ;; error trace expose a stable :exception-message.
-                 ;; The error/sub-exception fixture sets :items to a
+                 ;; The rf.error/sub-exception fixture sets :items to a
                  ;; string ("broken") and expects counting to fail with
                  ;; "cannot count a string" — we honour that intent by
                  ;; refusing strings AND Characters (a string element
@@ -126,7 +126,7 @@
                                                     :recovery :no-recovery}))
                    :else          (count x)))
     :item-amount (fn [item] (* (:qty item) (:price item)))
-    (error/throw-error!
+    (rf.error/throw-error!
       :rf.error/conformance-unknown-fn-builtin
       'rf/conformance-eval
       (str "unknown :fn builtin " k)
@@ -305,7 +305,7 @@
   and `:event` (the originating event vector)."
   [steps]
   (fn [chain-ctx]
-    (let [dispatch! (late-bind/get-fn :router/dispatch!)
+    (let [dispatch! (rf.late-bind/get-fn :router/dispatch!)
           frame-id  (:frame chain-ctx)]
       (reduce
         (fn [acc step]
@@ -327,7 +327,7 @@
 
               :noop acc
 
-              (error/throw-error!
+              (rf.error/throw-error!
                 :rf.error/conformance-unknown-before-op
                 'rf/conformance-eval
                 "unknown :before DSL op"
@@ -509,7 +509,7 @@
     :reduce-input ctx
     :db-get    ctx
 
-    (error/throw-error!
+    (rf.error/throw-error!
       :rf.error/conformance-unknown-dsl-op
       'rf/conformance-eval
       "unknown DSL op"
@@ -568,7 +568,7 @@
   [form walk-arg]
   (let [id      (second form)
         args    (mapv walk-arg (drop 2 form))
-        view-fn (:handler-fn (registrar/lookup :view id))]
+        view-fn (:handler-fn (rf.registrar/lookup :view id))]
     (when-not view-fn
       (throw (ex-info (str "conformance fixture: [:view-ref " id "] names "
                            "no registered view — check :fixture/handlers "

@@ -19,7 +19,7 @@
 
   Slot placement: top-level on the trace event, NOT under `:tags` —
   mirrors the error / trigger-handler shape exactly. Production
-  elision: rides the same `interop/debug-enabled?` gate the rest of
+  elision: rides the same `rf.interop/debug-enabled?` gate the rest of
   the trace surface uses; no separate elision contract.
 
   JVM-only — the dynamic-var binding mechanism is platform-agnostic.
@@ -28,10 +28,10 @@
 
   `:rf.trace/call-site` is DEV-ONLY BY DESIGN and there is no production
   channel that carries it — checked, not assumed. `core-call-site-macros/gate`
-  wraps every expansion in `(if interop/debug-enabled? <stamped> <plain>)` with
+  wraps every expansion in `(if rf.interop/debug-enabled? <stamped> <plain>)` with
   the gate OUTERMOST, so under `-Dre-frame.debug=false` the coord map is never
-  built; `router/process-event!` additionally re-gates the read
-  (`(trace/with-call-site (when interop/debug-enabled? (:rf.trace/call-site
+  built; `rf.router/process-event!` additionally re-gates the read
+  (`(rf.trace/with-call-site (when rf.interop/debug-enabled? (:rf.trace/call-site
   opts)) …)`); and the coord does NOT ride the dispatch envelope, so the
   `(:envelope m)` probe that rescued `substrate-source-test` in rf2-d2841's
   fourth pass has nothing to read here. Every trace assertion below is
@@ -55,24 +55,24 @@
   certified the fn-form by never looking at it."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.interop :as interop]
-            [re-frame.router :as router]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
-            [re-frame.flows :as flows]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]))
+            [re-frame.interop :as rf.interop]
+            [re-frame.router :as rf.router]
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.flows :as rf.flows]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace :as rf.trace]))
 
 ;; ---- fixtures -------------------------------------------------------------
 
 (defn reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  (trace/clear-listeners!)
-  (rf/init! plain-atom/adapter)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.flows/reset-flows!)
+  (rf.schemas/clear-schemas-by-frame!)
+  (rf.trace/clear-listeners!)
+  (rf/init! rf.substrate.plain-atom/adapter)
   (require 're-frame.routing :reload)
   ;; EP-0002 (rf2-9o48ih): `init!` no longer synthesises `:rf/default`;
   ;; framework operation surfaces require a carried frame stamp. Register
@@ -100,7 +100,7 @@
 
 ;; ---- always-on dispatch witness (rf2-d2841) -------------------------------
 ;;
-;; The call-site macros expand to `(if interop/debug-enabled? <stamped>
+;; The call-site macros expand to `(if rf.interop/debug-enabled? <stamped>
 ;; <plain>)`. Under `-Dre-frame.debug=false` the PLAIN branch runs, and no
 ;; suite had ever executed it. These probes assert that whichever branch this
 ;; posture selected reached the router and ran the cascade to completion.
@@ -138,7 +138,7 @@
         (assert-dispatched envelopes :top "macro dispatch-sync")
         (is (true? (:rf2-twt7m/ran? (rf/app-db-value :rf/default)))
             "the macro dispatch committed its db change in this posture")
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (some? enqueue) ":rf.event/dispatched fired")
           (is (contains? enqueue :rf.trace/call-site)
               ":rf.trace/call-site hoisted onto the success-path emit")
@@ -163,7 +163,7 @@
         (assert-dispatched envelopes :top "macro dispatch-sync")
         ;; rf2-d2841 — GUARDED: top-level-vs-`:tags` is a TRACE-SHAPE claim, and
         ;; no trace event exists under `-Dre-frame.debug=false`.
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (contains? enqueue :rf.trace/call-site)
               ":rf.trace/call-site lives at top level")
           (is (not (contains? (:tags enqueue) :rf.trace/call-site))
@@ -180,17 +180,17 @@
                               :fx [[:rf2-twt7m/probe [:top]]]}))
       (let [evs       (record-traces
                         (fn []
-                          (router/dispatch-sync! [:rf2-twt7m/fn-form])))
+                          (rf.router/dispatch-sync! [:rf2-twt7m/fn-form])))
             [enqueue] (events-of evs :rf.event/dispatched)]
         ;; ALWAYS-ON (rf2-d2841): the fn-form seam — the one the macro's
         ;; production branch expands to — dispatches identically. That is the
         ;; substance the gate's prod branch relies on.
-        (assert-dispatched envelopes :top "router/dispatch-sync! fn-form")
+        (assert-dispatched envelopes :top "rf.router/dispatch-sync! fn-form")
         (is (true? (:rf2-twt7m/fn-ran? (rf/app-db-value :rf/default)))
             "the fn-form dispatch committed its db change in this posture")
         ;; rf2-d2841 — class-4 vacuous under the gate: `enqueue` is nil there,
         ;; so the negative certified the fn-form by never looking at it.
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (some? enqueue) ":rf.event/dispatched fired")
           (is (not (contains? enqueue :rf.trace/call-site))
               ":rf.trace/call-site omitted on the fn-form path"))))))
@@ -227,7 +227,7 @@
         (assert-dispatched envelopes :child  "cascade child")
         (is (true? (:child? (rf/app-db-value :rf/default)))
             "the child dispatch committed in this posture")
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (some? dbc) ":rf.event/db-changed fired")
           (is (some? dof) ":rf.fx/do-fx fired")
           (is (some? handled) ":rf.fx/handled fired")

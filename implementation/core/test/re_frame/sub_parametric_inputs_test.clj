@@ -28,31 +28,31 @@
       sub-input-fn-exception / sub-input-fn-bad-return)"
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.interop :as interop]
-            [re-frame.subs :as subs]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
-            [re-frame.flows :as flows]
-            [re-frame.trace :as trace]
+            [re-frame.interop :as rf.interop]
+            [re-frame.subs :as rf.subs]
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.flows :as rf.flows]
+            [re-frame.trace :as rf.trace]
             ;; load the tooling sibling so the late-bind hooks behind the
             ;; public listener API resolve (rf2-qwm0a).
             [re-frame.trace.tooling]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (defn reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  (trace/clear-listeners!)
-  (rf/init! plain-atom/adapter)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.flows/reset-flows!)
+  (rf.schemas/clear-schemas-by-frame!)
+  (rf.trace/clear-listeners!)
+  (rf/init! rf.substrate.plain-atom/adapter)
   ;; EP-0002 (rf2-jue6sp): `init!` no longer synthesises `:rf/default`,
   ;; and ambient subscribe / dispatch now require a carried frame stamp.
   ;; These parametric-input tests run against a single conventional app
   ;; frame, so register `:rf/default` explicitly and pin it as the
   ;; established scope for the whole body via `with-frame`.
-  (frame/ensure-default-frame!)
+  (rf.frame/ensure-default-frame!)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)
   (require 're-frame.machines :reload)
@@ -75,7 +75,7 @@
 (defn- capture-error-records!
   "The ALWAYS-ON counterpart of [[capture-errors!]] (rf2-d2841). Both
   `:rf.error/sub-input-fn-exception` and `:rf.error/sub-input-fn-bad-return`
-  are PROMOTED categories — `subs/emit-sub-input-fn-error!` fans them through
+  are PROMOTED categories — `rf.subs/emit-sub-input-fn-error!` fans them through
   `error-emit/emit-error-both!` — so their occurrence, sub-id and query-v are
   readable in production posture off the corpus-wide registry. (`:where` is
   not: it rides the dev-trace tags, which `emit-error-both!` does not lift
@@ -90,13 +90,13 @@
 
 (use-fixtures :each reset-runtime)
 
-(defn- sub-meta [id] (registrar/lookup :sub id))
+(defn- sub-meta [id] (rf.registrar/lookup :sub id))
 
 (defn- entry [frame-id query-v]
-  (get-in @(:sub-cache (frame/frame frame-id)) [query-v]))
+  (get-in @(:sub-cache (rf.frame/frame frame-id)) [query-v]))
 
 (defn- cache-keys [frame-id]
-  (set (keys @(:sub-cache (frame/frame frame-id)))))
+  (set (keys @(:sub-cache (rf.frame/frame frame-id)))))
 
 ;; ---- parse + metadata: :input-kind discriminator -------------------------
 
@@ -133,43 +133,43 @@
 
 (deftest normalize-accepts-vector-of-query-vectors
   (testing "a vector of query vectors normalizes to {:queries [...]}"
-    (is (= {:queries [[:a 1] [:b]]} (subs/normalize-sub-inputs [[:a 1] [:b]])))
-    (is (= {:queries [[:x :y]]}     (subs/normalize-sub-inputs [[:x :y]]))
+    (is (= {:queries [[:a 1] [:b]]} (rf.subs/normalize-sub-inputs [[:a 1] [:b]])))
+    (is (= {:queries [[:x :y]]}     (rf.subs/normalize-sub-inputs [[:x :y]]))
         "single input is still a vector OF query vectors")
-    (is (= {:queries []}            (subs/normalize-sub-inputs []))
+    (is (= {:queries []}            (rf.subs/normalize-sub-inputs []))
         "empty is unusual but valid")))
 
 (deftest normalize-rejects-scalar-query-vector
   (testing "a scalar query vector [:x :y] is rejected (ambiguous: arg vs two inputs)"
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"sub-input-fn-bad-return"
-          (subs/normalize-sub-inputs [:x :y])))))
+          (rf.subs/normalize-sub-inputs [:x :y])))))
 
 (deftest normalize-rejects-bare-keyword
   (testing "a bare keyword is rejected — no shorthand"
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"sub-input-fn-bad-return"
-          (subs/normalize-sub-inputs :viewer/current)))))
+          (rf.subs/normalize-sub-inputs :viewer/current)))))
 
 (deftest normalize-rejects-map
   (testing "a map return is rejected"
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"sub-input-fn-bad-return"
-          (subs/normalize-sub-inputs {:article [:article/by-id 1]})))))
+          (rf.subs/normalize-sub-inputs {:article [:article/by-id 1]})))))
 
 (deftest normalize-rejects-mixed-vector
   (testing "a vector with a non-query-vector element is rejected"
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"sub-input-fn-bad-return"
-          (subs/normalize-sub-inputs [[:article/by-id 1] :viewer])))
+          (rf.subs/normalize-sub-inputs [[:article/by-id 1] :viewer])))
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"sub-input-fn-bad-return"
-          (subs/normalize-sub-inputs [[:a] [42 :b]]))
+          (rf.subs/normalize-sub-inputs [[:a] [42 :b]]))
         "a vector whose head is not a keyword is not a query vector")))
 
 (deftest normalize-rejects-reaction-and-derefable
   (testing "a reaction / derefable return is rejected (not a vector)"
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"sub-input-fn-bad-return"
-          (subs/normalize-sub-inputs (atom [[:a]]))))
+          (rf.subs/normalize-sub-inputs (atom [[:a]]))))
     ;; A vector CONTAINING a derefable element is also rejected — an atom
     ;; is not a query vector (not a vector with a keyword head).
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"sub-input-fn-bad-return"
-          (subs/normalize-sub-inputs [(atom [:a])])))))
+          (rf.subs/normalize-sub-inputs [(atom [:a])])))))
 
 ;; ---- the input-fn receives the full outer query-v ------------------------
 
@@ -435,10 +435,10 @@
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"reg-sub-bad-args"
               (rf/reg-sub :bad2 :<- (fn [x _] x))))
         ;; rf2-d2841 — `:rf.error/reg-sub-bad-args` is a bare
-        ;; `trace/emit-error!` in `subs.cljc` (no always-on leg), so the TRACE
+        ;; `rf.trace/emit-error!` in `subs.cljc` (no always-on leg), so the TRACE
         ;; half is dev-only. The LOUD half — the two `thrown-with-msg?` rows
         ;; above — is what a production build has, and it is unguarded.
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (seq @errs) "a :rf.error/reg-sub-bad-args trace was emitted")
           (is (some #(= :bad (get-in % [:tags :rf.sub/id])) @errs)
               "the trace carries the offending sub id"))
@@ -458,7 +458,7 @@
         (is (nil? (rf/compute-sub [:boom] {:leaf 1}))
             "the sub recovers to nil when its input-fn throws")
         ;; rf2-d2841 — `:where` rides the dev-trace tags only.
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (some #(= :compute-sub (get-in % [:tags :where])) @errs)
               "the compute-sub path emitted :rf.error/sub-input-fn-exception"))
         ;; reactive path.
@@ -466,7 +466,7 @@
         (rf/dispatch-sync [:seed])
         (is (nil? (rf/subscribe-once [:boom]))
             "the reactive path also recovers to nil")
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (some #(= :reactive (get-in % [:tags :where])) @errs)
               "the reactive path emitted :rf.error/sub-input-fn-exception"))
         ;; ---- ALWAYS-ON (rf2-d2841): BOTH paths fanned a corpus-wide record
@@ -498,7 +498,7 @@
         (rf/dispatch-sync [:seed])
         (is (nil? (rf/subscribe-once [:bad-shape])))
         ;; rf2-d2841 — `:where` / `:rf.sub/query-v` ride the dev-trace tags.
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (let [wheres (set (map #(get-in % [:tags :where]) @errs))]
             (is (contains? wheres :compute-sub))
             (is (contains? wheres :reactive)))
@@ -553,11 +553,11 @@
       (is (not (contains? m :input-fn))
           "a meta-map + single fn is NOT misread as input-fn + computation-fn")
       ;; rf2-d2841 — `:doc` is PURE DOCUMENTATION, stripped by
-      ;; `registrar/strip-pure-documentation` under -Dre-frame.debug=false. The
+      ;; `rf.registrar/strip-pure-documentation` under -Dre-frame.debug=false. The
       ;; claim ("the meta-map was consumed as :meta, not as a handler") is
       ;; carried in both postures by the `:input-kind` / `:input-fn` rows above
       ;; and by the live subscribe below.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (= "a layer-1 sub" (:doc m)) "the meta-map survived onto the registration")))
     (rf/reg-event :seed-m1 (fn [{:keys [db]} _] {:db {:n 7}}))
     (rf/dispatch-sync [:seed-m1])
@@ -573,7 +573,7 @@
       (is (= [[:base]] (:input-signals m)))
       (is (not (contains? m :input-fn)))
       ;; rf2-d2841 — pure-documentation strip; see the deftest above.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (= "doubled" (:doc m)))))
     (rf/reg-event :seed-m2 (fn [{:keys [db]} _] {:db {:n 5}}))
     (rf/dispatch-sync [:seed-m2])
@@ -604,7 +604,7 @@
       (is (= :parametric (:input-kind m)))
       (is (fn? (:input-fn m)))
       ;; rf2-d2841 — pure-documentation strip; see above.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (= "parametric with meta" (:doc m)))))
     (rf/reg-event :seed-p1 (fn [{:keys [db]} _] {:db {:by-id {:a 99}}}))
     (rf/dispatch-sync [:seed-p1])

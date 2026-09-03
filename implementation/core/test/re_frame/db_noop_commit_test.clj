@@ -41,15 +41,15 @@
   after — the adversarial discriminator this namespace was written for),
   whether a `=`-but-distinct value still installs a new object, and that a
   `{:db nil}` return lands `{}` rather than nil. Those are facts about the
-  container, readable straight off `frame/frame-state-value` and
-  `frame/frame-app-db-value`, and they need no trace surface.
+  container, readable straight off `rf.frame/frame-state-value` and
+  `rf.frame/frame-app-db-value`, and they need no trace surface.
 
   Point 2 — the `:rf.event/db-noop` / `:rf.event/db-changed` complement — and
   the `:rf.warning/db-nil-coerced` diagnostic are DEV-ONLY. Both are
   `trace/emit!` sites with no always-on twin (`:rf.warning/db-nil-coerced` is
   catalogued diagnostic-channel, per this docstring's own contract line), so
   under the real gate nothing is emitted BY DESIGN. Their assertions are kept
-  verbatim inside a `(when interop/debug-enabled? …)` arm marked `rf2-d2841`.
+  verbatim inside a `(when rf.interop/debug-enabled? …)` arm marked `rf2-d2841`.
 
   The NEGATIVE trace assertions move inside the arm with their positive
   partners, and that is the point rather than tidiness: `(not (some #{…} ops))`
@@ -60,17 +60,17 @@
   where that channel exists."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (schemas/clear-schemas-by-frame!)
-  (rf/init! plain-atom/adapter)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.schemas/clear-schemas-by-frame!)
+  (rf/init! rf.substrate.plain-atom/adapter)
   (require 're-frame.routing  :reload)
   (require 're-frame.ssr      :reload)
   (require 're-frame.machines :reload)
@@ -102,20 +102,20 @@
       (fn [{:keys [db]} [_ do-it?]]
         {:db (if do-it? (update db :counter inc) db)}))
     (rf/dispatch-sync [:noop/seed])
-    (let [fs-before (frame/frame-state-value :rf/default)
+    (let [fs-before (rf.frame/frame-state-value :rf/default)
           acc       (collect-traces! ::identical-noop)]
       (try
         ;; do-it? = false → the handler returns `db` unchanged (identical?).
         (rf/dispatch-sync [:noop/maybe-inc false])
-        (let [fs-after (frame/frame-state-value :rf/default)
+        (let [fs-after (rf.frame/frame-state-value :rf/default)
               ops      (ops-of acc)]
           (is (identical? fs-before fs-after)
               "identical?-noop SKIPPED replace-container! — the stored
                frame-state object is the SAME object (no equal value re-installed)")
-          (is (= {:counter 1 :seeded? true} (frame/frame-app-db-value :rf/default))
+          (is (= {:counter 1 :seeded? true} (rf.frame/frame-app-db-value :rf/default))
               "app-db is unchanged")
           ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
-          (when interop/debug-enabled?
+          (when rf.interop/debug-enabled?
             (is (some #{:rf.event/db-noop} ops)
                 ":rf.event/db-noop fired on the unchanged-db commit")
             (is (not (some #{:rf.event/db-changed} ops))
@@ -131,18 +131,18 @@
     (rf/reg-event :noop/maybe-inc
       (fn [{:keys [db]} [_ do-it?]] {:db (if do-it? (update db :counter inc) db)}))
     (rf/dispatch-sync [:noop/seed])
-    (let [fs-before (frame/frame-state-value :rf/default)
+    (let [fs-before (rf.frame/frame-state-value :rf/default)
           acc       (collect-traces! ::changed)]
       (try
         (rf/dispatch-sync [:noop/maybe-inc true])
-        (let [fs-after (frame/frame-state-value :rf/default)
+        (let [fs-after (rf.frame/frame-state-value :rf/default)
               ops      (ops-of acc)]
           (is (not (identical? fs-before fs-after))
               "a real change installed a new frame-state object (write happened)")
-          (is (= 2 (:counter (frame/frame-app-db-value :rf/default)))
+          (is (= 2 (:counter (rf.frame/frame-app-db-value :rf/default)))
               "the counter incremented")
           ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
-          (when interop/debug-enabled?
+          (when rf.interop/debug-enabled?
             (is (some #{:rf.event/db-changed} ops) ":rf.event/db-changed fired")
             (is (not (some #{:rf.event/db-noop} ops)) ":rf.event/db-noop did NOT fire")))
         (finally
@@ -162,13 +162,13 @@
     (rf/reg-event :eq/rebuild-equal
       (fn [{:keys [db]} _] {:db {:counter 1 :tag :a}}))
     (rf/dispatch-sync [:eq/seed])
-    (let [db-before-obj (frame/frame-app-db-value :rf/default)
-          fs-before     (frame/frame-state-value :rf/default)
+    (let [db-before-obj (rf.frame/frame-app-db-value :rf/default)
+          fs-before     (rf.frame/frame-state-value :rf/default)
           acc           (collect-traces! ::eq-distinct)]
       (try
         (rf/dispatch-sync [:eq/rebuild-equal])
-        (let [db-after-obj (frame/frame-app-db-value :rf/default)
-              fs-after     (frame/frame-state-value :rf/default)
+        (let [db-after-obj (rf.frame/frame-app-db-value :rf/default)
+              fs-after     (rf.frame/frame-state-value :rf/default)
               ops          (ops-of acc)]
           (is (= db-before-obj db-after-obj) "the values are = (no logical change)")
           ;; The handler built a NEW map, so the installed app-db object is a
@@ -180,7 +180,7 @@
           ;; Change-detection is `=`, so no app-db change is reported →
           ;; :rf.event/db-noop is the signal (not db-changed).
           ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
-          (when interop/debug-enabled?
+          (when rf.interop/debug-enabled?
             (is (some #{:rf.event/db-noop} ops)
                 "=-equal commit reports no change → db-noop fires")
             (is (not (some #{:rf.event/db-changed} ops))
@@ -200,7 +200,7 @@
     (let [acc (collect-traces! ::nil-coerce)]
       (try
         (rf/dispatch-sync [:nil/return-nil])
-        (let [db   (frame/frame-app-db-value :rf/default)
+        (let [db   (rf.frame/frame-app-db-value :rf/default)
               ops  (ops-of acc)
               warn (first (filterv #(= :rf.warning/db-nil-coerced (:operation %)) @acc))]
           (is (= {} db) "app-db was coerced to {} (NOT nil)")
@@ -209,7 +209,7 @@
           ;; COERCION is production-real and asserted above; the diagnostic
           ;; that announces it is diagnostic-channel, and so is the
           ;; db-changed/db-noop discrimination of its outcome.
-          (when interop/debug-enabled?
+          (when rf.interop/debug-enabled?
             (is (some? warn) ":rf.warning/db-nil-coerced diagnostic fired")
             (is (= :warning (:op-type warn)) "the diagnostic rides the :warning severity")
             (is (some #{:rf.event/db-changed} ops)
@@ -224,21 +224,21 @@
     (rf/reg-event :clear/seed (fn [{:keys [db]} _] {:db {:counter 7}}))
     (rf/reg-event :clear/empty (fn [{:keys [db]} _] {:db {}}))
     (rf/dispatch-sync [:clear/seed])
-    (let [fs-before (frame/frame-state-value :rf/default)
+    (let [fs-before (rf.frame/frame-state-value :rf/default)
           acc       (collect-traces! ::deliberate-clear)]
       (try
         (rf/dispatch-sync [:clear/empty])
-        (let [db   (frame/frame-app-db-value :rf/default)
+        (let [db   (rf.frame/frame-app-db-value :rf/default)
               ops  (ops-of acc)]
           (is (= {} db) "app-db is the deliberate empty map")
-          (is (not (identical? fs-before (frame/frame-state-value :rf/default)))
+          (is (not (identical? fs-before (rf.frame/frame-state-value :rf/default)))
               "the deliberate clear COMMITTED — a new frame-state object was
                installed (the production-visible half of db-changed)")
           ;; rf2-d2841 — dev-instrumentation arm (see ns docstring). Both of
           ;; these read the dev trace, and the NEGATIVE especially must sit
           ;; here: over an empty `ops` it would report that no spurious
           ;; diagnostic fired when in fact no diagnostic exists to fire.
-          (when interop/debug-enabled?
+          (when rf.interop/debug-enabled?
             (is (not (some #{:rf.warning/db-nil-coerced} ops))
                 "no db-nil-coerced diagnostic for a deliberate {:db {}} clear")
             (is (some #{:rf.event/db-changed} ops)
@@ -257,11 +257,11 @@
     (let [acc (collect-traces! ::nil-noop)]
       (try
         (rf/dispatch-sync [:nilnoop/return-nil])
-        (let [db  (frame/frame-app-db-value :rf/default)
+        (let [db  (rf.frame/frame-app-db-value :rf/default)
               ops (ops-of acc)]
           (is (= {} db) "app-db is {} (never nil)")
           ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
-          (when interop/debug-enabled?
+          (when rf.interop/debug-enabled?
             (is (some #{:rf.warning/db-nil-coerced} ops)
                 "the diagnostic fires whenever the supplied :db was literally nil")
             (is (some #{:rf.event/db-noop} ops)

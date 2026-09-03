@@ -33,7 +33,7 @@
     bind emit must elide.
   - `re-frame.frame/safe-call-hook!` — the EP-0008 R2 per-hook
     `:rf.warning/teardown-hook-exception` DEV DIAGNOSTIC (rf2-inkdqh).
-    The diagnostic emit rides `trace/emit-error!` (gated on
+    The diagnostic emit rides `rf.trace/emit-error!` (gated on
     `interop/debug-enabled?`), so its body — including the
     `:rf.warning/teardown-hook-exception` operation keyword — must DCE
     under `:advanced` + `goog.DEBUG=false`. Rooting a throwing-hook
@@ -45,21 +45,21 @@
   to root the dead-code-elimination graph at every surface. The grep
   test is the assertion."
   (:require [re-frame.core         :as rf]
- [re-frame.frame :as frame]
-            [re-frame.registrar    :as registrar]
-            [re-frame.schemas      :as schemas]
-            [re-frame.trace        :as trace]
-            [re-frame.late-bind    :as late-bind]
+ [re-frame.frame :as rf.frame]
+            [re-frame.registrar    :as rf.registrar]
+            [re-frame.schemas      :as rf.schemas]
+            [re-frame.trace        :as rf.trace]
+            [re-frame.late-bind    :as rf.late-bind]
             ;; rf2-qwm0a — listener + buffer surface lives in
             ;; `re-frame.trace.tooling` (production-DCE split). The
             ;; probe touches it to keep both surfaces reachable so
             ;; their `interop/debug-enabled?` gates are tested in the
             ;; closure DCE pass, not surface-pruned before DCE runs.
-            [re-frame.trace.tooling :as trace-tooling]
-            [re-frame.epoch        :as epoch]
-            [re-frame.epoch.listeners :as epoch.listeners]
-            [re-frame.http.managed :as http-managed]
-            [re-frame.views        :as views]
+            [re-frame.trace.tooling :as rf.trace.tooling]
+            [re-frame.epoch        :as rf.epoch]
+            [re-frame.epoch.listeners :as rf.epoch.listeners]
+            [re-frame.http.managed :as rf.http.managed]
+            [re-frame.views        :as rf.views]
             [re-frame.machines]
             ;; rf2-32siq3.40 — EP-0023 image-loaded frames. The probe roots the
             ;; registration SOURCE STORE so `:rf.provenance/ns` is in the
@@ -67,17 +67,17 @@
             ;; descriptor field, not a dev-only sentinel). It does NOT root the
             ;; image-loading path (make-frame / assemble / the within-image
             ;; collision check), so those image-assembly fns DCE when unused.
-            [re-frame.source-store :as source-store]
-            [re-frame.source-coords :as source-coords]
+            [re-frame.source-store :as rf.source-store]
+            [re-frame.source-coords :as rf.source-coords]
             ;; rf2-tfiutq — ungated DIRECT-CALL dev-only diagnostic emits (the
             ;; ~18 warning/diagnostic sites across resources / routing / machines
             ;; / ssr-client) elide in production NOT via a call-site
             ;; `interop/debug-enabled?` gate but via Closure constant-folding the
-            ;; DIRECTLY-CALLED `trace/emit!` / `trace/emit-error!` body to `nil`
+            ;; DIRECTLY-CALLED `rf.trace/emit!` / `rf.trace/emit-error!` body to `nil`
             ;; under :advanced + goog.DEBUG=false, after which the pure
             ;; `(str …)` / literal-string args are dropped as dead. (Contrast the
             ;; framework's OWN emit machinery — storage.cljc / registrar.cljc —
-            ;; which captures `emit!` via `(late-bind/get-fn :trace/emit!)`; that
+            ;; which captures `emit!` via `(rf.late-bind/get-fn :trace/emit!)`; that
             ;; INDIRECT identity escapes the fold, so those sites carry an
             ;; explicit `(when interop/debug-enabled? …)` call-site gate.)
             ;;
@@ -87,38 +87,38 @@
             ;; direct-emit site per surface so the control build (DEBUG=true)
             ;; contains the prose and the production build (DEBUG=false) DCEs it —
             ;; the methodology now has teeth for the direct-call elision path.
-            [re-frame.routing.classification :as routing-classification]
-            [re-frame.machines.lifecycle-fx.traces :as machines-traces]))
+            [re-frame.routing.classification :as rf.routing.classification]
+            [re-frame.machines.lifecycle-fx.traces :as rf.machines.lifecycle-fx.traces]))
 
 ;; ---- trace listener API ---------------------------------------------------
 
 (defn ^:export touch-trace! []
   ;; Reach into every documented trace API so :advanced keeps the surface
   ;; alive and we're testing the *body* gates, not surface-pruning.
-  (trace-tooling/register-listener! ::probe (fn [_ev] nil))
+  (rf.trace.tooling/register-listener! ::probe (fn [_ev] nil))
   (rf/emit-trace-event! :event :rf.probe/touched {:source :probe})
-  (trace-tooling/unregister-listener! ::probe)
+  (rf.trace.tooling/unregister-listener! ::probe)
   ;; rf2-g1b2m / rf2-8uwce — per-frame event-keyed trace rings (Spec 009).
   ;; These public entry points must elide their bodies in production.
-  (trace-tooling/configure-trace-buffer! {:events-retained 50})
-  (let [_buf (trace-tooling/trace-buffer :rf/default {:op-type :rf.event :flat true})]
+  (rf.trace.tooling/configure-trace-buffer! {:events-retained 50})
+  (let [_buf (rf.trace.tooling/trace-buffer :rf/default {:op-type :rf.event :flat true})]
     nil)
-  (trace-tooling/clear-trace-buffer! :rf/default))
+  (rf.trace.tooling/clear-trace-buffer! :rf/default))
 
 ;; ---- schemas surface ------------------------------------------------------
 
 (defn ^:export touch-schemas! []
   (rf/reg-app-schema [:user :name] :string)
-  (schemas/validate-app-schema! {:user {:name "ok"}})
-  (schemas/validate-app-schema! {:user {:name 42}}    :probe/event)
-  (schemas/validate-event!  :probe/event [:probe/event 1] {:schema :int})
-  (schemas/validate-fx!     :probe/fx :probe/event {} {:schema :map})
-  (schemas/validate-sub!    :probe/sub [:probe/sub] :foo {:schema :keyword}))
+  (rf.schemas/validate-app-schema! {:user {:name "ok"}})
+  (rf.schemas/validate-app-schema! {:user {:name 42}}    :probe/event)
+  (rf.schemas/validate-event!  :probe/event [:probe/event 1] {:schema :int})
+  (rf.schemas/validate-fx!     :probe/fx :probe/event {} {:schema :map})
+  (rf.schemas/validate-sub!    :probe/sub [:probe/sub] :foo {:schema :keyword}))
 
 ;; ---- registrar trace emit -------------------------------------------------
 
 (defn ^:export touch-registrar! []
-  ;; reg-event / dispatch-sync exercise registrar/register! and the
+  ;; reg-event / dispatch-sync exercise rf.registrar/register! and the
   ;; router/events/fx trace emit sites in one shot.
   (rf/reg-event :probe/init  (fn [{:keys [db]} _ev] {:db {:counter 0}}))
   (rf/reg-event :probe/inc   (fn [{:keys [db]} _ev] {:db (update db :counter inc)}))
@@ -130,8 +130,8 @@
   ;; Exercise the registrar's unregister!/clear-kind! emit sites so that
   ;; the :rf.registry/handler-cleared keyword has a path into the
   ;; reachability graph too.
-  (registrar/unregister!  :event :probe/inc)
-  (registrar/clear-kind!  :sub))
+  (rf.registrar/unregister!  :event :probe/inc)
+  (rf.registrar/clear-kind!  :sub))
 
 ;; ---- Spec 014 :rf.http/managed surface (rf2-cfig, rf2-omsae) --------------
 
@@ -181,11 +181,11 @@
   (rf/dispatch-sync [:probe/http-abort-touch])
   ;; Touch clear-all-in-flight! so the in-flight registry surface is
   ;; reachable; the probe doesn't actually issue a real request.
-  (http-managed/clear-all-in-flight!)
+  (rf.http.managed/clear-all-in-flight!)
   ;; rf2-wvkn — touch the public abort-on-actor-destroy fn so its body
   ;; (with the gated `:rf.http/aborted-on-actor-destroy` trace emit)
   ;; sits in a reachable module graph for the elision check.
-  (http-managed/abort-on-actor-destroy :probe/never-spawned-actor-id))
+  (rf.http.managed/abort-on-actor-destroy :probe/never-spawned-actor-id))
 
 ;; ---- Tool-Pair §Time-travel epoch surface (rf2-gox8) ----------------------
 
@@ -222,7 +222,7 @@
   ;;      stay live;
   ;;   3. exercising the drain-settle path via the dispatch-sync calls
   ;;      in touch-registrar! — the eventual queue-empty fires
-  ;;      `:rf.epoch/snapshotted` through trace/emit!, sourcing the
+  ;;      `:rf.epoch/snapshotted` through rf.trace/emit!, sourcing the
   ;;      snapshotted sentinel.
   (rf/configure! {:epoch-history {:depth 10}})
   ;; rf2-wp70d.5 — install a throwing :redact-fn so the gated
@@ -274,12 +274,12 @@
   (rf/replace-frame-state! :rf/default {:rf.db/app {}})
   ;; Reference epoch's lower-level entry points directly so the ns is
   ;; not pruned even before DCE looks at the gated bodies.
-  (epoch/clear-history!)
+  (rf.epoch/clear-history!)
   ;; rf2-sh5g6: clear-frame-history! is `defn-` (test-only seam); the
   ;; un-scoped `clear-history!` above already pins the namespace for
   ;; the elision walker.
-  (epoch/clear-epoch-listeners!)
-  (let [_cfg (epoch/current-config)]
+  (rf.epoch/clear-epoch-listeners!)
+  (let [_cfg (rf.epoch/current-config)]
     nil)
   ;; rf2-d656 — on-frame-destroyed! emits :rf.epoch.cb/silenced-on-frame-destroy
   ;; per (frame-id, cb-id) pair when a frame previously observed by a
@@ -290,7 +290,7 @@
   ;; `re-frame.epoch` facade publishes through the
   ;; `:epoch/on-frame-destroyed` late-bind hook only (per rf2-e0lva the
   ;; facade-side wrapper is private).
-  (epoch.listeners/on-frame-destroyed! :rf/default nil nil nil nil))
+  (rf.epoch.listeners/on-frame-destroyed! :rf/default nil nil nil nil))
 
 ;; ---- Spec-Schemas §`:rf/epoch-record` — reg-view* wrapper (rf2-piag) -----
 
@@ -340,8 +340,8 @@
   ;; Also touch the public mint / current-render-key entry points so
   ;; their bodies stay in the reachability graph (DCE only proves the
   ;; gated branches dead; the public surface itself remains).
-  (let [_t (views/mint-instance-token!)
-        _k (views/current-render-key)]
+  (let [_t (rf.views/mint-instance-token!)
+        _k (rf.views/current-render-key)]
     nil)
   ;; rf2-9hoos — touch the view-side capture surfaces so their gated
   ;; bodies (the `:rf.view/unmounted` emit, the deref-sink push, the
@@ -351,19 +351,19 @@
   ;; ride); the unmount op needs its own touch so the control build
   ;; contains the sentinel and the methodology check has teeth. Under
   ;; :advanced + goog.DEBUG=false every body DCEs.
-  (views/emit-view-unmounted! :probe/unmounted [:probe/unmounted 1] :rf/default)
-  (let [_rea (views/install-unmount-hook! :probe/unmounted [:probe/unmounted 1] :rf/default)]
+  (rf.views/emit-view-unmounted! :probe/unmounted [:probe/unmounted 1] :rf/default)
+  (let [_rea (rf.views/install-unmount-hook! :probe/unmounted [:probe/unmounted 1] :rf/default)]
     nil)
-  (views/record-view-deref! [:probe/sub])
-  (let [_m (views/first-render?! [:probe/unmounted 1])]
+  (rf.views/record-view-deref! [:probe/sub])
+  (let [_m (rf.views/first-render?! [:probe/unmounted 1])]
     nil)
-  (views/clear-seen-render-keys!)
+  (rf.views/clear-seen-render-keys!)
   ;; Touch the surviving warn-once clear-fn so the warn-once ns body stays
   ;; in the reachability graph for the elision check. (The retired
   ;; `warned-plain-fn-frame-pairs` cache + `clear-plain-fn-warned-pairs!`
   ;; were removed in rf2-k4xous — their warning is retired per EP-0002,
   ;; superseded by the always-on :rf.error/no-frame-context.)
-  (views/clear-warned-non-dom-roots!))
+  (rf.views/clear-warned-non-dom-roots!))
 
 ;; ---- Spec 005 §Source-coord stamping — reg-machine macro (rf2-8bp3) -------
 
@@ -484,7 +484,7 @@
 ;;      `interop/debug-enabled?`).
 ;;   2. DIAGNOSTIC channel (EP-0008 R2) — emits a per-hook
 ;;      `:rf.warning/teardown-hook-exception` trace AT ITS CAUSAL POSITION
-;;      via `trace/emit-error!`, which IS gated on `interop/debug-enabled?`,
+;;      via `rf.trace/emit-error!`, which IS gated on `interop/debug-enabled?`,
 ;;      so production CLJS bundles DCE it.
 ;;
 ;; Before rf2-inkdqh the probe never touched the destroy/teardown path, so
@@ -503,23 +503,23 @@
   ;; teardown recipe; a throw routes through safe-call-hook!'s catch arm,
   ;; which emits the gated `:rf.warning/teardown-hook-exception` diagnostic.
   (let [hook-key :ssr/on-frame-destroyed
-        original (late-bind/get-fn hook-key)]
-    (late-bind/set-fn! hook-key
+        original (rf.late-bind/get-fn hook-key)]
+    (rf.late-bind/set-fn! hook-key
                        (fn [& _] (throw (ex-info "probe teardown-hook throw"
                                                  {:hook :probe}))))
-    ;; ENGINE seat (frame/upsert-frame!, generation-less): this probe's
+    ;; ENGINE seat (rf.frame/upsert-frame!, generation-less): this probe's
     ;; documented contract deliberately does NOT root the image-loading path
     ;; (make-frame / assemble) so the assembly fns stay DCE-able when unused
     ;; (PROD_ABSENT_WHEN_UNUSED). rf2-h1vqa4: the retired make-frame spelling
     ;; WAS this engine; the probe keeps the engine seat, not the public
     ;; constructor.
-    (frame/upsert-frame! :rf.probe/teardown-frame {:doc "throwing teardown hook"})
+    (rf.frame/upsert-frame! :rf.probe/teardown-frame {:doc "throwing teardown hook"})
     (try
       ;; The accumulated always-on report flushes (survives prod), and the
       ;; per-hook DEV diagnostic emits at its causal position (DCEs in prod).
       (rf/destroy-frame! :rf.probe/teardown-frame)
       (finally
-        (late-bind/set-fn! hook-key original)))))
+        (rf.late-bind/set-fn! hook-key original)))))
 
 ;; ---- rf2-9wwkcm: pure-documentation registration metadata (:doc) ----------
 ;;
@@ -568,7 +568,7 @@
 ;; emit when this dispatch's merged `:interceptor-overrides` acted on the chain.
 ;; The summary value (the `{:matched … :replaced … :removed … :count …}` map)
 ;; is constructed by `re-frame.router/override-summary` and fed ONLY into the
-;; run-start `trace/emit!` call, whose body sits inside
+;; run-start `rf.trace/emit!` call, whose body sits inside
 ;; `(when interop/debug-enabled? ...)` — so the whole emit, and the summary
 ;; construction that feeds it, DCE under :advanced + goog.DEBUG=false.
 ;;
@@ -685,8 +685,8 @@
   ;; stripped under :advanced, but the reg-* macro's `*pending-coords*` binding
   ;; survives (prod-coords-form keeps `:ns`). record-descriptor! derives
   ;; `:rf.provenance/ns` from the live binding — the production-surviving path.
-  (binding [source-coords/*pending-coords* {:ns "re-frame.elision-probe.image"}]
-    (let [stored (source-store/record-descriptor!
+  (binding [rf.source-coords/*pending-coords* {:ns "re-frame.elision-probe.image"}]
+    (let [stored (rf.source-store/record-descriptor!
                    :event :rf.probe/image-frame-provenance
                    {:handler-fn (fn [{:keys [db]} _] {:db db})})]
       ;; Runtime assertion: provenance MUST survive :advanced. If the
@@ -697,11 +697,11 @@
                         {:stored stored})))))
   ;; Touch the public read API so the provenance keyword stays in the
   ;; reachability graph through a documented entry point too.
-  (let [_d (source-store/descriptor-for :event :rf.probe/image-frame-provenance
+  (let [_d (rf.source-store/descriptor-for :event :rf.probe/image-frame-provenance
                                         "re-frame.elision-probe.image")]
     nil)
   ;; Clean up the probe's source-store slot so it does not perturb other touches.
-  (source-store/forget-descriptor! :event :rf.probe/image-frame-provenance
+  (rf.source-store/forget-descriptor! :event :rf.probe/image-frame-provenance
                                    "re-frame.elision-probe.image"))
 
 ;; ---- rf2-v2j8e: inline-image :registrations :doc literal elision -----------
@@ -759,14 +759,14 @@
 ;; ---- rf2-tfiutq: ungated DIRECT-CALL dev-only diagnostic emit elision ------
 ;;
 ;; The ~18 app-facing dev-only warning/diagnostic emits (resources / routing /
-;; machines / ssr-client) call `trace/emit!` / `trace/emit-error!` DIRECTLY on a
+;; machines / ssr-client) call `rf.trace/emit!` / `rf.trace/emit-error!` DIRECTLY on a
 ;; runtime DATA branch (`when-some` / `when (seq …)` / `doseq` / a `catch`),
 ;; building `(str …)` or literal-string prose, with NO call-site
 ;; `interop/debug-enabled?` gate. They still ELIDE in production: under
 ;; :advanced + goog.DEBUG=false the directly-called `emit!` / `emit-error!`
 ;; body folds to `nil`, Closure inlines the now-no-op call, and the pure prose
 ;; args drop as dead. (The framework's OWN emit machinery — storage.cljc,
-;; registrar.cljc — instead captures `emit!` via `(late-bind/get-fn …)`; that
+;; registrar.cljc — instead captures `emit!` via `(rf.late-bind/get-fn …)`; that
 ;; INDIRECT identity escapes the fold, so those sites carry an explicit
 ;; `(when interop/debug-enabled? …)` call-site gate. The two paths are NOT
 ;; interchangeable: a direct call folds, an indirect-via-registry call does
@@ -784,14 +784,14 @@
   ;; route-meta that classifies an UNPROMOTED `[:query k]` path reaches the
   ;; emit (the keyword `:query` key never matches the runtime string key, so
   ;; `unpromoted-query-keys` is non-empty).
-  (routing-classification/advise-query-promotion!
+  (rf.routing.classification/advise-query-promotion!
     :rf.probe/direct-emit-route
     {:sensitive [[:query "token"]]}
     #{})
   ;; machines `emit-destroy-exit-failure!` — `emit-error!` with a literal-string
   ;; `:reason`, an ungated `defn` body. Calling it directly roots the
   ;; literal-string emit shape.
-  (machines-traces/emit-destroy-exit-failure!
+  (rf.machines.lifecycle-fx.traces/emit-destroy-exit-failure!
     :rf.probe/direct-emit-actor :rf/default {:probe :direct-emit}))
 
 ;; ---- rf2-fcbrjo: drain-depth halt (always-on + dev-trace prose) -----------
@@ -801,7 +801,7 @@
   ;; exercises BOTH channels of `re-frame.router/handle-depth-exceeded!`:
   ;;   - the ALWAYS-ON structural record (`error-emit/dispatch-error-record!`)
   ;;     — must SURVIVE (production-reachable; no sentinel, it is value-free);
-  ;;   - the dev-only `trace/emit-error!` carrying the human `:reason` prose,
+  ;;   - the dev-only `rf.trace/emit-error!` carrying the human `:reason` prose,
   ;;     wrapped in an explicit `(when interop/debug-enabled? …)` call-site
   ;;     gate. Because `handle-depth-exceeded!` ALSO makes the live always-on
   ;;     call, it is NOT a sole-statement leaf Closure can fold on the emit
@@ -809,13 +809,13 @@
   ;;     (the rf2-cprm0q trap). This touch roots the gated emit so the control
   ;;     build (DEBUG=true) contains the `:reason` sentinel and the production
   ;;     build (DEBUG=false) must NOT — giving the elision assertion teeth.
-  ;; ENGINE seat (frame/upsert-frame!, generation-less): this probe's
+  ;; ENGINE seat (rf.frame/upsert-frame!, generation-less): this probe's
   ;; documented contract deliberately does NOT root the image-loading path
   ;; (make-frame / assemble) so the assembly fns stay DCE-able when unused
   ;; (PROD_ABSENT_WHEN_UNUSED). rf2-h1vqa4: the retired make-frame spelling
   ;; WAS this engine; the probe keeps the engine seat, not the public
   ;; constructor.
-  (frame/upsert-frame! :rf.probe/drain-depth {:drain-depth 4})
+  (rf.frame/upsert-frame! :rf.probe/drain-depth {:drain-depth 4})
   (rf/reg-event :rf.probe/loop-forever
     (fn [_ _] {:fx [[:dispatch [:rf.probe/loop-forever]]]}))
   (rf/dispatch-sync [:rf.probe/loop-forever] {:frame :rf.probe/drain-depth}))
@@ -839,6 +839,6 @@
   (touch-override-capture!)
   (touch-image-frame-provenance!)
   (touch-image-inline-doc!)
-  ;; Reference trace/emit! directly through the trace ns alias so its
+  ;; Reference rf.trace/emit! directly through the trace ns alias so its
   ;; body, not just the public re-frame.core re-export, is reachable.
-  (trace/emit! :event :rf.probe/direct-touch {:source :probe}))
+  (rf.trace/emit! :event :rf.probe/direct-touch {:source :probe}))

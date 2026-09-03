@@ -19,7 +19,7 @@
   asserts the directory matches the in-tree publications, walking both
   the per-key `set-fn!` form and the map-form `set-fns!`
   block."
-  (:require [re-frame.error :as error]))
+  (:require [re-frame.error :as rf.error]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -258,7 +258,7 @@
    (require-fn! hook-key where-sym artefact-info nil))
   ([hook-key where-sym {:keys [error-keyword maven require-ns]} extra-data]
    (or (get @hooks hook-key)
-       (error/throw-error!
+       (rf.error/throw-error!
          error-keyword
          where-sym
          (str where-sym " requires " maven

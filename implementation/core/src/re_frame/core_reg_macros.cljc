@@ -28,8 +28,8 @@
   File naming uses the flat dash-form (per Conventions; rf2-2vbm):
   CLJS `goog.provide` for `re-frame.core` overwrites its parent
   object, which would wipe a previously-loaded `re-frame.core.X`."
-  (:require [re-frame.error :as error]
-            [re-frame.source-coords :as source-coords]))
+  (:require [re-frame.error :as rf.error]
+            [re-frame.source-coords :as rf.source-coords]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -37,7 +37,7 @@
 
 #?(:clj
    (defn with-coords-form
-     "Wrap `body-form` in a binding of `source-coords/*pending-coords*`
+     "Wrap `body-form` in a binding of `rf.source-coords/*pending-coords*`
      to the compile-time coord map for `form-meta` / `file` / `ns-sym`.
      Caller passes `(meta &form)`, `*file*`, and the metadata-free
      ns-symbol (per the rf2-xnym rationale above). Returns a syntax-
@@ -49,8 +49,8 @@
 
      Per rf2-3un2g §Production elision: the bound coord-map is emitted
      under an `(if interop/debug-enabled? <dev> <prod>)` gate. Dev rides
-     the full [[source-coords/coords-form]] (with `:column`); prod rides
-     [[source-coords/prod-coords-form]] (no `:column`). Closure folds the
+     the full [[rf.source-coords/coords-form]] (with `:column`); prod rides
+     [[rf.source-coords/prod-coords-form]] (no `:column`). Closure folds the
      constant `interop/debug-enabled?` (alias of `goog.DEBUG`) under
      `:advanced` + `goog.DEBUG=false` and DCEs the dev branch — only
      the slim prod coords literal survives into the bundle. The bound
@@ -58,12 +58,12 @@
      `registrar/register!`'s `remember-error-coords!` hook (always-on)
      populates the parallel error-coord registry; only the public
      registry-meta merge is suppressed in prod (see
-     [[source-coords/merge-coords]])."
+     [[rf.source-coords/merge-coords]])."
      [form-meta file ns-sym body-form]
      `(binding [re-frame.source-coords/*pending-coords*
                 (if re-frame.interop/debug-enabled?
-                  ~(source-coords/coords-form      form-meta file ns-sym)
-                  ~(source-coords/prod-coords-form form-meta file ns-sym))]
+                  ~(rf.source-coords/coords-form      form-meta file ns-sym)
+                  ~(rf.source-coords/prod-coords-form form-meta file ns-sym))]
         ~body-form)))
 
 ;; ---- pure-documentation (:doc) literal-map elision (rf2-9wwkcm) ----------
@@ -237,7 +237,7 @@
      [sym]
      (let [v (ns-resolve (find-ns 're-frame.core) sym)]
        (when (nil? v)
-         (error/throw-error!
+         (rf.error/throw-error!
            :rf.error/defreg-macro-bad-delegate
            'defreg-macro
            (str "defreg-macro cannot resolve delegate symbol " sym " in re-frame.core")
@@ -280,7 +280,7 @@
 ;; from `:handler-fn`.
 ;;
 ;; CLJS production elision: the emitted form binds
-;; `source-coords/*pending-form-source*` to
+;; `rf.source-coords/*pending-form-source*` to
 ;; `(if interop/debug-enabled? <pr-str-of-form> nil)` so Closure
 ;; constant-folds the bound value to `nil` under `:advanced` +
 ;; `goog.DEBUG=false` and DCEs the literal source-string bytes. JVM:
@@ -290,7 +290,7 @@
 
 #?(:clj
    (defn with-form-source-form
-     "Wrap `body-form` in a binding of `source-coords/*pending-form-
+     "Wrap `body-form` in a binding of `rf.source-coords/*pending-form-
      source*` to the compile-time `pr-str` of `whole-form` (the entire
      `(reg-event :id ...)` form as the user wrote it). Returns a
      syntax-quote-safe form suitable for the `reg-event` defmacro to
@@ -312,7 +312,7 @@
      "Emits a `defmacro` for a `reg-event-{db,fx,ctx}` surface. Same
      coord-capture skeleton as [[defreg-macro]] PLUS the form-source
      capture per rf2-xgfuy: the emitted macro binds
-     `source-coords/*pending-form-source*` to a DEBUG-gated `pr-str`
+     `rf.source-coords/*pending-form-source*` to a DEBUG-gated `pr-str`
      of the whole user-written form so `re-frame.events/register-
      event!` can stamp `:rf.handler/source` into the registry meta.
 
@@ -370,21 +370,21 @@
      `:rf.machine/source-coords` / `:rf.machine/handler-source` /
      `:rf.machine/state-coords` side-indexes:
 
-     - DEV arm: `source-coords/collocate-element-source` merges the per-id
+     - DEV arm: `rf.source-coords/collocate-element-source` merges the per-id
        `{:source-coords {...} :source-code \"...\"}` data (built by the
        compile-time `walk-element-source`) onto each entry, yielding
        `{<id> {:fn <fn> :source-coords {...} :source-code \"...\"}}`. Plus
-       `source-coords/collocate-state-source` splices the reference-site
+       `rf.source-coords/collocate-state-source` splices the reference-site
        `:source-coords` onto each `:states`-tree map node at its spec-path
        (the `{<map-spec-path> <coord>}` index from `walk-machine-spec`), and
-       `source-coords/collocate-state-inline-source` splices the inline-fn
+       `rf.source-coords/collocate-state-inline-source` splices the inline-fn
        `:source-code` strings — a `{<slot> <source-string>}` map keyed by the
        inline `:entry`/`:exit`/`:guard`/`:action` slot — onto each enclosing
        node (the `{<map-spec-path> {<slot> <source>}}` index from
        `walk-machine-inline-source`; rf2-se70xj). The inline-fn slot values
        themselves stay bare fns (the runtime engine resolves them via `fn?`
        and stamps them as the trace `:action-id`/`:guard-id`).
-     - PROD arm: `source-coords/wrap-element-fns` collapses each entry to
+     - PROD arm: `rf.source-coords/wrap-element-fns` collapses each entry to
        `{<id> {:fn <fn>}}` and NO state-source / inline-source splice runs —
        NO source literals, so Closure DCEs the dev arm (with its coord maps +
        `pr-str` strings + the state-coord and inline-source indexes) under
@@ -407,7 +407,7 @@
              ;; :source-code <pr-str>}}. Empty when the slot is absent.
              slot->src    (into {}
                                 (map (fn [slot]
-                                       [slot (source-coords/walk-element-source
+                                       [slot (rf.source-coords/walk-element-source
                                                spec-form slot ns-sym file)]))
                                 machine-element-slots)
              ;; Reference-site (states-tree) coords, keyed by each MAP node's
@@ -424,7 +424,7 @@
                                           (:file coords)   (assoc :file (:file coords))
                                           (:line coords)   (assoc :line (:line coords))
                                           (:column coords) (assoc :column (:column coords)))]))
-                                (source-coords/walk-machine-spec spec-form ns-sym file))
+                                (rf.source-coords/walk-machine-spec spec-form ns-sym file))
              ;; Inline-fn source-code index (rf2-se70xj): per enclosing
              ;; `:states`-tree map-node spec-path, the `{<slot>
              ;; <source-string>}` map for each inline `:entry`/`:exit`/
@@ -433,7 +433,7 @@
              ;; symbol). Co-located alongside the reference-site coords so an
              ;; inline action's CODE renders (it previously fell through to a
              ;; bare-fn `pr-str` → `#object[Function]`).
-             inline-src   (source-coords/walk-machine-inline-source spec-form)
+             inline-src   (rf.source-coords/walk-machine-inline-source spec-form)
              ;; Only co-locate slots actually present on the spec; both
              ;; helpers no-op on an absent slot, but emitting calls only for
              ;; present slots keeps the expansion lean.
@@ -441,21 +441,21 @@
              ;; The state-source co-location is a single extra `->` step,
              ;; gated on the coords being non-empty.
              state-step   (when (seq state-coords)
-                            [`(source-coords/collocate-state-source ~state-coords)])
+                            [`(rf.source-coords/collocate-state-source ~state-coords)])
              ;; The inline-source co-location is likewise a single extra
              ;; `->` step, gated on the index being non-empty.
              inline-step  (when (seq inline-src)
-                            [`(source-coords/collocate-state-inline-source ~inline-src)])
+                            [`(rf.source-coords/collocate-state-inline-source ~inline-src)])
              dev-form     `(-> ~value-expr
                               ~@(map (fn [slot]
-                                       `(source-coords/collocate-element-source
+                                       `(rf.source-coords/collocate-element-source
                                           ~slot ~(get slot->src slot)))
                                      present-slots)
                               ~@state-step
                               ~@inline-step)
              prod-form    `(-> ~value-expr
                               ~@(map (fn [slot]
-                                       `(source-coords/wrap-element-fns ~slot))
+                                       `(rf.source-coords/wrap-element-fns ~slot))
                                      present-slots))]
          (if (and (empty? present-slots) (empty? state-coords) (empty? inline-src))
            ;; Nothing debug-only to emit (no element slots, no states coords,
@@ -526,8 +526,8 @@
         ;; See [[with-coords-form]] for the rationale.
         `(binding [re-frame.source-coords/*pending-coords*
                    (if re-frame.interop/debug-enabled?
-                     ~(source-coords/coords-form      form-meta file ns-sym)
-                     ~(source-coords/prod-coords-form form-meta file ns-sym))]
+                     ~(rf.source-coords/coords-form      form-meta file ns-sym)
+                     ~(rf.source-coords/prod-coords-form form-meta file ns-sym))]
            ~(if-not inline?
               ;; Symbol / non-literal spec: register verbatim. A
               ;; `defmachine`-stamped value already carries its source.

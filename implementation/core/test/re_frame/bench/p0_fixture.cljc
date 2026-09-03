@@ -60,7 +60,7 @@
   ## The work census (rf2-n1b9h)
 
   Every write handler and every subscription computation below carries a
-  `wc/event!` or `wc/sub!` — the monotone work counters `rf2-n1b9h` reads
+  `rf.bench.p0-workcount/event!` or `rf.bench.p0-workcount/sub!` — the monotone work counters `rf2-n1b9h` reads
   per measured window to split `rf2-77gz8`'s two surviving candidates.
   Both are MACROS behind a `goog-define` that is false by default, so under
   `:advanced` an unarmed build constant-folds and dead-code-eliminates every
@@ -72,7 +72,7 @@
   Owner: the operator-owned governance set that superseded the standard bead
   rf2-2rtt6.1 on 2026-08-10, enumerated once in
   `docs/design/hicasso/studio/README.md`; this arm rf2-2rtt6.4."
-  (:require [re-frame.bench.p0-workcount :as wc]
+  (:require [re-frame.bench.p0-workcount :as rf.bench.p0-workcount]
             [re-frame.core :as rf]))
 
 ;; ---------------------------------------------------------------------------
@@ -197,9 +197,9 @@
   run installs and destroys an adapter once per segment and re-seeds
   around each one."
   []
-  (rf/reg-sub :p0/row   (fn [db [_ i]] (wc/sub!) (get-in db [:rows i])))
-  (rf/reg-sub :p0/field (fn [db [_ i]] (wc/sub!) (get-in db [:fields i])))
-  (rf/reg-sub :p0/cell  (fn [db [_ i]] (wc/sub!) (get-in db [:cells i])))
+  (rf/reg-sub :p0/row   (fn [db [_ i]] (rf.bench.p0-workcount/sub!) (get-in db [:rows i])))
+  (rf/reg-sub :p0/field (fn [db [_ i]] (rf.bench.p0-workcount/sub!) (get-in db [:fields i])))
+  (rf/reg-sub :p0/cell  (fn [db [_ i]] (rf.bench.p0-workcount/sub!) (get-in db [:cells i])))
   ;; The fan-out arm's key space. The index is folded back into the seeded
   ;; range, so EVERY key — 0 or 2,399 — answers the same `0` the `:p0/cell`
   ;; grid answers and every rung of the sweep renders identical DOM. A rung
@@ -212,7 +212,7 @@
   ;; a field read on a `PersistentVector`: O(1), allocating nothing and
   ;; retaining nothing, which is why the retention rows that publish
   ;; retained bytes are not moved by it.
-  (rf/reg-sub :p0/fan   (fn [db [_ i]] (wc/sub!) (get-in db [:cells (mod i (count (:cells db)))])))
+  (rf/reg-sub :p0/fan   (fn [db [_ i]] (rf.bench.p0-workcount/sub!) (get-in db [:cells (mod i (count (:cells db)))])))
   ;; The width rides on the event, so a frame's `:initial-events` states the
   ;; page it is seeding and nothing ambient has to be set in the right order
   ;; beforehand. Absent, it is the published [[cells-n]].
@@ -224,7 +224,7 @@
   ;; the event pipeline and the signal graph that a real application pays
   ;; for on every write. The floor arm has neither and says so.
   (rf/reg-event :p0/write-all
-    (fn [{:keys [db]} [_ v]] (wc/event!) {:db (assoc db :cells (vec (repeat cells-n v)))}))
+    (fn [{:keys [db]} [_ v]] (rf.bench.p0-workcount/event!) {:db (assoc db :cells (vec (repeat cells-n v)))}))
   ;; THE BOUNDARY-PROPORTIONAL WRITE (rf2-2rtt6.140). Byte-for-byte the same
   ;; event through the same pipeline as `:p0/write-all` — an ordinary
   ;; re-frame event with an ordinary `:db` effect, dispatched synchronously —
@@ -248,7 +248,7 @@
   ;; floor subtraction. `:p0/write-all` is left exactly as it is: its rows
   ;; are published and it stays byte-identical.
   (rf/reg-event :p0/write-page
-    (fn [{:keys [db]} [_ v]] (wc/event!) {:db (assoc db :cells (vec (repeat (count (:cells db)) v)))}))
+    (fn [{:keys [db]} [_ v]] (rf.bench.p0-workcount/event!) {:db (assoc db :cells (vec (repeat (count (:cells db)) v)))}))
   (rf/reg-event :p0/write-one
-    (fn [{:keys [db]} [_ i v]] (wc/event!) {:db (update db :cells assoc i v)}))
+    (fn [{:keys [db]} [_ i v]] (rf.bench.p0-workcount/event!) {:db (update db :cells assoc i v)}))
   nil)

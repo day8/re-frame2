@@ -19,8 +19,8 @@
         gathered so far.
     (c) The report rides the ALWAYS-ON axis — exercised via the
         `register-error-listener!` substrate that survives a production
-        build path (`error-emit/dispatch-frame-teardown-report!` is NOT
-        gated by `interop/debug-enabled?`).
+        build path (`rf.error-emit/dispatch-frame-teardown-report!` is NOT
+        gated by `rf.interop/debug-enabled?`).
     (d) The dev per-hook DIAGNOSTIC rows still emit at their causal
         positions (EP-0008 R2 — per-hook visibility is KEPT on the
         diagnostic axis; only the always-on emission collapsed).
@@ -42,18 +42,18 @@
   \"the contract is that they ride the DIAGNOSTIC channel, not that they
   survive prod\". Its deftest, and the one diagnostic-count row inside
   `both-channels-fire-together`, are kept verbatim inside
-  `(when interop/debug-enabled? …)` arms. What `both-channels-fire-together`
+  `(when rf.interop/debug-enabled? …)` arms. What `both-channels-fire-together`
   proves in production posture is the half that matters there: ONE bounded
   report carrying BOTH hook failures, rather than a per-hook flood."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.error-emit :as error-emit]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as ts]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.error-emit :as rf.error-emit]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; ---------------------------------------------------------------------------
 ;; Fixture — fresh registrar + plain-atom adapter per test; the always-on
@@ -62,10 +62,10 @@
 ;; ---------------------------------------------------------------------------
 
 (use-fixtures :each
-  (ts/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.substrate.plain-atom/adapter
      :init-fn (fn []
-                (error-emit/clear-error-listeners!))}))
+                (rf.error-emit/clear-error-listeners!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; Cleanup-hook-key install helper.
@@ -79,15 +79,15 @@
 ;; ---------------------------------------------------------------------------
 
 (defn- with-hooks*
-  "Install each `hook-key -> fn` from `hook-map` via `late-bind/set-fn!`
+  "Install each `hook-key -> fn` from `hook-map` via `rf.late-bind/set-fn!`
   for the dynamic extent of `f`, restoring the prior bindings after."
   [hook-map f]
-  (let [originals (into {} (map (fn [k] [k (late-bind/get-fn k)]) (keys hook-map)))]
+  (let [originals (into {} (map (fn [k] [k (rf.late-bind/get-fn k)]) (keys hook-map)))]
     (try
-      (doseq [[k v] hook-map] (late-bind/set-fn! k v))
+      (doseq [[k v] hook-map] (rf.late-bind/set-fn! k v))
       (f)
       (finally
-        (doseq [[k orig] originals] (late-bind/set-fn! k orig))))))
+        (doseq [[k orig] originals] (rf.late-bind/set-fn! k orig))))))
 
 (defn- throwing-hook
   "A cleanup-hook fn that always throws — models a leaked optional-artefact
@@ -175,7 +175,7 @@
           ;; Force a mid-teardown collapse: a downstream NON-hook step
           ;; throws. `safe-call-hook!` swallows hook throws, so to model a
           ;; genuine abort we redef a later teardown step to throw.
-          (with-redefs [frame/emit-frame-destroyed-trace!
+          (with-redefs [rf.frame/emit-frame-destroyed-trace!
                         (fn [_id]
                           (throw (ex-info "mid-teardown collapse" {})))]
             (is (thrown? #?(:clj Throwable :cljs js/Error)
@@ -200,8 +200,8 @@
 (deftest report-rides-the-always-on-axis
   (testing "Per rf2-ini4wr EP-0008: the report is delivered through the
             corpus-wide `register-error-listener!` substrate
-            (`error-emit/dispatch-frame-teardown-report!`), which is NOT
-            gated by `interop/debug-enabled?` and so survives `:advanced`
+            (`rf.error-emit/dispatch-frame-teardown-report!`), which is NOT
+            gated by `rf.interop/debug-enabled?` and so survives `:advanced`
             + `goog.DEBUG=false`. Exercising the listener directly proves
             the report is on the always-on axis, not the DCE'd diagnostic
             trace. (Companion to the dispatch-on-error always-on contract
@@ -211,7 +211,7 @@
       ;; the :error-emit/dispatch-frame-teardown-report late-bind hook.
       (rf/register-listener! :errors :test/recorder
                                    (fn [record] (swap! seen conj record)))
-      (error-emit/dispatch-frame-teardown-report!
+      (rf.error-emit/dispatch-frame-teardown-report!
         :prod/frame
         [{:hook :ssr/on-frame-destroyed :exception (ex-info "x" {}) :where :safe-call-hook!}]
         12345)
@@ -227,7 +227,7 @@
     (let [seen (atom [])]
       (rf/register-listener! :errors :test/recorder
                                    (fn [record] (swap! seen conj record)))
-      (error-emit/dispatch-frame-teardown-report! :prod/frame [] 1)
+      (rf.error-emit/dispatch-frame-teardown-report! :prod/frame [] 1)
       (is (empty? @seen) "empty :hook-failures → no record fanned out"))))
 
 (deftest report-reason-is-truthful-for-a-guarded-direct-step
@@ -242,7 +242,7 @@
     (let [seen (atom [])]
       (rf/register-listener! :errors :test/recorder
                                    (fn [record] (swap! seen conj record)))
-      (error-emit/dispatch-frame-teardown-report!
+      (rf.error-emit/dispatch-frame-teardown-report!
         :prod/frame
         [{:hook      :frame/notify-machine-destruction!
           :exception (ex-info "machine cascade blew up" {})
@@ -268,7 +268,7 @@
             `:error-emit/dispatch-frame-teardown-report` late-bind hook
             (frame.cljc reaches it via late-bind to avoid the
             error-emit → elision → frame load cycle)."
-    (is (some? (late-bind/get-fn :error-emit/dispatch-frame-teardown-report))
+    (is (some? (rf.late-bind/get-fn :error-emit/dispatch-frame-teardown-report))
         "the hook is registered at error-emit ns-load")))
 
 ;; ===========================================================================
@@ -278,7 +278,7 @@
 (deftest dev-per-hook-diagnostic-rows-still-emit
  ;; rf2-d2841 — this deftest IS the diagnostic channel; it has no production
  ;; residue by design (see the body's own comment). Kept verbatim in the arm.
- (when interop/debug-enabled?
+ (when rf.interop/debug-enabled?
   (testing "Per rf2-ini4wr EP-0008 R2 / Spec 009: the per-hook
             `:rf.warning/teardown-hook-exception` DIAGNOSTIC trace still
             emits at its causal position inside `safe-call-hook!` (dev
@@ -334,7 +334,7 @@
         ;; rf2-d2841 — the diagnostic half only exists in dev. The always-on
         ;; half below is what a production build has, and it carries BOTH
         ;; failures, which is the promotion this bead pinned.
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (= 2 (count warns)) "diagnostic channel: one per-hook row each"))
         (is (= 1 (count reps)) "always-on channel: ONE bounded report")
         (is (= 2 (count (:hook-failures (first reps))))
@@ -420,7 +420,7 @@
                                    (fn [record] (swap! seen conj record)))
       ;; Direct substrate exercise — the same fn frame.cljc reaches via the
       ;; :error-emit/dispatch-frame-teardown-report late-bind hook.
-      (error-emit/dispatch-frame-teardown-report!
+      (rf.error-emit/dispatch-frame-teardown-report!
         :prod/frame
         [{:hook :ssr/on-frame-destroyed :exception (ex-info "x" {}) :where :safe-call-hook!}]
         12345)
@@ -439,7 +439,7 @@
     (let [seen (atom [])]
       (rf/register-listener! :errors :test/recorder
                                    (fn [record] (swap! seen conj record)))
-      (error-emit/dispatch-frame-teardown-report!
+      (rf.error-emit/dispatch-frame-teardown-report!
         :prod/frame
         [{:hook :ssr/on-frame-destroyed :exception (ex-info "x" {}) :where :safe-call-hook!}
          {:hook :ssr/on-frame-destroyed :exception (ex-info "y" {}) :where :safe-call-hook!}]
@@ -499,7 +499,7 @@
                 "the step-2 throw did NOT escape destroy-frame! — the best-effort
                  boundary caught it (pre-fix: the throw propagated out)"))))
       ;; The frame fully tore down despite the step-2 throw.
-      (is (nil? (frame/frame :teardown/step2))
+      (is (nil? (rf.frame/frame :teardown/step2))
           "the record is dissoc'd — fully torn down, NOT left LIVE + half-torn-
            down (pre-fix: :destroyed? unflipped + record intact → non-nil)")
       (is (= 1 @on-destroy-runs)

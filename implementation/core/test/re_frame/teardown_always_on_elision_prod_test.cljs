@@ -29,7 +29,7 @@
 
     - COMMON path (the user `:on-destroy` handler throws): the router
       converts the throw to an always-on `:rf.error/handler-exception`
-      record (`emit-pipeline-exception!` → `error-emit/dispatch-on-
+      record (`emit-pipeline-exception!` → `rf.error-emit/dispatch-on-
       error!`, which is NOT `goog.DEBUG`-gated). `fire-on-destroy-event!`
       installs a TRANSIENT listener on that SAME always-on axis (via the
       `:error-emit/register-error-listener!` late-bind hook) for the
@@ -62,20 +62,20 @@
   for the convention header.)"
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.error-emit :as error-emit]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.substrate.adapter :as adapter]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.error-emit :as rf.error-emit]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter
      :init-fn (fn []
                 ;; Clear the always-on listener registry between tests —
                 ;; the `defonce` atom would otherwise leak a listener.
-                (error-emit/clear-error-listeners!))}))
+                (rf.error-emit/clear-error-listeners!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; Cleanup-hook-key install helper (mirrors the dev-mode
@@ -87,12 +87,12 @@
 
 (defn- with-hooks*
   [hook-map f]
-  (let [originals (into {} (map (fn [k] [k (late-bind/get-fn k)]) (keys hook-map)))]
+  (let [originals (into {} (map (fn [k] [k (rf.late-bind/get-fn k)]) (keys hook-map)))]
     (try
-      (doseq [[k v] hook-map] (late-bind/set-fn! k v))
+      (doseq [[k v] hook-map] (rf.late-bind/set-fn! k v))
       (f)
       (finally
-        (doseq [[k orig] originals] (late-bind/set-fn! k orig))))))
+        (doseq [[k orig] originals] (rf.late-bind/set-fn! k orig))))))
 
 (defn- throwing-hook [label]
   (fn [& _] (throw (ex-info (str "teardown hook threw: " label) {:hook label}))))
@@ -117,7 +117,7 @@
                                    (fn [record] (swap! seen conj record)))
       ;; ENGINE seat — this prod-elision suite must not root the image path
       ;; (see elision_probe.cljs; rf2-h1vqa4).
-      (frame/upsert-frame! :prod.teardown/n-failures {:doc "three hooks will throw"})
+      (rf.frame/upsert-frame! :prod.teardown/n-failures {:doc "three hooks will throw"})
       (with-hooks*
         {:ssr/on-frame-destroyed           (throwing-hook :ssr)
          :schemas/on-frame-destroyed!      (throwing-hook :schemas)
@@ -149,7 +149,7 @@
     (let [seen (atom [])]
       (rf/register-listener! :errors :prod/recorder
                                    (fn [record] (swap! seen conj record)))
-      (frame/upsert-frame! :prod.teardown/clean {:doc "no hooks throw"})
+      (rf.frame/upsert-frame! :prod.teardown/clean {:doc "no hooks throw"})
       (rf/destroy-frame! :prod.teardown/clean)
       (is (empty? (filter #(= :rf.error/frame-teardown-failed (:error %)) @seen))
           "no report when teardown completes cleanly under prod"))))
@@ -165,12 +165,12 @@
     (let [seen (atom [])]
       (rf/register-listener! :errors :prod/recorder
                                    (fn [record] (swap! seen conj record)))
-      (frame/upsert-frame! :prod.teardown/abort {:doc "aborts mid-teardown"})
+      (rf.frame/upsert-frame! :prod.teardown/abort {:doc "aborts mid-teardown"})
       (with-hooks*
         {:ssr/on-frame-destroyed      (throwing-hook :ssr)
          :schemas/on-frame-destroyed! (throwing-hook :schemas)}
         (fn []
-          (with-redefs [frame/emit-frame-destroyed-trace!
+          (with-redefs [rf.frame/emit-frame-destroyed-trace!
                         (fn [_id] (throw (ex-info "mid-teardown collapse" {})))]
             (is (thrown? js/Error (rf/destroy-frame! :prod.teardown/abort))
                 "the downstream teardown step's throw propagates"))))
@@ -200,7 +200,7 @@
                                    (fn [record] (swap! seen conj record)))
       ;; The real production path: every frame :db write flows through this
       ;; choke point; a destroyed frame's container has gone nil.
-      (adapter/replace-container! nil {:dropped :write})
+      (rf.substrate.adapter/replace-container! nil {:dropped :write})
       (let [reports (filter #(= :rf.error/write-after-destroy (:error %)) @seen)]
         (is (= 1 (count reports))
             "exactly ONE always-on record for the dropped write under prod")
@@ -227,7 +227,7 @@
             SURVIVES `:advanced` + `goog.DEBUG=false`. `fire-on-destroy-
             event!` captures the router's ALWAYS-ON
             `:rf.error/handler-exception` record (the router fans it out
-            via `error-emit/dispatch-on-error!`, NOT `goog.DEBUG`-gated)
+            via `rf.error-emit/dispatch-on-error!`, NOT `goog.DEBUG`-gated)
             through a TRANSIENT listener installed on the SAME always-on
             axis (the `:error-emit/register-error-listener!` late-bind
             hook), then re-emits the dedicated category — so the
@@ -246,7 +246,7 @@
       (rf/reg-event :prod.ondestroy/blow-up
                        (fn [{:keys [db]} _] {:db (throw (ex-info "intentional :on-destroy throw"
                                                  {:purpose :test-fixture}))}))
-      (frame/upsert-frame! :prod.ondestroy/worker {:doc        "throwing :on-destroy"
+      (rf.frame/upsert-frame! :prod.ondestroy/worker {:doc        "throwing :on-destroy"
                       :on-destroy [:prod.ondestroy/blow-up]})
       (is (nil? (rf/destroy-frame! :prod.ondestroy/worker))
           "destroy-frame! returns nil even though :on-destroy threw under prod")
@@ -278,7 +278,7 @@
               ":frame names the frame being torn down")
           (is (some? (:exception r))
               ":exception carries the thrown object"))))
-    (is (nil? (frame/frame :prod.ondestroy/worker))
+    (is (nil? (rf.frame/frame :prod.ondestroy/worker))
         "the frame is fully torn down (teardown continued past the throw)")))
 
 (deftest teardown-cascade-infra-fault-survives-prod
@@ -292,21 +292,21 @@
             its ONLY production observability — and this is the only test
             that proves it survives elision."
     (let [seen     (atom [])
-          original (late-bind/get-fn :router/run-frame-destroy-event!)]
+          original (rf.late-bind/get-fn :router/run-frame-destroy-event!)]
       (rf/register-listener! :errors :prod/recorder
                                    (fn [record] (swap! seen conj record)))
-      (frame/upsert-frame! :prod.ondestroy/infra-fault {:on-destroy [:prod.ondestroy/never-reached]})
-      (late-bind/set-fn! :router/run-frame-destroy-event!
+      (rf.frame/upsert-frame! :prod.ondestroy/infra-fault {:on-destroy [:prod.ondestroy/never-reached]})
+      (rf.late-bind/set-fn! :router/run-frame-destroy-event!
                          (fn [& _] (throw (ex-info "dispatch infra fault" {}))))
       (try
         (is (nil? (rf/destroy-frame! :prod.ondestroy/infra-fault))
             "teardown does not propagate the infra fault under prod")
         (finally
-          (late-bind/set-fn! :router/run-frame-destroy-event! original)))
+          (rf.late-bind/set-fn! :router/run-frame-destroy-event! original)))
       (let [reports (filter #(= :rf.error/on-destroy-handler-exception (:error %)) @seen)]
         (is (= 1 (count reports))
             "the defence-in-depth branch fanned out on the always-on axis under prod")
         (is (some? (:exception (first reports)))
             ":exception carries the infra-fault throwable"))
-      (is (nil? (frame/frame :prod.ondestroy/infra-fault))
+      (is (nil? (rf.frame/frame :prod.ondestroy/infra-fault))
           "the frame is still fully torn down despite the infra fault"))))

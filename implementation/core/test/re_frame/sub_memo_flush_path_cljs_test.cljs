@@ -48,7 +48,7 @@
 
   There IS still an asymmetry between the single-source kinds, and the
   first two tests pin it. All three share this one wrapper
-  (`subs/single-source-input-kinds`); what differs is what sits between the
+  (`rf.subs/single-source-input-kinds`); what differs is what sits between the
   sub and the physical frame-state atom:
 
     * `:db` / `:runtime-db` read a PROJECTION — a `make-derived-value` whose
@@ -89,11 +89,11 @@
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.subs :as subs]
-            [re-frame.substrate.spine :as spine]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace.tooling :as trace-tooling]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.subs :as rf.subs]
+            [re-frame.substrate.spine :as rf.substrate.spine]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 ;; A test-local React-hook spine with inert hook stubs — the same shape the
 ;; write-attribution harness builds. It needs no React and mounts nothing; we
@@ -102,8 +102,8 @@
 ;; require an adapter artefact, so the spine is built here rather than borrowed
 ;; from `re-frame.adapter.uix`.)
 (def ^:private spine-adapter
-  (spine/make-react-adapter
-    (spine/make-react-spine
+  (rf.substrate.spine/make-react-adapter
+    (rf.substrate.spine/make-react-spine
       {:substrate-name        "gncxk-flush-path"
        :gensym-prefix-sub     "gncxk-sub-"
        :gensym-prefix-derived "gncxk-derived-"
@@ -114,7 +114,7 @@
     {:kind :rf.adapter/gncxk-flush-path :frame-provider nil}))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter spine-adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter spine-adapter}))
 
 (defn- skips-for
   "Count `:rf.sub/skip` trace events naming `sub-id` that are emitted while
@@ -123,14 +123,14 @@
   [sub-id body-fn]
   (let [n (atom 0)
         k ::skip-probe]
-    (trace-tooling/register-listener!
+    (rf.trace.tooling/register-listener!
       k
       (fn [ev]
         (when (and (= :rf.sub/skip (:operation ev))
                    (= sub-id (get-in ev [:tags :rf.sub/id])))
           (swap! n inc))))
     (try (body-fn)
-         (finally (trace-tooling/unregister-listener! k)))
+         (finally (rf.trace.tooling/unregister-listener! k)))
     @n))
 
 ;; ---------------------------------------------------------------------------
@@ -197,7 +197,7 @@
             what suppresses the body"
     (rf/with-frame :rf/default
       (let [runs (atom 0)]
-        (subs/reg-frame-state-sub
+        (rf.subs/reg-frame-state-sub
           :whole-state
           (fn [frame-state _] (swap! runs inc) (:n (:rf.db/app frame-state))))
         (rf/reg-event :seed   (fn [_ _] {:db {:n 42 :other :a}}))
@@ -262,7 +262,7 @@
         (rf/reg-sub :n (fn [db _] (swap! runs inc) (:n db)))
         (rf/dispatch-sync [:seed])
         (let [r     (rf/subscribe [:n])
-              proj  (frame/app-db-container :rf/default)
+              proj  (rf.frame/app-db-container :rf/default)
               reads (atom 0)]
           (is (= 42 @r))
           (is (= 1 @runs) "first deref runs the body")
@@ -307,7 +307,7 @@
         (rf/reg-sub :n (fn [db _] (swap! runs inc) (:n db)))
         (rf/dispatch-sync [:seed])
         (let [r       (rf/subscribe [:n])
-              proj    (frame/app-db-container :rf/default)
+              proj    (rf.frame/app-db-container :rf/default)
               returns (atom 0)]
           (is (= 42 @r))
           (is (= 1 @runs) "first deref runs the body")
@@ -323,7 +323,7 @@
                      (fn [_ _ _ _]
                        (when (zero? @returns)
                          (swap! returns inc)
-                         (frame/replace-app-db! :rf/default {:n 42 :other :a}))))
+                         (rf.frame/replace-app-db! :rf/default {:n 42 :other :a}))))
           (let [flush-skips (try
                               (skips-for :n #(rf/dispatch-sync [:bump]))
                               (finally (remove-watch proj ::return-to-equal)))]

@@ -64,8 +64,8 @@
   an alternate-store seating could bind to route `reg-*` writes into a different
   source store. [[active-source-store]] is the single resolution point — no live
   caller binds it, so nil ⇒ the process-default store."
-  (:require [re-frame.error :as error]
-            [re-frame.source-coords :as source-coords]))
+  (:require [re-frame.error :as rf.error]
+            [re-frame.source-coords :as rf.source-coords]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -227,13 +227,13 @@
        generated-code path that stamps its own provenance), canonicalized;
     2. otherwise the descriptor's `:ns` slot (the symbol a reg-* macro
        captured), canonicalized to a string;
-    3. otherwise the `:ns` of the live `source-coords/*pending-coords*`
+    3. otherwise the `:ns` of the live `rf.source-coords/*pending-coords*`
        binding, canonicalized.
 
   Step 3 is the PRODUCTION-ELISION path (rf2-32siq3.22). The descriptor's `:ns`
   slot (step 2) only survives in DEV: a reg-* macro captures coords into
   `*pending-coords*`, and the registration fn folds them into the stored
-  metadata via `source-coords/merge-coords` — but in CLJS production
+  metadata via `rf.source-coords/merge-coords` — but in CLJS production
   (`:advanced` + `goog.DEBUG=false`) `merge-coords` returns the user metadata
   UNCHANGED, stripping `:ns` from the descriptor (consistent with `:file` /
   `:line` / `:doc` elision). The `*pending-coords*` BINDING itself survives
@@ -268,7 +268,7 @@
                                (:ns descriptor)
                                ;; Production-surviving fallback: the live
                                ;; *pending-coords* binding's :ns (rf2-32siq3.22).
-                               (:ns source-coords/*pending-coords*)))
+                               (:ns rf.source-coords/*pending-coords*)))
         ;; Stamp `:kind` / `:id` (the store key, so deterministic) — image
         ;; assembly reads them off the descriptor (rf2-32siq3.21) — plus the
         ;; canonical provenance string so `(rf/handler-meta kind id)` consumers
@@ -401,7 +401,7 @@
   Recovery: reset the bound store via its own seating path, not this surface."
   []
   (when (some? *source-store*)
-    (error/throw-error!
+    (rf.error/throw-error!
       :rf.error/source-store-clear-all-under-bound-store
       'source-store/clear-all!
       (str "source-store/clear-all! was invoked while a bound `*source-store*` "

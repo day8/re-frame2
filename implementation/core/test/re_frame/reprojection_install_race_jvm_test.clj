@@ -7,20 +7,20 @@
   effects the flag PROMISES afterwards:
 
       (when (compare-and-set! reprojection-installed? false true)   ;; publish
-        (registrar/add-registration-hook! reproject-on-registration-change!)
-        (late-bind/set-fn! :live-frame/mark-projection-dirty! …)
-        (late-bind/set-fn! :live-frame/flush-projection!      …))
+        (rf.registrar/add-registration-hook! reproject-on-registration-change!)
+        (rf.late-bind/set-fn! :live-frame/mark-projection-dirty! …)
+        (rf.late-bind/set-fn! :live-frame/flush-projection!      …))
 
   `compare-and-set!` ELECTS one installer; it does not make the LOSERS WAIT for
   that installer to finish. A second `make-frame` on another thread reads the
   flag as `true` while the elected installer is still between the CAS and the
   hook, concludes the wiring is in place, and proceeds to SEAL ITS GENERATION —
-  the seal `registrar/lookup` resolves every `(kind, id)` through
+  the seal `rf.registrar/lookup` resolves every `(kind, id)` through
   (`call-with-frame-resolution`). A `reg-event` issued in that window fires NO
   hook, because no hook exists yet. When the elected installer finally finishes
   there is no dirty mark left for anything to flush, so that second frame stays
   PERMANENTLY STALE: `dispatch` reports `:rf.error/no-such-handler` for a
-  handler `registrar/lookup` is holding at that very moment. That is the
+  handler `rf.registrar/lookup` is holding at that very moment. That is the
   original rf2-9c2jf release blocker, recreated WITHOUT the debug gate.
 
   THE INVARIANT, stated as this namespace tests it: *completion is observable
@@ -55,19 +55,19 @@
   `defonce`, so by the time this namespace runs some earlier `make-frame` has
   usually installed the wiring already. The fixture snapshots and restores the
   three pieces of process state the once-body writes — the flag, the registrar's
-  registration-hook vector, and `late-bind/hooks` — so each test opens the SAME
+  registration-hook vector, and `rf.late-bind/hooks` — so each test opens the SAME
   window a fresh JVM's very first `make-frame` opens, and leaves the process
   exactly as it found it."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.flows :as flows]
-            [re-frame.frame :as frame]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.live-frame :as live-frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace])
+            [re-frame.flows :as rf.flows]
+            [re-frame.frame :as rf.frame]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.live-frame :as rf.live-frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace :as rf.trace])
   (:import [java.util.concurrent CountDownLatch TimeUnit]))
 
 ;; ---------------------------------------------------------------------------
@@ -79,11 +79,11 @@
 ;; presence is an ordinary identity check.
 ;; ---------------------------------------------------------------------------
 
-(def ^:private installed-flag       #'live-frame/reprojection-installed?)
-(def ^:private registration-hooks   #'registrar/registration-hooks)
+(def ^:private installed-flag       #'rf.live-frame/reprojection-installed?)
+(def ^:private registration-hooks   #'rf.registrar/registration-hooks)
 
 (defn- reprojection-hook-installed? []
-  (boolean (some #{live-frame/reproject-on-registration-change!}
+  (boolean (some #{rf.live-frame/reproject-on-registration-change!}
                  @@registration-hooks)))
 
 (def ^:private published-keys
@@ -91,15 +91,15 @@
 
 (defn- reset-runtime [test-fn]
   (let [hooks-before     @@registration-hooks
-        late-bind-before @late-bind/hooks
+        late-bind-before @rf.late-bind/hooks
         flag-before      @@installed-flag]
     (try
-      (registrar/clear-all!)
-      (reset! frame/frames {})
-      (flows/reset-flows!)
-      (schemas/clear-schemas-by-frame!)
-      (trace/clear-listeners!)
-      (rf/init! plain-atom/adapter)
+      (rf.registrar/clear-all!)
+      (reset! rf.frame/frames {})
+      (rf.flows/reset-flows!)
+      (rf.schemas/clear-schemas-by-frame!)
+      (rf.trace/clear-listeners!)
+      (rf/init! rf.substrate.plain-atom/adapter)
       ;; Framework registrations live at namespace-load time; `clear-all!` wiped
       ;; them. Re-eval so the rest of the suite is not left short.
       (require 're-frame.routing :reload)
@@ -109,18 +109,18 @@
       ;; hook, un-publish ONLY the two late-bind keys the once-body owns, and
       ;; clear the flag. Anything else in the vector / hook map is left alone.
       (swap! @registration-hooks
-             (fn [hs] (vec (remove #{live-frame/reproject-on-registration-change!} hs))))
-      (swap! late-bind/hooks #(apply dissoc % published-keys))
-      (run! late-bind/invalidate-cache! published-keys)
+             (fn [hs] (vec (remove #{rf.live-frame/reproject-on-registration-change!} hs))))
+      (swap! rf.late-bind/hooks #(apply dissoc % published-keys))
+      (run! rf.late-bind/invalidate-cache! published-keys)
       (reset! @installed-flag false)
       (test-fn)
       (finally
         (reset! @registration-hooks hooks-before)
-        (reset! late-bind/hooks late-bind-before)
-        (run! late-bind/invalidate-cache! published-keys)
+        (reset! rf.late-bind/hooks late-bind-before)
+        (run! rf.late-bind/invalidate-cache! published-keys)
         (reset! @installed-flag flag-before)
-        (registrar/clear-all!)
-        (reset! frame/frames {})))))
+        (rf.registrar/clear-all!)
+        (reset! rf.frame/frames {})))))
 
 (use-fixtures :each reset-runtime)
 
@@ -145,7 +145,7 @@
 (deftest install-boundary-not-passable-before-the-registration-hook
   (testing "a second make-frame cannot observe the reprojection as installed
             while the elected installer is still adding the registrar hook"
-    (let [add-hook!  registrar/add-registration-hook!
+    (let [add-hook!  rf.registrar/add-registration-hook!
           at-barrier (CountDownLatch. 1)   ;; installer A has parked mid-install
           release    (CountDownLatch. 1)   ;; …and may now finish
           b-started  (CountDownLatch. 1)   ;; contender B's thread is running
@@ -154,7 +154,7 @@
           runs       (atom 0)
           dispatch-throw (atom nil)]
       (rf/reg-event :audit/early (fn [{:keys [db]} _] {:db (assoc db :early true)}))
-      (with-redefs [registrar/add-registration-hook!
+      (with-redefs [rf.registrar/add-registration-hook!
                     (fn [f]
                       ;; Park INSIDE the once-body, before the first of the
                       ;; three side effects lands.
@@ -170,8 +170,8 @@
                   ;; What the contender can SEE the instant its frame exists —
                   ;; i.e. the instant its generation is sealed and resolvable.
                   (reset! b-saw {:hook?  (reprojection-hook-installed?)
-                                 :mark?  (some? (late-bind/get-fn :live-frame/mark-projection-dirty!))
-                                 :flush? (some? (late-bind/get-fn :live-frame/flush-projection!))})
+                                 :mark?  (some? (rf.late-bind/get-fn :live-frame/mark-projection-dirty!))
+                                 :flush? (some? (rf.late-bind/get-fn :live-frame/flush-projection!))})
                   ;; The `reg-*` that must reach the just-sealed generation.
                   (rf/reg-event :audit/late
                     (fn [{:keys [db]} _]
@@ -222,13 +222,13 @@
 (deftest install-boundary-not-passable-before-the-flush-late-bind
   (testing "a second make-frame cannot observe the reprojection as installed
             while the elected installer is still publishing the late-bind keys"
-    (let [set-fn!    late-bind/set-fn!
+    (let [set-fn!    rf.late-bind/set-fn!
           at-barrier (CountDownLatch. 1)
           release    (CountDownLatch. 1)
           b-started  (CountDownLatch. 1)
           b-returned (CountDownLatch. 1)
           b-saw      (atom nil)]
-      (with-redefs [late-bind/set-fn!
+      (with-redefs [rf.late-bind/set-fn!
                     (fn [k f]
                       ;; Park just before the LAST of the three side effects:
                       ;; the hook is added and the removal twin is published,
@@ -244,8 +244,8 @@
                   (.countDown b-started)
                   (rf/make-frame {:id :audit.flush/b})
                   (reset! b-saw {:hook?  (reprojection-hook-installed?)
-                                 :mark?  (some? (late-bind/get-fn :live-frame/mark-projection-dirty!))
-                                 :flush? (some? (late-bind/get-fn :live-frame/flush-projection!))})
+                                 :mark?  (some? (rf.late-bind/get-fn :live-frame/mark-projection-dirty!))
+                                 :flush? (some? (rf.late-bind/get-fn :live-frame/flush-projection!))})
                   (.countDown b-returned)
                   :done)]
           (is (await! b-started settle-ms) "the contender thread started")

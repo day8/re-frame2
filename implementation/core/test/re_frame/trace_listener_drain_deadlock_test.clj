@@ -50,13 +50,13 @@
             ;; rather than only the dispatch-id fast path. The FULL JVM suite always
             ;; loads epoch; this require makes the guard hold in isolation too.
             [re-frame.epoch]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace :as trace])
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.trace :as rf.trace])
   (:import [java.util.concurrent CountDownLatch TimeUnit]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; Loop the deterministic proof so a green run is determinism, not a lucky
 ;; interleaving. Env-overridable for a heavier local soak.
@@ -71,7 +71,7 @@
 (def ^:private latch-timeout-s 10)
 
 ;; ---- Posture: dev-only, declared by `^:requires-debug` (rf2-d2841) ---------
-;; Trace machinery end to end: under `-Dre-frame.debug=false` `trace/emit` is a
+;; Trace machinery end to end: under `-Dre-frame.debug=false` `rf.trace/emit` is a
 ;; no-op, so there is no semantic residue to run under that posture, and a
 ;; `(when interop/debug-enabled? ...)` split -- the shape the rest of rf2-d2841
 ;; used -- would leave EMPTY deftests reporting green (class 2).  Every deftest
@@ -127,7 +127,7 @@
             (swap! t1-event-runs inc)
             {:db (assoc db :jl75r/t1-event true)}))
 
-        (trace/register-listener! ::jl75r
+        (rf.trace/register-listener! ::jl75r
           (fn [ev]
             ;; React ONLY to T1's clean trigger emit (never to the drain's own
             ;; run-start/run-end/db-changed emits), and exactly once.
@@ -149,11 +149,11 @@
         (.await drainer-in latch-timeout-s TimeUnit/SECONDS)
 
         (let [t1 (Thread. ^Runnable
-                          (fn [] (trace/emit! :info :jl75r/t1-trigger {}))
+                          (fn [] (rf.trace/emit! :info :jl75r/t1-trigger {}))
                           "jl75r-t1-listener")]
           (.start t1)
           (.join t1 join-timeout-ms)
-          (trace/unregister-listener! ::jl75r)
+          (rf.trace/unregister-listener! ::jl75r)
 
           (is (not (.isAlive t1))
               (str "iter " iter ": T1 (fanout-monitor -> listener -> "

@@ -33,20 +33,20 @@
   `routing_token_cljs_test`."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
-            [re-frame.late-bind :as late-bind]
-            [re-frame.substrate.adapter :as adapter]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 ;; ---- fixture --------------------------------------------------------------
 ;; Each test installs/disposes explicitly (install-time routing is the unit
 ;; under test), so the fixture only guarantees a cold adapter slot either side.
 
 (defn- cold-adapter [test-fn]
-  (adapter/dispose-adapter!)
-  (adapter/reset-lifecycle-state-for-tests!)
+  (rf.substrate.adapter/dispose-adapter!)
+  (rf.substrate.adapter/reset-lifecycle-state-for-tests!)
   (test-fn)
-  (adapter/dispose-adapter!)
-  (adapter/reset-lifecycle-state-for-tests!))
+  (rf.substrate.adapter/dispose-adapter!)
+  (rf.substrate.adapter/reset-lifecycle-state-for-tests!))
 
 (use-fixtures :each cold-adapter)
 
@@ -83,11 +83,11 @@
 (deftest routed-hook-forwards-every-arity-to-the-live-impl
   (testing "the ACTIVE adapter's routed hook forwards its arguments verbatim at 0/1/2/3/4 args"
     (let [seen   (atom [])
-          _      (adapter/route-hook! plain-atom/adapter active-key
+          _      (rf.substrate.adapter/route-hook! rf.substrate.plain-atom/adapter active-key
                                       (recorder seen :impl)
                                       (constantly :fell-through))
-          routed (late-bind/get-fn active-key)]
-      (adapter/install-adapter! plain-atom/adapter)
+          routed (rf.late-bind/get-fn active-key)]
+      (rf.substrate.adapter/install-adapter! rf.substrate.plain-atom/adapter)
       (is (= (mapv (fn [args] [:impl args]) arg-vectors)
              (call-at-every-arity routed))
           "the impl's return value is answered unchanged at every arity")
@@ -102,17 +102,17 @@
           outer-seen (atom [])
           ;; INNER link first: plain-atom's hook. Then an OUTER link for a
           ;; different-kind adapter registers on top of it.
-          _          (adapter/route-hook! plain-atom/adapter chain-key
+          _          (rf.substrate.adapter/route-hook! rf.substrate.plain-atom/adapter chain-key
                                           (recorder inner-seen :inner)
                                           (constantly :inner-fallback))
-          other      (assoc plain-atom/adapter :kind :rf.adapter/uix)
-          _          (adapter/route-hook! other chain-key
+          other      (assoc rf.substrate.plain-atom/adapter :kind :rf.adapter/uix)
+          _          (rf.substrate.adapter/route-hook! other chain-key
                                           (recorder outer-seen :outer)
                                           (constantly :outer-fallback))
-          routed     (late-bind/get-fn chain-key)]
+          routed     (rf.late-bind/get-fn chain-key)]
       ;; plain-atom is installed, so the OUTER (uix-kind) link is inactive and
       ;; must chain rather than fire.
-      (adapter/install-adapter! plain-atom/adapter)
+      (rf.substrate.adapter/install-adapter! rf.substrate.plain-atom/adapter)
       (is (= (mapv (fn [args] [:inner args]) arg-vectors)
              (call-at-every-arity routed))
           "the chained inner impl's value is answered at every arity")
@@ -127,10 +127,10 @@
   (testing "with nothing installed and no previous handler, every arity calls the fallback with NO args"
     (let [fallback-seen (atom [])
           impl-seen     (atom [])
-          _             (adapter/route-hook! plain-atom/adapter fallback-key
+          _             (rf.substrate.adapter/route-hook! rf.substrate.plain-atom/adapter fallback-key
                                              (recorder impl-seen :impl)
                                              (recorder fallback-seen :fell-through))
-          routed        (late-bind/get-fn fallback-key)]
+          routed        (rf.late-bind/get-fn fallback-key)]
       ;; No adapter installed: `same-adapter?` is false and `previous` is nil.
       (is (= (repeat 5 [:fell-through []])
              (call-at-every-arity routed))

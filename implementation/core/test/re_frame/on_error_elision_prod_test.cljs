@@ -20,17 +20,17 @@
   this suffix, so these tests run only under prod-mode compilation."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.error-emit :as error-emit]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]))
+            [re-frame.error-emit :as rf.error-emit]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter
      :init-fn (fn []
                 ;; Per rf2-bacs4: clear the listener registry between
                 ;; tests — defonce means it would otherwise leak.
-                (error-emit/clear-error-listeners!))}))
+                (rf.error-emit/clear-error-listeners!))}))
 
 ;; ---- handler-exception recovers under goog.DEBUG=false --------------------
 

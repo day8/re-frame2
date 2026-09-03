@@ -18,12 +18,12 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
-            [re-frame.interceptor :as interceptor]
-            [re-frame.interceptor-registry :as icpt-reg]
-            [re-frame.interop :as interop]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.interceptor :as rf.interceptor]
+            [re-frame.interceptor-registry :as rf.interceptor-registry]
+            [re-frame.interop :as rf.interop]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; ---- fixtures -------------------------------------------------------------
 ;;
@@ -35,8 +35,8 @@
 ;; load — so refs to it resolve in every test.
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---------------------------------------------------------------------------
 ;; 1. reg-interceptor registers each descriptor form
@@ -101,12 +101,12 @@
     (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
                           #":rf.error/invalid-interceptor"
                           (rf/reg-interceptor :t/x
-                            (interceptor/->interceptor* :id :different :before identity)))))
+                            (rf.interceptor/->interceptor* :id :different :before identity)))))
 
   (testing "migration boundary: interceptor VALUE with matching :id is accepted"
     (is (= :t/legacy
            (rf/reg-interceptor :t/legacy
-             (interceptor/->interceptor* :id :t/legacy :before identity))))))
+             (rf.interceptor/->interceptor* :id :t/legacy :before identity))))))
 
 ;; ---------------------------------------------------------------------------
 ;; 2. bare-keyword ref + [id arg] ref resolve + run in order
@@ -166,7 +166,7 @@
 
 (deftest inline-value-in-chain-rejected
   (testing "an inline interceptor value in a chain is :rf.error/inline-interceptor-removed at registration"
-    (let [inline (interceptor/->interceptor*
+    (let [inline (rf.interceptor/->interceptor*
                    :id     :inline/log
                    :before (fn [ctx] ctx)
                    :after  (fn [ctx] ctx))]
@@ -179,7 +179,7 @@
 
 (deftest mixed-ref-and-inline-value-rejected
   (testing "a chain mixing a registered ref AND an inline value still fails on the inline value"
-    (let [inline (interceptor/->interceptor*
+    (let [inline (rf.interceptor/->interceptor*
                    :id     :mix/inline
                    :before (fn [ctx] ctx)
                    :after  (fn [ctx] ctx))]
@@ -282,17 +282,17 @@
   (testing "resolve-ref resolves through the active (realm-bound) registrar"
     ;; Register :rsa/icpt ONLY in a separate realm registrar atom.
     (let [realm-reg (atom {})]
-      (binding [registrar/*registrar* realm-reg]
+      (binding [rf.registrar/*registrar* realm-reg]
         (rf/reg-interceptor :rsa/icpt {:before identity}))
       ;; In the DEFAULT realm, :rsa/icpt is absent — resolution fails.
-      (is (nil? (registrar/lookup :interceptor :rsa/icpt))
+      (is (nil? (rf.registrar/lookup :interceptor :rsa/icpt))
           "default realm does not see the realm-scoped interceptor")
       (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core.ExceptionInfo)
                             #":rf.error/unregistered-interceptor"
-                            (icpt-reg/resolve-ref :rsa/icpt)))
+                            (rf.interceptor-registry/resolve-ref :rsa/icpt)))
       ;; Bound to the realm registrar, the SAME ref resolves to its value.
-      (binding [registrar/*registrar* realm-reg]
-        (let [resolved (icpt-reg/resolve-ref :rsa/icpt)]
+      (binding [rf.registrar/*registrar* realm-reg]
+        (let [resolved (rf.interceptor-registry/resolve-ref :rsa/icpt)]
           (is (= :rsa/icpt (:id resolved)))
           (is (fn? (:before resolved))
               "the realm registrar resolved the ref to its executable interceptor"))))))
@@ -302,7 +302,7 @@
     (let [realm-reg (atom {})
           log       (atom [])]
       ;; Seat both the interceptor AND the event into the realm registrar.
-      (binding [registrar/*registrar* realm-reg]
+      (binding [rf.registrar/*registrar* realm-reg]
         (rf/reg-interceptor :rint/log
           {:before (fn [ctx] (swap! log conj :realm-icpt) ctx)})
         ;; reg-event's registration-time ref validation must resolve through
@@ -311,7 +311,7 @@
           {:interceptors [:rint/log]}
           (fn [{:keys [db]} _] {:db db})))
       ;; The event lives only in the realm registrar; the default cannot see it.
-      (is (nil? (registrar/lookup :event :rint/run)))
+      (is (nil? (rf.registrar/lookup :event :rint/run)))
       (is (some? (get-in @realm-reg [:event :rint/run]))
           "the event + interceptor are seated in the realm registrar"))))
 
@@ -332,7 +332,7 @@
 ;;
 ;; Posture split (rf2-d2841): the trace stream is dev-only, and the PUBLIC
 ;; registry coords are production-elided (`merge-coords`, rf2-3un2g) — so the
-;; coord assertions sit inside `(when interop/debug-enabled? …)` arms. The
+;; coord assertions sit inside `(when rf.interop/debug-enabled? …)` arms. The
 ;; no-coord degradations (programmatic registration, framework standard) hold
 ;; in both postures and stand outside the gate.
 
@@ -366,7 +366,7 @@
     (let [errs (capture-error-traces [:tq26u/run])]
       ;; Dev-instrumentation arm — see the section comment. The registry-meta
       ;; sanity check sits inside too: production strips the public coords.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [coord (registered-coord :tq26u/boom)
               ix    (filterv #(= :rf.error/interceptor-exception (:operation %)) errs)]
           (is (int? (:line coord))
@@ -380,15 +380,15 @@
             registration coord as :source-coord"
     (rf/reg-interceptor :tq26u/fac
       {:factory (fn [tag] {:before (fn [ctx] (assoc ctx :tag tag))})})
-    (when interop/debug-enabled?
-      (let [resolved (icpt-reg/resolve-ref [:tq26u/fac :x])]
+    (when rf.interop/debug-enabled?
+      (let [resolved (rf.interceptor-registry/resolve-ref [:tq26u/fac :x])]
         (is (= :tq26u/fac (:id resolved)))
         (is (= (registered-coord :tq26u/fac) (:source-coord resolved))
             "the factory registration's coord rides the built value"))))
 
   (testing "the framework :rf.interceptor/path factory stays coord-free
             (programmatic registration — no captured coord, nothing to jump to)"
-    (let [resolved (icpt-reg/resolve-ref [:rf.interceptor/path [:cart]])]
+    (let [resolved (rf.interceptor-registry/resolve-ref [:rf.interceptor/path [:cart]])]
       (is (= :rf.interceptor/path (:id resolved)))
       (is (nil? (:source-coord resolved))
           "framework standards register via the reg-interceptor* fn — no coord is stamped"))))
@@ -396,8 +396,8 @@
 (deftest programmatic-registration-resolves-coord-free
   (testing "an interceptor registered via the plain reg-interceptor* FN resolves
             with no :source-coord (the plain-text degradation Xray spec 021 documents)"
-    (icpt-reg/reg-interceptor* :tq26u/plain {:before identity})
-    (let [resolved (icpt-reg/resolve-ref :tq26u/plain)]
+    (rf.interceptor-registry/reg-interceptor* :tq26u/plain {:before identity})
+    (let [resolved (rf.interceptor-registry/resolve-ref :tq26u/plain)]
       (is (= :tq26u/plain (:id resolved)))
       (is (nil? (:source-coord resolved))
           "no macro path, no coords in the registry meta, nothing stamped"))))
@@ -407,15 +407,15 @@
     (testing "a migration-boundary VALUE carrying its own :source-coord keeps it
               over the registration coord (the authoring site is more specific)"
       (rf/reg-interceptor :tq26u/own-coord
-        (interceptor/->interceptor* :id :tq26u/own-coord :before identity
+        (rf.interceptor/->interceptor* :id :tq26u/own-coord :before identity
                                     :source-coord own-coord))
-      (is (= own-coord (:source-coord (icpt-reg/resolve-ref :tq26u/own-coord)))
+      (is (= own-coord (:source-coord (rf.interceptor-registry/resolve-ref :tq26u/own-coord)))
           "the value's own coord wins"))
     (testing "a migration-boundary VALUE without its own coord falls back to the
               registration coord (the best available jump target)"
       (rf/reg-interceptor :tq26u/no-coord
-        (interceptor/->interceptor* :id :tq26u/no-coord :before identity))
-      (when interop/debug-enabled?
+        (rf.interceptor/->interceptor* :id :tq26u/no-coord :before identity))
+      (when rf.interop/debug-enabled?
         (is (= (registered-coord :tq26u/no-coord)
-               (:source-coord (icpt-reg/resolve-ref :tq26u/no-coord)))
+               (:source-coord (rf.interceptor-registry/resolve-ref :tq26u/no-coord)))
             "the registration site rides as the fallback")))))

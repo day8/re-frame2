@@ -27,8 +27,8 @@
   The helpers here are the path-overlap arm of that scheme — they redact
   event-payload paths whose path-scoped handler slice overlaps a
   classified sensitive app-db path."
-  (:require [re-frame.interceptor :as interceptor]
-            [re-frame.late-bind :as late-bind]))
+  (:require [re-frame.interceptor :as rf.interceptor]
+            [re-frame.late-bind :as rf.late-bind]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -69,7 +69,7 @@
   ;; its map on every dispatch; the cache invalidates on hook re-publish
   ;; (`set-fn!`), so dev-time `(require 're-frame.elision :reload)` still
   ;; swaps the resolved fn on the next dispatch.
-  (if-let [f (late-bind/get-fn-cached :elision/sensitive-declarations)]
+  (if-let [f (rf.late-bind/get-fn-cached :elision/sensitive-declarations)]
     (f frame-id)
     {}))
 
@@ -159,7 +159,7 @@
 (defn redacted-event-from-ctx
   [ctx]
   (or (:rf/redacted-event ctx)
-      (interceptor/get-coeffect ctx :event)))
+      (rf.interceptor/get-coeffect ctx :event)))
 
 (defn schema-redaction-interceptor
   "Internal interceptor installed by the router for path-scoped handlers
@@ -170,12 +170,12 @@
   retained for wire compatibility."
   [paths]
   (let [paths (vec paths)]
-    (interceptor/->interceptor*
+    (rf.interceptor/->interceptor*
       :id :rf/schema-redaction
       :before
       (fn [ctx]
         (assoc ctx :rf/redacted-event
-               (redact-event (interceptor/get-coeffect ctx :event) paths))))))
+               (redact-event (rf.interceptor/get-coeffect ctx :event) paths))))))
 
 ;; ---- redact-interceptor — user-installed positional interceptor ----------------
 ;;
@@ -250,7 +250,7 @@
   [Security.md §Behavioural MUSTs across the privacy surface](../../../../../spec/Security.md#behavioural-musts-across-the-privacy-surface)."
   [paths]
   (let [paths (vec paths)]
-    (interceptor/->interceptor*
+    (rf.interceptor/->interceptor*
       :id     redact-interceptor-id
       ;; Paths are exposed on the interceptor map for chain-walking
       ;; consumers (router `prepare-handler-ctx` collects them so the
@@ -260,7 +260,7 @@
       :before
       (fn [ctx]
         (let [base    (or (:rf/redacted-event ctx)
-                          (interceptor/get-coeffect ctx :event))
+                          (rf.interceptor/get-coeffect ctx :event))
               scrubbed (redact-event base paths)]
           (assoc ctx :rf/redacted-event scrubbed))))))
 

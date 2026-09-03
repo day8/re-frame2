@@ -27,8 +27,8 @@
   consume this surface; substrate-internals stay private.
 
   Per Spec 009 §Event-emit listener / §Error observability."
-  (:require [re-frame.event-emit :as event-emit]
-            [re-frame.error-emit :as error-emit]))
+  (:require [re-frame.event-emit :as rf.event-emit]
+            [re-frame.error-emit :as rf.error-emit]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -43,16 +43,16 @@
   Survives CLJS `:advanced` + `goog.DEBUG=false`. Listener
   REGISTRATION sites SHOULD wrap calls in an explicit production
   config check; the substrate itself carries no gate."
-  event-emit/register-event-listener!)
+  rf.event-emit/register-event-listener!)
 
 (def unregister-event-listener!
   "Drop the event-emit listener registered under `id`. Returns nil."
-  event-emit/unregister-event-listener!)
+  rf.event-emit/unregister-event-listener!)
 
 (def clear-event-listeners!
   "Drop every registered event-emit listener. Test-isolation only;
   production code should never call this. Returns nil."
-  event-emit/clear-event-listeners!)
+  rf.event-emit/clear-event-listeners!)
 
 ;; ---- error-emit listener surface -----------------------------------------
 
@@ -65,13 +65,13 @@
   Survives CLJS `:advanced` + `goog.DEBUG=false`. Listener
   REGISTRATION sites SHOULD wrap calls in an explicit production
   config check; the substrate itself carries no gate."
-  error-emit/register-error-listener!)
+  rf.error-emit/register-error-listener!)
 
 (def unregister-error-listener!
   "Drop the error-emit listener registered under `id`. Returns nil."
-  error-emit/unregister-error-listener!)
+  rf.error-emit/unregister-error-listener!)
 
 (def clear-error-listeners!
   "Drop every registered error-emit listener. Test-isolation only;
   production code should never call this. Returns nil."
-  error-emit/clear-error-listeners!)
+  rf.error-emit/clear-error-listeners!)

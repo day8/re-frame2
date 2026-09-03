@@ -22,10 +22,10 @@
 
   Per Spec 002 §The public registrar query API and Spec 006
   §Subscription topology vs subscription tracking."
-  (:require [re-frame.registrar :as registrar]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.derivation.node :as node]))
+  (:require [re-frame.registrar :as rf.registrar]
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.derivation.node :as rf.derivation.node]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -92,7 +92,7 @@
   JVM-runnable. The runtime cache state (`sub-cache`) is the dynamic
   counterpart and is CLJS-only."
   []
-  (let [subs-meta (registrar/registrations :sub)]
+  (let [subs-meta (rf.registrar/registrations :sub)]
     (reduce-kv
       (fn [acc sub-id meta]
         (let [input-kind (:input-kind meta)
@@ -148,7 +148,7 @@
                          on the entry at materialization, so its topology is
                          fixed for the entry's lifetime.
 
-  Dev-only on CLJS too — the body is gated on `interop/debug-enabled?`
+  Dev-only on CLJS too — the body is gated on `rf.interop/debug-enabled?`
   (the `goog.DEBUG` mirror) so production builds elide both the cache
   walk and the deref-and-collect machinery. Pair tools that attach in
   production explicitly opt in by toggling the gate.
@@ -157,9 +157,9 @@
   production builds."
   [frame-id]
   #?(:cljs
-     (when interop/debug-enabled?
-       (when-let [cache (:sub-cache (frame/frame frame-id))]
-         (let [subs-meta (registrar/registrations :sub)]
+     (when rf.interop/debug-enabled?
+       (when-let [cache (:sub-cache (rf.frame/frame frame-id))]
+         (let [subs-meta (rf.registrar/registrations :sub)]
            (reduce-kv
              (fn [acc query-v entry]
                (let [sub-id     (when (vector? query-v) (first query-v))
@@ -277,7 +277,7 @@
   leaf (rf2-2mkflj); this thin wrapper supplies the subscription family's
   fixed classification."
   [id output]
-  (node/node-base id output
+  (rf.derivation.node/node-base id output
                   {:kind          :derivation
                    :storage       :ephemeral
                    :evaluation    :on-demand
@@ -291,7 +291,7 @@
   `:schema` fact. Functions stay opaque tokens; we never serialize the
   executable body."
   [node meta]
-  (cond-> (node/attach-source node meta)
+  (cond-> (rf.derivation.node/attach-source node meta)
     (contains? meta :schema) (assoc :schema (:schema meta))
     (contains? meta :doc)    (assoc :doc (:doc meta))
     ;; The body fn is an opaque token — surfaced under :derive so a tool
@@ -359,14 +359,14 @@
   sibling and is consumed by Xray + the conformance fixtures; the public
   name is deferred until a third consumer needs it."
   ([]
-   (let [subs-meta (registrar/registrations :sub)]
+   (let [subs-meta (rf.registrar/registrations :sub)]
      (reduce-kv
        (fn [acc sub-id meta]
          (assoc acc sub-id (static-node-for sub-id meta)))
        {}
        subs-meta)))
   ([sub-id]
-   (when-let [meta (registrar/lookup :sub sub-id)]
+   (when-let [meta (rf.registrar/lookup :sub sub-id)]
      (static-node-for sub-id meta))))
 
 (defn sub-cache-algebra-view
@@ -406,15 +406,15 @@
                      that want the source-form kind alongside the realized
                      edges.
 
-  CLJS-only and dev-only — gated on `interop/debug-enabled?` (the
+  CLJS-only and dev-only — gated on `rf.interop/debug-enabled?` (the
   `goog.DEBUG` mirror) so production builds DCE the cache walk. Returns
   `nil` for a missing/destroyed frame, and `nil` on the JVM + in production
   (the cached reactions are not deref-able on the JVM)."
   [frame-id]
   #?(:cljs
-     (when interop/debug-enabled?
-       (when-let [cache (:sub-cache (frame/frame frame-id))]
-         (let [subs-meta (registrar/registrations :sub)]
+     (when rf.interop/debug-enabled?
+       (when-let [cache (:sub-cache (rf.frame/frame frame-id))]
+         (let [subs-meta (rf.registrar/registrations :sub)]
            (reduce-kv
              (fn [acc query-v entry]
                (let [sub-id     (when (vector? query-v) (first query-v))
@@ -452,7 +452,7 @@
 ;; counter bundle proves that the tooling sibling's body got pulled
 ;; in (most likely via a stray `:require` from a core/* ns). The
 ;; sentinel survives `:advanced` because string literals are not
-;; renamed; it sits outside any `interop/debug-enabled?` gate so DCE
+;; renamed; it sits outside any `rf.interop/debug-enabled?` gate so DCE
 ;; cannot drop the literal independently of the surrounding ns body.
 
 (defonce ^:private bundle-isolation-sentinel

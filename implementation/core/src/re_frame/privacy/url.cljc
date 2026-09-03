@@ -66,14 +66,14 @@
   Internal namespace; nothing here is published from the `re-frame.core`
   facade."
   (:require [clojure.string :as str]
-            [re-frame.privacy :as privacy]))
+            [re-frame.privacy :as rf.privacy]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
 (def ^:private sentinel-str
   "The `:rf/redacted` sentinel as a plain string, for substitution INSIDE a
   URL string (a keyword sentinel cannot live inside a URL)."
-  (subs (str privacy/redacted-sentinel) 1))   ;; ":rf/redacted" → "rf/redacted"
+  (subs (str rf.privacy/redacted-sentinel) 1))   ;; ":rf/redacted" → "rf/redacted"
 
 (defn redact-url-carriers
   "Project a raw URL string for off-box / log / tool egress: keep the

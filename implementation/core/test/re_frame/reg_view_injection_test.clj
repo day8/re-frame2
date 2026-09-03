@@ -38,7 +38,7 @@
   `:rf.trace/call-site` is dev-only BY DESIGN here — the last deftest in this
   file asserts exactly that, walking the expansion to show the prod branch is
   `{:source :ui}` with no coord at all. So every row reading a call-site back
-  off a live trace sits inside a `(when interop/debug-enabled? …)` arm, and
+  off a live trace sits inside a `(when rf.interop/debug-enabled? …)` arm, and
   that arm's contract is pinned by its own always-on neighbour.
 
   But the injection is not only about coords, and the parts that are not now
@@ -58,32 +58,32 @@
   The macro-expansion deftest was always posture-independent and is untouched."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
-            [re-frame.flows :as flows]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace :as trace]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.flows :as rf.flows]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.trace :as rf.trace]))
 
 (defn- clicked?
   "The injected `dispatch` noun ENQUEUES (it is not `dispatch-sync`), so the
   handler's app-db write lands on the drain, not inline. Poll for it — the
   always-on witness rf2-d2841 uses in place of the synchronous enqueue trace."
   [frame-id]
-  (try (test-support/poll-until
+  (try (rf.test-support/poll-until
          #(true? (:clicked? (rf/app-db-value frame-id)))
          {:timeout-ms 2000 :label (str "clicked? " frame-id)})
        (catch Exception _ false)))
 
 (defn reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  (trace/clear-listeners!)
-  (rf/init! plain-atom/adapter)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.flows/reset-flows!)
+  (rf.schemas/clear-schemas-by-frame!)
+  (rf.trace/clear-listeners!)
+  (rf/init! rf.substrate.plain-atom/adapter)
   (require 're-frame.routing :reload)
   (test-fn))
 
@@ -132,7 +132,7 @@
         ;; ---- rf2-d2841 dev arm: the STAMPS the dispatch carried, which ride
         ;;      the trace and are elided at source under the production gate
         ;;      (the expansion deftest below pins that elision).
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (let [ev (->> @seen
                         (filter #(= :rf.event/dispatched (:operation %)))
                         (filter #(= [:rf2-cry25/clicked] (get-in % [:tags :rf.event/v])))
@@ -175,7 +175,7 @@
         (let [click (rf/with-frame :rf2-cry25/render-frame
                       (on-click-of (rf/view :re-frame.reg-view-injection-test/frame-view)))]
           ;; *current-frame* has unwound to the default here.
-          (is (nil? frame/*current-frame*)
+          (is (nil? rf.frame/*current-frame*)
               "the with-frame scope has unwound before the click fires")
           (click))
         ;; ---- ALWAYS-ON (rf2-d2841): the rf2-tqlmq regression itself, read off
@@ -187,7 +187,7 @@
         (is (nil? (:clicked? (rf/app-db-value :rf2-cry25/other-frame)))
             "and reached no other frame")
         ;; ---- rf2-d2841 dev arm ------------------------------------------
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (let [ev (->> @seen
                         (filter #(= :rf.event/dispatched (:operation %)))
                         (filter #(= [:rf2-cry25/clicked] (get-in % [:tags :rf.event/v])))
@@ -207,7 +207,7 @@
   (testing "a view's @(subscribe [...]) against an unregistered sub emits
             :rf.error/no-such-sub carrying the view's :rf.trace/call-site
             (subscriptions carry no :source axis; the handle's :subscribe op
-            mirrors the subscribe macro's trace/with-call-site wrapper)"
+            mirrors the subscribe macro's rf.trace/with-call-site wrapper)"
     (let [seen    (atom [])
           records (atom [])]
       (rf/register-listener! :trace ::rec (fn [ev] (swap! seen conj ev)))
@@ -240,7 +240,7 @@
               "attributed to the render-time frame the handle captured"))
         ;; ---- rf2-d2841 dev arm: the VIEW COORD on that error, which rides
         ;;      `:rf.trace/call-site` on the dev trace only.
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (let [err (->> @seen
                          (filter #(= :rf.error/no-such-sub
                                      (get-in % [:tags :category])))
@@ -263,7 +263,7 @@
 ;; `(re-frame.capture-frame/make-capture-frame (re-frame.core/current-frame-id)
 ;;   {:dispatch-opts <gated> :subscribe-call-site <gated>})`. The handle's
 ;; `:dispatch-opts` and `:subscribe-call-site` args each ride their OWN
-;; outer `(if interop/debug-enabled? <dev> <prod>)` gate so Closure DCEs
+;; outer `(if rf.interop/debug-enabled? <dev> <prod>)` gate so Closure DCEs
 ;; the dev coord literal AND the `:rf.trace/call-site` keyword under
 ;; `:advanced` + `goog.DEBUG=false`. We verify the gated EXPANSION shape
 ;; directly (the macro-side contract) and walk the actual expanded forms
@@ -285,7 +285,7 @@
 (deftest injected-args-ride-debug-gate-with-dev-and-prod-branches
   (testing "the reg-view expansion builds one make-capture-frame whose
             :dispatch-opts / :subscribe-call-site args are each an
-            (if interop/debug-enabled? <dev> <prod>) gate; the dev branch
+            (if rf.interop/debug-enabled? <dev> <prod>) gate; the dev branch
             carries :source :ui + the full call-site coord (WITH :column),
             the prod branch is {:source :ui} (no call-site) / nil"
     (let [exp (rf/expand-reg-view {:line 7 :column 4 :file "v.cljc"}
@@ -308,7 +308,7 @@
       (is (= 'if (first disp-gate))
           "the :dispatch-opts arg is an (if ...) gate")
       (is (= 're-frame.interop/debug-enabled? (second disp-gate))
-          "the gate predicate is interop/debug-enabled? (elision-elidable)")
+          "the gate predicate is rf.interop/debug-enabled? (elision-elidable)")
       (let [exp-str (pr-str exp)]
         (is (re-find #":source :ui" exp-str)
             "the dispatch dev opts carry :source :ui")

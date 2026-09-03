@@ -5,9 +5,9 @@
 
   The resolver separates READING absence from REQUIRING a frame:
 
-    - `frame/current-frame` / `frame/resolve-current-frame` are readers —
+    - `rf.frame/current-frame` / `rf.frame/resolve-current-frame` are readers —
       they return the scope frame or nil; they NEVER synthesise `:rf/default`.
-    - `frame/require-current-frame!` is the requiring primitive — it returns
+    - `rf.frame/require-current-frame!` is the requiring primitive — it returns
       the carried stamp or raises/emits `:rf.error/no-frame-context`.
 
   And `init!` no longer creates `:rf/default` (the runtime never synthesises
@@ -18,12 +18,12 @@
   the whole point of the contract."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.error-emit :as error-emit]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.adapter :as adapter]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]))
+            [re-frame.error-emit :as rf.error-emit]
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace :as rf.trace]))
 
 ;; ---- fixture --------------------------------------------------------------
 ;; Cold-start each test: install the plain-atom adapter (needed to allocate
@@ -31,20 +31,20 @@
 ;; is unbound. This is the genuine no-scope baseline the contract targets.
 
 (defn cold-start [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (adapter/dispose-adapter!)
-  (adapter/reset-lifecycle-state-for-tests!)
-  (trace/clear-listeners!)
-  (error-emit/clear-error-listeners!)
-  (rf/init! plain-atom/adapter)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.substrate.adapter/dispose-adapter!)
+  (rf.substrate.adapter/reset-lifecycle-state-for-tests!)
+  (rf.trace/clear-listeners!)
+  (rf.error-emit/clear-error-listeners!)
+  (rf/init! rf.substrate.plain-atom/adapter)
   (test-fn)
-  (adapter/dispose-adapter!)
-  (adapter/reset-lifecycle-state-for-tests!)
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (trace/clear-listeners!)
-  (error-emit/clear-error-listeners!))
+  (rf.substrate.adapter/dispose-adapter!)
+  (rf.substrate.adapter/reset-lifecycle-state-for-tests!)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.trace/clear-listeners!)
+  (rf.error-emit/clear-error-listeners!))
 
 (use-fixtures :each cold-start)
 
@@ -52,28 +52,28 @@
 
 (deftest current-frame-returns-nil-outside-scope
   (testing "current-frame is nil with no *current-frame* binding — no :rf/default floor"
-    (is (nil? (frame/current-frame))
+    (is (nil? (rf.frame/current-frame))
         "current-frame returns nil outside any with-frame / scope"))
   (testing "current-frame returns the dynamic-var scope frame when bound"
-    (binding [frame/*current-frame* :app]
-      (is (= :app (frame/current-frame))
+    (binding [rf.frame/*current-frame* :app]
+      (is (= :app (rf.frame/current-frame))
           "current-frame reads *current-frame* when a scope is established"))))
 
 (deftest resolve-current-frame-returns-nil-outside-scope
   (testing "resolve-current-frame is nil with no scope — no :rf/default floor"
-    (is (nil? (frame/resolve-current-frame))
+    (is (nil? (rf.frame/resolve-current-frame))
         "resolve-current-frame returns nil outside any scope"))
   (testing "resolve-current-frame returns the dynamic-var scope frame when bound"
-    (binding [frame/*current-frame* :app]
-      (is (= :app (frame/resolve-current-frame))
+    (binding [rf.frame/*current-frame* :app]
+      (is (= :app (rf.frame/resolve-current-frame))
           "resolve-current-frame reads the dynamic-var tier when bound"))))
 
 ;; ---- require-current-frame! — return stamp or raise -----------------------
 
 (deftest require-current-frame-returns-the-carried-stamp
   (testing "require-current-frame! returns the scope frame when one is established"
-    (binding [frame/*current-frame* :app]
-      (is (= :app (frame/require-current-frame! :dispatch))
+    (binding [rf.frame/*current-frame* :app]
+      (is (= :app (rf.frame/require-current-frame! :dispatch))
           "the carried stamp is returned unchanged — NO registry lookup, no repair"))))
 
 (deftest require-current-frame-returns-stamp-even-when-frame-unregistered
@@ -82,14 +82,14 @@
     ;; stamp) is its only error. A bad/unregistered explicit target is a
     ;; DIFFERENT category (:rf.error/frame-destroyed at the registry-lookup
     ;; site), so this helper must NOT pre-empt it with a lookup.
-    (binding [frame/*current-frame* :never-registered]
-      (is (= :never-registered (frame/require-current-frame! :dispatch))
+    (binding [rf.frame/*current-frame* :never-registered]
+      (is (= :never-registered (rf.frame/require-current-frame! :dispatch))
           "a carried stamp is returned without a registry lookup — no frame-destroyed mis-report"))))
 
 (deftest require-current-frame-raises-no-frame-context-outside-scope
   (testing "require-current-frame! with no carried stamp raises :rf.error/no-frame-context"
     (let [thrown (try
-                   (frame/require-current-frame! :dispatch {:where 're-frame.router/dispatch!
+                   (rf.frame/require-current-frame! :dispatch {:where 're-frame.router/dispatch!
                                                             :event-id :todo/add})
                    nil
                    (catch clojure.lang.ExceptionInfo e e))]
@@ -109,10 +109,10 @@
 (deftest no-frame-context-rides-the-always-on-error-axis
   (testing ":rf.error/no-frame-context fans out through the production-survivable error-emit listener registry (axis 1)"
     (let [records (atom [])]
-      (error-emit/register-error-listener! ::probe (fn [r] (swap! records conj r)))
+      (rf.error-emit/register-error-listener! ::probe (fn [r] (swap! records conj r)))
       (try
-        (try (frame/require-current-frame! :subscribe) (catch clojure.lang.ExceptionInfo _ nil))
-        (finally (error-emit/unregister-error-listener! ::probe)))
+        (try (rf.frame/require-current-frame! :subscribe) (catch clojure.lang.ExceptionInfo _ nil))
+        (finally (rf.error-emit/unregister-error-listener! ::probe)))
       (let [no-frame (filterv #(= :rf.error/no-frame-context (:error %)) @records)]
         (is (= 1 (count no-frame))
             "exactly one :rf.error/no-frame-context record reached the always-on listener")
@@ -127,7 +127,7 @@
     ;; Even though no :rf/default frame exists in this cold suite, the
     ;; absence path must report no-frame-context, never frame-destroyed —
     ;; the error is emitted BEFORE any frame-registry lookup.
-    (let [thrown (try (frame/require-current-frame! :dispatch) nil
+    (let [thrown (try (rf.frame/require-current-frame! :dispatch) nil
                       (catch clojure.lang.ExceptionInfo e e))]
       (is (= :rf.error/no-frame-context (:rf.error/id (ex-data thrown)))
           "absent target → :rf.error/no-frame-context, never :rf.error/frame-destroyed"))))
@@ -136,37 +136,37 @@
 
 (deftest init-does-not-create-default-frame
   (testing "init! installs the adapter but creates NO :rf/default frame (the runtime never synthesises a default)"
-    ;; The cold-start fixture already called (rf/init! plain-atom/adapter).
-    (is (some? (adapter/current-adapter))
+    ;; The cold-start fixture already called (rf/init! rf.substrate.plain-atom/adapter).
+    (is (some? (rf.substrate.adapter/current-adapter))
         "precondition: init! installed the adapter")
-    (is (nil? (frame/frame :rf/default))
+    (is (nil? (rf.frame/frame :rf/default))
         "init! does NOT register a :rf/default frame")
-    (is (empty? @frame/frames)
+    (is (empty? @rf.frame/frames)
         "no frames at all are registered by init!")))
 
 (deftest default-frame-remains-a-legal-explicit-id
   (testing ":rf/default is an ordinary id a program may register EXPLICITLY"
-    (is (nil? (frame/frame :rf/default)) "precondition: not present")
+    (is (nil? (rf.frame/frame :rf/default)) "precondition: not present")
     (rf/make-frame {:id :rf/default :doc "The app frame for this program."})
-    (is (some? (frame/frame :rf/default))
+    (is (some? (rf.frame/frame :rf/default))
         ":rf/default registers like any ordinary frame id when chosen explicitly")
     ;; And once explicitly in scope, ambient resolution returns it — an
     ;; honest scope, not a synthesised floor.
-    (binding [frame/*current-frame* :rf/default]
-      (is (= :rf/default (frame/require-current-frame! :dispatch))
+    (binding [rf.frame/*current-frame* :rf/default]
+      (is (= :rf/default (rf.frame/require-current-frame! :dispatch))
           "an explicit :rf/default scope resolves like any other"))))
 
 ;; ---- ensure-default-frame! survives as a TEST-ONLY fixture helper ---------
 
 (deftest ensure-default-frame-is-a-test-only-helper
   (testing "ensure-default-frame! still registers :rf/default for test fixtures (idempotent), but it is NOT a runtime path"
-    (is (nil? (frame/frame :rf/default)) "precondition: init! did not create it")
-    (frame/ensure-default-frame!)
-    (is (some? (frame/frame :rf/default))
+    (is (nil? (rf.frame/frame :rf/default)) "precondition: init! did not create it")
+    (rf.frame/ensure-default-frame!)
+    (is (some? (rf.frame/frame :rf/default))
         "the test-only fixture helper registers :rf/default on demand")
-    (let [original (frame/frame :rf/default)]
-      (frame/ensure-default-frame!)
-      (is (identical? original (frame/frame :rf/default))
+    (let [original (rf.frame/frame :rf/default)]
+      (rf.frame/ensure-default-frame!)
+      (is (identical? original (rf.frame/frame :rf/default))
           "idempotent — a second call does not replace the frame"))))
 
 ;; ---- the REFUSAL tier — "no ambient frame is legal here" (rf2-2rtt6.122) --
@@ -195,22 +195,22 @@
            would hand the author advice — establish a scope — that cannot
            fix it"
     (is (= :rf.error/no-frame-context
-           (refused-id #(frame/require-current-frame! :subscribe)))
+           (refused-id #(rf.frame/require-current-frame! :subscribe)))
         "outside any refusal the generic absence error is untouched")
     (is (= :rf.error/ambient-frame-refused
-           (refused-id #(frame/call-with-ambient-frame-refused
+           (refused-id #(rf.frame/call-with-ambient-frame-refused
                           {:substrate :probe :reason "Use the probe's own reader."}
-                          (fn [] (frame/require-current-frame! :subscribe)))))
+                          (fn [] (rf.frame/require-current-frame! :subscribe)))))
         "inside one, the refusal names itself")))
 
 (deftest the-refusal-payload-carries-the-substrates-own-account
   (testing "core owns the tier; the refusing substrate owns the sentence the
            author reads, and its detail keys reach the payload"
-    (let [data (try (frame/call-with-ambient-frame-refused
+    (let [data (try (rf.frame/call-with-ambient-frame-refused
                       {:substrate :probe
                        :recovery  :read-through-the-probe
                        :reason    "Use the probe's own reader."}
-                      (fn [] (frame/require-current-frame! :subscribe {:where 'probe/read})))
+                      (fn [] (rf.frame/require-current-frame! :subscribe {:where 'probe/read})))
                     (catch clojure.lang.ExceptionInfo e (ex-data e)))]
       (is (= :rf.error/ambient-frame-refused (:rf.error/id data)))
       (is (= :subscribe (:operation data)))
@@ -225,16 +225,16 @@
   (testing "the refusal withdraws the ambient FIND, never the carrying —
            `with-frame` and `{:frame id}` are the two spellings of the same
            EP-0002 idea and must not disagree inside a refused extent"
-    (frame/ensure-default-frame!)
-    (frame/call-with-ambient-frame-refused
+    (rf.frame/ensure-default-frame!)
+    (rf.frame/call-with-ambient-frame-refused
       {:substrate :probe :reason "Use the probe's own reader."}
       (fn []
-        (is (nil? (frame/resolve-current-frame))
+        (is (nil? (rf.frame/resolve-current-frame))
             "nothing carried: the reader honestly answers 'no ambient frame'")
-        (binding [frame/*current-frame* :rf/default]
-          (is (= :rf/default (frame/resolve-current-frame))
+        (binding [rf.frame/*current-frame* :rf/default]
+          (is (= :rf/default (rf.frame/resolve-current-frame))
               "a carried stamp answers")
-          (is (= :rf/default (frame/require-current-frame! :subscribe))
+          (is (= :rf/default (rf.frame/require-current-frame! :subscribe))
               "and requiring it does not throw"))))))
 
 ;; ---- the MISMATCH — a body has ONE frame, by construction (rf2-nqj22) -----
@@ -257,12 +257,12 @@
   (testing "the EP-0002 behaviour, unchanged: the stamp names the frame the
            extent is rendering, so there is no second frame and nothing to
            be ambiguous about"
-    (frame/call-with-ambient-frame-refused
+    (rf.frame/call-with-ambient-frame-refused
       {:substrate :probe :extent-frame :app :reason "Use the probe's own reader."}
       (fn []
-        (binding [frame/*current-frame* :app]
-          (is (= :app (frame/resolve-current-frame)))
-          (is (= :app (frame/require-current-frame! :subscribe))
+        (binding [rf.frame/*current-frame* :app]
+          (is (= :app (rf.frame/resolve-current-frame)))
+          (is (= :app (rf.frame/require-current-frame! :subscribe))
               "a matched carry is the one thing this change must not break"))))))
 
 (deftest a-mismatched-carried-stamp-is-refused
@@ -270,23 +270,23 @@
            the body would have two frames in it — an ambiguity, not a
            carried-stamp win"
     (is (= :rf.error/ambient-frame-refused
-           (refused-id #(frame/call-with-ambient-frame-refused
+           (refused-id #(rf.frame/call-with-ambient-frame-refused
                           {:substrate :probe :extent-frame :app
                            :reason "Use the probe's own reader."}
                           (fn []
-                            (binding [frame/*current-frame* :other]
-                              (frame/require-current-frame! :subscribe))))))
+                            (binding [rf.frame/*current-frame* :other]
+                              (rf.frame/require-current-frame! :subscribe))))))
         "the same id an ambient read gets — one refusal, two sentences")))
 
 (deftest the-mismatch-payload-names-both-frames
   (testing "a diagnostic that cannot say WHICH two frames collided sends the
            author looking for the wrong one"
-    (let [data (try (frame/call-with-ambient-frame-refused
+    (let [data (try (rf.frame/call-with-ambient-frame-refused
                       {:substrate :probe :extent-frame :app
                        :reason "Use the probe's own reader."}
                       (fn []
-                        (binding [frame/*current-frame* :other]
-                          (frame/require-current-frame! :capture-frame {:where 'probe/carry}))))
+                        (binding [rf.frame/*current-frame* :other]
+                          (rf.frame/require-current-frame! :capture-frame {:where 'probe/carry}))))
                     (catch clojure.lang.ExceptionInfo e (ex-data e)))]
       (is (= :rf.error/ambient-frame-refused (:rf.error/id data)))
       (is (= :other (:carried-frame data)) "the stamp that was carried")
@@ -305,11 +305,11 @@
   (testing "the check is a declaration, not a policy core imposes: an extent
            with no frame of its own has nothing to be mismatched against, so
            the pre-rf2-nqj22 contract is exactly what it still gets"
-    (frame/call-with-ambient-frame-refused
+    (rf.frame/call-with-ambient-frame-refused
       {:substrate :probe :reason "Use the probe's own reader."}
       (fn []
-        (binding [frame/*current-frame* :other]
-          (is (= :other (frame/require-current-frame! :subscribe))))))))
+        (binding [rf.frame/*current-frame* :other]
+          (is (= :other (rf.frame/require-current-frame! :subscribe))))))))
 
 (deftest the-reader-itself-answers-nil-for-a-mismatched-stamp
   (testing "the check lives in `resolve-current-frame`, not only in
@@ -321,14 +321,14 @@
            its error payload off the fast path (rf2-a8bw0), so a check living
            only in the requiring primitive would have let every ambient
            subscribe through. Measured: it did"
-    (frame/call-with-ambient-frame-refused
+    (rf.frame/call-with-ambient-frame-refused
       {:substrate :probe :extent-frame :app :reason "Use the probe's own reader."}
       (fn []
-        (binding [frame/*current-frame* :other]
-          (is (nil? (frame/resolve-current-frame))
+        (binding [rf.frame/*current-frame* :other]
+          (is (nil? (rf.frame/resolve-current-frame))
               "a stamp this extent will not accept is not an ambient answer"))
-        (binding [frame/*current-frame* :app]
-          (is (= :app (frame/resolve-current-frame))
+        (binding [rf.frame/*current-frame* :app]
+          (is (= :app (rf.frame/resolve-current-frame))
               "and the extent's own frame still is"))))))
 
 (deftest the-reader-first-subscribe-path-refuses-a-mismatched-stamp
@@ -337,17 +337,17 @@
            primitive it inlines"
     (rf/make-frame {:id :app})
     (rf/reg-sub :probe/v (fn [db _] (:v db)))
-    (frame/replace-app-db! :app {:v 7})
-    (binding [frame/*current-frame* :app]
+    (rf.frame/replace-app-db! :app {:v 7})
+    (binding [rf.frame/*current-frame* :app]
       (is (= 7 @(rf/subscribe [:probe/v]))
           "precondition: the ambient read works outside any refusal"))
-    (frame/call-with-ambient-frame-refused
+    (rf.frame/call-with-ambient-frame-refused
       {:substrate :probe :extent-frame :app :reason "Use the probe's own reader."}
       (fn []
-        (binding [frame/*current-frame* :app]
+        (binding [rf.frame/*current-frame* :app]
           (is (= 7 @(rf/subscribe [:probe/v]))
               "a MATCHED carried stamp still reads inside the extent"))
-        (binding [frame/*current-frame* :other]
+        (binding [rf.frame/*current-frame* :other]
           (is (= :rf.error/ambient-frame-refused
                  (refused-id #(rf/subscribe [:probe/v])))
               "and a mismatched one refuses instead of reading :other's db"))))
@@ -362,18 +362,18 @@
            — and silently never match on CLJS, so the CLJS half of this is
            `arm1/ambient-refusal-cljs-test`"
     (let [f (rf/make-frame {:id :valued})]
-      (frame/call-with-ambient-frame-refused
+      (rf.frame/call-with-ambient-frame-refused
         {:substrate :probe :extent-frame f :reason "Use the probe's own reader."}
         (fn []
-          (binding [frame/*current-frame* :valued]
-            (is (= :valued (frame/require-current-frame! :subscribe))
+          (binding [rf.frame/*current-frame* :valued]
+            (is (= :valued (rf.frame/require-current-frame! :subscribe))
                 "a declared frame VALUE normalizes to its id before comparing"))))
-      (frame/call-with-ambient-frame-refused
+      (rf.frame/call-with-ambient-frame-refused
         {:substrate :probe :extent-frame f :reason "Use the probe's own reader."}
         (fn []
-          (binding [frame/*current-frame* :other]
+          (binding [rf.frame/*current-frame* :other]
             (is (= :rf.error/ambient-frame-refused
-                   (refused-id #(frame/require-current-frame! :subscribe)))
+                   (refused-id #(rf.frame/require-current-frame! :subscribe)))
                 "and a genuine mismatch against a declared VALUE still refuses"))))
       (rf/destroy-frame! :valued))))
 
@@ -395,44 +395,44 @@
 (deftest the-pure-doors-answer-the-extents-declared-frame
   (testing "inside a refusing extent that declares its frame, identity and
            capture resolve to it with nothing carried"
-    (frame/call-with-ambient-frame-refused
+    (rf.frame/call-with-ambient-frame-refused
       {:substrate :probe :extent-frame :app :reason "Use the probe's own reader."}
       (fn []
-        (is (nil? (frame/resolve-current-frame))
+        (is (nil? (rf.frame/resolve-current-frame))
             "the reader is unchanged: the ambient FIND is still withdrawn")
-        (is (= :app (frame/require-current-frame! :current-frame-id)))
-        (is (= :app (frame/require-current-frame! :capture-frame)))
+        (is (= :app (rf.frame/require-current-frame! :current-frame-id)))
+        (is (= :app (rf.frame/require-current-frame! :capture-frame)))
         (is (= :app (rf/current-frame-id)) "through the public identity door")
         (is (= :app (:frame (rf/capture-frame))) "and through the public capture door"))))
   (testing "a declared frame VALUE is answered as its id, as every reader does"
     (let [f (rf/make-frame {:id :valued})]
-      (frame/call-with-ambient-frame-refused
+      (rf.frame/call-with-ambient-frame-refused
         {:substrate :probe :extent-frame f :reason "Use the probe's own reader."}
-        (fn [] (is (= :valued (frame/require-current-frame! :current-frame-id)))))
+        (fn [] (is (= :valued (rf.frame/require-current-frame! :current-frame-id)))))
       (rf/destroy-frame! :valued))))
 
 (deftest the-admission-is-the-declaration-not-the-refusal
   (testing "an extent that names no frame has nothing to offer, so the pure
            doors refuse there exactly as before"
     (is (= :rf.error/ambient-frame-refused
-           (refused-id #(frame/call-with-ambient-frame-refused
+           (refused-id #(rf.frame/call-with-ambient-frame-refused
                           {:substrate :probe :reason "Use the probe's own reader."}
-                          (fn [] (frame/require-current-frame! :capture-frame))))))
+                          (fn [] (rf.frame/require-current-frame! :capture-frame))))))
     (is (= :rf.error/ambient-frame-refused
-           (refused-id #(frame/call-with-ambient-frame-refused
+           (refused-id #(rf.frame/call-with-ambient-frame-refused
                           {:substrate :probe :reason "Use the probe's own reader."}
-                          (fn [] (frame/require-current-frame! :current-frame-id))))))))
+                          (fn [] (rf.frame/require-current-frame! :current-frame-id))))))))
 
 (deftest a-mismatched-stamp-is-refused-before-the-pure-door-is-admitted
   (testing "the order is load-bearing: an enclosing `with-frame` naming a
            DIFFERENT frame must not be answered with the extent's own frame,
            or the ambiguity the extent declared its frame to catch would be
            silently repaired"
-    (let [data (try (frame/call-with-ambient-frame-refused
+    (let [data (try (rf.frame/call-with-ambient-frame-refused
                       {:substrate :probe :extent-frame :app :reason "Use the probe's own reader."}
                       (fn []
-                        (binding [frame/*current-frame* :other]
-                          (frame/require-current-frame! :current-frame-id))))
+                        (binding [rf.frame/*current-frame* :other]
+                          (rf.frame/require-current-frame! :current-frame-id))))
                     (catch clojure.lang.ExceptionInfo e (ex-data e)))]
       (is (= :rf.error/ambient-frame-refused (:rf.error/id data)))
       (is (= :other (:carried-frame data)) "the stamp that was carried")
@@ -442,14 +442,14 @@
   (testing "same extent, one line apart: the capture is admitted and the read
            and dispatch still refuse — the rule is a distinction between
            operations, not a softening of the extent"
-    (frame/call-with-ambient-frame-refused
+    (rf.frame/call-with-ambient-frame-refused
       {:substrate :probe :extent-frame :app :reason "Use the probe's own reader."}
       (fn []
-        (is (= :app (frame/require-current-frame! :capture-frame)))
+        (is (= :app (rf.frame/require-current-frame! :capture-frame)))
         (is (= :rf.error/ambient-frame-refused
-               (refused-id #(frame/require-current-frame! :subscribe))))
+               (refused-id #(rf.frame/require-current-frame! :subscribe))))
         (is (= :rf.error/ambient-frame-refused
-               (refused-id #(frame/require-current-frame! :dispatch))))
+               (refused-id #(rf.frame/require-current-frame! :dispatch))))
         (is (= :rf.error/ambient-frame-refused
                (refused-id #(rf/subscribe [:probe/v])))
             "including subs/subscribe's inlined reader-then-require path")))))
@@ -458,20 +458,20 @@
   (testing "a nil detail map still refuses — a fence that disarms because
            its argument was nil is the trap class the tier deletes"
     (is (= :rf.error/ambient-frame-refused
-           (refused-id #(frame/call-with-ambient-frame-refused
+           (refused-id #(rf.frame/call-with-ambient-frame-refused
                           nil
-                          (fn [] (frame/require-current-frame! :dispatch)))))))
+                          (fn [] (rf.frame/require-current-frame! :dispatch)))))))
   (testing "and the extent is exactly the call: it has unwound by the time
            the call returns, which is what makes it safe for a render
            extent whose children run afterwards"
-    (frame/call-with-ambient-frame-refused {:substrate :probe} (fn [] nil))
-    (is (nil? frame/*ambient-frame-refusal*))
+    (rf.frame/call-with-ambient-frame-refused {:substrate :probe} (fn [] nil))
+    (is (nil? rf.frame/*ambient-frame-refusal*))
     (is (= :rf.error/no-frame-context
-           (refused-id #(frame/require-current-frame! :subscribe)))
+           (refused-id #(rf.frame/require-current-frame! :subscribe)))
         "the generic error is back")))
 
 (deftest the-refusal-returns-the-thunks-value
   (testing "it is a wrapper, not a gate — the extent is established around
            work that is expected to succeed"
-    (is (= 42 (frame/call-with-ambient-frame-refused {:substrate :probe}
+    (is (= 42 (rf.frame/call-with-ambient-frame-refused {:substrate :probe}
                                                      (fn [] 42))))))

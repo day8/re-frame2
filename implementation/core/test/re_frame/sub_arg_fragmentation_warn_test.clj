@@ -17,13 +17,13 @@
   genuinely-varying `not=` arg, and a primitive arg. The warning rides the
   diagnostic channel as `:rf.warning/sub-arg-cache-fragmentation` (Spec 009
   §Error event catalogue) via `trace/emit-error!`, dev-only
-  (`interop/debug-enabled?`-gated, DCE'd in production).
+  (`rf.interop/debug-enabled?`-gated, DCE'd in production).
 
   ## Posture split (rf2-d2841)
 
   The guardrail is a pure diagnostic, so every assertion about the warning —
   the two FIRES deftests and all five STAYS SILENT ones — is kept verbatim
-  inside a `(when interop/debug-enabled? …)` arm marked `rf2-d2841`. The
+  inside a `(when rf.interop/debug-enabled? …)` arm marked `rf2-d2841`. The
   silent ones move with the loud ones deliberately: `(is (empty?
   (fragmentation-events @acc)))` over the gate's empty stream certifies an
   `identical?`-stable arg, a genuinely-varying arg and a primitive arg as
@@ -38,7 +38,7 @@
   `subs.tooling/sub-cache-snapshot` is CLJS-only and dev-gated on top.)
 
   `warns-under-jvm-debug-enabled` was a statement about the RUNTIME rather
-  than the framework — \"`interop/debug-enabled?` is true on the JVM test
+  than the framework — \"`rf.interop/debug-enabled?` is true on the JVM test
   runtime\" — which the production lane falsifies by construction. It is now
   two-armed and says more than it used to: the dev arm keeps the wired-path
   pin, and the PROD arm asserts the emit is genuinely gone under
@@ -47,28 +47,28 @@
   for this category."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
-            [re-frame.flows :as flows]
-            [re-frame.subs :as subs]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.flows :as rf.flows]
+            [re-frame.subs :as rf.subs]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  (rf/init! plain-atom/adapter)
-  (frame/ensure-default-frame!)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.flows/reset-flows!)
+  (rf.schemas/clear-schemas-by-frame!)
+  (rf/init! rf.substrate.plain-atom/adapter)
+  (rf.frame/ensure-default-frame!)
   ;; Wipe the dev-only fragmentation-guardrail state between cases so a
   ;; sibling test's first-encounter warning cannot silently swallow a
   ;; later same-sub-id warning. The private clear-fn is the same thunk the
   ;; canonical `:adapter/clear-warn-once-caches!` chain fires in the
   ;; standard reset fixture; reaching it via the var keeps this bespoke
   ;; fixture honest.
-  (@#'subs/clear-fragmenting-arg-warnings!)
+  (@#'rf.subs/clear-fragmenting-arg-warnings!)
   (rf/with-frame :rf/default
     (test-fn)))
 
@@ -112,7 +112,7 @@
           (is (every? some? subs)
               "all three fresh-but-equal subscribes succeeded — the guardrail is advisory"))
         ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
          (let [warns (fragmentation-events @acc)]
           (is (= 1 (count warns))
               "exactly one warning despite three fresh-but-equal subscribes")
@@ -152,7 +152,7 @@
                            (rf/subscribe [:sub/v (vec (list :a :b :c))])])
             "both fresh-but-equal vector subscribes succeeded")
         ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (= 1 (count (fragmentation-events @acc)))
               "value-equal fresh vectors fragment the cache — one warning"))
         (finally
@@ -174,7 +174,7 @@
                            (rf/subscribe [:sub/two (into {} (hash-map :k 1))])])
             "both fragmenting sub-ids still subscribe successfully")
         ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (let [warns (fragmentation-events @acc)
                 ids   (set (map #(-> % :tags :rf.sub/id) warns))]
             (is (= 2 (count warns)) "one warning per fragmenting sub-id")
@@ -200,7 +200,7 @@
         ;; rf2-d2841 — dev-instrumentation arm. A NEGATIVE over the trace
         ;; stream: under the gate nothing fires for ANY arg shape, so the
         ;; false-positive aversion this deftest exists for is untestable here.
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (empty? (fragmentation-events @acc))
               "a single subscribe is never the fragmentation footgun"))
         (finally
@@ -220,7 +220,7 @@
             "the identical?-stable arg subscribes successfully every time")
         ;; rf2-d2841 — dev-instrumentation arm. Same empty-stream false-green
         ;; shape as `first-subscribe-does-not-warn`.
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (empty? (fragmentation-events @acc))
               "an identical?-stable arg is the GOOD case — no warning"))
         (finally
@@ -243,7 +243,7 @@
             "genuinely-varying args subscribe successfully")
         ;; rf2-d2841 — dev-instrumentation arm. Same empty-stream false-green
         ;; shape as the other STAYS SILENT deftests.
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (empty? (fragmentation-events @acc))
               "genuinely-varying args are correct fragmentation, not a footgun"))
         (finally
@@ -269,7 +269,7 @@
             "keyword / string / number args all subscribe successfully")
         ;; rf2-d2841 — dev-instrumentation arm. Same empty-stream false-green
         ;; shape as the other STAYS SILENT deftests.
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (empty? (fragmentation-events @acc))
               "primitive args are not the fragmentation hazard"))
         (finally
@@ -288,7 +288,7 @@
             "the arg-less subscription succeeds every time")
         ;; rf2-d2841 — dev-instrumentation arm. Same empty-stream false-green
         ;; shape as the other STAYS SILENT deftests.
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (empty? (fragmentation-events @acc))
               "an arg-less subscription has no cache-key-fragmentation surface"))
         (finally
@@ -297,7 +297,7 @@
 ;; ---------------------------------------------------------------------------
 ;; JVM posture pin — BOTH arms (rf2-d2841)
 ;;
-;; This deftest used to assert only that `interop/debug-enabled?` is true on
+;; This deftest used to assert only that `rf.interop/debug-enabled?` is true on
 ;; the JVM test runtime, which the `-Dre-frame.debug=false` lane falsifies by
 ;; construction. It now pins the gate in BOTH directions off the SAME two
 ;; subscribes: the emit lands when the gate is on, and is genuinely ABSENT
@@ -306,7 +306,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest warns-under-jvm-debug-enabled
-  (testing "the fragmentation emit follows interop/debug-enabled? on the JVM:
+  (testing "the fragmentation emit follows rf.interop/debug-enabled? on the JVM:
             present under the dev default, absent under -Dre-frame.debug=false"
     (rf/reg-event :init (fn [{:keys [db]} _] {:db {:a 1}}))
     (rf/reg-sub :sub/param (fn [db [_ _o]] (:a db)))
@@ -315,7 +315,7 @@
       (try
         (rf/subscribe [:sub/param (into {} (hash-map :x 1))])
         (rf/subscribe [:sub/param (into {} (hash-map :x 1))])
-        (if interop/debug-enabled?
+        (if rf.interop/debug-enabled?
           (is (seq (fragmentation-events @acc))
               "a warning landed — JVM dev path is wired")
           (is (empty? (fragmentation-events @acc))

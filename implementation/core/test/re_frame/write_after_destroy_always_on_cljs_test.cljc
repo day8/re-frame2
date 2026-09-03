@@ -19,7 +19,7 @@
     (a) a nil-container `replace-container!` fans a
         `:rf.error/write-after-destroy` record out through the corpus-wide
         `register-error-listener!` substrate — the ALWAYS-ON axis, NOT
-        gated by `interop/debug-enabled?`, so it survives `:advanced` +
+        gated by `rf.interop/debug-enabled?`, so it survives `:advanced` +
         `goog.DEBUG=false`.
     (b) the record carries `:recovery :ignored` (the write is dropped, the
         frame is gone — mirroring `:rf.error/frame-destroyed`'s posture)
@@ -40,7 +40,7 @@
 
   Leg (b) is the DEV COMPANION by construction: the ns docstring above calls
   it \"DCE'd in prod\". Its assertions are kept verbatim inside a
-  `(when interop/debug-enabled? …)` arm marked `rf2-d2841`, with an always-on
+  `(when rf.interop/debug-enabled? …)` arm marked `rf2-d2841`, with an always-on
   witness for the same call kept outside — this file's thesis is precisely
   that the dev trace and the always-on record fire TOGETHER off one choke
   point, so a deftest that had nothing to say in production posture would be
@@ -48,12 +48,12 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
-            [re-frame.substrate.adapter :as adapter]
-            [re-frame.error-emit :as error-emit]
-            [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as ts]))
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
+            [re-frame.error-emit :as rf.error-emit]
+            [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; ---------------------------------------------------------------------------
 ;; Fixture — fresh registrar + plain-atom adapter per test; the always-on
@@ -62,10 +62,10 @@
 ;; ---------------------------------------------------------------------------
 
 (use-fixtures :each
-  (ts/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.substrate.plain-atom/adapter
      :init-fn (fn []
-                (error-emit/clear-error-listeners!))}))
+                (rf.error-emit/clear-error-listeners!))}))
 
 ;; ===========================================================================
 ;; (a) + (b) The dropped write rides the ALWAYS-ON axis with the promoted
@@ -84,7 +84,7 @@
                                    (fn [record] (swap! seen conj record)))
       ;; The real production path: every frame :db write flows through this
       ;; choke point; a destroyed frame's container has gone nil.
-      (adapter/replace-container! nil {:dropped :write})
+      (rf.substrate.adapter/replace-container! nil {:dropped :write})
       (let [reports (filter #(= :rf.error/write-after-destroy (:error %)) @seen)]
         (is (= 1 (count reports))
             "exactly ONE always-on record for the dropped write")
@@ -115,7 +115,7 @@
       (rf/register-listener! :trace  ::rec        (fn [ev]  (swap! traces conj ev)))
       (rf/register-listener! :errors ::rec-errors (fn [rec] (swap! always conj rec)))
       (try
-        (adapter/replace-container! nil {:dropped :write})
+        (rf.substrate.adapter/replace-container! nil {:dropped :write})
         (finally
           (rf/unregister-listener! :trace  ::rec)
           (rf/unregister-listener! :errors ::rec-errors)))
@@ -129,7 +129,7 @@
       ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
       ;; The trace surface is live in dev (this runner); under :advanced +
       ;; goog.DEBUG=false — and under -Dre-frame.debug=false — it DCEs.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [errs (filter #(= :rf.error/write-after-destroy (:operation %)) @traces)]
           (is (= 1 (count errs))
               "one dev error trace for the dropped write")
@@ -156,14 +156,14 @@
           ;; A tripwire adapter: its replace-container! flips the flag if it
           ;; is ever reached. The nil guard runs BEFORE the adapter lookup,
           ;; so a correct choke point never invokes it on a nil container.
-          tripwire     (assoc plain-atom/adapter
+          tripwire     (assoc rf.substrate.plain-atom/adapter
                               :replace-container!
                               (fn [_ _] (reset! forwarded true)))]
       ;; Swap the fixture-installed adapter for the tripwire (the fixture's
       ;; teardown will dispose whatever is installed at end-of-test).
-      (adapter/dispose-adapter!)
-      (adapter/install-adapter! tripwire)
-      (adapter/replace-container! nil {:dropped :write})
+      (rf.substrate.adapter/dispose-adapter!)
+      (rf.substrate.adapter/install-adapter! tripwire)
+      (rf.substrate.adapter/replace-container! nil {:dropped :write})
       (is (false? @forwarded)
           "the underlying adapter replace-container! was NOT invoked"))))
 
@@ -177,5 +177,5 @@
             `dispatch-on-error!` via the `:error-emit/dispatch-on-error`
             late-bind hook — which error-emit publishes at ns-load, so the
             lookup never misses in production."
-    (is (some? (late-bind/get-fn :error-emit/dispatch-on-error))
+    (is (some? (rf.late-bind/get-fn :error-emit/dispatch-on-error))
         "the hook is registered at error-emit ns-load")))

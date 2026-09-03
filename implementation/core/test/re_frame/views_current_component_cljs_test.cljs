@@ -10,7 +10,7 @@
 
   Resolution chain (READER, per Spec 002 §Frame target resolution — the
   carried invariant, EP-0002):
-    1. `frame/*current-frame*` (dynamic var; set by `with-frame`)
+    1. `rf.frame/*current-frame*` (dynamic var; set by `with-frame`)
     2. closest enclosing frame-provider via React context
     3. nil — NO `:rf/default` floor (the runtime never synthesises a default)
 
@@ -18,14 +18,14 @@
   installed but with no in-flight component), tier 2 returns nil and the
   reader returns nil ('no scope'). A public frame-scoped operation turns
   that nil into a loud `:rf.error/no-frame-context` via
-  `frame/require-current-frame!`; the reader itself never repairs absence.
+  `rf.frame/require-current-frame!`; the reader itself never repairs absence.
   This is exactly the headless / pre-init shape the runtime relies on.
 
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing]]
-            [re-frame.frame :as frame]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.views :as views]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.views :as rf.views]))
 
 (defn- with-hook-as-nil
   "Run `f` with the named late-bind hook set to nil. Restores the
@@ -34,30 +34,30 @@
   trees, so the hook value at test time is non-nil; flipping it lets
   us assert the absent-hook contract)."
   [hook-key f]
-  (let [original (late-bind/get-fn hook-key)]
+  (let [original (rf.late-bind/get-fn hook-key)]
     (try
-      (late-bind/set-fn! hook-key nil)
+      (rf.late-bind/set-fn! hook-key nil)
       (f)
       (finally
-        (late-bind/set-fn! hook-key original)))))
+        (rf.late-bind/set-fn! hook-key original)))))
 
 (deftest current-frame-with-no-adapter-hook
   (testing "current-frame returns nil (no scope) when the hook is unset — no :rf/default floor"
     (with-hook-as-nil :adapter/current-component
       (fn []
-        (is (nil? (late-bind/get-fn :adapter/current-component))
+        (is (nil? (rf.late-bind/get-fn :adapter/current-component))
             "precondition: the hook is unset")
         ;; No dynamic var is bound, no adapter hook is installed → the
         ;; reader returns nil (EP-0002: no :rf/default synthesis).
-        (is (nil? (views/current-frame))
+        (is (nil? (rf.views/current-frame))
             "with no dynamic-var binding and no adapter hook, current-frame returns nil")))))
 
 (deftest current-frame-honours-dynamic-var-without-hook
   (testing "with the hook unset, the dynamic-var tier still wins"
     (with-hook-as-nil :adapter/current-component
       (fn []
-        (binding [frame/*current-frame* :test/dynamic-frame]
-          (is (= :test/dynamic-frame (views/current-frame))
+        (binding [rf.frame/*current-frame* :test/dynamic-frame]
+          (is (= :test/dynamic-frame (rf.views/current-frame))
               "tier 1 (dynamic var) is consulted before the (absent) hook"))))))
 
 (deftest current-frame-tolerates-hook-returning-nil
@@ -65,10 +65,10 @@
     ;; A real adapter's `current-component` returns nil outside a render.
     ;; views.cljs must treat nil-from-hook the same as no-hook: skip the
     ;; React-context tier, return nil ('no scope') — no :rf/default floor.
-    (let [original (late-bind/get-fn :adapter/current-component)]
+    (let [original (rf.late-bind/get-fn :adapter/current-component)]
       (try
-        (late-bind/set-fn! :adapter/current-component (constantly nil))
-        (is (nil? (views/current-frame))
+        (rf.late-bind/set-fn! :adapter/current-component (constantly nil))
+        (is (nil? (rf.views/current-frame))
             "hook returning nil → reader returns nil (no synthesis)")
         (finally
-          (late-bind/set-fn! :adapter/current-component original))))))
+          (rf.late-bind/set-fn! :adapter/current-component original))))))

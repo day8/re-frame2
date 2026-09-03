@@ -19,25 +19,25 @@
   the stale-`:after`-timer leg of `pattern-stale-detection-shape`. It is a
   `trace/emit!` with no always-on twin, so under the real gate nothing is
   emitted BY DESIGN; its assertion is kept verbatim inside a
-  `(when interop/debug-enabled? …)` arm marked `rf2-d2841`. The SUPPRESSION
+  `(when rf.interop/debug-enabled? …)` arm marked `rf2-d2841`. The SUPPRESSION
   the trace reports — a stale timer leaving the snapshot unchanged — is the
   production-real half and stays outside the arm."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
-            [re-frame.flows :as flows]
-            [re-frame.machines :as machines]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.flows :as rf.flows]
+            [re-frame.machines :as rf.machines]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  (rf/init! plain-atom/adapter)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.flows/reset-flows!)
+  (rf.schemas/clear-schemas-by-frame!)
+  (rf/init! rf.substrate.plain-atom/adapter)
   ;; EP-0002 (rf2-9o48ih): `init!` no longer synthesises `:rf/default`;
   ;; framework operation surfaces require a carried frame stamp. Register
   ;; `:rf/default` + pin it as the body's ambient scope (the carried-
@@ -134,13 +134,13 @@
                             :fx [[:dispatch [:app/ready]]]}))
     (rf/reg-event :app/ready
       (fn [{:keys [db]} _] {:db (assoc db :app/booted? true)}))
-    (let [f (frame/make-anon-frame-record! {:initial-events [[:app/init]]})
+    (let [f (rf.frame/make-anon-frame-record! {:initial-events [[:app/init]]})
           db (rf/app-db-value f)]
       (is (true? (:app/booted? db)) "chained-events boot reached :app/ready")
       (is (= {:loaded? true} (:config db)))))
   (testing "machine boot — :configuring → :loading → :ready"
     (rf/reg-event :app/boot
-      (machines/make-machine-handler
+      (rf.machines/make-machine-handler
         {:initial :configuring
          :data    {:config nil}
          :actions {:record-config (fn [{data :data [_ c] :event}]
@@ -152,7 +152,7 @@
           :ready       {}}}))
     ;; :initial-events kick the boot machine; subsequent dispatched lifecycle
     ;; events drive the documented progression to :ready.
-    (let [f (frame/make-anon-frame-record! {:initial-events [[:app/boot [:configured {:url "/api"}]]]})]
+    (let [f (rf.frame/make-anon-frame-record! {:initial-events [[:app/boot [:configured {:url "/api"}]]]})]
       (is (= :loading (get-in (:rf.db/runtime (rf/frame-state-value f)) [:rf.runtime/machines :snapshots :app/boot :state]))
           ":initial-events transitioned :configuring → :loading")
       (rf/dispatch-sync [:app/boot [:loaded]] {:frame f})
@@ -260,7 +260,7 @@
           :failed         {:on {:ws/connect {:target :connecting
                                              :action :reset-retry}}}}}
         step (fn [snap event]
-               (:snapshot (machines/machine-transition machine snap event)))]
+               (:snapshot (rf.machines/machine-transition machine snap event)))]
     ;; Happy path: disconnected → connecting → authenticating → connected.
     (let [s1 (step {:state :disconnected :data {:retries 0 :max-retries 2}}
                    [:ws/connect])
@@ -303,12 +303,12 @@
                            :timeout {}}}]
     (testing "match → commit (timer fires with the carried epoch)"
       (let [s0 {:state :idle :data {}}
-            s1 (:snapshot (machines/machine-transition machine s0 [:fetch]))
+            s1 (:snapshot (rf.machines/machine-transition machine s0 [:fetch]))
             ;; Per Spec 005 §Hierarchy interaction the epoch is per-decl-path.
             captured-epoch (get-in s1 [:data :rf/after-epoch [:loading]])]
         (is (= :loading (:state s1)))
         (is (= 1 captured-epoch) "epoch advances on entry to :after-bearing state")
-        (let [s2 (:snapshot (machines/machine-transition
+        (let [s2 (:snapshot (rf.machines/machine-transition
                           machine s1
                           [:rf.machine.timer/after-elapsed 5000 captured-epoch [:loading]]))]
           (is (= :timeout (:state s2)) "matching epoch → transition commits"))))
@@ -318,14 +318,14 @@
       ;; The original timer fires carrying epoch 1 against current epoch 3.
       (let [traces (atom [])
             s0 {:state :idle :data {}}
-            s1 (:snapshot (machines/machine-transition machine s0 [:fetch]))      ;; [:loading] epoch 1
+            s1 (:snapshot (rf.machines/machine-transition machine s0 [:fetch]))      ;; [:loading] epoch 1
             captured 1
-            s2 (:snapshot (machines/machine-transition machine s1 [:cancel]))     ;; [:loading] epoch 2
-            s3 (:snapshot (machines/machine-transition machine s2 [:fetch]))]     ;; [:loading] epoch 3
+            s2 (:snapshot (rf.machines/machine-transition machine s1 [:cancel]))     ;; [:loading] epoch 2
+            s3 (:snapshot (rf.machines/machine-transition machine s2 [:fetch]))]     ;; [:loading] epoch 3
         (is (= :loading (:state s3)))
         (is (= 3 (get-in s3 [:data :rf/after-epoch [:loading]])))
         (rf/register-listener! :trace ::stale (fn [ev] (swap! traces conj ev)))
-        (let [s4 (:snapshot (machines/machine-transition
+        (let [s4 (:snapshot (rf.machines/machine-transition
                           machine s3
                           [:rf.machine.timer/after-elapsed 5000 captured [:loading]]))]
           (rf/unregister-listener! :trace ::stale)
@@ -334,7 +334,7 @@
               "the live epoch is untouched by the stale firing — the suppression
                did not consume or reset it")
           ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
-          (when interop/debug-enabled?
+          (when rf.interop/debug-enabled?
             (is (some (fn [ev]
                         (and (= :rf.machine.timer/stale-after (:operation ev))
                              (= captured (:scheduled-epoch (:tags ev)))
@@ -379,7 +379,7 @@
                    :yielding      {:after {0 :processing}}
                    :complete      {}}}
         step (fn [snap event]
-               (:snapshot (machines/machine-transition machine snap event)))]
+               (:snapshot (rf.machines/machine-transition machine snap event)))]
     (let [s0 {:state :idle :data (:data machine)}
           ;; :start runs :start-job, enters :processing (chunk 1: items
           ;; 0..1 squared), :always → :checking-done → :yielding.

@@ -21,7 +21,7 @@
   `:errors` stream. So the trace reads are guarded.
 
   What keeps this OFF the class-2 (100%-dev-instrumentation) list is that the
-  three `aggregate-cascade-*` deftests drive `cascade/aggregate-cascade` over
+  three `aggregate-cascade-*` deftests drive `rf.trace.cascade/aggregate-cascade` over
   SYNTHETIC event maps — a pure function of its argument, always-on in both
   postures — and that every trace-reading deftest here has an always-on
   counterpart for the thing the trace was REPORTING ON. A `:rf.sub/skip` emit
@@ -56,7 +56,7 @@
   happened."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.interop :as interop]
+            [re-frame.interop :as rf.interop]
             ;; The cascade-captured aggregator hooks into `re-frame.epoch/
             ;; settle!` via the late-bind seam — without an epoch
             ;; producer on the classpath there is no settle-time emit
@@ -64,24 +64,24 @@
             ;; `core_epoch.cljc` the optional artefact's hooks are
             ;; absent-degrading). The require is here for explicitness.
             [re-frame.epoch]
-            [re-frame.flows :as flows]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace.cascade :as cascade]
-            [re-frame.trace.tooling :as trace-tooling]))
+            [re-frame.flows :as rf.flows]
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace.cascade :as rf.trace.cascade]
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 (defn reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  (rf/init! plain-atom/adapter)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.flows/reset-flows!)
+  (rf.schemas/clear-schemas-by-frame!)
+  (rf/init! rf.substrate.plain-atom/adapter)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)
   (require 're-frame.machines :reload)
-  (cascade/clear-focus-predicate!)
+  (rf.trace.cascade/clear-focus-predicate!)
   ;; EP-0002 (rf2-9o48ih): `init!` no longer synthesises `:rf/default`;
   ;; framework operation surfaces require a carried frame stamp. Register
   ;; `:rf/default` + pin it as the body's ambient scope (the carried-
@@ -90,7 +90,7 @@
   (rf/make-frame {:id :rf/default})
   (try (rf/with-frame :rf/default (test-fn))
        (finally
-         (cascade/clear-focus-predicate!))))
+         (rf.trace.cascade/clear-focus-predicate!))))
 
 (use-fixtures :each reset-runtime)
 
@@ -100,12 +100,12 @@
   [body-fn]
   (let [captured (atom [])
         k        ::collect]
-    (trace-tooling/register-listener!
+    (rf.trace.tooling/register-listener!
       k
       (fn [ev] (swap! captured conj ev)))
     (try (body-fn)
          (finally
-           (trace-tooling/unregister-listener! k)))
+           (rf.trace.tooling/unregister-listener! k)))
     @captured))
 
 ;; ---- :rf.sub/skip ---------------------------------------------------------
@@ -137,7 +137,7 @@
         (is (= 1 @body-runs)
             "the memo the :rf.sub/skip emit reports actually held — two derefs,
              one body run, in BOTH postures")
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           ;; At least one memo-hit emit must fire on the second deref.
           (is (seq skips)
               "expected at least one :rf.sub/skip emit on memo-hit")
@@ -180,7 +180,7 @@
         (is (= 1 @body-runs)
             "the memo the :rf.sub/skip emit reports actually held — two derefs,
              one derived body run, in BOTH postures")
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (seq skips)
               "expected at least one :rf.sub/skip emit for the layer-2 sub")
           (let [skip (first skips)]
@@ -225,7 +225,7 @@
              again — the skip is real in BOTH postures")
         (is (= 0 (get-in (rf/app-db-value :rf/default) [:derived :sum]))
             "the flow's durable output survives the two skipped epochs")
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (seq skips) "expected at least one :rf.flow/skip emit")
           (let [skip (first skips)]
             (is (= [[:x] [:y]] (get-in skip [:tags :input-paths-unchanged])))
@@ -255,7 +255,7 @@
       ;; `cascade-captured-fires-when-focused` below, which needs the ring.
       (is (= [0 1] @seen)
           "the cascade really ran — the sub recomputed 0 -> 1 in this posture")
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (empty? caps)
             "no :rf.cascade/captured when focus predicate returns false")))))
 
@@ -264,7 +264,7 @@
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 0}}))
     (rf/reg-event :inc  (fn [{:keys [db]} _] {:db (update db :n inc)}))
     (rf/reg-sub :n (fn [db _] (:n db)))
-    (cascade/set-focus-predicate!
+    (rf.trace.cascade/set-focus-predicate!
       (fn [_frame _epoch _event] true))
     (rf/dispatch-sync [:seed])
     (let [seen   (atom [])
@@ -280,7 +280,7 @@
       ;; observes — the same 0 -> 1 recompute as the unfocused case above.
       (is (= [0 1] @seen)
           "the focus predicate does not perturb the cascade it observes")
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (seq caps) "expected at least one :rf.cascade/captured emit under focus")
         (let [cap (first caps)]
           (is (= :rf.cascade (:op-type cap)))
@@ -303,7 +303,7 @@
                     :op-type   :rf.sub/run
                     :tags      {:rf.sub/id (keyword (str "s" i))
                                 :rf.sub/query-v [(keyword (str "s" i))]}})
-          dag    (cascade/aggregate-cascade events)]
+          dag    (rf.trace.cascade/aggregate-cascade events)]
       (is (= 50 (count (:subs-recomputed dag))))
       (is (true? (:sub-cap-truncated? dag)))
       (is (false? (:view-cap-truncated? dag)))))
@@ -314,7 +314,7 @@
                     :op-type   :rf.view
                     :tags      {:rf.view/render-key   [:v (str "k" i)]
                                 :triggered-by :db-change}})
-          dag    (cascade/aggregate-cascade events)]
+          dag    (rf.trace.cascade/aggregate-cascade events)]
       (is (= 100 (count (:views-rendered dag))))
       (is (true? (:view-cap-truncated? dag)))
       (is (false? (:sub-cap-truncated? dag))))))
@@ -329,13 +329,13 @@
                        :tags {:rf.sub/id      (keyword (str "s" i))
                               :rf.sub/query-v [(keyword (str "s" i))]}})]
       (testing "exactly sub-cap subs recomputed → not truncated (none elided)"
-        (let [dag (cascade/aggregate-cascade (map run (range cascade/sub-cap)))]
-          (is (= cascade/sub-cap (count (:subs-recomputed dag))))
+        (let [dag (rf.trace.cascade/aggregate-cascade (map run (range rf.trace.cascade/sub-cap)))]
+          (is (= rf.trace.cascade/sub-cap (count (:subs-recomputed dag))))
           (is (false? (:sub-cap-truncated? dag))
               "a cascade with EXACTLY sub-cap subs elides nothing")))
       (testing "one OVER sub-cap → truncated (the cap+1-th sub is dropped)"
-        (let [dag (cascade/aggregate-cascade (map run (range (inc cascade/sub-cap))))]
-          (is (= cascade/sub-cap (count (:subs-recomputed dag))))
+        (let [dag (rf.trace.cascade/aggregate-cascade (map run (range (inc rf.trace.cascade/sub-cap))))]
+          (is (= rf.trace.cascade/sub-cap (count (:subs-recomputed dag))))
           (is (true? (:sub-cap-truncated? dag)))))))
 
   (testing "the boundary holds for :rf.sub/skip too (shares :sub-cap-truncated?)"
@@ -345,20 +345,20 @@
                                :rf.sub/reason                :input-value-equal
                                :rf.sub/input-paths-unchanged []}})]
       (is (false? (:sub-cap-truncated?
-                    (cascade/aggregate-cascade (map skip (range cascade/sub-cap))))))
+                    (rf.trace.cascade/aggregate-cascade (map skip (range rf.trace.cascade/sub-cap))))))
       (is (true? (:sub-cap-truncated?
-                   (cascade/aggregate-cascade (map skip (range (inc cascade/sub-cap)))))))))
+                   (rf.trace.cascade/aggregate-cascade (map skip (range (inc rf.trace.cascade/sub-cap)))))))))
 
   (testing "the boundary holds for :rf.view/render (:view-cap-truncated?)"
     (let [view (fn [i] {:operation :rf.view/render
                         :tags {:rf.view/render-key [:v (str "v" i)]
                                :triggered-by       :db-change}})
-          at   (cascade/aggregate-cascade (map view (range cascade/view-cap)))
-          over (cascade/aggregate-cascade (map view (range (inc cascade/view-cap))))]
-      (is (= cascade/view-cap (count (:views-rendered at))))
+          at   (rf.trace.cascade/aggregate-cascade (map view (range rf.trace.cascade/view-cap)))
+          over (rf.trace.cascade/aggregate-cascade (map view (range (inc rf.trace.cascade/view-cap))))]
+      (is (= rf.trace.cascade/view-cap (count (:views-rendered at))))
       (is (false? (:view-cap-truncated? at))
           "exactly view-cap views elides nothing")
-      (is (= cascade/view-cap (count (:views-rendered over))))
+      (is (= rf.trace.cascade/view-cap (count (:views-rendered over))))
       (is (true? (:view-cap-truncated? over))
           "the view-cap+1-th view is dropped → truncated"))))
 
@@ -398,7 +398,7 @@
       ;; gate, where `t` is nil and every keyword lookup returns nil.
       (is (= 1 before) "the sub projected 1 before the dispatch")
       (is (= 2 @after) "the sub projects 2 after the dispatch, in this posture")
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (seq runs) "expected a :rf.sub/run for :n on the value-changing recompute")
         (let [t (:tags (first runs))]
           (is (true? (:rf.sub/value-changed? t)) "value changed 1 -> 2")
@@ -434,7 +434,7 @@
       (is (= 5 @after) ":n's value is unchanged across the write, in this posture")
       (is (= 1 (:other (rf/app-db-value :rf/default)))
           "the db really did change — the unchanged-value case is not vacuous")
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (seq runs) "expected a :rf.sub/run for :n on the re-run (db identity changed)")
         (let [t (:tags (first runs))]
           (is (false? (:rf.sub/value-changed? t)) ":n re-ran but its value stayed 5")
@@ -462,7 +462,7 @@
       ;; propagating through a layer-2 projection — is production behaviour.
       (is (= 4 before))
       (is (= 6 @after) ":doubled cascaded 4 -> 6 in this posture")
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (seq runs) "expected a :rf.sub/run for :doubled on the cascade")
         (let [t (:tags (first runs))]
           (is (true? (:rf.sub/value-changed? t)) ":doubled changed 4 -> 6")
@@ -498,7 +498,7 @@
       (is (= 11 before))
       (is (= 12 @after) ":sum followed :b's change in this posture")
       (is (= 1 @r-a) ":a is genuinely stable across the write")
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (seq runs))
         (let [t (:tags (first runs))]
           (is (true? (:rf.sub/cascade? t)))
@@ -533,7 +533,7 @@
         (is (= 1 @first-value) "the cache-slot-creating run projects 1")
         (is (= 1 @body-runs)
             "exactly one body run allocated the slot, in BOTH postures")
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (seq runs)
               "expected a :rf.sub/run on the cache-slot-creating recompute")
           (let [t (:tags (first runs))]
@@ -568,7 +568,7 @@
       ;; the second, and it still tracks the write.
       (is (= 1 before) "the slot was already allocated by this deref")
       (is (= 2 @after) "the second recompute tracks the write, in this posture")
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (seq runs)
             "expected a :rf.sub/run for :n on the value-changing recompute")
         (let [t (:tags (first runs))]
@@ -601,7 +601,7 @@
       ;; a value — production state, not a trace tag.
       (is (= 4 @first-value)
           "the layer-2 cache-slot-creating run projects 2*2 in this posture")
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (seq runs))
         (let [t (:tags (first runs))]
           (is (true? (:rf.sub/first-run? t))
@@ -629,7 +629,7 @@
       ;; true for free under the gate, where `t` is nil.
       (is (= 0 before))
       (is (= 1 @after) "the layer-1 sub tracks the app-db write directly")
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (seq runs))
         (let [t (:tags (first runs))]
           (is (false? (:rf.sub/cascade? t)))
@@ -652,7 +652,7 @@
       ;; ALWAYS-ON (rf2-d2841): the recompute the base shape describes.
       (is (= 1 before))
       (is (= 2 @after) "the recompute the :rf.sub/run row describes really happened")
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (seq runs))
         (let [ev (first runs)]
           (is (= :rf.sub (:op-type ev)))
@@ -722,7 +722,7 @@
           ;; deftest reported a pass having executed nothing but the failing
           ;; precondition. The precondition and the claim it licenses now
           ;; live together inside the posture guard.
-          (when interop/debug-enabled?
+          (when rf.interop/debug-enabled?
             (is (seq runs)
                 "expected a :rf.sub/run for :n on the in-cascade fx-deref")
             (let [t (:tags (first runs))]
@@ -756,7 +756,7 @@
       ;; is false for EVERY key.
       (is (= 7 @outside)
           "the out-of-cascade recompute projects the settled value")
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (seq runs)
             "expected a :rf.sub/run for :n on the cache-creating recompute")
         (let [t (:tags (first runs))]
@@ -801,7 +801,7 @@
           ;; ZERO-ASSERTION DEFTEST FIXED (rf2-d2841): the three claims below
           ;; used to sit under `(when (and n-run d-run) …)`, which is false
           ;; under the gate — the deftest ran no assertion inside it at all.
-          (when interop/debug-enabled?
+          (when rf.interop/debug-enabled?
             (is (some? n-run))
             (is (some? d-run))
             (is (= :bump-and-deref-both
@@ -830,7 +830,7 @@
                    :tags {:flow-id :g :input-paths-unchanged [[:x]]}}
                   {:operation :rf.view/render
                    :tags {:rf.view/render-key [:v :k] :triggered-by :db-change}}]
-          dag    (cascade/aggregate-cascade events)]
+          dag    (rf.trace.cascade/aggregate-cascade events)]
       ;; Per rf2-l1jz8 the `:subs-recomputed` projection threads value-
       ;; change + cascade attribution; this fixture event carries no
       ;; attribution tags so the slots are nil. The projection RECORD keys

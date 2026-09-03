@@ -57,14 +57,14 @@
             ;; held, so the deferral seam is exercised for the trailer emits too
             ;; and not only for the dispatch-id-carrying in-run emits.
             [re-frame.epoch]
-            [re-frame.frame :as frame]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace :as trace])
+            [re-frame.frame :as rf.frame]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.trace :as rf.trace])
   (:import [java.util.concurrent CountDownLatch TimeUnit]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (def ^:private frame-alpha :wxy1c/alpha)
 (def ^:private frame-beta  :wxy1c/beta)
@@ -81,15 +81,15 @@
 (defn- drain-lock-held?
   "True iff `frame-id`'s `:drain-lock` is currently taken — the direct read of
   the single-drainer cell the router CAS-acquires for a drain pass and
-  `frame/call-serialized-with-drain!` CAS-acquires for a cold section. Read from
+  `rf.frame/call-serialized-with-drain!` CAS-acquires for a cold section. Read from
   inside a listener callback this answers the rf2-wxy1c acceptance question
   literally: is arbitrary listener code running while the framework owns this
   frame's drain lock?"
   [frame-id]
-  (boolean (some-> (frame/frame frame-id) :drain-lock deref)))
+  (boolean (some-> (rf.frame/frame frame-id) :drain-lock deref)))
 
 ;; ---- Posture: dev-only, declared by `^:requires-debug` (rf2-d2841) ---------
-;; Trace machinery end to end: under `-Dre-frame.debug=false` `trace/emit` is a
+;; Trace machinery end to end: under `-Dre-frame.debug=false` `rf.trace/emit` is a
 ;; no-op, so there is no semantic residue to run under that posture, and a
 ;; `(when interop/debug-enabled? ...)` split -- the shape the rest of rf2-d2841
 ;; used -- would leave EMPTY deftests reporting green (class 2).  Every deftest
@@ -117,10 +117,10 @@
             a-entered  (CountDownLatch. 1)
             b-entered  (CountDownLatch. 1)
             release-a  (CountDownLatch. 1)]
-        (trace/register-listener! ::probe
+        (rf.trace/register-listener! ::probe
           (fn [ev]
             (when (= :rf.event/run-start (:operation ev))
-              (when-let [f (#{frame-alpha frame-beta} (trace/frame-of ev))]
+              (when-let [f (#{frame-alpha frame-beta} (rf.trace/frame-of ev))]
                 ;; Overlap detector: record the max simultaneous invocations.
                 (let [n (swap! in-flight inc)]
                   (swap! max-conc max n))
@@ -168,7 +168,7 @@
             (.countDown release-a)
             (.join t1 join-timeout-ms)
             (.join t2 join-timeout-ms)
-            (trace/unregister-listener! ::probe)
+            (rf.trace/unregister-listener! ::probe)
 
             (is (not (.isAlive t1))
                 (str "iter " iter ": frame ALPHA's dispatch-sync never completed"))

@@ -26,15 +26,15 @@
   async `:before`'s per-test re-ensure guards against."
   (:require [cljs.test :refer-macros [deftest is testing async use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; The whole ns runs under the async map-form fixture (plain-atom, default
 ;; `:rf/default` ambient frame). A sync test under a map fixture is allowed;
 ;; an async test REQUIRES one.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter
                                             :async?  true}))
 
 ;; ---- 1. the headline: a bare dispatch-sync drains in an async body --------
@@ -80,9 +80,9 @@
 
 (deftest fixture-return-shapes
   (testing ":async? false → a fn-form fixture; :async? true → a {:before :after} map"
-    (is (fn? (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+    (is (fn? (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
         "the default is the synchronous fn-form fixture")
-    (let [m (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter
+    (let [m (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter
                                                       :async?  true})]
       (is (map? m) ":async? true returns a cljs.test map fixture")
       (is (fn? (:before m)) "…with a zero-arg :before")
@@ -96,7 +96,7 @@
 
 (deftest fn-form-still-drains-a-bare-dispatch-sync
   (testing "the unchanged fn-form fixture establishes an ambient scope for a sync body"
-    (let [fix (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter})]
+    (let [fix (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})]
       (fix (fn []
              (rf/reg-event :ar/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
              (rf/dispatch-sync [:ar/inc])
@@ -118,21 +118,21 @@
 
 (deftest fn-map-mixing-teardown-hazard
   (testing "fn-form teardown clears :rf/default; a bare dispatch-sync against the gone frame silently no-ops"
-    (let [fix (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter})]
+    (let [fix (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})]
       (fix (fn []
              (rf/reg-event :ar/seed (fn [_ _] {:db {:n 1}}))
              (rf/dispatch-sync [:ar/seed])
-             (is (some? (frame/frame :rf/default))
+             (is (some? (rf.frame/frame :rf/default))
                  "inside the fn-form: the :rf/default frame is live")
              (is (= 1 (:n (rf/app-db-value :rf/default)))
                  "inside the fn-form: the bare dispatch-sync drained"))))
     ;; The fn-form fixture's `finally` reset frames to {} — :rf/default is gone.
-    (is (nil? (frame/frame :rf/default))
+    (is (nil? (rf.frame/frame :rf/default))
         "fn-form teardown cleared the frames registry — :rf/default destroyed (the mixing hazard)")
     ;; *current-frame* is still :rf/default (this ns's :async? ambient scope),
     ;; so a bare dispatch-sync RESOLVES :rf/default but finds NO frame record:
     ;; it silently no-ops and never synthesises a frame (no :rf/default floor).
     (rf/reg-event :ar/inc (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (rf/dispatch-sync [:ar/inc])
-    (is (nil? (frame/frame :rf/default))
+    (is (nil? (rf.frame/frame :rf/default))
         "the bare dispatch-sync did NOT drain or synthesise a frame — the silent non-drain a naive map fixture leaves, and the :async? :before re-ensure prevents")))

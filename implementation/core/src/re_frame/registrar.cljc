@@ -72,12 +72,12 @@
 
   `register!` is the single chokepoint every `reg-*` surface funnels
   through, so the strip lives here: under `:advanced` + `goog.DEBUG=false`
-  (`interop/debug-enabled?` constant-folds to `false`) `strip-pure-
+  (`rf.interop/debug-enabled?` constant-folds to `false`) `strip-pure-
   documentation` drops the pure-documentation keys from the metadata
   before it is stored, so `(rf/handler-meta kind id)` carries no `:doc`
   in production — consistent with the source-coords already being absent
   there (Spec 001 §Production elision contract, Policy A). The outermost
-  `interop/debug-enabled?` gate lets Closure constant-fold the strip away
+  `rf.interop/debug-enabled?` gate lets Closure constant-fold the strip away
   in dev and the dev `:doc` retention away in prod.
 
   The DCE of the dev-only `:doc` STRING bytes from the bundle rides the
@@ -85,11 +85,11 @@
   whole `(reg-event-X :id {:doc \"…\"} …)` form-source under
   `goog.DEBUG=false` (the elision-probe `:probe/cs-event` sentinel
   covers it); the strip here pins the *handler-meta* absence."
-  (:require [re-frame.error         :as error]
-            [re-frame.interop       :as interop]
-            [re-frame.late-bind     :as late-bind]
-            [re-frame.source-coords :as source-coords]
-            [re-frame.source-store  :as source-store]))
+  (:require [re-frame.error         :as rf.error]
+            [re-frame.interop       :as rf.interop]
+            [re-frame.late-bind     :as rf.late-bind]
+            [re-frame.source-coords :as rf.source-coords]
+            [re-frame.source-store  :as rf.source-store]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -297,9 +297,9 @@
 ;; `:trace/emit!` (re-frame.trace depends on re-frame.registrar, so
 ;; `:require` would cycle). `:trace/emit!` is published once at
 ;; re-frame.trace load and never withdrawn, so the resolution is sticky
-;; — `late-bind/get-fn-cached` memoises it.
+;; — `rf.late-bind/get-fn-cached` memoises it.
 ;;
-;; Each call site keeps its OUTERMOST `(when interop/debug-enabled? ...)`
+;; Each call site keeps its OUTERMOST `(when rf.interop/debug-enabled? ...)`
 ;; gate. That gate is the load-bearing condition Closure constant-folds
 ;; under `:advanced + goog.DEBUG=false` (Spec 009 §Production builds),
 ;; and the `:rf.registry/*` operation keywords are literal args at the
@@ -309,13 +309,13 @@
 
 (defn- emit!
   "Invoke `:trace/emit!` with the `:rf.registry` op-type, memoising the
-  late-bind resolution through `late-bind/get-fn-cached` (the shared
+  late-bind resolution through `rf.late-bind/get-fn-cached` (the shared
   memoisation pattern lives in `re-frame.late-bind`). Callers MUST
-  wrap invocations in `(when interop/debug-enabled? ...)` so Closure
+  wrap invocations in `(when rf.interop/debug-enabled? ...)` so Closure
   DCE elides the call and its literal args under `:advanced +
   goog.DEBUG=false`."
   [operation tags]
-  (when-let [f (late-bind/get-fn-cached :trace/emit!)]
+  (when-let [f (rf.late-bind/get-fn-cached :trace/emit!)]
     (f :rf.registry operation tags)))
 
 (defn- dedup-allow?
@@ -327,20 +327,20 @@
 
   When the trace.tooling sibling is not loaded (production CLJS counter
   bundle), the late-bind lookup returns nil and we allow-by-default —
-  the surrounding `interop/debug-enabled?` gate elides the whole branch
+  the surrounding `rf.interop/debug-enabled?` gate elides the whole branch
   anyway in :advanced + goog.DEBUG=false builds."
   [operation kind id meta]
-  (if-let [f (late-bind/get-fn-cached :trace.tooling/dedup-allow?)]
+  (if-let [f (rf.late-bind/get-fn-cached :trace.tooling/dedup-allow?)]
     (f operation kind id meta)
     true))
 
 (defn- emit-warning!
   "Invoke `:trace/emit!` with the `:warning` op-type. Sibling to
   `emit!` (which uses `:rf.registry`). Callers MUST wrap invocations in
-  `(when interop/debug-enabled? ...)` so Closure DCE elides the call
+  `(when rf.interop/debug-enabled? ...)` so Closure DCE elides the call
   and its literal args under `:advanced + goog.DEBUG=false`."
   [operation tags]
-  (when-let [f (late-bind/get-fn-cached :trace/emit!)]
+  (when-let [f (rf.late-bind/get-fn-cached :trace/emit!)]
     (f :warning operation tags)))
 
 ;; ---- warn-once caches (Spec 001 §`:doc` is dev-warned when absent,
@@ -385,7 +385,7 @@
 
 (defn- macro-path?
   "Truthy when the metadata map carries the macro-path signature —
-  source coords merged in via `source-coords/merge-coords` (Spec 001
+  source coords merged in via `rf.source-coords/merge-coords` (Spec 001
   §Source-coordinate capture). Per Spec 001 §`:doc` is dev-warned
   obligation 4, programmatic re-registrations through internal
   helpers that bypass the public macro path are out of scope for
@@ -407,7 +407,7 @@
   came from the public macro path and carries no usable `:doc`.
   Per Spec 001 §`:doc` is dev-warned when absent.
 
-  Callers MUST wrap invocations in `(when interop/debug-enabled? ...)`
+  Callers MUST wrap invocations in `(when rf.interop/debug-enabled? ...)`
   so the production bundle DCEs the consult+emit branch (Spec 009
   §Production builds). The keyword `:rf.warning/missing-doc` is a
   literal arg at the call site — moving the gate inside this helper
@@ -475,7 +475,7 @@
   developer. Same suppression discipline as missing-doc — fires once per
   `(kind, id)` to keep the dev stream readable.
 
-  Callers MUST wrap invocations in `(when interop/debug-enabled? ...)`
+  Callers MUST wrap invocations in `(when rf.interop/debug-enabled? ...)`
   for production elision (Spec 009 §Production builds)."
   [kind id previous new-meta]
   (when (collision? previous new-meta)
@@ -514,17 +514,17 @@
 
 (defn strip-pure-documentation
   "Drop the pure-documentation keys (`pure-documentation-keys`) from a
-  registration `metadata` map in production builds (`interop/debug-enabled?`
+  registration `metadata` map in production builds (`rf.interop/debug-enabled?`
   false). Returns `metadata` unchanged in dev. Per Spec 001 §Production
   elision contract.
 
-  The `interop/debug-enabled?` gate is the OUTERMOST form so Closure
+  The `rf.interop/debug-enabled?` gate is the OUTERMOST form so Closure
   constant-folds it under `:advanced` + `goog.DEBUG=false`: the dev arm
   (the unchanged map) DCEs in production, and the `apply dissoc` strip
   DCEs in dev — zero runtime cost either way. A non-map `metadata` (no
   documentation keys to carry) passes through untouched."
   [metadata]
-  (if (or (not interop/debug-enabled?)
+  (if (or (not rf.interop/debug-enabled?)
           (not (map? metadata)))
     ;; Production OR a non-map metadata: strip the pure-documentation keys.
     ;; (A non-map metadata cannot carry them, so `dissoc`/`apply dissoc`
@@ -582,7 +582,7 @@
   `:executable-key` — see `executable-identity`."
   [kind id metadata]
   (when-not (valid-kind? kind)
-    (error/throw-error!
+    (rf.error/throw-error!
       :rf.error/unknown-registry-kind
       'rf/register-handler
       (str "unknown registry kind " kind " — not one of the registered registry kinds")
@@ -593,23 +593,23 @@
   ;; elision). When a public reg-* macro is on the stack `*pending-coords*`
   ;; carries the captured coord-map (slim in CLJS prod — no `:column`).
   ;; The error-emit substrate looks coords up via
-  ;; `source-coords/error-coords-for` when assembling the tight error-
+  ;; `rf.source-coords/error-coords-for` when assembling the tight error-
   ;; record / policy-event, so Sentry-style shippers still see source-
   ;; line info even when public registry-meta has been stripped of
   ;; coord-keys under `goog.DEBUG=false`. Programmatic paths
   ;; (`*pending-coords*` nil) no-op cleanly — `remember-error-coords!`
   ;; itself guards against nil.
-  (when-let [pc source-coords/*pending-coords*]
-    (source-coords/remember-error-coords! kind id pc))
+  (when-let [pc rf.source-coords/*pending-coords*]
+    (rf.source-coords/remember-error-coords! kind id pc))
   ;; Pure-documentation metadata elision. Under `:advanced` +
   ;; `goog.DEBUG=false` strip the pure-documentation keys (`:doc`) BEFORE the
   ;; metadata is stored, so `(rf/handler-meta kind id)` carries no `:doc` in
   ;; production — consistent with source-coords already being absent there
-  ;; (Spec 001 §Production elision contract). The `interop/debug-enabled?`
+  ;; (Spec 001 §Production elision contract). The `rf.interop/debug-enabled?`
   ;; gate inside `strip-pure-documentation` is the OUTERMOST form, so Closure
   ;; constant-folds the strip away in dev and the dev `:doc` retention away
   ;; in prod. NOTE: the dev-only `:rf.warning/missing-doc` check below reads
-  ;; `(:doc metadata)` — it is itself gated on `interop/debug-enabled?`, so it
+  ;; `(:doc metadata)` — it is itself gated on `rf.interop/debug-enabled?`, so it
   ;; only fires in dev where `:doc` is still present; the strip never hides a
   ;; missing-doc warning.
   (let [metadata (strip-pure-documentation metadata)
@@ -627,7 +627,7 @@
     ;; made here (that is image assembly, a later EP-0023 slice). `metadata`
     ;; written into the resolver map intentionally stays untouched; the store
     ;; keeps its own provenance-stamped copy.
-    (source-store/record-descriptor! kind id metadata)
+    (rf.source-store/record-descriptor! kind id metadata)
     (cond
       ;; Re-registration path — fire hooks and emit handler-replaced.
       previous
@@ -650,7 +650,7 @@
         ;; for tools that want to suppress idempotent-reload noise on
         ;; their side.
         ;;
-        ;; The `interop/debug-enabled?` gate stays OUTERMOST so
+        ;; The `rf.interop/debug-enabled?` gate stays OUTERMOST so
         ;; `:advanced + goog.DEBUG=false` constant-folds the entire
         ;; branch (per Spec 009 §Production builds).
         ;;
@@ -659,7 +659,7 @@
         ;; shape on re-register (a hot-reload that didn't actually
         ;; change the handler) emits ZERO `:rf.registry/handler-replaced`
         ;; trace events; a real edit emits exactly one.
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (when (dedup-allow? :rf.registry/handler-replaced kind id metadata)
             (emit! :rf.registry/handler-replaced
                    {:kind kind :id id :different-fn? different?}))
@@ -673,7 +673,7 @@
           ;; `:handler-fn` — `:route`, `:head` — can be deduped-away
           ;; by shape, so nesting the collision check inside that gate would
           ;; let a GENUINE cross-source clash for those kinds go unwarned.
-          ;; Called here independently (still under `interop/debug-enabled?`
+          ;; Called here independently (still under `rf.interop/debug-enabled?`
           ;; for production elision); `collision?` keeps a same-source
           ;; hot-reload re-eval silent, and the warn-once cache keeps the dev
           ;; stream readable across reload churn.
@@ -686,18 +686,18 @@
       ;; suppression. A first registration always allows
       ;; (no prior entry to compare against).
       :else
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (when (dedup-allow? :rf.registry/handler-registered kind id metadata)
           (emit! :rf.registry/handler-registered {:kind kind :id id}))))
     ;; Per Spec 001 §`:doc` is dev-warned when absent. Fires
     ;; on every reg-* call whose final metadata-map carries no usable
     ;; `:doc`, once per (kind, id) within the runtime process. Production
-    ;; elides via the outer `interop/debug-enabled?` gate (Spec 009
+    ;; elides via the outer `rf.interop/debug-enabled?` gate (Spec 009
     ;; §Production builds). Fires on BOTH first-time and re-registration
     ;; — the consult+emit body is suppressed by the per-(kind, id) cache
     ;; on subsequent calls; obligation 2 says re-registering the same id
     ;; without `:doc` does NOT re-fire the warning.
-    (when interop/debug-enabled?
+    (when rf.interop/debug-enabled?
       (maybe-emit-missing-doc! kind id metadata))
     ;; Always-on registration hooks: fire on BOTH first-time
     ;; and re-registration so cross-id invariants (e.g. routing's
@@ -721,17 +721,17 @@
     ;; removal. The resolver map keys by `(kind, id)`, so an unregister drops
     ;; the id wholesale; mirror that in the source store by forgetting every
     ;; provenance slot for `(kind, id)`.
-    (source-store/forget-id! kind id)
+    (rf.source-store/forget-id! kind id)
     ;; rf2-h1vqa4: a removal is a source-store change — mark the live-frame
     ;; projection dirty (late-bound; the register side rides the registration
     ;; hook, removals ride this) so default-image frames drop the cleared
     ;; handler at their next resolution rather than resolving a stale sealed
-    ;; generation. rf2-9c2jf: NOT gated on `interop/debug-enabled?` — the
+    ;; generation. rf2-9c2jf: NOT gated on `rf.interop/debug-enabled?` — the
     ;; sealed generation is produced unconditionally by `make-frame`, so
     ;; skipping the dirty mark in production left a cleared handler resolving
     ;; forever out of a store that no longer backs it. Late-bound by keyword;
     ;; unpublished (no frame ever constructed) means no-op.
-    (when-let [mark-dirty! (late-bind/get-fn :live-frame/mark-projection-dirty!)]
+    (when-let [mark-dirty! (rf.late-bind/get-fn :live-frame/mark-projection-dirty!)]
       (mark-dirty!))
     ;; Per Spec 009 §:op-type vocabulary: :rf.registry/handler-cleared
     ;; fires on explicit removal so hot-reload tools can update their
@@ -741,7 +741,7 @@
     ;; of an id the dedup table thinks is already absent (a double-
     ;; clear) is suppressed. The first clear records the `::cleared`
     ;; sentinel; subsequent re-clears emit nothing.
-    (when interop/debug-enabled?
+    (when rf.interop/debug-enabled?
       (when previous
         (when (dedup-allow? :rf.registry/handler-cleared kind id nil)
           (emit! :rf.registry/handler-cleared {:kind kind :id id})))))
@@ -766,10 +766,10 @@
     ;; generation, leaving the resolved-image-generation cache (keyed on the
     ;; source-store generation) to HIT and return a stale generation that still
     ;; resolves the just-cleared `(kind, id)`s.
-    (source-store/clear-kind! kind)
+    (rf.source-store/clear-kind! kind)
     ;; rf2-h1vqa4 / rf2-9c2jf: same ungated removal dirty-mark as
     ;; `unregister!` (see there).
-    (when-let [mark-dirty! (late-bind/get-fn :live-frame/mark-projection-dirty!)]
+    (when-let [mark-dirty! (rf.late-bind/get-fn :live-frame/mark-projection-dirty!)]
       (mark-dirty!))
     (swap! missing-doc-warned clear-kind)
     (swap! collision-warned   clear-kind)
@@ -777,7 +777,7 @@
     ;; fires for each id so consumers see consistent registry transitions.
     ;; B4 dedup: a clear-of-a-cleared id is suppressed; the
     ;; first clear records the `::cleared` sentinel.
-    (when interop/debug-enabled?
+    (when rf.interop/debug-enabled?
       (when (seq previous-ids)
         (doseq [id previous-ids]
           (when (dedup-allow? :rf.registry/handler-cleared kind id nil)
@@ -806,20 +806,20 @@
   ;; EP-0023: reset the provenance-preserving source store (and its
   ;; namespace-string pool) in lockstep with the process-default resolver map,
   ;; so a test fixture starts each case from a clean state on both surfaces.
-  (source-store/clear-all!)
+  (rf.source-store/clear-all!)
   ;; rf2-h1vqa4 / rf2-9c2jf: same ungated removal dirty-mark as `unregister!`
   ;; (see there).
-  (when-let [mark-dirty! (late-bind/get-fn :live-frame/mark-projection-dirty!)]
+  (when-let [mark-dirty! (rf.late-bind/get-fn :live-frame/mark-projection-dirty!)]
     (mark-dirty!))
   ;; Also clear the always-on error-coord parallel registry
   ;; so test cases start from a clean state on both surfaces.
-  (source-coords/forget-error-coords!)
+  (rf.source-coords/forget-error-coords!)
   ;; Clear the B4 dedup table when the trace.tooling sibling is loaded.
   ;; Production CLJS bundles that never load trace.tooling silently
   ;; no-op here — the dedup hook is unbound and there's no table to
   ;; clear anyway.
-  (when interop/debug-enabled?
-    (when-let [clear! (late-bind/get-fn-cached :trace.tooling/clear-dedup-table!)]
+  (when rf.interop/debug-enabled?
+    (when-let [clear! (rf.late-bind/get-fn-cached :trace.tooling/clear-dedup-table!)]
       (clear!)))
   nil)
 

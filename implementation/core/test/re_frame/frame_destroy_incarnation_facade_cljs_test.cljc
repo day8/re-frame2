@@ -33,8 +33,8 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core                 :as rf]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support         :as test-support]))
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support         :as rf.test-support]))
 
 ;; ---------------------------------------------------------------------------
 ;; Fixture — reset the runtime (registrar, frames, trace listeners) and install
@@ -44,7 +44,7 @@
 ;; ---------------------------------------------------------------------------
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (def ^:private id :clgup/frame)
 

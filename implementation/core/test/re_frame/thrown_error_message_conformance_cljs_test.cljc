@@ -34,11 +34,11 @@
   adapter / runtime state required (the central sites are exercised
   directly), so no reset-runtime fixture."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.error :as error]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.flows.registry :as flows-registry]
-            [re-frame.flows.topo :as flows-topo]
-            [re-frame.routing.registry :as routing-registry]))
+            [re-frame.error :as rf.error]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.flows.registry :as rf.flows.registry]
+            [re-frame.flows.topo :as rf.flows.topo]
+            [re-frame.routing.registry :as rf.routing.registry]))
 
 ;; ============================================================================
 ;; The builder predicates — the conformance machinery itself
@@ -46,34 +46,34 @@
 
 (deftest keyword-only-message?-rejects-bare-keyword-strings
   (testing "a bare stringified :rf.error/… keyword is flagged (the OLD shape)"
-    (is (true? (error/keyword-only-message? ":rf.error/no-adapter-installed")))
-    (is (true? (error/keyword-only-message? ":rf.error/flow-bad-id")))
-    (is (true? (error/keyword-only-message? ":rf.error/route-url-validation"))))
+    (is (true? (rf.error/keyword-only-message? ":rf.error/no-adapter-installed")))
+    (is (true? (rf.error/keyword-only-message? ":rf.error/flow-bad-id")))
+    (is (true? (rf.error/keyword-only-message? ":rf.error/route-url-validation"))))
   (testing "a human sentence carrying the token is NOT flagged (the NEW shape)"
-    (is (false? (error/keyword-only-message?
+    (is (false? (rf.error/keyword-only-message?
                   "rf/init! cannot continue because no adapter is installed; require an adapter ns and install it before boot. [:rf.error/no-adapter-installed]")))
-    (is (false? (error/keyword-only-message?
+    (is (false? (rf.error/keyword-only-message?
                   "some other text :rf.error/x in the middle"))))
   (testing "nil / non-string degrade to false (never a true positive)"
-    (is (false? (error/keyword-only-message? nil)))
-    (is (false? (error/keyword-only-message? :rf.error/x)))))
+    (is (false? (rf.error/keyword-only-message? nil)))
+    (is (false? (rf.error/keyword-only-message? :rf.error/x)))))
 
 (deftest message-has-id-token?-detects-the-trailing-token
   (testing "the bracketed [:rf.error/<id>] token is detected anywhere"
-    (is (true? (error/message-has-id-token?
+    (is (true? (rf.error/message-has-id-token?
                  "human sentence here. [:rf.error/no-adapter-installed]")))
-    (is (true? (error/message-has-id-token? "[:rf.error/flow-bad-id]"))))
+    (is (true? (rf.error/message-has-id-token? "[:rf.error/flow-bad-id]"))))
   (testing "a message with NO token is rejected (rule 4 floor)"
-    (is (false? (error/message-has-id-token? "just a human sentence")))
-    (is (false? (error/message-has-id-token? ":rf.error/no-adapter-installed")))
-    (is (false? (error/message-has-id-token? nil)))))
+    (is (false? (rf.error/message-has-id-token? "just a human sentence")))
+    (is (false? (rf.error/message-has-id-token? ":rf.error/no-adapter-installed")))
+    (is (false? (rf.error/message-has-id-token? nil)))))
 
 ;; ============================================================================
 ;; The central builder — derives a conformant message from reason + id
 ;; ============================================================================
 
 (deftest thrown-ex-info-derives-the-canonical-shape
-  (let [e (error/thrown-ex-info
+  (let [e (rf.error/thrown-ex-info
             :rf.error/no-adapter-installed
             'rf/init!
             "rf/init! cannot continue because no adapter is installed; require an adapter ns and install it before boot.")
@@ -87,16 +87,16 @@
       (is (= "rf/init! cannot continue because no adapter is installed; require an adapter ns and install it before boot."
              (:reason data))))
     (testing "the message LEADS with the human sentence (rule 1)"
-      (is (not (error/keyword-only-message? msg))
+      (is (not (rf.error/keyword-only-message? msg))
           "message must not be a bare keyword")
       (is (re-find #"^rf/init! cannot continue" msg)
           "message starts with the human sentence, not the keyword"))
     (testing "the message TRAILS with the [:rf.error/<id>] token (rule 4)"
-      (is (error/message-has-id-token? msg))
+      (is (rf.error/message-has-id-token? msg))
       (is (re-find #"\[:rf\.error/no-adapter-installed\]$" msg)))))
 
 (deftest thrown-ex-info-honours-recovery-and-extra-slots
-  (let [e (error/thrown-ex-info
+  (let [e (rf.error/thrown-ex-info
             :rf.error/flow-bad-id
             'rf/reg-flow
             ":id must be a keyword"
@@ -107,19 +107,19 @@
     (is (= {:id "not-a-kw"} (:flow data)) ":extra slots merge on top")
     (is (= :id (:bad-key data)))
     (is (= ":id must be a keyword" (:reason data)))
-    (is (error/message-has-id-token? (ex-message e)))))
+    (is (rf.error/message-has-id-token? (ex-message e)))))
 
 (deftest throw-error!-builds-and-throws
   (let [thrown (try
-                 (error/throw-error! :rf.error/no-adapter-specified
+                 (rf.error/throw-error! :rf.error/no-adapter-specified
                                      'rf/init!
                                      "rf/init! requires an adapter spec map")
                  ::no-throw
                  (catch #?(:clj clojure.lang.ExceptionInfo :cljs ExceptionInfo) e e))]
     (is (not= ::no-throw thrown) "throw-error! actually throws")
     (is (= :rf.error/no-adapter-specified (:rf.error/id (ex-data thrown))))
-    (is (not (error/keyword-only-message? (ex-message thrown))))
-    (is (error/message-has-id-token? (ex-message thrown)))))
+    (is (not (rf.error/keyword-only-message? (ex-message thrown))))
+    (is (rf.error/message-has-id-token? (ex-message thrown)))))
 
 ;; ============================================================================
 ;; The CENTRAL per-surface sites converted in the rf2-vvixub PR all emit
@@ -147,18 +147,18 @@
         (let [msg (ex-message thrown)]
           (is (= expected-id (:rf.error/id (ex-data thrown)))
               (str label " carries the canonical :rf.error/id discriminator"))
-          (is (not (error/keyword-only-message? msg))
+          (is (not (rf.error/keyword-only-message? msg))
               (str label " message is NOT a bare keyword (rule 1)"))
-          (is (error/message-has-id-token? msg)
+          (is (rf.error/message-has-id-token? msg)
               (str label " message carries the [:rf.error/<id>] token (rule 4)")))))))
 
 (deftest require-fn!-emits-conformant-missing-artefact-throw
-  ;; late-bind/require-fn! — the missing-artefact exemplar. An unregistered
+  ;; rf.late-bind/require-fn! — the missing-artefact exemplar. An unregistered
   ;; hook key (no producer published it) throws the *-artefact-missing shape.
   (assert-conformant-throw!
     "require-fn! (missing artefact)"
     :rf.error/flows-artefact-missing
-    #(late-bind/require-fn!
+    #(rf.late-bind/require-fn!
        ::vvixub-definitely-unregistered-hook
        'rf/reg-flow
        {:error-keyword :rf.error/flows-artefact-missing
@@ -172,7 +172,7 @@
   (assert-conformant-throw!
     "reg-flow (bad :id)"
     :rf.error/flow-bad-id
-    #(#'flows-registry/validate-flow
+    #(#'rf.flows.registry/validate-flow
        {:id     "not-a-keyword"
         :inputs [[:a]]
         :derive (fn [_] nil)
@@ -181,16 +181,16 @@
 (deftest route-error-emits-conformant-routing-throw
   ;; routing.registry route-error — the routing exemplar. Build directly
   ;; (route-error is the canonical helper every routing throw routes through).
-  (let [e (routing-registry/route-error
+  (let [e (rf.routing.registry/route-error
             :rf.error/route-url-validation
             'rf/route-url
             "the route slice failed the route's declared :params / :query schema"
             {:limit 64 :count 99})]
     (is (= :rf.error/route-url-validation (:rf.error/id (ex-data e))))
     (is (= 64 (:limit (ex-data e))) "per-site :extras slots merge on top")
-    (is (not (error/keyword-only-message? (ex-message e)))
+    (is (not (rf.error/keyword-only-message? (ex-message e)))
         "route-error message is NOT a bare keyword (rule 1)")
-    (is (error/message-has-id-token? (ex-message e))
+    (is (rf.error/message-has-id-token? (ex-message e))
         "route-error message carries the [:rf.error/<id>] token (rule 4)")))
 
 ;; ============================================================================
@@ -206,7 +206,7 @@
   (assert-conformant-throw!
     "detect-output-path-overlap! (overlapping :paths)"
     :rf.error/flow-path-overlap
-    #(flows-topo/detect-output-path-overlap!
+    #(rf.flows.topo/detect-output-path-overlap!
        {:a {:id :a :inputs [[:w]] :derive identity :output-path [:x]}
         :b {:id :b :inputs [[:h]] :derive identity :output-path [:x]}})))
 
@@ -215,7 +215,7 @@
   (assert-conformant-throw!
     "topo-sort (cyclic flow dependency)"
     :rf.error/flow-cycle
-    #(flows-topo/topo-sort
+    #(rf.flows.topo/topo-sort
        {:a {:id :a :inputs [[:b]] :derive identity :output-path [:a]}
         :b {:id :b :inputs [[:a]] :derive identity :output-path [:b]}})))
 
@@ -225,4 +225,4 @@
   (assert-conformant-throw!
     "extract-cycle-path (internal dead-end invariant)"
     :rf.error/flow-cycle-extract-invariant
-    #(#'flows-topo/extract-cycle-path {:a #{}} #{:a})))
+    #(#'rf.flows.topo/extract-cycle-path {:a #{}} #{:a})))

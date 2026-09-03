@@ -1,5 +1,5 @@
 (ns re-frame.subs.memo
-  "Memo wrappers + the trace/perf/validate/recover bracket that brackets
+  "Memo wrappers + the rf.trace/perf/validate/recover bracket that brackets
   a user sub body.
 
   Per Spec 006 §No-op via value equality. Reagent's auto-run
@@ -32,13 +32,13 @@
   Per-recompute hot path is the closure body (in-process) — unaffected
   by the ns boundary. Per-miss constructor call (from
   `re-frame.subs/compute-and-cache!`) crosses the ns boundary once."
-  (:require [re-frame.error :as error]
-            [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.movement :as movement]
-            [re-frame.performance :as performance
+  (:require [re-frame.error :as rf.error]
+            [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.movement :as rf.movement]
+            [re-frame.performance :as rf.performance
              #?@(:cljs [:include-macros true])]
-            [re-frame.trace :as trace
+            [re-frame.trace :as rf.trace
              #?@(:cljs [:include-macros true])]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -109,7 +109,7 @@
   ;; delegates the exact token. Only an ABSENT key skips the consult.
   (if (and sub-meta (contains? sub-meta :schema))
     ;; Sticky hook — fires per-sub recompute.
-    (if-let [validate (late-bind/get-fn-cached :schemas/validate-sub!)]
+    (if-let [validate (rf.late-bind/get-fn-cached :schemas/validate-sub!)]
       (if (try (validate sub-id query-v value sub-meta frame-id)
                (catch #?(:clj Throwable :cljs :default) _ true))
         value
@@ -148,7 +148,7 @@
 
   ## Recompute attribution (dev-only)
 
-  When `interop/debug-enabled?` the `:rf.sub/run` tag carries:
+  When `rf.interop/debug-enabled?` the `:rf.sub/run` tag carries:
 
     :value-changed?  — `(not= prev-value computed)`. The `::unset`
                        sentinel on the first recompute reports `true`.
@@ -215,7 +215,7 @@
   `:value` as `:rf/redacted`; `:value-changed?` stays a plain boolean.
 
   The whole attribution branch (the enriched tag map) sits inside
-  `(if interop/debug-enabled? ...)` so Closure DCE folds it out under
+  `(if rf.interop/debug-enabled? ...)` so Closure DCE folds it out under
   `:advanced` + `goog.DEBUG=false`; the unattributed base tag is emitted
   on the production path so the op-type vocabulary is unchanged there.
   `prev-value`/`prev-in-vals` arrive pre-resolved from the memo
@@ -252,18 +252,18 @@
   ;; §Single input). When false (the static `:<-` path) the v1
   ;; convention holds: a single `:<-` input is delivered as the bare value,
   ;; ≥2 inputs as a vector. The layer-1 / single-`:<-` wrappers pass false.
-  (trace/with-handler-scope
+  (rf.trace/with-handler-scope
     sub-scope
     (try
       ;; Wall-clock the sub body (dev-only) so `:rf.sub/run`
       ;; carries `:rf.sub/elapsed-ms` — the per-op duration the Trace
       ;; panel's DURATION column reads. The `now-ms` brackets ride
-      ;; `interop/debug-enabled?` (nil t0 in prod), so Closure DCEs them
+      ;; `rf.interop/debug-enabled?` (nil t0 in prod), so Closure DCEs them
       ;; under :advanced + `goog.DEBUG=false` — zero prod cost. Distinct
-      ;; from the `performance/mark-and-measure` perf surface (default-off,
+      ;; from the `rf.performance/mark-and-measure` perf surface (default-off,
       ;; browser-only, NOT on the trace stream).
-      (let [t0        (when interop/debug-enabled? (interop/now-ms))
-            computed (performance/mark-and-measure :sub query-id
+      (let [t0        (when rf.interop/debug-enabled? (rf.interop/now-ms))
+            computed (rf.performance/mark-and-measure :sub query-id
                       (cond
                         ;; Parametric sub — always a vector of input values
                         ;; (producer order), even for one input.
@@ -280,7 +280,7 @@
 
                         :else
                         (body-fn (vec in-vals) query-v)))
-            elapsed-ms (when interop/debug-enabled? (- (interop/now-ms) t0))
+            elapsed-ms (when rf.interop/debug-enabled? (- (rf.interop/now-ms) t0))
             validated (maybe-validate-sub! computed query-v query-id sub-meta frame-id)]
         ;; Emit AFTER compute+validate so the trace carries the computed
         ;; value + attribution. The base tag is unconditional
@@ -288,10 +288,10 @@
         ;; slots ride the dev gate so Closure DCEs the enriched tag map
         ;; under :advanced. `:prev-value` / `:value` are emitted RAW —
         ;; the existing `re-frame.classification/project-sub-tags` chokepoint
-        ;; (run by `trace/build-event`) redacts them from process-scoped
+        ;; (run by `rf.trace/build-event`) redacts them from process-scoped
         ;; marks without a reactive container deref. See the ns docstring
         ;; §Privacy for why we MUST NOT elide here.
-        (if interop/debug-enabled?
+        (if rf.interop/debug-enabled?
           ;; `cascade?` here = REACTIVE-GRAPH propagation (kept sense,
           ;; rf2-p4cd9c): true iff this sub has upstream SUB inputs (layer-2+).
           ;; NOT the event-pipeline-run sense; public wire key :rf.sub/cascade?.
@@ -305,7 +305,7 @@
                 ;; not whatever cascade is settling when a mount-burst tail
                 ;; commits. Resolved through late-bind so this .cljc subs
                 ;; layer stays free of a require on the CLJS-only views ns.
-                reader-rk (when-let [f (late-bind/get-fn-cached
+                reader-rk (when-let [f (rf.late-bind/get-fn-cached
                                          :views/reading-render-key)]
                             (f))
                 ;; `:rf.sub/cause-event-id` names the
@@ -326,12 +326,12 @@
                 ;; the tag is OMITTED in those cases so consumers
                 ;; (Xray's Epoch panel SUBSCRIPTIONS section) read it
                 ;; only when meaningful. Inside the
-                ;; `interop/debug-enabled?` gate so the lookup + lift
+                ;; `rf.interop/debug-enabled?` gate so the lookup + lift
                 ;; DCE under :advanced + goog.DEBUG=false.
-                cause-fn        (late-bind/get-fn-cached :epoch/run-cause)
+                cause-fn        (rf.late-bind/get-fn-cached :epoch/run-cause)
                 run-cause       (when cause-fn (cause-fn frame-id))
                 cause-event-id  (:cause-event-id run-cause)]
-            (trace/emit! :rf.sub :rf.sub/run
+            (rf.trace/emit! :rf.sub :rf.sub/run
                          (cond-> {:rf.sub/id             query-id
                                   :rf.sub/query-v        query-v
                                   :frame                 frame-id
@@ -381,13 +381,13 @@
                            reader-rk (assoc :rf.sub/reader-render-key reader-rk)
                            (some? cause-event-id)
                            (assoc :rf.sub/cause-event-id cause-event-id))))
-          (trace/emit! :rf.sub :rf.sub/run
+          (rf.trace/emit! :rf.sub :rf.sub/run
                        {:rf.sub/id      query-id
                         :rf.sub/query-v query-v
                         :frame          frame-id}))
         validated)
       (catch #?(:clj Throwable :cljs :default) e
-        (let [msg    (error/ex-message-safe e) ; nil-safe (a thrown non-Error value has no message)
+        (let [msg    (rf.error/ex-message-safe e) ; nil-safe (a thrown non-Error value has no message)
               reason (str "Subscription `" query-id
                           "` threw while computing: "
                           msg ". Returning nil.")
@@ -412,10 +412,10 @@
           ;; through the ALWAYS-ON `error-emit/dispatch-on-error!`
           ;; substrate (mirroring router.cljc's handler-exception and
           ;; fx.cljc's reserved-fx typed-throw paths) so it survives
-          ;; `interop/debug-enabled? = false` (CLJS `:advanced` +
+          ;; `rf.interop/debug-enabled? = false` (CLJS `:advanced` +
           ;; `goog.DEBUG=false`; JVM `-Dre-frame.debug=false`). Under that
           ;; production-hardening posture (the one Spec 011 §Substrate
-          ;; mandates SSR run in) the dev-only `trace/emit-error!` below
+          ;; mandates SSR run in) the dev-only `rf.trace/emit-error!` below
           ;; is elided — so a subscription that throws mid-`render-to-
           ;; string` would otherwise recover to nil here, yielding a
           ;; silent HTTP 200 with broken HTML and no 5xx projection. The
@@ -433,7 +433,7 @@
           ;; Reached via the late-bind hook `:error-emit/dispatch-on-
           ;; error` — this subs layer cannot statically require
           ;; `re-frame.error-emit` (would form a load cycle, same as
-          ;; fx.cljc). Always invoked (NOT under `interop/debug-enabled?`)
+          ;; fx.cljc). Always invoked (NOT under `rf.interop/debug-enabled?`)
           ;; — that is the whole point: it is the production-survivable
           ;; status source of truth.
           ;;
@@ -450,7 +450,7 @@
           ;; `:error-emit/emit-error-both` hook (this subs layer cannot
           ;; static-require error-emit — load cycle). `elapsed-ms 0`.
           (when-let [emit-error-both!
-                     (late-bind/get-fn-cached :error-emit/emit-error-both)]
+                     (rf.late-bind/get-fn-cached :error-emit/emit-error-both)]
             (emit-error-both!
               :rf.error/sub-exception
               query-v                             ;; failing query-vector (as :event)
@@ -458,7 +458,7 @@
               frame-id
               e
               0                                   ;; elapsed-ms
-              (interop/now-ms)                    ;; time
+              (rf.interop/now-ms)                    ;; time
               tags)))
         nil))))
 
@@ -478,17 +478,17 @@
   "Emit the memo-hit `:rf.sub/skip` trace for a sub that was reactively
   considered but did NOT recompute (input value-equal).
   `input-paths-unchanged` is the inputs-stable set (`[]` for layer-1, the
-  realized `:<-` query-vectors for layer-n). Outer `interop/debug-enabled?`
+  realized `:<-` query-vectors for layer-n). Outer `rf.interop/debug-enabled?`
   gate elides the tag-map construction + emit in CLJS production (Closure DCE
   under `:advanced` + `goog.DEBUG=false`).
 
   `sub-scope` is the wrapper's pre-built HandlerScope — the same constant
   the recompute path binds (rf2-zxv06)."
   [query-id query-v frame-id sub-scope input-paths-unchanged]
-  (when interop/debug-enabled?
-    (trace/with-handler-scope
+  (when rf.interop/debug-enabled?
+    (rf.trace/with-handler-scope
       sub-scope
-      (trace/emit! :rf.sub :rf.sub/skip
+      (rf.trace/emit! :rf.sub :rf.sub/skip
                    {:frame                        frame-id
                     :rf.sub/id                    query-id
                     :rf.sub/query-v               query-v
@@ -556,7 +556,7 @@
   and simply forgoes the short-circuit."
   [source-container]
   (when (and (some? source-container)
-             (satisfies? movement/IMovementWitness source-container))
+             (satisfies? rf.movement/IMovementWitness source-container))
     source-container))
 
 ;; ---- memoisation wrappers ------------------------------------------------
@@ -582,7 +582,7 @@
   [body-fn query-id query-v frame-id sub-meta source-container]
   (let [last-db     (volatile! ::unset)
         last-result (volatile! nil)
-        sub-scope   (trace/handler-scope-from-meta :sub query-id sub-meta)
+        sub-scope   (rf.trace/handler-scope-from-meta :sub query-id sub-meta)
         witness-src (witnessing-source source-container)]
     (fn [db]
       (when body-fn
@@ -591,8 +591,8 @@
         ;; between only costs field reads.
         (if (let [seen @last-db]
               (and (not (identical? (if witness-src
-                                      (movement/-moved-from witness-src)
-                                      movement/no-witness)
+                                      (rf.movement/-moved-from witness-src)
+                                      rf.movement/no-witness)
                                     seen))
                    (= seen db)))
           ;; Memo hit — input value-equal to last-seen, the user body
@@ -655,14 +655,14 @@
   [body-fn query-id query-v frame-id input-signals sub-meta source-container]
   (let [last-v0     (volatile! ::unset)
         last-result (volatile! nil)
-        sub-scope   (trace/handler-scope-from-meta :sub query-id sub-meta)
+        sub-scope   (rf.trace/handler-scope-from-meta :sub query-id sub-meta)
         witness-src (witnessing-source source-container)]
     (fn [v0]
       (when body-fn
         (if (let [seen @last-v0]
               (and (not (identical? (if witness-src
-                                      (movement/-moved-from witness-src)
-                                      movement/no-witness)
+                                      (rf.movement/-moved-from witness-src)
+                                      rf.movement/no-witness)
                                     seen))
                    (= seen v0)))
           ;; Memo hit — see `make-layer-1-memoised-body` for the
@@ -724,7 +724,7 @@
   ([body-fn query-id query-v frame-id input-signals sub-meta vector-inputs?]
   (let [last-in-vals (volatile! ::unset)
         last-result  (volatile! nil)
-        sub-scope    (trace/handler-scope-from-meta :sub query-id sub-meta)]
+        sub-scope    (rf.trace/handler-scope-from-meta :sub query-id sub-meta)]
     (fn [& in-vals]
       (when body-fn
         (if (= @last-in-vals in-vals)

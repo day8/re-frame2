@@ -3,7 +3,7 @@
   classification effect aborts an event.
 
   `router/emit-classification-effect-shape!` fans the EP-0025 rejection through
-  `error-emit/emit-error-both!`, and axis 1 of that helper —
+  `rf.error-emit/emit-error-both!`, and axis 1 of that helper —
   `dispatch-on-error!` — is NOT gated on `interop/debug-enabled?`. So the record
   really does reach an off-box shipper (Sentry / Datadog) from a `:advanced` +
   `goog.DEBUG=false` build. Until this bead it said only that SOME
@@ -60,15 +60,15 @@
             [clojure.set :as set]
             [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.error-emit :as error-emit]
-            [re-frame.frame :as frame]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as ts]))
+            [re-frame.error-emit :as rf.error-emit]
+            [re-frame.frame :as rf.frame]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (ts/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
-     :init-fn (fn [] (error-emit/clear-error-listeners!))}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.substrate.plain-atom/adapter
+     :init-fn (fn [] (rf.error-emit/clear-error-listeners!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; The CLOSED key set of the always-on record.
@@ -126,7 +126,7 @@
     (fn [{:keys [db]} _]
       {:db (assoc db :n 2) effect-key payload}))
   (let [records (record-always-on-errors #(rf/dispatch-sync [ev-id]))]
-    (is (= 1 (:n (frame/frame-app-db-value :rf/default)))
+    (is (= 1 (:n (rf.frame/frame-app-db-value :rf/default)))
         "precondition: the event aborted pre-commit (no :db write landed)")
     (shape-records records)))
 

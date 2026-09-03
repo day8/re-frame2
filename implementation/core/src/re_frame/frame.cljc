@@ -26,11 +26,11 @@
                               it EXPLICITLY like any other id.
     :rf.frame/<gensym>       — anonymous instances from make-anon-frame-record!"
   (:require [clojure.string]
-            [re-frame.error :as error]
-            [re-frame.substrate.adapter :as adapter]
-            [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.trace :as trace]))
+            [re-frame.error :as rf.error]
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
+            [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.trace :as rf.trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -248,7 +248,7 @@
    (throw-frame-construction-in-progress!
      id :reservation-held (:kind held-owner)))
   ([id reason owner-kind]
-   (error/throw-error!
+   (rf.error/throw-error!
      :rf.error/frame-construction-in-progress
      'rf/make-frame
      (str "frame construction for " (pr-str id) " cannot start because the id "
@@ -688,7 +688,7 @@
 ;; Normalized to the frame ID (rf2-h1vqa4): `with-frame` / `with-new-frame`
 ;; may bind a frame VALUE (`make-frame`'s token) into `*current-frame*`, and
 ;; ring attribution must key on the record id, never a value map.
-(late-bind/set-fn! :frame/current-frame-id (fn [] (frame-value->id *current-frame*)))
+(rf.late-bind/set-fn! :frame/current-frame-id (fn [] (frame-value->id *current-frame*)))
 
 (defn- carried-frame-admitted-by
   "The carried (tier-1) stamp, normalized to an id, when `refusal` — the
@@ -796,7 +796,7 @@
   (if-some [refusal *ambient-frame-refusal*]
     (carried-frame-admitted-by refusal)
     (frame-value->id
-      #?(:cljs (if-let [f (late-bind/get-fn-cached :adapter/current-frame)]
+      #?(:cljs (if-let [f (rf.late-bind/get-fn-cached :adapter/current-frame)]
                  (f)
                  (current-frame))
          :clj  (current-frame)))))
@@ -817,7 +817,7 @@
 ;; axis (`re-frame.error-emit/dispatch-on-error!`, surface #4 — survives
 ;; `:advanced` + `goog.DEBUG=false`), not per-frame epoch capture. It
 ;; carries capture-site ancestry through the `:rf.trace/dispatch-id`
-;; correlation graph (read off the in-scope `trace/*handler-scope*`, whose
+;; correlation graph (read off the in-scope `rf.trace/*handler-scope*`, whose
 ;; five slots carry no parent — per Spec 009 §Dispatch correlation,
 ;; `:rf.trace/parent-dispatch-id` is scoped to `:rf.event/dispatched` only and
 ;; is walked FROM this dispatch), so the hardest case — a callback captured at
@@ -899,7 +899,7 @@
           ;; to the cascade that captured the callback. nil outside any
           ;; cascade (a genuinely top-of-stack frameless op) — `cond->`'d
           ;; in so absent rather than nil.
-          (when-let [did (some-> trace/*handler-scope* :dispatch-id)]
+          (when-let [did (some-> rf.trace/*handler-scope* :dispatch-id)]
             {:rf.trace/dispatch-id did})
           extra)))
 
@@ -935,7 +935,7 @@
     ;; Always-on listener registry (survives prod elision).
     ;; no-frame-context is an invalid operation — and we have no frame
     ;; anyway.
-    (when-let [dispatch-on-error! (late-bind/get-fn :error-emit/dispatch-on-error)]
+    (when-let [dispatch-on-error! (rf.late-bind/get-fn :error-emit/dispatch-on-error)]
       (dispatch-on-error!
         :rf.error/no-frame-context
         nil                              ;; no event vector — absence, not a throw on a dispatch
@@ -943,13 +943,13 @@
         nil                              ;; no frame — that is the whole point
         nil                              ;; no exception — invalid op, not a throw
         0                                ;; elapsed-ms
-        (interop/now-ms)                 ;; time
+        (rf.interop/now-ms)                 ;; time
         ;; The composed ladder + machine-readable repair the payload already
         ;; holds; nil-valued slots are dropped by the attribution merge.
         {:reason   (:reason payload)
          :recovery (:recovery payload)}))
     ;; Dev-only trace path — DCEs under `:advanced` + `goog.DEBUG=false`.
-    (trace/emit-error! :rf.error/no-frame-context payload)
+    (rf.trace/emit-error! :rf.error/no-frame-context payload)
     payload))
 
 ;; ---- :rf.error/ambient-frame-refused — a frame was found but is not ------
@@ -1044,7 +1044,7 @@
                                  (:reason refusal default-ambient-refusal-reason)))}
             ;; Capture-site ancestry, exactly as `no-frame-context-payload`
             ;; threads it — the refused op may sit under a captured callback.
-            (when-let [did (some-> trace/*handler-scope* :dispatch-id)]
+            (when-let [did (some-> rf.trace/*handler-scope* :dispatch-id)]
               {:rf.trace/dispatch-id did})
             (dissoc refusal :reason :extent-frame)
             (when (some? extent-frame) {:extent-frame extent-frame})
@@ -1059,7 +1059,7 @@
 
   This is the EMISSION half; `require-current-frame!` emits then throws."
   [payload]
-  (when-let [dispatch-on-error! (late-bind/get-fn :error-emit/dispatch-on-error)]
+  (when-let [dispatch-on-error! (rf.late-bind/get-fn :error-emit/dispatch-on-error)]
     (dispatch-on-error!
       :rf.error/ambient-frame-refused
       nil                                ;; no event vector — a refused resolution, not a throw on a dispatch
@@ -1067,8 +1067,8 @@
       nil                                ;; no frame — the whole point is that none is legal here
       nil                                ;; no exception — an illegal operation, not a throw
       0                                  ;; elapsed-ms
-      (interop/now-ms)))                 ;; time
-  (trace/emit-error! :rf.error/ambient-frame-refused payload)
+      (rf.interop/now-ms)))                 ;; time
+  (rf.trace/emit-error! :rf.error/ambient-frame-refused payload)
   payload)
 
 ;; ---- :rf.error/bad-frame-provider-arg — a bad explicit target -------------
@@ -1118,7 +1118,7 @@
   `:exception`, so without them the always-on record holds no message at all
   and the dev console can only print the bare category."
   [payload]
-  (when-let [dispatch-on-error! (late-bind/get-fn :error-emit/dispatch-on-error)]
+  (when-let [dispatch-on-error! (rf.late-bind/get-fn :error-emit/dispatch-on-error)]
     (dispatch-on-error!
       :rf.error/bad-frame-provider-arg
       nil                                ;; no event vector — a provider misuse, not a dispatch throw
@@ -1126,10 +1126,10 @@
       nil                                ;; no frame — the supplied target is invalid
       nil                                ;; no exception — invalid arg, not a throw
       0                                  ;; elapsed-ms
-      (interop/now-ms)                   ;; time
+      (rf.interop/now-ms)                   ;; time
       {:reason   (:reason payload)
        :recovery (:recovery payload)}))
-  (trace/emit-error! :rf.error/bad-frame-provider-arg payload)
+  (rf.trace/emit-error! :rf.error/bad-frame-provider-arg payload)
   payload)
 
 (defn require-frame-provider-target!
@@ -1158,11 +1158,11 @@
                     :frame-provider
                     {:where where :recovery :supply-frame})]
       (emit-no-frame-context! payload)
-      (throw (error/ex-info-from-data payload)))
+      (throw (rf.error/ex-info-from-data payload)))
     :else
     (let [payload (bad-frame-provider-arg-payload frame-target {:where where})]
       (emit-bad-frame-provider-arg! payload)
-      (throw (error/ex-info-from-data payload)))))
+      (throw (rf.error/ex-info-from-data payload)))))
 
 (defn require-current-frame!
   "Return the frame stamp (id) the in-effect scope carries, or raise/emit
@@ -1247,10 +1247,10 @@
                                (assoc extra :carried-frame carried)
                                extra))]
                (emit-ambient-frame-refused! payload)
-               (throw (error/ex-info-from-data payload)))))
+               (throw (rf.error/ex-info-from-data payload)))))
          (let [payload (no-frame-context-payload operation extra)]
            (emit-no-frame-context! payload)
-           (throw (error/ex-info-from-data payload)))))))
+           (throw (rf.error/ex-info-from-data payload)))))))
 
 (defn require-frame-stamp!
   "Operation-time companion to `require-current-frame!` (EP-0002, Spec 002
@@ -1277,7 +1277,7 @@
    (or frame-id
        (let [payload (no-frame-context-payload operation extra)]
          (emit-no-frame-context! payload)
-         (throw (error/ex-info-from-data payload))))))
+         (throw (rf.error/ex-info-from-data payload))))))
 
 ;; ---- bind-fn — INTERNAL dynamic-rebinding carry primitive ------------------
 ;;
@@ -1626,7 +1626,7 @@
   INTERNAL."
   [id k]
   (when-let [container (frame-slot id k)]
-    (adapter/read-container container)))
+    (rf.substrate.adapter/read-container container)))
 
 (defn frame-generation
   "Return the resolved IMAGE GENERATION the frame `id` is running — the sealed
@@ -1693,7 +1693,7 @@
   writable physical cell.
 
   READ-ONLY: this is a `make-derived-value` result, so
-  `adapter/replace-container!` on it throws `:rf.error/derived-container-
+  `rf.substrate.adapter/replace-container!` on it throws `:rf.error/derived-container-
   replaced` (per Spec 006 §`make-derived-value`). App-db writes go through
   `swap-frame-db!` / `replace-app-db!` / `commit-frame-transition!`, which
   write the app-db partition of the physical frame-state container.
@@ -1769,7 +1769,7 @@
   The caller must recheck its owner token after this callback boundary."
   [frame-record]
   (when-let [container (:frame-state frame-record)]
-    (adapter/read-container container)))
+    (rf.substrate.adapter/read-container container)))
 
 ;; ---- EP-0001 partition commit + write helpers -----------------------------
 ;;
@@ -1864,7 +1864,7 @@
   (let [container  (:frame-state frame-record)
         read-result (call-exact-frame-callback
                       id owner-token exact-owner?
-                      #(adapter/read-container container))]
+                      #(rf.substrate.adapter/read-container container))]
     (when-not (= stale-exact-callback read-result)
       (let [current    (second read-result)
         app-given? (contains? partitions app-partition-key)
@@ -1898,7 +1898,7 @@
         (let [replace-result
               (call-exact-frame-callback
                 id owner-token exact-owner?
-                #(adapter/replace-container! container next-fs))]
+                #(rf.substrate.adapter/replace-container! container next-fs))]
           (when-not (= stale-exact-callback replace-result)
             (bump-commit-epoch! id))))
       ;; nil is the exact path's terminal-loss marker.  The router suppresses
@@ -2030,9 +2030,9 @@
   ([id pk f args owner-token exact-owner?]
    (if-not exact-owner?
      (when-let [container (frame-state-container id)]
-       (let [current   (adapter/read-container container)
+       (let [current   (rf.substrate.adapter/read-container container)
              new-slice (apply f (get current pk) args)]
-         (adapter/replace-container! container (assoc current pk new-slice))
+         (rf.substrate.adapter/replace-container! container (assoc current pk new-slice))
          ;; Substrate evidence counter: one bump per physical frame-state install —
          ;; this is the second (and last) frame-state write chokepoint.
          (bump-commit-epoch! id)
@@ -2044,7 +2044,7 @@
          (let [container   (:frame-state frame-record)
                read-result (call-exact-frame-callback
                              id owner-token true
-                             #(adapter/read-container container))]
+                             #(rf.substrate.adapter/read-container container))]
            (when-not (= stale-exact-callback read-result)
              (let [current   (second read-result)
                    new-slice (apply f (get current pk) args)]
@@ -2054,7 +2054,7 @@
                  (let [replace-result
                        (call-exact-frame-callback
                          id owner-token true
-                         #(adapter/replace-container!
+                         #(rf.substrate.adapter/replace-container!
                             container (assoc current pk new-slice)))]
                    ;; The install callback's own watch may destroy A. A's write
                    ;; linearized in A's captured container, but the id-keyed
@@ -2223,7 +2223,7 @@
 ;; `fanout-monitor`) to avoid the rf2-jl75r AB-BA cycle. That question no longer
 ;; arises: the trace tooling now DEFERS a drain-owned fan-out to the post-drain
 ;; boundary the three `:drain-lock` regions establish
-;; (`trace/call-with-deferred-listener-delivery` — `re-frame.router/drain-try!` /
+;; (`rf.trace/call-with-deferred-listener-delivery` — `re-frame.router/drain-try!` /
 ;; `drain-block!` and `call-serialized-with-drain!` below), so the deferral scope
 ;; itself is the ownership evidence and no cross-namespace probe is needed. The
 ;; private `current-thread-owns-drain-serialization?` above remains, serving the
@@ -2251,7 +2251,7 @@
     in a `finally`.
 
   The cold acquire → run → release region is wrapped in
-  `trace/call-with-deferred-listener-delivery` (rf2-wxy1c): trace events emitted
+  `rf.trace/call-with-deferred-listener-delivery` (rf2-wxy1c): trace events emitted
   inside a held cold section are delivered at that post-drain boundary, once the
   lock is down, rather than running arbitrary listener code under it. The
   already-owns branch inherits its owner's scope (the wrapper is nesting-aware),
@@ -2261,7 +2261,7 @@
   (if-let [frame-record (frame frame-id)]
     (if (current-thread-owns-drain-serialization? frame-record)
       (f)
-      (trace/call-with-deferred-listener-delivery
+      (rf.trace/call-with-deferred-listener-delivery
        (fn []
          (let [drain-lock (:drain-lock frame-record)
                holder     (:serialized-holder frame-record)]
@@ -2306,7 +2306,7 @@
                                  (reset! drain-lock false)
                                  (boolean (and pending? (not closing?)))))]
                  (when strand?
-                   (when-let [reschedule! (late-bind/get-fn :router/reschedule-drain!)]
+                   (when-let [reschedule! (rf.late-bind/get-fn :router/reschedule-drain!)]
                      (reschedule! frame-id frame-record))))))))))
     (f)))
 
@@ -2369,7 +2369,7 @@
                  :drain-depth  16}
     :ssr-server {:platform :server}
     nil         {}
-    (error/throw-error!
+    (rf.error/throw-error!
       :rf.error/unknown-preset
       'rf/make-frame
       (str "unknown frame :preset " (pr-str preset)
@@ -2402,7 +2402,7 @@
         ;; event (`[:rf/set-db {…}]` as the first `:initial-events` step), so the
         ;; whole of construction is one visible event script with no special-cased
         ;; direct write.
-        frame-state (adapter/make-state-container
+        frame-state (rf.substrate.adapter/make-state-container
                       {app-partition-key     {}
                        runtime-partition-key {}})
         ;; Partition projections, constructed into locals under a
@@ -2413,7 +2413,7 @@
         ;; projection throws — must not strand the first projection's watch on
         ;; a frame that never gets installed. When a LATER projection throws,
         ;; every EARLIER successfully-returned projection is disposed in
-        ;; REVERSE acquisition order through the existing `interop/dispose!`
+        ;; REVERSE acquisition order through the existing `rf.interop/dispose!`
         ;; seam (the same seam `tear-down-partition-projections!` uses at
         ;; normal teardown), then the original construction error is
         ;; re-raised so `try-install-new-frame!` installs nothing. The
@@ -2425,16 +2425,16 @@
         ;; Bound in `let` rather than inline map values so acquisition order
         ;; is deterministic (a many-entry map literal evaluates its values in
         ;; unspecified order) and the reverse-order rollback is exact.
-        app-db      (adapter/make-derived-value [frame-state] app-partition-key)
+        app-db      (rf.substrate.adapter/make-derived-value [frame-state] app-partition-key)
         runtime-db  (try
-                      (adapter/make-derived-value [frame-state] runtime-partition-key)
+                      (rf.substrate.adapter/make-derived-value [frame-state] runtime-partition-key)
                       (catch #?(:clj Throwable :cljs :default) e
                         ;; Reverse acquisition order: dispose the already-
                         ;; returned app-db projection best-effort — a throwing
                         ;; dispose must not MASK the original construction
                         ;; failure (mirrors the best-effort posture of
                         ;; `tear-down-partition-projections!`) — then re-raise.
-                        (try (interop/dispose! app-db)
+                        (try (rf.interop/dispose! app-db)
                              (catch #?(:clj Throwable :cljs :default) _ nil))
                         (throw e)))]
    {:id          id
@@ -2460,7 +2460,7 @@
     ;; boundary (rf2-vxgfnd.198).
     :app-db      app-db
     :runtime-db  runtime-db
-    :router      (atom {:queue interop/empty-queue :scheduled? false})
+    :router      (atom {:queue rf.interop/empty-queue :scheduled? false})
    ;; Single-drainer invariant: a separate CAS-able cell that admits
    ;; at most one thread into `drain!` at a time. On the JVM the
    ;; executor's `next-tick` callback can wake while the calling
@@ -2481,7 +2481,7 @@
    ;; than self-deadlocking on the non-reentrant `:drain-lock` CAS cell.
    :serialized-holder (atom nil)
     :sub-cache  (atom {})
-    :lifecycle  {:created-at (interop/now-ms)
+    :lifecycle  {:created-at (rf.interop/now-ms)
                  :destroyed? false
                  :listeners  []}
     ;; The construction-only reserved `:rf.frame/generation` key is consumed
@@ -2553,7 +2553,7 @@
     (and (vector? initial-events)
          (seq initial-events)
          (keyword? (first initial-events)))
-    (error/throw-error!
+    (rf.error/throw-error!
       :rf.error/initial-events-bare-event
       where-sym
       (str ":initial-events must be a VECTOR OF STEPS, not a single bare event "
@@ -2565,7 +2565,7 @@
        :extra    {:received initial-events}})
 
     (not (vector? initial-events))
-    (error/throw-error!
+    (rf.error/throw-error!
       :rf.error/initial-events-bad-step
       where-sym
       (str ":initial-events must be a VECTOR of setup steps — got "
@@ -2583,7 +2583,7 @@
           ;; whose head is a keyword is an event; an empty vector is a bad step.
           (vector? step)
           (if (bad-event-vector? step)
-            (error/throw-error!
+            (rf.error/throw-error!
               :rf.error/initial-events-bad-event
               where-sym
               (str "an :initial-events step is an EMPTY event vector — got "
@@ -2599,7 +2599,7 @@
           (let [event (:event step)
                 opts  (:opts step {})]
             (when (bad-event-vector? event)
-              (error/throw-error!
+              (rf.error/throw-error!
                 :rf.error/initial-events-bad-event
                 where-sym
                 (str "an :initial-events map step's :event is missing, empty, or "
@@ -2609,7 +2609,7 @@
                 {:recovery :supply-a-non-empty-event
                  :extra    {:step step}}))
             (when-not (map? opts)
-              (error/throw-error!
+              (rf.error/throw-error!
                 :rf.error/initial-events-bad-opts
                 where-sym
                 (str "an :initial-events map step's :opts is not a map — got "
@@ -2618,7 +2618,7 @@
                 {:recovery :pass-an-opts-map
                  :extra    {:step step}}))
             (when (contains? opts :frame)
-              (error/throw-error!
+              (rf.error/throw-error!
                 :rf.error/initial-events-bad-opts
                 where-sym
                 (str "an :initial-events map step's :opts supplies :frame — got "
@@ -2630,7 +2630,7 @@
             {:event event :opts opts})
 
           :else
-          (error/throw-error!
+          (rf.error/throw-error!
             :rf.error/initial-events-bad-step
             where-sym
             (str "an :initial-events step is neither an event vector nor a "
@@ -2697,7 +2697,7 @@
   (rf2-wduv35)."
   [id idx event cause-ex cause-msg where-sym owner-token]
   (destroy-frame! id owner-token)
-  (error/throw-error!
+  (rf.error/throw-error!
     :rf.error/initial-events-step-failed
     where-sym
     (str ":initial-events setup step " idx " failed — event "
@@ -2743,7 +2743,7 @@
       so `dispatch-sync!` returns nil normally: a handler-body throw surfaced as
       `:rf.error/handler-exception` (the `[:rf/set-db x]` bad-arg case — its
       diagnostic is raised from INSIDE the `:rf/set-db` handler via
-      `error/throw-error!`, post rf2-izy3b2), a user-interceptor throw
+      `rf.error/throw-error!`, post rf2-izy3b2), a user-interceptor throw
       (`:rf.error/interceptor-exception`), a coeffect-supplier throw
       (`:rf.error/coeffect-exception`), or a flow throw
       (`:rf.error/flow-eval-exception`). The chain records these into
@@ -2767,7 +2767,7 @@
 
   `base-opts` carries construction provenance shared by every step — the
   `:rf.trace/call-site` of the `make-frame` declaration (gated on
-  `interop/debug-enabled?` by the caller, so production CLJS builds DCE it) — so a
+  `rf.interop/debug-enabled?` by the caller, so production CLJS builds DCE it) — so a
   setup event attributes back to where `:initial-events` was declared (EP-0027
   §Provenance). The step's own `:opts` overlay it (a step may carry `:rf.cofx`,
   etc.), and the framework keys (`:frame` / `:source` / `:step-index`) win last.
@@ -2797,7 +2797,7 @@
     ;; into `frames` by the caller) and throw, naming that the router is not
     ;; loaded. (The common path — re-frame.core requires re-frame.router, so the
     ;; hook is published before any runtime frame construction — is unaffected.)
-    (if-let [dispatch-sync! (late-bind/get-fn :router/dispatch-sync!)]
+    (if-let [dispatch-sync! (rf.late-bind/get-fn :router/dispatch-sync!)]
       ;; The always-on error-emit registry — the production-survivable axis the
       ;; router's IN-BAND error fan-out (handler / interceptor / cofx / flow
       ;; exceptions) rides. Reached via late-bind so this fn carries no static
@@ -2807,8 +2807,8 @@
       ;; the runner is available these hooks are too; the `when register` guard
       ;; keeps the install defensive regardless. See `fire-on-destroy-event!` for
       ;; the symmetric `:on-destroy`-throw capture.
-      (let [register  (late-bind/get-fn :error-emit/register-error-listener!)
-            remove-cb (late-bind/get-fn :error-emit/unregister-error-listener!)]
+      (let [register  (rf.late-bind/get-fn :error-emit/register-error-listener!)
+            remove-cb (rf.late-bind/get-fn :error-emit/unregister-error-listener!)]
         (loop [idx 0
                remaining steps]
           (when-let [{:keys [event opts]} (first remaining)]
@@ -2853,7 +2853,7 @@
                     ;; resolution throw escaping context assembly). Tear down +
                     ;; raise, carrying the original throwable as `:cause`.
                     (raise-setup-step-failed!
-                      id idx event t (error/ex-message-safe t) where-sym owner-token)))
+                      id idx event t (rf.error/ex-message-safe t) where-sym owner-token)))
                 (finally
                   (when (and register remove-cb)
                     (remove-cb listener-k))))
@@ -2880,7 +2880,7 @@
       ;; (rf2-wduv35).
       (do
         (destroy-frame! id owner-token)
-        (error/throw-error!
+        (rf.error/throw-error!
           :rf.error/initial-events-runner-unavailable
           where-sym
           (str ":initial-events has " (count steps) " setup step(s) to run but "
@@ -2903,7 +2903,7 @@
   `where-sym` is the constructor symbol for the diagnostic."
   [config where-sym]
   (when (contains? config :on-create)
-    (error/throw-error!
+    (rf.error/throw-error!
       :rf.error/on-create-retired
       where-sym
       (str ":on-create is RETIRED (EP-0027) — frame setup is now the declarative "
@@ -2913,7 +2913,7 @@
       {:recovery :use-initial-events
        :extra    {:on-create (:on-create config)}}))
   (when (contains? config :initial-db)
-    (error/throw-error!
+    (rf.error/throw-error!
       :rf.error/initial-db-retired
       where-sym
       (str ":initial-db is RETIRED (EP-0027) — seeding app-db is itself an event. "
@@ -2946,7 +2946,7 @@
   an extension hook here runs OUTSIDE any teardown, so a genuine failure
   propagates loudly rather than being swallowed."
   [id]
-  (when-let [on-registered! (late-bind/get-fn :routing/on-frame-registered!)]
+  (when-let [on-registered! (rf.late-bind/get-fn :routing/on-frame-registered!)]
     (on-registered! id)))
 
 (def ^:dynamic ^:no-doc *upsert-decide-probe*
@@ -3103,7 +3103,7 @@
   final frame is a COLLISION, never an adoption or surgical refresh (the
   fall-through ordinary construction takes). Never returns."
   [id]
-  (error/throw-error!
+  (rf.error/throw-error!
     :rf.error/frame-id-taken 'rf/make-frame
     (str "exclusive frame construction for " (pr-str id) " collided with an "
          "already-live frame under the same id. The caller requested "
@@ -3209,7 +3209,7 @@
         ;; So construction only VALIDATES the surviving `:observability` policy;
         ;; it installs NOTHING into the elision registry. (The retired
         ;; `:sensitive` and `:large` frame keys now fail loud.)
-        _              (when-let [validate (late-bind/get-fn
+        _              (when-let [validate (rf.late-bind/get-fn
                                             :frame-classification/validate!)]
                          (validate id config))
         ;; rf2-ktmto9: routing-owned frame-config PREFLIGHT at the frame-config
@@ -3232,11 +3232,11 @@
         ;; later, deep in a consult point). A `:url-bound?`-only config with no
         ;; `:url-strategy` key stays registrable before routing loads (the
         ;; late-load case is unchanged).
-        _              (if-let [preflight-routing! (late-bind/get-fn
+        _              (if-let [preflight-routing! (rf.late-bind/get-fn
                                                     :routing/preflight-frame-config!)]
                          (preflight-routing! id config)
                          (when (contains? config :url-strategy)
-                           (error/throw-error!
+                           (rf.error/throw-error!
                              :rf.error/routing-artefact-missing
                              'rf/make-frame
                              (str "this frame config declares :url-strategy, which "
@@ -3260,7 +3260,7 @@
         ;; nothing, corrupting the live winner's tracing. They now ride the sole
         ;; transaction-owner branch via this thunk, so any admission loss is ZERO-WRITE
         ;; across every frame-owned store (the record AND its auxiliary
-        ;; trace/retention stores), while first-registration and ordinary
+        ;; rf.trace/retention stores), while first-registration and ordinary
         ;; re-registration still apply the winning config's policy EXACTLY ONCE.
         ;; Honoured on BOTH create and re-register so a hot-reload can flip either
         ;; flag either way; the won-create branch calls it BEFORE
@@ -3278,7 +3278,7 @@
           ;; shared trace ring it inspects. The flag is the frame-scoped sibling
           ;; of the handler-scoped `:rf.trace/no-emit?` (Spec 009 §Trace-emission
           ;; opt-out); `trace.cljc` owns the canonical set + predicate.
-          (trace/set-frame-no-emit! id
+          (rf.trace/set-frame-no-emit! id
                                     (true? (:rf.trace/frame-no-emit? applied-config))
                                     policy-current?)
           ;; Per Spec 009 §Retention contract: apply the per-frame
@@ -3286,7 +3286,7 @@
           ;; frame inherits the process-default. Routed via late-bind so
           ;; production CLJS bundles (where trace.tooling is not loaded)
           ;; short-circuit cleanly — the trace-ring machinery is dev-only.
-          (when-let [apply-retention! (late-bind/get-fn-cached
+          (when-let [apply-retention! (rf.late-bind/get-fn-cached
                                        :trace.tooling/apply-frame-events-retained-policy!)]
             (apply-retention! id
                               (contains? applied-config :rf.trace/events-retained)
@@ -3348,16 +3348,16 @@
                 ;; Frames are created by the VIEW (frame-root, ENSURE) or at TOP LEVEL
                 ;; (tests, boot, SSR per request); constructing a frame INSIDE an
                 ;; event handler is not supported. The signal for "inside a
-                ;; handler" is `trace/*handler-scope*` being bound — the router
+                ;; handler" is `rf.trace/*handler-scope*` being bound — the router
                 ;; binds it for the duration of a handler's execution and ONLY
                 ;; then. The container was already installed above; tear it back
                 ;; down before throwing so a handler-time construction leaves NO
                 ;; half-registered frame. Teardown owns `installed-token`, so it
                 ;; removes exactly the incarnation we just installed — never a
                 ;; concurrently-seated same-id successor (rf2-wduv35).
-                (when trace/*handler-scope*
+                (when rf.trace/*handler-scope*
                   (destroy-frame! id installed-token)
-                  (error/throw-error!
+                  (rf.error/throw-error!
                     :rf.error/frame-construction-in-handler
                     'rf/make-frame
                     (str "constructing a frame inside an event handler is not supported "
@@ -3386,7 +3386,7 @@
                 ;; incarnation. Runs ONCE — only on the WON install, never on a
                 ;; lost-create recur.
                 (run-setup-events! id setup-steps {} 'rf/make-frame installed-token)
-                (trace/emit! :rf.frame :rf.frame/created
+                (rf.trace/emit! :rf.frame :rf.frame/created
                              {:frame id :config (dissoc config :rf.frame/generation
                                                         :rf.frame/initial-db)})
                 (fire-frame-registered-hook! id)
@@ -3475,7 +3475,7 @@
                 ;; Policy + trace + hook all run while the staged revision is
                 ;; provisional. Only their complete success publishes final.
                 (publish-trace-policy! id apply-trace-policy!)
-                (trace/emit! :rf.frame :rf.frame/re-registered
+                (rf.trace/emit! :rf.frame :rf.frame/re-registered
                              {:frame id :config stored-config})
                 (fire-frame-registered-hook! id)
                 (if (finalize-frame-construction! id owner policy-token)
@@ -3627,7 +3627,7 @@
   [where]
   (when (some? *run-frame-state-before*)
     (let [frame-id (frame-target->id *current-frame*)]
-      (error/throw-error!
+      (rf.error/throw-error!
        :rf.error/flush-in-open-epoch where
        (str where " was called while frame " (pr-str frame-id)
             " is still inside its event drain — let the queued update and "
@@ -3732,7 +3732,7 @@
     (swap! acc conj {:hook      step-key
                      :exception ex
                      :where     where}))
-  (trace/emit-error! :rf.warning/teardown-hook-exception
+  (rf.trace/emit-error! :rf.warning/teardown-hook-exception
                      {:category  :rf.warning/teardown-hook-exception
                       :hook      step-key
                       :frame     *destroying-frame-id*
@@ -3764,14 +3764,14 @@
        id*`), and the exception, so a leaked optional-artefact cleanup
        (stale schemas, flow rows, side-channel atoms, trace rings) leaves
        a dev breadcrumb in long-lived SSR / test / tooling processes. This
-       emit rides `interop/debug-enabled?` (inside `trace/emit-error!`) so
+       emit rides `rf.interop/debug-enabled?` (inside `rf.trace/emit-error!`) so
        production CLJS bundles DCE it — the per-hook dev visibility is KEPT
        (only the always-on emission collapsed to the single report).
 
   Best-effort teardown semantics are preserved — the throw is swallowed
   and teardown continues (`:recovery :ignored`)."
   [hook-key & args]
-  (when-let [f (late-bind/get-fn hook-key)]
+  (when-let [f (rf.late-bind/get-fn hook-key)]
     (try (apply f args)
          (catch #?(:clj Throwable :cljs :default) ex
            (record-teardown-failure! hook-key :safe-call-hook! ex)))))
@@ -3810,7 +3810,7 @@
   `:rf.error/handler-exception` is the production source of record for the
   *handler throw*; the discriminator (it was an `:on-destroy`) rides the
   always-on axis too so it survives elision rather than riding only the DCE'd
-  `trace/emit-error!`.
+  `rf.trace/emit-error!`.
 
   This is also the ONLY always-on coverage for the defence-in-depth re-throw
   branch (the private teardown cascade itself faulting): that path never
@@ -3828,7 +3828,7 @@
   [id on-destroy exception extra-tags]
   ;; Always-on listener registry (survives prod elision). Default
   ;; `:recovery :ignored` — teardown continues best-effort.
-  (when-let [dispatch-on-error! (late-bind/get-fn :error-emit/dispatch-on-error)]
+  (when-let [dispatch-on-error! (rf.late-bind/get-fn :error-emit/dispatch-on-error)]
     (dispatch-on-error!
       :rf.error/on-destroy-handler-exception
       on-destroy                         ;; the :on-destroy event vector
@@ -3836,9 +3836,9 @@
       id                                 ;; the frame being torn down
       exception
       0                                  ;; elapsed-ms — not a timed dispatch here
-      (interop/now-ms)))
+      (rf.interop/now-ms)))
   ;; Dev-only trace path — DCEs under `:advanced` + `goog.DEBUG=false`.
-  (trace/emit-error! :rf.error/on-destroy-handler-exception
+  (rf.trace/emit-error! :rf.error/on-destroy-handler-exception
                      (merge {:frame     id
                              :event     on-destroy
                              :exception exception
@@ -3895,7 +3895,7 @@
   is a first-class diagnostic event."
   [id expected-token f]
   (when-let [on-destroy (-> f :config :on-destroy)]
-    (when-let [run-destroy-event (late-bind/get-fn
+    (when-let [run-destroy-event (rf.late-bind/get-fn
                                    :router/run-frame-destroy-event!)]
       (let [captured     (atom nil)
             infra-fault? (atom false)
@@ -3906,8 +3906,8 @@
             ;; `frame` load cycle). The producer always loads at boot, so
             ;; the lookup never misses in production; the `when register`
             ;; guard keeps the install defensive regardless.
-            register     (late-bind/get-fn :error-emit/register-error-listener!)
-            remove-cb    (late-bind/get-fn :error-emit/unregister-error-listener!)
+            register     (rf.late-bind/get-fn :error-emit/register-error-listener!)
+            remove-cb    (rf.late-bind/get-fn :error-emit/unregister-error-listener!)
             ;; A UNIQUE per-destroy listener key — NOT a constant.
             ;; A nested / overlapping destroy (an `:on-destroy` that destroys a
             ;; different frame, Spec 002) would otherwise clobber the
@@ -3973,19 +3973,19 @@
   artefact there are no live `:exit` cascades to run, no actor
   handlers to unregister, and no system-id reverse index to release."
   [id]
-  (if-let [teardown! (late-bind/get-fn :machines/teardown-on-frame-destroy!)]
+  (if-let [teardown! (rf.late-bind/get-fn :machines/teardown-on-frame-destroy!)]
     (teardown! id)
     ;; Fallback path — minimal contract when the machines artefact is absent.
     ;; EP-0001: machine snapshots are durable runtime-db state.
     (let [container  (runtime-db-container id)
-          rt         (when container (adapter/read-container container))
+          rt         (when container (rf.substrate.adapter/read-container container))
           machines   (-> rt :rf.runtime/machines :snapshots)
-          abort-http (late-bind/get-fn :http/abort-on-actor-destroy)]
+          abort-http (rf.late-bind/get-fn :http/abort-on-actor-destroy)]
       (doseq [[machine-id snapshot] machines]
         (when abort-http
           (try (abort-http machine-id)
                (catch #?(:clj Throwable :cljs :default) _ nil)))
-        (trace/emit! :rf.machine.lifecycle/destroyed :rf.machine.lifecycle/destroyed
+        (rf.trace/emit! :rf.machine.lifecycle/destroyed :rf.machine.lifecycle/destroyed
                      {:frame      id
                       ;; The reaped actor's live INSTANCE address;
                       ;; `:machine-id` is reserved for the registered TYPE. Must
@@ -4092,7 +4092,7 @@
                                           ;; atomically combines both counts in
                                           ;; one interruption report.
                                           (cond-> (-> state
-                                                      (assoc :queue interop/empty-queue
+                                                      (assoc :queue rf.interop/empty-queue
                                                              :scheduled? false)
                                                       (dissoc :destroy-claim-report-emitted?))
                                             (pos? dropped)
@@ -4131,12 +4131,12 @@
   best-effort direct disposal so teardown never leaks reactions."
   [id f]
   (when-let [cache (:sub-cache f)]
-    (if-let [dispose-all! (late-bind/get-fn :subs.cache/dispose-all-for-frame-destroy!)]
+    (if-let [dispose-all! (rf.late-bind/get-fn :subs.cache/dispose-all-for-frame-destroy!)]
       (dispose-all! cache id)
       (do
         (doseq [[_k entry] @cache]
           (when-let [r (:reaction entry)]
-            (try (interop/dispose! r)
+            (try (rf.interop/dispose! r)
                  (catch #?(:clj Throwable :cljs :default) _ nil))))
         (reset! cache {})))))
 
@@ -4153,12 +4153,12 @@
   [f]
   (doseq [k [:app-db :runtime-db]]
     (when-let [proj (get f k)]
-      (try (interop/dispose! proj)
+      (try (rf.interop/dispose! proj)
            (catch #?(:clj Throwable :cljs :default) _ nil)))))
 
 (defn- emit-frame-destroyed-trace!
   [id]
-  (trace/emit! :rf.frame :rf.frame/destroyed
+  (rf.trace/emit! :rf.frame :rf.frame/destroyed
                {:frame id}))
 
 (defn- dissoc-frame!
@@ -4217,11 +4217,11 @@
   ordinary bare-id policy — no same-id B can exist before dissoc, so their
   attribution is A's unambiguously."
   [id owner-token terminal-evidence]
-  (when-let [f (late-bind/get-fn :epoch/on-frame-destroyed)]
+  (when-let [f (rf.late-bind/get-fn :epoch/on-frame-destroyed)]
     (try
       (f id owner-token terminal-evidence)
       (catch #?(:clj Throwable :cljs :default) ex
-        (trace/call-with-structural-delivery
+        (rf.trace/call-with-structural-delivery
           #(record-teardown-failure! :epoch/on-frame-destroyed
                                      :safe-call-hook! ex))))))
 
@@ -4236,7 +4236,7 @@
   mid-drain). Guarded like the best-effort teardown steps: a throw here is
   recorded on both Spec 009 channels and swallowed so teardown still completes."
   [id fs-before fs-after committed-at]
-  (when-let [snap (late-bind/get-fn :epoch/snapshot-frame-destroyed)]
+  (when-let [snap (rf.late-bind/get-fn :epoch/snapshot-frame-destroyed)]
     (try
       (snap id fs-before fs-after committed-at)
       (catch #?(:clj Throwable :cljs :default) ex
@@ -4495,7 +4495,7 @@
          ;; authorised after the claim. Replace the now-false authored-event
          ;; trace predicate for the whole recipe (including the post-dissoc
          ;; epoch hook and teardown-failure flush), then restore it on return.
-         (trace/call-with-terminal-continuation-predicate
+         (rf.trace/call-with-terminal-continuation-predicate
            ;; `claim-frame-destroy!` already granted this exact recipe local
            ;; terminal authority. After A's dissoc, an independent B destroy
            ;; may replace the bare-id marker with token B; that must not
@@ -4711,7 +4711,7 @@
              (safe-call-hook! :trace.tooling/release-frame-ring! id)
              ;; rf2-zcl055: release the destroyed frame's trace-emission gate
              ;; flag — the teardown counterpart to construction's
-             ;; `trace/set-frame-no-emit!`. A tool / inspector frame registered
+             ;; `rf.trace/set-frame-no-emit!`. A tool / inspector frame registered
              ;; with `:rf.trace/frame-no-emit? true` (e.g. `:rf/xray`) otherwise
              ;; leaves a permanent entry in trace.cljc's process-global
              ;; `trace-disabled-frames` set (the ring IS freed above; the flag
@@ -4719,7 +4719,7 @@
              ;; tooling hook) because `trace.cljc` is always loaded — the set +
              ;; predicate live on the core trace surface, same as construction.
              ;; Idempotent no-op for application frames (the common case).
-             (trace/clear-frame-no-emit-for! id)))
+             (rf.trace/clear-frame-no-emit-for! id)))
           (dissoc-frame! id)
           ;; A PUBLIC destroy owns a :destruction reservation only through exact
           ;; registry removal. Release here (the recipe's finally is a harmless
@@ -4749,13 +4749,13 @@
           ;; the always-on substrate can never strand the in-flight marker.
           (let [failures @hook-failures]
             (when (seq failures)
-              (when-let [emit-report (late-bind/get-fn
+              (when-let [emit-report (rf.late-bind/get-fn
                                        :error-emit/dispatch-frame-teardown-report)]
                 (try
                   ;; A was dissociated before this finally boundary. Preserve
                   ;; the corpus-wide terminal report, but do not resolve its
                   ;; bare id through a same-id B's frame-owned error sinks.
-                  (emit-report id failures (interop/now-ms) false)
+                  (emit-report id failures (rf.interop/now-ms) false)
                   (catch #?(:clj Throwable :cljs :default) _ nil)))))
           ;; Compare-remove only this incarnation's in-flight marker. A fresh
           ;; same-id incarnation may have replaced it after `dissoc-frame!`;
@@ -4798,7 +4798,7 @@
   replacement. See spec/002-Frames.md §Resetting a frame — destroy + make-frame
   and spec/API.md §Frame lifecycle."
   [& args]
-  (error/throw-error!
+  (rf.error/throw-error!
     :rf.error/reset-frame-removed
     'rf/reset-frame!
     (str "`reset-frame!` is REMOVED (no alias, rf2-lxwpob) — a full frame "

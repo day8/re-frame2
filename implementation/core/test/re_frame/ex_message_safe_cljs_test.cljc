@@ -8,7 +8,7 @@
   `#?(:clj (.getMessage e) :cljs (.-message e))` is unsafe in CLJS: ANY value
   is legally throwable, and a thrown NON-Error value (a keyword, a map, a
   string — `(throw :boom)`) has no `.-message` property, so `(.-message e)` is
-  `nil` and `:exception-message` silently becomes nil. `error/ex-message-safe`
+  `nil` and `:exception-message` silently becomes nil. `rf.error/ex-message-safe`
   is the shared nil-safe extractor those sites route through.
 
   This gate pins: a host exception's message rides through; a thrown
@@ -19,14 +19,14 @@
   non-Error-throwable footgun actually exists); the `.cljc` is also
   discovered on the JVM. Pure — no runtime state."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.error :as error]))
+            [re-frame.error :as rf.error]))
 
 (deftest host-exception-message-rides-through
   (testing "a real host exception's message is returned"
-    (is (= "boom" (error/ex-message-safe (ex-info "boom" {})))
+    (is (= "boom" (rf.error/ex-message-safe (ex-info "boom" {})))
         "ex-info message extracted")
     (is (= "kaboom"
-           (error/ex-message-safe #?(:clj  (RuntimeException. "kaboom")
+           (rf.error/ex-message-safe #?(:clj  (RuntimeException. "kaboom")
                                      :cljs (js/Error. "kaboom"))))
         "plain host error message extracted")))
 
@@ -35,7 +35,7 @@
             non-nil rendering rather than nil — the footgun rf2-vzrxp3 closes.
             On CLJS `(.-message :boom)` is nil; the safe extractor falls back
             to `(str :boom)`."
-    (let [msg (error/ex-message-safe :boom)]
+    (let [msg (rf.error/ex-message-safe :boom)]
       (is (some? msg) "a thrown keyword does NOT silently become nil")
       (is (string? msg) "the extractor always returns a string for a non-nil value")
       ;; The keyword renders recognisably (its printed form contains its name).
@@ -44,25 +44,25 @@
 (deftest thrown-map-does-not-yield-nil
   (testing "a thrown map (`(throw {:k 1})`) degrades to a non-nil structural
             rendering rather than nil"
-    (let [msg (error/ex-message-safe {:k 1})]
+    (let [msg (rf.error/ex-message-safe {:k 1})]
       (is (some? msg) "a thrown map does NOT silently become nil")
       (is (string? msg))
       (is (re-find #":k" msg) "the map's structure is recognisable in the message"))))
 
 (deftest thrown-string-does-not-yield-nil
   (testing "a thrown string degrades to itself (its printed form) rather than nil"
-    (let [msg (error/ex-message-safe "oops")]
+    (let [msg (rf.error/ex-message-safe "oops")]
       (is (some? msg))
       (is (re-find #"oops" msg)))))
 
 (deftest thrown-number-does-not-yield-nil
   (testing "a thrown number degrades to its printed form rather than nil"
-    (is (= "42" (error/ex-message-safe 42)))))
+    (is (= "42" (rf.error/ex-message-safe 42)))))
 
 (deftest nil-input-yields-nil
   (testing "only a genuinely nil input yields nil (there is no message to
             extract) — the contract's single nil case"
-    (is (nil? (error/ex-message-safe nil)))))
+    (is (nil? (rf.error/ex-message-safe nil)))))
 
 #?(:cljs
    (deftest cljs-non-error-throwable-is-the-real-footgun
@@ -73,5 +73,5 @@
                the extractor replaces"
        (is (nil? (.-message :boom))
            "a thrown keyword has no .-message (this is WHY the raw read was unsafe)")
-       (is (some? (error/ex-message-safe :boom))
+       (is (some? (rf.error/ex-message-safe :boom))
            "the safe extractor does not propagate that nil"))))

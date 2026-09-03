@@ -20,22 +20,22 @@
     - trace / error-record `:frame` tags."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.fx :as fx]
-            [re-frame.frame :as frame]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]))
+            [re-frame.fx :as rf.fx]
+            [re-frame.frame :as rf.frame]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace :as rf.trace]))
 
 ;; ---- fixtures -------------------------------------------------------------
 
 (defn reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (when-let [clear-schemas! (late-bind/get-fn :schemas/clear-by-frame!)]
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (when-let [clear-schemas! (rf.late-bind/get-fn :schemas/clear-by-frame!)]
     (clear-schemas!))
-  (trace/clear-listeners!)
-  (rf/init! plain-atom/adapter)
+  (rf.trace/clear-listeners!)
+  (rf/init! rf.substrate.plain-atom/adapter)
   (test-fn))
 
 (use-fixtures :each reset-runtime)
@@ -115,18 +115,18 @@
 ;; ===========================================================================
 
 (deftest framework-coeffect-keys-excludes-frame
-  (testing "fx/framework-coeffect-keys no longer codifies the bare :frame duplicate"
-    (is (not (contains? fx/framework-coeffect-keys :frame))
+  (testing "rf.fx/framework-coeffect-keys no longer codifies the bare :frame duplicate"
+    (is (not (contains? rf.fx/framework-coeffect-keys :frame))
         ":frame is not a framework coeffect key (it was the retired duplicate)")
-    (is (contains? fx/framework-coeffect-keys :rf.frame/id)
+    (is (contains? rf.fx/framework-coeffect-keys :rf.frame/id)
         ":rf.frame/id is the retained frame-stamp coeffect key")
-    (is (contains? fx/framework-coeffect-keys :rf.cofx)
+    (is (contains? rf.fx/framework-coeffect-keys :rf.cofx)
         ":rf.cofx is a framework coeffect key (EP-0010 rf2-s9ss0t)")
-    (is (contains? fx/framework-coeffect-keys :rf.cofx/mint-policy)
+    (is (contains? rf.fx/framework-coeffect-keys :rf.cofx/mint-policy)
         ":rf.cofx/mint-policy is a framework coeffect key (rf2-n0myjq)")
     (is (= #{:db :event :source :trace-id :rf.db/runtime :rf.frame/id :rf.cofx
              :rf.cofx/mint-policy}
-           fx/framework-coeffect-keys)
+           rf.fx/framework-coeffect-keys)
         "the framework-coeffect-keys set is exactly the framework defaults")))
 
 (deftest user-injected-coeffects-projection-drops-all-framework-defaults
@@ -135,5 +135,5 @@
                 :rf.db/runtime {} :rf.frame/id :f
                 :rf.cofx {:rf/time-ms 1781078400123}
                 :my/cofx 1}]
-      (is (= {:my/cofx 1} (fx/user-injected-coeffects cofx))
+      (is (= {:my/cofx 1} (rf.fx/user-injected-coeffects cofx))
           "only the genuinely user-injected coeffect survives the projection (EP-0010: :rf.cofx filtered too)"))))

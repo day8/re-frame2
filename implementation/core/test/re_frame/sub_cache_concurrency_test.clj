@@ -2,8 +2,8 @@
   "JVM-only concurrency tests for the sub-cache disposal path (rf2-3mww7).
 
   The audit (rf2-spr6q, findings SU2 / SU6) identified a swap-fn
-  side-effect race in `subs/dispose-entry-now!`,
-  `subs/invalidate-sub-on-replace!`, and the `unsubscribe` 1→0
+  side-effect race in `rf.subs/dispose-entry-now!`,
+  `rf.subs/invalidate-sub-on-replace!`, and the `unsubscribe` 1→0
   transition. Each placed side-effecting operations (collecting
   reactions for disposal, resetting a `dropped-to-zero?` flag) **inside**
   the swap-fn body. `clojure.core/swap!` is allowed to retry on CAS
@@ -37,29 +37,29 @@
   race from the same gun."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.subs :as subs]
-            [re-frame.subs.cache :as subs-cache]
-            [re-frame.frame :as frame]
-            [re-frame.schemas :as schemas]
-            [re-frame.flows :as flows]
-            [re-frame.registrar :as registrar]
-            [re-frame.interop :as interop]
-            [re-frame.substrate.plain-atom :as plain-atom])
+            [re-frame.subs :as rf.subs]
+            [re-frame.subs.cache :as rf.subs.cache]
+            [re-frame.frame :as rf.frame]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.flows :as rf.flows]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.interop :as rf.interop]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom])
   (:import [java.util.concurrent CountDownLatch TimeUnit]))
 
 (defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  (rf/init! plain-atom/adapter)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.flows/reset-flows!)
+  (rf.schemas/clear-schemas-by-frame!)
+  (rf/init! rf.substrate.plain-atom/adapter)
   ;; EP-0002 (rf2-jue6sp): `init!` no longer synthesises `:rf/default`;
   ;; register it explicitly so these single-app-frame cache tests have a
   ;; conventional frame to read. NB the cross-thread subscribe/unsubscribe
   ;; calls below pass `:rf/default` EXPLICITLY (2-arity) — a `with-frame`
   ;; dynamic binding does not convey into the worker threads, so the
   ;; carried-invariant stamp must be passed as a value across the boundary.
-  (frame/ensure-default-frame!)
+  (rf.frame/ensure-default-frame!)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)
   (require 're-frame.machines :reload)
@@ -69,9 +69,9 @@
 
 ;; Test instrumentation: a counting `dispose!` proxy.
 ;;
-;; We can't rely on `interop/dispose!`'s own dissoc-then-fire to detect
+;; We can't rely on `rf.interop/dispose!`'s own dissoc-then-fire to detect
 ;; double-`dispose!` calls — the second call finds no callbacks and is
-;; a silent no-op. Instead, the test wraps `interop/dispose!` with
+;; a silent no-op. Instead, the test wraps `rf.interop/dispose!` with
 ;; `with-redefs` to a per-reaction counter that bumps every time the
 ;; sub-cache calls `dispose!`. A `counter > 1` for any reaction proves
 ;; the swap-fn-side-effects race fired the dispose path more than once.
@@ -97,10 +97,10 @@
 (deftest invalidate-sub-on-replace-no-double-dispose
   (testing "concurrent hot-reload of the same sub id disposes each cached reaction exactly once"
     (let [dispose-calls   (atom {})         ;; reaction → call count
-          orig-dispose!   interop/dispose!
+          orig-dispose!   rf.interop/dispose!
           n-keys          50
           n-replacers     8
-          cache           (:sub-cache (frame/frame :rf/default))
+          cache           (:sub-cache (rf.frame/frame :rf/default))
           ks              (vec (for [i (range n-keys)] [:contended i]))
           reactions-by-k  (atom {})]
       ;; Register the sub once so subsequent re-registrations fire the
@@ -123,7 +123,7 @@
       ;; delegates to the original (so on-dispose-callbacks state is
       ;; maintained). The counter atom is read post-race; any reaction
       ;; with count > 1 is a swap-fn-retry-double-dispose failure.
-      (with-redefs [interop/dispose!
+      (with-redefs [rf.interop/dispose!
                     (fn [r]
                       (swap! dispose-calls update r (fnil inc 0))
                       (orig-dispose! r))]
@@ -168,9 +168,9 @@
   (testing "concurrent dispose-entry-now! calls dispose each reaction exactly once"
     (let [n-keys          50
           n-threads-per-k 6   ;; threads per key, ALL trying to dispose the same slot
-          cache           (:sub-cache (frame/frame :rf/default))
+          cache           (:sub-cache (rf.frame/frame :rf/default))
           dispose-calls   (atom {})
-          orig-dispose!   interop/dispose!
+          orig-dispose!   rf.interop/dispose!
           ks              (vec (for [i (range n-keys)] [:contended i]))
           reactions-by-k  (atom {})]
       ;; Seed each slot with ref-count 0 (the precondition for
@@ -186,8 +186,8 @@
                                 :ref-count  0})))
 
       ;; The fn lives in re-frame.subs.cache (post rf2-0ytl4 seam S-A).
-      (let [dispose-fn subs-cache/dispose-entry-now!]
-        (with-redefs [interop/dispose!
+      (let [dispose-fn rf.subs.cache/dispose-entry-now!]
+        (with-redefs [rf.interop/dispose!
                       (fn [r]
                         (swap! dispose-calls update r (fnil inc 0))
                         (orig-dispose! r))]
@@ -240,7 +240,7 @@
 
     (let [n-trials      200
           n-threads     6
-          orig-dispose! interop/dispose!
+          orig-dispose! rf.interop/dispose!
           per-trial     (atom [])]  ;; vec of dispose-call-count per trial
       ;; Per-trial counter, fresh each iteration. Each trial:
       ;;   - subscribe once → ref-count 1
@@ -251,7 +251,7 @@
               dispose-proxy (fn [r]
                               (swap! trial-counter inc)
                               (orig-dispose! r))]
-          (with-redefs [interop/dispose! dispose-proxy]
+          (with-redefs [rf.interop/dispose! dispose-proxy]
             ;; Explicit `:rf/default` (2-arity) — the dynamic-var scope
             ;; does not convey into the worker threads, so the frame stamp
             ;; rides as a value across the boundary (rf2-jue6sp / EP-0002).
@@ -310,8 +310,8 @@
     (rf/dispatch-sync [:seed] {:frame :rf/default})
 
     (let [frame-id :rf/default
-          cache    (:sub-cache (frame/frame frame-id))
-          cc!      #'subs/compute-and-cache!   ;; the private build path (cache-key = identity)
+          cache    (:sub-cache (rf.frame/frame frame-id))
+          cc!      #'rf.subs/compute-and-cache!   ;; the private build path (cache-key = identity)
           ;; Two racing misses = two direct build calls.
           r1       (cc! frame-id [:sum])
           r2       (cc! frame-id [:sum])]

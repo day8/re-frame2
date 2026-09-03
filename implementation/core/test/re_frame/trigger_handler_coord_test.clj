@@ -62,24 +62,24 @@
   two absences."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.interop :as interop]
-            [re-frame.source-coords :as sc]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
-            [re-frame.flows :as flows]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]))
+            [re-frame.interop :as rf.interop]
+            [re-frame.source-coords :as rf.source-coords]
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.flows :as rf.flows]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace :as rf.trace]))
 
 ;; ---- fixtures -------------------------------------------------------------
 
 (defn reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  (trace/clear-listeners!)
-  (rf/init! plain-atom/adapter)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.flows/reset-flows!)
+  (rf.schemas/clear-schemas-by-frame!)
+  (rf.trace/clear-listeners!)
+  (rf/init! rf.substrate.plain-atom/adapter)
   (require 're-frame.routing :reload)
   ;; EP-0002 (rf2-9o48ih): `init!` no longer synthesises `:rf/default`;
   ;; framework operation surfaces require a carried frame stamp. Register
@@ -106,7 +106,7 @@
   "ALWAYS-ON (rf2-d2841) capture: run `body-fn` with BOTH a
   dev-trace listener and an always-on `:errors`-stream listener attached, and
   return `{:traces [...] :errors [...]}`. The `:errors` half is the corpus-wide
-  `error-emit` registry — not gated by `interop/debug-enabled?` — so it fills
+  `error-emit` registry — not gated by `rf.interop/debug-enabled?` — so it fills
   in both postures."
   [body-fn]
   (let [traces (atom [])
@@ -158,13 +158,13 @@
       (is (some? rec) "the always-on error record fired")
       (is (map? (:source-coord rec))
           "the always-on record carries the registration :source-coord")
-      (is (= (sc/error-coords-for :event :rf2-3nn8/throws) (:source-coord rec))
+      (is (= (rf.source-coords/error-coords-for :event :rf2-3nn8/throws) (:source-coord rec))
           "…and it is exactly what the always-on coord registry holds")
       ;; rf2-d2841 — the trace SLOT and its placement are dev-only. Under
       ;; `-Dre-frame.debug=false` `exc` is nil, which made the `:tags`
       ;; negative below a class-4 vacuous pass: `(contains? nil k)` is false
       ;; for every k.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (some? exc) "handler-exception trace fired")
         (is (contains? exc :rf.trace/trigger-handler)
             ":rf.trace/trigger-handler lives at the top level of the event")
@@ -186,10 +186,10 @@
       ;; the record names the failing event and resolves its coord.
       (is (= :rf2-3nn8/throwing-event (:event-id rec))
           "the always-on record names the failing event")
-      (is (= (sc/error-coords-for :event :rf2-3nn8/throwing-event)
+      (is (= (rf.source-coords/error-coords-for :event :rf2-3nn8/throwing-event)
              (:source-coord rec))
           "the always-on record carries the event's registration coord")
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (assert-trigger-shape exc :event :rf2-3nn8/throwing-event)))))
 
 (deftest fx-handler-exception-carries-trigger-handler
@@ -217,10 +217,10 @@
           "the always-on record's :event-id is the dispatched event")
       (is (= :rf2-3nn8/throwing-fx (:failing-id rec))
           "the failing FX id is lifted onto the always-on record")
-      (is (= (sc/error-coords-for :event :rf2-3nn8/use-throwing-fx)
+      (is (= (rf.source-coords/error-coords-for :event :rf2-3nn8/use-throwing-fx)
              (:source-coord rec))
           "the always-on :source-coord resolves under [:event event-id]")
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (assert-trigger-shape exc :fx :rf2-3nn8/throwing-fx)))))
 
 (deftest sub-exception-carries-trigger-handler
@@ -238,10 +238,10 @@
       (is (some? rec) "the always-on sub-exception record fired")
       (is (= :rf2-3nn8/throwing-sub (:event-id rec))
           "the always-on record's id slot carries the SUB id")
-      (is (= (sc/error-coords-for :sub :rf2-3nn8/throwing-sub)
+      (is (= (rf.source-coords/error-coords-for :sub :rf2-3nn8/throwing-sub)
              (:source-coord rec))
           "the always-on :source-coord resolves under [:sub sub-id]")
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (assert-trigger-shape exc :sub :rf2-3nn8/throwing-sub)))))
 
 ;; The former `no-such-cofx-carries-enclosing-event-trigger-handler` deftest is
@@ -264,10 +264,10 @@
       ;; ALWAYS-ON (rf2-d2841): `:rf.error/no-such-fx` is a PROMOTED category,
       ;; so the enclosing event's coord reaches production on the record.
       (is (some? rec) "the always-on no-such-fx record fired")
-      (is (= (sc/error-coords-for :event :rf2-3nn8/uses-missing-fx)
+      (is (= (rf.source-coords/error-coords-for :event :rf2-3nn8/uses-missing-fx)
              (:source-coord rec))
           "the always-on record carries the enclosing event's coord")
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (assert-trigger-shape miss :event :rf2-3nn8/uses-missing-fx)))))
 
 ;; ---- Q2 — negative — absent when no handler is in scope -------------------
@@ -289,7 +289,7 @@
           "no registration in scope → the always-on record omits :source-coord")
       ;; rf2-d2841 — dev-only trace slot. Under the gate `miss` is nil, which
       ;; made the negative below a class-4 vacuous pass.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (some? miss) "no-such-handler trace fired")
         (is (not (contains? miss :rf.trace/trigger-handler))
             ":rf.trace/trigger-handler is absent when no handler is in scope")))))
@@ -308,7 +308,7 @@
           [exc]    (errors-of traces :rf.error/handler-exception)
           coord    (-> exc :rf.trace/trigger-handler :source-coord)
           rec      (error-of errors :rf.error/handler-exception)
-          errc     (sc/error-coords-for :event :rf2-3nn8/registration-site)]
+          errc     (rf.source-coords/error-coords-for :event :rf2-3nn8/registration-site)]
       ;; ALWAYS-ON (rf2-d2841): the same "the emitted coord IS the registration
       ;; site" claim, made against the always-on registry — which is the
       ;; registration-site record of truth in production, `handler-meta`
@@ -328,7 +328,7 @@
       ;; meta map; the trigger-handler value picks them up. Compare
       ;; field-by-field rather than via equality so a future addition
       ;; to the registrar slot doesn't break the test.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (= (:ns     reg-meta) (:ns coord)))
         (is (= (:file   reg-meta) (:file coord)))
         (is (= (:line   reg-meta) (:line coord)))
@@ -352,12 +352,12 @@
       ;; always-on registry empty, so the shipped record omits `:source-coord`
       ;; rather than pointing an operator at someone else's line.
       (is (some? rec) "the always-on record still fired")
-      (is (nil? (sc/error-coords-for :event :rf2-3nn8/no-coords))
+      (is (nil? (rf.source-coords/error-coords-for :event :rf2-3nn8/no-coords))
           "programmatic registration stored no always-on coords")
       (is (not (contains? rec :source-coord))
           "…so the production record omits the :source-coord slot")
       ;; rf2-d2841 — dev-only trace slot; class-4 vacuous under the gate.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (some? exc))
         (is (not (contains? exc :rf.trace/trigger-handler))
             "programmatic registration → no coord → field omitted")))))

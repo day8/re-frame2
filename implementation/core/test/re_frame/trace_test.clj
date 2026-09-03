@@ -25,12 +25,12 @@
   skipped."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
-            [re-frame.flows :as flows]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.flows :as rf.flows]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace :as rf.trace]
             ;; rf2-qwm0a: the public-tooling surface
             ;; (`register-listener!` / `clear-listeners!` / `trace-buffer`
             ;; / …) lives in `re-frame.trace.tooling`. `re-frame.trace`
@@ -44,12 +44,12 @@
 ;; ---- fixtures --------------------------------------------------------------
 
 (defn reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  (trace/clear-listeners!)
-  (rf/init! plain-atom/adapter)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.flows/reset-flows!)
+  (rf.schemas/clear-schemas-by-frame!)
+  (rf.trace/clear-listeners!)
+  (rf/init! rf.substrate.plain-atom/adapter)
   ;; Framework events / fx are registered at namespace-load time in
   ;; routing.cljc; clear-all! wiped them. Re-eval those registrations
   ;; so :rf.route/transitioned, :rf.route/url-requested, :rf.route/* etc. resurrect.
@@ -97,7 +97,7 @@
 
 (defn- valid-envelope?
   "Every trace event must have these top-level keys per Spec 009 §Core
-  fields. The envelope produced by `trace/emit!` includes :id, :time,
+  fields. The envelope produced by `rf.trace/emit!` includes :id, :time,
   :operation, :op-type, :tags."
   [ev]
   (and (map? ev)
@@ -110,7 +110,7 @@
 ;; ---- comprehensive flow -----------------------------------------------------
 
 ;; ---- Posture: dev-only, declared by `^:requires-debug` (rf2-d2841) ---------
-;; Trace machinery end to end: under `-Dre-frame.debug=false` `trace/emit` is a
+;; Trace machinery end to end: under `-Dre-frame.debug=false` `rf.trace/emit` is a
 ;; no-op, so there is no semantic residue to run under that posture, and a
 ;; `(when interop/debug-enabled? ...)` split -- the shape the rest of rf2-d2841
 ;; used -- would leave EMPTY deftests reporting green (class 2).  Every deftest
@@ -149,7 +149,7 @@
       ;; emit source in the flow — destroying a frame no longer clears a
       ;; registrar row (rf2-h1vqa4: frames have no registrar rows).
       (rf/reg-event :short-lived (fn [_ _] {}))
-      (registrar/unregister! :event :short-lived)
+      (rf.registrar/unregister! :event :short-lived)
 
       ;; Subs (used to demonstrate the absence of :sub/run / :sub/create
       ;; emit — see rf2-hyxg).

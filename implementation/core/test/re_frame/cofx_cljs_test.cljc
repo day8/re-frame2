@@ -82,7 +82,7 @@
 
   ONE DEFTEST HERE IS NOW PROVED BY THE LANE RATHER THAN BY ITS OWN REBIND.
   `generated-non-edn-value-is-rejected-in-production` establishes its posture
-  with `(with-redefs [interop/debug-enabled? false] ...)`. A `with-redefs`
+  with `(with-redefs [rf.interop/debug-enabled? false] ...)`. A `with-redefs`
   cannot reach a load-time gate, so that was always the weaker instrument;
   with this namespace on the prod-gate roster the whole file — this deftest
   included — runs with the REAL `-Dre-frame.debug=false` gate, and the rebind
@@ -91,16 +91,16 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
-            [re-frame.cofx :as cofx]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
+            [re-frame.cofx :as rf.cofx]
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
             [re-frame.late-bind]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- collect-traces!
   "Register a trace listener under `id`, returning the atom that accumulates
@@ -114,7 +114,7 @@
   "ALWAYS-ON (rf2-d2841): register an `:errors`-stream listener under `id`,
   returning the atom that accumulates the tight records the corpus-wide
   `error-emit/dispatch-on-error!` registry fans. NOT gated on
-  `interop/debug-enabled?` — this is axis 1, the channel that survives CLJS
+  `rf.interop/debug-enabled?` — this is axis 1, the channel that survives CLJS
   `:advanced` + `goog.DEBUG=false`. Tests must
   `(rf/unregister-listener! :errors id)` to detach."
   [id]
@@ -326,7 +326,7 @@
       (rf/dispatch-sync [:cofx-test/read-time])
       (is (number? @seen)
           ":rf/time-ms delivered the stamped epoch-ms (always present — the enqueue stamp guarantees it)")
-      (let [reg (registrar/lookup :cofx :rf/time-ms)]
+      (let [reg (rf.registrar/lookup :cofx :rf/time-ms)]
         (is (true? (:recordable? reg)) ":rf/time-ms is recordable")
         (is (true? (:provided? reg)) ":rf/time-ms is provided")))))
 
@@ -401,7 +401,7 @@
       (is (not= (:rf/time-ms @request-record) (:rf/time-ms @reply-record))
           "the reply STAMPS ITS OWN :rf/time-ms — it does NOT inherit the originating request's causal token")
       ;; -- dev-only: the same tokens as seen on the dispatch trace ---------
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [dispatched   (filter #(= :rf.event/dispatched (:operation %)) @traces)
               request-env  (first (filter #(= :cofx-test/request
                                               (first (get-in % [:tags :rf.event/v])))
@@ -472,7 +472,7 @@
               "exactly one always-on missing-required-cofx record")
           (is (= :cofx-test/needs-boundary (:event-id (first prod)))
               ":event-id names the declaring event on the tight record"))
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (let [errs (filter #(= :rf.error/missing-required-cofx (:operation %)) @traces)]
             (is (= 1 (count errs)) "exactly one missing-required-cofx error trace")
             (is (= :cofx-test/required-boundary
@@ -510,7 +510,7 @@
               "and NOT a missing-required record — the split survives to production")
           (is (= :cofx-test/has-typo (:event-id (first prod)))
               ":event-id names the declaring handler on the tight record"))
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (let [errs (filter #(= :rf.error/unregistered-cofx (:operation %)) @traces)]
             (is (= 1 (count errs)) "exactly one unregistered-cofx trace")
             (is (= :cofx-test/typpo (get-in (first errs) [:tags :rf.cofx/id]))
@@ -622,7 +622,7 @@
           "the offending id rides the error payload")
       (is (re-find #":recordable\? true" (:reason (ex-data ex)))
           "the reason points the author at the fix")
-      (is (nil? (registrar/lookup :cofx :cofx-test/bad-grade))
+      (is (nil? (rf.registrar/lookup :cofx :cofx-test/bad-grade))
           "the malformed fact did NOT register"))))
 
 (deftest no-supplier-non-provided-is-registration-invalid
@@ -640,7 +640,7 @@
           "the offending id rides the error payload")
       (is (re-find #"no supplier" (:reason (ex-data ex)))
           "the reason names the missing supplier")
-      (is (nil? (registrar/lookup :cofx :cofx-test/no-supplier))
+      (is (nil? (rf.registrar/lookup :cofx :cofx-test/no-supplier))
           "the malformed fact did NOT register"))))
 
 (deftest provided-with-supplier-is-rejected-at-registration
@@ -662,7 +662,7 @@
           "the offending id rides the error payload")
       (is (re-find #"silently ignored" (:reason (ex-data ex)))
           "the reason explains the supplier is silently ignored at delivery")
-      (is (nil? (registrar/lookup :cofx :cofx-test/provided-with-fn))
+      (is (nil? (rf.registrar/lookup :cofx :cofx-test/provided-with-fn))
           "the contradictory fact did NOT register"))))
 
 (deftest provided-without-supplier-registers-cleanly
@@ -672,7 +672,7 @@
     (is (= :cofx-test/clean-provided
            (rf/reg-cofx :cofx-test/clean-provided
              {:recordable? true :provided? true})))
-    (let [meta (registrar/lookup :cofx :cofx-test/clean-provided)]
+    (let [meta (rf.registrar/lookup :cofx :cofx-test/clean-provided)]
       (is (true? (:recordable? meta)) "recordable")
       (is (true? (:provided? meta)) "provided")
       (is (nil? (:handler-fn meta)) "no supplier — its owner stamps the token"))))
@@ -685,7 +685,7 @@
            (rf/reg-cofx :cofx-test/recordable-gen
              {:recordable? true}
              (fn [] "generated"))))
-    (let [meta (registrar/lookup :cofx :cofx-test/recordable-gen)]
+    (let [meta (rf.registrar/lookup :cofx :cofx-test/recordable-gen)]
       (is (true? (:recordable? meta)) "recordable")
       (is (false? (:provided? meta)) "not provided")
       (is (fn? (:handler-fn meta)) "carries its generator supplier"))))
@@ -697,7 +697,7 @@
     (is (= :cofx-test/well-formed
            (rf/reg-cofx :cofx-test/well-formed
              {:recordable? true :provided? true})))
-    (let [meta (registrar/lookup :cofx :cofx-test/well-formed)]
+    (let [meta (rf.registrar/lookup :cofx :cofx-test/well-formed)]
       (is (true? (:recordable? meta)))
       (is (true? (:provided? meta)))
       (is (nil? (:handler-fn meta)) "a provided fact legitimately omits its supplier"))))
@@ -721,7 +721,7 @@
              {:doc "Lint would flag this app id; the registrar does not."}
              (fn [] "value")))
         "even an obviously app-shaped `rf.`-prefixed id is accepted at registration")
-    (is (some? (registrar/lookup :cofx :rf.myapp/ambient-pref))
+    (is (some? (rf.registrar/lookup :cofx :rf.myapp/ambient-pref))
         "the `rf.`-prefixed registration is present in the registry")))
 
 ;; ===========================================================================
@@ -751,7 +751,7 @@
         (rf/unregister-listener! :trace ::run-tags)
         (is (= "value-for-theme" @delivered)
             "the PRODUCED value egressed into the coeffects — not the arg \"theme\"")
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (let [runs (filter #(= :rf.cofx/run (:operation %)) @traces)
                 run  (first (filter #(= :cofx-test/local-pref
                                         (get-in % [:tags :rf.cofx/id]))
@@ -781,7 +781,7 @@
         (rf/unregister-listener! :trace ::run-noarg)
         (is (= "en-AU" @delivered)
             "the bare supplier's produced value egressed into the coeffects")
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (let [run (first (filter #(and (= :rf.cofx/run (:operation %))
                                          (= :cofx-test/locale2
                                             (get-in % [:tags :rf.cofx/id])))
@@ -818,7 +818,7 @@
         (is (= {:token "super-secret-jwt" :public "ok"} @delivered)
             "the marks chokepoint redacts the EGRESSING trace stamp, never the
              coeffect the handler is handed")
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (let [run (first (filter #(and (= :rf.cofx/run (:operation %))
                                          (= :cofx-test/session
                                             (get-in % [:tags :rf.cofx/id])))
@@ -841,9 +841,9 @@
   (testing "calling the retained private `re-frame.cofx/inject-cofx` thrower is
             the hard error `:rf.error/inject-cofx-removed` naming the
             replacement (EP-0017 §8; facade removal rf2-w9xyx1)"
-    (let [ex (try (cofx/inject-cofx :anything) nil
+    (let [ex (try (rf.cofx/inject-cofx :anything) nil
                   (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))]
-      (is (some? ex) "cofx/inject-cofx threw")
+      (is (some? ex) "rf.cofx/inject-cofx threw")
       (is (= :rf.error/inject-cofx-removed (:rf.error/id (ex-data ex))))
       (is (= :anything (:rf.cofx/id (ex-data ex)))
           "the offending id rides the error payload")
@@ -854,10 +854,10 @@
   (testing "the underlying `re-frame.cofx/inject-cofx` stub throws the same
             removal error regardless of arity"
     (is (= :rf.error/inject-cofx-removed
-           (-> (try (cofx/inject-cofx :x) nil (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))
+           (-> (try (rf.cofx/inject-cofx :x) nil (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))
                ex-data :rf.error/id)))
     (is (= :rf.error/inject-cofx-removed
-           (-> (try (cofx/inject-cofx :x :v) nil (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))
+           (-> (try (rf.cofx/inject-cofx :x :v) nil (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))
                ex-data :rf.error/id)))))
 
 ;; ===========================================================================
@@ -886,7 +886,7 @@
       (is (true? (:ran (rf/app-db-value :rf/default)))
           "the retired draft key did NOT halt the dispatch — the handler ran
            and its write committed")
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [warns (filterv (fn [ev]
                                (and (= :warning (:op-type ev))
                                     (= :rf.warning/unknown-dispatch-opt (:operation ev))))
@@ -913,7 +913,7 @@
             the body via `rf/init-platform`, restoring the host default after
             — so the `#{:client}` supplier is deterministically OFF-platform
             and skipped on BOTH runtimes (rf2-49eush)."
-    (let [host-default (interop/active-platform)]
+    (let [host-default (rf.interop/active-platform)]
       (rf/init-platform :server)
       (try
         (let [traces       (collect-traces! ::plat)
@@ -939,7 +939,7 @@
           ;; not fire, the event ran anyway, and the fact was not delivered.
           ;; `:rf.cofx/skipped-on-platform` is a dev-trace op with no promoted
           ;; counterpart (it is not an error category), so it is guarded.
-          (when interop/debug-enabled?
+          (when rf.interop/debug-enabled?
             (let [skips (filter #(= :rf.cofx/skipped-on-platform (:operation %)) @traces)]
               (is (= 1 (count skips)) "exactly one skipped-on-platform trace")
               (is (= :cofx-test/browser-locale (get-in (first skips) [:tags :rf.cofx/id]))))))
@@ -956,7 +956,7 @@
     (rf/reg-event :cofx-test/reflective
       {:rf.cofx/requires [:rf/time-ms]}
       (fn [_ _] {}))
-    (let [meta (registrar/lookup :event :cofx-test/reflective)]
+    (let [meta (rf.registrar/lookup :event :cofx-test/reflective)]
       (is (= [:rf/time-ms] (:rf.cofx/requires meta))
           "the raw declaration is retained for reflection")
       (is (= [{:id :rf/time-ms :arg :re-frame.cofx/no-arg}]
@@ -975,7 +975,7 @@
       (rf/reg-event :cofx-test/frameless
         {:rf.cofx/requires [:rf/time-ms]}
         (fn [_ _] (reset! fired? true) {}))
-      (binding [frame/*current-frame* nil]
+      (binding [rf.frame/*current-frame* nil]
         (let [ex (try (rf/dispatch-sync [:cofx-test/frameless]) nil
                       (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e e))]
           (is (= :rf.error/no-frame-context (:rf.error/id (ex-data ex))))))
@@ -1100,7 +1100,7 @@
         (is (= 42 @delivered) "the generated value was delivered flat")
         (is (= 42 (:gen-test/traced @record))
             "and written back into the durable causal record the op reports")
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (let [gens (filter #(= :rf.cofx/generated (:operation %)) @traces)
                 runs (filter #(= :rf.cofx/run (:operation %)) @traces)]
             (is (= 1 (count gens)) "exactly one :rf.cofx/generated op")
@@ -1155,7 +1155,7 @@
               (is (= 1 (count prod)) "exactly one always-on cofx-value-invalid record")
               (is (= :gen-test/uses-bad (:event-id (first prod)))
                   ":event-id names the declaring event on the tight record"))
-            (when interop/debug-enabled?
+            (when rf.interop/debug-enabled?
               (let [errs (filter #(= :rf.error/cofx-value-invalid (:operation %)) @traces)]
                 (is (= 1 (count errs)) "exactly one cofx-value-invalid error trace")
                 (is (= :gen-test/bad (get-in (first errs) [:tags :rf.cofx/id]))
@@ -1221,7 +1221,7 @@
           (is (= 1 (count prod)) "exactly one always-on cofx-value-invalid record")
           (is (= :gen-test/uses-host-handle (:event-id (first prod)))
               ":event-id names the declaring event on the tight record"))
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (let [errs (filter #(= :rf.error/cofx-value-invalid (:operation %)) @traces)]
             (is (= 1 (count errs)) "exactly one cofx-value-invalid error trace")
             (is (= :non-edn-recordable-value (get-in (first errs) [:tags :reason]))
@@ -1243,7 +1243,7 @@
       (rf/reg-event :gen-test/prod-uses-host-handle
         {:rf.cofx/requires [:gen-test/prod-host-handle]}
         (fn [_ _] (reset! fired? true) {}))
-      (with-redefs [interop/debug-enabled? false]
+      (with-redefs [rf.interop/debug-enabled? false]
         (let [ex (try (rf/dispatch-sync [:gen-test/prod-uses-host-handle]) nil
                       (catch #?(:clj clojure.lang.ExceptionInfo
                                 :cljs cljs.core/ExceptionInfo) e e))]
@@ -1356,8 +1356,8 @@
       (rf/reg-cofx :gen-test/strict-delta
         {:recordable? true}
         (fn [] (swap! gen-calls inc) 1))
-      (let [requires (cofx/parse-requires :gen-test/strict-evt [:gen-test/strict-delta])
-            ex (try (cofx/deliver-declared-cofx
+      (let [requires (rf.cofx/parse-requires :gen-test/strict-evt [:gen-test/strict-delta])
+            ex (try (rf.cofx/deliver-declared-cofx
                       {:db {}} requires {} :gen-test/strict-evt :rf/default :strict)
                     nil
                     (catch #?(:clj clojure.lang.ExceptionInfo
@@ -1367,8 +1367,8 @@
             "a strict-mode absent generator-backed fact is missing-required"))
       (testing "the same fact under `:live` DOES generate (policy is the switch)"
         (reset! gen-calls 0)
-        (let [requires (cofx/parse-requires :gen-test/strict-evt [:gen-test/strict-delta])
-              {:keys [coeffects]} (cofx/deliver-declared-cofx
+        (let [requires (rf.cofx/parse-requires :gen-test/strict-evt [:gen-test/strict-delta])
+              {:keys [coeffects]} (rf.cofx/deliver-declared-cofx
                                     {:db {}} requires {} :gen-test/strict-evt :rf/default :live)]
           (is (= 1 @gen-calls) ":live generated the absent fact")
           (is (= 1 (:gen-test/strict-delta coeffects))
@@ -1391,19 +1391,19 @@
             per-call opt beats frame config beats the `:live` default
             (EP-0017 §6 binding points)"
     ;; 1. Neither present → the router's :live default.
-    (is (= :live (cofx/resolve-mint-policy nil nil))
+    (is (= :live (rf.cofx/resolve-mint-policy nil nil))
         "no binding point → :live (the router default)")
     ;; 2. Frame config only (the :test preset's :strict).
-    (is (= :strict (cofx/resolve-mint-policy nil :strict))
+    (is (= :strict (rf.cofx/resolve-mint-policy nil :strict))
         "frame config wins when no per-call opt is supplied")
     ;; 3. Per-call opt only.
-    (is (= :strict (cofx/resolve-mint-policy :strict nil))
+    (is (= :strict (rf.cofx/resolve-mint-policy :strict nil))
         "the per-call opt selects the policy when the frame has none")
     ;; 4. Per-call opt OVERRIDES the frame config (the :explicit-live escape
     ;;    over a :test frame's :strict).
-    (is (= :explicit-live (cofx/resolve-mint-policy :explicit-live :strict))
+    (is (= :explicit-live (rf.cofx/resolve-mint-policy :explicit-live :strict))
         "the per-call opt is the most-specific binding point — it wins")
-    (is (= cofx/default-mint-policy (cofx/resolve-mint-policy nil nil))
+    (is (= rf.cofx/default-mint-policy (rf.cofx/resolve-mint-policy nil nil))
         "the documented default is :live")))
 
 (deftest router-default-is-live-generates

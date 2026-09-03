@@ -11,7 +11,7 @@
   so test bundles loading multiple adapters stay honest about which
   substrate is active."
   (:require [goog.async.nextTick]
-            [re-frame.late-bind :as late-bind]))
+            [re-frame.late-bind :as rf.late-bind]))
 
 ;; ---- next-tick scheduling -------------------------------------------------
 ;;
@@ -46,7 +46,7 @@
 ;; loaded React-shaped adapter at ns-load time (see Spec 006 §Substrate
 ;; adapter contract and rf2-jicu2). They are read on every render /
 ;; subscribe / reaction tear-down — sticky-cache via
-;; `late-bind/get-fn-cached` (rf2-f72pd) so the resolution is one
+;; `rf.late-bind/get-fn-cached` (rf2-f72pd) so the resolution is one
 ;; per-key atom slot rather than a `@hooks` map walk per call.
 
 ;; ---- after-render hook ----------------------------------------------------
@@ -55,7 +55,7 @@
   "Schedule f to run after the next render. Returns nil when no adapter
   has registered the `:adapter/after-render` hook."
   [f]
-  (when-let [hook (late-bind/get-fn-cached :adapter/after-render)]
+  (when-let [hook (rf.late-bind/get-fn-cached :adapter/after-render)]
     (hook f)))
 
 ;; ---- mutable cells (used by the runtime, opaque to user code) -------------
@@ -63,14 +63,14 @@
 (defn ratom
   "Construct a reactive atom seeded with v."
   [v]
-  (when-let [hook (late-bind/get-fn-cached :adapter/ratom)]
+  (when-let [hook (rf.late-bind/get-fn-cached :adapter/ratom)]
     (hook v)))
 
 (defn ratom?
   "True if x is a reactive atom (per the active adapter's substrate).
   Returns false when no adapter has registered the hook."
   [x]
-  (if-let [hook (late-bind/get-fn-cached :adapter/ratom?)]
+  (if-let [hook (rf.late-bind/get-fn-cached :adapter/ratom?)]
     (hook x)
     false))
 
@@ -79,7 +79,7 @@
 (defn make-reaction
   "Build a reaction that recomputes f when its dependencies change."
   [f]
-  (when-let [hook (late-bind/get-fn-cached :adapter/make-reaction)]
+  (when-let [hook (rf.late-bind/get-fn-cached :adapter/make-reaction)]
     (hook f)))
 
 (defn activate-derived-value!
@@ -114,27 +114,27 @@
   and the call is a no-op; the ratom impls no-op on an already-activated
   reaction and on any container that is not one of their derived values."
   [derived]
-  (when-let [hook (late-bind/get-fn-cached :adapter/activate-derived-value!)]
+  (when-let [hook (rf.late-bind/get-fn-cached :adapter/activate-derived-value!)]
     (hook derived))
   nil)
 
 (defn add-on-dispose!
   "Register a teardown callback on a-ratom."
   [a-ratom f]
-  (when-let [hook (late-bind/get-fn-cached :adapter/add-on-dispose!)]
+  (when-let [hook (rf.late-bind/get-fn-cached :adapter/add-on-dispose!)]
     (hook a-ratom f)))
 
 (defn dispose!
   "Tear down a reactive atom / reaction."
   [a-ratom]
-  (when-let [hook (late-bind/get-fn-cached :adapter/dispose!)]
+  (when-let [hook (rf.late-bind/get-fn-cached :adapter/dispose!)]
     (hook a-ratom)))
 
 (defn reactive?
   "True when called from inside a reactive context (e.g. a render).
   Returns false when no adapter has registered the hook."
   []
-  (if-let [hook (late-bind/get-fn-cached :adapter/reactive?)]
+  (if-let [hook (rf.late-bind/get-fn-cached :adapter/reactive?)]
     (hook)
     false))
 

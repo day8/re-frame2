@@ -34,9 +34,9 @@
   Per bead rf2-oitw37."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
-            [re-frame.late-bind :as late-bind]
-            [re-frame.substrate.adapter :as adapter]
-            [re-frame.test-support :as test-support]))
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; ---- a custom adapter whose base container is NOT atom-shaped --------------
 ;;
@@ -86,47 +86,47 @@
 ;; Using `make-reset-runtime-fixture` (with no `:adapter`) keeps the
 ;; ns-load registrar baseline intact across the shared node-test process.
 
-(use-fixtures :each (test-support/make-reset-runtime-fixture {}))
+(use-fixtures :each (rf.test-support/make-reset-runtime-fixture {}))
 
 (defn- install-custom-adapter! []
   ;; Cold install of the custom adapter, then publish its container-class
   ;; hook the way any custom adapter would: a routed hook that answers
   ;; truthy for ITS derived value and `false` for ITS base container, with
   ;; the chain-bottom fallback returning the no-opinion sentinel.
-  (adapter/dispose-adapter!)
-  (adapter/install-adapter! custom-adapter)
-  (adapter/route-hook! custom-adapter :adapter/derived-container?
+  (rf.substrate.adapter/dispose-adapter!)
+  (rf.substrate.adapter/install-adapter! custom-adapter)
+  (rf.substrate.adapter/route-hook! custom-adapter :adapter/derived-container?
     (fn custom-derived? [c]
       (cond
         (instance? DerivedCell c) true
         (instance? Cell c)        false
-        :else                     adapter/container-class-unknown))
-    (constantly adapter/container-class-unknown)))
+        :else                     rf.substrate.adapter/container-class-unknown))
+    (constantly rf.substrate.adapter/container-class-unknown)))
 
 ;; ---- tests ----------------------------------------------------------------
 
 (deftest custom-nonatom-base-container-is-accepted
   (testing "replace-container! DELEGATES to a custom adapter whose base container is not IAtom (rf2-oitw37)"
     (install-custom-adapter!)
-    (let [c (adapter/make-state-container {:n 0})]
+    (let [c (rf.substrate.adapter/make-state-container {:n 0})]
       (is (false? #?(:clj  (instance? clojure.lang.IAtom c)
                      :cljs (satisfies? IAtom c)))
           "precondition: the custom base container is NOT atom-shaped")
-      (is (= {:n 0} (adapter/read-container c)) "precondition: reads its seeded value")
-      (is (nil? (adapter/replace-container! c {:n 1}))
+      (is (= {:n 0} (rf.substrate.adapter/read-container c)) "precondition: reads its seeded value")
+      (is (nil? (rf.substrate.adapter/replace-container! c {:n 1}))
           "replace-container! on the non-atom base container is delegated and returns nil — NOT rejected as derived")
-      (is (= {:n 1} (adapter/read-container c))
+      (is (= {:n 1} (rf.substrate.adapter/read-container c))
           "the adapter's own replace-container! ran: the base container holds the new value"))))
 
 (deftest custom-derived-container-is-still-rejected
   (testing "replace-container! on the custom adapter's DERIVED value still throws (guard not weakened, rf2-oitw37)"
     (install-custom-adapter!)
-    (let [src     (adapter/make-state-container {:n 7})
-          derived (adapter/make-derived-value [src] (fn [v] (:n v)))]
-      (is (= 7 (adapter/read-container derived))
+    (let [src     (rf.substrate.adapter/make-state-container {:n 7})
+          derived (rf.substrate.adapter/make-derived-value [src] (fn [v] (:n v)))]
+      (is (= 7 (rf.substrate.adapter/read-container derived))
           "precondition: the derived value reads its computed value")
       (let [thrown (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
-                                (adapter/replace-container! derived 42))
+                                (rf.substrate.adapter/replace-container! derived 42))
                        "writing to the custom derived value throws")]
         (is (= :rf.error/derived-container-replaced
                (:rf.error/id (ex-data thrown)))
@@ -135,10 +135,10 @@
             "the :where slot names the user-facing surface fn"))
       ;; The rejected write must not have mutated the derived value, and the
       ;; source remains writable (the guard fires only on the derived shape).
-      (is (= 7 (adapter/read-container derived))
+      (is (= 7 (rf.substrate.adapter/read-container derived))
           "the rejected write did not mutate the derived value")
-      (adapter/replace-container! src {:n 8})
-      (is (= 8 (adapter/read-container derived))
+      (rf.substrate.adapter/replace-container! src {:n 8})
+      (is (= 8 (rf.substrate.adapter/read-container derived))
           "writing to the source recomputes the derived value normally"))))
 
 (deftest no-opinion-falls-back-to-atom-marker-heuristic
@@ -148,7 +148,7 @@
     ;; as base (delegated); a non-IAtom value classifies as derived (rejected)
     ;; via the heuristic. This pins the fallback arm so the fix's three-way
     ;; branch is fully covered.
-    (adapter/dispose-adapter!)
+    (rf.substrate.adapter/dispose-adapter!)
     (let [atom-adapter {:kind                 :custom
                         :make-state-container (fn [v] (atom v))
                         :read-container       deref
@@ -160,24 +160,24 @@
                         :render               (fn [_ _ _] nil)
                         :render-to-string     (fn [_ _] "")
                         :dispose-adapter!     (fn [] nil)}]
-      (adapter/install-adapter! atom-adapter)
-      (adapter/route-hook! atom-adapter :adapter/derived-container?
-        (constantly adapter/container-class-unknown)
-        (constantly adapter/container-class-unknown))
-      (let [base    (adapter/make-state-container {:n 0})
-            derived (adapter/make-derived-value [base] (fn [v] (:n v)))]
-        (is (nil? (adapter/replace-container! base {:n 1}))
+      (rf.substrate.adapter/install-adapter! atom-adapter)
+      (rf.substrate.adapter/route-hook! atom-adapter :adapter/derived-container?
+        (constantly rf.substrate.adapter/container-class-unknown)
+        (constantly rf.substrate.adapter/container-class-unknown))
+      (let [base    (rf.substrate.adapter/make-state-container {:n 0})
+            derived (rf.substrate.adapter/make-derived-value [base] (fn [v] (:n v)))]
+        (is (nil? (rf.substrate.adapter/replace-container! base {:n 1}))
             "an IAtom base container is delegated under the sentinel/heuristic path")
-        (is (= {:n 1} (adapter/read-container base)) "the base write took effect")
+        (is (= {:n 1} (rf.substrate.adapter/read-container base)) "the base write took effect")
         (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
-                     (adapter/replace-container! derived 99))
+                     (rf.substrate.adapter/replace-container! derived 99))
             "a non-IAtom derived value is rejected by the atom-marker heuristic")))))
 
 (deftest sentinel-distinct-from-false
   (testing "the container-class-unknown sentinel is NOT false (the bug-root distinction, rf2-oitw37)"
-    (is (not= false adapter/container-class-unknown)
+    (is (not= false rf.substrate.adapter/container-class-unknown)
         "the sentinel must be distinguishable from a genuine `false` (base) verdict")
-    (is (keyword? adapter/container-class-unknown)
+    (is (keyword? rf.substrate.adapter/container-class-unknown)
         "the sentinel is a namespaced keyword")))
 
 ;; Touch the hook table so a linter does not flag `late-bind` as unused on a
@@ -185,5 +185,5 @@
 (deftest hook-key-is-resolvable-after-publish
   (testing "the routed :adapter/derived-container? hook is present after a custom adapter publishes it"
     (install-custom-adapter!)
-    (is (some? (late-bind/get-fn :adapter/derived-container?))
+    (is (some? (rf.late-bind/get-fn :adapter/derived-container?))
         "the custom adapter's routed hook is published in the late-bind table")))

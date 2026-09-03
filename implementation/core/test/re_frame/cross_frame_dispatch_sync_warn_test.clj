@@ -19,11 +19,11 @@
   ## Posture split (rf2-d2841)
 
   \"WARNS BUT PROCEEDS\" IS TWO CLAIMS, AND ONLY THE FIRST IS DEV-ONLY. Both
-  categories here are bare `trace/emit!` / `trace/emit-error!` sites with no
+  categories here are bare `rf.trace/emit!` / `rf.trace/emit-error!` sites with no
   always-on twin — `:rf.error/dispatch-sync-in-handler` is emitted from
-  `router.cljc` through `trace/emit-error!` alone — so under
+  `router.cljc` through `rf.trace/emit-error!` alone — so under
   `-Dre-frame.debug=false` neither is observable, and every assertion about
-  them is kept verbatim inside a `(when interop/debug-enabled? …)` arm marked
+  them is kept verbatim inside a `(when rf.interop/debug-enabled? …)` arm marked
   `rf2-d2841`.
 
   PROCEEDS is production behaviour, and it is the half worth protecting: the
@@ -40,19 +40,19 @@
   same-frame-vs-cross-frame distinction this file exists to police."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace :as rf.trace]))
 
 ;; ---- fixtures -------------------------------------------------------------
 
 (defn reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (trace/clear-listeners!)
-  (rf/init! plain-atom/adapter)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.trace/clear-listeners!)
+  (rf/init! rf.substrate.plain-atom/adapter)
   (test-fn))
 
 (use-fixtures :each reset-runtime)
@@ -114,7 +114,7 @@
               "frame B's app-db reflects the handler's effect"))
 
         ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (testing "exactly one cross-frame warning fires"
             (let [warns (cross-frame-warnings recorded)]
               (is (= 1 (count warns))
@@ -174,7 +174,7 @@
       (is (nil? (:leaf? (rf/app-db-value :cfx.test/a)))
           "same-frame reentry did NOT run the inner handler (contrast: cross-frame does)")
       ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (= 1 (count (dsih-errors recorded)))
             "same-frame reentry still raises :rf.error/dispatch-sync-in-handler")
         (is (empty? (cross-frame-warnings recorded))
@@ -200,7 +200,7 @@
       ;; rf2-d2841 — dev-instrumentation arm. A NEGATIVE over the trace
       ;; stream: under the gate no frame-drain state produces a warning, so
       ;; outside the arm "no frame is mid-drain" would be certified for free.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (empty? (cross-frame-warnings recorded))
             "no frame is mid-drain when the dispatch-sync! fires — no warning expected")))))
 
@@ -233,6 +233,6 @@
         ;; ALWAYS-ON (rf2-d2841): the cross-frame dispatch proceeded.
         (is (true? @b-ran))
         ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (= 1 (count (cross-frame-warnings recorded)))
               "the cross-frame warning fires whenever any sibling frame is mid-drain"))))))

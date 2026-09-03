@@ -52,12 +52,12 @@
   mechanism (separate spec doc); handler-meta `:sensitive?` is not
   consulted here. The per-path elision wire-walker is the load-bearing
   redaction surface on this path."
-  (:require [re-frame.elision        :as elision]
-            [re-frame.emit-substrate :as emit]
-            [re-frame.interop        :as interop]
-            [re-frame.late-bind      :as late-bind]
-            [re-frame.source-coords  :as source-coords]
-            [re-frame.trace          :as trace]))
+  (:require [re-frame.elision        :as rf.elision]
+            [re-frame.emit-substrate :as rf.emit-substrate]
+            [re-frame.interop        :as rf.interop]
+            [re-frame.late-bind      :as rf.late-bind]
+            [re-frame.source-coords  :as rf.source-coords]
+            [re-frame.trace          :as rf.trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -70,7 +70,7 @@
   (atom {}))
 
 (def ^:private registry
-  (emit/make-listener-registry {:listeners listeners}))
+  (rf.emit-substrate/make-listener-registry {:listeners listeners}))
 
 (def register-error-listener!
   "Register a listener `f` under `id`. Re-registering the same id
@@ -127,11 +127,11 @@
 ;;     API: the off-switch is the listener an owning app already has.
 ;;     Dropping the last listener resumes the fallback. Xray does NOT
 ;;     populate this registry (it rides the dev-only TRACE axis — `router`
-;;     forwards to `trace/emit-error!`), so a console line may coexist with
+;;     forwards to `rf.trace/emit-error!`), so a console line may coexist with
 ;;     an Xray row; the tutorial already frames console + Xray as
 ;;     complementary and the duplication is accepted.
 ;;
-;;   * DEV + BROWSER-HOSTED only. `interop/debug-enabled?` (`@define`
+;;   * DEV + BROWSER-HOSTED only. `rf.interop/debug-enabled?` (`@define`
 ;;     `goog/DEBUG`) is the outer gate, so `:advanced` + `goog.DEBUG=false`
 ;;     constant-folds the entire body away — neither the prefix literal nor
 ;;     the call path survives into a production artefact. A bare
@@ -216,7 +216,7 @@
   [record]
   #?(:clj nil
      :cljs
-     (when interop/debug-enabled?
+     (when rf.interop/debug-enabled?
        (try
          (when (and (empty? @listeners)
                     (exists? js/document)
@@ -294,7 +294,7 @@
 ;; whole-slot scrubs `:rf.sub/query-v` in `re-frame.schemas.validate`), which
 ;; this path does not touch.
 ;;
-;; `dispatch-on-error!` runs `:event` through `elision/elide-wire-value` (the
+;; `dispatch-on-error!` runs `:event` through `rf.elision/elide-wire-value` (the
 ;; frame's durable app-db elision registry). For a DISPATCHED EVENT that is
 ;; payload hygiene. For a SUB error `:event` is the query vector, and a concrete
 ;; integer app-db path coincidentally matching a query-vector coordinate mutates
@@ -383,21 +383,21 @@
   (when id
     (cond
       (contains? sub-error-categories error-kw)
-      (source-coords/error-coords-for :sub id)
+      (rf.source-coords/error-coords-for :sub id)
 
       (= :rf.error/frame-destroyed error-kw)
       (case op
-        (:dispatch :dispatch-sync) (source-coords/error-coords-for :event id)
-        :subscribe                 (source-coords/error-coords-for :sub id)
+        (:dispatch :dispatch-sync) (rf.source-coords/error-coords-for :event id)
+        :subscribe                 (rf.source-coords/error-coords-for :sub id)
         :capture                   nil
         ;; `op` absent — the ordinary address-directed core router DISPATCH
         ;; emitter (the subs SUBSCRIBE emitter now stamps `:op :subscribe` —
         ;; rf2-alk8a — and resolves realm-exact via the `:subscribe` case above).
-        (or (source-coords/error-coords-for :sub id)
-            (source-coords/error-coords-for :event id)))
+        (or (rf.source-coords/error-coords-for :sub id)
+            (rf.source-coords/error-coords-for :event id)))
 
       :else
-      (source-coords/error-coords-for :event id))))
+      (rf.source-coords/error-coords-for :event id))))
 
 ;; ---- emission -------------------------------------------------------------
 
@@ -497,7 +497,7 @@
   ([error-kw event event-id frame-id exception elapsed-ms time attrs]
    (dispatch-on-error! error-kw event event-id frame-id exception elapsed-ms time attrs true))
   ([error-kw event event-id frame-id exception elapsed-ms time attrs route-frame?]
-   (when (trace/continuation-live?)
+   (when (rf.trace/continuation-live?)
      (let [;; Always-on error-coord registry: source-coords
            ;; for the failing handler/sub ride the always-on parallel
            ;; registry (NOT the public registry-meta — which is stripped of
@@ -520,10 +520,10 @@
            source-coord (try
                           (error-source-coord error-kw event-id (:op attrs))
                           (catch #?(:clj Throwable :cljs :default) e
-                            (when (trace/continuation-live?)
+                            (when (rf.trace/continuation-live?)
                               (throw e))))]
        ;; Generation/source resolution is a callback-bearing stage.
-       (when (trace/continuation-live?)
+       (when (rf.trace/continuation-live?)
          (let [;; #6441 / rf2-zwgqe: a subscription QUERY VECTOR is raw IDENTITY
                ;; on the always-on error `:event` slot — it egresses VERBATIM,
                ;; NEVER app-db-elided (a concrete integer path coincidentally
@@ -541,9 +541,9 @@
                elided-event (if raw-identity-event?
                               event
                               (try
-                                (elision/elide-wire-value event {:frame frame-id})
+                                (rf.elision/elide-wire-value event {:frame frame-id})
                                 (catch #?(:clj Throwable :cljs :default) e
-                                  (when (trace/continuation-live?)
+                                  (when (rf.trace/continuation-live?)
                                     (throw e)))))
                ;; Lift the component-attributed slots into the always-on
                ;; record so an off-box shipper sees WHICH interceptor / cofx
@@ -575,13 +575,13 @@
                                source-coord (assoc :source-coord source-coord))]
            ;; Elision is callback-bearing. Corpus sibling fanout is one
            ;; already-linearized publication; frame routing is a later one.
-           (when (trace/continuation-live?)
+           (when (rf.trace/continuation-live?)
              ;; rf2-fu75 — decided immediately before publication, under the
              ;; SAME continuation/ownership conditions, exactly once per
              ;; fully built record. Fires only when the registry is empty, so
              ;; the fan-out below is a no-op whenever this printed.
              (report-unowned-error! record)
-             ((:fan-out registry) record trace/continuation-live?)
+             ((:fan-out registry) record rf.trace/continuation-live?)
              ;; EP-0015 §9: frame-owned observability sink route. Pass the RAW
              ;; event so the sink projects under its own egress profile rather
              ;; than double-eliding. `raw-identity-event?` (#6441 / rf2-zwgqe)
@@ -593,14 +593,14 @@
              ;; known-dead-incarnation UI-bundle emission, so a dead incarnation's
              ;; bare id can never resolve to a same-id successor's error sink; the
              ;; corpus fan-out above still fired.
-             (when (and route-frame? (trace/continuation-live?))
-               (when-let [route-error! (late-bind/get-fn-cached
+             (when (and route-frame? (rf.trace/continuation-live?))
+               (when-let [route-error! (rf.late-bind/get-fn-cached
                                          :observability/route-error)]
                  (try
                    (route-error! error-kw event event-id frame-id exception
                                  elapsed-ms time nil raw-identity-event?)
                    (catch #?(:clj Throwable :cljs :default) e
-                     (when (trace/continuation-live?)
+                     (when (rf.trace/continuation-live?)
                        (throw e)))))))))))
    nil))
 
@@ -612,7 +612,7 @@
 ;; out along BOTH error channels in lock-step: the always-on
 ;; `dispatch-on-error!` listener registry (axis 1 — production-survivable; the
 ;; off-box-shipper / SSR-projector source of truth) AND the dev-only
-;; `trace/emit-error!` surface (axis 2 — DCE'd under CLJS `:advanced` +
+;; `rf.trace/emit-error!` surface (axis 2 — DCE'd under CLJS `:advanced` +
 ;; `goog.DEBUG=false`). This is the ONE shared helper those sites use: the
 ;; ~12 emit sites across `subs` / `subs.memo` / `cofx` / `router.diagnostics`
 ;; (reaching it through the `:error-emit/emit-error-both` late-bind hook), the
@@ -636,7 +636,7 @@
   the emit instant in millis, `elapsed-ms` is `0` at the non-timed invalid-op
   sites and the measured duration at the router's timed pipeline/flow paths).
   `trace-tags` is the category-specific dev-trace tag map — built at the call
-  site and passed UNCHANGED to `trace/emit-error!`, so dev-trace consumers see
+  site and passed UNCHANGED to `rf.trace/emit-error!`, so dev-trace consumers see
   exactly that shape.
 
   The COMPONENT-ATTRIBUTED slots `:failing-id` / `:reason` are
@@ -692,9 +692,9 @@
      (dispatch-on-error! category event event-id frame exception elapsed-ms time
                          attrs route-frame?))
    ;; Axis 2 — dev-only trace surface; DCEs under `:advanced` + `goog.DEBUG=false`
-   ;; (the `interop/debug-enabled?` gate lives inside `trace/emit-error!`).
-   (when (trace/continuation-live?)
-     (trace/emit-error! category trace-tags))
+   ;; (the `rf.interop/debug-enabled?` gate lives inside `rf.trace/emit-error!`).
+   (when (rf.trace/continuation-live?)
+     (rf.trace/emit-error! category trace-tags))
    nil))
 
 ;; ---- first-emission provenance (exact-once at containment drains) ---------
@@ -816,9 +816,9 @@
 ;; through (the sink projects the flat record under the frame's
 ;; classification + the sink's egress profile).
 ;;
-;; Always-on (NOT `interop/debug-enabled?`-gated): it fires in CLJS
+;; Always-on (NOT `rf.interop/debug-enabled?`-gated): it fires in CLJS
 ;; production builds where the dev trace surface is DCE'd. The caller keeps
-;; its existing `trace/emit-error!` for dev richness; this is the
+;; its existing `rf.trace/emit-error!` for dev richness; this is the
 ;; production-survivable sibling.
 
 (defn- dispatch-error-record*
@@ -834,14 +834,14 @@
   ;; publication, under the same (here unconditional) conditions, exactly once
   ;; per record, and only while the registry is empty.
   (report-unowned-error! record)
-  ((:fan-out registry) record trace/continuation-live?)
-  (when (and route-frame? (trace/continuation-live?))
-    (when-let [route-error-record! (late-bind/get-fn-cached
+  ((:fan-out registry) record rf.trace/continuation-live?)
+  (when (and route-frame? (rf.trace/continuation-live?))
+    (when-let [route-error-record! (rf.late-bind/get-fn-cached
                                      :observability/route-error-record)]
       (try
         (route-error-record! record)
         (catch #?(:clj Throwable :cljs :default) e
-          (when (trace/continuation-live?) (throw e))))))
+          (when (rf.trace/continuation-live?) (throw e))))))
   nil)
 
 (defn dispatch-error-record!
@@ -978,18 +978,18 @@
 ;; addressable from other artefacts that may want to fire error
 ;; records without static-requiring this ns.
 
-(late-bind/set-fn! :error-emit/dispatch-on-error dispatch-on-error!)
+(rf.late-bind/set-fn! :error-emit/dispatch-on-error dispatch-on-error!)
 
 ;; The shared two-channel fan-out. `fx` / `subs` / `subs.memo` /
 ;; `cofx` / `router.diagnostics` reach it through this hook — they cannot
 ;; static-require this ns (the `error-emit` → `elision` → `frame` load cycle).
-(late-bind/set-fn! :error-emit/emit-error-both emit-error-both!)
+(rf.late-bind/set-fn! :error-emit/emit-error-both emit-error-both!)
 
 ;; The frame-teardown report fires from `frame/destroy-frame!`'s finally-
 ;; shaped flush. `frame` MUST reach it via late-bind: a static
 ;; `re-frame.frame` → `re-frame.error-emit` require closes a load cycle
 ;; (`error-emit` → `elision` → `frame`). Per EP-0008.
-(late-bind/set-fn! :error-emit/dispatch-frame-teardown-report
+(rf.late-bind/set-fn! :error-emit/dispatch-frame-teardown-report
                    dispatch-frame-teardown-report!)
 
 ;; The general non-event always-on record helper. The EP-0008
@@ -1000,7 +1000,7 @@
 ;; `:rf.error/ssr-ring-error-view-failed`) reach the always-on axis through
 ;; this hook from the SSR / ssr-ring host layers (which ship above core's
 ;; require graph; the hook keeps them addressable without a static require).
-(late-bind/set-fn! :error-emit/dispatch-error-record dispatch-error-record!)
+(rf.late-bind/set-fn! :error-emit/dispatch-error-record dispatch-error-record!)
 
 ;; The corpus-wide listener registry's register / unregister surfaces are
 ;; published through late-bind so `frame.cljc` can install a TRANSIENT
@@ -1013,5 +1013,5 @@
 ;; DCE'd. Survives `:advanced` + `goog.DEBUG=false` — these are the same
 ;; surfaces `rf/register-error-listener!` exports, just addressable from a
 ;; non-requiring artefact.
-(late-bind/set-fn! :error-emit/register-error-listener!   register-error-listener!)
-(late-bind/set-fn! :error-emit/unregister-error-listener! unregister-error-listener!)
+(rf.late-bind/set-fn! :error-emit/register-error-listener!   register-error-listener!)
+(rf.late-bind/set-fn! :error-emit/unregister-error-listener! unregister-error-listener!)

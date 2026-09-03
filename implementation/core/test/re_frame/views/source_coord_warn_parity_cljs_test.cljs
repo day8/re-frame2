@@ -28,9 +28,9 @@
 
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.substrate.spine :as spine]
-            [re-frame.views.source-coord-annotation :as sca]
-            [re-frame.views.warn-once :as warn-once]))
+            [re-frame.substrate.spine :as rf.substrate.spine]
+            [re-frame.views.source-coord-annotation :as rf.views.source-coord-annotation]
+            [re-frame.views.warn-once :as rf.views.warn-once]))
 
 ;; ---- harness --------------------------------------------------------------
 
@@ -42,7 +42,7 @@
   cache before AND after each test so a sibling test's first-encounter
   warning can't swallow ours (and ours can't leak)."
   [test-fn]
-  (warn-once/clear-warned-non-dom-roots!)
+  (rf.views.warn-once/clear-warned-non-dom-roots!)
   (let [calls (atom 0)]
     (set! (.-warn js/console) (fn [& _] (swap! calls inc)))
     ;; Stash the counter where the test bodies can read it.
@@ -50,7 +50,7 @@
     (try (test-fn)
          (finally
            (set! (.-warn js/console) orig-console-warn)
-           (warn-once/clear-warned-non-dom-roots!)))))
+           (rf.views.warn-once/clear-warned-non-dom-roots!)))))
 
 (use-fixtures :each console-warn-stub-fixture)
 
@@ -59,9 +59,9 @@
 ;; Drive the Reagent hiccup walk for `out` under a fresh warn-once cache and
 ;; return whether it warned (1) or stayed silent (0).
 (defn- reagent-warned? [out]
-  (warn-once/clear-warned-non-dom-roots!)
+  (rf.views.warn-once/clear-warned-non-dom-roots!)
   (let [before (warn-count)]
-    (sca/inject-source-coord-attr :rf.test/view "rf.test:view:1:1" out)
+    (rf.views.source-coord-annotation/inject-source-coord-attr :rf.test/view "rf.test:view:1:1" out)
     (- (warn-count) before)))
 
 ;; Drive the React-hook (spine) walk for `out` and return whether it warned.
@@ -69,10 +69,10 @@
 ;; warn-once helper the production wiring uses so the observable matches the
 ;; Reagent path (one-shot per id, lands on the stubbed console.warn).
 (defn- spine-warned? [out]
-  (warn-once/clear-warned-non-dom-roots!)
+  (rf.views.warn-once/clear-warned-non-dom-roots!)
   (let [before  (warn-count)
-        warn-fn (fn [id type-tag] (warn-once/warn-non-dom-root! id type-tag))]
-    (#'spine/inject-source-coord-attr
+        warn-fn (fn [id type-tag] (rf.views.warn-once/warn-non-dom-root! id type-tag))]
+    (#'rf.substrate.spine/inject-source-coord-attr
       warn-fn :rf.test/view "rf.test:view:1:1" ":rf.test/view" out)
     (- (warn-count) before)))
 

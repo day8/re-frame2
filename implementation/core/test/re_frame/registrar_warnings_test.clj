@@ -20,7 +20,7 @@
        suppression discipline.
 
   Both warnings sit inside the registrar's outer
-  `(when interop/debug-enabled? ...)` gate so `:advanced +
+  `(when rf.interop/debug-enabled? ...)` gate so `:advanced +
   goog.DEBUG=false` constant-folds the consult+emit branch to nil
   (Spec 009 §Production builds). The CLJS elision-probe sentinels
   pin the absence of `rf.warning/missing-doc` and
@@ -29,7 +29,7 @@
   ## Posture split (rf2-d2841)
 
   The paragraph above is the whole story for the WARNINGS: both sit inside the
-  registrar's `(when interop/debug-enabled? ...)` gate, so under
+  registrar's `(when rf.interop/debug-enabled? ...)` gate, so under
   `-Dre-frame.debug=false` neither is emitted and every warning assertion here
   failed under `scripts/test-core-prod-gate.sh`. They are guarded verbatim.
 
@@ -60,21 +60,21 @@
   the `handler-replaced` trace over a stream that carries no traces at all.
   Five of those seven deftests were GREEN under the gate on nothing else."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.interop :as interop]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.source-coords :as source-coords]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]
+            [re-frame.interop :as rf.interop]
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.source-coords :as rf.source-coords]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace :as rf.trace]
             [re-frame.core :as rf]))
 
 ;; ---- fixtures -------------------------------------------------------------
 
 (defn reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (trace/clear-listeners!)
-  (rf/init! plain-atom/adapter)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.trace/clear-listeners!)
+  (rf/init! rf.substrate.plain-atom/adapter)
   (test-fn))
 
 (use-fixtures :each reset-runtime)
@@ -101,7 +101,7 @@
   continue — and that continuation is the only half of the contract a
   production build can be asked about."
   [kind id]
-  (is (some? (registrar/lookup kind id))
+  (is (some? (rf.registrar/lookup kind id))
       (str "the " kind " registration for " id " succeeded in this posture")))
 
 (defn- assert-live-provenance
@@ -111,7 +111,7 @@
   not on this path), so the `:ns` of the winning registration is readable in
   both postures. This is the fact the collision warning narrates."
   [kind id expected-ns]
-  (is (= expected-ns (:ns (registrar/lookup kind id)))
+  (is (= expected-ns (:ns (rf.registrar/lookup kind id)))
       (str "the live " kind " registration for " id " came from " expected-ns)))
 
 (defn- with-stamped-coords
@@ -125,7 +125,7 @@
   path (Spec 001 §`:doc` obligation 4 carves out programmatic /
   internal-helper paths)."
   [f]
-  (binding [source-coords/*pending-coords*
+  (binding [rf.source-coords/*pending-coords*
             {:ns 're-frame.registrar-warnings-test
              :file "registrar_warnings_test.clj"
              :line 1
@@ -136,7 +136,7 @@
   "Register an `:event` for `id` with an explicit source-coord `provenance`
   envelope (`{:ns :file :line ...}`) and a freshly-allocated handler-fn.
 
-  The collision tests drive `registrar/register!` directly rather than the
+  The collision tests drive `rf.registrar/register!` directly rather than the
   `reg-event` MACRO because the macro re-captures coords from its own call
   site `(meta &form)` — two macro calls in the test file are always on
   different LINES, so they could never share the same provenance, which is
@@ -147,7 +147,7 @@
   programmatic / REPL path (no captured coords)."
   ([id] (reg-at id nil))
   ([id provenance]
-   (registrar/register! :event id
+   (rf.registrar/register! :event id
                         (merge (or provenance {})
                                {:handler-fn (fn [{:keys [db]} _] {:db db})}))))
 
@@ -165,7 +165,7 @@
         (fn []
           (rf/reg-event :ev/no-doc (fn [{:keys [db]} _] {:db db}))))
       (assert-registered :event :ev/no-doc)
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [warns (warnings-of recorded :rf.warning/missing-doc)]
           (is (= 1 (count warns))
               (str "expected exactly one missing-doc warning, got " (count warns)))
@@ -185,7 +185,7 @@
         (fn []
           (rf/reg-event :ev/nil-doc {:doc nil} (fn [{:keys [db]} _] {:db db}))))
       (assert-registered :event :ev/nil-doc)
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (= 1 (count (warnings-of recorded :rf.warning/missing-doc))))))))
 
 (deftest missing-doc-fires-when-doc-empty-string
@@ -195,7 +195,7 @@
         (fn []
           (rf/reg-event :ev/empty-doc {:doc ""} (fn [{:keys [db]} _] {:db db}))))
       (assert-registered :event :ev/empty-doc)
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (= 1 (count (warnings-of recorded :rf.warning/missing-doc))))))))
 
 (deftest missing-doc-suppressed-when-doc-present
@@ -209,7 +209,7 @@
       (assert-registered :event :ev/well-doc'd)
       ;; rf2-d2841 — class-1 vacuous under the gate: the warning stream is
       ;; empty for EVERY registration there, documented or not.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (empty? (warnings-of recorded :rf.warning/missing-doc)))))))
 
 ;; Obligation 2: suppress per (kind, id) within a runtime process.
@@ -224,7 +224,7 @@
           (rf/reg-event :ev/same-id (fn [{:keys [db]} _] {:db (assoc db :touched? true)}))
           (rf/reg-event :ev/same-id (fn [{:keys [db]} _] {:db db}))))
       (assert-registered :event :ev/same-id)
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (= 1 (count (warnings-of recorded :rf.warning/missing-doc)))
             "exactly one warning across three registrations of the same id")))))
 
@@ -238,7 +238,7 @@
           (rf/reg-event :ev/gamma (fn [{:keys [db]} _] {:db db}))))
       (doseq [id [:ev/alpha :ev/beta :ev/gamma]]
         (assert-registered :event id))
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [warns (warnings-of recorded :rf.warning/missing-doc)]
           (is (= 3 (count warns)))
           (is (= #{:ev/alpha :ev/beta :ev/gamma}
@@ -253,7 +253,7 @@
           (rf/reg-sub       :alias/shared (fn [db _] (:x db)))))
       (assert-registered :event :alias/shared)
       (assert-registered :sub   :alias/shared)
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [warns (warnings-of recorded :rf.warning/missing-doc)]
           (is (= 2 (count warns)))
           (is (= #{:event :sub}
@@ -277,7 +277,7 @@
       (assert-registered :sub   :k/sub-doc-missing)
       (assert-registered :fx    :k/fx-doc-missing)
       (assert-registered :cofx  :k/cofx-doc-missing)
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [warns (warnings-of recorded :rf.warning/missing-doc)
               kinds (into #{} (map #(get-in % [:tags :kind])) warns)]
           (is (= 4 (count warns))
@@ -292,11 +292,11 @@
     (let [recorded (record-traces! ::programmatic)]
       ;; Note: NO with-stamped-coords wrapper — *pending-coords* is nil,
       ;; mirroring an internal helper / REPL register! call.
-      (registrar/register! :event :internal/no-coords
+      (rf.registrar/register! :event :internal/no-coords
                            {:handler-fn (fn [db _] db)})
       (assert-registered :event :internal/no-coords)
       ;; rf2-d2841 — class-1 vacuous under the gate.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (empty? (warnings-of recorded :rf.warning/missing-doc))
             "programmatic / internal-helper path is out of scope (Spec 001 obligation 4)")))))
 
@@ -317,7 +317,7 @@
 
 ;; The CORE regression for rf2-skxd6x: a same-source re-eval (same coords,
 ;; different fn instance) is a hot reload and MUST be silent. Driven through
-;; `registrar/register!` so the provenance can be held CONSTANT across the two
+;; `rf.registrar/register!` so the provenance can be held CONSTANT across the two
 ;; registrations (the `reg-event` macro re-captures its own call-site coords,
 ;; so two macro calls are always on different lines — see `reg-at`).
 
@@ -337,7 +337,7 @@
       ;; production behaviour the silent-warning rule is a policy about.
       (assert-live-provenance :event :hot/reload 're-frame.registrar-warnings-test)
       ;; rf2-d2841 — class-1 vacuous under the gate.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (empty? (warnings-of recorded :rf.warning/registration-collision))
             "same-source re-eval (fresh fn, same coords) must NOT warn — it's a hot reload")))))
 
@@ -351,7 +351,7 @@
       ;; dev nudge about a production fact, and the fact is readable in both
       ;; postures off the stored provenance.
       (assert-live-provenance :event :collide/id 'feature.b)
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [warns (warnings-of recorded :rf.warning/registration-collision)]
           (is (= 1 (count warns))
               "exactly one collision warning fires on the cross-provenance reassignment")
@@ -375,9 +375,9 @@
       (reg-at :dup/id {:ns 're-frame.registrar-warnings-test
                        :file "registrar_warnings_test.clj" :line 99 :column 1})
       (assert-live-provenance :event :dup/id 're-frame.registrar-warnings-test)
-      (is (= 99 (:line (registrar/lookup :event :dup/id)))
+      (is (= 99 (:line (rf.registrar/lookup :event :dup/id)))
           "the second authoring site is the live one in this posture")
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (= 1 (count (warnings-of recorded :rf.warning/registration-collision)))
             "different line in the same file is a collision (Spec 001))")))))
 
@@ -388,10 +388,10 @@
       (reg-at :prog/id nil)
       (reg-at :prog/id nil)
       (assert-registered :event :prog/id)
-      (is (nil? (:ns (registrar/lookup :event :prog/id)))
+      (is (nil? (:ns (rf.registrar/lookup :event :prog/id)))
           "the programmatic path stored no provenance to collide on")
       ;; rf2-d2841 — class-1 vacuous under the gate.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (empty? (warnings-of recorded :rf.warning/registration-collision))
             "programmatic / REPL path has no provenance — no collision to detect")))))
 
@@ -403,7 +403,7 @@
       (doseq [[ns line] [['feat.a 1] ['feat.b 2] ['feat.c 3] ['feat.d 4]]]
         (reg-at :churn/id {:ns ns :file (str ns ".cljc") :line line :column 1}))
       (assert-live-provenance :event :churn/id 'feat.d)
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (= 1 (count (warnings-of recorded :rf.warning/registration-collision)))
             "warn-once: only the first cross-provenance re-registration emits")))))
 
@@ -421,7 +421,7 @@
       (reg-at :hr/id coords)
       (reg-at :hr/id coords)
       (assert-live-provenance :event :hr/id 're-frame.registrar-warnings-test)
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [replaced (filterv (fn [ev]
                                   (and (= :rf.registry (:op-type ev))
                                        (= :rf.registry/handler-replaced
@@ -441,7 +441,7 @@
       (doseq [[ns line] [['c.a 1] ['c.b 2] ['c.c 3]]]
         (reg-at :coex/id {:ns ns :file (str ns ".cljc") :line line :column 1}))
       (assert-live-provenance :event :coex/id 'c.c)
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [replaced (filterv (fn [ev]
                                   (and (= :rf.registry (:op-type ev))
                                        (= :rf.registry/handler-replaced
@@ -476,7 +476,7 @@
   shape table sees the SAME shape on re-register — exactly the case the old
   nested-collision code dedup-suppressed."
   [kind id provenance]
-  (registrar/register! kind id (merge (or provenance {}) {:doc "slot"})))
+  (rf.registrar/register! kind id (merge (or provenance {}) {:doc "slot"})))
 
 (deftest collision-fires-for-no-handler-fn-kind-despite-shape-dedup
   (testing "a :route-kind cross-source reassignment WARNS even though its shape
@@ -493,7 +493,7 @@
       ;; slot itself was replaced — feature B's route is the live one — which
       ;; is precisely why the hidden collision mattered.
       (assert-live-provenance :route :surface/main 'feature.b)
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [replaced (filterv (fn [ev]
                                   (and (= :rf.registry (:op-type ev))
                                        (= :rf.registry/handler-replaced (:operation ev))))
@@ -522,7 +522,7 @@
       (reg-no-handler-fn! :route :surface/hot coords)
       (assert-live-provenance :route :surface/hot 'feature.a)
       ;; rf2-d2841 — class-1 vacuous under the gate.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (empty? (warnings-of recorded :rf.warning/registration-collision))
             "same (ns,file,line) re-eval is a hot reload — no collision even though
              the collision check now runs unconditionally")))))

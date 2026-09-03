@@ -19,7 +19,7 @@
     value is the bare host handle; cancellation is silent.
 
   Both share the SAME low-level arm step: schedule a thunk after a delay
-  via `interop/schedule-after!`, but ONLY when the delay is a positive
+  via `rf.interop/schedule-after!`, but ONLY when the delay is a positive
   number (a non-positive / nil delay never arms a timer — the resource that
   declared no policy, the machine whose dynamic delay resolved to nothing).
   That guarded-arm step is the genuinely-common, divergence-free kernel;
@@ -75,7 +75,7 @@
   (rf2-5wuikc) nor the test-only `re-frame.timer-probe` managed-effect
   conformance instance. Those are distinct things; this just de-duplicates
   the host-clock arm step the two shipped timer side-tables share."
-  (:require [re-frame.interop :as interop]))
+  (:require [re-frame.interop :as rf.interop]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -103,7 +103,7 @@
   stayed split and why)."
   [thunk delay-ms]
   (when (positive-delay? delay-ms)
-    (interop/schedule-after! thunk delay-ms)))
+    (rf.interop/schedule-after! thunk delay-ms)))
 
 (defn cancel!
   "Best-effort cancel of a host-clock `handle` via
@@ -117,6 +117,6 @@
   through here."
   [handle]
   (when handle
-    (try (interop/cancel-scheduled! handle)
+    (try (rf.interop/cancel-scheduled! handle)
          (catch #?(:clj Throwable :cljs :default) _ nil)))
   nil)

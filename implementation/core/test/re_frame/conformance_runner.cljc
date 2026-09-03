@@ -57,36 +57,36 @@
        :cljs [cljs.test :refer-macros [is]])
     [clojure.string :as str]
     [re-frame.core :as rf]
-    [re-frame.elision :as elision]
-    [re-frame.error-emit :as error-emit]
-    [re-frame.events :as events]
-    [re-frame.fx :as fx]
-    [re-frame.cofx :as cofx]
-    [re-frame.frame :as frame]
-    [re-frame.registrar :as registrar]
-    [re-frame.source-store :as source-store]
-    [re-frame.subs :as subs]
-    [re-frame.conformance :as conformance]
-    [re-frame.identity :as identity]
-    [re-frame.path :as path]
-    [re-frame.projection :as projection]
-    [re-frame.http.privacy-headers :as http-privacy-headers]
-    [re-frame.ssr.payload-policy :as ssr-payload-policy]
-    [re-frame.routing :as routing]
-    [re-frame.routing.match :as routing-match]
-    [re-frame.ssr :as ssr]
-    [re-frame.machines :as machines]
-    [re-frame.resources :as resources]
-    [re-frame.resources.registry :as resources-registry]
-    [re-frame.resources.subs :as resources-subs]
-    [re-frame.image :as image]
-    [re-frame.image-assembly :as image-assembly]
-    [re-frame.derivation.graph :as dgraph]
-    [re-frame.subs.tooling :as subs-tooling]
-    [re-frame.machines.tooling :as machines-tooling]
-    [re-frame.flows.tooling :as flows-tooling]
-    [re-frame.resources.tooling :as resources-tooling]
-    [re-frame.routing.tooling :as routing-tooling]
+    [re-frame.elision :as rf.elision]
+    [re-frame.error-emit :as rf.error-emit]
+    [re-frame.events :as rf.events]
+    [re-frame.fx :as rf.fx]
+    [re-frame.cofx :as rf.cofx]
+    [re-frame.frame :as rf.frame]
+    [re-frame.registrar :as rf.registrar]
+    [re-frame.source-store :as rf.source-store]
+    [re-frame.subs :as rf.subs]
+    [re-frame.conformance :as rf.conformance]
+    [re-frame.identity :as rf.identity]
+    [re-frame.path :as rf.path]
+    [re-frame.projection :as rf.projection]
+    [re-frame.http.privacy-headers :as rf.http.privacy-headers]
+    [re-frame.ssr.payload-policy :as rf.ssr.payload-policy]
+    [re-frame.routing :as rf.routing]
+    [re-frame.routing.match :as rf.routing.match]
+    [re-frame.ssr :as rf.ssr]
+    [re-frame.machines :as rf.machines]
+    [re-frame.resources :as rf.resources]
+    [re-frame.resources.registry :as rf.resources.registry]
+    [re-frame.resources.subs :as rf.resources.subs]
+    [re-frame.image :as rf.image]
+    [re-frame.image-assembly :as rf.image-assembly]
+    [re-frame.derivation.graph :as rf.derivation.graph]
+    [re-frame.subs.tooling :as rf.subs.tooling]
+    [re-frame.machines.tooling :as rf.machines.tooling]
+    [re-frame.flows.tooling :as rf.flows.tooling]
+    [re-frame.resources.tooling :as rf.resources.tooling]
+    [re-frame.routing.tooling :as rf.routing.tooling]
     ;; Side-effect require: publishing the epoch late-bind hooks
     ;; (`:epoch/settle!`, `:epoch/epoch-history`, `:epoch/clear-history!`,
     ;; …) at ns-load is what makes the router commit `:rf/epoch-record`s and
@@ -322,9 +322,9 @@
   `forget-id!` here poisoned every LATER suite's lazily-captured
   source-store baseline with the framework row missing."
   [kind id]
-  (doseq [pns (keys (get-in @source-store/kind->id->ns->descriptor [kind id]))
+  (doseq [pns (keys (get-in @rf.source-store/kind->id->ns->descriptor [kind id]))
           :when (some? pns)]
-    (source-store/forget-descriptor! kind id pns))
+    (rf.source-store/forget-descriptor! kind id pns))
   nil)
 
 (defn- realise-handlers [fixture]
@@ -354,18 +354,18 @@
           ;; without one.
           (claim-fixture-id! :cofx cofx-id) ;; claim (see claim-fixture-id!)
           (if (:provided? meta)
-            (cofx/reg-cofx cofx-id meta)
-            (cofx/reg-cofx cofx-id meta (conformance/realise-cofx-supplier body))))))
+            (rf.cofx/reg-cofx cofx-id meta)
+            (rf.cofx/reg-cofx cofx-id meta (rf.conformance/realise-cofx-supplier body))))))
     ;; event registrations. A body that reads `[:cofx-key K]` declares the
     ;; consumed coeffect ids via `:rf.cofx/requires` (fx-only — a cofx-reading
     ;; body routes to an `:fx` handler).
     ;;
     ;; EP-0018 Slice Z: there is ONE public `reg-event` (cofx-in, effects-map-out).
-    ;; `conformance/normalize-event-handler` collapses the DSL `[body-shape
+    ;; `rf.conformance/normalize-event-handler` collapses the DSL `[body-shape
     ;; handler]` pair to that single form — a :db-kind body `(fn [db event]
     ;; new-db)` is lifted to `(fn [cofx event] {:db …})`, an :fx-kind body passes
     ;; through — so the registration site never branches on the body-shape.
-    ;; Use the FN form (`events/reg-event`, no source-coord capture) — same
+    ;; Use the FN form (`rf.events/reg-event`, no source-coord capture) — same
     ;; rationale as the subs below, PLUS provenance: a fixture that overrides
     ;; a framework event id (e.g. :rf/hydrate, registered fn-form by
     ;; re-frame.ssr with nil provenance ns) must land in the SAME
@@ -374,9 +374,9 @@
     ;; (:rf.error/image-duplicate-id) now that fixture frames resolve
     ;; through the default image (rf2-h1vqa4).
     (doseq [[id steps] (get handlers-map :event)]
-      (let [handler        (conformance/normalize-event-handler
-                             (conformance/realise-event-handler steps))
-            ks             (conformance/collect-cofx-keys steps)
+      (let [handler        (rf.conformance/normalize-event-handler
+                             (rf.conformance/realise-event-handler steps))
+            ks             (rf.conformance/collect-cofx-keys steps)
             cofx-ids       (vec
                              (mapcat (fn [k]
                                        (or (get cofx-by-key k)
@@ -392,26 +392,26 @@
         ;; fixture restores the suite baseline afterward.
         (claim-fixture-id! :event id)
         (if (seq event-meta)
-          (events/reg-event id event-meta handler)
-          (events/reg-event id handler))))
-    ;; sub registrations. Use the fn-form `subs/reg-sub` because the public
+          (rf.events/reg-event id event-meta handler)
+          (rf.events/reg-event id handler))))
+    ;; sub registrations. Use the fn-form `rf.subs/reg-sub` because the public
     ;; `rf/reg-sub` is a macro (source-coord capture) and a macro var isn't a
     ;; callable value; source-coord capture is intentionally bypassed for
     ;; these fixture-synthesised registrations.
     (doseq [[id steps] (get handlers-map :sub)]
       (claim-fixture-id! :sub id) ;; claim (see claim-fixture-id!)
-      (let [{:keys [kind inputs body]} (conformance/realise-sub steps)
+      (let [{:keys [kind inputs body]} (rf.conformance/realise-sub steps)
             sub-meta (get sub-registry id {})]
         (case kind
           :layer-1 (if (seq sub-meta)
-                     (subs/reg-sub id sub-meta body)
-                     (subs/reg-sub id body))
+                     (rf.subs/reg-sub id sub-meta body)
+                     (rf.subs/reg-sub id body))
           ;; EP-0001 (rf2-vzld77): a `[:get [:rf.runtime/… …]]` fixture sub
           ;; reads the runtime-db partition — register via reg-runtime-sub.
           :runtime-db (if (seq sub-meta)
-                        (subs/reg-runtime-sub id sub-meta body)
-                        (subs/reg-runtime-sub id body))
-          :layer-2 (apply subs/reg-sub id
+                        (rf.subs/reg-runtime-sub id sub-meta body)
+                        (rf.subs/reg-runtime-sub id body))
+          :layer-2 (apply rf.subs/reg-sub id
                           (concat (when (seq sub-meta) [sub-meta])
                                   (interleave (repeat :<-) inputs)
                                   [body])))))
@@ -421,12 +421,12 @@
     ;; NOT overwrite the framework-shipped fx with a noop.
     (let [adapter-helpers
           {:read-db!  (fn [frame-id]
-                        (frame/frame-app-db-value frame-id))
+                        (rf.frame/frame-app-db-value frame-id))
            ;; EP-0001 (rf2-adwcv6): write the app-db PARTITION via
-           ;; `swap-frame-db!` — `frame/app-db-container` is a READ-ONLY
+           ;; `swap-frame-db!` — `rf.frame/app-db-container` is a READ-ONLY
            ;; projection over the one physical frame-state container.
            :write-db! (fn [frame-id new-db]
-                        (frame/swap-frame-db! frame-id (constantly new-db)))
+                        (rf.frame/swap-frame-db! frame-id (constantly new-db)))
            :dispatch! (fn [event frame-id]
                         (rf/dispatch event {:frame frame-id}))
            ;; Per Cross-Spec Interaction §14 (rf2-60szl): dispatch-sync from an
@@ -444,7 +444,7 @@
         (let [explicit-body (contains? fx-bodies id)
               body          (get fx-bodies id [[:noop]])
               meta          (get fx-registry id {})
-              handler       (conformance/realise-fx-handler id body adapter-helpers)]
+              handler       (rf.conformance/realise-fx-handler id body adapter-helpers)]
           (when explicit-body
             ;; FN form (no source-coord capture): a fixture stub of a
             ;; framework fx id (e.g. :rf.http/managed, :rf.nav/*) replaces
@@ -452,7 +452,7 @@
             ;; colliding at default-image assembly (rf2-h1vqa4). CLAIM the
             ;; id first so a co-loaded app-namespace row can't collide.
             (claim-fixture-id! :fx id)
-            (fx/reg-fx id (assoc meta :handler-fn handler) handler)))))
+            (rf.fx/reg-fx id (assoc meta :handler-fn handler) handler)))))
     ;; route registrations. rf2-wvh95f F1: the path pattern is the 3-slot
     ;; VALUE; lift it out of the fixture meta map so the middle slot is a pure
     ;; metadata map.
@@ -462,16 +462,16 @@
     ;; view registrations — DSL bodies map to fns that realise hiccup with
     ;; reflection forms resolved at call-time.
     (doseq [[id steps] (get handlers-map :view)]
-      (registrar/register!
+      (rf.registrar/register!
         :view id
-        {:handler-fn (conformance/realise-view-handler steps)}))
+        {:handler-fn (rf.conformance/realise-view-handler steps)}))
     ;; machine registrations (rf2-msd4). Merge the fixture's realised action /
     ;; guard / on-spawn bodies into each machine-spec before reg-machine*.
     (let [machine-registry (get-in fixture [:fixture/registry :machine] {})]
       (when (seq machine-registry)
         (let [{:keys [actions guards on-spawn-actions]}
               (realise-machine-handlers fixture)
-              reg-machine machines/reg-machine*]
+              reg-machine rf.machines/reg-machine*]
           (doseq [[machine-id machine-spec] machine-registry]
             (let [merged (-> machine-spec
                              (update :actions          #(merge actions %))
@@ -499,7 +499,7 @@
         flow-bodies   (or (:fixture/flow-bodies fixture) {})]
     (doseq [[flow-id flow-meta] flow-registry]
       (when-let [body (get flow-bodies flow-id)]
-        (let [output-fn (conformance/realise-flow-output-fn body)]
+        (let [output-fn (rf.conformance/realise-flow-output-fn body)]
           ;; rf2-bqstzr — the 3-slot grammar: (reg-flow flow-id metadata
           ;; derive-fn). `flow-meta` is the reflection metadata middle slot.
           (rf/reg-flow flow-id flow-meta output-fn))))))
@@ -539,9 +539,9 @@
           ;; effects use, so the seed writes the effect owner exactly as
           ;; `apply-classification-effects` would (rf2-wdm1vg).
           (add-paths [reg axis paths]
-            (elision/add-claims reg (slot-for axis) {:source :effect} (map vec paths)))
+            (rf.elision/add-claims reg (slot-for axis) {:source :effect} (map vec paths)))
           (clear-paths [reg axis paths]
-            (elision/remove-claims reg (slot-for axis) {:source :effect} (map vec paths)))]
+            (rf.elision/remove-claims reg (slot-for axis) {:source :effect} (map vec paths)))]
     (doseq [op (or (:fixture/classification-effects fixture) [])]
       (let [ks (set (keys op))]
         (when-not (and (= 1 (count ks))
@@ -554,13 +554,13 @@
                            :keys       ks}))))
       (cond
         (contains? op :sensitive)
-        (elision/swap-elision-slot! scope-frame #(add-paths (or % {}) :sensitive (:sensitive op)))
+        (rf.elision/swap-elision-slot! scope-frame #(add-paths (or % {}) :sensitive (:sensitive op)))
         (contains? op :large)
-        (elision/swap-elision-slot! scope-frame #(add-paths (or % {}) :large (:large op)))
+        (rf.elision/swap-elision-slot! scope-frame #(add-paths (or % {}) :large (:large op)))
         (contains? op :clear-sensitive)
-        (elision/swap-elision-slot! scope-frame #(clear-paths (or % {}) :sensitive (:clear-sensitive op)))
+        (rf.elision/swap-elision-slot! scope-frame #(clear-paths (or % {}) :sensitive (:clear-sensitive op)))
         (contains? op :clear-large)
-        (elision/swap-elision-slot! scope-frame #(clear-paths (or % {}) :large (:clear-large op)))))))
+        (rf.elision/swap-elision-slot! scope-frame #(clear-paths (or % {}) :large (:clear-large op)))))))
 
 ;; ---- trace / error-emit collection ----------------------------------------
 
@@ -576,11 +576,11 @@
 (defn- collect-error-emit-records!
   "Per rf2-wxe9t: register a corpus-wide error-emit listener for the duration
   of `fixture-id`'s run; each tight error-record fanned out by
-  `error-emit/dispatch-on-error!` is appended to the returned atom in firing
+  `rf.error-emit/dispatch-on-error!` is appended to the returned atom in firing
   order. Host-neutral — `re-frame.error-emit` is a shared core ns."
   [fixture-id]
   (let [records (atom [])]
-    (error-emit/register-error-listener!
+    (rf.error-emit/register-error-listener!
       [fixture-id ::records]
       (fn [record] (swap! records conj record)))
     records))
@@ -701,7 +701,7 @@
                     (str "expected epoch-record at position " i
                          " for frame " frame-id " but none recorded")
 
-                    (not (conformance/submap? record actual-record))
+                    (not (rf.conformance/submap? record actual-record))
                     (str "epoch-record mismatch at position " i
                          " for frame " frame-id
                          " — expected (submap) " (pr-str record)
@@ -736,7 +736,7 @@
                                     :url    (if url-template
                                               (str url-template params)
                                               (str "/api/" (name resource-id)))}})]
-      (resources/reg-resource resource-id
+      (rf.resources/reg-resource resource-id
                               (dissoc spec :url-template)
                               request-fn))))
 
@@ -757,13 +757,13 @@
                                         :set    (let [[_ path v] step]
                                                   (assoc ctx :data
                                                          (assoc-in data path
-                                                                   (conformance/eval-value* v ctx))))
+                                                                   (rf.conformance/eval-value* v ctx))))
                                         ;; rf2-8vo0: :fx args pass through
                                         ;; eval-value* so reflection forms
                                         ;; resolve against the snapshot's :data.
                                         :fx     (let [[_ a b] step]
                                                   (update ctx :fx (fnil conj [])
-                                                          [a (conformance/eval-value* b ctx)]))
+                                                          [a (rf.conformance/eval-value* b ctx)]))
                                         ;; rf2-msd4: a throwing action exercises
                                         ;; Cross-Spec §11 machine-action-exception.
                                         :throw  (throw (ex-info (str (second step))
@@ -781,11 +781,11 @@
                       (let [step (first steps)]
                         (when (and (vector? step) (= :fn (first step)))
                           (boolean
-                            (conformance/eval-value* step {:data data :event event})))))]))
+                            (rf.conformance/eval-value* step {:data data :event event})))))]))
         on-spawn-by-id
         (into {}
               (for [[id steps] (:machine-action handlers-map)]
-                [id (conformance/realise-on-spawn-handler steps)]))]
+                [id (rf.conformance/realise-on-spawn-handler steps)]))]
     {:actions          actions-by-id
      :guards           guards-by-id
      :on-spawn-actions on-spawn-by-id}))
@@ -804,7 +804,7 @@
     ;; Spec 012 §Bidirectional URL ↔ params: the result carries an
     ;; implementation-specific :validation-error explanation; dissoc it before
     ;; equality (the :validation-failed? flag is the normative bit).
-    (let [actual (some-> (routing/match-url (:url call)) (dissoc :validation-error))
+    (let [actual (some-> (rf.routing/match-url (:url call)) (dissoc :validation-error))
           expect (:expect call)]
       {:passed? (= expect actual)
        :detail  (when (not= expect actual)
@@ -814,11 +814,11 @@
     :route-url
     (let [actual (cond
                    (contains? call :fragment)
-                   (routing/route-url {:to (:route-id call) :params (:params call) :query (or (:query call) {}) :fragment (:fragment call)})
+                   (rf.routing/route-url {:to (:route-id call) :params (:params call) :query (or (:query call) {}) :fragment (:fragment call)})
                    (:query call)
-                   (routing/route-url {:to (:route-id call) :params (:params call) :query (:query call)})
+                   (rf.routing/route-url {:to (:route-id call) :params (:params call) :query (:query call)})
                    :else
-                   (routing/route-url {:to (:route-id call) :params (:params call)}))
+                   (rf.routing/route-url {:to (:route-id call) :params (:params call)}))
           expect (:expect call)]
       {:passed? (= expect actual)
        :detail  (when (not= expect actual)
@@ -826,9 +826,9 @@
                        " expected " expect " got " actual))})
 
     :round-trip
-    (let [matched (routing/match-url (:url call))
+    (let [matched (rf.routing/match-url (:url call))
           rebuilt (when matched
-                    (routing/route-url {:to (:route-id matched) :params (:params matched) :query (or (:query matched) {}) :fragment (:fragment matched)}))]
+                    (rf.routing/route-url {:to (:route-id matched) :params (:params matched) :query (or (:query matched) {}) :fragment (:fragment matched)}))]
       {:passed? (= (:url call) rebuilt)
        :detail  (when (not= (:url call) rebuilt)
                   (str "round-trip " (:url call) " → " rebuilt))})
@@ -839,7 +839,7 @@
     ;; id; absent `:expect-error` ⇒ a well-formed pattern must NOT throw.
     :reg-route
     (let [want-error (:expect-error call)
-          thrown     (try (routing-match/validate-route-pattern!
+          thrown     (try (rf.routing.match/validate-route-pattern!
                             (:route-id call :rf.test/pattern) (:pattern call)) nil
                           (catch #?(:clj Throwable :cljs :default) e e))]
       (if want-error
@@ -859,8 +859,8 @@
 
     ;; rank-vs-rank assertion: winner's rank tuple compares greater than loser's.
     :assert-rank-greater
-    (let [w-meta  (registrar/lookup :route (:winner call))
-          l-meta  (registrar/lookup :route (:loser  call))
+    (let [w-meta  (rf.registrar/lookup :route (:winner call))
+          l-meta  (rf.registrar/lookup :route (:loser  call))
           w-rank  (:rf.route/rank w-meta)
           l-rank  (:rf.route/rank l-meta)
           ok?     (and w-rank l-rank (pos? (compare w-rank l-rank)))]
@@ -878,8 +878,8 @@
     ;; carry :doctype?.
     :render-to-string
     (let [opts (or (:opts call) {})
-          out  (try (ssr/render-to-string
-                      (conformance/realise-view-refs (:input call)) opts)
+          out  (try (rf.ssr/render-to-string
+                      (rf.conformance/realise-view-refs (:input call)) opts)
                     (catch #?(:clj Throwable :cljs :default) e
                       (str "<error: " (ex-message e) ">")))
           want (:expect call)]
@@ -900,7 +900,7 @@
                              (update :actions          #(merge actions-by-id %))
                              (update :guards           #(merge guards-by-id %))
                              (update :on-spawn-actions #(merge on-spawn-by-id %)))
-          r             (try (machines/machine-transition definition (:snapshot call) (:event call))
+          r             (try (rf.machines/machine-transition definition (:snapshot call) (:event call))
                              (catch #?(:clj Throwable :cljs :default) e
                                {:snapshot nil
                                 :fx   [:error (ex-message e)]}))
@@ -929,7 +929,7 @@
     ;; <category>` ⇒ the pure validator must throw that `:rf.error/id`.
     :reg-machine
     (let [want-error (:expect-error call)
-          thrown     (try (machines/validate-machine! (:definition call)) nil
+          thrown     (try (rf.machines/validate-machine! (:definition call)) nil
                           (catch #?(:clj Throwable :cljs :default) e e))]
       (if want-error
         (let [got-id (:rf.error/id (ex-data thrown))
@@ -980,9 +980,9 @@
                         {:request {:method :get
                                    :url    (str (:request-url call "/api/probe") params)}})
           want-error  (:expect-error call)
-          thrown      (try (resources/reg-resource resource-id (:spec call) request-fn) nil
+          thrown      (try (rf.resources/reg-resource resource-id (:spec call) request-fn) nil
                            (catch #?(:clj Throwable :cljs :default) e e))
-          _           (try (resources/clear-resource resource-id)
+          _           (try (rf.resources/clear-resource resource-id)
                            (catch #?(:clj Throwable :cljs :default) _ nil))]
       (if want-error
         (let [got-id (:rf.error/id (ex-data thrown))
@@ -1009,14 +1009,14 @@
           want-error  (:expect-error call)
           result      (try
                         {:ok (case side
-                               :sub   (resources-subs/resolve-scoped-key
+                               :sub   (rf.resources.subs/resolve-scoped-key
                                         (cond-> {:resource resource-id
                                                  :params   (:params call {})}
                                           (contains? call :payload-scope)
                                           (assoc :scope (:payload-scope call)))
                                         (:db call {}))
-                               (resources-registry/resolve-scope-for-event
-                                 resource-id (resources-registry/resource-meta resource-id)
+                               (rf.resources.registry/resolve-scope-for-event
+                                 resource-id (rf.resources.registry/resource-meta resource-id)
                                  {:payload-scope (:payload-scope call)
                                   :db            (:db call)}
                                  'rf.test/resolve-scope))}
@@ -1039,7 +1039,7 @@
     ;; EP-0012 (rf2-qyb9l1) — CEDN-1 canonical-identity golden ops (the FROZEN
     ;; byte-contract, so an encoder rewrite fails the corpus on BOTH hosts).
     :canonical-bytes
-    (let [actual (try (identity/canonical-bytes (:value call))
+    (let [actual (try (rf.identity/canonical-bytes (:value call))
                       (catch #?(:clj Throwable :cljs :default) e
                         (str "<error: " (ex-message e) ">")))
           expect (:expect call)]
@@ -1050,7 +1050,7 @@
                        "\n    actual:   " (pr-str actual)))})
 
     :canonical-identical
-    (let [ok? (try (identity/identical-identity? (:a call) (:b call))
+    (let [ok? (try (rf.identity/identical-identity? (:a call) (:b call))
                    (catch #?(:clj Throwable :cljs :default) _ false))]
       {:passed? (boolean ok?)
        :detail  (when-not ok?
@@ -1058,7 +1058,7 @@
                        (pr-str (:a call)) " vs " (pr-str (:b call))))})
 
     :canonical-distinct
-    (let [same? (try (identity/identical-identity? (:a call) (:b call))
+    (let [same? (try (rf.identity/identical-identity? (:a call) (:b call))
                      (catch #?(:clj Throwable :cljs :default) _ false))]
       {:passed? (not same?)
        :detail  (when same?
@@ -1069,7 +1069,7 @@
     ;; `canonical` returns (distinct from `:canonical-bytes`, which pins the
     ;; byte token). Used for the reserved tagged-instant tuple + its idempotence.
     :canonical-value
-    (let [actual (try (identity/canonical (:value call))
+    (let [actual (try (rf.identity/canonical (:value call))
                       (catch #?(:clj Throwable :cljs :default) e
                         (str "<error: " (ex-message e) ">")))
           expect (:expect call)]
@@ -1079,11 +1079,11 @@
                        "\n    expected: " (pr-str expect)
                        "\n    actual:   " (pr-str actual)))})
 
-    ;; `:path-instantiate` — `(path/instantiate path bindings)` = `:expect`,
+    ;; `:path-instantiate` — `(rf.path/instantiate path bindings)` = `:expect`,
     ;; OR fails closed with `:expect-error`. Concrete-path PRODUCER boundary.
     :path-instantiate
     (let [want-error (:expect-error call)
-          result     (try {:ok (path/instantiate (:path call) (:bindings call))}
+          result     (try {:ok (rf.path/instantiate (:path call) (:bindings call))}
                           (catch #?(:clj Throwable :cljs :default) e
                             {:err (or (:rf.error/id (ex-data e)) (ex-message e))}))]
       (if want-error
@@ -1104,17 +1104,17 @@
           (fn []
             (case (:call call)
               :path-get     (if (contains? call :not-found)
-                              (path/get (:value call) (:path call) (:not-found call))
-                              (path/get (:value call) (:path call)))
-              :path-lookup  (path/lookup (:value call) (:path call))
-              :path-put     (path/put (:value call) (:path call) (:x call))
-              :path-over    (path/over (:value call) (:path call)
+                              (rf.path/get (:value call) (:path call) (:not-found call))
+                              (rf.path/get (:value call) (:path call)))
+              :path-lookup  (rf.path/lookup (:value call) (:path call))
+              :path-put     (rf.path/put (:value call) (:path call) (:x call))
+              :path-over    (rf.path/over (:value call) (:path call)
                                        (case (:fn call)
                                          :inc       (fn [v] (inc (or v 0)))
                                          :wrap-vec  (fn [v] [:wrapped v])))
-              :path-compose (path/compose (:p call) (:q call))
-              :path-prefix  (path/prefix? (:p call) (:q call))
-              :path-overlap (path/overlap? (:p call) (:q call))))
+              :path-compose (rf.path/compose (:p call) (:q call))
+              :path-prefix  (rf.path/prefix? (:p call) (:q call))
+              :path-overlap (rf.path/overlap? (:p call) (:q call))))
           actual (try (run-path-op)
                       (catch #?(:clj Throwable :cljs :default) e
                         (str "<error: " (ex-message e) ">")))
@@ -1133,10 +1133,10 @@
     (let [has-frame? (contains? call :frame)
           opts       (cond-> {:rf.egress/profile (:rf.egress/profile call)}
                        has-frame? (assoc :frame (:frame call)))
-          run        (fn [] (projection/project-egress (:value call) opts))
+          run        (fn [] (rf.projection/project-egress (:value call) opts))
           actual     (try (if has-frame?
                             (run)
-                            (binding [frame/*current-frame* nil] (run)))
+                            (binding [rf.frame/*current-frame* nil] (run)))
                           (catch #?(:clj Throwable :cljs :default) e
                             (str "<error: " (ex-message e) ">")))
           expect     (:expect call)]
@@ -1150,7 +1150,7 @@
     ;; EP-0015 (rf2-t55hxg.2) — `:redact-headers`. Frame-local carrier extends
     ;; the immutable built-in defaults; no frame can remove a default.
     :redact-headers
-    (let [actual (try (http-privacy-headers/redact-headers
+    (let [actual (try (rf.http.privacy-headers/redact-headers
                         (:headers call) (:frame-extras call))
                       (catch #?(:clj Throwable :cljs :default) e
                         (str "<error: " (ex-message e) ">")))
@@ -1167,7 +1167,7 @@
     ;; validator on a missing / malformed policy.
     :ssr-apply-policy
     (let [want-error (:expect-error call)
-          result     (try {:ok (ssr-payload-policy/apply-policy
+          result     (try {:ok (rf.ssr.payload-policy/apply-policy
                                   (:app-db call) (:opts call))}
                           (catch #?(:clj Throwable :cljs :default) e
                             {:err (or (:rf.error/id (ex-data e)) (ex-message e))}))]
@@ -1183,7 +1183,7 @@
                          "\n    actual:   " (pr-str result)))}))
 
     ;; EP-0026 (rf2-qp8qi8) — `:assemble-image`. Pin the EP-0026 image-API
-    ;; surface host-agnostically against the live `image/image` constructor +
+    ;; surface host-agnostically against the live `rf.image/image` constructor +
     ;; `image-assembly` assembler. PURE — a function of the call's `:pool` +
     ;; `:images` specs. Inline bodies are realised to a host no-op (EDN cannot
     ;; carry fns; who-won is read from the descriptor coordinate, pure EDN).
@@ -1222,22 +1222,22 @@
                      {:err id}
                      {:err-msg (ex-message e)})))
             (try
-              (image-assembly/clear-standards!)
-              (image-assembly/clear-generation-cache!)
+              (rf.image-assembly/clear-standards!)
+              (rf.image-assembly/clear-generation-cache!)
               (doseq [[kind id] (:standards call)]
-                (image-assembly/register-standard! kind id {:handler-fn :rf.std/sentinel}))
+                (rf.image-assembly/register-standard! kind id {:handler-fn :rf.std/sentinel}))
               (let [pool   (vec (:pool call))
-                    images (mapv (fn [spec] (image/image (realise-spec spec)))
+                    images (mapv (fn [spec] (rf.image/image (realise-spec spec)))
                                  (:images call))
                     gen    (if (or (:default? call) (empty? images))
-                             (image-assembly/assemble-default pool)
-                             (image-assembly/assemble images pool))]
+                             (rf.image-assembly/assemble-default pool)
+                             (rf.image-assembly/assemble images pool))]
                 {:gen gen})
               (catch #?(:clj Throwable :cljs :default) e
                 (if-let [id (:rf.error/id (ex-data e))]
                   {:err id}
                   {:err-msg (ex-message e)}))
-              (finally (image-assembly/clear-standards!))))]
+              (finally (rf.image-assembly/clear-standards!))))]
       (if want-error
         (let [got (:err outcome)]
           {:passed? (= want-error got)
@@ -1254,9 +1254,9 @@
                             (cond
                               (nil? d)
                               (str "expected [" kind " " id "] to resolve, but it is absent")
-                              (not= coordinate (image-assembly/descriptor-coordinate d))
+                              (not= coordinate (rf.image-assembly/descriptor-coordinate d))
                               (str "[" kind " " id "] resolved to coordinate "
-                                   (pr-str (image-assembly/descriptor-coordinate d))
+                                   (pr-str (rf.image-assembly/descriptor-coordinate d))
                                    " — expected " (pr-str coordinate)))))
                         (:expect-resolves call))
                   (keep (fn [k+id]
@@ -1296,25 +1296,25 @@
     ;; assert normalized node + edge shapes. `:expect-graph` (rf2-ska8zk) is a
     ;; SUBMAP over the WHOLE graph (the graph-level `:mode`/`:frame` shape).
     :derivation-graph
-    (let [contributors  {:subs      {:static-fn  subs-tooling/sub-algebra-view
-                                     :live-fn    subs-tooling/sub-cache-algebra-view
+    (let [contributors  {:subs      {:static-fn  rf.subs.tooling/sub-algebra-view
+                                     :live-fn    rf.subs.tooling/sub-cache-algebra-view
                                      :live-shape :map}
-                         :flows     {:static-fn  flows-tooling/flow-algebra-view
-                                     :live-fn    flows-tooling/flow-algebra-view
+                         :flows     {:static-fn  rf.flows.tooling/flow-algebra-view
+                                     :live-fn    rf.flows.tooling/flow-algebra-view
                                      :live-shape :map}
-                         :resources {:static-fn  resources-tooling/resource-algebra-view
-                                     :live-fn    resources-tooling/resource-cache-algebra-view
+                         :resources {:static-fn  rf.resources.tooling/resource-algebra-view
+                                     :live-fn    rf.resources.tooling/resource-cache-algebra-view
                                      :live-shape :map}
-                         :routes    {:static-fn  routing-tooling/route-algebra-view
-                                     :live-fn    routing-tooling/route-slice-algebra-view
+                         :routes    {:static-fn  rf.routing.tooling/route-algebra-view
+                                     :live-fn    rf.routing.tooling/route-slice-algebra-view
                                      :live-shape :node}
-                         :machines  {:static-fn        machines-tooling/machine-algebra-view
-                                     :live-fn          machines-tooling/machine-instance-algebra-view
+                         :machines  {:static-fn        rf.machines.tooling/machine-algebra-view
+                                     :live-fn          rf.machines.tooling/machine-instance-algebra-view
                                      :live-shape       :map
-                                     :selector-targets machines-tooling/machine-selector-targets}}
+                                     :selector-targets rf.machines.tooling/machine-selector-targets}}
           graph         (if (= :live (:mode call))
-                          (dgraph/live-derivation-graph (:frame call :rf/default) contributors)
-                          (dgraph/derivation-graph contributors))
+                          (rf.derivation.graph/live-derivation-graph (:frame call :rf/default) contributors)
+                          (rf.derivation.graph/derivation-graph contributors))
           nodes         (:nodes graph)
           edges         (set (:edges graph))
           sub-map?      (fn [sub m] (every? (fn [[k v]] (= v (get m k))) sub))
@@ -1425,16 +1425,16 @@
               (contains? ev :reg-sub)
               (let [sub-id (:reg-sub ev)
                     steps  (:body ev)
-                    {:keys [kind inputs body]} (conformance/realise-sub steps)
+                    {:keys [kind inputs body]} (rf.conformance/realise-sub steps)
                     sub-meta (get sub-registry sub-id {})]
                 (case kind
                   :layer-1 (if (seq sub-meta)
-                             (subs/reg-sub sub-id sub-meta body)
-                             (subs/reg-sub sub-id body))
+                             (rf.subs/reg-sub sub-id sub-meta body)
+                             (rf.subs/reg-sub sub-id body))
                   :runtime-db (if (seq sub-meta)
-                                (subs/reg-runtime-sub sub-id sub-meta body)
-                                (subs/reg-runtime-sub sub-id body))
-                  :layer-2 (apply subs/reg-sub sub-id
+                                (rf.subs/reg-runtime-sub sub-id sub-meta body)
+                                (rf.subs/reg-runtime-sub sub-id body))
+                  :layer-2 (apply rf.subs/reg-sub sub-id
                                   (concat (when (seq sub-meta) [sub-meta])
                                           (interleave (repeat :<-) inputs)
                                           [body]))))
@@ -1483,7 +1483,7 @@
               server-hash     (:rf/render-hash payload)
               frame-id        (:rf/frame-id payload :rf/default)]
           (when (and client-hash server-hash)
-            (ssr/verify-hydration! frame-id client-hash
+            (rf.ssr/verify-hydration! frame-id client-hash
                                    {:first-diff-path first-diff-path
                                     :server-hash     server-hash}))))
       ;; :fixture/calls — pure-function assertions, run AFTER dispatches.
@@ -1497,8 +1497,8 @@
                           {:call-failures call-failures}))))
       ;; Drain any pending error projections so :rf/response carries the
       ;; projector's :status before snapshotting final-app-db.
-      (doseq [fid (frame/frame-ids)]
-        (try (ssr/apply-error-projection! fid)
+      (doseq [fid (rf.frame/frame-ids)]
+        (try (rf.ssr/apply-error-projection! fid)
              (catch #?(:clj Throwable :cljs :default) _ nil)))
       (let [expect       (or (:fixture/expect fixture) {})
             expected-db  (:final-app-db expect)
@@ -1525,7 +1525,7 @@
             sub-checks
             (doall
               (for [[query-v expected-val] (or (:sub-values expect) {})]
-                (let [[frame-id qv] (conformance/resolve-sub :rf/default query-v)]
+                (let [[frame-id qv] (rf.conformance/resolve-sub :rf/default query-v)]
                   {:query    query-v
                    :expected expected-val
                    :actual   (rf/subscribe-once qv {:frame frame-id})})))
@@ -1541,7 +1541,7 @@
                             (str "expected app-db path " (pr-str path)
                                  " to be ABSENT but found " (pr-str v)))))
                       expected-absent)))
-            trace-failures (conformance/check-trace-emissions @traces (:trace-emissions expect))
+            trace-failures (rf.conformance/check-trace-emissions @traces (:trace-emissions expect))
             error-emit-failures (when (contains? expect :error-emit-records)
                                   (check-error-emit-records
                                     @err-records (:error-emit-records expect)))
@@ -1561,7 +1561,7 @@
               (let [error-events (filter #(= :error (:op-type %)) @traces)
                     last-error   (last error-events)]
                 (if last-error
-                  (let [actual (ssr/project-error :rf/default last-error)]
+                  (let [actual (rf.ssr/project-error :rf/default last-error)]
                     {:expected expected-public-error
                      :actual   actual
                      :passed?  (= expected-public-error actual)})
@@ -1571,15 +1571,15 @@
         ;; Drop just this fixture's trace listener (host-specific registry).
         ((:unregister-trace-listener! host) fid)
         ;; rf2-wxe9t — drop just this fixture's error-emit recorder.
-        (error-emit/unregister-error-listener! [fid ::records])
+        (rf.error-emit/unregister-error-listener! [fid ::records])
         {:fixture-id   fid
-         :passed?      (and (or (nil? expected-db) (conformance/submap? expected-db final-db))
+         :passed?      (and (or (nil? expected-db) (rf.conformance/submap? expected-db final-db))
                             (or (nil? expected-dbs)
-                                (every? (fn [[fid db]] (conformance/submap? db (get final-dbs fid)))
+                                (every? (fn [[fid db]] (rf.conformance/submap? db (get final-dbs fid)))
                                         expected-dbs))
-                            (or (nil? expected-rt) (conformance/submap? expected-rt final-rt))
+                            (or (nil? expected-rt) (rf.conformance/submap? expected-rt final-rt))
                             (or (nil? expected-rts)
-                                (every? (fn [[fid rt]] (conformance/submap? rt (get final-rts fid)))
+                                (every? (fn [[fid rt]] (rf.conformance/submap? rt (get final-rts fid)))
                                         expected-rts))
                             (empty? absent-failures)
                             (empty? @dispatch-error-failures)

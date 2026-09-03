@@ -27,9 +27,9 @@
        `dispatch-sync` on an anon frame, read back via `rf/compute-sub`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]
+            [re-frame.frame :as rf.frame]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]
             [seven-guis.flight-booker.core :as flight]))
 
 ;; `:ambient-frame nil` — these tests create their own top-level anon frames via
@@ -39,8 +39,8 @@
 ;; so commits here run unvalidated — behavioural logic is what's under test,
 ;; and the schema binding is already pinned by example-frame-scoping).
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       reagent-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.reagent/adapter
      :ambient-frame nil}))
 
 ;; ===========================================================================
@@ -104,7 +104,7 @@
   "Boot a fresh anon frame seeded via `:flight/initialise` (one-way,
   start = return = 2026-05-06). Returns the frame id."
   []
-  (let [f (frame/make-anon-frame-record! {:doc "flight-booker test frame"})]
+  (let [f (rf.frame/make-anon-frame-record! {:doc "flight-booker test frame"})]
     (rf/dispatch-sync [:flight/initialise] {:frame f})
     f))
 

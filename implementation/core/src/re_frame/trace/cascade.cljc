@@ -42,10 +42,10 @@
 
   The aggregator publishes through one late-bind seam. The bundle-isolation
   gate verifies that this namespace and its capture literals stay out of
-  production CLJS bundles through the `interop/debug-enabled?` gate."
-  (:require [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.trace :as trace
+  production CLJS bundles through the `rf.interop/debug-enabled?` gate."
+  (:require [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.trace :as rf.trace
              #?@(:cljs [:include-macros true])]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -221,15 +221,15 @@
   the cascade buffer has been harvested. No-op when the predicate
   returns falsy (the off-focus epoch pays only the predicate call).
 
-  Whole body is inside `interop/debug-enabled?` so CLJS production
+  Whole body is inside `rf.interop/debug-enabled?` so CLJS production
   builds DCE the aggregator + emit."
   [frame-id epoch-id event-id events]
-  (when interop/debug-enabled?
+  (when rf.interop/debug-enabled?
     (let [pred @focus-predicate]
       (when (try (boolean (pred frame-id epoch-id event-id))
                  (catch #?(:clj Throwable :cljs :default) _ false))
         (let [dag (aggregate-cascade events)]
-          (trace/emit! :rf.cascade :rf.cascade/captured
+          (rf.trace/emit! :rf.cascade :rf.cascade/captured
                        (assoc dag
                               :frame             frame-id
                               :rf.epoch/id       epoch-id
@@ -243,9 +243,9 @@
 ;; sticky-publication shape (rf2-f72pd) — published once at ns-load and
 ;; never withdrawn.
 
-(late-bind/set-fn! :trace.cascade/capture-for-epoch! capture-for-epoch!)
-(late-bind/set-fn! :trace.cascade/set-focus-predicate!   set-focus-predicate!)
-(late-bind/set-fn! :trace.cascade/clear-focus-predicate! clear-focus-predicate!)
+(rf.late-bind/set-fn! :trace.cascade/capture-for-epoch! capture-for-epoch!)
+(rf.late-bind/set-fn! :trace.cascade/set-focus-predicate!   set-focus-predicate!)
+(rf.late-bind/set-fn! :trace.cascade/clear-focus-predicate! clear-focus-predicate!)
 
 ;; ---- bundle-isolation sentinel ------------------------------------------
 ;;

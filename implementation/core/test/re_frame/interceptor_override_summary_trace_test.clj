@@ -43,8 +43,8 @@
   guarded tag agrees with the chain it describes.
 
   The four `marks-projection-*` cases need no guard at all:
-  `classification/project-trace-event` is a pure fn over a SYNTHETIC event and
-  is not gated on `interop/debug-enabled?` — `marks-projection-redacts-non-ref-
+  `rf.classification/project-trace-event` is a pure fn over a SYNTHETIC event and
+  is not gated on `rf.interop/debug-enabled?` — `marks-projection-redacts-non-ref-
   payload` proves it, since a no-op projection would fail it. They were already
   green under the gate for a real reason, which is the distinction this pass
   keeps having to make.
@@ -57,22 +57,22 @@
   a tag was standing in for."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.interop :as interop]
-            [re-frame.frame :as frame]
-            [re-frame.interceptor :as interceptor]
-            [re-frame.classification :as classification]
-            [re-frame.privacy :as privacy]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]))
+            [re-frame.interop :as rf.interop]
+            [re-frame.frame :as rf.frame]
+            [re-frame.interceptor :as rf.interceptor]
+            [re-frame.classification :as rf.classification]
+            [re-frame.privacy :as rf.privacy]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace :as rf.trace]))
 
 (defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (schemas/clear-schemas-by-frame!)
-  (trace/clear-listeners!)
-  (rf/init! plain-atom/adapter)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.schemas/clear-schemas-by-frame!)
+  (rf.trace/clear-listeners!)
+  (rf/init! rf.substrate.plain-atom/adapter)
   (require 're-frame.routing :reload)
   ;; EP-0002 (rf2-9o48ih): `init!` no longer synthesises `:rf/default`.
   (rf/make-frame {:id :rf/default})
@@ -103,7 +103,7 @@
          (rf/dispatch-sync event-v dispatch-opts)
          (rf/dispatch-sync event-v))
        (let [run-starts (filterv #(= :rf.event/run-start (:operation %)) @acc)]
-         (when interop/debug-enabled?
+         (when rf.interop/debug-enabled?
            (is (= 1 (count run-starts))
                "exactly one :rf.event/run-start emit per dispatch"))
          (-> run-starts first :tags :rf.interceptor/override-summary))
@@ -146,7 +146,7 @@
       ;; class-4 vacuous under the gate: nil because the trace ring is empty,
       ;; not because the tag was omitted.
       (is (= [::log-a] @ran) "the authored chain ran unmodified")
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (nil? summary)
             "override-free dispatch carries no :rf.interceptor/override-summary tag")))))
 
@@ -161,7 +161,7 @@
       ;; ALWAYS-ON (rf2-d2841): an EMPTY override map leaves the chain intact.
       ;; The nil-tag assertion was class-4 vacuous under the gate.
       (is (= [::log-a] @ran) "an empty override map left the chain unmodified")
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (nil? summary)
             "an empty override map is the no-override path — tag omitted")))))
 
@@ -180,7 +180,7 @@
       ;; ALWAYS-ON (rf2-d2841): the removal HAPPENED — `::log-a` did not run,
       ;; `::log-b` did. That is the fact the guarded tag reports.
       (is (= [::log-b] @ran) "the removed interceptor did not run; its sibling did")
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (some? summary) "tag present when an override fires")
         (is (= [::log-a] (:removed summary)) ":removed carries the removed ref id")
         (is (= [] (:replaced summary)) ":replaced empty — nothing was replaced")
@@ -200,7 +200,7 @@
       ;; ALWAYS-ON (rf2-d2841): the SUBSTITUTION happened — the stub ran in the
       ;; replaced entry's slot and the original did not run at all.
       (is (= [::stub-x] @ran) "the replacement ran in place of the original")
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (some? summary))
         (is (= [::log-x] (:replaced summary)) ":replaced carries the replaced ref id")
         (is (= [] (:removed summary)))
@@ -223,7 +223,7 @@
       ;; stub ran, in the position the replaced entry held.
       (is (= [::stub-b] @ran)
           "the removed entry is gone and the replaced entry ran as its stub")
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (some? summary))
         (is (= [::log-a] (:removed summary)))
         (is (= [::log-b] (:replaced summary)))
@@ -247,7 +247,7 @@
       ;; ALWAYS-ON (rf2-d2841): an unmatched override key leaves the chain
       ;; untouched — the production statement of ":count 0".
       (is (= [::log-a] @ran) "an unmatched override key changed nothing")
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         ;; The override map is non-empty (so the helper runs) but nothing
         ;; matched — :matched/:removed/:replaced are empty, :count 0.
         (is (some? summary) "tag present (override map non-empty)")
@@ -272,7 +272,7 @@
         ;; ALWAYS-ON (rf2-d2841): a PER-FRAME override acts on the chain in
         ;; production too — the frame-scoped removal is not a dev affordance.
         (is (= [::log-b] @ran) "the per-frame override removed ::log-a from the chain")
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (some? summary))
           (is (= [::log-a] (:removed summary)))
           (is (= 1 (:count summary))))))))
@@ -295,7 +295,7 @@
       ;; than an empty one. `(seq all-ids)` over the empty concat the gate
       ;; yields would otherwise have gone red for a posture reason.
       (is (= [::stub-a] @ran) "the replacement ran in place of the original")
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (seq all-ids))
         (doseq [id all-ids]
           (is (or (keyword? id)
@@ -317,7 +317,7 @@
                               :replaced []
                               :removed  [::log-a]
                               :count    1}}}
-          out   (classification/project-trace-event ev)
+          out   (rf.classification/project-trace-event ev)
           summ  (-> out :tags :rf.interceptor/override-summary)]
       (is (= [::log-a] (:matched summ)))
       (is (= [::log-a] (:removed summ)))
@@ -333,7 +333,7 @@
                              :replaced [[:rf.interceptor/path {:secret "tok"}]]
                              :removed  []
                              :count    1}}}
-          out  (classification/project-trace-event ev)
+          out  (rf.classification/project-trace-event ev)
           summ (-> out :tags :rf.interceptor/override-summary)]
       (is (= [:rf.interceptor/path] (:matched summ))
           "[id arg] reduced to head id")
@@ -344,7 +344,7 @@
 
 (deftest marks-projection-redacts-non-ref-payload
   (testing "a non-ref payload (a refactor regression smuggling a value) FAILS CLOSED to :rf/redacted"
-    (let [leak (interceptor/->interceptor* :id ::leak :before identity)
+    (let [leak (rf.interceptor/->interceptor* :id ::leak :before identity)
           ev   {:operation :rf.event/run-start
                 :op-type   :rf.event
                 :tags      {:frame :rf/default
@@ -353,11 +353,11 @@
                              :replaced [leak]
                              :removed  []
                              :count    1}}}
-          out  (classification/project-trace-event ev)
+          out  (rf.classification/project-trace-event ev)
           summ (-> out :tags :rf.interceptor/override-summary)]
-      (is (= [privacy/redacted-sentinel] (:matched summ))
+      (is (= [rf.privacy/redacted-sentinel] (:matched summ))
           "an interceptor VALUE map collapses to the redacted sentinel")
-      (is (= [privacy/redacted-sentinel] (:replaced summ)))
+      (is (= [rf.privacy/redacted-sentinel] (:replaced summ)))
       (is (not-any? map? (:matched summ)) "no raw interceptor value egresses"))))
 
 (deftest marks-projection-drops-malformed-non-map-summary
@@ -366,6 +366,6 @@
                :op-type   :rf.event
                :tags      {:frame :rf/default
                            :rf.interceptor/override-summary [:not :a :map]}}
-          out (classification/project-trace-event ev)]
+          out (rf.classification/project-trace-event ev)]
       (is (not (contains? (:tags out) :rf.interceptor/override-summary))
           "malformed non-map summary slot is removed"))))

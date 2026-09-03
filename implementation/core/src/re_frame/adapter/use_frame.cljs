@@ -30,7 +30,7 @@
   resolution (1-arg form), EP-0002): the hook subscribes to the shared
   frame React-context so a `frame-provider` swap re-renders the caller, but
   DISCARDS the raw context value and resolves through the carried-invariant
-  chain (`frame/require-current-frame!`: dynamic-var → React-context → loud
+  chain (`rf.frame/require-current-frame!`: dynamic-var → React-context → loud
   `:rf.error/no-frame-context`). No scope, no `:rf/default` floor — absence
   fails loud, exactly as the no-arg `capture-frame` does.
 
@@ -54,15 +54,15 @@
   incarnation's bundle for the rest of the mount, and every dispatch and
   subscribe through it recover-but-emits `:rf.error/frame-destroyed`
   against a frame the caller can plainly see is alive. Keying on
-  `frame/frame-incarnation-token` — the `:drain-lock` identity, constant
+  `rf.frame/frame-incarnation-token` — the `:drain-lock` identity, constant
   across one incarnation and distinct across a reconstruction — makes the
   reincarnation a memo MISS, so the next render carries ops pinned to the
   successor. This is the same rule Hicasso's `n/use-frame` keeps by
   memoising on the runtime's incarnation row."
   (:require ["react" :as React]
-            [re-frame.adapter.context :as adapter-context]
-            [re-frame.core :as rf-core]
-            [re-frame.frame :as frame]))
+            [re-frame.adapter.context :as rf.adapter.context]
+            [re-frame.core :as rf]
+            [re-frame.frame :as rf.frame]))
 
 (defn use-frame
   "React hook (UIx): return the frame api for the ambient frame —
@@ -101,11 +101,11 @@
   ;; spine's ambient `use-subscribe`: the raw context value (which may be
   ;; the no-provider sentinel) is DISCARDED; resolution runs through the
   ;; carried-invariant chain below.
-  (React/useContext adapter-context/frame-context)
+  (React/useContext rf.adapter.context/frame-context)
   (let [;; All hooks run unconditionally BEFORE the loud resolution throw so
         ;; a scoped→unscoped render transition can never reorder hooks.
         ref   (React/useRef nil)
-        frame (frame/require-current-frame!
+        frame (rf.frame/require-current-frame!
                 :use-frame {:where 're-frame.adapter.use-frame/use-frame})
         ;; The identity half of the key (rf2-40kv). `capture-frame` pins the
         ;; incarnation live when IT runs; read the same identity here so the
@@ -113,7 +113,7 @@
         ;; live at render — is a legitimate key: the bundle it pairs with is
         ;; the unpinned, address-directed capture, and the frame appearing
         ;; later moves the token off nil and correctly misses.
-        token (frame/frame-incarnation-token frame)
+        token (rf.frame/frame-incarnation-token frame)
         prev  (.-current ref)]
     ;; Render-phase memo-by-value (rf2-mwft2 pattern): rebuild the ops map
     ;; ONLY when the resolved frame changes by `=` OR its incarnation changes
@@ -124,6 +124,6 @@
              (= (aget prev 0) frame)
              (identical? (aget prev 1) token))
       (aget prev 2)
-      (let [ops (rf-core/capture-frame frame)]
+      (let [ops (rf/capture-frame frame)]
         (set! (.-current ref) #js [frame token ops])
         ops))))

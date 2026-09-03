@@ -51,20 +51,20 @@
   drive it is host-specific."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core       :as rf]
-            [re-frame.late-bind  :as late-bind]
-            [re-frame.live-frame :as lf]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.late-bind  :as rf.late-bind]
+            [re-frame.live-frame :as rf.live-frame]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (def ^:private hook-key :live-frame/on-frame-destroyed!)
 
 (defn- provenance
   "The private generation-provenance table, as a plain map."
   []
-  (deref @#'lf/frame-generation-pool))
+  (deref @#'rf.live-frame/frame-generation-pool))
 
 (defn- row?
   "Does the table carry a row for `id`? Key MEMBERSHIP, never `get`: an ordinary
@@ -74,7 +74,7 @@
   (contains? (provenance) id))
 
 (defn- once-flag []
-  (deref @#'lf/reprojection-installed?))
+  (deref @#'rf.live-frame/reprojection-installed?))
 
 (defn- restore-hook!
   "Put `hook-key` back exactly as `before` had it — present with that fn, or
@@ -83,9 +83,9 @@
   `reprojection_install_race_jvm_test`'s fixture keeps)."
   [before]
   (if-let [f (get before hook-key)]
-    (late-bind/set-fn! hook-key f)
-    (do (swap! late-bind/hooks dissoc hook-key)
-        (late-bind/invalidate-cache! hook-key)))
+    (rf.late-bind/set-fn! hook-key f)
+    (do (swap! rf.late-bind/hooks dissoc hook-key)
+        (rf.late-bind/invalidate-cache! hook-key)))
   nil)
 
 (deftest teardown-hook-re-arms-on-live-frame-reload-rf2-cq0yi
@@ -94,7 +94,7 @@
             from pre-#8887 code — reloading `re-frame.live-frame` re-publishes
             `:live-frame/on-frame-destroyed!`, and `destroy-frame!` returns the
             provenance table to its captured baseline"
-    (let [hooks-before @late-bind/hooks]
+    (let [hooks-before @rf.late-bind/hooks]
       (try
         ;; ---- a LIVE process: something has already constructed a frame, so
         ;; the reprojection once-body has run and its flag is latched.
@@ -108,23 +108,23 @@
         ;; ---- the PRE-UPGRADE registry: only the new key is missing.
         ;; Everything else the once-body owns (the registrar hook, the two
         ;; reprojection keys) stays exactly as a pre-#8887 process left it.
-        (swap! late-bind/hooks dissoc hook-key)
-        (late-bind/invalidate-cache! hook-key)
-        (is (nil? (late-bind/get-fn hook-key))
+        (swap! rf.late-bind/hooks dissoc hook-key)
+        (rf.late-bind/invalidate-cache! hook-key)
+        (is (nil? (rf.late-bind/get-fn hook-key))
             "control: the teardown key is absent, as it is in a process that
              was running code from before the hook existed")
 
         ;; ---- the once-body CANNOT repair this. It is skipped behind the
         ;; latched flag, which is the whole defect: a publication sited there
         ;; gets exactly one chance per process and it has already been spent.
-        (lf/ensure-reprojection-installed!)
-        (is (nil? (late-bind/get-fn hook-key))
+        (rf.live-frame/ensure-reprojection-installed!)
+        (is (nil? (rf.late-bind/get-fn hook-key))
             "the once-body is a no-op behind the latched flag, so it cannot be
              the thing that re-arms the hook")
 
         ;; ---- the upgrade itself.
         (require 're-frame.live-frame :reload)
-        (is (some? (late-bind/get-fn hook-key))
+        (is (some? (rf.late-bind/get-fn hook-key))
             "rf2-cq0yi: ns LOAD re-publishes the teardown hook. Pre-fix this
              read nil — the reload skipped the once-body and published
              nothing, so destroy had no release to call")

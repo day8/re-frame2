@@ -56,19 +56,19 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core       :as rf]
-            [re-frame.frame      :as frame]
-            [re-frame.image      :as image]
-            [re-frame.late-bind  :as late-bind]
-            [re-frame.live-frame :as lf]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.frame      :as rf.frame]
+            [re-frame.image      :as rf.image]
+            [re-frame.late-bind  :as rf.late-bind]
+            [re-frame.live-frame :as rf.live-frame]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
-;; The runtime fixture installs the plain-atom adapter and resets `frame/frames`
+;; The runtime fixture installs the plain-atom adapter and resets `rf.frame/frames`
 ;; between cases. It deliberately does NOT touch the provenance table — these
 ;; cases capture their own baseline and assert against it, which is also what
 ;; makes the churn case's exact-count assertion honest in a shared test bundle.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---------------------------------------------------------------------------
 ;; Helpers
@@ -77,7 +77,7 @@
 (defn- provenance
   "The private generation-provenance table, as a plain map."
   []
-  (deref @#'lf/frame-generation-pool))
+  (deref @#'rf.live-frame/frame-generation-pool))
 
 (defn- row?
   "Does the table carry a row for `id`? Key MEMBERSHIP — see the ns docstring
@@ -87,7 +87,7 @@
 
 (defn- live?
   [id]
-  (contains? (set (frame/frame-ids)) id))
+  (contains? (set (rf.frame/frame-ids)) id))
 
 (defn- reg-desc
   "A synthetic REGISTERED descriptor authored in `provenance-ns` (mirrors the
@@ -117,7 +117,7 @@
             PR #8887 and is pinned by
             `live_frame_teardown_hook_reload_jvm_test`."
     (let [f (rf/make-frame {:id :cq0yi-hook/main})]
-      (is (some? (late-bind/get-fn :live-frame/on-frame-destroyed!))
+      (is (some? (rf.late-bind/get-fn :live-frame/on-frame-destroyed!))
           ":live-frame/on-frame-destroyed! is published once a frame exists")
       (rf/destroy-frame! f))))
 
@@ -162,7 +162,7 @@
     (let [id     :cq0yi-explicit/main
           pool-a [(reg-desc "cq0yi-explicit.core" :event :cq0yi-explicit/inc ::a)]
           pool-b [(reg-desc "cq0yi-explicit.core" :event :cq0yi-explicit/inc ::b)]
-          img    (image/image {:id        :cq0yi-explicit/img
+          img    (rf.image/image {:id        :cq0yi-explicit/img
                                :select-ns {:include ["cq0yi-explicit.core"]}})
           a      (rf/make-frame {:id id :images [img]} pool-a)]
       (testing "control: A's live row is A's exact pool"

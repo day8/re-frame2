@@ -6,7 +6,7 @@
 
   Router envelope frame resolution order:
     1. explicit `{:frame …}` opt WINS (override);
-    2. otherwise `frame/require-current-frame!` reads the scope/hold stamp
+    2. otherwise `rf.frame/require-current-frame!` reads the scope/hold stamp
        (`with-frame`, a `frame-provider` (SCOPE) or a `frame-root`
        (ENSURE) boundary, or a captured `*current-frame*` binding via a
        capture-frame);
@@ -35,9 +35,9 @@
 
   Both error categories this file asserts on are ALWAYS-ON, so the split here
   is NOT a guard — it is a change of AXIS. `:rf.error/no-frame-context` fans
-  through `frame/emit-no-frame-context!`, which calls the late-bound
+  through `rf.frame/emit-no-frame-context!`, which calls the late-bound
   `:error-emit/dispatch-on-error` hook BEFORE it reaches the dev-only
-  `trace/emit-error!` leg; `:rf.error/frame-destroyed` is in the promoted
+  `rf.trace/emit-error!` leg; `:rf.error/frame-destroyed` is in the promoted
   always-on set (`re-frame.error-emit` ns docstring §Corpus-wide listener
   registry). Reading those counts off the `:errors` stream instead of the
   `:trace` stream keeps the assertions VERBATIM and load-bearing in BOTH
@@ -46,25 +46,25 @@
   The one genuinely dev-only claim is `NO :rf.event/dispatched` — a negative
   over the trace stream, which under `-Dre-frame.debug=false` is empty for
   every dispatch, enqueued or not. It is kept verbatim inside a
-  `(when interop/debug-enabled? …)` arm marked `rf2-d2841`. Its production
+  `(when rf.interop/debug-enabled? …)` arm marked `rf2-d2841`. Its production
   counterpart is the always-on one immediately above it: an
   `:rf.error/no-frame-context` record on the `:errors` axis IS the
   before-enqueue rejection, since the emit site sits at envelope-build time."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace :as rf.trace]))
 
 ;; ---- fixtures -------------------------------------------------------------
 
 (defn reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (trace/clear-listeners!)
-  (rf/init! plain-atom/adapter)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.trace/clear-listeners!)
+  (rf/init! rf.substrate.plain-atom/adapter)
   (test-fn))
 
 (use-fixtures :each reset-runtime)
@@ -109,7 +109,7 @@
     (rf/reg-event :app/noop (fn [{:keys [db]} _] {:db db}))
     (let [recorded (record-traces! ::bare)
           errs     (record-errors! ::bare-errors)]
-      (binding [frame/*current-frame* nil]
+      (binding [rf.frame/*current-frame* nil]
         (let [ex (no-frame-context-ex #(rf/dispatch [:app/noop]))]
           (is (some? ex) "frameless dispatch raised")
           (is (= :rf.error/no-frame-context (:rf.error/id (ex-data ex)))
@@ -127,14 +127,14 @@
       ;; A NEGATIVE over the trace stream: under `-Dre-frame.debug=false` the
       ;; stream is empty whether or not the event was enqueued, so outside the
       ;; arm this would report "caught before enqueue" for free.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (empty? (filter #(= :rf.event/dispatched (:operation %)) @recorded))
             "NO :rf.event/dispatched — the absence is caught before enqueue")))))
 
 (deftest bare-dispatch-sync-outside-context-raises-no-frame-context
   (testing "dispatch-sync under no scope raises the same way as dispatch"
     (rf/reg-event :app/noop (fn [{:keys [db]} _] {:db db}))
-    (binding [frame/*current-frame* nil]
+    (binding [rf.frame/*current-frame* nil]
       (let [ex (no-frame-context-ex #(rf/dispatch-sync [:app/noop]))]
         (is (= :rf.error/no-frame-context (:rf.error/id (ex-data ex)))
             "dispatch-sync raises :rf.error/no-frame-context too")))))
@@ -145,7 +145,7 @@
             still raises :rf.error/no-frame-context (never
             :rf.error/no-such-handler / :rf.error/frame-destroyed)"
     (let [recorded (record-traces! ::precede)]
-      (binding [frame/*current-frame* nil]
+      (binding [rf.frame/*current-frame* nil]
         (let [ex (no-frame-context-ex #(rf/dispatch-sync [:never/registered]))]
           (is (= :rf.error/no-frame-context (:rf.error/id (ex-data ex))))))
       (rf/unregister-listener! :trace ::precede)
@@ -173,7 +173,7 @@
     (rf/make-frame {:id :app/main :doc "scope frame"})
     (rf/reg-event :app/inc {:frame :app/main}
       (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
-    (binding [frame/*current-frame* :app/main]
+    (binding [rf.frame/*current-frame* :app/main]
       (rf/dispatch-sync [:app/inc]))
     (is (= 1 (:n (rf/app-db-value :app/main))))))
 
@@ -192,7 +192,7 @@
                   (fn [] (rf/dispatch-sync [:app/noop])))]
       ;; Invoke after the scope has unwound (the JS async-callback shape:
       ;; fresh stack, no dynamic binding).
-      (binding [frame/*current-frame* nil]
+      (binding [rf.frame/*current-frame* nil]
         (let [ex (no-frame-context-ex thunk)]
           (is (= :rf.error/no-frame-context (:rf.error/id (ex-data ex)))
               "the unwound bare dispatch raised :rf.error/no-frame-context"))))))
@@ -211,7 +211,7 @@
       (is (= :app/main (:frame handle))
           "the handle captured the scope frame at creation time")
       ;; Fire after the scope has unwound — the held stamp survives.
-      (binding [frame/*current-frame* nil]
+      (binding [rf.frame/*current-frame* nil]
         ((:dispatch-sync handle) [:app/inc]))
       (is (= 1 (:n (rf/app-db-value :app/main)))
           "the held dispatch ran against the captured frame despite no scope"))))
@@ -225,8 +225,8 @@
     (rf/reg-event :app/inc {:frame :app/main}
       (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (let [bound (rf/with-frame :app/main
-                  (frame/bind-fn :app/main (fn [] (rf/dispatch-sync [:app/inc]))))]
-      (binding [frame/*current-frame* nil]
+                  (rf.frame/bind-fn :app/main (fn [] (rf/dispatch-sync [:app/inc]))))]
+      (binding [rf.frame/*current-frame* nil]
         (bound))
       (is (= 1 (:n (rf/app-db-value :app/main)))
           "bind-fn re-bound the captured frame for the inner dispatch"))))
@@ -240,7 +240,7 @@
     (rf/reg-event :app/inc {:frame :rf/default}
       (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     ;; No surrounding scope — the explicit override carries the stamp.
-    (binding [frame/*current-frame* nil]
+    (binding [rf.frame/*current-frame* nil]
       (rf/dispatch-sync [:app/inc] {:frame :rf/default}))
     (is (= 1 (:n (rf/app-db-value :rf/default)))
         "the explicit :rf/default override resolved and ran the handler")))
@@ -254,7 +254,7 @@
     ;; :rf/default is intentionally NOT registered.
     (rf/reg-event :app/noop (fn [{:keys [db]} _] {:db db}))
     (let [errs (record-errors! ::bad-explicit-errors)]
-      (binding [frame/*current-frame* nil]
+      (binding [rf.frame/*current-frame* nil]
         ;; An explicit target that does not resolve to a frame-record is
         ;; recover-but-emit (rf2-2hvga): no throw, but a
         ;; :rf.error/frame-destroyed always-on error.

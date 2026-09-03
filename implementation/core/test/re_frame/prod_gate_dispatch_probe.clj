@@ -21,10 +21,10 @@
   Reports its observations as one EDN map on stdout, prefixed by
   `result-marker`. Assertions live in the parent."
   (:require [re-frame.core :as rf]
-            [re-frame.error-emit :as error-emit]
-            [re-frame.interop :as interop]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.error-emit :as rf.error-emit]
+            [re-frame.interop :as rf.interop]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (def result-marker
   "Line prefix the parent greps for. Distinctive enough that unrelated
@@ -39,7 +39,7 @@
 
   The ORDER is the whole point: `make-frame` FIRST, `reg-event` SECOND. A frame
   seals an image generation at construction (EP-0026 §Default Image — every
-  frame is image-loaded, so `registrar/lookup` inside the cascade resolves
+  frame is image-loaded, so `rf.registrar/lookup` inside the cascade resolves
   through that generation, not the registrar atom), and the registration lands
   after the seal. Nothing in re-frame2 orders all registrations before all frame
   construction, so this is an ordinary app/REPL/test sequence — and under the
@@ -47,8 +47,8 @@
   []
   (let [runs   (atom 0)
         errors (atom [])]
-    (rf/init! plain-atom/adapter)
-    (error-emit/register-error-listener!
+    (rf/init! rf.substrate.plain-atom/adapter)
+    (rf.error-emit/register-error-listener!
       ::probe (fn [record] (swap! errors conj (:error record))))
     (rf/make-frame {:id frame-id})
     (rf/reg-event event-id
@@ -57,8 +57,8 @@
                     {:db (update db :n (fnil inc 0))}))
     (rf/with-frame frame-id
       (rf/dispatch-sync [event-id]))
-    (let [after-dispatch {:debug-enabled?     interop/debug-enabled?
-                          :bare-lookup-found? (some? (registrar/lookup :event event-id))
+    (let [after-dispatch {:debug-enabled?     rf.interop/debug-enabled?
+                          :bare-lookup-found? (some? (rf.registrar/lookup :event event-id))
                           :handler-runs       @runs
                           :app-db             (rf/app-db-value frame-id)
                           :errors             @errors}]
@@ -66,7 +66,7 @@
       ;; frame's sealed generation, so a cleared handler stops resolving rather
       ;; than lingering in a store that no longer backs it.
       (reset! errors [])
-      (registrar/unregister! :event event-id)
+      (rf.registrar/unregister! :event event-id)
       (rf/with-frame frame-id
         (rf/dispatch-sync [event-id]))
       (assoc after-dispatch

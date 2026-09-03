@@ -14,7 +14,7 @@
   hand-built record): here a genuine `dispatch-sync` drives the router's
   cascade trailers, which build the `:rf.observe/handled-event` record and
   route it through `project-egress` to a frame-declared sink; and a genuine
-  handler-exception drives `error-emit/dispatch-on-error!`, which routes the
+  handler-exception drives `rf.error-emit/dispatch-on-error!`, which routes the
   `:rf.observe/error` record to a frame-declared error sink.
 
   Pins the legs the bead enumerates:
@@ -36,25 +36,25 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
-            [re-frame.elision :as elision]
-            [re-frame.error-emit :as error-emit]
-            [re-frame.event-emit :as event-emit]
-            [re-frame.frame :as frame]
-            [re-frame.observability :as observability]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as ts]))
+            [re-frame.elision :as rf.elision]
+            [re-frame.error-emit :as rf.error-emit]
+            [re-frame.event-emit :as rf.event-emit]
+            [re-frame.frame :as rf.frame]
+            [re-frame.observability :as rf.observability]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; The reset-runtime fixture rebuilds the registrar / frames / runtime per
 ;; test. We additionally clear BOTH the always-on listener registries AND
 ;; the observability sink registry so a sink registered by one test cannot
 ;; leak into the next.
 (use-fixtures :each
-  (ts/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.substrate.plain-atom/adapter
      :init-fn (fn []
-                (event-emit/clear-event-listeners!)
-                (error-emit/clear-error-listeners!)
-                (observability/clear-observability-sinks!))}))
+                (rf.event-emit/clear-event-listeners!)
+                (rf.error-emit/clear-error-listeners!)
+                (rf.observability/clear-observability-sinks!))}))
 
 (defn- redacted? [v] (= :rf/redacted v))
 
@@ -79,8 +79,8 @@
       ;; EP-0025: classify [:auth :token] sensitive via the commit-plane
       ;; effect path (the durable frame annotation is removed) so the
       ;; projector has policy to apply.
-      (frame/swap-runtime-db! :obs/main
-        (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:auth :token]]})))
+      (rf.frame/swap-runtime-db! :obs/main
+        (fn [rt] (rf.elision/apply-classification-effects rt {:sensitive [[:auth :token]]})))
       (rf/reg-event :auth/login
                        {:frame :obs/main}
                        (fn [{:keys [db]} _] {:db (assoc-in db [:auth :token] "super-secret")}))
@@ -144,8 +144,8 @@
       ;; EP-0025: classify [:auth :token] sensitive via the commit-plane
       ;; effect path (the durable frame annotation is removed) so the
       ;; projector redacts it inside the error record's :event tree slot.
-      (frame/swap-runtime-db! :obs/err
-        (fn [rt] (elision/apply-classification-effects rt {:sensitive [[:auth :token]]})))
+      (rf.frame/swap-runtime-db! :obs/err
+        (fn [rt] (rf.elision/apply-classification-effects rt {:sensitive [[:auth :token]]})))
       (rf/reg-event :auth/login
                        {:frame :obs/err}
                        (fn [{:keys [db]} _] {:db (throw (ex-info "kaboom" {:cause :test}))}))
@@ -227,9 +227,9 @@
                                   (fn [record] (swap! seen conj record)))
       ;; Call the routing fn directly against a frame id that was never
       ;; registered. Fail-closed: nil frame record ⇒ no policy ⇒ no-op.
-      (observability/route-handled-event!
+      (rf.observability/route-handled-event!
         [:evt/x] :evt/x :obs/ghost :ok 1 [:db] nil)
-      (observability/route-error!
+      (rf.observability/route-error!
         :rf.error/handler-exception [:evt/x] :evt/x :obs/ghost
         (ex-info "x" {}) 1 0 nil)
       (is (empty? @seen)

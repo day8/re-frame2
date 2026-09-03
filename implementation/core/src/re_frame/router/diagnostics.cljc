@@ -10,20 +10,20 @@
   production-survivable error.
 
   Every fn here either runs on a cold/error path or sits behind
-  `interop/debug-enabled?` — production builds (`:advanced` +
+  `rf.interop/debug-enabled?` — production builds (`:advanced` +
   `goog.DEBUG=false`) DCE the bodies and the keyword reason-strings.
 
   The cross-ns indirection from the router facade is amortised: callers
   (`process-event*`, `dispatch!`, `dispatch-sync!`) all sit on the
   facade and reach into this ns only on the rare warning / error paths."
   (:require [clojure.string :as str]
-            [re-frame.cofx.value-check :as value-check]
-            [re-frame.error :as error]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.reply :as reply]
-            [re-frame.trace :as trace
+            [re-frame.cofx.value-check :as rf.cofx.value-check]
+            [re-frame.error :as rf.error]
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.reply :as rf.reply]
+            [re-frame.trace :as rf.trace
              #?@(:cljs [:include-macros true])]))
 
 #?(:clj (set! *warn-on-reflection* true))
@@ -48,7 +48,7 @@
   without a load cycle). The `:frame`-stampable record carries the target
   `frame` + attempted `event` for 7d30s + shipper attribution.
 
-  The dev `trace/emit-error!` below stays dev-only (it DCEs under
+  The dev `rf.trace/emit-error!` below stays dev-only (it DCEs under
   `goog.DEBUG=false`); the always-on listener fan-out is what survives."
   [event-id event frame]
   ;; Both channels via the shared helper: axis 1 the always-on
@@ -57,7 +57,7 @@
   ;; Reached via the `:error-emit/emit-error-both` hook (this diagnostics ns
   ;; cannot static-require error-emit — load cycle).
   (when-let [emit-error-both!
-             (late-bind/get-fn-cached :error-emit/emit-error-both)]
+             (rf.late-bind/get-fn-cached :error-emit/emit-error-both)]
     (emit-error-both!
       :rf.error/no-such-handler
       event
@@ -65,7 +65,7 @@
       frame
       nil                                 ;; no exception — invalid op
       0                                   ;; elapsed-ms
-      (interop/now-ms)                    ;; time
+      (rf.interop/now-ms)                    ;; time
       {:rf.trace/event-id event-id
        :rf.event/v        event
        :frame             frame
@@ -87,16 +87,16 @@
   refuse. Frames are independent state machines (per Spec 002 §Rules
   rule 1) and frame B's drain doesn't violate frame A's contract.
 
-  Dev-only — the caller gates on `interop/debug-enabled?` to skip the
+  Dev-only — the caller gates on `rf.interop/debug-enabled?` to skip the
   registry walk in production."
   [target-frame-id]
   (some (fn [frame-id]
           (when (not= frame-id target-frame-id)
-            (when-let [frame-record (frame/frame frame-id)]
+            (when-let [frame-record (rf.frame/frame frame-id)]
               (let [router-state @(:router frame-record)]
                 (when (or (:in-sync-drain? router-state) (:in-drain? router-state))
                   frame-id)))))
-        (frame/frame-ids)))
+        (rf.frame/frame-ids)))
 
 (def ^:const known-dispatch-opts
   "The closed set of keys `build-envelope` reads off the
@@ -173,7 +173,7 @@
 
   Dev-only, like the warning it feeds: the whole map DCEs under `:advanced` +
   `goog.DEBUG=false` (only reached inside `emit-unknown-dispatch-opts-warning!`,
-  itself gated on `interop/debug-enabled?`)."
+  itself gated on `rf.interop/debug-enabled?`)."
   {:rf.world/inputs
    "did you mean `:rf.cofx`? (EP-0017 renamed the recordable-coeffect envelope field — supply the flat `fact-name → value` map under `:rf.cofx`; the framework time fact is `:rf/time-ms`)"
    :dispatched-at
@@ -186,7 +186,7 @@
   MUST be recordable EDN data (EP-0017:386). The first non-recordable value
   throws `:rf.error/cofx-value-invalid` (reason `:non-edn-recordable-value`).
 
-  ALWAYS-ON — NOT gated on `interop/debug-enabled?` (EP-0017 §3 / §5 / Open
+  ALWAYS-ON — NOT gated on `rf.interop/debug-enabled?` (EP-0017 §3 / §5 / Open
   Issue 9 — structural EDN always, hard errors in production as well as dev):
   a supplied recordable value that is a host handle folds a non-EDN value into
   the durable causal record (epoch ledger, replay, SSR payload, Xray) — corrupt
@@ -198,7 +198,7 @@
   complementary always-on per-supplier contract; this is the structural
   always-EDN floor that fires even when no `:schema` was declared.
 
-  The `:supplied` arm of the shared `value-check/check-edn-value!`
+  The `:supplied` arm of the shared `rf.cofx.value-check/check-edn-value!`
   — its generated-value twin (slice B) lives at the generator write-back site
   (`re-frame.cofx`). The always-on listener carries the triggering `event` (the
   supplied path runs at the dispatch boundary, before any frame is owned)."
@@ -208,7 +208,7 @@
       (fn [_ cofx-id value]
         ;; `:rf/time-ms` is already shape-checked above (integer); skip it.
         (when-not (= cofx-id :rf/time-ms)
-          (value-check/check-edn-value! :supplied cofx-id value event-id event nil))
+          (rf.cofx.value-check/check-edn-value! :supplied cofx-id value event-id event nil))
         nil)
       nil
       supplied)))
@@ -248,7 +248,7 @@
   that follows; this is the structural always-EDN floor that catches the author
   error at the dispatch source.
 
-  ALWAYS-ON — NOT gated on `interop/debug-enabled?`: like
+  ALWAYS-ON — NOT gated on `rf.interop/debug-enabled?`: like
   `reject-retired-dispatch-opts!`, a corrupt causal token is a correctness
   contract that must fail fast in `:advanced` + `goog.DEBUG=false`
   production too (a non-integer `:rf/time-ms` folded into a durable timestamp
@@ -265,7 +265,7 @@
   (when (contains? opts :rf.cofx)
     (let [supplied (:rf.cofx opts)]
       (when-not (or (nil? supplied) (map? supplied))
-        (error/throw-error!
+        (rf.error/throw-error!
           :rf.error/invalid-cofx 're-frame.router/build-envelope
           (str ":rf.cofx must be nil or a MAP "
                "of recordable coeffect facts (Spec 002 "
@@ -281,7 +281,7 @@
       (when (and (map? supplied)
                  (contains? supplied :rf/time-ms)
                  (not (int? (:rf/time-ms supplied))))
-        (error/throw-error!
+        (rf.error/throw-error!
           :rf.error/invalid-cofx 're-frame.router/build-envelope
           (str ":rf.cofx :rf/time-ms must be an "
                "INTEGER (wall-clock epoch milliseconds "
@@ -310,9 +310,9 @@
   "Return the seq of keys in `opts` that fall OUTSIDE
   `known-dispatch-opts`, or nil when every key is known (so callers can
   `when-let` the result). Dev-only — the sole caller gates on
-  `interop/debug-enabled?`."
+  `rf.interop/debug-enabled?`."
   [opts]
-  (when interop/debug-enabled?
+  (when rf.interop/debug-enabled?
     (seq (remove known-dispatch-opts (keys opts)))))
 
 (defn emit-unknown-dispatch-opts-warning!
@@ -337,13 +337,13 @@
   appends a specific did-you-mean naming the canonical replacement, so the
   fix stays as actionable as a bespoke error would have made it.
 
-  Body gated on `interop/debug-enabled?` so the whole surface — the
+  Body gated on `rf.interop/debug-enabled?` so the whole surface — the
   warning keyword's interned slot, the reason-string allocation, the
   `unknown-dispatch-opts` walk — DCEs wholesale under `:advanced` +
   `goog.DEBUG=false`. The caller in `build-envelope` reads the
   unknown-key seq inside the same gate so production never walks the opts."
   [unknown event]
-  (when interop/debug-enabled?
+  (when rf.interop/debug-enabled?
     (let [event-id (first event)
           unknown  (vec unknown)
           hints    (into []
@@ -362,13 +362,13 @@
                         "vector, not the dispatch opts map."
                         (when (seq hints)
                           (str " " (str/join " " hints))))]
-      (trace/emit! :warning
+      (rf.trace/emit! :warning
                    :rf.warning/unknown-dispatch-opt
                    {:event        event
                     :event-id     event-id
                     :unknown-keys unknown
                     :known-keys   (vec (sort known-dispatch-opts))
-                    :detected-at  (interop/now-ms)
+                    :detected-at  (rf.interop/now-ms)
                     :reason       reason
                     :recovery     :no-recovery}))))
 
@@ -376,14 +376,14 @@
   "Emit `:rf.warning/cross-frame-dispatch-sync-during-drain`
   when `dispatch-sync!` lands on frame `target-frame-id` while a different
   frame (`other-frame-id`) is mid-drain. The caller frame is read from
-  `frame/*current-frame*`; when unbound (no frame context — e.g. a
+  `rf.frame/*current-frame*`; when unbound (no frame context — e.g. a
   process-level REPL caller threading the dispatch through some unusual
   path) the field is `:rf/none`.
 
   The cross-frame case is intentional but surprising: warn, do not refuse.
   Continues with the dispatch."
   [target-frame-id other-frame-id event]
-  (let [caller-frame-id (or frame/*current-frame* :rf/none)
+  (let [caller-frame-id (or rf.frame/*current-frame* :rf/none)
         reason          (str "dispatch-sync! against `" target-frame-id "` while frame `"
                              other-frame-id "` is mid-drain. The two cascades will "
                              "interleave: `" target-frame-id "`'s drain runs to settled "
@@ -397,7 +397,7 @@
                              "the async form `(rf/dispatch event {:frame other})` "
                              "— it queues on the target frame's router and drains "
                              "on a later cycle, after the caller's cascade settles.")]
-    (trace/emit! :warning
+    (rf.trace/emit! :warning
                  :rf.warning/cross-frame-dispatch-sync-during-drain
                  {:caller-frame caller-frame-id
                   :target-frame target-frame-id
@@ -439,9 +439,9 @@
   args is harmless.
 
   The sole caller (`re-frame.router/build-envelope`) gates this call on
-  `interop/debug-enabled?`, so production never walks the payload."
+  `rf.interop/debug-enabled?`, so production never walks the payload."
   [event]
-  (reply/walk-find-host-handle-bounded event payload-lint-node-budget))
+  (rf.reply/walk-find-host-handle-bounded event payload-lint-node-budget))
 
 (defn emit-non-serialisable-event-payload-warning!
   "Emit `:rf.warning/non-serialisable-event-payload` (Conventions §Event
@@ -451,11 +451,11 @@
   hydration, and epoch history all assume a value-shaped event, but this is
   a SHOULD, not a MUST, so the runtime warns rather than rejects.
 
-  Dev-only — `interop/debug-enabled?`-gated wholesale (mirrors
+  Dev-only — `rf.interop/debug-enabled?`-gated wholesale (mirrors
   `emit-unknown-dispatch-opts-warning!`): the whole surface DCEs under
   `:advanced` + `goog.DEBUG=false`."
   [event path]
-  (when interop/debug-enabled?
+  (when rf.interop/debug-enabled?
     (let [event-id (first event)
           reason   (str "Dispatch of `" event-id "` carries a non-"
                         "serialisable value (fn / Promise / AbortController / "
@@ -466,7 +466,7 @@
                         "hydration, and epoch history all assume a value-"
                         "shaped event. Replace the handle with its data "
                         "projection (an id, a snapshot, a plain value).")]
-      (trace/emit! :warning
+      (rf.trace/emit! :warning
                    :rf.warning/non-serialisable-event-payload
                    {:event    event
                     :event-id event-id

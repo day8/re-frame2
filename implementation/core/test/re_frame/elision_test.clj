@@ -4,7 +4,7 @@
   EP-0025: durable app-db classification is declared by the commit-plane
   classification effects — a `reg-event` returns `:sensitive` / `:large`
   alongside `:db`, written into the per-frame elision registry under
-  `:source :effect` (`elision/apply-classification-effects`). The durable
+  `:source :effect` (`rf.elision/apply-classification-effects`). The durable
   `:sensitive` / `:large {:app-db …}` *frame annotation* is REMOVED.
   Schema-attached `{:sensitive? true}` / `{:large? true}` slot props are NOT
   a route into this registry. These tests seed declarations through the
@@ -20,13 +20,13 @@
   `:large` path elides independent of the runtime threshold.
 
   `:rf.warning/large-value-unschema'd` is a different matter. It is the
-  runtime AUTO-DETECT diagnostic — a dev-only `trace/emit!` site — and,
+  runtime AUTO-DETECT diagnostic — a dev-only `rf.trace/emit!` site — and,
   crucially, it is the ONLY observable the threshold has: the file's own
   `unschema'd-large-value-warns-but-does-not-elide` establishes that a
   schema-less large value is NOT elided, so the threshold changes nothing
   about the returned wire value. Every threshold deftest therefore reads its
   result off that warning, and all of them are kept verbatim inside
-  `(when interop/debug-enabled? …)` arms marked `rf2-d2841`.
+  `(when rf.interop/debug-enabled? …)` arms marked `rf2-d2841`.
 
   That includes the ones that pass under the gate today, and they are the
   reason to be careful here rather than the exception to it:
@@ -35,25 +35,25 @@
   and `default-threshold-is-16384` each open with the same shape. Over a
   trace stream that is empty for EVERY threshold, \"threshold 0 disables
   auto-detect\" is true without the threshold existing. Their production
-  residue — that the configured value reaches `elision/current-config`, and
+  residue — that the configured value reaches `rf.elision/current-config`, and
   that the wire value is returned intact either way — is asserted outside the
   arms."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.elision :as elision]
-            [re-frame.flows :as flows]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]))
+            [re-frame.elision :as rf.elision]
+            [re-frame.flows :as rf.flows]
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace :as rf.trace]))
 
 (defn- install-class!
   "Seed the frame's elision registry through the EP-0025 commit-plane
   classification effect path — the same registry write a `reg-event`
   returning `:sensitive` / `:large` alongside `:db` performs
-  (`elision/apply-classification-effects`, `:source :effect`). `sensitive` /
+  (`rf.elision/apply-classification-effects`, `:source :effect`). `sensitive` /
   `large` are vectors of `:rf/path` vectors. (EP-0025 removed the durable
   `:sensitive` / `:large {:app-db …}` frame annotation; tests seed via the
   surviving effect mechanism.)"
@@ -62,22 +62,22 @@
    (let [effects (cond-> {}
                    (seq sensitive) (assoc :sensitive (mapv vec sensitive))
                    (seq large)     (assoc :large     (mapv vec large)))]
-     (frame/swap-runtime-db! frame-id
-       (fn [rt] (elision/apply-classification-effects rt effects))))))
+     (rf.frame/swap-runtime-db! frame-id
+       (fn [rt] (rf.elision/apply-classification-effects rt effects))))))
 
 (defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  (trace/clear-listeners!)
-  (elision/clear-warning-cache!)
-  (rf/init! plain-atom/adapter)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.flows/reset-flows!)
+  (rf.schemas/clear-schemas-by-frame!)
+  (rf.trace/clear-listeners!)
+  (rf.elision/clear-warning-cache!)
+  (rf/init! rf.substrate.plain-atom/adapter)
   (require 're-frame.elision :reload)
   (require 're-frame.schemas :reload)
   ;; `config` is a `defonce` (survives `:reload`); restore the documented
   ;; default so a configure tweak in one test does not leak into the next.
-  (elision/configure! {:rf.size/threshold-bytes 16384})
+  (rf.elision/configure! {:rf.size/threshold-bytes 16384})
   ;; EP-0002 (rf2-5q7um6 + rf2-gjq3ow): reg-app-schema + the zero-arity
   ;; populate-*-from-schemas! / declarations / sensitive-declarations
   ;; readers are context-required frame-local — an ambient call under no
@@ -88,8 +88,8 @@
   ;; registration / populate / elide calls carry a frame stamp and read the
   ;; same :rf/default registry — consistent end-to-end. Tests that want to
   ;; exercise the frameless-egress fail-closed branch unbind / override.
-  (frame/ensure-default-frame!)
-  (binding [frame/*current-frame* :rf/default]
+  (rf.frame/ensure-default-frame!)
+  (binding [rf.frame/*current-frame* :rf/default]
     (test-fn)))
 
 (use-fixtures :each reset-runtime)
@@ -106,13 +106,13 @@
 
 (deftest frame-large-path-emits-marker
   (install-class! [] [[:user :uploaded-pdf]])
-  (let [decls (elision/declarations)
+  (let [decls (rf.elision/declarations)
         out   (rf/elide-wire-value
                 {:user {:name "Ada" :uploaded-pdf "<<5MB-blob>>"}})
         slot  (get-in out [:user :uploaded-pdf])]
     (is (= #{{:source :effect}}
            (get decls [:user :uploaded-pdf])))
-    (is (elision/marker? slot))
+    (is (rf.elision/marker? slot))
     (is (= [:user :uploaded-pdf]
            (get-in slot [:rf.size/large-elided :path])))
     (is (= :effect (get-in slot [:rf.size/large-elided :reason])))
@@ -120,7 +120,7 @@
 
 (deftest include-large-bypasses-frame-elision
   (install-class! [] [[:big]])
-  (is (elision/marker? (:big (rf/elide-wire-value {:big "blob"}))))
+  (is (rf.elision/marker? (:big (rf/elide-wire-value {:big "blob"}))))
   (is (= "blob"
          (:big (rf/elide-wire-value {:big "blob"}
                                     {:rf.size/include-large? true})))))
@@ -135,7 +135,7 @@
     (is (= big (get-in out [:user :photo]))
         "schema-less large values are not auto-elided")
     ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
-    (when interop/debug-enabled?
+    (when rf.interop/debug-enabled?
       (let [warnings (filterv #(= :rf.warning/large-value-unschema'd
                                   (:operation %))
                               @traces)]
@@ -157,7 +157,7 @@
             (rf/elide-wire-value {:photo big})])
         "repeat walks of the same unschema'd path leave the value intact")
     ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
-    (when interop/debug-enabled?
+    (when rf.interop/debug-enabled?
       (is (= 1 (count (filter #(= :rf.warning/large-value-unschema'd
                                   (:operation %))
                               @traces)))))
@@ -191,13 +191,13 @@
     ;; + 2 quote bytes = 16002), so no warning.
     ;; ALWAYS-ON: the documented default is readable straight off the config,
     ;; with no channel involved.
-    (is (= 16384 (:rf.size/threshold-bytes (elision/current-config)))
+    (is (= 16384 (:rf.size/threshold-bytes (rf.elision/current-config)))
         "the documented 16384-byte default is the live configured threshold")
     ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
     ;; The auto-detect WARNING is the threshold's only observable, and under
     ;; the gate the stream is empty for every value — so the `= 0` half would
     ;; certify `under` as under-threshold without the threshold existing.
-    (when interop/debug-enabled?
+    (when rf.interop/debug-enabled?
       (rf/elide-wire-value {:a {:small under}})
       (is (= 0 (count-unschema'd-warnings traces))
           "value under the 16384 default does not trip the auto-detect warning")
@@ -219,14 +219,14 @@
     (is (= {:a {:s small}} (rf/elide-wire-value {:a {:s small}}))
         "under the default the 300-byte string rides verbatim")
     (rf/configure! {:elision {:rf.size/threshold-bytes 100}})
-    (is (= 100 (:rf.size/threshold-bytes (elision/current-config)))
+    (is (= 100 (:rf.size/threshold-bytes (rf.elision/current-config)))
         "(configure! {:elision {:rf.size/threshold-bytes 100}}) moved the live threshold")
     (is (= {:b {:s small}} (rf/elide-wire-value {:b {:s small}}))
         "and the now-over-threshold string STILL rides verbatim — the knob
          governs the advisory, not the walk")
     ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
     ;; The warning is the threshold's only observable.
-    (when interop/debug-enabled?
+    (when rf.interop/debug-enabled?
       (is (= 1 (count-unschema'd-warnings traces))
           "after (configure :elision {:rf.size/threshold-bytes 100}) the 300-byte string warns"))
     (rf/unregister-listener! :trace :elision-test/configured)))
@@ -236,7 +236,7 @@
   ;; assertion against the elision config, mirroring the :sub-cache shape
   ;; of configure-test.
   (rf/configure! {:elision {:rf.size/threshold-bytes 4096}})
-  (is (= 4096 (:rf.size/threshold-bytes (elision/current-config)))
+  (is (= 4096 (:rf.size/threshold-bytes (rf.elision/current-config)))
       "(configure :elision {:rf.size/threshold-bytes N}) reaches the elision config"))
 
 (deftest explicit-opt-wins-over-configured
@@ -253,7 +253,7 @@
     ;; rf2-d2841 — dev-instrumentation arm (see ns docstring §Posture split).
     ;; BOTH halves go inside: the `= 0` would pass over the gate's empty
     ;; stream without the explicit opt having overridden anything.
-    (when interop/debug-enabled?
+    (when rf.interop/debug-enabled?
       (is (= 0 (count-unschema'd-warnings traces))
           "explicit :rf.size/threshold-bytes opt (100000) overrides configured (50) — no warning")
       ;; And conversely an explicit small opt wins over a large configured value.
@@ -273,7 +273,7 @@
     ;; ALWAYS-ON: 0 reaches the live config, and the 40KB unschema'd value
     ;; still rides verbatim (auto-detect never elided it in the first place —
     ;; `unschema'd-large-value-warns-but-does-not-elide`).
-    (is (= 0 (:rf.size/threshold-bytes (elision/current-config)))
+    (is (= 0 (:rf.size/threshold-bytes (rf.elision/current-config)))
         "threshold 0 reaches the live elision config")
     (is (= {:a {:big big}} (rf/elide-wire-value {:a {:big big}}))
         "the 40KB unschema'd value rides verbatim under threshold 0")
@@ -281,7 +281,7 @@
     ;; BOTH assertions here are `(= 0 …)` over the warning stream, which is
     ;; empty for every threshold under the gate — "0 disables auto-detect"
     ;; would be true with no auto-detect to disable.
-    (when interop/debug-enabled?
+    (when rf.interop/debug-enabled?
       (is (= 0 (count-unschema'd-warnings traces))
           "threshold 0 disables runtime auto-detect — no warning even for a 40KB string")
       ;; Sanity: a per-call explicit 0 also disables, overriding a configured non-zero.
@@ -298,7 +298,7 @@
   (install-class! [] [[:doc]])
   (rf/configure! {:elision {:rf.size/threshold-bytes 0}})
   (let [out (rf/elide-wire-value {:doc "x"})]
-    (is (elision/marker? (:doc out))
+    (is (rf.elision/marker? (:doc out))
         "frame-declared :large paths elide independent of the runtime threshold")))
 
 (deftest frame-sensitive-path-redacts
@@ -334,7 +334,7 @@
   (install-class! [[:secret-pdf]] [[:secret-pdf]])
   (let [out (rf/elide-wire-value {:secret-pdf "payload"})]
     (is (= :rf/redacted (:secret-pdf out)))
-    (is (not (elision/marker? (:secret-pdf out))))))
+    (is (not (rf.elision/marker? (:secret-pdf out))))))
 
 (deftest marker-options
   (install-class! [] [[:b]])
@@ -371,7 +371,7 @@
         once   (rf/elide-wire-value input)
         twice  (rf/elide-wire-value once)
         thrice (rf/elide-wire-value twice)]
-    (is (elision/marker? (get-in once [:doc :body]))
+    (is (rf.elision/marker? (get-in once [:doc :body]))
         "first pass substitutes a marker at the large slot")
     (is (= once twice)
         "second pass is byte-identical — the walker passed the marker
@@ -391,7 +391,7 @@
   (let [input  {:doc {:body (apply str (repeat 2000 "X"))}}
         once   (rf/elide-wire-value input)
         opened (rf/elide-wire-value once {:rf.size/include-large? true})]
-    (is (elision/marker? (get-in once [:doc :body])))
+    (is (rf.elision/marker? (get-in once [:doc :body])))
     (is (= once opened)
         ":include-large? true descends into the marker map but the
          marker's structure is unchanged — the walker recurses through
@@ -400,10 +400,10 @@
 
 (deftest nested-classification
   (install-class! [[:root :a :b :token]] [[:root :a :b :c]])
-  (is (contains? (elision/declarations) [:root :a :b :c]))
-  (is (contains? (elision/sensitive-declarations) [:root :a :b :token]))
+  (is (contains? (rf.elision/declarations) [:root :a :b :c]))
+  (is (contains? (rf.elision/sensitive-declarations) [:root :a :b :token]))
   (is (= #{{:source :effect}}
-         (get (elision/declarations) [:root :a :b :c]))))
+         (get (rf.elision/declarations) [:root :a :b :c]))))
 
 ;; rf2-izlr7f — NESTED-AXIS SUPPRESSION (the highest-priority EP-0025 egress
 ;; review finding). A `:large`-marked subtree containing a `:sensitive`
@@ -429,7 +429,7 @@
           "the :sensitive descendant under the :large subtree is redacted")
       ;; … and NO large marker (which would carry :bytes / :type / :digest)
       ;; is emitted for the large-marked subtree.
-      (is (not (elision/marker? (get out :a)))
+      (is (not (rf.elision/marker? (get out :a)))
           "NO :rf.size/large-elided marker is emitted over the large subtree")
       (is (map? (get out :a))
           "the large node descended to a plain map (walk-recur), not a marker")
@@ -455,7 +455,7 @@
                                       {:rf.size/include-digests? true})]
       (is (= :rf/redacted (get out :b))
           "the sensitive descendant under the whole-value large mark is redacted")
-      (is (not (elision/marker? out))
+      (is (not (rf.elision/marker? out))
           "no whole-value large marker is emitted")
       (is (= "ok" (get out :other)) "the unmarked sibling rides verbatim")
       (is (not (.contains (pr-str out) secret)) "the raw secret does not leak")
@@ -469,7 +469,7 @@
     (install-class! [[:other :token]] [[:a]])
     (let [out (rf/elide-wire-value {:a {:b "x" :c "y"}}
                                    {:rf.size/include-digests? true})]
-      (is (elision/marker? (get out :a))
+      (is (rf.elision/marker? (get out :a))
           "a large subtree with no sensitive descendant still emits its marker"))))
 
 (deftest clear-large-effect-removes-declaration
@@ -478,46 +478,46 @@
   ;; symmetry of the axis), NOT by an absent-key replace (the frame
   ;; annotation's replace semantics are gone).
   (install-class! [] [[:user :pdf]])
-  (is (contains? (elision/declarations) [:user :pdf]))
-  (frame/swap-runtime-db! :rf/default
-    (fn [rt] (elision/apply-classification-effects rt {:clear-large [[:user :pdf]]})))
-  (is (not (contains? (elision/declarations) [:user :pdf]))))
+  (is (contains? (rf.elision/declarations) [:user :pdf]))
+  (rf.frame/swap-runtime-db! :rf/default
+    (fn [rt] (rf.elision/apply-classification-effects rt {:clear-large [[:user :pdf]]})))
+  (is (not (contains? (rf.elision/declarations) [:user :pdf]))))
 
 (deftest clear-over-never-classified-path-is-a-pure-no-op
   ;; rf2-26p9yg — the fail-open clear contract relies on a clear being a
   ;; harmless dissoc. apply-classification-effects over an ABSENT path must be
   ;; a pure no-op: no throw, the registry value unchanged (and an empty axis
   ;; slot stays pruned, not left as `{}`). Drive the pure fn directly.
-  (let [rt0 (frame/frame-runtime-db-value :rf/default)
+  (let [rt0 (rf.frame/frame-runtime-db-value :rf/default)
         ;; clear a path that was never classified, on BOTH axes
-        rt1 (elision/apply-classification-effects
+        rt1 (rf.elision/apply-classification-effects
               rt0 {:clear-sensitive [[:never :here]]
                    :clear-large     [[:also :never]]})]
     (is (= (get rt0 :rf.runtime/elision)
            (get rt1 :rf.runtime/elision))
         "clearing absent paths leaves the elision registry byte-identical")
-    (is (not (contains? (elision/declarations) [:also :never])))
-    (is (not (contains? (elision/sensitive-declarations) [:never :here])))))
+    (is (not (contains? (rf.elision/declarations) [:also :never])))
+    (is (not (contains? (rf.elision/sensitive-declarations) [:never :here])))))
 
 (deftest clear-sensitive-leaves-a-large-only-path-intact
   ;; rf2-26p9yg — a :clear-sensitive on a path classified on the OTHER axis
   ;; only (:large) must NOT prune the large slot (wrong-axis clear is a no-op
   ;; on its own axis AND leaves the sibling axis untouched).
   (install-class! [] [[:doc :blob]])
-  (is (contains? (elision/declarations) [:doc :blob]))
-  (frame/swap-runtime-db! :rf/default
-    (fn [rt] (elision/apply-classification-effects rt {:clear-sensitive [[:doc :blob]]})))
-  (is (contains? (elision/declarations) [:doc :blob])
+  (is (contains? (rf.elision/declarations) [:doc :blob]))
+  (rf.frame/swap-runtime-db! :rf/default
+    (fn [rt] (rf.elision/apply-classification-effects rt {:clear-sensitive [[:doc :blob]]})))
+  (is (contains? (rf.elision/declarations) [:doc :blob])
       "the large classification survives a wrong-axis (:clear-sensitive) clear")
-  (is (not (contains? (elision/sensitive-declarations) [:doc :blob]))
+  (is (not (contains? (rf.elision/sensitive-declarations) [:doc :blob]))
       "the sensitive axis was never populated for this path"))
 
 (deftest registries-are-frame-isolated
   (rf/make-frame {:id :elision-test/other})
   (install-class! :rf/default [] [[:blob]])
   (install-class! :elision-test/other [] [])
-  (is (contains? (elision/declarations :rf/default) [:blob]))
-  (is (not (contains? (elision/declarations :elision-test/other) [:blob]))))
+  (is (contains? (rf.elision/declarations :rf/default) [:blob]))
+  (is (not (contains? (rf.elision/declarations :elision-test/other) [:blob]))))
 
 (deftest streamed-cascades-elide-per-element-frame
   ;; rf2-1we9fa defect 2 — the streaming subscribe drain walks several
@@ -640,7 +640,7 @@
                 {path #{{:source :test :hint "Upload preview"}}})))
     (let [out  (rf/elide-wire-value sub-cache {:frame frame-id})
           slot (get-in out [[:user/uploaded] :value :pdf])]
-      (is (elision/marker? slot)
+      (is (rf.elision/marker? slot)
           "Declared large path inside sub-cache `:value` emits the size marker")
       (is (= path (get-in slot [:rf.size/large-elided :path]))
           "Marker carries the actual walked path so the agent can re-fetch")
@@ -672,7 +672,7 @@
 (deftest frameless-egress-fails-closed
   ;; The fixture pins `*current-frame* :rf/default`; unbind it to model a
   ;; token that crossed an async / tool boundary and lost its stamp.
-  (binding [frame/*current-frame* nil]
+  (binding [rf.frame/*current-frame* nil]
     (is (= :rf/redacted (rf/elide-wire-value {:a 1 :b [2 3]}))
         "no carried frame ⇒ whole value redacted (no :rf/default borrow)")
     (is (= :rf/redacted (rf/elide-wire-value 42))
@@ -684,7 +684,7 @@
   ;; An explicit `:frame` override resolves regardless of the ambient scope:
   ;; the contract's *override* tier. With no scope but an explicit frame,
   ;; the named frame's (empty) registry applies — identity, not fail-closed.
-  (binding [frame/*current-frame* nil]
+  (binding [rf.frame/*current-frame* nil]
     (is (= {:a 1} (rf/elide-wire-value {:a 1} {:frame :rf/default}))
         "explicit :frame override resolves a known frame ⇒ its policy applies")))
 
@@ -692,7 +692,7 @@
   ;; `:rf.size/include-sensitive? true` is the deliberate opt-out: a caller
   ;; that has waived sensitive redaction gets the value verbatim even with
   ;; no carried frame (identity walk against an empty policy).
-  (binding [frame/*current-frame* nil]
+  (binding [rf.frame/*current-frame* nil]
     (is (= {:a 1 :b [2 3]}
            (rf/elide-wire-value {:a 1 :b [2 3]}
                                 {:rf.size/include-sensitive? true}))
@@ -714,7 +714,7 @@
   ;; An explicit `:frame` opt naming a frame that was never registered is
   ;; non-nil but unresolvable ⇒ redact the whole value (do NOT pass through
   ;; under an empty policy).
-  (binding [frame/*current-frame* nil]
+  (binding [rf.frame/*current-frame* nil]
     (is (= :rf/redacted
            (rf/elide-wire-value {:a 1 :b [2 3]}
                                 {:frame :elision-test/never-registered}))
@@ -726,10 +726,10 @@
 (deftest destroyed-explicit-frame-fails-closed
   ;; A frame that WAS registered (and could have carried a real `:large` /
   ;; `:sensitive` policy) but has since been destroyed is no longer
-  ;; resolvable ⇒ fail closed. `frame/frame` returns nil for a destroyed id.
+  ;; resolvable ⇒ fail closed. `rf.frame/frame` returns nil for a destroyed id.
   (rf/make-frame {:id :elision-test/doomed})
-  (frame/destroy-frame! :elision-test/doomed)
-  (binding [frame/*current-frame* nil]
+  (rf.frame/destroy-frame! :elision-test/doomed)
+  (binding [rf.frame/*current-frame* nil]
     (is (= :rf/redacted
            (rf/elide-wire-value {:secret "shh"}
                                 {:frame :elision-test/doomed}))
@@ -741,7 +741,7 @@
   ;; safety property is that the SAME value, projected under a frame that
   ;; cannot be resolved, must NOT leak: fail-closed redacts the whole value
   ;; regardless of what its policy WOULD have been under a live frame.
-  (binding [frame/*current-frame* nil]
+  (binding [rf.frame/*current-frame* nil]
     ;; Baseline: under the live :rf/default frame (no declarations) the value
     ;; passes through verbatim — it is "public".
     (is (= {:profile {:name "Ada"}}
@@ -760,7 +760,7 @@
   ;; against an unresolvable frame walks the value under an empty (no-frame)
   ;; policy — the caller explicitly waived redaction, so the value rides
   ;; through. This keeps the escape hatch symmetric with the frameless case.
-  (binding [frame/*current-frame* nil]
+  (binding [rf.frame/*current-frame* nil]
     (is (= {:a 1 :b [2 3]}
            (rf/elide-wire-value {:a 1 :b [2 3]}
                                 {:frame :elision-test/never-registered
@@ -772,10 +772,10 @@
   ;; e.g. a captured async callback fires after the frame was destroyed.
   ;; A stale scope id that no longer resolves to a live frame must fail
   ;; closed exactly like an explicit unknown `:frame` opt (the same
-  ;; `frame/frame` liveness check governs both resolution tiers).
+  ;; `rf.frame/frame` liveness check governs both resolution tiers).
   (rf/make-frame {:id :elision-test/stale})
-  (frame/destroy-frame! :elision-test/stale)
-  (binding [frame/*current-frame* :elision-test/stale]
+  (rf.frame/destroy-frame! :elision-test/stale)
+  (binding [rf.frame/*current-frame* :elision-test/stale]
     (is (= :rf/redacted
            (rf/elide-wire-value {:a 1}))
         "stale carried scope naming a destroyed frame ⇒ fail closed")))
@@ -940,7 +940,7 @@
   (install-class! [] [[:docs :blob]])
   (let [out  (rf/elide-wire-value {:docs [{:blob "<<5MB-blob>>"}]})
         slot (get-in out [:docs 0 :blob])]
-    (is (elision/marker? slot)
+    (is (rf.elision/marker? slot)
         "collection-nested :large slot emits a size marker")
     (is (= [:docs 0 :blob] (get-in slot [:rf.size/large-elided :path]))
         "marker :path is the concrete indexed runtime path (re-fetchable)")
@@ -954,7 +954,7 @@
   (let [out  (rf/elide-wire-value {:vault [{:k "payload"}]})
         slot (get-in out [:vault 0 :k])]
     (is (= :rf/redacted slot))
-    (is (not (elision/marker? slot))
+    (is (not (rf.elision/marker? slot))
         "sensitive suppresses the large marker even when nested in a vector")))
 
 

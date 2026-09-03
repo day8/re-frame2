@@ -1,6 +1,6 @@
 (ns re-frame.sub-topology-test
   "Tests for the `(re-frame.subs.tooling/sub-topology)` static
-  dependency-graph query (rf2-8nzo; JVM-aliased as `subs/sub-topology`).
+  dependency-graph query (rf2-8nzo; JVM-aliased as `rf.subs/sub-topology`).
   rf2-80mmlf demoted the `rf/sub-topology` facade alias — it is a tooling
   surface, addressed through its owning `re-frame.subs.tooling` namespace.
   Per Spec 002 §The public registrar query API and
@@ -44,26 +44,26 @@
   `re-frame.doc-metadata-prod-elision-test` and the `->interceptor*`
   `:source-coord`), so under the real gate the entry simply does not carry
   them. Their assertions are kept verbatim inside a
-  `(when interop/debug-enabled? …)` arm marked `rf2-d2841` — INCLUDING the
+  `(when rf.interop/debug-enabled? …)` arm marked `rf2-d2841` — INCLUDING the
   negative `no-doc-key-when-not-supplied`, which under the gate would pass
   because `:doc` is never present rather than because the registration
   omitted it."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.subs :as subs]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
-            [re-frame.flows :as flows]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.subs :as rf.subs]
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.flows :as rf.flows]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (defn reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  (rf/init! plain-atom/adapter)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.flows/reset-flows!)
+  (rf.schemas/clear-schemas-by-frame!)
+  (rf/init! rf.substrate.plain-atom/adapter)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)
   (require 're-frame.machines :reload)
@@ -78,14 +78,14 @@
     ;; clear-all! ran in the fixture; the registrar holds zero :sub
     ;; entries. Returning {} (not nil) lets callers compose with
     ;; reduce-kv / get-in / count without nil-pun special cases.
-    (registrar/clear-all!)
-    (is (= {} (subs/sub-topology)))
-    (is (map? (subs/sub-topology)))))
+    (rf.registrar/clear-all!)
+    (is (= {} (rf.subs/sub-topology)))
+    (is (map? (rf.subs/sub-topology)))))
 
 (deftest layer-1-sub-has-empty-inputs
   (testing "a layer-1 sub (reads app-db directly) reports :input-kind :db / :inputs []"
     (rf/reg-sub :n (fn [db _] (:n db)))
-    (let [topo (subs/sub-topology)]
+    (let [topo (rf.subs/sub-topology)]
       (is (contains? topo :n))
       (is (= :db (:input-kind (topo :n)))
           "layer-1 / direct-app-db reader is :input-kind :db")
@@ -98,7 +98,7 @@
   (testing "a layer-2 sub with one :<- declares one upstream input QUERY-VECTOR"
     (rf/reg-sub :n  (fn [db _] (:n db)))
     (rf/reg-sub :n2 :<- [:n] (fn [n _] (* 2 n)))
-    (let [topo (subs/sub-topology)]
+    (let [topo (rf.subs/sub-topology)]
       (is (= :db (:input-kind (topo :n))))
       (is (= :static (:input-kind (topo :n2))))
       (is (= [] (:inputs (topo :n))))
@@ -112,7 +112,7 @@
     (rf/reg-sub :c (fn [db _] (:c db)))
     (rf/reg-sub :sum :<- [:a] :<- [:b] :<- [:c]
                 (fn [[a b c] _] (+ a b c)))
-    (let [entry ((subs/sub-topology) :sum)]
+    (let [entry ((rf.subs/sub-topology) :sum)]
       (is (= :static (:input-kind entry)))
       (is (= [[:a] [:b] [:c]] (:inputs entry))
           "declaration order is preserved so tools can reconstruct the body's input shape"))))
@@ -122,7 +122,7 @@
     (rf/reg-sub :raw   (fn [db _] (:n db)))
     (rf/reg-sub :step1 :<- [:raw]   (fn [r _] (inc r)))
     (rf/reg-sub :step2 :<- [:step1] (fn [s _] (* 10 s)))
-    (let [topo (subs/sub-topology)]
+    (let [topo (rf.subs/sub-topology)]
       (is (= []        (:inputs (topo :raw))))
       (is (= [[:raw]]   (:inputs (topo :step1))))
       (is (= [[:step1]] (:inputs (topo :step2)))))))
@@ -137,7 +137,7 @@
     (rf/reg-sub :upstream (fn [db [_ _arg]] (:n db)))
     (rf/reg-sub :downstream :<- [:upstream :some-arg]
                 (fn [u _] (str u)))
-    (is (= [[:upstream :some-arg]] (:inputs ((subs/sub-topology) :downstream)))
+    (is (= [[:upstream :some-arg]] (:inputs ((rf.subs/sub-topology) :downstream)))
         "static inputs carry the full :<- query-vector, args and all")))
 
 ;; ---- parametric input-fn topology (rf2-e3acps) ---------------------------
@@ -159,7 +159,7 @@
                    [:viewer/current]])
                 (fn [[article comments viewer] [_ id]]
                   {:id id :article article :comments comments :viewer viewer}))
-    (let [entry ((subs/sub-topology) :article/page)]
+    (let [entry ((rf.subs/sub-topology) :article/page)]
       (is (= :parametric (:input-kind entry))
           "parametric subs are discriminated by :input-kind")
       (is (= :parametric (:inputs entry))
@@ -173,7 +173,7 @@
     (rf/reg-sub :item/title
                 (fn [[_ id]] [[:item/by-id id]])
                 (fn [[item] _] (:title item)))
-    (let [entry ((subs/sub-topology) :item/title)]
+    (let [entry ((rf.subs/sub-topology) :item/title)]
       (is (= :parametric (:input-kind entry)))
       (is (= :parametric (:inputs entry))))))
 
@@ -185,12 +185,12 @@
     ;; The sub itself is registered and projected in BOTH postures — the
     ;; production-visible half, and the precondition for reading any coord
     ;; off the entry at all.
-    (is (contains? (subs/sub-topology) :n)
+    (is (contains? (rf.subs/sub-topology) :n)
         "the sub is projected into the topology regardless of posture")
     ;; rf2-d2841 — dev-instrumentation arm (see ns docstring). Source coords
     ;; are reflection metadata, elided in production.
-    (when interop/debug-enabled?
-      (let [entry ((subs/sub-topology) :n)]
+    (when rf.interop/debug-enabled?
+      (let [entry ((rf.subs/sub-topology) :n)]
         (is (some? (:ns entry))   ":ns captured at the call site")
         (is (number? (:line entry)) ":line captured at the call site")
         (is (some? (:file entry)) ":file captured at the call site")))))
@@ -203,12 +203,12 @@
     ;; Posture-independent: the meta-map first-arg REGISTRATION FORM is
     ;; accepted and produces an ordinary layer-1 entry. A `reg-sub` that
     ;; choked on the meta-map arity would fail here in either posture.
-    (is (= :db (:input-kind ((subs/sub-topology) :counter)))
+    (is (= :db (:input-kind ((rf.subs/sub-topology) :counter)))
         "the meta-map registration form registers an ordinary layer-1 sub")
     ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
-    (when interop/debug-enabled?
+    (when rf.interop/debug-enabled?
       (is (= "Counter sub — a layer-1 sub that reads :n from app-db."
-             (:doc ((subs/sub-topology) :counter)))))))
+             (:doc ((rf.subs/sub-topology) :counter)))))))
 
 (deftest no-doc-key-when-not-supplied
   (testing ":doc is absent when the registration didn't supply one"
@@ -220,15 +220,15 @@
     ;; would pass because `:doc` is never present, not because this
     ;; registration omitted it. Same false-green shape as a negative over an
     ;; empty trace ring.
-    (when interop/debug-enabled?
-      (is (not (contains? ((subs/sub-topology) :n) :doc))))))
+    (when rf.interop/debug-enabled?
+      (is (not (contains? ((rf.subs/sub-topology) :n) :doc))))))
 
 ;; ---- registry semantics --------------------------------------------------
 
 (deftest unregistered-ids-absent
   (testing "subs that were never registered don't appear"
     (rf/reg-sub :a (fn [db _] (:a db)))
-    (let [topo (subs/sub-topology)]
+    (let [topo (rf.subs/sub-topology)]
       (is (contains? topo :a))
       (is (not (contains? topo :ghost))))))
 
@@ -236,37 +236,37 @@
   (testing "(rf/clear-sub id) removes the sub from the topology"
     (rf/reg-sub :a (fn [db _] (:a db)))
     (rf/reg-sub :b (fn [db _] (:b db)))
-    (let [topo (subs/sub-topology)]
+    (let [topo (rf.subs/sub-topology)]
       (is (contains? topo :a))
       (is (contains? topo :b)))
-    (subs/clear-sub :a)
-    (let [topo (subs/sub-topology)]
+    (rf.subs/clear-sub :a)
+    (let [topo (rf.subs/sub-topology)]
       (is (not (contains? topo :a)))
       (is (contains? topo :b)))))
 
 (deftest reregistration-replaces-the-entry
   (testing "re-registering a sub replaces its topology entry"
     (rf/reg-sub :a (fn [db _] (:a db)))
-    (is (= :db (:input-kind ((subs/sub-topology) :a))))
-    (is (= [] (:inputs ((subs/sub-topology) :a))))
+    (is (= :db (:input-kind ((rf.subs/sub-topology) :a))))
+    (is (= [] (:inputs ((rf.subs/sub-topology) :a))))
     ;; Re-register :a as a layer-2 sub composing :b. The topology
     ;; reports the new :<- chain (last-write-wins per Spec 001
     ;; §Hot-reload semantics).
     (rf/reg-sub :b (fn [db _] (:b db)))
     (rf/reg-sub :a :<- [:b] (fn [b _] (str b)))
-    (is (= :static (:input-kind ((subs/sub-topology) :a))))
-    (is (= [[:b]] (:inputs ((subs/sub-topology) :a)))))
+    (is (= :static (:input-kind ((rf.subs/sub-topology) :a))))
+    (is (= [[:b]] (:inputs ((rf.subs/sub-topology) :a)))))
 
   (testing "re-registering a :static sub as :parametric flips :input-kind + :inputs"
     (rf/reg-sub :x (fn [db _] (:x db)))
     (rf/reg-sub :p :<- [:x] (fn [x _] x))
-    (is (= :static (:input-kind ((subs/sub-topology) :p))))
-    (is (= [[:x]] (:inputs ((subs/sub-topology) :p))))
+    (is (= :static (:input-kind ((rf.subs/sub-topology) :p))))
+    (is (= [[:x]] (:inputs ((rf.subs/sub-topology) :p))))
     (rf/reg-sub :p
                 (fn [[_ id]] [[:x id]])
                 (fn [[x] _] x))
-    (is (= :parametric (:input-kind ((subs/sub-topology) :p))))
-    (is (= :parametric (:inputs ((subs/sub-topology) :p))))))
+    (is (= :parametric (:input-kind ((rf.subs/sub-topology) :p))))
+    (is (= :parametric (:inputs ((rf.subs/sub-topology) :p))))))
 
 ;; ---- self-reference / cycle handling -------------------------------------
 
@@ -280,11 +280,11 @@
     ;; cycles by traversing the returned graph; sub-topology itself
     ;; just reports what was registered.
     (rf/reg-sub :loop :<- [:loop] (fn [v _] v))
-    (is (= [[:loop]] (:inputs ((subs/sub-topology) :loop)))))
+    (is (= [[:loop]] (:inputs ((rf.subs/sub-topology) :loop)))))
 
   (testing "a 2-node cycle :<- declarations are similarly verbatim"
     (rf/reg-sub :a :<- [:b] (fn [b _] b))
     (rf/reg-sub :b :<- [:a] (fn [a _] a))
-    (let [topo (subs/sub-topology)]
+    (let [topo (rf.subs/sub-topology)]
       (is (= [[:b]] (:inputs (topo :a))))
       (is (= [[:a]] (:inputs (topo :b)))))))

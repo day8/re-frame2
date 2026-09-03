@@ -93,9 +93,9 @@
   → `frame` require would close a load cycle; the late-bind seam is the
   same cycle-break the sibling always-on substrates use). `re-frame.core`
   requires this ns at boot, so the hooks are bound before any dispatch."
-  (:require [re-frame.frame      :as frame]
-            [re-frame.late-bind  :as late-bind]
-            [re-frame.projection :as projection]))
+  (:require [re-frame.frame      :as rf.frame]
+            [re-frame.late-bind  :as rf.late-bind]
+            [re-frame.projection :as rf.projection]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -153,7 +153,7 @@
   registered — the fail-closed branch) or declares no `:observability`."
   [frame-id]
   (when frame-id
-    (when-let [f (frame/frame frame-id)]
+    (when-let [f (rf.frame/frame frame-id)]
       (get-in f [:config :observability]))))
 
 (defn- deliver-to-sink!
@@ -181,7 +181,7 @@
           :let [sink-id (:sink entry)]
           :when sink-id]
     (let [profile   (get entry :rf.egress/profile default-profile)
-          projected (projection/project-egress
+          projected (rf.projection/project-egress
                       record
                       {:frame             frame-id
                        :rf.egress/profile profile})]
@@ -356,6 +356,6 @@
 ;; `elision` → `frame` require would close a load cycle. `re-frame.core`
 ;; requires this ns at boot, so the hooks are bound before any dispatch.
 
-(late-bind/set-fn! :observability/route-handled-event route-handled-event!)
-(late-bind/set-fn! :observability/route-error         route-error!)
-(late-bind/set-fn! :observability/route-error-record  route-error-record!)
+(rf.late-bind/set-fn! :observability/route-handled-event route-handled-event!)
+(rf.late-bind/set-fn! :observability/route-error         route-error!)
+(rf.late-bind/set-fn! :observability/route-error-record  route-error-record!)

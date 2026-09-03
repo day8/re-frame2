@@ -7,7 +7,7 @@
   reaches it with `with-redefs`, which runs AFTER the framework has loaded and
   therefore cannot change one thing the gate decided at load. What this suite
   actually pins is the REBINDABLE VAR: that the gated dev surfaces re-read
-  `interop/debug-enabled?` at CALL time rather than caching it, so a rebind
+  `rf.interop/debug-enabled?` at CALL time rather than caching it, so a rebind
   silences them. That is a real and useful contract. It is not the production
   posture, and it must never be counted as coverage of one.
 
@@ -31,7 +31,7 @@
 
   ## What this suite pins
 
-  Per rf2-vnjfg (MEDIUM finding): with `interop/debug-enabled?` REBOUND to
+  Per rf2-vnjfg (MEDIUM finding): with `rf.interop/debug-enabled?` REBOUND to
   `false`, the dev surfaces (trace ring buffer, trace listener fan-out,
   registry trace emits) drop to their no-op floor — the call-time-read
   equivalent of what CLJS `:advanced` + `goog.DEBUG=false` gets from Closure
@@ -79,17 +79,17 @@
   closed there; adding a witness would be ceremony."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.interop :as interop]
-            [re-frame.router :as router]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace :as trace]))
+            [re-frame.interop :as rf.interop]
+            [re-frame.router :as rf.router]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.trace :as rf.trace]))
 
 (def ^:private build-envelope
   "Pull the private envelope builder — the dispatch envelope is not
   exposed to user handlers, so the EP-0017 `:rf.cofx` recordable-coeffect
   stamping (rf2-s9ss0t) is asserted directly against `build-envelope`'s output."
-  #'router/build-envelope)
+  #'rf.router/build-envelope)
 
 ;; rf2-s0y22 — the witness read. See the docstring section above: it is what
 ;; separates "the gate elided the trace" from "nothing happened".
@@ -97,22 +97,22 @@
   (:rf.db/app (rf/frame-state-value frame-id)))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.substrate.plain-atom/adapter}))
 
 (deftest trace-buffer-inert-when-debug-disabled
   (testing "Per rf2-vnjfg: when the JVM debug gate is off (the SSR
             production posture), trace events stop landing in the
             retain-N ring buffer. The buffer surface becomes
             inert — no allocation, no append, no storage."
-    (with-redefs [interop/debug-enabled? false]
+    (with-redefs [rf.interop/debug-enabled? false]
       (rf/reg-event :prod-gate/inc
                        (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
       (rf/dispatch-sync [:prod-gate/inc])
       (is (= 1 (:n (app-db-of :rf/default)))
           "WITNESS: the dispatch ran its handler and committed — so the
            empty buffer below is elision, not a dead dispatch")
-      (is (empty? (trace/trace-buffer :rf/default))
+      (is (empty? (rf.trace/trace-buffer :rf/default))
           "trace buffer is empty under disabled gate — no event
            landed despite dispatch firing"))))
 
@@ -121,7 +121,7 @@
             when the JVM debug gate is off. The dev observability
             surface drops to no-op so the SSR process does not
             retain in-heap traces of user input."
-    (with-redefs [interop/debug-enabled? false]
+    (with-redefs [rf.interop/debug-enabled? false]
       (let [seen (atom [])]
         (rf/register-listener! :trace
           :prod-gate/recorder
@@ -143,7 +143,7 @@
             ...) must survive the SSR production posture — that's
             why it's the always-on surface, parallel to (not a
             fallback for) the dev trace surface."
-    (with-redefs [interop/debug-enabled? false]
+    (with-redefs [rf.interop/debug-enabled? false]
       (let [seen (atom [])]
         (rf/register-listener! :events
           :prod-gate/event-rec
@@ -167,18 +167,18 @@
             fold, not a diagnostic."
     (rf/make-frame {:id :rf/default})
     (testing ":dispatched-at is gone under BOTH gate states"
-      (with-redefs [interop/debug-enabled? true]
+      (with-redefs [rf.interop/debug-enabled? true]
         (is (not (contains? (build-envelope [:noop] {}) :dispatched-at))
             "no :dispatched-at even with the dev gate ON"))
-      (with-redefs [interop/debug-enabled? false]
+      (with-redefs [rf.interop/debug-enabled? false]
         (is (not (contains? (build-envelope [:noop] {}) :dispatched-at))
             "no :dispatched-at with the dev gate OFF")))
     (testing ":rf.cofx with :rf/time-ms is stamped REGARDLESS of the gate"
-      (with-redefs [interop/debug-enabled? true]
+      (with-redefs [rf.interop/debug-enabled? true]
         (let [cofx (:rf.cofx (build-envelope [:noop] {}))]
           (is (number? (:rf/time-ms cofx))
               ":rf/time-ms present + numeric under the dev gate ON")))
-      (with-redefs [interop/debug-enabled? false]
+      (with-redefs [rf.interop/debug-enabled? false]
         (let [cofx (:rf.cofx (build-envelope [:noop] {}))]
           (is (number? (:rf/time-ms cofx))
               ":rf/time-ms present + numeric under the prod gate OFF — durable, not dev-gated"))))))
@@ -188,7 +188,7 @@
             error-emit substrate fires REGARDLESS of the debug gate.
             The corpus-wide listener path survives the SSR production
             posture — error observability is not a dev-only concern."
-    (with-redefs [interop/debug-enabled? false]
+    (with-redefs [rf.interop/debug-enabled? false]
       (let [listener-saw (atom nil)]
         (rf/register-listener! :errors
           :prod-gate/err-rec

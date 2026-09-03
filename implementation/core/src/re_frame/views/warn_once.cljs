@@ -9,8 +9,8 @@
   source-coordinate walk skips annotation and emits one console warning per
   id. `make-reset-runtime-fixture` clears the process-wide cache through the
   chained `:adapter/clear-warn-once-caches!` hook."
-  (:require [re-frame.adapter.context :as adapter-context]
-            [re-frame.late-bind :as late-bind]))
+  (:require [re-frame.adapter.context :as rf.adapter.context]
+            [re-frame.late-bind :as rf.late-bind]))
 
 ;; ---- non-DOM-root warning ------------------------------------------------
 
@@ -39,17 +39,17 @@
       ;; nil substrate-name marks the Reagent Hiccup-walk path, which carries
       ;; no substrate qualifier in the shared warning text.
       (.warn js/console
-        (adapter-context/non-dom-root-warning id head nil)))))
+        (rf.adapter.context/non-dom-root-warning id head nil)))))
 
 ;; Enrol the `warned-non-dom-roots` cache into the chained
 ;; `:adapter/clear-warn-once-caches!` hook, via the canonical governance
-;; chokepoint `late-bind/register-warn-once-clear-fn!`. Each
+;; chokepoint `rf.late-bind/register-warn-once-clear-fn!`. Each
 ;; adapter (uix), the slim hiccup interpreter, re-frame.views, and
 ;; this ns contribute a clear-step; `make-reset-runtime-fixture` invokes
 ;; the top of the chain and every contributor's reset runs. The chokepoint
 ;; also records the cache in the warn-once-clear governance registry so the
 ;; governance assertion proves the chain wipes it.
-(late-bind/register-warn-once-clear-fn!
+(rf.late-bind/register-warn-once-clear-fn!
   {:label    :views/warned-non-dom-roots
    :clear-fn clear-warned-non-dom-roots!
    :arm      (fn [] (swap! warned-non-dom-roots conj ::governance-sentinel))

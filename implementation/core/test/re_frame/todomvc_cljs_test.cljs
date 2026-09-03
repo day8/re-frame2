@@ -30,9 +30,9 @@
        route->filter mapping across all three routes plus the fallback."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]
+            [re-frame.frame :as rf.frame]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]
             ;; Requiring the entry ns fires todomvc's ns-load reg-event /
             ;; reg-sub / reg-route / reg-fx / reg-cofx forms against the live
             ;; registrar (captured into this ns's fixture baseline).
@@ -41,8 +41,8 @@
 ;; `:ambient-frame nil` — these tests create + drive their own anon frames with
 ;; an explicit `{:frame f}`; no ambient `:rf/default` scope is wanted.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       reagent-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.reagent/adapter
      :ambient-frame nil}))
 
 ;; ---------------------------------------------------------------------------
@@ -54,7 +54,7 @@
   reads localStorage; under Node there is none, so it seeds an empty
   sorted-map — deterministic. Returns the frame id."
   []
-  (let [f (frame/make-anon-frame-record! {:doc "todomvc test frame"})]
+  (let [f (rf.frame/make-anon-frame-record! {:doc "todomvc test frame"})]
     (rf/dispatch-sync [:todo/initialise] {:frame f})
     f))
 

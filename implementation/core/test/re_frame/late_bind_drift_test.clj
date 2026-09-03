@@ -94,8 +94,14 @@
   The keyword grammar follows the late-bind convention of namespaced
   keywords with `/` separator. Namespace portion may contain `.`
   (e.g. `:trace.tooling/deliver!`, rf2-qwm0a). The regex is
-  intentionally loose on whitespace so multi-line forms match."
-  #"\(late-bind/set-fn!\s+(:[a-zA-Z][a-zA-Z0-9.!?*+\-]*/[a-zA-Z][a-zA-Z0-9!?*+\-]*)")
+  intentionally loose on whitespace so multi-line forms match.
+
+  The `rf.` alias prefix is OPTIONAL. spec/Conventions.md
+  §Require-alias dialect makes `rf.late-bind` the canonical alias, and
+  this scan reads every artefact's src tree — including the ones still
+  spelling it `late-bind` while that migration completes. Both spellings
+  denote the same publication, so both must count as one."
+  #"\((?:rf\.)?late-bind/set-fn!\s+(:[a-zA-Z][a-zA-Z0-9.!?*+\-]*/[a-zA-Z][a-zA-Z0-9!?*+\-]*)")
 
 (def ^:private route-hook-call-re
   "Match `(substrate-adapter/route-hook! adapter :namespace/key ...`.
@@ -103,10 +109,11 @@
   Per rf2-0d35 every CLJS adapter publishes its substrate-specific
   `:adapter/*` hooks through `route-hook!` (which wraps the impl in a
   current-adapter routing closure and chains to the previously-
-  registered handler). The wrapper invokes `late-bind/set-fn!`
+  registered handler). The wrapper invokes `set-fn!`
   internally — the drift scan must treat both call shapes as
-  equivalent publications."
-  #"\(substrate-adapter/route-hook!\s+\S+\s+(:[a-zA-Z][a-zA-Z0-9.!?*+\-]*/[a-zA-Z][a-zA-Z0-9!?*+\-]*)")
+  equivalent publications. Both the canonical `rf.substrate.adapter`
+  alias and the pre-migration `substrate-adapter` spelling match."
+  #"\((?:rf\.substrate\.adapter|substrate-adapter)/route-hook!\s+\S+\s+(:[a-zA-Z][a-zA-Z0-9.!?*+\-]*/[a-zA-Z][a-zA-Z0-9!?*+\-]*)")
 
 (def ^:private chain-fn-call-re
   "Match `(late-bind/chain-fn! :namespace/key ...` and the bare
@@ -117,13 +124,14 @@
   chain-into-previous closure). Drift scan treats this call shape as
   equivalent to direct `set-fn!` publication.
 
-  The `late-bind/` alias prefix is OPTIONAL (rf2-z79p8): the canonical
+  The `late-bind/` alias prefix is OPTIONAL, in either spelling
+  (rf2-z79p8): the canonical
   warn-once-clear chokepoint `register-warn-once-clear-fn!` lives INSIDE
   `re-frame.late-bind` and calls `chain-fn!` unqualified there, so the
   authoritative `:adapter/clear-warn-once-caches!` publication is a bare
   `(chain-fn! :adapter/clear-warn-once-caches! ...)` literal. Matching the
   unqualified form keeps that key documented as published."
-  #"\((?:late-bind/)?chain-fn!\s+(:[a-zA-Z][a-zA-Z0-9.!?*+\-]*/[a-zA-Z][a-zA-Z0-9!?*+\-]*)")
+  #"\((?:(?:rf\.)?late-bind/)?chain-fn!\s+(:[a-zA-Z][a-zA-Z0-9.!?*+\-]*/[a-zA-Z][a-zA-Z0-9!?*+\-]*)")
 
 (def ^:private set-fns-block-re
   "Match a `(late-bind/set-fns! { ... })` map-form block; the named
@@ -134,8 +142,8 @@
   a single map of `hook-key → fn` entries rather than a column of 15+
   individual `set-fn!` calls. The drift scan must treat each key in the
   map body as a publication. Multiline-friendly (the map typically spans
-  many lines)."
-  #"(?s)\(late-bind/set-fns!\s*\{([^}]*)\}")
+  many lines). Alias prefix as for `set-fn-call-re`."
+  #"(?s)\((?:rf\.)?late-bind/set-fns!\s*\{([^}]*)\}")
 
 (def ^:private map-entry-key-re
   "Match a fully-qualified keyword at column-0-ish of a line in a

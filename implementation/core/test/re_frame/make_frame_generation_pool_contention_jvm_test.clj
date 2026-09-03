@@ -2,7 +2,7 @@
   "rf2-rt4jz, contended — only the attempt the engine ADMITS may touch a frame
   id's generation-provenance row.
 
-  THE ADMISSION CONTRACT. `frame/upsert-frame!` reserves an id for exactly one
+  THE ADMISSION CONTRACT. `rf.frame/upsert-frame!` reserves an id for exactly one
   in-flight construction and fails every same-id contender promptly with
   `:rf.error/frame-construction-in-progress`. That loss is defined to be a
   ZERO-WRITE loss: it is raised at admission precisely so a contender never
@@ -33,7 +33,7 @@
   THE REPAIR is not a defensive read and not a re-write after the fact. It is to
   put the publication, the commit and the rollback inside the SAME exact per-id
   reservation the frame revision is made under
-  (`frame/call-with-frame-construction-claim!`), so a losing attempt throws
+  (`rf.frame/call-with-frame-construction-claim!`), so a losing attempt throws
   before its first `swap!` and a winning attempt cannot interleave with any
   other attempt on the id. The engine's zero-write admission loss then covers
   both stores instead of one.
@@ -42,7 +42,7 @@
   opened by seams that already exist:
 
     - the WINNER parks inside its construction transaction on
-      `frame/*upsert-decide-probe*` (the `nil`-in-production JVM linearization
+      `rf.frame/*upsert-decide-probe*` (the `nil`-in-production JVM linearization
       seam `frame-upsert-linearization-jvm-test` and
       `make-frame-generation-seal-race-jvm-test` use). Parked there it holds the
       id's reservation, so the contender that follows is a genuine engine loss.
@@ -62,12 +62,12 @@
   `live-frame-reload-cljs-test`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.image :as image]
-            [re-frame.image-assembly :as asm]
-            [re-frame.live-frame :as lf]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support])
+            [re-frame.frame :as rf.frame]
+            [re-frame.image :as rf.image]
+            [re-frame.image-assembly :as rf.image-assembly]
+            [re-frame.live-frame :as rf.live-frame]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support])
   (:import [java.util.concurrent CountDownLatch TimeUnit]))
 
 ;; ---------------------------------------------------------------------------
@@ -77,7 +77,7 @@
 ;; directly, exactly as its two sibling namespaces do.
 ;; ---------------------------------------------------------------------------
 
-(def ^:private provenance #'lf/frame-generation-pool)
+(def ^:private provenance #'rf.live-frame/frame-generation-pool)
 
 (defn- pool-row [id] (get (deref @provenance) id))
 
@@ -86,7 +86,7 @@
    :pool-race/after-release])
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter})
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})
   (fn [t]
     ;; The provenance table is process-local `defonce` bookkeeping that no
     ;; fixture resets (a destroyed id's row deliberately survives). Clear this
@@ -127,14 +127,14 @@
   succeeds is released immediately — the question is the answer's only purpose."
   [id]
   (let [owner (try
-                (frame/claim-frame-construction! #{id} ::reservation-probe)
+                (rf.frame/claim-frame-construction! #{id} ::reservation-probe)
                 (catch clojure.lang.ExceptionInfo e
                   (if (= :rf.error/frame-construction-in-progress
                          (:rf.error/id (ex-data e)))
                     nil
                     (throw e))))]
     (if owner
-      (do (frame/release-frame-construction! owner) false)
+      (do (rf.frame/release-frame-construction! owner) false)
       true)))
 
 (defn- watch-row!
@@ -178,7 +178,7 @@
    (reg-desc "pool.race.core" :event :pool-race/reset ::reset)])
 
 (def ^:private img
-  (image/image {:id :pool-race/img :select-ns {:include ["pool.race.core"]}}))
+  (rf.image/image {:id :pool-race/img :select-ns {:include ["pool.race.core"]}}))
 
 (defn- inc-impl
   "The `:pool-race/inc` implementation the frame's CURRENT generation resolves —
@@ -186,7 +186,7 @@
   one-line discriminator between the pool the winner sealed and the pool a
   rejected contender transiently published."
   [id]
-  (:handler-fn (asm/resolve-descriptor (lf/frame-generation id) :event :pool-race/inc)))
+  (:handler-fn (rf.image-assembly/resolve-descriptor (rf.live-frame/frame-generation id) :event :pool-race/inc)))
 
 ;; ---------------------------------------------------------------------------
 ;; 1. THE REPRODUCTION. A same-id contender the engine REJECTS must leave the
@@ -200,7 +200,7 @@
             the loser's pool"
     (let [target :pool-race/target]
       ;; The frame the winner owns, sealed from pool V2.
-      (lf/make-frame {:id target :images [img]} pool-v2)
+      (rf.live-frame/make-frame {:id target :images [img]} pool-v2)
       (is (= ::inc-v2 (inc-impl target)) "control: the frame is running pool V2")
       (is (= pool-v2 (pool-row target)) "control: its row names pool V2")
 
@@ -212,11 +212,11 @@
         ;; real per-frame reprojection, which re-resolves the frame against
         ;; whatever the table says right now and swaps the result on. Its return
         ;; is the reload diff — non-nil exactly when the frame MOVED.
-        (watch-row! target log #(swap! moved conj (lf/reproject-live-frame! target)))
+        (watch-row! target log #(swap! moved conj (rf.live-frame/reproject-live-frame! target)))
         (try
-          (let [winner (binding [frame/*upsert-decide-probe*
+          (let [winner (binding [rf.frame/*upsert-decide-probe*
                                  (window-probe target reached release)]
-                         (future (lf/make-frame {:id target :images [img]} pool-v2)))]
+                         (future (rf.live-frame/make-frame {:id target :images [img]} pool-v2)))]
             (is (await! reached settle-ms)
                 "the winner parked inside its construction transaction")
             (is (exclusively-reserved? target)
@@ -225,7 +225,7 @@
             ;; THE CONTENDER. It loses admission — and pre-fix it had already
             ;; published pool V1 into the shared table before finding out.
             (is (= :rf.error/frame-construction-in-progress
-                   (err-id #(lf/make-frame {:id target :images [img]} pool-v1)))
+                   (err-id #(rf.live-frame/make-frame {:id target :images [img]} pool-v1)))
                 "the same-id contender is rejected by the engine")
 
             (is (= [] @log)
@@ -266,14 +266,14 @@
             can land on another attempt's row"
     (let [id  :pool-race/rollback
           log (atom [])]
-      (lf/make-frame {:id id :images [img]} pool-v1)
+      (rf.live-frame/make-frame {:id id :images [img]} pool-v1)
       (is (= pool-v1 (pool-row id)) "control: V1 recorded")
 
       (watch-row! id log nil)
       ;; `:on-create` is retired and fails loud INSIDE the engine — i.e. after
       ;; the early provenance write, which is the branch the rollback exists for.
       (is (= :rf.error/on-create-retired
-             (err-id #(lf/make-frame {:id id :images [img] :on-create [:boom]}
+             (err-id #(rf.live-frame/make-frame {:id id :images [img] :on-create [:boom]}
                                      pool-v2)))
           "control: the re-construction failed inside the engine")
 
@@ -303,13 +303,13 @@
           log (atom [])]
       ;; The 1-arity: the DEFAULT image over the LIVE source store. Its row is
       ;; recorded as nil, which is what "the live store" is spelled as.
-      (lf/make-frame {:id id})
+      (rf.live-frame/make-frame {:id id})
       (is (contains? (deref @provenance) id) "control: the row is present")
       (is (nil? (pool-row id)) "control: and its value is nil — the live store")
 
       (watch-row! id log nil)
       (is (= :rf.error/on-create-retired
-             (err-id #(lf/make-frame {:id id :on-create [:boom]} pool-v1))))
+             (err-id #(rf.live-frame/make-frame {:id id :on-create [:boom]} pool-v1))))
       (is (= [{:from nil :to pool-v1 :reserved? true}
               {:from pool-v1 :to nil  :reserved? true}]
              @log)
@@ -335,18 +335,18 @@
             spent hand-off loses without touching the table"
     (let [id    :pool-race/adopted
           log   (atom [])
-          owner (frame/claim-frame-construction! #{id} :plan-preflight)]
+          owner (rf.frame/claim-frame-construction! #{id} :plan-preflight)]
       (watch-row! id log nil)
       (try
         (is (= [true :rf.error/frame-construction-in-progress]
-               (frame/call-with-frame-construction-handoff!
+               (rf.frame/call-with-frame-construction-handoff!
                  owner id
                  (fn []
-                   [(some? (lf/make-frame {:id id :images [img]} pool-v1))
-                    (err-id #(lf/make-frame {:id id :images [img]} pool-v2))])))
+                   [(some? (rf.live-frame/make-frame {:id id :images [img]} pool-v1))
+                    (err-id #(rf.live-frame/make-frame {:id id :images [img]} pool-v2))])))
             "one hand-off permits exactly one construction; a second loses")
         (finally
-          (frame/release-frame-construction! owner)))
+          (rf.frame/release-frame-construction! owner)))
 
       (is (= [{:from ::absent :to pool-v1 :reserved? true}] @log)
           (str "exactly ONE publication, made under the outer owner's "

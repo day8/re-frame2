@@ -22,13 +22,13 @@
        failure trace."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.subs :as subs]
-            [re-frame.late-bind :as late-bind]
+            [re-frame.frame :as rf.frame]
+            [re-frame.subs :as rf.subs]
+            [re-frame.late-bind :as rf.late-bind]
             [re-frame.schemas.malli]                ;; install the default Malli validator
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace.tooling :as trace-tooling]))
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 ;; ---- fixtures + helpers ---------------------------------------------------
 
@@ -42,7 +42,7 @@
   ;; Mirror `re-frame.story.sub-overrides/resolve-sub-override-hit`: return
   ;; `[value]` on an exact-query-vector hit (one-element vector so a
   ;; nil-valued override is honoured) or nil on a miss / no overrides.
-  (late-bind/set-fn! :subs/resolve-sub-override
+  (rf.late-bind/set-fn! :subs/resolve-sub-override
     (fn [query-v]
       (let [ovr @override-atom]
         (when (and (map? ovr) (contains? ovr query-v))
@@ -68,8 +68,8 @@
 ;; resolver. The outer `finally` resets the override atom on the way out as
 ;; a belt-and-suspenders symmetry with `with-overrides*`'s own cleanup.
 (use-fixtures :each
-  (let [reset-runtime (test-support/make-reset-runtime-fixture
-                        {:adapter plain-atom/adapter
+  (let [reset-runtime (rf.test-support/make-reset-runtime-fixture
+                        {:adapter rf.substrate.plain-atom/adapter
                          :init-fn (fn []
                                     (reset! override-atom nil)
                                     (install-test-resolver!))})]
@@ -88,11 +88,11 @@
   [thunk]
   (let [seen (atom [])
         lid  ::override-seam-errors]
-    (trace-tooling/register-listener! lid
+    (rf.trace.tooling/register-listener! lid
       (fn [ev]
         (when (= :error (:op-type ev))
           (swap! seen conj (:operation ev)))))
-    (try (thunk) (finally (trace-tooling/unregister-listener! lid)))
+    (try (thunk) (finally (rf.trace.tooling/unregister-listener! lid)))
     @seen))
 
 ;; ---- 1 · a HIT surfaces at subscribe -------------------------------------
@@ -100,7 +100,7 @@
 (deftest hit-surfaces-pinned-value-through-subscribe
   (testing "an exact-query-vector override → subscribe's reaction derefs to it"
     (rf/reg-sub :login/state (fn [db _] (get-in db [:login :state])))
-    (rf/dispatch-sync [:rf/no-op])                ;; ensure frame/app-db exist
+    (rf/dispatch-sync [:rf/no-op])                ;; ensure rf.frame/app-db exist
     (with-overrides* {[:login/state] :error}
       (fn []
         (let [r @(rf/subscribe [:login/state])]
@@ -138,9 +138,9 @@
           (testing "subscribe surfaces the override"
             (is (= :error @(rf/subscribe [:login/state]))))
           (testing "compute-sub still reads the REAL app-db value"
-            (is (= :ok (subs/compute-sub [:login/state] db))))
+            (is (= :ok (rf.subs/compute-sub [:login/state] db))))
           (testing "so a sub-equals of the override value cannot pass"
-            (is (not= :error (subs/compute-sub [:login/state] db)))))))))
+            (is (not= :error (rf.subs/compute-sub [:login/state] db)))))))))
 
 ;; ---- 3 · the schema-validation fold-in -----------------------------------
 
@@ -202,11 +202,11 @@
             the nil assertion fails."
     (rf/reg-sub :fh/ovr (fn [db _] (:v db)))
     (rf/make-frame {:id :fh/ovr-frame :doc "incarnation A"})
-    (let [a-token (frame/frame-incarnation-token :fh/ovr-frame)]
+    (let [a-token (rf.frame/frame-incarnation-token :fh/ovr-frame)]
       ;; Supersede A with a same-id successor B.
       (rf/destroy-frame! :fh/ovr-frame)
       (rf/make-frame {:id :fh/ovr-frame :doc "incarnation B (successor)"})
-      (let [b-token (frame/frame-incarnation-token :fh/ovr-frame)]
+      (let [b-token (rf.frame/frame-incarnation-token :fh/ovr-frame)]
         (is (and (some? a-token) (some? b-token) (not (identical? a-token b-token)))
             "B is a distinct incarnation from A")
         (with-overrides* {[:fh/ovr] :override-value}
@@ -215,7 +215,7 @@
             ;; override.
             (let [errors (collect-errors
                            (fn []
-                             (let [r (subs/subscribe
+                             (let [r (rf.subs/subscribe
                                        [:fh/ovr]
                                        {:frame :fh/ovr-frame
                                         :rf.frame/expected-incarnation a-token})]
@@ -227,7 +227,7 @@
               (is (some #{:rf.error/frame-destroyed} errors)
                   "the fenced stale subscribe emits :rf.error/frame-destroyed"))
             ;; LIVE captured subscribe (pinned to B): override behaviour retained.
-            (let [r (subs/subscribe
+            (let [r (rf.subs/subscribe
                       [:fh/ovr]
                       {:frame :fh/ovr-frame
                        :rf.frame/expected-incarnation b-token})]

@@ -15,28 +15,28 @@
   machinery is platform-agnostic and CLJS adds no signal."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
-            [re-frame.flows :as flows]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]
-            [re-frame.trace.tooling :as trace-tooling]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.flows :as rf.flows]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace :as rf.trace]
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 ;; ---- fixtures --------------------------------------------------------------
 
 (defn reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  (trace/clear-listeners!)
-  (trace-tooling/clear-trace-rings!)
-  (trace/clear-frame-no-emit!)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.flows/reset-flows!)
+  (rf.schemas/clear-schemas-by-frame!)
+  (rf.trace/clear-listeners!)
+  (rf.trace.tooling/clear-trace-rings!)
+  (rf.trace/clear-frame-no-emit!)
   ;; Restore default events-retained between tests so a depth-tweaking
   ;; test does not bleed configuration into the next.
   (rf/configure! {:trace-buffer {:events-retained 50}})
-  (rf/init! plain-atom/adapter)
+  (rf/init! rf.substrate.plain-atom/adapter)
   (require 're-frame.routing :reload)
   ;; EP-0002 (rf2-9o48ih): `init!` no longer synthesises `:rf/default`;
   ;; framework operation surfaces require a carried frame stamp. Register
@@ -66,7 +66,7 @@
 ;; ---- 1. Per-frame ring -----------------------------------------------------
 
 ;; ---- Posture: dev-only, declared by `^:requires-debug` (rf2-d2841) ---------
-;; Trace machinery end to end: under `-Dre-frame.debug=false` `trace/emit` is a
+;; Trace machinery end to end: under `-Dre-frame.debug=false` `rf.trace/emit` is a
 ;; no-op, so there is no semantic residue to run under that posture, and a
 ;; `(when interop/debug-enabled? ...)` split -- the shape the rest of rf2-d2841
 ;; used -- would leave EMPTY deftests reporting green (class 2).  Every deftest
@@ -121,13 +121,13 @@
     (let [cs        (rf/trace-buffer :rf/default)
           target    (nth cs 2) ;; the middle one
           target-id (:dispatch-id target)]
-      (binding [trace/*handler-scope*
-                (trace/->HandlerScope nil nil target-id false false)]
+      (binding [rf.trace/*handler-scope*
+                (rf.trace/->HandlerScope nil nil target-id false false)]
         ;; Re-emit 200 trace events under the same in-flight cascade.
         ;; This pushes 200 events into one slot — but the slot count
         ;; stays at 5, so no other cascade is evicted.
         (dotimes [_ 200]
-          (trace/emit! :rf.sub :rf.sub/skip
+          (rf.trace/emit! :rf.sub :rf.sub/skip
                        {:rf.sub/id :foo :frame :rf/default})))
       (let [cs-after (rf/trace-buffer :rf/default)]
         (is (= 5 (count cs-after))
@@ -165,8 +165,8 @@
 (deftest ^:requires-debug frameless-emits-bypass-the-ring
   (testing "trace events emitted OUTSIDE any cascade never land in any ring"
     ;; Emit with no handler-scope and no frame.
-    (binding [trace/*handler-scope* nil]
-      (trace/emit! :rf.registry :rf.registry/handler-registered
+    (binding [rf.trace/*handler-scope* nil]
+      (rf.trace/emit! :rf.registry :rf.registry/handler-registered
                    {:kind :event :id :synthetic/probe}))
     ;; The registration trace is frameless (no `:dispatch-id`) — it
     ;; should appear in NO frame's ring.
@@ -326,7 +326,7 @@
     (rf/dispatch-sync [:ping] {:frame :app/transient})
     (is (seq (rf/trace-buffer :app/transient))
         "ring has content before destroy")
-    (frame/destroy-frame! :app/transient)
+    (rf.frame/destroy-frame! :app/transient)
     (is (= [] (rf/trace-buffer :app/transient))
         "ring is empty after frame destroy")))
 
@@ -632,22 +632,22 @@
   ;; the process-global trace-disabled set; `destroy-frame!` must remove it
   ;; (the teardown counterpart to `set-frame-no-emit!`, symmetric with the
   ;; per-frame trace-ring release). Without the fix the destroyed frame's id
-  ;; lingers permanently in `trace/trace-disabled-frames` — a process-global
+  ;; lingers permanently in `rf.trace/trace-disabled-frames` — a process-global
   ;; id leak (one keyword per destroyed-and-never-re-registered tool frame).
   (testing "a destroyed trace-disabled frame leaves no entry in the trace-disabled set"
     (rf/make-frame {:id :tool/inspector :rf.trace/frame-no-emit? true})
-    (is (trace/frame-trace-disabled? :tool/inspector)
+    (is (rf.trace/frame-trace-disabled? :tool/inspector)
         "make-frame marked the tool frame trace-disabled")
-    (frame/destroy-frame! :tool/inspector)
-    (is (not (trace/frame-trace-disabled? :tool/inspector))
+    (rf.frame/destroy-frame! :tool/inspector)
+    (is (not (rf.trace/frame-trace-disabled? :tool/inspector))
         "destroy-frame! removed the frame id from trace-disabled-frames (no process-global leak)"))
   (testing "destroying one tool frame does not disturb another's trace-disabled flag"
     (rf/make-frame {:id :tool/a :rf.trace/frame-no-emit? true})
     (rf/make-frame {:id :tool/b :rf.trace/frame-no-emit? true})
-    (frame/destroy-frame! :tool/a)
-    (is (not (trace/frame-trace-disabled? :tool/a))
+    (rf.frame/destroy-frame! :tool/a)
+    (is (not (rf.trace/frame-trace-disabled? :tool/a))
         "destroyed frame's flag is cleared")
-    (is (trace/frame-trace-disabled? :tool/b)
+    (is (rf.trace/frame-trace-disabled? :tool/b)
         "the surviving tool frame's flag is untouched")))
 
 ;; rf2-yl4c0s: `tagged-frame-trace-disabled?` read ONLY `[:tags :frame]` —
@@ -658,7 +658,7 @@
 ;; relying instead on the ambient `with-frame` / `*current-frame*` scope
 ;; (the sub-recompute / view-render shape `push-to-ring!`'s docstring
 ;; names) — ESCAPED suppression under a disabled tool frame. These two
-;; tests call `trace/emit!` directly with tags that carry NO `:frame` key,
+;; tests call `rf.trace/emit!` directly with tags that carry NO `:frame` key,
 ;; so only the current-frame-hook resolution path is exercised.
 
 (deftest ^:requires-debug untagged-emit-suppressed-when-current-frame-is-tool-disabled
@@ -669,7 +669,7 @@
     (let [seen (atom [])]
       (rf/register-listener! :trace ::untagged (fn [ev] (swap! seen conj ev)))
       (rf/with-frame :tool/inspector
-        (trace/emit! :rf.view :rf.view/render {:rf.view/render-key [:some/view nil]}))
+        (rf.trace/emit! :rf.view :rf.view/render {:rf.view/render-key [:some/view nil]}))
       (is (= [] @seen)
           "the un-tagged emit never reached the listener — suppressed via the current-frame-hook path")
       (rf/unregister-listener! :trace ::untagged))))
@@ -682,7 +682,7 @@
     (let [seen (atom [])]
       (rf/register-listener! :trace ::untagged-control (fn [ev] (swap! seen conj ev)))
       (rf/with-frame :app/plain
-        (trace/emit! :rf.view :rf.view/render {:rf.view/render-key [:some/view nil]}))
+        (rf.trace/emit! :rf.view :rf.view/render {:rf.view/render-key [:some/view nil]}))
       (is (seq @seen)
           "an app frame's ambient scope does not suppress the emit")
       (rf/unregister-listener! :trace ::untagged-control))))
@@ -728,7 +728,7 @@
       (rf/reg-event :ev/cycle {:doc "doc"} handler-fn) ;; suppressed
       ;; Reset dedup state, then re-register the SAME handler — should
       ;; now emit again because the table is fresh.
-      (trace-tooling/clear-listeners!)
+      (rf.trace.tooling/clear-listeners!)
       (rf/register-listener! :trace ::probe
                              (fn [ev]
                                (when (and (= :rf.registry (:op-type ev))

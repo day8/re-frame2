@@ -38,7 +38,7 @@
   `:dispatch-later` deferral, which had no production-posture counterpart
   anywhere.
 
-  What is left inside the `(when interop/debug-enabled? …)` arms is the
+  What is left inside the `(when rf.interop/debug-enabled? …)` arms is the
   narrower claim the trace still owns: that `:source` is HOISTED to the trace
   event's top level (Spec 009 §Core fields) while `:rf.event/origin` rides under
   `:tags`. That is a trace-shape claim, not a propagation claim.
@@ -49,23 +49,23 @@
   before failing. The probe delivers it in both postures."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
-            [re-frame.flows :as flows]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.flows :as rf.flows]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace :as rf.trace]))
 
 ;; ---- fixtures -------------------------------------------------------------
 
 (defn reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  (trace/clear-listeners!)
-  (rf/init! plain-atom/adapter)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.flows/reset-flows!)
+  (rf.schemas/clear-schemas-by-frame!)
+  (rf.trace/clear-listeners!)
+  (rf/init! rf.substrate.plain-atom/adapter)
   (require 're-frame.routing :reload)
   ;; EP-0002 (rf2-9o48ih): `init!` no longer synthesises `:rf/default`;
   ;; framework operation surfaces require a carried frame stamp. Register
@@ -124,7 +124,7 @@
               ":dispatch fx stamped :source :fx-dispatch on the child envelope (rf2-ejtpd)"))
 
         ;; ---- rf2-d2841 dev arm: the same values, HOISTED onto the trace ---
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (let [dispatched (->> @seen (filter #(= :rf.event/dispatched (:operation %))))
                 parent-ev  (first (filter #(= [:test/parent] (get-in % [:tags :rf.event/v])) dispatched))
                 child-ev   (first (filter #(= [:test/child]  (get-in % [:tags :rf.event/v])) dispatched))]
@@ -159,7 +159,7 @@
             "lvl-2 ALSO stamped :fx-dispatch (immediate trigger, not :ui from the root)")
 
         ;; ---- rf2-d2841 dev arm --------------------------------------------
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (let [dispatched (->> @seen (filter #(= :rf.event/dispatched (:operation %))))
                 ev-for     (fn [id]
                              (first (filter #(= [id] (get-in % [:tags :rf.event/v])) dispatched)))]
@@ -195,7 +195,7 @@
 
         ;; ---- rf2-d2841 dev arm: the trace SHAPE — `:origin` under `:tags`,
         ;;      `:source` hoisted to the top level (Spec 009 §Core fields).
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (let [dispatched (->> @seen (filter #(= :rf.event/dispatched (:operation %))))
                 parent-ev  (first (filter #(= [:test/parent] (get-in % [:tags :rf.event/v])) dispatched))
                 child-ev   (first (filter #(= [:test/child]  (get-in % [:tags :rf.event/v])) dispatched))]
@@ -246,7 +246,7 @@
               ":dispatch-later fx stamped :source :fx-dispatch-later on the deferred dispatch (rf2-ejtpd)"))
 
         ;; ---- rf2-d2841 dev arm --------------------------------------------
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (let [dispatched (->> @seen (filter #(= :rf.event/dispatched (:operation %))))
                 parent-ev  (first (filter #(= [:test/parent] (get-in % [:tags :rf.event/v])) dispatched))
                 child-ev   (first (filter #(= [:test/child]  (get-in % [:tags :rf.event/v])) dispatched))]

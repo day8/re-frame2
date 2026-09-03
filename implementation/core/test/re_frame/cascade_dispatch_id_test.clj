@@ -51,23 +51,23 @@
   assertion, and it is harder to see."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.interop :as interop]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
-            [re-frame.flows :as flows]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]))
+            [re-frame.interop :as rf.interop]
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.flows :as rf.flows]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace :as rf.trace]))
 
 ;; ---- fixtures -------------------------------------------------------------
 
 (defn reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  (trace/clear-listeners!)
-  (rf/init! plain-atom/adapter)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.flows/reset-flows!)
+  (rf.schemas/clear-schemas-by-frame!)
+  (rf.trace/clear-listeners!)
+  (rf/init! rf.substrate.plain-atom/adapter)
   (require 're-frame.routing :reload)
   (test-fn))
 
@@ -95,7 +95,7 @@
 (defn- record-errors
   "ALWAYS-ON (rf2-d2841): run `body-fn` with an `:errors`-stream listener
   attached and return the tight records the corpus-wide `error-emit` registry
-  fanned. Not gated on `interop/debug-enabled?`."
+  fanned. Not gated on `rf.interop/debug-enabled?`."
   [body-fn]
   (let [seen (atom [])]
     (rf/register-listener! :errors ::err (fn [rec] (swap! seen conj rec)))
@@ -128,7 +128,7 @@
         (is (= 1 @fx-fired) "fx ran")
         (is (= 1 (:n (rf/app-db-value :test/main)))
             "the handler's db change committed in this posture")
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (is (some? cascade-id)
               "the cascade's :rf.trace/dispatch-id is on the :rf.event/dispatched event")
           (is (seq during-drain)
@@ -156,7 +156,7 @@
       ;; — the tight shape carries none — but the failure itself is not lost.
       (is (some? (first (filterv #(= :rf.error/handler-exception (:error %)) @recs)))
           "the always-on error record fired for the throwing handler")
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (some? cascade-id))
         (is (some? err) "the handler-exception fired")
         (is (= cascade-id (dispatch-id err))
@@ -178,7 +178,7 @@
       ;; issued from inside the parent's fx and really committed.
       (is (true? (:got-child (rf/app-db-value :test/main)))
           "the child dispatch committed in this posture")
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (some? parent))
         (is (some? child))
         (is (some? (dispatch-id parent)))
@@ -201,7 +201,7 @@
       ;; zero times over an empty ring and clojure.test still reports a pass.
       (is (= 1 (:v (rf/app-db-value :test/main)))
           "the inner event committed in this posture")
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (seq evs) "the trace ring captured the cascade")
         (doseq [ev evs
                 :when (not= :rf.event/dispatched (:operation ev))]
@@ -225,7 +225,7 @@
         ;; only its trace is not. The frame exists and the handler is registered.
         (is (some? (rf/frame-meta :test/outside)) "the frame was created")
         (is (some? (rf/handler-meta :event :foo)) "the handler was registered")
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (let [out-of-band (filter #(or (= :rf.frame/created (:operation %))
                                          (= :rf.registry/handler-registered (:operation %)))
                                     @seen)]
@@ -251,7 +251,7 @@
       ;; reached 2 — so "two cascades" is a fact and not an assumption.
       (is (= 2 (:n (rf/app-db-value :test/main)))
           "both sequential dispatches committed in this posture")
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (= 1 (count ids1))
             "every emit in the first cascade shares one :rf.trace/dispatch-id")
         (is (= 1 (count ids2))
@@ -271,21 +271,21 @@
             scope DOES still carry the id (control)."
     (let [evs   (record-traces
                   (fn []
-                    (trace/with-dispatch-id+call-site 4242 nil
+                    (rf.trace/with-dispatch-id+call-site 4242 nil
                       ;; Frame-lifecycle markers tagged with a DIFFERENT (sibling) frame.
-                      (trace/emit! :rf.frame :rf.frame/re-registered {:frame :test/sibling})
-                      (trace/emit! :rf.frame :rf.frame/created        {:frame :test/other})
+                      (rf.trace/emit! :rf.frame :rf.frame/re-registered {:frame :test/sibling})
+                      (rf.trace/emit! :rf.frame :rf.frame/created        {:frame :test/other})
                       ;; Control: an ordinary cascade emit inherits the dispatch-id.
-                      (trace/emit! :rf.sub   :rf.sub/run              {:frame :test/sibling
+                      (rf.trace/emit! :rf.sub   :rf.sub/run              {:frame :test/sibling
                                                                        :rf.sub/id :x}))))
           by-op (fn [op] (some #(when (= op (:operation %)) %) evs))]
       ;; rf2-d2841 — GUARDED WHOLESALE, and honestly so: this case drives
-      ;; `trace/emit!` directly, which is a no-op under `-Dre-frame.debug=false`,
+      ;; `rf.trace/emit!` directly, which is a no-op under `-Dre-frame.debug=false`,
       ;; so there is no production work here to witness. Its two negatives were
       ;; class-1 vacuous under the gate — `by-op` returns nil over the empty
       ;; ring and `dispatch-id` of nil is nil — while the CONTROL beside them
       ;; (the one assertion that would have caught it) went red.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (nil? (dispatch-id (by-op :rf.frame/re-registered)))
             ":rf.frame/re-registered stays uncorrelated — no cascade dispatch-id")
         (is (nil? (dispatch-id (by-op :rf.frame/created)))

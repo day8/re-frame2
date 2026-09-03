@@ -51,7 +51,7 @@
   Pure namespace — no runtime state, no trace. `.cljc` so the JVM test
   sweep exercises the encoder cross-host."
   (:require [clojure.string :as str]
-            [re-frame.error :as error])
+            [re-frame.error :as rf.error])
   #?(:clj (:import [java.util UUID]
                    [java.util Date]
                    [java.time Instant ZoneOffset]
@@ -79,7 +79,7 @@
   the CEDN-1 domain fails the WHOLE identity closed — never a host-string
   fallback (Conventions §Canonical EDN identity)."
   [value reason]
-  (error/throw-error!
+  (rf.error/throw-error!
     :rf.error/non-edn-identity
     'rf.identity/canonical
     reason

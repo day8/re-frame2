@@ -50,7 +50,7 @@
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.set :as set]
-            [re-frame.late-bind :as late-bind]
+            [re-frame.late-bind :as rf.late-bind]
             ;; load-bearing requires — each populates the warn-once-clear
             ;; registry at ns-load:
             ;;   re-frame.views          → seen-render-keys
@@ -81,7 +81,7 @@
 (deftest registry-enrols-every-named-cache-of-the-class
   (testing "the warn-once-clear governance registry enrols every named
             cache of the rf2-z79p8 class"
-    (let [enrolled (set (map :label @late-bind/warn-once-clear-registry))
+    (let [enrolled (set (map :label @rf.late-bind/warn-once-clear-registry))
           missing  (set/difference expected-labels enrolled)]
       (is (empty? missing)
           (str "these warn-once caches are NOT enrolled in the governance "
@@ -104,7 +104,7 @@
   dedicated re-arm test.)"
   []
   (filter (fn [{:keys [arm armed?]}] (and (fn? arm) (fn? armed?)))
-          @late-bind/warn-once-clear-registry))
+          @rf.late-bind/warn-once-clear-registry))
 
 (deftest canonical-chain-wipes-every-enrolled-cache
   (testing "arming every probe-carrying warn-once cache, then firing the
@@ -112,7 +112,7 @@
             ALL of them — proving each enrolled cache is genuinely a member
             of the chain the standard fixture drives (rf2-z79p8)"
     (let [entries (probed-entries)
-          chain   (late-bind/get-fn :adapter/clear-warn-once-caches!)]
+          chain   (rf.late-bind/get-fn :adapter/clear-warn-once-caches!)]
       (is (seq entries)
           "precondition: at least one probe-carrying cache is enrolled")
       (is (some? chain)
@@ -165,9 +165,9 @@
                      :arm      (fn [] (swap! survivor conj ::sentinel))
                      :armed?   (fn [] (contains? @survivor ::sentinel))}]
       (try
-        (swap! late-bind/warn-once-clear-registry conj synthetic)
+        (swap! rf.late-bind/warn-once-clear-registry conj synthetic)
         (let [{:keys [arm armed?]} synthetic
-              chain (late-bind/get-fn :adapter/clear-warn-once-caches!)]
+              chain (rf.late-bind/get-fn :adapter/clear-warn-once-caches!)]
           (arm)
           (is (true? (boolean (armed?))) "synthetic cache armed")
           (chain)
@@ -189,5 +189,5 @@
                 "by contrast, a properly-enrolled cache IS wiped by the chain")))
         (finally
           ;; Drop the synthetic entry so the real gate above stays clean.
-          (swap! late-bind/warn-once-clear-registry
+          (swap! rf.late-bind/warn-once-clear-registry
                  (fn [reg] (vec (remove #(= :rf-test/unchained-synthetic-cache (:label %)) reg)))))))))

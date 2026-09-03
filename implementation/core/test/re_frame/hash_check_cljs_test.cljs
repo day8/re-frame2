@@ -5,15 +5,15 @@
   reads pure ssr fns, fixture uniformity makes it harder to accidentally
   re-introduce registrar pollution if the test grows."
   (:require [cljs.test :refer-macros [deftest is use-fixtures]]
-            [re-frame.ssr :as ssr]
-            [re-frame.test-support :as test-support]))
+            [re-frame.ssr :as rf.ssr]
+            [re-frame.test-support :as rf.test-support]))
 
-(use-fixtures :each (test-support/make-reset-runtime-fixture))
+(use-fixtures :each (rf.test-support/make-reset-runtime-fixture))
 
 (deftest jvm-cljs-hash-parity
   (let [tree      [:div {:class "x"} [:p "hi"]]
-        canonical (#'ssr/canonical-edn tree)
-        h         (ssr/render-tree-hash tree)]
+        canonical (#'rf.ssr/canonical-edn tree)
+        h         (rf.ssr/render-tree-hash tree)]
     ;; Silent-on-success (rf2-try1x): canonical-edn + hash are now
     ;; surfaced in the `is` message so they only appear on failure.
     (is (= "9d7457ef" h)
@@ -30,7 +30,7 @@
   ;; one side back to UTF-16 code units would only fail on multi-byte
   ;; codepoints — silently shipping a hash mismatch in production for
   ;; non-English content.
-  (let [h (#'ssr/fnv-1a-32 "café")]
+  (let [h (#'rf.ssr/fnv-1a-32 "café")]
     (is (= "a82b5049" h)
         (str "CLJS UTF-8 byte hash of 'café' must equal JVM UTF-8 byte hash"
              "  hash=" h))))

@@ -31,7 +31,7 @@
   The integration story (trace buffer / epoch surfaces respecting a REBOUND
   flag) lives in those respective suites, which carry the same caveat."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.interop :as interop]))
+            [re-frame.interop :as rf.interop]))
 
 (def ^:private read-debug-flag
   "Pull the private reader. The flag itself reads once at ns load; for
@@ -107,8 +107,8 @@
 
 (deftest gate-is-a-boolean-at-namespace-load
   (testing "The published `debug-enabled?` Var is a boolean — not a
-            thunk, not a fn. Downstream `when interop/debug-enabled?`
+            thunk, not a fn. Downstream `when rf.interop/debug-enabled?`
             checks evaluate the Var once and JIT-inline the
             branch."
-    (is (boolean? interop/debug-enabled?)
-        "interop/debug-enabled? is a boolean")))
+    (is (boolean? rf.interop/debug-enabled?)
+        "rf.interop/debug-enabled? is a boolean")))

@@ -128,18 +128,18 @@
             ;; the hiccup-tier emitter is callable here; `interop` gates the
             ;; emit-driven half so the `:prod-gate` lane (where every trace emit
             ;; is a no-op by design) keeps running the corpus half beside it.
-            [re-frame.interop :as interop]
-            [re-frame.trace :as trace]
-            [re-frame.ssr.hydrate :as ssr-hydrate]
+            [re-frame.interop :as rf.interop]
+            [re-frame.trace :as rf.trace]
+            [re-frame.ssr.hydrate :as rf.ssr.hydrate]
             ;; The shared definition of the implementation source corpus
             ;; (rf2-2cu7f). This scan and the egress-chokepoint scan used to
             ;; carry a copy each; the copies enumerated artefact roots at
             ;; depth 1 and so walked past all four nested adapter artefacts.
-            [re-frame.impl-source-corpus :as corpus]
+            [re-frame.impl-source-corpus :as rf.impl-source-corpus]
             ;; The dual-runtime exercise leg's always-on literal — Test A
             ;; pins it against the parsed catalogue (invariant #4), Test B
             ;; iterates it. Requiring it here closes the coupling in code.
-            [re-frame.always-on-axis-conformance-cljs-test :as exercise]))
+            [re-frame.always-on-axis-conformance-cljs-test :as rf.always-on-axis-conformance-cljs-test]))
 
 ;; ---------------------------------------------------------------------------
 ;; Catalogue location + parser
@@ -299,7 +299,7 @@
 ;; enumerated roots at depth 1, so both walked past the four nested adapter
 ;; artefacts — 14 production files, invisible to two armed and running
 ;; ratchets (rf2-2cu7f). One definition, one depth-independent walk, and
-;; `corpus/corpus-cross-check` as the coverage floor the sanity test below
+;; `rf.impl-source-corpus/corpus-cross-check` as the coverage floor the sanity test below
 ;; now asserts.
 
 ;; The keyword char class includes the apostrophe so categories like
@@ -313,11 +313,11 @@
   :rf.<area>/<cat> …)` / `(… emit-warning! :rf.<area>/<cat> …)` /
   `(… emit-error-both! :rf.<area>/<cat> …)` — the category keyword is the
   token immediately after the fn symbol. The fn may be ns-qualified
-  (`trace/emit-error!`, `error-emit/dispatch-on-error!`,
+  (`rf.trace/emit-error!`, `error-emit/dispatch-on-error!`,
   `error-emit/emit-error-both!`) or bare.
 
   `emit-error-both!` (rf2-c4oycd) is the shared two-channel fan-out the
-  open-coded `dispatch-on-error!` + `trace/emit-error!` two-step collapsed
+  open-coded `dispatch-on-error!` + `rf.trace/emit-error!` two-step collapsed
   onto: it takes the category as its FIRST arg exactly like the others, so
   the scanner reaches the categories now routed through it (e.g.
   `:rf.error/no-such-handler`, `:rf.error/frame-destroyed`)."
@@ -346,7 +346,7 @@
 
   Closing the rf2-scuobk blind spot: the pre-existing emit scan (`emit-
   error!` / `dispatch-on-error!` / `emit-warning!` / `emit-error-both!` /
-  `emit! :warning|:advisory`) saw only the trace/error-emit axis — it was
+  `emit! :warning|:advisory`) saw only the rf.trace/error-emit axis — it was
   BLIND to the THROW axis, so a `:rf.error/*` category that the runtime
   ONLY ever THROWS (a registration-time / dispatch-boundary `throw-error!`,
   never trace-emitted) read as un-emitted and never forced a catalogue row.
@@ -354,7 +354,7 @@
   §Error event catalogue marks it diagnostic-channel — it is not delivered
   to the always-on error-emit listener, but it is an emitted `:rf.error/*`
   the catalogue must carry). Even the PRODUCTION-REACHABLE dispatch-boundary
-  throw `:rf.error/invalid-cofx` (NOT gated on `interop/debug-enabled?`, so it
+  throw `:rf.error/invalid-cofx` (NOT gated on `rf.interop/debug-enabled?`, so it
   fires in `:advanced` production) is diagnostic-channel: it is a pure
   `throw-error!` that does NOT fan out on the error-emit listener, so it rides
   the diagnostic channel for catalogue purposes (the catalogue's
@@ -378,7 +378,7 @@
   the first literal keyword arg of `throw-error!` / `thrown-ex-info`, which
   the original emit-only scan was blind to."
   []
-  (->> (corpus/non-test-source-files)
+  (->> (rf.impl-source-corpus/non-test-source-files)
        (mapcat (fn [f]
                  (let [src (slurp f)]
                    (concat (map second (re-seq emit-error-re src))
@@ -392,7 +392,7 @@
   :rf.<area>/<cat> …)` — the `emit-error-re` alternation NARROWED to the two
   ALWAYS-ON chokepoints alone (rf2-h4f0n). `dispatch-on-error!` is the
   production-survivable error-emit axis (surface #4), NOT gated on
-  `interop/debug-enabled?`, and `emit-error-both!`'s axis 1 IS
+  `rf.interop/debug-enabled?`, and `emit-error-both!`'s axis 1 IS
   `dispatch-on-error!` — so a category passed literally to either fn reaches
   off-box shippers from an `:advanced` + `goog.DEBUG=false` build, whatever
   the catalogue says. The trace-only fns (`emit-error!` / `emit-warning!`)
@@ -412,7 +412,7 @@
   the code fans onto the always-on axis regardless of their catalogue Channel
   cell (rf2-h4f0n)."
   []
-  (->> (corpus/non-test-source-files)
+  (->> (rf.impl-source-corpus/non-test-source-files)
        (mapcat (fn [f] (map second (re-seq always-on-mechanism-re (slurp f)))))
        (map (fn [s] (keyword (subs s 1))))
        set))
@@ -548,7 +548,7 @@
       the per-frame boundary (vanishingly unlikely — enumerating live frame
       ids, the dirty-flag swap itself).
       Both were DIAGNOSTIC-channel-only (dev hot-reload, gated on
-      `interop/debug-enabled?` inside `trace/emit-error!` — zero production
+      `rf.interop/debug-enabled?` inside `rf.trace/emit-error!` — zero production
       cost) and were added by a worker scoped to `live_frame.cljc` alone (not
       the hot-zone Spec 009 file); held transitionally per this list's own
       convention (see the `:rf.error/cofx-registration-invalid` precedent
@@ -651,15 +651,15 @@
                (filter #(= "always-on" (:channel %)))
                (map :category)
                set)]
-      (is (= catalogue-always-on exercise/always-on-categories)
+      (is (= catalogue-always-on rf.always-on-axis-conformance-cljs-test/always-on-categories)
           (str "catalogue always-on set vs exercise literal — "
                "only-in-catalogue: "
                (pr-str (sort (set/difference
                                catalogue-always-on
-                               exercise/always-on-categories)))
+                               rf.always-on-axis-conformance-cljs-test/always-on-categories)))
                " ; only-in-literal: "
                (pr-str (sort (set/difference
-                               exercise/always-on-categories
+                               rf.always-on-axis-conformance-cljs-test/always-on-categories
                                catalogue-always-on))))))))
 
 (deftest every-table-row-has-a-nonblank-valid-channel
@@ -704,9 +704,9 @@
             found EVERYTHING, so the coverage claim is the cross-check —
             this corpus against the independently-shaped one the repo's
             other source-scanning lints use."
-    (let [roots      corpus/src-roots
+    (let [roots      rf.impl-source-corpus/src-roots
           cats       (emitted-categories)
-          {:keys [missing extra]} (corpus/corpus-cross-check)]
+          {:keys [missing extra]} (rf.impl-source-corpus/corpus-cross-check)]
       (is (seq roots)
           "at least one artefact src root resolved from the JVM test CWD")
       (is (empty? missing)
@@ -1562,12 +1562,12 @@
 ;; and reads the envelope `re-frame.trace/build-event` actually assembled. The
 ;; two adoption emitters are `.cljs` and cannot be called from the JVM, so their
 ;; payload MAPS are read out of the source files AS DATA and driven through the
-;; real `trace/emit!`; `:where` is taken from the source form rather than
+;; real `rf.trace/emit!`; `:where` is taken from the source form rather than
 ;; retyped, and the key set is pinned, so neither transcription can drift.
 
 (def ^:private hydration-mismatch-adoption-sites
   "The two ADOPTION-tier emit sites, relative to `implementation/`. Both are
-  `(trace/emit! :warning :rf.ssr/hydration-mismatch {…})` with a `:warning`
+  `(rf.trace/emit! :warning :rf.ssr/hydration-mismatch {…})` with a `:warning`
   envelope — which is why neither carries `[:tags :category]`."
   ["core/src/re_frame/substrate/spine.cljs"
    "hicasso/src/re_frame/hicasso/impl/mount.cljs"])
@@ -1582,7 +1582,7 @@
   `(some-> error .-message)` and `'re-frame…/…` are ordinary EDN forms, so this
   reaches the whole map without evaluating a thing."
   [rel-path]
-  (let [src (slurp (io/file corpus/implementation-root rel-path))
+  (let [src (slurp (io/file rf.impl-source-corpus/implementation-root rel-path))
         m   (re-matcher adoption-emit-re src)]
     (when (.find m)
       (read-form-at src (.end m)))))
@@ -1627,8 +1627,8 @@
   [f]
   (let [seen (atom [])
         id   (gensym "hydration-mismatch-witness")]
-    (trace/register-listener! id (fn [ev] (swap! seen conj ev)))
-    (try (f) (finally (trace/unregister-listener! id)))
+    (rf.trace/register-listener! id (fn [ev] (swap! seen conj ev)))
+    (try (f) (finally (rf.trace/unregister-listener! id)))
     @seen))
 
 (def ^:private pre-fix-hydration-mismatch-schema
@@ -1698,17 +1698,17 @@
           "…and accepted the hiccup one, so the control differs on the tier
            that matters and not on both")))
 
-  ;; The emit-driven half. `interop/debug-enabled?` is false in the `:prod-gate`
+  ;; The emit-driven half. `rf.interop/debug-enabled?` is false in the `:prod-gate`
   ;; lane, where every trace emit is a deliberate no-op — guarding here keeps
   ;; that lane running the corpus assertions above rather than reporting a
   ;; failure about instrumentation it switched off on purpose.
-  (when interop/debug-enabled?
+  (when rf.interop/debug-enabled?
     (testing "HICCUP TIER, driven through the SHIPPED emitter. The envelope is
               the one `re-frame.trace/build-event` really assembled, so the
               `:category` merge and the `:recovery` hoist are observed rather
               than asserted."
       (let [events   (capture-trace-events
-                       #(ssr-hydrate/verify-hydration!
+                       #(rf.ssr.hydrate/verify-hydration!
                           witness-frame-id
                           "client-hash-B"
                           {:server-hash     "server-hash-A"
@@ -1737,13 +1737,13 @@
 
     (testing "ADOPTION TIER. The payload maps are read out of the two `.cljs`
               emit sites as data — this JVM suite cannot call them — and driven
-              through the real `trace/emit!`, with each site's own `:where`
+              through the real `rf.trace/emit!`, with each site's own `:where`
               symbol taken from the source rather than retyped."
       (let [schema (tags-schema-form "HydrationMismatchTags")]
         (doseq [rel-path hydration-mismatch-adoption-sites]
           (let [form (adoption-payload-form rel-path)]
             (is (some? form)
-                (str rel-path " still carries a `(trace/emit! :warning "
+                (str rel-path " still carries a `(rf.trace/emit! :warning "
                      ":rf.ssr/hydration-mismatch {…})` site"))
             (is (= adoption-payload-keys (set (keys form)))
                 (str rel-path "'s adoption payload keys moved — this witness "
@@ -1753,7 +1753,7 @@
             (let [;; the site's OWN `:where`, unquoted — never a retyped copy.
                   where    (source-quoted-symbol (:where form))
                   events   (capture-trace-events
-                             #(trace/emit! :warning :rf.ssr/hydration-mismatch
+                             #(rf.trace/emit! :warning :rf.ssr/hydration-mismatch
                                            {:error    "Hydration failed because the initial UI does not match."
                                             :where    where
                                             :recovery (:recovery form)}))
@@ -1794,7 +1794,7 @@
             declared   (get (parse-tags-schemas) "HydrationMismatchTags")
             documented (cell-tag-keys cell)
             hiccup     (->> (capture-trace-events
-                              #(ssr-hydrate/verify-hydration!
+                              #(rf.ssr.hydrate/verify-hydration!
                                  witness-frame-id
                                  "client-hash-B"
                                  {:server-hash     "server-hash-A"
@@ -1802,7 +1802,7 @@
                             (filter #(= :rf.ssr/hydration-mismatch (:operation %)))
                             first :tags keys set)
             adoption   (->> (capture-trace-events
-                              #(trace/emit! :warning :rf.ssr/hydration-mismatch
+                              #(rf.trace/emit! :warning :rf.ssr/hydration-mismatch
                                             {:error    "Hydration failed."
                                              :where    're-frame.substrate.spine/make-render
                                              :recovery :warned-and-replaced}))

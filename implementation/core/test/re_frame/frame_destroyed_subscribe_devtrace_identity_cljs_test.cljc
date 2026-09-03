@@ -49,14 +49,14 @@
   (#6365)."
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
-            [re-frame.classification :as classification]
-            [re-frame.privacy :as privacy]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as ts]))
+            [re-frame.classification :as rf.classification]
+            [re-frame.privacy :as rf.privacy]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; A sub id that COLLIDES with an event id (legal — separate registries).
 (def ^:private shared-id :audit6516/same-id)
@@ -66,7 +66,7 @@
 (def ^:private query-v [shared-id {:token secret}])
 ;; The value the registration redacts the arg-map's `:token` to — the mutation
 ;; the subscribe realm must NOT suffer, and the dispatch realm MUST.
-(def ^:private redacted [shared-id {:token privacy/redacted-sentinel}])
+(def ^:private redacted [shared-id {:token rf.privacy/redacted-sentinel}])
 
 (defn- register-colliding-event! []
   ;; Register an EVENT under the SAME keyword as the subscription, declaring
@@ -74,7 +74,7 @@
   ;; derives `{:sensitive [[:token]]}`, so `redact-event-by-registration`
   ;; redacts the arg-map's `:token`. Events and subs are separate registries —
   ;; nothing about this makes the keyword a subscription.
-  (registrar/register! :event shared-id {:sensitive [[:token]]}))
+  (rf.registrar/register! :event shared-id {:sensitive [[:token]]}))
 
 (defn- frame-destroyed-devtrace
   "The axis-2 dev-trace event `emit-and-throw-frame-destroyed!` fans (frames.cljc):
@@ -87,7 +87,7 @@
   "Project a frame-destroyed dev-trace through the single dev-trace chokepoint
   and return its `:event` tag as the consumer would receive it."
   [op event]
-  (get-in (classification/project-trace-event (frame-destroyed-devtrace op event))
+  (get-in (rf.classification/project-trace-event (frame-destroyed-devtrace op event))
           [:tags :event]))
 
 ;; ---------------------------------------------------------------------------
@@ -104,7 +104,7 @@
     ;; when routed through the event-vector chokepoint — so a raw subscribe
     ;; egress below is the realm GUARD's doing, not an absent registration
     ;; (the non-vacuity the #6516 dev-trace assertion lacked).
-    (is (= redacted (classification/redact-event-by-registration query-v))
+    (is (= redacted (rf.classification/redact-event-by-registration query-v))
         "the colliding EVENT registration WOULD redact :token — machinery live")
     ;; THE FIX: the subscribe realm skips bare-event projection.
     (is (= query-v (project-event :subscribe query-v))
@@ -156,5 +156,5 @@
     (register-colliding-event!)
     (let [ev {:operation :rf.error/handler-exception
               :tags {:frame :some-frame :op :subscribe :event query-v}}]
-      (is (= redacted (get-in (classification/project-trace-event ev) [:tags :event]))
+      (is (= redacted (get-in (rf.classification/project-trace-event ev) [:tags :event]))
           "a non-frame-destroyed op's :event tag is NOT exempted — still redacted"))))

@@ -27,31 +27,31 @@
   File-naming uses the flat dash-form (`core_X.cljc`) because CLJS
   `goog.provide` for `re-frame.core` overwrites its parent object,
   which would wipe a previously-loaded `re-frame.core.X`."
-  (:require [re-frame.registrar :as registrar]
-            [re-frame.frame :as frame]
+  (:require [re-frame.registrar :as rf.registrar]
+            [re-frame.frame :as rf.frame]
             ;; The frame api constructor behind `capture-frame` and the
             ;; `reg-view` injection — an implementation namespace below this
             ;; facade (rf2-93sxp), so the expansion can name it fully-qualified
             ;; without a compiler-only Var living here.
-            [re-frame.capture-frame :as frame-api]
-            [re-frame.router :as router]
-            [re-frame.events :as events]
-            [re-frame.fx :as fx]
-            [re-frame.cofx :as cofx]
-            [re-frame.interop :as interop]
-            [re-frame.subs :as subs]
-            [re-frame.subs.cache :as subs-cache]
-            [re-frame.interceptor :as interceptor]
-            [re-frame.interceptor-registry :as icpt-reg]
-            [re-frame.std-interceptors :as std-interceptors]
-            [re-frame.privacy :as privacy]
-            [re-frame.spec :as spec]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.features :as features]
-            [re-frame.source-coords :as source-coords]
-            [re-frame.trace :as trace
+            [re-frame.capture-frame :as rf.capture-frame]
+            [re-frame.router :as rf.router]
+            [re-frame.events :as rf.events]
+            [re-frame.fx :as rf.fx]
+            [re-frame.cofx :as rf.cofx]
+            [re-frame.interop :as rf.interop]
+            [re-frame.subs :as rf.subs]
+            [re-frame.subs.cache :as rf.subs.cache]
+            [re-frame.interceptor :as rf.interceptor]
+            [re-frame.interceptor-registry :as rf.interceptor-registry]
+            [re-frame.std-interceptors :as rf.std-interceptors]
+            [re-frame.privacy :as rf.privacy]
+            [re-frame.spec :as rf.spec]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.features :as rf.features]
+            [re-frame.source-coords :as rf.source-coords]
+            [re-frame.trace :as rf.trace
              #?@(:cljs [:include-macros true])]
-            [re-frame.trace.projection :as trace-projection]
+            [re-frame.trace.projection :as rf.trace.projection]
             ;; JVM-only autoload for the focused-event-only cascade-DAG
             ;; aggregator (rf2-931pm). CLJS deliberately omits the
             ;; require so Closure DCE keeps the aggregator + per-fn
@@ -64,12 +64,12 @@
             ;; wraps the stored `:handler-fn` with it; the CLJS view path
             ;; annotates through the substrate wrappers (spine / views),
             ;; so this ns is deliberately absent from CLJS bundles.
-            #?@(:clj [[re-frame.views.jvm-source-coord-annotation :as jvm-view-annot]])
-            [re-frame.event-emit :as event-emit]
-            [re-frame.error :as error]
-            [re-frame.error-emit :as error-emit]
-            [re-frame.elision :as elision]
-            [re-frame.projection :as projection]
+            #?@(:clj [[re-frame.views.jvm-source-coord-annotation :as rf.views.jvm-source-coord-annotation]])
+            [re-frame.event-emit :as rf.event-emit]
+            [re-frame.error :as rf.error]
+            [re-frame.error-emit :as rf.error-emit]
+            [re-frame.elision :as rf.elision]
+            [re-frame.projection :as rf.projection]
             ;; EP-0025: the imperative `add-marks` / `set-marks` API and ALL
             ;; sensitivity propagation are removed; the egress-projection
             ;; substrate is kept (renamed off "marks"). `re-frame.classification`
@@ -102,7 +102,7 @@
             ;; `re-frame.frame` + `re-frame.late-bind` (core spine), so it is
             ;; bundle-isolation neutral and production-surviving (the
             ;; always-on observability stream is NOT DCE'd, by design).
-            [re-frame.observability :as observability]
+            [re-frame.observability :as rf.observability]
             ;; EP-0023 (rf2-32siq3.17): the public `rf/image` constructor —
             ;; an IMAGE value, the selected registration-set value a frame
             ;; resolves against (EP-0023 §Image, §Public API). PURE inert data
@@ -135,26 +135,26 @@
             ;; reload fns as Closure-DCE dead code — the elision probe
             ;; deliberately does NOT root the image-loading path (see
             ;; elision_probe.cljs). EP-0023 collapse FINALE (rf2-32siq3.48): the
-            ;; OBJECT-returning `live-frame/make-frame` IS now the backing of the
+            ;; OBJECT-returning `rf.live-frame/make-frame` IS now the backing of the
             ;; facade `rf/make-frame` (repointed off the EP-0013 RECORD
             ;; constructor once every record caller was migrated).
-            [re-frame.live-frame :as live-frame]
-            [re-frame.substrate.adapter :as adapter]
-            [re-frame.core-flows    :as rf-flows]
-            [re-frame.core-routing  :as rf-routing]
-            [re-frame.core-schemas  :as rf-schemas]
-            [re-frame.core-machines :as rf-machines]
-            [re-frame.core-resources :as rf-resources]
-            [re-frame.core-ssr      :as rf-ssr]
-            [re-frame.core-epoch    :as rf-epoch]
-            [re-frame.core-http     :as rf-http]
+            [re-frame.live-frame :as rf.live-frame]
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
+            [re-frame.core-flows    :as rf.core-flows]
+            [re-frame.core-routing  :as rf.core-routing]
+            [re-frame.core-schemas  :as rf.core-schemas]
+            [re-frame.core-machines :as rf.core-machines]
+            [re-frame.core-resources :as rf.core-resources]
+            [re-frame.core-ssr      :as rf.core-ssr]
+            [re-frame.core-epoch    :as rf.core-epoch]
+            [re-frame.core-http     :as rf.core-http]
             ;; Macro helpers — the macro siblings live in their own
             ;; nss; required here with `:include-macros` so CLJS callers
             ;; see them under `rf/<name>`.
-            [re-frame.core-reg-macros        :as rm
+            [re-frame.core-reg-macros        :as rf.core-reg-macros
              #?@(:cljs [:include-macros true])]
-            [re-frame.core-call-site-macros  :as csm]
-            [re-frame.core-reg-view-macro    :as rvm]
+            [re-frame.core-call-site-macros  :as rf.core-call-site-macros]
+            [re-frame.core-reg-view-macro    :as rf.core-reg-view-macro]
             ;; NOTE: re-frame.substrate.plain-atom is deliberately NOT
             ;; required here. It carries no ns-load side-effect that core
             ;; needs — its only load-time effect is the CLJS
@@ -167,7 +167,7 @@
             ;; pass `plain-atom/adapter` — eagerly pulling it into the
             ;; facade would ship JVM/SSR adapter code into every consumer
             ;; (rf2-1mdvlv).
-            #?@(:cljs [[re-frame.views :as views]]))
+            #?@(:cljs [[re-frame.views :as rf.views]]))
   ;; The macros are defined in this ns's `#?(:clj ...)` blocks below.
   ;; CLJS users see them under `rf/<name>` via this self-`:require-
   ;; macros`, so `(:require [re-frame.core :as rf])` is the only import
@@ -214,9 +214,9 @@
 ;; reaches these via the 2-arity opts map, so NO `:rf.trace/call-site`
 ;; literal lives in these production-reachable bodies (the elision probe
 ;; asserts the keyword is ABSENT from the prod bundle).
-(def ^:no-doc dispatch-impl      router/dispatch!)
-(def ^:no-doc dispatch-sync-impl router/dispatch-sync!)
-(def ^:no-doc subscribe-impl     subs/subscribe)
+(def ^:no-doc dispatch-impl      rf.router/dispatch!)
+(def ^:no-doc dispatch-sync-impl rf.router/dispatch-sync!)
+(def ^:no-doc subscribe-impl     rf.subs/subscribe)
 
 ;; Publish the three seams to `re-frame.capture-frame` (rf2-93sxp). It sits
 ;; BELOW this facade and cannot `:require` it, so the frame api's ops reach
@@ -225,7 +225,7 @@
 ;; time — `(dispatch-impl event opts)`, not the var's current value — so a
 ;; `with-redefs` on `rf/dispatch-impl` reaches an op captured before it,
 ;; exactly as it reaches the macro expansions.
-(late-bind/set-fns!
+(rf.late-bind/set-fns!
   {:core/dispatch-impl      (fn [event opts]   (dispatch-impl event opts))
    :core/dispatch-sync-impl (fn [event opts]   (dispatch-sync-impl event opts))
    :core/subscribe-impl     (fn [query-v opts] (subscribe-impl query-v opts))})
@@ -269,22 +269,22 @@
   `(fn [coeffects event-vec] effect-map)` event handler under `id` — the
   ONE public event form (EP-0018). See `re-frame.events/reg-event` and
   spec/API.md §Registration."}
-       reg-event       events/reg-event)
+       reg-event       rf.events/reg-event)
      (def ^{:doc "Fn-alias of the `reg-sub` macro for HoF / programmatic
   registration (no source-coord capture). Register a subscription under
   `id`. See `re-frame.subs/reg-sub` and spec/API.md §Registration."}
-       reg-sub         subs/reg-sub)
+       reg-sub         rf.subs/reg-sub)
      (def ^{:doc "Fn-alias of the `reg-fx` macro for HoF / programmatic
   registration (no source-coord capture). Register an effect handler
   under `id`. See `re-frame.fx/reg-fx` and spec/API.md §Registration."}
-       reg-fx          fx/reg-fx)
+       reg-fx          rf.fx/reg-fx)
      (def ^{:doc "Fn-alias of the `reg-cofx` macro for HoF / programmatic
   registration (no source-coord capture). Register a coeffect SUPPLIER —
   a value-returning fn whose result is delivered FLAT into a declaring
   handler's `:coeffects` map (the handler declares `:rf.cofx/requires
   [id]`). See `re-frame.cofx/reg-cofx` (grades: `:recordable?` /
   `:provided?`) and spec/API.md §Registration."}
-       reg-cofx        cofx/reg-cofx)
+       reg-cofx        rf.cofx/reg-cofx)
      (def ^{:doc "Fn-alias of the `reg-interceptor` macro for HoF /
   programmatic registration (no source-coord capture). Register an
   interceptor DESCRIPTOR (`{:before}` / `{:after}` / `{:before :after}` /
@@ -292,7 +292,7 @@
   Event/frame `:interceptors` chains reference it by id. See
   `re-frame.interceptor-registry/reg-interceptor*` and spec/API.md
   §Registration."}
-       reg-interceptor  icpt-reg/reg-interceptor*)
+       reg-interceptor  rf.interceptor-registry/reg-interceptor*)
      (def ^{:doc "Fn-alias of the `reg-route` macro for HoF / programmatic
   registration (no source-coord capture). Register a route: `(reg-route id
   metadata path)` — `metadata` is the MIDDLE registration-metadata map
@@ -301,7 +301,7 @@
   readers still see `:path`. Implementation ships in
   `day8/re-frame2-routing`; require `re-frame.routing` at boot. See
   `re-frame.core-routing/reg-route` and spec/API.md §Registration."}
-       reg-route       rf-routing/reg-route)
+       reg-route       rf.core-routing/reg-route)
      (def ^{:doc "Fn-alias of the `reg-resource` macro for HoF / programmatic
   registration (no source-coord capture). Register a resource — a named,
   cached read of remote/external state: `(reg-resource resource-id metadata
@@ -312,7 +312,7 @@
   reconstructs `:request` onto the metadata map. Implementation ships in
   `day8/re-frame2-resources`; require `re-frame.resources` at boot. See
   `re-frame.core-resources/reg-resource` and spec/API.md §Registration."}
-       reg-resource    rf-resources/reg-resource)
+       reg-resource    rf.core-resources/reg-resource)
      (def ^{:doc "Fn-alias of the `reg-resource-scope` macro for HoF /
   programmatic registration (no source-coord capture). Register a PURE named
   scope resolver under `scope-id`. Per rf2-bqstzr the 3-slot grammar is
@@ -322,7 +322,7 @@
   resolver reads the db). Implementation ships in `day8/re-frame2-resources`;
   require `re-frame.resources` at boot. See
   `re-frame.core-resources/reg-resource-scope` and spec/API.md §Resources."}
-       reg-resource-scope rf-resources/reg-resource-scope)
+       reg-resource-scope rf.core-resources/reg-resource-scope)
      (def ^{:doc "Fn-alias of the `reg-app-schema` macro for HoF / programmatic
   registration (no source-coord capture). Register a Malli schema at a
   path inside app-db (frame-scoped per Spec 010). Implementation ships
@@ -336,7 +336,7 @@
 
   See `re-frame.core-schemas/reg-app-schema` and spec/API.md
   §Registration."}
-       reg-app-schema  rf-schemas/reg-app-schema)
+       reg-app-schema  rf.core-schemas/reg-app-schema)
      (def ^{:doc "Fn-alias of the `reg-app-schemas` macro for HoF /
   programmatic registration (no source-coord capture). Bulk-register a
   `{path -> schema}` map. Implementation ships in `day8/re-frame2-schemas`.
@@ -348,7 +348,7 @@
 
   See `re-frame.core-schemas/reg-app-schemas` and spec/API.md
   §Registration."}
-       reg-app-schemas rf-schemas/reg-app-schemas)
+       reg-app-schemas rf.core-schemas/reg-app-schemas)
      (def ^{:doc "Fn-alias of the `dispatch` macro for HoF / programmatic
   dispatch (no call-site source-coord capture). Appends `event-vec` to the
   target frame's router queue; returns nil.
@@ -406,20 +406,20 @@
 ;; source-coord capture — they register nothing), platform-neutral so the stub
 ;; throws identically on JVM and CLJS. `^:no-doc` drops them from the API
 ;; manifest generator + the CLJS publics probe: they carry no manifest row and
-;; are not part of the documented public surface. See spec/001-Registration.md
+;; are not part of the documented public surface. See rf.spec/001-Registration.md
 ;; §The retired event-registration names + migration/from-re-frame-v1/README.md.
 (def ^{:no-doc true
        :doc "REMOVED in EP-0018 (no alias). Calling `reg-event-db` raises
   `:rf.error/reg-event-db-removed`, naming `reg-event` as the replacement.
   See `re-frame.events/reg-event-db` and spec/001-Registration.md §The
   retired event-registration names."}
-  reg-event-db  events/reg-event-db)
+  reg-event-db  rf.events/reg-event-db)
 (def ^{:no-doc true
        :doc "REMOVED in EP-0018 (no alias). Calling `reg-event-fx` raises
   `:rf.error/reg-event-fx-removed`, naming `reg-event` (the identical shape
   under the bare name). See `re-frame.events/reg-event-fx` and
   spec/001-Registration.md §The retired event-registration names."}
-  reg-event-fx  events/reg-event-fx)
+  reg-event-fx  rf.events/reg-event-fx)
 (def ^{:no-doc true
        :doc "DEMOTED to framework-internal in EP-0018. Calling public
   `reg-event-ctx` raises `:rf.error/reg-event-ctx-removed`, naming
@@ -427,7 +427,7 @@
   work (register the interceptor by id, then reference it from a `reg-event`
   registration's `:interceptors` chain). See `re-frame.events/reg-event-ctx` and
   spec/001-Registration.md §The retired event-registration names."}
-  reg-event-ctx events/reg-event-ctx)
+  reg-event-ctx rf.events/reg-event-ctx)
 
 ;; ---- reg-* macros (JVM-only; CLJS sees them via :require-macros) --------
 ;;
@@ -439,7 +439,7 @@
 
 #?(:clj
    (do
-     (rm/defreg-event-macro reg-event events/reg-event
+     (rf.core-reg-macros/defreg-event-macro reg-event rf.events/reg-event
        "Register a `(fn [coeffects event-vec] effect-map)` event handler
        under `id` — the ONE public event-registration form (EP-0018):
        coeffects in, a closed effects map out. The effect-map is a closed
@@ -462,7 +462,7 @@
        `goog.DEBUG=false` production builds. See
        `re-frame.events/reg-event` for the full signature.")
 
-     (rm/defreg-macro reg-sub subs/reg-sub
+     (rf.core-reg-macros/defreg-macro reg-sub rf.subs/reg-sub
        "Register a subscription under `id`. Every sub is one of three
        input-fn producers: `:db` (layer-1 — reads `app-db` directly, no
        producer), `:static` (the literal `:<-` producer — a fixed list
@@ -473,14 +473,14 @@
        signature, Spec 006 §Subscription input producers, and
        spec/API.md §`reg-sub` input-production modes.")
 
-     (rm/defreg-macro reg-fx fx/reg-fx
+     (rf.core-reg-macros/defreg-macro reg-fx rf.fx/reg-fx
        "Register an effect handler under `id`. Handler signature is
        `(fn [ctx args] ...)`; runs when a `reg-event` handler returns an
        effect-map carrying `[id args]` inside its `:fx` vector.
        Captures source-coords (Spec 001) at this call site. See
        `re-frame.fx/reg-fx` for the full signature.")
 
-     (rm/defreg-macro reg-cofx cofx/reg-cofx
+     (rf.core-reg-macros/defreg-macro reg-cofx rf.cofx/reg-cofx
        "Register a coeffect SUPPLIER under `id` — a value-returning fn
        whose result is delivered FLAT into a declaring handler's
        `:coeffects` map (the handler declares `:rf.cofx/requires [id]`).
@@ -488,7 +488,7 @@
        `re-frame.cofx/reg-cofx` for the grades (`:recordable?` /
        `:provided?`) and full signature.")
 
-     (rm/defreg-macro reg-interceptor icpt-reg/reg-interceptor*
+     (rf.core-reg-macros/defreg-macro reg-interceptor rf.interceptor-registry/reg-interceptor*
        "Register an interceptor DESCRIPTOR under `id` — the public
        interceptor-authoring form (EP-0022). `descriptor` is one of
        `{:before f}` / `{:after f}` / `{:before f :after g}` (a static
@@ -503,7 +503,7 @@
        for the full signature."
        {:arglists '([id descriptor] [id metadata descriptor])})
 
-     (rm/defreg-macro reg-flow rf-flows/reg-flow
+     (rf.core-reg-macros/defreg-macro reg-flow rf.core-flows/reg-flow
        "Register a flow under `flow-id`. Per rf2-bqstzr the canonical 3-slot
        grammar is `(reg-flow flow-id metadata derive-fn)`: the pure `:derive`
        fn is the third VALUE slot, and `metadata` carries `:inputs` /
@@ -515,7 +515,7 @@
        signature."
        {:arglists '([flow-id metadata derive-fn])})
 
-     (rm/defreg-macro reg-route rf-routing/reg-route
+     (rf.core-reg-macros/defreg-macro reg-route rf.core-routing/reg-route
        "Register a route under `id`. Per rf2-wvh95f F1 the canonical
        3-slot grammar is `(reg-route id metadata path)` — the URL pattern
        (Spec 012 §Pattern syntax) is the third VALUE slot, `metadata` the
@@ -526,7 +526,7 @@
        signature."
        {:arglists '([id metadata path])})
 
-     (rm/defreg-macro reg-resource rf-resources/reg-resource
+     (rf.core-reg-macros/defreg-macro reg-resource rf.core-resources/reg-resource
        "Register a resource under `resource-id` — a named, cached read of
        remote/external state. Per rf2-wvh95f F1 the canonical 3-slot grammar
        is `(reg-resource id metadata request-fn)`: the `:request` fetch fn is
@@ -540,7 +540,7 @@
        signature."
        {:arglists '([resource-id metadata request-fn])})
 
-     (rm/defreg-macro reg-mutation rf-resources/reg-mutation
+     (rf.core-reg-macros/defreg-macro reg-mutation rf.core-resources/reg-mutation
        "Register a mutation under `mutation-id` — a named, causal WRITE to
        remote state that, on success, invalidates / patches / populates
        cached resource reads (run with `[:rf.mutation/execute …]`). Per
@@ -555,7 +555,7 @@
        `re-frame.core-resources/reg-mutation` for the full signature."
        {:arglists '([mutation-id metadata request-fn])})
 
-     (rm/defreg-macro reg-resource-scope rf-resources/reg-resource-scope
+     (rf.core-reg-macros/defreg-macro reg-resource-scope rf.core-resources/reg-resource-scope
        "Register a PURE named scope resolver under `scope-id` (EP-0016 D3) —
        the one scope-resolution currency reused by resource registration,
        route resources, ensure / subscriptions, invalidation descriptors, and
@@ -573,7 +573,7 @@
        `re-frame.core-resources/reg-resource-scope` for the full signature."
        {:arglists '([scope-id metadata resolve-fn] [scope-id resolve-fn])})
 
-     (rm/defreg-macro reg-app-schema rf-schemas/reg-app-schema
+     (rf.core-reg-macros/defreg-macro reg-app-schema rf.core-schemas/reg-app-schema
        "Register a Malli schema at a path inside app-db (frame-scoped
        per Spec 010). Per rf2-qm7k83 Part A `reg-app-schema` is an ordinary
        member of the `reg-*` family — the schema is the POSITIONAL value
@@ -600,7 +600,7 @@
        signature."
        {:arglists '([path schema] [path metadata schema])})
 
-     (rm/defreg-macro reg-app-schemas rf-schemas/reg-app-schemas
+     (rf.core-reg-macros/defreg-macro reg-app-schemas rf.core-schemas/reg-app-schemas
        "Bulk-register a `{path -> schema}` map against the active frame
        (or the `:frame` opt). Plural form of `reg-app-schema`. Captures
        source-coords (Spec 001) at this call site. Implementation ships
@@ -616,20 +616,20 @@
        signature."
        {:arglists '([path->schema] [path->schema opts])})
 
-     (rm/defreg-macro reg-error-projector rf-ssr/-reg-error-projector
+     (rf.core-reg-macros/defreg-macro reg-error-projector rf.core-ssr/-reg-error-projector
        "Register an error projector — `(trace-event) -> public-error-
        map`. Frames opt in via the `:ssr` config's `:public-error-id`
        key. Captures source-coords (Spec 001) at this call site. Per
        Spec 011 §Server error projection.")
 
-     (rm/defreg-macro reg-head rf-ssr/-reg-head
+     (rf.core-reg-macros/defreg-macro reg-head rf.core-ssr/-reg-head
        "Register a head-fragment producer — `(fn [db route] head-
        model)`. `id` is a namespaced keyword (e.g. `:my.app/article`);
        routes name a head via `:head` route metadata. Captures source-
        coords (Spec 001) at this call site. Per Spec 011 §Head/meta
        contract.")
 
-     (rm/defreg-macro reg-http-interceptor rf-http/reg-http-interceptor
+     (rf.core-reg-macros/defreg-macro reg-http-interceptor rf.core-http/reg-http-interceptor
        "Register an HTTP interceptor on a frame's `:rf.http/managed`
        middleware chain. Captures source-coords (Spec 001) at this call
        site. Implementation ships in `day8/re-frame2-http` (Spec 014
@@ -670,13 +670,13 @@
      `:rf/machine` keys are stamped by the registration home and MUST NOT
      appear in `opts`."
      ([machine-id machine]
-      (rm/expand-reg-machine (meta &form)
+      (rf.core-reg-macros/expand-reg-machine (meta &form)
                              (symbol (str (ns-name *ns*)))
                              *file*
                              machine-id
                              machine))
      ([machine-id opts machine]
-      (rm/expand-reg-machine (meta &form)
+      (rf.core-reg-macros/expand-reg-machine (meta &form)
                              (symbol (str (ns-name *ns*)))
                              *file*
                              machine-id
@@ -726,7 +726,7 @@
      `reg-machine` macro directly when registering an inline literal."
      [name & body]
      (let [[doc-or-spec spec-or-nil] body]
-       (rm/expand-defmachine (symbol (str (ns-name *ns*)))
+       (rf.core-reg-macros/expand-defmachine (symbol (str (ns-name *ns*)))
                              *file*
                              name
                              doc-or-spec
@@ -745,12 +745,12 @@
             :doc "JVM-only macro-helper re-exposed for tests that reach
   `re-frame.core/expand-reg-view` directly. Not part of the public
   surface — see `re-frame.core-reg-view-macro/expand-reg-view`."}
-       expand-reg-view             rvm/expand-reg-view)
+       expand-reg-view             rf.core-reg-view-macro/expand-reg-view)
      (def ^{:no-doc true
             :doc "JVM-only macro-helper re-exposed for tests that reach
   `re-frame.core/parse-reg-view-args` directly. Not part of the public
   surface — see `re-frame.core-reg-view-macro/parse-reg-view-args`."}
-       parse-reg-view-args         rvm/parse-reg-view-args)))
+       parse-reg-view-args         rf.core-reg-view-macro/parse-reg-view-args)))
 
 ;; ---- view registration ---------------------------------------------------
 
@@ -764,25 +764,25 @@
    (reg-view* id {} render-fn))
   ([id metadata render-fn]
    #?(:cljs
-      (views/reg-view* id (source-coords/merge-coords metadata) render-fn)
+      (rf.views/reg-view* id (rf.source-coords/merge-coords metadata) render-fn)
       :clj
       ;; rf2-8vi4q — the JVM registration boundary is the single home of
       ;; the two dev-mode view annotations (`data-rf2-source-coord` /
-      ;; `data-rf-view`), mirroring the CLJS `views/reg-view*` path above
+      ;; `data-rf-view`), mirroring the CLJS `rf.views/reg-view*` path above
       ;; which annotates through the substrate wrappers. The stored
       ;; `:handler-fn` is wrapped with a debug-gated hiccup walk so a
       ;; server render emits the same evidence the dev client render
       ;; stamps, and a dev SSR page hydrates as a clean ADOPTION. In a
-      ;; production SSR build (`interop/debug-enabled?` false) the wrap is
+      ;; production SSR build (`rf.interop/debug-enabled?` false) the wrap is
       ;; a no-op — the raw handler-fn is stored and markup stays
       ;; annotation-free. The coords the walk stamps are the SAME merged
       ;; coords stored in the slot, so the attribute value matches
       ;; whatever pair tools read back off the registry.
-      (let [coords (source-coords/merge-coords metadata)]
-        (registrar/register!
+      (let [coords (rf.source-coords/merge-coords metadata)]
+        (rf.registrar/register!
           :view id
           (assoc coords
-                 :handler-fn (jvm-view-annot/wrap-handler-fn id coords render-fn)))))
+                 :handler-fn (rf.views.jvm-source-coord-annotation/wrap-handler-fn id coords render-fn)))))
    id))
 
 (defn view
@@ -793,14 +793,14 @@
   On CLJS the answer is the INSTALLED SUBSTRATE's component head for that
   registration (rf2-oz7wr), which on a React-hook substrate is a mountable,
   substrate-marked shell — so `($ (rf/view ::row) props)` works as the UIx
-  docs advertise. `views/view-head` derives it against the adapter installed
+  docs advertise. `rf.views/view-head` derives it against the adapter installed
   NOW rather than the one installed at registration time, because the
   canonical boot order registers views at ns-load and calls `rf/init!`
   afterwards; the head is memoized, so repeat lookups are reference-stable
   and React reconciles them as the same component type."
   [id]
-  #?(:cljs (views/view-head id)
-     :clj  (when-let [meta (registrar/lookup :view id)]
+  #?(:cljs (rf.views/view-head id)
+     :clj  (when-let [meta (rf.registrar/lookup :view id)]
              (:handler-fn meta))))
 
 #?(:clj
@@ -814,7 +814,7 @@
      Conventions §`reg-view` auto-id derivation rule."
      {:arglists '([sym args body+] [sym docstring args body+])}
      [sym & more]
-     (rvm/expand-reg-view (meta &form)
+     (rf.core-reg-view-macro/expand-reg-view (meta &form)
                           (symbol (str (ns-name *ns*)))
                           *file*
                           sym
@@ -827,37 +827,37 @@
   adapter's `:render-to-string` slot; `opts` may carry `:doctype?` and
   `:emit-hash?`. Implementation ships in `day8/re-frame2-ssr`. Late-bound
   via `:ssr/render-to-string`."}
-  render-to-string rf-ssr/render-to-string)
+  render-to-string rf.core-ssr/render-to-string)
 
 (def ^{:doc "Stable structural hash of a render tree (FNV-1a 32-bit, lowercase
   hex). Identical output on JVM and CLJS for the same canonical-EDN
   representation. Per Spec 011 §Hydration-mismatch detection.
   Implementation ships in `day8/re-frame2-ssr`. Late-bound via
   `:ssr/render-tree-hash`."}
-  render-tree-hash rf-ssr/render-tree-hash)
+  render-tree-hash rf.core-ssr/render-tree-hash)
 
 (def ^{:doc "Apply the active error projector for `frame-id` to the trace
   event; returns an `:rf/public-error` map. Per Spec 011 §Server error
   projection. Implementation ships in `day8/re-frame2-ssr`. Late-bound
   via `:ssr/project-error`."}
-  project-error    rf-ssr/project-error)
+  project-error    rf.core-ssr/project-error)
 
 (def ^{:doc "Apply the head fn registered under `head-id` against a frame's
   app-db and active route; returns the produced `:rf/head-model`. Per
   Spec 011 §Head/meta contract. Implementation ships in
   `day8/re-frame2-ssr`. Late-bound via `:ssr/render-head`."}
-  render-head      rf-ssr/render-head)
+  render-head      rf.core-ssr/render-head)
 
 (def ^{:doc "Look up the active route's `:head` metadata and render its
   model; returns the default head when none is configured (per Spec 011
   §Default head). Implementation ships in `day8/re-frame2-ssr`.
   Late-bound via `:ssr/active-head`."}
-  active-head      rf-ssr/active-head)
+  active-head      rf.core-ssr/active-head)
 
 (def ^{:doc "Render an `:rf/head-model` map to its inner-head HTML fragment
   in canonical order. Per Spec 011 §Default flow step 4. Implementation
   ships in `day8/re-frame2-ssr`. Late-bound via `:ssr/head-model-html`."}
-  head-model->html rf-ssr/head-model->html)
+  head-model->html rf.core-ssr/head-model->html)
 
 (def ^{:doc "Read the per-frame `{head-id → last-produced head-model}`
   snapshot for `frame-id`. Returns `{}` for a frame that has never
@@ -866,7 +866,7 @@
   tools (Xray, MCP). Per Spec 011 §Head/meta contract.
   Implementation ships in `day8/re-frame2-ssr`. Late-bound via
   `:ssr/head-snapshot`."}
-  head-snapshot    rf-ssr/head-snapshot)
+  head-snapshot    rf.core-ssr/head-snapshot)
 
 ;; ---- images (EP-0023) ----------------------------------------------------
 
@@ -891,7 +891,7 @@
      before any runtime normalization runs, and per Spec 001 §Production elision
      contract a runtime strip cannot DCE those call-site string bytes. The macro
      runs `gate-image-spec` over the spec so each literal doc-bearing inline
-     metadata slot rides the same `(if interop/debug-enabled? <full> <stripped>)`
+     metadata slot rides the same `(if rf.interop/debug-enabled? <full> <stripped>)`
      gate the `reg-*` macros emit, DCEing the `:doc` string under `:advanced` +
      `goog.DEBUG=false`. It then delegates to the runtime CONSTRUCTOR
      `re-frame.image/image` (which stays a plain value fn for programmatic /
@@ -901,7 +901,7 @@
      `re-frame.image/image`."
      {:arglists '([spec])}
      [spec]
-     `(re-frame.image/image ~(rm/gate-image-spec spec))))
+     `(re-frame.image/image ~(rf.core-reg-macros/gate-image-spec spec))))
 
 ;; ---- frame management ----------------------------------------------------
 
@@ -969,8 +969,8 @@
     (make-frame opts descriptors) — resolve against an explicit descriptor pool
                                     (tests / harnesses / a pre-snapshotted store)."
   {:arglists '([opts] [opts descriptors])}
-  ([opts]             (live-frame/make-frame opts))
-  ([opts descriptors] (live-frame/make-frame opts descriptors)))
+  ([opts]             (rf.live-frame/make-frame opts))
+  ([opts descriptors] (rf.live-frame/make-frame opts descriptors)))
 
 ;; ---- reload-images! / reset-frame! — RETIRED (rf2-lxwpob) ------------------
 ;;
@@ -997,14 +997,14 @@
   `:rf.error/reload-images-removed`, naming re-`make-frame`-ing the SAME `:id`
   with a new `:images` vector as the replacement. See
   `re-frame.live-frame/reload-images!` and spec/002-Frames.md."}
-  reload-images! live-frame/reload-images!)
+  reload-images! rf.live-frame/reload-images!)
 
 (def ^{:no-doc true
        :doc "REMOVED in rf2-lxwpob (no alias). Calling `reset-frame!` raises
   `:rf.error/reset-frame-removed`, naming `(destroy-frame! id) (make-frame
   config)` as the replacement. See `re-frame.frame/reset-frame!` and
   spec/002-Frames.md §Resetting a frame — destroy + make-frame."}
-  reset-frame!   frame/reset-frame!)
+  reset-frame!   rf.frame/reset-frame!)
 
 (def ^{:doc "Tear down `frame-id` — the normative teardown boundary. Claims
   the exact incarnation and atomically cuts ordinary queued work, runs the
@@ -1019,7 +1019,7 @@
   authority — a stale value no-ops against a same-id successor — while a
   frame-id keyword is address-directed and tears down whatever incarnation is
   currently live (rf2-moftbs). Idempotent. Per Spec 002 §Destroy."}
-  destroy-frame! frame/destroy-frame!)
+  destroy-frame! rf.frame/destroy-frame!)
 
 ;; `frame-value->id` is REMOVED from the facade (API-shrink #1, rf2-csbbwu).
 ;; The API commits to ONE frame-target grammar accepted everywhere: the routing
@@ -1066,30 +1066,30 @@
   registered event handler in the registrar; one-arity clears the named
   one. For hot-reload tools and test fixtures. Per spec/API.md §Clearing
   registrations."}
-  clear-event events/clear-event)
+  clear-event rf.events/clear-event)
 
 (def ^{:doc "Unregister a subscription. Zero-arity clears every
   registered sub in the registrar; one-arity clears the named one. For
   hot-reload tools and test fixtures. Per spec/API.md §Clearing
   registrations."}
-  clear-sub   subs/clear-sub)
+  clear-sub   rf.subs/clear-sub)
 
 (def ^{:doc "Unregister an fx handler. Zero-arity clears every registered
   fx; one-arity clears the named one. For hot-reload tools and test
   fixtures. Per spec/API.md §Clearing registrations."}
-  clear-fx    fx/clear-fx)
+  clear-fx    rf.fx/clear-fx)
 
 (def ^{:doc "Dispose every cached entry in a frame's runtime sub-cache
   and clear the cache. Disposal is synchronous and unconditional. For
   tests and hot-reload. Per spec/API.md §Clearing registrations."}
-  clear-sub-cache! subs-cache/clear-sub-cache!)
+  clear-sub-cache! rf.subs.cache/clear-sub-cache!)
 
 ;; ---- dispatch and subscribe ----------------------------------------------
 ;;
 ;; Each surface has a JVM macro that captures call-site coordinates and a CLJS
 ;; value alias for higher-order/programmatic calls. Macro expansions target
 ;; the stable `^:no-doc` `dispatch-impl`, `dispatch-sync-impl`, or
-;; `subscribe-impl` alias. Those aliases point at the owning router/subs fn but
+;; `subscribe-impl` alias. Those aliases point at the owning rf.router/subs fn but
 ;; prevent CLJS fixed-arity metadata from making differently shaped
 ;; `with-redefs` test seams unsafe. There is no public `*`-suffixed twin.
 
@@ -1101,7 +1101,7 @@
 ;; 2-arity — `(dispatch frame event-vec)` — is DELETED: every sig is
 ;; `[payload]` / `[payload opts]`, no `vector?` shape-discrimination on the
 ;; first arg. `re-frame.router/build-envelope` still normalizes an object
-;; `:frame` opt to its runnable-id via `frame/frame-target->id`, so a value or
+;; `:frame` opt to its runnable-id via `rf.frame/frame-target->id`, so a value or
 ;; a keyword target both route correctly.
 
 (def ^{:doc "One-shot read of a sub's current value — subscribes, derefs,
@@ -1128,7 +1128,7 @@
   The `{:frame …}` opt is the public way to target a named frame from
   outside any scope (`f` is a frame-id keyword or a live frame value) —
   parallel to `subscribe`'s opts form (rf2-bfadc6)."}
-  subscribe-once subs/subscribe-once)
+  subscribe-once rf.subs/subscribe-once)
 
 (def ^{:doc "Decrement the ref-count on the cached subscription for
   `query-v`; ref-count → 0 disposes the entry **synchronously**
@@ -1142,7 +1142,7 @@
   decrement, above). The two operations are distinct: `clear-sub`
   drops the registration; `unsubscribe` releases a live cache
   ref-count. They cannot share the name."}
-  unsubscribe     subs/unsubscribe)
+  unsubscribe     rf.subs/unsubscribe)
 
 (def ^{:doc "Compute a subscription's value against a supplied `db`,
   bypassing the reactive cache. **Pure / JVM-runnable testing entry
@@ -1152,7 +1152,7 @@
   unit-test suites that want to assert sub correctness without
   mounting a frame; CLJS handler bodies and views normally reach the
   cached value via `subscribe` / `subscribe-once`. Per rf2-7t1a6."}
-  compute-sub     subs/compute-sub)
+  compute-sub     rf.subs/compute-sub)
 
 ;; `inject-cofx` / `inject-cofx*` are NOT on the public facade (EP-0017,
 ;; rf2-w9xyx1). The interceptor idiom was removed; coeffect delivery is
@@ -1161,7 +1161,7 @@
 ;; that namespace-internal var still raises `:rf.error/inject-cofx-removed`,
 ;; an always-on catalogue error naming `:rf.cofx/requires`), but a removed
 ;; surface no longer occupies the canonical public API — no facade var, no
-;; api-manifest row. See spec/001-Registration.md §`inject-cofx` is removed
+;; api-manifest row. See rf.spec/001-Registration.md §`inject-cofx` is removed
 ;; and migration/from-re-frame-v1/README.md.
 
 #?(:clj
@@ -1190,10 +1190,10 @@
      form. See spec/Conventions.md §Canonical event-vector shape."
      {:arglists '([event-vec] [event-vec opts])}
      ([arg1]
-      (csm/build-dispatch-form (meta &form) (symbol (str (ns-name *ns*))) *file*
+      (rf.core-call-site-macros/build-dispatch-form (meta &form) (symbol (str (ns-name *ns*))) *file*
                                arg1 nil))
      ([arg1 arg2]
-      (csm/build-dispatch-form (meta &form) (symbol (str (ns-name *ns*))) *file*
+      (rf.core-call-site-macros/build-dispatch-form (meta &form) (symbol (str (ns-name *ns*))) *file*
                                arg1 arg2))))
 
 #?(:clj
@@ -1217,10 +1217,10 @@
      trailing map; variadic tolerated, linter nudges)."
      {:arglists '([event-vec] [event-vec opts])}
      ([arg1]
-      (csm/build-dispatch-sync-form (meta &form) (symbol (str (ns-name *ns*))) *file*
+      (rf.core-call-site-macros/build-dispatch-sync-form (meta &form) (symbol (str (ns-name *ns*))) *file*
                                     arg1 nil))
      ([arg1 arg2]
-      (csm/build-dispatch-sync-form (meta &form) (symbol (str (ns-name *ns*))) *file*
+      (rf.core-call-site-macros/build-dispatch-sync-form (meta &form) (symbol (str (ns-name *ns*))) *file*
                                     arg1 arg2))))
 
 #?(:clj
@@ -1240,10 +1240,10 @@
      The `{:frame …}` opt is the public way to target an explicit frame."
      {:arglists '([query-v] [query-v opts])}
      ([arg1]
-      (csm/build-subscribe-form (meta &form) (symbol (str (ns-name *ns*))) *file*
+      (rf.core-call-site-macros/build-subscribe-form (meta &form) (symbol (str (ns-name *ns*))) *file*
                                 arg1 nil))
      ([arg1 arg2]
-      (csm/build-subscribe-form (meta &form) (symbol (str (ns-name *ns*))) *file*
+      (rf.core-call-site-macros/build-subscribe-form (meta &form) (symbol (str (ns-name *ns*))) *file*
                                 arg1 arg2))))
 
 ;; (`inject-cofx` macro removed from the public facade — rf2-w9xyx1; see the
@@ -1252,7 +1252,7 @@
 ;; ---- capture-frame (the keystone) + frame-aware closures ------------------
 ;;
 ;; `current-frame-id` reads the carried-invariant scope/hold stamp via
-;; `frame/require-current-frame!` (EP-0002): the dynamic `*current-frame*`
+;; `rf.frame/require-current-frame!` (EP-0002): the dynamic `*current-frame*`
 ;; var or the closest React-context frame boundary — a `frame-provider`
 ;; (SCOPE) or a `frame-root` (ENSURE), both of which emit scope — with NO `:rf/default`
 ;; floor — absence raises `:rf.error/no-frame-context`. `capture-frame` is
@@ -1267,7 +1267,7 @@
 (defn current-frame-id
   "Return the active frame id the in-effect scope carries — a keyword.
   Resolution is the carried-invariant scope/hold chain via
-  `frame/require-current-frame!` (EP-0002): the dynamic `*current-frame*`
+  `rf.frame/require-current-frame!` (EP-0002): the dynamic `*current-frame*`
   stamp or the closest React-context frame boundary, a `frame-provider`
   (SCOPE) or `frame-root` (ENSURE) (CLJS only, via the
   `:adapter/current-frame` late-bind hook). There is NO `:rf/default`
@@ -1277,7 +1277,7 @@
   scope. Per Spec 002 §Resolver surface + §Reading the frame from React
   context."
   []
-  (frame/require-current-frame! :current-frame-id
+  (rf.frame/require-current-frame! :current-frame-id
                                 {:where 're-frame.core/current-frame-id}))
 
 (defn capture-frame
@@ -1316,17 +1316,17 @@
   `(rf/app-db-value (:frame handle))`, not the frame api itself.
 
   EP-0002: the no-arg form captures the scope/hold stamp at CREATION
-  time via `frame/require-current-frame!` — it captures ONLY when a real
+  time via `rf.frame/require-current-frame!` — it captures ONLY when a real
   scope exists at capture time. Capturing outside any scope raises
   `:rf.error/no-frame-context`, never a captured `:rf/default` (per Spec
   002 §Resolver surface). Use the 1-arity `(capture-frame frame-id)` to
   lock a frame api to a named frame from outside any scope (the right shape
   for async callbacks / tools / tests / SSR)."
-  ([]         (frame-api/make-capture-frame
-                (frame/require-current-frame!
+  ([]         (rf.capture-frame/make-capture-frame
+                (rf.frame/require-current-frame!
                   :capture-frame {:where 're-frame.core/capture-frame})
                 nil))
-  ([frame-id] (frame-api/make-capture-frame frame-id nil)))
+  ([frame-id] (rf.capture-frame/make-capture-frame frame-id nil)))
 
 ;; ---- frame-scope lexical macros ------------------------------------------
 
@@ -1346,7 +1346,7 @@
      §with-frame."
      {:arglists '([frame-id body+])}
      [frame-id & body]
-     (rvm/expand-with-frame frame-id body)))
+     (rf.core-reg-view-macro/expand-with-frame frame-id body)))
 
 #?(:clj
    (defmacro with-new-frame
@@ -1369,7 +1369,7 @@
      `destroy-frame!` has already run by then. Per Spec 002 §with-frame."
      {:arglists '([[sym expr] body+])}
      [bindings & body]
-     (rvm/expand-with-new-frame bindings body)))
+     (rf.core-reg-view-macro/expand-with-new-frame bindings body)))
 
 ;; `frame-bound-fn` / `frame-bound-fn*` are REMOVED from the facade
 ;; (API-shrink #1, rf2-csbbwu) — `capture-frame` is the ONE public HOLD
@@ -1436,7 +1436,7 @@
   (`:rf.error/frame-provider-given-id`) — providers scope; roots ensure. To
   CREATE the frame if absent, use `rf/frame-root {:id …}`. Per Spec 002
   §`frame-provider`."}
-         frame-provider views/frame-provider))
+         frame-provider rf.views/frame-provider))
 
 #?(:cljs (def ^{:doc "ENSURE Reagent component — a COMMIT-OWNED TWO-PASS
   boundary (rf2-nyea0r split).
@@ -1461,7 +1461,7 @@
   (`:rf.error/frame-root-given-frame`). True ownership (modals, multi-instance
   widgets) stays expressible as `rf/make-frame` + `rf/destroy-frame!` inside a
   `create-class`. Per Spec 002 §`frame-root`."}
-         frame-root views/frame-root))
+         frame-root rf.views/frame-root))
 
 ;; ---- routing helpers ------------------------------------------------------
 ;;
@@ -1475,7 +1475,7 @@
   `:rf.route/url-requested`. Modifier-key / middle-clicks defer to the browser.
   Shape: `[rf/route-link {:to :route-id :params {} :query {} :fragment
   \"\" & html-attrs} & children]`. Per Spec 012 §Linking from views."}
-  route-link  rf-routing/route-link)
+  route-link  rf.core-routing/route-link)
 
 ;; ---- machine helpers ------------------------------------------------------
 ;;
@@ -1498,25 +1498,25 @@
   `:rf.resource/invalidate-tags` / `:rf.resource/remove` /
   `:rf.resource/clear-scope`). Per Spec 016 §Registration. Implementation
   ships in `day8/re-frame2-resources`."}
-  clear-resource  rf-resources/clear-resource)
+  clear-resource  rf.core-resources/clear-resource)
 
 (def ^{:doc "Return the registered resource's spec map (`:params-schema`,
   `:data-schema`, `:request`, `:scope`, `:transport`, `:stale-after-ms`,
   `:gc-after-ms`, `:tags`, `:doc`), or `nil`. Per Spec 016 §Introspection.
   Implementation ships in `day8/re-frame2-resources`."}
-  resource-meta   rf-resources/resource-meta)
+  resource-meta   rf.core-resources/resource-meta)
 
 (def ^{:doc "Return a resource instance's runtime state for an
   explicit-frame target `{:resource :scope :params :frame}`. Per EP-0002
   the frame is carried explicitly. Per Spec 016 §Introspection.
   Implementation ships in `day8/re-frame2-resources`."}
-  resource-state  rf-resources/resource-state)
+  resource-state  rf.core-resources/resource-state)
 
 (def ^{:doc "Return resource introspection for a frame target `{:frame …}`
   — the registered resources and the live per-frame resource-instance
   table. Per Spec 016 §Introspection. Implementation ships in
   `day8/re-frame2-resources`."}
-  resources       rf-resources/resources)
+  resources       rf.core-resources/resources)
 
 (def ^{:doc "Install host `window` focus / network-reconnect listeners that
   drive active-stale revalidation for `frame-id` — on window focus / tab
@@ -1526,13 +1526,13 @@
   the background (cause `:focus` / `:reconnect`). Idempotent (hot-reload
   safe). CLJS-only (JVM no-op). Cancelled on frame destroy. Per Spec 016
   §Deferred slices. Implementation ships in `day8/re-frame2-resources`."}
-  install-revalidation-listeners! rf-resources/install-revalidation-listeners!)
+  install-revalidation-listeners! rf.core-resources/install-revalidation-listeners!)
 
 (def ^{:doc "Tear down the `window` focus / online revalidation listeners
   installed by `install-revalidation-listeners!` for `frame-id`. No-op when
   none is installed (and on the JVM). CLJS-only. Per Spec 016 §Deferred
   slices. Implementation ships in `day8/re-frame2-resources`."}
-  remove-revalidation-listeners! rf-resources/remove-revalidation-listeners!)
+  remove-revalidation-listeners! rf.core-resources/remove-revalidation-listeners!)
 
 ;; Mutations (rf2-dwme29, EP-0003 §Mutations — first public-beta gate).
 ;; `reg-mutation` is a macro (above, for source-coord capture) + a CLJS
@@ -1542,25 +1542,25 @@
   operation — NOT a form-error reset; for the causal runtime-instance reset
   use the `[:rf.mutation/clear …]` event). Per Spec 016 §Deferred slices /
   EP-0003 §Mutations. Implementation ships in `day8/re-frame2-resources`."}
-  clear-mutation  rf-resources/clear-mutation)
+  clear-mutation  rf.core-resources/clear-mutation)
 
 (def ^{:doc "Return the registered mutation's spec map (`:request`,
   `:params-schema`, `:invalidates`, `:patches`, `:populates`, `:scope`,
   `:invalidate-timing`, `:transport`, `:doc`), or `nil`. Per EP-0003
   §Mutations. Implementation ships in `day8/re-frame2-resources`."}
-  mutation-meta   rf-resources/mutation-meta)
+  mutation-meta   rf.core-resources/mutation-meta)
 
 (def ^{:doc "Return a mutation INSTANCE's durable runtime row (`{:status
   :result :error …}`) for an explicit-frame target `{:instance :frame}`, or
   `nil`. Per EP-0002 the frame is carried explicitly. Per EP-0003
   §Mutations. Implementation ships in `day8/re-frame2-resources`."}
-  mutation-state  rf-resources/mutation-state)
+  mutation-state  rf.core-resources/mutation-state)
 
 (def ^{:doc "Return mutation introspection for a frame target `{:frame …}`
   — the registered mutation ids and the live per-frame mutation-instance
   table (keyed by instance id). Per EP-0003 §Mutations. Implementation ships
   in `day8/re-frame2-resources`."}
-  mutations       rf-resources/mutations)
+  mutations       rf.core-resources/mutations)
 
 ;; Named resource-scope resolvers (rf2-hls77w, EP-0016 D3). `reg-resource-scope`
 ;; is a macro (above, for source-coord capture) + a CLJS fn-alias; the
@@ -1570,7 +1570,7 @@
   registration-lifecycle removal — the `clear-` decrement counterpart of
   `reg-resource-scope`). Per Spec 016 §Named resource-scope resolvers.
   Implementation ships in `day8/re-frame2-resources`."}
-  clear-resource-scope rf-resources/clear-resource-scope)
+  clear-resource-scope rf.core-resources/clear-resource-scope)
 
 (def ^{:doc "Resolver helper: resolve the named resolver `scope-id` against
   the supplied `db` value, returning a canonical concrete scope or nil — a
@@ -1586,7 +1586,7 @@
   concretely). Per Spec 016 §`clear-scope` resolves the concrete scope from
   the coeffect db (EP-0016 issue 7). Implementation ships in
   `day8/re-frame2-resources`."}
-  resolve-resource-scope rf-resources/resolve-resource-scope)
+  resolve-resource-scope rf.core-resources/resolve-resource-scope)
 
 ;; ---- introspection (Spec 002 §The public registrar query API) -----------
 ;;
@@ -1617,7 +1617,7 @@
 ;; `re-frame.image-assembly` internals. The thin, no-duplication path: resolve
 ;; the frame target ONCE to a live frame object, then run the EXISTING registrar
 ;; reads inside `re-frame.live-frame/call-with-frame-resolution`, which binds
-;; `registrar/*generation*` so the registrar's ALREADY generation-aware `lookup`
+;; `rf.registrar/*generation*` so the registrar's ALREADY generation-aware `lookup`
 ;; / `registrations` / `ids` do the resolution — byte-identical descriptor shape,
 ;; no resolver-walk duplicated here. The default source-store path stays
 ;; byte-identical: only a caller that passes `{:frame …}` reaches the generation.
@@ -1648,12 +1648,12 @@
   message names the user-facing surface (`rf/registrations` / `rf/handler-meta`
   / `rf/frame-generation`)."
   [frame-target where-sym]
-  (let [frame-object (if (live-frame/frame-object? frame-target)
+  (let [frame-object (if (rf.live-frame/frame-object? frame-target)
                        frame-target
-                       (live-frame/live-frame frame-target))]
-    (if (some? (live-frame/frame-resolution-generation frame-object))
+                       (rf.live-frame/live-frame frame-target))]
+    (if (some? (rf.live-frame/frame-resolution-generation frame-object))
       frame-object
-      (error/throw-error!
+      (rf.error/throw-error!
         :rf.error/frame-no-generation
         where-sym
         (str where-sym ": :frame target " (pr-str frame-target) " does not "
@@ -1664,10 +1664,10 @@
              "frame id registered in the process-local live-frame registry, or a "
              "direct frame object returned by rf/make-frame — and does NOT fall "
              "back to the default/realm registrar. Live frame ids: "
-             (pr-str (vec (live-frame/live-frame-ids))) ".")
+             (pr-str (vec (rf.live-frame/live-frame-ids))) ".")
         {:recovery :target-a-live-frame-id-or-a-direct-frame-object
          :extra    {:frame          frame-target
-                    :live-frame-ids (vec (live-frame/live-frame-ids))}}))))
+                    :live-frame-ids (vec (rf.live-frame/live-frame-ids))}}))))
 
 (defn- assert-registrar-query-has-frame!
   "Fail loud (`:rf.error/registrar-query-needs-frame`) when a map-shaped
@@ -1685,7 +1685,7 @@
   `(keys arg)` on a non-map throws — rather than assumed map-shaped. Never
   returns normally."
   [arg where-sym]
-  (error/throw-error!
+  (rf.error/throw-error!
     :rf.error/registrar-query-needs-frame
     where-sym
     (str where-sym ": a map-shaped registrar query MUST carry :frame. "
@@ -1753,7 +1753,7 @@
   §Public API / Use-Case 7."
   [frame-target]
   (-> (resolve-live-frame-object frame-target 'rf/frame-generation)
-      (live-frame/frame-resolution-generation)))
+      (rf.live-frame/frame-resolution-generation)))
 
 (def ^{:doc "Compute the DIFF between two sealed image generations as four
   `[kind id]` sets (EP-0023 §Hot Reload — \"A good reload result should be a
@@ -1778,7 +1778,7 @@
   that lets a caller invalidate only what actually changed. See
   `re-frame.live-frame/generation-diff` and spec/002-Frames.md §Image
   resolution and composition."}
-  generation-diff live-frame/generation-diff)
+  generation-diff rf.live-frame/generation-diff)
 
 (defn registrations
   "Return all ids registered under `kind` with their metadata — the
@@ -1819,19 +1819,19 @@
      (and (map? arg) (contains? arg :frame))
      (let [frame (resolve-live-frame-object (:frame arg) 'rf/registrations)
            {:keys [kind pred]} arg]
-       (live-frame/call-with-frame-resolution
+       (rf.live-frame/call-with-frame-resolution
          frame
          #(if pred
-            (registrar/registrations kind pred)
-            (registrar/registrations kind))))
+            (rf.registrar/registrations kind pred)
+            (rf.registrar/registrations kind))))
 
      (map? arg)
      (assert-registrar-query-has-frame! arg 'rf/registrations)
 
      :else
-     (registrar/registrations arg)))
+     (rf.registrar/registrations arg)))
   ([kind pred-fn]
-   (registrar/registrations kind pred-fn)))
+   (rf.registrar/registrations kind pred-fn)))
 
 (defn handler-meta
   "Return the registration metadata map for `[kind id]`, or `nil`. The
@@ -1843,7 +1843,7 @@
     `(handler-meta kind id)` — the default-realm (process-global) metadata for
       `[kind id]`. For the registrar kinds (`:event :sub :fx :cofx :interceptor
       :view :frame :route :head :error-projector :flow :resource`) this is
-      `registrar/lookup`. For `:interceptor` the metadata carries the registered
+      `rf.registrar/lookup`. For `:interceptor` the metadata carries the registered
       `:rf/interceptor-descriptor` plus source coords + `:doc` (EP-0022).
     `(handler-meta {:frame f :kind k :id id})` — FRAME-TARGETED (EP-0023,
       rf2-wkw8na): the metadata for `[k id]` resolved through live frame `f`'s
@@ -1892,24 +1892,24 @@
    (if (and (map? arg) (contains? arg :frame))
      (let [frame (resolve-live-frame-object (:frame arg) 'rf/handler-meta)
            {:keys [kind id]} arg]
-       (live-frame/call-with-frame-resolution
+       (rf.live-frame/call-with-frame-resolution
          frame
-         #(registrar/handler-meta kind id)))
+         #(rf.registrar/handler-meta kind id)))
      (assert-registrar-query-has-frame! arg 'rf/handler-meta)))
   ([kind id]
    (case kind
-     (:machine-guard :machine-action) (rf-machines/machine-handler-meta kind id)
-     (registrar/handler-meta kind id))))
+     (:machine-guard :machine-action) (rf.core-machines/machine-handler-meta kind id)
+     (rf.registrar/handler-meta kind id))))
 
 (def ^{:doc "Return the set of registered, non-destroyed frame ids. Per
   Spec 002 §The public registrar query API."}
-  frame-ids    frame/frame-ids)
+  frame-ids    rf.frame/frame-ids)
 
 (def ^{:doc "Return the effective metadata map for a frame as a flat
   shape — `:id` plus the post-preset-expansion user-supplied config.
   Per Spec 002 §The public registrar query API and Spec-Schemas
   §`:rf/frame-meta`."}
-  frame-meta   frame/frame-meta)
+  frame-meta   rf.frame/frame-meta)
 
 ;; The public model is `image -> frame -> event stream`: a frame is addressed by
 ;; its process-local frame id. There is no realm coordinate and no frame-side
@@ -1922,7 +1922,7 @@
   Accepts a frame-id keyword or a live frame value; values are normalized to
   their runnable id. Per Spec 002 §The public registrar query API."
   [frame-id]
-  (frame/frame-app-db-value (frame/frame-target->id frame-id)))
+  (rf.frame/frame-app-db-value (rf.frame/frame-target->id frame-id)))
 
 (defn frame-state-value
   "Return the coherent frame-state projection for the named frame —
@@ -1936,7 +1936,7 @@
   frame-id keyword or a live frame value. Per Spec 002 §The two-partition
   frame contract."
   [frame-id]
-  (frame/frame-state-value (frame/frame-target->id frame-id)))
+  (rf.frame/frame-state-value (rf.frame/frame-target->id frame-id)))
 
 ;; The public construction model is `rf/image` — the selected registration-set
 ;; value a frame loads — supplied to `make-frame` via `:images`. A feature
@@ -1950,7 +1950,7 @@
 ;;
 ;; `reg-interceptor*` (the programmatic/REPL fn-twin) is RETIRED from the
 ;; facade (rf2-m90brg — API-shrink #2). The `reg-interceptor` macro (above)
-;; already delegates straight to `icpt-reg/reg-interceptor*`, and the CLJS
+;; already delegates straight to `rf.interceptor-registry/reg-interceptor*`, and the CLJS
 ;; same-name `def`-alias in the Convention-A block near the top of this ns
 ;; covers the HoF / programmatic case — reach the owning ns directly
 ;; (`re-frame.interceptor-registry/reg-interceptor*`) from JVM code.
@@ -1979,7 +1979,7 @@
 
 ;; EP-0022 (accepted) removed the public `rf/path` VALUE constructor
 ;; (EP-0022:552 "There is no public rf/path value constructor."; :932 lists the
-;; removal). spec/API.md + spec/002-Frames.md already follow it — the one public
+;; removal). rf.spec/API.md + rf.spec/002-Frames.md already follow it — the one public
 ;; path surface is the framework-registered factory ref
 ;; `[:rf.interceptor/path <path-vector>]`. The implementation had DRIFTED (kept
 ;; exporting `rf/path` aliased to a legacy std-interceptors `path` fn whose
@@ -1991,19 +1991,19 @@
 ;; the `[:rf.interceptor/path …]` ref as the replacement. `^:no-doc` drops it
 ;; from the API manifest generator + the CLJS publics probe: it carries no
 ;; manifest row and is not part of the documented public surface. See
-;; spec/API.md §Standard interceptors and migration/from-re-frame-v1/README.md.
+;; rf.spec/API.md §Standard interceptors and migration/from-re-frame-v1/README.md.
 (def ^{:no-doc true
        :doc "REMOVED in EP-0022 (no alias). Calling `path` raises the hard
   error `:rf.error/path-removed`, naming the framework-registered ref
   `[:rf.interceptor/path <path-vector>]` (used in a handler's `:interceptors`
   chain) as the replacement. See `re-frame.std-interceptors/path-removed!` and
   spec/API.md §Standard interceptors."}
-  path            std-interceptors/path-removed!)
+  path            rf.std-interceptors/path-removed!)
 
 ;; EP-0022 (accepted) removed the public `unwrap-interceptor` VALUE
 ;; (docs/EP/EP-0022-registered-interceptors.md:53-55 "no standard unwrap";
-;; :555-578 §"No standard unwrap"; :881/:932 list the removal). spec/API.md +
-;; spec/002-Frames.md already follow it — the framework ships NO standard
+;; :555-578 §"No standard unwrap"; :881/:932 list the removal). rf.spec/API.md +
+;; rf.spec/002-Frames.md already follow it — the framework ships NO standard
 ;; unwrap value; the canonical spelling is handler-payload destructuring (the
 ;; M-19 `[<id> <payload-map>]` shape destructured in the handler arglist), or
 ;; a PROJECT-registered `:app/unwrap` interceptor when chain-wide reshaping is
@@ -2016,7 +2016,7 @@
 ;; to a real var and fails LOUDLY with `:rf.error/unwrap-removed`, naming the
 ;; replacement. `^:no-doc` drops it from the API manifest generator + the CLJS
 ;; publics probe: it carries no manifest row and is not part of the documented
-;; public surface. See spec/API.md §Standard interceptors and
+;; public surface. See rf.spec/API.md §Standard interceptors and
 ;; migration/from-re-frame-v1/README.md.
 (def ^{:no-doc true
        :doc "REMOVED in EP-0022 (no alias). Referencing `unwrap-interceptor`
@@ -2026,7 +2026,7 @@
   interceptor for genuine chain-wide reshaping. See
   `re-frame.std-interceptors/unwrap-removed!` and spec/API.md §Standard
   interceptors."}
-  unwrap-interceptor std-interceptors/unwrap-removed!)
+  unwrap-interceptor rf.std-interceptors/unwrap-removed!)
 
 ;; EP-0015 §7 (accepted 2026-06-11): `redact-interceptor` is REMOVED from
 ;; the public API. A positional "redact for the trace but not the handler"
@@ -2042,7 +2042,7 @@
 (def ^{:doc "Predicate: returns `true` iff `trace-event` is a map carrying
   `:sensitive? true`. Trace-event filter for privacy-aware listeners and
   off-box egress. Per Spec 009 §Privacy."}
-  sensitive?           privacy/sensitive?)
+  sensitive?           rf.privacy/sensitive?)
 
 (def ^{:doc "Production-side schema validation interceptor VALUE, registered
   under the framework id `:rf.schema/at-boundary`. Reference it by id from a
@@ -2056,13 +2056,13 @@
   Conventions §Value-vs-fn naming) telegraphs that this is a Var holding a
   value, not a fn. Per Spec 010 §Production builds. The interceptor reuses
   the handler's existing `:schema` metadata — no parallel schema."}
-  validate-at-boundary-interceptor spec/validate-at-boundary-interceptor)
+  validate-at-boundary-interceptor rf.spec/validate-at-boundary-interceptor)
 
 (def ^{:doc "Emit a trace event. Production builds elide the body
-  entirely (Closure DCE on the `interop/debug-enabled?` gate); in dev /
+  entirely (Closure DCE on the `rf.interop/debug-enabled?` gate); in dev /
   JVM the envelope is built and delivered to the ring buffer, epoch
   recorder, and registered listeners. Per Spec 009 §Trace emit."}
-  emit-trace-event!         trace/emit!)
+  emit-trace-event!         rf.trace/emit!)
 
 ;; ---- stream-parameterized observation listener verb ----------------------
 ;;
@@ -2109,7 +2109,7 @@
 
 (defn- unknown-listener-stream! [verb stream]
   ;; rf2-cl48e2: route through the canonical thrown-error builder
-  ;; (`error/throw-error!`, Spec 009 §The thrown-error shape) like every
+  ;; (`rf.error/throw-error!`, Spec 009 §The thrown-error shape) like every
   ;; other framework throw. The hand-rolled ex-info carried the
   ;; NON-canonical `:rf/where` slot (the ONLY `:rf/where` site in the
   ;; corpus — canonical is bare `:where`) holding the verb symbol, omitted
@@ -2119,7 +2119,7 @@
   ;; (`'rf/register-listener!` / `'rf/unregister-listener!`), so it lands
   ;; directly in the canonical `:where` slot. The surface-specific
   ;; `:stream` / `:valid` slots ride in `:extra`.
-  (error/throw-error!
+  (rf.error/throw-error!
     :rf.error/unknown-listener-stream
     verb
     (str verb ": unknown listener stream " (pr-str stream)
@@ -2160,10 +2160,10 @@
   observability sink policy."
   [stream id f]
   (case stream
-    :trace  (trace/register-listener! id f)
-    :events (event-emit/register-event-listener! id f)
-    :errors (error-emit/register-error-listener! id f)
-    :epoch  (rf-epoch/register-epoch-listener! id f)
+    :trace  (rf.trace/register-listener! id f)
+    :events (rf.event-emit/register-event-listener! id f)
+    :errors (rf.error-emit/register-error-listener! id f)
+    :epoch  (rf.core-epoch/register-epoch-listener! id f)
     (unknown-listener-stream! 'rf/register-listener! stream)))
 
 (defn unregister-listener!
@@ -2174,10 +2174,10 @@
   §Observation listeners."
   [stream id]
   (case stream
-    :trace  (trace/unregister-listener! id)
-    :events (event-emit/unregister-event-listener! id)
-    :errors (error-emit/unregister-error-listener! id)
-    :epoch  (rf-epoch/unregister-epoch-listener! id)
+    :trace  (rf.trace/unregister-listener! id)
+    :events (rf.event-emit/unregister-event-listener! id)
+    :errors (rf.error-emit/unregister-error-listener! id)
+    :epoch  (rf.core-epoch/unregister-epoch-listener! id)
     (unknown-listener-stream! 'rf/unregister-listener! stream)))
 
 ;; There is deliberately NO façade `clear-listeners!` verb (retired
@@ -2212,13 +2212,13 @@
        `goog.DEBUG=false`). JVM-only alias — CLJS callers use
        `re-frame.trace.tooling/trace-buffer` directly. Per Spec 009
        §Per-frame trace rings (event-keyed, dev-only)."}
-       trace-buffer           trace/trace-buffer)
+       trace-buffer           rf.trace/trace-buffer)
      (def ^{:doc "Empty the named frame's event-keyed trace ring.
        Tooling uses this between sessions. No-op for an unknown frame,
        no-op in production. JVM-only alias — CLJS callers use
        `re-frame.trace.tooling/clear-trace-buffer!` directly. Per Spec
        009 §`trace-buffer` API."}
-       clear-trace-buffer!    trace/clear-trace-buffer!)))
+       clear-trace-buffer!    rf.trace/clear-trace-buffer!)))
 
 ;; The always-on event-emit / error-emit listener registries are NO LONGER
 ;; facade exports. They are reached through the stream-parameterized
@@ -2243,7 +2243,7 @@
   large when both declarations match. Sensitive paths become `:rf/redacted`;
   large paths become `:rf.size/large-elided`. Per Spec 009 §Wire elision and
   Security.md §Off-box egress."}
-  elide-wire-value                 elision/elide-wire-value)
+  elide-wire-value                 rf.elision/elide-wire-value)
 
 (def ^{:doc "Project a record or value for egress across a trust boundary
   (EP-0015 §10/§11). The public, record-level boundary primitive — the
@@ -2258,7 +2258,7 @@
   `:rf.error/unknown-egress-profile`. Fail-closed: projects a tree slot
   only when the frame is known; no `:rf/default` synthesis. Per Spec 015
   §Projection and Security.md §Off-box egress."}
-  project-egress                   projection/project-egress)
+  project-egress                   rf.projection/project-egress)
 
 ;; ---- frame-owned observability sink routing (EP-0015 §9, rf2-t55hxg.7) ----
 ;;
@@ -2285,11 +2285,11 @@
   integration-library concern. Survives `:advanced` + `goog.DEBUG=false` —
   the frame `:observability` stream is the production observation stream.
   Per Spec 015 §Frame-owned observability sink policy."}
-  register-observability-sink!     observability/register-observability-sink!)
+  register-observability-sink!     rf.observability/register-observability-sink!)
 
 (def ^{:doc "Drop the observability sink registered under `sink-id`.
   Returns nil. Per Spec 015 §Frame-owned observability sink policy."}
-  unregister-observability-sink!   observability/unregister-observability-sink!)
+  unregister-observability-sink!   rf.observability/unregister-observability-sink!)
 
 ;; EP-0015 §8 (rf2-d2r3um): the `populate-elision-from-schemas!` /
 ;; `populate-sensitive-from-schemas!` facade exports are REMOVED. They were
@@ -2315,7 +2315,7 @@
   — JVM and CLJS. Used by `re-frame-10x`, Xray, and other tools that
   present event-level views over the raw event stream. Per Spec 009
   §Trace projection."}
-  group-by-event  trace-projection/group-by-event)
+  group-by-event  rf.trace.projection/group-by-event)
 
 ;; Facade-export classification (diff-time rule): TOOL-FACING projection
 ;; primitive, sibling to `group-by-event`. Same `[frame dispatch-id]`
@@ -2333,7 +2333,7 @@
   run's raw events (e.g. re-frame2-pair streaming event bundles), so they
   never re-derive the grouping with a weaker dispatch-id-only key. Per
   Spec 009 §Trace projection."}
-  group-by-event-with-events  trace-projection/group-by-event-with-events)
+  group-by-event-with-events  rf.trace.projection/group-by-event-with-events)
 
 (def ^{:doc "Classify a trace event into one of the domino buckets —
   one of `#{:event :handler :fx :effect :sub :render :other}`. `:other`
@@ -2341,7 +2341,7 @@
   warnings, machine transitions, frame lifecycle, flows). The
   classification is total. Pure fn used by trace projections and
   event-bundle views. Per Spec 009 §Trace projection."}
-  domino-bucket   trace-projection/domino-bucket)
+  domino-bucket   rf.trace.projection/domino-bucket)
 
 ;; ---- epoch history (Tool-Pair §Time-travel) ------------------------------
 
@@ -2350,7 +2350,7 @@
   when recording is disabled, or when the `day8/re-frame2-epoch`
   artefact is not on the classpath. Per Tool-Pair §Time-travel.
   Late-bound via `:epoch/epoch-history`."}
-  epoch-history      rf-epoch/epoch-history)
+  epoch-history      rf.core-epoch/epoch-history)
 
 (def ^{:doc "Rewind the named frame's WHOLE frame-state — BOTH the app-db
   AND runtime-db partitions — to the named epoch's `:frame-state-after`,
@@ -2361,7 +2361,7 @@
   documented failure modes (each emits a structured `:rf.epoch/*` error
   trace) or when the epoch artefact is absent. Per Tool-Pair
   §Time-travel. Late-bound via `:epoch/restore-epoch!`."}
-  restore-epoch!     rf-epoch/restore-epoch!)
+  restore-epoch!     rf.core-epoch/restore-epoch!)
 
 (def ^{:doc "Re-drive the named retained epoch's recorded event through the
   frame's own handlers in ONE call, as a strict replay (Tool-Pair §Replay):
@@ -2376,7 +2376,7 @@
   canonical `:rf.error/missing-required-cofx` hard error), or `false` when
   the surface is elided / the epoch artefact is absent. Per Tool-Pair
   §Replay. Late-bound via `:epoch/replay-epoch!`."}
-  replay-epoch!      rf-epoch/replay-epoch!)
+  replay-epoch!      rf.core-epoch/replay-epoch!)
 
 ;; There are deliberately NO façade `register-epoch-listener!` /
 ;; `unregister-epoch-listener!` exports (retired rf2-9flalp — API-shrink #4).
@@ -2417,7 +2417,7 @@
   Per Tool-Pair §Surface behaviour against destroyed frames + Spec 009 §The
   delayed-silence emission linearization law. Late-bound via
   `:epoch/epoch-silence-current?`."}
-  epoch-silence-current?  rf-epoch/epoch-silence-current?)
+  epoch-silence-current?  rf.core-epoch/epoch-silence-current?)
 
 ;; ---- frame-state write surface (rf2-q4i9ko / rf2-tfepxu / rf2-t3lftq) -----
 ;;
@@ -2463,7 +2463,7 @@
   rewind. Returns `true` on success, `false` on a documented failure
   (bad keys, unknown frame, drain in flight, history disabled, schema
   mismatch on a PRESENT partition). Dev-only (gated on
-  `interop/debug-enabled?`). Raises `:rf.error/epoch-artefact-missing`
+  `rf.interop/debug-enabled?`). Raises `:rf.error/epoch-artefact-missing`
   when the epoch artefact is absent.
 
   App-only injection: `(replace-frame-state! id {:rf.db/app v})` — the
@@ -2477,7 +2477,7 @@
   Per Spec 002 §Frame-state value accessors and mutators, Tool-Pair
   §Pair-tool writes, and API.md `replace-frame-state!`. Late-bound via
   `:epoch/replace-frame-state!`."}
-  replace-frame-state!   rf-epoch/replace-frame-state!)
+  replace-frame-state!   rf.core-epoch/replace-frame-state!)
 
 ;; Per Security.md §Epoch privacy posture and rf2-mrsck — single
 ;; normative projection helpers for off-box epoch egress.
@@ -2489,7 +2489,7 @@
   process boundary (Xray-MCP `watch-epochs`, recorders, forwarders)
   MUST route through this fn. Per Security.md §Epoch privacy posture
   (rf2-mrsck). Late-bound via `:epoch/projected-record`."}
-  projected-record   rf-epoch/projected-record)
+  projected-record   rf.core-epoch/projected-record)
 
 (def ^{:doc "Off-box egress safety primitive for whole-ring epoch
   egress. Returns the projected vector of records for a frame —
@@ -2508,7 +2508,7 @@
   frame has no recorded epochs or the epoch artefact is absent. Per
   Security.md §Epoch privacy posture. Late-bound via
   `:epoch/projected-history`."}
-  projected-history  rf-epoch/projected-history)
+  projected-history  rf.core-epoch/projected-history)
 
 ;; ---- Spec 014 — :rf.http/managed -----------------------------------------
 ;;
@@ -2524,7 +2524,7 @@
   routes through. Implementation ships in `day8/re-frame2-http` under
   `re-frame.http.test-support` (rf2-lwmgw). Per Spec 014 §Testing. Late-bound
   via `:http/with-managed-request-stubs*`."}
-  with-managed-request-stubs*      rf-http/with-managed-request-stubs*)
+  with-managed-request-stubs*      rf.core-http/with-managed-request-stubs*)
 
 (def ^{:doc "Clear an HTTP interceptor by `id` from a frame's
   `:rf.http/managed` middleware chain. EP-0002 context-required
@@ -2541,7 +2541,7 @@
   `(frame id)` is not a public shape. Implementation ships in
   `day8/re-frame2-http`. Per Spec 014 §Middleware. Late-bound via
   `:http/clear-http-interceptor`."}
-  clear-http-interceptor           rf-http/clear-http-interceptor)
+  clear-http-interceptor           rf.core-http/clear-http-interceptor)
 
 ;; reg-http-interceptor is a macro (per the defreg-macro form above) so
 ;; source-coords are captured at the call site like every other reg-*.
@@ -2594,20 +2594,20 @@
   (assert (map? config-map)
           "re-frame.core/configure! expects a single nested config map, e.g. (configure! {:epoch-history {:depth 100}})")
   (when-let [opts (:epoch-history config-map)]
-    (when-let [f (late-bind/get-fn :epoch/configure!)]
+    (when-let [f (rf.late-bind/get-fn :epoch/configure!)]
       (f opts)))
   (when-let [opts (:trace-buffer config-map)]
-    (when-let [f (late-bind/get-fn :trace.tooling/configure-trace-buffer!)]
+    (when-let [f (rf.late-bind/get-fn :trace.tooling/configure-trace-buffer!)]
       (f opts)))
   (when-let [opts (:elision config-map)]
-    (elision/configure! opts))
+    (rf.elision/configure! opts))
   nil)
 
 (def ^{:doc "Install the substrate adapter for this process. Once. A
   second call without an intervening `destroy-adapter!` raises
   `:rf.error/adapter-already-installed`. Most apps call `init!` rather
   than this directly. Per Spec 006 §Adapter selection at boot."}
-  install-adapter!     adapter/install-adapter!)
+  install-adapter!     rf.substrate.adapter/install-adapter!)
 
 (def ^{:doc "Tear down the installed adapter. Calls the adapter's
   `:dispose-adapter!` fn (if present). Teardown is a one-way terminal
@@ -2620,7 +2620,7 @@
   of the tear-down verb taxonomy (per Conventions §Tear-down verb
   axis) — adapter install/destroy is symmetric with frame
   create/destroy (`destroy-frame!`)."}
-  destroy-adapter!     adapter/dispose-adapter!)
+  destroy-adapter!     rf.substrate.adapter/dispose-adapter!)
 
 (def ^{:doc "Return the discriminator keyword identifying the installed
   adapter, or `nil` if none. One of
@@ -2628,13 +2628,13 @@
   `:rf.adapter/plain-atom`, `:rf.adapter/ssr`, or `:custom` for
   user-supplied adapters that didn't pick a canonical kind.
   Per Spec 006 §Adapter introspection."}
-  current-adapter      adapter/current-adapter)
+  current-adapter      rf.substrate.adapter/current-adapter)
 
 (def ^{:doc "Return the installed adapter spec map, or `nil` if none.
   Carries the adapter contract fns (`:make-state-container`,
   `:replace-container!`, `:render`, `:dispose-adapter!`, etc.). Per
   Spec 006 §Adapter introspection."}
-  current-adapter-spec adapter/current-adapter-spec)
+  current-adapter-spec rf.substrate.adapter/current-adapter-spec)
 
 (def ^{:doc "Return `true` iff teardown of the most recent installed
   adapter generation has been terminally claimed and no fresh
@@ -2642,13 +2642,13 @@
   the claim remains terminal when the primary cleanup failure is rethrown.
   False for a never-installed process and after a fresh install. Per
   Spec 006 §Adapter lifecycle."}
-  adapter-disposed?    adapter/adapter-disposed?)
+  adapter-disposed?    rf.substrate.adapter/adapter-disposed?)
 
 (defn- bad-init-arg!
   "Raise `:rf.error/no-adapter-specified` with a consistent reason
   string. Factored out of `init!`'s nil-check and not-map-check."
   [received]
-  (error/throw-error!
+  (rf.error/throw-error!
     :rf.error/no-adapter-specified
     'rf/init!
     "rf/init! takes the adapter spec map directly — there is no keyword form, no nil form, and no default-adapter registry. Require the adapter ns and pass its `adapter` Var: (rf/init! reagent/adapter)."
@@ -2678,21 +2678,21 @@
     (not (map? adapter-map))  (bad-init-arg! adapter-map)
     :else
     (do
-      (when-not (adapter/current-adapter)
-        (adapter/install-adapter! adapter-map))
+      (when-not (rf.substrate.adapter/current-adapter)
+        (rf.substrate.adapter/install-adapter! adapter-map))
       ;; EP-0022 (rf2-0adhqs.2): re-seed the framework-standard interceptors
       ;; (`:rf.interceptor/path`) so the standard refs survive a test fixture's
-      ;; `registrar/clear-all!`. Idempotent.
-      (std-interceptors/register-standard-interceptors!)
+      ;; `rf.registrar/clear-all!`. Idempotent.
+      (rf.std-interceptors/register-standard-interceptors!)
       ;; EP-0027 (rf2-v1xzoo): re-seed the framework-standard `:rf/set-db` event
       ;; (into both the regular registrar AND the image standard registry) so it
-      ;; resolves after a `registrar/clear-all!`. Idempotent.
-      (events/register-set-db-standard!)
+      ;; resolves after a `rf.registrar/clear-all!`. Idempotent.
+      (rf.events/register-set-db-standard!)
       ;; EP-0022 (rf2-i3uxo2): re-seed the framework-standard
       ;; `:rf.schema/at-boundary` interceptor so the ref form
-      ;; `[:rf.schema/at-boundary]` resolves after a `registrar/clear-all!`.
+      ;; `[:rf.schema/at-boundary]` resolves after a `rf.registrar/clear-all!`.
       ;; Idempotent.
-      (spec/register-schema-interceptors!)
+      (rf.spec/register-schema-interceptors!)
       nil)))
 
 (defn init-platform
@@ -2713,8 +2713,8 @@
   `:rf.error/invalid-platform`. Idempotent / re-callable."
   [p]
   (if (#{:server :client} p)
-    (do (interop/set-platform! p) nil)
-    (error/throw-error!
+    (do (rf.interop/set-platform! p) nil)
+    (rf.error/throw-error!
       :rf.error/invalid-platform
       'rf/init-platform
       "rf/init-platform takes the platform keyword directly — :server or :client per Spec 011 §Effect handling on the server."
@@ -2731,7 +2731,7 @@
 ;; feature→coordinate mapping is STATIC DATA in the always-loaded
 ;; `re-frame.features` facade ns, never a live require into the optional
 ;; impls (which would pull every optional namespace into every production
-;; bundle and break bundle-isolation). Per spec/API.md §Feature inspection
+;; bundle and break bundle-isolation). Per rf.spec/API.md §Feature inspection
 ;; and Conventions §Facade re-export, artefact require.
 
 (def ^{:doc "Return a map of every optional feature keyword to its
@@ -2739,7 +2739,7 @@
   `:spec`) merged with the live `:loaded?` status. Ships to production
   (NOT elided). Per spec/API.md §Feature inspection."
        :arglists '([])}
-  features features/features)
+  features rf.features/features)
 
 (def ^{:doc "Return `true` when the optional feature's implementation
   artefact is on the classpath, `false` otherwise (incl. an unknown
@@ -2749,7 +2749,7 @@
   `:ssr` `:epoch`. Ships to production (NOT elided). Per spec/API.md
   §Feature inspection."
        :arglists '([feature])}
-  feature-loaded? features/feature-loaded?)
+  feature-loaded? rf.features/feature-loaded?)
 
 (def ^{:doc "Assert the optional feature is loaded — returns `true`, or
   throws `:rf.error/feature-not-loaded` carrying the EXACT copy-pasteable
@@ -2758,4 +2758,4 @@
   self-explaining early guard before a feature-dependent code path.
   Ships to production (NOT elided). Per spec/API.md §Feature inspection."
        :arglists '([feature])}
-  require-feature! features/require-feature!)
+  require-feature! rf.features/require-feature!)

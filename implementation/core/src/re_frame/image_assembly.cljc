@@ -134,11 +134,11 @@
   `re-frame.error` (fail-loud diagnostics) — all already in the core spine.
   Assembly runs on the runtime/SSR path, not under a debug gate; an app that
   never assembles an image never reaches these fns (Closure DCE removes them)."
-  (:require [re-frame.image       :as image]
-            [re-frame.source-store :as source-store]
-            [re-frame.registrar   :as registrar]
-            [re-frame.late-bind   :as late-bind]
-            [re-frame.error       :as error]))
+  (:require [re-frame.image       :as rf.image]
+            [re-frame.source-store :as rf.source-store]
+            [re-frame.registrar   :as rf.registrar]
+            [re-frame.late-bind   :as rf.late-bind]
+            [re-frame.error       :as rf.error]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -286,8 +286,8 @@
   `:rf.provenance/ns`. Pure read of the store snapshot."
   []
   (into []
-        (mapcat source-store/all-descriptors)
-        (source-store/kinds-present)))
+        (mapcat rf.source-store/all-descriptors)
+        (rf.source-store/kinds-present)))
 
 ;; ---- the DEFAULT image (EP-0023 §Default Image Semantics / §Namespace-Selected
 ;;      Images) — the implicit selector over the WHOLE default source store ------
@@ -354,7 +354,7 @@
 ;; runnable slots. A registered descriptor, by contrast, carries the RUNNABLE
 ;; shape `register!` stored (`:handler-fn` + the per-kind discriminators: an
 ;; event's `:interceptors` wrapper chain, a sub's `:input-kind` / `:input-signals`).
-;; The cascade reads `registrar/handler` (`:handler-fn`) and an event needs
+;; The cascade reads `rf.registrar/handler` (`:handler-fn`) and an event needs
 ;; `:interceptors`, neither of which an `:impl`-only descriptor carries, so an
 ;; inline descriptor must be lowered to the runnable shape before a generation
 ;; runs it. EP-0023 §Image Fragments is explicit: "Both paths should lower to
@@ -379,7 +379,7 @@
 ;; through untouched.
 
 (defn- strip-descriptor-documentation
-  "Elide the registrar PURE-DOCUMENTATION keys (`registrar/pure-documentation-keys`
+  "Elide the registrar PURE-DOCUMENTATION keys (`rf.registrar/pure-documentation-keys`
   — `:doc`) from a lowered inline `descriptor` in PRODUCTION, at BOTH the
   descriptor TOP LEVEL (where a kind's lowering spreads its authored metadata —
   `lower-inline-event` hoists the run/enqueue-time flags, `lower-inline-sub` the
@@ -390,7 +390,7 @@
 
   This is the ONE canonical, side-effect-free DOC-normalization boundary for every
   supported inline kind — event, sub, fx, cofx (rf2-mt1cvi). It runs
-  `registrar/strip-pure-documentation` — the SAME primitive the public `reg-*`
+  `rf.registrar/strip-pure-documentation` — the SAME primitive the public `reg-*`
   registrar runs — so an inline registration pays no more production bytes than a
   namespace-authored one, and inline registration semantics are kind-INDEPENDENT.
   A NO-OP in dev (`interop/debug-enabled?` true), so development assembly retains
@@ -398,9 +398,9 @@
   whose metadata its kind's lowering already normalized (the sub path) is
   unchanged. Pure."
   [descriptor]
-  (let [descriptor (registrar/strip-pure-documentation descriptor)]
+  (let [descriptor (rf.registrar/strip-pure-documentation descriptor)]
     (if (contains? descriptor :metadata)
-      (let [metadata (registrar/strip-pure-documentation (:metadata descriptor))]
+      (let [metadata (rf.registrar/strip-pure-documentation (:metadata descriptor))]
         (if (seq metadata)
           (assoc descriptor :metadata metadata)
           (dissoc descriptor :metadata)))
@@ -438,7 +438,7 @@
   [descriptor]
   (if (and (:rf.provenance/inline descriptor)
            (contains? descriptor :impl))
-    (if-let [lower (late-bind/get-fn
+    (if-let [lower (rf.late-bind/get-fn
                      (keyword "image" (str "lower-inline-" (name (:kind descriptor)))))]
       (strip-descriptor-documentation
         (if (= :sub (:kind descriptor))
@@ -483,14 +483,14 @@
   [image-id descriptors]
   (doseq [d descriptors]
     (let [k (:kind d)]
-      (when-not (registrar/valid-kind? k)
-        (error/throw-error!
+      (when-not (rf.registrar/valid-kind? k)
+        (rf.error/throw-error!
           :rf.error/image-unsupported-kind
           'rf/make-frame
           (str "rf/image assembly: descriptor for id " (pr-str (:id d))
                " has unsupported registration kind " (pr-str k)
                " — not one of the registered registry kinds "
-               (pr-str (sort registrar/kinds)) ". Inline image sections must "
+               (pr-str (sort rf.registrar/kinds)) ". Inline image sections must "
                "use a reg-* section key; registered descriptors carry a valid "
                "kind.")
           {:recovery :correct-the-descriptor-kind
@@ -652,7 +652,7 @@
   unforgeable marker+nil-provenance pair that gates the supersession seam gates
   this."
   [kind id]
-  (let [own (source-store/descriptor-for kind id nil)]
+  (let [own (rf.source-store/descriptor-for kind id nil)]
     (when (framework-default-descriptor? own)
       (not-empty (select-keys own carrier-classification-keys)))))
 
@@ -721,7 +721,7 @@
   ([[superseded-framework-default-keys]]), and two application registrations of
   one framework-default id still collide.
 
-  Writes through `source-store/record-descriptor!`, which lands each reconciled
+  Writes through `rf.source-store/record-descriptor!`, which lands each reconciled
   descriptor back in its OWN provenance slot (so sibling namespaces stay
   distinct, and an app-vs-app collision still reaches assembly) and BUMPS the
   store generation — invalidating any sealed generation assembled from the
@@ -731,11 +731,11 @@
     ;; `descriptors-for` derefs once, so the mutation below cannot disturb the
     ;; iteration. A nil provenance key is the FRAMEWORK's own copy (the read
     ;; above already established that), never an app descriptor — skip it.
-    (doseq [[provenance descriptor] (source-store/descriptors-for kind id)
+    (doseq [[provenance descriptor] (rf.source-store/descriptors-for kind id)
             :when                   (some? provenance)]
       (let [reconciled (union-carrier-classification descriptor fw)]
         (when-not (identical? reconciled descriptor)
-          (source-store/record-descriptor! kind id reconciled)))))
+          (rf.source-store/record-descriptor! kind id reconciled)))))
   nil)
 
 ;; ---- the collision validator — THE central \"order never decides\" guarantee
@@ -780,7 +780,7 @@
           ;; An inline entry resolving two ways: either inline-vs-selected (an
           ;; override must be a LATER image) or two inline entries (malformed).
           (let [all-inline? (every? inline-descriptor? colliding)]
-            (error/throw-error!
+            (rf.error/throw-error!
               :rf.error/image-within-image-collision
               'rf/make-frame
               (str "rf/image assembly: id " (pr-str k+id) " resolves "
@@ -804,7 +804,7 @@
           ;; Two (or more) DISTINCT selected registrations for one [kind id]:
           ;; ambiguous within this image — narrow :select-ns so only one is
           ;; selected, or rename the duplicate id.
-          (error/throw-error!
+          (rf.error/throw-error!
             :rf.error/image-duplicate-id
             'rf/make-frame
             (str "rf/image assembly: id " (pr-str k+id) " is selected from "
@@ -886,7 +886,7 @@
   (doseq [[k+id app-d] app-resolver
           :when (contains? standard-resolver k+id)]
     (let [[kind id] k+id]
-      (error/throw-error!
+      (rf.error/throw-error!
         :rf.error/image-standard-replacement-forbidden
         'rf/make-frame
         (str "rf/image assembly: id " (pr-str k+id) " collides with a FRAMEWORK "
@@ -1103,7 +1103,7 @@
             ref-id (refs descriptor)
             :let  [missing-reference (missing ref-id)]
             :when (not (contains? resolver missing-reference))]
-      (error/throw-error!
+      (rf.error/throw-error!
         :rf.error/image-missing-reference
         'rf/make-frame
         (message kind descriptor ref-id)
@@ -1155,7 +1155,7 @@
                        (keep (fn [[id n]] (when (> n 1) id)))
                        (sort))]
     (when (seq anonymous)
-      (error/throw-error!
+      (rf.error/throw-error!
         :rf.error/image-duplicate-image-id
         'rf/make-frame
         (str "rf/image assembly: a composition of " (count images) " images "
@@ -1172,7 +1172,7 @@
                     :image-count           (count images)
                     :image-ids             (vec ids)}}))
     (when (seq dups)
-      (error/throw-error!
+      (rf.error/throw-error!
         :rf.error/image-duplicate-image-id
         'rf/make-frame
         (str "rf/image assembly: image id(s) " (pr-str (vec dups))
@@ -1195,7 +1195,7 @@
   DEFAULT-IMAGE STANDARD-SHADOW FILTER (EP-0026 §Default Image — \"the default
   image selects all ordinary namespace-authored registrations … and includes
   framework standards\"): the framework dual-registers some standards (e.g.
-  `:rf/set-db`, EP-0027) into the regular registrar/source store too, so the
+  `:rf/set-db`, EP-0027) into the regular rf.registrar/source store too, so the
   registrar-direct (non-generation) resolution path can find them. Those
   source-store shadows are NOT ordinary app registrations — they are the
   framework standard's own copy, recorded with NO `:rf.provenance/ns` (a
@@ -1246,7 +1246,7 @@
                               (or (contains? standard-keys k+id)
                                   (contains? superseded k+id)))))
               descriptors))
-      (image/select-descriptors image descriptors))))
+      (rf.image/select-descriptors image descriptors))))
 
 (defn- assemble*
   "The PURE assembly pipeline (EP-0026 §Layered Resolution): unique-id check →
@@ -1349,8 +1349,8 @@
 ;; The store-side legs are the live store IDENTITY + its monotonic generation,
 ;; plus the framework-standard generation:
 ;;
-;;   * single-arity (live store): `[source-store/store-identity
-;;     source-store/store-generation]` — the active store atom paired with its
+;;   * single-arity (live store): `[rf.source-store/store-identity
+;;     rf.source-store/store-generation]` — the active store atom paired with its
 ;;     monotonic generation. The generation alone is NOT enough: it is keyed
 ;;     PER store (see source-store), so two DISTINCT stores (a realm-bound
 ;;     `*source-store*` vs the process-default) can each sit at the same
@@ -1528,8 +1528,8 @@
        ;; generation.
        (assemble-cached images
                         (source-store-descriptors)
-                        [(source-store/store-identity)
-                         (source-store/store-generation)]))))
+                        [(rf.source-store/store-identity)
+                         (rf.source-store/store-generation)]))))
   ([images descriptors]
    (let [images (vec images)]
      (if (empty? images)
@@ -1586,8 +1586,8 @@
    ;; aliases.
    (assemble-cached [default-image]
                     (source-store-descriptors)
-                    [(source-store/store-identity)
-                     (source-store/store-generation)]))
+                    [(rf.source-store/store-identity)
+                     (rf.source-store/store-generation)]))
   ([descriptors]
    (assemble-cached [default-image] descriptors descriptors)))
 

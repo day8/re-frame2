@@ -30,14 +30,14 @@
 
     1. EP-0025 commit-plane classification — a frame-declared `:sensitive`
        app-db path overlapping a path-scoped handler's slice. The router
-       installs `privacy/schema-redaction-interceptor` UNCONDITIONALLY in
+       installs `rf.privacy/schema-redaction-interceptor` UNCONDITIONALLY in
        `prepare-handler-ctx` (no `debug-enabled?` gate); its output rides
-       `:rf/redacted-event`, which `privacy/redacted-event-from-ctx` hands to
-       `error-emit/emit-error-both!`.
-    2. The user-installed `privacy/redact-interceptor`, whose `:before`
+       `:rf/redacted-event`, which `rf.privacy/redacted-event-from-ctx` hands to
+       `rf.error-emit/emit-error-both!`.
+    2. The user-installed `rf.privacy/redact-interceptor`, whose `:before`
        extends the same `:rf/redacted-event` slot.
-    3. `elision/elide-wire-value`, run unconditionally inside
-       `error-emit/dispatch-on-error!` over the per-frame
+    3. `rf.elision/elide-wire-value`, run unconditionally inside
+       `rf.error-emit/dispatch-on-error!` over the per-frame
        `[:rf.runtime/elision :sensitive-declarations]` registry — the
        belt-and-braces path that redacts even for emission sites that never
        ran an interceptor chain (`:rf.error/no-such-handler` below).
@@ -88,22 +88,22 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.elision :as elision]
-            [re-frame.error-emit :as error-emit]
-            [re-frame.frame :as frame]
-            [re-frame.privacy :as privacy]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]))
+            [re-frame.elision :as rf.elision]
+            [re-frame.error-emit :as rf.error-emit]
+            [re-frame.frame :as rf.frame]
+            [re-frame.privacy :as rf.privacy]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace :as rf.trace]))
 
 (defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (schemas/clear-schemas-by-frame!)
-  (trace/clear-listeners!)
-  (error-emit/clear-error-listeners!)
-  (rf/init! plain-atom/adapter)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.schemas/clear-schemas-by-frame!)
+  (rf.trace/clear-listeners!)
+  (rf.error-emit/clear-error-listeners!)
+  (rf/init! rf.substrate.plain-atom/adapter)
   (require 're-frame.elision :reload)
   (require 're-frame.schemas :reload)
   (rf/make-frame {:id :rf/default})
@@ -117,8 +117,8 @@
   commit-plane classification effect path — the same registry write a
   `reg-event` returning `:sensitive [[…]]` performs."
   [frame-id paths]
-  (frame/swap-runtime-db! frame-id
-    (fn [rt] (elision/apply-classification-effects rt {:sensitive (mapv vec paths)}))))
+  (rf.frame/swap-runtime-db! frame-id
+    (fn [rt] (rf.elision/apply-classification-effects rt {:sensitive (mapv vec paths)}))))
 
 (defn- record-always-on-errors
   "Capture through the ALWAYS-ON registry — NOT `register-listener! :trace`.
@@ -127,9 +127,9 @@
   are exactly what an off-box shipper receives from a production build."
   [body-fn]
   (let [seen (atom [])]
-    (error-emit/register-error-listener! ::rec (fn [r] (swap! seen conj r)))
+    (rf.error-emit/register-error-listener! ::rec (fn [r] (swap! seen conj r)))
     (try (body-fn)
-         (finally (error-emit/unregister-error-listener! ::rec)))
+         (finally (rf.error-emit/unregister-error-listener! ::rec)))
     @seen))
 
 (defn- record-of [records error-kw]
@@ -176,7 +176,7 @@
         (fn [_ [_ p]]
           (reset! seen p)
           (throw (ex-info "boom" {}))))
-      (is (= event (elision/elide-wire-value event {:frame :rf/default}))
+      (is (= event (rf.elision/elide-wire-value event {:frame :rf/default}))
           (str "CONTROL — the wire-walker (producer 3) leaves this event "
                "untouched: it applies the ABSOLUTE declaration "
                "[:auth :session :credentials] to an event vector that offers no "
@@ -204,14 +204,14 @@
             record. Neither the interceptor's installation nor its `:before`
             is `debug-enabled?`-gated."
     (rf/reg-interceptor :rf/redact-interceptor
-      (privacy/redact-interceptor [[:password] [:token]]))
+      (rf.privacy/redact-interceptor [[:password] [:token]]))
     (rf/reg-event :auth/explode
       {:interceptors [:rf/redact-interceptor]}
       (fn [_ _] (throw (ex-info "boom" {}))))
     (let [event [:auth/explode {:username "ada"
                                 :password user-secret
                                 :token    user-secret}]]
-      (is (= event (elision/elide-wire-value event {:frame :rf/default}))
+      (is (= event (rf.elision/elide-wire-value event {:frame :rf/default}))
           (str "CONTROL — this frame declares NO sensitive app-db path, so the "
                "wire-walker (producer 3) is the identity transform over this "
                "event and cannot account for the redaction below. A user "
@@ -232,7 +232,7 @@
   (testing "producer 3 — `:rf.error/no-such-handler` is emitted before any
             interceptor chain is assembled, so `:rf/redacted-event` was never
             stashed. The record is nonetheless redacted, because
-            `dispatch-on-error!` runs `elision/elide-wire-value` over the
+            `dispatch-on-error!` runs `rf.elision/elide-wire-value` over the
             per-frame declarations unconditionally. This is the belt-and-braces
             arm and the one that covers emission sites with no chain at all."
     (install-sensitive! :rf/default [[:attempts :token]])
@@ -260,7 +260,7 @@
   (testing "`elide-wire-value` — the shared redactor under every off-box egress
             surface — is not `debug-enabled?`-gated."
     (install-sensitive! :rf/default [[:auth :password]])
-    (let [out (elision/elide-wire-value {:auth {:password "shh" :user "ada"}}
+    (let [out (rf.elision/elide-wire-value {:auth {:password "shh" :user "ada"}}
                                         {:frame :rf/default})]
       (is (= :rf/redacted (get-in out [:auth :password])))
       (is (= "ada" (get-in out [:auth :user]))))))

@@ -40,11 +40,11 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core           :as rf]
-            [re-frame.image          :as image]
-            [re-frame.image-assembly :as asm]
-            [re-frame.live-frame     :as lf]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support   :as ts]))
+            [re-frame.image          :as rf.image]
+            [re-frame.image-assembly :as rf.image-assembly]
+            [re-frame.live-frame     :as rf.live-frame]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support   :as rf.test-support]))
 
 ;; ---------------------------------------------------------------------------
 ;; Fixture — clear the framework-standard registry per case, alongside the
@@ -58,11 +58,11 @@
 ;; ---------------------------------------------------------------------------
 
 (use-fixtures :each
-  (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter})
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter})
   (fn [t]
-    (asm/clear-standards!)
+    (rf.image-assembly/clear-standards!)
     (t)
-    (asm/clear-standards!)))
+    (rf.image-assembly/clear-standards!)))
 
 ;; ---------------------------------------------------------------------------
 ;; Helpers
@@ -108,8 +108,8 @@
    (reg-desc "green.core" :sub   :counter/value ::green-value)
    (reg-desc "green.core" :event :counter/reset ::green-reset)]) ;; green-only id
 
-(def ^:private blue-img  (image/image {:id :blue/img  :select-ns {:include ["blue.core"]}}))
-(def ^:private green-img (image/image {:id :green/img :select-ns {:include ["green.core"]}}))
+(def ^:private blue-img  (rf.image/image {:id :blue/img  :select-ns {:include ["blue.core"]}}))
+(def ^:private green-img (rf.image/image {:id :green/img :select-ns {:include ["green.core"]}}))
 
 ;; ===========================================================================
 ;; 1. :frame arity resolves through the TARGET frame's OWN image generation —
@@ -165,7 +165,7 @@
             same target shape rf/frame-generation accepts) — a no-id direct object
             resolves through its own generation"
     (let [blue-obj (rf/make-frame {:images [blue-img]} blue-pool)]
-      (is (not-any? public-id? (lf/live-frame-ids))
+      (is (not-any? public-id? (rf.live-frame/live-frame-ids))
           "a no-id frame contributes no PUBLIC id (its record is keyed under a
            private :rf.frame/<gensym> id, which DOES carry a generation and so
            appears in live-frame-ids — EP-0024)")
@@ -176,7 +176,7 @@
       (testing "registrations via the OBJECT projects blue's ids"
         (is (= #{:counter/inc} (set (keys (rf/registrations {:frame blue-obj :kind :event}))))))
       (testing "frame-generation via the OBJECT returns blue's sealed generation"
-        (is (= ::blue-inc (:handler-fn (asm/resolve-descriptor
+        (is (= ::blue-inc (:handler-fn (rf.image-assembly/resolve-descriptor
                                          (rf/frame-generation blue-obj)
                                          :event :counter/inc))))))))
 
@@ -206,15 +206,15 @@
         (is (contains? (:rf.gen/kinds gen) :event))
         (is (contains? (:rf.gen/kinds gen) :sub)))
       (testing "it equals the generation the live frame is running (verbatim)"
-        (is (= gen (lf/frame-generation (lf/live-frame :blue/main))))))))
+        (is (= gen (rf.live-frame/frame-generation (rf.live-frame/live-frame :blue/main))))))))
 
 (deftest frame-generation-accepts-a-registered-id-and-a-direct-object
   (testing "frame-generation resolves a registered id AND a direct object to the
             same target's generation"
     (let [blue-id-frame (rf/make-frame {:id :blue/main :images [blue-img]} blue-pool)
           green-obj     (rf/make-frame {:images [green-img]} green-pool)]
-      (is (= (lf/frame-generation blue-id-frame) (rf/frame-generation :blue/main)))
-      (is (= (lf/frame-generation green-obj)      (rf/frame-generation green-obj))))))
+      (is (= (rf.live-frame/frame-generation blue-id-frame) (rf/frame-generation :blue/main)))
+      (is (= (rf.live-frame/frame-generation green-obj)      (rf/frame-generation green-obj))))))
 
 ;; ===========================================================================
 ;; 3b. The cross-image SHADOW REPORT — read off the frame's sealed generation
@@ -228,7 +228,7 @@
 ;; An override image composed AFTER blue-img: it re-defines blue's
 ;; [:event :counter/inc] inline, so the composition shadows it (later wins).
 (def ^:private blue-override
-  (image/image {:id :blue/override
+  (rf.image/image {:id :blue/override
                 :registrations {:reg-event [[:counter/inc (fn [_ _] {})]]}}))
 
 (deftest generation-shadows-reports-the-override

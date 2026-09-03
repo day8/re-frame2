@@ -20,8 +20,8 @@
 
   **The RESOLUTION half is production-real and is pinned here.** Which image's
   `sub-meta` a frame's reaction resolves for a given sub id is decided by
-  `registrar/lookup`, through the frame's own generation resolver
-  (`live-frame/call-with-frame-resolution` binds `registrar/*generation*`).
+  `rf.registrar/lookup`, through the frame's own generation resolver
+  (`live-frame/call-with-frame-resolution` binds `rf.registrar/*generation*`).
   That is the same one map from which `re-frame.subs.memo` takes BOTH the
   `:handler-fn` it runs AND — as `(select-keys sub-meta [:sensitive :large
   :large?])` — the classification declaration it carries. Nothing on that path
@@ -32,7 +32,7 @@
 
   **The PROJECTION half has no production egress inside `implementation/core`,
   and that is a finding rather than a gap.** The carried declaration's only
-  consumer here is `classification/project-sub-tags`, reached only from
+  consumer here is `rf.classification/project-sub-tags`, reached only from
   `trace/build-event` inside `trace/emit!`'s `interop/debug-enabled?` gate.
   Under the production gate no `:rf.sub/run` event is built at all, so there is
   no production surface for a sub-output classification to leak onto — the
@@ -57,17 +57,17 @@
   `interop/debug-enabled?`: the flag is read once at namespace-load time and a
   rebind cannot reach it (rf2-f7qj4)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.classification :as classification]
+            [re-frame.classification :as rf.classification]
             [re-frame.core :as rf]
-            [re-frame.image :as image]
-            [re-frame.live-frame :as lf]
-            [re-frame.privacy :as privacy]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as ts]))
+            [re-frame.image :as rf.image]
+            [re-frame.live-frame :as rf.live-frame]
+            [re-frame.privacy :as rf.privacy]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- inline-sub-image
   "An image whose ONLY registration is an inline layer-1 `:reg-sub` under `id`
@@ -75,7 +75,7 @@
   inline descriptor is normalized and lowered by REAL image assembly when the
   frame's generation is sealed."
   [image-id id classification value]
-  (image/image {:id            image-id
+  (rf.image/image {:id            image-id
                 :registrations {:reg-sub [[id classification (fn [_db _q] value)]]}}))
 
 (defn- install-image-frame!
@@ -83,15 +83,15 @@
   path. The empty descriptor pool keeps the generation to the image's own
   inline registrations (no live source-store contamination)."
   [frame-id image]
-  (lf/make-frame {:id frame-id :images [image]} []))
+  (rf.live-frame/make-frame {:id frame-id :images [image]} []))
 
 (defn- resolved-sub-meta
   "The registration metadata `frame-id`'s reactions resolve for `sub-id` — the
-  SAME `registrar/lookup` call `re-frame.subs` makes, under the SAME
+  SAME `rf.registrar/lookup` call `re-frame.subs` makes, under the SAME
   frame-generation binding (`live-frame/call-with-frame-resolution`). Always-on:
   nothing on this path reads `interop/debug-enabled?`."
   [frame-id sub-id]
-  (lf/call-with-frame-resolution frame-id #(registrar/lookup :sub sub-id)))
+  (rf.live-frame/call-with-frame-resolution frame-id #(rf.registrar/lookup :sub sub-id)))
 
 (defn- carried-declaration
   "Reconstruct the classification carrier exactly as `re-frame.subs.memo` does
@@ -104,7 +104,7 @@
   "Project a `:rf.sub/run` envelope and return the projected tags — the pure
   chokepoint, posture-independent."
   [tags]
-  (-> (classification/project-trace-event
+  (-> (rf.classification/project-trace-event
         {:operation :rf.sub/run :op-type :rf.sub
          :tags      (merge {:frame :rf/default} tags)})
       :tags))
@@ -208,11 +208,11 @@
                               :frame                 :img/frame-b
                               :rf.sub/value          @(rf/subscribe [:img/read] {:frame :img/frame-b})
                               :rf.sub/classification (carried-declaration :img/frame-b :img/read)})]
-      (is (= privacy/redacted-sentinel (get-in a [:rf.sub/value :token]))
+      (is (= rf.privacy/redacted-sentinel (get-in a [:rf.sub/value :token]))
           "frame A redacts :token — its own declaration")
       (is (= "A-pub" (get-in a [:rf.sub/value :public]))
           "and leaves :public raw")
-      (is (= privacy/redacted-sentinel (get-in b [:rf.sub/value :public]))
+      (is (= rf.privacy/redacted-sentinel (get-in b [:rf.sub/value :public]))
           "frame B redacts :public — ITS declaration, independently")
       (is (= "B-tok" (get-in b [:rf.sub/value :token]))
           "and leaves :token raw: no bleed from A's declaration")

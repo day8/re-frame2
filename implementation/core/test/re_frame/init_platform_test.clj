@@ -28,24 +28,24 @@
   `:rf.fx/skipped-on-platform` is a bare `trace/emit!` warning (fx.cljc
   §handle-one-fx) with no always-on twin, so under the real gate nothing is
   emitted BY DESIGN. Its assertions are kept verbatim inside a
-  `(when interop/debug-enabled? …)` arm marked `rf2-d2841` — including the
+  `(when rf.interop/debug-enabled? …)` arm marked `rf2-d2841` — including the
   negative on the flip-to-client leg, which over an empty ring would pass
   whether the gate passed or skipped."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.interop :as interop]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
-            [re-frame.flows :as flows]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.interop :as rf.interop]
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.flows :as rf.flows]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (defn- reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  (rf/init! plain-atom/adapter)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.flows/reset-flows!)
+  (rf.schemas/clear-schemas-by-frame!)
+  (rf/init! rf.substrate.plain-atom/adapter)
   ;; Per-test JVM default — explicitly :server so a sibling test that
   ;; flipped the marker doesn't bleed across.
   (rf/init-platform :server)
@@ -72,8 +72,8 @@
 ;; ---- 1. JVM default --------------------------------------------------------
 
 (deftest jvm-default-platform-is-server
-  (testing "`interop/active-platform` defaults to :server on the JVM"
-    (is (= :server (interop/active-platform))
+  (testing "`rf.interop/active-platform` defaults to :server on the JVM"
+    (is (= :server (rf.interop/active-platform))
         "JVM hosts default to :server per Spec 011 §Effect handling on the server")))
 
 ;; ---- 2. init-platform toggles fx gating ------------------------------------
@@ -91,7 +91,7 @@
         (fn [_ _] {:fx [[:init-platform-test/browser-only {}]]}))
 
       (rf/init-platform :client)
-      (is (= :client (interop/active-platform))
+      (is (= :client (rf.interop/active-platform))
           "the marker flipped to :client")
 
       (rf/dispatch-sync [:init-platform-test/save])
@@ -103,7 +103,7 @@
       ;; over the trace ring: under `-Dre-frame.debug=false` the ring is empty
       ;; by design, so `empty?` would pass whether the gate passed or skipped.
       ;; The production-visible half of "the gate passed" is `@fired?` above.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [skips (filter #(= :rf.fx/skipped-on-platform (:operation %)) @traces)]
           (is (empty? skips)
               "no :rf.fx/skipped-on-platform trace — the gate passed"))))))
@@ -122,7 +122,7 @@
         (fn [_ _] {:fx [[:init-platform-test/browser-only {}]]}))
 
       ;; reset-runtime already set :server; assert defensively.
-      (is (= :server (interop/active-platform)))
+      (is (= :server (rf.interop/active-platform)))
 
       (rf/dispatch-sync [:init-platform-test/save])
       (rf/unregister-listener! :trace ::ip-server)
@@ -133,7 +133,7 @@
       ;; `:rf.fx/skipped-on-platform` is a bare `trace/emit!` warning with no
       ;; always-on twin; the SKIP it reports is asserted above and runs in
       ;; both postures.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [skips (filter #(= :rf.fx/skipped-on-platform (:operation %)) @traces)]
           (is (= 1 (count skips))
               "exactly one :rf.fx/skipped-on-platform trace")
@@ -156,7 +156,7 @@
   (testing "the marker is unchanged after a rejected call"
     (rf/init-platform :server)
     (try (rf/init-platform :nope) (catch Exception _))
-    (is (= :server (interop/active-platform))
+    (is (= :server (rf.interop/active-platform))
         "rejected calls do not mutate the marker")))
 
 ;; ---- 4. Idempotence + symmetry --------------------------------------------
@@ -167,11 +167,11 @@
             lands on the requested value"
     (rf/init-platform :server)
     (rf/init-platform :server)
-    (is (= :server (interop/active-platform)))
+    (is (= :server (rf.interop/active-platform)))
     (rf/init-platform :client)
-    (is (= :client (interop/active-platform)))
+    (is (= :client (rf.interop/active-platform)))
     (rf/init-platform :server)
-    (is (= :server (interop/active-platform)))))
+    (is (= :server (rf.interop/active-platform)))))
 
 ;; ---- 5. Independence from init! -------------------------------------------
 
@@ -184,8 +184,8 @@
     (is (nil? (rf/current-adapter))
         "no adapter installed for this stage of the test")
     (rf/init-platform :client)
-    (is (= :client (interop/active-platform))
+    (is (= :client (rf.interop/active-platform))
         "init-platform works without an adapter installed — they are independent boot calls")
     ;; Restore the test fixture's invariant for the next test.
-    (rf/init! plain-atom/adapter)
+    (rf/init! rf.substrate.plain-atom/adapter)
     (rf/init-platform :server)))

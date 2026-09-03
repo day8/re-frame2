@@ -40,7 +40,7 @@
 
   Section B's live round-trips read the DEV TRACE stream, which emits nothing
   under `-Dre-frame.debug=false`. Their trace-reading steps are kept verbatim
-  inside `(when interop/debug-enabled? …)` arms — INCLUDING the two closing
+  inside `(when rf.interop/debug-enabled? …)` arms — INCLUDING the two closing
   whole-stream sweeps. Those sweeps are the reason the arm wraps the trace half
   as a block: `(is (not (some #(leaks? pw-sentinel %) @traces)))` over an EMPTY
   `@traces` is a redaction suite reporting green for having emitted nothing,
@@ -55,22 +55,22 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [clojure.string :as str]
-            [re-frame.classification :as classification]
+            [re-frame.classification :as rf.classification]
             [re-frame.core :as rf]
-            [re-frame.interop :as interop]
+            [re-frame.interop :as rf.interop]
             ;; Boot the optional http artefact so the
             ;; `:http/project-managed-fx-args` hook is bound (published at
             ;; `re-frame.http.managed` load — the artefact's load-time anchor).
             [re-frame.http.managed]
-            [re-frame.privacy :as privacy]
-            [re-frame.registrar :as registrar]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as ts]))
+            [re-frame.privacy :as rf.privacy]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; The reset fixture auto-registers + scope-pins a default frame (the ambient
 ;; scope a bare `dispatch-sync` cascades into).
 (use-fixtures :each
-  (ts/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; UNIQUE sentinels that must never appear raw in any projected trace slot.
 (def ^:private pw-sentinel "rf2-32ffq1-PW-9e5b27")
@@ -78,7 +78,7 @@
 
 (defn- leaks? [sentinel x] (str/includes? (pr-str x) sentinel))
 
-(defn- project [ev] (:tags (classification/project-trace-event ev)))
+(defn- project [ev] (:tags (rf.classification/project-trace-event ev)))
 
 (defn- record-traces! []
   (let [a (atom [])]
@@ -88,7 +88,7 @@
 ;; The classified TARGET event — `:sensitive` rooted at its arg-map, exactly
 ;; the declaration that already redacts the target's own `:rf.event/v`.
 (defn- register-target-classification! []
-  (registrar/register! :event ::target {:sensitive [[:secret]]}))
+  (rf.registrar/register! :event ::target {:sensitive [[:secret]]}))
 
 ;; =====================================================================
 ;; A. Deterministic projector teeth — hand-built trace shapes.
@@ -104,7 +104,7 @@
                      :rf.event/fx [[:dispatch [::target {:secret pw-sentinel
                                                          :email  email}]]]}}
           t  (project ev)]
-      (is (= privacy/redacted-sentinel
+      (is (= rf.privacy/redacted-sentinel
              (get-in t [:rf.event/fx 0 1 1 :secret]))
           "the nested dispatch's target payload :secret reads :rf/redacted")
       (is (= email (get-in t [:rf.event/fx 0 1 1 :email]))
@@ -124,7 +124,7 @@
                                     {:ms    500
                                      :event [::target {:secret pw-sentinel}]}]]}}
           t  (project ev)]
-      (is (= privacy/redacted-sentinel
+      (is (= rf.privacy/redacted-sentinel
              (get-in t [:rf.event/fx 0 1 :event 1 :secret]))
           "the deferred target payload :secret reads :rf/redacted")
       (is (= 500 (get-in t [:rf.event/fx 0 1 :ms]))
@@ -141,7 +141,7 @@
                         :tags {:frame      :rf/default
                                :rf.fx/id   :dispatch
                                :rf.fx/args [::target {:secret pw-sentinel}]}})]
-        (is (= privacy/redacted-sentinel (get-in t [:rf.fx/args 1 :secret]))
+        (is (= rf.privacy/redacted-sentinel (get-in t [:rf.fx/args 1 :secret]))
             (str op " :rf.fx/args target payload redacts"))
         (is (not (leaks? pw-sentinel t)) (str op " leaks no secret"))))))
 
@@ -162,11 +162,11 @@
                          :tags {:frame        :rf/default
                                 :rf.event/fx [[:rf.http/managed args]]}})
           out  (get-in t [:rf.event/fx 0 1])]
-      (is (= privacy/redacted-sentinel (get-in out [:request :body]))
+      (is (= rf.privacy/redacted-sentinel (get-in out [:request :body]))
           "the sensitive request's whole :body reads :rf/redacted")
       (is (= "https://api.example.test/login" (get-in out [:request :url]))
           "shape retained — the (query-free) url survives")
-      (is (= privacy/redacted-sentinel (get-in out [:on-success 1 :secret]))
+      (is (= rf.privacy/redacted-sentinel (get-in out [:on-success 1 :secret]))
           "the classified :on-success reply-address payload redacts too")
       (is (= [::noop] (:on-failure out))
           "a bare reply address rides through untouched")
@@ -224,7 +224,7 @@
 
        ;; rf2-d2841 — steps 2-5 read the dev trace stream; step 5's sweep would
        ;; certify "no leak" over an empty `@traces`. Kept verbatim in the arm.
-       (when interop/debug-enabled?
+       (when rf.interop/debug-enabled?
         ;; 2. the parent's :rf.event/fx aggregate redacts the nested payload.
         (let [entries (for [ev    @traces
                             :let  [fx-vec (get-in ev [:tags :rf.event/fx])]
@@ -234,7 +234,7 @@
                         args)]
           (is (seq entries) "the do-fx aggregate carried the :dispatch entry")
           (doseq [args entries]
-            (is (= privacy/redacted-sentinel (get-in args [1 :secret]))
+            (is (= rf.privacy/redacted-sentinel (get-in args [1 :secret]))
                 "the nested target payload :secret redacts in :rf.event/fx")
             (is (= email (get-in args [1 :email]))
                 "the non-secret :email survives in :rf.event/fx")))
@@ -243,7 +243,7 @@
         (let [handled (filter #(= :dispatch (get-in % [:tags :rf.fx/id])) @traces)]
           (is (seq handled) ":dispatch emitted a :rf.fx/handled trace")
           (doseq [ev handled]
-            (is (= privacy/redacted-sentinel
+            (is (= rf.privacy/redacted-sentinel
                    (get-in ev [:tags :rf.fx/args 1 :secret]))
                 "the :dispatch :rf.fx/args target payload redacts")))
 
@@ -254,7 +254,7 @@
                       (filter #(= ::target (first %))))]
           (is (seq vs) "the target's own dispatched-event trace surfaced")
           (doseq [v vs]
-            (is (= privacy/redacted-sentinel (get-in v [1 :secret]))
+            (is (= rf.privacy/redacted-sentinel (get-in v [1 :secret]))
                 "A's own :rf.event/v redacts (unchanged behaviour)")))
 
         ;; 5. the whole-stream sweep — the secret appears NOWHERE.
@@ -296,7 +296,7 @@
 
        ;; rf2-d2841 — steps 2-4 read the dev trace stream; step 4's sweep would
        ;; certify "no leak" over an empty `@traces`. Kept verbatim in the arm.
-       (when interop/debug-enabled?
+       (when rf.interop/debug-enabled?
         ;; 2. the :rf.event/fx aggregate redacts the managed entry's body.
         (let [entries (for [ev    @traces
                             :let  [fx-vec (get-in ev [:tags :rf.event/fx])]
@@ -306,7 +306,7 @@
                         args)]
           (is (seq entries) "the do-fx aggregate carried the managed entry")
           (doseq [args entries]
-            (is (= privacy/redacted-sentinel (get-in args [:request :body]))
+            (is (= rf.privacy/redacted-sentinel (get-in args [:request :body]))
                 "the sensitive request's whole :body redacts in :rf.event/fx")
             (is (= "https://api.example.test/login" (get-in args [:request :url]))
                 "shape retained — the url survives")))
@@ -316,7 +316,7 @@
                               @traces)]
           (is (seq handled) "the managed fx emitted a :rf.fx/handled trace")
           (doseq [ev handled]
-            (is (= privacy/redacted-sentinel
+            (is (= rf.privacy/redacted-sentinel
                    (get-in ev [:tags :rf.fx/args :request :body]))
                 "the managed :rf.fx/args request body redacts")))
 

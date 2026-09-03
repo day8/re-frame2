@@ -134,13 +134,13 @@
   (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
             [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.classification :as classification]
-            [re-frame.elision :as elision]
-            [re-frame.privacy :as privacy]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]
+            [re-frame.classification :as rf.classification]
+            [re-frame.elision :as rf.elision]
+            [re-frame.privacy :as rf.privacy]
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]
             [re-frame.schemas]
             [re-frame.machines]
             [re-frame.resources]
@@ -161,8 +161,8 @@
   (:require-macros [re-frame.core :refer [with-new-frame]]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter}))
 
 ;; A UNIQUE sentinel password (>= 8 chars) that appears nowhere else, so a scan
 ;; for it can only be hitting THIS drive's credential.
@@ -215,7 +215,7 @@
 (rf/reg-fx :test.realworld/login-succeeds
   {:sensitive [[:request :body :user :password]]}
   (fn fx-test-login-succeeds [frame-ctx args-map]
-    (let [stub (registrar/handler :fx :rf.http/managed-canned-success)]
+    (let [stub (rf.registrar/handler :fx :rf.http/managed-canned-success)]
       (stub frame-ctx (assoc args-map
                              :value {:user {:username "alice"
                                             :email    "alice@example.com"
@@ -245,14 +245,14 @@
   (testing "the managed-HTTP app's demo stub classifies the Conduit request-body
             password path — the registration the projector reads at egress"
     (is (= {:sensitive [[:request :body :user :password]]}
-           (classification/registration-classification :fx :realworld.demo/http-stub))
+           (rf.classification/registration-classification :fx :realworld.demo/http-stub))
         ":realworld.demo/http-stub owns [:request :body :user :password]")))
 
 (deftest resources-stub-declares-request-body-sensitive
   (testing "the resources app's demo stub classifies the same Conduit
             request-body password path"
     (is (= {:sensitive [[:request :body :user :password]]}
-           (classification/registration-classification :fx :realworld-resources.demo/http-stub))
+           (rf.classification/registration-classification :fx :realworld-resources.demo/http-stub))
         ":realworld-resources.demo/http-stub owns [:request :body :user :password]")))
 
 (deftest request-body-password-redacts-in-fx-handled-trace
@@ -262,7 +262,7 @@
             :rf.http/managed and the projector composes the ORIGINAL id's
             dynamic classification (the same whole-body scrub the dedicated
             :rf.http/* composers run) over the stub's own static path"
-    (with-new-frame [f (frame/make-anon-frame-record! {})]
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
       (rf/with-fx-overrides {:rf.http/managed :test.realworld/body-stub}
         (let [traces (record-traces! ::body)]
           (rf/dispatch-sync [:test.realworld/emit-managed (login-args)] {:frame f})
@@ -275,7 +275,7 @@
             (doseq [ev handled]
               (is (= :rf.http/managed (get-in ev [:tags :rf.fx/from]))
                   "the redirect provenance rides the handled trace")
-              (is (= privacy/redacted-sentinel
+              (is (= rf.privacy/redacted-sentinel
                      (get-in ev [:tags :rf.fx/args :request :body]))
                   "the :sensitive? true request's WHOLE body reads :rf/redacted
                    — run-mode parity with the real managed handler's composers")
@@ -287,7 +287,7 @@
             the stub's OWN selective static classification: the declared
             password path redacts while the non-secret email rides visible
             (no reflexive whole-body over-redaction without :sensitive?)"
-    (with-new-frame [f (frame/make-anon-frame-record! {})]
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
       (rf/with-fx-overrides {:rf.http/managed :test.realworld/body-stub}
         (let [traces   (record-traces! ::body-unflagged)
               unflagged (update (login-args) :request dissoc :sensitive?)]
@@ -299,7 +299,7 @@
             (is (seq handled)
                 "the stub emitted a :rf.fx/handled trace with its args")
             (doseq [ev handled]
-              (is (= privacy/redacted-sentinel
+              (is (= rf.privacy/redacted-sentinel
                      (get-in ev [:tags :rf.fx/args :request :body :user :password]))
                   "the request-body password reads :rf/redacted in :rf.fx/args")
               (is (= "alice@example.com"
@@ -328,15 +328,15 @@
   (testing "the login + register form drafts classify their password path
             :sensitive at slice-init, so it is redacted at every app-db egress
             while the live value stays readable"
-    (with-new-frame [f (frame/make-anon-frame-record! {})]
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
       (rf/dispatch-sync [:auth.login-form/initialise] {:frame f})
       (rf/dispatch-sync [:auth.register-form/initialise] {:frame f})
       (rf/dispatch-sync [:auth.login-form/edit-field :email "alice@example.com"] {:frame f})
       (rf/dispatch-sync [:auth.login-form/edit-field :password sentinel] {:frame f})
-      (is (contains? (elision/sensitive-declarations f)
+      (is (contains? (rf.elision/sensitive-declarations f)
                      [:auth :login-form :draft :password])
           "the login-form draft-password path is in the per-frame sensitive registry")
-      (is (contains? (elision/sensitive-declarations f)
+      (is (contains? (rf.elision/sensitive-declarations f)
                      [:auth :register-form :draft :password])
           "the register-form draft-password path is classified too")
       (is (= sentinel (get-in (rf/app-db-value f) [:auth :login-form :draft :password]))
@@ -344,7 +344,7 @@
       (doseq [profile [:rf.egress/local-redacted :rf.egress/off-box-tool]]
         (let [wire (rf/project-egress (rf/app-db-value f)
                                       {:frame f :rf.egress/profile profile})]
-          (is (= privacy/redacted-sentinel
+          (is (= rf.privacy/redacted-sentinel
                  (get-in wire [:auth :login-form :draft :password]))
               (str "the login-form password reads :rf/redacted at egress under " profile))
           (is (= "alice@example.com"
@@ -360,14 +360,14 @@
             projection-relative :sensitive [:data :draft :password] to the
             absolute snapshot path at spawn, redacting the password in every
             machine-snapshot egress while the action bodies read the live value"
-    (with-new-frame [f (frame/make-anon-frame-record! {})]
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
       ;; :settings/form is http-unique — driving it directly is collision-proof.
       (rf/dispatch-sync [:settings/form [:reset]] {:frame f})
       (rf/dispatch-sync [:settings/form [:edit {:field :password :value sentinel}]] {:frame f})
-      (is (contains? (elision/sensitive-declarations f)
+      (is (contains? (rf.elision/sensitive-declarations f)
                      [:rf.runtime/machines :snapshots :settings/form :data :draft :password])
           "the machine :data draft-password path lowered to the snapshot path at spawn")
-      (is (contains? (elision/sensitive-declarations f)
+      (is (contains? (rf.elision/sensitive-declarations f)
                      [:rf.runtime/machines :snapshots :settings/form :data :submitted :password])
           "the machine :data submitted-password path lowered too")
       (is (= sentinel (get-in (rf/frame-state-value f)
@@ -397,7 +397,7 @@
             :rf.event/fx gap (b), while the handler-visible values (the
             durable token, the machine state) stay real: redaction is
             egress-only"
-    (with-new-frame [f (frame/make-anon-frame-record! {:fx-overrides {:rf.http/managed      :test.realworld/login-succeeds
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {:fx-overrides {:rf.http/managed      :test.realworld/login-succeeds
                                                     :auth.session/persist :rf/no-op}})]
       ;; :auth/classify-token mirrors what the real app's :initial-events
       ;; does at frame creation (core.cljs) — without it [:auth :token]
@@ -432,7 +432,7 @@
             :auth.register-form/edit-password, a bare :auth/register nudge, a
             :sensitive? true request — so no emitted trace leaks the raw
             password either (scoped past the same documented :rf.event/fx gap)"
-    (with-new-frame [f (frame/make-anon-frame-record! {:fx-overrides {:rf.http/managed      :test.realworld/login-succeeds
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {:fx-overrides {:rf.http/managed      :test.realworld/login-succeeds
                                                     :auth.session/persist :rf/no-op}})]
       (rf/dispatch-sync [:auth/classify-token] {:frame f})
       (rf/dispatch-sync [:auth.register-form/initialise] {:frame f})
@@ -453,7 +453,7 @@
             declares :sensitive [[:token]] on its OWN registration — it lacked
             one before the redesign"
     (is (= {:sensitive [[:token]]}
-           (classification/registration-classification :fx :auth.session/persist))
+           (rf.classification/registration-classification :fx :auth.session/persist))
         ":auth.session/persist owns [:token]")))
 
 (deftest settings-machine-routed-password-subevents-echo-slots-redact
@@ -473,7 +473,7 @@
             and :rf.machine/action-ran's :outcome tag (gap c) are NOT reached
             by any app-level classification — accepted, documented residual,
             not silently dropped."
-    (with-new-frame [f (frame/make-anon-frame-record! {})]
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
       (rf/dispatch-sync [:settings/form [:reset]] {:frame f})
       (let [traces (record-traces! ::settings-edit)]
         (rf/dispatch-sync [:settings/edit-password {:value sentinel}] {:frame f})

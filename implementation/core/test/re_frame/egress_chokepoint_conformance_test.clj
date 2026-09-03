@@ -78,7 +78,7 @@
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.set :as set]
             [clojure.string :as str]
-            [re-frame.impl-source-corpus :as corpus]))
+            [re-frame.impl-source-corpus :as rf.impl-source-corpus]))
 
 ;; ---------------------------------------------------------------------------
 ;; Source roots + file enumeration — `re-frame.impl-source-corpus`, shared with
@@ -162,7 +162,7 @@
             acc)
           acc)))
     {}
-    (corpus/non-test-source-files)))
+    (rf.impl-source-corpus/non-test-source-files)))
 
 ;; ---------------------------------------------------------------------------
 ;; The self-honest structural-only allow-list (rf2-mrtis6 census B1-B7)
@@ -332,9 +332,9 @@
             the coverage claim is the cross-check — this corpus against the
             independently-shaped one the repo's other source-scanning lints
             use."
-    (let [roots   corpus/src-roots
+    (let [roots   rf.impl-source-corpus/src-roots
           callers (chokepoint-caller-namespaces)
-          {:keys [missing extra]} (corpus/corpus-cross-check)]
+          {:keys [missing extra]} (rf.impl-source-corpus/corpus-cross-check)]
       (is (seq roots)
           "at least one artefact src root resolved from the JVM test CWD")
       (is (empty? missing)

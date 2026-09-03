@@ -30,11 +30,11 @@
   ## Posture split (rf2-d2841)
 
   SOURCE-COORD CAPTURE HAS TWO SINKS, AND ONLY ONE OF THEM IS DEV-ONLY.
-  `source-coords/merge-coords` opens with `(if-not interop/debug-enabled?
+  `source-coords/merge-coords` opens with `(if-not rf.interop/debug-enabled?
   (or user-meta {}) …)`, so under `-Dre-frame.debug=false` the coord keys are
   stripped from the PUBLIC registry-meta — every `assert-coords` call below
   failed under `scripts/test-core-prod-gate.sh` for that reason alone. But
-  `registrar/register!` ALSO calls `source-coords/remember-error-coords!`
+  `rf.registrar/register!` ALSO calls `source-coords/remember-error-coords!`
   unconditionally, populating the always-on `error-coords-by-id` parallel
   registry the error-emit substrate reads when it assembles the tight record
   for off-box shippers (Sentry / Honeybadger / Rollbar). That sink is the
@@ -43,7 +43,7 @@
 
   So each per-kind case now carries an ALWAYS-ON `assert-error-coords` beside
   the guarded `assert-coords`: the public-meta claim stays verbatim inside a
-  `(when interop/debug-enabled? …)` arm marked `rf2-d2841`, and the always-on
+  `(when rf.interop/debug-enabled? …)` arm marked `rf2-d2841`, and the always-on
   registry claim runs in BOTH postures. `reg-event-emits-absolute-file`'s
   absolutisation regression (rf2-wvsxg) is likewise pinned on the always-on
   sink, which is where an absolute `:file` actually MATTERS — a production
@@ -52,7 +52,7 @@
   Two kinds have no always-on counterpart and are guarded wholesale, which is
   a real gap rather than an oversight: `reg-flow` and `reg-app-schema` store
   their coords in the flows / schemas artefacts' own per-frame side-tables,
-  never through `registrar/register!`, so `remember-error-coords!` is never
+  never through `rf.registrar/register!`, so `remember-error-coords!` is never
   called for them and `error-coords-for` has nothing to return.
 
   TWO PASSING ASSERTIONS WERE VACUOUS BEFORE THIS SPLIT (rf2-d2841 class 4 —
@@ -67,25 +67,25 @@
   `user-supplied-coords-win` needed only ONE assertion guarded: the explicit
   `:ns` / `:line` / `:file` survive production untouched (they are user-meta,
   and `merge-coords` returns user-meta unchanged there). It is `:doc` that
-  does not — `registrar/register!` strips the pure-documentation keys under
+  does not — `rf.registrar/register!` strips the pure-documentation keys under
   the same gate."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.interop :as interop]
+            [re-frame.interop :as rf.interop]
             ;; rf2-quir9 — exercise the view-macro expander directly to
             ;; assert the reader's symbol-position meta is stripped before
             ;; it can clobber the absolutised *pending-coords*.
-            [re-frame.core-reg-view-macro :as rvm]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
-            [re-frame.flows :as flows]
+            [re-frame.core-reg-view-macro :as rf.core-reg-view-macro]
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.flows :as rf.flows]
             ;; rf2-wvsxg — direct access to source-coords helpers + the
             ;; URI builder's compose-path predicate for the absolutise-
             ;; file regression coverage.
-            [re-frame.source-coords :as sc]
-            [re-frame.source-coords.editor-uri :as eu]
-            [re-frame.substrate.plain-atom :as plain-atom]
+            [re-frame.source-coords :as rf.source-coords]
+            [re-frame.source-coords.editor-uri :as rf.source-coords.editor-uri]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
             ;; rf2-st3ax4 — build a throwaway `+`-bearing classpath root to
             ;; assert absolutise-file preserves a literal `+` in the path.
             [clojure.java.io :as io])
@@ -93,12 +93,12 @@
            [java.io File]))
 
 (defn reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  (flows/reset-last-inputs!)
-  (rf/init! plain-atom/adapter)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.flows/reset-flows!)
+  (rf.schemas/clear-schemas-by-frame!)
+  (rf.flows/reset-last-inputs!)
+  (rf/init! rf.substrate.plain-atom/adapter)
   (require 're-frame.routing :reload)
   (require 're-frame.ssr :reload)
   (require 're-frame.machines :reload)
@@ -136,11 +136,11 @@
 (defn- assert-error-coords
   "ALWAYS-ON (rf2-d2841) counterpart of [[assert-coords]]: the coords the
   always-on `error-coords-by-id` parallel registry retained for `[kind id]`.
-  `registrar/register!` populates it unconditionally, so this holds under
+  `rf.registrar/register!` populates it unconditionally, so this holds under
   `-Dre-frame.debug=false` — it is what an off-box error shipper reads in a
   production build, per `source-coords` §Production elision sink 2."
   [kind id]
-  (let [c (sc/error-coords-for kind id)]
+  (let [c (rf.source-coords/error-coords-for kind id)]
     (is (map? c)
         (str "always-on error-coords for " kind " " id " should be present"))
     (is (symbol? (:ns c))
@@ -163,7 +163,7 @@
     ;; rf2-d2841 — the PUBLIC registry-meta sink is dev-only:
     ;; `source-coords/merge-coords` returns user-meta unchanged under
     ;; `-Dre-frame.debug=false`, so the coord keys are absent there.
-    (when interop/debug-enabled?
+    (when rf.interop/debug-enabled?
       (assert-coords (rf/handler-meta :event :rf2-k84s/reg-event-sample)
                      :event :rf2-k84s/reg-event-sample))))
 
@@ -175,7 +175,7 @@
     ;; rf2-d2841 — the PUBLIC registry-meta sink is dev-only:
     ;; `source-coords/merge-coords` returns user-meta unchanged under
     ;; `-Dre-frame.debug=false`, so the coord keys are absent there.
-    (when interop/debug-enabled?
+    (when rf.interop/debug-enabled?
       (assert-coords (rf/handler-meta :event :rf2-k84s/reg-event-db-sample)
                      :event :rf2-k84s/reg-event-db-sample))))
 
@@ -187,7 +187,7 @@
     ;; rf2-d2841 — the PUBLIC registry-meta sink is dev-only:
     ;; `source-coords/merge-coords` returns user-meta unchanged under
     ;; `-Dre-frame.debug=false`, so the coord keys are absent there.
-    (when interop/debug-enabled?
+    (when rf.interop/debug-enabled?
       (assert-coords (rf/handler-meta :event :rf2-k84s/reg-event-fx-sample)
                      :event :rf2-k84s/reg-event-fx-sample))))
 
@@ -201,7 +201,7 @@
     ;; rf2-d2841 — the PUBLIC registry-meta sink is dev-only:
     ;; `source-coords/merge-coords` returns user-meta unchanged under
     ;; `-Dre-frame.debug=false`, so the coord keys are absent there.
-    (when interop/debug-enabled?
+    (when rf.interop/debug-enabled?
       (assert-coords (rf/handler-meta :event :rf2-k84s/reg-event-ctx-sample)
                      :event :rf2-k84s/reg-event-ctx-sample))))
 
@@ -213,7 +213,7 @@
     ;; rf2-d2841 — the PUBLIC registry-meta sink is dev-only:
     ;; `source-coords/merge-coords` returns user-meta unchanged under
     ;; `-Dre-frame.debug=false`, so the coord keys are absent there.
-    (when interop/debug-enabled?
+    (when rf.interop/debug-enabled?
       (assert-coords (rf/handler-meta :sub :rf2-k84s/reg-sub-sample)
                      :sub :rf2-k84s/reg-sub-sample))))
 
@@ -225,7 +225,7 @@
     ;; rf2-d2841 — the PUBLIC registry-meta sink is dev-only:
     ;; `source-coords/merge-coords` returns user-meta unchanged under
     ;; `-Dre-frame.debug=false`, so the coord keys are absent there.
-    (when interop/debug-enabled?
+    (when rf.interop/debug-enabled?
       (assert-coords (rf/handler-meta :fx :rf2-k84s/reg-fx-sample)
                      :fx :rf2-k84s/reg-fx-sample))))
 
@@ -237,7 +237,7 @@
     ;; rf2-d2841 — the PUBLIC registry-meta sink is dev-only:
     ;; `source-coords/merge-coords` returns user-meta unchanged under
     ;; `-Dre-frame.debug=false`, so the coord keys are absent there.
-    (when interop/debug-enabled?
+    (when rf.interop/debug-enabled?
       (assert-coords (rf/handler-meta :cofx :rf2-k84s/reg-cofx-sample)
                      :cofx :rf2-k84s/reg-cofx-sample))))
 
@@ -258,9 +258,9 @@
       ;; does still discriminate — a macro-registered `:event` has an entry,
       ;; a frame has none — so that is where "frames capture no coords" is
       ;; asserted in both postures.
-      (is (nil? (sc/error-coords-for :frame :rf2-k84s/make-frame-sample))
+      (is (nil? (rf.source-coords/error-coords-for :frame :rf2-k84s/make-frame-sample))
           "no frame entry in the always-on error-coord registry either")
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (nil? (:line meta)) "no :line coord on the stored frame config")
         (is (nil? (:file meta)) "no :file coord on the stored frame config")))))
 
@@ -275,7 +275,7 @@
     ;; rf2-d2841 — the PUBLIC registry-meta sink is dev-only:
     ;; `source-coords/merge-coords` returns user-meta unchanged under
     ;; `-Dre-frame.debug=false`, so the coord keys are absent there.
-    (when interop/debug-enabled?
+    (when rf.interop/debug-enabled?
       (assert-coords (rf/handler-meta :view :rf2-k84s/reg-view-sample)
                      :view :rf2-k84s/reg-view-sample))))
 
@@ -288,7 +288,7 @@
     ;; rf2-d2841 — the PUBLIC registry-meta sink is dev-only:
     ;; `source-coords/merge-coords` returns user-meta unchanged under
     ;; `-Dre-frame.debug=false`, so the coord keys are absent there.
-    (when interop/debug-enabled?
+    (when rf.interop/debug-enabled?
       (assert-coords (rf/handler-meta :event :rf2-k84s/reg-machine-sample)
                      :event :rf2-k84s/reg-machine-sample))))
 
@@ -296,17 +296,17 @@
   (testing "reg-flow stamps :ns / :line / :file"
     ;; Per rf2-en00bk the flows artefact owns its own per-frame store — there
     ;; is no registrar `:flow` slot. Source-coords introspection reads through
-    ;; `flows/flow-meta-at`, which returns the per-frame flow-map (including
+    ;; `rf.flows/flow-meta-at`, which returns the per-frame flow-map (including
     ;; the source-coords stamped into the store at reg-flow) — the flows
-    ;; analogue of `schemas/app-schema-meta-at` (rf2-0frdi).
+    ;; analogue of `rf.schemas/app-schema-meta-at` (rf2-0frdi).
     (rf/reg-flow :rf2-k84s/reg-flow-sample {:inputs [[:source]] :output-path [:dest]} (fn [v] v))
     ;; rf2-d2841 — GUARDED WHOLESALE, and the reason is a real gap: the flows
     ;; artefact stores its coords in its own per-frame map, never through
-    ;; `registrar/register!`, so `source-coords/remember-error-coords!` is
+    ;; `rf.registrar/register!`, so `source-coords/remember-error-coords!` is
     ;; never called for a flow and the always-on parallel registry has no
     ;; entry to witness. Only the dev-side `merge-coords` sink exists.
-    (when interop/debug-enabled?
-      (assert-coords (flows/flow-meta-at :rf2-k84s/reg-flow-sample)
+    (when rf.interop/debug-enabled?
+      (assert-coords (rf.flows/flow-meta-at :rf2-k84s/reg-flow-sample)
                      :flow :rf2-k84s/reg-flow-sample))))
 
 (deftest source-coords-on-reg-route
@@ -316,7 +316,7 @@
     ;; rf2-d2841 — the PUBLIC registry-meta sink is dev-only:
     ;; `source-coords/merge-coords` returns user-meta unchanged under
     ;; `-Dre-frame.debug=false`, so the coord keys are absent there.
-    (when interop/debug-enabled?
+    (when rf.interop/debug-enabled?
       (assert-coords (rf/handler-meta :route :rf2-k84s/reg-route-sample)
                      :route :rf2-k84s/reg-route-sample))))
 
@@ -324,7 +324,7 @@
   (testing "reg-app-schema stamps :ns / :line / :file"
     ;; Per rf2-0frdi / rf2-cq1ak the schemas artefact owns its own per-
     ;; frame side-table — app-db schemas are NOT a registrar kind.
-    ;; Source-coords introspection reads through `schemas/app-schema-
+    ;; Source-coords introspection reads through `rf.schemas/app-schema-
     ;; meta-at` which returns the full meta map (including the stamped
     ;; coords) for the `(frame-id, path)` entry.
     (rf/reg-app-schema [:rf2-k84s/reg-app-schema-sample] :int)
@@ -332,8 +332,8 @@
     ;; app-db schemas live in the schemas artefact's own per-frame side-table,
     ;; not the registrar, so nothing populates the always-on error-coord
     ;; registry for them.
-    (when interop/debug-enabled?
-      (assert-coords (schemas/app-schema-meta-at [:rf2-k84s/reg-app-schema-sample])
+    (when rf.interop/debug-enabled?
+      (assert-coords (rf.schemas/app-schema-meta-at [:rf2-k84s/reg-app-schema-sample])
                      "app-schema" [:rf2-k84s/reg-app-schema-sample]))))
 
 (deftest source-coords-on-reg-error-projector
@@ -348,7 +348,7 @@
     ;; rf2-d2841 — the PUBLIC registry-meta sink is dev-only:
     ;; `source-coords/merge-coords` returns user-meta unchanged under
     ;; `-Dre-frame.debug=false`, so the coord keys are absent there.
-    (when interop/debug-enabled?
+    (when rf.interop/debug-enabled?
       (assert-coords (rf/handler-meta :error-projector
                                       :rf2-k84s/reg-error-projector-sample)
                      :error-projector :rf2-k84s/reg-error-projector-sample))))
@@ -369,9 +369,9 @@
       (is (= 42                      (:line meta)))
       (is (= "elsewhere.cljc"        (:file meta)))
       ;; rf2-d2841 — `:doc` is the one slot that does NOT survive: the
-      ;; pure-documentation keys are stripped in `registrar/register!` under
-      ;; `interop/debug-enabled?` (Spec 001 §Production elision contract).
-      (when interop/debug-enabled?
+      ;; pure-documentation keys are stripped in `rf.registrar/register!` under
+      ;; `rf.interop/debug-enabled?` (Spec 001 §Production elision contract).
+      (when rf.interop/debug-enabled?
         (is (= "hand-stamped coords from a code-gen pass" (:doc meta)))))))
 
 ;; ---- programmatic call (bypasses macro) -----------------------------------
@@ -391,13 +391,13 @@
       ;; the surface where "no poison coords" is a PRODUCTION claim: it is
       ;; what a Sentry-style shipper reads, and a programmatic registration
       ;; must leave it empty while its macro-path sibling fills it.
-      (is (nil? (sc/error-coords-for :sub :rf2-k84s/no-coords))
+      (is (nil? (rf.source-coords/error-coords-for :sub :rf2-k84s/no-coords))
           "programmatic registration leaves the always-on registry empty")
       (rf/reg-sub :rf2-k84s/macro-coords (fn [db _] db))
-      (is (some? (sc/error-coords-for :sub :rf2-k84s/macro-coords))
+      (is (some? (rf.source-coords/error-coords-for :sub :rf2-k84s/macro-coords))
           "control: the macro path DOES fill the always-on registry, so the
            negative above is not passing for free")
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (nil? (:ns   meta)) ":ns absent on direct fn call")
         (is (nil? (:line meta)) ":line absent on direct fn call")
         (is (nil? (:file meta)) ":file absent on direct fn call")))))
@@ -411,7 +411,7 @@
     ;; classpath-relative path; absolutising it must yield a path that
     ;; matches the absolute-path predicate the URI builder uses.
     (let [rel  "re_frame/source_coords_test.clj"
-          abs  (#'sc/absolutise-file rel)]
+          abs  (#'rf.source-coords/absolutise-file rel)]
       (is (string? abs))
       (is (not= rel abs)
           "classpath-relative path should resolve to a different (absolute) path")
@@ -420,7 +420,7 @@
       ;; through the public editor-uri's 3-arg form (which calls
       ;; compose-path internally) by checking the URI carries the
       ;; absolute path without the project-root prepended.
-      (let [uri (eu/editor-uri :vscode {:file abs :line 1 :column 1}
+      (let [uri (rf.source-coords.editor-uri/editor-uri :vscode {:file abs :line 1 :column 1}
                                {:project-root "/fake/project/root"})]
         (is (.contains ^String uri abs)
             "URI must carry the absolute :file value")
@@ -431,26 +431,26 @@
   (testing "rf2-wvsxg: already-absolute paths pass through unchanged"
     ;; Windows-style drive letter
     (is (= "C:/foo/bar.cljs"
-           (#'sc/absolutise-file "C:/foo/bar.cljs")))
+           (#'rf.source-coords/absolutise-file "C:/foo/bar.cljs")))
     ;; POSIX absolute
     (is (= "/foo/bar.cljs"
-           (#'sc/absolutise-file "/foo/bar.cljs")))
+           (#'rf.source-coords/absolutise-file "/foo/bar.cljs")))
     ;; file: URL
     (is (= "file:/foo/bar.cljs"
-           (#'sc/absolutise-file "file:/foo/bar.cljs")))))
+           (#'rf.source-coords/absolutise-file "file:/foo/bar.cljs")))))
 
 (deftest absolutise-file-passes-through-unresolvable
   (testing "rf2-wvsxg: classpath-relative paths not on classpath fall
   through unchanged (synthetic coords, REPL eval, fabricated test
   paths shouldn't break)"
     (is (= "no/such/file/exists.cljs"
-           (#'sc/absolutise-file "no/such/file/exists.cljs")))))
+           (#'rf.source-coords/absolutise-file "no/such/file/exists.cljs")))))
 
 (deftest absolutise-file-handles-nil-and-blank
   (testing "rf2-wvsxg: nil / empty input passes through (the macro
   call-sites already gate on non-nil, but defense-in-depth)"
-    (is (nil? (#'sc/absolutise-file nil)))
-    (is (= "" (#'sc/absolutise-file "")))))
+    (is (nil? (#'rf.source-coords/absolutise-file nil)))
+    (is (= "" (#'rf.source-coords/absolutise-file "")))))
 
 ;; ---- rf2-st3ax4: a literal `+` in the classpath path survives -------------
 ;;
@@ -484,7 +484,7 @@
               prev     (.getContextClassLoader (Thread/currentThread))]
           (try
             (.setContextClassLoader (Thread/currentThread) cl)
-            (let [resolved (#'sc/absolutise-file rel-path)]
+            (let [resolved (#'rf.source-coords/absolutise-file rel-path)]
               (is (string? resolved) "the classpath resource resolved")
               (is (not= rel-path resolved)
                   "classpath-relative path resolved to a different (absolute) path")
@@ -523,7 +523,7 @@
               prev     (.getContextClassLoader (Thread/currentThread))]
           (try
             (.setContextClassLoader (Thread/currentThread) cl)
-            (let [resolved (#'sc/absolutise-file rel-path)]
+            (let [resolved (#'rf.source-coords/absolutise-file rel-path)]
               (is (string? resolved) "the classpath resource resolved")
               (is (.contains ^String resolved " ")
                   "%20 in the resource URL decoded back to a real space")
@@ -550,17 +550,17 @@
     ;; the error-coord registry is the sink that reaches a production error
     ;; record, and a classpath-relative `:file` shipped to Sentry resolves
     ;; nowhere. Same three claims as the public-meta arm below.
-    (let [errc (sc/error-coords-for :event :rf2-wvsxg/absolute-file-sample)
+    (let [errc (rf.source-coords/error-coords-for :event :rf2-wvsxg/absolute-file-sample)
           ef   (:file errc)]
       (is (string? ef) "always-on error-coord :file should be present")
-      (let [uri (eu/editor-uri :vscode errc {:project-root "/wrong/project/root"})]
+      (let [uri (rf.source-coords.editor-uri/editor-uri :vscode errc {:project-root "/wrong/project/root"})]
         (is (.contains ^String uri ef)
             "error-coord :file should appear absolute in URI")
         (is (not (.contains ^String uri "/wrong/project/root"))
             "error-coord :file must be absolute (no project-root prepend)"))
       (is (.endsWith ^String ef "re_frame/source_coords_test.clj")
           "error-coord :file should end with the classpath-relative tail"))
-    (when interop/debug-enabled?
+    (when rf.interop/debug-enabled?
       (let [meta (rf/handler-meta :event :rf2-wvsxg/absolute-file-sample)
             f    (:file meta)]
         (is (string? f) ":file should be present")
@@ -568,7 +568,7 @@
         ;; `<repo>/implementation/core/test/...`. The exact prefix is
         ;; environment-dependent — but the path must look absolute to
         ;; the URI builder so it won't double-prefix it.
-        (let [uri (eu/editor-uri :vscode meta {:project-root "/wrong/project/root"})]
+        (let [uri (rf.source-coords.editor-uri/editor-uri :vscode meta {:project-root "/wrong/project/root"})]
           (is (.contains ^String uri f)
               ":file should appear absolute in URI")
           (is (not (.contains ^String uri "/wrong/project/root"))
@@ -601,7 +601,7 @@
     (rf/reg-view ^{:rf/id :rf2-quir9/absolute-view-sample} quir9-view []
       [:div "hi"])
     (let [pub  (rf/handler-meta :view :rf2-quir9/absolute-view-sample)
-          errc (sc/error-coords-for :view :rf2-quir9/absolute-view-sample)
+          errc (rf.source-coords/error-coords-for :view :rf2-quir9/absolute-view-sample)
           ef   (:file errc)
           f    (:file pub)]
       ;; rf2-d2841 — ALWAYS-ON half. The reader-meta clobber this deftest
@@ -609,14 +609,14 @@
       ;; registry is the sink where that costs a production consumer a
       ;; resolvable path, so the absoluteness claim is asserted there first.
       (is (string? ef) "view error-coord :file should be present")
-      (let [uri (eu/editor-uri :vscode errc {:project-root "/wrong/project/root"})]
+      (let [uri (rf.source-coords.editor-uri/editor-uri :vscode errc {:project-root "/wrong/project/root"})]
         (is (.contains ^String uri ef)
             "view error-coord :file should appear absolute in the URI")
         (is (not (.contains ^String uri "/wrong/project/root"))
             "view error-coord :file must be absolute (no project-root prepend)"))
       (is (.endsWith ^String ef "re_frame/source_coords_test.clj")
           "view error-coord :file ends with this test ns's classpath-relative tail")
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (string? f) "public :file should be present")
         ;; The public :file must equal the error-coord registry's absolutised
         ;; value — the two source-coord sinks now agree (they previously
@@ -625,7 +625,7 @@
             "public handler-meta :file == error-coord :file (single source of truth)")
         ;; And it must look absolute to the URI builder (no project-root
         ;; prepend), exactly like the reg-event case above.
-        (let [uri (eu/editor-uri :vscode pub {:project-root "/wrong/project/root"})]
+        (let [uri (rf.source-coords.editor-uri/editor-uri :vscode pub {:project-root "/wrong/project/root"})]
           (is (.contains ^String uri f)
               "view :file should appear absolute in the URI")
           (is (not (.contains ^String uri "/wrong/project/root"))
@@ -646,7 +646,7 @@
                         :line   1 :column 11
                         :end-line 1 :end-column 21
                         :doc    "a real slot-meta key — must survive"})
-          exp        (rvm/expand-reg-view {:line 1 :column 1 :file "standard_epochs/core.cljs"}
+          exp        (rf.core-reg-view-macro/expand-reg-view {:line 1 :column 1 :file "standard_epochs/core.cljs"}
                                           'standard-epochs.core "standard_epochs/core.cljs"
                                           reader-sym '([] [:div]))
           ;; expansion: (do (binding [...] (reg-view* id slot-meta fn)) (def ...) id)

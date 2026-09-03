@@ -21,7 +21,7 @@
   read, so the stimulus has one job: for every mounted boundary it must
   invalidate all R of its subscriptions and deliver R CHANGED values.
 
-    - the seeded grid is the width the caller stated, not `fx/cells-n`;
+    - the seeded grid is the width the caller stated, not `rf.bench.p0-fixture/cells-n`;
     - `:p0/fan` folds every key into THAT grid, so the key space and the
       db cannot disagree about how wide the page is;
     - one `:p0/write-page` changes EVERY key a mounted page reads, which
@@ -39,13 +39,13 @@
   `:ns-regexp \"cljs-test$\"`; `core/test` is already on that build's
   source paths."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
-            [re-frame.bench.p0-fixture :as fx]
+            [re-frame.bench.p0-fixture :as rf.bench.p0-fixture]
             [re-frame.core :as rf]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (def ^:private frame-id :p0.wp/frame)
 
@@ -69,8 +69,8 @@
   the same two moves `p0-arms/enter-segment!` and `p0-heap/mount!` make,
   in the same order (the key space is set BEFORE the page reads it)."
   [width q]
-  (fx/register!)
-  (fx/set-fan-keys! q)
+  (rf.bench.p0-fixture/register!)
+  (rf.bench.p0-fixture/set-fan-keys! q)
   (rf/make-frame {:id frame-id :images [fixture-image] :initial-events [[:p0/seed width]]}))
 
 ;; Read straight off the frame rather than through a whole-db subscription:
@@ -96,15 +96,15 @@
     ;; The other two seeded surfaces are untouched by the width — a width
     ;; parameter that quietly resized the list or the form would make the
     ;; mount rows incomparable across the change.
-    (is (= fx/w1-rows (count (:rows (db)))))
-    (is (= fx/w3-fields (count (:fields (db)))))))
+    (is (= rf.bench.p0-fixture/w1-rows (count (:rows (db)))))
+    (is (= rf.bench.p0-fixture/w3-fields (count (:fields (db)))))))
 
 (deftest an-unstated-width-is-the-published-page-to-the-byte
   (testing "every caller that passes nothing — the clock rows, the bulk rows,
-            the fan-out sweep, the retention ladder — gets `fx/cells-n`. No
+            the fan-out sweep, the retention ladder — gets `rf.bench.p0-fixture/cells-n`. No
             published figure may move on the strength of this change."
-    (is (= fx/cells-n (count (:cells (fx/seed-db)))))
-    (is (= (fx/seed-db) (fx/seed-db fx/cells-n))
+    (is (= rf.bench.p0-fixture/cells-n (count (:cells (rf.bench.p0-fixture/seed-db)))))
+    (is (= (rf.bench.p0-fixture/seed-db) (rf.bench.p0-fixture/seed-db rf.bench.p0-fixture/cells-n))
         "the default arity is the stated one at the published width")))
 
 ;; ---------------------------------------------------------------------------
@@ -137,8 +137,8 @@
       ;; And the keys the ladder actually mounts, through the same rule the
       ;; arms use rather than through a restatement of it.
       (is (every? #(= 3 %)
-                  (for [n (range b), j (range r)] (fan (fx/fan-key n r j))))
-          "read through `fx/fan-key`, which is what the arms read through"))))
+                  (for [n (range b), j (range r)] (fan (rf.bench.p0-fixture/fan-key n r j))))
+          "read through `rf.bench.p0-fixture/fan-key`, which is what the arms read through"))))
 
 (deftest the-rendered-text-is-unchanged-so-the-read-back-gate-is
   (testing "a boundary's text is the sum of its R reads, so at a page written
@@ -150,7 +150,7 @@
       (frame-at b q)
       (rf/dispatch-sync [:p0/write-page 5] {:frame frame-id})
       (doseq [n (range b)]
-        (is (= (* r 5) (reduce + (map #(fan (fx/fan-key n r %)) (range r))))
+        (is (= (* r 5) (reduce + (map #(fan (rf.bench.p0-fixture/fan-key n r %)) (range r))))
             (str "boundary " n " renders R·v"))))))
 
 (deftest two-keys-folding-onto-one-slot-is-not-new
@@ -178,7 +178,7 @@
     (frame-at 4 1)
     (is (= 4 (count (:cells (db)))))
     (rf/dispatch-sync [:p0/write-all 1] {:frame frame-id})
-    (is (= fx/cells-n (count (:cells (db))))
+    (is (= rf.bench.p0-fixture/cells-n (count (:cells (db))))
         "300 cells rebuilt on a page that reads four of them")
     (is (every? #(= 1 %) (:cells (db))))))
 
@@ -186,10 +186,10 @@
   (testing "the two writes are the SAME WRITE at the page `:p0/write-all` was
             written for. A difference here would mean the new event is not a
             width-parameterised form of the old one but a second thing."
-    (frame-at fx/cells-n 300)
+    (frame-at rf.bench.p0-fixture/cells-n 300)
     (rf/dispatch-sync [:p0/write-all 4] {:frame frame-id})
     (let [after-all (:cells (db))]
-      (rf/dispatch-sync [:p0/seed fx/cells-n] {:frame frame-id})
+      (rf/dispatch-sync [:p0/seed rf.bench.p0-fixture/cells-n] {:frame frame-id})
       (rf/dispatch-sync [:p0/write-page 4] {:frame frame-id})
       (is (= after-all (:cells (db)))
           "identical `:cells` at width 300, so the difference is the width alone"))))

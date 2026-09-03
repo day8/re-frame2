@@ -32,9 +32,9 @@
   applies the same rule to `reg-route`; the retired-key redirect mirrors
   `re-frame.image/check-retired-keys!` (EP-0026) — a `{retired-key replacement}`
   table driving an actionable migration diagnostic."
-  (:require [re-frame.error   :as error]
-            [re-frame.interop :as interop]
-            [re-frame.trace   :as trace]))
+  (:require [re-frame.error   :as rf.error]
+            [re-frame.interop :as rf.interop]
+            [re-frame.trace   :as rf.trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -113,7 +113,7 @@
       (when (seq retired)
         (let [k           (first retired)
               replacement (get retired-bare-keys k)]
-          (error/throw-error!
+          (rf.error/throw-error!
             :rf.error/retired-registration-key
             where-sym
             (str (kind-display-name where-sym) " for `" id "` declares the RETIRED "
@@ -129,14 +129,14 @@
                         :replacement replacement}})))
       ;; Unknown bare keys — a dev-gated warning (the cascade continues safely).
       ;; `remove qualified-keyword?` keeps the open namespaced-extension carve-out.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [unknown (into []
                             (comp (remove qualified-keyword?)
                                   (remove known)
                                   (remove #(contains? retired-bare-keys %)))
                             ks)]
           (when (seq unknown)
-            (trace/emit! :warning :rf.warning/unknown-registration-key
+            (rf.trace/emit! :warning :rf.warning/unknown-registration-key
                          {:kind         kind
                           :id           id
                           :unknown-keys unknown

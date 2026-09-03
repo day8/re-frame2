@@ -38,11 +38,11 @@
    stub's own declaration remains load-bearing for UNFLAGGED requests."
   (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
             [re-frame.core :as rf]
-            [re-frame.classification :as classification]
-            [re-frame.privacy :as privacy]
-            [re-frame.frame :as frame]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]
+            [re-frame.classification :as rf.classification]
+            [re-frame.privacy :as rf.privacy]
+            [re-frame.frame :as rf.frame]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]
             ;; login.model pulls these transitively; require here so the ns is
             ;; self-sufficient (mirrors the sibling login test namespaces).
             [re-frame.schemas]
@@ -53,8 +53,8 @@
   (:require-macros [re-frame.core :refer [with-new-frame]]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter}))
 
 ;; A UNIQUE sentinel password — a valid Credentials password (>= 8 chars) that
 ;; appears nowhere else in the source or the framework, so a recursive scan for
@@ -99,7 +99,7 @@
             redact the RESOLVED fx's args when the override bypasses the real
             managed-HTTP handler's :sensitive? scrub"
     (is (= {:sensitive [[:request :body :password]]}
-           (classification/registration-classification :fx :auth.login.demo/managed-stub))
+           (rf.classification/registration-classification :fx :auth.login.demo/managed-stub))
         ":auth.login.demo/managed-stub owns [:request :body :password]")))
 
 ;; ---------------------------------------------------------------------------
@@ -113,7 +113,7 @@
             the projector composes the ORIGINAL id's dynamic :sensitive? true
             classification, so the WHOLE body reads :rf/redacted (run-mode
             parity with the real managed handler's composers)"
-    (with-new-frame [f (frame/make-anon-frame-record! {})]
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
       (let [traces (record-traces! ::probe)]
         (seed+submit! f)
         (rf/unregister-listener! :trace ::probe)
@@ -126,7 +126,7 @@
           (doseq [ev handled]
             (is (= :rf.http/managed (get-in ev [:tags :rf.fx/from]))
                 "the redirect provenance rides the stub's handled trace")
-            (is (= privacy/redacted-sentinel
+            (is (= rf.privacy/redacted-sentinel
                    (get-in ev [:tags :rf.fx/args :request :body]))
                 "the :sensitive? true request's WHOLE body reads :rf/redacted in
                  the stub's :rf.fx/handled :rf.fx/args slot")

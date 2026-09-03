@@ -36,26 +36,26 @@
   authored id reaching the diagnostic are all the same under
   `-Dre-frame.debug=false`. Only the `:doc`-RETAINED-IN-DEV rows are not — they
   are the dev half of the strip contract, so they sit verbatim inside a
-  `(when interop/debug-enabled? …)` arm beside the production row that gives
+  `(when rf.interop/debug-enabled? …)` arm beside the production row that gives
   them their meaning.
 
-  The `with-redefs [interop/debug-enabled? false]` production blocks stay
+  The `with-redefs [rf.interop/debug-enabled? false]` production blocks stay
   OUTSIDE any arm and are load-bearing in both postures: under the real gate
   the rebind is a no-op because the var is already false, so those rows are the
   production claim executed for real rather than simulated."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.subs :as subs]
-            [re-frame.image :as image]
-            [re-frame.image-assembly :as asm]
-            [re-frame.registrar :as registrar]
-            [re-frame.interop :as interop]
-            [re-frame.test-support :as test-support]))
+            [re-frame.subs :as rf.subs]
+            [re-frame.image :as rf.image]
+            [re-frame.image-assembly :as rf.image-assembly]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.interop :as rf.interop]
+            [re-frame.test-support :as rf.test-support]))
 
 (defn- reset-registry [test-fn]
-  (let [snapshot (test-support/snapshot-registrar)]
-    (registrar/clear-all!)
+  (let [snapshot (rf.test-support/snapshot-registrar)]
+    (rf.registrar/clear-all!)
     (try (test-fn)
-         (finally (test-support/restore-registrar! snapshot)))))
+         (finally (rf.test-support/restore-registrar! snapshot)))))
 
 (use-fixtures :each reset-registry)
 
@@ -74,8 +74,8 @@
 (deftest retired-spec-key-hard-errors-on-inline-and-public
   (testing "public reg-sub and inline lower-inline-sub BOTH reject the retired
             `:spec` bare key with the same discriminator + named replacement"
-    (let [pub    (caught-ex-data #(subs/reg-sub :norm/pub-retired {:spec [:map]} body))
-          inline (caught-ex-data #(subs/lower-inline-sub :norm/inline-retired {:spec [:map]} body))]
+    (let [pub    (caught-ex-data #(rf.subs/reg-sub :norm/pub-retired {:spec [:map]} body))
+          inline (caught-ex-data #(rf.subs/lower-inline-sub :norm/inline-retired {:spec [:map]} body))]
       (doseq [[label ed] [["public" pub] ["inline" inline]]]
         (testing label
           (is (some? ed) "must throw")
@@ -87,8 +87,8 @@
 
 (deftest bad-classification-hard-errors-on-inline-and-public
   (testing "public and inline BOTH reject a malformed `:sensitive` declaration"
-    (let [pub    (caught-ex-data #(subs/reg-sub :norm/pub-badcls {:sensitive :wrong} body))
-          inline (caught-ex-data #(subs/lower-inline-sub :norm/inline-badcls {:sensitive :wrong} body))]
+    (let [pub    (caught-ex-data #(rf.subs/reg-sub :norm/pub-badcls {:sensitive :wrong} body))
+          inline (caught-ex-data #(rf.subs/lower-inline-sub :norm/inline-badcls {:sensitive :wrong} body))]
       (doseq [[label ed] [["public" pub] ["inline" inline]]]
         (testing label
           (is (some? ed) "must throw")
@@ -97,9 +97,9 @@
 (deftest valid-classification-survives-identically-on-both-paths
   (testing "a valid `:sensitive` declaration survives on BOTH paths, at the same
             top-level slot — the descriptor and registrar entry agree"
-    (subs/reg-sub :norm/pub-cls {:sensitive [[:token]]} body)
-    (let [pub-meta   (registrar/handler-meta :sub :norm/pub-cls)
-          inline-desc (subs/lower-inline-sub :norm/inline-cls {:sensitive [[:token]]} body)]
+    (rf.subs/reg-sub :norm/pub-cls {:sensitive [[:token]]} body)
+    (let [pub-meta   (rf.registrar/handler-meta :sub :norm/pub-cls)
+          inline-desc (rf.subs/lower-inline-sub :norm/inline-cls {:sensitive [[:token]]} body)]
       (is (= [[:token]] (:sensitive pub-meta)))
       (is (= [[:token]] (:sensitive inline-desc))
           "inline descriptor carries the SAME classification declaration"))))
@@ -108,19 +108,19 @@
 
 (deftest doc-stripped-in-production-retained-in-dev-on-inline-path
   ;; rf2-d2841 — the retention half is dev-only by construction; kept verbatim.
-  (when interop/debug-enabled?
+  (when rf.interop/debug-enabled?
     (testing "dev (default gate on) retains `:doc` for tooling / agent inspection"
-      (let [desc (subs/lower-inline-sub :norm/inline-doc {:doc "kept in dev"} body)]
+      (let [desc (rf.subs/lower-inline-sub :norm/inline-doc {:doc "kept in dev"} body)]
         (is (= "kept in dev" (:doc desc))))))
   (testing "a doc-ONLY inline descriptor still lowers to something runnable —
             the strip removes documentation, never the registration"
-    (let [desc (subs/lower-inline-sub :norm/inline-doc-runnable {:doc "kept in dev"} body)]
+    (let [desc (rf.subs/lower-inline-sub :norm/inline-doc-runnable {:doc "kept in dev"} body)]
       (is (= body (:handler-fn desc)) "the runnable slot is installed in both postures")
       (is (= :db (:input-kind desc)) "and the layer-1 shape is intact")))
   (testing "production (gate off) strips `:doc` from the inline runnable
             descriptor, exactly as the public registrar does"
-    (with-redefs [interop/debug-enabled? false]
-      (let [desc (subs/lower-inline-sub :norm/inline-doc {:doc "elided in prod" :schema :int} body)]
+    (with-redefs [rf.interop/debug-enabled? false]
+      (let [desc (rf.subs/lower-inline-sub :norm/inline-doc {:doc "elided in prod" :schema :int} body)]
         (is (not (contains? desc :doc)) ":doc absent from the inline descriptor in prod")
         (is (= :int (:schema desc)) "a load-bearing key like :schema is retained")))))
 
@@ -129,7 +129,7 @@
 (deftest runtime-owned-slots-win-over-metadata
   (testing "the runnable slots are installed AFTER normalization, so metadata
             naming them cannot override the runtime-owned values"
-    (let [desc (subs/lower-inline-sub :norm/inline-slots {:input-kind :parametric :input-signals [:x]} body)]
+    (let [desc (rf.subs/lower-inline-sub :norm/inline-slots {:input-kind :parametric :input-signals [:x]} body)]
       (is (= body (:handler-fn desc)) ":handler-fn is the lowered impl")
       (is (= :db (:input-kind desc)) ":input-kind is the layer-1 :db, not the metadata's")
       (is (= [] (:input-signals desc)) ":input-signals is empty, not the metadata's"))))
@@ -137,7 +137,7 @@
 (deftest namespaced-extension-keys-survive-on-inline-path
   (testing "namespaced extension keys pass normalization untouched (the open-map
             carve-out), matching public reg-sub"
-    (let [desc (subs/lower-inline-sub :norm/inline-ext {:myapp/analytics-id 7} body)]
+    (let [desc (rf.subs/lower-inline-sub :norm/inline-ext {:myapp/analytics-id 7} body)]
       (is (= 7 (:myapp/analytics-id desc))))))
 
 ;; ---------------------------------------------------------------------------
@@ -153,12 +153,12 @@
   "Assemble ONE inline `:reg-sub` through the LIVE image + assembly-side lowering
   and return its runnable descriptor. `metadata` nil uses the 2-tuple form."
   [id metadata body]
-  (-> (image/image
+  (-> (rf.image/image
         {:id            :norm/inline-image
          :registrations {:reg-sub [(if (nil? metadata) [id body] [id metadata body])]}})
       :rf.image/inline
       first
-      asm/lower-inline-descriptor))
+      rf.image-assembly/lower-inline-descriptor))
 
 (deftest production-assembly-strips-doc-from-top-level-and-nested-metadata
   (testing "the authored id survives assembly in every posture"
@@ -168,13 +168,13 @@
       ;; contract; under -Dre-frame.debug=false the key is gone at source.
       ;; Kept verbatim inside the arm, beside the production block below that
       ;; asserts the same two slots are EMPTY.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (= "author note" (:doc d)) "top-level :doc retained in dev")
         (is (= "author note" (get-in d [:metadata :doc]))
             "nested [:metadata :doc] retained in dev"))))
   (testing "production (gate off) — the assembled image carries NO `:doc` at the
             top level OR under nested `:metadata`; load-bearing keys are retained"
-    (with-redefs [interop/debug-enabled? false]
+    (with-redefs [rf.interop/debug-enabled? false]
       (let [d (assemble-sub :counter/value {:doc "author note" :schema :int} body)]
         (is (not (contains? d :doc)) "no top-level :doc in a production image")
         (is (not (contains? (:metadata d) :doc))
@@ -187,7 +187,7 @@
   (testing "a doc-ONLY inline sub normalizes to empty metadata in production, so
             the assembled descriptor carries neither :doc nor a stale raw
             :metadata map"
-    (with-redefs [interop/debug-enabled? false]
+    (with-redefs [rf.interop/debug-enabled? false]
       (let [d (assemble-sub :counter/note {:doc "only a note"} body)]
         (is (not (contains? d :doc)))
         (is (not (contains? (:metadata d) :doc)))

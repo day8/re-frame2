@@ -82,7 +82,7 @@
   an app that never constructs an image these fns are dead code Closure DCE
   removes."
   (:require [clojure.string :as str]
-            [re-frame.error :as error]))
+            [re-frame.error :as rf.error]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -332,7 +332,7 @@
   silently lowered with the metadata map as the handler `:impl`."
   [image-id section kind entry]
   (when-not (and (vector? entry) (<= 2 (count entry) 3))
-    (error/throw-error!
+    (rf.error/throw-error!
       :rf.error/invalid-image
       'rf/image
       (str "rf/image: inline " section " entry must be a [id body] or "
@@ -352,7 +352,7 @@
     ;; map in the body slot is unambiguously the retired metadata-only tuple (to
     ;; attach metadata, use the 3-tuple `[id metadata body]`).
     (when (and (not has-meta) (map? body))
-      (error/throw-error!
+      (rf.error/throw-error!
         :rf.error/invalid-image
         'rf/image
         (str "rf/image: inline " section " entry " (pr-str entry)
@@ -371,7 +371,7 @@
     ;; string or vector) — both defeat the canonical `:rf.error/invalid-image`
     ;; shape every sibling defect on this path gets.
     (when (and has-meta (not (map? metadata)))
-      (error/throw-error!
+      (rf.error/throw-error!
         :rf.error/invalid-image
         'rf/image
         (str "rf/image: inline " section " entry " (pr-str entry)
@@ -408,7 +408,7 @@
           (fn [[section entries]]
             (let [kind (reg-section->kind section)]
               (when-not kind
-                (error/throw-error!
+                (rf.error/throw-error!
                   :rf.error/invalid-image
                   'rf/image
                   (str "rf/image: unsupported inline registrations section "
@@ -504,7 +504,7 @@
   [spec]
   (doseq [[k hint] retired-image-keys]
     (when (contains? spec k)
-      (error/throw-error!
+      (rf.error/throw-error!
         :rf.error/invalid-image
         'rf/image
         (str "rf/image: image key " k " is RETIRED (EP-0026). " hint
@@ -544,7 +544,7 @@
   (modulo the throw)."
   [image-id select-ns check-glob-strings!]
   (when-not (map? select-ns)
-    (error/throw-error!
+    (rf.error/throw-error!
       :rf.error/invalid-image
       'rf/image
       (str "rf/image: :select-ns must be a map of {:include [globs] :exclude "
@@ -553,7 +553,7 @@
        :extra    {:image image-id :received select-ns}}))
   (doseq [k (keys select-ns)]
     (when-not (contains? #{:include :exclude} k)
-      (error/throw-error!
+      (rf.error/throw-error!
         :rf.error/invalid-image
         'rf/image
         (str "rf/image: :select-ns key " (pr-str k) " is unknown — :select-ns "
@@ -563,7 +563,7 @@
   (let [include (get select-ns :include)
         exclude (get select-ns :exclude [])]
     (when-not (and (vector? include) (seq include))
-      (error/throw-error!
+      (rf.error/throw-error!
         :rf.error/invalid-image
         'rf/image
         (str "rf/image: :select-ns :include is REQUIRED and must be a NON-EMPTY "
@@ -573,7 +573,7 @@
         {:recovery :supply-a-non-empty-include-vector
          :extra    {:image image-id :include include}}))
     (when-not (vector? exclude)
-      (error/throw-error!
+      (rf.error/throw-error!
         :rf.error/invalid-image
         'rf/image
         (str "rf/image: :select-ns :exclude must be a vector of namespace-glob "
@@ -641,7 +641,7 @@
   key."
   [spec]
   (when-not (map? spec)
-    (error/throw-error!
+    (rf.error/throw-error!
       :rf.error/invalid-image
       'rf/image
       "rf/image expects a spec map — e.g. {:id :counter/v2 :select-ns {:include [\"docs.counter.v2\"]}}."
@@ -653,7 +653,7 @@
   (check-retired-keys! spec)
   (doseq [k (keys spec)]
     (when-not (contains? image-reserved-keys k)
-      (error/throw-error!
+      (rf.error/throw-error!
         :rf.error/invalid-image
         'rf/image
         (str "rf/image: unknown image key " k
@@ -666,7 +666,7 @@
         (fn [slot patterns]
           (doseq [p patterns]
             (when-not (string? p)
-              (error/throw-error!
+              (rf.error/throw-error!
                 :rf.error/invalid-image
                 'rf/image
                 (str "rf/image: " slot " patterns must be namespace-glob STRINGS — got "
@@ -739,7 +739,7 @@
     ;; Fail loud on any zero-match pattern BEFORE returning a partial set.
     (doseq [pattern patterns]
       (when-not (some #(ns-matches? pattern %) loaded-ns)
-        (error/throw-error!
+        (rf.error/throw-error!
           :rf.error/image-zero-match
           'rf/image
           (str "rf/image: :include-ns pattern " (pr-str pattern)

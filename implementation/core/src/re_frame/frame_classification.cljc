@@ -86,9 +86,9 @@
   is namespaced (it means the same thing across `project-egress`, sink
   policy, MCP, SSR, and tool options). User/library-owned sink ids
   (`:my-app.sinks/datadog`) are NOT framework-claimed."
-  (:require [re-frame.error :as error]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.projection :as projection]))
+  (:require [re-frame.error :as rf.error]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.projection :as rf.projection]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -133,7 +133,7 @@
   human-facing message; `extras` names the offending slot (`:bad-key`,
   `:bad-carrier`, `:bad-entry`, `:bad-value`)."
   [frame-id reason extras]
-  (error/thrown-ex-info
+  (rf.error/thrown-ex-info
     :rf.error/bad-frame-classification
     'rf/make-frame
     reason
@@ -227,15 +227,15 @@
   ;; that owns the policy (fail-closed, parity with the carrier/key grammar).
   (when (contains? entry :rf.egress/profile)
     (let [profile (:rf.egress/profile entry)]
-      (when-not (contains? projection/profiles profile)
+      (when-not (contains? rf.projection/profiles profile)
         (throw (classification-error
                  frame-id
                  (str ":observability " stream " entry has unknown "
                       ":rf.egress/profile " profile "; valid profiles are "
-                      projection/profiles)
+                      rf.projection/profiles)
                  {:bad-key [:observability stream :rf.egress/profile]
                   :bad-value profile
-                  :valid    projection/profiles
+                  :valid    rf.projection/profiles
                   :bad-entry entry})))))
   ;; `:opts`, when present, must be a map (the sink's keyword-keyed option
   ;; bag). A non-map `:opts` is a malformed entry — fail loudly at
@@ -324,4 +324,4 @@
 ;; registry). The `:frame-classification/http-carriers` resolver hook is also
 ;; GONE — HTTP carrier classification moved onto the `:rf.http/managed`
 ;; `reg-fx` registration, resolved by the http artefact itself.
-(late-bind/set-fn! :frame-classification/validate! validate!)
+(rf.late-bind/set-fn! :frame-classification/validate! validate!)

@@ -25,10 +25,10 @@
   Factored out of re-frame.views so every React-shaped adapter (UIx)
   reads the same context object."
   (:require ["react" :as React]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.source-coords :as source-coords]
-            [re-frame.trace :as trace]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.source-coords :as rf.source-coords]
+            [re-frame.trace :as rf.trace]))
 
 (def no-provider-sentinel
   "The React-context default value — the **no-provider sentinel**, NOT
@@ -57,13 +57,13 @@
 ;; object so React DevTools' Context inspector shows the entry as
 ;; `rf2-frame.Provider` / `rf2-frame.Consumer` rather than the opaque
 ;; default ("Context.Provider"). Dev-only — gated under
-;; `interop/debug-enabled?` so the string literal DCEs in production.
+;; `rf.interop/debug-enabled?` so the string literal DCEs in production.
 ;; React DevTools reads `.-displayName` off the Context object directly
 ;; (per the React DevTools backend's `getContextName` helper). The
 ;; label deliberately avoids the unmunged ns string "re-frame.frame"
 ;; to keep the elision sentinel unambiguous against keyword literals
 ;; under that namespace.
-(when interop/debug-enabled?
+(when rf.interop/debug-enabled?
   (set! (.-displayName ^js frame-context) "rf2-frame"))
 
 (defn provider-element
@@ -131,14 +131,14 @@
   [[re-frame.source-coords/format-source-coord]] (rf2-5q0jv) — kept under this
   name so the Reagent hiccup walk, the React-element-clone walk, and the
   `re-frame.views` re-export are unchanged."
-  source-coords/format-source-coord)
+  rf.source-coords/format-source-coord)
 
 (def format-view-id
   "Render the registry id keyword as the `:data-rf-view` attribute value
   `(str id)`, so `:rf.foo/bar` → `\":rf.foo/bar\"` (Spec 006 §View tagging
   contract, rf2-01il5). CLJS-side alias of the neutral cross-host owner
   [[re-frame.source-coords/format-view-id]] (rf2-5q0jv)."
-  source-coords/format-view-id)
+  rf.source-coords/format-view-id)
 
 (defn non-dom-root-warning
   "Build the one-shot `console.warn` text for a reg-view'd component whose
@@ -236,7 +236,7 @@
   distinct category so a disturbed context boundary is not silently folded
   into ordinary 'no scope'."
   [v]
-  (trace/emit-error! :rf.error/frame-context-corrupted
+  (rf.trace/emit-error! :rf.error/frame-context-corrupted
                      {:received v
                       :type     (value-type-tag v)
                       :recovery :no-frame-context
@@ -323,7 +323,7 @@
       `:rf.error/frame-context-corrupted` and returns nil (recovery
       `:no-frame-context`).
 
-  Does NOT observe the dynamic tier (`frame/*current-frame*`) — its callers
+  Does NOT observe the dynamic tier (`rf.frame/*current-frame*`) — its callers
   layer that precedence in front of it."
   [v]
   (cond
@@ -354,7 +354,7 @@
   beneath neither frame boundary observes the no-provider sentinel, which
   resolves to nil ('no scope'). Public frame-scoped operations turn that
   nil into a loud `:rf.error/no-frame-context` via
-  `frame/require-current-frame!`; low-level readers / tooling model 'no
+  `rf.frame/require-current-frame!`; low-level readers / tooling model 'no
   context' with the nil directly.
 
   NOTE (rf2-2rzx0, repaired rf2-5rqn): React carries TWO value slots per
@@ -368,7 +368,7 @@
   reading `useContext` inside render, e.g. the compiled ViewCell) may pass
   that value to [[context-value->current-frame]] directly instead."
   []
-  (or frame/*current-frame*
+  (or rf.frame/*current-frame*
       (let [primary (.-_currentValue ^js frame-context)]
         (context-value->current-frame
           (if (= primary no-provider-sentinel)

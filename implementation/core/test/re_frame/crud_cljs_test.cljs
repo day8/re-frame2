@@ -28,9 +28,9 @@
   `rf/compute-sub` (every CRUD sub is an app-db sub, so a bare app-db suffices)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]
+            [re-frame.frame :as rf.frame]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]
             [seven-guis.crud.core]))
 
 ;; `:ambient-frame nil` — these tests create + drive their own anon frames with
@@ -38,8 +38,8 @@
 ;; not to these anon frames, so commits here run unvalidated; behavioural logic
 ;; is what's under test, and the schema binding is pinned by example-frame-scoping.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter       reagent-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter       rf.adapter.reagent/adapter
      :ambient-frame nil}))
 
 ;; ---------------------------------------------------------------------------
@@ -51,7 +51,7 @@
   reference people (ids 1-3), next-id 4, empty filter, no selection, blank
   draft. Returns the frame id."
   []
-  (let [f (frame/make-anon-frame-record! {:doc "crud test frame"})]
+  (let [f (rf.frame/make-anon-frame-record! {:doc "crud test frame"})]
     (rf/dispatch-sync [:crud/initialise] {:frame f})
     f))
 

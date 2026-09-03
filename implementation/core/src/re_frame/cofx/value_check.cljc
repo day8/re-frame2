@@ -28,10 +28,10 @@
   Requires `error` / `interop` / `late-bind` / `recordable` — exactly the four
   both call sites already required; this leaf ns adds no load cycle (nothing
   those four reach requires cofx or router.diagnostics)."
-  (:require [re-frame.error      :as error]
-            [re-frame.interop    :as interop]
-            [re-frame.late-bind  :as late-bind]
-            [re-frame.recordable :as recordable]))
+  (:require [re-frame.error      :as rf.error]
+            [re-frame.interop    :as rf.interop]
+            [re-frame.late-bind  :as rf.late-bind]
+            [re-frame.recordable :as rf.recordable]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -84,18 +84,18 @@
   same `:preview`-only-when-itself-recordable rule, same `cond->` payload, same
   `:extra` discriminator shape, same human-message bytes per kind."
   [kind cofx-id value failing-id event frame-id]
-  (when-let [bad (recordable/explain-non-recordable value)]
+  (when-let [bad (rf.recordable/explain-non-recordable value)]
     (let [{:keys [path bad-type]} (update bad :path #(into [cofx-id] %))
-          preview                 (recordable/safe-preview value)
+          preview                 (rf.recordable/safe-preview value)
           {:keys [noun where durable-clause]} (kind->shape kind)]
       ;; Both channels via the shared helper (rf2-c4oycd): axis 1 the always-on
       ;; listener (survives prod elision), axis 2 the dev trace (DCEs under
       ;; `:advanced` + `goog.DEBUG=false`). Reached via the
       ;; `:error-emit/emit-error-both` hook (this ns cannot static-require
       ;; error-emit — load cycle). `elapsed-ms 0`.
-      (when-let [emit-error-both! (late-bind/get-fn-cached :error-emit/emit-error-both)]
+      (when-let [emit-error-both! (rf.late-bind/get-fn-cached :error-emit/emit-error-both)]
         (emit-error-both! :rf.error/cofx-value-invalid
-                          event failing-id frame-id nil 0 (interop/now-ms)
+                          event failing-id frame-id nil 0 (rf.interop/now-ms)
                           (cond-> {:rf.cofx/id        cofx-id
                                    :failing-id        failing-id
                                    :rf.trace/event-id failing-id
@@ -105,7 +105,7 @@
                                    :recovery          :no-recovery}
                             (some? preview) (assoc :preview preview)
                             frame-id        (assoc :frame frame-id))))
-      (error/throw-error!
+      (rf.error/throw-error!
         :rf.error/cofx-value-invalid where
         (str noun " `:rf.cofx` fact `" cofx-id
              "` is not recordable EDN data: the value "

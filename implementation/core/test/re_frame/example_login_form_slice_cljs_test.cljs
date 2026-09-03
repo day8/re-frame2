@@ -46,11 +46,11 @@
   (:require [cljs.test :refer-macros [deftest testing use-fixtures is]]
             [clojure.string :as str]
             [re-frame.core :as rf]
-            [re-frame.elision :as elision]
-            [re-frame.privacy :as privacy]
-            [re-frame.frame :as frame]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]
+            [re-frame.elision :as rf.elision]
+            [re-frame.privacy :as rf.privacy]
+            [re-frame.frame :as rf.frame]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]
             ;; login.model pulls these transitively; require here so the ns is
             ;; self-sufficient (mirrors re-frame.login-cljs-test).
             [re-frame.schemas]
@@ -59,8 +59,8 @@
   (:require-macros [re-frame.core :refer [with-new-frame]]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter}))
 
 ;; ---------------------------------------------------------------------------
 ;; Helpers
@@ -109,7 +109,7 @@
             CREDENTIAL-FREE :submit signal (no password anywhere in the machine
             event), blanks [:draft :password], clears :errors, latches
             :submit-attempted?, and leaves the email"
-    (with-new-frame [f (frame/make-anon-frame-record! {})]
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
       (seed-draft! f "alice@example.com" "hunter2pw")
       (let [dispatched (atom [])
             http       (atom [])]
@@ -162,10 +162,10 @@
             at slice-init, is redacted in app-db egress under both a
             local-redacted and an off-box-tool profile, while the LIVE value
             stays readable and the non-secret email rides through"
-    (with-new-frame [f (frame/make-anon-frame-record! {})]
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
       (seed-draft! f "alice@example.com" "hunter2pw")
       ;; the classification is standing in the per-frame sensitive registry
-      (is (contains? (elision/sensitive-declarations)
+      (is (contains? (rf.elision/sensitive-declarations)
                      [:auth :login-form :draft :password])
           "the draft-password path is in the per-frame sensitive registry")
       ;; the live app-db still holds the real value — classification is egress-only
@@ -177,7 +177,7 @@
       (doseq [profile [:rf.egress/local-redacted :rf.egress/off-box-tool]]
         (let [wire (rf/project-egress (rf/app-db-value f)
                                       {:frame f :rf.egress/profile profile})]
-          (is (= privacy/redacted-sentinel
+          (is (= rf.privacy/redacted-sentinel
                  (get-in wire [:auth :login-form :draft :password]))
               (str "the password reads :rf/redacted at egress under " profile))
           (is (= "alice@example.com"
@@ -193,7 +193,7 @@
             keystroke in a :sensitive map payload, so its dispatched-event trace
             redacts :value to :rf/redacted, while the handler still writes the
             REAL value to the draft; the non-secret email edit stays visible"
-    (with-new-frame [f (frame/make-anon-frame-record! {})]
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
       (rf/dispatch-sync [:auth.login/initialise-form] {:frame f})
       (let [traces (record-traces! ::edit-probe)]
         (rf/dispatch-sync [:auth.login/edit-field :email "alice@example.com"] {:frame f})
@@ -212,7 +212,7 @@
           (is (seq pw-payloads)
               "the edit-password event surfaced on the trace with its payload map")
           (doseq [p pw-payloads]
-            (is (= privacy/redacted-sentinel (:value p))
+            (is (= rf.privacy/redacted-sentinel (:value p))
                 "the edit-password :value is :rf/redacted in the event trace")))
         ;; the non-secret email edit is NOT redacted (positional, visible)
         (let [email-vals (->> @traces
@@ -247,7 +247,7 @@
             raw password: the :rf.event/fx aggregate and the :rf.http/managed
             :rf.fx/handled slot redact the request body (per-call :sensitive?),
             while the fx itself still receives the REAL credential"
-    (with-new-frame [f (frame/make-anon-frame-record! {})]
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
       (seed-draft! f "alice@example.com" submit-pw-sentinel)
       (let [http   (atom [])
             traces (record-traces! ::submit-sweep)]
@@ -274,7 +274,7 @@
                         args)]
           (is (seq entries) "the do-fx aggregate carried the managed entry")
           (doseq [args entries]
-            (is (= privacy/redacted-sentinel (get-in args [:request :body]))
+            (is (= rf.privacy/redacted-sentinel (get-in args [:request :body]))
                 "the sensitive request's whole :body reads :rf/redacted in
                  :rf.event/fx")))
 
@@ -284,7 +284,7 @@
                                        (get-in % [:tags :rf.fx/id]))))]
           (is (seq handled) "the managed fx emitted a :rf.fx/handled trace")
           (doseq [ev handled]
-            (is (= privacy/redacted-sentinel
+            (is (= rf.privacy/redacted-sentinel
                    (get-in ev [:tags :rf.fx/args :request :body]))
                 "the managed :rf.fx/args request body reads :rf/redacted")))
 
@@ -309,7 +309,7 @@
             :submit-attempted? latches, and NOTHING is issued (no machine signal,
             no HTTP). The password is RETAINED for the fix-up — nothing left the
             box, so this is not the leak the fix guards."
-    (with-new-frame [f (frame/make-anon-frame-record! {})]
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
       (seed-draft! f "not-an-email" "short")
       (let [dispatched (atom [])
             http       (atom [])]
@@ -336,7 +336,7 @@
   (testing "rf2-t83ail — a valid email but a too-short password still fails
             validation: only the :password error surfaces, nothing is issued,
             and the (short) password is retained"
-    (with-new-frame [f (frame/make-anon-frame-record! {})]
+    (with-new-frame [f (rf.frame/make-anon-frame-record! {})]
       (seed-draft! f "alice@example.com" "tiny")
       (let [dispatched (atom [])
             http       (atom [])]

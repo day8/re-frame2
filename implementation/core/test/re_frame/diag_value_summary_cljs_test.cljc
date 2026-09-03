@@ -49,7 +49,7 @@
   also discovered on the JVM. Pure data — no runtime state."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [re-frame.error :as error]))
+            [re-frame.error :as rf.error]))
 
 ;; ---- the adversarial corpus ----------------------------------------------
 
@@ -164,7 +164,7 @@
 (deftest a-short-secret-is-not-reproduced
   (testing "a secret UNDER the historic 24-char head limit was returned
             verbatim as `:head`; the summary must disclose none of it"
-    (let [s (error/diag-value-summary short-secret)]
+    (let [s (rf.error/diag-value-summary short-secret)]
       (is (= :string (:type s)))
       (is (= (count short-secret) (:count s)) "length is shape, and stays")
       (is (not (str/includes? (pr-str s) "SENTINEL"))
@@ -174,7 +174,7 @@
   (testing "a bearer-token-shaped secret whose first 24 chars are the
             sentinel: the pre-fix `(subs s 0 24)` head reproduced the
             sentinel EXACTLY, which is the leak the old test accepted"
-    (let [s (error/diag-value-summary long-secret)]
+    (let [s (rf.error/diag-value-summary long-secret)]
       (is (= :string (:type s)))
       (is (= (count long-secret) (:count s)))
       (is (not (str/includes? (pr-str s) "SENTINEL"))
@@ -189,7 +189,7 @@
                {(symbol sentinel) "v"}
                {[sentinel] "v"}
                {:token "secret" :pdf "%PDF-1.4 huge blob" :n 7}]]
-      (let [s       (error/diag-value-summary m)
+      (let [s       (rf.error/diag-value-summary m)
             printed (pr-str s)]
         (is (= :map (:type s)))
         (is (= (count m) (:count s)) "cardinality is shape, and stays")
@@ -205,7 +205,7 @@
                    (str "\u001b[31m" sentinel "\u001b[0m")        2
                    (str "line1\nline2\r\n" sentinel)              3
                    (str sentinel "\u0000")                  4}
-          printed (pr-str (error/diag-value-summary m))]
+          printed (pr-str (rf.error/diag-value-summary m))]
       (is (= "{:type :map, :count 4}" printed)
           "the summary is the shape and nothing else")
       (doseq [fragment ["SENTINEL" "<script>" "\u001b" "\n" "\u0000"]]
@@ -216,8 +216,8 @@
   (testing "the pre-fix `:keys` leg grew with the key set, so an
             attacker-sized map inflated the 'bounded' summary without limit"
     (let [m       (into {} (map (fn [i] [(str sentinel "-key-" i) i])) (range 2000))
-          printed (pr-str (error/diag-value-summary m))]
-      (is (= 2000 (:count (error/diag-value-summary m))))
+          printed (pr-str (rf.error/diag-value-summary m))]
+      (is (= 2000 (:count (rf.error/diag-value-summary m))))
       (is (not (str/includes? printed "SENTINEL")))
       (is (<= (count printed) max-summary-chars)
           (str "summary grew with the input: " (count printed) " chars")))))
@@ -229,7 +229,7 @@
     (doseq [v [(keyword sentinel)
                (symbol sentinel)
                (keyword (str/join "" (repeat 200 sentinel)))]]
-      (let [printed (pr-str (error/diag-value-summary v))]
+      (let [printed (pr-str (rf.error/diag-value-summary v))]
         (is (not (str/includes? printed "SENTINEL"))
             "an unbounded structural head reproduced user content")
         (is (<= (count printed) max-summary-chars))))))
@@ -238,10 +238,10 @@
   (testing "a number, a boolean and an unknown host object are CONTENT — a
             card number and a `toString` the framework knows nothing about
             (rf2-210uq leak 4)"
-    (is (= {:type :number} (error/diag-value-summary 4111111111111111)))
-    (is (= {:type :boolean} (error/diag-value-summary true)))
-    (is (= {:type :boolean} (error/diag-value-summary false)))
-    (let [printed (pr-str (error/diag-value-summary (hostile-scalar)))]
+    (is (= {:type :number} (rf.error/diag-value-summary 4111111111111111)))
+    (is (= {:type :boolean} (rf.error/diag-value-summary true)))
+    (is (= {:type :boolean} (rf.error/diag-value-summary false)))
+    (let [printed (pr-str (rf.error/diag-value-summary (hostile-scalar)))]
       (is (not (str/includes? printed "SENTINEL"))
           "the :scalar leg called toString on an unknown host value"))))
 
@@ -251,8 +251,8 @@
                [long-secret {sentinel 1} #{sentinel}]
                #{sentinel long-secret}
                (list sentinel long-secret)]]
-      (is (not (str/includes? (pr-str (error/diag-value-summary v)) "SENTINEL"))
-          (str "nested content leaked from " (:type (error/diag-value-summary v)))))))
+      (is (not (str/includes? (pr-str (rf.error/diag-value-summary v)) "SENTINEL"))
+          (str "nested content leaked from " (:type (rf.error/diag-value-summary v)))))))
 
 ;; ---- the capstone: the OUTPUT GRAMMAR forbids content --------------------
 
@@ -261,7 +261,7 @@
             from the closed output grammar and fits the fixed bound — the
             structural proof that there is no fifth leak"
     (doseq [v @adversarial-corpus]
-      (let [s       (error/diag-value-summary v)
+      (let [s       (rf.error/diag-value-summary v)
             printed (pr-str s)]
         (is (content-free? s)
             (str "summary escaped the closed output grammar: " printed))
@@ -274,9 +274,9 @@
   (testing "a value whose `toString` throws must still summarise — a
             diagnostic that explodes while describing a failure destroys
             the failure it was called to describe"
-    (is (= {:type :scalar} (error/diag-value-summary (exploding-scalar))))
+    (is (= {:type :scalar} (rf.error/diag-value-summary (exploding-scalar))))
     (is (= {:type :map :count 2}
-           (error/diag-value-summary {(exploding-scalar) :v :ok 1})))))
+           (rf.error/diag-value-summary {(exploding-scalar) :v :ok 1})))))
 
 ;; ---- the diagnostic VALUE that is preserved ------------------------------
 
@@ -284,24 +284,24 @@
   (testing "a summary that says nothing is safe and useless — type and
             size still answer 'what did I actually get?'"
     (is (= {:type :string :count 42}
-           (error/diag-value-summary "super-secret-bearer-token-value-1234567890")))
-    (is (= {:type :map :count 3}    (error/diag-value-summary {:a 1 :b 2 :c 3})))
+           (rf.error/diag-value-summary "super-secret-bearer-token-value-1234567890")))
+    (is (= {:type :map :count 3}    (rf.error/diag-value-summary {:a 1 :b 2 :c 3})))
     (is (= {:type :vector :count 3}
-           (error/diag-value-summary [:div {:on-click (fn [] nil)} "child text"])))
-    (is (= {:type :set :count 3}    (error/diag-value-summary #{1 2 3})))
-    (is (= {:type :keyword}         (error/diag-value-summary :ws.app/request)))
-    (is (= {:type :symbol}          (error/diag-value-summary 'reagent2.template/as-element)))
-    (is (= {:type :number}          (error/diag-value-summary 42)))
-    (is (= {:type :nil}             (error/diag-value-summary nil)))
-    (is (= {:type :fn}              (error/diag-value-summary (fn [] nil))))
+           (rf.error/diag-value-summary [:div {:on-click (fn [] nil)} "child text"])))
+    (is (= {:type :set :count 3}    (rf.error/diag-value-summary #{1 2 3})))
+    (is (= {:type :keyword}         (rf.error/diag-value-summary :ws.app/request)))
+    (is (= {:type :symbol}          (rf.error/diag-value-summary 'reagent2.template/as-element)))
+    (is (= {:type :number}          (rf.error/diag-value-summary 42)))
+    (is (= {:type :nil}             (rf.error/diag-value-summary nil)))
+    (is (= {:type :fn}              (rf.error/diag-value-summary (fn [] nil))))
     ;; A lazy seq is caught by the `seq?` arm BEFORE the `seqable?` arm and
     ;; carries NO count — an unbounded/lazy seq must not be realised on the
     ;; failure path.
-    (is (= {:type :seq}             (error/diag-value-summary (map inc [1 2 3]))))
-    (is (= {:type :seq}             (error/diag-value-summary '(1 2 3))))))
+    (is (= {:type :seq}             (rf.error/diag-value-summary (map inc [1 2 3]))))
+    (is (= {:type :seq}             (rf.error/diag-value-summary '(1 2 3))))))
 
 (deftest empty-collections-are-distinguishable
   (testing "count 0 still separates an empty collection from a missing one"
-    (is (= {:type :map :count 0}    (error/diag-value-summary {})))
-    (is (= {:type :vector :count 0} (error/diag-value-summary [])))
-    (is (= {:type :string :count 0} (error/diag-value-summary "")))))
+    (is (= {:type :map :count 0}    (rf.error/diag-value-summary {})))
+    (is (= {:type :vector :count 0} (rf.error/diag-value-summary [])))
+    (is (= {:type :string :count 0} (rf.error/diag-value-summary "")))))

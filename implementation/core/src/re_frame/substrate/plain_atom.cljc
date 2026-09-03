@@ -33,7 +33,7 @@
       late-bind hooks, which dispatch on the derived value reifying a
       disposal protocol. The plain-atom CLJS derived value therefore
       reifies `re-frame.disposable/IDisposable` (mirroring the spine),
-      and this ns publishes the two hooks via `substrate-adapter/
+      and this ns publishes the two hooks via `rf.substrate.adapter/
       route-hook!` so a CLJS-plain-atom host (rather than a leak)
       releases inputs symmetrically on slot evict.
 
@@ -42,11 +42,11 @@
   shared with the test-react adapter via `re-frame.substrate.atom-container`
   — see that ns for the rationale on why only the container quartet (not
   `make-derived-value`) is shared."
-  (:require [re-frame.error :as error]
-            [re-frame.substrate.atom-container :as atom-container]
-            #?@(:clj  [[re-frame.interop :as interop]]
-                :cljs [[re-frame.disposable :as rf-disposable]
-                       [re-frame.substrate.adapter :as substrate-adapter]])))
+  (:require [re-frame.error :as rf.error]
+            [re-frame.substrate.atom-container :as rf.substrate.atom-container]
+            #?@(:clj  [[re-frame.interop :as rf.interop]]
+                :cljs [[re-frame.disposable :as rf.disposable]
+                       [re-frame.substrate.adapter :as rf.substrate.adapter]])))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -55,7 +55,7 @@
   ;; sub at most a handful of times per request; caching would add
   ;; complexity for negligible gain.
   ;;
-  ;; JVM (rf2-tnnln): the derived value IS an `interop/make-reaction`
+  ;; JVM (rf2-tnnln): the derived value IS an `rf.interop/make-reaction`
   ;; `Reaction`, which carries its own on-dispose callback storage on the
   ;; object. `re-frame.interop`'s `add-on-dispose!` / `dispose!` store and
   ;; fire callbacks directly on it — no process-wide registry — so an
@@ -72,7 +72,7 @@
   ;; source watches (it recomputes on deref), so `-dispose` only fires
   ;; the registered on-dispose callbacks.
   #?(:clj
-     (interop/make-reaction
+     (rf.interop/make-reaction
        (fn [] (apply compute-fn (map deref source-containers))))
      :cljs
      (let [on-dispose-fns (atom [])
@@ -80,7 +80,7 @@
        (reify
          IDeref
          (-deref [_] (apply compute-fn (map deref source-containers)))
-         rf-disposable/IDisposable
+         rf.disposable/IDisposable
          (-add-on-dispose [_ f]
            (swap! on-dispose-fns conj f))
          (-dispose [_]
@@ -98,7 +98,7 @@
 (defn- render [_ _ _]
   ;; SSR uses render-to-string exclusively. Calling render on the JVM is
   ;; a programmer error worth surfacing loudly.
-  (error/throw-error!
+  (rf.error/throw-error!
     :rf.error/render-on-headless-adapter
     'rf/render
     (str "render is not supported on the plain-atom adapter (it is headless "
@@ -121,7 +121,7 @@
 (defn- render-to-string [render-tree opts]
   (if-let [emit @hiccup-emitter]
     (emit render-tree opts)
-    (error/throw-error!
+    (rf.error/throw-error!
       :rf.error/no-hiccup-emitter-bound
       'rf/render-to-string
       (str "no hiccup emitter is bound on the plain-atom adapter; require the "
@@ -131,7 +131,7 @@
       ;; render-tree, never the raw tree (a thrown render diagnostic is
       ;; captured off-box before path-based projection can classify it).
       {:recovery :require-re-frame-ssr
-       :extra    {:render-tree/summary (error/diag-value-summary render-tree)}})))
+       :extra    {:render-tree/summary (rf.error/diag-value-summary render-tree)}})))
 
 (defn- register-context-provider [_frame-keyword]
   ;; No React context on the JVM; users thread frames as arguments per
@@ -151,10 +151,10 @@
   See Spec 006 §The adapter API contract for the ten-fn shape (six
   required + three optional + one lifecycle)."
   {:kind                      :rf.adapter/plain-atom
-   :make-state-container      atom-container/make-state-container
-   :read-container            atom-container/read-container
-   :replace-container!        atom-container/replace-container!
-   :subscribe-container       atom-container/subscribe-container
+   :make-state-container      rf.substrate.atom-container/make-state-container
+   :read-container            rf.substrate.atom-container/read-container
+   :replace-container!        rf.substrate.atom-container/replace-container!
+   :subscribe-container       rf.substrate.atom-container/subscribe-container
    :make-derived-value        make-derived-value
    :render                    render
    :render-to-string          render-to-string
@@ -170,7 +170,7 @@
 ;; reifies above, so a CLJS-plain-atom host participates in the sub-cache's
 ;; ref-count / disposal contract symmetrically with the React-shaped
 ;; adapters (see `re-frame.substrate.spine`'s identical routing). Routed
-;; through `substrate-adapter/route-hook!` so a test bundle that also loads
+;; through `rf.substrate.adapter/route-hook!` so a test bundle that also loads
 ;; a React adapter only runs the plain-atom impl while plain-atom is the
 ;; `(rf/init!)`-installed adapter (per Spec 006 §adapter routing).
 ;;
@@ -180,11 +180,11 @@
 ;; adapter's fall-through dispatch.
 #?(:cljs
    (do
-     (substrate-adapter/route-hook! adapter :adapter/add-on-dispose!
+     (rf.substrate.adapter/route-hook! adapter :adapter/add-on-dispose!
        (fn add-on-dispose!-dispatch [a f]
-         (when (satisfies? rf-disposable/IDisposable a)
-           (rf-disposable/-add-on-dispose a f))))
-     (substrate-adapter/route-hook! adapter :adapter/dispose!
+         (when (satisfies? rf.disposable/IDisposable a)
+           (rf.disposable/-add-on-dispose a f))))
+     (rf.substrate.adapter/route-hook! adapter :adapter/dispose!
        (fn dispose!-dispatch [a]
-         (when (satisfies? rf-disposable/IDisposable a)
-           (rf-disposable/-dispose a))))))
+         (when (satisfies? rf.disposable/IDisposable a)
+           (rf.disposable/-dispose a))))))

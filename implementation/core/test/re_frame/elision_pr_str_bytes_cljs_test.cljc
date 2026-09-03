@@ -43,15 +43,15 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
-            [re-frame.elision :as elision]
-            [re-frame.frame :as frame]
-            [re-frame.interop :as interop]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as ts]))
+            [re-frame.elision :as rf.elision]
+            [re-frame.frame :as rf.frame]
+            [re-frame.interop :as rf.interop]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (ts/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---------------------------------------------------------------------------
 ;; The discriminating fixture set.
@@ -99,14 +99,14 @@
 (deftest pr-str-bytes-counts-utf8-bytes-not-code-units
   (testing "rf2-2rtt6.135: UTF-8 bytes on BOTH hosts. Under the pre-fix `:cljs`
             arm every one of these answered 42"
-    (is (= 42 (elision/pr-str-bytes ascii-40))
+    (is (= 42 (rf.elision/pr-str-bytes ascii-40))
         "ASCII: bytes and code units agree exactly — the opposite-direction pin")
-    (is (= 122 (elision/pr-str-bytes em-dash-40))
+    (is (= 122 (rf.elision/pr-str-bytes em-dash-40))
         "40 em-dashes are 120 bytes, not 40; + 2 quote bytes")
     ;; 82 also proves the surrogate PAIRS survive intact into the encoder: two
     ;; LONE surrogates encode as replacement characters at 3 bytes each, which
     ;; would read 2 + (20 * 6) = 122 here, not 82.
-    (is (= 82 (elision/pr-str-bytes astral-20))
+    (is (= 82 (rf.elision/pr-str-bytes astral-20))
         "20 astral chars are 80 bytes across 40 code units; + 2 quote bytes"))
 
   (testing "the relationship, stated as the law rather than as three constants:
@@ -114,23 +114,23 @@
             MORE for a non-ASCII payload. This is why the correction can only
             ever TIGHTEN — no leaf that warned before can fall silent now"
     (doseq [[label s] [["ascii" ascii-40] ["em-dash" em-dash-40] ["astral" astral-20]]]
-      (is (>= (elision/pr-str-bytes s) (count (pr-str s)))
+      (is (>= (rf.elision/pr-str-bytes s) (count (pr-str s)))
           (str label ": bytes >= code units, always")))
-    (is (> (elision/pr-str-bytes em-dash-40) (count (pr-str em-dash-40)))
+    (is (> (rf.elision/pr-str-bytes em-dash-40) (count (pr-str em-dash-40)))
         "em-dash: STRICTLY more")
-    (is (> (elision/pr-str-bytes astral-20) (count (pr-str astral-20)))
+    (is (> (rf.elision/pr-str-bytes astral-20) (count (pr-str astral-20)))
         "astral: STRICTLY more")
-    (is (= (elision/pr-str-bytes ascii-40) (count (pr-str ascii-40)))
+    (is (= (rf.elision/pr-str-bytes ascii-40) (count (pr-str ascii-40)))
         "ascii: exactly equal — which is precisely why the defect failed OPEN")))
 
 (deftest pr-str-bytes-measures-the-printed-form
   (testing "the name says `pr-str`: the delimiters count, an embedded quote
             counts as its two-character escape, and a non-string prints bare"
-    (is (= 2 (elision/pr-str-bytes "")) "the two quote characters")
+    (is (= 2 (rf.elision/pr-str-bytes "")) "the two quote characters")
     ;; (pr-str "a\"b") is the 6-character text: " a \ " b "
-    (is (= 6 (elision/pr-str-bytes "a\"b")))
-    (is (= 2 (elision/pr-str-bytes 42)))
-    (is (= 6 (elision/pr-str-bytes {:a 1})))))
+    (is (= 6 (rf.elision/pr-str-bytes "a\"b")))
+    (is (= 2 (rf.elision/pr-str-bytes 42)))
+    (is (= 6 (rf.elision/pr-str-bytes {:a 1})))))
 
 ;; ---------------------------------------------------------------------------
 ;; The PUBLISHED half: the marker's `:bytes` slot.
@@ -142,18 +142,18 @@
   `:large` alongside `:db` performs. Mirrors `elision_test.clj`'s
   `install-class!`."
   [large]
-  (frame/swap-runtime-db! :rf/default
-    (fn [rt] (elision/apply-classification-effects rt {:large (mapv vec large)}))))
+  (rf.frame/swap-runtime-db! :rf/default
+    (fn [rt] (rf.elision/apply-classification-effects rt {:large (mapv vec large)}))))
 
 (deftest marker-publishes-utf8-bytes
   (testing "rf2-2rtt6.135: `->marker`'s `:bytes` is the byte count Spec-Schemas
             §`:rf/elision-marker` types it as, on both hosts"
-    (let [body (:rf.size/large-elided (elision/->marker em-dash-40 [:user :bio] {}))]
+    (let [body (:rf.size/large-elided (rf.elision/->marker em-dash-40 [:user :bio] {}))]
       (is (= 122 (:bytes body))
           "the published figure is bytes; it read 42 on CLJS before the fix")
       (is (= :string (:type body)))
       (is (= [:user :bio] (:path body))))
-    (let [body (:rf.size/large-elided (elision/->marker astral-20 [:user :bio] {}))]
+    (let [body (:rf.size/large-elided (rf.elision/->marker astral-20 [:user :bio] {}))]
       (is (= 82 (:bytes body))
           "astral payload publishes 82 bytes, not 42 code units"))))
 
@@ -195,7 +195,7 @@
             threshold but whose BYTE length is OVER it now warns. At a
             threshold of 50 all three fixtures are 42 code units — under it —
             but em-dash is 122 bytes and astral is 82"
-    (elision/clear-warning-cache!)
+    (rf.elision/clear-warning-cache!)
     (let [traces (collect-traces! ::over)
           out    (rf/elide-wire-value {:user {:bio em-dash-40}}
                                       {:rf.size/threshold-bytes 50})]
@@ -204,7 +204,7 @@
       ;; actual defect.
       (is (= em-dash-40 (get-in out [:user :bio]))
           "over-threshold undeclared values ship UNCHANGED — advisory, not a cap")
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [warnings (unschema'd-warnings traces)]
           (is (= 1 (count warnings))
               "122 bytes > 50 warns. Pre-fix on CLJS this measured 42 and was SILENT")
@@ -214,12 +214,12 @@
       (rf/unregister-listener! :trace ::over)))
 
   (testing "the astral payload crosses the same threshold on the same evidence"
-    (elision/clear-warning-cache!)
+    (rf.elision/clear-warning-cache!)
     (let [traces (collect-traces! ::astral)
           out    (rf/elide-wire-value {:user {:bio astral-20}}
                                       {:rf.size/threshold-bytes 50})]
       (is (= astral-20 (get-in out [:user :bio])))
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [warnings (unschema'd-warnings traces)]
           (is (= 1 (count warnings)) "82 bytes > 50 warns")
           (is (= 82 (get-in (first warnings) [:tags :bytes])))))
@@ -228,12 +228,12 @@
   (testing "OPPOSITE DIRECTION — the ASCII control of the SAME code-unit length
             stays UNDER the same threshold. Without this, a repair that simply
             inflated every measurement would pass"
-    (elision/clear-warning-cache!)
+    (rf.elision/clear-warning-cache!)
     (let [traces (collect-traces! ::under)
           out    (rf/elide-wire-value {:user {:bio ascii-40}}
                                       {:rf.size/threshold-bytes 50})]
       (is (= ascii-40 (get-in out [:user :bio])))
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (= [] (unschema'd-warnings traces))
             "42 bytes < 50 stays silent, exactly as before the fix"))
       (rf/unregister-listener! :trace ::under))))
@@ -241,11 +241,11 @@
 (deftest threshold-zero-still-disables-auto-detect
   (testing "the correction did not disturb the documented `0 disables` arm —
             no `pr-str-bytes` walk happens at all"
-    (elision/clear-warning-cache!)
+    (rf.elision/clear-warning-cache!)
     (let [traces (collect-traces! ::zero)
           out    (rf/elide-wire-value {:user {:bio em-dash-40}}
                                       {:rf.size/threshold-bytes 0})]
       (is (= em-dash-40 (get-in out [:user :bio])))
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (= [] (unschema'd-warnings traces))))
       (rf/unregister-listener! :trace ::zero))))

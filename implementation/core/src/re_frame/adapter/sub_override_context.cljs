@@ -33,7 +33,7 @@
   ## Production cost
 
   The override map is consulted in `re-frame.subs/subscribe` ONLY inside
-  the existing `(when interop/debug-enabled? ...)` envelope, so the whole
+  the existing `(when rf.interop/debug-enabled? ...)` envelope, so the whole
   seam DCEs under `:advanced` + `goog.DEBUG=false`.  The Context construction
   is behind that SAME compile-time gate: production initializes this var to
   nil and performs no `React.createContext` call.  That matters because
@@ -46,21 +46,21 @@
   sees — it never writes app-db and never reaches `compute-sub`. See
   rf2-7pgiz and `re-frame.story.sub-overrides`."
   (:require ["react" :as React]
-            [re-frame.interop :as interop]))
+            [re-frame.interop :as rf.interop]))
 
 (defonce override-context
   ;; Dev/tool builds get the shared Context whose DEFAULT value is nil (no
   ;; overrides in scope).  Production gets nil WITHOUT invoking createContext;
   ;; every read/provider call site folds away under the same goog.DEBUG gate.
-  (when interop/debug-enabled?
+  (when rf.interop/debug-enabled?
     (.createContext React nil)))
 
 ;; rf2-fa4ly parity: stamp a human-readable `displayName` so React
 ;; DevTools' Context inspector labels the entry `rf2-sub-overrides`
 ;; rather than the opaque default. Dev-only — gated under
-;; `interop/debug-enabled?` so the string literal DCEs in production
+;; `rf.interop/debug-enabled?` so the string literal DCEs in production
 ;; (same pattern as `re-frame.adapter.context`'s `rf2-frame` stamp).
-(when interop/debug-enabled?
+(when rf.interop/debug-enabled?
   (set! (.-displayName ^js override-context) "rf2-sub-overrides"))
 
 (defn current-overrides
@@ -74,5 +74,5 @@
   `_currentValue` read; no coercion is needed because the value is a
   plain CLJS map (or nil), never a prop-stringified keyword."
   []
-  (when interop/debug-enabled?
+  (when rf.interop/debug-enabled?
     (.-_currentValue ^js override-context)))

@@ -38,7 +38,7 @@
             [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [re-frame.prod-gate-dispatch-probe :as probe]))
+            [re-frame.prod-gate-dispatch-probe :as rf.prod-gate-dispatch-probe]))
 
 ;; ---------------------------------------------------------------------------
 ;; child-JVM harness
@@ -76,9 +76,9 @@
   "Pull the probe's single marker line out of `out` and read it back as EDN."
   [out]
   (some->> (str/split-lines out)
-           (filter #(str/starts-with? % probe/result-marker))
+           (filter #(str/starts-with? % rf.prod-gate-dispatch-probe/result-marker))
            first
-           (drop (count probe/result-marker))
+           (drop (count rf.prod-gate-dispatch-probe/result-marker))
            (apply str)
            edn/read-string))
 
@@ -99,7 +99,7 @@
     (let [{:keys [exit err result]} @observed]
       (is (zero? exit) (str "probe JVM exited " exit "; stderr:\n" err))
       (is (some? result)
-          (str "no `" probe/result-marker "` line on the probe's stdout;"
+          (str "no `" rf.prod-gate-dispatch-probe/result-marker "` line on the probe's stdout;"
                " stderr:\n" err))
       (is (nil? (:probe-threw result))
           (str "the probe threw: " (:probe-threw result))))))

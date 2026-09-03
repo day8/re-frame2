@@ -36,19 +36,19 @@
   every production bundle (it is side-effect-required by `re-frame.core`); the
   validator fail-louds in prod as well as dev. The direct require is cycle-free.
   The dev-gated PROJECTION hook stays late-bound. No imperative stash."
-  (:require [re-frame.interop :as interop]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.image-assembly :as image-assembly]
-            [re-frame.interceptor :as interceptor]
-            [re-frame.interceptor-registry :as icpt-reg]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.cofx :as cofx]
-            [re-frame.error :as error]
-            [re-frame.reg-meta :as reg-meta]
-            [re-frame.classification :as classification]
-            [re-frame.source-coords :as source-coords]
-            [re-frame.trace :as trace]))
+  (:require [re-frame.interop :as rf.interop]
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.image-assembly :as rf.image-assembly]
+            [re-frame.interceptor :as rf.interceptor]
+            [re-frame.interceptor-registry :as rf.interceptor-registry]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.cofx :as rf.cofx]
+            [re-frame.error :as rf.error]
+            [re-frame.reg-meta :as rf.reg-meta]
+            [re-frame.classification :as rf.classification]
+            [re-frame.source-coords :as rf.source-coords]
+            [re-frame.trace :as rf.trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -79,7 +79,7 @@
   (an inline value gets the `:rf.error/inline-interceptor-removed`-aimed
   message; any other shape the generic bad-interceptors message)."
   [x]
-  (icpt-reg/interceptor-ref? x))
+  (rf.interceptor-registry/interceptor-ref? x))
 
 (defn- throw-bad-interceptors-value!
   "Raise `:rf.error/reg-event-bad-interceptors` (ex-info) for a malformed
@@ -88,7 +88,7 @@
   swallow: a malformed chain cannot be honoured and must not be silently
   dropped or coerced."
   [reg-fn-name id value reason]
-  (error/throw-error!
+  (rf.error/throw-error!
     :rf.error/reg-event-bad-interceptors
     'rf/reg-event
     reason
@@ -106,10 +106,10 @@
   result, a `(path …)` / `(redact-interceptor …)` value, a value-Var) — a typo
   dies at `reg-event`, not at first dispatch. Mirrors the dispatch-time
   `interceptor-registry/resolve-chain` rejection with the same error id —
-  both delegate to the ONE shared `error/throw-inline-interceptor-removed!`
+  both delegate to the ONE shared `rf.error/throw-inline-interceptor-removed!`
   passing this site's `:where 'rf/reg-event`, reason, and ex-data."
   [reg-fn-name id value offending]
-  (error/throw-inline-interceptor-removed!
+  (rf.error/throw-inline-interceptor-removed!
     'rf/reg-event
     (str reg-fn-name " for `" id "` carried an INLINE interceptor value `"
          (pr-str offending) "` in its metadata `:interceptors` chain. "
@@ -152,8 +152,8 @@
     ;; the actionable "register + reference by id" message rather than a generic
     ;; bad-interceptors tell.
     (if-let [inline (some (fn [e]
-                            (when (and (not (icpt-reg/interceptor-ref? e))
-                                       (icpt-reg/interceptor-value? e))
+                            (when (and (not (rf.interceptor-registry/interceptor-ref? e))
+                                       (rf.interceptor-registry/interceptor-value? e))
                               e))
                           value)]
       (throw-inline-interceptor-removed! reg-fn-name id value inline)
@@ -178,12 +178,12 @@
   router) so hot-reloaded descriptors are picked up on the next dispatch."
   [chain]
   (doseq [entry chain]
-    (when (icpt-reg/interceptor-ref? entry)
+    (when (rf.interceptor-registry/interceptor-ref? entry)
       ;; resolve-ref throws the structured :rf.error/unregistered-interceptor /
       ;; :rf.error/interceptor-factory-arity if the ref cannot resolve. We
       ;; discard the resolved value — this is a pure existence/shape check; the
       ;; actual resolution rides the dispatch-time chain assembly.
-      (icpt-reg/resolve-ref entry)))
+      (rf.interceptor-registry/resolve-ref entry)))
   chain)
 
 ;; ---- validate-at-boundary-interceptor registration-time validation -------
@@ -245,7 +245,7 @@
   [reg-fn-name id meta interceptors]
   (when (and (attaches-validate-at-boundary-interceptor? interceptors)
              (not (and (map? meta) (contains? meta :schema))))
-    (error/throw-error!
+    (rf.error/throw-error!
       :rf.error/at-boundary-missing-schema
       'rf/reg-event
       (str reg-fn-name " for `" id "` attaches the "
@@ -471,18 +471,18 @@
   `:rf/framework-authority?` by `assemble-initial-ctx` — write
   `:rf.db/runtime` legitimately and DO NOT fire this diagnostic.
 
-  Dev-only — gated on `interop/debug-enabled?` so production DCE-elides the
+  Dev-only — gated on `rf.interop/debug-enabled?` so production DCE-elides the
   whole check, the reason string, and the emit (per Spec 009 §Production
   builds)."
   [ctx event effects]
-  (when (and interop/debug-enabled?
+  (when (and rf.interop/debug-enabled?
              (contains? effects :rf.db/runtime)
              (not (:rf/framework-authority? ctx)))
     (let [event-id (when (vector? event) (first event))]
-      (trace/emit! :warning :rf.warning/app-handler-runtime-effect
+      (rf.trace/emit! :warning :rf.warning/app-handler-runtime-effect
                    {:rf.trace/event-id event-id
                     :rf.event/v        event
-                    :frame             (interceptor/get-coeffect ctx :rf.frame/id)
+                    :frame             (rf.interceptor/get-coeffect ctx :rf.frame/id)
                     :recovery          :warned
                     :reason
                     (str "Event `" event-id "` returned a reserved `:rf.db/runtime` effect, "
@@ -565,7 +565,7 @@
   emits in-band rather than throwing, so the drain is not aborted."
   [app-db event]
   (when (legacy-runtime-root? app-db)
-    (throw (error/ex-info-from-data (legacy-runtime-root-ex-data event))))
+    (throw (rf.error/ex-info-from-data (legacy-runtime-root-ex-data event))))
   app-db)
 
 (defn- commit-fx-effects
@@ -594,13 +594,13 @@
   write as one atomic frame-state transition) happens downstream."
   [ctx event effects]
   (let [frame-id (:rf.frame/id (:coeffects ctx))
-        live?    #(or (nil? (frame/current-event-owner-token))
-                      (frame/event-owner-live? frame-id))]
+        live?    #(or (nil? (rf.frame/current-event-owner-token))
+                      (rf.frame/event-owner-live? frame-id))]
     (cond
       (nil? effects) ctx
       (not (map? effects))
       (do
-        (trace/emit-error! :rf.error/effect-handler-bad-return
+        (rf.trace/emit-error! :rf.error/effect-handler-bad-return
                            {:event-id      (when (vector? event) (first event))
                             :event         event
                             :returned      effects
@@ -642,20 +642,20 @@
   framework's auto-wrapper without a hardcoded id allowlist. Self-describing:
   the meta lives on the interceptor map itself."
   [handler-fn]
-  (interceptor/->interceptor*
+  (rf.interceptor/->interceptor*
     :id          event-handler-interceptor-id
     :rf/default? true
     :before
     (fn [ctx]
       (if (:rf/skip-handler? ctx)
         ctx
-        (let [event       (interceptor/get-coeffect ctx :event)
-              effects     (handler-fn (interceptor/get-coeffect ctx) event)
+        (let [event       (rf.interceptor/get-coeffect ctx :event)
+              effects     (handler-fn (rf.interceptor/get-coeffect ctx) event)
               frame-id    (:rf.frame/id (:coeffects ctx))
               ;; Authority is bound outside the authored context.  An
               ;; interceptor may rebuild or tamper with `ctx`, but cannot forge
               ;; ownership of a fresh same-id incarnation.
-              owner-token (frame/current-event-owner-token)]
+              owner-token (rf.frame/current-event-owner-token)]
           ;; Option A terminal-incarnation law: the authored handler has
           ;; already entered, so it is allowed to return.  But if it destroyed
           ;; A (and perhaps installed a fresh same-id B), its returned value is
@@ -664,21 +664,21 @@
           ;; commit target.  `execute-chain` still unwinds every already-entered
           ;; authored `:after`; the framework-owned outer flows interceptor
           ;; observes this marker and fences the remaining tail.
-          (if-not (frame/event-continuation-live? frame-id owner-token)
+          (if-not (rf.frame/event-continuation-live? frame-id owner-token)
             (assoc ctx :rf/stale-incarnation? true)
             (let [new-ctx (commit-fx-effects ctx event effects)]
-              ;; A trace/error listener reached by handler-return policing can
+              ;; A rf.trace/error listener reached by handler-return policing can
               ;; itself synchronously destroy A.  Recheck before the final
               ;; legacy-root diagnostic; loss makes the partially-produced
               ;; context inert just like direct loss in the handler body.
-              (if-not (frame/event-continuation-live? frame-id owner-token)
+              (if-not (rf.frame/event-continuation-live? frame-id owner-token)
                 (assoc ctx :rf/stale-incarnation? true)
                 (do
                   ;; EP-0001: a `:db` effect carrying the retired
                   ;; `:rf/runtime` app-db root is a HARD ERROR — reject it at
                   ;; the single post-commit chokepoint. No-op when absent.
                   (reject-legacy-runtime-root!
-                    (interceptor/get-effect new-ctx :db) event)
+                    (rf.interceptor/get-effect new-ctx :db) event)
                   new-ctx)))))))))
 
 (defn event-handler-meta
@@ -791,7 +791,7 @@
   Loud-fail at registration per Conventions §No silent swallow — the
   interceptor would otherwise be silently dropped and never run."
   [reg-fn-name slot offending args]
-  (error/throw-error!
+  (rf.error/throw-error!
     :rf.error/reg-event-bare-interceptor
     'rf/reg-event
     (str reg-fn-name " received a BARE interceptor in the " (name slot)
@@ -827,7 +827,7 @@
           (bare-interceptor-map? middle)
           (throw-bare-interceptor! reg-fn-name :middle middle args)
           (map? middle)    [middle handler]
-          :else            (error/throw-error!
+          :else            (rf.error/throw-error!
                              :rf.error/reg-event-bad-middle-slot
                              'rf/reg-event
                              "the middle slot of a reg-event call must be a metadata-map (e.g. {:doc \"...\" :interceptors [:my/ic]}); the positional interceptor vector is retired"
@@ -835,7 +835,7 @@
                               :extra    {:args     args
                                          :got      middle
                                          :expected "metadata-map (e.g. {:doc \"...\" :interceptors [:my/ic]})"}})))
-    (error/throw-error!
+    (rf.error/throw-error!
       :rf.error/reg-event-bad-arity
       'rf/reg-event
       "reg-event expects (id handler) or (id metadata handler); put interceptor chains in metadata :interceptors"
@@ -847,25 +847,25 @@
   "Merge `*pending-form-source*` into `m` under `:rf.handler/source`
   (Spec 009 §`:rf.handler/source`, Xray Spec 021 §11.2 B.7 stretch).
   User-supplied `:rf.handler/source` overrides the auto-
-  captured value (mirrors `source-coords/merge-coords` semantics — so
+  captured value (mirrors `rf.source-coords/merge-coords` semantics — so
   tooling that synthesises registrations from another source can stamp
   the original form-source). Returns `m` unchanged when no source is
   pending (programmatic / REPL registrations that bypass the macro
   path).
 
   Production elision: the whole body is gated on
-  `interop/debug-enabled?`. Under `:advanced` + `goog.DEBUG=false`
+  `rf.interop/debug-enabled?`. Under `:advanced` + `goog.DEBUG=false`
   Closure constant-folds the gate to `false` and DCEs the entire merge
   — both the literal `:rf.handler/source` keyword's reachability from
   this slot AND the dynamic-var lookup. Layered with the macro-emitted
-  `(if interop/debug-enabled? ~src-string nil)` gate on the bound
+  `(if rf.interop/debug-enabled? ~src-string nil)` gate on the bound
   value, the source-string bytes themselves never reach the bundle.
-  JVM/SSR/test builds (where `interop/debug-enabled?` is true by
+  JVM/SSR/test builds (where `rf.interop/debug-enabled?` is true by
   default) always capture."
   [m]
-  (if-not interop/debug-enabled?
+  (if-not rf.interop/debug-enabled?
     m
-    (let [src source-coords/*pending-form-source*]
+    (let [src rf.source-coords/*pending-form-source*]
       (if (and src (not (contains? m :rf.handler/source)))
         (assoc m :rf.handler/source src)
         m))))
@@ -908,7 +908,7 @@
 ;; fails loud (`:rf.error/reserved-event-id`), per Conventions §Reserved
 ;; namespaces ("A user may not `(reg-event :rf/hydrate ...)`") and EP-0027
 ;; §`:rf/set-db`. The framework's OWN registration goes through the private
-;; `registrar/register!` path (see `register-set-db-standard!`), so this guard —
+;; `rf.registrar/register!` path (see `register-set-db-standard!`), so this guard —
 ;; which fires only on the public `register-event!` entry — does not reject the
 ;; framework's own seeding. The set is deliberately narrow (today `:rf/set-db`
 ;; and `:rf/settle-flows` — see the def's docstring for why each is in): the
@@ -928,7 +928,7 @@
   can both be listed here:
 
     `:rf/set-db`       seeded into the registrar (and the EP-0023 image standard
-                       registry) via the private `registrar/register!` path —
+                       registry) via the private `rf.registrar/register!` path —
                        see `register-set-db-standard!`. Deliberately
                        app-DISPATCHABLE; only re-registration is refused.
     `:rf/settle-flows` NEVER registered at all (Spec 013 §Sequencing). It
@@ -953,7 +953,7 @@
   registration hot path pays one set membership check."
   [reg-fn-name id]
   (when (contains? reserved-event-ids id)
-    (error/throw-error!
+    (rf.error/throw-error!
       :rf.error/reserved-event-id
       'rf/reg-event
       (str reg-fn-name " cannot register `" id "` — it is a RESERVED "
@@ -995,7 +995,7 @@
         ;; namespaced/known keys pass. Runs on the raw user meta (which still
         ;; carries `:interceptors`, a known `:event` key) BEFORE `:interceptors`
         ;; is stripped by `resolve-interceptors`.
-        _ (reg-meta/validate-registration-metadata! :event 'rf/reg-event id raw-meta)
+        _ (rf.reg-meta/validate-registration-metadata! :event 'rf/reg-event id raw-meta)
         [meta interceptors] (resolve-interceptors reg-fn-name id raw-meta)
         wrapped (wrap-event-handler handler-fn)]
     ;; Per Spec 010 §Production builds: reject the
@@ -1007,7 +1007,7 @@
     ;; dispatch in production.
     (reject-at-boundary-without-schema! reg-fn-name id meta interceptors)
     ;; EP-0017 §4: parse + validate `:rf.cofx/requires` into the normalised
-    ;; entry vector the satisfaction step consumes (`cofx/deliver-declared-cofx`,
+    ;; entry vector the satisfaction step consumes (`rf.cofx/deliver-declared-cofx`,
     ;; via `assemble-initial-ctx`), raising `:rf.error/cofx-request-invalid` /
     ;; `:rf.error/cofx-name-collision` on a malformed / duplicate declaration.
     ;; EP-0018: `:rf.cofx/requires` is uniformly available — the one form is
@@ -1023,7 +1023,7 @@
     ;; `registration-classification :event <id>` returns those registrar-derived
     ;; author paths (EP-0025 — frame-declared paths are the sole app-db
     ;; classification mechanism).
-    (classification/validate-classification! :event meta)
+    (rf.classification/validate-classification! :event meta)
     ;; rf2-kqxe6.20: replacing a framework REPLACEABLE DEFAULT
     ;; (`:rf.route/entry-denied` / `:rf.route/navigation-blocked`) replaces
     ;; BEHAVIOUR — not the framework's own payload shape. The carriers the
@@ -1033,11 +1033,11 @@
     ;; override, unioned with anything this registration declared. Runs AFTER
     ;; `validate-classification!` so a malformed app declaration still fails on
     ;; its own terms; a no-op for every id that is not a framework default.
-    (let [meta            (image-assembly/retain-framework-default-classification
+    (let [meta            (rf.image-assembly/retain-framework-default-classification
                             :event id meta)
-          requires-parsed (cofx/parse-requires id (:rf.cofx/requires meta))]
-      (registrar/register! :event id
-        (cond-> (assoc (-> meta source-coords/merge-coords merge-form-source)
+          requires-parsed (rf.cofx/parse-requires id (:rf.cofx/requires meta))]
+      (rf.registrar/register! :event id
+        (cond-> (assoc (-> meta rf.source-coords/merge-coords merge-form-source)
                        :handler-fn   handler-fn
                        :interceptors (-> [] (into interceptors) (conj wrapped)))
           (seq requires-parsed)
@@ -1052,7 +1052,7 @@
       ;; own existed, carries none of the framework's carriers. Reconcile it here
       ;; so BOTH orders converge; a no-op (one source-store read) for every id
       ;; that is not a framework replaceable default.
-      (image-assembly/reconcile-framework-default-classification! :event id))
+      (rf.image-assembly/reconcile-framework-default-classification! :event id))
     id))
 
 (defn reg-event
@@ -1153,7 +1153,7 @@
 ;;     direct write.
 ;;   - It validates EXACTLY ONE MAP ARGUMENT: a missing, `nil`, non-map, or
 ;;     extra-trailing argument fails with `:rf.error/set-db-bad-value`, raised
-;;     through `error/throw-error!` so it THROWS (EP-0027 §Failure — a bad
+;;     through `rf.error/throw-error!` so it THROWS (EP-0027 §Failure — a bad
 ;;     `[:rf/set-db x]` argument is a setup-step throw). `:rf/set-db` takes a
 ;;     single map and has no second-argument meaning, so `[:rf/set-db {} :junk]`
 ;;     is a mis-call (rf2-izy3b2), not a silently-ignored extra. Set app-db
@@ -1189,7 +1189,7 @@
 
   Validates EXACTLY one MAP argument: a missing / `nil` / non-map `new-db`, OR
   any extra trailing args (`[:rf/set-db {} :junk]`), raises
-  `:rf.error/set-db-bad-value` through `error/throw-error!` (so it THROWS — a
+  `:rf.error/set-db-bad-value` through `rf.error/throw-error!` (so it THROWS — a
   setup-step failure per EP-0027 §Failure). A valid map (including `{}`)
   returns `{:db new-db}` and rides the normal post-commit app-db schema
   validation / rollback. It REPLACES app-db (not a merge)."
@@ -1206,7 +1206,7 @@
         ;; which rejects the `nil` it reads as the missing arg.)
         extra-args? (> (count event) 2)]
     (when (or extra-args? (not (valid-set-db-arg? new-db)))
-      (error/throw-error!
+      (rf.error/throw-error!
         :rf.error/set-db-bad-value
         'rf/set-db
         (str "`[:rf/set-db x]` requires EXACTLY ONE MAP argument — the new "
@@ -1243,19 +1243,19 @@
   "Register the framework-standard `:rf/set-db` event (EP-0027 §`:rf/set-db`)
   into the active registrar AND the EP-0023 framework-standard registry.
   Idempotent — called at namespace load AND from `re-frame.core/init!` so the
-  standard survives a test fixture's `registrar/clear-all!` (which wipes the
+  standard survives a test fixture's `rf.registrar/clear-all!` (which wipes the
   `:event` kind). Mirrors `std-interceptors/register-standard-interceptors!`.
 
   TWO surfaces, ONE handler:
 
     * the REGULAR registrar (the default-image / no-generation resolution path,
-      where `registrar/lookup` reads the registrar atom directly). The
-      framework registers via the PRIVATE `registrar/register!` path — NOT the
+      where `rf.registrar/lookup` reads the registrar atom directly). The
+      framework registers via the PRIVATE `rf.registrar/register!` path — NOT the
       public `reg-event` — so the `reserved-event-ids` guard (which fires only
       on the public `register-event!` entry) does not reject the framework's
       own seeding while still rejecting an app `(reg-event :rf/set-db …)`.
 
-    * the EP-0023 FRAMEWORK-STANDARD registry (`image-assembly/register-
+    * the EP-0023 FRAMEWORK-STANDARD registry (`rf.image-assembly/register-
       standard!`) — so the descriptor is unioned into EVERY resolved image
       generation. Without this, an image-loaded frame whose construction
       dispatches `[:rf/set-db …]` under a bound `*generation*` could not
@@ -1270,11 +1270,11 @@
   []
   (let [descriptor (event-handler-meta set-db-standard-meta [] set-db-handler)]
     ;; Regular registrar — private path (bypasses the public reserved-id guard).
-    (registrar/register! :event set-db-event-id descriptor)
+    (rf.registrar/register! :event set-db-event-id descriptor)
     ;; EP-0023 framework-standard registry — same descriptor, unioned into every
     ;; resolved image generation. Default non-replaceable, no conformance
     ;; invariant (an ordinary developer-friendly standard).
-    (image-assembly/register-standard! :event set-db-event-id descriptor))
+    (rf.image-assembly/register-standard! :event set-db-event-id descriptor))
   set-db-event-id)
 
 ;; Register at namespace load so standalone require'rs (no `init!`) can dispatch
@@ -1308,14 +1308,14 @@
 ;; unresolved-handler seam (`router/resolve-unhandled`) materialises
 ;; `settle-flows-handler-meta` for it, the same mechanism a spawned machine
 ;; actor's handler resolves through. Consequences worth stating, because they
-;; are the whole reason for choosing the seam over a private `registrar/register!`:
+;; are the whole reason for choosing the seam over a private `rf.registrar/register!`:
 ;;
-;;   * it never appears in `registrar/registrations :event`, so it adds no row
+;;   * it never appears in `rf.registrar/registrations :event`, so it adds no row
 ;;     to an app's event catalogue, tooling projection, or generated code — the
 ;;     ceremony this change exists to delete does not simply move from the app
 ;;     into the framework;
 ;;   * it needs no image-standard registration, because a generation-routed
-;;     `registrar/lookup` returns nil for an unregistered id and falls through
+;;     `rf.registrar/lookup` returns nil for an unregistered id and falls through
 ;;     to the same seam — so it resolves identically in every image generation;
 ;;   * `reserved-event-ids` still lists it, because the registrar IS consulted
 ;;     first: an app registration would shadow it silently.
@@ -1393,14 +1393,14 @@
   call to a removed public event registrar `reg-fn-name` (a string like
   \"reg-event-db\"), naming `replacement` and showing `fix` (the actionable
   conversion). The `inject-cofx` removed-stub twin: composes the EP-0018
-  reason then delegates to the ONE shared `cofx/raise-removed!`,
+  reason then delegates to the ONE shared `rf.cofx/raise-removed!`,
   which surfaces on the always-on error-emit listener (production-survivable)
   AND the dev trace bus, then throws the ex-info carrying the same
   `:rf.error/id` — the offending `id` rides the trace + ex-data under `:id`."
   [error-kw reg-fn-name where id replacement fix]
   (let [reason (str "`" reg-fn-name "` is REMOVED in EP-0018 (no alias). "
                     "Use `" replacement "` instead — " fix)]
-    (cofx/raise-removed! error-kw where reason id :id)))
+    (rf.cofx/raise-removed! error-kw where reason id :id)))
 
 ;; ---- data-driven removed event-registration names ------------------------
 ;;
@@ -1514,8 +1514,8 @@
   drop stale handlers; production code rarely needs it. Returns nil.
 
   See also: `reg-event`."
-  ([] (registrar/clear-kind! :event))
-  ([id] (registrar/unregister! :event id)))
+  ([] (rf.registrar/clear-kind! :event))
+  ([id] (rf.registrar/unregister! :event id)))
 
 ;; ---- EP-0023 inline-registration lowering --------------------------------
 ;;
@@ -1552,7 +1552,7 @@
   descriptor's nested `:metadata`. Symmetric with `lower-inline-cofx`, which
   likewise hoists the cofx grade flags the delivery step reads.
 
-  The cofx-requirements are additionally parsed via `cofx/parse-requires` into
+  The cofx-requirements are additionally parsed via `rf.cofx/parse-requires` into
   the TOP-LEVEL `:rf.cofx/requires-parsed` slot exactly as `register-event!`
   does (EP-0017 §4/§5) — load-bearing: the satisfaction step
   (`router/assemble-initial-ctx`) reads it to deliver the declared coeffects,
@@ -1570,9 +1570,9 @@
   descriptor, preserving `:impl` + provenance for replacement-winner
   coordinates and dedupe."
   [meta impl]
-  (let [requires-parsed (cofx/parse-requires :rf/image-inline-event
+  (let [requires-parsed (rf.cofx/parse-requires :rf/image-inline-event
                                              (:rf.cofx/requires meta))]
     (cond-> (event-handler-meta meta [] impl)
       (seq requires-parsed) (assoc :rf.cofx/requires-parsed requires-parsed))))
 
-(late-bind/set-fn! :image/lower-inline-event lower-inline-event)
+(rf.late-bind/set-fn! :image/lower-inline-event lower-inline-event)

@@ -8,7 +8,7 @@
   the remaining EP §3 case that is platform-specific: when no dynamic
   `*current-frame*` binding and no explicit `:frame` opt are present, the
   router still resolves a frame from the enclosing frame-provider via the
-  React-context tier of `frame/resolve-current-frame` (the
+  React-context tier of `rf.frame/resolve-current-frame` (the
   `:adapter/current-frame` late-bind hook).
 
   A full React mount + `frame-provider` render is the root/view bead's
@@ -22,11 +22,11 @@
   Naming: `-cljs-test$` opts this file into the node-test build."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.substrate.adapter :as substrate-adapter]
-            [re-frame.trace :as trace]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
+            [re-frame.trace :as rf.trace]))
 
 ;; The provider's "current React-context frame" — a test-controlled
 ;; stand-in for what a real `frame-provider` render publishes. nil means
@@ -34,24 +34,24 @@
 (def ^:private provider-frame (atom nil))
 
 (defn reset-runtime [test-fn]
-  (reset! frame/frames {})
-  (substrate-adapter/dispose-adapter!)
-  (trace/clear-listeners!)
-  (substrate-adapter/install-adapter! plain-atom/adapter)
+  (reset! rf.frame/frames {})
+  (rf.substrate.adapter/dispose-adapter!)
+  (rf.trace/clear-listeners!)
+  (rf.substrate.adapter/install-adapter! rf.substrate.plain-atom/adapter)
   (reset! provider-frame nil)
   ;; Publish a React-context tier that reports the enclosing provider
   ;; frame. `set-fn!` invalidates the sticky `get-fn-cached` slot, so
   ;; `resolve-current-frame` observes the live value each test sets. This
   ;; is the same hook an adapter's frame-provider drives during render.
-  (late-bind/set-fn! :adapter/current-frame
-                     (fn [] (or frame/*current-frame* @provider-frame)))
+  (rf.late-bind/set-fn! :adapter/current-frame
+                     (fn [] (or rf.frame/*current-frame* @provider-frame)))
   (try
     (test-fn)
     (finally
       ;; Restore the adapter's real hook so sibling suites are unaffected.
       (reset! provider-frame nil)
-      (substrate-adapter/dispose-adapter!)
-      (substrate-adapter/install-adapter! plain-atom/adapter))))
+      (rf.substrate.adapter/dispose-adapter!)
+      (rf.substrate.adapter/install-adapter! rf.substrate.plain-atom/adapter))))
 
 (use-fixtures :each reset-runtime)
 
@@ -70,7 +70,7 @@
     ;; render: the React-context tier reports the frame, the dynamic var
     ;; is unbound.
     (reset! provider-frame :app/provided)
-    (binding [frame/*current-frame* nil]
+    (binding [rf.frame/*current-frame* nil]
       (rf/dispatch-sync [:app/inc]))
     (is (= 1 (:n (rf/app-db-value :app/provided)))
         "the dispatch resolved the provider frame and ran the handler")))
@@ -82,7 +82,7 @@
     (rf/reg-event :app/noop (fn [{:keys [db]} _] {:db db}))
     (let [recorded (record-traces! ::no-provider)]
       (reset! provider-frame nil)
-      (binding [frame/*current-frame* nil]
+      (binding [rf.frame/*current-frame* nil]
         (let [ex (try (rf/dispatch-sync [:app/noop]) nil
                       (catch :default e e))]
           (is (some? ex) "bare dispatch with no provider raised")
@@ -100,7 +100,7 @@
     (rf/reg-event :app/inc {:frame :app/explicit}
       (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
     (reset! provider-frame :app/provided)
-    (binding [frame/*current-frame* nil]
+    (binding [rf.frame/*current-frame* nil]
       (rf/dispatch-sync [:app/inc] {:frame :app/explicit}))
     (is (= 1 (:n (rf/app-db-value :app/explicit)))
         "the explicit override landed, not the provider frame")

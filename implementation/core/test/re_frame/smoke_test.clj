@@ -9,10 +9,10 @@
   Every assertion here is posture-independent — it must hold in the ordinary
   `clojure -M:test` suite AND under the real production gate
   (`scripts/test-core-prod-gate.sh`, `-Dre-frame.debug=false`) — UNLESS it sits
-  inside a `(when interop/debug-enabled? …)` arm marked `rf2-d2841`.
+  inside a `(when rf.interop/debug-enabled? …)` arm marked `rf2-d2841`.
 
   Those arms observe the DEV `:trace` stream (and the debug-gated view
-  annotations), whose emit sites are gated on `interop/debug-enabled?` — read
+  annotations), whose emit sites are gated on `rf.interop/debug-enabled?` — read
   once at namespace-load time on the JVM, constant-folded away by Closure under
   `goog.DEBUG=false`. Under the gate the framework emits none of it BY DESIGN,
   so the assertions are correct dev-posture coverage; they are kept verbatim and
@@ -23,33 +23,33 @@
   than the trace being dropped."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.interop :as interop]
-            [re-frame.routing :as routing]
-            [re-frame.machines :as machines]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
-            [re-frame.flows :as flows]
+            [re-frame.interop :as rf.interop]
+            [re-frame.routing :as rf.routing]
+            [re-frame.machines :as rf.machines]
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.flows :as rf.flows]
             ;; Pull http-managed in so its late-bind hooks (in particular
             ;; :http/reg-http-interceptor) are published — the
             ;; registry-introspection-round-trip test below exercises
             ;; reg-http-interceptor. Side-effect require; alias unused.
             [re-frame.http.managed]
-            [re-frame.substrate.plain-atom :as plain-atom]))
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]))
 
 (defn reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.flows/reset-flows!)
+  (rf.schemas/clear-schemas-by-frame!)
   ;; flows.cljc keeps a private last-inputs atom for dirty-checking
   ;; (per Spec 013 §Dirty-check semantics). Without resetting it, an
   ;; entry from a prior deftest can leak into a subsequent same-keyed
   ;; flow registration and cause its first evaluation to no-op (the
   ;; new-inputs would =-equal the stale last-inputs). Clear it here so
   ;; cross-test order can't introduce hidden flakiness. See rf2-xsfj.
-  (flows/reset-last-inputs!)
-  (rf/init! plain-atom/adapter)
+  (rf.flows/reset-last-inputs!)
+  (rf/init! rf.substrate.plain-atom/adapter)
   ;; Framework events / fx / subs are registered at namespace-load time
   ;; in routing.cljc, ssr.cljc, and machines.cljc; clear-all! wiped them.
   ;; Re-eval those registrations so :rf.route/navigate, :rf/hydrate,
@@ -147,7 +147,7 @@
       ;; production-real half — the throw is CAUGHT and recovery is
       ;; `:replaced-with-default` (nil), not a propagated exception — is the
       ;; `(is (nil? …))` above, which runs in both postures.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [ev (some (fn [e]
                          (when (= :rf.error/sub-exception (:operation e)) e))
                        @traces)]
@@ -172,7 +172,7 @@
       (is (nil? (rf/compute-sub [:n*2] {:n 7})))
       (rf/unregister-listener! :trace ::boom2)
       ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (some (fn [e]
                     (and (= :rf.error/sub-exception (:operation e))
                          (= :n*2 (:rf.sub/id (:tags e)))
@@ -192,7 +192,7 @@
       ;; rf2-d2841 — dev-instrumentation arm (see ns docstring). The
       ;; production-real half — neither call THROWS, both recover to nil — is
       ;; the two `(is (nil? …))` assertions above, which run in both postures.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (some (fn [ev]
                     (and (= :rf.error/frame-destroyed (:operation ev))
                          (= :replaced-with-default (:recovery ev))))
@@ -241,7 +241,7 @@
       (is (nil? (:ran? (rf/app-db-value :rf/default)))
           "the nested event was rejected — :outer's handler never ran")
       ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (some (fn [ev]
                     (and (= :rf.error/dispatch-sync-in-handler (:operation ev))
                          (= :error (:op-type ev))
@@ -250,7 +250,7 @@
             "expected :rf.error/dispatch-sync-in-handler trace event")))))
 
 (deftest sync-dispatch-from-handler-body-routes-to-handlers-frame
-  ;; Per rf2-l5q3 — the router binds `frame/*current-frame*` to the
+  ;; Per rf2-l5q3 — the router binds `rf.frame/*current-frame*` to the
   ;; envelope's :frame for the duration of process-event!, so a
   ;; synchronous `(rf/dispatch ...)` from inside a handler body picks
   ;; up the in-flight event's frame (not :rf/default). The CLJS
@@ -284,7 +284,7 @@
 (deftest current-frame-inside-handler-reports-handlers-frame
   ;; Per rf2-l5q3 — `(rf/current-frame-id)` consults the dynamic-var tier
   ;; first. With the router's per-handler binding of
-  ;; `frame/*current-frame*` to the envelope's :frame, the call site
+  ;; `rf.frame/*current-frame*` to the envelope's :frame, the call site
   ;; reports the handler's frame, not :rf/default. This is the contract
   ;; that lets `(:dispatch (rf/capture-frame))`, `(:subscribe (rf/capture-frame))`, etc. — all of
   ;; which capture the value of
@@ -349,30 +349,30 @@
 
 (deftest app-schemas-returns-registered-schema-map
   (testing "app-schemas returns {path schema} for every reg-app-schema declaration"
-    (is (= {} (schemas/app-schemas))
+    (is (= {} (rf.schemas/app-schemas))
         "fresh registry: no schemas registered")
     (rf/reg-app-schema [:user]  [:map [:id :uuid]])
     (rf/reg-app-schema [:todos] [:vector :string])
-    (let [m (schemas/app-schemas)]
+    (let [m (rf.schemas/app-schemas)]
       (is (= 2 (count m)))
       (is (= [:map [:id :uuid]]   (get m [:user])))
       (is (= [:vector :string]    (get m [:todos]))))
-    (is (= [:map [:id :uuid]] (schemas/app-schema-at [:user]))
+    (is (= [:map [:id :uuid]] (rf.schemas/app-schema-at [:user]))
         "app-schema-at agrees with app-schemas for individual paths"))
   (testing "keyword-arity is sugar over the opts-map arity"
     ;; Per Spec 010 §Schemas as a tooling and agent surface: the
     ;; (app-schemas frame-id) form is sugar for (app-schemas {:frame ...}).
     ;; In v1 the registry is process-global so both arities return the
     ;; same map; the keyword/opts-map arities must not throw.
-    (let [bare    (schemas/app-schemas :rf/default)
-          opts    (schemas/app-schemas {:frame :rf/default})
-          no-args (schemas/app-schemas)]
+    (let [bare    (rf.schemas/app-schemas :rf/default)
+          opts    (rf.schemas/app-schemas {:frame :rf/default})
+          no-args (rf.schemas/app-schemas)]
       (is (map? bare))
       (is (= bare opts))
       (is (= bare no-args))))
   (testing "app-schemas rejects garbage input with a structured error"
     (is (thrown? clojure.lang.ExceptionInfo
-                 (schemas/app-schemas "not-a-keyword-or-map")))))
+                 (rf.schemas/app-schemas "not-a-keyword-or-map")))))
 
 ;; ---- subscription topology: glitch-freedom (JVM) -------------------------
 ;;
@@ -395,7 +395,7 @@
       :<- [:diamond/a]
       :<- [:diamond/b]
       (fn [[a b] _] {:a a :b b}))
-    (let [f (frame/make-anon-frame-record! {})]
+    (let [f (rf.frame/make-anon-frame-record! {})]
       (rf/dispatch-sync [:diamond/init] {:frame f})
       (is (= {:a 1 :b 2} (rf/compute-sub [:diamond/c] (rf/app-db-value f)))
           "initial state is fully consistent")
@@ -410,7 +410,7 @@
     (rf/reg-sub :chain/a (fn [db _] (:n db)))
     (rf/reg-sub :chain/b :<- [:chain/a] (fn [a _] (* a 2)))
     (rf/reg-sub :chain/c :<- [:chain/b] (fn [b _] (inc b)))
-    (let [f (frame/make-anon-frame-record! {})]
+    (let [f (rf.frame/make-anon-frame-record! {})]
       (rf/dispatch-sync [:chain/init] {:frame f})
       (is (= 21 (rf/compute-sub [:chain/c] (rf/app-db-value f)))
           "initial: n=10 → b=20 → c=21")
@@ -425,7 +425,7 @@
                      (fn [{:keys [db]} _] {:db (assoc db :unrelated "z")}))   ;; same value
     (rf/reg-sub :stable/a (fn [db _] (:n db)))
     (rf/reg-sub :stable/squared :<- [:stable/a] (fn [a _] (* a a)))
-    (let [f (frame/make-anon-frame-record! {})]
+    (let [f (rf.frame/make-anon-frame-record! {})]
       (rf/dispatch-sync [:stable/init] {:frame f})
       (is (= 25 (rf/compute-sub [:stable/squared] (rf/app-db-value f)))
           "initial value correct: 5*5 = 25")
@@ -508,7 +508,7 @@
 ;; pure-machine-transition / machine-always-microstep / machine-raise-pre-commit
 ;; moved to machines artefact's machine_transition_purity_test.clj
 ;; (rf2-zqar3 cohort split — all three exercise the pure
-;; machines/machine-transition surface; co-located with the rest of the
+;; rf.machines/machine-transition surface; co-located with the rest of the
 ;; pure-transition contract tests).
 
 ;; ---- flows ----------------------------------------------------------------
@@ -532,31 +532,31 @@
   (testing "route-url percent-encodes named params; match-url decodes them"
     (rf/reg-route :user/show {} "/users/:id")
     (is (= "/users/hello%20world"
-           (routing/route-url {:to :user/show :params {:id "hello world"}})))
-    (let [m (routing/match-url "/users/hello%20world")]
+           (rf.routing/route-url {:to :user/show :params {:id "hello world"}})))
+    (let [m (rf.routing/match-url "/users/hello%20world")]
       (is (= "hello world" (:id (:params m))))))
   (testing "splat value preserves '/' between segments but encodes within"
     (rf/reg-route :files/get {} "/files/*rest")
     (is (= "/files/a/b%20c/d"
-           (routing/route-url {:to :files/get :params {:rest "a/b c/d"}})))
-    (let [m (routing/match-url "/files/a/b%20c/d")]
+           (rf.routing/route-url {:to :files/get :params {:rest "a/b c/d"}})))
+    (let [m (rf.routing/match-url "/files/a/b%20c/d")]
       (is (= "a/b c/d" (:rest (:params m))))))
   (testing "query keys and values are encoded / decoded. rf2-5ifai:
             the bare route declares no :query vocabulary, so the key
             stays a string."
     (rf/reg-route :search {} "/search")
     (is (= "/search?q=hello%20world"
-           (routing/route-url {:to :search :params {} :query {:q "hello world"}})))
-    (let [m (routing/match-url "/search?q=hello%20world")]
+           (rf.routing/route-url {:to :search :params {} :query {:q "hello world"}})))
+    (let [m (rf.routing/match-url "/search?q=hello%20world")]
       (is (= "hello world" (get-in m [:query "q"]))))))
 
 (deftest match-and-route-url
   (testing "match-url and route-url round-trip"
     (rf/reg-route :user/show {} "/users/:id")
-    (let [m (routing/match-url "/users/42")]
+    (let [m (rf.routing/match-url "/users/42")]
       (is (= :user/show (:route-id m)))
       (is (= "42" (:id (:params m)))))
-    (is (= "/users/42" (routing/route-url {:to :user/show :params {:id 42}})))))
+    (is (= "/users/42" (rf.routing/route-url {:to :user/show :params {:id 42}})))))
 
 ;; ---- SSR emitter ----------------------------------------------------------
 
@@ -611,7 +611,7 @@
       ;; `verify-hydration!` compares against — is asserted above, in both
       ;; postures. The MISMATCH REPORT is a developer diagnostic: the recovery
       ;; is `:warned-and-replaced`, i.e. the client render wins either way.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (some (fn [ev]
                     (and (= :rf.ssr/hydration-mismatch (:operation ev))
                          (= "server-hash-X" (:server-hash (:tags ev)))
@@ -667,7 +667,7 @@
       ;; per-machine SIGNAL is a developer/tooling notification: it rides the
       ;; dev `:trace` stream only, so under the production gate there is
       ;; nothing to count.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [machine-traces (filter #(= :rf.machine.lifecycle/destroyed
                                           (:operation %))
                                      @traces)]
@@ -697,7 +697,7 @@
            ;; Per Spec 005 §Declarative :spawn (rf2-een2 / rf2-smba):
            ;; on-spawn callback signature is (fn [data spawned-id] new-data).
            :on-spawn-actions {:record (fn [{data :data}] data)}}
-          handler (machines/make-machine-handler machine)]
+          handler (rf.machines/make-machine-handler machine)]
       ;; rf2-ywv74m — the spawned child TYPE must be REGISTERED before it is
       ;; spawned (the implicit "spec-less spawn" path is removed; an
       ;; unregistered `:machine-id` now rejects fail-closed with
@@ -718,7 +718,7 @@
         ;; frame-scoping CONTRACT this deftest is named for is the
         ;; `:rf/spawn-counter` pair below, read straight out of each frame's
         ;; runtime-db — production-real state, asserted in both postures.
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           (let [spawn-traces (filter #(= :rf.machine.spawn/spawned (:operation %)) @traces)
                 ids          (mapv #(get-in % [:tags :id-prefix]) spawn-traces)]
             (is (= 2 (count spawn-traces))
@@ -776,7 +776,7 @@
         (is (= {} (:snapshots machines-rt))
             ":rf.machine/destroy was handled — :worker#1's snapshot is gone"))
       ;; rf2-d2841 — dev-instrumentation arm (see ns docstring).
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (some #(= :rf.machine.spawn/spawned (:operation %)) @traces)
             "expected :rf.machine.spawn/spawned trace")
         (is (some #(= :rf.machine/destroyed (:operation %)) @traces)
@@ -812,7 +812,7 @@
       ;; The login machine. Mirrors the structure of examples/login/core.cljs's
       ;; :auth.login/flow — five states, deepest-wins, multi-guard branch.
       (rf/reg-event :auth.login/flow
-        (machines/make-machine-handler
+        (rf.machines/make-machine-handler
           ;; Per Spec 005: spec map does NOT carry :id; the id comes
           ;; from the enclosing reg-event call.
           {:initial :idle
@@ -856,7 +856,7 @@
 
       (testing "happy path: idle → submitting → authed; session token stored"
         (reset! stored nil)
-        (let [f (frame/make-anon-frame-record! {:fx-overrides {:http :http.canned-success}})]
+        (let [f (rf.frame/make-anon-frame-record! {:fx-overrides {:http :http.canned-success}})]
           (rf/dispatch-sync [:auth.login/flow [:auth.login/submit
                                                {:email "a@b.c" :password "secret"}]]
                             {:frame f})
@@ -867,7 +867,7 @@
 
       (testing "retry-then-lockout: 3 failures land in :error-shown, 4th in :locked-out"
         (reset! stored nil)
-        (let [f (frame/make-anon-frame-record! {:fx-overrides {:http :http.canned-failure}})]
+        (let [f (rf.frame/make-anon-frame-record! {:fx-overrides {:http :http.canned-failure}})]
           (dotimes [_ 3]
             (rf/dispatch-sync [:auth.login/flow [:auth.login/submit
                                                  {:email "x@y.z" :password "wrong"}]]
@@ -888,7 +888,7 @@
        :data    {:n 0}
        :actions {:bump (fn [{data :data}] {:data (update data :n inc)})}
        :states  {:idle {:on {:tick {:target :idle :action :bump}}}}})
-    (let [f (frame/make-anon-frame-record! {})]
+    (let [f (rf.frame/make-anon-frame-record! {})]
       (rf/dispatch-sync [:test/tiny [:tick]] {:frame f})
       (rf/dispatch-sync [:test/tiny [:tick]] {:frame f})
       ;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state.
@@ -920,7 +920,7 @@
       ;; A regular event-handler must NOT show up in (rf.machines/machines).
       (rf/reg-event :test/regular (fn [{:keys [db]} _] {:db db}))
 
-      (let [ids (set (machines/machines))]
+      (let [ids (set (rf.machines/machines))]
         (is (contains? ids :test/tiny)
             "(rf.machines/machines) lists machines registered via reg-machine")
         (is (contains? ids :test/other)
@@ -929,17 +929,17 @@
             "(rf.machines/machines) excludes plain event handlers"))
 
       (testing "(rf.machines/machine-meta id) returns the spec map for registered machines"
-        (is (= tiny-spec (machines/machine-meta :test/tiny))
+        (is (= tiny-spec (rf.machines/machine-meta :test/tiny))
             "machine-meta returns the spec map passed to reg-machine")
-        (is (= other-spec (machines/machine-meta :test/other)))
+        (is (= other-spec (rf.machines/machine-meta :test/other)))
         (is (= "A tiny test machine."
-               (:doc (machines/machine-meta :test/tiny)))
+               (:doc (rf.machines/machine-meta :test/tiny)))
             "the spec's :doc round-trips through machine-meta"))
 
       (testing "(rf.machines/machine-meta id) returns nil for unregistered or non-machine ids"
-        (is (nil? (machines/machine-meta :test/regular))
+        (is (nil? (rf.machines/machine-meta :test/regular))
             "non-machine event handlers return nil")
-        (is (nil? (machines/machine-meta :test/never-registered))
+        (is (nil? (rf.machines/machine-meta :test/never-registered))
             "unregistered ids return nil")))))
 
 ;; ssr-with-fx-override and ssr-end-to-end moved to the ssr artefact's
@@ -973,7 +973,7 @@
       ;; rf2-d2841 — dev-instrumentation arm (see ns docstring). The two
       ;; view annotations are debug-gated, so the root is bare `<p>` under
       ;; the production gate and attributed `<p …>` in dev.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (clojure.string/starts-with? html "<p ")
             "in DEV the resolved root also carries the debug-gated view annotations")))
     (is (fn? (rf/view :greet))
@@ -1060,7 +1060,7 @@
     ;; `{frame-id {flow-id flow-map}}`), the single source of truth. The
     ;; `:flow` registrar kind stays RESERVED-but-empty (like `:http-
     ;; interceptor`); introspection of registered flows goes through
-    ;; `flows/flow-meta-at` / `flows/flows-snapshot`, asserted in the flows
+    ;; `rf.flows/flow-meta-at` / `rf.flows/flows-snapshot`, asserted in the flows
     ;; artefact's own tests. The fixture's ambient `(with-frame :rf/default …)`
     ;; scope resolves the frame this registers against.
     (rf/reg-flow :rf2-o1bp/flow1 {:inputs [] :output-path [:rf2-o1bp/flow-output]} (fn [_inputs] :computed))
@@ -1080,10 +1080,10 @@
     ;; ---- app-db schema -----------------------------------------------
     ;; Per rf2-0frdi / rf2-cq1ak app-db schemas live OUTSIDE the registrar
     ;; — `reg-app-schema` writes only to the schemas artefact's own
-    ;; per-frame side-table (`schemas/schemas-by-frame`). There is NO
+    ;; per-frame side-table (`rf.schemas/schemas-by-frame`). There is NO
     ;; `:app-schema` registrar kind. Introspection of registered app-db
-    ;; schemas goes through `schemas/app-schemas` /
-    ;; `schemas/app-schema-meta-at`, asserted in the schemas artefact's
+    ;; schemas goes through `rf.schemas/app-schemas` /
+    ;; `rf.schemas/app-schema-meta-at`, asserted in the schemas artefact's
     ;; own tests.
     (rf/reg-app-schema [:rf2-o1bp/path] :any)
 
@@ -1101,7 +1101,7 @@
             ;; reg-flow writes only to the flows artefact's per-frame store, so
             ;; the registrar :flow id set is empty (same pattern as
             ;; `:http-interceptor`). Flow introspection reads
-            ;; `flows/flow-meta-at` / `flows/flows-snapshot`.
+            ;; `rf.flows/flow-meta-at` / `rf.flows/flows-snapshot`.
             flow-ids        (ids-of :flow)
             ep-ids          (ids-of :error-projector)]
         (is (set? event-ids) "the id projection returns a set")
@@ -1116,17 +1116,17 @@
         (is (contains? route-ids :rf2-o1bp/route1))
         ;; Per rf2-en00bk `:flow` is RESERVED-but-empty — the registrar
         ;; :flow id set does NOT carry the flow (it lives in the
-        ;; flows artefact's per-frame store). Asserted via `flows/flow-meta-at`
+        ;; flows artefact's per-frame store). Asserted via `rf.flows/flow-meta-at`
         ;; below instead.
         (is (not (contains? flow-ids :rf2-o1bp/flow1))
             "registrar :flow id set is empty — flows own their per-frame store (rf2-en00bk)")
-        (is (some? (flows/flow-meta-at :rf2-o1bp/flow1))
-            "the flow IS introspectable via flows/flow-meta-at (the per-frame store)")
+        (is (some? (rf.flows/flow-meta-at :rf2-o1bp/flow1))
+            "the flow IS introspectable via rf.flows/flow-meta-at (the per-frame store)")
         (is (contains? ep-ids :rf2-o1bp/err1))
         ;; Per rf2-cq1ak `:app-schema` is NOT a registrar kind — no
         ;; assertion here. App-db schema introspection goes through
-        ;; `schemas/app-schemas` (returns `{path → schema}`).
-        (is (not (registrar/valid-kind? :app-schema))
+        ;; `rf.schemas/app-schemas` (returns `{path → schema}`).
+        (is (not (rf.registrar/valid-kind? :app-schema))
             ":app-schema is NOT a registrar kind (rf2-cq1ak)")))
 
     ;; ---- (2) registrations returns {id → metadata} per kind -----------
@@ -1158,10 +1158,10 @@
             ":route metadata carries :path"))
       ;; Flows carry :output-path and :inputs. Per rf2-en00bk they are NOT in
       ;; the registrar (`handler-meta :flow` is nil); the per-frame store is
-      ;; the single source of truth, read via `flows/flow-meta-at`.
+      ;; the single source of truth, read via `rf.flows/flow-meta-at`.
       (is (nil? (rf/handler-meta :flow :rf2-o1bp/flow1))
           "registrar handler-meta :flow is nil — flows are not a registrar slot (rf2-en00bk)")
-      (let [m (flows/flow-meta-at :rf2-o1bp/flow1)]
+      (let [m (rf.flows/flow-meta-at :rf2-o1bp/flow1)]
         (is (= [:rf2-o1bp/flow-output] (:output-path m)))
         (is (= [] (:inputs m))))
       ;; Unknown id → nil.

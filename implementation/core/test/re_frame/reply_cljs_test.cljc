@@ -18,8 +18,8 @@
   Canonical contract: `spec/Managed-Effects.md` §The uniform reply
   envelope. Pure substrate — no runtime fixture needed."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.error :as error]
-            [re-frame.reply :as reply]))
+            [re-frame.error :as rf.error]
+            [re-frame.reply :as rf.reply]))
 
 ;; ---------------------------------------------------------------------------
 ;; Group 1 — reply-map schema.
@@ -27,112 +27,112 @@
 
 (deftest closed-status-vocabulary
   (testing "exactly the five statuses are valid"
-    (is (= #{:ok :partial :error :cancelled :stale} reply/statuses)))
+    (is (= #{:ok :partial :error :cancelled :stale} rf.reply/statuses)))
   (testing "a reply with no :status is invalid"
     (is (some #(= :rf.reply/missing-status (:rf.reply/problem %))
-              (reply/validate-reply {:value 1}))))
+              (rf.reply/validate-reply {:value 1}))))
   (testing "a reply with an out-of-vocabulary :status is invalid"
     (is (some #(= :rf.reply/invalid-status (:rf.reply/problem %))
-              (reply/validate-reply {:status :done :value 1}))))
+              (rf.reply/validate-reply {:status :done :value 1}))))
   (testing "exactly one valid :status passes"
-    (is (reply/valid-reply? {:status :ok :value {:title "Welcome"}}))))
+    (is (rf.reply/valid-reply? {:status :ok :value {:title "Welcome"}}))))
 
 (deftest ok-conventions
   (testing ":ok requires :value and forbids :error"
-    (is (reply/valid-reply? {:status :ok :value 42}))
+    (is (rf.reply/valid-reply? {:status :ok :value 42}))
     (is (some #(= :rf.reply/ok-missing-value (:rf.reply/problem %))
-              (reply/validate-reply {:status :ok})))
+              (rf.reply/validate-reply {:status :ok})))
     (is (some #(= :rf.reply/ok-has-error (:rf.reply/problem %))
-              (reply/validate-reply {:status :ok :value 1 :error {:kind :x}}))))
+              (rf.reply/validate-reply {:status :ok :value 1 :error {:kind :x}}))))
   (testing "a PRESENT :error key on :ok — including a nil placeholder — is rejected (rf2-o7pqbm finding 3)"
     ;; The contract says :error is ABSENT for :ok (omit optional fields when
     ;; absent rather than fill a nil sentinel). A {:status :ok :error nil}
     ;; reply previously slipped through because validation rejected only
     ;; `(some? error)`; it now rejects a present-but-nil :error too.
     (is (some #(= :rf.reply/ok-has-error (:rf.reply/problem %))
-              (reply/validate-reply {:status :ok :value 1 :error nil}))
+              (rf.reply/validate-reply {:status :ok :value 1 :error nil}))
         "{:status :ok :error nil} fails — :error should be OMITTED on :ok, not nil-filled")
-    (is (reply/valid-reply? {:status :ok :value 1})
+    (is (rf.reply/valid-reply? {:status :ok :value 1})
         "the well-formed shape OMITS :error entirely")))
 
 (deftest error-conventions
   (testing ":error requires :error as a family error MAP carrying a :kind"
-    (is (reply/valid-reply? {:status :error :error {:kind :rf.http/http-5xx}}))
+    (is (rf.reply/valid-reply? {:status :error :error {:kind :rf.http/http-5xx}}))
     (is (some #(= :rf.reply/error-missing-error (:rf.reply/problem %))
-              (reply/validate-reply {:status :error})))
+              (rf.reply/validate-reply {:status :error})))
     (is (some #(= :rf.reply/error-not-family-map (:rf.reply/problem %))
-              (reply/validate-reply {:status :error :error {:no :kind}}))
+              (rf.reply/validate-reply {:status :error :error {:no :kind}}))
         "a map without :kind is not a family error"))
   (testing "a LOOSE SCALAR :error is rejected — every family error is a structured {:kind …} map"
     (is (some #(= :rf.reply/error-not-family-map (:rf.reply/problem %))
-              (reply/validate-reply {:status :error :error :rf.http/http-5xx}))
+              (rf.reply/validate-reply {:status :error :error :rf.http/http-5xx}))
         "a bare keyword :error fails loud — the closed contract demands the {:kind …} shape")
     (is (some #(= :rf.reply/error-not-family-map (:rf.reply/problem %))
-              (reply/validate-reply {:status :error :error "boom"}))
+              (rf.reply/validate-reply {:status :error :error "boom"}))
         "a bare string :error fails loud too")))
 
 (deftest partial-conventions
   (testing ":partial carries BOTH usable :value AND a structured family :error MAP with a :kind"
-    (is (reply/valid-reply?
+    (is (rf.reply/valid-reply?
           {:status :partial
            :value  {:user {:name "Ada"}}
            :error  {:kind :rf.graphql/partial-success
                     :errors [{:message "field x denied"}]}}))
     (is (some #(= :rf.reply/partial-missing-value (:rf.reply/problem %))
-              (reply/validate-reply {:status :partial :error {:kind :x}})))
+              (rf.reply/validate-reply {:status :partial :error {:kind :x}})))
     (is (some #(= :rf.reply/partial-missing-error (:rf.reply/problem %))
-              (reply/validate-reply {:status :partial :value 1})))
+              (rf.reply/validate-reply {:status :partial :value 1})))
     (is (some #(= :rf.reply/error-not-family-map (:rf.reply/problem %))
-              (reply/validate-reply {:status :partial :value 1 :error {:no :kind}})))
+              (rf.reply/validate-reply {:status :partial :value 1 :error {:no :kind}})))
     (is (some #(= :rf.reply/error-not-family-map (:rf.reply/problem %))
-              (reply/validate-reply {:status :partial :value 1 :error :loose-scalar}))
+              (rf.reply/validate-reply {:status :partial :value 1 :error :loose-scalar}))
         "a loose scalar :error on a :partial is rejected just like on :error")))
 
 (deftest cancelled-conventions
   (testing ":cancelled requires :rf.reply/cancel-reason AND the :cancelled? true marker; :error MAY carry compatibility data"
-    (is (reply/valid-reply? {:status :cancelled :rf.reply/cancel-reason :user :cancelled? true}))
-    (is (reply/valid-reply? {:status        :cancelled
+    (is (rf.reply/valid-reply? {:status :cancelled :rf.reply/cancel-reason :user :cancelled? true}))
+    (is (rf.reply/valid-reply? {:status        :cancelled
                              :rf.reply/cancel-reason :actor-destroyed
                              :cancelled?    true
                              :error         {:kind :rf.http/aborted :reason :actor-destroyed}}))
     (is (some #(= :rf.reply/cancelled-missing-reason (:rf.reply/problem %))
-              (reply/validate-reply {:status :cancelled :cancelled? true})))
+              (rf.reply/validate-reply {:status :cancelled :cancelled? true})))
     (is (some #(= :rf.reply/cancelled-missing-marker (:rf.reply/problem %))
-              (reply/validate-reply {:status :cancelled :rf.reply/cancel-reason :user}))
+              (rf.reply/validate-reply {:status :cancelled :rf.reply/cancel-reason :user}))
         "a :rf.reply/cancel-reason alone is NOT enough — cancellation is a positive :cancelled? true fact")
     (is (some #(= :rf.reply/cancelled-missing-marker (:rf.reply/problem %))
-              (reply/validate-reply {:status :cancelled :rf.reply/cancel-reason :user :cancelled? false}))
+              (rf.reply/validate-reply {:status :cancelled :rf.reply/cancel-reason :user :cancelled? false}))
         ":cancelled? false on a :cancelled reply is contradictory and fails loud")))
 
 (deftest stale-conventions
   (testing ":stale requires :stale? true + :rf.reply/stale-reason and carries NO :value"
-    (is (reply/valid-reply? {:status :stale :stale? true :rf.reply/stale-reason :generation-mismatch}))
+    (is (rf.reply/valid-reply? {:status :stale :stale? true :rf.reply/stale-reason :generation-mismatch}))
     (is (some #(= :rf.reply/stale-missing-flag (:rf.reply/problem %))
-              (reply/validate-reply {:status :stale :rf.reply/stale-reason :x})))
+              (rf.reply/validate-reply {:status :stale :rf.reply/stale-reason :x})))
     (is (some #(= :rf.reply/stale-missing-reason (:rf.reply/problem %))
-              (reply/validate-reply {:status :stale :stale? true})))
+              (rf.reply/validate-reply {:status :stale :stale? true})))
     (is (some #(= :rf.reply/stale-has-value (:rf.reply/problem %))
-              (reply/validate-reply {:status :stale :stale? true :rf.reply/stale-reason :x :value 1}))
+              (rf.reply/validate-reply {:status :stale :stale? true :rf.reply/stale-reason :x :value 1}))
         "a stale reply MUST NOT mutate app state — carrying :value would invite it")))
 
 (deftest work-status-vocabulary
   (testing ":rf.reply/work-status, when present, is in the closed operational set"
-    (is (reply/valid-reply? {:status :error :error {:kind :rf.http/timeout} :rf.reply/work-status :timed-out}))
+    (is (rf.reply/valid-reply? {:status :error :error {:kind :rf.http/timeout} :rf.reply/work-status :timed-out}))
     (is (some #(= :rf.reply/invalid-work-status (:rf.reply/problem %))
-              (reply/validate-reply {:status :ok :value 1 :rf.reply/work-status :weird})))))
+              (rf.reply/validate-reply {:status :ok :value 1 :rf.reply/work-status :weird})))))
 
 (deftest data-only-invariant-no-host-handles
   (testing "a fn anywhere in the reply is a host handle"
     (is (some #(= :rf.reply/host-handle (:rf.reply/problem %))
-              (reply/validate-reply {:status :ok :value (fn [] 1)})))
+              (rf.reply/validate-reply {:status :ok :value (fn [] 1)})))
     (is (some #(= :rf.reply/host-handle (:rf.reply/problem %))
-              (reply/validate-reply {:status :ok :value {:a {:b (fn [] 1)}}}))
+              (rf.reply/validate-reply {:status :ok :value {:a {:b (fn [] 1)}}}))
         "host handles are found at any depth")
-    (let [probs (reply/validate-reply {:status :ok :value {:a {:cb (fn [] 1)}}})
+    (let [probs (rf.reply/validate-reply {:status :ok :value {:a {:cb (fn [] 1)}}})
           path  (some #(when (= :rf.reply/host-handle (:rf.reply/problem %)) (:path %)) probs)]
       (is (= [:value :a :cb] path) "the problem reports the exact path to the handle")))
   (testing "a plain-data reply has no host-handle problem"
-    (is (reply/valid-reply?
+    (is (rf.reply/valid-reply?
           {:status       :ok
            :value        {:title "Welcome"}
            :work/id      [:rf.work/http :article/by-id 42 1]
@@ -155,29 +155,29 @@
   (testing "a host Date in the reply is a host handle (CLJS js/Date, JVM java.util.Date)"
     (let [d #?(:cljs (js/Date.) :clj (java.util.Date.))]
       (is (some #(= :rf.reply/host-handle (:rf.reply/problem %))
-                (reply/validate-reply {:status :ok :value {:settled-at d}}))
+                (rf.reply/validate-reply {:status :ok :value {:settled-at d}}))
           "a host Date must not ride a data-only reply — use an epoch-ms long")
-      (let [probs (reply/validate-reply {:status :ok :value {:settled-at d}})
+      (let [probs (rf.reply/validate-reply {:status :ok :value {:settled-at d}})
             path  (some #(when (= :rf.reply/host-handle (:rf.reply/problem %)) (:path %)) probs)]
         (is (= [:value :settled-at] path) "the problem reports the exact path to the Date"))))
   (testing "a host RegExp in the reply is a host handle (CLJS js/RegExp, JVM java.util.regex.Pattern)"
     (let [re #?(:cljs (js/RegExp. "x") :clj (java.util.regex.Pattern/compile "x"))]
       (is (some #(= :rf.reply/host-handle (:rf.reply/problem %))
-                (reply/validate-reply {:status :error :error {:kind :x :re re}}))
+                (rf.reply/validate-reply {:status :error :error {:kind :x :re re}}))
           "a host RegExp must not ride a data-only reply")
-      (let [probs (reply/validate-reply {:status :error :error {:kind :x :re re}})
+      (let [probs (rf.reply/validate-reply {:status :error :error {:kind :x :re re}})
             path  (some #(when (= :rf.reply/host-handle (:rf.reply/problem %)) (:path %)) probs)]
         (is (= [:error :re] path) "the problem reports the exact path to the RegExp"))))
   (testing "the durable-target guard rejects a non-EDN host object in a public field too"
     (let [d #?(:cljs (js/Date.) :clj (java.util.Date.))]
       (try
-        (reply/durable-target {:event [:x] :suppress {:at d}})
+        (rf.reply/durable-target {:event [:x] :suppress {:at d}})
         (is false "expected durable-target to reject a host Date in :suppress")
         (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
           (is (= :rf.reply/non-data-target (:rf.error/kind (ex-data e))))
           (is (= [:suppress :at] (:path (ex-data e))))))))
   (testing "plain EDN — including an epoch-ms long instant — still passes"
-    (is (reply/valid-reply?
+    (is (rf.reply/valid-reply?
           {:status :ok :value {:title "x"} :completed-at 1781078400456}))))
 
 ;; ---------------------------------------------------------------------------
@@ -187,21 +187,21 @@
 (deftest target-normalization
   (testing "the public short form normalizes to a :delivery :append descriptor"
     (is (= {:event [:article/load-replied {:id 42}] :delivery :append}
-           (reply/normalize-target [:article/load-replied {:id 42}]))))
+           (rf.reply/normalize-target [:article/load-replied {:id 42}]))))
   (testing "the descriptor form defaults :delivery to :append"
-    (is (= :append (:delivery (reply/normalize-target
+    (is (= :append (:delivery (rf.reply/normalize-target
                                 {:event [:x] :suppress {:generation 1}})))))
   (testing "normalization is idempotent and preserves gate fields"
-    (let [d (reply/normalize-target {:event [:x] :delivery :append
+    (let [d (rf.reply/normalize-target {:event [:x] :delivery :append
                                      :suppress {:route/nav-token "nav-7"}})]
-      (is (= d (reply/normalize-target d)))))
+      (is (= d (rf.reply/normalize-target d)))))
   (testing "short-form projection round-trips a plain target"
-    (is (= [:x 1] (reply/target->short-form [:x 1])))
-    (is (= [:x 1] (reply/target->short-form {:event [:x 1] :delivery :append}))))
+    (is (= [:x 1] (rf.reply/target->short-form [:x 1])))
+    (is (= [:x 1] (rf.reply/target->short-form {:event [:x 1] :delivery :append}))))
   (testing "short-form projection keeps the descriptor when gates are present"
-    (is (map? (reply/target->short-form {:event [:x] :suppress {:g 1}}))))
+    (is (map? (rf.reply/target->short-form {:event [:x] :suppress {:g 1}}))))
   (testing "nil target ⇒ nil (no continuation)"
-    (is (nil? (reply/normalize-target nil)))))
+    (is (nil? (rf.reply/normalize-target nil)))))
 
 ;; ---------------------------------------------------------------------------
 ;; Group 1b'' — MALFORMED target rejection (rf2-o7pqbm finding 1+2). The
@@ -220,49 +220,49 @@
 
 (deftest malformed-target-fails-closed
   (testing "a descriptor with NO :event is rejected (not silently passed to complete)"
-    (is (invalid-target? #(reply/normalize-target {}))
+    (is (invalid-target? #(rf.reply/normalize-target {}))
         "{} carries no event — it cannot become a dispatch shape")
-    (is (invalid-target? #(reply/normalize-target {:delivery :append :suppress {:g 1}}))
+    (is (invalid-target? #(rf.reply/normalize-target {:delivery :append :suppress {:g 1}}))
         "a descriptor with gates but no :event is still malformed"))
   (testing "a descriptor whose :event is nil / a bare keyword / not a vector is rejected"
-    (is (invalid-target? #(reply/normalize-target {:event nil}))
+    (is (invalid-target? #(rf.reply/normalize-target {:event nil}))
         "{:event nil} would (vec nil) into a garbage event")
-    (is (invalid-target? #(reply/normalize-target {:event :x}))
+    (is (invalid-target? #(rf.reply/normalize-target {:event :x}))
         "{:event :x} is a bare keyword, not an event-vector prefix")
-    (is (invalid-target? #(reply/normalize-target {:event "boom"})))
-    (is (invalid-target? #(reply/normalize-target {:event {:id 1}}))))
+    (is (invalid-target? #(rf.reply/normalize-target {:event "boom"})))
+    (is (invalid-target? #(rf.reply/normalize-target {:event {:id 1}}))))
   (testing "an EMPTY or non-keyword-headed event vector is rejected"
-    (is (invalid-target? #(reply/normalize-target []))
+    (is (invalid-target? #(rf.reply/normalize-target []))
         "an empty vector has no event id to dispatch")
-    (is (invalid-target? #(reply/normalize-target {:event []})))
-    (is (invalid-target? #(reply/normalize-target [42 :arg]))
+    (is (invalid-target? #(rf.reply/normalize-target {:event []})))
+    (is (invalid-target? #(rf.reply/normalize-target [42 :arg]))
         "the head must be a keyword event id, not a number")
-    (is (invalid-target? #(reply/normalize-target ["not-a-keyword"]))))
+    (is (invalid-target? #(rf.reply/normalize-target ["not-a-keyword"]))))
   (testing "a non-vector / non-map target is rejected"
-    (is (invalid-target? #(reply/normalize-target :x)))
-    (is (invalid-target? #(reply/normalize-target 42)))
-    (is (invalid-target? #(reply/normalize-target "boom"))))
+    (is (invalid-target? #(rf.reply/normalize-target :x)))
+    (is (invalid-target? #(rf.reply/normalize-target 42)))
+    (is (invalid-target? #(rf.reply/normalize-target "boom"))))
   (testing "a WELL-FORMED target still normalizes (the guard rejects only malformed shapes)"
-    (is (= {:event [:x 1] :delivery :append} (reply/normalize-target [:x 1])))
-    (is (= {:event [:x] :delivery :append} (reply/normalize-target {:event [:x]}))))
+    (is (= {:event [:x 1] :delivery :append} (rf.reply/normalize-target [:x 1])))
+    (is (= {:event [:x] :delivery :append} (rf.reply/normalize-target {:event [:x]}))))
   (testing "the malformed-target rejection propagates through complete / target->short-form"
-    (is (invalid-target? #(reply/complete {:event :x} {:status :ok :value 1}))
+    (is (invalid-target? #(rf.reply/complete {:event :x} {:status :ok :value 1}))
         "complete fails closed on a malformed descriptor (never (vec :x))")
-    (is (invalid-target? #(reply/target->short-form {})))))
+    (is (invalid-target? #(rf.reply/target->short-form {})))))
 
 (deftest map-completed-event-preserves-nil-no-continuation
   (testing "mapping a nil target stays nil — NOT a bogus {::post f} eventless descriptor"
-    (is (nil? (reply/map-completed-event identity nil)))
-    (is (nil? (reply/map-completed-event (fn [e] [:wrap e]) nil))
+    (is (nil? (rf.reply/map-completed-event identity nil)))
+    (is (nil? (rf.reply/map-completed-event (fn [e] [:wrap e]) nil))
         "mapping the absence of a continuation is still the absence of a continuation")
-    (is (nil? (reply/complete (reply/map-completed-event (fn [e] [:wrap e]) nil)
+    (is (nil? (rf.reply/complete (rf.reply/map-completed-event (fn [e] [:wrap e]) nil)
                               {:status :ok :value 1}))
         "and completing that mapped-nil target yields nil (no delivery)"))
   (testing "mapping a well-formed target still relocates it (the nil guard does not weaken mapping)"
-    (let [mapped (reply/map-completed-event (fn [e] [:parent e]) [:x {:id 1}])]
+    (let [mapped (rf.reply/map-completed-event (fn [e] [:parent e]) [:x {:id 1}])]
       (is (some? mapped))
       (is (= [:parent [:x {:id 1} {:status :ok :value 7}]]
-             (reply/complete mapped {:status :ok :value 7}))))))
+             (rf.reply/complete mapped {:status :ok :value 7}))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Group 1b' — the reply-target-as-data contract (rf2-r16hfc item 1). A
@@ -275,17 +275,17 @@
 
 (deftest durable-target-is-data-only
   (testing "a plain data target is data-only and survives durable projection unchanged"
-    (is (true? (reply/data-only-target? [:x 1])))
-    (is (true? (reply/data-only-target? {:event [:x] :suppress {:g 1}})))
+    (is (true? (rf.reply/data-only-target? [:x 1])))
+    (is (true? (rf.reply/data-only-target? {:event [:x] :suppress {:g 1}})))
     (is (= {:event [:x] :delivery :append :suppress {:g 1}}
-           (reply/durable-target {:event [:x] :suppress {:g 1}})))
-    (is (nil? (reply/durable-target nil)) "nil target ⇒ nil (nothing to persist)"))
+           (rf.reply/durable-target {:event [:x] :suppress {:g 1}})))
+    (is (nil? (rf.reply/durable-target nil)) "nil target ⇒ nil (nothing to persist)"))
   (testing "a MAPPED target carries the ::post fn — NOT data-only — and durable projection strips it"
-    (let [mapped (reply/map-completed-event (fn [e] e) [:x 1])]
-      (is (false? (reply/data-only-target? mapped))
+    (let [mapped (rf.reply/map-completed-event (fn [e] e) [:x 1])]
+      (is (false? (rf.reply/data-only-target? mapped))
           "the functor accumulator is a fn — a mapped target is not safe to persist")
-      (let [durable (reply/durable-target mapped)]
-        (is (true? (reply/data-only-target? durable)) "stripping ::post restores data-only")
+      (let [durable (rf.reply/durable-target mapped)]
+        (is (true? (rf.reply/data-only-target? durable)) "stripping ::post restores data-only")
         (is (= {:event [:x 1] :delivery :append} durable)))))
   (testing "durable-target FAILS LOUD when a host handle hides in a PUBLIC field (an app/family bug)"
     ;; A function smuggled into :suppress (or any public slot) would leak a
@@ -293,9 +293,9 @@
     (is (thrown-with-msg?
           #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo)
           #"must be data-only"
-          (reply/durable-target {:event [:x] :suppress {:cb (fn [] 1)}})))
+          (rf.reply/durable-target {:event [:x] :suppress {:cb (fn [] 1)}})))
     (try
-      (reply/durable-target {:event [:x] :suppress {:cb (fn [] 1)}})
+      (rf.reply/durable-target {:event [:x] :suppress {:cb (fn [] 1)}})
       (is false "expected durable-target to throw")
       (catch #?(:clj clojure.lang.ExceptionInfo :cljs cljs.core/ExceptionInfo) e
         (is (= :rf.reply/non-data-target (:rf.error/kind (ex-data e))))
@@ -311,12 +311,12 @@
                :completed-at 1781078400456}]
     (testing "the reply map is appended as the final event argument"
       (is (= [:article/load-replied {:id 42} reply]
-             (reply/complete [:article/load-replied {:id 42}] reply))))
+             (rf.reply/complete [:article/load-replied {:id 42}] reply))))
     (testing "completion works through the descriptor form too"
       (is (= [:article/load-replied {:id 42} reply]
-             (reply/complete {:event [:article/load-replied {:id 42}] :delivery :append} reply))))
+             (rf.reply/complete {:event [:article/load-replied {:id 42}] :delivery :append} reply))))
     (testing "nil target ⇒ nil (no delivery)"
-      (is (nil? (reply/complete nil reply))))))
+      (is (nil? (rf.reply/complete nil reply))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Group 2 — the functor laws for reply-target mapping.
@@ -351,15 +351,15 @@
 
 (deftest functor-identity-law
   (testing "(map-completed-event identity target) completes identically to target — identity law"
-    (is (= (reply/complete target a-reply)
-           (reply/complete (reply/map-completed-event identity target) a-reply)))))
+    (is (= (rf.reply/complete target a-reply)
+           (rf.reply/complete (rf.reply/map-completed-event identity target) a-reply)))))
 
 (deftest functor-naturality-law
   (testing "(complete (map-completed-event f t) r) == (f (complete t r)) — the mapping law"
-    (is (= (reply/complete (reply/map-completed-event select-article-event target) a-reply)
-           (select-article-event (reply/complete target a-reply))))
-    (is (= (reply/complete (reply/map-completed-event wrap-in-parent target) a-reply)
-           (wrap-in-parent (reply/complete target a-reply))))))
+    (is (= (rf.reply/complete (rf.reply/map-completed-event select-article-event target) a-reply)
+           (select-article-event (rf.reply/complete target a-reply))))
+    (is (= (rf.reply/complete (rf.reply/map-completed-event wrap-in-parent target) a-reply)
+           (wrap-in-parent (rf.reply/complete target a-reply))))))
 
 (deftest functor-composition-law
   (testing "(map-completed-event f (map-completed-event g t)) == (map-completed-event (comp f g) t) — composition law"
@@ -367,19 +367,19 @@
     ;; compose in either order — exercising composition both ways.
     (let [f select-article-event
           g retarget-event-id]
-      (is (= (reply/complete (reply/map-completed-event f (reply/map-completed-event g target)) a-reply)
-             (reply/complete (reply/map-completed-event (comp f g) target) a-reply)))
-      (is (= (reply/complete (reply/map-completed-event g (reply/map-completed-event f target)) a-reply)
-             (reply/complete (reply/map-completed-event (comp g f) target) a-reply)))
+      (is (= (rf.reply/complete (rf.reply/map-completed-event f (rf.reply/map-completed-event g target)) a-reply)
+             (rf.reply/complete (rf.reply/map-completed-event (comp f g) target) a-reply)))
+      (is (= (rf.reply/complete (rf.reply/map-completed-event g (rf.reply/map-completed-event f target)) a-reply)
+             (rf.reply/complete (rf.reply/map-completed-event (comp g f) target) a-reply)))
       ;; And the composed result is the expected event: renamed id + selected value.
       (is (= [:parent/relay {:id 42} {:status :ok :value {:id 42 :title "Welcome"}
                                       :work/id [:rf.work/http :article/by-id 42 1]}]
-             (reply/complete (reply/map-completed-event (comp f g) target) a-reply))))))
+             (rf.reply/complete (rf.reply/map-completed-event (comp f g) target) a-reply))))))
 
 (deftest mapping-changes-only-the-event
   (testing "mapping the target does NOT change the reply's work id / status / correlation"
-    (let [mapped    (reply/map-completed-event select-article-event target)
-          completed (reply/complete mapped a-reply)
+    (let [mapped    (rf.reply/map-completed-event select-article-event target)
+          completed (rf.reply/complete mapped a-reply)
           delivered (peek completed)]
       ;; The COMPLETED EVENT changed (value→article); the reply's identity facts did not.
       (is (= [:rf.work/http :article/by-id 42 1] (:work/id delivered)))
@@ -388,7 +388,7 @@
       ;; status / suppression on the target (the functor law's structural guarantee):
       ;; the only difference between mapped and unmapped completion is the event payload.
       (is (= {:article {:id 42 :title "Welcome"}}
-             (:value (peek (reply/complete target a-reply)))))
+             (:value (peek (rf.reply/complete target a-reply)))))
       (is (= {:id 42 :title "Welcome"}
              (:value (peek completed)))))))
 
@@ -398,20 +398,20 @@
 
 (deftest stale-gate-check
   (testing "matching correlation ⇒ not stale; superseded ⇒ stale"
-    (is (false? (reply/stale? {:generation 4} {:generation 4})))
-    (is (true?  (reply/stale? {:generation 4} {:generation 5})))
-    (is (false? (reply/stale? {:work/id :w :generation 4}
+    (is (false? (rf.reply/stale? {:generation 4} {:generation 4})))
+    (is (true?  (rf.reply/stale? {:generation 4} {:generation 5})))
+    (is (false? (rf.reply/stale? {:work/id :w :generation 4}
                               {:work/id :w :generation 4 :extra :ignored}))
         "extra current keys are ignored — the carried gate's key set governs")
-    (is (false? (reply/stale? nil nil)) "no gate ⇒ nothing to supersede")
-    (is (true?  (reply/stale? {:generation 4} nil)) "current gone ⇒ stale")))
+    (is (false? (rf.reply/stale? nil nil)) "no gate ⇒ nothing to supersede")
+    (is (true?  (rf.reply/stale? {:generation 4} nil)) "current gone ⇒ stale")))
 
 (deftest suppress-does-not-deliver-app-target
   (testing "suppression produces :status :stale, marks :suppressed, and does NOT deliver"
     (let [carried {:work/id [:rf.work/resource [:a/k] 4] :generation 4}
           current {:work/id [:rf.work/resource [:a/k] 5] :generation 5}
           {:keys [deliver? reply] :as out}
-          (reply/suppress [:article/route-replied {:slug "welcome"}] carried current
+          (rf.reply/suppress [:article/route-replied {:slug "welcome"}] carried current
                           {:work/id      (:work/id carried)
                            :work/kind    :resource
                            :rf.frame/id  :app/main
@@ -428,7 +428,7 @@
   (testing "the trace facts carry BOTH the carried and current correlation"
     (let [carried {:route/nav-token "nav-1"}
           current {:route/nav-token "nav-2"}
-          {:keys [trace]} (reply/suppress [:x] carried current
+          {:keys [trace]} (rf.reply/suppress [:x] carried current
                                           {:rf.reply/stale-reason :route/nav-token-mismatch})]
       (is (true? (:rf.reply/suppressed? trace)))
       (is (= :route/nav-token-mismatch (:rf.reply/stale-reason trace)))
@@ -438,7 +438,7 @@
 (deftest suppress-default-reason
   (testing "a default :rf.reply/stale-reason is supplied when the family does not name one"
     (is (= :rf.reply/correlation-mismatch
-           (:rf.reply/stale-reason (:reply (reply/suppress [:x] {:g 1} {:g 2})))))))
+           (:rf.reply/stale-reason (:reply (rf.reply/suppress [:x] {:g 1} {:g 2})))))))
 
 (deftest suppress-extra-cannot-override-stale-boundary
   (testing "rf2-waawic — `extra` CANNOT override the stale boundary: threading a
@@ -449,7 +449,7 @@
     ;; as `extra`. Before the fix `merge` let those win; now the stale fields
     ;; are forced and :value is stripped.
     (let [{:keys [reply deliver?]}
-          (reply/suppress nil {:g 1} {:g 2}
+          (rf.reply/suppress nil {:g 1} {:g 2}
                           {:status      :ok
                            :value       {:title "should-be-stripped"}
                            :rf.reply/work-status :completed
@@ -466,7 +466,7 @@
       (is (= :http (:work/kind reply)))
       (is (= :app/main (:rf.frame/id reply)))
       ;; the result validates as a conformant stale reply
-      (is (reply/valid-reply? reply) (str (reply/validate-reply reply))))))
+      (is (rf.reply/valid-reply? reply) (str (rf.reply/validate-reply reply))))))
 
 (deftest suppress-is-universally-non-delivering
   (testing "rf2-j538f7.14 — a stale outcome NEVER app-delivers: `suppress`
@@ -484,7 +484,7 @@
                     {:event [:app/replied] :dispatch-stale? true :re-frame.reply/stale-authority true}
                     {:event [:app/replied] :dispatch-stale? true :re-frame.reply/stale-authority :yes}
                     nil]]
-      (let [{:keys [deliver? reply]} (reply/suppress target {:g 1} {:g 2})]
+      (let [{:keys [deliver? reply]} (rf.reply/suppress target {:g 1} {:g 2})]
         (is (false? deliver?)
             (str "target " (pr-str target) " must NOT deliver a stale reply to the app target"))
         (is (= :stale (:status reply)) "the outcome is still a well-formed stale reply")
@@ -521,20 +521,20 @@
           current {:g 2}
           ;; A PLAIN app-shaped target — nothing capability-bearing on it.
           target  [:app/replied]
-          {:keys [deliver? reply]} (reply/suppress target carried current)]
+          {:keys [deliver? reply]} (rf.reply/suppress target carried current)]
       ;; Tooth 1 — app NON-delivery: the suppress boundary is universally
       ;; non-delivering, so the ONLY way the stale reply reaches a handler is a
       ;; deliberate observer self-dispatch below.
       (is (false? deliver?) "the suppress boundary never delivers a stale reply to the app target")
       (is (= :stale (:status reply)))
-      (is (reply/valid-reply? reply) (str (reply/validate-reply reply)))
+      (is (rf.reply/valid-reply? reply) (str (rf.reply/validate-reply reply)))
       ;; Tooth 2 — authorised observation: the observer builds the completed
       ;; event from the stale :reply and dispatches it itself (its own trusted
       ;; path — an explicit `dispatch`, structurally separate from any target
       ;; field).
       (let [observed (atom nil)
             dispatch! (fn [ev] (reset! observed ev))]
-        (dispatch! (reply/complete [:tool/observed] reply))
+        (dispatch! (rf.reply/complete [:tool/observed] reply))
         (is (= [:tool/observed reply] @observed)
             "the observer dispatched the stale reply on its own authority")))))
 
@@ -554,7 +554,7 @@
                  :rf.frame/id  :app/main
                  :completed-at 1781078400456
                  :correlation  {:request-id [:article/by-id 42]}}
-          summary (reply/trace-summary reply {:rf.size/include-sensitive? true})]
+          summary (rf.reply/trace-summary reply {:rf.size/include-sensitive? true})]
       (is (= :ok (:status summary)))
       (is (= [:rf.work/http :article/by-id 42 1] (:work/id summary)))
       (is (= :http (:work/kind summary)))
@@ -566,7 +566,7 @@
       (is (= {:title "Welcome"} (:value summary)))
       (is (= {:request-id [:article/by-id 42]} (:correlation summary)))))
   (testing "frameless egress with no opt-out FAILS CLOSED — wire slots redact"
-    (let [summary (reply/trace-summary {:status :ok :value {:secret "x"}})]
+    (let [summary (rf.reply/trace-summary {:status :ok :value {:secret "x"}})]
       (is (= :ok (:status summary)) "identity facts still ride verbatim")
       (is (= :rf/redacted (:value summary))
           "the shared walker fails closed when no frame policy is reachable"))))
@@ -589,13 +589,13 @@
             reply-specific category on every reply throw"
     (doseq [[label thunk category error-id]
             [["invalid short-form target"
-              #(reply/normalize-target {:event :x})
+              #(rf.reply/normalize-target {:event :x})
               :rf.reply/invalid-target :rf.error/reply-invalid-target]
              ["non-map reply"
-              #(reply/validate-reply 42)
+              #(rf.reply/validate-reply 42)
               :rf.reply/non-map-reply :rf.error/reply-non-map-reply]
              ["unknown delivery mode"
-              #(reply/complete {:event [:x] :delivery :weird} {:status :ok})
+              #(rf.reply/complete {:event [:x] :delivery :weird} {:status :ok})
               :rf.reply/unknown-delivery :rf.error/reply-unknown-delivery]]]
       (let [e    (catch-ex-info thunk)
             data (ex-data e)]
@@ -610,12 +610,12 @@
 (deftest reply-throw-message-is-actionable-not-a-bare-keyword
   ;; one actionable message path: a non-map reply's message LEADS with the
   ;; human sentence and TRAILS with the [:rf.error/<id>] token.
-  (let [e   (catch-ex-info #(reply/validate-reply 42))
+  (let [e   (catch-ex-info #(rf.reply/validate-reply 42))
         msg (ex-message e)]
     (is (some? e))
-    (is (not (error/keyword-only-message? msg))
+    (is (not (rf.error/keyword-only-message? msg))
         "the message is a human sentence, never a bare keyword (Spec 009 rule 1)")
-    (is (error/message-has-id-token? msg)
+    (is (rf.error/message-has-id-token? msg)
         "the message carries the [:rf.error/<id>] greppability token (rule 4)")
     (is (string? (:reason (ex-data e)))
         ":reason is the required human sentence")))
@@ -632,18 +632,18 @@
   (testing "a fn nested a couple of levels deep is found well within a
    generous budget"
     (is (= [:a :b]
-           (reply/walk-find-host-handle-bounded
+           (rf.reply/walk-find-host-handle-bounded
              {:a {:b (fn [] nil)}} 500)))))
 
 (deftest bounded-walk-clean-payload-returns-nil
   (testing "an all-EDN payload never reports a handle, regardless of budget"
-    (is (nil? (reply/walk-find-host-handle-bounded
+    (is (nil? (rf.reply/walk-find-host-handle-bounded
                 {:a [1 2 {:b #{:x :y}}]} 500)))))
 
 (deftest bounded-walk-gives-up-once-budget-exhausted
   (testing "a budget too small to reach the handle returns nil (false
    negative — the fail-safe direction for an ADVISORY lint) rather than
    throwing or over-running"
-    (is (nil? (reply/walk-find-host-handle-bounded
+    (is (nil? (rf.reply/walk-find-host-handle-bounded
                 {:a {:b {:c (fn [] nil)}}} 1))
         "the handle is 3 levels deep; a 1-node budget gives up first")))

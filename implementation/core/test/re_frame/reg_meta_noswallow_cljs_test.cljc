@@ -37,15 +37,15 @@
   at all under the gate. Both deftests were GREEN there, each on one real
   assertion (the no-throw) and five free ones."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [re-frame.interop :as interop]
-            [re-frame.events :as events]
-            [re-frame.subs :as subs]
-            [re-frame.fx :as fx]
-            [re-frame.cofx :as cofx]
-            [re-frame.interceptor-registry :as icpt-reg]
-            [re-frame.registrar :as registrar]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace :as trace]))
+            [re-frame.interop :as rf.interop]
+            [re-frame.events :as rf.events]
+            [re-frame.subs :as rf.subs]
+            [re-frame.fx :as rf.fx]
+            [re-frame.cofx :as rf.cofx]
+            [re-frame.interceptor-registry :as rf.interceptor-registry]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.trace :as rf.trace]))
 
 ;; `clear-all!` gives each test a clean registrar, but in the shared
 ;; `:node-test` bundle (rf2-ezbzvm) it also drops sibling namespaces'
@@ -53,12 +53,12 @@
 ;; Snapshot first and restore in `finally` so the clean-slate is scoped to
 ;; this test and cross-namespace registrations survive.
 (defn- reset-registry [test-fn]
-  (let [snapshot (test-support/snapshot-registrar)]
-    (registrar/clear-all!)
+  (let [snapshot (rf.test-support/snapshot-registrar)]
+    (rf.registrar/clear-all!)
     (try
       (test-fn)
       (finally
-        (test-support/restore-registrar! snapshot)))))
+        (rf.test-support/restore-registrar! snapshot)))))
 
 (use-fixtures :each reset-registry)
 
@@ -70,11 +70,11 @@
   well-shaped no-op so ONLY the metadata-key classification is under test."
   [kind id meta]
   (case kind
-    :event       (events/reg-event id meta (fn [_ _] {}))
-    :sub         (subs/reg-sub id meta (fn [_db _q] nil))
-    :fx          (fx/reg-fx id meta (fn [_ctx _args] nil))
-    :cofx        (cofx/reg-cofx id meta (fn [] nil))
-    :interceptor (icpt-reg/reg-interceptor* id meta {:before identity})))
+    :event       (rf.events/reg-event id meta (fn [_ _] {}))
+    :sub         (rf.subs/reg-sub id meta (fn [_db _q] nil))
+    :fx          (rf.fx/reg-fx id meta (fn [_ctx _args] nil))
+    :cofx        (rf.cofx/reg-cofx id meta (fn [] nil))
+    :interceptor (rf.interceptor-registry/reg-interceptor* id meta {:before identity})))
 
 (defn- caught-ex-data
   "Run `f`; return the ex-data of an ExceptionInfo it throws, or nil if it
@@ -90,13 +90,13 @@
   [f]
   (let [acc (atom [])
         lid (keyword "reg-meta-test" (str (gensym "listen")))]
-    (trace/register-listener! lid (fn [ev] (swap! acc conj ev)))
+    (rf.trace/register-listener! lid (fn [ev] (swap! acc conj ev)))
     (try
       (f)
       (->> @acc
            (filterv #(= :rf.warning/unknown-registration-key (:operation %))))
       (finally
-        (trace/unregister-listener! lid)))))
+        (rf.trace/unregister-listener! lid)))))
 
 ;; The kinds under test, with a namespaced id per kind so nothing collides.
 (def ^:private kinds
@@ -138,11 +138,11 @@
           ;; throw, and the id is resolvable in the registrar. That is the half
           ;; of §No silent swallow a production build honours: an unknown key
           ;; is a nudge, never a rejection, and the cascade continues.
-          (is (some? (registrar/lookup kind id))
+          (is (some? (rf.registrar/lookup kind id))
               "the registration succeeded despite the unknown key")
           ;; rf2-d2841 — the WARNING is a dev-trace emit; nothing is emitted
           ;; under `-Dre-frame.debug=false`.
-          (when interop/debug-enabled?
+          (when rf.interop/debug-enabled?
             (is (= 1 (count warns))
                 (str "reg-" (name kind) " emits exactly one unknown-key warning"))
             (let [{:keys [tags]} (first warns)]
@@ -173,11 +173,11 @@
           (is (nil? @ed)
               (str "reg-" (name kind)
                    " with known + namespaced keys must not throw; got " (pr-str @ed)))
-          (is (some? (registrar/lookup kind id))
+          (is (some? (rf.registrar/lookup kind id))
               "the namespaced-extension registration landed")
           ;; rf2-d2841 — class-1 vacuous under the gate: the warning stream is
           ;; empty for EVERY key there, carve-out or typo.
-          (when interop/debug-enabled?
+          (when rf.interop/debug-enabled?
             (is (empty? warns)
                 (str "no unknown-key warning for known + namespaced keys; got "
                      (pr-str warns)))))))))
@@ -194,8 +194,8 @@
                       #(is (nil? (caught-ex-data
                                    (fn [] (register! kind id {:doc "x" :schema [:map]}))))
                            (str "reg-" (name kind) " accepts `:schema`")))]
-          (is (some? (registrar/lookup kind id))
+          (is (some? (rf.registrar/lookup kind id))
               "the `:schema`-bearing registration landed")
           ;; rf2-d2841 — class-1 vacuous under the gate, same shape as above.
-          (when interop/debug-enabled?
+          (when rf.interop/debug-enabled?
             (is (empty? warns) "`:schema` is a known key — no unknown-key warning")))))))

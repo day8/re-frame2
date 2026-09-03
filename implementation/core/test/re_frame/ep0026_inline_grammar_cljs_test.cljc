@@ -44,7 +44,7 @@
   DOCUMENTATION, and `registrar/strip-pure-documentation` removes it under
   `-Dre-frame.debug=false`, so any row that reads `:doc` back (or compares the
   authored metadata map WHOLE, `:doc` included) is a dev-posture row and sits
-  inside a `(when interop/debug-enabled? …)` arm.
+  inside a `(when rf.interop/debug-enabled? …)` arm.
 
   Two of those rows were the ONLY witness their claim had, and a doc-only
   witness is a bad one — it makes the claim unprovable in the posture that
@@ -53,9 +53,9 @@
   and a `:rf.cofx/requires` middle slot for \"a 3-tuple is how metadata is
   attached\"."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.image          :as image]
-            [re-frame.image-assembly :as asm]
-            [re-frame.interop        :as interop]
+            [re-frame.image          :as rf.image]
+            [re-frame.image-assembly :as rf.image-assembly]
+            [re-frame.interop        :as rf.interop]
             ;; Required so the late-bind lowering publishers are installed:
             ;; each ns calls (late-bind/set-fn! :image/lower-inline-<kind> …) at
             ;; load. image-assembly cannot static-require them (a cycle), so the
@@ -75,14 +75,14 @@
   "The image's lowered-by-`rf/image` inline descriptors (pre-assembly: `:impl`
   body + provenance, no runnable slots yet)."
   [registrations]
-  (:rf.image/inline (image/image {:id :ep0026/inline :registrations registrations})))
+  (:rf.image/inline (rf.image/image {:id :ep0026/inline :registrations registrations})))
 
 (defn- runnable
   "Run the LIVE assembly-side inline lowering over the single inline descriptor
   the `registrations` map produces, returning the runnable descriptor a frame
   resolves — `:impl` + the kind's published `:image/lower-inline-<kind>` slots."
   [registrations]
-  (-> registrations inline-descriptors first asm/lower-inline-descriptor))
+  (-> registrations inline-descriptors first rf.image-assembly/lower-inline-descriptor))
 
 (defn- invalid-image-id
   "Run `thunk`; return the thrown ex-info's `:rf.error/id` (or nil)."
@@ -144,7 +144,7 @@
       ;; rf2-d2841 — `:doc` is stripped under -Dre-frame.debug=false, so the
       ;; WHOLE-map comparison and the `:doc` read-back are dev-posture rows.
       ;; Kept verbatim inside the arm.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (= meta (:metadata d))
             "the authored metadata remains nested for provenance/introspection")
         (is (= "Image-owned counter value." (:doc d))))
@@ -220,13 +220,13 @@
                      :reg-error-projector :reg-flow :reg-resource :reg-mutation
                      :reg-resource-scope]]
       (is (= :rf.error/invalid-image
-             (invalid-image-id #(image/image {:registrations {section [[:x (fn [] nil)]]}})))
+             (invalid-image-id #(rf.image/image {:registrations {section [[:x (fn [] nil)]]}})))
           (str section " must be rejected as an unsupported inline kind"))))
   (testing "a typo'd / unknown section key is likewise rejected"
     (is (= :rf.error/invalid-image
-           (invalid-image-id #(image/image {:registrations {:reg-bogus [[:x (fn [] nil)]]}})))))
+           (invalid-image-id #(rf.image/image {:registrations {:reg-bogus [[:x (fn [] nil)]]}})))))
   (testing "the diagnostic names the unsupported section and the four supported ones"
-    (let [data (try (image/image {:id :bad/img
+    (let [data (try (rf.image/image {:id :bad/img
                                   :registrations {:reg-view [[:x (fn [] nil)]]}})
                     (catch #?(:clj clojure.lang.ExceptionInfo :cljs :default) e
                       (ex-data e)))]
@@ -243,7 +243,7 @@
             loud — a 2-tuple's second slot is the handler BODY, not metadata"
     (doseq [section [:reg-event :reg-sub :reg-fx :reg-cofx]]
       (is (= :rf.error/invalid-image
-             (invalid-image-id #(image/image {:registrations {section [[:x {:doc "meta only"}]]}})))
+             (invalid-image-id #(rf.image/image {:registrations {section [[:x {:doc "meta only"}]]}})))
           (str section " metadata-only 2-tuple must be rejected"))))
   (testing "a 3-tuple [id metadata body] is the way to attach metadata"
     (let [body (fn [_ _] {})
@@ -253,7 +253,7 @@
       ;; the map reduces to nothing and the row cannot distinguish "the middle
       ;; slot was read as metadata" from "the middle slot was ignored".
       ;; Kept verbatim in the arm...
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (= {:doc "ok"} (:metadata d))))
       (is (= body (:impl d))))
     ;; ...and given an always-on partner that reads a LOAD-BEARING middle slot,
@@ -273,14 +273,14 @@
 (deftest all-four-kinds-compose-in-one-image
   (testing "an image defining all four supported kinds inline lowers each into
             its runnable shape (the EP-0026 §Use Case 2 self-contained image)"
-    (let [v   (image/image
+    (let [v   (rf.image/image
                 {:id :quickstart/counter
                  :registrations
                  {:reg-event [[:counter/inc (fn [{:keys [db]} _] {:db db})]]
                   :reg-sub   [[:counter/value (fn [db _] (:counter/value db))]]
                   :reg-fx    [[:metrics/send (fn [_] nil)]]
                   :reg-cofx  [[:clock/now (fn [] 0)]]}})
-          ds  (mapv asm/lower-inline-descriptor (:rf.image/inline v))
+          ds  (mapv rf.image-assembly/lower-inline-descriptor (:rf.image/inline v))
           by  (into {} (map (juxt (juxt :kind :id) identity)) ds)]
       (is (= 4 (count ds)))
       (is (fn? (:handler-fn (by [:event :counter/inc]))))

@@ -55,12 +55,12 @@
   `tools/xray/testbeds/parallel_frames/`."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- Frame ids match the parallel-frames testbed ---------------------------
 
@@ -127,8 +127,8 @@
       ;; `:below` have their OWN containers per Spec 002. Identity
       ;; over per-frame `:app-db` records is the cleanest pin on the
       ;; isolation guarantee.
-      (is (not (identical? (:app-db (frame/frame frame-above))
-                           (:app-db (frame/frame frame-below))))
+      (is (not (identical? (:app-db (rf.frame/frame frame-above))
+                           (:app-db (rf.frame/frame frame-below))))
           ":above and :below must not share the same app-db container"))))
 
 ;; ---- 2. Counter isolation (Playwright assertions 9, 10, 22, 23) -----------
@@ -237,7 +237,7 @@
 ;; ---- 6. Frames can be destroyed independently -----------------------------
 ;;
 ;; Per Spec 002 §Destroy, destroying one frame removes only that
-;; frame from `frame/frames`; other frames keep their app-db, sub-
+;; frame from `rf.frame/frames`; other frames keep their app-db, sub-
 ;; cache, and router atoms intact. The Playwright spec did not
 ;; exercise destroy (the test runs in a single page lifecycle), but
 ;; the migration contract is "each frame is its own thing" — destroy
@@ -250,16 +250,16 @@
     (dotimes [_ 4] (rf/dispatch-sync [::counter-inc] {:frame frame-above}))
     (dotimes [_ 7] (rf/dispatch-sync [::counter-inc] {:frame frame-below}))
     ;; Capture :above's container identities before destroy.
-    (let [above-record-pre (frame/frame frame-above)
+    (let [above-record-pre (rf.frame/frame frame-above)
           above-app-db-pre (:app-db above-record-pre)
           above-sub-cache  (:sub-cache above-record-pre)]
       ;; Destroy :below.
       (rf/destroy-frame! frame-below)
       ;; :below is gone from the registry.
-      (is (nil? (frame/frame frame-below))
+      (is (nil? (rf.frame/frame frame-below))
           "destroy-frame! removed :below from the registry")
       ;; :above's record survived (same container objects).
-      (let [above-record-post (frame/frame frame-above)]
+      (let [above-record-post (rf.frame/frame frame-above)]
         (is (some? above-record-post)
             ":above is still registered after :below's destroy")
         (is (identical? above-app-db-pre (:app-db above-record-post))

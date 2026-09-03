@@ -62,13 +62,13 @@
   `:schemas/explain-with-registered-fn` late-bind hooks. When the
   schemas artefact is not on the classpath the hooks return nil and
   the interceptor falls through as a no-op."
-  (:require [re-frame.error :as error]
-            [re-frame.interceptor :as interceptor]
-            [re-frame.interceptor-registry :as icpt-reg]
-            [re-frame.interop :as interop]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.registrar :as registrar]
-            [re-frame.trace :as trace]))
+  (:require [re-frame.error :as rf.error]
+            [re-frame.interceptor :as rf.interceptor]
+            [re-frame.interceptor-registry :as rf.interceptor-registry]
+            [re-frame.interop :as rf.interop]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.trace :as rf.trace]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -81,14 +81,14 @@
 ;;
 ;; We wrap the read in a private fn so tests can rebind the boundary's
 ;; dev/prod decision INDEPENDENTLY of the trace surface's
-;; `interop/debug-enabled?` read. This matters because the trace
+;; `rf.interop/debug-enabled?` read. This matters because the trace
 ;; surface (`emit!` / `emit-error!`) is itself gated on
 ;; `debug-enabled?` (Spec 009 §Production builds) — JVM tests that
 ;; want to exercise the boundary's prod branch AND observe the
 ;; emitted warning / error trace need to keep `debug-enabled?` true
 ;; (so traces fire) while taking the boundary's prod branch.
 ;;
-;; Production-elision: `interop/debug-enabled?` is the closure-define
+;; Production-elision: `rf.interop/debug-enabled?` is the closure-define
 ;; alias; under `:advanced` + `goog.DEBUG=false` it folds to `false`
 ;; and `dev-mode?` constant-folds with it (the fn body has a single
 ;; var read; Closure inlines and folds). In control builds it stays
@@ -99,11 +99,11 @@
   the router); false in `:advanced` + `goog.DEBUG=false` production
   (where the boundary interceptor takes its validation branch).
 
-  Wraps `interop/debug-enabled?` in an indirection so tests can rebind
+  Wraps `rf.interop/debug-enabled?` in an indirection so tests can rebind
   the boundary's dev/prod decision without redefining the var the
   trace surface itself reads."
   []
-  interop/debug-enabled?)
+  rf.interop/debug-enabled?)
 
 ;; ---- :rf.schema/at-boundary ----------------------------------------------
 ;;
@@ -154,7 +154,7 @@
   `:rf.error/at-boundary-missing-schema`; the runtime can therefore
   assume `:schema` is present whenever this interceptor's `:before`
   slot fires."
-  (interceptor/->interceptor*
+  (rf.interceptor/->interceptor*
     :id :rf.schema/at-boundary
     :before
     (fn [ctx]
@@ -167,15 +167,15 @@
         ;; Production path. Reach validation through the late-bind
         ;; seam so this namespace stays decoupled from the optional
         ;; schemas artefact.
-        (let [validate-fn (late-bind/get-fn-cached :schemas/validate-with-registered-fn)
-              explain-fn  (late-bind/get-fn-cached :schemas/explain-with-registered-fn)]
+        (let [validate-fn (rf.late-bind/get-fn-cached :schemas/validate-with-registered-fn)
+              explain-fn  (rf.late-bind/get-fn-cached :schemas/explain-with-registered-fn)]
           (if (nil? validate-fn)
             ;; Schemas artefact not on the classpath, or no validator
             ;; registered. Per Spec 010 §Non-Malli validators / nil
             ;; validator: nil = "every value passes"; the boundary
             ;; interceptor is a no-op.
             ctx
-            (let [event       (interceptor/get-coeffect ctx :event)
+            (let [event       (rf.interceptor/get-coeffect ctx :event)
                   event-id    (when (vector? event) (first event))
                   ;; rf2-7d30s — the in-flight cascade's frame, seeded as the
                   ;; `:rf.frame/id` coeffect (mirrors cofx.cljc / the dev-time
@@ -186,9 +186,9 @@
                   ;; — and so the SSR error-projection listener can route it
                   ;; per-frame under concurrent server frames without leaning
                   ;; on a single-active-frame guess.
-                  frame       (interceptor/get-coeffect ctx :rf.frame/id)
+                  frame       (rf.interceptor/get-coeffect ctx :rf.frame/id)
                   handler-meta (when event-id
-                                 (registrar/lookup :event event-id))
+                                 (rf.registrar/lookup :event event-id))
                   schema      (:schema handler-meta)]
               (cond
                 ;; No handler-id / no metadata — defensive; the runtime
@@ -245,7 +245,7 @@
                           ;; schemas artefact is absent the hook is nil and the
                           ;; tags ride verbatim (no schema = nothing to redact
                           ;; against).
-                          redact-fn   (late-bind/get-fn-cached :schemas/redact-validation-tags)
+                          redact-fn   (rf.late-bind/get-fn-cached :schemas/redact-validation-tags)
                           base-tags   (cond-> {:where      :event
                                                :event-id   event-id
                                                :failing-id event-id
@@ -257,7 +257,7 @@
                                                :reason     (str "Event " event-id
                                                                 " payload failed boundary "
                                                                 "schema " schema ", got "
-                                                                (error/type-of-value event) ".")
+                                                                (rf.error/type-of-value event) ".")
                                                :recovery   :no-recovery}
                                         frame (assoc :frame frame))]
                       ;; Axis 2 — the RICH dev trace, using the same shape as
@@ -272,7 +272,7 @@
                       ;; and ONLY here — see the always-on record's
                       ;; structural-only contract in
                       ;; `router/emit-boundary-rejection-record!`.
-                      (trace/emit-error! :rf.error/schema-validation-failure
+                      (rf.trace/emit-error! :rf.error/schema-validation-failure
                                          (cond-> base-tags
                                            redact-fn (->> (redact-fn schema))))
                       ;; Per Spec 010 §Per-step recovery step 1: handler
@@ -311,7 +311,7 @@
 ;; Mirrors `re-frame.std-interceptors/register-standard-interceptors!`: called
 ;; at namespace load so standalone require'rs (no `init!`) get the ref, AND
 ;; re-seeded from `re-frame.core/init!` so the ref survives a test fixture's
-;; `registrar/clear-all!` (which wipes the `:interceptor` kind).
+;; `rf.registrar/clear-all!` (which wipes the `:interceptor` kind).
 
 (defn register-schema-interceptors!
   "Register the framework-standard `:rf.schema/at-boundary` interceptor into
@@ -323,12 +323,12 @@
   boundary) and by-ref forms therefore run identical boundary validation.
 
   Idempotent — called at namespace load AND from `re-frame.core/init!` so the
-  ref survives a test fixture's `registrar/clear-all!` (which wipes the
+  ref survives a test fixture's `rf.registrar/clear-all!` (which wipes the
   `:interceptor` kind along with everything else). Mirrors how
   `re-frame.std-interceptors/register-standard-interceptors!` re-seeds the
   standard `:rf.interceptor/path` interceptor."
   []
-  (icpt-reg/reg-interceptor*
+  (rf.interceptor-registry/reg-interceptor*
     :rf.schema/at-boundary
     {:doc "Framework-standard production-boundary schema-validation interceptor
           (Spec 010 §Production builds). Referenced as `[:rf.schema/at-boundary]`

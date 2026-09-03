@@ -48,19 +48,19 @@
   round-trip in `re-frame.performance-cljs-test`). The naming
   convention and macro shape for `:render` is already locked by
   `performance-cljs-test/build-name-shape` —
-  `(performance/build-name :render :my.app/page)` returns
+  `(rf.performance/build-name :render :my.app/page)` returns
   `\"rf:render:my.app/page\"`. The bracketing macro itself is identical
   across all four call sites, so per-call-site assertion would be
   redundant once event/sub/fx are covered."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.performance :as performance]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.performance :as rf.performance]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; Buffer retention for this runner (rf2-2yv859). The bracket now CLEARS
 ;; each measure right after emit (`retain-entries?` default off), so a
@@ -117,7 +117,7 @@
             event dispatch through the chain emits exactly one
             `rf:event:<event-id>` measure entry (the bracket lives in
             `re-frame.router/run-chain`)."
-    (when performance/enabled?
+    (when rf.performance/enabled?
       (clear-measures!)
       (rf/reg-event :perf.emit-test/inc
                        (fn [{:keys [db]} _] {:db (update db :n (fnil inc 0))}))
@@ -136,7 +136,7 @@
             bracket lives in `re-frame.subs.memo/run-compute-validate!`).
             A `subscribe-once` deref forces an immediate compute, which
             is enough for the bracket to fire."
-    (when performance/enabled?
+    (when rf.performance/enabled?
       (clear-measures!)
       (rf/reg-event :perf.emit-test/seed
                        (fn [{:keys [db]} _] {:db {:n 7}}))
@@ -163,7 +163,7 @@
             Drive a `reg-event` handler whose `:fx` vector carries
             one user-registered fx-id; the walk produces an
             `rf:fx:perf.emit-test/log` entry."
-    (when performance/enabled?
+    (when rf.performance/enabled?
       (clear-measures!)
       (let [calls (atom [])]
         (rf/reg-fx :perf.emit-test/log
@@ -190,7 +190,7 @@
             buckets (event / sub / fx). Mirrors the integration
             assertion that the deleted `tools/xray/testbeds/perf_counter/
             spec.cjs` used to make against a live browser bundle."
-    (when performance/enabled?
+    (when rf.performance/enabled?
       (clear-measures!)
       (let [log-calls (atom [])]
         (rf/reg-fx :perf.emit-test/counter-log
@@ -222,7 +222,7 @@
             emission assertions would silently no-op (`enabled?` guard) or
             read an empty buffer (`retain-entries?` off → cleared after
             emit), so this canary catches both."
-    (is (true? performance/enabled?)
+    (is (true? rf.performance/enabled?)
         "re-frame.performance/enabled? MUST be true under this build")
-    (is (true? performance/retain-entries?)
+    (is (true? rf.performance/retain-entries?)
         "re-frame.performance/retain-entries? MUST be true under this build")))

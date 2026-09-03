@@ -43,10 +43,10 @@
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [clojure.set :as set]
             [re-frame.core :as rf]
-            [re-frame.error-emit :as error-emit]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as ts]))
+            [re-frame.error-emit :as rf.error-emit]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; ---------------------------------------------------------------------------
 ;; The always-on set — the SINGLE literal this leg iterates.
@@ -105,7 +105,7 @@
     :rf.error/on-destroy-handler-exception
     ;; EP-0008 (rf2-hhutya): the seven promoted SSR error categories. These
     ;; ride the GENERAL non-event always-on helper
-    ;; `error-emit/dispatch-error-record!` (the union-record sibling of the
+    ;; `rf.error-emit/dispatch-error-record!` (the union-record sibling of the
     ;; teardown report), NOT the event-centric `dispatch-on-error!` — an SSR
     ;; render / writer / head / projector / hydration-parse failure is not a
     ;; dispatched-event failure. (`:rf.error/malformed-hydration-payload`
@@ -146,7 +146,7 @@
     ;; must reach an off-box shipper under `goog.DEBUG=false`: a page quietly
     ;; serving N-1 roots with no signal is the failure mode the isolation
     ;; contract exists to prevent. Rides the non-event union-record helper
-    ;; (`error-emit/dispatch-error-record!`), the `malformed-hydration-payload`
+    ;; (`rf.error-emit/dispatch-error-record!`), the `malformed-hydration-payload`
     ;; sibling — a contained boot failure is not a dispatched-event failure.
     ;; Emitted by `re-frame.ssr.boot/report-root-boot-failed!`; per
     ;; [011 §Failed-root isolation]. Driven through `dispatch-error-record!`
@@ -215,7 +215,7 @@
     ;; on the classpath, a schemas-less PRODUCTION host got no scroll and no
     ;; record: the silent no-op rf2-px26m set out to remove, for exactly the
     ;; consumers least likely to notice. It now fans through
-    ;; `error-emit/emit-error-both!`, so the rejection is unconditional on
+    ;; `rf.error-emit/emit-error-both!`, so the rejection is unconditional on
     ;; every build. The emit SITE lives in the `routing` artefact
     ;; (`routing/scroll.cljc`, CLJS branch — the fx is `:platforms #{:client}`);
     ;; this leg drives the category through `dispatch-on-error!` (the `:else`
@@ -266,7 +266,7 @@
     :rf.error/schema-validation-failure
     ;; rf2-h4f0n: the two router in-band FINAL-effects-boundary rejections
     ;; graduated `always-on` in the Spec 009 catalogue. The code always fanned
-    ;; both through `error-emit/emit-error-both!` — whose axis 1 is
+    ;; both through `rf.error-emit/emit-error-both!` — whose axis 1 is
     ;; `dispatch-on-error!`, NOT debug-gated — so both reached off-box
     ;; shippers from an `:advanced` + `goog.DEBUG=false` build while the
     ;; catalogue's Channel column read `diagnostic`; the spec caught up with
@@ -349,9 +349,9 @@
 ;; ---------------------------------------------------------------------------
 
 (use-fixtures :each
-  (ts/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
-     :init-fn (fn [] (error-emit/clear-error-listeners!))}))
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.substrate.plain-atom/adapter
+     :init-fn (fn [] (rf.error-emit/clear-error-listeners!))}))
 
 ;; ---------------------------------------------------------------------------
 ;; Per-category driver: push ONE record for `cat` through the always-on
@@ -369,7 +369,7 @@
     (contains? report-categories cat)
     ;; The bounded teardown report — a non-empty :hook-failures vector so
     ;; the report fn does not short-circuit (it no-ops on empty).
-    (error-emit/dispatch-frame-teardown-report!
+    (rf.error-emit/dispatch-frame-teardown-report!
       :conformance/frame
       [{:hook :ssr/on-frame-destroyed
         :exception (ex-info "teardown hook threw" {})
@@ -382,7 +382,7 @@
     ;; per-site payloads (`:exception` / `:phase` / `:reason` / …) are
     ;; pinned by the per-site SSR integration tests; here we just drive the
     ;; category THROUGH the axis so the listener fan-out can be asserted.
-    (error-emit/dispatch-error-record!
+    (rf.error-emit/dispatch-error-record!
       {:error     cat
        :frame     :conformance/frame
        :time      0
@@ -392,7 +392,7 @@
     :else
     ;; The per-event always-on axis. Arity:
     ;; [error-kw event event-id frame-id exception elapsed-ms time].
-    (error-emit/dispatch-on-error!
+    (rf.error-emit/dispatch-on-error!
       cat
       [:conformance/event]
       :conformance/event
@@ -440,7 +440,7 @@
             category individually — the data-driven per-category
             counterpart to the aggregate test above."
     (doseq [cat always-on-categories]
-      (error-emit/clear-error-listeners!)
+      (rf.error-emit/clear-error-listeners!)
       (let [seen (atom [])]
         (rf/register-listener! :errors
           :conformance/recorder
@@ -466,10 +466,10 @@
         :conformance/recorder
         (fn [record] (swap! seen conj record)))
       ;; Empty failures → no record (the no-flood contract).
-      (error-emit/dispatch-frame-teardown-report! :conformance/frame [] 0)
+      (rf.error-emit/dispatch-frame-teardown-report! :conformance/frame [] 0)
       (is (empty? @seen) "empty :hook-failures → no always-on report")
       ;; Non-empty → one bounded record carrying the failures vector.
-      (error-emit/dispatch-frame-teardown-report!
+      (rf.error-emit/dispatch-frame-teardown-report!
         :conformance/frame
         [{:hook :ssr/on-frame-destroyed :exception (ex-info "x" {})
           :where :safe-call-hook!}]
@@ -493,9 +493,9 @@
             substrate / frame layers that cannot static-require it (load
             cycle) still reach the always-on axis in production. Both the
             per-event and the bounded-report hooks must be present."
-    (is (some? (late-bind/get-fn :error-emit/dispatch-on-error))
+    (is (some? (rf.late-bind/get-fn :error-emit/dispatch-on-error))
         ":error-emit/dispatch-on-error hook is published")
-    (is (some? (late-bind/get-fn :error-emit/dispatch-frame-teardown-report))
+    (is (some? (rf.late-bind/get-fn :error-emit/dispatch-frame-teardown-report))
         ":error-emit/dispatch-frame-teardown-report hook is published")))
 
 ;; ===========================================================================

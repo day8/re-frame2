@@ -30,35 +30,35 @@
   on CLJS too)."
   (:require [cljs.test :refer-macros [deftest is]]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.source-store :as source-store]
-            [re-frame.image-assembly :as image-assembly]
-            [re-frame.flows :as flows]
-            [re-frame.schemas :as schemas]
-            [re-frame.subs :as subs]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.substrate.adapter :as substrate-adapter]
-            [re-frame.trace :as trace]
-            [re-frame.error-emit :as error-emit]
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.source-store :as rf.source-store]
+            [re-frame.image-assembly :as rf.image-assembly]
+            [re-frame.flows :as rf.flows]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.subs :as rf.subs]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.substrate.adapter :as rf.substrate.adapter]
+            [re-frame.trace :as rf.trace]
+            [re-frame.error-emit :as rf.error-emit]
             [re-frame.events]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.routing :as routing]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.routing :as rf.routing]
             ;; rf2-dbiv8 — the test-only `:rf.test/simulate-http-resolution`
             ;; fixture event lives in this test-support ns; require here so it
             ;; registers at ns-load (CLJS has no `:reload`, so it must be live
             ;; before `pretest-registrar` snapshots it).
             [re-frame.routing.test-support]
-            [re-frame.machines :as machines]
+            [re-frame.machines :as rf.machines]
             ;; Spec 014 — :rf.http/managed registers at ns-load; reset uses its
             ;; clear-* fns.
-            [re-frame.http.managed :as http-managed]
+            [re-frame.http.managed :as rf.http.managed]
             ;; rf2-cdmle — canned-stub fxs gate on explicit test-support require.
             [re-frame.http.test-support]
             ;; Spec 016 §Resources (rf2-rul3ov) — the host-cache reset.
-            [re-frame.resources.test-support :as resources-test-support]
+            [re-frame.resources.test-support :as rf.resources.test-support]
             ;; The shared, host-neutral runner (rf2-xurchk).
-            [re-frame.conformance-runner :as runner])
+            [re-frame.conformance-runner :as rf.conformance-runner])
   ;; Compile-time fixture inlining (see conformance_fixtures.clj). The macro
   ;; ns is .clj — shadow-cljs picks it up via :require-macros.
   (:require-macros [re-frame.conformance-fixtures :refer [all-fixtures]]))
@@ -77,7 +77,7 @@
 ;;
 ;;  * `baseline-trace-listeners` is captured at NS-LOAD. The SSR artefact
 ;;    registers its error-projection-listener at ns-load; other test
-;;    namespaces' `use-fixtures` blocks call `(trace/clear-listeners!)`, so
+;;    namespaces' `use-fixtures` blocks call `(rf.trace/clear-listeners!)`, so
 ;;    by the time our deftest runs the registry may be empty. Capturing at
 ;;    ns-load is the only point at which the framework listeners are live.
 ;;
@@ -101,12 +101,12 @@
 ;; (routing / http / machines / resources / …), all of which land at ns-load —
 ;; so this snapshot is exactly the clean framework surface. The per-fixture
 ;; `reset-runtime!` restores TO THIS, so the corpus runs against a framework-only
-;; registrar/source-store REGARDLESS of what a prior suite (e.g. the Xray
+;; rf.registrar/source-store REGARDLESS of what a prior suite (e.g. the Xray
 ;; RESOURCES-panel tests) left in the live registrar. The JVM leaf achieves the
-;; same clean state via `registrar/clear-all!` + `(require … :reload)`; CLJS has
+;; same clean state via `rf.registrar/clear-all!` + `(require … :reload)`; CLJS has
 ;; no `:reload`, so an ns-load snapshot is the equivalent framework-only source.
-(def ^:private framework-baseline-registrar @registrar/kind->id->metadata)
-(def ^:private framework-baseline-source-store @source-store/kind->id->ns->descriptor)
+(def ^:private framework-baseline-registrar @rf.registrar/kind->id->metadata)
+(def ^:private framework-baseline-source-store @rf.source-store/kind->id->ns->descriptor)
 
 (def ^:private pretest-registrar
   ;; Mutable cell, set on deftest / self-test entry. Used ONLY by the try/finally
@@ -131,13 +131,13 @@
   ;;    specifically (example apps register routes at ns-load whose rank
   ;;    tuples can collide with the fixture's equal-score cases). The fixture
   ;;    re-registers every route it needs.
-  (reset! registrar/kind->id->metadata framework-baseline-registrar)
+  (reset! rf.registrar/kind->id->metadata framework-baseline-registrar)
   ;; rf2-h1vqa4: roll the SOURCE STORE back in lockstep and drop the
   ;; resolved-generation cache — the raw `reset!` does not bump the store
   ;; generation counter, so a stale cache entry keyed on [identity counter]
   ;; could otherwise alias a DIFFERENT store content assembled earlier.
-  (reset! source-store/kind->id->ns->descriptor framework-baseline-source-store)
-  (image-assembly/clear-generation-cache!)
+  (reset! rf.source-store/kind->id->ns->descriptor framework-baseline-source-store)
+  (rf.image-assembly/clear-generation-cache!)
   ;; rf2-h1vqa4: re-seed the routing test-support fixture event. THIS ns is
   ;; the namespace that loads `re-frame.routing.test-support`, so any suite
   ;; running right before the corpus leaves the live store rolled back to a
@@ -147,45 +147,45 @@
   ;; `(require … :reload)` re-seeding).
   (re-frame.events/reg-event :rf.test/simulate-http-resolution
     re-frame.routing.test-support/simulate-http-resolution-handler)
-  (registrar/clear-kind! :route)
+  (rf.registrar/clear-kind! :route)
   ;; 2. Clear per-process state held outside the registrar.
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
+  (reset! rf.frame/frames {})
+  (rf.flows/reset-flows!)
+  (rf.schemas/clear-schemas-by-frame!)
   ;; 3. Reset id-allocators so routing / machine fixtures see deterministic
   ;;    counters.
-  (routing/reset-counters!)
+  (rf.routing/reset-counters!)
   ;; rf2-oosjmh — the nav-token / pending-nav counters are host-side transient
   ;; state now, so the `frames` reset above no longer clears them.
-  (routing/reset-nav-counters!)
-  (machines/reset-timers!)
+  (rf.routing/reset-nav-counters!)
+  (rf.machines/reset-timers!)
   ;; 4. Drop the in-flight HTTP request registry between fixtures.
-  (http-managed/clear-all-in-flight!)
+  (rf.http.managed/clear-all-in-flight!)
   ;; 4a. Spec 014 §Middleware (rf2-yhfgf) — drop the per-frame request-side
   ;;     interceptor chain (a `defonce` atom).
-  (http-managed/clear-all-http-interceptors!)
+  (rf.http.managed/clear-all-http-interceptors!)
   ;; 5. Dispose the currently-installed adapter and re-install plain-atom.
-  (substrate-adapter/dispose-adapter!)
-  (rf/init! plain-atom/adapter)
+  (rf.substrate.adapter/dispose-adapter!)
+  (rf/init! rf.substrate.plain-atom/adapter)
   ;; 6. Restore the baseline trace-listener set (preserves the SSR
   ;;    error-projection listener while dropping per-fixture listeners).
   (reset! re-frame.trace.tooling/listeners baseline-trace-listeners)
   ;; 7. rf2-wxe9t — drop every corpus-wide error-emit listener so a recorder
   ;;    installed for one fixture can't fire against the next fixture's drains.
-  (error-emit/clear-error-listeners!)
+  (rf.error-emit/clear-error-listeners!)
   ;; 7a. rf2-v0jwt / rf2-xurchk — drop the per-frame epoch ring buffer (and
   ;;     the in-flight capture buffer) between fixtures so `:epoch-records`
   ;;     assertions observe THIS fixture's recorded epochs only. Pre-rf2-xurchk
   ;;     the CLJS runner never checked `:epoch-records`, so it never cleared
   ;;     the ring — now the shared runner asserts against it, this clear is
   ;;     the CLJS counterpart of the JVM reset's epoch clear.
-  (when-let [f (late-bind/get-fn :epoch/clear-history!)]
+  (when-let [f (rf.late-bind/get-fn :epoch/clear-history!)]
     (f))
-  (when-let [f (late-bind/get-fn :epoch/clear-epoch-listeners!)]
+  (when-let [f (rf.late-bind/get-fn :epoch/clear-epoch-listeners!)]
     (f))
   ;; 8. Spec 016 §Resources (rf2-rul3ov) — drop the resource host-side caches
   ;;    so each `resources-*.edn` fixture's first load mints generation 1.
-  (resources-test-support/reset-resources!))
+  (rf.resources.test-support/reset-resources!))
 
 ;; ---- host map --------------------------------------------------------------
 
@@ -207,14 +207,14 @@
   ;; Capture the live registrar NOW (after every example / framework ns-load
   ;; has registered). try/finally restores it even if a fixture assertion
   ;; throws mid-suite, leaving subsequent namespaces' state intact.
-  (reset! pretest-registrar @registrar/kind->id->metadata)
-  (reset! pretest-source-store @source-store/kind->id->ns->descriptor)
+  (reset! pretest-registrar @rf.registrar/kind->id->metadata)
+  (reset! pretest-source-store @rf.source-store/kind->id->ns->descriptor)
   (try
-    (runner/run-corpus fixtures host "CLJS")
+    (rf.conformance-runner/run-corpus fixtures host "CLJS")
     (finally
-      (reset! registrar/kind->id->metadata @pretest-registrar)
-      (reset! source-store/kind->id->ns->descriptor @pretest-source-store)
-      (image-assembly/clear-generation-cache!))))
+      (reset! rf.registrar/kind->id->metadata @pretest-registrar)
+      (reset! rf.source-store/kind->id->ns->descriptor @pretest-source-store)
+      (rf.image-assembly/clear-generation-cache!))))
 
 ;; ---- rf2-xurchk acceptance self-tests -------------------------------------
 ;;
@@ -240,24 +240,24 @@
                :outcome  :rf.test/DELIBERATELY-WRONG}}]}})
 
 (deftest epoch-records-checked-on-cljs
-  (reset! pretest-registrar @registrar/kind->id->metadata)
-  (reset! pretest-source-store @source-store/kind->id->ns->descriptor)
+  (reset! pretest-registrar @rf.registrar/kind->id->metadata)
+  (reset! pretest-source-store @rf.source-store/kind->id->ns->descriptor)
   (try
-    (let [result (runner/run-fixture epoch-mismatch-fixture host)]
+    (let [result (rf.conformance-runner/run-fixture epoch-mismatch-fixture host)]
       (is (not (:passed? result))
           "a deliberately-mismatched :epoch-records expectation MUST fail the runner on CLJS")
       (is (seq (:epoch-failures result))
           "the failure MUST be attributed to the epoch-records matcher (not silently ignored)"))
     (finally
-      (reset! registrar/kind->id->metadata @pretest-registrar)
-      (reset! source-store/kind->id->ns->descriptor @pretest-source-store)
-      (image-assembly/clear-generation-cache!))))
+      (reset! rf.registrar/kind->id->metadata @pretest-registrar)
+      (reset! rf.source-store/kind->id->ns->descriptor @pretest-source-store)
+      (rf.image-assembly/clear-generation-cache!))))
 
 (deftest unknown-expect-key-fails-loud
-  (is (seq (runner/unknown-expect-keys
+  (is (seq (rf.conformance-runner/unknown-expect-keys
              {:fixture/expect {:rf.test/no-such-expectation 1}}))
       "an unrecognised :fixture/expect key must be flagged unknown")
-  (is (empty? (runner/unknown-expect-keys
+  (is (empty? (rf.conformance-runner/unknown-expect-keys
                 {:fixture/expect {:final-app-db {} :epoch-records []}}))
       "corpus-checked expectation keys must NOT be flagged unknown"))
 
@@ -265,11 +265,11 @@
 ;; Mirror of the JVM `derivation-graph-expect-graph-guard`. Saves / restores
 ;; the registrar (like the corpus runner) so it doesn't leak into siblings.
 (deftest derivation-graph-expect-graph-guard-cljs
-  (reset! pretest-registrar @registrar/kind->id->metadata)
-  (reset! pretest-source-store @source-store/kind->id->ns->descriptor)
+  (reset! pretest-registrar @rf.registrar/kind->id->metadata)
+  (reset! pretest-source-store @rf.source-store/kind->id->ns->descriptor)
   (try
     (reset-runtime!)
-    (let [run (fn [call] (runner/run-call call))]
+    (let [run (fn [call] (rf.conformance-runner/run-call call))]
       (is (:passed? (run {:call :derivation-graph :mode :live
                           :expect-graph {:mode :live :frame :rf/default}}))
           "the true live graph shape must pass")
@@ -286,6 +286,6 @@
                           :expect-graph {:mode :static}}))
           "the true static graph shape must pass"))
     (finally
-      (reset! registrar/kind->id->metadata @pretest-registrar)
-      (reset! source-store/kind->id->ns->descriptor @pretest-source-store)
-      (image-assembly/clear-generation-cache!))))
+      (reset! rf.registrar/kind->id->metadata @pretest-registrar)
+      (reset! rf.source-store/kind->id->ns->descriptor @pretest-source-store)
+      (rf.image-assembly/clear-generation-cache!))))

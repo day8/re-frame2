@@ -39,10 +39,10 @@
   nowhere but the JVM and reads as covered (rf2-dn6v7, rf2-lgozq)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.interop :as interop]
-            [re-frame.router :as router]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.interop :as rf.interop]
+            [re-frame.router :as rf.router]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; ---------------------------------------------------------------------------
 ;; ## Posture split (rf2-d2841)
@@ -54,14 +54,14 @@
 ;;
 ;; The `:rf.event/run-start` epoch assertions are a claim about the trace
 ;; stream — "one per dequeued event, none collapsed by the front-insertion" —
-;; and are kept verbatim inside a `(when interop/debug-enabled? …)` arm marked
+;; and are kept verbatim inside a `(when rf.interop/debug-enabled? …)` arm marked
 ;; `rf2-d2841`. Their always-on partner is the `@run-log` assertion directly
 ;; above them in the same body, which pins the same order from the handler
 ;; side.
 ;; ---------------------------------------------------------------------------
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (def ^:private run-log (atom []))
 
@@ -86,8 +86,8 @@
     (rf/reg-event :seed
       (fn [_ _]
         (log! :seed)
-        (router/dispatch! [:ext] {})
-        (router/dispatch! [:cont] {:rf.machine/internal? true})
+        (rf.router/dispatch! [:ext] {})
+        (rf.router/dispatch! [:cont] {:rf.machine/internal? true})
         {}))
     (rf/dispatch-sync [:seed] {:frame :rf/default})
     (is (= [:seed :cont :ext] @run-log)
@@ -104,8 +104,8 @@
     (rf/reg-event :seed
       (fn [_ _]
         (log! :seed)
-        (router/dispatch! [:ext] {})
-        (router/dispatch! [:plain] {}) ;; NOT machine-internal
+        (rf.router/dispatch! [:ext] {})
+        (rf.router/dispatch! [:plain] {}) ;; NOT machine-internal
         {}))
     (rf/dispatch-sync [:seed] {:frame :rf/default})
     (is (= [:seed :ext :plain] @run-log)
@@ -124,12 +124,12 @@
     (rf/reg-event :seed
       (fn [_ _]
         (log! :seed)
-        (router/dispatch! [:ext] {})
+        (rf.router/dispatch! [:ext] {})
         ;; Two machine-internal continuations, emitted :a then :b. Each
         ;; front-inserts onto the head of the EXISTING queue, so the net
         ;; head order is [:a :b ...], not the reversed [:b :a ...].
-        (router/dispatch! [:a] {:rf.machine/internal? true})
-        (router/dispatch! [:b] {:rf.machine/internal? true})
+        (rf.router/dispatch! [:a] {:rf.machine/internal? true})
+        (rf.router/dispatch! [:b] {:rf.machine/internal? true})
         {}))
     (rf/dispatch-sync [:seed] {:frame :rf/default})
     (is (= [:seed :a :b :ext] @run-log)
@@ -158,9 +158,9 @@
     (rf/reg-event :seed
       (fn [_ _]
         (log! :seed)
-        (router/dispatch! [:ext] {})
-        (router/dispatch! [:c1] {:rf.machine/internal? true})
-        (router/dispatch! [:c2] {:rf.machine/internal? true})
+        (rf.router/dispatch! [:ext] {})
+        (rf.router/dispatch! [:c1] {:rf.machine/internal? true})
+        (rf.router/dispatch! [:c2] {:rf.machine/internal? true})
         {}))
     (let [seen (atom [])]
       (rf/register-listener! :trace ::epoch-rec (fn [ev] (swap! seen conj ev)))
@@ -173,7 +173,7 @@
       ;; One :run-start per dequeued event — four distinct events, none
       ;; collapsed by the front-insertion. The always-on partner is the
       ;; `@run-log` assertion directly above.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (let [starts (run-starts-of @seen)]
           (is (= 4 (count starts))
               "one :run-start per dequeued event — no collapse")

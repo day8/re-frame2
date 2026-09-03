@@ -2,7 +2,7 @@
   "EP-0008 / rf2-7b9r4l — `:rf.error/on-destroy-handler-exception` promoted
   onto the ALWAYS-ON axis.
 
-  `frame/fire-on-destroy-event!` runs the user `:on-destroy` event during
+  `rf.frame/fire-on-destroy-event!` runs the user `:on-destroy` event during
   `destroy-frame!`. A throw MUST NOT abort teardown (Spec 002 §`:on-destroy`
   handler throw semantics, rf2-r1ciy decision b). The dedicated
   `:rf.error/on-destroy-handler-exception` category is the DISCRIMINABLE
@@ -40,11 +40,11 @@
   (:require #?(:clj  [clojure.test :refer [deftest is testing use-fixtures]]
                :cljs [cljs.test :refer-macros [deftest is testing use-fixtures]])
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.error-emit :as error-emit]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as ts]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.error-emit :as rf.error-emit]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; ---------------------------------------------------------------------------
 ;; Fixture — fresh registrar + plain-atom adapter per test; the always-on
@@ -52,10 +52,10 @@
 ;; ---------------------------------------------------------------------------
 
 (use-fixtures :each
-  (ts/make-reset-runtime-fixture
-    {:adapter plain-atom/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.substrate.plain-atom/adapter
      :init-fn (fn []
-                (error-emit/clear-error-listeners!))}))
+                (rf.error-emit/clear-error-listeners!))}))
 
 ;; ===========================================================================
 ;; (a) Common path — a throwing :on-destroy handler fans the dedicated
@@ -105,7 +105,7 @@
                        (fn [{:keys [db]} _] {:db (throw (ex-info "again" {}))}))
       (rf/make-frame {:id :ondestroy/teardown :on-destroy [:ondestroy/blow-up-2]})
       (rf/destroy-frame! :ondestroy/teardown)
-      (is (nil? (frame/frame :ondestroy/teardown))
+      (is (nil? (rf.frame/frame :ondestroy/teardown))
           "the frame is fully torn down (teardown continued past the throw)")
       (is (seq (filter #(= :rf.error/on-destroy-handler-exception (:error %)) @seen))
           "the always-on record still fired"))))
@@ -136,18 +136,18 @@
             on the always-on axis — the ONLY production coverage for this
             branch (it never produced a router :rf.error/handler-exception)."
     (let [seen     (atom [])
-          original (late-bind/get-fn :router/run-frame-destroy-event!)]
+          original (rf.late-bind/get-fn :router/run-frame-destroy-event!)]
       (rf/register-listener! :errors :test/recorder
                                    (fn [record] (swap! seen conj record)))
       (rf/make-frame {:id :ondestroy/infra-fault :on-destroy [:ondestroy/never-reached]})
       ;; Make the private teardown dispatch infrastructure itself fault.
-      (late-bind/set-fn! :router/run-frame-destroy-event!
+      (rf.late-bind/set-fn! :router/run-frame-destroy-event!
                          (fn [& _] (throw (ex-info "dispatch infra fault" {}))))
       (try
         (is (nil? (rf/destroy-frame! :ondestroy/infra-fault))
             "teardown does not propagate the infra fault")
         (finally
-          (late-bind/set-fn! :router/run-frame-destroy-event! original)))
+          (rf.late-bind/set-fn! :router/run-frame-destroy-event! original)))
       (let [reports (filter #(= :rf.error/on-destroy-handler-exception (:error %)) @seen)]
         (is (= 1 (count reports))
             "the defence-in-depth branch fanned out on the always-on axis")
@@ -156,7 +156,7 @@
               ":frame names the frame being torn down")
           (is (some? (:exception r))
               ":exception carries the infra-fault throwable")))
-      (is (nil? (frame/frame :ondestroy/infra-fault))
+      (is (nil? (rf.frame/frame :ondestroy/infra-fault))
           "the frame is still fully torn down despite the infra fault"))))
 
 ;; ===========================================================================
@@ -223,5 +223,5 @@
             would close the error-emit -> elision -> frame load cycle); the
             hook is published at error-emit ns-load, so the lookup never
             misses in production."
-    (is (some? (late-bind/get-fn :error-emit/dispatch-on-error))
+    (is (some? (rf.late-bind/get-fn :error-emit/dispatch-on-error))
         "the hook is registered at error-emit ns-load")))

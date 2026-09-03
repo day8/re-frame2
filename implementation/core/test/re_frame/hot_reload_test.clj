@@ -20,20 +20,20 @@
   performs both registrations within one test body."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.machines :as machines]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.schemas :as schemas]
-            [re-frame.flows :as flows]
-            [re-frame.substrate.plain-atom :as plain-atom])
+            [re-frame.machines :as rf.machines]
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.flows :as rf.flows]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom])
   (:import [java.util.concurrent CountDownLatch TimeUnit]))
 
 (defn reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  (rf/init! plain-atom/adapter)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.flows/reset-flows!)
+  (rf.schemas/clear-schemas-by-frame!)
+  (rf/init! rf.substrate.plain-atom/adapter)
   ;; EP-0002 (rf2-69r7ui): there is no `:rf/default` floor — the runtime
   ;; never synthesises a frame from absence, so a bare dispatch / subscribe
   ;; raises :rf.error/no-frame-context. The tests below that exercise the
@@ -155,8 +155,8 @@
     ;; by ref-counting, masking the cache-cross-frame contract.
     (let [pin-left  (rf/subscribe [:answer] {:frame :left})
           pin-right (rf/subscribe [:answer] {:frame :right})
-          left-cache  (:sub-cache (frame/frame :left))
-          right-cache (:sub-cache (frame/frame :right))]
+          left-cache  (:sub-cache (rf.frame/frame :left))
+          right-cache (:sub-cache (rf.frame/frame :right))]
       (is (= 3 @pin-left)  "left frame's :answer reads :n=3 under v1")
       (is (= 5 @pin-right) "right frame's :answer reads :n=5 under v1")
       (is (contains? @left-cache  [:answer])
@@ -198,7 +198,7 @@
     ;; the slot that, pre-fix, survives the re-registration with a stale
     ;; input reaction. Subscribing [:sum] also subscribes [:a] (its input).
     (let [pin-sum (rf/subscribe [:sum] {:frame :rf/default})
-          cache   (:sub-cache (frame/frame :rf/default))]
+          cache   (:sub-cache (rf.frame/frame :rf/default))]
       (is (= 10 @pin-sum) ":sum reads 10 under v1 of :a")
       (is (contains? @cache [:sum]) "downstream [:sum] is cached")
       (is (contains? @cache [:a])   "upstream [:a] is cached")
@@ -233,7 +233,7 @@
     (rf/reg-event :seed (fn [{:keys [db]} _] {:db {:n 1}}))
     (rf/dispatch-sync [:seed] {:frame :rf/default})
     (rf/reg-sub :base (fn [db _] (:n db)))
-    (let [cache (:sub-cache (frame/frame :rf/default))]
+    (let [cache (:sub-cache (rf.frame/frame :rf/default))]
       ;; Hand-craft a cycle in the cache's :inputs topology. No live
       ;; reactions are needed for the closure walk (it reads only :inputs);
       ;; :reaction nil means the dispose loop skips disposal for these slots.
@@ -263,7 +263,7 @@
     ;; populated. We use a machine handler so the snapshot lands at
     ;; [:rf.runtime/machines :snapshots :traffic-light] per Spec 005.
     (rf/reg-event :traffic-light
-      (machines/make-machine-handler
+      (rf.machines/make-machine-handler
         {:initial :red
          :data    {:ticks 0}
          :actions {:tick-action
@@ -280,7 +280,7 @@
     ;; EP-0001 (rf2-vzld77): machine snapshots are durable runtime-db state.
     (let [pre-rt          (:rf.db/runtime (rf/frame-state-value :tenant))
           pre-snapshot    (get-in pre-rt [:rf.runtime/machines :snapshots :traffic-light])
-          pre-app-db-cont (frame/app-db-container :tenant)]
+          pre-app-db-cont (rf.frame/app-db-container :tenant)]
       (is (= :yellow (:state pre-snapshot))
           "machine snapshot landed in [:rf.runtime/machines :snapshots] under :traffic-light")
       (is (= 2 (get-in pre-snapshot [:data :ticks]))
@@ -290,7 +290,7 @@
                       :tenant-id :acme
                       :version   2})
       ;; The :app-db CONTAINER is the same identity (no replace happened).
-      (is (identical? pre-app-db-cont (frame/app-db-container :tenant))
+      (is (identical? pre-app-db-cont (rf.frame/app-db-container :tenant))
           "frame's app-db container is preserved (same identity)")
       ;; The [:rf.runtime/machines :snapshots] snapshot is preserved verbatim.
       (let [post-rt (:rf.db/runtime (rf/frame-state-value :tenant))]

@@ -32,7 +32,7 @@
   ## Posture split (rf2-d2841)
 
   Q3 above already says it: `:rf.trace/call-site` is DEV-ONLY BY DESIGN. The
-  macro expansion is `(if interop/debug-enabled? <stamped> <plain>)` with the
+  macro expansion is `(if rf.interop/debug-enabled? <stamped> <plain>)` with the
   gate OUTERMOST (`core-call-site-macros/gate`), so under
   `-Dre-frame.debug=false` the production branch never builds the coord map at
   all — and the trace event that would have carried it is not emitted either.
@@ -57,26 +57,26 @@
   the gate they certified the fn-form path by never looking at it."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.interop :as interop]
-            [re-frame.source-coords :as sc]
-            [re-frame.frame :as frame]
-            [re-frame.registrar :as registrar]
-            [re-frame.router :as router]
-            [re-frame.subs :as subs]
-            [re-frame.schemas :as schemas]
-            [re-frame.flows :as flows]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.trace :as trace]))
+            [re-frame.interop :as rf.interop]
+            [re-frame.source-coords :as rf.source-coords]
+            [re-frame.frame :as rf.frame]
+            [re-frame.registrar :as rf.registrar]
+            [re-frame.router :as rf.router]
+            [re-frame.subs :as rf.subs]
+            [re-frame.schemas :as rf.schemas]
+            [re-frame.flows :as rf.flows]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.trace :as rf.trace]))
 
 ;; ---- fixtures -------------------------------------------------------------
 
 (defn reset-runtime [test-fn]
-  (registrar/clear-all!)
-  (reset! frame/frames {})
-  (flows/reset-flows!)
-  (schemas/clear-schemas-by-frame!)
-  (trace/clear-listeners!)
-  (rf/init! plain-atom/adapter)
+  (rf.registrar/clear-all!)
+  (reset! rf.frame/frames {})
+  (rf.flows/reset-flows!)
+  (rf.schemas/clear-schemas-by-frame!)
+  (rf.trace/clear-listeners!)
+  (rf/init! rf.substrate.plain-atom/adapter)
   (require 're-frame.routing :reload)
   ;; EP-0002 (rf2-9o48ih): `init!` no longer synthesises `:rf/default`;
   ;; framework operation surfaces require a carried frame stamp. Register
@@ -103,7 +103,7 @@
   "ALWAYS-ON (rf2-d2841) capture: run `body-fn` with BOTH a dev-trace listener
   and an always-on `:errors`-stream listener attached, returning
   `{:traces [...] :errors [...]}`. The `:errors` half is the corpus-wide
-  `error-emit` registry, which is not gated by `interop/debug-enabled?`."
+  `error-emit` registry, which is not gated by `rf.interop/debug-enabled?`."
   [body-fn]
   (let [traces (atom [])
         errors (atom [])]
@@ -147,7 +147,7 @@
     (is (string? (:file cs)) ":file is a string")
     (is (integer? (:line cs)) ":line is an integer")))
 
-;; ---- Q1 — dispatch-sync macro stamps; router/dispatch-sync! fn does NOT --
+;; ---- Q1 — dispatch-sync macro stamps; rf.router/dispatch-sync! fn does NOT --
 
 (deftest dispatch-sync-macro-stamps-call-site-on-no-such-handler
   (testing ":rf.error/no-such-handler from dispatch-sync macro carries the call site"
@@ -161,7 +161,7 @@
               (rf/dispatch-sync [:rf2-ts1a/no-such-event])))
           [miss] (errors-of traces :rf.error/no-such-handler)]
       (assert-production-record errors :rf.error/no-such-handler)
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (some? miss) "no-such-handler trace fired")
         (assert-call-site-shape miss)))))
 
@@ -171,7 +171,7 @@
     (let [{:keys [traces errors]}
           (record-both
             (fn []
-              (router/dispatch-sync! [:rf2-ts1a/no-such-event])))
+              (rf.router/dispatch-sync! [:rf2-ts1a/no-such-event])))
           [miss] (errors-of traces :rf.error/no-such-handler)]
       ;; ALWAYS-ON (rf2-d2841): the fn-form reaches the SAME production record
       ;; the macro form does. Q1's macro/fn split is a dev jump-to-source
@@ -179,7 +179,7 @@
       (assert-production-record errors :rf.error/no-such-handler)
       ;; rf2-d2841 -- class-4 vacuous under the gate: `miss` is nil there, and
       ;; `(contains? nil k)` is false for every k.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (some? miss))
         (is (not (contains? miss :rf.trace/call-site))
             ":rf.trace/call-site omitted on the fn-form path")))))
@@ -194,7 +194,7 @@
               (rf/subscribe [:rf2-ts1a/no-such-sub])))
           [miss] (errors-of traces :rf.error/no-such-sub)]
       (assert-production-record errors :rf.error/no-such-sub)
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (some? miss) "no-such-sub trace fired")
         (assert-call-site-shape miss)))))
 
@@ -204,11 +204,11 @@
     (let [{:keys [traces errors]}
           (record-both
             (fn []
-              (subs/subscribe [:rf2-ts1a/no-such-sub])))
+              (rf.subs/subscribe [:rf2-ts1a/no-such-sub])))
           [miss] (errors-of traces :rf.error/no-such-sub)]
       (assert-production-record errors :rf.error/no-such-sub)
       ;; rf2-d2841 -- class-4 vacuous under the gate.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (some? miss))
         (is (not (contains? miss :rf.trace/call-site))
             ":rf.trace/call-site omitted on the fn-form path")))))
@@ -225,7 +225,7 @@
 ;; `re-frame.cofx/inject-cofx` and is pinned in `re-frame.cofx-test`. The
 ;; dispatch / subscribe call-site stamping (above) is unaffected.
 
-;; ---- dispatch-sync / router/dispatch-sync! ---------------------------------
+;; ---- dispatch-sync / rf.router/dispatch-sync! ---------------------------------
 
 (deftest dispatch-sync-macro-stamps-call-site-on-handler-exception
   (testing "dispatch-sync macro stamps the call-site through the envelope
@@ -242,9 +242,9 @@
       ;; ALWAYS-ON (rf2-d2841): what production DOES get for this failure is
       ;; the REGISTRATION coord, off the always-on `error-coords-by-id`
       ;; registry -- not the invocation coord this file is about.
-      (is (= (sc/error-coords-for :event :rf2-ts1a/throws) (:source-coord rec))
+      (is (= (rf.source-coords/error-coords-for :event :rf2-ts1a/throws) (:source-coord rec))
           "the production record carries the registration coord instead")
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (some? exc))
         (assert-call-site-shape exc)))))
 
@@ -257,15 +257,15 @@
     (let [{:keys [traces errors]}
           (record-both
             (fn []
-              (router/dispatch-sync! [:rf2-ts1a/throws-fn])))
+              (rf.router/dispatch-sync! [:rf2-ts1a/throws-fn])))
           [exc] (errors-of traces :rf.error/handler-exception)
           rec   (assert-production-record errors :rf.error/handler-exception)]
       ;; ALWAYS-ON: the fn-form loses the INVOCATION coord, not the
       ;; REGISTRATION coord -- the record still names where the handler lives.
-      (is (= (sc/error-coords-for :event :rf2-ts1a/throws-fn) (:source-coord rec))
+      (is (= (rf.source-coords/error-coords-for :event :rf2-ts1a/throws-fn) (:source-coord rec))
           "fn-form dispatch still ships the registration coord")
       ;; rf2-d2841 -- class-4 vacuous under the gate.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (some? exc))
         (is (not (contains? exc :rf.trace/call-site))
             ":rf.trace/call-site omitted on the fn-form path")))))
@@ -286,7 +286,7 @@
       (assert-production-record errors :rf.error/handler-exception)
       ;; rf2-d2841 -- GUARDED. The `:tags` negative was class-4 vacuous under
       ;; the gate for the usual reason: `exc` is nil, `(contains? nil k)` false.
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (contains? exc :rf.trace/call-site)
             ":rf.trace/call-site lives at the top level of the event")
         (is (not (contains? (:tags exc) :rf.trace/call-site))
@@ -308,7 +308,7 @@
           [miss] (errors-of traces :rf.error/no-such-handler)
           cs     (:rf.trace/call-site miss)]
       (assert-production-record errors :rf.error/no-such-handler)
-      (when interop/debug-enabled?
+      (when rf.interop/debug-enabled?
         (is (some? cs))
         ;; We can't hardcode the line number (file edits would break the
         ;; test); instead assert the line is plausible (positive integer)

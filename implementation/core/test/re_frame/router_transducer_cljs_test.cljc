@@ -12,7 +12,7 @@
   load-bearing — a `.cljc` test whose ns ends in a plain `-test` compiles
   nowhere but the JVM and reads as covered (rf2-dn6v7, rf2-lgozq)."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.router-transducer :as rt]))
+            [re-frame.router-transducer :as rf.router-transducer]))
 
 ;; ---- test-only helpers ----------------------------------------------------
 
@@ -29,7 +29,7 @@
 (defn- transduce-one
   "Drive one envelope through (factory frame) + rf. Returns the final acc."
   [envelope rf]
-  (let [tdx (rt/frame-transducer-factory (:frame envelope))]
+  (let [tdx (rf.router-transducer/frame-transducer-factory (:frame envelope))]
     (transduce tdx rf [envelope])))
 
 ;; ---- transducer / step-result coverage -----------------------------------
@@ -38,7 +38,7 @@
   (testing "happy path produces a fully-tagged step-result"
     (let [handlers {:inc (fn [db _] {:db (update db :n inc)})}
           e        (envelope [:inc] handlers {:n 0})
-          steps    (into [] (rt/frame-transducer-factory (:frame e)) [e])]
+          steps    (into [] (rf.router-transducer/frame-transducer-factory (:frame e)) [e])]
       (is (= 1 (count steps)))
       (let [step (first steps)]
         (is (= :ok (:rf/step step)))
@@ -50,7 +50,7 @@
 (deftest no-handler-step-tag
   (testing "missing handler short-circuits with :rf/step :no-handler"
     (let [e     (envelope [:missing] {} {:n 0})
-          steps (into [] (rt/frame-transducer-factory (:frame e)) [e])
+          steps (into [] (rf.router-transducer/frame-transducer-factory (:frame e)) [e])
           step  (first steps)]
       (is (= :no-handler (:rf/step step)))
       (is (= {:n 0} (:db-after step)) "db preserved on no-handler"))))
@@ -59,7 +59,7 @@
   (testing "handler exception is caught and surfaced as :handler-throw"
     (let [handlers {:boom (fn [_ _] (throw (ex-info "boom" {})))}
           e        (envelope [:boom] handlers {:n 0})
-          steps    (into [] (rt/frame-transducer-factory (:frame e)) [e])
+          steps    (into [] (rf.router-transducer/frame-transducer-factory (:frame e)) [e])
           step     (first steps)]
       (is (= :handler-throw (:rf/step step)))
       (is (= {:n 0} (:db-after step)) "db rolled back on throw")
@@ -72,7 +72,7 @@
           handlers {:x (fn [_ _] (reset! seen true) {:db {:n 1}})}
           e (envelope [:x] handlers {:n 0}
                       :validate-event (fn [ev] (= ev [:y]))) ;; fails
-          steps (into [] (rt/frame-transducer-factory (:frame e)) [e])
+          steps (into [] (rf.router-transducer/frame-transducer-factory (:frame e)) [e])
           step  (first steps)]
       (is (= :validation (:rf/step step)))
       (is (false? @seen) "handler never invoked when validation fails")
@@ -85,7 +85,7 @@
                               :fx [[:dispatch [:next]]]
                               :http {:url "/x"}})}
           e        (envelope [:multi] handlers {:n 0})
-          steps    (into [] (rt/frame-transducer-factory (:frame e)) [e])
+          steps    (into [] (rf.router-transducer/frame-transducer-factory (:frame e)) [e])
           step     (first steps)]
       (is (= :ok (:rf/step step)))
       (is (= {:n 1} (:db-after step)))
@@ -98,7 +98,7 @@
   (testing "sync-rf folds db-after onto :db and walks fx inline"
     (let [handlers {:inc (fn [db _] {:db (update db :n inc)
                                      :fx [[:log :did-inc]]})}
-          rf (rt/sync-rf)
+          rf (rf.router-transducer/sync-rf)
           acc (transduce-one (envelope [:inc] handlers {:n 0}) rf)]
       (is (= {:n 1} (:db acc)))
       (is (= [[:log :did-inc]] (:fx-applied acc)))
@@ -121,8 +121,8 @@
           envs     [(envelope [:inc] handlers {:n 0})
                     (envelope [:inc] handlers {:n 1})
                     (envelope [:inc] handlers {:n 2})]
-          tdx      (rt/frame-transducer-factory frame)
-          acc      (transduce tdx (rt/sync-rf) envs)]
+          tdx      (rf.router-transducer/frame-transducer-factory frame)
+          acc      (transduce tdx (rf.router-transducer/sync-rf) envs)]
       (is (= {:n 3} (:db acc)) "last db-after wins")
       (is (= 3 (count (:steps acc)))))))
 
@@ -133,7 +133,7 @@
                               :fx [[:dispatch [:next]]
                                    [:log :started]
                                    [:dispatch [:also-next]]]})}
-          rf  (rt/queued-rf)
+          rf  (rf.router-transducer/queued-rf)
           acc (transduce-one (envelope [:start] handlers {:n 0}) rf)]
       (is (= {:n 1} (:db acc)))
       (is (= [[:log :started]] (:fx-applied acc))
@@ -148,9 +148,9 @@
           frame    {:handlers handlers :db {:n 0}}
           envs     [(envelope [:a] handlers {:n 0})
                     (envelope [:b] handlers {:n 1})]
-          tdx      (rt/frame-transducer-factory frame)
+          tdx      (rf.router-transducer/frame-transducer-factory frame)
           ;; transduce calls the completing arity automatically
-          acc      (transduce tdx (rt/batch-rf) envs)]
+          acc      (transduce tdx (rf.router-transducer/batch-rf) envs)]
       (is (= {:n 2} (:db acc)) "last db wins")
       (is (true? (:committed? acc)) "completing arity stamps :committed?")
       (is (= [[:log :a] [:log :b]] (:fx-applied acc))
@@ -160,10 +160,10 @@
 (deftest batch-rf-skips-fx-without-completing
   (testing "fx are NOT applied when only the step arity runs (no completing)"
     (let [handlers {:a (fn [_ _] {:db {:n 1} :fx [[:log :a]]})}
-          rf       (rt/batch-rf)
+          rf       (rf.router-transducer/batch-rf)
           init     (rf)
           step1    (first (into []
-                                (rt/frame-transducer-factory
+                                (rf.router-transducer/frame-transducer-factory
                                   {:handlers handlers :db {:n 0}})
                                 [(envelope [:a] handlers {:n 0})]))
           acc      (rf init step1)]
@@ -178,12 +178,12 @@
   (testing "manual driver pumps one envelope per tick!"
     (let [handlers {:inc (fn [db _] {:db (update db :n inc)})}
           frame    {:handlers handlers :db {:n 0}}
-          {:keys [push! tick!]} (rt/manual-driver)]
+          {:keys [push! tick!]} (rf.router-transducer/manual-driver)]
       (push! (envelope [:inc] handlers {:n 0}))
       (push! (envelope [:inc] handlers {:n 0}))
-      (let [acc1 (tick! frame (rt/sync-rf))]
+      (let [acc1 (tick! frame (rf.router-transducer/sync-rf))]
         (is (= {:n 1} (:db acc1))))
-      (let [acc2 (tick! frame (rt/sync-rf))]
+      (let [acc2 (tick! frame (rf.router-transducer/sync-rf))]
         (is (= {:n 1} (:db acc2)) "second tick processes second envelope")
         (is (= 2 (count (:steps acc2)))
             "steps accumulate across ticks")))))
@@ -192,9 +192,9 @@
   (testing "drain! processes everything until queue empties"
     (let [handlers {:inc (fn [db _] {:db (update db :n inc)})}
           frame    {:handlers handlers :db {:n 0}}
-          {:keys [push! drain!]} (rt/manual-driver)]
+          {:keys [push! drain!]} (rf.router-transducer/manual-driver)]
       (dotimes [_ 5] (push! (envelope [:inc] handlers {:n 0})))
-      (let [acc (drain! frame (rt/sync-rf))]
+      (let [acc (drain! frame (rf.router-transducer/sync-rf))]
         (is (= 5 (count (:steps acc))))
         (is (= {:n 1} (:db acc))
             "app-db is constant across envelopes in the scaffold")))))
