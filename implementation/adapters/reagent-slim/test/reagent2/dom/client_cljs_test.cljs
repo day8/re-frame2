@@ -19,10 +19,51 @@
 
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up."
   (:require [cljs.test :refer-macros [deftest is testing async]]
+            ["react" :as react]
             [reagent2.ratom :as ratom]
             [reagent2.impl.batching :as batching]
             [reagent2.impl.component :as component]
             [reagent2.dom.client :as dom-client]))
+
+;; ---------------------------------------------------------------------------
+;; The React-19 act floor (rf2-6r9j.35).
+;;
+;; `reagent2.dom.client/resolve-act` probes `(.-act react)` and NOTHING else —
+;; the pre-18.3 `react-dom/test-utils` location is below the repository's React
+;; floor (react / react-dom 19.2.0, pinned in implementation/package.json and
+;; its lock, and for generated consumers in tools/template's hooks.clj).
+;;
+;; This is the non-vacuous proof that the ONE lookup is the live path: swap a
+;; spy onto `react.act`, call `flush-views!`, and observe the callback pass
+;; THROUGH the spy. Remove the `act` call from `flush-views!` (or resolve `act`
+;; from anywhere but the `react` module) and the spy count stays 0 and this
+;; goes red.
+;; ---------------------------------------------------------------------------
+
+(deftest flush-views-routes-the-drain-through-react-act
+  (testing "flush-views! obtains act from the `react` module and runs its drain
+            inside it"
+    (async done
+      (let [original (.-act react)
+            seen     (atom 0)
+            restore! (fn [] (set! (.-act react) original))]
+        (is (fn? original)
+            "PRECONDITION: React 19 exports `act` on the `react` module — if this
+             fails the floor moved and the spy below would pass vacuously")
+        (set! (.-act react)
+              (fn [thunk]
+                (swap! seen inc)
+                (original thunk)))
+        (-> (js/Promise.resolve (dom-client/flush-views!))
+            (.then (fn [_]
+                     (restore!)
+                     (is (= 1 @seen)
+                         "flush-views! must route its drain through react/act")
+                     (done)))
+            (.catch (fn [e]
+                      (restore!)
+                      (is false (str "flush-views! threw: " e))
+                      (done))))))))
 
 ;; ---------------------------------------------------------------------------
 ;; flush-views! basic — drains the dirty-set + after-render

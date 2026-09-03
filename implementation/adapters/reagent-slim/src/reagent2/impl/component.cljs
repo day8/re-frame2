@@ -22,8 +22,9 @@
   Compile-time fold (rf2-yfbx): the runtime detection in `wrap-render`
   is the load-bearing correctness mechanism. Per IMPL-SPEC §14.1 the
   recommended fold is for `re-frame.core/reg-view`'s expansion to add
-  a compile-time form-tag (via the `reagent2.impl.component/-form-tag`
-  meta on the wrapped fn), letting `wrap-render` skip the runtime
+  a compile-time form-tag (the `:reagent2/form` meta stamped onto the
+  wrapped fn, built by `reagent2.impl.component/tag-form-meta` on the
+  CLJ side), letting `wrap-render` skip the runtime
   classification on the hot path. The runtime path stays load-bearing
   for plain `(reg-view* :id (fn ...))` callers and for paths where the
   fold isn't applied — i.e. correctness without the macro is preserved.
