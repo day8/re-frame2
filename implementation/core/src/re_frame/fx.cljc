@@ -410,8 +410,6 @@
 
 ;; ---- do-fx ----------------------------------------------------------------
 
-(declare dispatch-fx-handler)
-
 ;; ---- reserved fx-id table -------------------------------------------------
 ;;
 ;; Per Conventions §Reserved fx-ids — `:dispatch`, `:dispatch-later`,
@@ -554,8 +552,8 @@
 (defn classify-fx-override
   "Resolve `overrides`[`fx-id`] into ONE structured disposition, performing the
   registrar + protected-target lookup EXACTLY ONCE. This is THE single override
-  policy — `real-override?`, `override-applies?`, and `resolve-fx-with-overrides`
-  all express themselves over it, and the machines join-completion transport
+  policy — `real-override?` and `resolve-fx-with-overrides` both express
+  themselves over it, and the machines join-completion transport
   (`:rf.machine/join-dispatch`) consumes the SAME disposition under its
   exact-owner fence (rf2-5g6qq). Because the classification is taken once and
   wholly determines the caller's branch, a concurrent register / unregister can
@@ -601,18 +599,6 @@
   the ONE `classify-fx-override` policy (any non-`:noop` disposition)."
   [overrides fx-id]
   (not= :noop (:disposition (classify-fx-override overrides fx-id))))
-
-(defn override-applies?
-  "True iff `overrides` carries an override for `fx-id` that will ACTUALLY run
-  an application-controlled handler IN PLACE OF the fx — a fn-value, or a
-  keyword redirect to a REGISTERED, NON-PROTECTED fx. The STRICTER companion to
-  `real-override?`: a nil/false noop, an UNREGISTERED-keyword or MALFORMED value,
-  and a redirect whose TARGET is a PROTECTED internal id all return false. A thin
-  predicate over the ONE `classify-fx-override` policy (an `:applied-fn` /
-  `:applied-redirect` disposition)."
-  [overrides fx-id]
-  (contains? #{:applied-fn :applied-redirect}
-             (:disposition (classify-fx-override overrides fx-id))))
 
 (defn- real-reject-override?
   "True iff `overrides` carries a GENUINE reject-tier override attempt for

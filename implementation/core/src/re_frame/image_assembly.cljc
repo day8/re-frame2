@@ -741,9 +741,6 @@
 ;; ---- the collision validator — THE central \"order never decides\" guarantee
 ;;      (EP-0023 §Image Composition / §Image Validation) ----------------------
 
-(defn- standard-descriptor?
-  [d] (boolean (:standard d)))
-
 (defn- inline-descriptor?
   "True when a descriptor is an IMAGE-INLINE descriptor (carries
   `:rf.provenance/inline`), as opposed to a namespace-selected (registered) or a
