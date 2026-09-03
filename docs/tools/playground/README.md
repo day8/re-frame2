@@ -103,7 +103,8 @@ This is option B from the findings doc
 self-contained `tools/` artefact. The bootstrap + CM6 editor are plain JS bundled
 by esbuild; the Phase-3 re-frame2 eval engine is the CLJS + shadow-cljs
 sub-build under `sci/`. (This artefact ships its own `sci/shadow-cljs.edn` +
-`sci/deps.edn` — the top-level `tools/shadow-cljs.edn` is untouched.)
+`sci/deps.edn`, built and run from `sci/` — it adds nothing to the tool
+tier's own build configuration.)
 
 ## Stack (pinned)
 

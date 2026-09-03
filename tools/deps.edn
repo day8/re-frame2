@@ -53,43 +53,35 @@
 ;; chart via thin shims), rather than owning the chart. The Mermaid
 ;; emitter lives in THIS jar again (rf2-sqhqu), not implementation/machines.
 ;;
-;; ## Why machines-viz is NOT in the JVM aggregate :test (CLJS-only)
+;; ## What this file is — and what it is NOT (rf2-6r9j.139 / .140)
 ;;
-;; machines-viz is CLJS-only (the chart `:require`s `@xyflow/react` +
-;; `elkjs`, JVM-unloadable). Its tests run under the consolidated
-;; `implementation/shadow-cljs.edn` `:node-test` build (`*_cljs_test`)
-;; AND the `:browser-test` build (`*-dom-cljs-test` — the DOM/export
-;; suites), NOT on the JVM. So it sits in the coordinator `:deps`
-;; (classpath only; nothing requires it on the JVM) but its tests are
-;; intentionally absent from the JVM aggregate `:test` `:extra-paths`
-;; below.
+;; A CLASSPATH coordinator, and nothing more: `:paths []` plus one
+;; `:local/root` per tool artefact, so a REPL started from `tools/` sees the
+;; whole tool tier on one classpath. It is not a published artefact and it
+;; declares NO test alias.
 ;;
-;; ## Why Xray IS in the JVM aggregate :test (rf2-f2tkbt)
+;; It used to carry an aggregate `:test` alias advertised as covering "every
+;; JVM-runnable tool". It did not. Its `:extra-paths` and runner `-d` list
+;; named only xray, mcp-base, story, story-mcp and template, while
+;; machines-viz (whose `engine_grammar_parity_test.cljc` and
+;; `mermaid_public_smoke_test.cljc` have no other JVM lane),
+;; testbed-support and mcp-conformance/wire-vocab were silently absent —
+;; and no CI job ever ran the alias, so nothing could make the drift red. A
+;; developer running the advertised single-command sanity check got a green
+;; that skipped live JVM-only contracts.
 ;;
-;; Xray ships a DOM/Reagent shell that is CLJS-only, but a substantial
-;; portion of its test tree is `.clj`/`.cljc` pure-data coverage that
-;; loads and runs on the JVM — cognitect's test-runner only scans
-;; `.clj`/`.cljc` namespaces matching `.*-test$`, so the JS-only `.cljs`
-;; specs (the DOM + Reagent shells) are skipped on the JVM classpath and
-;; only the JVM-loadable namespaces run. `tools/xray clojure -M:test`
-;; (the per-tool alias) already runs that JVM slice — 1200+ tests — in
-;; CI (`.github/workflows/test.yml` jvm-tools-xray) and in
-;; `scripts/test-jvm-tools.sh`. The EP-0011 uniform reply-envelope
-;; tooling-projection coverage
-;; (`tools/xray/test/.../panels/reply_envelope_cljs_test.cljc` — a
-;; dual-target `.cljc`) lives there. Earlier this aggregate excluded
-;; Xray with a "CLJS-only" note, which left the root tools command
-;; surface inconsistent with CI: a developer following the root docs
-;; could believe `cd tools && clojure -M:test` exercised the EP-0011
-;; Xray coverage when it did not. The aggregate now includes
-;; `xray/test` (see `:extra-paths` + the `-d xray/test` flag below) so
-;; the documented "every JVM-runnable tool" claim holds.
+;; The roster that IS maintained, and IS held against the required CI jobs by
+;; scripts/check_jvm_lane_rosters.py, is `scripts/test-jvm-tools.sh`. That is
+;; the tool-tier JVM command. A second hand-written inventory beside it bought
+;; a convenience whose only distinguishing property was being wrong, so it is
+;; gone rather than duplicated more carefully (rf2-6r9j.139).
 ;;
-;; This top-level deps.edn is *not* itself a published artefact — it is
-;; the build coordinator that pulls every tool artefact onto a single
-;; classpath for aggregate test runs and for the shadow-cljs builds (see
-;; tools/shadow-cljs.edn) that exercise re-frame2-pair-mcp end-to-end. Per-tool
-;; JVM tests run via the per-tool deps.edn directly.
+;; A sibling `tools/shadow-cljs.edn` retired with it for the same reason
+;; (rf2-6r9j.140): it mirrored two of Pair MCP's builds, never grew the
+;; `descriptor-gen` build Pair added afterwards nor the CLJS lanes mcp-base
+;; and machines-viz added, and had no workflow, npm script or gate invoking
+;; it. Every tool with a CLJS surface owns an adjacent `shadow-cljs.edn`, and
+;; those are what CI and the npm scripts already run.
 ;;
 ;; ## Why template is NOT in the base :deps map
 ;;
@@ -97,11 +89,13 @@
 ;; tree contains placeholder-bearing `.cljs` files (e.g.
 ;; `(ns {{top/ns}}.{{main/ns}}...)` in
 ;; resources/day8/re_frame2_template/_shared/src/events_test.cljs) that
-;; are NOT valid ClojureScript. Adding `day8/re-frame2-template` to the
-;; base `:deps` map would put those files on the shadow-cljs classpath;
-;; shadow-cljs would try to compile them and fail at the read-loop. The
-;; template dep therefore lives ONLY on the `:test` alias, which runs
-;; on the JVM where the .cljs templates are treated as plain resources.
+;; are NOT valid ClojureScript. Anything that READS that tree as SOURCE
+;; rather than as opaque resources fails at the read loop, so the template
+;; artefact is kept off this classpath, and `tools/template/resources/` is
+;; excluded explicitly from the clj-kondo and Splint invocations in
+;; .github/workflows/lint.yml. The template's own tests run from
+;; `tools/template` (`clojure -M:test`), on the JVM, where the `.cljs`
+;; templates are plain resources.
 ;;
 ;; ## Bundle-isolation
 ;;
@@ -115,81 +109,4 @@
          day8/re-frame2-mcp-base     {:local/root "mcp-base"}
          day8/re-frame2-pair-mcp     {:local/root "re-frame2-pair-mcp"}
          day8/re-frame2-story        {:local/root "story"}
-         day8/re-frame2-story-mcp    {:local/root "story-mcp"}}
-
- :aliases
- {;; Aggregate JVM-side test run across every tool whose tests are
-  ;; runnable on the JVM (xray, mcp-base, story, story-mcp, template).
-  ;; Useful for ad-hoc REPL work and as a single-command sanity check
-  ;; across the tool tier. Production CI runs each tool's :test alias
-  ;; separately (per-tool gates).
-  ;;
-  ;; Note on coverage:
-  ;;   - tools/xray/ — has a JVM-runnable test slice (the `.clj`/`.cljc`
-  ;;     pure-data namespaces, incl. the EP-0011 reply-envelope
-  ;;     tooling-projection coverage), included below via `xray/test` /
-  ;;     `-d xray/test`. Its CLJS-only `.cljs` specs (DOM + Reagent
-  ;;     shell) are skipped on the JVM classpath and run under the
-  ;;     implementation/shadow-cljs.edn :node-test build instead. See the
-  ;;     "Why Xray IS in the JVM aggregate :test" block above.
-  ;;   - tools/machines-viz/ — CLJS-only (rf2-z0cw6s). Its tests run
-  ;;     under the implementation/shadow-cljs.edn :node-test build
-  ;;     (`*_cljs_test`) + :browser-test build (`*-dom-cljs-test`, the
-  ;;     DOM/export suites), not on the JVM.
-  ;;   - tools/re-frame2-pair-mcp/ — CLJS Node-script. Its tests run under
-  ;;     tools/re-frame2-pair-mcp/shadow-cljs.edn :server-test (mirrored in
-  ;;     tools/shadow-cljs.edn).
-  :test
-  {:extra-deps  {;; template lives on the JVM-only path — see the
-                 ;; "Why template is NOT in the base :deps map" block
-                 ;; above for the shadow-cljs incompatibility.
-                 day8/re-frame2-template
-                 {:local/root "template"}
-                 ;; rf2-try1x — silent-on-success reporter.
-                 day8/re-frame2-test-quiet
-                 {:local/root "../implementation/test-quiet"}
-                 io.github.cognitect-labs/test-runner
-                 {:git/tag "v0.5.1" :git/sha "dfb30dd"}
-                 ;; deps-new (rf2-40vmd / rf2-dolpf §2.5) is required by
-                 ;; the template tests since the §2 deps-new migration —
-                 ;; they drive `org.corfield.new/create` in-process. The
-                 ;; per-tool `tools/template :test` alias already pulls
-                 ;; it in; the aggregate runner needs the same dep.
-                 io.github.seancorfield/deps-new
-                 {:git/tag "v0.12.1" :git/sha "883e82c"}
-                 ;; rf2-ydu4od — Story's own `:test` alias
-                 ;; (tools/story/deps.edn) pins `org.clojure/test.check` on
-                 ;; the :test alias ONLY, to exercise the OPTIONAL
-                 ;; `re-frame.story.generate.test-check` adapter (rf2-6nk6d).
-                 ;; `re-frame.story.generate-test` (tools/story/test/...)
-                 ;; hard-requires `clojure.test.check.generators` behind a
-                 ;; `:clj` reader conditional, so the aggregate needs the
-                 ;; SAME dep the per-tool alias carries or that namespace
-                 ;; fails to load under `cd tools && clojure -M:test`. Before
-                 ;; this entry the aggregate happened to resolve a
-                 ;; DIFFERENT test.check version (1.1.3) purely as an
-                 ;; incidental transitive dep of deps-new → sci →
-                 ;; borkdude/dynaload — undocumented and one dependency bump
-                 ;; away from silently disappearing. Pinning it explicitly
-                 ;; here, at the SAME version as Story's own alias, makes
-                 ;; the dependency intentional and reproducible rather than
-                 ;; accidental.
-                 org.clojure/test.check
-                 {:mvn/version "1.1.1"}}
-   :extra-paths ["xray/test"
-                 "mcp-base/test"
-                 "story/test"
-                 "story-mcp/test"
-                 "template/test"]
-   ;; The `-d` args are necessary because cognitect.test-runner's
-   ;; default `--dir` is "test" (relative to cwd) — without explicit
-   ;; dir flags the runner scans `tools/test/` and finds nothing. The
-   ;; aggregated build needs one `-d` per per-tool test path. Per-tool
-   ;; `:test` aliases keep their default invocation (a single
-   ;; `test/` path relative to the tool's own deps.edn).
-   :main-opts   ["-m" "re-frame.test-quiet.runner"
-                 "-d" "xray/test"
-                 "-d" "mcp-base/test"
-                 "-d" "story/test"
-                 "-d" "story-mcp/test"
-                 "-d" "template/test"]}}}
+         day8/re-frame2-story-mcp    {:local/root "story-mcp"}}}
