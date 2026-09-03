@@ -192,7 +192,24 @@
     (testing "an unmatched selector yields nothing"
       (is (= '[] (select-syms '[absent.ns]))))
     (testing "no selectors select nothing (the whole-suite path, not this one)"
-      (is (= '[] (select-syms '[]))))))
+      (is (= '[] (select-syms '[]))))
+    (testing "selection does not depend on HOW MANY selectors were given"
+      ;; Nine, because eight is where ClojureScript's set representation
+      ;; changes: up to eight entries a set is array-map-backed and finds a
+      ;; key by `=`, above that it hashes. A qualified selector is matched
+      ;; against a symbol rebuilt from a var's `{:ns :name}` METADATA, whose
+      ;; parts are symbols, not strings — `=` to the reader's `ns/name` but
+      ;; not hash-equal to it — so every qualified selector silently stopped
+      ;; matching at the ninth. Found by driving the shipped selector; the
+      ;; copied predicate this row replaced could not see it (rf2-6r9j.76).
+      (let [many-vars (mapv #(fake-var 'many.ns (symbol (str "t" %))) (range 9))
+            many-syms (mapv #(symbol "many.ns" (str "t" %)) (range 9))]
+        (is (= many-syms
+               (mapv (fn [test-var]
+                       (let [{test-namespace :ns test-name :name} (meta test-var)]
+                         (symbol (str test-namespace) (str test-name))))
+                     (cli/select-matching-test-vars many-syms many-vars)))
+            "nine qualified selectors must select all nine of their vars")))))
 
 ;; ----------------------------------------------------------------------
 ;; Unmatched-selector guard: a `--test=<selector>` that
