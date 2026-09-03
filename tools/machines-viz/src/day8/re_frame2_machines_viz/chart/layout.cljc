@@ -773,7 +773,7 @@
   root's own `:on` last (`re-frame.machines.transition/pick-transition`
   steps 6-7) and fires such an action-only fallback while leaving the
   state unchanged (XState v5 targetless-transition semantics — see
-  `machine_remediation_ee38b_test`), so an inherited fallback ACTION must
+  `machine_root_on_fallback_test`), so an inherited fallback ACTION must
   be visible as a hanging chip on the machine root rather than silently
   dropped. A `:same-state` machine-level fallback is STILL dropped: there
   is no concrete root state to self-transition against at the top level.
