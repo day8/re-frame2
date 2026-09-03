@@ -24,6 +24,25 @@
   scan or a `:require` grep can see stands between a rename on the provider
   and a runtime failure on the wire.
 
+  `read-read-attribution` reads its verb twice on purpose, and the doubling is
+  PREFIX + CONCEPT rather than a stutter. The outer `read-` is the door's own
+  prefix, carried by every read on it, and it marks these as pure PROJECTIONS
+  of state the runtime already retains — against a provider that keeps no
+  accumulator, no occurrence index and no history store. `read-attribution` is
+  the payload's own noun for what is projected, and it is the literal the
+  envelope's `:read` slot carries. (`explain-render` is deliberately unprefixed
+  for the same reason read the other way: it FOLDS Spec 009's ring rather than
+  reading a current table.)
+
+  So the name is not Pair's to shorten. It is ruled rather than incidental —
+  the Hicasso naming ledger read this door name by name and kept all four as
+  shipped, calling the `read-` prefix load-bearing (`rf2-hic-065`, row 51 of
+  `docs/design/hicasso/product/naming-ledger.md`) — and the string below is
+  BOTH the wire tool name and the provider fn name, munged and looked up on the
+  door at runtime by [[projection-form]]. A wire-only rename would either break
+  that lookup or force the two names apart, which is exactly the agreement the
+  paragraph above exists to keep.
+
   ## Three reads, not five — the door answers a different question set
 
   This namespace replaced a five-tool family aimed at
