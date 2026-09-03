@@ -9,8 +9,8 @@ it still uses re-frame v1 shapes, complete that migration first.
 Use three migration tools in this order:
 
 1. **Reporter** — classify every foreign React crossing, and census every
-   Reagent API call site, as mechanical rewrites, human decisions, and runtime
-   blockers.
+   rostered view-substrate API call site, as mechanical rewrites, human
+   decisions, and runtime blockers.
 2. **Shadow comparison** — run the Reagent original and Hicasso port side by
    side and compare canonical DOM and intent streams.
 3. **Codemod** — apply only source transformations whose behaviour is
@@ -30,6 +30,11 @@ cd re-frame2/migration/reagent-to-hicasso/codemod
 clojure -M:run path/to/your/src/
 clojure -M:run --report out.edn src/
 ```
+
+Every run writes one EDN report, a scan that changes no source included.
+Without `--report` it goes to `reagent-to-hicasso-report.edn` beside the first
+path scanned — point the tool at `<repo>/src/` and the report lands at
+`<repo>/` — and the run prints the absolute path it used.
 
 Reagent converted props crossing through `[:>]`. Among other behaviours, it
 camel-cased nested keys, converted keyword values to names, wrapped
@@ -72,11 +77,19 @@ because the corpus crosses into React nowhere. A migrator reading only that
 sees 88 files the report never mentions.
 
 So the same run also emits a **census**, under `:census`, whose population is
-the Reagent API **call site**: `r/atom`, `r/with-let`, `r/create-class`,
+the view-substrate API **call site**: `r/atom`, `r/with-let`, `r/create-class`,
 `r/as-element`, `r/cursor`, `r/reactify-component`, root mounting, and the rest
-of the roster. On that same corpus it reports **59 sites across 28 files**.
+of the two rosters. On that same corpus it reports **59 sites across 28 files**.
 Both figures are measurements of a corpus that keeps growing; these were taken
 at `e337a1d`.
+
+There are two rosters, because a re-frame2 application on the Reagent adapter
+calls no Reagent API of its own and a Reagent-only census scored it at zero.
+The first is Reagent's API — stock Reagent's namespaces, and the `reagent2.*`
+ones the reagent-slim adapter ships. The second is re-frame2's own substrate
+adapters: everything under `re-frame.adapter.`, matched as a prefix anchored at
+the start of the namespace, because the adapter set is open and a list of
+today's adapters goes stale into the same silent zero tomorrow.
 
 A **call site is source that runs**. `#_(r/atom 0)`, `'(r/atom 0)` and
 `(comment (r/atom 0))` parse into the same nodes a live call does, and the
@@ -86,14 +99,14 @@ pruned: a macro's template emits real call sites at every expansion.
 | Half | Population | Addressed at | Verdicts |
 | --- | --- | --- | --- |
 | fixer (`:entries`) | `[:>]`-family crossing sites | the site | rewrote, or refused in the classes above |
-| census (`:census`) | Reagent API call sites | the call | `:mechanical`, `:human-decision`, `:runtime-blocker` |
+| census (`:census`) | view-substrate API call sites | the call | `:mechanical`, `:human-decision`, `:runtime-blocker` |
 
 The two halves measure different things and neither is a denominator for the
-other. Every census class is a shape §2's translation table already teaches:
+other. Most census classes are a shape §2's translation tables already teach:
 
 | Verdict | Named classes | Meaning |
 | --- | --- | --- |
-| Human decision | `:with-let`, `:outward-bridge`, `:adapt-react-class`, `:react-create-element`, `:props-helper`, `:reagent-partial`, `:render-control`, `:root-mount` | A Hicasso translation exists, but which one depends on intent the source does not carry |
+| Human decision | `:with-let`, `:outward-bridge`, `:adapt-react-class`, `:react-create-element`, `:props-helper`, `:reagent-partial`, `:render-control`, `:root-mount`, `:substrate-read-hook`, `:substrate-view-seam`, `:substrate-test-seam` | A Hicasso translation exists, but which one depends on intent the source does not carry |
 | Runtime blocker | `:local-reactive-cell`, `:derived-cell`, `:lifecycle-class`, `:as-element`, `:component-introspection` | Hicasso has no equivalent tier, so the site raises or silently misrenders until someone chooses the shape |
 | Mechanical | none | The bucket is always emitted, at `:mechanical 0`. Every mechanical rewrite this tool family knows is a W-rule and every W-rule sits at a crossing, so the zero is a measurement rather than an omission |
 
@@ -136,9 +149,11 @@ it is the easier of the two ports: the reads and the dispatches are already
 data, and only the spellings move.
 
 §1's "absence from the report is meaningful" is a statement about the
-populations the report counts, both of which are Reagent's own API. Where your
-views are `reg-view` forms, a screen the report never mentions can still be a
-screen to port. Count your own `reg-view` forms and work the second table.
+populations the report counts. The census reads re-frame2's own
+`re-frame.adapter.` surface as well as Reagent's, but `rf/reg-view` is
+re-frame.core's and sits on neither roster, so a screen written entirely in
+`reg-view` forms can still go unmentioned. Count your own `reg-view` forms and
+work the second table.
 
 ### The half-migrated tree
 
