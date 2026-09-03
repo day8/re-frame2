@@ -366,7 +366,7 @@ rather than presenting a well-formed shorter page.
 | `:rf.ssr-node/protocol-version` | `protocol` is absent or not this version |
 | `:rf.ssr-node/unknown-request-field` | a field the contract does not name |
 | `:rf.ssr-node/bad-request-field` | a named field of the wrong shape |
-| `:rf.ssr-node/request-too-large` | over the state or body ceiling |
+| `:rf.ssr-node/request-too-large` | over the body ceiling, or over the one `state` + `runtime` shares |
 | `:rf.ssr-node/unknown-entry` | an id the loaded bundle does not carry |
 | `:rf.ssr-node/state-key-not-allowed` | a `state` or `runtime` key the entry does not declare for that partition |
 | `:rf.ssr-node/build-identity-mismatch` | caller's `buildId` ≠ the bundle's |
@@ -513,7 +513,7 @@ re-frame2-ssr-node --module /srv/my-app/out/server-bundle.cjs
   --timeout-ms <n>           render deadline when the request names none            [1000]
   --max-timeout-ms <n>       ceiling on the deadline a request may ask for          [5000]
   --admission-ms <n>         how long a request waits for a free isolate before 503 [250]
-  --max-request-bytes <n>    ceiling on the request body, and on its state          [1048576]
+  --max-request-bytes <n>    ceiling on the body, and on state + runtime together   [1048576]
 ```
 
 `http://127.0.0.1:8148` is the default endpoint, and the one a JVM host
@@ -691,8 +691,13 @@ that is out of scope here.
 node implementation/ssr-node/test/run.cjs
 ```
 
-No build, no npm install, no browser, roughly 8 seconds — 9
-suites, 96 rows. Each suite runs in its own process, because several of
+No build, no npm install, no browser, roughly 8 seconds — the nine suites
+`test/run.cjs` names, each printing its own `pass`/`fail` tally as it
+goes. The total row count is deliberately NOT restated here: it moved
+twice while the sentence that carried it stood still (96 when the suite
+was written, 104 once the runtime partition landed), and a number nothing
+checks is a number that goes stale in silence. Read it off the run. Each
+suite runs in its own process, because several of
 them deliberately kill worker threads and a shared process would let one
 file's leaked isolate turn the next file's clean failure into a hang.
 

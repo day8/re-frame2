@@ -50,7 +50,7 @@ const FLAGS = [
   ['timeout-ms', '1000', '<n>     render deadline when the request names none'],
   ['max-timeout-ms', '5000', '<n>     ceiling on the deadline a request may ask for'],
   ['admission-ms', '250', '<n>     how long a request waits for a free isolate before 503'],
-  ['max-request-bytes', String(1 << 20), '<n>     ceiling on the request body, and on its state'],
+  ['max-request-bytes', String(1 << 20), '<n>     ceiling on the body, and on state + runtime together'],
 ];
 
 const OPTIONS = Object.fromEntries(
