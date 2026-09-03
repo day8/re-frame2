@@ -11,8 +11,8 @@
   Canonical contract: `spec/Managed-Effects.md` §The uniform reply
   envelope; EP-0011; rf2-ibksxg (one canonical async-reply envelope)."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.http.reply :as http-reply]
-            [re-frame.reply :as reply]))
+            [re-frame.http.reply :as rf.http.reply]
+            [re-frame.reply :as rf.reply]))
 
 (def ^:private ctx
   {:request-id   :article/by-id
@@ -23,29 +23,29 @@
 
 (deftest work-id-head
   (testing "HTTP work-id head [:rf.work/http logical-id issuance attempt]"
-    (is (= [:rf.work/http :article/by-id 1 1] (http-reply/work-id ctx)))
+    (is (= [:rf.work/http :article/by-id 1 1] (rf.http.reply/work-id ctx)))
     (is (= [:rf.work/http :article/load 1 1]
-           (http-reply/work-id (dissoc ctx :request-id)))
+           (rf.http.reply/work-id (dissoc ctx :request-id)))
         "logical-id falls back to origin event-id")
     (is (= [:rf.work/http :article/by-id 1 2]
-           (http-reply/work-id (assoc ctx :attempt 2)))
+           (rf.http.reply/work-id (assoc ctx :attempt 2)))
         "attempt slot discriminates retries within one issuance")
     (testing "issuance slot discriminates re-issuances across supersessions (rf2-azcmd3)"
       (is (= [:rf.work/http :article/by-id 2 1]
-             (http-reply/work-id (assoc ctx :issuance 2))))
-      (is (not= (http-reply/work-id ctx)
-                (http-reply/work-id (assoc ctx :issuance 2)))))))
+             (rf.http.reply/work-id (assoc ctx :issuance 2))))
+      (is (not= (rf.http.reply/work-id ctx)
+                (rf.http.reply/work-id (assoc ctx :issuance 2)))))))
 
 (deftest suppress-builds-canonical-stale-reply
   (testing "rf2-azcmd3 — http-reply/suppress produces a :status :stale / :rf.reply/work-status :suppressed reply with carried/current work-id correlation, joined to :work/id"
     (let [{:keys [deliver? reply trace]}
-          (http-reply/suppress ctx [:rf.work/http :article/by-id 2 1])]
+          (rf.http.reply/suppress ctx [:rf.work/http :article/by-id 2 1])]
       (is (false? deliver?) "a superseded attempt's app target MUST NOT run")
       (is (= :suppressed (:rf.reply/work-status reply)))
       (is (= :stale (:status reply)))
       (is (= :rf.http/request-id-superseded (:rf.reply/stale-reason reply)))
       (is (not (contains? reply :value)) "a stale reply MUST NOT carry :value")
-      (is (reply/valid-reply? reply) (str (reply/validate-reply reply)))
+      (is (rf.reply/valid-reply? reply) (str (rf.reply/validate-reply reply)))
       ;; carried = the superseded attempt's work-id (issuance 1);
       ;; current = the superseding attempt's work-id (issuance 2); =-distinct.
       (is (= [:rf.work/http :article/by-id 1 1] (:work/id (:rf.reply/carried trace))))
@@ -55,31 +55,31 @@
 (deftest actor-destroy-obsolete-target-suppression
   (testing "rf2-yrrpe2 — actor-destroy obsolete-target predicate + canonical stale suppression (host-symmetric pure core)"
     (testing "the obsolete-target predicate: target == actor-id → obsolete; ordinary target → meaningful"
-      (is (true?  (http-reply/actor-destroy-target-obsolete? :worker/proc#1 :worker/proc#1)))
-      (is (false? (http-reply/actor-destroy-target-obsolete? :reply/recorder :worker/proc#1)))
-      (is (false? (http-reply/actor-destroy-target-obsolete? :worker/proc#1 nil)))
-      (is (false? (http-reply/actor-destroy-target-obsolete? nil :worker/proc#1))))
+      (is (true?  (rf.http.reply/actor-destroy-target-obsolete? :worker/proc#1 :worker/proc#1)))
+      (is (false? (rf.http.reply/actor-destroy-target-obsolete? :reply/recorder :worker/proc#1)))
+      (is (false? (rf.http.reply/actor-destroy-target-obsolete? :worker/proc#1 nil)))
+      (is (false? (rf.http.reply/actor-destroy-target-obsolete? nil :worker/proc#1))))
     (testing "actor-destroy-suppress produces a canonical :status :stale / :rf.reply/work-status :suppressed reply with carried work-id, no current successor"
       (let [actor-ctx {:request-id   [:worker/proc#1 :slow]
                        :origin-event [:worker/proc#1 [:rf.http/failed]]
                        :issuance     1
                        :attempt      1
                        :frame        :app/main}
-            {:keys [deliver? reply trace]} (http-reply/actor-destroy-suppress actor-ctx)]
+            {:keys [deliver? reply trace]} (rf.http.reply/actor-destroy-suppress actor-ctx)]
         (is (false? deliver?) "the obsolete actor-bound app target MUST NOT run")
         (is (= :suppressed (:rf.reply/work-status reply)))
         (is (= :stale (:status reply)))
         (is (= :rf.http/actor-destroyed-target-obsolete (:rf.reply/stale-reason reply)))
         (is (not (contains? reply :value)) "a stale reply MUST NOT carry :value")
-        (is (reply/valid-reply? reply) (str (reply/validate-reply reply)))
+        (is (rf.reply/valid-reply? reply) (str (rf.reply/validate-reply reply)))
         (is (= [:rf.work/http [:worker/proc#1 :slow] 1 1] (:work/id (:rf.reply/carried trace))))
         (is (nil? (:rf.reply/current trace))
             "no live successor — the actor that owned the target is gone")))))
 
 (deftest canonical-replies-validate
   (testing ":status :ok success"
-    (let [r (http-reply/success-reply ctx {:title "Welcome"})]
-      (is (reply/valid-reply? r) (str (reply/validate-reply r)))
+    (let [r (rf.http.reply/success-reply ctx {:title "Welcome"})]
+      (is (rf.reply/valid-reply? r) (str (rf.reply/validate-reply r)))
       (is (= :ok (:status r)))
       (is (= :completed (:rf.reply/work-status r)))
       (is (= :http (:rf.reply/work-kind r)))
@@ -87,18 +87,18 @@
       (is (not (contains? r :request-id))
           ":request-id is correlation metadata, not a second stale key")))
   (testing ":status :error failure"
-    (let [r (http-reply/failure-reply ctx {:kind :rf.http/http-5xx :status 503})]
-      (is (reply/valid-reply? r) (str (reply/validate-reply r)))
+    (let [r (rf.http.reply/failure-reply ctx {:kind :rf.http/http-5xx :status 503})]
+      (is (rf.reply/valid-reply? r) (str (rf.reply/validate-reply r)))
       (is (= :error (:status r)))
       (is (= :failed (:rf.reply/work-status r)))))
   (testing "timeout → :status :error + :rf.reply/work-status :timed-out (not a top-level status)"
-    (let [r (http-reply/failure-reply ctx {:kind :rf.http/timeout :limit-ms 30000 :elapsed-ms 30012})]
-      (is (reply/valid-reply? r) (str (reply/validate-reply r)))
+    (let [r (rf.http.reply/failure-reply ctx {:kind :rf.http/timeout :limit-ms 30000 :elapsed-ms 30012})]
+      (is (rf.reply/valid-reply? r) (str (rf.reply/validate-reply r)))
       (is (= :error (:status r)))
       (is (= :timed-out (:rf.reply/work-status r)))))
   (testing "abort → :status :cancelled with :rf.http/aborted :error"
-    (let [r (http-reply/failure-reply ctx {:kind :rf.http/aborted :reason :user})]
-      (is (reply/valid-reply? r) (str (reply/validate-reply r)))
+    (let [r (rf.http.reply/failure-reply ctx {:kind :rf.http/aborted :reason :user})]
+      (is (rf.reply/valid-reply? r) (str (rf.reply/validate-reply r)))
       (is (= :cancelled (:status r)))
       (is (= :cancelled (:rf.reply/work-status r)))
       (is (true? (:cancelled? r)))
@@ -119,7 +119,7 @@
                   :issuance     1
                   :attempt      3
                   :max-attempts 3}
-          f      (http-reply/self-identify-failure
+          f      (rf.http.reply/self-identify-failure
                    {:kind :rf.http/timeout :elapsed-ms 8000 :limit-ms 8000}
                    id-ctx)]
       (is (= {:method :get :url "/api/articles/42"} (:request f)))
@@ -131,7 +131,7 @@
         (is (= :rf.http/timeout (:kind f)))
         (is (= 8000 (:elapsed-ms f)))))
     (testing ":max-attempts is omitted when no retry policy was configured"
-      (let [f (http-reply/self-identify-failure
+      (let [f (rf.http.reply/self-identify-failure
                 {:kind :rf.http/transport :message "boom"}
                 {:method :post :url "/x" :request-id nil
                  :origin-event [:e] :attempt 1})]
@@ -142,8 +142,8 @@
 
 (deftest trace-summary-elides-wire-slots
   (testing "the canonical trace summary keeps identity facts verbatim"
-    (let [r       (http-reply/success-reply ctx {:secret "x"})
-          summary (http-reply/trace-reply r {:sensitive? true})]
+    (let [r       (rf.http.reply/success-reply ctx {:secret "x"})
+          summary (rf.http.reply/trace-reply r {:sensitive? true})]
       (is (= :ok (:status summary)))
       (is (= [:rf.work/http :article/by-id 1 1] (:rf.reply/work-id summary)))
       (is (= :http (:rf.reply/work-kind summary)))

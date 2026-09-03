@@ -18,12 +18,12 @@
   Fetch pipeline), mirroring the `with-counting-500-fetch` idiom in
   `re-frame.http-cljs-test`."
   (:require [cljs.test :refer-macros [deftest is testing async]]
-            [re-frame.adapter.reagent :as reagent-adapter]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
             [re-frame.core :as rf]
-            [re-frame.frame :as frame]
-            [re-frame.http.managed :as http-managed]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace :as trace]))
+            [re-frame.frame :as rf.frame]
+            [re-frame.http.managed :as rf.http.managed]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.trace :as rf.trace]))
 
 (defn- fake-200-json-response
   "A minimal Fetch `Response` stand-in that 200s a JSON body."
@@ -45,10 +45,10 @@
             even under a :retry {:on #{:rf.http/transport}} policy that the
             pre-fix leak would have triggered."
     (async done
-      (rf/init! reagent-adapter/adapter)
-      (frame/ensure-default-frame!)
-      (http-managed/clear-all-in-flight!)
-      (http-managed/clear-all-http-interceptors!)
+      (rf/init! rf.adapter.reagent/adapter)
+      (rf.frame/ensure-default-frame!)
+      (rf.http.managed/clear-all-in-flight!)
+      (rf.http.managed/clear-all-http-interceptors!)
       (let [fetch-count (atom 0)
             replies     (atom [])
             traces      (atom [])
@@ -57,9 +57,9 @@
             resp        (fake-200-json-response)
             restore     (fn []
                           (set! (.-fetch js/globalThis) orig)
-                          (trace/unregister-listener! cb-id)
-                          (http-managed/clear-all-http-interceptors!))]
-        (trace/register-listener! cb-id (fn [ev] (swap! traces conj ev)))
+                          (rf.trace/unregister-listener! cb-id)
+                          (rf.http.managed/clear-all-http-interceptors!))]
+        (rf.trace/register-listener! cb-id (fn [ev] (swap! traces conj ev)))
         (set! (.-fetch js/globalThis)
               (fn [_url _init] (swap! fetch-count inc) (js/Promise.resolve resp)))
         ;; EP-0002: reg-http-interceptor is context-required frame-local.
@@ -82,7 +82,7 @@
                     :on-success [:reply/recorder]
                     :on-failure [:reply/recorder]}]]}))
         (rf/dispatch-sync [:issue] {:frame :rf/default})
-        (-> (test-support/poll-until
+        (-> (rf.test-support/poll-until
               #(seq (reply-tail-failures traces))
               {:timeout-ms 3000 :label "cljs :rf.error/http-reply-tail-failed surfaced"})
             (.then (fn [_]

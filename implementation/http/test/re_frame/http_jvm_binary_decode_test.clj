@@ -25,17 +25,17 @@
   the pre-fix code (which UTF-8-decoded the bytes / left elapsed-ms nil)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.http.managed :as http-managed]
-            [re-frame.http.transport-jvm :as transport-jvm]
-            [re-frame.test-support :as test-support])
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.http.managed :as rf.http.managed]
+            [re-frame.http.transport-jvm :as rf.http.transport-jvm]
+            [re-frame.test-support :as rf.test-support])
   (:import [com.sun.net.httpserver HttpServer HttpHandler HttpExchange]
            [java.net InetSocketAddress]))
 
 ;; ---- per-test reset --------------------------------------------------------
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- a tiny in-process HTTP server (raw-bytes capable) --------------------
 
@@ -57,7 +57,7 @@
     (.write os body)))
 
 (defn- await-reply! [pred]
-  (test-support/poll-until
+  (rf.test-support/poll-until
     #(let [db (rf/app-db-value :rf/default)] (when (pred db) db))
     {:timeout-ms 5000 :label "http binary reply"}))
 
@@ -142,7 +142,7 @@
 
 (deftest charset-of-resolves-declared-charset
   (testing "rf2-a3wxe — charset-of parses the Content-Type charset param"
-    (let [charset-of @#'transport-jvm/charset-of]
+    (let [charset-of @#'rf.http.transport-jvm/charset-of]
       (is (= "ISO-8859-1"
              (.name ^java.nio.charset.Charset
                     (charset-of {"content-type" "text/plain; charset=ISO-8859-1"}))))
@@ -152,7 +152,7 @@
 
 (deftest charset-of-defaults-to-utf8
   (testing "rf2-a3wxe — absent / unparseable charset falls back to UTF-8"
-    (let [charset-of @#'transport-jvm/charset-of]
+    (let [charset-of @#'rf.http.transport-jvm/charset-of]
       (is (= "UTF-8" (.name ^java.nio.charset.Charset (charset-of {}))))
       (is (= "UTF-8" (.name ^java.nio.charset.Charset
                             (charset-of {"content-type" "application/json"}))))
@@ -165,7 +165,7 @@
 (deftest classify-jvm-error-stamps-elapsed-ms-on-timeout
   (testing "rf2-a3wxe — classify-jvm-error's 3-arity stamps the measured
             :elapsed-ms onto a timeout failure (was nil pre-fix)"
-    (let [classify transport-jvm/classify-jvm-error
+    (let [classify rf.http.transport-jvm/classify-jvm-error
           timeout  (java.net.http.HttpTimeoutException. "request timed out")
           failure  (classify timeout 30000 1234)]
       (is (= :rf.http/timeout (:kind failure)))
@@ -176,7 +176,7 @@
   (testing "rf2-w59es5 — the single 3-arity carries a nil :elapsed-ms when no
             start mark was measured (the synthetic-caller case); :limit-ms
             still rides whatever was threaded"
-    (let [classify transport-jvm/classify-jvm-error
+    (let [classify rf.http.transport-jvm/classify-jvm-error
           timeout  (java.net.http.HttpTimeoutException. "request timed out")]
       (is (nil? (:elapsed-ms (classify timeout 30000 nil))))
       (is (nil? (:elapsed-ms (classify timeout nil nil)))))))

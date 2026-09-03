@@ -16,7 +16,7 @@
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing]]
       :cljs [cljs.test :refer-macros [deftest is testing]])
-   [re-frame.http.url :as url]))
+   [re-frame.http.url :as rf.http.url]))
 
 ;; App-specific carrier policy is passed explicitly to this leaf API, so no
 ;; registration or process cleanup is needed here.
@@ -28,53 +28,53 @@
 (deftest encoded-default-denylist-name-matches
   (testing "rf2-065xo — a percent-encoded DEFAULT-denylist name matches via the decoded form"
     ;; api%5Fkey decodes to api_key; %61ccess_token decodes to access_token.
-    (is (url/sensitive-query-param-name? "api%5Fkey"))
-    (is (url/sensitive-query-param-name? "%61ccess_token"))
+    (is (rf.http.url/sensitive-query-param-name? "api%5Fkey"))
+    (is (rf.http.url/sensitive-query-param-name? "%61ccess_token"))
     ;; case-insensitive on the decoded form too (%41PI%5FKEY → API_KEY).
-    (is (url/sensitive-query-param-name? "%41PI%5FKEY"))
+    (is (rf.http.url/sensitive-query-param-name? "%41PI%5FKEY"))
     ;; raw match path unchanged — plain names still match.
-    (is (url/sensitive-query-param-name? "api_key"))
-    (is (url/sensitive-query-param-name? "access_token"))))
+    (is (rf.http.url/sensitive-query-param-name? "api_key"))
+    (is (rf.http.url/sensitive-query-param-name? "access_token"))))
 
 (deftest encoded-frame-extra-denylist-name-matches
   (testing "a registration-declared carrier name matches when percent-encoded"
     (let [extras #{"shop_token"}]
       ;; shop%5Ftoken decodes to shop_token.
-      (is (url/sensitive-query-param-name? "shop%5Ftoken" extras))
-      (is (url/sensitive-query-param-name? "shop_token" extras))
+      (is (rf.http.url/sensitive-query-param-name? "shop%5Ftoken" extras))
+      (is (rf.http.url/sensitive-query-param-name? "shop_token" extras))
       ;; Without extensions the app carrier no longer matches.
-      (is (not (url/sensitive-query-param-name? "shop%5Ftoken"))
+      (is (not (rf.http.url/sensitive-query-param-name? "shop%5Ftoken"))
           "without extensions the app carrier does not match")
       ;; defaults are immutable — they match regardless of frame-extras.
-      (is (url/sensitive-query-param-name? "api%5Fkey")))))
+      (is (rf.http.url/sensitive-query-param-name? "api%5Fkey")))))
 
 (deftest non-sensitive-encoded-name-does-not-match
   (testing "rf2-065xo — an encoded NON-denylisted name stays non-sensitive"
     ;; page%5Fnum decodes to page_num — not denylisted.
-    (is (not (url/sensitive-query-param-name? "page%5Fnum")))
-    (is (not (url/sensitive-query-param-name? "user%5Fid")))))
+    (is (not (rf.http.url/sensitive-query-param-name? "page%5Fnum")))
+    (is (not (rf.http.url/sensitive-query-param-name? "user%5Fid")))))
 
 (deftest malformed-escape-falls-back-to-raw-never-throws
   (testing "rf2-065xo — a malformed percent-escape decodes to nil; matching falls back to the raw name and never throws"
     ;; Truncated / invalid escapes — must not throw on either host.
-    (is (false? (url/sensitive-query-param-name? "api%5")))
-    (is (false? (url/sensitive-query-param-name? "%zz")))
-    (is (false? (url/sensitive-query-param-name? "page%")))
+    (is (false? (rf.http.url/sensitive-query-param-name? "api%5")))
+    (is (false? (rf.http.url/sensitive-query-param-name? "%zz")))
+    (is (false? (rf.http.url/sensitive-query-param-name? "page%")))
     ;; A denylisted RAW name carrying a trailing malformed escape STILL
     ;; matches via the raw path (the decode bails to nil; raw is consulted
     ;; first and matches the plain segment only if it IS the denylisted
     ;; name). Here `token` is denylisted raw; `token%` is not the raw name
     ;; nor a valid decode, so it correctly does not match — proving no
     ;; crash and a sane fallback.
-    (is (false? (url/sensitive-query-param-name? "token%")))
+    (is (false? (rf.http.url/sensitive-query-param-name? "token%")))
     ;; But a valid-raw denylisted name is unaffected by the decode attempt.
-    (is (true? (url/sensitive-query-param-name? "token")))))
+    (is (true? (rf.http.url/sensitive-query-param-name? "token")))))
 
 (deftest sensitive-query-param-name-tolerates-non-string
   (testing "rf2-065xo — nil / non-string is not sensitive and never throws"
-    (is (false? (url/sensitive-query-param-name? nil)))
-    (is (false? (url/sensitive-query-param-name? :keyword)))
-    (is (false? (url/sensitive-query-param-name? 42)))))
+    (is (false? (rf.http.url/sensitive-query-param-name? nil)))
+    (is (false? (rf.http.url/sensitive-query-param-name? :keyword)))
+    (is (false? (rf.http.url/sensitive-query-param-name? 42)))))
 
 ;; ---------------------------------------------------------------------------
 ;; redact-url-query-string — end-to-end: encoded name's VALUE is redacted
@@ -82,7 +82,7 @@
 
 (deftest redact-url-encoded-default-name-value-redacted
   (testing "rf2-065xo — a percent-encoded default-denylist param has its VALUE redacted; the raw name spelling is preserved"
-    (let [[redacted any?] (url/redact-url-query-string
+    (let [[redacted any?] (rf.http.url/redact-url-query-string
                             "https://api.example.com/x?api%5Fkey=SECRET&page=2"
                             false)]
       (is (= "https://api.example.com/x?api%5Fkey=:rf/redacted&page=2" redacted)
@@ -92,7 +92,7 @@
 
 (deftest redact-url-encoded-name-leading-escape-value-redacted
   (testing "rf2-065xo — %61ccess_token (= access_token) value is redacted"
-    (let [[redacted any?] (url/redact-url-query-string
+    (let [[redacted any?] (rf.http.url/redact-url-query-string
                             "https://api.example.com/x?%61ccess_token=SECRET&q=hi"
                             false)]
       (is (= "https://api.example.com/x?%61ccess_token=:rf/redacted&q=hi" redacted))
@@ -101,7 +101,7 @@
 (deftest redact-url-encoded-frame-extra-name-value-redacted
   (testing "a registration-declared carrier name, percent-encoded, has its value redacted"
     (let [extras #{"shop_token"}
-          [redacted any?] (url/redact-url-query-string
+          [redacted any?] (rf.http.url/redact-url-query-string
                             "https://api.example.com/x?shop%5Ftoken=SECRET&page=2"
                             false extras)]
       (is (= "https://api.example.com/x?shop%5Ftoken=:rf/redacted&page=2" redacted))
@@ -109,7 +109,7 @@
 
 (deftest redact-url-malformed-escape-does-not-throw-and-passes-through
   (testing "rf2-065xo — a malformed percent-escape in a non-denylisted name does not throw and is preserved unchanged"
-    (let [[redacted any?] (url/redact-url-query-string
+    (let [[redacted any?] (rf.http.url/redact-url-query-string
                             "https://api.example.com/x?weird%5=v&page=2"
                             false)]
       (is (= "https://api.example.com/x?weird%5=v&page=2" redacted)
@@ -118,7 +118,7 @@
 
 (deftest redact-url-malformed-escape-on-other-param-still-redacts-real-denylist-hit
   (testing "rf2-065xo — a malformed escape elsewhere in the URL does not stop a real (encoded) denylisted name from being redacted"
-    (let [[redacted any?] (url/redact-url-query-string
+    (let [[redacted any?] (rf.http.url/redact-url-query-string
                             "https://api.example.com/x?weird%5=v&api%5Fkey=SECRET"
                             false)]
       (is (= "https://api.example.com/x?weird%5=v&api%5Fkey=:rf/redacted" redacted))

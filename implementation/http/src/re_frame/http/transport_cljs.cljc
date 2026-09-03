@@ -18,12 +18,12 @@
   `:cljs` reader branch). Keeping the conditionals local to the adapter is
   this boundary keeps CLJS interop out of the shared loop."
   (:require [clojure.string         :as str]
-            [re-frame.error         :as error]
-            [re-frame.http.decode   :as decode]
-            [re-frame.http.encoding :as encoding]
-            [re-frame.http.privacy  :as privacy]
-            [re-frame.interop       :as interop]
-            [re-frame.trace         :as trace]))
+            [re-frame.error         :as rf.error]
+            [re-frame.http.decode   :as rf.http.decode]
+            [re-frame.http.encoding :as rf.http.encoding]
+            [re-frame.http.privacy  :as rf.http.privacy]
+            [re-frame.interop       :as rf.interop]
+            [re-frame.trace         :as rf.trace]))
 
 ;; ---- platform transport: CLJS Fetch ---------------------------------------
 
@@ -130,13 +130,13 @@
                           ;; request-prep failures to stay on the managed path,
                           ;; not escape as fx errors.
                           (let [h (js/Headers.)]
-                            (doseq [[k v] (encoding/normalize-header-pairs headers)]
+                            (doseq [[k v] (rf.http.encoding/normalize-header-pairs headers)]
                               (try
                                 (.append h k v)
                                 (catch :default e
-                                  (when interop/debug-enabled?
-                                    (trace/emit! :warning :rf.warning/http-header-invalid
-                                                 (privacy/prepare-emit-tags
+                                  (when rf.interop/debug-enabled?
+                                    (rf.trace/emit! :warning :rf.warning/http-header-invalid
+                                                 (rf.http.privacy/prepare-emit-tags
                                                    {:url    url
                                                     :header k
                                                     :cause  (or (some-> ^js e .-message)
@@ -205,7 +205,7 @@
                    ;; only on 2xx, so a non-OK response always
                    ;; takes the text path regardless of `:decode`.
                    binary-read-mode (when ok?
-                                      (decode/binary-read-kind decode headers))]
+                                      (rf.http.decode/binary-read-kind decode headers))]
                (case binary-read-mode
                  :blob
                  (-> (.blob resp)
@@ -248,7 +248,7 @@
                                       (fn []
                                         (try (.abort internal-controller "timeout")
                                              (catch :default _ nil))
-                                        (reject (error/thrown-ex-info
+                                        (reject (rf.error/thrown-ex-info
                                                   :rf.error/http-timeout
                                                   ':rf.http/managed
                                                   (str "the request exceeded its " timeout-ms "ms timeout and was aborted")

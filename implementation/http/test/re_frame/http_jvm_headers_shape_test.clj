@@ -29,7 +29,7 @@
   rf2-hp772l — `jvm-headers->map` is JVM-platform-transport internal and
   now lives in the per-platform adapter ns `re-frame.http.transport-jvm`."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.http.transport-jvm :as http-transport-jvm])
+            [re-frame.http.transport-jvm :as rf.http.transport-jvm])
   (:import [java.net.http HttpHeaders]
            [java.util Map]
            [java.util.function BiPredicate]))
@@ -53,7 +53,7 @@
                      (test [_ _ _] true))]
     (HttpHeaders/of ^Map java-map ^BiPredicate accept-all)))
 
-(def ^:private jvm-headers->map @#'http-transport-jvm/jvm-headers->map)
+(def ^:private jvm-headers->map @#'rf.http.transport-jvm/jvm-headers->map)
 
 ;; ---- single-valued path stays string ---------------------------------------
 

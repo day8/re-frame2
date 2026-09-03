@@ -36,12 +36,12 @@
    3. abort-via-actor-destroy-wins-over-decode-failure"
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.http.managed :as http-managed]
-            [re-frame.http.registry :as http-registry]
-            [re-frame.http.transport :as http-transport]
+            [re-frame.http.managed :as rf.http.managed]
+            [re-frame.http.registry :as rf.http.registry]
+            [re-frame.http.transport :as rf.http.transport]
             [re-frame.machines]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support])
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support])
   (:import [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]
            [java.net InetSocketAddress]
            [java.util.concurrent CountDownLatch TimeUnit]))
@@ -49,7 +49,7 @@
 ;; ---- per-test reset --------------------------------------------------------
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- helpers --------------------------------------------------------------
 
@@ -166,7 +166,7 @@
         ;; the request handle right now.
         (is (.await decoder-entered 5 TimeUnit/SECONDS)
             "decoder entered — response landed, decode in progress, abort window open")
-        (is (= 1 (count (http-managed/in-flight-snapshot))))
+        (is (= 1 (count (rf.http.managed/in-flight-snapshot))))
         ;; Fire the abort BEFORE letting the decoder throw. Both the
         ;; abort-fn AND the about-to-fire finalise-failure! race for the
         ;; once-only :finalised? CAS — but the abort-fn flips :aborted?
@@ -184,7 +184,7 @@
               "user-initiated abort surfaces :reason :user"))
         (is (= 1 (count @replies))
             "exactly one reply — the once-only CAS still pins single-dispatch")
-        (is (empty? (http-managed/in-flight-snapshot))
+        (is (empty? (rf.http.managed/in-flight-snapshot))
             "in-flight registry is clean after the aborted reply")
         (finally
           (stop-server! srv))))))
@@ -249,8 +249,8 @@
         ;; error is possible) before we fire the abort. This replaces the
         ;; flaky reliance on the abort fx out-racing an async connection-
         ;; refused resolution.
-        (await-condition! #(seq (http-managed/in-flight-snapshot)))
-        (is (= 1 (count (http-managed/in-flight-snapshot)))
+        (await-condition! #(seq (rf.http.managed/in-flight-snapshot)))
+        (is (= 1 (count (rf.http.managed/in-flight-snapshot)))
             "request is in-flight against the stalled server — abort window open, no transport error possible")
         (rf/dispatch-sync [:do/abort])
         (await-condition! #(seq @replies))
@@ -263,7 +263,7 @@
               "user-initiated abort surfaces :reason :user"))
         (is (= 1 (count @replies))
             "exactly one reply — abort precedence does not double-dispatch")
-        (is (empty? (http-managed/in-flight-snapshot))
+        (is (empty? (rf.http.managed/in-flight-snapshot))
             "in-flight registry is clean after the aborted reply")
         (finally
           (.countDown release)
@@ -272,7 +272,7 @@
 ;; The finalise-failure! private is reached the same way (6c) reaches
 ;; schedule-backoff-handle! — a #'-deref of the private var.
 (def ^:private finalise-failure!*
-  @#'http-transport/finalise-failure!)
+  @#'rf.http.transport/finalise-failure!)
 
 (deftest transport-classification-loses-to-recorded-abort-precedence-seam
   (testing "rf2-12r1dn — finalise-failure! driven with a :rf.http/transport failure on a handle whose :aborted? is ALREADY flipped reclassifies the reply to :rf.http/aborted; this pins the exact precedence the flaky same-dispatch-vs-async-transport race was probing, with no cross-thread timing"
@@ -285,7 +285,7 @@
       ;; intent BEFORE the transport's whenComplete reaches finalise-failure!.
       (let [finalised? (atom false)
             aborted?   (atom {:reason :user :actor-id nil})
-            handle     (http-registry/record-in-flight!
+            handle     (rf.http.registry/record-in-flight!
                          :race nil
                          {:abort-fn   (fn [_] nil)
                           :url        "http://127.0.0.1:1/"
@@ -315,7 +315,7 @@
               "the abort snapshot's :reason rides the reclassified reply"))
         (is (= 1 (count @replies))
             "exactly one reply — the once-only :finalised? CAS still pins single-dispatch")
-        (is (empty? (http-managed/in-flight-snapshot))
+        (is (empty? (rf.http.managed/in-flight-snapshot))
             "finalise-failure! cleared the in-flight registry")))))
 
 ;; ---- (3) abort-via-actor-destroy wins over decode-failure -----------------
@@ -369,7 +369,7 @@
         ;; progress, child is in-flight under actor-in-flight.
         (is (.await decoder-entered 5 TimeUnit/SECONDS)
             "decoder entered while request was in flight under spawned actor")
-        (is (= 1 (count (http-managed/actor-in-flight-snapshot))))
+        (is (= 1 (count (rf.http.managed/actor-in-flight-snapshot))))
         ;; Destroy the actor — abort-on-actor-destroy walks the
         ;; actor-in-flight index and fires :abort-fn with
         ;; :reason :actor-destroyed.
@@ -387,7 +387,7 @@
           (is (= :actor-destroyed (get-in reply [:error :reason]))
               ":reason discriminates the actor-destroy source from a user abort"))
         (is (= 1 (count @replies)))
-        (is (empty? (http-managed/actor-in-flight-snapshot))
+        (is (empty? (rf.http.managed/actor-in-flight-snapshot))
             "actor-in-flight index is clean after the actor-destroy cascade")
         (finally
           (stop-server! srv))))))

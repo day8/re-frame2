@@ -5,8 +5,8 @@
             [re-frame.http.handlers]
             [re-frame.http.transport]
             [re-frame.http.transport-jvm]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.trace :as trace])
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.trace :as rf.trace])
   (:import [java.net.http HttpClient HttpClient$Redirect HttpRequest]
            [java.time Duration]
            [java.util Optional]))
@@ -20,10 +20,10 @@
   (let [captured (atom [])
         cb-id    ::transport-security-cap]
     (try
-      (trace/register-listener! cb-id (fn [ev] (swap! captured conj ev)))
+      (rf.trace/register-listener! cb-id (fn [ev] (swap! captured conj ev)))
       (body-fn captured)
       (finally
-        (trace/unregister-listener! cb-id)))))
+        (rf.trace/unregister-listener! cb-id)))))
 
 ;; ---- header validation surfaces a trace ----------------------------------
 
@@ -402,10 +402,10 @@
   events, restoring the original in finally. Returns the body-fn's value."
   [body-fn]
   (let [dispatched (atom [])
-        original   (late-bind/get-fn :router/dispatch!)]
-    (late-bind/set-fn! :router/dispatch! (fn [ev opts] (swap! dispatched conj [ev opts])))
+        original   (rf.late-bind/get-fn :router/dispatch!)]
+    (rf.late-bind/set-fn! :router/dispatch! (fn [ev opts] (swap! dispatched conj [ev opts])))
     (try (body-fn dispatched)
-         (finally (late-bind/set-fn! :router/dispatch! original)))))
+         (finally (rf.late-bind/set-fn! :router/dispatch! original)))))
 
 (deftest emit-and-dispatch-failure-emits-and-dispatches-non-supersede
   (testing "rf2-sixs3 — for a NON-supersede failure the helper both emits

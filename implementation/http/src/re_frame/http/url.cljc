@@ -45,7 +45,7 @@
   on `interop/debug-enabled?` at their call sites (same gate as
   `trace/emit!`); no walker runs without the trace surface."
   (:require [clojure.string :as str]
-            [re-frame.privacy :as privacy])
+            [re-frame.privacy :as rf.privacy])
   #?(:clj (:import [java.net URLDecoder])))
 
 ;; ---- redaction sentinel ---------------------------------------------------
@@ -69,7 +69,7 @@
   core. This is the HTTP-side public anchor; `http-privacy`
   and `http-privacy-headers` both refer to it privately, so
   the keyword cannot drift across the http privacy cluster."
-  privacy/redacted-sentinel)
+  rf.privacy/redacted-sentinel)
 
 ;; ---- query-param denylist -------------------------------------------------
 

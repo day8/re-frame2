@@ -23,18 +23,18 @@
   to prove the late completion delivers nothing to the app target."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.http.managed :as http-managed]
-            [re-frame.http.registry :as http-registry]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace :as trace])
+            [re-frame.http.managed :as rf.http.managed]
+            [re-frame.http.registry :as rf.http.registry]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.trace :as rf.trace])
   (:import [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]
            [java.net InetSocketAddress]
            [java.util.concurrent CountDownLatch TimeUnit]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- start-blocking-server!
   [^CountDownLatch latch status content-type body]
@@ -63,7 +63,7 @@
 (defn- await-condition!
   ([pred] (await-condition! pred 5000))
   ([pred timeout-ms]
-   (test-support/poll-until pred {:timeout-ms timeout-ms :interval-ms 10
+   (rf.test-support/poll-until pred {:timeout-ms timeout-ms :interval-ms 10
                                   :label "http-restore-quiesce condition"})
    true))
 
@@ -71,19 +71,19 @@
 
 (deftest hook-published
   (testing "rf2-u5kmf8 — the :http/abort-in-flight-for-frame! hook is published"
-    (is (some? (late-bind/get-fn :http/abort-in-flight-for-frame!)))
-    (is (= http-registry/abort-in-flight-for-frame!
-           (late-bind/get-fn :http/abort-in-flight-for-frame!)))))
+    (is (some? (rf.late-bind/get-fn :http/abort-in-flight-for-frame!)))
+    (is (= rf.http.registry/abort-in-flight-for-frame!
+           (rf.late-bind/get-fn :http/abort-in-flight-for-frame!)))))
 
 ;; ---- registry-level: frame-scoped abort + reason ---------------------------
 
 (deftest abort-in-flight-for-frame-aborts-only-the-frames-requests
   (testing "rf2-u5kmf8 — abort-in-flight-for-frame! fires each matching handle's
             abort-fn with :reason :epoch-restored and leaves other frames alone"
-    (http-managed/clear-all-in-flight!)
+    (rf.http.managed/clear-all-in-flight!)
     (let [seen (atom [])
           mk   (fn [frame-id request-id]
-                 (http-registry/seed-in-flight-for-test!
+                 (rf.http.registry/seed-in-flight-for-test!
                    request-id nil
                    {:abort-fn (fn [reason] (swap! seen conj [frame-id reason]))
                     :url      "http://x/y"
@@ -91,19 +91,19 @@
       (mk :frame/restored :req-a)
       (mk :frame/restored :req-b)
       (mk :frame/other    :req-c)
-      (http-registry/abort-in-flight-for-frame! :frame/restored)
+      (rf.http.registry/abort-in-flight-for-frame! :frame/restored)
       (is (= #{[:frame/restored :epoch-restored]}
              (set (map (fn [[f r]] [f r]) @seen)))
           "only the restored frame's handles fired, each with :reason :epoch-restored")
       (is (= 2 (count @seen)) "both of the restored frame's requests were aborted")
       (is (not-any? #(= :frame/other (first %)) @seen)
           "the unrelated frame's request was NOT aborted")
-      (http-managed/clear-all-in-flight!))))
+      (rf.http.managed/clear-all-in-flight!))))
 
 (deftest abort-in-flight-for-frame-noop-on-frame-with-no-requests
   (testing "rf2-u5kmf8 — a frame with no in-flight managed HTTP is a clean no-op"
-    (http-managed/clear-all-in-flight!)
-    (is (nil? (http-registry/abort-in-flight-for-frame! :frame/none)))))
+    (rf.http.managed/clear-all-in-flight!)
+    (is (nil? (rf.http.registry/abort-in-flight-for-frame! :frame/none)))))
 
 ;; ---- end-to-end: suppression of a genuinely in-flight request --------------
 
@@ -117,7 +117,7 @@
           replies (atom [])
           traces  (atom [])]
       (try
-        (trace/register-listener! ::u5kmf8 (fn [ev] (swap! traces conj ev)))
+        (rf.trace/register-listener! ::u5kmf8 (fn [ev] (swap! traces conj ev)))
         (rf/reg-event :reply/recorder
           (fn [_ [_ payload]] (swap! replies conj payload) {}))
         ;; an ordinary event handler (no spawned actor) issues a managed
@@ -133,15 +133,15 @@
                     :on-success [:reply/recorder]
                     :on-failure [:reply/recorder]}]]}))
         (rf/dispatch-sync [:load])
-        (await-condition! #(seq (http-managed/in-flight-snapshot)))
-        (is (= 1 (count (http-managed/in-flight-snapshot)))
+        (await-condition! #(seq (rf.http.managed/in-flight-snapshot)))
+        (is (= 1 (count (rf.http.managed/in-flight-snapshot)))
             "precondition: the request is in flight")
-        (is (= :rf/default (:frame (http-registry/lookup-in-flight :restore/req)))
+        (is (= :rf/default (:frame (rf.http.registry/lookup-in-flight :restore/req)))
             "precondition: the in-flight handle carries its originating frame")
         ;; The restore boundary fires the published hook for the restored frame.
-        ((late-bind/get-fn :http/abort-in-flight-for-frame!) :rf/default)
+        ((rf.late-bind/get-fn :http/abort-in-flight-for-frame!) :rf/default)
         ;; The abort cascade clears the registry slot.
-        (await-condition! #(empty? (http-managed/in-flight-snapshot)))
+        (await-condition! #(empty? (rf.http.managed/in-flight-snapshot)))
         ;; Release the server so the late completion (if any) would arrive.
         (.countDown latch)
         ;; Timer-semantics window (rf2-fun38): prove the ABSENCE of any reply
@@ -160,5 +160,5 @@
             (is (= :rf/default (:frame tags))
                 "the trace names the restored frame")))
         (finally
-          (trace/unregister-listener! ::u5kmf8)
+          (rf.trace/unregister-listener! ::u5kmf8)
           (stop-server! srv))))))

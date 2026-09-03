@@ -29,7 +29,7 @@
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing]]
       :cljs [cljs.test :refer-macros [deftest is testing]])
-   [re-frame.http.decode :as decode]))
+   [re-frame.http.decode :as rf.http.decode]))
 
 ;; ---------------------------------------------------------------------------
 ;; rf2-upexd.1 — empty / whitespace-only 2xx JSON body → nil on BOTH hosts
@@ -44,7 +44,7 @@
             empty/blank case before the host JSON reader is reached, so
             the value is nil identically — `run-accept`'s default then
             yields `{:ok nil}` → reply `{:status :ok :value nil …}`."
-    (is (nil? (decode/decode-response-body
+    (is (nil? (rf.http.decode/decode-response-body
                 {:body-text        ""
                  :headers          {"content-type" "application/json"}
                  :decode           :json}))
@@ -57,7 +57,7 @@
             it is the same empty-success-envelope outcome as `\"\"` — both
             classify as nil, not decode-failure."
     (doseq [s ["   " "\n" "\t" "  \n\t  "]]
-      (is (nil? (decode/decode-response-body
+      (is (nil? (rf.http.decode/decode-response-body
                   {:body-text        s
                    :headers          {"content-type" "application/json"}
                    :decode           :json}))
@@ -68,7 +68,7 @@
             and `:auto` resolves to :json via the `application/json`
             Content-Type (the exact repro from the bead: a 200 with an
             empty body and a JSON content-type). nil on both hosts."
-    (is (nil? (decode/decode-response-body
+    (is (nil? (rf.http.decode/decode-response-body
                 {:body-text        ""
                  :headers          {"content-type" "application/json; charset=utf-8"}
                  :decode           :auto}))
@@ -79,7 +79,7 @@
             JSON body still parses normally on both hosts (no regression
             to the happy path)."
     (is (= {:ok true}
-           (decode/decode-response-body
+           (rf.http.decode/decode-response-body
              {:body-text        "{\"ok\":true}"
               :headers          {"content-type" "application/json"}
               :decode           :json}))
@@ -95,7 +95,7 @@
             decode is a pass-through and nil flows straight out. Either way
             the value is nil cross-host, which is the parity contract under
             test.)"
-    (is (nil? (decode/decode-response-body
+    (is (nil? (rf.http.decode/decode-response-body
                 {:body-text        ""
                  :headers          {"content-type" "application/json"}
                  :decode           [:maybe [:map [:id :int]]]}))
@@ -122,7 +122,7 @@
             JSON-only (it wires Malli's json-transformer)."
     (is (= :rf.error/http-schema-non-json-content-type
            (thrown-id
-             #(decode/decode-response-body
+             #(rf.http.decode/decode-response-body
                 {:body-text        "{:a 1}"            ;; valid EDN, NOT JSON
                  :headers          {"content-type" "application/edn"}
                  :decode           [:map [:a :int]]})))
@@ -133,7 +133,7 @@
             non-JSON MIME and is rejected up-front on both hosts."
     (is (= :rf.error/http-schema-non-json-content-type
            (thrown-id
-             #(decode/decode-response-body
+             #(rf.http.decode/decode-response-body
                 {:body-text        "hello"
                  :headers          {"content-type" "text/plain"}
                  :decode           [:map [:a :int]]})))
@@ -148,7 +148,7 @@
             whether Malli is on the host's test classpath.)"
     (is (not= :rf.error/http-schema-non-json-content-type
               (thrown-id
-                #(decode/decode-response-body
+                #(rf.http.decode/decode-response-body
                    {:body-text        "{\"a\":1}"
                     :headers          {}                 ;; no content-type
                     :decode           [:map [:a :int]]})))
@@ -160,7 +160,7 @@
             non-JSON rejection does not fire."
     (is (not= :rf.error/http-schema-non-json-content-type
               (thrown-id
-                #(decode/decode-response-body
+                #(rf.http.decode/decode-response-body
                    {:body-text        "{\"a\":1}"
                     :headers          {"content-type" "application/json"}
                     :decode           [:map [:a :int]]})))

@@ -24,9 +24,9 @@
   The schemas artefact is a test-only dep here, so requiring it binds the
   shared walker hooks (`:schemas/extract-sensitive-paths-from-schema` etc.)."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.http.privacy-body :as body]
+            [re-frame.http.privacy-body :as rf.http.privacy-body]
             ;; §7 unbinds the walker hooks to pin the fail-loud path.
-            [re-frame.late-bind :as late-bind]
+            [re-frame.late-bind :as rf.late-bind]
             ;; load-bearing: binds the shared schema walker hooks.
             [re-frame.schemas]))
 
@@ -38,20 +38,20 @@
 
 (deftest schema-decode?-distinguishes-schemas-from-modes-and-fns
   (testing "a Malli-schema :decode is a schema"
-    (is (body/schema-decode? [:map [:token :string]]))
-    (is (body/schema-decode? [:map [:a :int]])))
+    (is (rf.http.privacy-body/schema-decode? [:map [:token :string]]))
+    (is (rf.http.privacy-body/schema-decode? [:map [:a :int]])))
   (testing "keyword decode modes are NOT schemas"
-    (is (not (body/schema-decode? :auto)))
-    (is (not (body/schema-decode? :json)))
-    (is (not (body/schema-decode? :text)))
-    (is (not (body/schema-decode? :blob)))
-    (is (not (body/schema-decode? :array-buffer)))
-    (is (not (body/schema-decode? :form-data))))
+    (is (not (rf.http.privacy-body/schema-decode? :auto)))
+    (is (not (rf.http.privacy-body/schema-decode? :json)))
+    (is (not (rf.http.privacy-body/schema-decode? :text)))
+    (is (not (rf.http.privacy-body/schema-decode? :blob)))
+    (is (not (rf.http.privacy-body/schema-decode? :array-buffer)))
+    (is (not (rf.http.privacy-body/schema-decode? :form-data))))
   (testing "a custom decoder fn is NOT a schema"
-    (is (not (body/schema-decode? (fn [_text _headers] {}))))
-    (is (not (body/schema-decode? identity))))
+    (is (not (rf.http.privacy-body/schema-decode? (fn [_text _headers] {}))))
+    (is (not (rf.http.privacy-body/schema-decode? identity))))
   (testing "nil :decode (= :auto) is NOT a schema"
-    (is (not (body/schema-decode? nil)))))
+    (is (not (rf.http.privacy-body/schema-decode? nil)))))
 
 ;; ---- 2. per-slot marks → classify-decoded ---------------------------------
 
@@ -62,7 +62,7 @@
                    [:token {:sensitive? true} :string]
                    [:user-id :int]]
           decoded {:token "bearer-secret" :user-id 42}
-          out     (body/classify-decoded decoded schema)]
+          out     (rf.http.privacy-body/classify-decoded decoded schema)]
       (is (= :rf/redacted (:token out)))
       (is (= 42 (:user-id out)) "non-sensitive sibling rides verbatim"))))
 
@@ -73,7 +73,7 @@
                    [:profile [:map [:name :string]]]]
           decoded {:auth {:refresh-token "rt-secret"}
                    :profile {:name "Ada"}}
-          out     (body/classify-decoded decoded schema)]
+          out     (rf.http.privacy-body/classify-decoded decoded schema)]
       (is (= :rf/redacted (get-in out [:auth :refresh-token])))
       (is (= "Ada" (get-in out [:profile :name]))))))
 
@@ -81,16 +81,16 @@
   (testing "a schema with no :sensitive? marks leaves the body unchanged"
     (let [schema  [:map [:a :int] [:b :string]]
           decoded {:a 1 :b "x"}]
-      (is (= decoded (body/classify-decoded decoded schema))))))
+      (is (= decoded (rf.http.privacy-body/classify-decoded decoded schema))))))
 
 (deftest classify-decoded-non-schema-is-noop
   (testing "a keyword / fn / nil :decode is a no-op (body governed by the
             per-call flag / off-box disposition, not per-slot marks)"
     (let [decoded {:token "secret"}]
-      (is (= decoded (body/classify-decoded decoded :json)))
-      (is (= decoded (body/classify-decoded decoded :auto)))
-      (is (= decoded (body/classify-decoded decoded nil)))
-      (is (= decoded (body/classify-decoded decoded (fn [_ _] {})))))))
+      (is (= decoded (rf.http.privacy-body/classify-decoded decoded :json)))
+      (is (= decoded (rf.http.privacy-body/classify-decoded decoded :auto)))
+      (is (= decoded (rf.http.privacy-body/classify-decoded decoded nil)))
+      (is (= decoded (rf.http.privacy-body/classify-decoded decoded (fn [_ _] {})))))))
 
 ;; ---- 3. whole-body root prop ----------------------------------------------
 
@@ -99,24 +99,24 @@
             WHOLE body sensitive (the opaque-token-response case)"
     (let [schema  [:string {:sensitive? true}]
           decoded "opaque-token-value"]
-      (is (= :rf/redacted (body/classify-decoded decoded schema))))))
+      (is (= :rf/redacted (rf.http.privacy-body/classify-decoded decoded schema))))))
 
 ;; ---- 4. off-box disposition (fail-closed) ---------------------------------
 
 (deftest off-box-disposition-classifies-schema-bodies
   (testing "a schema-:decode body is :classify off-box"
-    (is (= :classify (body/off-box-body-disposition [:map [:a :int]])))
-    (is (= :classify (body/off-box-body-disposition [:string {:sensitive? true}])))))
+    (is (= :classify (rf.http.privacy-body/off-box-body-disposition [:map [:a :int]])))
+    (is (= :classify (rf.http.privacy-body/off-box-body-disposition [:string {:sensitive? true}])))))
 
 (deftest off-box-disposition-omits-unschematized-bodies
   (testing "an UNSCHEMATIZED body (keyword mode / custom fn / nil) is :omit
             off-box — whole-sensitive, fail-closed (EP-0015 issue 5)"
-    (is (= :omit (body/off-box-body-disposition :auto)))
-    (is (= :omit (body/off-box-body-disposition :json)))
-    (is (= :omit (body/off-box-body-disposition :text)))
-    (is (= :omit (body/off-box-body-disposition :blob)))
-    (is (= :omit (body/off-box-body-disposition nil)))
-    (is (= :omit (body/off-box-body-disposition (fn [_ _] {}))))))
+    (is (= :omit (rf.http.privacy-body/off-box-body-disposition :auto)))
+    (is (= :omit (rf.http.privacy-body/off-box-body-disposition :json)))
+    (is (= :omit (rf.http.privacy-body/off-box-body-disposition :text)))
+    (is (= :omit (rf.http.privacy-body/off-box-body-disposition :blob)))
+    (is (= :omit (rf.http.privacy-body/off-box-body-disposition nil)))
+    (is (= :omit (rf.http.privacy-body/off-box-body-disposition (fn [_ _] {}))))))
 
 (deftest off-box-disposition-omits-opaque-registry-ref
   (testing "an OPAQUE keyword registry-ref :decode is :omit off-box — the
@@ -127,8 +127,8 @@
     ;; A bare keyword that is NOT a known decode mode is taken by
     ;; `schema-decode?` as a registry ref — but the walker can only
     ;; introspect the VECTOR form. Off-box it must fail closed.
-    (is (= :omit (body/off-box-body-disposition :my-app/token-schema)))
-    (is (= :omit (body/off-box-body-disposition :user/profile)))))
+    (is (= :omit (rf.http.privacy-body/off-box-body-disposition :my-app/token-schema)))
+    (is (= :omit (rf.http.privacy-body/off-box-body-disposition :user/profile)))))
 
 (deftest off-box-disposition-omits-opaque-compiled-schema
   (testing "an OPAQUE non-vector schema value (a compiled m/schema object /
@@ -136,7 +136,7 @@
             the walker cannot introspect it, so fail-closed (rf2-y1pgdl)"
     ;; A map (or any non-vector, non-keyword decode value the walker treats
     ;; as an opaque leaf returning {}) must NOT ride :classify off-box.
-    (is (= :omit (body/off-box-body-disposition {:opaque :compiled-schema-stand-in})))))
+    (is (= :omit (rf.http.privacy-body/off-box-body-disposition {:opaque :compiled-schema-stand-in})))))
 
 ;; ---- 5. per-slot :large? elision (rf2-jhyccs) -----------------------------
 
@@ -148,7 +148,7 @@
                    [:blob {:large? true} :string]
                    [:user-id :int]]
           decoded {:blob (apply str (repeat 100 "x")) :user-id 42}
-          out     (body/classify-decoded decoded schema)]
+          out     (rf.http.privacy-body/classify-decoded decoded schema)]
       (is (contains? (:blob out) :rf.size/large-elided)
           "large body slot elided to the size marker")
       (is (= 42 (:user-id out)) "non-large sibling rides verbatim"))))
@@ -158,7 +158,7 @@
             WHOLE body to the size marker"
     (let [schema  [:string {:large? true}]
           decoded (apply str (repeat 200 "y"))
-          out     (body/classify-decoded decoded schema)]
+          out     (rf.http.privacy-body/classify-decoded decoded schema)]
       (is (contains? out :rf.size/large-elided)))))
 
 (deftest classify-decoded-sensitive-wins-over-large
@@ -167,7 +167,7 @@
     (let [schema  [:map
                    [:secret {:sensitive? true :large? true} :string]]
           decoded {:secret (apply str (repeat 100 "z"))}
-          out     (body/classify-decoded decoded schema)]
+          out     (rf.http.privacy-body/classify-decoded decoded schema)]
       (is (= :rf/redacted (:secret out))
           "sensitive wins — the slot is redacted, not a large marker"))))
 
@@ -190,14 +190,14 @@
   [f]
   (let [hook-keys [:schemas/extract-sensitive-paths-from-schema
                    :schemas/extract-large-paths-from-schema]
-        saved     (select-keys @late-bind/hooks hook-keys)
-        refresh!  #(doseq [k hook-keys] (late-bind/invalidate-cache! k))]
+        saved     (select-keys @rf.late-bind/hooks hook-keys)
+        refresh!  #(doseq [k hook-keys] (rf.late-bind/invalidate-cache! k))]
     (try
-      (swap! late-bind/hooks #(apply dissoc % hook-keys))
+      (swap! rf.late-bind/hooks #(apply dissoc % hook-keys))
       (refresh!)
       (f)
       (finally
-        (swap! late-bind/hooks merge saved)
+        (swap! rf.late-bind/hooks merge saved)
         (refresh!)))))
 
 (deftest unbound-walker-throws-for-a-mark-declaring-schema
@@ -207,7 +207,7 @@
     (with-walker-unbound
       (fn []
         (let [thrown (is (thrown? clojure.lang.ExceptionInfo
-                                  (body/classify-decoded
+                                  (rf.http.privacy-body/classify-decoded
                                     {:token "bearer-secret"}
                                     [:map [:token {:sensitive? true} :string]])))]
           (is (= :rf.error/schemas-artefact-missing (:rf.error/id (ex-data thrown)))
@@ -223,7 +223,7 @@
     (with-walker-unbound
       (fn []
         (is (thrown? clojure.lang.ExceptionInfo
-                     (body/classify-decoded
+                     (rf.http.privacy-body/classify-decoded
                        {:blob "huge"}
                        [:map [:blob {:large? true} :string]])))))))
 
@@ -233,10 +233,10 @@
     (with-walker-unbound
       (fn []
         (is (= {:id 1 :title "t"}
-               (body/classify-decoded {:id 1 :title "t"}
+               (rf.http.privacy-body/classify-decoded {:id 1 :title "t"}
                                       [:map [:id :int] [:title :string]])))
         (is (= {:sensitive {} :large {}}
-               (body/decode-schema-marks [:map [:id :int]])))))))
+               (rf.http.privacy-body/decode-schema-marks [:map [:id :int]])))))))
 
 (deftest unbound-walker-is-silent-for-a-field-merely-named-sensitive
   (testing "the probe reads PROPS, not field names — a schema with a field
@@ -244,7 +244,7 @@
     (with-walker-unbound
       (fn []
         (is (= {:sensitive? true}
-               (body/classify-decoded {:sensitive? true}
+               (rf.http.privacy-body/classify-decoded {:sensitive? true}
                                       [:map [:sensitive? :boolean]])))))))
 
 (deftest unbound-walker-is-silent-for-an-opaque-schema
@@ -253,13 +253,13 @@
             unbound hook is not an error"
     (with-walker-unbound
       (fn []
-        (is (= {:a 1} (body/classify-decoded {:a 1} :user/profile)))
-        (is (= {:a 1} (body/classify-decoded {:a 1} {:opaque :compiled})))))))
+        (is (= {:a 1} (rf.http.privacy-body/classify-decoded {:a 1} :user/profile)))
+        (is (= {:a 1} (rf.http.privacy-body/classify-decoded {:a 1} {:opaque :compiled})))))))
 
 (deftest bound-walker-still-classifies-the-mark-declaring-schema
   (testing "control for the four above — with the walker BOUND the same
             mark-declaring schema classifies rather than throwing, so the
             throw is about the unbound hook and not about the schema"
     (is (= {:token :rf/redacted}
-           (body/classify-decoded {:token "bearer-secret"}
+           (rf.http.privacy-body/classify-decoded {:token "bearer-secret"}
                                   [:map [:token {:sensitive? true} :string]])))))

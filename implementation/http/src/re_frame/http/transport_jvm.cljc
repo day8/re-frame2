@@ -25,11 +25,11 @@
   effectively empty save the `check-cljs-only-keys!` no-op. Keeping the
   conditionals local to the adapter keeps JDK interop out of the shared loop."
   (:require [clojure.string         :as str]
-            [re-frame.http.decode   :as decode]
-            [re-frame.http.encoding :as encoding]
-            [re-frame.http.privacy  :as privacy]
-            [re-frame.interop       :as interop]
-            [re-frame.trace         :as trace])
+            [re-frame.http.decode   :as rf.http.decode]
+            [re-frame.http.encoding :as rf.http.encoding]
+            [re-frame.http.privacy  :as rf.http.privacy]
+            [re-frame.interop       :as rf.interop]
+            [re-frame.trace         :as rf.trace])
   #?(:clj (:import [java.net URI]
                    [java.net.http HttpClient HttpClient$Redirect
                                   HttpRequest
@@ -166,7 +166,7 @@
        ;; "no timeout" so the JDK request carries no per-request deadline.
        (when (and timeout-ms (pos? timeout-ms))
          (.timeout b (Duration/ofMillis (long timeout-ms))))
-       (doseq [[k v] (encoding/normalize-header-pairs headers)]
+       (doseq [[k v] (rf.http.encoding/normalize-header-pairs headers)]
          ;; Surface JDK HttpClient header-validation throws
          ;; via a `:rf.warning/http-header-invalid` trace rather than
          ;; silently dropping. Stray `\r`/`\n` / control chars / empty
@@ -189,9 +189,9 @@
           ;; stamped when the request is sensitive.
          (try (.header b k v)
               (catch Throwable t
-                (when interop/debug-enabled?
-                  (trace/emit! :warning :rf.warning/http-header-invalid
-                               (privacy/prepare-emit-tags
+                (when rf.interop/debug-enabled?
+                  (rf.trace/emit! :warning :rf.warning/http-header-invalid
+                               (rf.http.privacy/prepare-emit-tags
                                  {:url     url
                                   :header  k
                                   :cause   (.getMessage t)}
@@ -246,7 +246,7 @@
      decodes identically to the prior `ofString` behaviour. An unknown /
      unparseable charset falls back to UTF-8."
      ^Charset [headers]
-     (or (when-let [ct (decode/content-type-of headers)]
+     (or (when-let [ct (rf.http.decode/content-type-of headers)]
            (let [m (re-find #"(?i)charset=\s*\"?([^\";\s]+)" (str ct))]
              (when-let [cs (second m)]
                (try (Charset/forName cs)
@@ -295,7 +295,7 @@
                              headers  (jvm-headers->map (.headers r))
                              ^bytes raw (.body r)
                              binary?  (and ok?
-                                           (some? (decode/binary-read-kind decode headers)))
+                                           (some? (rf.http.decode/binary-read-kind decode headers)))
                              base     {:ok?         ok?
                                        :status      status
                                        :status-text ""
@@ -367,14 +367,14 @@
 
 #?(:clj
    (defn- emit-cljs-only-skipped! [k url sensitive?]
-     (when interop/debug-enabled?
+     (when rf.interop/debug-enabled?
        ;; Route through the privacy composer so a denylisted
        ;; query param in the URL is scrubbed and `:sensitive?` is stamped
        ;; on the warning event when the request is
        ;; sensitive. The frame supplies general trace attribution and elision;
        ;; HTTP carrier names come from the effect registration.
-       (trace/emit! :warning :rf.http/cljs-only-key-ignored-on-jvm
-                    (privacy/prepare-emit-tags
+       (rf.trace/emit! :warning :rf.http/cljs-only-key-ignored-on-jvm
+                    (rf.http.privacy/prepare-emit-tags
                       {:key k :url url}
                       (true? sensitive?))))))
 
@@ -409,10 +409,10 @@
        ;; only flag an EXPLICIT binary `:decode` here: `:auto` resolves to
        ;; `:blob` from the response Content-Type, which isn't known at
        ;; dispatch time. Per Spec 014 §JVM degradation table.
-       (when (and interop/debug-enabled?
+       (when (and rf.interop/debug-enabled?
                   (contains? #{:blob :array-buffer :form-data} decode))
-         (trace/emit! :warning :rf.http/binary-decode-degraded-on-jvm
-                      (privacy/prepare-emit-tags
+         (rf.trace/emit! :warning :rf.http/binary-decode-degraded-on-jvm
+                      (rf.http.privacy/prepare-emit-tags
                         {:decode decode :url url}
                         (true? sensitive?)))))))
 

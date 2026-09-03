@@ -57,8 +57,8 @@
             ;; flows artefact loaded (the canonical fixture's flows reset is
             ;; late-bound and no-ops when the artefact is absent).
             [re-frame.flows]
-            [re-frame.http.managed :as http-managed]
-            [re-frame.http.registry :as http-registry]
+            [re-frame.http.managed :as rf.http.managed]
+            [re-frame.http.registry :as rf.http.registry]
             ;; rf2-cdmle — required only to keep the test-support
             ;; canned-stub fx ids registered (mirrors http-managed-test's
             ;; require closure). This file does NOT use the stubs; the
@@ -66,16 +66,16 @@
             ;; in-flight registry with a recording abort-fn (mirrors
             ;; routing_http_composed_corners_test.clj's pattern).
             [re-frame.http.test-support]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]
-            [re-frame.trace :as trace]))
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]
+            [re-frame.trace :as rf.trace]))
 
 ;; ---- per-test reset / trace recorder -------------------------------------
 
 (def ^:dynamic ^:private *captured* nil)
 
 (def ^:private reset-runtime-fixture
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- reset-runtime [test-fn]
   ;; Canonical runtime reset (registrar snapshot/restore + frames / flows /
@@ -87,13 +87,13 @@
     (fn []
       (let [captured (atom [])]
         (binding [*captured* captured]
-          (trace/register-listener!
+          (rf.trace/register-listener!
             ::flows-http-recorder
             (fn [ev] (swap! captured conj ev)))
           (try
             (test-fn)
             (finally
-              (trace/unregister-listener! ::flows-http-recorder))))))))
+              (rf.trace/unregister-listener! ::flows-http-recorder))))))))
 
 (use-fixtures :each reset-runtime)
 
@@ -117,7 +117,7 @@
   `abort-fn` is the recording closure the test uses to observe whether
   `:rf.http/managed-abort` fired."
   [request-id abort-fn]
-  (http-registry/seed-in-flight-for-test!
+  (rf.http.registry/seed-in-flight-for-test!
     {:request-id request-id
      :actor-id   nil
      :url        (str "/api/" (name request-id))
@@ -305,7 +305,7 @@
              and a flow throw aborts the event BEFORE install (atomicity
              contract rule a; split-brain prevention: no transport abort
              on a request whose app-db state still says it's pending)")
-        (is (contains? (http-managed/in-flight-snapshot) :load-articles)
+        (is (contains? (rf.http.managed/in-flight-snapshot) :load-articles)
             "the side-channel in-flight registry STILL holds the request
              — finalise-failure! never ran because the abort-fn was never
              called")

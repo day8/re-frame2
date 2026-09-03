@@ -12,13 +12,13 @@
   / `malli.transform/json-transformer` succeeds at runtime — the
   schema branch exercises the real Malli decode + coerce + validate."
   (:require [clojure.test :refer [deftest is testing]]
-            [re-frame.http.decode :as decode]
-            [re-frame.trace :as trace]))
+            [re-frame.http.decode :as rf.http.decode]
+            [re-frame.trace :as rf.trace]))
 
 ;; `decode-response-body` is public; `malli-decode` is private — reach it
 ;; via #' so we can pin the lowest-level decode+validate behaviour without
 ;; widening the public surface.
-(def ^:private malli-decode @#'decode/malli-decode)
+(def ^:private malli-decode @#'rf.http.decode/malli-decode)
 
 ;; Sanity-pin: Malli really is resolvable on this test classpath. If a
 ;; future deps change drops the schemas test-dep, every schema test below
@@ -108,7 +108,7 @@
             yields a number for id (no coercion needed) and a string for
             status which the json-transformer coerces to a keyword."
     (is (= {:title "hello" :id 42 :status :active}
-           (decode/decode-response-body
+           (rf.http.decode/decode-response-body
              {:body-text "{\"title\":\"hello\",\"id\":42,\"status\":\"active\"}"
               :headers   {"content-type" "application/json"}
               :decode    [:map [:title :string] [:id :int] [:status :keyword]]}))
@@ -123,7 +123,7 @@
     (let [ex (is (thrown-with-msg?
                    clojure.lang.ExceptionInfo
                    #":rf.error/http-schema-validation-failed"
-                   (decode/decode-response-body
+                   (rf.http.decode/decode-response-body
                      {:body-text "{\"id\":\"not-an-int\"}"
                       :headers   {"content-type" "application/json"}
                       :decode    [:map [:id :int]]})))]
@@ -148,7 +148,7 @@
     (let [ex (is (thrown-with-msg?
                    clojure.lang.ExceptionInfo
                    #":rf.error/malformed-json"
-                   (decode/decode-response-body
+                   (rf.http.decode/decode-response-body
                      ;; three unique object keys, cap of 2 — the JSON
                      ;; reader throws :too-many-keys before any Malli work.
                      {:body-text "{\"a\":1,\"b\":2,\"c\":3}"
@@ -192,7 +192,7 @@
             (a Cheshire/Jackson `JsonParseException`, not an ex-info) so
             the caller classifies the response as :rf.http/decode-failure,
             NOT a successful string decode"
-    (let [thrown (try (decode/decode-response-body
+    (let [thrown (try (rf.http.decode/decode-response-body
                          {:body-text "tru" ; truncated `true` — invalid token
                           :headers   {"content-type" "application/json"}
                           :decode    :string})
@@ -211,7 +211,7 @@
             a plain decode failure (an unparseable body), NOT get
             misclassified as :schema-validation-failure? true (which would
             wrongly imply a well-formed-but-wrong-shaped payload)"
-    (let [thrown (try (decode/decode-response-body
+    (let [thrown (try (rf.http.decode/decode-response-body
                          {:body-text "{\"id\":nul}" ; misspelt `null`
                           :headers   {"content-type" "application/json"}
                           :decode    [:map [:id :int]]})
@@ -230,7 +230,7 @@
     (is (thrown-with-msg?
           clojure.lang.ExceptionInfo
           #":rf.error/malformed-json"
-          (decode/decode-response-body
+          (rf.http.decode/decode-response-body
             {:body-text "{\"a\":1,\"b\":2,\"c\":3}"
              :headers   {"content-type" "application/json"}
              :decode    :json
@@ -256,7 +256,7 @@
                 "application/vnd.github+json"
                 "application/vnd.api+json; charset=utf-8"]]
       (is (= {:title "hello" :id 42}
-             (decode/decode-response-body
+             (rf.http.decode/decode-response-body
                {:body-text "{\"title\":\"hello\",\"id\":42}"
                 :headers   {"content-type" ct}
                 :decode    [:map [:title :string] [:id :int]]}))
@@ -271,7 +271,7 @@
       (is (thrown-with-msg?
             clojure.lang.ExceptionInfo
             #":rf.error/http-schema-non-json-content-type"
-            (decode/decode-response-body
+            (rf.http.decode/decode-response-body
               {:body-text "{\"title\":\"hello\"}"
                :headers   {"content-type" ct}
                :decode    [:map [:title :string]]}))
@@ -285,7 +285,7 @@
                 "application/ld+json"
                 "application/vnd.github+json; charset=utf-8"]]
       (is (= {:ok true}
-             (decode/decode-response-body
+             (rf.http.decode/decode-response-body
                {:body-text        "{\"ok\":true}"
                 :headers          {"content-type" ct}
                 :decode           :auto}))
@@ -294,7 +294,7 @@
 (deftest json-media-type-predicate-edge-cases
   (testing "rf2-houkno — the JSON media-type predicate accepts json subtype
             + +json suffix (parameter-stripped) and rejects genuine non-JSON"
-    (let [json-media-type? @#'decode/json-media-type?]
+    (let [json-media-type? @#'rf.http.decode/json-media-type?]
       (is (true?  (json-media-type? "application/json")))
       (is (true?  (json-media-type? "application/json; charset=utf-8")))
       (is (true?  (json-media-type? "APPLICATION/JSON")))
@@ -315,10 +315,10 @@
   (let [captured (atom [])
         cb-id    ::http-decode-test-cap]
     (try
-      (trace/register-listener! cb-id (fn [ev] (swap! captured conj ev)))
+      (rf.trace/register-listener! cb-id (fn [ev] (swap! captured conj ev)))
       (body-fn captured)
       (finally
-        (trace/unregister-listener! cb-id)))))
+        (rf.trace/unregister-listener! cb-id)))))
 
 ;; ---- Malli-absent degradation warning (rf2-ee38b.7 / rf2-ynjts.9) ---------
 ;;
@@ -343,10 +343,10 @@
 ;; the latch, and assert the documented degradation behaviour directly. This
 ;; is deterministic and host-agnostic.
 
-(def ^:private malli-decode-fn      @#'decode/malli-decode-fn)
-(def ^:private malli-transformer-fn @#'decode/malli-transformer-fn)
-(def ^:private malli-validate-fn    @#'decode/malli-validate-fn)
-(def ^:private malli-absent-warned? @#'decode/malli-absent-warned?)
+(def ^:private malli-decode-fn      @#'rf.http.decode/malli-decode-fn)
+(def ^:private malli-transformer-fn @#'rf.http.decode/malli-transformer-fn)
+(def ^:private malli-validate-fn    @#'rf.http.decode/malli-validate-fn)
+(def ^:private malli-absent-warned? @#'rf.http.decode/malli-absent-warned?)
 
 (defn- with-malli-absent
   "Run `body-fn` with the three Malli resolve delays rebound to the
@@ -358,9 +358,9 @@
   (let [prior-latch @malli-absent-warned?]
     (try
       (reset! malli-absent-warned? false)
-      (with-redefs [decode/malli-decode-fn      (delay nil)
-                    decode/malli-transformer-fn (delay nil)
-                    decode/malli-validate-fn    (delay nil)]
+      (with-redefs [rf.http.decode/malli-decode-fn      (delay nil)
+                    rf.http.decode/malli-transformer-fn (delay nil)
+                    rf.http.decode/malli-validate-fn    (delay nil)]
         (body-fn))
       (finally
         (reset! malli-absent-warned? prior-latch)))))

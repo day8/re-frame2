@@ -10,18 +10,18 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
             [re-frame.http :as rf.http]
-            [re-frame.http.managed :as http-managed]
+            [re-frame.http.managed :as rf.http.managed]
             ;; rf2-cdmle — canned-stub fxs gate on explicit test-support
             ;; require. This file uses :fx-overrides {:rf.http/managed
             ;; :rf.http/managed-canned-success/failure} below.
             [re-frame.http.test-support]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; ---- per-test reset (mirrors http-managed-test) ---------------------------
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- helpers --------------------------------------------------------------
 
@@ -34,7 +34,7 @@
   `db`-closing-arity shape that read sites here expect."
   ([pred] (await-reply! pred 5000))
   ([pred timeout-ms]
-   (test-support/poll-until
+   (rf.test-support/poll-until
      #(let [db (rf/app-db-value :rf/default)] (when (pred db) db))
      {:timeout-ms timeout-ms :label "http-helpers reply"})))
 

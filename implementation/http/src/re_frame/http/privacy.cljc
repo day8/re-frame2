@@ -75,15 +75,15 @@
   moot, and no walker runs against the denylists without the trace
   surface."
   (:require [clojure.string :as str]
-            [re-frame.error :as error]
-            [re-frame.http.privacy-headers :as headers]
-            [re-frame.http.url :as url]
-            [re-frame.late-bind :as late-bind]
-            [re-frame.registrar :as registrar]))
+            [re-frame.error :as rf.error]
+            [re-frame.http.privacy-headers :as rf.http.privacy-headers]
+            [re-frame.http.url :as rf.http.url]
+            [re-frame.late-bind :as rf.late-bind]
+            [re-frame.registrar :as rf.registrar]))
 
 ;; The URL leaf owns the public HTTP alias so privacy composers can share the
 ;; core sentinel without creating a leaf-to-parent cycle.
-(def ^:private redacted-sentinel url/redacted-sentinel)
+(def ^:private redacted-sentinel rf.http.url/redacted-sentinel)
 
 ;; ---- managed-HTTP carrier resolution --------------------------------------
 ;;
@@ -115,7 +115,7 @@
 
 (defn- carrier-error
   [reason extras]
-  (error/thrown-ex-info
+  (rf.error/thrown-ex-info
     :rf.error/bad-classification
     'rf/reg-fx
     reason
@@ -218,7 +218,7 @@
   `:rf.http/managed` with a `:carriers` block — the common case, so a
   defaults-only emit allocates nothing. Pure (modulo the registry read)."
   []
-  (let [carriers (:carriers (registrar/handler-meta :fx :rf.http/managed))]
+  (let [carriers (:carriers (rf.registrar/handler-meta :fx :rf.http/managed))]
     (when (some? carriers)
       (validate-carriers! carriers)
       (let [header-carriers        (lower-set (:headers carriers))
@@ -269,14 +269,14 @@
   (let [[payload-after-top-level-url top-level-url-redacted?]
         (if (string? (:url payload))
           (let [[redacted-url url-redacted?]
-                (url/redact-url-query-string
+                (rf.http.url/redact-url-query-string
                   (:url payload) sensitive? query-param-policy)]
             [(assoc payload :url redacted-url) url-redacted?])
           [payload false])
         [redacted-payload nested-url-redacted?]
         (if (string? (get-in payload-after-top-level-url [:request :url]))
           (let [[redacted-url url-redacted?]
-                (url/redact-url-query-string
+                (rf.http.url/redact-url-query-string
                   (get-in payload-after-top-level-url [:request :url])
                   sensitive?
                   query-param-policy)]
@@ -298,7 +298,7 @@
          tags' (cond-> tags
                  ;; Always-on header redaction (built-in defaults plus extensions).
                  (map? (:headers tags))
-                 (update :headers headers/redact-headers (:headers carriers))
+                 (update :headers rf.http.privacy-headers/redact-headers (:headers carriers))
 
                  ;; Sensitive-request redaction — body becomes the sentinel.
                  (and sensitive? (contains? tags :body))
@@ -338,7 +338,7 @@
      (let [[failure url-hit?] (redact-url-in failure sensitive? (:query-params carriers))
            failure' (cond-> failure
                       (map? (:headers failure))
-                      (update :headers headers/redact-headers (:headers carriers))
+                      (update :headers rf.http.privacy-headers/redact-headers (:headers carriers))
 
                       (and sensitive? (contains? failure :body))
                       (assoc :body redacted-sentinel)
@@ -404,7 +404,7 @@
   [reply]
   (if (map? (get-in reply [:meta :headers]))
     (update-in reply [:meta :headers]
-               headers/redact-headers (:headers (managed-carriers)))
+               rf.http.privacy-headers/redact-headers (:headers (managed-carriers)))
     reply))
 
 (defn stamp-sensitive
@@ -475,7 +475,7 @@
     args
     (let [sensitive?   (request-sensitive? args)
           carriers     (managed-carriers)
-          redact-event (or (late-bind/get-fn :classification/redact-event-by-registration)
+          redact-event (or (rf.late-bind/get-fn :classification/redact-event-by-registration)
                            identity)
           redact-addr  (fn [v] (if (vector? v) (redact-event v) v))]
       (cond-> args

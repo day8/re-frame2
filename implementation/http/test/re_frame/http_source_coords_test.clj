@@ -21,9 +21,9 @@
      keys win over framework auto-capture)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.http.managed :as http-managed]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.http.managed :as rf.http.managed]
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; EP-0002 (rf2-5q7um6): reg-http-interceptor is context-required frame-local —
 ;; an ambient call under no scope raises :rf.error/no-frame-context. The
@@ -32,12 +32,12 @@
 ;; case passes {:frame :rf/api} explicitly. The post-dispose reset now clears
 ;; the per-frame HTTP interceptor chain too (rf2-q14tde).
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 (defn- slot-for
   "Locate the stored slot for `id` on `frame-id` in (http-managed/interceptors-snapshot)."
   [frame-id id]
-  (->> (http-managed/interceptors-snapshot frame-id)
+  (->> (rf.http.managed/interceptors-snapshot frame-id)
        (filter #(= id (:id %)))
        first))
 

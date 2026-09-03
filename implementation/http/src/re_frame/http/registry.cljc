@@ -25,11 +25,11 @@
   shape wrapper) because the operation is atomic state — it walks
   both atoms and mutates them under one `swap!` per slot. Keeping it
   next to the atoms makes the invariant local."
-  (:require [re-frame.http.privacy :as privacy]
-            [re-frame.http.reply   :as http-reply]
-            [re-frame.interop      :as interop]
-            [re-frame.late-bind    :as late-bind]
-            [re-frame.trace        :as trace]))
+  (:require [re-frame.http.privacy :as rf.http.privacy]
+            [re-frame.http.reply   :as rf.http.reply]
+            [re-frame.interop      :as rf.interop]
+            [re-frame.late-bind    :as rf.late-bind]
+            [re-frame.trace        :as rf.trace]))
 
 ;; ---- in-flight request registry -------------------------------------------
 
@@ -413,12 +413,12 @@
       ;; Atomically clear the slot first so a re-entry sees no handles.
       (swap! actor-in-flight dissoc actor-id)
       (doseq [handle handles]
-        (when interop/debug-enabled?
+        (when rf.interop/debug-enabled?
           ;; rf2-bma05 — the handle carries the originating request's
           ;; effective :sensitive? flag; stamp the trace event so off-box
           ;; consumers honour the privacy contract on actor-destroy aborts.
-          (trace/emit! :info :rf.http/aborted-on-actor-destroy
-                       (privacy/prepare-emit-tags
+          (rf.trace/emit! :info :rf.http/aborted-on-actor-destroy
+                       (rf.http.privacy/prepare-emit-tags
                          {:request-id (:request-id handle)
                           :actor-id   actor-id
                           :url        (:url handle)}
@@ -464,18 +464,18 @@
   suppresses the carried id against a nil current. Gated on `debug-enabled?`
   like the other `:rf.http/*` trace rows."
   [handle recovery]
-  (when interop/debug-enabled?
+  (when rf.interop/debug-enabled?
     (let [stale-ctx {:request-id   (:request-id handle)
                      :origin-event (:origin-event handle)
                      :issuance     (:issuance handle)
                      :attempt      (:attempt handle)
                      :frame        (:frame handle)}
-          {:keys [reply trace]} (http-reply/suppress stale-ctx nil)
-          summary (http-reply/trace-reply
+          {:keys [reply trace]} (rf.http.reply/suppress stale-ctx nil)
+          summary (rf.http.reply/trace-reply
                     reply
                     (cond-> {:sensitive? (true? (:sensitive? handle))}
                       (:frame handle) (assoc :frame (:frame handle))))]
-      (trace/emit! :info :rf.http/stale-suppressed
+      (rf.trace/emit! :info :rf.http/stale-suppressed
                    (cond-> {:rf.reply/status       (:status summary)
                             :rf.reply/work-status  (:rf.reply/work-status summary)
                             :rf.reply/stale-reason (:rf.reply/stale-reason summary)
@@ -607,5 +607,5 @@
   (let [event-id (when (vector? origin-event) (first origin-event))]
     (when (and event-id
                (not= event-id :rf.http/managed))
-      (when-let [owning-actor-id (late-bind/get-fn :machines/owning-actor-id)]
+      (when-let [owning-actor-id (rf.late-bind/get-fn :machines/owning-actor-id)]
         (owning-actor-id frame-id event-id)))))

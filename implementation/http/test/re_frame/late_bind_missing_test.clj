@@ -28,7 +28,7 @@
   throw contract, so it is not exercised here."
   (:require [clojure.test :refer [deftest is testing]]
             [re-frame.core :as rf]
-            [re-frame.late-bind :as late-bind]
+            [re-frame.late-bind :as rf.late-bind]
             ;; Loading http-managed registers its production late-bind
             ;; hooks (middleware, registry). The stub-family hooks
             ;; publish from `re-frame.http.test-support` per rf2-lwmgw.
@@ -42,12 +42,12 @@
   "Run `f` with the named late-bind hook set to nil. Restores the
   original value after `f` returns or throws."
   [hook-key f]
-  (let [original (late-bind/get-fn hook-key)]
+  (let [original (rf.late-bind/get-fn hook-key)]
     (try
-      (late-bind/set-fn! hook-key nil)
+      (rf.late-bind/set-fn! hook-key nil)
       (f)
       (finally
-        (late-bind/set-fn! hook-key original)))))
+        (rf.late-bind/set-fn! hook-key original)))))
 
 ;; The raw install/uninstall pair is no longer a `re-frame.core` façade
 ;; export (rf2-ntwwyt) — it carries no late-bind hook and no missing-artefact

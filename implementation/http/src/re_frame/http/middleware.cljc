@@ -65,13 +65,13 @@
   `re-frame.flows.registry`'s private `flows` atom + the
   `flows-snapshot` accessor). Frame-scoped: an interceptor registered
   against frame A does not fire for a request dispatched from frame B."
-  (:require [re-frame.error        :as error]
-            [re-frame.frame        :as frame]
-            [re-frame.http.encoding :as encoding]
-            [re-frame.http.privacy :as privacy]
-            [re-frame.interop      :as interop]
-            [re-frame.source-coords :as source-coords]
-            [re-frame.trace        :as trace]))
+  (:require [re-frame.error        :as rf.error]
+            [re-frame.frame        :as rf.frame]
+            [re-frame.http.encoding :as rf.http.encoding]
+            [re-frame.http.privacy :as rf.http.privacy]
+            [re-frame.interop      :as rf.interop]
+            [re-frame.source-coords :as rf.source-coords]
+            [re-frame.trace        :as rf.trace]))
 
 (defonce
   ^{:doc "frame-id → vector of `:rf/http-interceptor-meta` slots — each a map
@@ -160,7 +160,7 @@
   Returns the registered `id`."
   [id interceptor-map]
   (when-not (valid-args? id interceptor-map)
-    (error/throw-error!
+    (rf.error/throw-error!
       :rf.error/http-bad-interceptor 'rf/reg-http-interceptor
       "expected (reg-http-interceptor id interceptor-map): id keyword; interceptor-map a map carrying at least one of :before / :after (each a fn), optional :frame keyword, optional :rf/registration-metadata"
       {:extra {:received {:id id :interceptor-map interceptor-map}}}))
@@ -175,13 +175,13 @@
                       ;; `:rf.error/no-frame-context` rather than installing
                       ;; the interceptor against a synthesised `:rf/default`
                       ;; chain (per Spec 002 §Frame target resolution).
-                      (frame/require-current-frame!
+                      (rf.frame/require-current-frame!
                         :reg-http-interceptor
                         {:where 'rf/reg-http-interceptor :event-id id}))
         before    (:before interceptor-map)
         after     (:after  interceptor-map)
         user-meta (dissoc interceptor-map :frame :before :after)
-        slot      (cond-> (source-coords/merge-coords user-meta)
+        slot      (cond-> (rf.source-coords/merge-coords user-meta)
                     true   (assoc :id    id
                                   :frame frame-id)
                     before (assoc :before before)
@@ -195,8 +195,8 @@
                (if idx
                  (assoc chain idx slot)
                  (conj chain slot)))))
-    (when interop/debug-enabled?
-      (trace/emit! :info :rf.http.interceptor/registered
+    (when rf.interop/debug-enabled?
+      (rf.trace/emit! :info :rf.http.interceptor/registered
                    {:frame frame-id
                     :id    id}))
     id))
@@ -216,14 +216,14 @@
   Both public arities also funnel through it once they have resolved a frame.
   Returns `id`."
   [frame id]
-  (let [frame-id (frame/frame-target->id frame)
+  (let [frame-id (rf.frame/frame-target->id frame)
         existed? (some? (some (fn [v] (when (= (:id v) id) v))
                               (get @interceptors frame-id)))]
     (swap! interceptors update frame-id
            (fn [chain]
              (vec (remove (fn [v] (= (:id v) id)) chain))))
-    (when (and existed? interop/debug-enabled?)
-      (trace/emit! :info :rf.http.interceptor/cleared
+    (when (and existed? rf.interop/debug-enabled?)
+      (rf.trace/emit! :info :rf.http.interceptor/cleared
                    {:frame frame-id
                     :id    id}))
     id))
@@ -240,7 +240,7 @@
        (= #{:frame} (set (keys opts)))
        (let [target (:frame opts)]
          (or (keyword? target)
-             (frame/frame-value? target)))))
+             (rf.frame/frame-value? target)))))
 
 (defn clear-http-interceptor
   "Unregister an HTTP interceptor by id from a frame's chain.
@@ -274,7 +274,7 @@
   seam instead. No-arg form is not supported — explicit ids only."
   ([id]
    (clear-http-interceptor*
-     (frame/require-current-frame!
+     (rf.frame/require-current-frame!
        :clear-http-interceptor
        {:where 'rf/clear-http-interceptor :event-id id})
      id))
@@ -286,7 +286,7 @@
    ;; scalar second arg is not a valid opts map. The explicit target names the
    ;; frame; the opts form never falls back to the ambient scope.
    (when-not (valid-clear-opts? opts)
-     (error/throw-error!
+     (rf.error/throw-error!
        :rf.error/http-bad-interceptor 'rf/clear-http-interceptor
        "expected (clear-http-interceptor id {:frame target}): the two-arity opts map must be exactly {:frame target} with a present, non-nil frame target (a frame-id keyword or a live frame value). Two-scalar frame-first (frame id) is not a public shape."
        {:extra {:received {:id id :opts opts}}}))
@@ -344,7 +344,7 @@
                 ;; wrapper carries :interceptor-id so a chain failure is
                 ;; locatable via ex-data; the :id key here is kept for
                 ;; programmatic consumers.
-                (error/throw-error!
+                (rf.error/throw-error!
                   :rf.error/http-interceptor-bad-return 'rf/reg-http-interceptor
                   (str "HTTP interceptor `" id "` " slot-noun ". A `:before` / "
                        ":after` HTTP interceptor (Spec 014 §Middleware) must "
@@ -363,14 +363,14 @@
                                 "handler so it does not throw (Spec 014 "
                                 "§Middleware)."
                                 (when cause (str " Cause: " cause)))
-                    data   (error/thrown-ex-info
+                    data   (rf.error/thrown-ex-info
                              :rf.error/http-interceptor-failed where reason
                              {:extra (cond-> {:frame          frame-id
                                               :interceptor-id id
                                               :url            (url-of acc)
                                               :cause          cause}
                                        phase (assoc :phase phase))})]
-                (when interop/debug-enabled?
+                (when rf.interop/debug-enabled?
                   ;; rf2-1jcpm — route through the privacy composer so a
                   ;; denylisted query param (`?api_key=…`) is scrubbed
                   ;; and `:sensitive?` is stamped on the trace event when
@@ -385,8 +385,8 @@
                   ;; followed by a later `:before` that threw emitted this
                   ;; diagnostic with the stale non-sensitive flag, leaking
                   ;; non-denylisted query values for a now-sensitive request.
-                  (trace/emit-error! :rf.error/http-interceptor-failed
-                                     (privacy/prepare-emit-failure
+                  (rf.trace/emit-error! :rf.error/http-interceptor-failed
+                                     (rf.http.privacy/prepare-emit-failure
                                        (ex-data data)
                                        (sensitive-of acc))))
                 (throw data))))
@@ -503,7 +503,7 @@
   (let [final-payload (if middleware-ctx
                         (run-after-chain! frame middleware-ctx reply-payload)
                         reply-payload)]
-    (encoding/dispatch-reply-via-late-bind!
+    (rf.http.encoding/dispatch-reply-via-late-bind!
       {:origin-event  origin-event
        :explicit-on   explicit-on
        :reply-payload final-payload

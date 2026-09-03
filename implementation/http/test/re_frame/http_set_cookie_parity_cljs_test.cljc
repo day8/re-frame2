@@ -27,9 +27,9 @@
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing]]
       :cljs [cljs.test :refer-macros [deftest is testing]])
-   [re-frame.http.reply :as http-reply]
-   #?(:clj  [re-frame.http.transport-jvm :as transport-jvm]
-      :cljs [re-frame.http.transport-cljs :as transport-cljs]))
+   [re-frame.http.reply :as rf.http.reply]
+   #?(:clj  [re-frame.http.transport-jvm :as rf.http.transport-jvm]
+      :cljs [re-frame.http.transport-cljs :as rf.http.transport-cljs]))
   #?(:clj (:import [java.net.http HttpHeaders]
                    [java.util Map]
                    [java.util.function BiPredicate])))
@@ -42,10 +42,10 @@
 ;; ---------------------------------------------------------------------------
 
 #?(:clj
-   (def ^:private flatten-headers @#'transport-jvm/jvm-headers->map))
+   (def ^:private flatten-headers @#'rf.http.transport-jvm/jvm-headers->map))
 
 #?(:cljs
-   (def ^:private flatten-headers @#'transport-cljs/fetch-headers->map))
+   (def ^:private flatten-headers @#'rf.http.transport-cljs/fetch-headers->map))
 
 #?(:clj
    (defn- decode-headers
@@ -126,7 +126,7 @@
           headers (decode-headers {"Set-Cookie"             cookies
                                    "Content-Type"           ["application/json"]
                                    "X-RateLimit-Remaining"  ["37"]})
-          reply   (http-reply/success-reply
+          reply   (rf.http.reply/success-reply
                     {:request-id :parity/req :origin-event [:parity/load]
                      :attempt 1 :frame :app/main :completed-at 1}
                     {:ok true}

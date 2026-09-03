@@ -26,12 +26,12 @@
       precedence."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.fx :as fx]
-            [re-frame.http.managed :as http-managed]
+            [re-frame.fx :as rf.fx]
+            [re-frame.http.managed :as rf.http.managed]
             [re-frame.http.test-support]
             [re-frame.routing]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support]))
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support]))
 
 ;; ---- fixture --------------------------------------------------------------
 
@@ -42,7 +42,7 @@
 ;; "nav-2" stable across tests). It also clears trace listeners and, per
 ;; rf2-q14tde, the per-frame HTTP interceptor chain.
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- helpers --------------------------------------------------------------
 
@@ -154,7 +154,7 @@
                   {:params    [:map [:id :string]]
                    :can-leave :editor/blocked?} "/editor/:id")
     (rf/reg-route :route/home {} "/")
-    (fx/reg-fx :rf.nav/push-url
+    (rf.fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ _] nil))
 
@@ -201,11 +201,11 @@
     ;; both-index invariants) without requiring an unsettled real network
     ;; or a brittle stub (rf2-hp772l — was a raw `swap!` of the in-flight
     ;; atom).
-    (http-managed/seed-in-flight-for-test!
+    (rf.http.managed/seed-in-flight-for-test!
       {:request-id :editor.save/draft
        :url        "/api/editor/draft"
        :abort-fn   (fn [_] nil)})
-    (is (contains? (http-managed/in-flight-snapshot) :editor.save/draft)
+    (is (contains? (rf.http.managed/in-flight-snapshot) :editor.save/draft)
         "precondition: in-flight registry holds the active-route request")
 
     ;; User requests navigation to /home — leave guard blocks; pending-nav populates.
@@ -230,7 +230,7 @@
       ;; cancel of the navigation does not abort requests issued by the
       ;; route the user is staying on. Cleanup is the user's
       ;; responsibility (or the request's natural completion / abort).
-      (is (contains? (http-managed/in-flight-snapshot) :editor.save/draft)
+      (is (contains? (rf.http.managed/in-flight-snapshot) :editor.save/draft)
           "post-cancel: in-flight registry still holds the active-route's request — cancel does NOT abort active-route HTTP")
 
       ;; Slice still reflects the active route (no nav happened).
@@ -260,7 +260,7 @@
     ;; Use a sibling route that's an actual valid URL (not /home which
     ;; would be :route/root). /sibling has its own route entry.
     (rf/reg-route :route/sibling {} "/sibling")
-    (fx/reg-fx :rf.nav/push-url
+    (rf.fx/reg-fx :rf.nav/push-url
                {:platforms #{:server :client}}
                (fn [_ url] nil))
 
@@ -278,7 +278,7 @@
       ;; via :rf.route/transitioned dispatched from :rf.route/url-requested.
       (let [pushed (atom [])]
         (rf/clear-fx :rf.nav/push-url)
-        (fx/reg-fx :rf.nav/push-url
+        (rf.fx/reg-fx :rf.nav/push-url
                    {:platforms #{:server :client}}
                    (fn [_ url] (swap! pushed conj url)))
 
@@ -342,7 +342,7 @@
     (let [[recorded unreg] (record! ::stale-cycle)
           pushed           (atom [])]
       (try
-        (fx/reg-fx :rf.nav/push-url
+        (rf.fx/reg-fx :rf.nav/push-url
                    {:platforms #{:server :client}}
                    (fn [_ url] (swap! pushed conj url)))
 

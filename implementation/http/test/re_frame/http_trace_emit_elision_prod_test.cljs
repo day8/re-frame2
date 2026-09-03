@@ -34,25 +34,25 @@
   `http-managed` tests)."
   (:require [cljs.test :refer-macros [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.adapter.reagent :as reagent-adapter]
-            [re-frame.test-support :as test-support]
+            [re-frame.adapter.reagent :as rf.adapter.reagent]
+            [re-frame.test-support :as rf.test-support]
             ;; Require every gated emit-site host ns so the reachability
             ;; graph includes their compiled bodies — DCE only proves the
             ;; gated branches dead from a reachable module.
-            [re-frame.http.managed :as http-managed]
-            [re-frame.http.registry :as http-registry]
+            [re-frame.http.managed :as rf.http.managed]
+            [re-frame.http.registry :as rf.http.registry]
             [re-frame.http.transport]
             [re-frame.http.decode]
             ;; Listener mutation belongs to the tooling namespace.
-            [re-frame.trace.tooling :as trace-tooling]))
+            [re-frame.trace.tooling :as rf.trace.tooling]))
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture
-    {:adapter reagent-adapter/adapter
+  (rf.test-support/make-reset-runtime-fixture
+    {:adapter rf.adapter.reagent/adapter
      :init-fn (fn []
                 ;; Defonce'd indexes need to be clean between tests so a
                 ;; leaked handle from one test doesn't influence another.
-                (http-managed/clear-all-in-flight!))}))
+                (rf.http.managed/clear-all-in-flight!))}))
 
 ;; ---- helpers --------------------------------------------------------------
 
@@ -63,14 +63,14 @@
   [body-fn]
   (let [seen   (atom [])
         cb-key (keyword (str "elision-prod-" (gensym)))]
-    (trace-tooling/register-listener!
+    (rf.trace.tooling/register-listener!
       cb-key
       (fn [ev] (swap! seen conj ev)))
     (try
       (body-fn)
       @seen
       (finally
-        (trace-tooling/unregister-listener! cb-key)))))
+        (rf.trace.tooling/unregister-listener! cb-key)))))
 
 ;; ---- :rf.http/aborted-on-actor-destroy elides under prod ----------------
 
@@ -86,11 +86,11 @@
           handle      {:abort-fn    (fn [_reason] (swap! aborts-seen inc))
                        :url         "https://prod-elision.example/test"
                        :sensitive?  false}
-          _           (http-registry/record-in-flight!
+          _           (rf.http.registry/record-in-flight!
                         :prod-elision/req-id actor-id handle)
           seen        (listener-fixture
                         (fn []
-                          (http-managed/abort-on-actor-destroy actor-id)))]
+                          (rf.http.managed/abort-on-actor-destroy actor-id)))]
       (is (= 1 @aborts-seen)
           ":abort-fn ran exactly once — host side-effect not elided")
       (is (empty? seen)
@@ -105,7 +105,7 @@
             the idempotency contract under prod-mode."
     (let [seen (listener-fixture
                  (fn []
-                   (http-managed/abort-on-actor-destroy
+                   (rf.http.managed/abort-on-actor-destroy
                      :prod-elision/never-spawned)))]
       (is (empty? seen)
           "no trace events for the idempotent no-handle path under prod"))))

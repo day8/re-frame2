@@ -39,7 +39,7 @@
   registrations and the `with-managed-request-stubs*` helper that
   composes against them. This production-loaded namespace carries only the
   machine wrapper."
-  (:require [re-frame.late-bind :as late-bind]))
+  (:require [re-frame.late-bind :as rf.late-bind]))
 
 ;; ---- machine-shape wrapper spec -------------------------------------------
 
@@ -142,6 +142,6 @@
   machine-id on success, or nil if the machines artefact is not on the
   classpath (in which case the existing fx-only surface is unaffected)."
   []
-  (when-let [reg-machine* (late-bind/get-fn :machines/reg-machine)]
+  (when-let [reg-machine* (rf.late-bind/get-fn :machines/reg-machine)]
     (reg-machine* :rf.http/managed (http-managed-machine-spec))
     :rf.http/managed))

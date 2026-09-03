@@ -31,11 +31,11 @@
    - Spec 014 §Retry and backoff / §Request envelope (`:redirect`)"
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [re-frame.core :as rf]
-            [re-frame.http.managed :as http-managed]
-            [re-frame.http.registry :as registry]
+            [re-frame.http.managed :as rf.http.managed]
+            [re-frame.http.registry :as rf.http.registry]
             [re-frame.machines]
-            [re-frame.substrate.plain-atom :as plain-atom]
-            [re-frame.test-support :as test-support])
+            [re-frame.substrate.plain-atom :as rf.substrate.plain-atom]
+            [re-frame.test-support :as rf.test-support])
   (:import [com.sun.net.httpserver HttpExchange HttpHandler HttpServer]
            [java.net InetSocketAddress]
            [java.util.concurrent.atomic AtomicInteger]))
@@ -43,7 +43,7 @@
 ;; ---- per-test reset (mirrors http_backoff_cancellation_test) ---------------
 
 (use-fixtures :each
-  (test-support/make-reset-runtime-fixture {:adapter plain-atom/adapter}))
+  (rf.test-support/make-reset-runtime-fixture {:adapter rf.substrate.plain-atom/adapter}))
 
 ;; ---- hit-counting always-302 server ----------------------------------------
 
@@ -84,7 +84,7 @@
 (defn- await-condition!
   ([pred] (await-condition! pred 5000))
   ([pred timeout-ms]
-   (test-support/poll-until pred {:timeout-ms timeout-ms :interval-ms 10
+   (rf.test-support/poll-until pred {:timeout-ms timeout-ms :interval-ms 10
                                   :label "http-synthetic-4xx condition"})
    true))
 
@@ -132,7 +132,7 @@
               "the RAW 3xx status rides on the failure map")
           (is (= redirect-body (get-in reply [:error :body]))
               "the RAW 302 body-text rides at :body (decode never runs on a non-2xx)"))
-        (is (empty? (registry/in-flight-snapshot))
+        (is (empty? (rf.http.registry/in-flight-snapshot))
             "the registry is clean after the synthetic-4xx exhausts its retries")
         (finally
           (stop-server! srv))))))
@@ -171,6 +171,6 @@
         (is (= 1 (.get hits))
             "the synthetic-4xx is NOT in the 5xx retry set → exactly one attempt, no retry")
         (is (= 1 (count @replies)))
-        (is (empty? (registry/in-flight-snapshot)))
+        (is (empty? (rf.http.registry/in-flight-snapshot)))
         (finally
           (stop-server! srv))))))
