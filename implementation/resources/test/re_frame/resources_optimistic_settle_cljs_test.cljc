@@ -3,8 +3,9 @@
   the `:on-conflict` conflict rule.
 
   Execute applies the forward patch and records a truthful snapshot inverse on
-  the instance row. Settlement consumes that inverse and `revision-conflict?`
-  to deterministically dispose each optimistic apply:
+  the instance row. Settlement consumes that inverse and `optimistic-conflict?`
+  (the entry's current `:revision` against the recorded post-apply
+  `:applied-revision`) to deterministically dispose each optimistic apply:
 
     1. SUCCESS-COMMIT — an accepted `:ok` reply settles the optimistic value
        authoritatively (`:populates` / `:patches` overwrite it); the recorded

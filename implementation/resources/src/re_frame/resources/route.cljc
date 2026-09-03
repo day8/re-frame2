@@ -173,13 +173,6 @@
   []
   [routing-key :resource-plan])
 
-(defn plan-identities
-  "The scoped resource identities the plan for `nav-token` owned, read from
-  `runtime-db` as `{<key-id> <scoped-key>}` (`{}` when none). The plan-diff's
-  PREVIOUS-identity input."
-  [runtime-db nav-token]
-  (or (get-in runtime-db (plan-path nav-token)) {}))
-
 (defn clear-plan-slot
   "Pure: dissoc the ENTIRE plan-identity slot for a superseded `nav-token`.
   Returns the updated runtime-db (a no-op when no slot exists). Cleared

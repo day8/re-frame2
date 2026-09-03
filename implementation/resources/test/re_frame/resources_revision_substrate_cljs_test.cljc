@@ -5,8 +5,9 @@
 
   `:revision` is the per-entry WRITE identity: a monotone counter bumped on
   EVERY authoritative durable entry write a rollback could clobber, and the
-  basis of the settle-time conflict check (`state/revision-conflict?`). These
-  JVM+CLJS unit tests pin the substrate contract the later slices depend on:
+  basis of the settle-time conflict check
+  (`mutation-runtime/optimistic-conflict?`). These JVM+CLJS unit tests pin the
+  substrate contract the later slices depend on:
 
     1. SHAPE — `empty-entry` carries `:revision 0`, DISTINCT from `:generation`;
     2. DISTINCT FROM `:generation` — `entry-start-load` bumps `:generation`
@@ -15,8 +16,11 @@
     3. UNCONDITIONAL BUMP — `entry-succeeded` / `patch-entry` / `populate-entry`
        bump `:revision` even when `:data` is `=`-shared (the freshness-only
        settle the ruling names — a value-gated token would MISS it);
-    4. CONFLICT COMPARISON — `revision-conflict?` is false when the recorded
-       revision matches and TRUE when a competing authoritative write moved it.
+    4. CONFLICT COMPARISON — `optimistic-conflict?` is false when the entry
+       still stands at the recorded post-apply `:applied-revision` and TRUE when
+       a competing authoritative write moved it; the `:removed` sentinel branch
+       treats a still-absent entry as unmoved and a re-created one as a
+       conflict.
 
   PURE — the substrate is the pure transition functions in `re-frame.resources
   .state` + `re-frame.resources.mutation-runtime`; CLJC so the load-bearing JVM
@@ -179,7 +183,7 @@
         (is (= (inc rec-rev) (:revision settled))
             "the failure settle moved the write identity past the snapshot's"))
       (testing "so the optimistic-rollback conflict check now DETECTS the move"
-        (is (true? (state/revision-conflict? settled rec-rev))
+        (is (true? (mut-rt/optimistic-conflict? settled rec-rev))
             "a snapshot recorded at the in-flight revision sees the settle as a
              conflict — the rollback will NOT resurrect the stale :before")))))
 
@@ -197,7 +201,7 @@
       (is (nil? (:current-work settled)))
       (is (= (inc rec-rev) (:revision settled))
           ":revision moved on the first-load failure settle")
-      (is (true? (state/revision-conflict? settled rec-rev))
+      (is (true? (mut-rt/optimistic-conflict? settled rec-rev))
           "the conflict check sees the settle"))))
 
 (deftest entry-page-failed-bumps-revision-on-a-load-more-failure
@@ -216,7 +220,7 @@
       (is (nil? (:current-work settled)) ":current-work cleared")
       (is (= (inc rec-rev) (:revision settled))
           "the page-failure settle moved :revision (the rf2-mx0w2o fix)")
-      (is (true? (state/revision-conflict? settled rec-rev))
+      (is (true? (mut-rt/optimistic-conflict? settled rec-rev))
           "the conflict check sees the load-more failure settle"))))
 
 (deftest optimistic-rollback-does-not-resurrect-a-settled-in-flight-snapshot
@@ -272,34 +276,56 @@
 
 ;; ---- the canonical-identity conflict comparison ---------------------------
 
-(deftest revision-conflict-detects-a-competing-authoritative-write
-  (testing "no conflict when the recorded revision matches the current one"
-    (let [loaded (-> (state/empty-entry :conduit/article)
-                     (state/entry-succeeded {:data {:n 1} :loaded-at 1
-                                             :stale-at 2 :tags #{}}))
-          rec    (state/entry-revision loaded)]
-      (is (false? (state/revision-conflict? loaded rec))
-          "an entry that has NOT been written since the apply is conflict-free")))
-  (testing "CONFLICT when a competing authoritative write moved the revision
-            between the recorded apply and the settle"
+(deftest optimistic-conflict-detects-a-competing-authoritative-write
+  (testing "the apply's OWN bump is NOT a conflict: the baseline is the
+            POST-apply :applied-revision, so an entry still standing where the
+            apply left it is conflict-free"
+    (let [sk       (state/scoped-resource-key :rf.scope/global :conduit/article {:slug "a"})
+          loaded   (-> (state/empty-entry :conduit/article sk)
+                       (state/entry-succeeded {:data {:n 1} :loaded-at 1
+                                               :stale-at 2 :tags #{}}))
+          observed (state/entry-revision loaded)
+          applied  (mut-rt/apply-optimistic-patch
+                     loaded (fn [d] (assoc d :n 99)) :conduit/article
+                     {:clock-ms 5 :stale-at 9 :scoped-key sk})
+          recorded (mut-rt/record-optimistic-entry
+                     sk loaded :patch observed (state/entry-revision applied))]
+      (is (= (inc observed) (:applied-revision recorded))
+          "the apply left the entry one bump past what it observed")
+      (is (false? (mut-rt/optimistic-conflict? applied (:applied-revision recorded)))
+          "the apply's own numeric bump is expected — NOT a conflict")))
+  (testing "CONFLICT when a competing authoritative write moves the entry BEYOND
+            the applied baseline between the apply and the settle"
     (let [loaded   (-> (state/empty-entry :conduit/article)
                        (state/entry-succeeded {:data {:n 1} :loaded-at 1
                                                :stale-at 2 :tags #{}}))
-          recorded (state/entry-revision loaded)         ;; observed at apply time
+          applied-revision (state/entry-revision loaded)
           ;; a competing write lands (a refetch returning equal data — still an
           ;; authoritative freshness settle that bumps :revision):
           competed (state/entry-succeeded
                      loaded {:data {:n 1} :loaded-at 500 :stale-at 600 :tags #{}})]
-      (is (= (inc recorded) (state/entry-revision competed)))
-      (is (true? (state/revision-conflict? competed recorded))
+      (is (= (inc applied-revision) (state/entry-revision competed)))
+      (is (true? (mut-rt/optimistic-conflict? competed applied-revision))
           "the moved revision is detected as a conflict — the recorded inverse
            is now a stale `before` the settle must NOT blindly restore")))
-  (testing "the comparison is canonical-identity over the counter, not a value
-            diff: a recorded nil compares as 0"
-    (is (false? (state/revision-conflict? {:revision 0} nil))
-        "recorded nil ~ 0 vs current 0 — no conflict")
-    (is (true? (state/revision-conflict? {:revision 1} nil))
-        "recorded nil ~ 0 vs current 1 — conflict")))
+  (testing "the REMOVE branch (`applied-removed-revision` sentinel): a
+            still-absent entry is UNMOVED, a re-created one is a conflict"
+    (let [removed-baseline (:applied-revision
+                             (mut-rt/record-optimistic-entry
+                               (state/scoped-resource-key
+                                 :rf.scope/global :conduit/article {:slug "r"})
+                               mut-rt/absent-snapshot :remove))]
+      (is (false? (mut-rt/optimistic-conflict? nil removed-baseline))
+          "absent-after-remove — the remove stands, no conflict")
+      (is (true? (mut-rt/optimistic-conflict?
+                   (state/empty-entry :conduit/article) removed-baseline))
+          "re-created-after-remove — a competing write seeded the removed key")))
+  (testing "the comparison is canonical-identity over the monotone counter, not
+            a value diff: an absent entry reads as revision 0"
+    (is (false? (mut-rt/optimistic-conflict? nil 0))
+        "absent entry ~ 0 vs applied 0 — no conflict")
+    (is (true? (mut-rt/optimistic-conflict? {:revision 1} 0))
+        "current 1 vs applied 0 — conflict")))
 
 ;; ---- owner-liveness writes: the NO-OP GATE (rf2-k49jec / rf2-cxwuhl) --------
 ;;
@@ -382,7 +408,7 @@
           re-ens   (state/attach-owner attached :owner/a)]   ;; a re-ensure re-attaches
       (is (= recorded (state/entry-revision re-ens))
           "the no-op re-attach did not move the write identity")
-      (is (false? (state/revision-conflict? re-ens recorded))
+      (is (false? (mut-rt/optimistic-conflict? re-ens recorded))
           "so the settle conflict check sees NO conflict — the gate prevents the
            phantom conflict that an unconditional bump would manufacture")))
   (testing "conversely a GENUINE mid-flight owner change DOES bump, so it is
@@ -395,7 +421,7 @@
           changed  (state/attach-owner attached :owner/b)]
       (is (= (inc recorded) (state/entry-revision changed))
           "the genuine new-owner attach bumped past the snapshot")
-      (is (true? (state/revision-conflict? changed recorded))
+      (is (true? (mut-rt/optimistic-conflict? changed recorded))
           "so the settle detects the conflict and :invalidates rather than
            blindly restoring the stale :before (which would DROP the new owner)"))
     (testing "and the RELEASE side is symmetric — a present-owner release bumps
@@ -407,5 +433,5 @@
             released (state/detach-owner with-two :owner/a)]
         (is (= (inc recorded) (state/entry-revision released))
             "the present-owner release bumped past the snapshot")
-        (is (true? (state/revision-conflict? released recorded))
+        (is (true? (mut-rt/optimistic-conflict? released recorded))
             "so a rollback will NOT resurrect the departed owner")))))

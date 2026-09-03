@@ -413,7 +413,8 @@
 ;; `prune-terminal-for-key` self-heals by rebuilding the whole index when it
 ;; finds the ledger populated but the index absent (the post-hydration shape),
 ;; so no SSR / restore install site has to thread it. Maintained incrementally
-;; on the live path by `put-record` (add) / `prune-record` + the prune (remove).
+;; on the live path by `put-record` (add) and `prune-terminal-for-key`, which
+;; drops a whole batch of terminal rows and updates the bucket in bulk (remove).
 
 (def work-ledger-by-key-key
   "Reserved runtime-db key for the work-ledger's resource-key → work-id-id
@@ -453,18 +454,6 @@
   [runtime-db rk-id work-id-id*]
   (if (index-present? runtime-db)
     (update-in runtime-db [work-ledger-by-key-key rk-id] (fnil conj #{}) work-id-id*)
-    runtime-db))
-
-(defn- index-remove
-  "Remove `work-id-id` from its `rk-id` bucket in the inverse index, dropping an
-  emptied bucket entirely (the recompute shape never leaves empty buckets) —
-  ONLY when the index already exists. Pure."
-  [runtime-db rk-id work-id-id*]
-  (if (index-present? runtime-db)
-    (let [s (disj (get-in runtime-db [work-ledger-by-key-key rk-id] #{}) work-id-id*)]
-      (if (seq s)
-        (assoc-in runtime-db [work-ledger-by-key-key rk-id] s)
-        (update runtime-db work-ledger-by-key-key dissoc rk-id)))
     runtime-db))
 
 (defn put-record
@@ -513,18 +502,6 @@
     (apply update-in runtime-db (record-path work-id) f args)
     runtime-db))
 
-(defn prune-record
-  "Remove the work record under `work-id` from `runtime-db`, and drop it from
-  the resource-key inverse index (rf2-wyan7e). Used when a terminal row is
-  pruned on the linked entry's next successful transition (Spec 016 §Ledger row
-  retention and identity). No-op for the index when no record exists. Returns
-  the updated runtime-db."
-  [runtime-db work-id]
-  (let [wid-id (work-id-id work-id)
-        record (get-in runtime-db [:rf.runtime/work-ledger wid-id])]
-    (cond-> (update runtime-db :rf.runtime/work-ledger dissoc wid-id)
-      record (index-remove (state/key-id (:resource/key record)) wid-id))))
-
 (defn update-record-by-id
   "Apply `f` (and `args`) to the work record under an ALREADY-COMPUTED byte
   `work-id-id` (a ledger map key from a `(map key)` ledger scan) in
@@ -559,7 +536,8 @@
    ;; rf2-wyan7e — self-heal: a wholesale-installed ledger (hydration /
    ;; restore) arrives with NO inverse index (it is a derived projection, never
    ;; trusted from the wire). Rebuild it ONCE here so the per-key visit below is
-   ;; bounded; live operation keeps it in step via put-record / prune-record.
+   ;; bounded; live operation keeps it in step via put-record and this prune's
+   ;; own bulk bucket update below.
    ;; A ledger present but index absent is exactly the post-install shape.
    (let [ledger (:rf.runtime/work-ledger runtime-db)
          runtime-db (if (and (seq ledger)

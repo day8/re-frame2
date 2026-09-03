@@ -317,8 +317,9 @@
 ;; sentinel) + its `:revision` at apply time, applies the forward patch
 ;; (`mstate/apply-optimistic-patch`, which bumps the entry's `:revision`), and
 ;; records the inverse on the instance row's `:patch-summary` `:rollback` slot.
-;; The SETTLE slice (next) consumes that recorded inverse + slice-1's
-;; `state/revision-conflict?` to commit / rollback / reconcile.
+;; The SETTLE slice (next) consumes that recorded inverse +
+;; `mstate/optimistic-conflict?` (the recorded POST-apply `:applied-revision`)
+;; to commit / rollback / reconcile.
 ;;
 ;; `:optimistic` is the EXACT-target twin of `:patches` (the same map-form
 ;; targets, the same `resolve-exact-target-scope` + `validate-target-map!`
@@ -532,9 +533,9 @@
 ;; ---- the settle protocol (phase 4) — commit / rollback / reconcile --------
 ;;
 ;; The SETTLE slice (EP-0019 Decision 3) consumes the recorded inverse on the
-;; instance row's `:patch-summary` `:rollback` slot + slice-1's
-;; `state/revision-conflict?` to deterministically dispose each optimistic apply
-;; when its mutation reply settles:
+;; instance row's `:patch-summary` `:rollback` slot + `mstate/optimistic-conflict?`
+;; (the recorded POST-apply `:applied-revision`) to deterministically dispose
+;; each optimistic apply when its mutation reply settles:
 ;;
 ;;   - SUCCESS (`:rf.mutation/optimistic-reconciled`) — the authoritative
 ;;     `:populates` / `:patches` overwrite the optimistic value; the recorded

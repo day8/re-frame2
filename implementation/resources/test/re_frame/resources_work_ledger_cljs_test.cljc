@@ -812,8 +812,8 @@
 
 (deftest ledger-inverse-index-equals-full-rebuild-under-random-mutation
   (testing "rf2-wyan7e — across a randomised sequence of put-record /
-            prune-record / prune-terminal-for-key ops, the incrementally
-            maintained inverse index equals a full rebuild after EVERY op"
+            prune-terminal-for-key ops, the incrementally maintained inverse
+            index equals a full rebuild after EVERY op"
     (let [seed    (atom 88172645)
           nextint (fn [n]
                     (let [x (-> (* @seed 1103515245) (+ 12345) (bit-and 0x7fffffff))]
@@ -826,7 +826,7 @@
       (loop [step 0, rdb start, gen 0]
         (if (= step 500)
           (is true "500 randomised ledger ops stayed in lock-step with the rebuild")
-          (let [op  (nextint 3)
+          (let [op  (nextint 2)
                 k   (nth keys' (nextint (count keys')))
                 rdb' (case op
                        ;; put a fresh record
@@ -837,10 +837,7 @@
                                              (nextint 1000))]
                            (work-ledger/put-record rdb [:rf.work/resource k g] r))
                        ;; prune one terminal tail for the key
-                       1 (work-ledger/prune-terminal-for-key rdb k (nextint 3))
-                       ;; prune a specific record (if any exist for the key)
-                       2 (let [g (inc (nextint (inc gen)))]
-                           (work-ledger/prune-record rdb [:rf.work/resource k g])))
+                       1 (work-ledger/prune-terminal-for-key rdb k (nextint 3)))
                 full (-> rdb' work-ledger/recompute-ledger-index
                          :rf.runtime/work-ledger-by-key)]
             (is (= full (:rf.runtime/work-ledger-by-key rdb'))
