@@ -1,9 +1,10 @@
-(ns re-frame.machine-remaining-lifecycle-tail-fence-test
-  "rf2-i4aj9c — fence EVERY REMAINING machine lifecycle tail to its exact
-  incarnation. The completion of the family started by #5873/rf2-hloj0g
-  (spawn / finalize tails) and #5889/rf2-4ipqe4 (timer / registrar / spawn-write
-  tails). Those two fenced the FINAL-STATE auto-destroy path (`finalize-machine`)
-  and the spawn cascade; this closes the tails they ran ahead of:
+(ns re-frame.machine-destroy-tail-incarnation-fence-test
+  "The ORDINARY `:rf.machine/destroy` teardown tail is fenced to the exact
+  incarnation that entered it (rf2-i4aj9c). It completes the family started
+  by #5873/rf2-hloj0g (spawn / finalize tails) and #5889/rf2-4ipqe4 (timer /
+  registrar / spawn-write tails): those two fenced the FINAL-STATE auto-destroy
+  path (`finalize-machine`) and the spawn cascade, and this covers the three
+  tails they ran ahead of:
 
     1. ORDINARY `:rf.machine/destroy` — the effect runs inside the destroying
        event's drain (an exact event-owner binding), but `teardown-live-actor!`

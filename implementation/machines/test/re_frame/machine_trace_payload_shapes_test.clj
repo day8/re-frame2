@@ -1,6 +1,6 @@
-(ns re-frame.trace-enhancements-rf2-82a0u-test
-  "Three trace enhancements feed the Xray epoch panel's Handler section.
-  This test file pins their emit shapes:
+(ns re-frame.machine-trace-payload-shapes-test
+  "The payload shapes three machine trace events carry — each a CLOSED
+  vocabulary the Xray epoch panel's Handler section reads:
 
     1. `:rf.machine/action-ran` carries `:phase` from the closed set
        `:exit / :transition / :entry / :always / :after-action /
