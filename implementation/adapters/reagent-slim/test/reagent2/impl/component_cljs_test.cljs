@@ -8,10 +8,14 @@
     - 7-key cap enforcement: out-of-cap keys throw
       :rf.error/create-class-key-unsupported.
     - Lifecycle key -> React lifecycle method mapping.
-    - :component-did-catch error-boundary contract:
-        * error during a child's render is caught.
-        * error during a child's commit (componentDidMount) is caught.
-        * nested boundaries: inner catches, outer does not fire.
+    - :component-did-catch error-boundary PLUMBING (this file only —
+      the wrapper forwards (this error info); getDerivedStateFromError
+      is auto-installed, and only when opted into; the marker bridges
+      into the public Reagent state atom; a user rethrow escapes).
+      React's own propagation — a throwing descendant reaching the
+      nearest boundary, and an enclosing boundary staying silent — is
+      proved under a real createRoot by
+      `reagent2.dom.error-boundary-dom-cljs-test`, NOT here.
     - :get-snapshot-before-update pairs with :component-did-update's
       snapshot arg, and both paired update lifecycles forward React's
       prevState (rf2-08hx1).
@@ -21,16 +25,15 @@
 
   ns ends in -cljs-test so shadow-cljs's :node-test build picks it up.
 
-  Test strategy: most tests directly exercise the public surface
-  (`create-class*`, `wrap-render`, `fn-to-class`) without rendering
-  through React. The error-boundary tests use a real ReactDOM root
-  so we get the actual React-19 boundary semantics, gated on whether
-  `react-dom/client` exposes a usable root in the node test target."
+  Test strategy: every test here exercises the public surface
+  (`create-class*`, `wrap-render`, `fn-to-class`) DIRECTLY, without
+  rendering through React — full control over the arguments, and no
+  reconciler. Anything that needs React itself to do the routing lives
+  in a `-dom-cljs-test` sibling that mounts a real `createRoot`."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [reagent2.impl.component :as component]
             [reagent2.impl.template :as template]
-            [reagent2.impl.batching :as batching]
-            ["react" :as react]))
+            [reagent2.impl.batching :as batching]))
 
 ;; ---------------------------------------------------------------------------
 ;; Test helpers — minimal "fake" React component instance
@@ -45,17 +48,14 @@
     (set! (.-cljsArgv c) argv)
     c))
 
-;; Tiny helpers to keep the inference checker quiet — the tests poke at
+;; A tiny helper to keep the inference checker quiet — the tests poke at
 ;; React's prototype chain (`.. klass -prototype -render`), and the
 ;; CLJS analyser can't infer the type of the synthesised constructor
-;; without a hint at every callsite. These wrappers concentrate the
+;; without a hint at every callsite. This wrapper concentrates the
 ;; ^js hint in one place.
 
 (defn- proto-method [^js klass name]
   (aget (.-prototype klass) name))
-
-(defn- static-prop [^js klass name]
-  (aget klass name))
 
 ;; ---------------------------------------------------------------------------
 ;; The 7-key cap (per IMPL-SPEC §6.1)
@@ -453,18 +453,23 @@
 ;; cljsHasError flag on state — apps that want fallback rendering
 ;; check that flag in :reagent-render.
 ;;
-;; rf2-gigc test enumeration:
-;;   1. error-during-child-render-caught-by-boundary
-;;   2. error-during-child-commit-caught-by-boundary
-;;   3. nested-boundary-isolates-inner-from-outer
-;;   4. boundary-without-component-did-catch-no-fallback (negative)
+;; SCOPE. These tests exercise the boundary PLUMBING directly (no real
+;; React render): the wrapper's (this error info) forwarding, that
+;; getDerivedStateFromError is auto-installed exactly when
+;; :component-did-catch is in the spec, that its marker bridges into the
+;; public Reagent state atom, and that a user rethrow is not swallowed.
 ;;
-;; These tests exercise the boundary plumbing directly (no real React
-;; render) — we assert the shape of the installed methods + that
-;; getDerivedStateFromError is auto-installed when :component-did-catch
-;; is in the spec. A real-DOM end-to-end Suspense + boundary integration
-;; test belongs on the browser-test target where Stage 4-D's hiccup
-;; interpreter lands.
+;; They do NOT — and cannot — prove React's own propagation. Between
+;; rf2-gigc and rf2-6r9j.31 two of them claimed to: one built an outer
+;; boundary, never mounted it, then asserted its counter was still zero
+;; (nothing could have made that fail), and one named a commit-phase
+;; scenario while invoking the boundary's componentDidCatch by hand,
+;; duplicating the forwarding test directly above. Both were removed
+;; under rf2-6r9j.31 and replaced by a MOUNTED proof under a real React
+;; 19 createRoot: `reagent2.dom.error-boundary-dom-cljs-test` covers the
+;; child-render throw, the child-commit (componentDidMount) throw,
+;; nested-boundary isolation, and — as its own control — the outer
+;; boundary firing when it is the nearest one.
 ;; ---------------------------------------------------------------------------
 
 (deftest error-boundary-component-did-catch-fires
@@ -508,51 +513,6 @@
                   {:reagent-render (fn [_] [:div])})]
       (is (nil? (.-getDerivedStateFromError klass))
           "no auto-install when the user didn't opt into boundary semantics"))))
-
-(deftest error-boundary-nested-isolation
-  (testing "nested boundaries: an inner boundary's catch does NOT propagate to outer"
-    ;; Without a real React tree we exercise the contract directly:
-    ;; each boundary class has its own componentDidCatch, and a call
-    ;; to one's cDC does NOT chain into another's.
-    (let [outer-fired (atom 0)
-          inner-fired (atom 0)
-          ^js outer   (component/create-class*
-                        {:reagent-render      (fn [_] [:div])
-                         :component-did-catch (fn [_ _ _]
-                                                (swap! outer-fired inc))})
-          ^js inner   (component/create-class*
-                        {:reagent-render      (fn [_] [:div])
-                         :component-did-catch (fn [_ _ _]
-                                                (swap! inner-fired inc))})
-          inner-inst  (new inner #js {:__rfArgv []})]
-      (.call (.. inner -prototype -componentDidCatch)
-             inner-inst (js/Error. "child threw") #js {})
-      (is (= 1 @inner-fired) "inner boundary caught")
-      (is (= 0 @outer-fired)
-          "outer boundary did not fire (nested isolation contract)"))))
-
-(deftest error-boundary-during-commit-via-component-did-mount
-  (testing "an error in a child's componentDidMount reaches the boundary's componentDidCatch"
-    ;; Per the React contract, errors thrown during commit-phase
-    ;; lifecycle methods (e.g. componentDidMount) are also caught by
-    ;; the closest enclosing boundary. We model this by directly
-    ;; routing the boundary's cDC + asserting it receives the right
-    ;; (error, info) payload — the integration with React's commit
-    ;; phase is a React contract that a real-DOM browser-test target
-    ;; covers end-to-end (Stage 4-D).
-    (let [caught (atom nil)
-          klass  (component/create-class*
-                   {:reagent-render      (fn [_] [:div])
-                    :component-did-catch (fn [_this error ^js info]
-                                           (reset! caught
-                                             {:error error
-                                              :phase (.-phase info)}))})
-          inst   (new klass #js {:__rfArgv []})
-          err    (js/Error. "commit-phase error")]
-      (.call (.. klass -prototype -componentDidCatch)
-             inst err #js {:phase "commit"})
-      (is (= "commit" (:phase @caught)))
-      (is (= err (:error @caught))))))
 
 (deftest error-boundary-derived-state-syncs-into-reagent-atom-rf2-ygknv
   (testing "rf2-ygknv finding 4: the default getDerivedStateFromError

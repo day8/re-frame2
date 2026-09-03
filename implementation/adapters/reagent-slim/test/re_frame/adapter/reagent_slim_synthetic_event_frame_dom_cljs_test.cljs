@@ -37,7 +37,7 @@
   into the `:browser-test` build; `:node-test` still loads it (matches
   `cljs-test$`) and the DOM branch self-gates on `(browser?)`, exiting
   early where `js/document` is absent."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
+  (:require [cljs.test :refer-macros [deftest is use-fixtures async]]
             [reagent2.dom.client :as rdc]
             ["react-dom" :as react-dom]
             [re-frame.core :as rf]

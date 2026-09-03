@@ -3,13 +3,19 @@
   the bespoke class lifecycle + per-component render Reaction, under a React 19
   `createRoot`.
 
-  STATUS (read before running): this file is the ACCEPTANCE GATE for a genuine
-  slim production bug this coverage exercise surfaced — see the FINDING block
-  below. Until that bug is fixed in `reagent2.impl.*`, assertions (a) and (b)
-  FAIL BY DESIGN (they encode the correct contract, which the substrate does
-  not yet honour). Do NOT weaken them to green; they go green when the
-  production fix lands. Per rf2-a07937's charter this file changes NO production
-  code — the fix is a separate bead.
+  STATUS: a required GREEN regression. Both assertions below must pass; a
+  failure here is a real regression, not expected output.
+
+  HISTORY (this header used to say the opposite — corrected under rf2-6r9j.32).
+  This file was written under rf2-a07937 as the ACCEPTANCE GATE for a genuine
+  slim production bug it surfaced, and until the repair landed its assertions
+  (a) and (b) failed BY DESIGN: they encoded the correct contract, which the
+  substrate did not yet honour. That state ended on 2026-07-12, when
+  `2c4a87e3df` — fix(adapters/reagent-slim): re-establish render Reaction
+  after StrictMode remount (rf2-6b6pex) — landed the production repair, the
+  same day as this file's own commit `66e9e2af0e`. The FORMER-BUG block below
+  is kept as the diagnosis that motivated the remount marker; it describes
+  behaviour that no longer occurs.
 
   WHY THIS FILE EXISTS. reagent-slim hand-rolls the entire class lifecycle
   (`reagent2.impl.component`), the microtask render scheduler
@@ -26,9 +32,11 @@
   the load-bearing real-DOM regression.
 
   ─────────────────────────────────────────────────────────────────────────────
-  FINDING (rf2-a07937 — a real slim bug this test surfaced):
+  FORMER BUG (rf2-a07937 — a real slim bug this test surfaced; FIXED
+  2026-07-12 by `2c4a87e3df`, rf2-6b6pex. Past tense throughout: this is the
+  diagnosis the fix was built from, not current behaviour):
 
-    Under React.StrictMode a slim component renders ONCE and then goes
+    Under React.StrictMode a slim component rendered ONCE and then went
     reactively DEAD. StrictMode's dev sequence for a slim class is:
 
         render ×2  →  componentDidMount  →  componentWillUnmount
@@ -38,17 +46,33 @@
     render Reaction. The remount's second `componentDidMount` fires WITHOUT React
     calling `render()` again (StrictMode reuses the committed fiber output), so
     slim — which recreates the render Reaction only lazily inside `render()` —
-    never re-establishes it. The remounted instance is left with
-    `cljsRenderRea = nil` and NO subscription watches: it never re-renders on an
-    app-db change. A/B empirically confirmed (same view, same harness): WITHOUT
-    StrictMode the component is fully reactive (dispatch → DOM updates); WITH
-    StrictMode a post-mount dispatch leaves the DOM stale.
+    never re-established it. The remounted instance was left with
+    `cljsRenderRea = nil` and NO subscription watches: it never re-rendered on an
+    app-db change. A/B empirically confirmed at the time (same view, same
+    harness): WITHOUT StrictMode the component was fully reactive (dispatch →
+    DOM updates); WITH StrictMode a post-mount dispatch left the DOM stale.
 
-    Impact: any slim app wrapped in `<React.StrictMode>` (the React-recommended
-    dev default, scaffolded by CRA / Next.js) has components that stop
-    responding to state changes after mount. Fix belongs in `reagent2.impl.*`
-    (e.g. re-establish the render Reaction on `componentDidMount`, or force a
-    re-render when the cached reaction is absent) — a separate bead, NOT here.
+    Impact, while it lasted: any slim app wrapped in `<React.StrictMode>` (the
+    React-recommended dev default, scaffolded by CRA / Next.js) had components
+    that stopped responding to state changes after mount.
+
+  THE FIX, and what this file now guards (`reagent2.impl.component`):
+
+    `componentWillUnmount` sets a `cljsRemountReattach` marker on the instance
+    when it disposes a LIVE render Reaction, and `componentDidMount` is now
+    installed UNCONDITIONALLY (even with no user `:component-did-mount`) so it
+    can read that marker: seeing it, it clears it and queues a render via
+    `reagent2.impl.batching/queue-render!`. `make-render-method` then recreates
+    the Reaction and re-subscribes its deref'd watches. A normal first mount
+    carries no marker (render() has already run, `cljsRenderRea` is live), so
+    the reattach path is a no-op there. The marker lives on the instance, and
+    React discards it with the instance on a genuine unmount.
+
+    The two assertions below are the regression: (a) fails if the reattach is
+    removed or the marker stops being set — the remounted instance goes
+    reactively dead again and the DOM never advances past the seeded value;
+    (b) fails if the transient Reaction leaks instead (watch count 2) or the
+    surviving one is never re-established (watch count 0).
   ─────────────────────────────────────────────────────────────────────────────
 
   WHAT IT ASSERTS, under `<React.StrictMode>` and driven by `act()` (which
@@ -75,7 +99,7 @@
   TEST-ONLY. ns ends in `-dom-cljs-test` so shadow-cljs's `:browser-test`
   discovers it for the real-DOM assertion; the `:node-test` runner also loads it
   (matches `cljs-test$`), where the body gates on `(browser?)` and no-ops."
-  (:require [cljs.test :refer-macros [deftest is testing use-fixtures async]]
+  (:require [cljs.test :refer-macros [deftest is use-fixtures async]]
             [reagent2.dom.client :as rdc]
             [reagent2.core :as r]
             ["react" :as React]

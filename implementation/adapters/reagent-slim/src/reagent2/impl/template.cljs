@@ -572,24 +572,37 @@
       so a keyword like `:rf/foo` on a React-context Provider's `:value`
       is preserved.
 
-  Other rules:
+  Other rules, in the order the `cond` actually takes them — which is
+  load-bearing, because each arm shadows the ones below it:
 
-    - JS values pass through.
+    - `js-val?` (anything `goog/typeOf` does not call \"object\") passes
+      through. This is the arm a PLAIN JS function takes: `goog/typeOf`
+      of a function is \"function\", so an ordinary event handler is
+      returned here, with its identity intact, and never reaches the
+      `fn?` arm below.
     - Maps recursively convert (style maps + custom-component prop maps).
     - Coll? values become JS arrays via clj->js (children, vector classes).
-    - Fn values pass through verbatim — referentially stable across renders.
-      Event handlers and ref callbacks reach React with the SAME identity
-      the caller supplied, so `React.memo` / `shouldComponentUpdate`
-      bail-outs work. Wrapping fns in a fresh closure per render would
-      silently defeat memoisation.
-    - Non-fn `IFn` values (keywords, maps, sets used as fns; vectors used
-      as positional lookups) are wrapped in a variadic shim so the React
-      side can invoke them as plain JS functions.
+    - `fn?` values pass through verbatim — referentially stable across
+      renders. Since plain functions already left at `js-val?`, the
+      values that REACH this arm are the object-backed ones satisfying
+      `Fn`: chiefly `cljs.core/MetaFn`, what `(with-meta some-fn …)`
+      returns. Those must keep their identity too, so `React.memo` /
+      `shouldComponentUpdate` bail-outs work on a metadata-bearing
+      handler; wrapping one in a fresh closure per render would silently
+      defeat memoisation.
+    - Non-fn `IFn` values are wrapped in a variadic shim so the React
+      side can invoke them as plain JS functions. NOTE that keywords,
+      maps, sets and vectors — the usual \"used as a function\" examples —
+      never get here: keywords and symbols are taken by `named?`, maps by
+      `map?`, and sets and vectors by `coll?`. What reaches this arm is
+      an object-backed callable that satisfies `IFn` without satisfying
+      `Fn`, `named?`, `map?` or `coll?` — a `deftype`/`reify` the caller
+      passes as a prop meaning \"React may call this\".
     - Everything else passes through unchanged.
 
-  HOT PATH — this runs once per prop on every render. The `(fn? v)`
-  test sits before `(ifn? v)` so the common case (event-handler fn) does
-  not allocate a wrapper."
+  HOT PATH — this runs once per prop on every render, and the ordering
+  above is what keeps it cheap: the common case (an event-handler fn)
+  returns from the FIRST arm without allocating a wrapper."
   ([prop-value]
    ;; 1-arg form: used recursively for map values where there's no
    ;; outer prop-name context (e.g. nested style objects). Treat
