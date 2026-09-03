@@ -1799,8 +1799,12 @@ jobs:
 
       # rf2-ftmh0 — the Test-React adapter sat on
       # `scripts/test-jvm-implementation.sh` with NO test.yml job at all: 35
-      # deftests / 160 assertions whose only lane was somebody remembering to
-      # run the local sweep. That is the exact hole `check_jvm_lane_rosters.py`
+      # deftests / 157 assertions whose only lane was somebody remembering to
+      # run the local sweep. Both counts here are the CURRENT runner output, not
+      # the figure of the day this job landed: rf2-6r9j.81 retired a duplicated
+      # single-frame cache case, which took the assertions from 160 to 157 while
+      # leaving the deftest count at 35. That is the exact hole
+      # `check_jvm_lane_rosters.py`
       # (rf2-as6bg) exists to name, and it was one of that gate's two baseline
       # entries; this job clears half of it.
       #
@@ -6377,7 +6381,7 @@ jobs:
       - jvm-reagent-slim
       - jvm-uix
       # rf2-ftmh0 — required, not advisory. The suite is REAL JVM coverage (35
-      # deftests / 160 assertions of adapter lifecycle contract), and a job
+      # deftests / 157 assertions of adapter lifecycle contract), and a job
       # absent from this list is advisory whatever its own gate says — which
       # would reproduce the hole this bead closed in a new shape.
       - jvm-adapters-test-react
