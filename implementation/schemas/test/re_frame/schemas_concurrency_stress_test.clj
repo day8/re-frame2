@@ -82,8 +82,6 @@
             [re-frame.core :as rf]
             [re-frame.schemas :as schemas]
             [re-frame.schemas.storage :as storage]
-            ;; Explicit test dependency; the facade also loads this adapter.
-            [re-frame.schemas.malli]
             [re-frame.schemas.test-fixture :as tf])
   (:import [java.util.concurrent CountDownLatch]
            [java.util.concurrent.atomic AtomicLong]))

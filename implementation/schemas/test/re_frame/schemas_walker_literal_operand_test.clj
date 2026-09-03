@@ -26,7 +26,6 @@
             [malli.core :as m]
             [re-frame.core :as rf]
             [re-frame.schemas :as schemas]
-            [re-frame.schemas.malli]
             [re-frame.schemas.test-fixture :as tf]
             [re-frame.schemas.walker-literal-operand-fixtures :as fx]
             [re-frame.test-support :refer [with-trace-recorder!]]))

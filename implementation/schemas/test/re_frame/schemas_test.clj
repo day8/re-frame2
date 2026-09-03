@@ -33,8 +33,6 @@
             ;; callers outside this artefact use the encapsulated facade.
             [re-frame.schemas.validator :as validator]
             [re-frame.schemas.storage :as storage]
-            ;; Explicit test dependency; the facade also loads this adapter.
-            [re-frame.schemas.malli]
             ;; Reuse the shared empty-set digest fixture.
             [re-frame.schemas.digest-parity-fixtures :as digest-fixtures]
             [re-frame.schemas.test-fixture :as tf]

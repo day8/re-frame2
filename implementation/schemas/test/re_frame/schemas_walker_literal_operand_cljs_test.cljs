@@ -10,13 +10,13 @@
   functions — so a CLJS regression that diverged from the JVM classification is
   caught here.
 
-  `re-frame.schemas.malli` is required so `malli.core` (the fixtures'
-  compiled-schema dependency) is on the `:node-test` classpath, mirroring
-  `re-frame.schemas-cljs-test`."
+  `malli.core` — the fixtures' compiled-schema dependency — reaches the
+  `:node-test` classpath through the fixtures namespace's own require, and
+  through the `re-frame.schemas` facade, which `:require`s the Malli
+  adapter in its own ns-form."
   (:require [cljs.test :refer-macros [deftest is testing]]
             [clojure.string :as str]
             [re-frame.schemas :as schemas]
-            [re-frame.schemas.malli]
             [re-frame.schemas.walker-literal-operand-fixtures :as fx]))
 
 ;; ---- pure walker: shared cross-host corpus (parity anchor) ----------------
